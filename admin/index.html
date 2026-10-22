@@ -29,6 +29,7 @@
             <button class="nav-item is-active" type="button" data-view="overview">Tổng quan</button>
             <button class="nav-item" type="button" data-view="products">Sản phẩm &amp; kho</button>
             <button class="nav-item" type="button" data-view="orders">Đơn hàng</button>
+            <button class="nav-item" type="button" data-view="customers">Khách hàng</button>
             <button class="nav-item" type="button" data-view="settings">Cài đặt cửa hàng</button>
           </nav>
           <div class="sidebar-bottom">
@@ -132,6 +133,19 @@
               <button class="secondary-button" id="previous-orders" type="button">Trước</button>
               <span id="order-page-label"></span>
               <button class="secondary-button" id="next-orders" type="button">Tiếp</button>
+            </nav>
+          </section>
+
+          <section class="view-panel" id="customers-view" hidden>
+            <div class="toolbar">
+              <input id="customer-search" type="search" placeholder="Tìm tên, email hoặc số điện thoại" aria-label="Tìm khách hàng">
+              <button class="secondary-button" id="refresh-customers" type="button">Tải lại</button>
+            </div>
+            <div class="customer-list" id="customer-list"></div>
+            <nav class="pagination" id="customer-pagination" aria-label="Phân trang khách hàng" hidden>
+              <button class="secondary-button" id="previous-customers" type="button">Trước</button>
+              <span id="customer-page-label"></span>
+              <button class="secondary-button" id="next-customers" type="button">Tiếp</button>
             </nav>
           </section>
 

@@ -2,12 +2,16 @@ const state = {
   csrfToken: "",
   products: [],
   orders: [],
+  customers: [],
   currentProduct: null,
   productRequest: 0,
   productSearchTimer: 0,
   orderSearchTimer: 0,
   orderPage: 1,
-  orderPagination: { page: 1, pageCount: 0, total: 0 }
+  orderPagination: { page: 1, pageCount: 0, total: 0 },
+  customerSearchTimer: 0,
+  customerPage: 1,
+  customerPagination: { page: 1, pageCount: 0, total: 0 }
 };
 const labels = {
   pending: "Chờ xác nhận",
@@ -321,6 +325,58 @@ async function updateOrder(event) {
   }
 }
 
+async function loadCustomers(page = state.customerPage) {
+  const search = document.querySelector("#customer-search").value.trim();
+  const params = new URLSearchParams({ page: String(page) });
+  if (search) params.set("q", search);
+  const result = await request(`/api/admin/customers?${params}`);
+  state.customers = result.customers;
+  state.customerPage = result.pagination.page;
+  state.customerPagination = result.pagination;
+  renderCustomers();
+}
+
+function renderCustomers() {
+  const root = document.querySelector("#customer-list");
+  const pagination = document.querySelector("#customer-pagination");
+  if (!state.customers.length) {
+    root.innerHTML = '<p class="empty-message">Chưa có khách hàng phù hợp.</p>';
+    pagination.hidden = true;
+    return;
+  }
+  root.innerHTML = state.customers.map((customer) => `
+    <article class="customer-card">
+      <div class="customer-card-header">
+        <div><h3>${escapeHtml(customer.fullName)}</h3><p>${escapeHtml(customer.email)} · ${escapeHtml(customer.phone)}</p></div>
+        <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
+      </div>
+      <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh email" : "Chưa xác minh email"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
+      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button><button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button></div>
+      <div class="customer-detail" data-customer-detail-panel="${escapeHtml(customer.id)}" hidden></div>
+    </article>`).join("");
+  pagination.hidden = state.customerPagination.pageCount <= 1;
+  document.querySelector("#customer-page-label").textContent = `Trang ${state.customerPage}/${state.customerPagination.pageCount} · ${state.customerPagination.total} khách hàng`;
+  document.querySelector("#previous-customers").disabled = state.customerPage <= 1;
+  document.querySelector("#next-customers").disabled = state.customerPage >= state.customerPagination.pageCount;
+}
+
+async function showCustomerDetail(id, panel) {
+  panel.hidden = false;
+  panel.textContent = "Đang tải lịch sử đơn hàng…";
+  const result = await request(`/api/admin/customers/${encodeURIComponent(id)}`);
+  if (!result.orders.length) {
+    panel.innerHTML = '<p class="help-text">Khách hàng chưa có đơn hàng.</p>';
+    return;
+  }
+  panel.innerHTML = result.orders.map((order) => `<div class="customer-order-row"><strong>${escapeHtml(order.orderNumber)}</strong><span>${escapeHtml(labels[order.status] || order.status)}</span><span>${formatPrice(order.totalVnd || 0)}</span></div>`).join("");
+}
+
+async function toggleCustomer(id, active) {
+  await request(`/api/admin/customers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active: !active }) });
+  await loadCustomers();
+  showGlobal(!active ? "Đã mở khóa tài khoản khách hàng." : "Đã khóa tài khoản khách hàng.");
+}
+
 async function loadSettings() {
   const settings = await request("/api/admin/settings");
   const form = document.querySelector("#settings-form");
@@ -418,6 +474,7 @@ document.querySelectorAll("[data-view]").forEach((button) => button.addEventList
   try {
     if (button.dataset.view === "products") await loadProducts(document.querySelector("#product-search").value.trim());
     if (button.dataset.view === "orders") await loadOrders();
+    if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
   } catch (error) {
     showGlobal(error.message, true);
@@ -488,6 +545,39 @@ document.querySelector("#next-orders").addEventListener("click", () => {
   if (state.orderPage < state.orderPagination.pageCount) loadOrders(state.orderPage + 1).catch((error) => showGlobal(error.message, true));
 });
 document.querySelector("#order-list").addEventListener("submit", updateOrder);
+document.querySelector("#customer-search").addEventListener("input", (event) => {
+  window.clearTimeout(state.customerSearchTimer);
+  const value = event.currentTarget.value;
+  state.customerSearchTimer = window.setTimeout(() => {
+    if (value !== document.querySelector("#customer-search").value) return;
+    state.customerPage = 1;
+    loadCustomers(1).catch((error) => showGlobal(error.message, true));
+  }, 200);
+});
+document.querySelector("#refresh-customers").addEventListener("click", () => loadCustomers().catch((error) => showGlobal(error.message, true)));
+document.querySelector("#previous-customers").addEventListener("click", () => {
+  if (state.customerPage > 1) loadCustomers(state.customerPage - 1).catch((error) => showGlobal(error.message, true));
+});
+document.querySelector("#next-customers").addEventListener("click", () => {
+  if (state.customerPage < state.customerPagination.pageCount) loadCustomers(state.customerPage + 1).catch((error) => showGlobal(error.message, true));
+});
+document.querySelector("#customer-list").addEventListener("click", async (event) => {
+  const detailButton = event.target.closest("[data-customer-detail]");
+  const toggleButton = event.target.closest("[data-customer-toggle]");
+  try {
+    if (detailButton) {
+      const panel = document.querySelector(`[data-customer-detail-panel="${CSS.escape(detailButton.dataset.customerDetail)}"]`);
+      await showCustomerDetail(detailButton.dataset.customerDetail, panel);
+    }
+    if (toggleButton) {
+      const active = toggleButton.dataset.active === "true";
+      if (active && !window.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập.")) return;
+      await toggleCustomer(toggleButton.dataset.customerToggle, active);
+    }
+  } catch (error) {
+    showGlobal(error.message, true);
+  }
+});
 document.querySelector("#settings-form").addEventListener("submit", saveSettings);
 document.querySelector("#add-shipping-rate").addEventListener("click", () => {
   const rates = Object.fromEntries([...document.querySelectorAll(".shipping-rate-row")].map((row, index) => [
