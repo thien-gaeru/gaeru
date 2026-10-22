@@ -297,7 +297,9 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       res.status(201).json({
         order: order.order,
         paymentUrl: order.paymentUrl,
-        message: "Đã tiếp nhận đơn hàng. Phí vận chuyển đã được tính theo tỉnh/thành; GAERU sẽ xác nhận đơn và thanh toán."
+        message: parsed.data.paymentMethod === "cod"
+          ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
+          : "Đã tạo phiên thanh toán VNPAY. Hoàn tất thanh toán trên trang VNPAY để đơn hàng được xác nhận."
       });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -322,6 +324,73 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       await fs.mkdir(imageDirectory, { recursive: true });
       await fs.writeFile(path.join(imageDirectory, filename), req.file.buffer, { flag: "wx" });
       res.status(201).json({ imageUrl: `/assets/products/${filename}` });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/admin/customers", async (req, res, next) => {
+    try {
+      const query = String(req.query.q || "").trim().slice(0, 100);
+      const requestedPage = Number.parseInt(req.query.page || "1", 10);
+      if (!Number.isInteger(requestedPage) || requestedPage < 1) {
+        return res.status(400).json({ error: "Trang khách hàng không hợp lệ." });
+      }
+      const pageSize = 25;
+      const values = [query];
+      const where = `($1::text = '' OR c.full_name ILIKE '%' || $1 || '%' OR c.email ILIKE '%' || $1 || '%' OR c.phone ILIKE '%' || $1 || '%')`;
+      const countResult = await pool.query(`SELECT COUNT(*)::int AS total FROM customers c WHERE ${where}`, values);
+      const total = countResult.rows[0]?.total || 0;
+      const pageCount = Math.max(1, Math.ceil(total / pageSize));
+      const page = Math.min(requestedPage, pageCount);
+      const result = await pool.query(
+        `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,
+                c.email_verified_at IS NOT NULL AS "emailVerified", c.created_at AS "createdAt",
+                COUNT(o.id)::int AS "orderCount", MAX(o.created_at) AS "lastOrderAt"
+         FROM customers c
+         LEFT JOIN orders o ON lower(o.email) = lower(c.email)
+         WHERE ${where}
+         GROUP BY c.id ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`,
+        [query, pageSize, (page - 1) * pageSize]
+      );
+      res.json({ customers: result.rows, pagination: { page, pageSize, total, pageCount } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/admin/customers/:id", requireUuidParam("id"), async (req, res, next) => {
+    try {
+      const customerResult = await pool.query(
+        `SELECT id, full_name AS "fullName", email, phone, active,
+                email_verified_at IS NOT NULL AS "emailVerified", created_at AS "createdAt"
+         FROM customers WHERE id = $1`, [req.params.id]
+      );
+      const customer = customerResult.rows[0];
+      if (!customer) return res.status(404).json({ error: "Không tìm thấy khách hàng." });
+      const orders = await pool.query(
+        `SELECT id, order_number AS "orderNumber", status, payment_method AS "paymentMethod",
+                payment_status AS "paymentStatus", total_vnd AS "totalVnd", created_at AS "createdAt"
+         FROM orders WHERE lower(email) = lower($1) ORDER BY created_at DESC LIMIT 50`, [customer.email]
+      );
+      res.json({ customer, orders: orders.rows });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.patch("/admin/customers/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+    try {
+      const parsed = z.object({ active: z.boolean() }).safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Trạng thái khách hàng chưa hợp lệ." });
+      const result = await pool.query(
+        `UPDATE customers SET active = $2, updated_at = now() WHERE id = $1
+         RETURNING id, full_name AS "fullName", email, phone, active,
+                   email_verified_at IS NOT NULL AS "emailVerified"`,
+        [req.params.id, parsed.data.active]
+      );
+      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy khách hàng." });
+      res.json({ customer: result.rows[0] });
     } catch (error) {
       next(error);
     }

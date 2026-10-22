@@ -15,8 +15,18 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-const server = app.listen(config.PORT, () => {
-  console.log(`GAERU standalone store listening on port ${config.PORT}`);
+let server;
+
+async function start() {
+  await pool.query("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true");
+  server = app.listen(config.PORT, () => {
+    console.log(`GAERU standalone store listening on port ${config.PORT}`);
+  });
+}
+
+start().catch((error) => {
+  console.error("GAERU startup failed:", error);
+  process.exitCode = 1;
 });
 let shuttingDown = false;
 
