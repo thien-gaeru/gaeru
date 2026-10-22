@@ -95,12 +95,14 @@ CREATE TABLE IF NOT EXISTS customers (
   email text NOT NULL UNIQUE,
   phone text NOT NULL,
   password_hash text NOT NULL,
+  active boolean NOT NULL DEFAULT true,
   email_verified_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS email_verified_at timestamptz;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS customer_password_reset_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
