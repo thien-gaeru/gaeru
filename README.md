@@ -1,15 +1,81 @@
-# GAERU storefront
+# GAERU — cửa hàng độc lập
 
-A responsive Vietnamese storefront prototype inspired by Apple's product-led layouts. It includes:
+Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL; không dùng WordPress hoặc WooCommerce. Giao diện responsive lấy cảm hứng từ cách Apple giới thiệu sản phẩm, nhưng nội dung, thương hiệu và quản trị thuộc GAERU.
 
-- `index.html` — homepage and featured products
-- `shop.html` — searchable, filterable catalog
-- `product.html?id=k9|m3|p01|g1` — product details
-- `cart.html` — persistent local cart with quantity updates and removal
-- `checkout.html` — safe handoff to the official GAERU product pages
-- `account.html` — account entry points to the existing GAERU account service
-- Shared navigation includes an animated product menu, live product search and a quick-view cart drawer with quantity controls.
+## Tính năng
 
-The prototype uses product descriptions, imagery, price ranges and product links currently shown on GAERU.com. Cart quantities are saved in browser local storage. Adding a product opens the quick-view cart; its item controls update the shared cart and header count. This preview cart does not sync with WooCommerce. Totals use each product's starting price and are estimates; variants, inventory, shipping, account authentication, order creation and payment are not connected. The checkout handoff links each item to its official GAERU product page so customers can choose a current variant and purchase through the existing store. It does not collect personal details or create orders in the prototype.
+- Cửa hàng công khai: trang chủ, danh mục, tìm kiếm, chi tiết sản phẩm, giỏ hàng và đặt hàng.
+- Giỏ hàng lưu trên trình duyệt; giá, phiên bản và tồn kho được đọc từ PostgreSQL.
+- Checkout có COD và hỗ trợ VNPAY khi merchant cấu hình đủ secrets trên máy chủ; phí giao hàng theo tỉnh/thành được áp dụng phía server. Tài liệu merchant 9Pay chưa có trong workspace nên phương thức này chưa được bật.
+- Khu vực `/admin`: quản lý sản phẩm, phiên bản/SKU, giá, tồn kho; dashboard có số đơn cần xử lý, đơn chờ thanh toán và cảnh báo tồn thấp; tra cứu/lọc/phân trang lịch sử đơn, cập nhật trạng thái và cấu hình phí giao hàng theo tỉnh/thành.
+- Đăng nhập quản trị bằng mật khẩu băm; phiên lưu trong PostgreSQL, có CSRF token, giới hạn đăng nhập và giới hạn đặt hàng.
+- Khách hàng có thể đăng ký/đăng nhập bằng email và mật khẩu, lưu số điện thoại liên hệ; tài khoản chưa xác minh vẫn đăng nhập và mua hàng bình thường. Trong tài khoản, khách có thể yêu cầu gửi email xác minh với liên kết dùng một lần (hiệu lực 30 phút); trạng thái chưa xác minh biến mất sau khi xác nhận. Khôi phục mật khẩu đối chiếu email và số điện thoại rồi gửi liên kết dùng một lần qua email (hiệu lực 30 phút).
+- Các ảnh sản phẩm ban đầu được lưu trong `assets/products/`. Catalog seed ở trạng thái nháp, không tự đặt giá hay tồn kho chưa được xác minh.
 
-Serve the repository as static files with a local HTTP server and open `index.html`. No build step or dependency installation is required.
+## Yêu cầu
+
+- Node.js 20 trở lên.
+- PostgreSQL 13 trở lên.
+- Lưu trữ bền vững cho thư mục `assets/products/` và kế hoạch sao lưu cơ sở dữ liệu/ảnh.
+
+## Cài đặt phát triển (PowerShell)
+
+```powershell
+npm install
+Copy-Item .env.example .env
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+```
+
+Lệnh cuối tạo giá trị ngẫu nhiên để đặt vào `SESSION_SECRET`. Tạo database PostgreSQL `gaeru_store`, sau đó chỉnh `.env`:
+
+- `DATABASE_URL`: chuỗi kết nối PostgreSQL.
+- `SESSION_SECRET`: chuỗi bí mật ngẫu nhiên tối thiểu 32 ký tự.
+- `ADMIN_USERNAME`: tên đăng nhập quản trị.
+- `ADMIN_PASSWORD_HASH`: giá trị băm bcrypt được tạo bởi `npm run admin:hash-password` trong terminal tương tác; lệnh yêu cầu mật khẩu dài ít nhất 12 ký tự và không hiển thị mật khẩu khi nhập.
+- `PGSSL=require` nếu dịch vụ PostgreSQL yêu cầu TLS có xác minh chứng chỉ; nếu không, giữ `disable`.
+- `STORE_ORDERS_ENABLED=false` giữ checkout khóa theo mặc định. Chỉ bật thành `true` sau khi xác định và hoàn tất nghĩa vụ pháp lý hiện hành, xác minh chính sách/thông tin website khớp vận hành production, và kiểm thử end-to-end các phương thức thanh toán thật.
+- Để bật xác minh email và khôi phục mật khẩu khách hàng, cấu hình `PUBLIC_BASE_URL` (HTTPS origin) cùng `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` trong secrets của máy chủ. Nếu chưa cấu hình SMTP, khách vẫn đăng ký/đăng nhập và mua hàng được nhưng yêu cầu gửi email sẽ báo dịch vụ chưa sẵn sàng.
+- Để bật VNPAY, đặt đủ `PUBLIC_BASE_URL` (HTTPS), `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET` và `VNPAY_PAYMENT_URL` trong secrets của máy chủ. Phải khai báo rõ URL sandbox hoặc production do VNPAY cấp; ứng dụng không tự chọn sandbox hay production. Cấu hình URL IPN trên merchant portal thành `https://<domain>/api/payments/vnpay/ipn`; Return URL được tạo tự động.
+
+Khởi tạo schema và catalog nháp, rồi chạy ứng dụng:
+
+```powershell
+npm run db:migrate
+npm run db:seed
+npm start
+```
+
+Mở `http://localhost:3000` để xem cửa hàng và `http://localhost:3000/admin/` để đăng nhập quản trị. Thêm và xác minh biến thể, giá, tồn kho trước khi bật bán sản phẩm. Không sử dụng mật khẩu mẫu, không đưa `.env` vào Git.
+
+Để phát triển với tự khởi động lại:
+
+```powershell
+npm run dev
+```
+
+## Kiểm thử
+
+```powershell
+npm test
+```
+
+Các bài kiểm thử tự động không yêu cầu PostgreSQL thật. Trước khi vận hành, vẫn cần kiểm tra migration và các luồng quản trị/đặt hàng trên một database staging PostgreSQL.
+
+## Triển khai
+
+Ứng dụng cần một máy chủ có thể chạy Node.js và kết nối PostgreSQL; GitHub Pages chỉ phục vụ tệp tĩnh nên không thể chạy API hoặc quản trị. Thiết lập `NODE_ENV=production`, TLS/HTTPS, `DATABASE_URL`, `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` và `PGSSL` trong phần quản lý secrets của máy chủ. Đặt proxy tin cậy đúng với hạ tầng triển khai trước khi bật `trust proxy` nếu kiến trúc không chỉ có một proxy.
+
+Chạy `npm ci`, `npm run db:migrate`, rồi `npm start`. Dùng ổ lưu trữ bền vững cho ảnh tải lên và sao lưu PostgreSQL cùng ảnh; lên lịch sao lưu và kiểm thử khôi phục. Blueprint Render đã được chuẩn bị nhưng chưa tạo dịch vụ hoặc triển khai staging/production. Nhánh hiện tại đang cấp GitHub Pages preview; không đẩy mã standalone lên nhánh đó cho đến khi có kế hoạch giữ nguyên preview hoặc staging Render đã được triển khai và xác minh.
+
+### Render Free (staging tạm thời)
+
+`render.yaml` khai báo một web service Node.js và PostgreSQL miễn phí tại Singapore. Từ Render Dashboard, tạo Blueprint mới từ repository và nhánh chứa file này; khi Render hỏi, nhập `ADMIN_USERNAME` và `ADMIN_PASSWORD_HASH` (tạo hash bằng `npm run admin:hash-password` trong terminal tương tác). `SESSION_SECRET` được Render tự sinh, kiểm thử chạy trong build, còn migration/seed chạy idempotent khi dịch vụ khởi động. Deploy tự động khi commit được tắt để tránh phát hành ngoài ý muốn.
+
+Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàng vận hành: web service có thể ngủ khi không hoạt động, PostgreSQL Free hết hạn sau thời hạn miễn phí hiện hành của Render, và ảnh tải lên nằm trên ổ đĩa tạm nên có thể mất sau khi khởi động lại hoặc triển khai lại. Sao lưu/khôi phục và lưu trữ ảnh bền vững cần được thiết lập trước khi dùng dữ liệu thật. Blueprint chỉ khai báo cấu hình, không tạo dịch vụ hoặc triển khai cho đến khi được kết nối/tạo trong tài khoản Render.
+
+## Giới hạn hiện tại
+
+- Checkout bị khóa theo mặc định bằng `STORE_ORDERS_ENABLED=false`; API cũng từ chối tạo đơn khi cờ này tắt. Việc bật cờ không thay thế thủ tục pháp lý áp dụng hay rà soát pháp lý.
+- VNPAY đã có luồng tạo giao dịch, xác minh chữ ký/IPN và cập nhật thanh toán idempotent; cần thông số merchant sandbox để kiểm thử thực tế trước khi production. 9Pay chưa được tích hợp vì chưa có tài liệu API merchant chính thức. Không nhập secret vào Git, chat hoặc giao diện quản trị.
+- Giá, phiên bản, tồn kho, bảng phí giao hàng theo tỉnh/thành và thông tin nhận chuyển khoản cần được xác minh/cập nhật qua `/admin`. Phí theo tỉnh được đọc và áp dụng tại máy chủ; checkout chỉ mở khi có ít nhất một mức phí hợp lệ.
+- Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.

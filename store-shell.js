@@ -1,23 +1,36 @@
 const headerRoot = document.querySelector("#site-header");
 const footerRoot = document.querySelector("#site-footer");
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+}[character]));
+window.GAERUEmptyCartMarkup = `
+  <div class="mini-cart-empty">
+    <p class="cart-signin-message"><a href="account.html">Đăng nhập</a> xem bạn có sản phẩm trong giỏ hàng không</p>
+    <nav class="cart-profile-links" aria-label="Hồ sơ của tôi">
+      <h3>Hồ Sơ Của Tôi</h3>
+      <a href="support.html#contact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.3l8 4.5"/></svg><span>Đơn hàng</span></a>
+      <a href="shop.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4v-17Z"/></svg><span>Mục Đã Lưu</span></a>
+      <a href="account.html#register"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6.8 18a5.7 5.7 0 0 1 10.4 0"/></svg><span>Tạo tài khoản</span></a>
+    </nav>
+  </div>`;
 
 if (headerRoot) {
   headerRoot.innerHTML = `
     <header class="site-header">
       <div class="nav-wrap">
         <a class="wordmark" href="index.html" aria-label="GAERU — Trang chủ">GAERU</a>
-        <button class="menu-toggle icon-button" type="button" aria-expanded="false" aria-controls="menu-panel" aria-label="Mở menu">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+        <button class="menu-toggle icon-button" type="button" aria-expanded="false" aria-controls="menu-panel" aria-label="Mở menu" data-open-label="Mở menu" data-close-label="Đóng menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="menu-icon-top" d="M4 8h16"/><path class="menu-icon-bottom" d="M4 16h16"/></svg>
         </button>
         <nav class="primary-nav" aria-label="Điều hướng chính">
           <button class="menu-nav-trigger" type="button" aria-expanded="false" aria-controls="menu-panel">Sản phẩm <span aria-hidden="true">⌄</span></button>
-          <a href="index.html#story">Câu chuyện</a>
-          <a href="https://gaeru.com/dang-ky-bao-hanh/">GAERU CARE+</a>
-          <a href="https://gaeru.com/trung-tam-ho-tro/">Hỗ trợ</a>
+          <a href="story.html">Câu chuyện</a>
+          <a href="support.html#warranty">GAERU CARE+</a>
+          <a href="support.html">Hỗ trợ</a>
         </nav>
         <div class="nav-actions">
-          <button class="search-toggle icon-button" type="button" aria-label="Mở tìm kiếm" aria-expanded="false" aria-controls="search-panel">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+          <button class="search-toggle icon-button" type="button" aria-label="Tìm kiếm" aria-expanded="false" aria-controls="search-panel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="5.4"/><path d="m14 14 5.5 5.5"/></svg>
           </button>
           <button class="icon-button bag-link" type="button" aria-label="Giỏ hàng, 0 sản phẩm" aria-expanded="false" aria-controls="cart-panel">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
@@ -30,41 +43,36 @@ if (headerRoot) {
   headerRoot.insertAdjacentHTML("beforeend", `
     <button class="panel-scrim" type="button" aria-label="Đóng bảng điều hướng" hidden></button>
     <section class="nav-panel menu-panel" id="menu-panel" role="dialog" aria-modal="true" aria-labelledby="menu-title" hidden>
-      <div class="panel-inner">
-        <div class="panel-heading">
-          <div><p class="eyebrow">Khám phá GAERU</p><h2 id="menu-title">Thiết bị sáng tạo<br>cho mọi câu chuyện.</h2></div>
-          <button class="panel-close" type="button" aria-label="Đóng menu">×</button>
-        </div>
-        <div class="menu-content">
-          <div class="menu-feature">
-            <span class="menu-label">Chọn theo nhu cầu</span>
-            <a href="shop.html?category=audio">Thu âm trong trẻo <span aria-hidden="true">↗</span></a>
-            <a href="shop.html?category=video">Ghi hình tự do <span aria-hidden="true">↗</span></a>
-            <a href="shop.html">Tất cả sản phẩm <span aria-hidden="true">↗</span></a>
-          </div>
-          <div class="menu-product-grid">
-            <a class="menu-product" href="product.html?id=k9"><img src="https://gaeru.com/wp-content/plugins/gaeru-k9/assets/images/k9-cutout.png" alt="" loading="lazy"><span>GAERU K9</span><small>Micro không dây</small></a>
-            <a class="menu-product" href="product.html?id=m3"><img src="https://gaeru.com/wp-content/uploads/2026/10/gaeru-m3-cutout-20261021-1024x683.png" alt="" loading="lazy"><span>GAERU M3</span><small>Micro kèm hộp sạc</small></a>
-            <a class="menu-product" href="product.html?id=p01"><img src="https://gaeru.com/wp-content/uploads/2026/10/gaeru-p01-cutout-20261021-910x1024.png" alt="" loading="lazy"><span>GAERU P01</span><small>Gimbal theo dõi AI</small></a>
-            <a class="menu-product" href="product.html?id=g1"><img src="https://gaeru.com/wp-content/uploads/2026/10/gaeru-g1-cutout-20261021-1024x1024.png" alt="" loading="lazy"><span>GAERU G1 ULTRA</span><small>Thu âm đa thiết bị</small></a>
-          </div>
-        </div>
-        <div class="menu-footer"><a href="https://gaeru.com/dang-ky-bao-hanh/">GAERU CARE+ <span>Đăng ký và quản lý bảo hành</span></a><a href="https://gaeru.com/trung-tam-ho-tro/">Trung tâm hỗ trợ <span>Hướng dẫn và tư vấn sản phẩm</span></a><a href="account.html">Tài khoản của bạn <span>Đơn hàng và điểm thưởng</span></a></div>
+      <div class="panel-inner menu-inner">
+        <button class="panel-close menu-panel-close" type="button" aria-label="Đóng menu">×</button>
+        <nav class="menu-link-list" aria-label="Danh mục GAERU">
+          <a class="menu-store-link" id="menu-title" href="shop.html">Cửa Hàng <span aria-hidden="true">›</span></a>
+          <a href="product.html?id=k9">GAERU K9</a>
+          <a href="product.html?id=p01">GAERU P01</a>
+          <a href="product.html?id=g1-ultra">GAERU G1 Ultra</a>
+          <a href="shop.html?category=accessory">Phụ kiện</a>
+          <a href="support.html">Hỗ trợ</a>
+          <a href="support.html#warranty">GAERU CARE+</a>
+        </nav>
       </div>
     </section>
     <section class="nav-panel search-panel" id="search-panel" role="dialog" aria-modal="true" aria-labelledby="search-title" hidden>
       <div class="panel-inner search-inner">
         <button class="panel-close" type="button" aria-label="Đóng tìm kiếm">×</button>
-        <p class="eyebrow">Tìm kiếm GAERU</p>
         <form class="search-form" action="shop.html" method="get" role="search">
           <label class="visually-hidden" for="search-query">Tìm sản phẩm GAERU</label>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
-          <input id="search-query" type="search" name="q" placeholder="Bạn đang tìm gì?" autocomplete="off" aria-controls="search-results">
-          <button class="search-submit" type="submit" aria-label="Xem tất cả kết quả">Tìm</button>
+          <input id="search-query" type="search" name="q" placeholder="Tìm kiếm" autocomplete="off" aria-controls="search-results">
         </form>
         <div class="search-suggestions">
-          <h2 id="search-title">Gợi ý tìm kiếm</h2>
-          <div class="search-quicklinks" data-search-quicklinks><a href="shop.html?q=GAERU%20K9">GAERU K9</a><a href="shop.html?q=micro%20kh%C3%B4ng%20d%C3%A2y">Micro không dây</a><a href="shop.html?q=gimbal">Gimbal</a></div>
+          <h2 id="search-title">Liên Kết Nhanh</h2>
+          <div class="search-quicklinks" data-search-quicklinks>
+            <a href="shop.html">Mua Sắm GAERU Trực Tuyến</a>
+            <a href="shop.html?category=accessory">Phụ Kiện</a>
+            <a href="shop.html?q=GAERU%20K9">GAERU K9</a>
+            <a href="shop.html?q=micro%20kh%C3%B4ng%20d%C3%A2y">Micro Không Dây</a>
+            <a href="support.html">Hỗ Trợ GAERU</a>
+          </div>
           <div class="search-results" id="search-results" aria-live="polite"></div>
         </div>
       </div>
@@ -72,7 +80,7 @@ if (headerRoot) {
     <section class="nav-panel cart-panel" id="cart-panel" role="dialog" aria-modal="true" aria-labelledby="cart-panel-title" hidden>
       <div class="panel-inner cart-panel-inner">
         <button class="panel-close" type="button" aria-label="Đóng giỏ hàng">×</button>
-        <div class="cart-panel-heading"><div><p class="eyebrow">GAERU Store</p><h2 id="cart-panel-title">Giỏ hàng của bạn.</h2></div><span class="cart-panel-count" data-cart-panel-count>0 sản phẩm</span></div>
+        <div class="cart-panel-heading is-empty"><h2 id="cart-panel-title">Túi của bạn trống.</h2><span class="cart-panel-count" data-cart-panel-count hidden>0 sản phẩm</span></div>
         <div class="mini-cart-content" data-mini-cart aria-live="polite"></div>
         <div class="mini-cart-footer" data-mini-cart-footer hidden>
           <p class="mini-cart-total"><span>Tạm tính</span><strong data-mini-cart-total></strong></p>
@@ -82,6 +90,7 @@ if (headerRoot) {
         </div>
       </div>
     </section>`);
+  headerRoot.querySelector("[data-mini-cart]").innerHTML = window.GAERUEmptyCartMarkup;
 }
 
 if (footerRoot) {
@@ -92,32 +101,62 @@ if (footerRoot) {
           <a class="wordmark" href="index.html">GAERU</a>
           <p>Nhỏ gọn để bắt đầu.<br>Tự do để sáng tạo.</p>
         </div>
-        <div class="footer-column">
-          <h2>Khám phá</h2>
-          <a href="shop.html">Cửa hàng</a>
-          <a href="product.html?id=k9">GAERU K9</a>
-          <a href="product.html?id=m3">GAERU M3</a>
-          <a href="product.html?id=p01">GAERU P01</a>
-        </div>
-        <div class="footer-column">
-          <h2>Đồng hành</h2>
-          <a href="https://gaeru.com/dang-ky-bao-hanh/">GAERU CARE+</a>
-          <a href="https://gaeru.com/huong-dan/">Hướng dẫn</a>
-          <a href="https://gaeru.com/trung-tam-ho-tro/">Trung tâm hỗ trợ</a>
-          <a href="account.html">Tài khoản</a>
-        </div>
-        <div class="footer-column">
-          <h2>Liên hệ</h2>
-          <a href="tel:0829191080">082 919 1080</a>
-          <a href="mailto:business@gaeru.com">business@gaeru.com</a>
-          <p>Thứ Hai–Thứ Sáu: 10:00–17:00<br>Cuối tuần & ngày lễ: 10:00–16:00</p>
-        </div>
+        <details class="footer-column" open>
+          <summary>Khám phá GAERU</summary>
+          <div class="footer-links">
+            <a href="shop.html">Cửa hàng</a>
+            <a href="product.html?id=k9">GAERU K9</a>
+            <a href="product.html?id=p01">GAERU P01</a>
+          </div>
+        </details>
+        <details class="footer-column" open>
+          <summary>Hỗ trợ &amp; tài khoản</summary>
+          <div class="footer-links">
+            <a href="support.html#warranty">GAERU CARE+</a>
+            <a href="support.html#guide">Hướng dẫn</a>
+            <a href="support.html">Trung tâm hỗ trợ</a>
+            <a href="account.html">Tài khoản</a>
+          </div>
+        </details>
+        <details class="footer-column" open>
+          <summary>Về GAERU</summary>
+          <div class="footer-links">
+            <a href="story.html">Câu chuyện GAERU</a>
+          </div>
+        </details>
+      </div>
+      <div class="footer-help">
+        <p>Cần hỗ trợ? Email <a href="mailto:business@gaeru.com">business@gaeru.com</a> hoặc gọi <a href="tel:0829191080">082 919 1080</a>. Giờ hỗ trợ: Thứ Hai–Thứ Sáu 10:00–17:00, cuối tuần và ngày lễ 10:00–16:00.</p>
       </div>
       <div class="footer-bottom">
-        <span>Bản quyền GAERU © 2026 · GAERU HOSEHOLD BUSINESS</span>
-        <a href="https://gaeru.com/chinhsach/">Chính sách bảo mật</a>
+        <span class="footer-region">Việt Nam</span>
+        <div class="footer-legal">
+          <span>Bản quyền GAERU © 2026 · GAERU HOUSEHOLD BUSINESS (GAERU)</span>
+          <nav aria-label="Chính sách và pháp lý">
+            <a href="privacy.html">Chính sách quyền riêng tư</a>
+            <a href="terms.html">Điều khoản sử dụng</a>
+            <a href="pricing.html">Chính sách giá</a>
+            <a href="payment.html">Chính sách thanh toán</a>
+            <a href="delivery-returns.html">Bán hàng và hoàn tiền</a>
+            <a href="complaints.html">Giải quyết khiếu nại</a>
+            <a href="legal.html">Pháp lý</a>
+            <a href="sitemap.html">Sơ đồ trang web</a>
+          </nav>
+        </div>
+        <p class="footer-business-info">
+          GAERU HOUSEHOLD BUSINESS (GAERU) · Mã số đăng ký 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
+          Địa chỉ: Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình.
+        </p>
       </div>
     </footer>`;
+  const footerAccordion = window.matchMedia("(max-width: 760px)");
+  const syncFooterAccordion = () => {
+    footerRoot.querySelectorAll(".footer-column").forEach((column) => {
+      column.open = !footerAccordion.matches;
+    });
+  };
+  syncFooterAccordion();
+  footerAccordion.addEventListener("change", syncFooterAccordion);
 }
 
 const menuToggle = document.querySelector(".menu-toggle");
@@ -144,7 +183,10 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
   document.body.style.overflow = savedBodyOverflow;
   inertElements.forEach(([element, wasInert]) => { element.inert = wasInert; });
   inertElements = [];
-  trigger?.setAttribute("aria-expanded", "false");
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "false");
+    if (trigger.dataset.openLabel) trigger.setAttribute("aria-label", trigger.dataset.openLabel);
+  }
   if (immediate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     panel.hidden = true;
     panelScrim.hidden = true;
@@ -152,7 +194,7 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
     closeTimer = window.setTimeout(() => {
       panel.hidden = true;
       panelScrim.hidden = true;
-    }, 350);
+    }, 700);
   }
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
@@ -174,6 +216,10 @@ function openPanel(panel, trigger) {
     element.inert = true;
   });
   trigger.setAttribute("aria-expanded", "true");
+  if (trigger.dataset.closeLabel) {
+    trigger.setAttribute("aria-label", trigger.dataset.closeLabel);
+  }
+  if (trigger.dataset.closeLabel) trigger.setAttribute("aria-label", trigger.dataset.closeLabel);
   panelScrim.hidden = false;
   panel.hidden = false;
   requestAnimationFrame(() => {
@@ -181,7 +227,7 @@ function openPanel(panel, trigger) {
     panelScrim.classList.add("is-visible");
     const focusTarget = panel === document.querySelector("#search-panel")
       ? panel.querySelector("input[type=search]")
-      : panel.querySelector(".panel-close");
+      : panel.querySelector(".panel-close, a[href], button:not(:disabled)");
     focusTarget?.focus({ preventScroll: true });
   });
   document.dispatchEvent(new CustomEvent("gaeru:cart-panel-open"));
@@ -240,9 +286,9 @@ searchInput?.addEventListener("input", () => {
       return;
     }
     searchResults.innerHTML = `<p class="search-results-label">Sản phẩm phù hợp</p>${matches.map((product, index) => `
-      <a class="search-result" href="product.html?id=${product.id}" style="--result-index:${index}">
-        <img src="${product.image}" alt="" loading="lazy">
-        <span><strong>${product.name}</strong><small>${product.description}</small></span>
+      <a class="search-result" href="product.html?id=${encodeURIComponent(product.slug)}">
+        <img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy">
+        <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.description)}</small></span>
         <b aria-hidden="true">›</b>
       </a>`).join("")}`;
   }, 100);

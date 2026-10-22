@@ -1,0 +1,101 @@
+const path = require("node:path");
+const express = require("express");
+const session = require("express-session");
+const helmet = require("helmet");
+const { createAdminAuthRouter } = require("./admin-auth");
+const { createCustomerAuthRouter } = require("./customer-auth");
+const { createStoreApi } = require("./store-api");
+const { getCsrfToken } = require("./security");
+
+function createApp({ config, pool, sessionStore, customerMailer }) {
+  if (!sessionStore) throw new Error("A persistent session store must be provided.");
+  const app = express();
+
+  app.disable("x-powered-by");
+  app.set("trust proxy", config.NODE_ENV === "production" ? 1 : false);
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        ...(config.NODE_ENV === "production" ? { upgradeInsecureRequests: [] } : {})
+      }
+    },
+    crossOriginEmbedderPolicy: false
+  }));
+  app.use(express.json({ limit: "32kb" }));
+  app.use(session({
+    name: "gaeru.sid",
+    store: sessionStore,
+    secret: config.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: config.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 8 * 60 * 60 * 1000,
+      path: "/"
+    }
+  }));
+
+  app.get("/api/health", async (_req, res, next) => {
+    try {
+      await pool.query("SELECT 1");
+      res.json({ status: "ok" });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/csrf", (req, res) => {
+    const csrfToken = getCsrfToken(req);
+    req.session.save((error) => {
+      if (error) return res.status(500).json({ error: "Không thể khởi tạo phiên bảo mật." });
+      res.json({ csrfToken });
+    });
+  });
+
+  app.use("/api/auth", createAdminAuthRouter(config));
+  app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
+    smtpConfig: config.smtp,
+    mailer: customerMailer
+  }));
+  app.use("/api", createStoreApi(pool, {
+    ordersEnabled: config.STORE_ORDERS_ENABLED,
+    vnpayConfig: config.vnpay || null
+  }));
+  app.use("/api", (_req, res) => res.status(404).json({ error: "Không tìm thấy API." }));
+
+  app.use((req, res, next) => {
+    if (/^\/(?:src|db|node_modules|tests?)(?:\/|$)|^\/(?:package(?:-lock)?\.json|\.env)/i.test(req.path)) {
+      return res.sendStatus(404);
+    }
+    next();
+  });
+
+  app.use(express.static(path.join(__dirname, ".."), {
+    dotfiles: "deny",
+    index: "index.html",
+    maxAge: config.NODE_ENV === "production" ? "1h" : 0
+  }));
+
+  app.use((error, _req, res, _next) => {
+    if (res.headersSent) return;
+    const status = Number.isInteger(error.status) ? error.status : error.statusCode;
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : "Yêu cầu không hợp lệ." });
+    }
+    console.error("Request failed:", error);
+    res.status(500).json({ error: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
+  });
+
+  return app;
+}
+
+module.exports = { createApp };

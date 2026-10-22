@@ -1,0 +1,44 @@
+require("dotenv").config();
+const expressSession = require("express-session");
+const connectPgSimple = require("connect-pg-simple");
+const { loadConfig } = require("./config");
+const { createPool } = require("./db");
+const { createApp } = require("./app");
+
+const config = loadConfig();
+const pool = createPool(config);
+const PgSessionStore = connectPgSimple(expressSession);
+const sessionStore = new PgSessionStore({
+  pool,
+  tableName: "user_sessions",
+  createTableIfMissing: true,
+  pruneSessionInterval: 15 * 60
+});
+const app = createApp({ config, pool, sessionStore });
+const server = app.listen(config.PORT, () => {
+  console.log(`GAERU standalone store listening on port ${config.PORT}`);
+});
+let shuttingDown = false;
+
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close(async () => {
+    try {
+      await sessionStore.close();
+    } catch (error) {
+      console.error("Session store shutdown failed:", error);
+      process.exitCode = 1;
+    }
+    try {
+      await pool.end();
+    } catch (error) {
+      console.error("Database shutdown failed:", error);
+      process.exitCode = 1;
+    }
+  });
+}
+
+pool.on("error", (error) => console.error("Unexpected database pool error:", error));
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

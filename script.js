@@ -1,21 +1,23 @@
-const filterButtons = [...document.querySelectorAll(".filter-chip")];
-const productCards = [...document.querySelectorAll(".product-card")];
-const filterStatus = document.querySelector(".filter-status");
+const productSection = document.querySelector(".product-section");
 
-filterButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    const filter = button.dataset.filter;
-    let visibleCount = 0;
-    filterButtons.forEach((item) => {
-      const selected = item === button;
-      item.classList.toggle("is-active", selected);
-      item.setAttribute("aria-pressed", String(selected));
-    });
-    productCards.forEach((card) => {
-      const visible = filter === "all" || card.dataset.kind === filter;
-      card.hidden = !visible;
-      if (visible) visibleCount += 1;
-    });
-    filterStatus.textContent = filter === "all" ? "" : `${visibleCount} sản phẩm`;
+productSection?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-filter]");
+  if (!button) return;
+  const filter = button.dataset.filter;
+  const filterButtons = [...productSection.querySelectorAll("[data-filter]")];
+  const cards = [...productSection.querySelectorAll(".product-card")];
+  let visibleCount = 0;
+
+  filterButtons.forEach((item) => {
+    const selected = item === button;
+    item.classList.toggle("is-active", selected);
+    item.setAttribute("aria-pressed", String(selected));
   });
+  cards.forEach((card) => {
+    const visible = filter === "all" || card.dataset.kind === filter;
+    card.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+  const status = productSection.querySelector(".filter-status");
+  if (status) status.textContent = filter === "all" ? "" : `${visibleCount} sản phẩm`;
 });

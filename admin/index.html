@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f5f7">
+    <title>Quản trị GAERU</title>
+    <link rel="stylesheet" href="/admin/admin.css">
+    <script src="/admin/admin.js" defer></script>
+  </head>
+  <body>
+    <main class="admin-shell">
+      <section class="login-card" id="login-panel" hidden>
+        <a class="admin-wordmark" href="/">GAERU <span>ADMIN</span></a>
+        <p class="eyebrow">Khu vực quản trị riêng</p>
+        <h1>Đăng nhập quản trị.</h1>
+        <form id="login-form">
+          <label>Tên đăng nhập<input name="username" autocomplete="username" required maxlength="100"></label>
+          <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+          <button class="primary-button" type="submit">Đăng nhập</button>
+          <p class="feedback" id="login-feedback" role="alert"></p>
+        </form>
+      </section>
+
+      <div class="admin-app" id="admin-app" hidden>
+        <aside class="sidebar">
+          <a class="admin-wordmark" href="/">GAERU <span>ADMIN</span></a>
+          <nav aria-label="Quản trị">
+            <button class="nav-item is-active" type="button" data-view="overview">Tổng quan</button>
+            <button class="nav-item" type="button" data-view="products">Sản phẩm &amp; kho</button>
+            <button class="nav-item" type="button" data-view="orders">Đơn hàng</button>
+            <button class="nav-item" type="button" data-view="settings">Cài đặt cửa hàng</button>
+          </nav>
+          <div class="sidebar-bottom">
+            <a href="/">Mở cửa hàng ↗</a>
+            <button class="plain-button" id="logout-button" type="button">Đăng xuất</button>
+          </div>
+        </aside>
+
+        <section class="admin-content">
+          <header class="topbar">
+            <div><p class="eyebrow">GAERU Store</p><h1 id="view-title">Tổng quan</h1></div>
+            <span class="admin-identity" id="admin-identity"></span>
+          </header>
+
+          <div class="global-feedback" id="global-feedback" role="status" aria-live="polite"></div>
+
+          <section class="view-panel" id="overview-view">
+            <div class="stat-grid">
+              <article class="stat-card"><span>Sản phẩm đang bán</span><strong id="active-product-count">—</strong></article>
+              <article class="stat-card"><span>Tổng sản phẩm</span><strong id="product-count">—</strong></article>
+              <article class="stat-card"><span>Đơn cần xử lý</span><strong id="pending-order-count">—</strong></article>
+              <article class="stat-card"><span>Tổng đơn hàng</span><strong id="order-count">—</strong></article>
+              <article class="stat-card"><span>Đơn chờ thanh toán</span><strong id="unpaid-order-count">—</strong></article>
+              <article class="stat-card"><span>Phiên bản sắp hết hàng</span><strong id="low-stock-count">—</strong></article>
+            </div>
+            <div class="notice-card" id="orders-gate-notice" role="status">
+              <h2>Tiếp nhận đơn hàng đang tạm khóa</h2>
+              <p>Checkout sẽ chỉ được mở khi cờ vận hành trên máy chủ được bật. Không thể bật nhận đơn từ trang quản trị.</p>
+            </div>
+            <div class="notice-card" id="shipping-rates-notice" role="status">
+              <h2>Chưa có bảng phí giao hàng</h2>
+              <p>Thêm phí theo tỉnh/thành tại Cài đặt cửa hàng. Checkout sẽ không nhận đơn nếu chưa có khu vực giao hàng hợp lệ.</p>
+            </div>
+            <div class="notice-card">
+              <h2>Vận hành cửa hàng</h2>
+              <p>Thêm phiên bản/SKU với giá và tồn kho đã xác minh, sau đó bật sản phẩm. Sản phẩm mẫu ban đầu được tạo ở trạng thái nháp và không có giá mặc định.</p>
+              <p>VNPAY chỉ xuất hiện khi cấu hình merchant trên máy chủ; 9Pay chưa được bật. Không nhập khóa bí mật cổng thanh toán tại đây.</p>
+            </div>
+          </section>
+
+          <section class="view-panel" id="products-view" hidden>
+            <div class="toolbar">
+              <input id="product-search" type="search" placeholder="Tìm sản phẩm">
+              <button class="primary-button" id="new-product-button" type="button">Thêm sản phẩm</button>
+            </div>
+            <div class="product-list" id="product-list"></div>
+            <section class="editor-card" id="product-editor" hidden>
+              <div class="editor-heading"><div><p class="eyebrow">Danh mục</p><h2 id="product-form-title">Sản phẩm</h2></div><button class="plain-button" type="button" data-close-editor>Đóng</button></div>
+              <form id="product-form">
+                <input name="id" type="hidden">
+                <div class="form-grid">
+                  <label>Tên sản phẩm<input name="name" required maxlength="160"></label>
+                  <label>Slug URL<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="120"></label>
+                  <label>Danh mục<select name="category"><option value="audio">Thu âm</option><option value="video">Ghi hình</option><option value="accessory">Phụ kiện</option></select></label>
+                  <label>Thứ tự hiển thị<input name="sortOrder" type="number" value="0" min="-1000" max="10000"></label>
+                  <label class="span-all">Mô tả ngắn<input name="descriptor" maxlength="160"></label>
+                  <label class="span-all">Mô tả sản phẩm<textarea name="description" rows="3" maxlength="3000"></textarea></label>
+                  <label class="span-all">Ảnh sản phẩm<input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp"><span class="help-text">PNG, JPEG hoặc WebP; tối đa 8 MB. Ảnh được lưu trên máy chủ GAERU.</span></label>
+                  <label class="span-all">Đường dẫn ảnh nội bộ<input name="imageUrl" required pattern="/assets/products/[a-zA-Z0-9._-]+" placeholder="/assets/products/k9.png"></label>
+                  <label class="span-all">Mô tả ảnh<input name="imageAlt" maxlength="250"></label>
+                  <label class="checkbox-label"><input name="active" type="checkbox"> Đang hiển thị trên cửa hàng</label>
+                </div>
+                <button class="primary-button" type="submit">Lưu sản phẩm</button>
+                <p class="feedback" data-form-feedback role="alert"></p>
+              </form>
+              <section class="variant-manager" id="variant-manager" hidden>
+                <div class="editor-heading"><div><p class="eyebrow">Biến thể &amp; tồn kho</p><h3>Phiên bản bán hàng</h3></div><button class="secondary-button" id="new-variant-button" type="button">Thêm phiên bản</button></div>
+                <div id="variant-list"></div>
+                <form id="variant-form" class="variant-form" hidden>
+                  <input name="id" type="hidden">
+                  <div class="form-grid">
+                    <label>SKU<input name="sku" required maxlength="80"></label>
+                    <label>Tên phiên bản<input name="name" required maxlength="160" placeholder="Ví dụ: Type-C · Bộ 1 mic"></label>
+                    <label>Giá bán (₫)<input name="priceVnd" type="number" required min="0" step="1000"></label>
+                    <label>Tồn kho<input name="stockQuantity" type="number" required min="0" step="1"></label>
+                    <label class="span-all">Thuộc tính (JSON)<textarea name="options" rows="2" placeholder='{"cổng":"Type-C","bộ mic":"Bộ 1"}'>{}</textarea></label>
+                    <label class="checkbox-label"><input name="active" type="checkbox"> Phiên bản đang bán</label>
+                  </div>
+                  <button class="primary-button" type="submit">Lưu phiên bản</button>
+                  <button class="plain-button" type="button" data-close-variant>Hủy</button>
+                  <p class="feedback" data-variant-feedback role="alert"></p>
+                </form>
+              </section>
+            </section>
+          </section>
+
+          <section class="view-panel" id="orders-view" hidden>
+            <div class="toolbar">
+              <input id="order-search" type="search" placeholder="Tìm mã đơn, tên, email hoặc số điện thoại" aria-label="Tìm đơn hàng">
+              <label class="filter-label">Lọc đơn
+                <select id="order-filter">
+                  <option value="">Tất cả</option><option value="pending">Chờ xác nhận</option>
+                  <option value="confirmed">Đã xác nhận</option><option value="processing">Đang xử lý</option>
+                  <option value="shipped">Đang giao</option><option value="completed">Hoàn tất</option><option value="cancelled">Đã hủy</option>
+                </select>
+              </label>
+              <button class="secondary-button" id="refresh-orders" type="button">Tải lại</button>
+            </div>
+            <div class="order-list" id="order-list"></div>
+            <nav class="pagination" id="order-pagination" aria-label="Phân trang đơn hàng" hidden>
+              <button class="secondary-button" id="previous-orders" type="button">Trước</button>
+              <span id="order-page-label"></span>
+              <button class="secondary-button" id="next-orders" type="button">Tiếp</button>
+            </nav>
+          </section>
+
+          <section class="view-panel" id="settings-view" hidden>
+            <form class="editor-card settings-card" id="settings-form">
+              <p class="eyebrow">Cấu hình công khai</p>
+              <h2>Thanh toán &amp; giao hàng</h2>
+              <p class="help-text" id="payment-provider-status">Đang tải trạng thái cổng thanh toán…</p>
+              <label>Thông tin giao hàng<textarea name="shippingNote" rows="3" maxlength="1000"></textarea></label>
+              <section class="shipping-rates">
+                <div class="editor-heading"><div><h3>Phí giao hàng theo tỉnh/thành phố</h3><p class="help-text">Phí tính một lần cho mỗi đơn. Chỉ các tỉnh/thành phố được khai báo mới xuất hiện khi khách đặt hàng.</p></div><button class="secondary-button" id="add-shipping-rate" type="button">Thêm tỉnh/thành</button></div>
+                <div id="shipping-rate-list"></div>
+              </section>
+              <p class="help-text">Thông tin merchant và khóa bí mật cổng thanh toán chỉ được cấu hình trong secrets của máy chủ, không lưu tại giao diện quản trị.</p>
+              <button class="primary-button" type="submit">Lưu cài đặt</button>
+              <p class="feedback" data-form-feedback role="alert"></p>
+            </form>
+          </section>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>
