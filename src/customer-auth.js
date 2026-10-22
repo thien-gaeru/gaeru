@@ -99,13 +99,14 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       if (!parsed.success) return res.status(400).json({ error: "Email hoặc mật khẩu chưa hợp lệ." });
 
       const result = await pool.query(
-        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", password_hash
+        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash
          FROM customers WHERE email = $1`,
         [parsed.data.email]
       );
       const customer = result.rows[0];
       const passwordMatches = await bcrypt.compare(parsed.data.password, customer?.password_hash || DUMMY_PASSWORD_HASH);
       if (!customer || !passwordMatches) return res.status(401).json({ error: "Email hoặc mật khẩu không đúng." });
+      if (customer.active === false) return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
 
       startCustomerSession(req, res, next, customer);
     } catch (error) {
@@ -119,12 +120,12 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
     try {
       const result = await pool.query(
         `SELECT id, full_name AS "fullName", email, phone,
-                email_verified_at IS NOT NULL AS "emailVerified"
+                email_verified_at IS NOT NULL AS "emailVerified", active
          FROM customers WHERE id = $1`,
         [customer.id]
       );
       const currentCustomer = result.rows[0];
-      if (!currentCustomer) {
+      if (!currentCustomer || currentCustomer.active === false) {
         delete req.session.customer;
         return res.json({ authenticated: false, customer: null });
       }
