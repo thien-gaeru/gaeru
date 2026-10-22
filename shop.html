@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f5f7">
+    <meta name="description" content="Khám phá các thiết bị thu âm và ghi hình GAERU.">
+    <title>Cửa hàng GAERU — Thiết bị sáng tạo</title>
+    <link rel="preconnect" href="https://gaeru.com">
+    <link rel="stylesheet" href="styles.css">
+    <script src="store-shell.js" defer></script>
+    <script src="commerce.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Bỏ qua điều hướng</a>
+    <div id="site-header"></div>
+    <main id="main" class="store-main">
+      <section class="page-intro">
+        <p class="eyebrow">Cửa hàng GAERU</p>
+        <h1>Thiết bị cho<br>mọi ý tưởng.</h1>
+        <p>Chọn công cụ phù hợp để ghi âm, quay video và kể câu chuyện của bạn.</p>
+      </section>
+      <section class="catalog section-wrap" aria-label="Danh mục sản phẩm">
+        <div class="catalog-toolbar">
+          <p id="catalog-count" aria-live="polite"></p>
+          <label class="visually-hidden" for="catalog-search">Tìm kiếm sản phẩm</label>
+          <input id="catalog-search" type="search" placeholder="Tìm sản phẩm">
+        </div>
+        <div class="filter-row" role="group" aria-label="Lọc sản phẩm">
+          <button class="filter-chip is-active" type="button" data-filter="all" aria-pressed="true">Tất cả</button>
+          <button class="filter-chip" type="button" data-filter="audio" aria-pressed="false">Thu âm</button>
+          <button class="filter-chip" type="button" data-filter="video" aria-pressed="false">Ghi hình</button>
+        </div>
+        <div class="catalog-grid" id="catalog-grid"></div>
+        <p class="empty-state" id="catalog-empty" hidden>Không tìm thấy sản phẩm phù hợp. Hãy thử từ khóa khác.</p>
+        <p class="prototype-note">Giá hiển thị là giá tham khảo từ GAERU.com; sản phẩm có thể có nhiều phiên bản với mức giá khác nhau.</p>
+      </section>
+    </main>
+    <div id="site-footer"></div>
+  </body>
+</html>
