@@ -419,7 +419,7 @@ async function renderCheckout() {
         location.assign(result.paymentUrl);
         return;
       }
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>GAERU sẽ liên hệ theo thông tin bạn cung cấp để xác nhận đơn và hướng dẫn thanh toán.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
     } catch (error) {
       feedback.textContent = error.message;
       button.disabled = false;
