@@ -261,7 +261,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 8);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 9);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });
@@ -323,6 +323,40 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     const newId=(await accountant.ok('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),externalOrderId:'LATEST'},201)).id;
     assert.equal((await records()).documents.find(r=>r.id===newId).payload.cogsVnd,400000);
     assert.equal((await accountant.ok('/api/admin/business/marketplace-summary?period=2099-01')).channels.find(c=>c.channel==='shopee').profitVnd,700000);
+  });
+  await context.test('marketplace and guest warranty requests remain private, idempotent and pending until staff review',async()=>{
+    const guest=client(),otherGuest=client(),account=client();
+    await guest.ok('/api/csrf');await otherGuest.ok('/api/csrf');await account.ok('/api/csrf');
+    await account.ok('/api/customer-auth/login','POST',{email:'second@example.test',password:'Customer-test-password-2026'});
+    await account.ok('/api/csrf');
+    const contact={fullName:'Warranty Customer',phone:'0900000000',address:'123 Warranty Street',city:'Hồ Chí Minh'};
+    const data={channel:'shopee',externalOrderNumber:'SHOPEE-TEST-001',productName:'GAERU K9 · Type-C',serial:'EXTERNAL-SERIAL-01',contact,requestKey:randomUUID()};
+    const ordersBefore=(await pool.query('SELECT count(*)::int total FROM orders')).rows[0].total;
+    const saved=(await guest.ok('/api/warranty-requests','POST',data,201)).activation;
+    assert.equal(saved.status,'pending');
+    assert.equal((await guest.ok('/api/warranty-requests','POST',data)).activation.id,saved.id);
+    assert.equal((await guest.request('/api/warranty-requests','POST',{...data,contact:{...contact,fullName:'Changed Customer'}})).status,409);
+    assert.equal((await otherGuest.request('/api/warranty-requests','POST',data)).status,409);
+    assert.equal((await guest.request('/api/warranty-requests','POST',{...data,requestKey:randomUUID(),contact:{...contact,address:''}})).status,400);
+    assert.equal((await guest.request('/api/warranty-requests','POST',{...data,requestKey:randomUUID(),customerId:randomUUID()})).status,400);
+    assert.equal((await client().request('/api/warranty-requests','POST',data)).status,403);
+    assert.equal((await guest.request('/api/warranty-requests','POST',{...data,requestKey:randomUUID()})).status,409);
+    const guestWebsite=(await guest.ok('/api/warranty-requests','POST',{...data,channel:'website',externalOrderNumber:'GUEST-WEB-ORDER',serial:'',requestKey:randomUUID()},201)).activation;
+    assert.equal(guestWebsite.status,'pending');
+    assert.equal((await guest.request('/api/customer/warranties')).status,401);
+    for(const channel of ['tiktok','lazada']){
+      const activation=(await account.ok('/api/warranty-requests','POST',{...data,channel,externalOrderNumber:channel+'-ORDER',serial:'',requestKey:randomUUID()},201)).activation;
+      assert.ok((await account.ok('/api/customer/warranties')).activations.some(w=>w.id===activation.id&&w.channel===channel));
+    }
+    assert.ok(!(await account.ok('/api/customer/warranties')).activations.some(w=>w.id===saved.id));
+    const row=(await owner.ok('/api/admin/warranties')).activations.find(w=>w.id===saved.id);
+    assert.equal(row.contactName,contact.fullName);assert.equal(row.contactAddress,contact.address);assert.equal(row.orderNumber,data.externalOrderNumber);
+    assert.equal(row.channel,'shopee');assert.equal(row.productName,data.productName);
+    assert.equal((await sales.request('/api/admin/warranties/'+saved.id,'PATCH',{status:'active',purchaseDate:'2026-01-01',reason:'Proof checked',version:1})).status,403);
+    await owner.ok('/api/admin/warranties/'+saved.id,'PATCH',{status:'active',purchaseDate:'2026-01-01',reason:'Đã đối chiếu chứng từ mua trên sàn.',version:1});
+    const approved=(await owner.ok('/api/admin/warranties')).activations.find(w=>w.id===saved.id);
+    assert.equal(approved.expiresOn,'2027-01-01');
+    assert.equal((await pool.query('SELECT count(*)::int total FROM orders')).rows[0].total,ordersBefore);
   });
   await context.test('only the bootstrap owner can inspect highest-level controls or revoke employee sessions',async()=>{
     const adminClient=client();
