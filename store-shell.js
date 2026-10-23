@@ -14,7 +14,7 @@ const anonymousEmptyCartMarkup = `
     </nav>
   </div>`;
 
-Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU CARE+ & bảo hành</a></nav></div>`;}});
+Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU CARE+</a></nav></div>`;}});
 document.addEventListener('gaeru:customer-updated',()=>{const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
 
 if (headerRoot) {
