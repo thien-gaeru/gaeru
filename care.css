@@ -27,3 +27,33 @@
 #care-form fieldset{border:1px solid #e5e5e8;border-radius:14px;padding:16px;min-width:0;margin:0;display:grid;gap:16px}
 #care-form legend{font-size:13px;padding-inline:8px;font-weight:600}
 #care-form input,#care-form select{min-width:0}
+
+/* Compact spacing for the customer care workspace on phones. */
+@media(max-width:600px){
+ .care-page{padding-bottom:32px}
+ .care-hero{padding-block:32px 24px}
+ .care-emblem{margin-top:24px}
+ .care-section{padding-top:26px}
+ .care-shortcuts,.care-work-grid,.care-steps{gap:12px}
+ .care-shortcuts a{padding:16px;border-radius:16px}
+ .care-surface{padding:16px;border-radius:20px}
+ .care-steps article{padding:20px;border-radius:20px}
+ .care-section-heading{gap:12px}
+ .care-page h2{margin-bottom:16px}
+ .care-page h3{margin-block:8px}
+ .care-disclosure>summary h2,.care-disclosure>summary h3{margin:0}
+ .care-disclosure>summary{min-height:44px;gap:12px}
+ .care-disclosure-body{padding-top:16px}
+ .care-notice{margin-block:10px}
+ #care-session{margin-block:12px}
+ .care-case{padding:12px 0}
+ .care-case h4{margin:8px 0}
+ .care-case>p{margin-block:8px}
+ .care-case>small{display:block;line-height:1.5}
+ .care-page .care-pagination{margin:12px 0 0}
+ .care-contact{margin-top:26px;padding:22px}
+ .care-faq{padding-inline:18px}
+ .care-faq details{padding-block:16px}
+ .warranty-history{margin-top:12px}
+ #warranty-form{gap:16px}
+}
