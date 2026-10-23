@@ -195,7 +195,8 @@ test("variant deletion preserves variants referenced by historical orders", asyn
   const client = {
     async query(sql) {
       statements.push(sql);
-      if (sql.startsWith("SELECT id FROM product_variants")) return { rowCount: 1, rows: [{ id: "4b4cfca4-96cd-47b1-a851-ed6f9944359f" }] };
+      if (sql.startsWith("SELECT p.id")) return { rows: [{ id: "8fdd01fd-c15d-42d0-b95d-beb8cc3a5ef7", active: false }] };
+      if (sql.startsWith("SELECT id, active,") && sql.includes("FROM product_variants")) return { rows: [{ id: "4b4cfca4-96cd-47b1-a851-ed6f9944359f", active: true, stockQuantity: 0 }] };
       if (sql.startsWith("SELECT EXISTS")) return { rows: [{ referenced: true }] };
       return { rows: [] };
     },
@@ -244,14 +245,14 @@ test("admin order search is paginated and validates filters", async (context) =>
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.pagination, { page: 2, pageSize: 25, total: 31, pageCount: 2 });
-  assert.deepEqual(queries[0].values, ["pending", "GR-123"]);
-  assert.deepEqual(queries[1].values, ["pending", "GR-123", 25, 25]);
+  assert.deepEqual(queries[0].values, ["pending", "GR-123", "", ""]);
+  assert.deepEqual(queries[1].values, ["pending", "GR-123", "", "", 25, 25]);
   assert.match(queries[1].sql, /ILIKE/);
 
   const emptyPageResponse = await fetch(`${baseUrl}?status=cancelled&page=4`);
   assert.equal(emptyPageResponse.status, 200);
   assert.deepEqual((await emptyPageResponse.json()).pagination, { page: 1, pageSize: 25, total: 0, pageCount: 0 });
-  assert.deepEqual(queries.at(-1).values, ["cancelled", "", 25, 0]);
+  assert.deepEqual(queries.at(-1).values, ["cancelled", "", "", "", 25, 0]);
 
   const invalid = await fetch(`${baseUrl}?status=unknown`);
   assert.equal(invalid.status, 400);

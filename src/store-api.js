@@ -55,9 +55,39 @@ async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
   const needle = search.trim().toLocaleLowerCase("vi");
   if (!needle) return result.rows;
   return result.rows.filter((product) =>
-    `${product.name} ${product.description} ${product.category} ${product.descriptor}`
+    `${product.name} ${product.slug} ${product.description} ${product.category} ${product.descriptor} ${product.variants.map((variant) => `${variant.name} ${variant.sku}`).join(" ")}`
       .toLocaleLowerCase("vi").includes(needle)
   );
+}
+
+async function lockVariantWithProduct(client, variantId) {
+  const parentResult = await client.query(
+    `SELECT p.id, p.active FROM products p
+     JOIN product_variants v ON v.product_id = p.id
+     WHERE v.id=$1 FOR UPDATE OF p`,
+    [variantId]
+  );
+  const product = parentResult.rows[0];
+  if (!product) return null;
+  const variantResult = await client.query(
+    'SELECT id, active, stock_quantity AS "stockQuantity" FROM product_variants WHERE id=$1 AND product_id=$2 FOR UPDATE',
+    [variantId, product.id]
+  );
+  const variant = variantResult.rows[0];
+  return variant ? { product, variant } : null;
+}
+
+async function requireAnotherActiveVariant(client, product, variant) {
+  if (!product.active || !variant.active) return;
+  const result = await client.query(
+    "SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id=$1 AND active=true AND id<>$2",
+    [product.id, variant.id]
+  );
+  if (!result.rows[0]?.count) {
+    const error = new Error("Sản phẩm đang hiển thị cần ít nhất một phiên bản đang bán. Hãy tạm ẩn sản phẩm trước khi ẩn hoặc xóa phiên bản cuối cùng.");
+    error.status = 409;
+    throw error;
+  }
 }
 
 async function getSettings(pool, keys) {
@@ -68,7 +98,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -167,6 +197,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
         if (successful) {
           await client.query("UPDATE orders SET payment_status='paid', updated_at=now() WHERE id=$1", [attempt.orderId]);
         }
+        await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
         return { code: "00", message: "Confirm Success" };
       });
       res.json({ RspCode: result.code, Message: result.message });
@@ -262,6 +293,9 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
+        if (req.session?.customer?.id) {
+          await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
+        }
         for (const item of prepared) {
           await client.query(
             `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
@@ -270,7 +304,8 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
             [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
               item.priceVnd, item.quantity, item.priceVnd * item.quantity]
           );
-          await client.query(
+          if (inventory) await inventory.reserveStock(client, { variantId: item.id, quantity: item.quantity, orderId: createdOrder.id, actor: { username: "customer", source: "customer" } });
+          else await client.query(
             "UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1",
             [item.id, item.quantity]
           );
@@ -288,6 +323,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
             ipAddress: req.ip
           });
         }
+        await audit(client, { actor: { username: "customer", source: "customer" }, action: "order.create", entityType: "order", entityId: createdOrder.id, metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod } });
         return {
           order: { ...createdOrder, items: prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({ productName, variantName, sku, priceVnd, quantity })) },
           paymentUrl
@@ -310,6 +346,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
   router.use("/admin", requireAdmin);
 
   router.post("/admin/uploads", requireCsrf, parseImageUpload, async (req, res, next) => {
+    let uploadedPath;
     try {
       if (!req.file) return res.status(400).json({ error: "Chọn một tệp ảnh để tải lên." });
       const signatures = [
@@ -322,9 +359,12 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const filename = `${randomUUID()}.${image.ext}`;
       const imageDirectory = path.join(__dirname, "..", "assets", "products");
       await fs.mkdir(imageDirectory, { recursive: true });
-      await fs.writeFile(path.join(imageDirectory, filename), req.file.buffer, { flag: "wx" });
+      uploadedPath = path.join(imageDirectory, filename);
+      await fs.writeFile(uploadedPath, req.file.buffer, { flag: "wx" });
+      await audit(pool, { actor: req.admin, action: "catalog.image.upload", entityType: "product_image", entityId: filename, metadata: { size: req.file.size, type: image.type } });
       res.status(201).json({ imageUrl: `/assets/products/${filename}` });
     } catch (error) {
+      if (uploadedPath) await fs.unlink(uploadedPath).catch(() => {});
       next(error);
     }
   });
@@ -383,14 +423,19 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
     try {
       const parsed = z.object({ active: z.boolean() }).safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Trạng thái khách hàng chưa hợp lệ." });
-      const result = await pool.query(
+      const customer = await withTransaction(pool, async (client) => {
+      const result = await client.query(
         `UPDATE customers SET active = $2, updated_at = now() WHERE id = $1
          RETURNING id, full_name AS "fullName", email, phone, active,
                    email_verified_at IS NOT NULL AS "emailVerified"`,
         [req.params.id, parsed.data.active]
       );
-      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy khách hàng." });
-      res.json({ customer: result.rows[0] });
+      if (!result.rowCount) return null;
+      await audit(client, { actor: req.admin, action: "customer.access.update", entityType: "customer", entityId: req.params.id, metadata: { active: parsed.data.active } });
+      return result.rows[0];
+      });
+      if (!customer) return res.status(404).json({ error: "Không tìm thấy khách hàng." });
+      res.json({ customer });
     } catch (error) {
       next(error);
     }
@@ -422,13 +467,17 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
       const p = parsed.data;
-      const result = await pool.query(
+      const product = await withTransaction(pool, async (client) => {
+      const result = await client.query(
         `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
          VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
          RETURNING id`,
         [p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.sortOrder]
       );
-      res.status(201).json({ id: result.rows[0].id });
+      await audit(client, { actor: req.admin, action: "catalog.product.create", entityType: "product", entityId: result.rows[0].id, after: { ...p, active: false } });
+      return result.rows[0];
+      });
+      res.status(201).json({ id: product.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Slug sản phẩm đã được sử dụng." });
       next(error);
@@ -440,19 +489,30 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
       const p = parsed.data;
-      if (p.active) {
-        const variants = await pool.query("SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND active = true", [req.params.id]);
-        if (!variants.rows[0] || variants.rows[0].count === 0) return res.status(409).json({ error: "Thêm ít nhất một phiên bản đang bán trước khi xuất bản sản phẩm." });
-      }
-      const result = await pool.query(
-        `UPDATE products SET slug=$2, name=$3, category=$4, descriptor=$5, description=$6,
-          image_url=$7, image_alt=$8, active=$9, sort_order=$10, updated_at=now()
-         WHERE id=$1 RETURNING id`,
-        [req.params.id, p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.active, p.sortOrder]
-      );
-      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      res.json({ id: result.rows[0].id });
+      const product = await withTransaction(pool, async (client) => {
+        const current = await client.query("SELECT id FROM products WHERE id=$1 FOR UPDATE", [req.params.id]);
+        if (!current.rows[0]) return null;
+        if (p.active) {
+          const variants = await client.query("SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND active = true", [req.params.id]);
+          if (!variants.rows[0]?.count) {
+            const error = new Error("Thêm ít nhất một phiên bản đang bán trước khi xuất bản sản phẩm.");
+            error.status = 409;
+            throw error;
+          }
+        }
+        const result = await client.query(
+          `UPDATE products SET slug=$2, name=$3, category=$4, descriptor=$5, description=$6,
+            image_url=$7, image_alt=$8, active=$9, sort_order=$10, updated_at=now()
+           WHERE id=$1 RETURNING id`,
+          [req.params.id, p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.active, p.sortOrder]
+        );
+        await audit(client, { actor: req.admin, action: "catalog.product.update", entityType: "product", entityId: req.params.id, after: p });
+        return result.rows[0];
+      });
+      if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      res.json({ id: product.id });
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
       if (error.code === "23505") return res.status(409).json({ error: "Slug sản phẩm đã được sử dụng." });
       next(error);
     }
@@ -463,14 +523,21 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
       const v = parsed.data;
-      const result = await pool.query(
+      if (req.admin && v.stockQuantity > 0 && !req.admin.permissions.includes("inventory.approve")) return res.status(403).json({ error: "Cần quyền duyệt kho để khai báo tồn đầu kỳ." });
+      const variant = await withTransaction(pool, async (client) => {
+      const result = await client.query(
         `INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active)
          SELECT id, $2, $3, $4, $5, $6, $7 FROM products WHERE id=$1
          RETURNING id`,
         [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
       );
-      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      res.status(201).json({ id: result.rows[0].id });
+      if (!result.rowCount) return null;
+      if (inventory) await inventory.initializeVariantStock(client, { variantId: result.rows[0].id, quantity: v.stockQuantity, actor: req.admin });
+      await audit(client, { actor: req.admin, action: "catalog.variant.create", entityType: "variant", entityId: result.rows[0].id, after: v });
+      return result.rows[0];
+      });
+      if (!variant) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      res.status(201).json({ id: variant.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "SKU đã được sử dụng." });
       next(error);
@@ -482,14 +549,26 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
       const v = parsed.data;
-      const result = await pool.query(
-        `UPDATE product_variants SET sku=$2, name=$3, options=$4, price_vnd=$5,
-          stock_quantity=$6, active=$7, updated_at=now() WHERE id=$1 RETURNING id`,
-        [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
-      );
-      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
-      res.json({ id: result.rows[0].id });
+      const variant = await withTransaction(pool, async (client) => {
+        const current = await lockVariantWithProduct(client, req.params.id);
+        if (!current) return null;
+        if (req.admin && v.stockQuantity !== current.variant.stockQuantity && !req.admin.permissions.includes("inventory.approve")) {
+          const error = new Error("Cần quyền duyệt kho để thay đổi số lượng tồn."); error.status = 403; throw error;
+        }
+        if (!v.active) await requireAnotherActiveVariant(client, current.product, current.variant);
+        if (inventory) await inventory.setVariantStock(client, { variantId: req.params.id, quantity: v.stockQuantity, actor: req.admin, reason: "Điều chỉnh từ trang phiên bản sản phẩm" });
+        const result = await client.query(
+          `UPDATE product_variants SET sku=$2, name=$3, options=$4, price_vnd=$5,
+            stock_quantity=$6, active=$7, updated_at=now() WHERE id=$1 RETURNING id`,
+          [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
+        );
+        await audit(client, { actor: req.admin, action: "catalog.variant.update", entityType: "variant", entityId: req.params.id, after: v });
+        return result.rows[0];
+      });
+      if (!variant) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
+      res.json({ id: variant.id });
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
       if (error.code === "23505") return res.status(409).json({ error: "SKU đã được sử dụng." });
       next(error);
     }
@@ -498,20 +577,28 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
   router.delete("/admin/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const result = await withTransaction(pool, async (client) => {
-        const variant = await client.query("SELECT id FROM product_variants WHERE id=$1 FOR UPDATE", [req.params.id]);
-        if (!variant.rowCount) return { missing: true };
+        const current = await lockVariantWithProduct(client, req.params.id);
+        if (!current) return { missing: true };
         const references = await client.query(
           "SELECT EXISTS (SELECT 1 FROM order_items WHERE variant_id=$1) AS referenced",
           [req.params.id]
         );
         if (references.rows[0].referenced) return { inUse: true };
+        if (inventory) {
+          const history = await client.query("SELECT EXISTS (SELECT 1 FROM inventory_movements WHERE variant_id=$1) AS referenced", [req.params.id]);
+          if (history.rows[0].referenced) return { inUse: true };
+        }
+        await requireAnotherActiveVariant(client, current.product, current.variant);
         await client.query("DELETE FROM product_variants WHERE id=$1", [req.params.id]);
+        await audit(client, { actor: req.admin, action: "catalog.variant.delete", entityType: "variant", entityId: req.params.id });
         return { deleted: true };
       });
       if (result.missing) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
-      if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng. Hãy sửa và tạm ẩn thay vì xóa." });
+      if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng hoặc kho. Hãy sửa và tạm ẩn thay vì xóa." });
       res.status(204).end();
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      if (error.code === "23503") return res.status(409).json({ error: "Phiên bản đã có trong chứng từ. Hãy tạm ẩn thay vì xóa." });
       next(error);
     }
   });
@@ -521,19 +608,27 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
     if (status && !Object.hasOwn(transitions, status)) {
       return res.status(400).json({ error: "Bộ lọc trạng thái đơn hàng không hợp lệ." });
     }
+    const paymentStatus = String(req.query.paymentStatus || "");
+    const paymentMethod = String(req.query.paymentMethod || "");
+    if ((paymentStatus && !["pending", "paid"].includes(paymentStatus)) ||
+        (paymentMethod && !["cod", "bank_transfer", "9pay", "vnpay"].includes(paymentMethod))) {
+      return res.status(400).json({ error: "Bộ lọc thanh toán đơn hàng không hợp lệ." });
+    }
     const search = String(req.query.q || "").trim();
     const requestedPage = Number(req.query.page || 1);
     if (search.length > 120 || !Number.isInteger(requestedPage) || requestedPage < 1 || requestedPage > 100000) {
       return res.status(400).json({ error: "Bộ lọc hoặc trang đơn hàng không hợp lệ." });
     }
     const pageSize = 25;
-    const filterValues = [status, search];
+    const filterValues = [status, search, paymentStatus, paymentMethod];
+    const where = `($1::text = '' OR o.status = $1)
+      AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
+        OR o.customer_name ILIKE '%' || $2 || '%'
+        OR o.email ILIKE '%' || $2 || '%' OR o.phone ILIKE '%' || $2 || '%')
+      AND ($3::text = '' OR o.payment_status = $3)
+      AND ($4::text = '' OR o.payment_method = $4)`;
     const countResult = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM orders o
-       WHERE ($1::text = '' OR o.status = $1)
-         AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
-           OR o.customer_name ILIKE '%' || $2 || '%'
-           OR o.email ILIKE '%' || $2 || '%' OR o.phone ILIKE '%' || $2 || '%')`,
+      `SELECT COUNT(*)::int AS total FROM orders o WHERE ${where}`,
       filterValues
     );
     const total = countResult.rows[0]?.total || 0;
@@ -544,22 +639,27 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
         o.email, o.phone, o.address, o.city, o.note, o.payment_method AS "paymentMethod",
         o.payment_status AS "paymentStatus", o.status, o.subtotal_vnd AS "subtotalVnd",
         o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",
-        p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus",
+        p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus", p.expires_at AS "paymentAttemptExpiresAt",
         COALESCE(jsonb_agg(jsonb_build_object('productName', i.product_name, 'variantName', i.variant_name,
           'sku', i.sku, 'unitPriceVnd', i.unit_price_vnd, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
           FILTER (WHERE i.id IS NOT NULL), '[]'::jsonb) AS items
        FROM orders o
        LEFT JOIN order_items i ON i.order_id = o.id
        LEFT JOIN LATERAL (
-         SELECT provider, status FROM payment_attempts WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1
+         SELECT provider, status, expires_at FROM payment_attempts WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1
        ) p ON true
-       WHERE ($1::text = '' OR o.status = $1)
-         AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
-           OR o.customer_name ILIKE '%' || $2 || '%'
-           OR o.email ILIKE '%' || $2 || '%' OR o.phone ILIKE '%' || $2 || '%')
-       GROUP BY o.id, p.provider, p.status ORDER BY o.created_at DESC LIMIT $3 OFFSET $4`,
+       WHERE ${where}
+       GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY o.created_at DESC LIMIT $5 OFFSET $6`,
       [...filterValues, pageSize, (page - 1) * pageSize]
     );
+    if (finance && result.rows.length) {
+      const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
+      const receivedByOrder = new Map(receipts.rows.map((row) => [row.order_id, Number(row.received)]));
+      for (const order of result.rows) {
+        order.receivedVnd = order.paymentStatus === "paid" ? order.totalVnd : (receivedByOrder.get(order.id) || 0);
+        order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
+      }
+    }
     res.json({
       orders: result.rows,
       pagination: { page, pageSize, total, pageCount }
@@ -575,12 +675,34 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
         const currentResult = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [req.params.id]);
         const current = currentResult.rows[0];
         if (!current) return null;
+        if (req.admin) {
+          const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
+          const paymentChange = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
+          if ((fulfillmentChange && !req.admin.permissions.includes("orders.write")) || (paymentChange && !req.admin.permissions.includes("payments.write"))) {
+            const error = new Error("Tài khoản không có quyền cập nhật nghiệp vụ này."); error.status = 403; throw error;
+          }
+        }
+        const receivedAmount = finance ? await finance.receiptTotal(client, current.id) : 0;
+        if (receivedAmount > 0 && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
+          const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
+        }
         if (update.status && update.status !== current.status && !transitions[current.status].includes(update.status)) {
           const error = new Error(`Không thể chuyển đơn từ ${current.status} sang ${update.status}.`);
           error.status = 409;
           throw error;
         }
-        if (update.status === "cancelled" && current.payment_status === "paid") {
+        const paymentStatusChanged = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
+        if (current.payment_status === "paid" && paymentStatusChanged) {
+          const error = new Error("Không thể chuyển đơn đã thanh toán về chưa thanh toán. Cần đối soát hoặc xử lý hoàn tiền riêng.");
+          error.status = 409;
+          throw error;
+        }
+        if (paymentStatusChanged && ["vnpay", "9pay"].includes(current.payment_method)) {
+          const error = new Error("Trạng thái thanh toán trực tuyến được cập nhật từ cổng thanh toán, không thể sửa thủ công.");
+          error.status = 409;
+          throw error;
+        }
+        if (update.status === "cancelled" && current.status !== "cancelled" && current.payment_status === "paid") {
           const error = new Error("Đơn đã thanh toán cần được xử lý hoàn tiền trước khi hủy.");
           error.status = 409;
           throw error;
@@ -589,6 +711,11 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
         const targetPaymentStatus = update.paymentStatus ?? current.payment_status;
         const shippingFee = update.shippingFeeVnd ?? current.shipping_fee_vnd;
         const shippingFeeChanged = update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd;
+        if (shippingFeeChanged && current.payment_status === "paid") {
+          const error = new Error("Không thể thay đổi phí giao hàng sau khi đơn đã thanh toán.");
+          error.status = 409;
+          throw error;
+        }
         if (shippingFeeChanged && current.payment_method === "vnpay") {
           const paymentAttempt = await client.query(
             "SELECT EXISTS (SELECT 1 FROM payment_attempts WHERE order_id = $1) AS active",
@@ -629,7 +756,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           error.status = 409;
           throw error;
         }
-        if (update.paymentStatus === "paid" && targetStatus === "cancelled") {
+        if (paymentStatusChanged && update.paymentStatus === "paid" && targetStatus === "cancelled") {
           const error = new Error("Không thể ghi nhận thanh toán cho đơn đã hủy.");
           error.status = 409;
           throw error;
@@ -645,7 +772,8 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           throw error;
         }
         if (update.status === "cancelled" && current.status !== "cancelled") {
-          await client.query(
+          if (inventory) await inventory.releaseOrderStock(client, { orderId: current.id, actor: req.admin });
+          else await client.query(
             `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at=now()
              FROM order_items i WHERE i.order_id=$1 AND i.variant_id=v.id`,
             [current.id]
@@ -657,6 +785,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           error.status = 400;
           throw error;
         }
+        if (finance && update.paymentStatus === "paid" && current.payment_status !== "paid") await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: req.admin });
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
             shipping_fee_vnd=$4, total_vnd=$5, updated_at=now()
@@ -664,6 +793,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
           [current.id, update.status || null, update.paymentStatus || null, shippingFee, total]
         );
+        await audit(client, { actor: req.admin, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         return updated.rows[0];
       });
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
@@ -696,6 +826,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           [key, JSON.stringify(value)]
         );
       }
+      await audit(client, { actor: req.admin, action: "settings.update", entityType: "store_settings", after: settings });
     });
     res.json({ settings: {
       shippingNote: settings.shipping_note,

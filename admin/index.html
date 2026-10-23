@@ -6,7 +6,9 @@
     <meta name="theme-color" content="#f5f5f7">
     <title>Quản trị GAERU</title>
     <link rel="stylesheet" href="/admin/admin.css">
+    <link rel="stylesheet" href="/admin/enterprise.css">
     <script src="/admin/admin.js" defer></script>
+    <script src="/admin/enterprise.js" defer></script>
   </head>
   <body>
     <main class="admin-shell">
@@ -25,12 +27,30 @@
       <div class="admin-app" id="admin-app" hidden>
         <aside class="sidebar">
           <a class="admin-wordmark" href="/">GAERU <span>ADMIN</span></a>
-          <nav aria-label="Quản trị">
-            <button class="nav-item is-active" type="button" data-view="overview">Tổng quan</button>
-            <button class="nav-item" type="button" data-view="products">Sản phẩm &amp; kho</button>
-            <button class="nav-item" type="button" data-view="orders">Đơn hàng</button>
-            <button class="nav-item" type="button" data-view="customers">Khách hàng</button>
-            <button class="nav-item" type="button" data-view="settings">Cài đặt cửa hàng</button>
+          <button class="sidebar-toggle secondary-button" type="button" aria-controls="admin-navigation" aria-expanded="false">Menu quản lý <span aria-hidden="true">☰</span></button>
+          <nav id="admin-navigation" aria-label="Quản trị">
+            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div>
+            <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
+              <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
+              <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
+              <button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
+            </div>
+            <div class="nav-group"><p class="nav-group-label">Kho &amp; mua hàng</p>
+              <button class="nav-item" type="button" data-view="inventory" data-permission="inventory.read">Tồn kho &amp; điều chuyển</button>
+              <button class="nav-item" type="button" data-view="warehouses" data-permission="inventory.read">Kho hàng</button>
+              <button class="nav-item" type="button" data-view="suppliers" data-permission="suppliers.read">Nhà cung cấp</button>
+              <button class="nav-item" type="button" data-view="purchases" data-permission="purchases.read">Đơn mua &amp; nhập hàng</button>
+            </div>
+            <div class="nav-group"><p class="nav-group-label">Tài chính</p>
+              <button class="nav-item" type="button" data-view="finance" data-permission="finance.read">Công nợ &amp; thanh toán</button>
+              <button class="nav-item" type="button" data-view="reports" data-permission="reports.read">Báo cáo kinh doanh</button>
+            </div>
+            <div class="nav-group"><p class="nav-group-label">Tổ chức</p>
+              <button class="nav-item" type="button" data-view="staff" data-permission="staff.read">Nhân viên &amp; quyền</button>
+              <button class="nav-item" type="button" data-view="departments" data-permission="staff.read">Phòng ban</button>
+              <button class="nav-item" type="button" data-view="audit" data-permission="audit.read">Nhật ký hoạt động</button>
+              <button class="nav-item" type="button" data-view="settings" data-permission="settings.read">Cài đặt cửa hàng</button>
+            </div>
           </nav>
           <div class="sidebar-bottom">
             <a href="/">Mở cửa hàng ↗</a>
@@ -55,6 +75,11 @@
               <article class="stat-card"><span>Đơn chờ thanh toán</span><strong id="unpaid-order-count">—</strong></article>
               <article class="stat-card"><span>Phiên bản sắp hết hàng</span><strong id="low-stock-count">—</strong></article>
             </div>
+            <div class="overview-actions" aria-label="Thao tác nhanh">
+              <button class="secondary-button" type="button" data-shortcut="pending" data-require="orders.read">Xử lý đơn mới <span aria-hidden="true">↗</span></button>
+              <button class="secondary-button" type="button" data-shortcut="unpaid" data-require="orders.read">Kiểm tra thanh toán <span aria-hidden="true">↗</span></button>
+              <button class="secondary-button" type="button" data-shortcut="stock" data-require="inventory.read">Kiểm tra tồn kho <span aria-hidden="true">↗</span></button>
+            </div>
             <div class="notice-card" id="orders-gate-notice" role="status">
               <h2>Tiếp nhận đơn hàng đang tạm khóa</h2>
               <p>Checkout sẽ chỉ được mở khi cờ vận hành trên máy chủ được bật. Không thể bật nhận đơn từ trang quản trị.</p>
@@ -72,23 +97,32 @@
 
           <section class="view-panel" id="products-view" hidden>
             <div class="toolbar">
-              <input id="product-search" type="search" placeholder="Tìm sản phẩm">
-              <button class="primary-button" id="new-product-button" type="button">Thêm sản phẩm</button>
+              <input id="product-search" type="search" placeholder="Tìm tên sản phẩm, đường dẫn hoặc SKU" aria-label="Tìm sản phẩm theo tên, đường dẫn hoặc SKU">
+              <button class="primary-button" id="new-product-button" type="button" data-require="catalog.write">Thêm sản phẩm</button>
             </div>
+            <div class="filter-bar product-filters">
+              <label for="product-category-filter">Danh mục<select id="product-category-filter"><option value="">Tất cả danh mục</option><option value="audio">Thu âm</option><option value="video">Ghi hình</option><option value="accessory">Phụ kiện</option></select></label>
+              <label for="product-status-filter">Hiển thị<select id="product-status-filter"><option value="">Tất cả trạng thái</option><option value="active">Đang hiển thị</option><option value="draft">Bản nháp</option></select></label>
+              <label for="product-stock-filter">Tình trạng kho<select id="product-stock-filter"><option value="">Tất cả tồn kho</option><option value="low">Từ 0 đến 5</option><option value="out">Hết hàng</option><option value="missing">Chưa có phiên bản đang bán</option></select></label>
+              <button class="plain-button" type="button" id="reset-product-filters">Xóa bộ lọc</button>
+            </div>
+            <p class="list-status" id="product-list-status" aria-live="polite"></p>
             <div class="product-list" id="product-list"></div>
             <section class="editor-card" id="product-editor" hidden>
               <div class="editor-heading"><div><p class="eyebrow">Danh mục</p><h2 id="product-form-title">Sản phẩm</h2></div><button class="plain-button" type="button" data-close-editor>Đóng</button></div>
               <form id="product-form">
                 <input name="id" type="hidden">
+                <p class="editor-guidance" id="product-draft-guidance">Lưu sản phẩm ở dạng bản nháp, thêm phiên bản với giá và tồn kho đã xác minh, sau đó mở hiển thị trên cửa hàng.</p>
                 <div class="form-grid">
                   <label>Tên sản phẩm<input name="name" required maxlength="160"></label>
-                  <label>Slug URL<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="120"></label>
+                  <label>Đường dẫn sản phẩm<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="120" placeholder="vi-du: gaeru-k9"><span class="help-text">Dùng chữ thường không dấu, số và dấu gạch ngang.</span></label>
                   <label>Danh mục<select name="category"><option value="audio">Thu âm</option><option value="video">Ghi hình</option><option value="accessory">Phụ kiện</option></select></label>
                   <label>Thứ tự hiển thị<input name="sortOrder" type="number" value="0" min="-1000" max="10000"></label>
                   <label class="span-all">Mô tả ngắn<input name="descriptor" maxlength="160"></label>
                   <label class="span-all">Mô tả sản phẩm<textarea name="description" rows="3" maxlength="3000"></textarea></label>
                   <label class="span-all">Ảnh sản phẩm<input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp"><span class="help-text">PNG, JPEG hoặc WebP; tối đa 8 MB. Ảnh được lưu trên máy chủ GAERU.</span></label>
-                  <label class="span-all">Đường dẫn ảnh nội bộ<input name="imageUrl" required pattern="/assets/products/[a-zA-Z0-9._-]+" placeholder="/assets/products/k9.png"></label>
+                  <figure class="product-image-preview span-all" id="product-image-preview" hidden><img id="product-preview-image" alt="Ảnh xem trước của sản phẩm"><figcaption id="product-preview-caption"></figcaption></figure>
+                  <label class="span-all">Hoặc dùng ảnh đã có<input name="imageUrl" required pattern="/assets/products/[a-zA-Z0-9._-]+" placeholder="/assets/products/k9.png"><span class="help-text">Chọn tệp ở trên hoặc nhập đường dẫn ảnh đã lưu trên cửa hàng.</span></label>
                   <label class="span-all">Mô tả ảnh<input name="imageAlt" maxlength="250"></label>
                   <label class="checkbox-label"><input name="active" type="checkbox"> Đang hiển thị trên cửa hàng</label>
                 </div>
@@ -96,16 +130,16 @@
                 <p class="feedback" data-form-feedback role="alert"></p>
               </form>
               <section class="variant-manager" id="variant-manager" hidden>
-                <div class="editor-heading"><div><p class="eyebrow">Biến thể &amp; tồn kho</p><h3>Phiên bản bán hàng</h3></div><button class="secondary-button" id="new-variant-button" type="button">Thêm phiên bản</button></div>
+                <div class="editor-heading"><div><p class="eyebrow">Biến thể &amp; tồn kho</p><h3>Phiên bản bán hàng</h3></div><button class="secondary-button" id="new-variant-button" type="button" data-require="catalog.write">Thêm phiên bản</button></div>
                 <div id="variant-list"></div>
                 <form id="variant-form" class="variant-form" hidden>
                   <input name="id" type="hidden">
                   <div class="form-grid">
-                    <label>SKU<input name="sku" required maxlength="80"></label>
+                    <label>SKU<input name="sku" required maxlength="80" pattern="[a-zA-Z0-9._-]+"><span class="help-text">Mã riêng cho phiên bản: chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.</span></label>
                     <label>Tên phiên bản<input name="name" required maxlength="160" placeholder="Ví dụ: Type-C · Bộ 1 mic"></label>
-                    <label>Giá bán (₫)<input name="priceVnd" type="number" required min="0" step="1000"></label>
-                    <label>Tồn kho<input name="stockQuantity" type="number" required min="0" step="1"></label>
-                    <label class="span-all">Thuộc tính (JSON)<textarea name="options" rows="2" placeholder='{"cổng":"Type-C","bộ mic":"Bộ 1"}'>{}</textarea></label>
+                    <label>Giá bán (₫)<input name="priceVnd" type="number" required min="0" max="20000000" step="1" inputmode="numeric"></label>
+                    <label>Tồn kho tổng<input name="stockQuantity" type="number" required min="0" max="1000000" step="1" inputmode="numeric"><span class="help-text">Nhập hàng và điều chuyển theo từng kho tại mục Tồn kho. Chỉ người có quyền duyệt kho được điều chỉnh tổng ở đây.</span></label>
+                    <fieldset class="attribute-editor span-all"><legend>Thuộc tính phiên bản</legend><p class="help-text">Ví dụ: Cổng kết nối — Type-C, hoặc Bộ mic — Bộ 1. Có thể để trống.</p><div id="variant-attributes"></div><button class="plain-button" id="add-variant-attribute" type="button">+ Thêm thuộc tính</button></fieldset>
                     <label class="checkbox-label"><input name="active" type="checkbox"> Phiên bản đang bán</label>
                   </div>
                   <button class="primary-button" type="submit">Lưu phiên bản</button>
@@ -119,15 +153,21 @@
           <section class="view-panel" id="orders-view" hidden>
             <div class="toolbar">
               <input id="order-search" type="search" placeholder="Tìm mã đơn, tên, email hoặc số điện thoại" aria-label="Tìm đơn hàng">
-              <label class="filter-label">Lọc đơn
+              <button class="secondary-button" id="refresh-orders" type="button">Tải lại</button>
+            </div>
+            <div class="filter-bar order-filters">
+              <label for="order-filter">Trạng thái đơn
                 <select id="order-filter">
                   <option value="">Tất cả</option><option value="pending">Chờ xác nhận</option>
                   <option value="confirmed">Đã xác nhận</option><option value="processing">Đang xử lý</option>
                   <option value="shipped">Đang giao</option><option value="completed">Hoàn tất</option><option value="cancelled">Đã hủy</option>
                 </select>
               </label>
-              <button class="secondary-button" id="refresh-orders" type="button">Tải lại</button>
+              <label for="order-payment-filter">Thanh toán<select id="order-payment-filter"><option value="">Tất cả thanh toán</option><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select></label>
+              <label for="order-method-filter">Phương thức<select id="order-method-filter"><option value="">Tất cả phương thức</option><option value="cod">COD</option><option value="bank_transfer">Chuyển khoản thủ công</option><option value="vnpay">VNPAY</option><option value="9pay">9Pay</option></select></label>
+              <button class="plain-button" type="button" id="reset-order-filters">Xóa bộ lọc</button>
             </div>
+            <p class="list-status" id="order-list-status" aria-live="polite"></p>
             <div class="order-list" id="order-list"></div>
             <nav class="pagination" id="order-pagination" aria-label="Phân trang đơn hàng" hidden>
               <button class="secondary-button" id="previous-orders" type="button">Trước</button>
@@ -164,6 +204,15 @@
               <p class="feedback" data-form-feedback role="alert"></p>
             </form>
           </section>
+          <section class="view-panel enterprise-view" id="inventory-view" hidden></section>
+          <section class="view-panel enterprise-view" id="warehouses-view" hidden></section>
+          <section class="view-panel enterprise-view" id="suppliers-view" hidden></section>
+          <section class="view-panel enterprise-view" id="purchases-view" hidden></section>
+          <section class="view-panel enterprise-view" id="finance-view" hidden></section>
+          <section class="view-panel enterprise-view" id="reports-view" hidden></section>
+          <section class="view-panel enterprise-view" id="staff-view" hidden></section>
+          <section class="view-panel enterprise-view" id="departments-view" hidden></section>
+          <section class="view-panel enterprise-view" id="audit-view" hidden></section>
         </section>
       </div>
     </main>

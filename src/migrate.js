@@ -4,19 +4,34 @@ const path = require("node:path");
 const { loadConfig } = require("./config");
 const { createPool } = require("./db");
 
-async function main() {
-  const config = loadConfig();
-  const pool = createPool(config);
+async function migrateDatabase(pool) {
+  const client = await pool.connect();
   try {
-    const schema = await fs.readFile(path.join(__dirname, "..", "db", "schema.sql"), "utf8");
-    await pool.query(schema);
-    console.log("Database schema is up to date.");
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
+    await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
+    for (const file of ["schema.sql", "access.sql", "operations.sql", "finance.sql", "customer-experience.sql"]) {
+      const applied = await client.query("SELECT name FROM schema_migrations WHERE name=$1", [file]);
+      if (applied.rows.length) continue;
+      const schema = await fs.readFile(path.join(__dirname, "..", "db", file), "utf8");
+      await client.query(schema);
+      await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [file]);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
   } finally {
-    await pool.end();
+    client.release();
   }
 }
 
-main().catch((error) => {
-  console.error("Database migration failed:", error.message);
-  process.exitCode = 1;
+async function main() {
+  const pool = createPool(loadConfig());
+  try { await migrateDatabase(pool); console.log("Database schema is up to date."); }
+  finally { await pool.end(); }
+}
+if (require.main === module) main().catch((error) => {
+  console.error("Database migration failed:", error.message); process.exitCode = 1;
 });
+module.exports = { migrateDatabase };
