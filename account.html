@@ -8,10 +8,10 @@
     <meta name="description" content="Đăng nhập hoặc tạo tài khoản khách hàng GAERU.">
     <title>Tài khoản khách hàng — GAERU</title>
     <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="account-upgrade.css">
+    <link rel="stylesheet" href="account-upgrade.css?v=20261023-account-hub">
     <script src="customer-session.js" defer></script><script src="store-shell.js" defer></script>
-    <script src="account.js?v=20261023-verification-2" defer></script>
-    <script src="customer-experience.js" defer></script>
+    <script src="account.js?v=20261023-account-hub" defer></script>
+    <script src="customer-experience.js?v=20261023-account-hub" defer></script>
   <link rel="stylesheet" href="brand.css">
     <link rel="icon" type="image/png" href="assets/brand/gaeru-logo.png">
   </head>
@@ -23,11 +23,17 @@
         <div class="account-copy">
           <p class="eyebrow">GAERU ACCOUNT</p>
           <h1>Tài khoản GAERU</h1>
-          <p>Sử dụng email hoặc số điện thoại và mật khẩu để tiếp tục mua sắm và quản lý thông tin tài khoản.</p>
+          <p data-account-intro>Sử dụng email hoặc số điện thoại và mật khẩu để tiếp tục mua sắm và quản lý thông tin tài khoản.</p>
+          <nav class="account-hub-nav" aria-label="Quản lý tài khoản" data-account-navigation hidden>
+            <a href="#account-overview">Thông tin tài khoản <span aria-hidden="true">↗</span></a>
+            <a href="#account-addresses">Địa chỉ giao hàng <span aria-hidden="true">↗</span></a>
+            <a href="#customer-orders">Đơn hàng của tôi <span aria-hidden="true">↗</span></a>
+            <a href="care.html">GAERU CARE+ <span aria-hidden="true">↗</span></a>
+          </nav>
         </div>
         <div class="account-actions">
           <section class="account-card customer-account-card" aria-labelledby="customer-account-title">
-            <div class="account-card-heading">
+            <div class="account-card-heading" data-account-heading>
               <div>
                 <span class="account-icon" aria-hidden="true">GAERU</span>
                 <h2 id="customer-account-title">Tài khoản khách hàng</h2>
@@ -82,9 +88,12 @@
               </div>
             </div>
 
-            <div class="account-panel customer-profile" data-account-profile hidden>
+            <div class="account-panel customer-profile" id="account-overview" data-account-profile hidden>
+              <div class="account-overview-card">
+              <div class="account-profile-header"><div>
               <p class="eyebrow">ĐÃ ĐĂNG NHẬP</p>
               <h3 data-customer-name></h3>
+              </div><span class="account-verification-badge" data-customer-verification-status>Chưa xác minh email</span></div>
               <dl>
                 <div><dt>Email</dt><dd data-customer-email></dd></div>
                 <div><dt>Điện thoại</dt><dd data-customer-phone></dd></div>
@@ -97,14 +106,14 @@
                   <p class="account-feedback" data-email-verification-feedback role="status" aria-live="polite"></p>
                 </div>
               </div>
-              <p>Đơn đặt khi đăng nhập sẽ xuất hiện trong lịch sử bên dưới. Với đơn cũ, liên hệ GAERU và cung cấp mã đơn để được hỗ trợ.</p>
-              <button class="secondary-button" type="button" data-account-logout>Đăng xuất</button>
+              <div class="account-profile-footer"><p>Thông tin của bạn được dùng để liên hệ và giao hàng.</p><button class="secondary-button" type="button" data-account-logout>Đăng xuất</button></div>
+              </div>
             </div>
             <p class="account-feedback" data-account-feedback role="status" aria-live="polite"></p>
           </section>
 
           <div class="account-shortcuts">
-            <a href="care.html">Thông tin bảo hành <span aria-hidden="true">›</span></a>
+            <a href="care.html">GAERU CARE+ · Quản lý bảo hành <span aria-hidden="true">›</span></a>
             <a href="privacy.html">Chính sách dữ liệu <span aria-hidden="true">›</span></a>
           </div>
         </div>

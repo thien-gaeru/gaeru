@@ -9,7 +9,25 @@ function setAccountFeedback(message, isError = false) {
   accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
 }
 
+function setAccountPresentation(customer) {
+  document.querySelector('.account-layout')?.classList.toggle('is-authenticated', Boolean(customer));
+  const navigation = document.querySelector('[data-account-navigation]');
+  if (navigation) navigation.hidden = !customer;
+  const heading = document.querySelector('[data-account-heading]');
+  if (heading) heading.hidden = Boolean(customer);
+  const intro = document.querySelector('[data-account-intro]');
+  if (intro) intro.textContent = customer
+    ? 'Thông tin, đơn hàng và bảo hành. Tất cả ở một nơi.'
+    : 'Sử dụng email hoặc số điện thoại và mật khẩu để tiếp tục mua sắm và quản lý thông tin tài khoản.';
+  const badge = document.querySelector('[data-customer-verification-status]');
+  if (badge) {
+    badge.textContent = customer?.emailVerified ? 'Đã xác minh email' : 'Chưa xác minh email';
+    badge.classList.toggle('is-verified', Boolean(customer?.emailVerified));
+  }
+}
+
 function activateAccountPanel(panelName) {
+  setAccountPresentation(null);
   const profile = document.querySelector("[data-account-profile]");
   profile.hidden = true;
   accountPanels.forEach((panel) => {
@@ -49,6 +67,7 @@ async function accountRequest(url, body) {
 function showCustomerProfile(customer, publish = true) {
   document.querySelector('[data-address-book]')?.remove();
   currentCustomer = customer;
+  setAccountPresentation(customer);
   accountPanels.forEach((panel) => { panel.hidden = true; });
   const profile = document.querySelector("[data-account-profile]");
   profile.hidden = false;
@@ -61,7 +80,7 @@ function showCustomerProfile(customer, publish = true) {
   if (publish) window.GAERUCustomerSession?.set(customer);
 }
 
-document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
+document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;setAccountPresentation(customer);const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
 
 async function initializeCustomerAccount() {
   let authenticated = false;
