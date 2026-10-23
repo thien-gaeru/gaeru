@@ -79,7 +79,7 @@ async function initialize() {
     const csrf = await request("/api/csrf");
     state.csrfToken = csrf.csrfToken;
     const session = await request("/api/auth/me");
-    if (session.authenticated) await showAdmin(session);
+    if (session.authenticated&&!new URLSearchParams(location.search).has("securityReset")) await showAdmin(session);
     else document.querySelector("#login-panel").hidden = false;
   } catch (error) {
     document.querySelector("#login-panel").hidden = false;
@@ -691,11 +691,13 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
   submitButton.disabled = true;
   feedback.textContent = "";
   try {
-    const result = await request("/api/auth/login", {
+    let result = await request("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: form.elements.username.value, password: form.elements.password.value })
     });
     state.csrfToken = result.csrfToken;
+    if(result.mfaRequired)result=await window.GAERUSecurity.loginChallenge(result);
+    state.csrfToken=result.csrfToken;
     form.reset();
     await showAdmin(result);
   } catch (error) {
@@ -729,6 +731,7 @@ async function activateView(view) {
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
     if (button.dataset.view === "overview") await loadSummary();
+    if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
     if (view === "news" && window.GAERUNewsAdmin) await window.GAERUNewsAdmin.load();
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();
     if (view === "owner" && window.GAERUOwner) await window.GAERUOwner.load();
@@ -925,5 +928,5 @@ document.querySelector(".sidebar-toggle").addEventListener("click", (event) => {
   const open = document.querySelector(".sidebar").classList.toggle("navigation-open");
   event.currentTarget.setAttribute("aria-expanded", String(open));
 });
-window.GAERUAdmin = Object.freeze({ request, can, showGlobal, activateView, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ request, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
 initialize();

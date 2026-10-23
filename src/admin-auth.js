@@ -50,12 +50,13 @@ function createAdminAuthRouter(config, pool) {
 
       let principal = null;
       let identity;
+      const effectiveConfig=config.accountSecurity?await config.accountSecurity.ownerConfig():config;
       const reservedUsername = parsed.data.username.toLowerCase() === config.ADMIN_USERNAME.toLowerCase();
       if (reservedUsername) {
-        const passwordMatches = await bcrypt.compare(parsed.data.password, config.ADMIN_PASSWORD_HASH);
+        const passwordMatches = await bcrypt.compare(parsed.data.password, effectiveConfig.ADMIN_PASSWORD_HASH);
         if (parsed.data.username === config.ADMIN_USERNAME && passwordMatches && Buffer.byteLength(parsed.data.password, "utf8") <= 72) {
-          principal = bootstrapPrincipal(config);
-          identity = { source: "bootstrap", username: config.ADMIN_USERNAME, credentialVersion: bootstrapCredentialVersion(config) };
+          principal = bootstrapPrincipal(effectiveConfig);
+          identity = { source: "bootstrap", username: config.ADMIN_USERNAME, credentialVersion: bootstrapCredentialVersion(effectiveConfig) };
         }
       } else {
         const result = pool ? await pool.query(
@@ -73,13 +74,17 @@ function createAdminAuthRouter(config, pool) {
         return res.status(401).json({ error: "Tên đăng nhập hoặc mật khẩu không đúng." });
       }
 
+      const securityKey=identity.source==="bootstrap"?"owner":"staff:"+identity.id;
+      if(config.accountSecurity&&await config.accountSecurity.beginLogin(req,res,securityKey,parsed.data.password))return;
       if (pool) await appendAudit(pool, { actor: principal, action: "auth.login", entityType: "staff", entityId: principal.id || principal.username });
       await regenerateSession(req);
       req.session.admin = identity;
+      if(config.accountSecurity)await config.accountSecurity.stamp(req,securityKey);
       req.session.csrfToken = require("node:crypto").randomBytes(32).toString("hex");
       await saveSession(req);
       res.json({ ...publicIdentity(principal), csrfToken: req.session.csrfToken });
     } catch (error) {
+      if(error.status)return res.status(error.status).json({error:error.message});
       next(error);
     }
   });

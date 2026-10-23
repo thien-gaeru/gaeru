@@ -1,3 +1,4 @@
+const {createAccountSecurity}=require("./account-security");
 const {createNewsPublicApi,createNewsAdminApi}=require("./news-api");
 const path = require("node:path");
 const express = require("express");
@@ -25,6 +26,7 @@ const { createBusinessApi } = require("./business-api");
 function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
+  config={...config,accountSecurity:createAccountSecurity(pool,config,customerMailer)};
 
   app.disable("x-powered-by");
   app.set("trust proxy", config.NODE_ENV === "production" ? 1 : false);
@@ -61,6 +63,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     }
   }));
 
+  app.use(config.accountSecurity.sessionGuard);
+  app.use("/api/account-security",config.accountSecurity.router);
   app.get("/api/health", async (_req, res, next) => {
     try {
       await pool.query("SELECT 1");
@@ -85,6 +89,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
   app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
+    accountSecurity:config.accountSecurity,
     smtpConfig: config.smtp,
     mailer: customerMailer
   }));
