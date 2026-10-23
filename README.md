@@ -106,6 +106,14 @@ Logo thương hiệu dùng chung: `assets/brand/gaeru-logo.png`, chuyển địn
 
 ## GAERU CARE+
 
+### Kích hoạt bảo hành
+
+Khách đăng nhập đăng ký từng sản phẩm trong đơn thuộc tài khoản qua trang CARE+, có thể khai báo serial nếu sản phẩm có serial. Hồ sơ ban đầu chờ đối chiếu. Tổng số hồ sơ chờ/đã kích hoạt/đã thu hồi không vượt số lượng mua; serial đang chờ/đã kích hoạt/đã thu hồi không được sử dụng lần nữa. Hồ sơ bị từ chối được lưu để đối chiếu và cho phép đăng ký lại sau khi sửa thông tin. Thử lại cùng mã yêu cầu và nội dung trả cùng hồ sơ, không tạo trùng.
+
+Quản trị có mục **Kích hoạt bảo hành**. Chủ, quản trị viên và quản lý có quyền `warranty.approve`; nhân viên kinh doanh/kho không tự duyệt. Chỉ xác nhận trên đơn đã hoàn tất và thanh toán, nhập ngày mua được đối chiếu (không trước ngày tạo đơn hoặc sau hôm nay) và lý do. Thời hạn 12 tháng lịch tính từ ngày mua, ngày 29/2 được chốt về 28/2 ở năm không nhuận. Ngày kết thúc được hiểu là mốc hết hiệu lực, đối chiếu ngày theo múi giờ Việt Nam. Không kích hoạt lại hoặc đổi ngày để kéo dài hồ sơ đã duyệt. Thu hồi cần lý do và lưu nhật ký; không hoàn tiền hoặc tự đồng bộ đổi trả. Hồ sơ và phản hồi chỉ hiển thị cho chủ sở hữu. Chưa có quét QR/serial nhà sản xuất hoặc xác minh serial từ bên thứ ba; nhân viên phải đối chiếu trước khi duyệt. Đơn mua qua kênh khác được hướng dẫn liên hệ trực tiếp.
+
+Migration bổ sung: `warranty.sql`, chạy bằng `npm run db:migrate` trước khi sử dụng. Mở lại bản cục bộ bằng công cụ khởi động sẽ áp dụng migration; chưa cập nhật dữ liệu hoặc triển khai hosting trong lần thay đổi này.
+
 `care.html` là trang hỗ trợ sau mua riêng; menu, footer và liên kết tài khoản trỏ về trang này. Giữ nguyên chính sách đã công bố ở `delivery-returns.html`; không tự xác nhận quyền lợi bảo hành. Khách đăng nhập chọn đơn thuộc tài khoản, gửi yêu cầu và theo dõi trạng thái/phản hồi. Đơn mua ngoài tài khoản được hướng dẫn liên hệ trực tiếp, không tra cứu công khai bằng email hoặc số điện thoại. API chống gửi lặp theo mã yêu cầu, giới hạn 10 yêu cầu mới/24 giờ/tài khoản. Quản trị có mục GAERU CARE+: quyền `orders.read` để xem và `orders.write` để phản hồi. Cập nhật kiểm tra phiên bản, ghi nhật ký cùng giao dịch; yêu cầu đã đóng không chỉnh sửa. Phản hồi hiện là phản hồi mới nhất, chưa có hội thoại, đính kèm hoặc thông báo email tự động.
 
 Chạy `npm run db:migrate` để áp dụng `care.sql` trên môi trường kiểm thử trước khi triển khai. Việc xem tệp HTML trực tiếp chỉ hiển thị nội dung tĩnh; đăng nhập, gửi yêu cầu và quản trị cần máy chủ Node.js/PostgreSQL của dự án. Chưa thực hiện migration hoặc triển khai production.

@@ -10,7 +10,7 @@ async function migrateDatabase(pool) {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
     await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
-    for (const file of ["schema.sql", "access.sql", "operations.sql", "finance.sql", "customer-experience.sql", "care.sql"]) {
+    for (const file of ["schema.sql", "access.sql", "operations.sql", "finance.sql", "customer-experience.sql", "care.sql", "warranty.sql"]) {
       const applied = await client.query("SELECT name FROM schema_migrations WHERE name=$1", [file]);
       if (applied.rows.length) continue;
       const schema = await fs.readFile(path.join(__dirname, "..", "db", file), "utf8");
