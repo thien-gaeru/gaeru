@@ -17,6 +17,8 @@ const schema = z.object({
   VNPAY_TMN_CODE: z.string().trim().regex(/^[A-Za-z0-9]{8}$/).optional(),
   VNPAY_HASH_SECRET: z.string().min(1).optional(),
   VNPAY_PAYMENT_URL: z.string().url().refine((value) => /^https:\/\//i.test(value), "Must use HTTPS").optional(),
+  OPENAI_API_KEY: z.string().trim().min(1).optional(),
+  OPENAI_NEWS_MODEL: z.string().trim().regex(/^[a-zA-Z0-9._-]{1,100}$/).default('gpt-4.1-mini'),
   SMTP_HOST: z.string().trim().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   SMTP_SECURE: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
