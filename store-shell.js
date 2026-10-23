@@ -3,16 +3,19 @@ const footerRoot = document.querySelector("#site-footer");
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
-window.GAERUEmptyCartMarkup = `
+const anonymousEmptyCartMarkup = `
   <div class="mini-cart-empty">
-    <p class="cart-signin-message"><a href="account.html">Đăng nhập</a> xem bạn có sản phẩm trong giỏ hàng không</p>
+    <p class="cart-signin-message"><a href="account.html">Đăng nhập</a> để xem tài khoản và đơn hàng của bạn.</p>
     <nav class="cart-profile-links" aria-label="Hồ sơ của tôi">
       <h3>Hồ Sơ Của Tôi</h3>
-      <a href="support.html#contact"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.3l8 4.5"/></svg><span>Đơn hàng</span></a>
+      <a href="account.html#customer-orders"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.3l8 4.5"/></svg><span>Đơn hàng</span></a>
       <a href="shop.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4v-17Z"/></svg><span>Mục Đã Lưu</span></a>
       <a href="account.html#register"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6.8 18a5.7 5.7 0 0 1 10.4 0"/></svg><span>Tạo tài khoản</span></a>
     </nav>
   </div>`;
+
+Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU CARE+ & bảo hành</a></nav></div>`;}});
+document.addEventListener('gaeru:customer-updated',()=>{const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
 
 if (headerRoot) {
   headerRoot.innerHTML = `

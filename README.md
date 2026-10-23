@@ -94,6 +94,8 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
+Trạng thái khách hàng được đồng bộ qua `customer-session.js`: túi hàng hiển thị tên và liên kết tài khoản sau đăng nhập, bỏ lời mời đăng ký, trở về trạng thái khách khi đăng xuất. Đồng bộ khi mở túi, chuyển về tab và giữa các tab bằng tín hiệu thay đổi phiên; mỗi tab tự xác nhận lại từ máy chủ. Không lưu mật khẩu, cookie hoặc token trong localStorage/BroadcastChannel. Yêu cầu ghi dữ liệu lấy CSRF mới để tránh dùng token cũ sau khi phiên được thay đổi ở tab khác. Giỏ hàng hiện vẫn lưu cục bộ theo trình duyệt, chưa đồng bộ giỏ hàng giữa các thiết bị. Kiểm thử đăng nhập bằng URL HTTP/HTTPS của ứng dụng; mở HTML qua `file://` không chạy được API tài khoản.
+
 ## Quản trị tối cao và bản chạy cục bộ
 
 Tài khoản chủ (`owner`, nguồn `bootstrap`) có mục **Quản trị tối cao**: xem nhân viên/đơn/CARE+ đang xử lý, trạng thái cấu hình hệ thống và thu hồi toàn bộ phiên nhân viên có xác nhận. Quản trị viên thường không truy cập được API này. Không thể cấp vai trò chủ hoặc khóa tài khoản chủ qua API nhân viên. Thu hồi phiên không khóa tài khoản nhân viên; họ có thể đăng nhập lại. Việc đổi tên/mật khẩu chủ làm phiên cũ hết hiệu lực sau khi cấu hình mới được ứng dụng nạp lại.

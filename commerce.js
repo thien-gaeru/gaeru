@@ -21,6 +21,7 @@ function searchProducts(query) {
 }
 
 async function apiRequest(url, options = {}) {
+  if (options.method && options.method !== "GET") csrfToken = (await apiRequest("/api/csrf")).csrfToken;
   const headers = new Headers(options.headers || {});
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (options.method && options.method !== "GET") headers.set("X-CSRF-Token", csrfToken);
