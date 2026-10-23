@@ -19,6 +19,9 @@ function activateAccountPanel(panelName) {
 }
 
 async function accountRequest(url, body) {
+  const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store'});
+  if (!freshCsrf.ok) throw new Error('Không thể khởi tạo phiên. Hãy thử lại.');
+  accountCsrfToken = (await freshCsrf.json()).csrfToken;
   const response = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
@@ -33,7 +36,7 @@ async function accountRequest(url, body) {
   return result;
 }
 
-function showCustomerProfile(customer) {
+function showCustomerProfile(customer, publish = true) {
   document.querySelector('[data-address-book]')?.remove();
   currentCustomer = customer;
   accountPanels.forEach((panel) => { panel.hidden = true; });
@@ -44,7 +47,10 @@ function showCustomerProfile(customer) {
   profile.querySelector("[data-customer-phone]").textContent = customer.phone;
   profile.querySelector("[data-email-verification-notice]").hidden = customer.emailVerified;
   setAccountFeedback("");
+  if (publish) window.GAERUCustomerSession?.set(customer);
 }
+
+document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
 
 async function initializeCustomerAccount() {
   let authenticated = false;
@@ -182,6 +188,9 @@ document.querySelector("[data-account-logout]")?.addEventListener("click", async
     const result = await accountRequest("/api/customer-auth/logout", {});
     if (result.csrfToken) accountCsrfToken = result.csrfToken;
     activateAccountPanel("login");
+    currentCustomer = null;
+    document.querySelector('[data-address-book]')?.remove();
+    window.GAERUCustomerSession?.set(null);
     setAccountFeedback("Bạn đã đăng xuất.");
   } catch (error) {
     setAccountFeedback(error.message, true);
