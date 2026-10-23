@@ -29,7 +29,11 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.equal(homepage.headers.get("x-powered-by"), null);
   const accountPage = await fetch(`${baseUrl}/account.html`);
   assert.equal(accountPage.status, 200);
+  assert.equal(accountPage.headers.get('cache-control'), 'no-store');
+  const accountScript = await fetch(`${baseUrl}/account.js?v=20261023-verification-2`);
+  assert.equal(accountScript.headers.get('cache-control'), 'no-store');
   const accountMarkup = await accountPage.text();
+  assert.match(accountMarkup, /account\.js\?v=20261023-verification-2/);
   assert.match(accountMarkup, /Tài khoản khách hàng/);
   assert.match(accountMarkup, /href="#register" data-account-show-register/);
   assert.doesNotMatch(accountMarkup, /data-account-tab="register"/);
