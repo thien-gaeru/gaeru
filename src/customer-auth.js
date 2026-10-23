@@ -58,7 +58,7 @@ function createMailer(smtpConfig) {
   });
 }
 
-function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig) } = {}) {
+function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig), accountSecurity } = {}) {
   const router = Router();
   const authLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -118,8 +118,10 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       if (!customer || !passwordMatches) return res.status(401).json({ error: "Email/số điện thoại hoặc mật khẩu không đúng. Nếu số điện thoại dùng chung nhiều tài khoản, vui lòng đăng nhập bằng email." });
       if (customer.active === false) return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
 
-      startCustomerSession(req, res, next, customer);
+      if(accountSecurity&&await accountSecurity.beginLogin(req,res,"customer:"+customer.id,parsed.data.password))return;
+      startCustomerSession(req, res, next, customer,accountSecurity);
     } catch (error) {
+      if(error.status)return res.status(error.status).json({error:error.message});
       next(error);
     }
   });
@@ -237,6 +239,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
           [resetToken.customerId, passwordHash]
         );
         if (updateResult.rowCount !== 1) return false;
+        if(accountSecurity){await client.query("INSERT INTO account_security(account_key) VALUES($1) ON CONFLICT DO NOTHING",["customer:"+resetToken.customerId]);await client.query("UPDATE account_security SET version=version+1 WHERE account_key=$1",["customer:"+resetToken.customerId]);}
         await client.query(
           "UPDATE customer_password_reset_tokens SET used_at = now() WHERE id = $1",
           [resetToken.id]
@@ -381,8 +384,8 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function startCustomerSession(req, res, next, customer) {
-  req.session.regenerate((error) => {
+function startCustomerSession(req, res, next, customer,accountSecurity) {
+  req.session.regenerate(async(error) => {
     if (error) return next(error);
     req.session.customer = {
       id: customer.id,
@@ -391,6 +394,7 @@ function startCustomerSession(req, res, next, customer) {
       phone: customer.phone,
       emailVerified: Boolean(customer.emailVerified)
     };
+    if(accountSecurity){try{await accountSecurity.stamp(req,"customer:"+customer.id);}catch(e){return next(e);}}
     req.session.csrfToken = randomBytes(32).toString("hex");
     req.session.save((saveError) => {
       if (saveError) return next(saveError);

@@ -32,7 +32,7 @@ function publicRoles() {
 }
 
 function bootstrapCredentialVersion(config) {
-  return createHash("sha256").update(`${config.ADMIN_USERNAME}\0${config.ADMIN_PASSWORD_HASH}`).digest("hex");
+  return createHash("sha256").update(`${config.ADMIN_USERNAME}\0${config.ADMIN_PASSWORD_HASH}${config.ADMIN_SECURITY_VERSION===undefined?"":"\0"+config.ADMIN_SECURITY_VERSION}`).digest("hex");
 }
 
 function principalFromStaff(row) {
@@ -51,6 +51,7 @@ function bootstrapPrincipal(config) {
 }
 
 async function resolveAdminSession(req, pool, config) {
+  if(config.accountSecurity)config={...await config.accountSecurity.ownerConfig(),accountSecurity:config.accountSecurity};
   const identity = req.session?.admin;
   if (!identity) return null;
   let principal = null;

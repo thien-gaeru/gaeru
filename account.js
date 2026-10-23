@@ -74,6 +74,7 @@ async function accountRequest(url, body) {
 function showCustomerProfile(customer, publish = true) {
   finishAccountLoading();
   document.querySelector('[data-address-book]')?.remove();
+  document.querySelector('[data-security-panel]')?.remove();
   currentCustomer = customer;
   setAccountPresentation(customer);
   accountPanels.forEach((panel) => { panel.hidden = true; });
@@ -178,7 +179,8 @@ document.querySelector('[data-account-form="login"]')?.addEventListener("submit"
   const form = event.currentTarget;
   const values = Object.fromEntries(new FormData(form));
   try {
-    const result = await accountRequest("/api/customer-auth/login", values);
+    let result = await accountRequest("/api/customer-auth/login", values);
+    if(result.mfaRequired)result=await window.GAERUSecurity.loginChallenge(result);
     accountCsrfToken = result.csrfToken;
     showCustomerProfile(result.customer);
     await confirmContactChangeFromUrl();

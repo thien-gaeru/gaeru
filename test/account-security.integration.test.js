@@ -1,0 +1,57 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const {PGlite}=require('@electric-sql/pglite');
+const bcrypt=require('bcryptjs');
+const session=require('express-session');
+const {createApp}=require('../src/app');
+const {migrateDatabase}=require('../src/migrate');
+const {totp}=require('../src/totp');
+test('owner credentials and recovery, email and app MFA, backup codes and session revocation integrate',{timeout:60000},async t=>{
+ const db=await PGlite.create();let queue=Promise.resolve();async function lock(){const previous=queue;let release;queue=new Promise(r=>release=r);await previous;return release;}
+ async function query(sql,values){const r=!values&&sql.includes(';')?(await db.exec(sql)).at(-1):await db.query(sql,values);return {...r,rows:r?.rows||[],rowCount:r?.affectedRows??r?.rows?.length??0};}
+ const pool={async query(sql,values){const release=await lock();try{return await query(sql,values);}finally{release();}},async connect(){const release=await lock();return {query,release};}};
+ await migrateDatabase(pool);const password='Security-test-2026',newPassword='Security-new-password-2026',messages=[];
+ const app=createApp({pool,sessionStore:new session.MemoryStore(),config:{NODE_ENV:'test',SESSION_SECRET:'security-fixture-key-at-least-32-chars',ADMIN_USERNAME:'owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync(password,4),smtp:{from:'sender@example.invalid',publicBaseUrl:'https://gaeru.example'}},customerMailer:{async sendMail(m){messages.push(m);}}});
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await db.close();});const base=`http://127.0.0.1:${server.address().port}`;
+ function client(){let cookie='',csrf='';const api={async request(path,method='GET',body){const r=await fetch(base+path,{method,headers:{Cookie:cookie,'X-CSRF-Token':csrf,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=await r.json();if(data.csrfToken)csrf=data.csrfToken;return {status:r.status,data};},async ok(path,method='GET',body,status=200){const r=await api.request(path,method,body);assert.equal(r.status,status,path+': '+JSON.stringify(r.data));return r.data;},async login(username,pw=password){await api.ok('/api/csrf');return api.ok('/api/auth/login','POST',{username,password:pw});},async security(path,body,status=200){return api.ok('/api/account-security'+path,body?'POST':'GET',body,status);}};return api;}
+ const code=()=>messages.at(-1).text.match(/Mã xác thực GAERU: (\d{6})/)[1];
+ const owner=client(),oldSession=client();await owner.login('owner');await oldSession.login('owner');
+ let challenge=await owner.security('/contacts/request',{password,email:'owner@example.invalid',phone:'0900000000'});
+ assert.equal((await owner.security('/settings')).email,'');
+ await owner.security('/contacts/confirm',{challengeId:challenge.challengeId,code:'wrong'},400);
+ await owner.security('/contacts/confirm',{challengeId:challenge.challengeId,code:code()});
+ assert.equal((await oldSession.request('/api/admin/owner')).status,401);
+ assert.equal((await owner.security('/settings')).email,'owner@example.invalid');
+ let setup=await owner.security('/setup',{password,method:'email'});assert.equal((await owner.security('/settings')).method,'off');
+ const enabled=await owner.security('/confirm',{method:'email',challengeId:setup.challengeId,code:code()});assert.equal(enabled.recoveryCodes.length,8);
+ const second=client();const pending=await second.login('owner');assert.equal(pending.mfaRequired,true);assert.equal(pending.method,'email');
+ assert.equal((await second.request('/api/admin/owner')).status,401);
+ await second.security('/login/complete',{code:'000000'},403);await second.security('/login/complete',{code:code()});
+ await second.security('/login/complete',{code:code()},401);
+ const authorized=await second.security('/authorize',{password});await second.security('/password',{password,newPassword,factorChallengeId:authorized.challengeId,factorCode:code()});
+ assert.equal((await owner.request('/api/admin/owner')).status,401);
+ const denied=client();await denied.ok('/api/csrf');assert.equal((await denied.request('/api/auth/login','POST',{username:'owner',password})).status,401);
+ const guest=client();await guest.ok('/api/csrf');await guest.security('/recover/request',{email:'owner@example.invalid',phone:'0900000000'});
+ const link=new URL(messages.at(-1).text.match(/https:\/\/\S+/)[0]);assert.match(messages.at(-1).text,/Tên đăng nhập quản trị GAERU của bạn: owner/);
+ const reset={id:link.searchParams.get('securityReset'),token:link.searchParams.get('token'),newPassword:password};await guest.security('/recover/complete',reset,400);
+ const recoveryCode=await guest.security('/recover/code',reset);await guest.security('/recover/complete',{...reset,factorChallengeId:recoveryCode.challengeId,factorCode:code()});await guest.security('/recover/complete',reset,400);
+ assert.equal((await second.request('/api/admin/owner')).status,401);
+ // A verified customer can use an authenticator app, never exposing its secret in storage.
+ const customerId=(await pool.query("INSERT INTO customers(full_name,email,phone,password_hash,email_verified_at) VALUES($1,$2,$3,$4,now()) RETURNING id",['Fixture Customer','customer@example.invalid','0900000001',bcrypt.hashSync(password,4)])).rows[0].id;
+ const customer=client();await customer.ok('/api/csrf');await customer.ok('/api/customer-auth/login','POST',{email:'customer@example.invalid',password});
+ setup=await customer.security('/setup',{password,method:'app'});assert.equal((await customer.security('/settings')).method,'off');
+ const counter=Math.floor(Date.now()/30000);const appCodes=await customer.security('/confirm',{method:'app',setupId:setup.setupId,code:totp(setup.secret,counter)});assert.equal(appCodes.recoveryCodes.length,8);
+ const stored=(await pool.query('SELECT * FROM account_security WHERE account_key=$1',['customer:'+customerId])).rows[0];assert.notEqual(stored.encrypted_secret,setup.secret);assert.ok(!JSON.stringify(stored).includes(appCodes.recoveryCodes[0]));
+ const login=client();await login.ok('/api/csrf');const appPending=await login.ok('/api/customer-auth/login','POST',{email:'customer@example.invalid',password});assert.equal(appPending.mfaRequired,true);assert.equal(appPending.method,'app');
+ assert.equal((await login.request('/api/customer-auth/me')).data.authenticated,false);
+ await login.security('/login/complete',{code:totp(setup.secret,counter)},403); // Enrollment code cannot be replayed.
+ await login.security('/login/complete',{code:appCodes.recoveryCodes[0]});
+ await login.security('/disable',{password,factorCode:appCodes.recoveryCodes[0]},403); // Backup code used once.
+ await login.security('/disable',{password,factorCode:appCodes.recoveryCodes[1]});assert.equal((await login.security('/settings')).method,'off');
+ assert.equal((await customer.request('/api/customer-auth/me')).data.authenticated,false);
+ // Staff accounts share the same optional MFA controls; no owner privilege required.
+ await pool.query('INSERT INTO staff_accounts(username,full_name,password_hash,role) VALUES($1,$2,$3,$4)',['staff-fixture','Staff Fixture',bcrypt.hashSync(password,4),'viewer']);
+ const staff=client();await staff.login('staff-fixture');challenge=await staff.security('/contacts/request',{password,email:'staff@example.invalid',phone:'0900000002'});await staff.security('/contacts/confirm',{challengeId:challenge.challengeId,code:code()});setup=await staff.security('/setup',{password,method:'email'});await staff.security('/confirm',{method:'email',challengeId:setup.challengeId,code:code()});
+ const staffLogin=client();assert.equal((await staffLogin.login('staff-fixture')).mfaRequired,true);await staffLogin.security('/login/complete',{code:code()});assert.equal((await staffLogin.ok('/api/auth/me')).role,'viewer');
+});
+

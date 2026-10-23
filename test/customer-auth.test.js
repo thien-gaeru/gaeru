@@ -21,9 +21,13 @@ const baseConfig = {
 };
 
 async function startApp(context, { pool, smtp, mailer } = {}) {
+  // These legacy fixtures represent accounts without configured MFA.
+  const adaptedPool=Object.create(pool);
+  adaptedPool.query=(sql,...args)=>sql.includes("account_security")?Promise.resolve({rows:[],rowCount:0}):pool.query(sql,...args);
+  if(pool.connect)adaptedPool.connect=async()=>{const client=await pool.connect();return {...client,query:(sql,...args)=>sql.includes("account_security")?Promise.resolve({rows:[],rowCount:0}):client.query(sql,...args)};};
   const app = createApp({
     config: { ...baseConfig, smtp },
-    pool,
+    pool:adaptedPool,
     sessionStore: new session.MemoryStore(),
     customerMailer: mailer
   });
