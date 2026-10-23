@@ -12,6 +12,17 @@ Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL; kh
 - Khách hàng có thể đăng ký/đăng nhập bằng email và mật khẩu, lưu số điện thoại liên hệ; tài khoản chưa xác minh vẫn đăng nhập và mua hàng bình thường. Trong tài khoản, khách có thể yêu cầu gửi email xác minh với liên kết dùng một lần (hiệu lực 30 phút); trạng thái chưa xác minh biến mất sau khi xác nhận. Khôi phục mật khẩu đối chiếu email và số điện thoại rồi gửi liên kết dùng một lần qua email (hiệu lực 30 phút).
 - Các ảnh sản phẩm ban đầu được lưu trong `assets/products/`. Catalog seed ở trạng thái nháp, không tự đặt giá hay tồn kho chưa được xác minh.
 
+## Quản trị sản phẩm và đơn hàng
+
+Mở `/admin/` và đăng nhập bằng tài khoản đã cấu hình trên máy chủ.
+
+- **Sản phẩm & kho:** tìm theo tên, slug hoặc SKU; kết hợp bộ lọc danh mục, hiển thị và tồn kho để tìm sản phẩm cần xử lý. Giá và tồn kho trên danh sách được tính từ các phiên bản đang bán.
+- **Thêm sản phẩm:** nhập thông tin và chọn ảnh PNG/JPEG/WebP tối đa 8 MB, lưu bản nháp, rồi thêm phiên bản với SKU, giá và tồn kho đã xác minh. Thuộc tính phiên bản được nhập theo từng cặp tên/giá trị. Sau khi có ít nhất một phiên bản đang bán, mở lại thông tin sản phẩm và bật hiển thị.
+- **Bảo toàn danh mục:** muốn ẩn hoặc xóa phiên bản đang bán cuối cùng, phải tạm ẩn sản phẩm trước. Phiên bản đã có trong đơn hàng được giữ lại để bảo toàn lịch sử; có thể tạm ẩn thay cho xóa.
+- **Đơn hàng:** kết hợp tìm kiếm, trạng thái xử lý, trạng thái thanh toán và phương thức thanh toán; mở chi tiết để xem liên hệ, địa chỉ, sản phẩm và tổng tiền. Phân trang giữ nguyên các bộ lọc đang chọn.
+- **Xử lý đơn:** giao diện chỉ cung cấp trạng thái hiện tại và các bước tiếp theo hợp lệ. COD chỉ được ghi nhận đã thu tiền khi hoàn tất giao hàng. Hủy đơn chưa thanh toán sẽ hoàn lại tồn kho một lần.
+- **Đối soát thanh toán:** trạng thái VNPAY/9Pay được cập nhật từ cổng thanh toán, không sửa thủ công. Bộ lọc 9Pay chỉ hỗ trợ tra cứu dữ liệu lịch sử; không bật tích hợp 9Pay mới. Đơn đã thanh toán không được chuyển về chưa thanh toán hoặc đổi phí giao hàng; cần xử lý hoàn tiền riêng trước khi hủy. Phí của phiên VNPAY đã tạo cũng được khóa.
+
 ## Yêu cầu
 
 - Node.js 20 trở lên.
