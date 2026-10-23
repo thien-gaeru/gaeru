@@ -14,6 +14,7 @@ const inventory = require("./inventory");
 const { appendAudit } = require("./audit");
 const { adminPolicy } = require("./admin-policy");
 const { createCustomerExperience } = require("./customer-experience");
+const { createCareCustomerApi, createCareAdminApi } = require("./care-api");
 
 function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
@@ -71,6 +72,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer", createCustomerExperience(pool));
+  app.use("/api/customer/care", createCareCustomerApi(pool));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     smtpConfig: config.smtp,
     mailer: customerMailer
@@ -79,6 +81,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/admin", createStaffApi(pool, config));
   app.use("/api/admin", createOperationsApi(pool));
   app.use("/api/admin", createFinanceApi(pool));
+  app.use("/api/admin", createCareAdminApi(pool));
   app.use("/api", createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     vnpayConfig: config.vnpay || null,

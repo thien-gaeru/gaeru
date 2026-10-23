@@ -94,6 +94,12 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
+## GAERU CARE+
+
+`care.html` là trang hỗ trợ sau mua riêng; menu, footer và liên kết tài khoản trỏ về trang này. Giữ nguyên chính sách đã công bố ở `delivery-returns.html`; không tự xác nhận quyền lợi bảo hành. Khách đăng nhập chọn đơn thuộc tài khoản, gửi yêu cầu và theo dõi trạng thái/phản hồi. Đơn mua ngoài tài khoản được hướng dẫn liên hệ trực tiếp, không tra cứu công khai bằng email hoặc số điện thoại. API chống gửi lặp theo mã yêu cầu, giới hạn 10 yêu cầu mới/24 giờ/tài khoản. Quản trị có mục GAERU CARE+: quyền `orders.read` để xem và `orders.write` để phản hồi. Cập nhật kiểm tra phiên bản, ghi nhật ký cùng giao dịch; yêu cầu đã đóng không chỉnh sửa. Phản hồi hiện là phản hồi mới nhất, chưa có hội thoại, đính kèm hoặc thông báo email tự động.
+
+Chạy `npm run db:migrate` để áp dụng `care.sql` trên môi trường kiểm thử trước khi triển khai. Việc xem tệp HTML trực tiếp chỉ hiển thị nội dung tĩnh; đăng nhập, gửi yêu cầu và quản trị cần máy chủ Node.js/PostgreSQL của dự án. Chưa thực hiện migration hoặc triển khai production.
+
 Trang `shop.html` dùng bố cục cửa hàng mới: tiêu đề lớn, danh mục hình ảnh cuộn ngang, tìm kiếm theo sản phẩm/phiên bản/SKU, thẻ sản phẩm cuộn ngang và các khối hỗ trợ mua hàng. `shop-store.css` chỉ áp dụng trong `.shop-page`. Sản phẩm, giá và phiên bản vẫn lấy từ API; không thêm giá hoặc huy hiệu sản phẩm mới giả. Điều hướng bằng bàn phím và tùy chọn giảm chuyển động được hỗ trợ. Dùng hình ảnh GAERU có sẵn.
 
 Trang tài khoản hỗ trợ cập nhật họ tên/số điện thoại, sửa địa chỉ đã lưu, xem chi tiết từng đơn gồm sản phẩm, số lượng, địa chỉ nhận và các khoản tiền. Các API luôn đối chiếu chủ sở hữu; thay đổi hồ sơ không sửa email, trạng thái xác minh hoặc địa chỉ trên đơn cũ. Khi sửa địa chỉ mặc định, địa chỉ đó vẫn là mặc định cho đến khi chọn địa chỉ khác. Khách chỉ xem được đơn đã gắn với tài khoản của mình.

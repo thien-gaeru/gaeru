@@ -3,6 +3,7 @@ const { requirePermission } = require("./staff-access");
 function adminPolicy(req, res, next) {
   const path = req.path.toLowerCase().replace(/\/$/, "");
   const read = req.method === "GET";
+  if (/^\/care-requests(\/|$)/.test(path)) return next();
   let permission;
   if (path === "/summary") permission = "dashboard.read";
   else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
