@@ -162,6 +162,22 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal(report.summary.supplierPaidVnd, 200000);
     assert.equal(report.summary.expensesVnd, 10000);
   });
+  await context.test("customer login accepts email and Vietnamese phone formats without ambiguous account selection", async () => {
+    const api=client(), password='Customer-phone-password-2026';
+    const hash=await bcrypt.hash(password,4);
+    await pool.query('INSERT INTO customers(full_name,email,phone,password_hash) VALUES($1,$2,$3,$4)', ['Phone Customer','phone-login@example.test','+84987654321',hash]);
+    await api.ok('/api/csrf');
+    for(const identifier of [' PHONE-LOGIN@example.test ','0987 654 321','+84 987 654 321']) {
+      const login=await api.ok('/api/customer-auth/login','POST',{identifier,password});
+      assert.equal(login.customer.email,'phone-login@example.test');
+      assert.equal((await api.ok('/api/customer-auth/me')).customer.id,login.customer.id);
+    }
+    assert.equal((await api.request('/api/customer-auth/login','POST',{identifier:'0987654321',password:'wrong'})).status,401);
+    assert.equal((await api.request('/api/customer-auth/login','POST',{identifier:'not-an-account',password})).status,400);
+    await pool.query('INSERT INTO customers(full_name,email,phone,password_hash) VALUES($1,$2,$3,$4)', ['Other Customer','shared-phone@example.test','0987654321',hash]);
+    assert.equal((await api.request('/api/customer-auth/login','POST',{identifier:'0987654321',password})).status,401);
+    await api.ok('/api/customer-auth/login','POST',{email:'phone-login@example.test',password});
+  });
   await context.test("customer address book isolates owners and keeps one default", async () => {
     const first=client(), second=client();
     for(const [api,email] of [[first,'first@example.test'],[second,'second@example.test']]) {
