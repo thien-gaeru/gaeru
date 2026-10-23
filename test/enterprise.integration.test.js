@@ -254,7 +254,17 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal((await first.request('/api/customer/care/'+care.id+'/messages?before=9999999999999999999')).status,400);
     const thread=(await owner.ok('/api/admin/care-requests/'+care.id+'/messages')).messages;
     assert.equal(thread.length,2);assert.equal(thread[1].sender,'customer');
+    const fresh=await first.ok('/api/customer/care/'+care.id+'/messages?after='+thread[0].id);
+    assert.equal(fresh.messages.length,1);assert.equal(fresh.messages[0].id,thread[1].id);assert.equal(fresh.thread.version,3);assert.equal(fresh.thread.canReply,true);
+    assert.equal((await first.ok('/api/customer/care/'+care.id+'/messages?after='+thread[1].id)).messages.length,0);
+    assert.equal((await second.request('/api/customer/care/'+care.id+'/messages?after='+thread[0].id)).status,404);
+    assert.equal((await first.request('/api/customer/care/'+care.id+'/messages?after='+thread[0].id+'&before='+thread[1].id)).status,400);
+    assert.equal((await first.request('/api/customer/care/'+care.id+'/messages?after=9999999999999999999')).status,400);
     assert.match(thread[1].body,/kết nối/);
+    await pool.query("INSERT INTO care_messages(care_id,sender,body) SELECT $1,'staff','Paging message '||i FROM generate_series(1,55) i",[care.id]);
+    const batch=await owner.ok('/api/admin/care-requests/'+care.id+'/messages?after='+thread[1].id);
+    assert.equal(batch.messages.length,50);assert.equal(batch.hasMore,true);assert.ok(BigInt(batch.messages[0].id)<BigInt(batch.messages[49].id));
+    const rest=await owner.ok('/api/admin/care-requests/'+care.id+'/messages?after='+batch.messages.at(-1).id);assert.equal(rest.messages.length,5);assert.equal(rest.hasMore,false);
     assert.equal((await first.request('/api/customer/care/'+care.id+'/messages?before=garbage')).status,400);
     await owner.ok('/api/admin/care-requests/'+care.id,'PATCH',{status:'closed',response:'Đã kết thúc yêu cầu theo phản hồi của khách.',version:3});
     assert.equal((await first.request('/api/customer/care/'+care.id+'/messages','POST',{body:'Cannot reply closed',version:4})).status,409);
