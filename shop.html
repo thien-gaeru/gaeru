@@ -7,32 +7,41 @@
     <meta name="description" content="Khám phá các thiết bị thu âm và ghi hình GAERU.">
     <title>Cửa hàng GAERU — Thiết bị sáng tạo</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="shop-store.css">
     <script src="store-shell.js" defer></script>
     <script src="commerce.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">Bỏ qua điều hướng</a>
     <div id="site-header"></div>
-    <main id="main" class="store-main">
-      <section class="page-intro">
-        <p class="eyebrow">Cửa hàng GAERU</p>
-        <h1>Thiết bị cho<br>mọi ý tưởng.</h1>
-        <p>Chọn công cụ phù hợp để ghi âm, quay video và kể câu chuyện của bạn.</p>
+    <main id="main" class="store-main shop-page">
+      <section class="store-welcome store-container">
+        <div><p class="eyebrow">TRỰC TIẾP TỪ GAERU</p><h1>Cửa hàng.<br><span>Ý tưởng của bạn.<br>Thiết bị của bạn.</span></h1></div>
+        <aside class="store-concierge" aria-label="Hỗ trợ mua hàng"><span class="concierge-icon" aria-hidden="true">G</span><div><strong>Cùng bạn chọn đúng thiết bị.</strong><a href="support.html">Nhận tư vấn từ GAERU <span aria-hidden="true">↗</span></a><a href="account.html">Tài khoản & đơn hàng <span aria-hidden="true">↗</span></a></div></aside>
       </section>
-      <section class="catalog section-wrap" aria-label="Danh mục sản phẩm">
-        <div class="catalog-toolbar">
-          <p id="catalog-count" aria-live="polite"></p>
-          <label class="visually-hidden" for="catalog-search">Tìm kiếm sản phẩm</label>
-          <input id="catalog-search" type="search" placeholder="Tìm sản phẩm">
+      <section class="catalog store-container" aria-labelledby="store-products-title">
+        <div class="store-categories" role="group" aria-label="Chọn danh mục sản phẩm">
+          <button class="store-category is-active" type="button" data-filter="all" aria-pressed="true"><span class="category-art" data-category-art="all"></span><span>Tất cả thiết bị</span></button>
+          <button class="store-category" type="button" data-filter="audio" aria-pressed="false"><span class="category-art" data-category-art="audio"></span><span>Thu âm</span></button>
+          <button class="store-category" type="button" data-filter="video" aria-pressed="false"><span class="category-art" data-category-art="video"></span><span>Ghi hình</span></button>
+          <button class="store-category" type="button" data-filter="accessory" aria-pressed="false"><span class="category-art" data-category-art="accessory"></span><span>Phụ kiện</span></button>
         </div>
-        <div class="filter-row" role="group" aria-label="Lọc sản phẩm">
-          <button class="filter-chip is-active" type="button" data-filter="all" aria-pressed="true">Tất cả</button>
-          <button class="filter-chip" type="button" data-filter="audio" aria-pressed="false">Thu âm</button>
-          <button class="filter-chip" type="button" data-filter="video" aria-pressed="false">Ghi hình</button>
-        </div>
-        <div class="catalog-grid" id="catalog-grid"></div>
+        <div class="store-section-heading"><h2 id="store-products-title">Khám phá thiết bị.<br><span>Một khởi đầu cho ý tưởng mới.</span></h2><label class="store-search"><span class="visually-hidden">Tìm kiếm sản phẩm</span><input id="catalog-search" type="search" placeholder="Tìm thiết bị, phiên bản, SKU" maxlength="120"></label></div>
+        <div class="store-rail-toolbar"><p id="catalog-count" aria-live="polite"></p><div><button type="button" data-store-scroll="-1" aria-label="Xem sản phẩm trước" aria-controls="catalog-grid">←</button><button type="button" data-store-scroll="1" aria-label="Xem sản phẩm tiếp theo" aria-controls="catalog-grid">→</button></div></div>
+        <div class="catalog-grid" id="catalog-grid" tabindex="0" aria-label="Danh sách sản phẩm, cuộn ngang để xem thêm"></div>
         <p class="empty-state" id="catalog-empty" hidden>Không tìm thấy sản phẩm phù hợp. Hãy thử từ khóa khác.</p>
-        <p class="prototype-note">Giá hiển thị là giá tham khảo từ GAERU.com; sản phẩm có thể có nhiều phiên bản với mức giá khác nhau.</p>
+        <p class="store-price-note">Giá có thể khác nhau theo phiên bản. Chọn sản phẩm để xem giá, kết nối và tình trạng còn hàng.</p>
+      </section>
+      <section class="store-container store-help" aria-labelledby="store-help-title">
+        <h2 id="store-help-title">Chọn dễ hơn.<br><span>Sáng tạo theo cách của bạn.</span></h2>
+        <div class="store-help-grid">
+          <a class="store-story story-audio" href="shop.html?category=audio"><span class="eyebrow">THU ÂM</span><h3>Để điều bạn nói<br>được nghe rõ hơn.</h3><span class="story-link">Khám phá thiết bị thu âm ↗</span><img src="assets/products/k9.png" alt="Micro GAERU K9" loading="lazy"></a>
+          <a class="store-story story-support" href="support.html"><span class="eyebrow">GAERU ĐỒNG HÀNH</span><h3>Chưa biết<br>chọn thiết bị nào?</h3><p>Trao đổi về điện thoại, nhu cầu quay và cách bạn sử dụng. Cùng tìm lựa chọn phù hợp.</p><span class="story-link">Tìm hỗ trợ ↗</span><span class="story-mark" aria-hidden="true">G.</span></a>
+        </div>
+      </section>
+      <section class="store-container store-benefits" aria-labelledby="store-benefits-title">
+        <h2 id="store-benefits-title">Mua sắm cùng GAERU.<br><span>Rõ ràng từ bước đầu tiên.</span></h2>
+        <div class="store-benefit-grid"><a href="account.html"><span aria-hidden="true">◎</span><h3>Thông tin của bạn.<br>Sẵn sàng cho lần mua sau.</h3><p>Lưu địa chỉ, cập nhật hồ sơ và xem đơn đã đặt khi đăng nhập.</p></a><a href="payment.html"><span aria-hidden="true">↗</span><h3>Chọn cách thanh toán<br>phù hợp với bạn.</h3><p>Xem các phương thức được hỗ trợ trước khi xác nhận đơn.</p></a><a href="delivery-returns.html"><span aria-hidden="true">□</span><h3>Tìm hiểu giao hàng.<br>Trước khi đặt mua.</h3><p>Tra cứu thông tin vận chuyển, đổi trả và liên hệ khi cần.</p></a></div>
       </section>
     </main>
     <div id="site-footer"></div>

@@ -156,6 +156,17 @@ function renderCatalog() {
   const categoryParam = new URLSearchParams(location.search).get("category");
   let selectedCategory = ["audio", "video", "accessory"].includes(categoryParam) ? categoryParam : "all";
   queryInput.value = initialQuery;
+  document.querySelectorAll('[data-category-art]').forEach((art) => {
+    const category = art.dataset.categoryArt;
+    const representative = products.find(product => category === 'all' || product.category === category);
+    art.innerHTML = representative ? `<img src="${escapeHtml(representative.imageUrl)}" alt="" loading="lazy">` : '<span class="category-placeholder" aria-hidden="true">◌</span>';
+  });
+  const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
+    button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
+  });
+  document.querySelectorAll('[data-store-scroll]').forEach(button => button.addEventListener('click', () => grid.scrollBy({left: Number(button.dataset.storeScroll) * Math.max(280,grid.clientWidth * .8),behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'})));
+  grid.addEventListener('scroll', updateRail, {passive:true});
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(updateRail).observe(grid);
 
   const applyFilters = () => {
     const matching = searchProducts(queryInput.value.trim()).filter((product) =>
@@ -164,6 +175,8 @@ function renderCatalog() {
     grid.innerHTML = matching.map((product) => productCard(product)).join("");
     count.textContent = `${matching.length} sản phẩm`;
     empty.hidden = matching.length > 0;
+    grid.scrollLeft = 0;
+    updateRail();
   };
 
   document.querySelectorAll(".catalog [data-filter]").forEach((button) => {

@@ -94,6 +94,8 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
+Trang `shop.html` dùng bố cục cửa hàng mới: tiêu đề lớn, danh mục hình ảnh cuộn ngang, tìm kiếm theo sản phẩm/phiên bản/SKU, thẻ sản phẩm cuộn ngang và các khối hỗ trợ mua hàng. `shop-store.css` chỉ áp dụng trong `.shop-page`. Sản phẩm, giá và phiên bản vẫn lấy từ API; không thêm giá hoặc huy hiệu sản phẩm mới giả. Điều hướng bằng bàn phím và tùy chọn giảm chuyển động được hỗ trợ. Dùng hình ảnh GAERU có sẵn.
+
 Trang tài khoản hỗ trợ cập nhật họ tên/số điện thoại, sửa địa chỉ đã lưu, xem chi tiết từng đơn gồm sản phẩm, số lượng, địa chỉ nhận và các khoản tiền. Các API luôn đối chiếu chủ sở hữu; thay đổi hồ sơ không sửa email, trạng thái xác minh hoặc địa chỉ trên đơn cũ. Khi sửa địa chỉ mặc định, địa chỉ đó vẫn là mặc định cho đến khi chọn địa chỉ khác. Khách chỉ xem được đơn đã gắn với tài khoản của mình.
 
 Migration `customer-experience.sql` bổ sung sổ địa chỉ riêng cho từng khách (tối đa 20), địa chỉ mặc định và liên kết đơn mới với tài khoản đang đăng nhập. Chạy `npm run db:migrate` trước khi dùng bản này. Trang tài khoản cho phép thêm/xóa/chọn địa chỉ mặc định và xem đơn mới; checkout tự điền thông tin khách, chọn địa chỉ đã lưu, vẫn cho nhập địa chỉ khác. Đơn khách vãng lai và đơn lịch sử không tự gắn bằng email để tránh lộ dữ liệu. Tỉnh/thành phải khớp vùng giao hàng được cấu hình; địa chỉ ngoài vùng yêu cầu chọn lại tỉnh/thành.
