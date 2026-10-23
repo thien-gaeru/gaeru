@@ -77,7 +77,7 @@ test("customers can register, sign in, inspect their own profile, and sign out",
       fullName: "New Customer",
       email: "NEW@example.com",
       phone: "+84 829 191 080",
-      password: "customer-password-123"
+      password: "12345678"
     })
   });
   assert.equal(registration.status, 200);
@@ -226,7 +226,7 @@ test("password reset requires matching email and phone, sends a single-use link,
       "X-CSRF-Token": csrf.token,
       Cookie: csrf.cookie
     },
-    body: JSON.stringify({ token, password: "a-new-customer-password" })
+    body: JSON.stringify({ token, password: "abcdefgh" })
   });
   assert.equal(reset.status, 200);
   assert.match((await reset.json()).message, /đã được cập nhật/);
@@ -364,4 +364,16 @@ test("unverified customers can log in and verify their email with a single-use l
     body: JSON.stringify({ token })
   });
   assert.equal(replay.status, 400);
+});
+
+test("customer registration and password reset reject passwords shorter than eight characters", async context => {
+  const baseUrl = await startApp(context, { pool: { query: async () => { throw Error('Invalid password must not reach the database'); } } });
+  const csrf = await getCsrf(baseUrl);
+  for (const [path, data] of [
+    ['register', {fullName:'Test Customer',email:'eight@example.test',phone:'0900000000',password:'1234567'}],
+    ['password-reset/complete', {token:'a'.repeat(64),password:'1234567'}]
+  ]) {
+    const response = await fetch(`${baseUrl}/api/customer-auth/${path}`, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf.token,Cookie:csrf.cookie}, body:JSON.stringify(data)});
+    assert.equal(response.status,400);
+  }
 });
