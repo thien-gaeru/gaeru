@@ -1,13 +1,151 @@
 (() => {
-const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const workspace=document.querySelector('#care-workspace');const section=document.createElement('section');section.className='care-surface';section.id='warranty-activation';section.style.marginTop='24px';section.innerHTML='<h3>Kích hoạt bảo hành</h3><p>Đăng ký từng sản phẩm đã mua để GAERU đối chiếu. Thời hạn 12 tháng được tính theo ngày mua đã xác nhận, không phải ngày gửi đăng ký. Kích hoạt hồ sơ không thay thế kết quả kiểm tra khi yêu cầu bảo hành.</p><form id="warranty-form"><label>Đơn hàng<select name="orderId" required><option value="">Chọn đơn của bạn</option></select></label><button type="button" class="care-plain" data-w-orders hidden>Tải thêm đơn hàng</button><label>Sản phẩm<select name="orderItemId" required disabled><option value="">Chọn đơn hàng trước</option></select></label><label>Serial trên sản phẩm (nếu có)<input name="serial" maxlength="80" autocomplete="off"></label><p class="care-field-note">Mỗi lần đăng ký tương ứng một sản phẩm. Không có serial thì để trống; tổng số đăng ký không vượt quá số lượng đã mua. Đơn ngoài tài khoản cần liên hệ GAERU để đối chiếu.</p><button class="button button-blue" type="submit">Đăng ký kích hoạt</button><p role="status" data-w-status></p></form><h3>Hồ sơ bảo hành của bạn</h3><div data-w-list></div><div class="care-pagination"><button class="care-plain" type="button" data-w-page="-1" disabled>Trước</button><span data-w-page-label>Trang 1</span><button class="care-plain" type="button" data-w-page="1" disabled>Tiếp</button><button class="care-plain" type="button" data-w-page="0">Tải lại</button></div>';
-workspace.append(section);const form=section.querySelector('form'),feedback=section.querySelector('[data-w-status]');let page=1,orderPage=1,sequence=0,key=null,serialized=null;
-async function api(url,method='GET',body){const headers={};if(method!=='GET'){const token=await fetch('/api/csrf').then(r=>r.json());headers['X-CSRF-Token']=token.csrfToken;headers['Content-Type']='application/json';}const response=await fetch(url,{method,headers,credentials:'same-origin',...(body?{body:JSON.stringify(body)}:{})});const data=await response.json().catch(()=>({}));if(!response.ok)throw Error(data.error||'Không thể tải hồ sơ bảo hành.');return data;}
-async function orders(){const data=await api('/api/customer/orders?page='+orderPage);for(const o of data.orders){if(o.status==='cancelled')continue;const option=document.createElement('option');option.value=o.id;option.textContent=o.orderNumber;form.elements.orderId.append(option);}section.querySelector('[data-w-orders]').hidden=data.orders.length<20;}
-const labels={pending:'Chờ xác nhận',active:'Đã kích hoạt',rejected:'Chưa được duyệt',revoked:'Đã thu hồi'};
-async function list(){const data=await api('/api/customer/warranties?page='+page);section.querySelector('[data-w-list]').innerHTML=data.activations.map(w=>`<article class="care-case"><span class="care-status">${w.status==='active'&&w.expiresOn<=data.today?'Đã hết hạn':escape(labels[w.status])}</span><h4>${escape(w.productName)} · ${escape(w.variantName)}</h4><p>Đơn: ${escape(w.orderNumber)}<br>Serial: ${escape(w.serial||'Không khai báo')}<br>Mã hồ sơ: ${escape(w.id)}</p>${w.purchaseDate?`<p>Ngày mua đã xác nhận: ${escape(w.purchaseDate)}<br>Ngày kết thúc thời hạn: ${escape(w.expiresOn)} (múi giờ Việt Nam)</p>`:'<p>Thời hạn sẽ hiển thị sau khi GAERU đối chiếu ngày mua.</p>'}${w.reason?`<p>${escape(w.reason)}</p>`:''}</article>`).join('')||'<p>Chưa có hồ sơ ở trang này.</p>';section.querySelector('[data-w-page-label]').textContent='Trang '+page;section.querySelector('[data-w-page="-1"]').disabled=page===1;section.querySelector('[data-w-page="1"]').disabled=data.activations.length<20;}
-form.elements.orderId.addEventListener('change',async()=>{const current=++sequence,select=form.elements.orderItemId;select.innerHTML='<option value="">Đang tải sản phẩm…</option>';select.disabled=true;if(!form.elements.orderId.value){select.innerHTML='<option value="">Chọn đơn hàng trước</option>';return;}try{const {order}=await api('/api/customer/orders/'+form.elements.orderId.value);if(current!==sequence)return;select.innerHTML='<option value="">Chọn sản phẩm đã mua</option>'+order.items.map(i=>`<option value="${i.id}">${escape(i.productName)} · ${escape(i.variantName)} · Số lượng ${i.quantity}</option>`).join('');select.disabled=false;}catch(error){if(current===sequence)feedback.textContent=error.message;}});
-form.addEventListener('submit',async e=>{e.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;try{if(form.elements.orderItemId.disabled||!form.elements.orderItemId.value)throw Error('Chọn sản phẩm trước khi đăng ký.');const body={orderItemId:form.elements.orderItemId.value,serial:form.elements.serial.value};if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=crypto.randomUUID();}const data=await api('/api/customer/warranties','POST',{...body,requestKey:key});feedback.textContent='Đã lưu đăng ký '+data.activation.id+'. Vui lòng theo dõi kết quả đối chiếu bên dưới.';key=null;serialized=null;form.elements.serial.value='';page=1;await list();}catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}});
-section.addEventListener('click',async e=>{const button=e.target.closest('[data-w-page],[data-w-orders]');if(!button)return;button.disabled=true;const previous=page;try{if(button.hasAttribute('data-w-orders')){orderPage++;try{await orders();}catch(error){orderPage--;throw error;}}else{page+=Number(button.dataset.wPage);await list();}}catch(error){page=previous;feedback.textContent=error.message;button.disabled=false;}finally{if(button.hasAttribute('data-w-orders')||button.dataset.wPage==='0')button.disabled=false;}});
-api('/api/customer-auth/me').then(async session=>{if(session.authenticated)await Promise.all([orders(),list()]);}).catch(error=>{feedback.textContent=error.message;});
+  const section = document.querySelector('#warranty-activation');
+  if (!section) return;
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const channels = {website:'Website GAERU',shopee:'Shopee',tiktok:'TikTok Shop',lazada:'Lazada'};
+  section.innerHTML = `
+    <div class="care-surface warranty-surface">
+      <p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2>
+      <p>Chọn nơi mua và đăng ký từng sản phẩm để GAERU đối chiếu. Bảo hành 12 tháng tính từ ngày mua đã xác nhận, không phải ngày gửi đăng ký.</p>
+      <p data-w-session role="status">Đang kiểm tra tài khoản…</p>
+      <form id="warranty-form">
+        <label>Nơi mua hàng<select name="source" required>
+          <option value="account" disabled>Đơn trong tài khoản GAERU</option>
+          <option value="website" selected>Đơn website chưa có trong tài khoản</option>
+          <option value="shopee">Shopee</option><option value="tiktok">TikTok Shop</option><option value="lazada">Lazada</option>
+        </select></label>
+        <fieldset data-w-account hidden disabled>
+          <legend>Đơn hàng trong tài khoản</legend>
+          <label>Đơn hàng<select name="orderId" required><option value="">Chọn đơn của bạn</option></select></label>
+          <button type="button" class="care-plain" data-w-orders hidden>Tải thêm đơn hàng</button>
+          <label>Sản phẩm đã mua<select name="orderItemId" required disabled><option value="">Chọn đơn hàng trước</option></select></label>
+        </fieldset>
+        <fieldset data-w-external>
+          <legend>Thông tin mua hàng</legend>
+          <label><span data-w-order-label>Mã đơn hàng website</span><input name="externalOrderNumber" minlength="3" maxlength="100" autocomplete="off" required></label>
+          <label>Sản phẩm / phiên bản đã mua<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 1 Mic · Type-C" required></label>
+          <p class="care-field-note">Nhập mã đơn theo lịch sử mua hàng của kênh đã chọn. Hồ sơ cần được GAERU đối chiếu; chưa kết nối xác minh tự động với sàn.</p>
+        </fieldset>
+        <label>Serial trên sản phẩm (nếu có)<input name="serial" maxlength="80" autocomplete="off"></label>
+        <fieldset class="warranty-contact">
+          <legend>Thông tin người đăng ký</legend>
+          <p class="care-field-note">Thông tin được tự điền khi có địa chỉ đã lưu hoặc khi chọn đơn website. Bạn có thể sửa trước khi gửi.</p>
+          <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
+          <label>Số điện thoại<input name="phone" type="tel" minlength="8" maxlength="25" autocomplete="tel" required></label>
+          <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" required></label>
+          <label>Tỉnh / thành phố<input name="city" minlength="2" maxlength="120" autocomplete="address-level1" required></label>
+        </fieldset>
+        <p class="care-field-note">Mỗi lần đăng ký tương ứng một sản phẩm. Không có serial có thể để trống. Thông tin được xử lý theo <a href="privacy.html">chính sách quyền riêng tư</a>.</p>
+        <button class="button button-blue" type="submit" disabled>Đăng ký kích hoạt</button>
+        <p role="status" aria-live="polite" data-w-status></p>
+      </form>
+    </div>
+    <div class="care-surface warranty-history" data-w-history hidden>
+      <h3>Hồ sơ bảo hành của bạn</h3><div data-w-list></div>
+      <div class="care-pagination"><button class="care-plain" type="button" data-w-page="-1" disabled>Trước</button><span data-w-page-label>Trang 1</span><button class="care-plain" type="button" data-w-page="1" disabled>Tiếp</button><button class="care-plain" type="button" data-w-page="0">Tải lại</button></div>
+    </div>`;
+  const form=section.querySelector('form'),feedback=section.querySelector('[data-w-status]');
+  let page=1,orderPage=1,sequence=0,key=null,serialized=null,customer=null;
+  async function api(url,method='GET',body) {
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
+    try {
+      const headers={};
+      if(method!=='GET'){
+        const response=await fetch('/api/csrf',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+        if(!response.ok)throw Error('Không thể khởi tạo phiên. Hãy tải lại trang.');
+        headers['X-CSRF-Token']=(await response.json()).csrfToken;headers['Content-Type']='application/json';
+      }
+      const response=await fetch(url,{method,headers,credentials:'same-origin',cache:'no-store',signal:controller.signal,...(body?{body:JSON.stringify(body)}:{})});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw Error(data.error||'Không thể tải hồ sơ bảo hành.');
+      return data;
+    } catch(error) {
+      if(error.name==='AbortError')throw Error('Máy chủ phản hồi quá lâu. Hãy thử lại để kiểm tra kết quả đăng ký.');
+      throw error;
+    } finally {clearTimeout(timeout);}
+  }
+  function fillContact(data,overwrite=true) {
+    for(const [name,value] of Object.entries({fullName:data.fullName||data.customerName,phone:data.phone,address:data.address,city:data.city}))
+      if(value&&(overwrite||!form.elements[name].value))form.elements[name].value=value;
+  }
+  function changeSource() {
+    const account=form.elements.source.value==='account';
+    for(const [selector,enabled] of [['[data-w-account]',account],['[data-w-external]',!account]]){
+      const fieldset=section.querySelector(selector);fieldset.hidden=!enabled;fieldset.disabled=!enabled;
+    }
+    section.querySelector('[data-w-order-label]').textContent='Mã đơn hàng '+(channels[form.elements.source.value]||'website');
+    key=null;serialized=null;
+  }
+  async function orders() {
+    const data=await api('/api/customer/orders?page='+orderPage);
+    for(const order of data.orders) {
+      if(order.status==='cancelled')continue;
+      const option=document.createElement('option');option.value=order.id;option.textContent=order.orderNumber;form.elements.orderId.append(option);
+    }
+    section.querySelector('[data-w-orders]').hidden=data.orders.length<20;
+    if(orderPage===1&&form.elements.orderId.options.length===1)feedback.textContent='Chưa có đơn trong tài khoản. Bạn có thể chọn kênh mua khác và nhập mã đơn để đối chiếu.';
+  }
+  const labels={pending:'Chờ xác nhận',active:'Đã kích hoạt',rejected:'Chưa được duyệt',revoked:'Đã thu hồi'};
+  async function list() {
+    const data=await api('/api/customer/warranties?page='+page);
+    section.querySelector('[data-w-list]').innerHTML=data.activations.map(w=>`<article class="care-case"><span class="care-status">${w.status==='active'&&w.expiresOn<=data.today?'Đã hết hạn':escape(labels[w.status])}</span><h4>${escape(w.productName)}${w.variantName?' · '+escape(w.variantName):''}</h4><p>${escape(channels[w.channel]||'Website GAERU')} · Đơn: ${escape(w.orderNumber)}<br>Serial: ${escape(w.serial||'Không khai báo')}<br>Mã hồ sơ: ${escape(w.id)}</p>${w.purchaseDate?`<p>Ngày mua đã xác nhận: ${escape(w.purchaseDate)}<br>Ngày kết thúc thời hạn: ${escape(w.expiresOn)} (giờ Việt Nam)</p>`:'<p>Thời hạn sẽ hiển thị sau khi GAERU đối chiếu ngày mua.</p>'}${w.reason?`<p>${escape(w.reason)}</p>`:''}</article>`).join('')||'<p>Chưa có hồ sơ ở trang này.</p>';
+    section.querySelector('[data-w-page-label]').textContent='Trang '+page;
+    section.querySelector('[data-w-page="-1"]').disabled=page===1;
+    section.querySelector('[data-w-page="1"]').disabled=data.activations.length<20;
+  }
+  form.elements.source.addEventListener('change',changeSource);
+  form.elements.orderId.addEventListener('change',async()=>{
+    const current=++sequence,select=form.elements.orderItemId;
+    select.innerHTML='<option value="">Đang tải sản phẩm…</option>';select.disabled=true;
+    if(!form.elements.orderId.value){select.innerHTML='<option value="">Chọn đơn hàng trước</option>';return;}
+    try {
+      const {order}=await api('/api/customer/orders/'+form.elements.orderId.value);
+      if(current!==sequence)return;
+      select.innerHTML='<option value="">Chọn sản phẩm đã mua</option>'+order.items.map(i=>`<option value="${i.id}">${escape(i.productName)} · ${escape(i.variantName)} · Số lượng ${i.quantity}</option>`).join('');
+      select.disabled=false;fillContact(order);
+    } catch(error){if(current===sequence)feedback.textContent=error.message;}
+  });
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='Đang gửi đăng ký…';
+    feedback.textContent='Đang lưu đăng ký, vui lòng chờ…';
+    try {
+      const contact=Object.fromEntries(['fullName','phone','address','city'].map(name=>[name,form.elements[name].value]));
+      const account=form.elements.source.value==='account';
+      if(account&&(form.elements.orderItemId.disabled||!form.elements.orderItemId.value))throw Error('Chọn sản phẩm trong đơn hàng trước khi đăng ký.');
+      const body=account?{orderItemId:form.elements.orderItemId.value,serial:form.elements.serial.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,serial:form.elements.serial.value,contact};
+      if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=crypto.randomUUID();}
+      const data=await api(account?'/api/customer/warranties':'/api/warranty-requests','POST',{...body,requestKey:key});
+      feedback.textContent='Đã tiếp nhận đăng ký. Mã hồ sơ: '+data.activation.id+'. GAERU sẽ đối chiếu đơn và ngày mua trước khi xác nhận kích hoạt.';
+      if(!customer)feedback.textContent+=' Vui lòng lưu mã hồ sơ để liên hệ GAERU theo dõi kết quả.';
+      form.elements.serial.value='';key=null;serialized=null;page=1;
+      if(customer)try{await list();}catch{feedback.textContent+=' Chưa tải lại được danh sách; bạn có thể bấm Tải lại.';}
+    } catch(error){feedback.textContent=error.message;}finally{button.disabled=false;button.textContent='Đăng ký kích hoạt';}
+  });
+  section.addEventListener('click',async event=>{
+    const button=event.target.closest('[data-w-page],[data-w-orders]');if(!button)return;
+    button.disabled=true;const previous=page;
+    try {
+      if(button.hasAttribute('data-w-orders')){orderPage++;try{await orders();}catch(error){orderPage--;throw error;}}
+      else{page+=Number(button.dataset.wPage);await list();}
+    } catch(error){page=previous;feedback.textContent=error.message;button.disabled=false;}
+    finally{if(button.hasAttribute('data-w-orders')||button.dataset.wPage==='0')button.disabled=false;}
+  });
+  (async()=>{
+    try {
+      const session=await api('/api/customer-auth/me');
+      if(session.authenticated) {
+        customer=session.customer;fillContact(customer);
+        form.elements.source.querySelector('[value=account]').disabled=false;
+        form.elements.source.value='account';changeSource();
+        section.querySelector('[data-w-session]').textContent='Đăng ký cho '+customer.fullName+'. Vui lòng kiểm tra thông tin trước khi gửi.';
+        section.querySelector('[data-w-history]').hidden=false;
+        const results=await Promise.allSettled([orders(),list(),api('/api/customer/addresses').then(({addresses})=>{
+          const address=addresses.find(a=>a.isDefault)||addresses[0];if(address)fillContact(address,false);
+        })]);
+        if(results.some(r=>r.status==='rejected'))feedback.textContent='Một số dữ liệu chưa tải được. Bạn vẫn có thể chọn kênh mua khác và điền đầy đủ thông tin.';
+      } else section.querySelector('[data-w-session]').innerHTML='Bạn có thể đăng ký không cần tài khoản. <a href="account.html">Đăng nhập</a> để chọn đơn website và lưu hồ sơ vào tài khoản.';
+    } catch {section.querySelector('[data-w-session]').textContent='Chưa tải được tài khoản. Bạn có thể nhập thông tin và mã đơn để đăng ký, hoặc tải lại trang.';}
+    finally {form.querySelector('[type=submit]').disabled=false;changeSource();}
+    if(location.hash==='#warranty-activation')section.scrollIntoView({block:'start'});
+  })();
 })();

@@ -17,6 +17,7 @@ const { createCustomerExperience } = require("./customer-experience");
 const { createCareCustomerApi, createCareAdminApi } = require("./care-api");
 const { createOwnerApi } = require("./owner-api");
 const { createWarrantyCustomerApi, createWarrantyAdminApi } = require("./warranty-api");
+const { createWarrantyPublicApi } = require("./warranty-public-api");
 const { createBusinessApi } = require("./business-api");
 
 function createApp({ config, pool, sessionStore, customerMailer }) {
@@ -77,6 +78,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/customer", createCustomerExperience(pool));
   app.use("/api/customer/care", createCareCustomerApi(pool));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
+  app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     smtpConfig: config.smtp,
     mailer: customerMailer

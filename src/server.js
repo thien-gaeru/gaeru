@@ -4,6 +4,7 @@ const connectPgSimple = require("connect-pg-simple");
 const { loadConfig } = require("./config");
 const { createPool } = require("./db");
 const { createApp } = require("./app");
+const { migrateDatabase } = require("./migrate");
 
 const config = loadConfig();
 const pool = createPool(config);
@@ -18,7 +19,7 @@ const app = createApp({ config, pool, sessionStore });
 let server;
 
 async function start() {
-  await pool.query("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true");
+  await migrateDatabase(pool);
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
