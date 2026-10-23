@@ -54,8 +54,8 @@ if (headerRoot) {
           <a href="product.html?id=p01">GAERU P01</a>
           <a href="product.html?id=g1-ultra">GAERU G1 Ultra</a>
           <a href="shop.html?category=accessory">Phụ kiện</a>
-          <a href="support.html">Hỗ trợ</a>
-          <a href="care.html">GAERU CARE+</a>
+          <a class="mobile-menu-link" href="support.html">Hỗ trợ</a>
+          <a class="mobile-menu-link" href="care.html">GAERU CARE+</a>
         </nav>
       </div>
     </section>
