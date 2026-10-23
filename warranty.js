@@ -7,8 +7,8 @@
   const provinces = ['Hà Nội','Hải Phòng','Huế','Đà Nẵng','Hồ Chí Minh','Cần Thơ','An Giang','Bắc Ninh','Cà Mau','Cao Bằng','Đắk Lắk','Điện Biên','Đồng Nai','Đồng Tháp','Gia Lai','Hà Tĩnh','Hưng Yên','Khánh Hòa','Lai Châu','Lâm Đồng','Lạng Sơn','Lào Cai','Nghệ An','Ninh Bình','Phú Thọ','Quảng Ngãi','Quảng Ninh','Quảng Trị','Sơn La','Tây Ninh','Thái Nguyên','Thanh Hóa','Tuyên Quang','Vĩnh Long'].sort((a,b)=>a.localeCompare(b,'vi'));
   const cityKey=value=>String(value||'').trim().normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().replace(/đ/g,'d').replace(/^(?:tinh|thanh pho|tp)\.?\s*/,'').trim();
   section.innerHTML = `
-    <div class="care-surface warranty-surface">
-      <p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2>
+    <details class="care-surface warranty-surface care-disclosure" data-w-disclosure>
+      <summary><div><p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2></div><span aria-hidden="true">+</span></summary><div class="care-disclosure-body">
       <p>Chọn nơi mua và đăng ký từng sản phẩm để GAERU đối chiếu. Bảo hành 12 tháng tính từ ngày mua đã xác nhận, không phải ngày gửi đăng ký.</p>
       <p data-w-session role="status">Đang kiểm tra tài khoản…</p>
       <form id="warranty-form">
@@ -46,11 +46,17 @@
         <button class="button button-blue" type="submit" disabled>Đăng ký kích hoạt</button>
         <p role="status" aria-live="polite" data-w-status></p>
       </form>
-    </div>
+    </div></details>
     <div class="care-surface warranty-history" data-w-history hidden>
       <h3>Hồ sơ bảo hành của bạn</h3><div data-w-list></div>
       <div class="care-pagination"><button class="care-plain" type="button" data-w-page="-1" disabled>Trước</button><span data-w-page-label>Trang 1</span><button class="care-plain" type="button" data-w-page="1" disabled>Tiếp</button><button class="care-plain" type="button" data-w-page="0">Tải lại</button></div>
     </div>`;
+  const disclosure=section.querySelector('[data-w-disclosure]');
+  function openActivation(){disclosure.open=true;}
+  function openFromHash(){if(location.hash==='#warranty-activation')openActivation();}
+  window.addEventListener('hashchange',openFromHash);
+  document.addEventListener('click',event=>{if(event.target.closest('a[href="#warranty-activation"]'))openActivation();});
+  openFromHash();
   const form=section.querySelector('form'),feedback=section.querySelector('[data-w-status]');
   let page=1,orderPage=1,sequence=0,key=null,serialized=null,customer=null;
   async function api(url,method='GET',body) {
@@ -162,6 +168,6 @@
       } else section.querySelector('[data-w-session]').innerHTML='Bạn có thể đăng ký không cần tài khoản. <a href="account.html">Đăng nhập</a> để chọn đơn website và lưu hồ sơ vào tài khoản.';
     } catch {section.querySelector('[data-w-session]').textContent='Chưa tải được tài khoản. Bạn có thể nhập thông tin và mã đơn để đăng ký, hoặc tải lại trang.';}
     finally {form.querySelector('[type=submit]').disabled=false;changeSource();}
-    if(location.hash==='#warranty-activation')section.scrollIntoView({block:'start'});
+
   })();
 })();

@@ -16,3 +16,14 @@
 @media(max-width:600px){#warranty-form fieldset{padding:16px}#warranty-form .button{width:100%;justify-self:stretch}}
 #warranty-form .warranty-contact-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;min-width:0;align-items:start}
 @media(max-width:420px){#warranty-form .warranty-contact-row{gap:10px}#warranty-form .warranty-contact-row label{font-size:12px}#warranty-form .warranty-contact-row input,#warranty-form .warranty-contact-row select{padding-inline:8px}}
+.care-disclosure{align-self:start}
+.care-disclosure>summary{display:flex;align-items:center;justify-content:space-between;gap:20px;cursor:pointer;list-style:none;min-height:48px}
+.care-disclosure>summary::-webkit-details-marker{display:none}
+.care-disclosure>summary h2,.care-disclosure>summary h3{margin:0}
+.care-disclosure>summary .eyebrow{margin:0 0 10px}
+.care-disclosure>summary>span{flex:0 0 32px;text-align:center;color:#0071e3;font-size:28px;transition:transform .15s}
+.care-disclosure[open]>summary>span{transform:rotate(45deg)}
+.care-disclosure-body{padding-top:24px}
+#care-form fieldset{border:1px solid #e5e5e8;border-radius:14px;padding:16px;min-width:0;margin:0;display:grid;gap:16px}
+#care-form legend{font-size:13px;padding-inline:8px;font-weight:600}
+#care-form input,#care-form select{min-width:0}

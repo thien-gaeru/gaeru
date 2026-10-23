@@ -63,6 +63,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
   }
   const owner = client(), warehouse = client(), accountant = client(), manager = client(), sales = client();
   await owner.login("enterprise-owner", "Owner-test-password-2026");
+  let marketplaceCustomerClient;
   let variantId, productId, secondWarehouse, mainWarehouse, supplierId, purchaseId, staffWarehouse, departmentId;
   const password = "Employee-test-password-2026";
   const productPayload = { slug: "enterprise-test", name: "Enterprise test product", category: "audio", descriptor: "Test fixture", description: "", imageUrl: "/assets/products/k9.png", imageAlt: "Test", active: false, sortOrder: 0 };
@@ -261,7 +262,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 9);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 10);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });
@@ -325,7 +326,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal((await accountant.ok('/api/admin/business/marketplace-summary?period=2099-01')).channels.find(c=>c.channel==='shopee').profitVnd,700000);
   });
   await context.test('marketplace and guest warranty requests remain private, idempotent and pending until staff review',async()=>{
-    const guest=client(),otherGuest=client(),account=client();
+    const guest=client(),otherGuest=client(),account=client();marketplaceCustomerClient=account;
     await guest.ok('/api/csrf');await otherGuest.ok('/api/csrf');await account.ok('/api/csrf');
     await account.ok('/api/customer-auth/login','POST',{email:'second@example.test',password:'Customer-test-password-2026'});
     await account.ok('/api/csrf');
@@ -357,6 +358,25 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     const approved=(await owner.ok('/api/admin/warranties')).activations.find(w=>w.id===saved.id);
     assert.equal(approved.expiresOn,'2027-01-01');
     assert.equal((await pool.query('SELECT count(*)::int total FROM orders')).rows[0].total,ordersBefore);
+  });
+  await context.test('support accepts marketplace order numbers without exposing another customer requests',async()=>{
+    const account=marketplaceCustomerClient;
+    const base={requestKey:randomUUID(),subject:'Cần kiểm tra micro',description:'Micro không nhận tín hiệu khi kết nối điện thoại.'};
+    const created=[];
+    for(const channel of ['shopee','tiktok','lazada']){
+      const body={...base,requestKey:randomUUID(),channel,externalOrderNumber:channel+'-SUPPORT-01'};
+      const result=(await account.ok('/api/customer/care','POST',body,201)).request;created.push(result.id);
+      assert.equal((await account.ok('/api/customer/care','POST',body)).request.id,result.id);
+      assert.equal((await account.request('/api/customer/care','POST',{...body,externalOrderNumber:'CHANGED'})).status,409);
+    }
+    const rows=(await account.ok('/api/customer/care')).requests;assert.equal(rows.length,3);
+    assert.ok(rows.every(r=>r.orderId===null&&r.orderNumber.endsWith('-SUPPORT-01')));
+    assert.equal((await account.request('/api/customer/care','POST',{...base,channel:'shopee'})).status,400);
+    assert.equal((await account.request('/api/customer/care','POST',{...base,channel:'shopee',externalOrderNumber:'MIXED',orderId:randomUUID()})).status,400);
+    assert.equal((await client().request('/api/customer/care','POST',{...base,channel:'shopee',externalOrderNumber:'GUEST'})).status,401);
+    assert.ok((await owner.ok('/api/admin/care-requests')).requests.some(r=>r.id===created[0]&&r.channel==='shopee'));
+    await owner.ok('/api/admin/care-requests/'+created[0],'PATCH',{status:'reviewing',response:'Đang đối chiếu mã đơn và thông tin mua hàng trên sàn.',version:1});
+    assert.equal((await account.ok('/api/customer/care')).requests.find(r=>r.id===created[0]).status,'reviewing');
   });
   await context.test('only the bootstrap owner can inspect highest-level controls or revoke employee sessions',async()=>{
     const adminClient=client();
