@@ -1,3 +1,4 @@
+const {createProductWorkspace}=require("./product-workspace");
 const {createAccountSecurity}=require("./account-security");
 const {createNewsPublicApi,createNewsAdminApi}=require("./news-api");
 const path = require("node:path");
@@ -46,6 +47,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     },
     crossOriginEmbedderPolicy: false
   }));
+  app.use("/api/admin/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/admin/news", express.json({limit:"128kb"}));
   app.use(express.json({ limit: "32kb" }));
   app.use(session({
@@ -103,6 +105,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/admin", createBusinessApi(pool));
   app.use("/api/admin", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
+  const productWorkspace=createProductWorkspace(pool);
+  app.use("/api/admin",productWorkspace.admin);
+  app.use("/api",productWorkspace.publicApi);
   app.use("/api", createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     vnpayConfig: config.vnpay || null,
@@ -120,6 +125,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   });
 
   app.get(["/admin", "/admin/", "/admin/index.html"], (_req, res) => res.redirect(308, "/gaeru_ceo"));
+  app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res)=>{res.set("Cache-Control","no-store").sendFile(path.join(__dirname,"..","admin","product-editor.html"));});
   app.get("/gaeru_ceo", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.sendFile(path.join(__dirname, "..", "admin", "index.html"), error => { if (error) next(error); });

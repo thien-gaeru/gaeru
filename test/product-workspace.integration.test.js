@@ -1,0 +1,32 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const {PGlite}=require('@electric-sql/pglite');
+const bcrypt=require('bcryptjs');
+const session=require('express-session');
+const {createApp}=require('../src/app');
+const {migrateDatabase}=require('../src/migrate');
+test('product workspace saves variant combinations atomically, protects history and stale stock, and keeps draft images private',{timeout:60000},async t=>{
+ const db=await PGlite.create();let queue=Promise.resolve();async function lock(){const previous=queue;let release;queue=new Promise(r=>release=r);await previous;return release;}
+ async function query(sql,values){const r=!values&&sql.includes(';')?(await db.exec(sql)).at(-1):await db.query(sql,values);return {...r,rows:r?.rows||[],rowCount:r?.affectedRows??r?.rows?.length??0};}
+ const pool={async query(sql,values){const release=await lock();try{return await query(sql,values);}finally{release();}},async connect(){const release=await lock();return {query,release};}};await migrateDatabase(pool);
+ const password='Product-owner-2026';const app=createApp({pool,sessionStore:new session.MemoryStore(),config:{NODE_ENV:'test',SESSION_SECRET:'workspace-fixture-session-secret-32',ADMIN_USERNAME:'workspace-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync(password,4)}});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await db.close();});const base=`http://127.0.0.1:${server.address().port}`;let cookie='',csrf='';
+ async function api(path,method='GET',body,withCsrf=true){const r=await fetch(base+path,{method,headers:{Cookie:cookie,...(withCsrf?{'X-CSRF-Token':csrf}:{}),...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.headers.get('content-type')?.includes('application/json')?await r.json():null;if(data?.csrfToken)csrf=data.csrfToken;return {status:r.status,data};}
+ assert.equal((await api('/api/admin/product-workspace')).status,401);await api('/api/csrf');assert.equal((await api('/api/auth/login','POST',{username:'workspace-owner',password})).status,200);
+ const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64'),upload=new FormData();upload.append('image',new Blob([image],{type:'image/png'}),'fixture.png');const uploaded=await api('/api/admin/catalog-images','POST',upload);assert.equal(uploaded.status,201);const url=uploaded.data.imageUrl;
+ const initial={product:{name:'Fixture Micro',slug:'fixture-micro',category:'audio',descriptor:'Micro fixture',description:'Test product description',imageUrl:url,imageAlt:'Fixture cover',active:false,sortOrder:0},gallery:[url],groups:[{name:'Cổng kết nối',values:['Type-C','Lightning']}],variants:['Type-C','Lightning'].map((value,i)=>({sku:'FIXTURE-'+i,name:value,options:{'Cổng kết nối':value},priceVnd:100000+i*20000,stockQuantity:5,active:true,imageUrl:url}))};
+ assert.equal((await api('/api/admin/product-workspace','POST',initial,false)).status,403);
+ let saved=await api('/api/admin/product-workspace','POST',initial);assert.equal(saved.status,201,JSON.stringify(saved.data));let model=saved.data;
+ assert.equal((await api(url)).status,404);assert.equal((await api('/api/products')).data.products.length,0);assert.equal(model.variants.length,2);
+ assert.equal((await pool.query('SELECT SUM(quantity)::int n FROM warehouse_stock')).rows[0].n,10);
+ model.product.active=true;const published=await api('/api/admin/product-workspace','POST',model);assert.equal(published.status,200,JSON.stringify(published.data));const stale=JSON.parse(JSON.stringify(model));model=published.data;
+ assert.equal((await api(url)).status,200);const publicProduct=(await api('/api/products')).data.products[0];assert.equal(publicProduct.gallery[0],url);assert.equal(publicProduct.variants[0].imageUrl,url);assert.equal(publicProduct.optionGroups[0].name,'Cổng kết nối');
+ assert.equal((await api('/api/admin/product-workspace','POST',stale)).status,409);
+ const oldName=model.product.name;const duplicate=JSON.parse(JSON.stringify(model));duplicate.product.name='Should roll back';duplicate.variants[1].sku=duplicate.variants[0].sku;assert.equal((await api('/api/admin/product-workspace','POST',duplicate)).status,400);assert.equal((await api('/api/admin/product-workspace/'+model.id)).data.product.name,oldName);
+ const other={...initial,product:{...initial.product,slug:'other-fixture'},variants:[{...initial.variants[0],sku:'OTHER-SKU',stockQuantity:0}]};const second=await api('/api/admin/product-workspace','POST',other);assert.equal(second.status,201);const conflict=JSON.parse(JSON.stringify(model));conflict.groups[0].values.push('3.5mm');conflict.variants.push({...initial.variants[0],sku:'OTHER-SKU',name:'3.5mm',options:{'Cổng kết nối':'3.5mm'}});conflict.product.name='Must roll back after variant conflict';assert.equal((await api('/api/admin/product-workspace','POST',conflict)).status,409);assert.equal((await api('/api/admin/product-workspace/'+model.id)).data.variants.length,2);
+ const missing=JSON.parse(JSON.stringify(model));missing.variants.pop();assert.equal((await api('/api/admin/product-workspace','POST',missing)).status,409);
+ // An independent stock update changes the version even if timestamps share a millisecond.
+ await pool.query('UPDATE product_variants SET updated_at=now() WHERE id=$1',[model.variants[0].id]);assert.equal((await api('/api/admin/product-workspace','POST',model)).status,409);
+ model=(await api('/api/admin/product-workspace/'+model.id)).data;model.variants[0].stockQuantity=8;const updated=await api('/api/admin/product-workspace','POST',model);assert.equal(updated.status,200,JSON.stringify(updated.data));assert.equal((await pool.query('SELECT SUM(quantity)::int n FROM warehouse_stock')).rows[0].n,13);
+ await pool.query('INSERT INTO staff_accounts(username,full_name,password_hash,role) VALUES($1,$2,$3,$4)',['fixture-viewer','Fixture Viewer',bcrypt.hashSync(password,4),'viewer']);await api('/api/auth/logout','POST');await api('/api/csrf');assert.equal((await api('/api/auth/login','POST',{username:'fixture-viewer',password})).status,200);assert.equal((await api('/api/admin/product-workspace/'+model.id)).status,200);assert.equal((await api('/api/admin/product-workspace','POST',updated.data)).status,403);
+});
+

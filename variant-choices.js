@@ -1,0 +1,7 @@
+((root,factory)=>{const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.GAERUVariantChoices=api;})(typeof window==='object'?window:globalThis,()=>{
+ const signature=options=>JSON.stringify(Object.entries(options||{}).sort(([a],[b])=>a.localeCompare(b)));
+ function groups(variants,preferred=[]){const map=new Map();for(const g of preferred)map.set(g.name,g.values.filter(value=>variants.some(v=>v.options?.[g.name]===value)));for(const v of variants)for(const [k,value] of Object.entries(v.options||{})){if(!map.has(k))map.set(k,[]);if(!map.get(k).includes(value))map.get(k).push(value);}return [...map].filter(([,values])=>values.length).map(([name,values])=>({name,values}));}
+ function combinations(groups){let rows=[{}];for(const g of groups){if(!g.name.trim()||!g.values.length)throw Error('Nhập tên nhóm và các lựa chọn trước khi tạo biến thể.');rows=rows.flatMap(options=>g.values.map(value=>({...options,[g.name]:value})));if(rows.length>100)throw Error('Tối đa 100 tổ hợp biến thể. Giảm số lựa chọn trước khi tạo.');}return rows;}
+ function choose(variants,current,group,value){const candidates=variants.filter(v=>v.options?.[group]===value);return candidates.find(v=>Object.entries(current?.options||{}).every(([key,selected])=>key===group||v.options?.[key]===selected))||candidates.find(v=>v.stockQuantity>0)||candidates[0]||null;}
+ return {signature,groups,combinations,choose};
+});

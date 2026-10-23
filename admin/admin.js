@@ -105,7 +105,8 @@ async function showAdmin(session) {
   const failed = results.find((result) => result.status === "rejected");
   if (failed) showGlobal(`Đã đăng nhập nhưng một số dữ liệu chưa tải được: ${failed.reason.message}`, true);
   const firstView = document.querySelector('[data-view]:not([hidden])');
-  if (firstView) await activateView(firstView.dataset.view);
+  if(location.hash==="#products"&&can("catalog.read"))await activateView("products");
+  else if (firstView) await activateView(firstView.dataset.view);
   else showGlobal("Tài khoản chưa được cấp quyền truy cập chức năng. Liên hệ người quản trị.", true);
 }
 
@@ -152,6 +153,7 @@ function productStock(product) {
 
 function renderProducts() {
   const root = document.querySelector("#product-list");
+  const summary=document.querySelector("[data-catalog-summary]");if(summary)summary.innerHTML=`<article><span>Sản phẩm trong kết quả</span><strong>${state.products.length}</strong></article><article><span>Đang hiển thị</span><strong>${state.products.filter(p=>p.active).length}</strong></article><article><span>Biến thể bán hàng</span><strong>${state.products.reduce((n,p)=>n+p.variants.length,0)}</strong></article>`;
   const category = document.querySelector("#product-category-filter").value;
   const publication = document.querySelector("#product-status-filter").value;
   const stockFilter = document.querySelector("#product-stock-filter").value;
@@ -178,9 +180,9 @@ function renderProducts() {
         : `${stock.low ? '<span class="status-pill status-warning">Có phiên bản tồn thấp</span>' : ""}<span class="stock-total">${stock.total} sản phẩm trong kho</span>`;
     return `<article class="product-row ${state.currentProduct?.id === product.id ? "is-selected" : ""}">
       <img src="${escapeHtml(product.imageUrl)}" alt="">
-      <div class="product-row-copy"><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(categoryLabels[product.category] || product.category)} · ${stock.active.length} phiên bản đang bán</p><p class="product-row-price">${price}</p><div class="product-stock">${inventory}</div></div>
+      <div class="product-row-copy"><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(categoryLabels[product.category] || product.category)} · ${stock.active.length} phiên bản đang bán</p><p class="product-row-price">${price}</p><div class="product-option-summary">${product.variants.slice(0,3).map(v=>`<span>${escapeHtml(v.name)}</span>`).join("")}${product.variants.length>3?`<span>+${product.variants.length-3} biến thể</span>`:""}</div><div class="product-stock">${inventory}</div></div>
       <span class="status-pill ${product.active ? "is-active" : ""}">${product.active ? "Đang hiển thị" : "Bản nháp"}</span>
-      <button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Quản lý</button>
+      <button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Chỉnh sửa</button>
     </article>`;
   }).join("");
 }
@@ -764,7 +766,7 @@ document.querySelector("#product-search").addEventListener("input", async (event
     loadProducts(searchValue.trim()).catch((error) => showGlobal(error.message, true));
   }, 180);
 });
-document.querySelector("#new-product-button").addEventListener("click", () => { if (can("catalog.write")) setProductForm(); });
+document.querySelector("#new-product-button").addEventListener("click", () => { if (can("catalog.write")) location.href="/gaeru_ceo/products/new"; });
 document.querySelectorAll(".product-filters select").forEach((select) => select.addEventListener("change", renderProducts));
 document.querySelector("#reset-product-filters").addEventListener("click", () => {
   document.querySelector("#product-search").value = "";
@@ -773,7 +775,7 @@ document.querySelector("#reset-product-filters").addEventListener("click", () =>
 });
 document.querySelector("#product-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-edit-product]");
-  if (button) setProductForm(state.products.find((product) => product.id === button.dataset.editProduct));
+  if (button) location.href="/gaeru_ceo/products/"+encodeURIComponent(button.dataset.editProduct)+"/edit";
 });
 document.querySelector("#product-form").addEventListener("submit", saveProduct);
 document.querySelector('#product-form input[name="imageFile"]').addEventListener("change", updateImagePreview);
