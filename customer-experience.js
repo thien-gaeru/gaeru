@@ -3,7 +3,7 @@
   async function request(path,method='GET',body) {
     const headers={};
     if(method!=='GET'){const response=await fetch('/api/csrf');const token=await response.json();headers['X-CSRF-Token']=token.csrfToken;headers['Content-Type']='application/json';}
-    const response=await fetch('/api/customer'+path,{method,headers,credentials:'same-origin',...(body?{body:JSON.stringify(body)}:{})});
+    const response=await fetch(path.startsWith('/api/')?path:'/api/customer'+path,{method,headers,credentials:'same-origin',...(body?{body:JSON.stringify(body)}:{})});
     if(response.status===204)return null;const data=await response.json();if(!response.ok)throw new Error(data.error||'Không thể lưu thay đổi.');return data;
   }
   async function account() {
@@ -14,10 +14,28 @@
     profile.append(section);let page=1, editingId=null, savedAddresses=[];
     section.className='customer-workspace';
     section.querySelector('form').dataset.addressForm='';
-    const profileEditor=document.createElement('details');profileEditor.className='account-profile-editor';profileEditor.innerHTML='<summary>Cập nhật thông tin cá nhân</summary><form class="account-form" data-profile-form><label>Họ và tên<input name="fullName" autocomplete="name" minlength="2" maxlength="120" required></label><label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="25" required></label><button class="button button-blue">Lưu thông tin</button><p role="status"></p></form>';
+    const profileEditor=document.createElement('details');profileEditor.className='account-profile-editor';profileEditor.innerHTML='<summary>Cập nhật thông tin cá nhân</summary><form class="account-form" data-profile-form><label>Họ và tên<input name="fullName" autocomplete="name" minlength="2" maxlength="120" required></label><label>Email<input name="email" type="email" autocomplete="email" maxlength="254" required></label><label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="25" required></label><label>Mật khẩu hiện tại<input name="currentPassword" type="password" autocomplete="current-password" maxlength="200"><span class="account-field-note">Cần nhập khi đổi email hoặc số điện thoại.</span></label><p class="account-field-note">Đổi số điện thoại: xác nhận qua email hiện tại. Đổi email: xác nhận tại cả hộp thư hiện tại và hộp thư mới. Thông tin cũ được giữ nguyên cho đến khi hoàn tất.</p><button class="button button-blue">Lưu thông tin</button><p role="status"></p></form>';
     section.prepend(profileEditor);
-    const profileForm=profileEditor.querySelector('form');profileForm.elements.fullName.value=profile.querySelector('[data-customer-name]').textContent;profileForm.elements.phone.value=profile.querySelector('[data-customer-phone]').textContent;
-    profileForm.addEventListener('submit',async e=>{e.preventDefault();const button=profileForm.querySelector('button');button.disabled=true;try{const result=await request('/profile','PATCH',Object.fromEntries(new FormData(profileForm)));profile.querySelector('[data-customer-name]').textContent=result.customer.fullName;profile.querySelector('[data-customer-phone]').textContent=result.customer.phone;window.GAERUCustomerSession?.set(result.customer);profileForm.querySelector('[role=status]').textContent='Đã cập nhật thông tin.';}catch(error){profileForm.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}});
+    const profileForm=profileEditor.querySelector('form');profileForm.elements.fullName.value=profile.querySelector('[data-customer-name]').textContent;profileForm.elements.phone.value=profile.querySelector('[data-customer-phone]').textContent;profileForm.elements.email.value=profile.querySelector('[data-customer-email]').textContent;
+    profileForm.addEventListener('submit',async e=>{
+      e.preventDefault();const button=profileForm.querySelector('button'),feedback=profileForm.querySelector('[role=status]');
+      button.disabled=true;feedback.textContent='Đang xử lý…';let pendingMessage='';
+      try {
+        const values=Object.fromEntries(new FormData(profileForm));
+        const email=values.email.trim().toLowerCase(),phone=values.phone.trim();
+        const changed=email!==profile.querySelector('[data-customer-email]').textContent||phone!==profile.querySelector('[data-customer-phone]').textContent;
+        if(changed){
+          if(!values.currentPassword)throw Error('Nhập mật khẩu hiện tại để yêu cầu đổi email hoặc số điện thoại.');
+          const confirmation=await request('/api/customer-auth/contact-change/request','POST',{email,phone,password:values.currentPassword});
+          pendingMessage=confirmation.message;
+        }
+        const result=await request('/profile','PATCH',{fullName:values.fullName});
+        profile.querySelector('[data-customer-name]').textContent=result.customer.fullName;
+        window.GAERUCustomerSession?.set(result.customer);
+        feedback.textContent=pendingMessage||'Đã cập nhật thông tin.';
+      }catch(error){feedback.textContent=(pendingMessage?pendingMessage+' ':'')+error.message;}
+      finally{profileForm.elements.currentPassword.value='';button.disabled=false;}
+    });
     const addressForm=section.querySelector('[data-address-form]');const cancelEdit=document.createElement('button');cancelEdit.type='button';cancelEdit.textContent='Hủy chỉnh sửa';cancelEdit.hidden=true;addressForm.append(cancelEdit);cancelEdit.addEventListener('click',()=>{editingId=null;addressForm.reset();addressForm.querySelector('button').textContent='Lưu địa chỉ';cancelEdit.hidden=true;});
     const status=section.querySelector('[data-address-status]');
     async function addresses(){const data=await request('/addresses');savedAddresses=data.addresses;section.querySelector('[data-address-list]').innerHTML=data.addresses.map(a=>`<article><strong>${escape(a.label)}${a.isDefault?' · Mặc định':''}</strong><p>${escape(a.fullName)} · ${escape(a.phone)}<br>${escape(a.address)}, ${escape(a.city)}</p><button type="button" data-edit-address="${a.id}">Sửa địa chỉ</button> ${a.isDefault?'':`<button type="button" data-default="${a.id}">Chọn mặc định</button>`} <button type="button" data-remove="${a.id}">Xóa địa chỉ</button></article>`).join('')||'<div class="account-empty-state"><strong>Chưa có địa chỉ giao hàng</strong><p>Thêm địa chỉ thường dùng để đặt hàng nhanh hơn.</p></div>';}

@@ -4,6 +4,7 @@ const session = require("express-session");
 const helmet = require("helmet");
 const { createAdminAuthRouter } = require("./admin-auth");
 const { createCustomerAuthRouter } = require("./customer-auth");
+const { createContactChangeApi } = require("./contact-change-api");
 const { createStoreApi } = require("./store-api");
 const { getCsrfToken } = require("./security");
 const { createAdminAccess } = require("./staff-access");
@@ -79,6 +80,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/customer/care", createCareCustomerApi(pool));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
+  app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     smtpConfig: config.smtp,
     mailer: customerMailer

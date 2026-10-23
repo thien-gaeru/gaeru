@@ -198,10 +198,10 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     const updated=(await first.ok('/api/customer/addresses/'+a.id,'PUT',{...payload,address:'456 Updated Street',isDefault:true})).address;
     assert.equal(updated.address,'456 Updated Street');
     assert.equal((await first.ok('/api/customer/addresses')).addresses.filter(a=>a.isDefault).length,1);
-    const profile=await first.ok('/api/customer/profile','PATCH',{fullName:'Updated Customer',phone:'0911111111'});
+    const profile=await first.ok('/api/customer/profile','PATCH',{fullName:'Updated Customer',phone:'0900000000'});
     assert.equal(profile.customer.fullName,'Updated Customer');
-    assert.equal((await first.ok('/api/customer-auth/me')).customer.phone,'0911111111');
-    assert.equal((await first.request('/api/customer/profile','PATCH',{fullName:'Updated Customer',phone:'0911111111',email:'other@example.test'})).status,400);
+    assert.equal((await first.ok('/api/customer-auth/me')).customer.phone,'0900000000');
+    assert.equal((await first.request('/api/customer/profile','PATCH',{fullName:'Updated Customer',phone:'0911111111',email:'other@example.test'})).status,409);
     await first.ok('/api/customer/addresses/'+b.id,'DELETE',undefined,204);
     assert.equal((await first.ok('/api/customer/addresses')).addresses[0].isDefault,true);
     const customerId=(await pool.query('SELECT id FROM customers WHERE email=$1',['first@example.test'])).rows[0].id;
@@ -262,7 +262,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 10);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 11);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });
