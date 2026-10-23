@@ -100,6 +100,11 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
+  app.get(["/admin", "/admin/", "/admin/index.html"], (_req, res) => res.redirect(308, "/gaeru_ceo"));
+  app.get("/gaeru_ceo", (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    res.sendFile(path.join(__dirname, "..", "admin", "index.html"), error => { if (error) next(error); });
+  });
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",
     index: "index.html",

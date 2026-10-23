@@ -9,14 +9,14 @@ Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL; kh
 - Cửa hàng công khai: trang chủ, danh mục, tìm kiếm, chi tiết sản phẩm, giỏ hàng và đặt hàng.
 - Giỏ hàng lưu trên trình duyệt; giá, phiên bản và tồn kho được đọc từ PostgreSQL.
 - Checkout có COD và hỗ trợ VNPAY khi merchant cấu hình đủ secrets trên máy chủ; phí giao hàng theo tỉnh/thành được áp dụng phía server. Tài liệu merchant 9Pay chưa có trong workspace nên phương thức này chưa được bật.
-- Khu vực `/admin`: quản lý sản phẩm, phiên bản/SKU, giá, tồn kho; dashboard có số đơn cần xử lý, đơn chờ thanh toán và cảnh báo tồn thấp; tra cứu/lọc/phân trang lịch sử đơn, cập nhật trạng thái và cấu hình phí giao hàng theo tỉnh/thành.
+- Khu vực `/gaeru_ceo`: quản lý sản phẩm, phiên bản/SKU, giá, tồn kho; dashboard có số đơn cần xử lý, đơn chờ thanh toán và cảnh báo tồn thấp; tra cứu/lọc/phân trang lịch sử đơn, cập nhật trạng thái và cấu hình phí giao hàng theo tỉnh/thành.
 - Đăng nhập quản trị bằng mật khẩu băm; phiên lưu trong PostgreSQL, có CSRF token, giới hạn đăng nhập và giới hạn đặt hàng.
 - Khách hàng có thể đăng ký/đăng nhập bằng email và mật khẩu, lưu số điện thoại liên hệ; tài khoản chưa xác minh vẫn đăng nhập và mua hàng bình thường. Trong tài khoản, khách có thể yêu cầu gửi email xác minh với liên kết dùng một lần (hiệu lực 30 phút); trạng thái chưa xác minh biến mất sau khi xác nhận. Khôi phục mật khẩu đối chiếu email và số điện thoại rồi gửi liên kết dùng một lần qua email (hiệu lực 30 phút).
 - Các ảnh sản phẩm ban đầu được lưu trong `assets/products/`. Catalog seed ở trạng thái nháp, không tự đặt giá hay tồn kho chưa được xác minh.
 
 ## Quản trị sản phẩm và đơn hàng
 
-Mở `/admin/` và đăng nhập bằng tài khoản đã cấu hình trên máy chủ.
+Mở `/gaeru_ceo` và đăng nhập bằng tài khoản đã cấu hình trên máy chủ.
 
 - **Sản phẩm & kho:** tìm theo tên, slug hoặc SKU; kết hợp bộ lọc danh mục, hiển thị và tồn kho để tìm sản phẩm cần xử lý. Giá và tồn kho trên danh sách được tính từ các phiên bản đang bán.
 - **Thêm sản phẩm:** nhập thông tin và chọn ảnh PNG/JPEG/WebP tối đa 8 MB, lưu bản nháp, rồi thêm phiên bản với SKU, giá và tồn kho đã xác minh. Thuộc tính phiên bản được nhập theo từng cặp tên/giá trị. Sau khi có ít nhất một phiên bản đang bán, mở lại thông tin sản phẩm và bật hiển thị.
@@ -58,7 +58,7 @@ npm run db:seed
 npm start
 ```
 
-Mở `http://localhost:3000` để xem cửa hàng và `http://localhost:3000/admin/` để đăng nhập quản trị. Thêm và xác minh biến thể, giá, tồn kho trước khi bật bán sản phẩm. Không sử dụng mật khẩu mẫu, không đưa `.env` vào Git.
+Mở `http://localhost:3000` để xem cửa hàng và `http://localhost:3000/gaeru_ceo` để đăng nhập quản trị. Thêm và xác minh biến thể, giá, tồn kho trước khi bật bán sản phẩm. Không sử dụng mật khẩu mẫu, không đưa `.env` vào Git.
 
 Để phát triển với tự khởi động lại:
 
@@ -90,7 +90,7 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 
 - Checkout bị khóa theo mặc định bằng `STORE_ORDERS_ENABLED=false`; API cũng từ chối tạo đơn khi cờ này tắt. Việc bật cờ không thay thế thủ tục pháp lý áp dụng hay rà soát pháp lý.
 - VNPAY đã có luồng tạo giao dịch, xác minh chữ ký/IPN và cập nhật thanh toán idempotent; cần thông số merchant sandbox để kiểm thử thực tế trước khi production. 9Pay chưa được tích hợp vì chưa có tài liệu API merchant chính thức. Không nhập secret vào Git, chat hoặc giao diện quản trị.
-- Giá, phiên bản, tồn kho, bảng phí giao hàng theo tỉnh/thành và thông tin nhận chuyển khoản cần được xác minh/cập nhật qua `/admin`. Phí theo tỉnh được đọc và áp dụng tại máy chủ; checkout chỉ mở khi có ít nhất một mức phí hợp lệ.
+- Giá, phiên bản, tồn kho, bảng phí giao hàng theo tỉnh/thành và thông tin nhận chuyển khoản cần được xác minh/cập nhật qua `/gaeru_ceo`. Phí theo tỉnh được đọc và áp dụng tại máy chủ; checkout chỉ mở khi có ít nhất một mức phí hợp lệ.
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
@@ -100,7 +100,7 @@ Tài khoản chủ (`owner`, nguồn `bootstrap`) có mục **Quản trị tối
 
 Để tạo tài khoản chủ `gaeru` trên máy tính: cài Node.js 24 và `npm ci`, chạy `npm run owner:setup -- gaeru`, tự nhập mật khẩu hai lần trong terminal. Mật khẩu không hiển thị và không lưu nguyên văn; công cụ ghi bcrypt hash cùng khóa phiên vào `.env.local-owner` (đã loại khỏi Git). Nếu đã có tài khoản, công cụ yêu cầu nhập `THAY DOI` trước khi ghi thay thế. Cấu hình `.env` của hosting không bị thay đổi.
 
-Chạy `npm run dev:local`, mở `http://127.0.0.1:3000/admin/` và đăng nhập. Dữ liệu PostgreSQL nhúng lưu ở `.local-data/`, không bị mất khi dừng và mở lại; có thể đặt `LOCAL_PORT` nếu cổng 3000 bận. Bản cục bộ chỉ lắng nghe trên `127.0.0.1`, không nhận đơn, không gọi VNPAY hoặc SMTP, không thêm dữ liệu kinh doanh giả. Phiên đăng nhập cục bộ dùng bộ nhớ và kết thúc khi khởi động lại. Bản này dùng cho thiết lập/thử nghiệm cá nhân, chưa thay thế hosting production/PostgreSQL nhiều kết nối. Dừng bằng Ctrl+C; sao lưu `.local-data/` khi ứng dụng đã dừng. Không chia sẻ `.env.local-owner` hoặc thư mục dữ liệu.
+Chạy `npm run dev:local`, mở `http://127.0.0.1:3000/gaeru_ceo` và đăng nhập. Dữ liệu PostgreSQL nhúng lưu ở `.local-data/`, không bị mất khi dừng và mở lại; có thể đặt `LOCAL_PORT` nếu cổng 3000 bận. Bản cục bộ chỉ lắng nghe trên `127.0.0.1`, không nhận đơn, không gọi VNPAY hoặc SMTP, không thêm dữ liệu kinh doanh giả. Phiên đăng nhập cục bộ dùng bộ nhớ và kết thúc khi khởi động lại. Bản này dùng cho thiết lập/thử nghiệm cá nhân, chưa thay thế hosting production/PostgreSQL nhiều kết nối. Dừng bằng Ctrl+C; sao lưu `.local-data/` khi ứng dụng đã dừng. Không chia sẻ `.env.local-owner` hoặc thư mục dữ liệu.
 
 Logo thương hiệu dùng chung: `assets/brand/gaeru-logo.png`, chuyển định dạng từ ảnh thương hiệu do chủ dự án cung cấp, giữ nguyên nội dung và nền trắng 375 × 375. `brand.css` điều chỉnh vùng hiển thị bằng CSS cho header, footer, trang cửa hàng, CARE+ và quản trị; không thay đổi tệp gốc bằng thao tác tạo ảnh. Các trang HTML dùng cùng PNG làm favicon. Khi thay logo, cập nhật tài nguyên dùng chung này và kiểm tra các kích thước hiển thị tương ứng.
 
