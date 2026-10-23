@@ -47,6 +47,7 @@ function showCustomerProfile(customer, publish = true) {
   profile.querySelector("[data-customer-phone]").textContent = customer.phone;
   profile.querySelector("[data-email-verification-notice]").hidden = customer.emailVerified;
   setAccountFeedback("");
+  renderVerificationButton();
   if (publish) window.GAERUCustomerSession?.set(customer);
 }
 
@@ -197,11 +198,35 @@ document.querySelector("[data-account-logout]")?.addEventListener("click", async
   }
 });
 
+let verificationSending = false;
+let verificationCooldownTimer;
+const verificationCooldowns = new Map();
+
+function renderVerificationButton() {
+  const button = document.querySelector('[data-email-verification-request]');
+  const feedback = document.querySelector('[data-email-verification-feedback]');
+  if (!button) return;
+  if (verificationSending) return;
+  const deadline = verificationCooldowns.get(currentCustomer?.id) || 0;
+  const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+  button.disabled = remaining > 0;
+  button.textContent = remaining > 0 ? 'Đã gửi xác minh' : deadline ? 'Gửi lại xác minh' : 'Gửi email xác minh';
+  if (feedback && deadline) {
+    feedback.textContent = remaining > 0
+      ? 'Nếu chưa nhận được mail, bạn có thể bấm gửi lại sau ' + remaining + ' giây.'
+      : 'Nếu chưa nhận được mail, hãy kiểm tra thư rác hoặc bấm Gửi lại xác minh.';
+    feedback.classList.remove('is-error', 'is-success');
+  }
+  return remaining;
+}
+
 document.querySelector("[data-email-verification-request]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
-  const originalLabel = button.textContent;
+  if (verificationSending || (verificationCooldowns.get(currentCustomer?.id) || 0) > Date.now()) return;
+  const customerId = currentCustomer?.id;
   const feedback = document.querySelector('[data-email-verification-feedback]');
   const notify = (message, isError = false) => {
+    if (currentCustomer?.id !== customerId) return;
     setAccountFeedback(message, isError);
     if (feedback) {
       feedback.textContent = message;
@@ -209,22 +234,34 @@ document.querySelector("[data-email-verification-request]")?.addEventListener("c
       feedback.classList.toggle('is-success', !isError);
     }
   };
+  verificationSending = true;
   button.disabled = true;
   button.textContent = 'Đang gửi…';
   button.setAttribute('aria-busy', 'true');
   notify('Đang gửi email xác minh, vui lòng chờ…');
   try {
     const result = await accountRequest("/api/customer-auth/email-verification/request", {});
-    if (result.verified && currentCustomer) {
-      currentCustomer.emailVerified = true;
-      showCustomerProfile(currentCustomer);
+    if (result.verified) {
+      if (currentCustomer?.id === customerId && currentCustomer) {
+        currentCustomer.emailVerified = true;
+        showCustomerProfile(currentCustomer);
+      }
+    } else {
+      verificationCooldowns.set(customerId, Date.now() + 90_000);
+      clearInterval(verificationCooldownTimer);
+      verificationCooldownTimer = setInterval(() => {
+        renderVerificationButton();
+        if (![...verificationCooldowns.values()].some(deadline => deadline > Date.now())) clearInterval(verificationCooldownTimer);
+      }, 1000);
     }
     notify(result.message);
+    verificationSending = false;
+    renderVerificationButton();
   } catch (error) {
-    notify(error.message, true);
+    verificationSending = false;
+    renderVerificationButton();
+    notify(error.message || 'Chưa gửi được email. Vui lòng thử lại.', true);
   } finally {
-    button.disabled = false;
-    button.textContent = originalLabel;
     button.removeAttribute('aria-busy');
   }
 });
