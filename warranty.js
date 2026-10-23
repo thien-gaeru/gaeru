@@ -26,7 +26,6 @@
           <label>Sản phẩm / phiên bản đã mua<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 1 Mic · Type-C" required></label>
           <p class="care-field-note">Nhập mã đơn theo lịch sử mua hàng của kênh đã chọn. Hồ sơ cần được GAERU đối chiếu; chưa kết nối xác minh tự động với sàn.</p>
         </fieldset>
-        <label>Serial trên sản phẩm (nếu có)<input name="serial" maxlength="80" autocomplete="off"></label>
         <fieldset class="warranty-contact">
           <legend>Thông tin người đăng ký</legend>
           <p class="care-field-note">Thông tin được tự điền khi có địa chỉ đã lưu hoặc khi chọn đơn website. Bạn có thể sửa trước khi gửi.</p>
@@ -35,7 +34,7 @@
           <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" required></label>
           <label>Tỉnh / thành phố<input name="city" minlength="2" maxlength="120" autocomplete="address-level1" required></label>
         </fieldset>
-        <p class="care-field-note">Mỗi lần đăng ký tương ứng một sản phẩm. Không có serial có thể để trống. Thông tin được xử lý theo <a href="privacy.html">chính sách quyền riêng tư</a>.</p>
+        <p class="care-field-note">Mỗi lần đăng ký tương ứng một sản phẩm. Thông tin được xử lý theo <a href="privacy.html">chính sách quyền riêng tư</a>.</p>
         <button class="button button-blue" type="submit" disabled>Đăng ký kích hoạt</button>
         <p role="status" aria-live="polite" data-w-status></p>
       </form>
@@ -88,7 +87,7 @@
   const labels={pending:'Chờ xác nhận',active:'Đã kích hoạt',rejected:'Chưa được duyệt',revoked:'Đã thu hồi'};
   async function list() {
     const data=await api('/api/customer/warranties?page='+page);
-    section.querySelector('[data-w-list]').innerHTML=data.activations.map(w=>`<article class="care-case"><span class="care-status">${w.status==='active'&&w.expiresOn<=data.today?'Đã hết hạn':escape(labels[w.status])}</span><h4>${escape(w.productName)}${w.variantName?' · '+escape(w.variantName):''}</h4><p>${escape(channels[w.channel]||'Website GAERU')} · Đơn: ${escape(w.orderNumber)}<br>Serial: ${escape(w.serial||'Không khai báo')}<br>Mã hồ sơ: ${escape(w.id)}</p>${w.purchaseDate?`<p>Ngày mua đã xác nhận: ${escape(w.purchaseDate)}<br>Ngày kết thúc thời hạn: ${escape(w.expiresOn)} (giờ Việt Nam)</p>`:'<p>Thời hạn sẽ hiển thị sau khi GAERU đối chiếu ngày mua.</p>'}${w.reason?`<p>${escape(w.reason)}</p>`:''}</article>`).join('')||'<p>Chưa có hồ sơ ở trang này.</p>';
+    section.querySelector('[data-w-list]').innerHTML=data.activations.map(w=>`<article class="care-case"><span class="care-status">${w.status==='active'&&w.expiresOn<=data.today?'Đã hết hạn':escape(labels[w.status])}</span><h4>${escape(w.productName)}${w.variantName?' · '+escape(w.variantName):''}</h4><p>${escape(channels[w.channel]||'Website GAERU')} · Đơn: ${escape(w.orderNumber)}${w.serial?'<br>Serial: '+escape(w.serial):''}<br>Mã hồ sơ: ${escape(w.id)}</p>${w.purchaseDate?`<p>Ngày mua đã xác nhận: ${escape(w.purchaseDate)}<br>Ngày kết thúc thời hạn: ${escape(w.expiresOn)} (giờ Việt Nam)</p>`:'<p>Thời hạn sẽ hiển thị sau khi GAERU đối chiếu ngày mua.</p>'}${w.reason?`<p>${escape(w.reason)}</p>`:''}</article>`).join('')||'<p>Chưa có hồ sơ ở trang này.</p>';
     section.querySelector('[data-w-page-label]').textContent='Trang '+page;
     section.querySelector('[data-w-page="-1"]').disabled=page===1;
     section.querySelector('[data-w-page="1"]').disabled=data.activations.length<20;
@@ -112,12 +111,12 @@
       const contact=Object.fromEntries(['fullName','phone','address','city'].map(name=>[name,form.elements[name].value]));
       const account=form.elements.source.value==='account';
       if(account&&(form.elements.orderItemId.disabled||!form.elements.orderItemId.value))throw Error('Chọn sản phẩm trong đơn hàng trước khi đăng ký.');
-      const body=account?{orderItemId:form.elements.orderItemId.value,serial:form.elements.serial.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,serial:form.elements.serial.value,contact};
+      const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,contact};
       if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=crypto.randomUUID();}
       const data=await api(account?'/api/customer/warranties':'/api/warranty-requests','POST',{...body,requestKey:key});
       feedback.textContent='Đã tiếp nhận đăng ký. Mã hồ sơ: '+data.activation.id+'. GAERU sẽ đối chiếu đơn và ngày mua trước khi xác nhận kích hoạt.';
       if(!customer)feedback.textContent+=' Vui lòng lưu mã hồ sơ để liên hệ GAERU theo dõi kết quả.';
-      form.elements.serial.value='';key=null;serialized=null;page=1;
+      key=null;serialized=null;page=1;
       if(customer)try{await list();}catch{feedback.textContent+=' Chưa tải lại được danh sách; bạn có thể bấm Tải lại.';}
     } catch(error){feedback.textContent=error.message;}finally{button.disabled=false;button.textContent='Đăng ký kích hoạt';}
   });
