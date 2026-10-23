@@ -1,0 +1,14 @@
+/* One original PNG shared across the storefront, service pages and administration. */
+.brand-window{display:inline-block;position:relative;overflow:hidden;width:100px;height:32px;vertical-align:middle;flex-shrink:0}
+.brand-window .brand-logo{display:block;position:absolute;left:50%;top:50%;width:160px!important;height:160px!important;max-width:none!important;max-height:none!important;object-fit:contain;transform:translate(-50%,-50%)!important;mix-blend-mode:multiply}
+.wordmark:has(.brand-window){display:inline-flex;align-items:center;letter-spacing:normal;line-height:1}
+.admin-wordmark:has(.brand-window){display:flex;align-items:center;gap:8px}
+.admin-wordmark>.brand-window{padding:0;background:transparent;border-radius:0;font-size:inherit;color:inherit}
+.store-concierge .concierge-icon{width:76px;height:46px;flex-shrink:0;border-radius:12px;background:#fff;border:1px solid #e5e5e8}
+.concierge-icon .brand-window{width:68px;height:28px}
+.concierge-icon .brand-logo{width:108px!important;height:108px!important}
+.story-mark:has(.brand-window){line-height:1;max-width:100%}
+.story-mark .brand-window{width:220px;height:70px;max-width:100%}
+.story-mark .brand-logo{width:340px!important;height:340px!important}
+.care-emblem .brand-window{margin-top:12px;letter-spacing:normal}
+@media(max-width:600px){.site-header .brand-window{width:90px;height:30px}.site-header .brand-logo{width:144px!important;height:144px!important}}
