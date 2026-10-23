@@ -12,7 +12,7 @@ const registrationSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   phone: z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).transform(normalizePhone),
-  password: z.string().min(12).max(200)
+  password: z.string().min(8).max(200)
 });
 const loginSchema = z.object({
   identifier: z.string().trim().min(1).max(254).optional(),
@@ -32,7 +32,7 @@ const resetRequestSchema = z.object({
 });
 const resetPasswordSchema = z.object({
   token: z.string().min(32).max(128),
-  password: z.string().min(12).max(200)
+  password: z.string().min(8).max(200)
 });
 const verificationTokenSchema = z.string().min(32).max(128);
 
@@ -85,7 +85,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
   router.post("/register", authLimit, requireCsrf, async (req, res, next) => {
     try {
       const parsed = registrationSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "Vui lòng kiểm tra họ tên, email, số điện thoại và mật khẩu tối thiểu 12 ký tự." });
+      if (!parsed.success) return res.status(400).json({ error: "Vui lòng kiểm tra họ tên, email, số điện thoại và mật khẩu tối thiểu 8 ký tự." });
 
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);
       const result = await pool.query(
