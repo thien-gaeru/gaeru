@@ -5,12 +5,12 @@
 .care-page .care-messages{max-height:360px;overscroll-behavior-y:contain;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;overflow-anchor:none;-webkit-overflow-scrolling:touch}
 .care-message{flex:0 0 auto}
 @media(max-width:600px){
- .care-page .care-messages{max-height:240px;max-height:clamp(180px,36svh,280px);gap:8px;margin:8px 0 12px;padding:2px}
+ .care-page .care-messages{max-height:240px;max-height:clamp(180px,36svh,280px);gap:6px;margin:6px 0 8px;padding:2px}
  .care-page .care-message{max-width:92%;padding:10px 12px;margin:0;border-radius:14px}
  .care-page .care-message p{margin:5px 0;line-height:1.5}
  .care-page .care-message small{font-size:10px;line-height:1.4}
- .care-page .care-case details summary{padding:10px 0;font-size:14px}
- .care-page .care-live-status{margin:6px 0 10px;font-size:12px}
+ .care-page .care-case details summary{padding:8px 0;font-size:14px}
+ .care-page .care-live-status{margin:4px 0 6px;font-size:12px}
  .care-page .care-case [data-care-reply]{gap:10px}
  .care-page .care-case [data-care-reply] textarea{min-height:76px;padding:10px}
 }
