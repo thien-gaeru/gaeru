@@ -732,6 +732,7 @@ async function activateView(view) {
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();
     if (view === "owner" && window.GAERUOwner) await window.GAERUOwner.load();
     if (view === "warranty" && window.GAERUWarranty) await window.GAERUWarranty.load();
+    if (["payroll","tax","invoice","marketplace"].includes(view) && window.GAERUBusiness) await window.GAERUBusiness.load(view);
     if (window.GAERUEnterprise) await window.GAERUEnterprise.loadView(view);
   } catch (error) {
     showGlobal(error.message, true);
