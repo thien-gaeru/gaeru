@@ -25,7 +25,7 @@ if (headerRoot) {
         <nav class="primary-nav" aria-label="Điều hướng chính">
           <button class="menu-nav-trigger" type="button" aria-expanded="false" aria-controls="menu-panel">Sản phẩm <span aria-hidden="true">⌄</span></button>
           <a href="story.html">Câu chuyện</a>
-          <a href="support.html#warranty">GAERU CARE+</a>
+          <a href="care.html">GAERU CARE+</a>
           <a href="support.html">Hỗ trợ</a>
         </nav>
         <div class="nav-actions">
@@ -52,7 +52,7 @@ if (headerRoot) {
           <a href="product.html?id=g1-ultra">GAERU G1 Ultra</a>
           <a href="shop.html?category=accessory">Phụ kiện</a>
           <a href="support.html">Hỗ trợ</a>
-          <a href="support.html#warranty">GAERU CARE+</a>
+          <a href="care.html">GAERU CARE+</a>
         </nav>
       </div>
     </section>
@@ -112,7 +112,7 @@ if (footerRoot) {
         <details class="footer-column" open>
           <summary>Hỗ trợ &amp; tài khoản</summary>
           <div class="footer-links">
-            <a href="support.html#warranty">GAERU CARE+</a>
+            <a href="care.html">GAERU CARE+</a>
             <a href="support.html#guide">Hướng dẫn</a>
             <a href="support.html">Trung tâm hỗ trợ</a>
             <a href="account.html">Tài khoản</a>

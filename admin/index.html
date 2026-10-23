@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/admin/enterprise.css">
     <script src="/admin/admin.js" defer></script>
     <script src="/admin/enterprise.js" defer></script>
+    <script src="/admin/care.js" defer></script>
   </head>
   <body>
     <main class="admin-shell">
@@ -32,6 +33,7 @@
             <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div>
             <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
               <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
+              <button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
               <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
               <button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
             </div>
@@ -213,6 +215,7 @@
           <section class="view-panel enterprise-view" id="staff-view" hidden></section>
           <section class="view-panel enterprise-view" id="departments-view" hidden></section>
           <section class="view-panel enterprise-view" id="audit-view" hidden></section>
+          <section class="view-panel enterprise-view" id="care-view" hidden></section>
         </section>
       </div>
     </main>
