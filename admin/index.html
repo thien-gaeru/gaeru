@@ -11,6 +11,7 @@
     <script src="/admin/enterprise.js" defer></script>
     <script src="/admin/care.js" defer></script>
     <script src="/admin/owner.js" defer></script>
+    <script src="/admin/warranty.js" defer></script>
   <link rel="stylesheet" href="../brand.css">
     <link rel="icon" type="image/png" href="../assets/brand/gaeru-logo.png">
   </head>
@@ -38,6 +39,7 @@
             <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
               <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
               <button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
+              <button class="nav-item" type="button" data-view="warranty" data-permission="orders.read">Kích hoạt bảo hành</button>
               <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
               <button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
             </div>
@@ -221,6 +223,7 @@
           <section class="view-panel enterprise-view" id="audit-view" hidden></section>
           <section class="view-panel enterprise-view" id="care-view" hidden></section>
           <section class="view-panel enterprise-view" id="owner-view" hidden></section>
+          <section class="view-panel enterprise-view" id="warranty-view" hidden></section>
         </section>
       </div>
     </main>

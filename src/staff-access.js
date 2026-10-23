@@ -5,7 +5,7 @@ const PERMISSIONS = Object.freeze([
   "orders.read", "orders.write", "payments.write", "customers.read", "customers.write",
   "suppliers.read", "suppliers.write", "purchases.read", "purchases.write", "purchases.approve",
   "finance.read", "finance.write", "finance.approve", "reports.read", "staff.read", "staff.write",
-  "audit.read", "settings.read", "settings.write"
+  "audit.read", "settings.read", "settings.write", "warranty.approve"
 ]);
 
 const ROLE_PERMISSIONS = Object.freeze({
