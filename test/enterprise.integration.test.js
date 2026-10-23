@@ -293,6 +293,37 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal((await pool.query('SELECT count(*) AS total FROM orders')).rows[0].total,orderCount);
     assert.equal((await accountant.ok('/api/admin/business/integrations')).automaticSyncEnabled,false);
   });
+  await context.test('marketplace product links snapshot receipt costs and preserve unknown or historical costs',async()=>{
+    assert.equal((await sales.request('/api/admin/business/catalog?q=ENTERPRISE')).status,403);
+    assert.equal((await accountant.ok('/api/admin/business/catalog?q=ENTERPRISE')).products[0].id,variantId);
+    const data={period:'2099-01',requestKey:randomUUID(),channel:'shopee',shopId:'STOCK',externalOrderId:'LINKED',orderDate:'2099-01-01',status:'completed',reconciled:true,netRevenueVnd:1000000,refundVnd:0,platformFeesVnd:100000,cogsVnd:null,adsVnd:0,fulfillmentVnd:0,otherCostsVnd:0,costMode:'warehouse',items:[{variantId,quantity:2}]};
+    const stockBefore=(await pool.query('SELECT stock_quantity FROM product_variants WHERE id=$1',[variantId])).rows[0].stock_quantity;
+    const id=(await accountant.ok('/api/admin/business/marketplace','POST',data,201)).id;
+    const records=()=>accountant.ok('/api/admin/business/marketplace?period=2099-01');
+    let record=(await records()).documents.find(r=>r.id===id);
+    assert.equal(record.payload.cogsVnd,200000);assert.equal(record.calculation.profitVnd,700000);
+    assert.equal(record.payload.costSnapshot.lines[0].unitCostVnd,100000);
+    assert.ok(record.payload.costSnapshot.lines[0].receiptItemId);
+    assert.equal((await accountant.request('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),cogsVnd:1})).status,400);
+    assert.equal((await accountant.request('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),items:[...data.items,...data.items]})).status,400);
+    assert.equal((await accountant.request('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),items:[{variantId:randomUUID(),quantity:1}]})).status,400);
+    const missing=(await accountant.ok('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),externalOrderId:'HISTORICAL',orderDate:'2000-01-01'},201)).id;
+    record=(await records()).documents.find(r=>r.id===missing);assert.equal(record.payload.cogsVnd,null);assert.equal(record.calculation.profitVnd,null);
+    const returned=(await accountant.ok('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),externalOrderId:'RETURNED',status:'returned',netRevenueVnd:0,items:[{variantId,quantity:0}]},201)).id;
+    assert.equal((await records()).documents.find(r=>r.id===returned).payload.cogsVnd,0);
+    assert.equal((await pool.query('SELECT stock_quantity FROM product_variants WHERE id=$1',[variantId])).rows[0].stock_quantity,stockBefore);
+    await manager.ok('/api/admin/business/marketplace/'+id+'/approve','POST',{version:1});
+    const purchaseId=(await owner.ok('/api/admin/purchase-orders','POST',{supplierId,warehouseId:secondWarehouse,reference:'NEW-COST',note:'Fixture',items:[{variantId,quantity:1,unitCostVnd:200000}]},201)).purchaseOrder.id;
+    await owner.ok(`/api/admin/purchase-orders/${purchaseId}/submit`,'POST',{});
+    await owner.ok(`/api/admin/purchase-orders/${purchaseId}/approve`,'POST',{});
+    const itemId=(await owner.ok(`/api/admin/purchase-orders/${purchaseId}`)).purchaseOrder.items[0].id;
+    await owner.ok(`/api/admin/purchase-orders/${purchaseId}/receipts`,'POST',{requestKey:randomUUID(),reference:'NEW-COST',note:'Fixture',items:[{itemId,quantity:1}]},201);
+    assert.equal((await accountant.ok('/api/admin/business/marketplace','POST',data)).id,id);
+    assert.equal((await records()).documents.find(r=>r.id===id).payload.cogsVnd,200000);
+    const newId=(await accountant.ok('/api/admin/business/marketplace','POST',{...data,requestKey:randomUUID(),externalOrderId:'LATEST'},201)).id;
+    assert.equal((await records()).documents.find(r=>r.id===newId).payload.cogsVnd,400000);
+    assert.equal((await accountant.ok('/api/admin/business/marketplace-summary?period=2099-01')).channels.find(c=>c.channel==='shopee').profitVnd,700000);
+  });
   await context.test('only the bootstrap owner can inspect highest-level controls or revoke employee sessions',async()=>{
     const adminClient=client();
     await owner.ok('/api/admin/staff','POST',{username:'test-admin',fullName:'Test Admin',password,role:'admin'},201);

@@ -19,6 +19,14 @@ Bản nâng cấp **chưa kết nối API thật với MISA eShop hoặc các s�
 - Doanh thu thuần sàn là số đã trừ giảm giá/hoàn tiền, chưa gồm VAT, do người đối soát nhập. Tiền hoàn là số tham chiếu và không trừ lần thứ hai. Lợi nhuận đóng góp = doanh thu thuần − phí sàn − giá vốn − quảng cáo phân bổ − giao nhận − chi phí khác. Chỉ tổng hợp chứng từ đã duyệt và đã đối soát; để trống bất kỳ chi phí nào thì kết quả lợi nhuận là **chưa đủ dữ liệu**, không mặc định bằng 0. Đây chưa phải lợi nhuận sau thuế toàn doanh nghiệp và không cộng lẫn doanh thu website chưa có giá vốn.
 - Mỗi mã nhân viên chỉ có một chứng từ lương còn hiệu lực trong một tháng. Mã đơn sàn không trùng trong cùng sàn/gian hàng, kể cả nhập sang tháng khác. Một đơn website chỉ có một hồ sơ hóa đơn còn hiệu lực. Số tiền mỗi trường tối đa 1.000 tỷ VND, tổng tính toán tối đa 9.000 tỷ VND. Thử lại cùng mã yêu cầu phải có cùng nội dung và người tạo.
 
+## Liên kết sản phẩm kho cho đơn sàn
+
+Trong bản nháp đối soát, chọn **Nguồn giá vốn → Lấy từ phiếu nhập kho theo sản phẩm**, tìm theo tên/SKU, thêm các biến thể và nhập số lượng tính vốn. Số lượng là hàng thực bán sau hoàn trả; đơn hủy dùng 0. Bản nháp hiển thị đơn giá, tổng giá vốn và số phiếu nhập để kiểm tra trước khi duyệt.
+
+Máy chủ lấy đơn giá của phiếu nhập đã ghi nhận gần nhất đến hết ngày đặt đơn theo giờ Việt Nam, cho từng biến thể trên toàn doanh nghiệp. Nhân đơn giá với số lượng và cộng các dòng; không dùng giá bán làm giá vốn. Chưa có phiếu nhập phù hợp thì giữ giá vốn/lợi nhuận chưa đủ dữ liệu. Đây là **giá nhập tham chiếu**, chưa phải định giá xuất kho FIFO, bình quân gia quyền hay giá theo kho/lô cụ thể; chưa phân bổ thêm thuế nhập khẩu/vận chuyển vào đơn giá. Có thể chọn nhập tay khi kế toán đã xác định giá vốn thực tế bằng phương pháp khác.
+
+Giá vốn và nguồn phiếu nhập được lưu cùng chứng từ. Phiếu nhập mới chỉ ảnh hưởng bản nháp tạo sau đó; lịch sử không bị tính lại. Yêu cầu thử lại giữ nguyên bản chụp. Muốn điều chỉnh bản chưa chi cần hủy có lý do rồi lập lại theo quy trình duyệt. Liên kết này không trừ tồn kho, không tự tải đơn từ sàn, chưa lưu ánh xạ SKU sàn dùng lại tự động. Quyền xem sản phẩm để liên kết giới hạn cho người có quyền lập đối soát sàn.
+
 ## Quyền và kiểm soát
 
 Chủ/quản trị viên có toàn quyền. Kế toán được lập và xem các chứng từ nhưng không tự duyệt. Quản lý được đối soát/duyệt sàn, xem thuế/hồ sơ hóa đơn; không đọc lương hoặc duyệt thuế/hóa đơn. Người lập không tự duyệt, trừ chủ/quản trị viên được xử lý ngoại lệ. Các vai trò kinh doanh, kho và chỉ xem không được truy cập những mục mới này.
