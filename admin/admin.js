@@ -1,4 +1,5 @@
 const state = {
+  session: null,
   csrfToken: "",
   products: [],
   orders: [],
@@ -41,6 +42,15 @@ const formatPrice = (value) => `${new Intl.NumberFormat("vi-VN").format(value)} 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
+const can = (permission) => Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));
+
+function applyPermissions() {
+  document.querySelectorAll("[data-permission], [data-require]").forEach((element) => {
+    element.hidden = !can(element.dataset.permission || element.dataset.require);
+  });
+  document.querySelectorAll(".nav-group").forEach((group) => { group.hidden = ![...group.querySelectorAll("[data-view]")].some((button) => !button.hidden); });
+  document.querySelectorAll("#settings-form input,#settings-form textarea,#settings-form button").forEach((element) => { element.disabled = !can("settings.write"); });
+}
 
 async function request(url, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -68,7 +78,7 @@ async function initialize() {
     const csrf = await request("/api/csrf");
     state.csrfToken = csrf.csrfToken;
     const session = await request("/api/auth/me");
-    if (session.authenticated) await showAdmin(session.username);
+    if (session.authenticated) await showAdmin(session);
     else document.querySelector("#login-panel").hidden = false;
   } catch (error) {
     document.querySelector("#login-panel").hidden = false;
@@ -76,16 +86,30 @@ async function initialize() {
   }
 }
 
-async function showAdmin(username) {
+async function showAdmin(session) {
+  state.session = session;
   document.querySelector("#login-panel").hidden = true;
   document.querySelector("#admin-app").hidden = false;
-  document.querySelector("#admin-identity").textContent = username;
-  const results = await Promise.allSettled([loadSummary(), loadProducts(), loadOrders(), loadSettings()]);
+  const identityName = session.fullName || session.username;
+  const roleLabel = ({ owner: "Chủ doanh nghiệp", admin: "Quản trị", manager: "Quản lý", sales: "Bán hàng", warehouse: "Kho", accountant: "Kế toán", viewer: "Chỉ xem" })[session.role] || session.role;
+  document.querySelector("#admin-identity").textContent = roleLabel && identityName !== roleLabel ? `${identityName} · ${roleLabel}` : identityName;
+  applyPermissions();
+  document.dispatchEvent(new CustomEvent("gaeru:admin-ready", { detail: session }));
+  const tasks = [];
+  if (can("dashboard.read")) tasks.push(loadSummary());
+  if (can("catalog.read")) tasks.push(loadProducts());
+  if (can("orders.read")) tasks.push(loadOrders());
+  if (can("settings.read")) tasks.push(loadSettings());
+  const results = await Promise.allSettled(tasks);
   const failed = results.find((result) => result.status === "rejected");
   if (failed) showGlobal(`Đã đăng nhập nhưng một số dữ liệu chưa tải được: ${failed.reason.message}`, true);
+  const firstView = document.querySelector('[data-view]:not([hidden])');
+  if (firstView) await activateView(firstView.dataset.view);
+  else showGlobal("Tài khoản chưa được cấp quyền truy cập chức năng. Liên hệ người quản trị.", true);
 }
 
 async function loadSummary() {
+  if (!can("dashboard.read")) return;
   const summary = await request("/api/admin/summary");
   document.querySelector("#active-product-count").textContent = summary.products.active;
   document.querySelector("#product-count").textContent = summary.products.total;
@@ -98,6 +122,7 @@ async function loadSummary() {
 }
 
 async function loadProducts(search = "") {
+  if (!can("catalog.read")) return;
   const requestId = ++state.productRequest;
   const root = document.querySelector("#product-list");
   root.setAttribute("aria-busy", "true");
@@ -187,6 +212,8 @@ function setProductForm(product = null, { scroll = true } = {}) {
   updateImagePreview();
   setFeedback(form, "");
   if (product) renderVariants(product);
+  form.querySelectorAll("input,select,textarea,button").forEach((element) => { if (!can("catalog.write")) element.disabled = true; });
+  form.querySelector('button[type="submit"]').hidden = !can("catalog.write");
   renderProducts();
   if (scroll) {
     form.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
@@ -204,8 +231,8 @@ function renderVariants(product) {
     <div class="variant-identity"><strong>${escapeHtml(variant.name)}</strong><br><span>SKU ${escapeHtml(variant.sku)} · ${variant.active ? "Đang bán" : "Tạm ẩn"}</span></div>
     <span>${formatPrice(variant.priceVnd)}</span>
     <span class="${variant.active && variant.stockQuantity <= 5 ? "stock-alert" : ""}">${variant.stockQuantity === 0 ? "Hết hàng" : `Tồn kho: ${variant.stockQuantity}`}</span>
-    <div class="variant-actions"><button class="row-button" type="button" data-edit-variant="${escapeHtml(variant.id)}" aria-label="Sửa ${escapeHtml(variant.name)}">Sửa</button>
-    <button class="plain-button" type="button" data-delete-variant="${escapeHtml(variant.id)}" aria-label="Xóa ${escapeHtml(variant.name)}">Xóa</button></div>
+    <div class="variant-actions"><button class="row-button" type="button" data-edit-variant="${escapeHtml(variant.id)}" aria-label="Xem ${escapeHtml(variant.name)}">${can("catalog.write") ? "Sửa" : "Xem"}</button>
+    ${can("catalog.write") ? `<button class="plain-button" type="button" data-delete-variant="${escapeHtml(variant.id)}" aria-label="Xóa ${escapeHtml(variant.name)}">Xóa</button>` : ""}</div>
   </div>`).join("");
 }
 
@@ -218,6 +245,9 @@ function fillVariantForm(variant = null) {
   form.elements.name.value = variant?.name || "";
   form.elements.priceVnd.value = variant?.priceVnd ?? "";
   form.elements.stockQuantity.value = variant?.stockQuantity ?? 0;
+  form.querySelectorAll("input,select,textarea,button").forEach((element) => { element.disabled = !can("catalog.write"); });
+  form.elements.stockQuantity.disabled = !can("inventory.approve");
+  form.querySelector('button[type="submit"]').hidden = !can("catalog.write");
   renderAttributes(variant?.options || {});
   form.elements.active.checked = Boolean(variant?.active);
   setFeedback(form, "");
@@ -318,6 +348,7 @@ async function reloadSelectedProduct(productId, originalEditorId = productId, { 
 
 async function saveProduct(event) {
   event.preventDefault();
+  if (!can("catalog.write")) return;
   const form = event.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
   if (form.dataset.saving) return;
@@ -363,6 +394,7 @@ async function saveProduct(event) {
 
 async function saveVariant(event) {
   event.preventDefault();
+  if (!can("catalog.write")) return;
   const form = event.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
   if (form.dataset.saving) return;
@@ -397,6 +429,7 @@ async function saveVariant(event) {
 }
 
 async function loadOrders(page = state.orderPage) {
+  if (!can("orders.read")) return;
   const requestId = ++state.orderRequest;
   const status = document.querySelector("#order-filter").value;
   const search = document.querySelector("#order-search").value.trim();
@@ -435,14 +468,14 @@ function isLiveVnpayAttempt(order) {
 }
 
 function canEditShipping(order) {
-  return order.status === "pending" && order.paymentStatus !== "paid"
+  return can("orders.write") && order.status === "pending" && order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0)
     && !(order.paymentMethod === "vnpay" && (order.paymentProvider || order.paymentAttemptStatus));
 }
 
 function orderPaymentControl(order) {
-  const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : "Chưa thanh toán";
+  const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
   if (["vnpay", "9pay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật từ cổng thanh toán.</small></div>`;
-  if (order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Đơn đã kết thúc."}</small></div>`;
+  if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
   return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
 
@@ -461,9 +494,10 @@ function renderOrders() {
   }
   root.innerHTML = state.orders.map((order) => {
     const orderDate = new Date(order.createdAt).toLocaleString("vi-VN");
-    const allowed = (orderTransitions[order.status] || []).filter((status) => status !== "cancelled" || (order.paymentStatus !== "paid" && !isLiveVnpayAttempt(order)));
+    const allowed = can("orders.write") ? (orderTransitions[order.status] || []).filter((status) => (status !== "cancelled" || (order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0) && !isLiveVnpayAttempt(order)))
+      && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "9pay"].includes(order.paymentMethod)))) : [];
     const optionMarkup = [order.status, ...allowed].map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(labels[key] || key)}</option>`).join("");
-    const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : "Chưa thanh toán";
+    const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
     const paymentNote = order.paymentProvider === "vnpay" ? (order.paymentAttemptStatus === "pending" && !isLiveVnpayAttempt(order) ? "Phiên thanh toán VNPAY đã hết hạn; kiểm tra đối soát trước khi xử lý đơn." : paymentAttemptLabels[order.paymentAttemptStatus]) : "";
     const latePaymentWarning = order.status === "cancelled" && order.paymentStatus === "paid"
       ? "Đơn đã hủy nhưng đã nhận tiền; cần đối soát/hoàn tiền thủ công trong merchant portal."
@@ -471,6 +505,7 @@ function renderOrders() {
     const phone = String(order.phone || "").replace(/[^+0-9]/g, "");
     const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
     const lockNote = order.paymentStatus === "paid" ? "Phí giao hàng và thanh toán đã được chốt. Đơn đã thanh toán cần xử lý hoàn tiền trước khi hủy."
+      : Number(order.receivedVnd) > 0 ? "Đơn đã thu một phần tiền. Không thể thay đổi phí giao hàng hoặc hủy đơn khi chưa xử lý khoản tiền đã thu."
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<details class="order-card" data-order-detail="${escapeHtml(order.id)}" ${state.openOrders.has(order.id) ? "open" : ""}>
@@ -481,7 +516,7 @@ function renderOrders() {
         <p>${escapeHtml(order.address)}, ${escapeHtml(order.city)}${order.note ? `<br>Ghi chú: ${escapeHtml(order.note)}` : ""}</p>
       </div>
       <div class="order-lines">${order.items.map((item) => `<div class="order-line"><span>${escapeHtml(item.productName)} · ${escapeHtml(item.variantName)} × ${item.quantity}<small>SKU ${escapeHtml(item.sku || "—")}</small></span><strong>${formatPrice(item.lineTotalVnd)}</strong></div>`).join("")}</div>
-      <dl class="order-totals"><div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div><div><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
+      <dl class="order-totals"><div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div>${Number(order.receivedVnd) > 0 ? `<div><dt>Đã thu</dt><dd>${formatPrice(order.receivedVnd)}</dd></div><div><dt>Còn phải thu</dt><dd>${formatPrice(order.outstandingVnd ?? Math.max(0, order.totalVnd - order.receivedVnd))}</dd></div>` : ""}<div><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
       ${paymentNote ? `<p class="help-text">${escapeHtml(paymentNote)}</p>` : ""}
       ${latePaymentWarning ? `<p class="feedback">${escapeHtml(latePaymentWarning)}</p>` : ""}
       ${lockNote ? `<p class="editor-guidance">${lockNote}</p>` : ""}
@@ -533,6 +568,7 @@ async function updateOrder(event) {
 }
 
 async function loadCustomers(page = state.customerPage) {
+  if (!can("customers.read")) return;
   const search = document.querySelector("#customer-search").value.trim();
   const params = new URLSearchParams({ page: String(page) });
   if (search) params.set("q", search);
@@ -558,7 +594,7 @@ function renderCustomers() {
         <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
       </div>
       <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh email" : "Chưa xác minh email"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
-      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button><button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button></div>
+      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}</div>
       <div class="customer-detail" data-customer-detail-panel="${escapeHtml(customer.id)}" hidden></div>
     </article>`).join("");
   pagination.hidden = state.customerPagination.pageCount <= 1;
@@ -585,12 +621,14 @@ async function toggleCustomer(id, active) {
 }
 
 async function loadSettings() {
+  if (!can("settings.read")) return;
   const settings = await request("/api/admin/settings");
   const form = document.querySelector("#settings-form");
   form.elements.shippingNote.value = settings.shipping_note || "";
   document.querySelector("#payment-provider-status").textContent =
     `Đang khả dụng: ${settings.paymentMethods.map((method) => method === "cod" ? "COD" : method.toUpperCase()).join(", ")}. 9Pay chưa được cấu hình.`;
   renderShippingRates(settings.shipping_rates || {});
+  applyPermissions();
 }
 
 function renderShippingRates(rates) {
@@ -606,6 +644,7 @@ function renderShippingRates(rates) {
 
 async function saveSettings(event) {
   event.preventDefault();
+  if (!can("settings.write")) return;
   const form = event.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
   submitButton.disabled = true;
@@ -657,7 +696,7 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
     });
     state.csrfToken = result.csrfToken;
     form.reset();
-    await showAdmin(result.username);
+    await showAdmin(result);
   } catch (error) {
     feedback.textContent = error.message;
   } finally {
@@ -676,16 +715,20 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
 
 async function activateView(view) {
   const button = document.querySelector(`[data-view="${view}"]`);
-  if (!button) return;
+  if (!button || !can(button.dataset.permission)) return;
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("is-active", item === button));
   document.querySelectorAll(".view-panel").forEach((panel) => { panel.hidden = panel.id !== `${button.dataset.view}-view`; });
   document.querySelector("#view-title").textContent = button.textContent;
   document.querySelectorAll("[data-view]").forEach((item) => item.setAttribute("aria-current", item === button ? "page" : "false"));
+  document.querySelector(".sidebar").classList.remove("navigation-open");
+  document.querySelector(".sidebar-toggle").setAttribute("aria-expanded", "false");
   try {
     if (button.dataset.view === "products") await loadProducts(document.querySelector("#product-search").value.trim());
     if (button.dataset.view === "orders") await loadOrders();
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
+    if (button.dataset.view === "overview") await loadSummary();
+    if (window.GAERUEnterprise) await window.GAERUEnterprise.loadView(view);
   } catch (error) {
     showGlobal(error.message, true);
   }
@@ -693,11 +736,7 @@ async function activateView(view) {
 document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => activateView(button.dataset.view)));
 document.querySelectorAll("[data-shortcut]").forEach((button) => button.addEventListener("click", () => {
   if (button.dataset.shortcut === "stock") {
-    document.querySelector("#product-search").value = "";
-    document.querySelector("#product-category-filter").value = "";
-    document.querySelector("#product-status-filter").value = "active";
-    document.querySelector("#product-stock-filter").value = "low";
-    activateView("products");
+    activateView("inventory");
   } else {
     document.querySelector("#order-search").value = "";
     document.querySelector("#order-filter").value = button.dataset.shortcut === "pending" ? "pending" : "";
@@ -716,7 +755,7 @@ document.querySelector("#product-search").addEventListener("input", async (event
     loadProducts(searchValue.trim()).catch((error) => showGlobal(error.message, true));
   }, 180);
 });
-document.querySelector("#new-product-button").addEventListener("click", () => setProductForm());
+document.querySelector("#new-product-button").addEventListener("click", () => { if (can("catalog.write")) setProductForm(); });
 document.querySelectorAll(".product-filters select").forEach((select) => select.addEventListener("change", renderProducts));
 document.querySelector("#reset-product-filters").addEventListener("click", () => {
   document.querySelector("#product-search").value = "";
@@ -876,4 +915,9 @@ document.querySelector("#shipping-rate-list").addEventListener("click", (event) 
   renderShippingRates(rates);
 });
 
+document.querySelector(".sidebar-toggle").addEventListener("click", (event) => {
+  const open = document.querySelector(".sidebar").classList.toggle("navigation-open");
+  event.currentTarget.setAttribute("aria-expanded", String(open));
+});
+window.GAERUAdmin = Object.freeze({ request, can, showGlobal, activateView, get user() { return state.session; } });
 initialize();
