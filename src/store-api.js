@@ -70,7 +70,7 @@ async function lockVariantWithProduct(client, variantId) {
   const product = parentResult.rows[0];
   if (!product) return null;
   const variantResult = await client.query(
-    "SELECT id, active FROM product_variants WHERE id=$1 AND product_id=$2 FOR UPDATE",
+    'SELECT id, active, stock_quantity AS "stockQuantity" FROM product_variants WHERE id=$1 AND product_id=$2 FOR UPDATE',
     [variantId, product.id]
   );
   const variant = variantResult.rows[0];
@@ -98,7 +98,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -197,6 +197,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
         if (successful) {
           await client.query("UPDATE orders SET payment_status='paid', updated_at=now() WHERE id=$1", [attempt.orderId]);
         }
+        await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
         return { code: "00", message: "Confirm Success" };
       });
       res.json({ RspCode: result.code, Message: result.message });
@@ -300,7 +301,8 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
             [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
               item.priceVnd, item.quantity, item.priceVnd * item.quantity]
           );
-          await client.query(
+          if (inventory) await inventory.reserveStock(client, { variantId: item.id, quantity: item.quantity, orderId: createdOrder.id, actor: { username: "customer", source: "customer" } });
+          else await client.query(
             "UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1",
             [item.id, item.quantity]
           );
@@ -318,6 +320,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
             ipAddress: req.ip
           });
         }
+        await audit(client, { actor: { username: "customer", source: "customer" }, action: "order.create", entityType: "order", entityId: createdOrder.id, metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod } });
         return {
           order: { ...createdOrder, items: prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({ productName, variantName, sku, priceVnd, quantity })) },
           paymentUrl
@@ -340,6 +343,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
   router.use("/admin", requireAdmin);
 
   router.post("/admin/uploads", requireCsrf, parseImageUpload, async (req, res, next) => {
+    let uploadedPath;
     try {
       if (!req.file) return res.status(400).json({ error: "Chọn một tệp ảnh để tải lên." });
       const signatures = [
@@ -352,9 +356,12 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const filename = `${randomUUID()}.${image.ext}`;
       const imageDirectory = path.join(__dirname, "..", "assets", "products");
       await fs.mkdir(imageDirectory, { recursive: true });
-      await fs.writeFile(path.join(imageDirectory, filename), req.file.buffer, { flag: "wx" });
+      uploadedPath = path.join(imageDirectory, filename);
+      await fs.writeFile(uploadedPath, req.file.buffer, { flag: "wx" });
+      await audit(pool, { actor: req.admin, action: "catalog.image.upload", entityType: "product_image", entityId: filename, metadata: { size: req.file.size, type: image.type } });
       res.status(201).json({ imageUrl: `/assets/products/${filename}` });
     } catch (error) {
+      if (uploadedPath) await fs.unlink(uploadedPath).catch(() => {});
       next(error);
     }
   });
@@ -413,14 +420,19 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
     try {
       const parsed = z.object({ active: z.boolean() }).safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Trạng thái khách hàng chưa hợp lệ." });
-      const result = await pool.query(
+      const customer = await withTransaction(pool, async (client) => {
+      const result = await client.query(
         `UPDATE customers SET active = $2, updated_at = now() WHERE id = $1
          RETURNING id, full_name AS "fullName", email, phone, active,
                    email_verified_at IS NOT NULL AS "emailVerified"`,
         [req.params.id, parsed.data.active]
       );
-      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy khách hàng." });
-      res.json({ customer: result.rows[0] });
+      if (!result.rowCount) return null;
+      await audit(client, { actor: req.admin, action: "customer.access.update", entityType: "customer", entityId: req.params.id, metadata: { active: parsed.data.active } });
+      return result.rows[0];
+      });
+      if (!customer) return res.status(404).json({ error: "Không tìm thấy khách hàng." });
+      res.json({ customer });
     } catch (error) {
       next(error);
     }
@@ -452,13 +464,17 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
       const p = parsed.data;
-      const result = await pool.query(
+      const product = await withTransaction(pool, async (client) => {
+      const result = await client.query(
         `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
          VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
          RETURNING id`,
         [p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.sortOrder]
       );
-      res.status(201).json({ id: result.rows[0].id });
+      await audit(client, { actor: req.admin, action: "catalog.product.create", entityType: "product", entityId: result.rows[0].id, after: { ...p, active: false } });
+      return result.rows[0];
+      });
+      res.status(201).json({ id: product.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Slug sản phẩm đã được sử dụng." });
       next(error);
@@ -487,6 +503,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
            WHERE id=$1 RETURNING id`,
           [req.params.id, p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.active, p.sortOrder]
         );
+        await audit(client, { actor: req.admin, action: "catalog.product.update", entityType: "product", entityId: req.params.id, after: p });
         return result.rows[0];
       });
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
@@ -503,14 +520,21 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
       const v = parsed.data;
-      const result = await pool.query(
+      if (req.admin && v.stockQuantity > 0 && !req.admin.permissions.includes("inventory.approve")) return res.status(403).json({ error: "Cần quyền duyệt kho để khai báo tồn đầu kỳ." });
+      const variant = await withTransaction(pool, async (client) => {
+      const result = await client.query(
         `INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active)
          SELECT id, $2, $3, $4, $5, $6, $7 FROM products WHERE id=$1
          RETURNING id`,
         [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
       );
-      if (!result.rowCount) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      res.status(201).json({ id: result.rows[0].id });
+      if (!result.rowCount) return null;
+      if (inventory) await inventory.initializeVariantStock(client, { variantId: result.rows[0].id, quantity: v.stockQuantity, actor: req.admin });
+      await audit(client, { actor: req.admin, action: "catalog.variant.create", entityType: "variant", entityId: result.rows[0].id, after: v });
+      return result.rows[0];
+      });
+      if (!variant) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      res.status(201).json({ id: variant.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "SKU đã được sử dụng." });
       next(error);
@@ -525,12 +549,17 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
       const variant = await withTransaction(pool, async (client) => {
         const current = await lockVariantWithProduct(client, req.params.id);
         if (!current) return null;
+        if (req.admin && v.stockQuantity !== current.variant.stockQuantity && !req.admin.permissions.includes("inventory.approve")) {
+          const error = new Error("Cần quyền duyệt kho để thay đổi số lượng tồn."); error.status = 403; throw error;
+        }
         if (!v.active) await requireAnotherActiveVariant(client, current.product, current.variant);
+        if (inventory) await inventory.setVariantStock(client, { variantId: req.params.id, quantity: v.stockQuantity, actor: req.admin, reason: "Điều chỉnh từ trang phiên bản sản phẩm" });
         const result = await client.query(
           `UPDATE product_variants SET sku=$2, name=$3, options=$4, price_vnd=$5,
             stock_quantity=$6, active=$7, updated_at=now() WHERE id=$1 RETURNING id`,
           [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
         );
+        await audit(client, { actor: req.admin, action: "catalog.variant.update", entityType: "variant", entityId: req.params.id, after: v });
         return result.rows[0];
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
@@ -552,15 +581,21 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           [req.params.id]
         );
         if (references.rows[0].referenced) return { inUse: true };
+        if (inventory) {
+          const history = await client.query("SELECT EXISTS (SELECT 1 FROM inventory_movements WHERE variant_id=$1) AS referenced", [req.params.id]);
+          if (history.rows[0].referenced) return { inUse: true };
+        }
         await requireAnotherActiveVariant(client, current.product, current.variant);
         await client.query("DELETE FROM product_variants WHERE id=$1", [req.params.id]);
+        await audit(client, { actor: req.admin, action: "catalog.variant.delete", entityType: "variant", entityId: req.params.id });
         return { deleted: true };
       });
       if (result.missing) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
-      if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng. Hãy sửa và tạm ẩn thay vì xóa." });
+      if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng hoặc kho. Hãy sửa và tạm ẩn thay vì xóa." });
       res.status(204).end();
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
+      if (error.code === "23503") return res.status(409).json({ error: "Phiên bản đã có trong chứng từ. Hãy tạm ẩn thay vì xóa." });
       next(error);
     }
   });
@@ -614,6 +649,14 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
        GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY o.created_at DESC LIMIT $5 OFFSET $6`,
       [...filterValues, pageSize, (page - 1) * pageSize]
     );
+    if (finance && result.rows.length) {
+      const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
+      const receivedByOrder = new Map(receipts.rows.map((row) => [row.order_id, Number(row.received)]));
+      for (const order of result.rows) {
+        order.receivedVnd = order.paymentStatus === "paid" ? order.totalVnd : (receivedByOrder.get(order.id) || 0);
+        order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
+      }
+    }
     res.json({
       orders: result.rows,
       pagination: { page, pageSize, total, pageCount }
@@ -629,6 +672,17 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
         const currentResult = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [req.params.id]);
         const current = currentResult.rows[0];
         if (!current) return null;
+        if (req.admin) {
+          const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
+          const paymentChange = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
+          if ((fulfillmentChange && !req.admin.permissions.includes("orders.write")) || (paymentChange && !req.admin.permissions.includes("payments.write"))) {
+            const error = new Error("Tài khoản không có quyền cập nhật nghiệp vụ này."); error.status = 403; throw error;
+          }
+        }
+        const receivedAmount = finance ? await finance.receiptTotal(client, current.id) : 0;
+        if (receivedAmount > 0 && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
+          const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
+        }
         if (update.status && update.status !== current.status && !transitions[current.status].includes(update.status)) {
           const error = new Error(`Không thể chuyển đơn từ ${current.status} sang ${update.status}.`);
           error.status = 409;
@@ -715,7 +769,8 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           throw error;
         }
         if (update.status === "cancelled" && current.status !== "cancelled") {
-          await client.query(
+          if (inventory) await inventory.releaseOrderStock(client, { orderId: current.id, actor: req.admin });
+          else await client.query(
             `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at=now()
              FROM order_items i WHERE i.order_id=$1 AND i.variant_id=v.id`,
             [current.id]
@@ -727,6 +782,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           error.status = 400;
           throw error;
         }
+        if (finance && update.paymentStatus === "paid" && current.payment_status !== "paid") await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: req.admin });
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
             shipping_fee_vnd=$4, total_vnd=$5, updated_at=now()
@@ -734,6 +790,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
           [current.id, update.status || null, update.paymentStatus || null, shippingFee, total]
         );
+        await audit(client, { actor: req.admin, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         return updated.rows[0];
       });
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
@@ -766,6 +823,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null } = {}
           [key, JSON.stringify(value)]
         );
       }
+      await audit(client, { actor: req.admin, action: "settings.update", entityType: "store_settings", after: settings });
     });
     res.json({ settings: {
       shippingNote: settings.shipping_note,

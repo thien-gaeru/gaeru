@@ -86,7 +86,7 @@ test("variant editing and deletion preserve a published product's final active v
           async query(sql) {
             statements.push(sql);
             if (sql.startsWith("SELECT p.id")) return { rows: [{ id: productId, active: scenario.parentActive }] };
-            if (sql.startsWith("SELECT id, active FROM product_variants")) return { rows: [{ id: variantId, active: true }] };
+            if (sql.startsWith("SELECT id, active,") && sql.includes("FROM product_variants")) return { rows: [{ id: variantId, active: true, stockQuantity: 3 }] };
             if (sql.startsWith("SELECT EXISTS")) return { rows: [{ referenced: false }] };
             if (sql.startsWith("SELECT COUNT(*)")) return { rows: [{ count: scenario.otherActive }] };
             if (sql.startsWith("UPDATE product_variants")) return { rows: [{ id: variantId }] };
@@ -101,7 +101,7 @@ test("variant editing and deletion preserve a published product's final active v
         const expected = method === "DELETE" && scenario.expected === 200 ? 204 : scenario.expected;
         assert.equal(response.status, expected);
         const parentLock = statements.findIndex((sql) => sql.includes("FOR UPDATE OF p"));
-        const variantLock = statements.findIndex((sql) => sql.startsWith("SELECT id, active FROM product_variants"));
+        const variantLock = statements.findIndex((sql) => sql.startsWith("SELECT id, active,") && sql.includes("FROM product_variants"));
         assert.ok(parentLock >= 0 && variantLock > parentLock);
         const mutated = statements.some((sql) => sql.startsWith("UPDATE product_variants") || sql.startsWith("DELETE FROM product_variants"));
         assert.equal(mutated, scenario.expected === 200);

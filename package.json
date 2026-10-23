@@ -26,5 +26,8 @@
     "nodemailer": "^10.2.0",
     "pg": "^8.16.3",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.11"
   }
 }

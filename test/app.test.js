@@ -53,7 +53,10 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.deepEqual(await malformedJson.json(), { error: "Yêu cầu không hợp lệ." });
 
   const me = await fetch(`${baseUrl}/api/auth/me`);
-  assert.deepEqual(await me.json(), { authenticated: false, username: null });
+  const anonymousIdentity = await me.json();
+  assert.equal(anonymousIdentity.authenticated, false);
+  assert.equal(anonymousIdentity.username, null);
+  assert.deepEqual(anonymousIdentity.permissions, []);
   assert.equal((await fetch(`${baseUrl}/api/admin/summary`)).status, 401);
   assert.equal((await fetch(`${baseUrl}/src/app.js`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/db/schema.sql`)).status, 404);
@@ -74,7 +77,11 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.notEqual(loginBody.csrfToken, csrfBody.csrfToken);
   const adminCookie = login.headers.get("set-cookie").split(";")[0];
   const authenticatedSession = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: adminCookie } });
-  assert.deepEqual(await authenticatedSession.json(), { authenticated: true, username: "manager" });
+  const identity = await authenticatedSession.json();
+  assert.equal(identity.authenticated, true);
+  assert.equal(identity.username, "manager");
+  assert.equal(identity.role, "owner");
+  assert.ok(identity.permissions.includes("staff.write"));
 
   const logout = await fetch(`${baseUrl}/api/auth/logout`, {
     method: "POST",

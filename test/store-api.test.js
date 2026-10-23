@@ -196,7 +196,7 @@ test("variant deletion preserves variants referenced by historical orders", asyn
     async query(sql) {
       statements.push(sql);
       if (sql.startsWith("SELECT p.id")) return { rows: [{ id: "8fdd01fd-c15d-42d0-b95d-beb8cc3a5ef7", active: false }] };
-      if (sql.startsWith("SELECT id, active FROM product_variants")) return { rows: [{ id: "4b4cfca4-96cd-47b1-a851-ed6f9944359f", active: true }] };
+      if (sql.startsWith("SELECT id, active,") && sql.includes("FROM product_variants")) return { rows: [{ id: "4b4cfca4-96cd-47b1-a851-ed6f9944359f", active: true, stockQuantity: 0 }] };
       if (sql.startsWith("SELECT EXISTS")) return { rows: [{ referenced: true }] };
       return { rows: [] };
     },
