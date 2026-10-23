@@ -729,6 +729,7 @@ async function activateView(view) {
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
     if (button.dataset.view === "overview") await loadSummary();
+    if (view === "news" && window.GAERUNewsAdmin) await window.GAERUNewsAdmin.load();
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();
     if (view === "owner" && window.GAERUOwner) await window.GAERUOwner.load();
     if (view === "warranty" && window.GAERUWarranty) await window.GAERUWarranty.load();

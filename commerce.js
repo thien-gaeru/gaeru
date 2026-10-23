@@ -94,6 +94,7 @@ function getPriceLabel(product) {
 }
 
 function productCard(product, compact = false) {
+  const discoverUrl = ["k9","m3","p01","g1-ultra"].includes(product.slug) ? "discover-"+product.slug+".html" : "product.html?id="+encodeURIComponent(product.slug);
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
   const action = variants.length === 1 && availableVariants.length === 1
@@ -110,7 +111,7 @@ function productCard(product, compact = false) {
         <p>${escapeHtml(product.description)}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>
         <div class="card-actions">
-          <a class="button button-blue" href="product.html?id=${encodeURIComponent(product.slug)}">Tìm hiểu thêm</a>
+          <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
           ${action}
         </div>
       </div>
@@ -125,7 +126,7 @@ function productCard(product, compact = false) {
       <p class="catalog-description">${escapeHtml(product.description)}</p>
       <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>
       <div class="catalog-actions">
-        <a class="button button-blue" href="product.html?id=${encodeURIComponent(product.slug)}">Tìm hiểu thêm</a>
+        <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
         ${action}
       </div>
     </article>`;
@@ -232,6 +233,7 @@ function renderProduct() {
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h1>${escapeHtml(product.name)}</h1>
         <p class="detail-description">${escapeHtml(product.description)}</p>
+        ${["k9","m3","p01","g1-ultra"].includes(product.slug)?`<a class="text-link" href="discover-${product.slug}.html">Khám phá ${escapeHtml(product.name)} ↗</a>`:""}
         ${variantField}
         <p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p>
         <div class="detail-actions">
