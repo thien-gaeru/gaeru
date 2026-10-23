@@ -94,6 +94,8 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
+Trang tài khoản hỗ trợ cập nhật họ tên/số điện thoại, sửa địa chỉ đã lưu, xem chi tiết từng đơn gồm sản phẩm, số lượng, địa chỉ nhận và các khoản tiền. Các API luôn đối chiếu chủ sở hữu; thay đổi hồ sơ không sửa email, trạng thái xác minh hoặc địa chỉ trên đơn cũ. Khi sửa địa chỉ mặc định, địa chỉ đó vẫn là mặc định cho đến khi chọn địa chỉ khác. Khách chỉ xem được đơn đã gắn với tài khoản của mình.
+
 Migration `customer-experience.sql` bổ sung sổ địa chỉ riêng cho từng khách (tối đa 20), địa chỉ mặc định và liên kết đơn mới với tài khoản đang đăng nhập. Chạy `npm run db:migrate` trước khi dùng bản này. Trang tài khoản cho phép thêm/xóa/chọn địa chỉ mặc định và xem đơn mới; checkout tự điền thông tin khách, chọn địa chỉ đã lưu, vẫn cho nhập địa chỉ khác. Đơn khách vãng lai và đơn lịch sử không tự gắn bằng email để tránh lộ dữ liệu. Tỉnh/thành phải khớp vùng giao hàng được cấu hình; địa chỉ ngoài vùng yêu cầu chọn lại tỉnh/thành.
 
 Nhà cung cấp được chọn: VNPAY, J&T Express và Viettel Post. VNPAY đã có ký URL và kiểm tra IPN ở máy chủ; cần cấu hình merchant và nghiệm thu sandbox trước production. Bản này **chưa có adapter tạo vận đơn hoặc đồng bộ trạng thái J&T/Viettel Post**. Cần tài liệu API của hợp đồng GAERU (môi trường thử nghiệm, cách ký/xác thực, tạo/tra cứu/hủy vận đơn, webhook, mã dịch vụ, địa chỉ lấy hàng và thông số kiện hàng) trước khi triển khai. Không nhập khóa bí mật vào Git hoặc chat. Tham khảo cổng chính thức: https://open.jtexpress.vn/ và https://partner2.viettelpost.vn/document/detail-instructions.
