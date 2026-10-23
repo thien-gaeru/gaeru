@@ -14,3 +14,5 @@
 #warranty-form .button{justify-self:start;min-height:48px}
 #warranty-form .button:disabled{opacity:.6;cursor:wait}
 @media(max-width:600px){#warranty-form fieldset{padding:16px}#warranty-form .button{width:100%;justify-self:stretch}}
+#warranty-form .warranty-contact-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;min-width:0;align-items:start}
+@media(max-width:420px){#warranty-form .warranty-contact-row{gap:10px}#warranty-form .warranty-contact-row label{font-size:12px}#warranty-form .warranty-contact-row input,#warranty-form .warranty-contact-row select{padding-inline:8px}}
