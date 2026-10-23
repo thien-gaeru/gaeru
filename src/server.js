@@ -19,8 +19,10 @@ let server;
 
 async function start() {
   await pool.query("ALTER TABLE IF EXISTS customers ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true");
-  server = app.listen(config.PORT, () => {
-    console.log(`GAERU standalone store listening on port ${config.PORT}`);
+  const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
+  const host = "0.0.0.0";
+  server = app.listen(port, host, () => {
+    console.log(`GAERU standalone store listening on ${host}:${port}`);
   });
 }
 
