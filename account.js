@@ -199,18 +199,33 @@ document.querySelector("[data-account-logout]")?.addEventListener("click", async
 
 document.querySelector("[data-email-verification-request]")?.addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  const originalLabel = button.textContent;
+  const feedback = document.querySelector('[data-email-verification-feedback]');
+  const notify = (message, isError = false) => {
+    setAccountFeedback(message, isError);
+    if (feedback) {
+      feedback.textContent = message;
+      feedback.classList.toggle('is-error', isError);
+      feedback.classList.toggle('is-success', !isError);
+    }
+  };
   button.disabled = true;
+  button.textContent = 'Đang gửi…';
+  button.setAttribute('aria-busy', 'true');
+  notify('Đang gửi email xác minh, vui lòng chờ…');
   try {
     const result = await accountRequest("/api/customer-auth/email-verification/request", {});
     if (result.verified && currentCustomer) {
       currentCustomer.emailVerified = true;
       showCustomerProfile(currentCustomer);
     }
-    setAccountFeedback(result.message);
+    notify(result.message);
   } catch (error) {
-    setAccountFeedback(error.message, true);
+    notify(error.message, true);
   } finally {
     button.disabled = false;
+    button.textContent = originalLabel;
+    button.removeAttribute('aria-busy');
   }
 });
 
