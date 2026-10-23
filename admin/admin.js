@@ -60,7 +60,7 @@ async function request(url, options = {}) {
   const response = await fetch(url, { ...options, headers, credentials: "same-origin" });
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Yêu cầu thất bại (${response.status}).`);
+  if (!response.ok) throw Object.assign(new Error(body.error || `Yêu cầu thất bại (${response.status}).`),{status:response.status});
   return body;
 }
 

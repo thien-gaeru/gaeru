@@ -10,7 +10,7 @@ Dữ kiện được gửi đến OpenAI theo hành động của người soạ
 
 ## Hỗ trợ và tài khoản
 
-Quản trị CARE+ hiển thị danh sách hội thoại và khung tin nhắn. Chọn yêu cầu, nhập phản hồi mới và chọn trạng thái. Tin nhắn cũ được giữ; phản hồi trước khi nâng cấp được chuyển vào lịch sử. Khách mở Xem hội thoại với GAERU trên trang CARE+ để đọc và trả lời sau phản hồi đầu tiên. Tin nhắn mới của khách chuyển yêu cầu về Đang kiểm tra. Yêu cầu đã đóng không nhận thêm tin; khách tạo yêu cầu mới. Dùng Tải lại để nhận cập nhật, đây chưa phải kết nối thời gian thực. Lịch sử tải 50 tin gần nhất và có nút xem tin trước; chống gửi trùng bằng phiên bản yêu cầu, giới hạn 30 tin khách mỗi giờ trên từng yêu cầu.
+Quản trị CARE+ hiển thị danh sách hội thoại và khung tin nhắn. Chọn yêu cầu, nhập phản hồi mới và chọn trạng thái. Tin nhắn cũ được giữ; phản hồi trước khi nâng cấp được chuyển vào lịch sử. Khách mở Xem hội thoại với GAERU trên trang CARE+ để đọc và trả lời sau phản hồi đầu tiên. Tin nhắn mới của khách chuyển yêu cầu về Đang kiểm tra. Yêu cầu đã đóng không nhận thêm tin; khách tạo yêu cầu mới. Hội thoại tự kiểm tra cập nhật mỗi 3 giây khi trang đang hiển thị và có mạng. Trang ẩn tạm ngừng; lỗi kết nối tăng thời gian chờ đến tối đa 30 giây rồi tự thử lại. Tin mới được tải theo mã tăng dần, không thay khung nhập hoặc xóa lịch sử đã tải. Vẫn có nút Tải lại để dùng thủ công. Lịch sử tải 50 tin gần nhất và có nút xem tin trước; chống gửi trùng bằng phiên bản yêu cầu, giới hạn 30 tin khách mỗi giờ trên từng yêu cầu.
 
 Trang tài khoản có thẻ Sản phẩm đã đăng ký bảo hành dưới lịch sử đơn hàng. Chỉ hiển thị dữ liệu của tài khoản đang đăng nhập, ngày mua/hạn bảo hành chưa xác nhận không được tự suy ra.
 
