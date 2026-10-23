@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 function page(authenticated){
  const nodes=new Map(),requests=[];
  const node=key=>{if(!nodes.has(key))nodes.set(key,{hidden:false,disabled:false,value:'',textContent:'',innerHTML:'',options:[],listeners:{},addEventListener(event,fn){this.listeners[event]=fn;},append(option){this.options.push(option);},querySelector:node,scrollIntoView(){}});return nodes.get(key);};
- const form=node('form');form.elements=Object.fromEntries(['source','orderId','orderItemId','serial','externalOrderNumber','productName','fullName','phone','address','city'].map(name=>[name,node(name)]));
+ const form=node('form');form.elements=Object.fromEntries(['source','orderId','orderItemId','externalOrderNumber','productName','fullName','phone','address','city'].map(name=>[name,node(name)]));
  form.elements.source.value='website';form.elements.orderId.options.push({value:''});
  const fetch=async(url,options={})=>{
   requests.push({url,options});
