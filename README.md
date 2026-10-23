@@ -27,7 +27,7 @@ Mở `/admin/` và đăng nhập bằng tài khoản đã cấu hình trên máy
 
 ## Yêu cầu
 
-- Node.js **26.12.1** (Current), đồng bộ trong `.nvmrc`, `.node-version`, GitHub Actions và Render. `package.json` yêu cầu `>=26.12.1 <27`; cập nhật các tệp ghim phiên bản cùng nhau khi nâng cấp. Bản nâng cấp này không thay Node.js toàn máy hoặc tự triển khai hosting.
+- Node.js **24.22.1** (LTS), đồng bộ trong `.nvmrc`, `.node-version`, GitHub Actions và Render. `package.json` yêu cầu `>=24.0.0 <25`; cập nhật các tệp ghim phiên bản cùng nhau khi nâng cấp. Bản nâng cấp này không thay Node.js toàn máy hoặc tự triển khai hosting.
 - PostgreSQL 13 trở lên.
 - Lưu trữ bền vững cho thư mục `assets/products/` và kế hoạch sao lưu cơ sở dữ liệu/ảnh.
 

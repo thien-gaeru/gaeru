@@ -10,7 +10,7 @@ services:
     autoDeployTrigger: off
     envVars:
       - key: NODE_VERSION
-        value: 26.12.1
+        value: 24.22.1
       - key: NODE_ENV
         value: production
       - key: PGSSL
