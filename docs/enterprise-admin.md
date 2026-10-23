@@ -55,4 +55,4 @@ Các kiểm tra PGlite không thay thế kiểm thử nhiều kết nối Postgr
 
 ## Phạm vi cần mở rộng theo quy trình doanh nghiệp
 
-Chưa có tính lương/chấm công, quản lý hợp đồng lao động, đổi trả/hoàn tiền tự động, giá vốn theo lô, kế toán thuế, hóa đơn điện tử, kết nối hãng vận chuyển, MFA/SSO hoặc giới hạn quyền riêng theo từng kho. Vai trò kho trong bản này thao tác trên các kho của cùng doanh nghiệp; chưa có mô hình nhiều doanh nghiệp độc lập. Những nghiệp vụ này cần chính sách, dữ liệu đầu vào và thông số tích hợp riêng trước khi có thể triển khai và nghiệm thu.
+Tính lương, đối chiếu VAT, hồ sơ hóa đơn và đối soát sàn thủ công đã bổ sung ở [module tài chính mở rộng](business-finance.md); kết nối API đang chờ cấp quyền. Chưa có chấm công, quản lý hợp đồng lao động, đổi trả/hoàn tiền tự động, giá vốn theo lô, kế toán thuế, hóa đơn điện tử, kết nối hãng vận chuyển, MFA/SSO hoặc giới hạn quyền riêng theo từng kho. Vai trò kho trong bản này thao tác trên các kho của cùng doanh nghiệp; chưa có mô hình nhiều doanh nghiệp độc lập. Những nghiệp vụ này cần chính sách, dữ liệu đầu vào và thông số tích hợp riêng trước khi có thể triển khai và nghiệm thu.

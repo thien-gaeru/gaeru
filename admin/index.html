@@ -12,6 +12,7 @@
     <script src="/admin/care.js" defer></script>
     <script src="/admin/owner.js" defer></script>
     <script src="/admin/warranty.js" defer></script>
+    <script src="/admin/business.js" defer></script>
   <link rel="stylesheet" href="../brand.css">
     <link rel="icon" type="image/png" href="../assets/brand/gaeru-logo.png">
   </head>
@@ -51,6 +52,10 @@
             </div>
             <div class="nav-group"><p class="nav-group-label">Tài chính</p>
               <button class="nav-item" type="button" data-view="finance" data-permission="finance.read">Công nợ &amp; thanh toán</button>
+              <button class="nav-item" type="button" data-view="payroll" data-permission="payroll.read">Tính lương</button>
+              <button class="nav-item" type="button" data-view="tax" data-permission="tax.read">Đối chiếu thuế</button>
+              <button class="nav-item" type="button" data-view="invoice" data-permission="invoice.read">Hóa đơn điện tử</button>
+              <button class="nav-item" type="button" data-view="marketplace" data-permission="marketplace.read">Sàn TMĐT &amp; lợi nhuận</button>
               <button class="nav-item" type="button" data-view="reports" data-permission="reports.read">Báo cáo kinh doanh</button>
             </div>
             <div class="nav-group"><p class="nav-group-label">Tổ chức</p>
@@ -224,6 +229,10 @@
           <section class="view-panel enterprise-view" id="care-view" hidden></section>
           <section class="view-panel enterprise-view" id="owner-view" hidden></section>
           <section class="view-panel enterprise-view" id="warranty-view" hidden></section>
+          <section class="view-panel enterprise-view" id="payroll-view" hidden></section>
+          <section class="view-panel enterprise-view" id="tax-view" hidden></section>
+          <section class="view-panel enterprise-view" id="invoice-view" hidden></section>
+          <section class="view-panel enterprise-view" id="marketplace-view" hidden></section>
         </section>
       </div>
     </main>

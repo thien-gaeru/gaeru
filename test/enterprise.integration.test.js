@@ -245,9 +245,37 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 7);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 8);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
+  });
+  await context.test('business finance protects payroll, approves tax facts, keeps invoices unissued and reports incomplete marketplace costs',async()=>{
+    const period='2026-10';
+    const payroll={period,requestKey:randomUUID(),employeeCode:'PAY-01',fullName:'Payroll Fixture',mode:'mixed',baseSalaryVnd:26000000,plannedDays:26,workedDays:26,hourlyRateVnd:100000,workedMinutes:60,allowanceVnd:0,bonusVnd:0,commissionVnd:0,insuranceVnd:1000000,pitWithheldVnd:1000000,advanceVnd:0,deductionVnd:0,employerContributionVnd:0};
+    const salary=(await accountant.ok('/api/admin/business/payroll','POST',payroll,201)).id;
+    assert.equal((await accountant.ok('/api/admin/business/payroll','POST',payroll)).id,salary);
+    assert.equal((await accountant.request('/api/admin/business/payroll','POST',{...payroll,bonusVnd:1})).status,409);
+    assert.equal((await manager.request('/api/admin/business/payroll?period='+period)).status,403);
+    assert.equal((await sales.request('/api/admin/business/payroll?period='+period)).status,403);
+    assert.equal((await accountant.request('/api/admin/business/payroll/'+salary+'/approve','POST',{version:1})).status,403);
+    await owner.ok('/api/admin/business/payroll/'+salary+'/approve','POST',{version:1});
+    assert.equal((await owner.request('/api/admin/business/payroll/'+salary+'/paid','POST',{version:2})).status,409);
+    await owner.ok('/api/admin/business/payroll/'+salary+'/paid','POST',{version:2,paymentReference:'PAYMENT-FIXTURE-01'});
+    const paid=(await accountant.ok('/api/admin/business/payroll?period='+period)).documents[0];assert.equal(paid.calculation.netVnd,24100000);assert.equal(paid.status,'paid');
+    assert.equal((await owner.request('/api/admin/business/payroll/'+salary+'/void','POST',{version:3,reason:'Cannot cancel paid'})).status,409);
+    await assert.rejects(pool.query("UPDATE business_documents SET payload='{}'::jsonb WHERE id=$1",[salary]),/immutable/);
+    for(const direction of ['input','output']){const id=(await accountant.ok('/api/admin/business/tax','POST',{period,requestKey:randomUUID(),documentDate:'2026-10-01',direction,reference:'VAT-'+direction,counterparty:'Tax Fixture',netVnd:100000,vatVnd:10000,deductibleVatVnd:direction==='input'?5000:0},201)).id;await owner.ok('/api/admin/business/tax/'+id+'/approve','POST',{version:1});}
+    assert.equal((await accountant.ok('/api/admin/business/tax-summary?period='+period)).differenceVnd,5000);
+    const completed=(await pool.query("SELECT id FROM orders WHERE status='completed' AND payment_status='paid' LIMIT 1")).rows[0].id;
+    const invoice=(await accountant.ok('/api/admin/business/invoice','POST',{period,requestKey:randomUUID(),orderId:completed,buyerName:'Buyer Fixture',buyerTaxCode:'TEST-TAX',buyerAddress:'123 Fixture Address',buyerEmail:'buyer@example.test'},201)).id;
+    await owner.ok('/api/admin/business/invoice/'+invoice+'/approve','POST',{version:1});
+    assert.equal((await owner.request('/api/admin/business/invoice/'+invoice+'/issue','POST',{})).status,503);
+    assert.equal((await accountant.ok('/api/admin/business/invoice?period='+period)).documents[0].calculation.issued,false);
+    const orderCount=(await pool.query('SELECT count(*) AS total FROM orders')).rows[0].total;
+    for(const channel of ['shopee','tiktok','lazada']){const id=(await accountant.ok('/api/admin/business/marketplace','POST',{period,requestKey:randomUUID(),channel,shopId:'SHOP-1',externalOrderId:'ORDER-1',orderDate:'2026-10-01',status:'completed',reconciled:true,netRevenueVnd:1000000,refundVnd:0,platformFeesVnd:100000,cogsVnd:channel==='tiktok'?null:400000,adsVnd:0,fulfillmentVnd:0,otherCostsVnd:0},201)).id;await manager.ok('/api/admin/business/marketplace/'+id+'/approve','POST',{version:1});}
+    const summary=await accountant.ok('/api/admin/business/marketplace-summary?period='+period);assert.equal(summary.channels.find(c=>c.channel==='shopee').profitVnd,500000);assert.equal(summary.channels.find(c=>c.channel==='tiktok').profitVnd,null);
+    assert.equal((await pool.query('SELECT count(*) AS total FROM orders')).rows[0].total,orderCount);
+    assert.equal((await accountant.ok('/api/admin/business/integrations')).automaticSyncEnabled,false);
   });
   await context.test('only the bootstrap owner can inspect highest-level controls or revoke employee sessions',async()=>{
     const adminClient=client();
