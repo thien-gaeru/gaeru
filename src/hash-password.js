@@ -35,11 +35,12 @@ function readPassword() {
 async function main() {
   stdout.write("New administrator password (minimum 12 characters): ");
   const password = await readPassword();
-  if (password.length < 12) throw new Error("Administrator password must contain at least 12 characters.");
+  if (password.length < 12 || Buffer.byteLength(password,'utf8')>72) throw new Error("Administrator password must contain at least 12 characters and at most 72 UTF-8 bytes.");
   console.log(await bcrypt.hash(password, 12));
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
   console.error(error.message);
   process.exitCode = 1;
 });
+module.exports={readPassword};

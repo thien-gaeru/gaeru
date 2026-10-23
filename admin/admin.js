@@ -49,6 +49,7 @@ function applyPermissions() {
     element.hidden = !can(element.dataset.permission || element.dataset.require);
   });
   document.querySelectorAll(".nav-group").forEach((group) => { group.hidden = ![...group.querySelectorAll("[data-view]")].some((button) => !button.hidden); });
+  document.querySelectorAll('[data-owner-only]').forEach(element=>{element.hidden=state.session?.role!=='owner'||state.session?.source!=='bootstrap';element.closest('.nav-group').hidden=element.hidden;});
   document.querySelectorAll("#settings-form input,#settings-form textarea,#settings-form button").forEach((element) => { element.disabled = !can("settings.write"); });
 }
 
@@ -729,6 +730,7 @@ async function activateView(view) {
     if (button.dataset.view === "settings") await loadSettings();
     if (button.dataset.view === "overview") await loadSummary();
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();
+    if (view === "owner" && window.GAERUOwner) await window.GAERUOwner.load();
     if (window.GAERUEnterprise) await window.GAERUEnterprise.loadView(view);
   } catch (error) {
     showGlobal(error.message, true);

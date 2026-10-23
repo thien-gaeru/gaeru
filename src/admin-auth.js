@@ -53,7 +53,7 @@ function createAdminAuthRouter(config, pool) {
       const reservedUsername = parsed.data.username.toLowerCase() === config.ADMIN_USERNAME.toLowerCase();
       if (reservedUsername) {
         const passwordMatches = await bcrypt.compare(parsed.data.password, config.ADMIN_PASSWORD_HASH);
-        if (parsed.data.username === config.ADMIN_USERNAME && passwordMatches) {
+        if (parsed.data.username === config.ADMIN_USERNAME && passwordMatches && Buffer.byteLength(parsed.data.password, "utf8") <= 72) {
           principal = bootstrapPrincipal(config);
           identity = { source: "bootstrap", username: config.ADMIN_USERNAME, credentialVersion: bootstrapCredentialVersion(config) };
         }
