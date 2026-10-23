@@ -228,4 +228,20 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });
+  await context.test('only the bootstrap owner can inspect highest-level controls or revoke employee sessions',async()=>{
+    const adminClient=client();
+    await owner.ok('/api/admin/staff','POST',{username:'test-admin',fullName:'Test Admin',password,role:'admin'},201);
+    await adminClient.login('test-admin',password);
+    assert.equal((await adminClient.request('/api/admin/owner')).status,403);
+    assert.equal((await adminClient.request('/api/admin/owner/revoke-staff-sessions','POST',{confirmation:'REVOKE_STAFF_SESSIONS'})).status,403);
+    const overview=await owner.ok('/api/admin/owner');
+    assert.equal(overview.owner.username,'enterprise-owner');
+    assert.equal(JSON.stringify(overview).includes(password),false);
+    assert.equal((await owner.request('/api/admin/owner/revoke-staff-sessions','POST',{})).status,400);
+    const result=await owner.ok('/api/admin/owner/revoke-staff-sessions','POST',{confirmation:'REVOKE_STAFF_SESSIONS'});
+    assert.ok(result.count>0);
+    assert.equal((await adminClient.request('/api/admin/summary')).status,401);
+    assert.equal((await owner.ok('/api/admin/owner')).owner.role,'owner');
+    assert.ok((await owner.ok('/api/admin/audit-logs')).events.some(e=>e.action==='owner.revoke_staff_sessions'));
+  });
 });

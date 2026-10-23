@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "dev:local": "node src/local-server.js",
+    "owner:setup": "node src/setup-owner.js",
     "db:migrate": "node src/migrate.js",
     "db:seed": "node src/seed.js",
     "admin:hash-password": "node src/hash-password.js",

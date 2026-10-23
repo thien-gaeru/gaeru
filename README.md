@@ -94,6 +94,14 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
+## Quản trị tối cao và bản chạy cục bộ
+
+Tài khoản chủ (`owner`, nguồn `bootstrap`) có mục **Quản trị tối cao**: xem nhân viên/đơn/CARE+ đang xử lý, trạng thái cấu hình hệ thống và thu hồi toàn bộ phiên nhân viên có xác nhận. Quản trị viên thường không truy cập được API này. Không thể cấp vai trò chủ hoặc khóa tài khoản chủ qua API nhân viên. Thu hồi phiên không khóa tài khoản nhân viên; họ có thể đăng nhập lại. Việc đổi tên/mật khẩu chủ làm phiên cũ hết hiệu lực sau khi cấu hình mới được ứng dụng nạp lại.
+
+Để tạo tài khoản chủ `gaeru` trên máy tính: cài Node.js 24 và `npm ci`, chạy `npm run owner:setup -- gaeru`, tự nhập mật khẩu hai lần trong terminal. Mật khẩu không hiển thị và không lưu nguyên văn; công cụ ghi bcrypt hash cùng khóa phiên vào `.env.local-owner` (đã loại khỏi Git). Nếu đã có tài khoản, công cụ yêu cầu nhập `THAY DOI` trước khi ghi thay thế. Cấu hình `.env` của hosting không bị thay đổi.
+
+Chạy `npm run dev:local`, mở `http://127.0.0.1:3000/admin/` và đăng nhập. Dữ liệu PostgreSQL nhúng lưu ở `.local-data/`, không bị mất khi dừng và mở lại; có thể đặt `LOCAL_PORT` nếu cổng 3000 bận. Bản cục bộ chỉ lắng nghe trên `127.0.0.1`, không nhận đơn, không gọi VNPAY hoặc SMTP, không thêm dữ liệu kinh doanh giả. Phiên đăng nhập cục bộ dùng bộ nhớ và kết thúc khi khởi động lại. Bản này dùng cho thiết lập/thử nghiệm cá nhân, chưa thay thế hosting production/PostgreSQL nhiều kết nối. Dừng bằng Ctrl+C; sao lưu `.local-data/` khi ứng dụng đã dừng. Không chia sẻ `.env.local-owner` hoặc thư mục dữ liệu.
+
 Logo thương hiệu dùng chung: `assets/brand/gaeru-logo.png`, chuyển định dạng từ ảnh thương hiệu do chủ dự án cung cấp, giữ nguyên nội dung và nền trắng 375 × 375. `brand.css` điều chỉnh vùng hiển thị bằng CSS cho header, footer, trang cửa hàng, CARE+ và quản trị; không thay đổi tệp gốc bằng thao tác tạo ảnh. Các trang HTML dùng cùng PNG làm favicon. Khi thay logo, cập nhật tài nguyên dùng chung này và kiểm tra các kích thước hiển thị tương ứng.
 
 ## GAERU CARE+
