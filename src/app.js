@@ -6,6 +6,14 @@ const { createAdminAuthRouter } = require("./admin-auth");
 const { createCustomerAuthRouter } = require("./customer-auth");
 const { createStoreApi } = require("./store-api");
 const { getCsrfToken } = require("./security");
+const { createAdminAccess } = require("./staff-access");
+const { createStaffApi } = require("./staff-api");
+const { createOperationsApi } = require("./operations-api");
+const { createFinanceApi, receiptTotal, recordFullOrderPayment } = require("./finance-api");
+const inventory = require("./inventory");
+const { appendAudit } = require("./audit");
+const { adminPolicy } = require("./admin-policy");
+const { createCustomerExperience } = require("./customer-experience");
 
 function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
@@ -61,14 +69,22 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     });
   });
 
-  app.use("/api/auth", createAdminAuthRouter(config));
+  app.use("/api/auth", createAdminAuthRouter(config, pool));
+  app.use("/api/customer", createCustomerExperience(pool));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     smtpConfig: config.smtp,
     mailer: customerMailer
   }));
+  app.use("/api/admin", createAdminAccess(pool, config), adminPolicy);
+  app.use("/api/admin", createStaffApi(pool, config));
+  app.use("/api/admin", createOperationsApi(pool));
+  app.use("/api/admin", createFinanceApi(pool));
   app.use("/api", createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
-    vnpayConfig: config.vnpay || null
+    vnpayConfig: config.vnpay || null,
+    inventory,
+    audit: appendAudit,
+    finance: { receiptTotal, recordFullOrderPayment }
   }));
   app.use("/api", (_req, res) => res.status(404).json({ error: "Không tìm thấy API." }));
 

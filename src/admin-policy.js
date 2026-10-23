@@ -1,0 +1,18 @@
+const { requirePermission } = require("./staff-access");
+
+function adminPolicy(req, res, next) {
+  const path = req.path.toLowerCase().replace(/\/$/, "");
+  const read = req.method === "GET";
+  let permission;
+  if (path === "/summary") permission = "dashboard.read";
+  else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
+  else if (/^\/orders(\/|$)/.test(path)) permission = "orders.read";
+  else if (/^\/customers(\/|$)/.test(path)) permission = read ? "customers.read" : "customers.write";
+  else if (path === "/settings") permission = read ? "settings.read" : "settings.write";
+  // New domain routers enforce their own operation-specific permissions.
+  else if (/^\/(staff|departments|audit-logs|warehouses|inventory|suppliers|purchase-orders|goods-receipts|finance|reports)(\/|$)/.test(path)) return next();
+  else return res.status(404).json({ error: "Không tìm thấy chức năng quản trị." });
+  return requirePermission(permission)(req, res, next);
+}
+
+module.exports = { adminPolicy };

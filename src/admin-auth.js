@@ -3,13 +3,37 @@ const { Router } = require("express");
 const { rateLimit } = require("express-rate-limit");
 const { z } = require("zod");
 const { requireCsrf } = require("./security");
+const {
+  bootstrapCredentialVersion, bootstrapPrincipal, principalFromStaff, resolveAdminSession
+} = require("./staff-access");
+const { appendAudit } = require("./audit");
 
 const loginSchema = z.object({
   username: z.string().min(1).max(100),
   password: z.string().min(1).max(200)
 });
 
-function createAdminAuthRouter(config) {
+function publicIdentity(principal) {
+  if (!principal) return { username: null, fullName: null, role: null, permissions: [], source: null };
+  return {
+    username: principal.username, fullName: principal.fullName, role: principal.role,
+    permissions: principal.permissions, source: principal.source
+  };
+}
+
+function regenerateSession(req) {
+  return new Promise((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
+}
+
+function saveSession(req) {
+  return new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
+}
+
+function destroySession(req) {
+  return new Promise((resolve, reject) => req.session.destroy((error) => error ? reject(error) : resolve()));
+}
+
+function createAdminAuthRouter(config, pool) {
   const router = Router();
   const loginLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -24,36 +48,56 @@ function createAdminAuthRouter(config) {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Tên đăng nhập hoặc mật khẩu chưa hợp lệ." });
 
-      const usernameMatches = parsed.data.username === config.ADMIN_USERNAME;
-      const passwordMatches = await bcrypt.compare(parsed.data.password, config.ADMIN_PASSWORD_HASH);
-      if (!usernameMatches || !passwordMatches) {
+      let principal = null;
+      let identity;
+      const reservedUsername = parsed.data.username.toLowerCase() === config.ADMIN_USERNAME.toLowerCase();
+      if (reservedUsername) {
+        const passwordMatches = await bcrypt.compare(parsed.data.password, config.ADMIN_PASSWORD_HASH);
+        if (parsed.data.username === config.ADMIN_USERNAME && passwordMatches) {
+          principal = bootstrapPrincipal(config);
+          identity = { source: "bootstrap", username: config.ADMIN_USERNAME, credentialVersion: bootstrapCredentialVersion(config) };
+        }
+      } else {
+        const result = pool ? await pool.query(
+          `SELECT id, username, full_name AS "fullName", role, active, password_hash AS "passwordHash", auth_version AS "authVersion"
+           FROM staff_accounts WHERE lower(username)=lower($1)`, [parsed.data.username]
+        ) : { rows: [] };
+        const employee = result.rows[0];
+        const passwordMatches = await bcrypt.compare(parsed.data.password, employee?.passwordHash || config.ADMIN_PASSWORD_HASH);
+        if (passwordMatches && Buffer.byteLength(parsed.data.password, "utf8") <= 72 && employee?.active) {
+          principal = principalFromStaff(employee);
+          if (principal) identity = { source: "staff", id: employee.id, username: employee.username, authVersion: employee.authVersion };
+        }
+      }
+      if (!principal) {
         return res.status(401).json({ error: "Tên đăng nhập hoặc mật khẩu không đúng." });
       }
 
-      req.session.regenerate((error) => {
-        if (error) return next(error);
-        req.session.admin = { username: config.ADMIN_USERNAME };
-        req.session.csrfToken = require("node:crypto").randomBytes(32).toString("hex");
-        req.session.save((saveError) => {
-          if (saveError) return next(saveError);
-          res.json({ username: config.ADMIN_USERNAME, csrfToken: req.session.csrfToken });
-        });
-      });
+      if (pool) await appendAudit(pool, { actor: principal, action: "auth.login", entityType: "staff", entityId: principal.id || principal.username });
+      await regenerateSession(req);
+      req.session.admin = identity;
+      req.session.csrfToken = require("node:crypto").randomBytes(32).toString("hex");
+      await saveSession(req);
+      res.json({ ...publicIdentity(principal), csrfToken: req.session.csrfToken });
     } catch (error) {
       next(error);
     }
   });
 
-  router.post("/logout", requireCsrf, (req, res, next) => {
-    req.session.destroy((error) => {
-      if (error) return next(error);
+  router.post("/logout", requireCsrf, async (req, res, next) => {
+    try {
+      // Always end the session, including sessions already revoked in the database.
+      await destroySession(req);
       res.clearCookie("gaeru.sid");
       res.status(204).end();
-    });
+    } catch (error) { next(error); }
   });
 
-  router.get("/me", (req, res) => {
-    res.json({ authenticated: Boolean(req.session.admin), username: req.session.admin?.username || null });
+  router.get("/me", async (req, res, next) => {
+    try {
+      const principal = await resolveAdminSession(req, pool, config);
+      res.json({ authenticated: Boolean(principal), ...publicIdentity(principal) });
+    } catch (error) { next(error); }
   });
 
   return router;

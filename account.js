@@ -34,6 +34,7 @@ async function accountRequest(url, body) {
 }
 
 function showCustomerProfile(customer) {
+  document.querySelector('[data-address-book]')?.remove();
   currentCustomer = customer;
   accountPanels.forEach((panel) => { panel.hidden = true; });
   const profile = document.querySelector("[data-account-profile]");

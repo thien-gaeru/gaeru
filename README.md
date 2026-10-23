@@ -1,5 +1,7 @@
 # GAERU — cửa hàng độc lập
 
+Trang quản trị đã được mở rộng cho một doanh nghiệp với nhiều nhân viên và kho hàng. Xem [hướng dẫn quản trị doanh nghiệp](docs/enterprise-admin.md) để biết nghiệp vụ, quyền, quy tắc tồn kho/công nợ và quy trình nâng cấp cơ sở dữ liệu.
+
 Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL; không dùng WordPress hoặc WooCommerce. Giao diện responsive lấy cảm hứng từ cách Apple giới thiệu sản phẩm, nhưng nội dung, thương hiệu và quản trị thuộc GAERU.
 
 ## Tính năng
@@ -11,6 +13,17 @@ Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL; kh
 - Đăng nhập quản trị bằng mật khẩu băm; phiên lưu trong PostgreSQL, có CSRF token, giới hạn đăng nhập và giới hạn đặt hàng.
 - Khách hàng có thể đăng ký/đăng nhập bằng email và mật khẩu, lưu số điện thoại liên hệ; tài khoản chưa xác minh vẫn đăng nhập và mua hàng bình thường. Trong tài khoản, khách có thể yêu cầu gửi email xác minh với liên kết dùng một lần (hiệu lực 30 phút); trạng thái chưa xác minh biến mất sau khi xác nhận. Khôi phục mật khẩu đối chiếu email và số điện thoại rồi gửi liên kết dùng một lần qua email (hiệu lực 30 phút).
 - Các ảnh sản phẩm ban đầu được lưu trong `assets/products/`. Catalog seed ở trạng thái nháp, không tự đặt giá hay tồn kho chưa được xác minh.
+
+## Quản trị sản phẩm và đơn hàng
+
+Mở `/admin/` và đăng nhập bằng tài khoản đã cấu hình trên máy chủ.
+
+- **Sản phẩm & kho:** tìm theo tên, slug hoặc SKU; kết hợp bộ lọc danh mục, hiển thị và tồn kho để tìm sản phẩm cần xử lý. Giá và tồn kho trên danh sách được tính từ các phiên bản đang bán.
+- **Thêm sản phẩm:** nhập thông tin và chọn ảnh PNG/JPEG/WebP tối đa 8 MB, lưu bản nháp, rồi thêm phiên bản với SKU, giá và tồn kho đã xác minh. Thuộc tính phiên bản được nhập theo từng cặp tên/giá trị. Sau khi có ít nhất một phiên bản đang bán, mở lại thông tin sản phẩm và bật hiển thị.
+- **Bảo toàn danh mục:** muốn ẩn hoặc xóa phiên bản đang bán cuối cùng, phải tạm ẩn sản phẩm trước. Phiên bản đã có trong đơn hàng được giữ lại để bảo toàn lịch sử; có thể tạm ẩn thay cho xóa.
+- **Đơn hàng:** kết hợp tìm kiếm, trạng thái xử lý, trạng thái thanh toán và phương thức thanh toán; mở chi tiết để xem liên hệ, địa chỉ, sản phẩm và tổng tiền. Phân trang giữ nguyên các bộ lọc đang chọn.
+- **Xử lý đơn:** giao diện chỉ cung cấp trạng thái hiện tại và các bước tiếp theo hợp lệ. COD chỉ được ghi nhận đã thu tiền khi hoàn tất giao hàng. Hủy đơn chưa thanh toán sẽ hoàn lại tồn kho một lần.
+- **Đối soát thanh toán:** trạng thái VNPAY/9Pay được cập nhật từ cổng thanh toán, không sửa thủ công. Bộ lọc 9Pay chỉ hỗ trợ tra cứu dữ liệu lịch sử; không bật tích hợp 9Pay mới. Đơn đã thanh toán không được chuyển về chưa thanh toán hoặc đổi phí giao hàng; cần xử lý hoàn tiền riêng trước khi hủy. Phí của phiên VNPAY đã tạo cũng được khóa.
 
 ## Yêu cầu
 
@@ -79,3 +92,9 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - VNPAY đã có luồng tạo giao dịch, xác minh chữ ký/IPN và cập nhật thanh toán idempotent; cần thông số merchant sandbox để kiểm thử thực tế trước khi production. 9Pay chưa được tích hợp vì chưa có tài liệu API merchant chính thức. Không nhập secret vào Git, chat hoặc giao diện quản trị.
 - Giá, phiên bản, tồn kho, bảng phí giao hàng theo tỉnh/thành và thông tin nhận chuyển khoản cần được xác minh/cập nhật qua `/admin`. Phí theo tỉnh được đọc và áp dụng tại máy chủ; checkout chỉ mở khi có ít nhất một mức phí hợp lệ.
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
+# Tài khoản và mua hàng
+
+Migration `customer-experience.sql` bổ sung sổ địa chỉ riêng cho từng khách (tối đa 20), địa chỉ mặc định và liên kết đơn mới với tài khoản đang đăng nhập. Chạy `npm run db:migrate` trước khi dùng bản này. Trang tài khoản cho phép thêm/xóa/chọn địa chỉ mặc định và xem đơn mới; checkout tự điền thông tin khách, chọn địa chỉ đã lưu, vẫn cho nhập địa chỉ khác. Đơn khách vãng lai và đơn lịch sử không tự gắn bằng email để tránh lộ dữ liệu. Tỉnh/thành phải khớp vùng giao hàng được cấu hình; địa chỉ ngoài vùng yêu cầu chọn lại tỉnh/thành.
+
+Nhà cung cấp được chọn: VNPAY, J&T Express và Viettel Post. VNPAY đã có ký URL và kiểm tra IPN ở máy chủ; cần cấu hình merchant và nghiệm thu sandbox trước production. Bản này **chưa có adapter tạo vận đơn hoặc đồng bộ trạng thái J&T/Viettel Post**. Cần tài liệu API của hợp đồng GAERU (môi trường thử nghiệm, cách ký/xác thực, tạo/tra cứu/hủy vận đơn, webhook, mã dịch vụ, địa chỉ lấy hàng và thông số kiện hàng) trước khi triển khai. Không nhập khóa bí mật vào Git hoặc chat. Tham khảo cổng chính thức: https://open.jtexpress.vn/ và https://partner2.viettelpost.vn/document/detail-instructions.
+
