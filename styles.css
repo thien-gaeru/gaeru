@@ -1042,3 +1042,9 @@ body { overflow-x: clip; }
   .panel-scrim, .nav-panel, .menu-nav-trigger span, .menu-link-list a, .menu-panel-close, .menu-toggle svg path,
   .mini-cart-item, .mini-cart-empty, .search-result, .mini-cart-footer { transition: none !important; animation: none !important; }
 }
+
+/* Desktop has these destinations in the primary navigation; mobile uses its menu. */
+.menu-link-list .mobile-menu-link { display: none; }
+@media (max-width: 760px) {
+  .menu-link-list .mobile-menu-link { display: flex; }
+}
