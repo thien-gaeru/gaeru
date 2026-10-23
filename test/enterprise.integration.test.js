@@ -246,11 +246,30 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     await owner.ok('/api/admin/care-requests/'+care.id,'PATCH',{status:'reviewing',response:'GAERU đang kiểm tra thông tin đơn hàng.',version:1});
     assert.equal((await owner.request('/api/admin/care-requests/'+care.id,'PATCH',{status:'resolved',response:'Stale response',version:1})).status,409);
     assert.equal((await first.ok('/api/customer/care')).requests[0].status,'reviewing');
-    await owner.ok('/api/admin/care-requests/'+care.id,'PATCH',{status:'closed',response:'Đã kết thúc yêu cầu theo phản hồi của khách.',version:2});
+    assert.equal((await second.request('/api/customer/care/'+care.id+'/messages')).status,404);
+    assert.equal((await second.request('/api/customer/care/'+care.id+'/messages','POST',{body:'Unauthorized',version:2})).status,404);
+    assert.equal((await first.ok('/api/customer/care/'+care.id+'/messages')).messages[0].sender,'staff');
+    await first.ok('/api/customer/care/'+care.id+'/messages','POST',{body:'Tôi đã thử kết nối lại, vẫn chưa được.',version:2},201);
+    assert.equal((await first.request('/api/customer/care/'+care.id+'/messages','POST',{body:'Duplicate stale reply',version:2})).status,409);
+    assert.equal((await first.request('/api/customer/care/'+care.id+'/messages?before=9999999999999999999')).status,400);
+    const thread=(await owner.ok('/api/admin/care-requests/'+care.id+'/messages')).messages;
+    assert.equal(thread.length,2);assert.equal(thread[1].sender,'customer');
+    assert.match(thread[1].body,/kết nối/);
+    assert.equal((await first.request('/api/customer/care/'+care.id+'/messages?before=garbage')).status,400);
+    await owner.ok('/api/admin/care-requests/'+care.id,'PATCH',{status:'closed',response:'Đã kết thúc yêu cầu theo phản hồi của khách.',version:3});
+    assert.equal((await first.request('/api/customer/care/'+care.id+'/messages','POST',{body:'Cannot reply closed',version:4})).status,409);
     assert.equal((await owner.request('/api/admin/care-requests/'+care.id,'PATCH',{status:'reviewing',response:'Cannot reopen',version:3})).status,409);
     await pool.query('UPDATE customers SET active=false WHERE id=$1',[customerId]);
     assert.equal((await first.request('/api/customer/addresses')).status,401);
   });
+  await context.test('AI news routes enforce permissions and report missing server key',async()=>{
+    assert.equal((await owner.ok('/api/admin/news/ai/status')).configured,false);
+    assert.equal((await accountant.request('/api/admin/news/ai/status')).status,403);
+    assert.equal((await client().request('/api/admin/news/ai/status')).status,401);
+    const result=await owner.request('/api/admin/news/ai/draft','POST',{topic:'Micro GAERU',facts:'Dữ kiện kiểm chứng về sản phẩm micro GAERU.',tone:'professional',length:'short'});
+    assert.equal(result.status,503);assert.match(result.data.error,/OPENAI_API_KEY/);
+  });
+
   await context.test("role changes revoke live sessions; migrations and immutable audit preserve operational data", async () => {
     const staff = (await owner.ok("/api/admin/staff?q=test-warehouse")).staff[0];
     await owner.ok(`/api/admin/staff/${staff.id}`, "PATCH", { version: staff.version, role: "viewer" });
@@ -262,7 +281,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 14);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 15);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });

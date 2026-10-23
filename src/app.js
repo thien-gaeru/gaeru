@@ -1,3 +1,4 @@
+const {createNewsAI}=require("./news-ai");
 const {createProductWorkspace}=require("./product-workspace");
 const {createAccountSecurity}=require("./account-security");
 const {createNewsPublicApi,createNewsAdminApi}=require("./news-api");
@@ -103,6 +104,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/admin", createOwnerApi(pool, config));
   app.use("/api/admin", createWarrantyAdminApi(pool));
   app.use("/api/admin", createBusinessApi(pool));
+  app.use("/api/admin", createNewsAI(pool,config));
   app.use("/api/admin", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
   const productWorkspace=createProductWorkspace(pool);

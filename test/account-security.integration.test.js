@@ -18,6 +18,7 @@ test('owner credentials and recovery, email and app MFA, backup codes and sessio
  function client(){let cookie='',csrf='';const api={async request(path,method='GET',body){const r=await fetch(base+path,{method,headers:{Cookie:cookie,'X-CSRF-Token':csrf,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=await r.json();if(data.csrfToken)csrf=data.csrfToken;return {status:r.status,data};},async ok(path,method='GET',body,status=200){const r=await api.request(path,method,body);assert.equal(r.status,status,path+': '+JSON.stringify(r.data));return r.data;},async login(username,pw=password){await api.ok('/api/csrf');return api.ok('/api/auth/login','POST',{username,password:pw});},async security(path,body,status=200){return api.ok('/api/account-security'+path,body?'POST':'GET',body,status);}};return api;}
  const code=()=>messages.at(-1).text.match(/Mã xác thực GAERU: (\d{6})/)[1];
  const owner=client(),oldSession=client();await owner.login('owner');await oldSession.login('owner');
+ const invalidPassword=await owner.security('/setup',{password:'incorrect',method:'email'},403);assert.equal(invalidPassword.code,'CURRENT_PASSWORD_INVALID');
  let challenge=await owner.security('/contacts/request',{password,email:'owner@example.invalid',phone:'0900000000'});
  assert.equal((await owner.security('/settings')).email,'');
  await owner.security('/contacts/confirm',{challengeId:challenge.challengeId,code:'wrong'},400);
