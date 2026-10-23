@@ -92,3 +92,9 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - VNPAY đã có luồng tạo giao dịch, xác minh chữ ký/IPN và cập nhật thanh toán idempotent; cần thông số merchant sandbox để kiểm thử thực tế trước khi production. 9Pay chưa được tích hợp vì chưa có tài liệu API merchant chính thức. Không nhập secret vào Git, chat hoặc giao diện quản trị.
 - Giá, phiên bản, tồn kho, bảng phí giao hàng theo tỉnh/thành và thông tin nhận chuyển khoản cần được xác minh/cập nhật qua `/admin`. Phí theo tỉnh được đọc và áp dụng tại máy chủ; checkout chỉ mở khi có ít nhất một mức phí hợp lệ.
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
+# Tài khoản và mua hàng
+
+Migration `customer-experience.sql` bổ sung sổ địa chỉ riêng cho từng khách (tối đa 20), địa chỉ mặc định và liên kết đơn mới với tài khoản đang đăng nhập. Chạy `npm run db:migrate` trước khi dùng bản này. Trang tài khoản cho phép thêm/xóa/chọn địa chỉ mặc định và xem đơn mới; checkout tự điền thông tin khách, chọn địa chỉ đã lưu, vẫn cho nhập địa chỉ khác. Đơn khách vãng lai và đơn lịch sử không tự gắn bằng email để tránh lộ dữ liệu. Tỉnh/thành phải khớp vùng giao hàng được cấu hình; địa chỉ ngoài vùng yêu cầu chọn lại tỉnh/thành.
+
+Nhà cung cấp được chọn: VNPAY, J&T Express và Viettel Post. VNPAY đã có ký URL và kiểm tra IPN ở máy chủ; cần cấu hình merchant và nghiệm thu sandbox trước production. Bản này **chưa có adapter tạo vận đơn hoặc đồng bộ trạng thái J&T/Viettel Post**. Cần tài liệu API của hợp đồng GAERU (môi trường thử nghiệm, cách ký/xác thực, tạo/tra cứu/hủy vận đơn, webhook, mã dịch vụ, địa chỉ lấy hàng và thông số kiện hàng) trước khi triển khai. Không nhập khóa bí mật vào Git hoặc chat. Tham khảo cổng chính thức: https://open.jtexpress.vn/ và https://partner2.viettelpost.vn/document/detail-instructions.
+
