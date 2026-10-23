@@ -1,0 +1,13 @@
+# Product workspace
+
+Open **Sản phẩm → Thêm sản phẩm** at `/gaeru_ceo/products/new`. Each product has a separate `/gaeru_ceo/products/<id>/edit` page. Catalog filtering remains available; summary cards and variant chips make the list easier to scan.
+
+The editor includes a desktop preview, up to nine gallery images (PNG/JPEG/WebP, eight MB each), primary image selection, product description, option groups and a variant table. Images are stored in PostgreSQL and previewed through authenticated admin routes. Public image routes only expose images referenced by a published product or its active variants. Removing a gallery image does not delete stored bytes or images still attached to variants.
+
+Enter up to three option groups, with comma-separated choices. **Tạo các tổ hợp biến thể** generates up to 100 rows. Each row has its own SKU, display name, price, available stock, image and sale status. Generation preserves saved variant IDs and matching row edits. Existing group names and values used by saved variants are protected; hide a saved variant rather than deleting it. A newly added group assigns the first option to existing rows before generating additional combinations. Check the full table before saving.
+
+Product, variants and presentation save in one database transaction. Unique SKU/slug errors roll back all catalog and inventory changes. Existing variant IDs remain linked to orders, inventory and cost history. Inventory permissions and ledger operations are reused; the editor cannot bypass stock approval. Edit-version triggers cover old APIs and inventory updates, so stale workspace saves are rejected even when updates occur within the same millisecond. A published product needs at least one active variant. Draft saving does not publish the product.
+
+The public product page presents option buttons, optional direct variant cards, gallery thumbnails, per-variant prices and images. A sold-out option may be inspected but cannot be added to the cart. Sparse combinations choose a compatible existing variant and synchronize all option buttons. The original selector remains available under **Xem danh sách phiên bản**.
+
+Migration `product-workspace.sql` adds presentation/media tables, variant image fields and edit-version triggers. It leaves existing SKU IDs, prices, stock and publication states in place. No sample product is created in production. Tests use embedded PostgreSQL for atomic saves, duplicate SKU rollback, stale edits, permissions, gallery privacy and inventory totals, plus VM checks for storefront selection/cart synchronization. Browser visual review requires enabled browser access.

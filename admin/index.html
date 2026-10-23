@@ -7,7 +7,7 @@
     <title>Quản trị GAERU</title>
     <link rel="stylesheet" href="/admin/admin.css">
     <link rel="stylesheet" href="/admin/enterprise.css">
-    <script src="/admin/admin.js?v=20261023-security" defer></script>
+    <script src="/admin/admin.js?v=20261023-products" defer></script>
     <script src="/admin/enterprise.js" defer></script>
     <script src="/admin/care.js?v=20261023-channels" defer></script>
     <script src="/admin/owner.js?v=20261023-security" defer></script>
@@ -15,7 +15,7 @@
     <script src="/admin/business.js" defer></script><script src="/admin/news.js?v=20261023" defer></script>
   <link rel="stylesheet" href="../brand.css">
     <link rel="icon" type="image/png" href="../assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/account-security.css?v=20261023-qr"><script src="/account-security.js?v=20261023-qr" defer></script></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261023-qr"><script src="/account-security.js?v=20261023-qr" defer></script><link rel="stylesheet" href="/admin/product-editor.css?v=20261023"></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -108,7 +108,7 @@
             </div>
           </section>
 
-          <section class="view-panel" id="products-view" hidden>
+          <section class="view-panel" id="products-view" hidden><div class="catalog-summary" data-catalog-summary></div>
             <div class="toolbar">
               <input id="product-search" type="search" placeholder="Tìm tên sản phẩm, đường dẫn hoặc SKU" aria-label="Tìm sản phẩm theo tên, đường dẫn hoặc SKU">
               <button class="primary-button" id="new-product-button" type="button" data-require="catalog.write">Thêm sản phẩm</button>

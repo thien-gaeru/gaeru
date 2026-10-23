@@ -213,7 +213,9 @@ function renderProduct() {
   document.title = `${product.name} — GAERU`;
   const breadcrumb = document.querySelector("#breadcrumb-product");
   if (breadcrumb) breadcrumb.textContent = product.name;
-  const variantField = variants.length ? `
+  const optionGroups=window.GAERUVariantChoices?.groups(variants,product.optionGroups)||[];
+  const visualOptions=optionGroups.length?optionGroups.map(g=>`<div class="product-choice-group"><p>${escapeHtml(g.name)}</p><div class="product-choice-buttons" role="group" aria-label="${escapeHtml(g.name)}">${g.values.map(value=>`<button type="button" data-option-group="${escapeHtml(g.name)}" data-option-value="${escapeHtml(value)}" aria-pressed="${selected?.options?.[g.name]===value}">${escapeHtml(value)}</button>`).join("")}</div></div>`).join(""):variants.map(v=>`<button class="product-variant-card" type="button" data-visual-variant="${escapeHtml(v.id)}" aria-pressed="${v.id===selected?.id}">${escapeHtml(v.name)}<small>${formatPrice(v.priceVnd)}${v.stockQuantity?"":" · Hết hàng"}</small></button>`).join("");
+  const variantField = variants.length ? `${visualOptions}<details class="variant-list-toggle"><summary>Xem danh sách phiên bản</summary>
     <label class="variant-select-label" for="product-variant">Phiên bản
       <select id="product-variant">
         ${variants.map((variant) => {
@@ -222,13 +224,13 @@ function renderProduct() {
           return `<option value="${escapeHtml(variant.id)}" ${variant.id === selected?.id ? "selected" : ""} ${variant.stockQuantity ? "" : "disabled"}>${escapeHtml(label)} · ${formatPrice(variant.priceVnd)}</option>`;
         }).join("")}
       </select>
-    </label>
+    </label></details>
     <p class="detail-price" data-selected-price>${formatPrice(selected.priceVnd)}</p>` : `
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
   root.innerHTML = `
     <section class="product-detail section-wrap">
-      <div class="product-detail-art"><img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}"></div>
+      <div class="product-detail-art"><img data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}"><img src="${escapeHtml(url)}" alt="" loading="lazy"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h1>${escapeHtml(product.name)}</h1>
@@ -257,7 +259,11 @@ function renderProduct() {
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;
     button.disabled = variant.stockQuantity === 0;
+    root.querySelectorAll("[data-option-group]").forEach(b=>b.setAttribute("aria-pressed",String(variant.options?.[b.dataset.optionGroup]===b.dataset.optionValue)));
+    root.querySelectorAll("[data-visual-variant]").forEach(b=>b.setAttribute("aria-pressed",String(variant.id===b.dataset.visualVariant)));
+    const image=root.querySelector("[data-product-main-image]");image.src=variant.imageUrl||product.imageUrl;image.alt=variant.name+" · "+product.name;
   });
+  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=imageButton.dataset.galleryImage;return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}});
 }
 
 function renderCart() {

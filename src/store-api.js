@@ -40,15 +40,16 @@ async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description,
       p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active,
       p.sort_order AS "sortOrder",
+      COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'id', v.id, 'sku', v.sku, 'name', v.name, 'options', v.options,
-          'priceVnd', v.price_vnd, 'stockQuantity', v.stock_quantity, 'active', v.active
+          'priceVnd', v.price_vnd, 'stockQuantity', v.stock_quantity, 'active', v.active, 'imageUrl', v.image_url
         ) ORDER BY v.name)
         FROM product_variants v
         WHERE v.product_id = p.id ${includeDrafts ? "" : "AND v.active = true"}
       ), '[]'::jsonb) AS variants
-    FROM products p
+    FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id
     ${visibility}
     ORDER BY p.sort_order, p.name`;
   const result = await pool.query(query);
@@ -843,7 +844,7 @@ const productSchema = z.object({
   category: z.enum(["audio", "video", "accessory"]),
   descriptor: z.string().trim().max(160).default(""),
   description: z.string().trim().max(3000).default(""),
-  imageUrl: z.string().trim().regex(/^\/assets\/products\/[a-zA-Z0-9._-]+$/),
+  imageUrl: z.string().trim().regex(/^(?:\/assets\/products\/[a-zA-Z0-9._-]+|\/api\/catalog-images\/[0-9a-f-]{36})$/),
   imageAlt: z.string().trim().max(250).default(""),
   active: z.boolean().default(false),
   sortOrder: z.number().int().min(-1000).max(10000).default(0)
