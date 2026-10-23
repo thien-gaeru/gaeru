@@ -94,6 +94,8 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng
 
+Logo thương hiệu dùng chung: `assets/brand/gaeru-logo.png`, chuyển định dạng từ ảnh thương hiệu do chủ dự án cung cấp, giữ nguyên nội dung và nền trắng 375 × 375. `brand.css` điều chỉnh vùng hiển thị bằng CSS cho header, footer, trang cửa hàng, CARE+ và quản trị; không thay đổi tệp gốc bằng thao tác tạo ảnh. Các trang HTML dùng cùng PNG làm favicon. Khi thay logo, cập nhật tài nguyên dùng chung này và kiểm tra các kích thước hiển thị tương ứng.
+
 ## GAERU CARE+
 
 `care.html` là trang hỗ trợ sau mua riêng; menu, footer và liên kết tài khoản trỏ về trang này. Giữ nguyên chính sách đã công bố ở `delivery-returns.html`; không tự xác nhận quyền lợi bảo hành. Khách đăng nhập chọn đơn thuộc tài khoản, gửi yêu cầu và theo dõi trạng thái/phản hồi. Đơn mua ngoài tài khoản được hướng dẫn liên hệ trực tiếp, không tra cứu công khai bằng email hoặc số điện thoại. API chống gửi lặp theo mã yêu cầu, giới hạn 10 yêu cầu mới/24 giờ/tài khoản. Quản trị có mục GAERU CARE+: quyền `orders.read` để xem và `orders.write` để phản hồi. Cập nhật kiểm tra phiên bản, ghi nhật ký cùng giao dịch; yêu cầu đã đóng không chỉnh sửa. Phản hồi hiện là phản hồi mới nhất, chưa có hội thoại, đính kèm hoặc thông báo email tự động.
