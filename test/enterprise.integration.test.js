@@ -162,6 +162,30 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal(report.summary.supplierPaidVnd, 200000);
     assert.equal(report.summary.expensesVnd, 10000);
   });
+  await context.test("customer address book isolates owners and keeps one default", async () => {
+    const first=client(), second=client();
+    for(const [api,email] of [[first,'first@example.test'],[second,'second@example.test']]) {
+      await api.ok('/api/csrf');
+      await api.ok('/api/customer-auth/register','POST',{fullName:'Customer Test',email,phone:'0900000000',password:'Customer-test-password-2026'});
+      await api.ok('/api/csrf');
+    }
+    const payload={label:'Home',fullName:'Customer Test',phone:'0900000000',address:'123 Test Street',city:'Hồ Chí Minh'};
+    const a=(await first.ok('/api/customer/addresses','POST',payload,201)).address;
+    assert.equal(a.isDefault,true);
+    const b=(await first.ok('/api/customer/addresses','POST',{...payload,label:'Office',isDefault:true},201)).address;
+    assert.equal((await first.ok('/api/customer/addresses')).addresses.filter(a=>a.isDefault).length,1);
+    assert.equal((await second.ok('/api/customer/addresses')).addresses.length,0);
+    assert.equal((await second.request('/api/customer/addresses/'+a.id,'DELETE')).status,404);
+    assert.equal((await second.request('/api/customer/addresses/'+a.id+'/default','POST')).status,404);
+    await first.ok('/api/customer/addresses/'+b.id,'DELETE',undefined,204);
+    assert.equal((await first.ok('/api/customer/addresses')).addresses[0].isDefault,true);
+    const customerId=(await pool.query('SELECT id FROM customers WHERE email=$1',['first@example.test'])).rows[0].id;
+    await first.ok('/api/orders','POST',{customer:{name:'Customer Test',email:'first@example.test',phone:'0900000000',address:'123 Test Street',city:'Hồ Chí Minh'},paymentMethod:'cod',items:[{variantId,quantity:1}]},201);
+    assert.equal((await first.ok('/api/customer/orders')).orders.length,1);
+    assert.equal((await second.ok('/api/customer/orders')).orders.length,0);
+    await pool.query('UPDATE customers SET active=false WHERE id=$1',[customerId]);
+    assert.equal((await first.request('/api/customer/addresses')).status,401);
+  });
   await context.test("role changes revoke live sessions; migrations and immutable audit preserve operational data", async () => {
     const staff = (await owner.ok("/api/admin/staff?q=test-warehouse")).staff[0];
     await owner.ok(`/api/admin/staff/${staff.id}`, "PATCH", { version: staff.version, role: "viewer" });
@@ -173,7 +197,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 4);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 5);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });

@@ -293,6 +293,9 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
+        if (req.session?.customer?.id) {
+          await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
+        }
         for (const item of prepared) {
           await client.query(
             `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,

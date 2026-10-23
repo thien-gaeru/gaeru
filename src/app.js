@@ -13,6 +13,7 @@ const { createFinanceApi, receiptTotal, recordFullOrderPayment } = require("./fi
 const inventory = require("./inventory");
 const { appendAudit } = require("./audit");
 const { adminPolicy } = require("./admin-policy");
+const { createCustomerExperience } = require("./customer-experience");
 
 function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
@@ -69,6 +70,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   });
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
+  app.use("/api/customer", createCustomerExperience(pool));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     smtpConfig: config.smtp,
     mailer: customerMailer
