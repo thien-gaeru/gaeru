@@ -19,12 +19,16 @@ function activateAccountPanel(panelName) {
 }
 
 async function accountRequest(url, body) {
-  const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store'});
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+  const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store',signal:controller.signal});
   if (!freshCsrf.ok) throw new Error('Không thể khởi tạo phiên. Hãy thử lại.');
   accountCsrfToken = (await freshCsrf.json()).csrfToken;
   const response = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
+    signal: controller.signal,
     headers: {
       "Content-Type": "application/json",
       "X-CSRF-Token": accountCsrfToken
@@ -34,6 +38,12 @@ async function accountRequest(url, body) {
   const result = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) throw new Error(result?.error || "Không thể hoàn tất yêu cầu. Vui lòng thử lại.");
   return result;
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Máy chủ phản hồi quá lâu. Chưa xác nhận được kết quả; hãy kiểm tra hộp thư trước khi thử lại.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function showCustomerProfile(customer, publish = true) {

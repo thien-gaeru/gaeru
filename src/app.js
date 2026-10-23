@@ -113,6 +113,11 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",
     index: "index.html",
+    setHeaders(res, file) {
+      if (['account.html', 'account.js'].includes(path.basename(file))) {
+        res.setHeader('Cache-Control', 'no-store');
+      }
+    },
     maxAge: config.NODE_ENV === "production" ? "1h" : 0
   }));
 

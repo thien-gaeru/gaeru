@@ -35,3 +35,25 @@ test('failed SMTP request remains retryable and never displays sent confirmation
   await ui.click();assert.equal(ui.button.disabled,false);assert.equal(ui.button.textContent,'Gửi email xác minh');
   assert.match(ui.feedback.textContent,/từ chối xác thực/);assert.doesNotMatch(ui.feedback.textContent,/90 giây/);
 });
+
+test('complete account script initializes an authenticated profile and binds a working verification button',async()=>{
+  const nodes=new Map();
+  const node=selector=>{
+    if(!nodes.has(selector))nodes.set(selector,{textContent:'',hidden:false,disabled:false,dataset:{},classList:{toggle(){},remove(){}},listeners:{},remove(){},setAttribute(){},removeAttribute(){},addEventListener(name,fn){this.listeners[name]=fn;},querySelector:node});
+    return nodes.get(selector);
+  };
+  const customer={id:'customer',fullName:'Test Customer',email:'test@example.test',phone:'0900000000',emailVerified:false};
+  const document={querySelector:node,querySelectorAll:()=>[],addEventListener(){}};
+  let sends=0;
+  const fetch=async url=>({ok:true,status:200,json:async()=>url==='/api/csrf'?{csrfToken:'test'}:url==='/api/customer-auth/me'?{authenticated:true,customer}:((sends++,{message:'Đã gửi liên kết xác minh.'}))});
+  const context={document,fetch,AbortController,setTimeout,clearTimeout,setInterval:()=>1,clearInterval(){},URLSearchParams,window:{location:{search:'',hash:'',pathname:'/account.html'},GAERUCustomerSession:{set(){}}},history:{replaceState(){}}};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../account.js'),'utf8'),context);
+  await new Promise(resolve=>setImmediate(resolve));
+  const button=node('[data-email-verification-request]');
+  assert.equal(typeof button.listeners.click,'function');
+  const request=button.listeners.click({currentTarget:button});
+  assert.equal(button.textContent,'Đang gửi…');
+  await request;
+  assert.equal(sends,1);assert.equal(button.textContent,'Đã gửi xác minh');
+  assert.match(node('[data-email-verification-feedback]').textContent,/90 giây/);
+});
