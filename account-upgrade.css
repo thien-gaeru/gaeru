@@ -68,3 +68,6 @@
  .account-profile-header h3{font-size:25px!important}
  .account-page .account-trust-note{padding:14px;gap:10px}
 }
+.account-session-loading{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
+.account-page .account-session-loading p{margin:0;font-size:15px;color:#6e6e73}
+.account-session-loading button{padding:12px 22px;border:1px solid #d2d2d7;border-radius:24px;background:#fff;color:#0066cc;cursor:pointer;min-height:44px}

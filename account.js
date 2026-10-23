@@ -26,7 +26,14 @@ function setAccountPresentation(customer) {
   }
 }
 
+function finishAccountLoading() {
+  const loading=document.querySelector("[data-account-loading]");
+  if(loading) loading.hidden=true;
+  document.querySelector("[data-account-card]")?.setAttribute("aria-busy","false");
+}
+
 function activateAccountPanel(panelName) {
+  finishAccountLoading();
   setAccountPresentation(null);
   const profile = document.querySelector("[data-account-profile]");
   profile.hidden = true;
@@ -65,6 +72,7 @@ async function accountRequest(url, body) {
 }
 
 function showCustomerProfile(customer, publish = true) {
+  finishAccountLoading();
   document.querySelector('[data-address-book]')?.remove();
   currentCustomer = customer;
   setAccountPresentation(customer);
@@ -84,19 +92,29 @@ document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GA
 
 async function initializeCustomerAccount() {
   let authenticated = false;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),15000);
   try {
-    const csrfResponse = await fetch("/api/csrf", { credentials: "same-origin" });
-    const csrfBody = await csrfResponse.json().catch(() => null);
-    if (!csrfResponse.ok || !csrfBody.csrfToken) throw new Error("Không thể khởi tạo phiên bảo mật.");
-    accountCsrfToken = csrfBody.csrfToken;
-
-    const sessionResponse = await fetch("/api/customer-auth/me", { credentials: "same-origin" });
+    const sessionResponse = await fetch("/api/customer-auth/me", { credentials: "same-origin", cache: "no-store", signal:controller.signal });
     if (!sessionResponse.ok) throw new Error("Không thể tải thông tin tài khoản.");
     const session = await sessionResponse.json();
     authenticated = session.authenticated;
     if (authenticated) showCustomerProfile(session.customer);
+    else activateAccountPanel("login");
   } catch (error) {
-    setAccountFeedback(error.message || "Không thể kết nối máy chủ tài khoản.", true);
+    if(currentCustomer) {
+      showCustomerProfile(currentCustomer,false);
+      setAccountFeedback('Chưa thể làm mới phiên tài khoản. Vui lòng thử lại.',true);
+    } else {
+      const message=document.querySelector('[data-account-loading-message]');
+      if(message) message.textContent='Chưa thể tải tài khoản. Vui lòng kiểm tra kết nối và thử lại.';
+      const retry=document.querySelector('[data-account-retry]');
+      if(retry) retry.hidden=false;
+      document.querySelector('[data-account-card]')?.setAttribute('aria-busy','false');
+    }
+    return;
+  } finally {
+    clearTimeout(timeout);
   }
 
   const resetToken = new URLSearchParams(window.location.search).get("token");
@@ -293,6 +311,15 @@ document.querySelector("[data-email-verification-request]")?.addEventListener("c
   } finally {
     button.removeAttribute('aria-busy');
   }
+});
+
+document.querySelector('[data-account-retry]')?.addEventListener('click', () => {
+  const retry=document.querySelector('[data-account-retry]');
+  if(retry) retry.hidden=true;
+  const message=document.querySelector('[data-account-loading-message]');
+  if(message) message.textContent='Đang tải tài khoản…';
+  document.querySelector('[data-account-card]')?.setAttribute('aria-busy','true');
+  initializeCustomerAccount();
 });
 
 initializeCustomerAccount();

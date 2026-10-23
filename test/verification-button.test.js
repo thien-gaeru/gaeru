@@ -9,7 +9,7 @@ function setup(send) {
   const classes = () => ({ toggle() {}, remove() {} });
   const button = { textContent:'Gửi email xác minh', disabled:false, setAttribute(){}, removeAttribute(){}, addEventListener(_,fn){click=fn;} };
   const feedback = {textContent:'',classList:classes()};
-  const source = fs.readFileSync(path.join(__dirname,'../account.js'),'utf8').split('let verificationSending = false;')[1].split('\ninitializeCustomerAccount();')[0];
+  const source = fs.readFileSync(path.join(__dirname,'../account.js'),'utf8').split('let verificationSending = false;')[1].split("document.querySelector('[data-account-retry]')?.addEventListener")[0];
   const context={document:{querySelector:selector=>selector.includes('feedback')?feedback:button},currentCustomer:{id:'customer'},Date:{now:()=>now},setAccountFeedback(){},accountRequest:send,showCustomerProfile(){},setInterval(fn){tick=fn;return 1;},clearInterval(){}};
   vm.runInNewContext('let verificationSending = false;'+source,context);
   return {button,feedback,click:()=>click({currentTarget:button}),advance(ms){now+=ms;tick?.();}};

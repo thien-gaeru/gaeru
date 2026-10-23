@@ -8,9 +8,9 @@
     <meta name="description" content="Đăng nhập hoặc tạo tài khoản khách hàng GAERU.">
     <title>Tài khoản khách hàng — GAERU</title>
     <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="account-upgrade.css?v=20261023-account-hub">
+    <link rel="stylesheet" href="account-upgrade.css?v=20261023-session-loading">
     <script src="customer-session.js" defer></script><script src="store-shell.js" defer></script>
-    <script src="account.js?v=20261023-account-hub" defer></script>
+    <script src="account.js?v=20261023-session-loading" defer></script>
     <script src="customer-experience.js?v=20261023-account-hub" defer></script>
   <link rel="stylesheet" href="brand.css">
     <link rel="icon" type="image/png" href="assets/brand/gaeru-logo.png">
@@ -23,7 +23,7 @@
         <div class="account-copy">
           <p class="eyebrow">GAERU ACCOUNT</p>
           <h1>Tài khoản GAERU</h1>
-          <p data-account-intro>Sử dụng email hoặc số điện thoại và mật khẩu để tiếp tục mua sắm và quản lý thông tin tài khoản.</p>
+          <p data-account-intro>Quản lý thông tin, đơn hàng và bảo hành của bạn.</p>
           <nav class="account-hub-nav" aria-label="Quản lý tài khoản" data-account-navigation hidden>
             <a href="#account-overview">Thông tin tài khoản <span aria-hidden="true">↗</span></a>
             <a href="#account-addresses">Địa chỉ giao hàng <span aria-hidden="true">↗</span></a>
@@ -32,15 +32,20 @@
           </nav>
         </div>
         <div class="account-actions">
-          <section class="account-card customer-account-card" aria-labelledby="customer-account-title">
-            <div class="account-card-heading" data-account-heading>
+          <section class="account-card customer-account-card" aria-label="Tài khoản khách hàng" aria-busy="true" data-account-card>
+            <div class="account-session-loading" data-account-loading>
+              <p role="status" aria-live="polite" data-account-loading-message>Đang tải tài khoản…</p>
+              <button type="button" class="secondary-button" data-account-retry hidden>Thử lại</button>
+            </div>
+            <noscript>Vui lòng bật JavaScript để đăng nhập và quản lý tài khoản.</noscript>
+            <div class="account-card-heading" data-account-heading hidden>
               <div>
                 <span class="account-icon" aria-hidden="true">GAERU</span>
                 <h2 id="customer-account-title">Tài khoản khách hàng</h2>
               </div>
             </div>
 
-            <div class="account-panel" data-account-panel="login" role="tabpanel">
+            <div class="account-panel" data-account-panel="login" role="tabpanel" hidden>
               <form class="account-form" data-account-form="login">
                 <label>Email hoặc số điện thoại<input name="identifier" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="254" required></label>
                 <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required></label>
