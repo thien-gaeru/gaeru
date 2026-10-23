@@ -1,3 +1,4 @@
+const {createNewsPublicApi,createNewsAdminApi}=require("./news-api");
 const path = require("node:path");
 const express = require("express");
 const session = require("express-session");
@@ -33,8 +34,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'"],
+        mediaSrc: ["'self'", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         ...(config.NODE_ENV === "production" ? { upgradeInsecureRequests: [] } : {})
@@ -42,6 +44,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     },
     crossOriginEmbedderPolicy: false
   }));
+  app.use("/api/admin/news", express.json({limit:"128kb"}));
   app.use(express.json({ limit: "32kb" }));
   app.use(session({
     name: "gaeru.sid",
@@ -93,6 +96,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/admin", createOwnerApi(pool, config));
   app.use("/api/admin", createWarrantyAdminApi(pool));
   app.use("/api/admin", createBusinessApi(pool));
+  app.use("/api/admin", createNewsAdminApi(pool));
+  app.use("/api", createNewsPublicApi(pool));
   app.use("/api", createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     vnpayConfig: config.vnpay || null,

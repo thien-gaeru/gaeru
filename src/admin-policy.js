@@ -7,6 +7,7 @@ function adminPolicy(req, res, next) {
   if (/^\/owner(\/|$)/.test(path)) return next();
   if (/^\/warranties(\/|$)/.test(path)) return next();
   if (/^\/business(\/|$)/.test(path)) return next();
+  if (/^\/(news|news-images)(\/|$)/.test(path)) return next();
   let permission;
   if (path === "/summary") permission = "dashboard.read";
   else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
