@@ -90,6 +90,18 @@ function showCustomerProfile(customer, publish = true) {
 
 document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;setAccountPresentation(customer);const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
 
+async function confirmContactChangeFromUrl() {
+  const token=new URLSearchParams(window.location.search).get('contactVerify');
+  if(!token)return;
+  if(!currentCustomer){activateAccountPanel('login');setAccountFeedback('Đăng nhập đúng tài khoản để xác nhận thay đổi email hoặc số điện thoại.');return;}
+  try {
+    const result=await accountRequest('/api/customer-auth/contact-change/complete',{token});
+    if(result.customer)showCustomerProfile(result.customer);
+    history.replaceState(null,'',window.location.pathname+'#customer-account');
+    setAccountFeedback(result.message);
+  }catch(error){setAccountFeedback(error.message,true);}
+}
+
 async function initializeCustomerAccount() {
   let authenticated = false;
   const controller=new AbortController();
@@ -119,7 +131,9 @@ async function initializeCustomerAccount() {
 
   const resetToken = new URLSearchParams(window.location.search).get("token");
   const verificationToken = new URLSearchParams(window.location.search).get("verify");
-  if (verificationToken) {
+  if (new URLSearchParams(window.location.search).get('contactVerify')) {
+    await confirmContactChangeFromUrl();
+  } else if (verificationToken) {
     try {
       const result = await accountRequest("/api/customer-auth/email-verification/complete", { token: verificationToken });
       history.replaceState(null, "", `${window.location.pathname}#customer-account`);
@@ -167,6 +181,7 @@ document.querySelector('[data-account-form="login"]')?.addEventListener("submit"
     const result = await accountRequest("/api/customer-auth/login", values);
     accountCsrfToken = result.csrfToken;
     showCustomerProfile(result.customer);
+    await confirmContactChangeFromUrl();
   } catch (error) {
     setAccountFeedback(error.message, true);
   }
