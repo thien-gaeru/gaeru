@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-function page(authenticated,savedCity='Hồ Chí Minh'){
- const nodes=new Map(),requests=[];
+function page(authenticated,savedCity='Hồ Chí Minh',initialHash=''){
+ const nodes=new Map(),requests=[],events={},location={hash:initialHash};
  const node=key=>{if(!nodes.has(key))nodes.set(key,{hidden:false,disabled:false,value:'',textContent:'',innerHTML:'',options:[],listeners:{},addEventListener(event,fn){this.listeners[event]=fn;},append(option){this.options.push(option);},querySelector:node,scrollIntoView(){}});return nodes.get(key);};
  const form=node('form');form.elements=Object.fromEntries(['source','orderId','orderItemId','externalOrderNumber','productName','fullName','phone','address','city'].map(name=>[name,node(name)]));
  form.elements.source.value='website';form.elements.orderId.options.push({value:''});
@@ -9,9 +9,9 @@ function page(authenticated,savedCity='Hồ Chí Minh'){
   const data=url==='/api/csrf'?{csrfToken:'test'}:url==='/api/customer-auth/me'?{authenticated,customer:{id:'one',fullName:'Customer Name',phone:'0900000000'}}:url.startsWith('/api/customer/orders?')?{orders:[{id:'order-one',orderNumber:'GAERU-ONE',status:'completed'}]}:url==='/api/customer/addresses'?{addresses:[{isDefault:true,fullName:'Recipient',phone:'0911111111',address:'123 Default Street',city:savedCity}]}:url.startsWith('/api/customer/warranties?')?{activations:[],today:'2026-10-23'}:url==='/api/customer/orders/order-one'?{order:{customerName:'Order Recipient',phone:'0922222222',address:'456 Order Street',city:'Hà Nội',items:[]}}:{activation:{id:'reference-one',status:'pending'}};
   return {ok:true,json:async()=>data};
  };
- const context={document:{querySelector:node,createElement:()=>({})},fetch,AbortController,setTimeout,clearTimeout,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},location:{hash:''}};
+ const context={document:{querySelector:node,createElement:()=>({}),addEventListener:(name,fn)=>events[name]=fn},window:{addEventListener:(name,fn)=>events[name]=fn},fetch,AbortController,setTimeout,clearTimeout,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},location};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../warranty.js'),'utf8'),context);
- return {node,form,requests};
+ return {node,form,requests,events,location};
 }
 const settled=()=>new Promise(resolve=>setImmediate(resolve));
 test('guest can select a marketplace and submit contact details without logging in',async()=>{
@@ -39,4 +39,10 @@ test('province selector contains 34 units and normalizes saved city prefixes wit
  assert.equal([...cityMarkup.matchAll(/<option value="[^"]+">/g)].length,34);
  const old=page(true,'Tỉnh Hà Tây');await settled();assert.equal(old.form.elements.city.value,'');assert.equal(old.node('[data-w-city-note]').hidden,false);
  assert.match(old.node('[data-w-city-note]').textContent,/Vui lòng chọn/);
+});
+test('activation stays collapsed normally but opens on its link, initial fragment or hash navigation',async()=>{
+ const ui=page(false);await settled();assert.notEqual(ui.node('[data-w-disclosure]').open,true);
+ ui.events.click({target:{closest:selector=>selector==='a[href="#warranty-activation"]'?{}:null}});assert.equal(ui.node('[data-w-disclosure]').open,true);
+ ui.node('[data-w-disclosure]').open=false;ui.location.hash='#warranty-activation';ui.events.hashchange();assert.equal(ui.node('[data-w-disclosure]').open,true);
+ const linked=page(false,'Hà Nội','#warranty-activation');await settled();assert.equal(linked.node('[data-w-disclosure]').open,true);
 });

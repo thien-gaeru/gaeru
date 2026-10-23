@@ -12,3 +12,9 @@
 `warranty-channels.sql` mở rộng bảng bảo hành hiện có, cho phép hồ sơ ngoài đơn website và lưu bản chụp thông tin liên hệ. Các hồ sơ cũ và quy trình duyệt đơn website được giữ lại.
 
 Máy chủ `src/server.js` áp dụng các migration chưa chạy trước khi nhận kết nối. Migration chạy trong transaction với khóa chống chạy đồng thời, ghi nhận trong `schema_migrations`; lỗi migration khiến máy chủ không mở cổng thay vì chạy với cấu trúc thiếu. Có thể chạy trước bằng `npm run db:migrate`. Cần quyền DDL cho tài khoản database khi triển khai. Không thay mật khẩu, SMTP hoặc tồn kho.
+
+## Biểu mẫu thu gọn và yêu cầu hỗ trợ
+
+Biểu mẫu kích hoạt mặc định thu gọn; mở khi bấm tiêu đề hoặc liên kết đến #warranty-activation, gồm cả truy cập trực tiếp và bấm lại cùng liên kết. Mục Gửi yêu cầu mới cũng thu gọn và mở qua liên kết #care-request.
+
+Khách đã đăng nhập có thể gửi yêu cầu hỗ trợ bằng đơn website thuộc tài khoản hoặc mã đơn Shopee/TikTok Shop/Lazada. Mã đơn sàn là dữ liệu chờ đối chiếu, không tự tạo đơn website hoặc xác nhận quyền bảo hành. Phản hồi được lưu trong tài khoản như yêu cầu hỗ trợ website. Migration care-channels.sql bổ sung nguồn mua và mã đơn ngoài hệ thống.
