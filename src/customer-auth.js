@@ -15,9 +15,17 @@ const registrationSchema = z.object({
   password: z.string().min(12).max(200)
 });
 const loginSchema = z.object({
-  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  identifier: z.string().trim().min(1).max(254).optional(),
+  email: z.string().trim().max(254).optional(),
   password: z.string().min(1).max(200)
-});
+}).transform(value => ({ identifier: value.identifier ?? value.email ?? '', password: value.password }))
+  .refine(value => z.string().email().safeParse(value.identifier).success || /^\+?[0-9().\-\s]{8,25}$/.test(value.identifier), { message: 'Nhập email hoặc số điện thoại hợp lệ.' });
+
+function loginPhoneCandidates(value) {
+  const phone = normalizePhone(value);
+  const local = /^\+?84[35789]\d{8}$/.test(phone) ? `0${phone.replace(/^\+?84/, '')}` : phone;
+  return /^0[35789]\d{8}$/.test(local) ? [local, `+84${local.slice(1)}`, `84${local.slice(1)}`] : [phone];
+}
 const resetRequestSchema = z.object({
   email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
   phone: z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).transform(normalizePhone)
@@ -96,16 +104,18 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
   router.post("/login", authLimit, requireCsrf, async (req, res, next) => {
     try {
       const parsed = loginSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "Email hoặc mật khẩu chưa hợp lệ." });
+      if (!parsed.success) return res.status(400).json({ error: "Email, số điện thoại hoặc mật khẩu chưa hợp lệ." });
 
+      const isEmail = parsed.data.identifier.includes('@');
       const result = await pool.query(
         `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash
-         FROM customers WHERE email = $1`,
-        [parsed.data.email]
+         FROM customers WHERE ${isEmail ? 'email = $1' : 'phone = ANY($1::text[])'} LIMIT 2`,
+        [isEmail ? parsed.data.identifier.toLowerCase() : loginPhoneCandidates(parsed.data.identifier)]
       );
-      const customer = result.rows[0];
+      // Shared phone numbers must never select an arbitrary customer's account.
+      const customer = result.rows.length === 1 ? result.rows[0] : null;
       const passwordMatches = await bcrypt.compare(parsed.data.password, customer?.password_hash || DUMMY_PASSWORD_HASH);
-      if (!customer || !passwordMatches) return res.status(401).json({ error: "Email hoặc mật khẩu không đúng." });
+      if (!customer || !passwordMatches) return res.status(401).json({ error: "Email/số điện thoại hoặc mật khẩu không đúng. Nếu số điện thoại dùng chung nhiều tài khoản, vui lòng đăng nhập bằng email." });
       if (customer.active === false) return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
 
       startCustomerSession(req, res, next, customer);
