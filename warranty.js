@@ -3,6 +3,9 @@
   if (!section) return;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const channels = {website:'Website GAERU',shopee:'Shopee',tiktok:'TikTok Shop',lazada:'Lazada'};
+  // 34 province-level units under Resolution 202/2025/QH15.
+  const provinces = ['Hà Nội','Hải Phòng','Huế','Đà Nẵng','Hồ Chí Minh','Cần Thơ','An Giang','Bắc Ninh','Cà Mau','Cao Bằng','Đắk Lắk','Điện Biên','Đồng Nai','Đồng Tháp','Gia Lai','Hà Tĩnh','Hưng Yên','Khánh Hòa','Lai Châu','Lâm Đồng','Lạng Sơn','Lào Cai','Nghệ An','Ninh Bình','Phú Thọ','Quảng Ngãi','Quảng Ninh','Quảng Trị','Sơn La','Tây Ninh','Thái Nguyên','Thanh Hóa','Tuyên Quang','Vĩnh Long'].sort((a,b)=>a.localeCompare(b,'vi'));
+  const cityKey=value=>String(value||'').trim().normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().replace(/đ/g,'d').replace(/^(?:tinh|thanh pho|tp)\.?\s*/,'').trim();
   section.innerHTML = `
     <div class="care-surface warranty-surface">
       <p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2>
@@ -29,10 +32,15 @@
         <fieldset class="warranty-contact">
           <legend>Thông tin người đăng ký</legend>
           <p class="care-field-note">Thông tin được tự điền khi có địa chỉ đã lưu hoặc khi chọn đơn website. Bạn có thể sửa trước khi gửi.</p>
-          <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
-          <label>Số điện thoại<input name="phone" type="tel" minlength="8" maxlength="25" autocomplete="tel" required></label>
-          <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" required></label>
-          <label>Tỉnh / thành phố<input name="city" minlength="2" maxlength="120" autocomplete="address-level1" required></label>
+          <div class="warranty-contact-row">
+            <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
+            <label>Số điện thoại<input name="phone" type="tel" minlength="8" maxlength="25" autocomplete="tel" required></label>
+          </div>
+          <div class="warranty-contact-row">
+            <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã" required></label>
+            <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" aria-describedby="warranty-city-note" required><option value="">Chọn tỉnh / thành phố</option>${provinces.map(name=>`<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
+          </div>
+          <p class="care-field-note" id="warranty-city-note" data-w-city-note hidden></p>
         </fieldset>
         <p class="care-field-note">Mỗi lần đăng ký tương ứng một sản phẩm. Thông tin được xử lý theo <a href="privacy.html">chính sách quyền riêng tư</a>.</p>
         <button class="button button-blue" type="submit" disabled>Đăng ký kích hoạt</button>
@@ -65,8 +73,17 @@
   }
   function fillContact(data,overwrite=true) {
     for(const [name,value] of Object.entries({fullName:data.fullName||data.customerName,phone:data.phone,address:data.address,city:data.city}))
-      if(value&&(overwrite||!form.elements[name].value))form.elements[name].value=value;
+      if(value&&(overwrite||!form.elements[name].value)){
+        if(name==='city'){
+          const canonical=provinces.find(province=>cityKey(province)===cityKey(value));
+          form.elements.city.value=canonical||'';
+          const note=section.querySelector('[data-w-city-note]');
+          note.hidden=Boolean(canonical);
+          note.textContent=canonical?'':'Tỉnh/thành phố đã lưu: '+value+'. Vui lòng chọn đơn vị hành chính hiện hành.';
+        }else form.elements[name].value=value;
+      }
   }
+  form.elements.city.addEventListener('change',()=>{section.querySelector('[data-w-city-note]').hidden=true;});
   function changeSource() {
     const account=form.elements.source.value==='account';
     for(const [selector,enabled] of [['[data-w-account]',account],['[data-w-external]',!account]]){
