@@ -377,3 +377,18 @@ test("customer registration and password reset reject passwords shorter than eig
     assert.equal(response.status,400);
   }
 });
+test("verification SMTP authentication failures return an actionable error and discard the unused token", async context => {
+  let tokenCount=0;
+  const pool={
+    query:async(sql)=>{if(sql.includes('DELETE FROM customer_email_verification_tokens')){tokenCount=0;return {rows:[]};}if(sql.includes('FROM customers WHERE email'))return {rows:[customer]};throw Error('Unexpected query');},
+    connect:async()=>({query:async(sql)=>{if(sql.includes('FROM customers WHERE id'))return {rows:[customer]};if(sql.includes('INSERT INTO customer_email_verification_tokens'))tokenCount++;return {rows:[]};},release(){}})
+  };
+  const baseUrl=await startApp(context,{pool,smtp:{host:'smtp.example.test',port:587,secure:false,user:'test',password:'test',from:'sender@example.test',publicBaseUrl:'https://gaeru.org'},mailer:{sendMail:async()=>{throw Object.assign(Error('Private SMTP response'),{code:'EAUTH',responseCode:535});}}});
+  const csrf=await getCsrf(baseUrl);
+  const login=await fetch(baseUrl+'/api/customer-auth/login',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf.token,Cookie:csrf.cookie},body:JSON.stringify({email:customer.email,password:'customer-password-123'})});
+  assert.equal(login.status,200);
+  const session=await login.json();
+  const response=await fetch(baseUrl+'/api/customer-auth/email-verification/request',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrfToken,Cookie:login.headers.get('set-cookie').split(';')[0]},body:'{}'});
+  assert.equal(response.status,503);
+  const result=await response.json();assert.match(result.error,/từ chối xác thực/);assert.doesNotMatch(result.error,/Private SMTP/);assert.equal(tokenCount,0);
+});

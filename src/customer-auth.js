@@ -306,6 +306,9 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
           "DELETE FROM customer_email_verification_tokens WHERE token_hash = $1",
           [tokenHash]
         );
+        if (error.code === 'EAUTH' || error.responseCode === 535) {
+          return res.status(503).json({ error: 'Chưa gửi được email xác minh do dịch vụ email từ chối xác thực. Vui lòng liên hệ GAERU để kiểm tra cấu hình gửi thư.' });
+        }
         return next(error);
       }
 
