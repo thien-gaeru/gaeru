@@ -7,6 +7,9 @@ const state = {
   productRequest: 0,
   productSearchTimer: 0,
   orderSearchTimer: 0,
+  orderRequest: 0,
+  openOrders: new Set(),
+  imagePreviewRequest: 0,
   orderPage: 1,
   orderPagination: { page: 1, pageCount: 0, total: 0 },
   customerSearchTimer: 0,
@@ -21,7 +24,14 @@ const labels = {
   completed: "Hoàn tất",
   cancelled: "Đã hủy",
   cod: "Thanh toán khi nhận hàng",
-  bank_transfer: "Chuyển khoản thủ công"
+  bank_transfer: "Chuyển khoản thủ công",
+  vnpay: "VNPAY",
+  "9pay": "9Pay"
+};
+const categoryLabels = { audio: "Thu âm", video: "Ghi hình", accessory: "Phụ kiện" };
+const orderTransitions = {
+  pending: ["confirmed", "cancelled"], confirmed: ["processing", "cancelled"],
+  processing: ["shipped", "cancelled"], shipped: ["completed"], completed: [], cancelled: []
 };
 const paymentAttemptLabels = {
   pending: "Đang chờ VNPAY xác nhận giao dịch.",
@@ -89,30 +99,67 @@ async function loadSummary() {
 
 async function loadProducts(search = "") {
   const requestId = ++state.productRequest;
-  const result = await request(`/api/admin/products${search ? `?q=${encodeURIComponent(search)}` : ""}`);
-  if (requestId !== state.productRequest || search !== document.querySelector("#product-search").value.trim()) return;
-  state.products = result.products;
-  renderProducts();
+  const root = document.querySelector("#product-list");
+  root.setAttribute("aria-busy", "true");
+  document.querySelector("#product-list-status").textContent = "Đang tải sản phẩm…";
+  try {
+    const result = await request(`/api/admin/products${search ? `?q=${encodeURIComponent(search)}` : ""}`);
+    if (requestId !== state.productRequest || search !== document.querySelector("#product-search").value.trim()) return;
+    state.products = result.products;
+    renderProducts();
+  } catch (error) {
+    if (requestId === state.productRequest) document.querySelector("#product-list-status").textContent = "Chưa tải được danh mục. Hãy thử tìm lại hoặc mở lại mục Sản phẩm & kho.";
+    throw error;
+  } finally {
+    if (requestId === state.productRequest) root.setAttribute("aria-busy", "false");
+  }
+}
+
+function productStock(product) {
+  const active = product.variants.filter((variant) => variant.active);
+  return {
+    active,
+    total: active.reduce((sum, variant) => sum + variant.stockQuantity, 0),
+    low: active.some((variant) => variant.stockQuantity <= 5)
+  };
 }
 
 function renderProducts() {
   const root = document.querySelector("#product-list");
-  if (!state.products.length) {
-    root.innerHTML = '<p class="empty-message">Chưa có sản phẩm trong danh mục.</p>';
+  const category = document.querySelector("#product-category-filter").value;
+  const publication = document.querySelector("#product-status-filter").value;
+  const stockFilter = document.querySelector("#product-stock-filter").value;
+  const matching = state.products.filter((product) => {
+    const stock = productStock(product);
+    return (!category || product.category === category)
+      && (!publication || product.active === (publication === "active"))
+      && (!stockFilter || (stockFilter === "low" && stock.low)
+        || (stockFilter === "out" && stock.active.length > 0 && stock.total === 0)
+        || (stockFilter === "missing" && stock.active.length === 0));
+  });
+  document.querySelector("#product-list-status").textContent = `${matching.length} sản phẩm${matching.length !== state.products.length ? ` / ${state.products.length} kết quả tìm kiếm` : ""}`;
+  if (!matching.length) {
+    const filtered = document.querySelector("#product-search").value.trim() || category || publication || stockFilter;
+    root.innerHTML = `<div class="empty-message"><strong>${filtered ? "Không có sản phẩm phù hợp." : "Danh mục đang trống."}</strong><p>${filtered ? "Thử từ khóa, SKU khác hoặc xóa bộ lọc để xem toàn bộ danh mục." : "Thêm sản phẩm đầu tiên, sau đó bổ sung phiên bản, giá bán và tồn kho."}</p></div>`;
     return;
   }
-  root.innerHTML = state.products.map((product) => {
-    const activeVariants = product.variants.filter((variant) => variant.active).length;
-    return `<article class="product-row">
+  root.innerHTML = matching.map((product) => {
+    const stock = productStock(product);
+    const prices = stock.active.map((variant) => variant.priceVnd);
+    const price = prices.length ? (Math.min(...prices) === Math.max(...prices) ? formatPrice(prices[0]) : `${formatPrice(Math.min(...prices))} – ${formatPrice(Math.max(...prices))}`) : "Chưa có giá bán";
+    const inventory = !stock.active.length ? '<span class="status-pill">Chưa có phiên bản bán</span>'
+      : stock.total === 0 ? '<span class="status-pill status-cancelled">Hết hàng</span>'
+        : `${stock.low ? '<span class="status-pill status-warning">Có phiên bản tồn thấp</span>' : ""}<span class="stock-total">${stock.total} sản phẩm trong kho</span>`;
+    return `<article class="product-row ${state.currentProduct?.id === product.id ? "is-selected" : ""}">
       <img src="${escapeHtml(product.imageUrl)}" alt="">
-      <div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.slug)} · ${activeVariants} phiên bản đang bán</p></div>
-      <span class="status-pill ${product.active ? "is-active" : ""}">${product.active ? "Đang bán" : "Bản nháp"}</span>
-      <button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}">Quản lý</button>
+      <div class="product-row-copy"><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(categoryLabels[product.category] || product.category)} · ${stock.active.length} phiên bản đang bán</p><p class="product-row-price">${price}</p><div class="product-stock">${inventory}</div></div>
+      <span class="status-pill ${product.active ? "is-active" : ""}">${product.active ? "Đang hiển thị" : "Bản nháp"}</span>
+      <button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Quản lý</button>
     </article>`;
   }).join("");
 }
 
-function setProductForm(product = null) {
+function setProductForm(product = null, { scroll = true } = {}) {
   state.currentProduct = product;
   const form = document.querySelector("#product-form");
   form.reset();
@@ -126,13 +173,25 @@ function setProductForm(product = null) {
   form.elements.imageUrl.value = product?.imageUrl || "";
   form.elements.imageAlt.value = product?.imageAlt || "";
   form.elements.active.checked = Boolean(product?.active);
+  form.elements.active.disabled = !product || (!product.active && !product.variants.some((variant) => variant.active));
   form.elements.sortOrder.value = product?.sortOrder ?? 0;
   document.querySelector("#product-form-title").textContent = product ? product.name : "Thêm sản phẩm";
   document.querySelector("#variant-manager").hidden = !product;
   document.querySelector("#variant-form").hidden = true;
+  document.querySelector("#product-draft-guidance").textContent = !product
+    ? "Lưu bản nháp trước, thêm phiên bản với giá và tồn kho đã xác minh, sau đó mở hiển thị trên cửa hàng."
+    : !product.variants.some((variant) => variant.active)
+      ? "Thêm ít nhất một phiên bản đang bán trước khi mở hiển thị sản phẩm trên cửa hàng."
+      : "Giá và tồn kho được quản lý riêng cho từng phiên bản bên dưới.";
+  form.querySelector('button[type="submit"]').textContent = product ? "Lưu sản phẩm" : "Lưu bản nháp & thêm phiên bản";
+  updateImagePreview();
   setFeedback(form, "");
   if (product) renderVariants(product);
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
+  renderProducts();
+  if (scroll) {
+    form.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    form.elements.name.focus({ preventScroll: true });
+  }
 }
 
 function renderVariants(product) {
@@ -142,11 +201,11 @@ function renderVariants(product) {
     return;
   }
   root.innerHTML = product.variants.map((variant) => `<div class="variant-row">
-    <div><strong>${escapeHtml(variant.name)}</strong><br><span>SKU ${escapeHtml(variant.sku)} · ${variant.active ? "Đang bán" : "Tạm ẩn"}</span></div>
+    <div class="variant-identity"><strong>${escapeHtml(variant.name)}</strong><br><span>SKU ${escapeHtml(variant.sku)} · ${variant.active ? "Đang bán" : "Tạm ẩn"}</span></div>
     <span>${formatPrice(variant.priceVnd)}</span>
-    <span>Tồn kho: ${variant.stockQuantity}</span>
-    <button class="row-button" type="button" data-edit-variant="${escapeHtml(variant.id)}">Sửa</button>
-    <button class="plain-button" type="button" data-delete-variant="${escapeHtml(variant.id)}">Xóa</button>
+    <span class="${variant.active && variant.stockQuantity <= 5 ? "stock-alert" : ""}">${variant.stockQuantity === 0 ? "Hết hàng" : `Tồn kho: ${variant.stockQuantity}`}</span>
+    <div class="variant-actions"><button class="row-button" type="button" data-edit-variant="${escapeHtml(variant.id)}" aria-label="Sửa ${escapeHtml(variant.name)}">Sửa</button>
+    <button class="plain-button" type="button" data-delete-variant="${escapeHtml(variant.id)}" aria-label="Xóa ${escapeHtml(variant.name)}">Xóa</button></div>
   </div>`).join("");
 }
 
@@ -159,26 +218,117 @@ function fillVariantForm(variant = null) {
   form.elements.name.value = variant?.name || "";
   form.elements.priceVnd.value = variant?.priceVnd ?? "";
   form.elements.stockQuantity.value = variant?.stockQuantity ?? 0;
-  form.elements.options.value = JSON.stringify(variant?.options || {}, null, 2);
+  renderAttributes(variant?.options || {});
   form.elements.active.checked = Boolean(variant?.active);
   setFeedback(form, "");
+  form.elements.sku.focus();
+}
+
+function renderAttributes(options) {
+  const entries = Object.entries(options);
+  document.querySelector("#variant-attributes").innerHTML = entries.map(([key, value]) => attributeRow(key, value)).join("");
+}
+
+function attributeRow(key = "", value = "") {
+  return `<div class="attribute-row"><label>Tên thuộc tính<input data-attribute-key value="${escapeHtml(key)}" placeholder="Ví dụ: Cổng kết nối"></label><label>Giá trị<input data-attribute-value value="${escapeHtml(value)}" placeholder="Ví dụ: Type-C"></label><button class="plain-button" type="button" data-remove-attribute aria-label="Xóa thuộc tính">Xóa</button></div>`;
+}
+
+function readAttributes() {
+  const options = Object.create(null);
+  for (const row of document.querySelectorAll("#variant-attributes .attribute-row")) {
+    const key = row.querySelector("[data-attribute-key]").value.trim();
+    const value = row.querySelector("[data-attribute-value]").value.trim();
+    if (!key && !value) continue;
+    if (!key || !value) throw new Error("Nhập đủ tên và giá trị cho mỗi thuộc tính, hoặc xóa dòng chưa dùng.");
+    if (Object.hasOwn(options, key)) throw new Error(`Thuộc tính “${key}” đang bị trùng tên.`);
+    options[key] = value;
+  }
+  return options;
+}
+
+function validateImage(file) {
+  if (!file) return;
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("Chọn ảnh PNG, JPEG hoặc WebP.");
+  if (file.size > 8 * 1024 * 1024) throw new Error("Ảnh vượt quá 8 MB. Hãy chọn ảnh có dung lượng nhỏ hơn.");
+}
+
+function updateImagePreview() {
+  const form = document.querySelector("#product-form");
+  const file = form.elements.imageFile.files[0];
+  const preview = document.querySelector("#product-image-preview");
+  const image = document.querySelector("#product-preview-image");
+  const caption = document.querySelector("#product-preview-caption");
+  const requestId = ++state.imagePreviewRequest;
+  form.elements.imageUrl.required = !file;
+  if (file) form.elements.imageUrl.removeAttribute("pattern");
+  else form.elements.imageUrl.setAttribute("pattern", "/assets/products/[a-zA-Z0-9._-]+");
+  form.elements.imageFile.setCustomValidity("");
+  try {
+    validateImage(file);
+  } catch (error) {
+    form.elements.imageFile.setCustomValidity(error.message);
+    setFeedback(form, error.message);
+    preview.hidden = true;
+    return;
+  }
+  setFeedback(form, "");
+  if (file) {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (requestId !== state.imagePreviewRequest) return;
+      image.src = reader.result;
+      caption.textContent = `${file.name} · ${(file.size / 1024 / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} MB · Chưa lưu`;
+      preview.hidden = false;
+    });
+    reader.addEventListener("error", () => {
+      if (requestId !== state.imagePreviewRequest) return;
+      preview.hidden = true;
+      setFeedback(form, "Không đọc được ảnh xem trước. Hãy chọn lại tệp.");
+    });
+    reader.readAsDataURL(file);
+  } else {
+    const path = form.elements.imageUrl.value.trim();
+    preview.hidden = !/^\/assets\/products\/[a-zA-Z0-9._-]+$/.test(path);
+    if (!preview.hidden) {
+      image.src = path;
+      caption.textContent = "Ảnh đang lưu trên cửa hàng";
+    }
+  }
+}
+
+async function reloadSelectedProduct(productId, originalEditorId = productId, { preserveDraft = false } = {}) {
+  const result = await request("/api/admin/products");
+  const product = result.products.find((item) => item.id === productId);
+  if (product && !document.querySelector("#product-editor").hidden
+    && document.querySelector("#product-form").elements.id.value === originalEditorId) {
+    if (preserveDraft) {
+      state.currentProduct = product;
+      renderVariants(product);
+      document.querySelector("#variant-form").hidden = true;
+      const activeField = document.querySelector("#product-form").elements.active;
+      activeField.disabled = !product.active && !product.variants.some((variant) => variant.active);
+      if (activeField.disabled) activeField.checked = false;
+      document.querySelector("#product-draft-guidance").textContent = activeField.disabled
+        ? "Thêm ít nhất một phiên bản đang bán trước khi mở hiển thị sản phẩm trên cửa hàng."
+        : "Phiên bản đã được cập nhật. Lưu sản phẩm để áp dụng các thay đổi về nội dung hoặc hiển thị.";
+    } else setProductForm(product, { scroll: false });
+  }
+  await Promise.all([loadProducts(document.querySelector("#product-search").value.trim()), loadSummary()]);
 }
 
 async function saveProduct(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
+  if (form.dataset.saving) return;
+  form.dataset.saving = "true";
   submitButton.disabled = true;
   submitButton.textContent = "Đang lưu…";
   setFeedback(form, "");
   try {
     const file = form.elements.imageFile.files[0];
-    if (file) {
-      const upload = new FormData();
-      upload.append("image", file);
-      const result = await request("/api/admin/uploads", { method: "POST", body: upload });
-      form.elements.imageUrl.value = result.imageUrl;
-    }
+    validateImage(file);
+    const id = form.elements.id.value;
     const payload = {
       name: form.elements.name.value.trim(),
       slug: form.elements.slug.value.trim(),
@@ -187,24 +337,27 @@ async function saveProduct(event) {
       description: form.elements.description.value.trim(),
       imageUrl: form.elements.imageUrl.value.trim(),
       imageAlt: form.elements.imageAlt.value.trim(),
-      active: form.elements.active.checked,
+      active: Boolean(id) && form.elements.active.checked,
       sortOrder: Number(form.elements.sortOrder.value)
     };
-    const id = form.elements.id.value;
+    if (file) {
+      const upload = new FormData();
+      upload.append("image", file);
+      const result = await request("/api/admin/uploads", { method: "POST", body: upload });
+      payload.imageUrl = result.imageUrl;
+      if (form.elements.id.value === id) form.elements.imageUrl.value = result.imageUrl;
+    }
     const result = await request(id ? `/api/admin/products/${encodeURIComponent(id)}` : "/api/admin/products", {
       method: id ? "PUT" : "POST", body: JSON.stringify(payload)
     });
-    await loadProducts(document.querySelector("#product-search").value.trim());
-    await loadSummary();
-    const product = state.products.find((item) => item.id === (id || result.id));
-    if (product) setProductForm(product);
-    else setProductForm();
-    showGlobal("Đã lưu thông tin sản phẩm.");
+    await reloadSelectedProduct(id || result.id, id);
+    showGlobal(id ? "Đã lưu thông tin sản phẩm." : "Đã lưu bản nháp. Thêm phiên bản với giá và tồn kho để tiếp tục.");
   } catch (error) {
     setFeedback(form, error.message);
   } finally {
     submitButton.disabled = false;
-    submitButton.textContent = "Lưu sản phẩm";
+    delete form.dataset.saving;
+    submitButton.textContent = form.elements.id.value ? "Lưu sản phẩm" : "Lưu bản nháp & thêm phiên bản";
   }
 }
 
@@ -212,11 +365,13 @@ async function saveVariant(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
+  if (form.dataset.saving) return;
+  form.dataset.saving = "true";
   submitButton.disabled = true;
   submitButton.textContent = "Đang lưu…";
   setFeedback(form, "");
   try {
-    const options = JSON.parse(form.elements.options.value || "{}");
+    const options = readAttributes();
     const payload = {
       sku: form.elements.sku.value.trim(),
       name: form.elements.name.value.trim(),
@@ -230,30 +385,65 @@ async function saveVariant(event) {
     await request(variantId ? `/api/admin/variants/${encodeURIComponent(variantId)}` : `/api/admin/products/${encodeURIComponent(productId)}/variants`, {
       method: variantId ? "PUT" : "POST", body: JSON.stringify(payload)
     });
-    await loadProducts(document.querySelector("#product-search").value.trim());
-    state.currentProduct = state.products.find((item) => item.id === productId);
-    setProductForm(state.currentProduct);
+    await reloadSelectedProduct(productId, productId, { preserveDraft: true });
     showGlobal("Đã lưu phiên bản và cập nhật tồn kho.");
   } catch (error) {
-    setFeedback(form, error instanceof SyntaxError ? "Thuộc tính phải là JSON hợp lệ." : error.message);
+    setFeedback(form, error.message);
   } finally {
     submitButton.disabled = false;
+    delete form.dataset.saving;
     submitButton.textContent = "Lưu phiên bản";
   }
 }
 
 async function loadOrders(page = state.orderPage) {
+  const requestId = ++state.orderRequest;
   const status = document.querySelector("#order-filter").value;
   const search = document.querySelector("#order-search").value.trim();
   const params = new URLSearchParams();
   if (status) params.set("status", status);
   if (search) params.set("q", search);
+  const paymentStatus = document.querySelector("#order-payment-filter").value;
+  const paymentMethod = document.querySelector("#order-method-filter").value;
+  if (paymentStatus) params.set("paymentStatus", paymentStatus);
+  if (paymentMethod) params.set("paymentMethod", paymentMethod);
   params.set("page", String(page));
-  const result = await request(`/api/admin/orders?${params}`);
-  state.orderPage = result.pagination.page;
-  state.orderPagination = result.pagination;
-  state.orders = result.orders;
-  renderOrders();
+  const root = document.querySelector("#order-list");
+  root.setAttribute("aria-busy", "true");
+  document.querySelector("#order-list-status").textContent = "Đang tải đơn hàng…";
+  try {
+    const result = await request(`/api/admin/orders?${params}`);
+    if (requestId !== state.orderRequest || status !== document.querySelector("#order-filter").value
+      || search !== document.querySelector("#order-search").value.trim()
+      || paymentStatus !== document.querySelector("#order-payment-filter").value
+      || paymentMethod !== document.querySelector("#order-method-filter").value) return;
+    state.orderPage = result.pagination.page;
+    state.orderPagination = result.pagination;
+    state.orders = result.orders;
+    renderOrders();
+  } catch (error) {
+    if (requestId === state.orderRequest) document.querySelector("#order-list-status").textContent = "Chưa tải được đơn hàng. Nhấn Tải lại để thử lại.";
+    throw error;
+  } finally {
+    if (requestId === state.orderRequest) root.setAttribute("aria-busy", "false");
+  }
+}
+
+function isLiveVnpayAttempt(order) {
+  return order.paymentMethod === "vnpay" && order.paymentAttemptStatus === "pending"
+    && (!order.paymentAttemptExpiresAt || new Date(order.paymentAttemptExpiresAt).getTime() > Date.now());
+}
+
+function canEditShipping(order) {
+  return order.status === "pending" && order.paymentStatus !== "paid"
+    && !(order.paymentMethod === "vnpay" && (order.paymentProvider || order.paymentAttemptStatus));
+}
+
+function orderPaymentControl(order) {
+  const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : "Chưa thanh toán";
+  if (["vnpay", "9pay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật từ cổng thanh toán.</small></div>`;
+  if (order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Đơn đã kết thúc."}</small></div>`;
+  return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
 
 function renderOrders() {
@@ -264,38 +454,45 @@ function renderOrders() {
   document.querySelector("#next-orders").disabled = state.orderPagination.page >= state.orderPagination.pageCount;
   document.querySelector("#order-page-label").textContent =
     `${state.orderPagination.total} đơn · Trang ${state.orderPagination.page} / ${Math.max(1, state.orderPagination.pageCount)}`;
+  document.querySelector("#order-list-status").textContent = `${state.orderPagination.total} đơn hàng${state.orderPagination.pageCount > 1 ? ` · Trang ${state.orderPagination.page} / ${state.orderPagination.pageCount}` : ""}`;
   if (!state.orders.length) {
-    root.innerHTML = '<p class="empty-message">Chưa có đơn hàng phù hợp.</p>';
+    root.innerHTML = '<div class="empty-message"><strong>Không có đơn hàng phù hợp.</strong><p>Thử tìm theo mã đơn, tên, email, số điện thoại hoặc xóa bộ lọc.</p></div>';
     return;
   }
   root.innerHTML = state.orders.map((order) => {
     const orderDate = new Date(order.createdAt).toLocaleString("vi-VN");
-    const optionMarkup = Object.entries(labels)
-      .filter(([key]) => ["pending", "confirmed", "processing", "shipped", "completed", "cancelled"].includes(key))
-      .map(([key, label]) => `<option value="${key}" ${order.status === key ? "selected" : ""}>${label}</option>`).join("");
+    const allowed = (orderTransitions[order.status] || []).filter((status) => status !== "cancelled" || (order.paymentStatus !== "paid" && !isLiveVnpayAttempt(order)));
+    const optionMarkup = [order.status, ...allowed].map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(labels[key] || key)}</option>`).join("");
     const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : "Chưa thanh toán";
-    const paymentNote = order.paymentProvider === "vnpay" ? paymentAttemptLabels[order.paymentAttemptStatus] : "";
+    const paymentNote = order.paymentProvider === "vnpay" ? (order.paymentAttemptStatus === "pending" && !isLiveVnpayAttempt(order) ? "Phiên thanh toán VNPAY đã hết hạn; kiểm tra đối soát trước khi xử lý đơn." : paymentAttemptLabels[order.paymentAttemptStatus]) : "";
     const latePaymentWarning = order.status === "cancelled" && order.paymentStatus === "paid"
       ? "Đơn đã hủy nhưng đã nhận tiền; cần đối soát/hoàn tiền thủ công trong merchant portal."
       : "";
-    return `<article class="order-card">
-      <div class="order-card-header"><div><h3>${escapeHtml(order.orderNumber)}</h3><p>${escapeHtml(orderDate)} · ${escapeHtml(labels[order.paymentMethod])}</p></div><span class="status-pill">${escapeHtml(labels[order.status])}</span></div>
+    const phone = String(order.phone || "").replace(/[^+0-9]/g, "");
+    const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    const lockNote = order.paymentStatus === "paid" ? "Phí giao hàng và thanh toán đã được chốt. Đơn đã thanh toán cần xử lý hoàn tiền trước khi hủy."
+      : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
+        : "";
+    return `<details class="order-card" data-order-detail="${escapeHtml(order.id)}" ${state.openOrders.has(order.id) ? "open" : ""}>
+      <summary class="order-card-summary"><div class="order-summary-main"><h3>${escapeHtml(order.orderNumber)}</h3><p>${escapeHtml(orderDate)} · ${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}</p><p class="order-customer-summary">${escapeHtml(order.customerName)} · ${itemCount} sản phẩm</p></div><div class="order-summary-end"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong><div class="order-badges"><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(labels[order.status])}</span><span class="status-pill ${order.paymentStatus === "paid" ? "status-active" : "status-warning"}">${paymentStatus}</span></div><span class="order-expand-label">Chi tiết & xử lý <span aria-hidden="true">⌄</span></span></div></summary>
+      <div class="order-card-body">
       <div class="order-meta">
-        <p><strong>${escapeHtml(order.customerName)}</strong><br>${escapeHtml(order.phone)} · ${escapeHtml(order.email)}</p>
+        <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
         <p>${escapeHtml(order.address)}, ${escapeHtml(order.city)}${order.note ? `<br>Ghi chú: ${escapeHtml(order.note)}` : ""}</p>
       </div>
-      <div class="order-lines">${order.items.map((item) => `<div class="order-line"><span>${escapeHtml(item.productName)} · ${escapeHtml(item.variantName)} × ${item.quantity}</span><strong>${formatPrice(item.lineTotalVnd)}</strong></div>`).join("")}</div>
-      <p>Tạm tính ${formatPrice(order.subtotalVnd)} · ${order.totalVnd == null ? "Chưa chốt phí giao hàng" : `Tổng ${formatPrice(order.totalVnd)}`} · Thanh toán: ${escapeHtml(paymentStatus)}</p>
+      <div class="order-lines">${order.items.map((item) => `<div class="order-line"><span>${escapeHtml(item.productName)} · ${escapeHtml(item.variantName)} × ${item.quantity}<small>SKU ${escapeHtml(item.sku || "—")}</small></span><strong>${formatPrice(item.lineTotalVnd)}</strong></div>`).join("")}</div>
+      <dl class="order-totals"><div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div><div><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
       ${paymentNote ? `<p class="help-text">${escapeHtml(paymentNote)}</p>` : ""}
       ${latePaymentWarning ? `<p class="feedback">${escapeHtml(latePaymentWarning)}</p>` : ""}
+      ${lockNote ? `<p class="editor-guidance">${lockNote}</p>` : ""}
       <form class="order-controls" data-order-form="${escapeHtml(order.id)}">
-        <label>Trạng thái<select name="status">${optionMarkup}</select></label>
-        <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1000" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${order.status === "pending" ? "" : "disabled"}></label>
-        <label>Thanh toán<select name="paymentStatus"><option value="pending" ${order.paymentStatus === "pending" ? "selected" : ""}>Chưa thanh toán</option><option value="paid" ${order.paymentStatus === "paid" ? "selected" : ""}>Đã thanh toán</option></select></label>
-        <button class="primary-button" type="submit">Cập nhật</button>
+        <label>Trạng thái đơn<select name="status" ${allowed.length ? "" : "disabled"}>${optionMarkup}</select></label>
+        <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${canEditShipping(order) ? "" : "disabled"}></label>
+        ${orderPaymentControl(order)}
+        <button class="primary-button" type="submit" ${!allowed.length && !canEditShipping(order) && (!orderPaymentControl(order).includes('name="paymentStatus"')) ? "disabled" : ""}>Lưu cập nhật</button>
         <p class="feedback order-feedback" role="alert"></p>
       </form>
-    </article>`;
+      </div></details>`;
   }).join("");
 }
 
@@ -304,16 +501,25 @@ async function updateOrder(event) {
   const form = event.target.closest("[data-order-form]");
   if (!form) return;
   const submitButton = form.querySelector('button[type="submit"]');
+  if (form.dataset.saving) return;
+  const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
+  if (!order) return;
+  if (form.elements.status.value === "cancelled" && order.status !== "cancelled"
+    && !window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Đơn đã hủy không thể mở lại.`)) return;
   const feedback = form.querySelector('[role="alert"]');
   submitButton.disabled = true;
+  form.dataset.saving = "true";
   submitButton.textContent = "Đang cập nhật…";
   feedback.textContent = "";
-  const payload = {
-    status: form.elements.status.value,
-    paymentStatus: form.elements.paymentStatus.value
-  };
-  if (form.elements.shippingFeeVnd.value !== "") payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
+  const payload = {};
+  const targetStatus = form.elements.status.value;
+  if (targetStatus !== order.status) payload.status = targetStatus;
+  const paymentField = form.elements.paymentStatus;
+  if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
+  if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
   try {
+    if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");
+    if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
     await request(`/api/admin/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     await Promise.all([loadOrders(), loadSummary()]);
     showGlobal("Đã cập nhật đơn hàng.");
@@ -321,7 +527,8 @@ async function updateOrder(event) {
     feedback.textContent = error.message;
   } finally {
     submitButton.disabled = false;
-    submitButton.textContent = "Cập nhật";
+    delete form.dataset.saving;
+    submitButton.textContent = "Lưu cập nhật";
   }
 }
 
@@ -467,10 +674,13 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   }
 });
 
-document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", async () => {
+async function activateView(view) {
+  const button = document.querySelector(`[data-view="${view}"]`);
+  if (!button) return;
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("is-active", item === button));
   document.querySelectorAll(".view-panel").forEach((panel) => { panel.hidden = panel.id !== `${button.dataset.view}-view`; });
   document.querySelector("#view-title").textContent = button.textContent;
+  document.querySelectorAll("[data-view]").forEach((item) => item.setAttribute("aria-current", item === button ? "page" : "false"));
   try {
     if (button.dataset.view === "products") await loadProducts(document.querySelector("#product-search").value.trim());
     if (button.dataset.view === "orders") await loadOrders();
@@ -478,6 +688,23 @@ document.querySelectorAll("[data-view]").forEach((button) => button.addEventList
     if (button.dataset.view === "settings") await loadSettings();
   } catch (error) {
     showGlobal(error.message, true);
+  }
+}
+document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => activateView(button.dataset.view)));
+document.querySelectorAll("[data-shortcut]").forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.shortcut === "stock") {
+    document.querySelector("#product-search").value = "";
+    document.querySelector("#product-category-filter").value = "";
+    document.querySelector("#product-status-filter").value = "active";
+    document.querySelector("#product-stock-filter").value = "low";
+    activateView("products");
+  } else {
+    document.querySelector("#order-search").value = "";
+    document.querySelector("#order-filter").value = button.dataset.shortcut === "pending" ? "pending" : "";
+    document.querySelector("#order-payment-filter").value = button.dataset.shortcut === "unpaid" ? "pending" : "";
+    document.querySelector("#order-method-filter").value = "";
+    state.orderPage = 1;
+    activateView("orders");
   }
 }));
 
@@ -490,17 +717,38 @@ document.querySelector("#product-search").addEventListener("input", async (event
   }, 180);
 });
 document.querySelector("#new-product-button").addEventListener("click", () => setProductForm());
+document.querySelectorAll(".product-filters select").forEach((select) => select.addEventListener("change", renderProducts));
+document.querySelector("#reset-product-filters").addEventListener("click", () => {
+  document.querySelector("#product-search").value = "";
+  document.querySelectorAll(".product-filters select").forEach((select) => { select.value = ""; });
+  loadProducts().catch((error) => showGlobal(error.message, true));
+});
 document.querySelector("#product-list").addEventListener("click", (event) => {
   const button = event.target.closest("[data-edit-product]");
   if (button) setProductForm(state.products.find((product) => product.id === button.dataset.editProduct));
 });
 document.querySelector("#product-form").addEventListener("submit", saveProduct);
+document.querySelector('#product-form input[name="imageFile"]').addEventListener("change", updateImagePreview);
+document.querySelector('#product-form input[name="imageUrl"]').addEventListener("input", updateImagePreview);
 document.querySelectorAll("[data-close-editor]").forEach((button) => button.addEventListener("click", () => {
   document.querySelector("#product-editor").hidden = true;
   state.currentProduct = null;
+  renderProducts();
 }));
 document.querySelector("#new-variant-button").addEventListener("click", () => fillVariantForm());
 document.querySelector("#variant-form").addEventListener("submit", saveVariant);
+document.querySelector("#add-variant-attribute").addEventListener("click", () => {
+  const list = document.querySelector("#variant-attributes");
+  list.insertAdjacentHTML("beforeend", attributeRow());
+  list.lastElementChild.querySelector("input").focus();
+});
+document.querySelector("#variant-attributes").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-attribute]");
+  if (button) {
+    button.closest(".attribute-row").remove();
+    document.querySelector("#add-variant-attribute").focus();
+  }
+});
 document.querySelectorAll("[data-close-variant]").forEach((button) => button.addEventListener("click", () => {
   document.querySelector("#variant-form").hidden = true;
 }));
@@ -512,19 +760,27 @@ document.querySelector("#variant-list").addEventListener("click", async (event) 
     return;
   }
   if (remove && window.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa.")) {
+    if (remove.disabled) return;
+    remove.disabled = true;
     try {
-      await request(`/api/admin/variants/${encodeURIComponent(remove.dataset.deleteVariant)}`, { method: "DELETE" });
       const productId = state.currentProduct.id;
-      await loadProducts(document.querySelector("#product-search").value.trim());
-      state.currentProduct = state.products.find((product) => product.id === productId);
-      setProductForm(state.currentProduct);
+      await request(`/api/admin/variants/${encodeURIComponent(remove.dataset.deleteVariant)}`, { method: "DELETE" });
+      await reloadSelectedProduct(productId, productId, { preserveDraft: true });
       showGlobal("Đã xóa phiên bản.");
     } catch (error) {
       showGlobal(error.message, true);
+    } finally {
+      remove.disabled = false;
     }
   }
 });
-document.querySelector("#order-filter").addEventListener("change", () => {
+document.querySelectorAll(".order-filters select").forEach((select) => select.addEventListener("change", () => {
+  state.orderPage = 1;
+  loadOrders(1).catch((error) => showGlobal(error.message, true));
+}));
+document.querySelector("#reset-order-filters").addEventListener("click", () => {
+  document.querySelector("#order-search").value = "";
+  document.querySelectorAll(".order-filters select").forEach((select) => { select.value = ""; });
   state.orderPage = 1;
   loadOrders(1).catch((error) => showGlobal(error.message, true));
 });
@@ -545,6 +801,25 @@ document.querySelector("#next-orders").addEventListener("click", () => {
   if (state.orderPage < state.orderPagination.pageCount) loadOrders(state.orderPage + 1).catch((error) => showGlobal(error.message, true));
 });
 document.querySelector("#order-list").addEventListener("submit", updateOrder);
+document.querySelector("#order-list").addEventListener("toggle", (event) => {
+  const detail = event.target.closest("[data-order-detail]");
+  if (!detail) return;
+  if (detail.open) state.openOrders.add(detail.dataset.orderDetail);
+  else state.openOrders.delete(detail.dataset.orderDetail);
+}, true);
+document.querySelector("#order-list").addEventListener("change", (event) => {
+  if (!event.target.matches('select[name="status"]')) return;
+  const form = event.target.closest("[data-order-form]");
+  const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
+  const paymentField = form.elements.paymentStatus;
+  if (order?.paymentMethod === "cod" && paymentField) {
+    paymentField.disabled = event.target.value !== "completed";
+    if (paymentField.disabled) paymentField.value = "pending";
+    form.querySelector("[data-payment-guidance]").textContent = paymentField.disabled
+      ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng."
+      : "Chọn Đã thanh toán sau khi đã thu đủ tiền của khách.";
+  }
+});
 document.querySelector("#customer-search").addEventListener("input", (event) => {
   window.clearTimeout(state.customerSearchTimer);
   const value = event.currentTarget.value;
