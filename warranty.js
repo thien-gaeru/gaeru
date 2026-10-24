@@ -9,7 +9,7 @@
   section.innerHTML = `
     <details class="care-surface warranty-surface care-disclosure" data-w-disclosure>
       <summary><div><p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2></div><span aria-hidden="true">+</span></summary><div class="care-disclosure-body">
-      <p>Đơn website được tạo hồ sơ tự động và kích hoạt sau khi hoàn tất, thanh toán đủ. Chỉ gửi đăng ký cho đơn ngoài hệ thống chưa có dữ liệu. Bảo hành 12 tháng tính từ ngày mua đã xác nhận, không phải ngày gửi đăng ký.</p>
+      <p class="warranty-intro-note">Đơn website tự động kích hoạt khi hoàn tất và thanh toán đủ. Với đơn chưa có hồ sơ, điền thông tin bên dưới. Bảo hành 12 tháng tính từ ngày mua được xác nhận.</p>
       <p data-w-session role="status">Đang kiểm tra tài khoản…</p>
       <form id="warranty-form">
         <label>Nơi mua hàng<select name="source" required>
@@ -28,7 +28,6 @@
           <label><span data-w-order-label>Mã đơn hàng website</span><input name="externalOrderNumber" minlength="3" maxlength="100" autocomplete="off" required></label>
           <label>Ngày mua trên chứng từ<input name="purchaseDate" type="date" min="2000-01-01" max="${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}" required></label>
           <label>Sản phẩm / phiên bản đã mua<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 1 Mic · Type-C" required></label>
-          <label>Serial (nếu có)<input name="serial" maxlength="80" autocomplete="off"></label>
           <p class="care-field-note">Nhập mã đơn theo lịch sử mua hàng của kênh đã chọn. Hồ sơ cần được GAERU đối chiếu; chưa kết nối xác minh tự động với sàn.</p>
         </fieldset>
         <fieldset class="warranty-contact">
@@ -143,9 +142,9 @@
       const contact=Object.fromEntries(['fullName','phone','address','city','email'].filter(name=>form.elements[name]).map(name=>[name,form.elements[name].value]));
       const account=form.elements.source.value==='account';
       if(account&&(form.elements.orderItemId.disabled||!form.elements.orderItemId.value))throw Error('Chọn sản phẩm trong đơn hàng trước khi đăng ký.');
-      const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,serial:form.elements.serial?.value||'',...(form.elements.purchaseDate?.value?{purchaseDate:form.elements.purchaseDate.value}:{}),contact};
+      const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,serial:form.elements.serial?.value||editing?.serial||'',...(form.elements.purchaseDate?.value?{purchaseDate:form.elements.purchaseDate.value}:{}),contact};
       if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=crypto.randomUUID();}
-      const data=await api(editing?'/api/warranty-requests/'+editing.id:(account?'/api/customer/warranties':'/api/warranty-requests'),editing?'PATCH':'POST',editing?{...body,serial:form.elements.serial?.value||'',version:editing.version}:{...body,requestKey:key});
+      const data=await api(editing?'/api/warranty-requests/'+editing.id:(account?'/api/customer/warranties':'/api/warranty-requests'),editing?'PATCH':'POST',editing?{...body,serial:form.elements.serial?.value||editing?.serial||'',version:editing.version}:{...body,requestKey:key});
       if(data.managementToken)storeToken(data.activation.id,data.managementToken);
       feedback.textContent='Đã tiếp nhận đăng ký. Mã hồ sơ: '+data.activation.id+'. GAERU sẽ đối chiếu đơn và ngày mua trước khi xác nhận kích hoạt.';
       if(!customer)feedback.textContent+=' Vui lòng lưu mã hồ sơ để liên hệ GAERU theo dõi kết quả.';
