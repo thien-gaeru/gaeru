@@ -108,8 +108,8 @@ function productCard(product, compact = false) {
     <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}">
       <div class="product-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
-        <h3>${escapeHtml(product.name)}</h3>
-        <p>${escapeHtml(String(product.description||'').replace(/\*\*|__/g,''))}</p>
+        <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
+        <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
         <div class="card-actions">
           <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
@@ -123,8 +123,8 @@ function productCard(product, compact = false) {
         <img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy">
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
-      <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a></h2>
-      <p class="catalog-description">${escapeHtml(String(product.description||'').replace(/\*\*|__/g,''))}</p>
+      <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
+      <p class="catalog-description">${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
       <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
       <div class="catalog-actions">
         <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
@@ -287,7 +287,7 @@ function renderCart() {
         <article class="cart-item">
           <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy"></a>
           <div class="cart-item-info">
-            <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a></h2>
+            <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
               <p>${escapeHtml(variant.name)} · ${escapeHtml(variant.sku)} · ${formatPrice(variant.priceVnd)}${variant.stockQuantity ? "" : " · Hết hàng"}</p>
             <button class="remove-item" type="button" data-remove="${escapeHtml(variantId)}">Xóa</button>
           </div>
