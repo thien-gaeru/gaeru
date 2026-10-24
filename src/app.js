@@ -72,6 +72,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(require("./bot-protection").createBotProtection(pool,config));
   app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
+  app.use("/api/gaeru_ceo/marketing/emails",express.json({limit:"64kb"}));
   app.use(express.json({ limit: "32kb" }));
   app.use(session({
     name: "gaeru.sid",
@@ -138,6 +139,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
   app.use("/api/gaeru_ceo",require("./admin-configuration").createAdminConfiguration(pool,config));
+  const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config);
+  app.use("/api/gaeru_ceo",emailMarketing.admin);
+  app.use("/api/marketing-email",emailMarketing.publicApi);
   const marketing=require("./marketing").createMarketing(pool);
   app.use("/api/gaeru_ceo",marketing.admin);
   app.use("/api/customer/marketing",marketing.customer);
@@ -166,7 +170,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','configuration.js','marketing.js']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','configuration.js','marketing.js','email-marketing.js']);
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
