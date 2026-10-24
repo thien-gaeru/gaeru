@@ -1,7 +1,7 @@
 const {Router}=require('express');
 const {z}=require('zod');
 const {rateLimit}=require('express-rate-limit');
-const {createHash}=require('node:crypto');
+const {createHash,randomBytes}=require('node:crypto');
 const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
@@ -9,6 +9,7 @@ const contactSchema=z.object({
  fullName:z.string().trim().min(2).max(120),
  phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).refine(value=>/^\+?\d{8,15}$/.test(value.replace(/[().\-\s]/g,''))),
  address:z.string().trim().min(5).max(250),
+ email:z.string().trim().email().max(254).optional(),
  city:z.string().trim().min(2).max(120)
 }).strict();
 const requestSchema=z.object({
@@ -21,6 +22,7 @@ const requestSchema=z.object({
 }).strict();
 function createWarrantyPublicApi(pool){
  const router=Router();
+ require("./warranty-management").mountWarrantyManagement(router,pool,requestSchema);
  router.post('/',requireCsrf,rateLimit({windowMs:15*60*1000,limit:15,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều đăng ký. Vui lòng thử lại sau hoặc liên hệ GAERU.'}}),async(req,res,next)=>{
   const parsed=requestSchema.safeParse(req.body);
   if(!parsed.success)return res.status(400).json({error:'Chọn kênh mua, nhập mã đơn, sản phẩm, họ tên, số điện thoại và địa chỉ hợp lệ.'});
@@ -31,23 +33,25 @@ function createWarrantyPublicApi(pool){
    const result=await withTransaction(pool,async client=>{
     if(customerId&&!(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true',[customerId])).rows.length)return {status:401,error:'Phiên tài khoản không còn hợp lệ. Hãy đăng nhập lại.'};
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['warranty:'+a.requestKey]);
-    const previous=(await client.query('SELECT id,status,request_hash,guest_owner_hash FROM warranty_activations WHERE request_key=$1 AND customer_id IS NOT DISTINCT FROM $2::uuid',[a.requestKey,customerId])).rows[0];
+    const previous=(await client.query('SELECT id,status,request_hash,guest_owner_hash,withdrawn_at FROM warranty_activations WHERE request_key=$1 AND customer_id IS NOT DISTINCT FROM $2::uuid',[a.requestKey,customerId])).rows[0];
     if(previous){
+     if(previous.withdrawn_at)return {status:409,error:"Yêu cầu đã xóa. Hãy tạo đăng ký mới."};
      if(previous.request_hash!==hash||previous.guest_owner_hash!==guestHash)return {status:409,error:'Mã yêu cầu đã được sử dụng. Vui lòng tải lại biểu mẫu.'};
-     return {status:200,activation:{id:previous.id,status:previous.status}};
+     const managementToken=customerId?null:randomBytes(32).toString('hex');if(managementToken)await client.query('UPDATE warranty_activations SET manage_token_hash=$2 WHERE id=$1',[previous.id,createHash('sha256').update(managementToken).digest('hex')]);return {status:200,activation:{id:previous.id,status:previous.status},managementToken};
     }
     const orderKey=a.externalOrderNumber.replace(/\s/g,'').toUpperCase();
     if((await client.query("SELECT id FROM orders WHERE upper(regexp_replace(order_number,'[[:space:]]','','g'))=$1 LIMIT 1",[orderKey])).rows.length)return {status:409,error:'Mã đơn đã có trong hệ thống website. Bảo hành được kích hoạt tự động sau khi hoàn tất và thanh toán; không gửi đăng ký lại.',code:'WARRANTY_AUTOMATIC'};
     const claim=(await client.query('INSERT INTO warranty_order_claims(channel,order_key) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING order_key',[a.channel,orderKey])).rows[0];
-    if(!claim)return {status:409,error:'Mã đơn này đã được gửi đăng ký hoặc đã kích hoạt bảo hành. Không thể gửi lại; vui lòng liên hệ GAERU nếu cần điều chỉnh.'};
+    if(!claim)return {status:409,error:'Mã đơn này đã được gửi đăng ký hoặc đã kích hoạt bảo hành. Nếu hồ sơ chưa được xác nhận, hãy mở hồ sơ đã gửi để sửa hoặc xóa yêu cầu sai.'};
+    const managementToken=customerId?null:randomBytes(32).toString('hex');
     const activation=(await client.query(`INSERT INTO warranty_activations
-     (customer_id,channel,external_order_number,external_product_name,serial,request_key,request_hash,guest_owner_hash,contact_name,contact_phone,contact_address,contact_city,claimed_purchase_date)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id,status`,
-     [customerId,a.channel,a.externalOrderNumber,a.productName,a.serial.toUpperCase()||null,a.requestKey,hash,guestHash,a.contact.fullName,a.contact.phone,a.contact.address,a.contact.city,a.purchaseDate||null])).rows[0];
+     (customer_id,channel,external_order_number,external_product_name,serial,request_key,request_hash,guest_owner_hash,contact_name,contact_phone,contact_address,contact_city,claimed_purchase_date,contact_email,manage_token_hash)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id,status`,
+     [customerId,a.channel,a.externalOrderNumber,a.productName,a.serial.toUpperCase()||null,a.requestKey,hash,guestHash,a.contact.fullName,a.contact.phone,a.contact.address,a.contact.city,a.purchaseDate||null,a.contact.email||'',managementToken?createHash('sha256').update(managementToken).digest('hex'):null])).rows[0];
     await appendAudit(client,{actor:{username:customerId||'guest',source:customerId?'customer':'guest'},action:'warranty.request',entityType:'warranty',entityId:activation.id,metadata:{channel:a.channel}});
-    return {status:201,activation};
+    return {status:201,activation,managementToken};
    });
-   res.status(result.status).json(result.error?{error:result.error}:{activation:result.activation});
+   res.status(result.status).json(result.error?{error:result.error}:{activation:result.activation,...(result.managementToken?{managementToken:result.managementToken}:{})});
   }catch(error){if(error.code==='23505')return res.status(409).json({error:'Đăng ký hoặc serial đã tồn tại. Liên hệ GAERU để đối chiếu.'});next(error);}
  });
  return router;
