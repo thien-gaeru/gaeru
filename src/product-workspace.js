@@ -1,3 +1,4 @@
+const { rateLimit } = require('express-rate-limit');
 const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
@@ -27,13 +28,35 @@ const schema=z.object({descriptionMedia:z.array(media).max(12).default([]),id:uu
 const fail=(message,status=409)=>Object.assign(Error(message),{status});
 const signature=o=>JSON.stringify(Object.entries(o).sort(([a],[b])=>a.localeCompare(b)));
 async function read(client,id){const product=(await client.query('SELECT id,name,slug,category,descriptor,description,card_title AS "cardTitle",card_summary AS "cardSummary",image_url AS "imageUrl",image_alt AS "imageAlt",active,sort_order AS "sortOrder",updated_at AS "updatedAt",edit_version AS version FROM products WHERE id=$1',[id])).rows[0];if(!product)return null;product.updatedAt=new Date(product.updatedAt).toISOString();const variants=(await client.query('SELECT id,sku,name,options,price_vnd AS "priceVnd",stock_quantity AS "stockQuantity",active,image_url AS "imageUrl",updated_at AS "updatedAt",edit_version AS version FROM product_variants WHERE product_id=$1 ORDER BY name,id',[id])).rows.map(v=>({...v,updatedAt:new Date(v.updatedAt).toISOString()}));const meta=(await client.query('SELECT gallery,option_groups AS groups,description_media AS "descriptionMedia" FROM product_presentations WHERE product_id=$1',[id])).rows[0];const {id:productId,updatedAt:productDate,version,...fields}=product;return {id,updatedAt:product.updatedAt,version,product:fields,variants,gallery:meta?.gallery?.length?meta.gallery:[product.imageUrl],groups:meta?.groups||[],descriptionMedia:meta?.descriptionMedia||[]};}
+const catalogImagePublicLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1800,
+  standardHeaders: "draft-7",
+  legacyHeaders: false
+});
+
+const catalogImageAdminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false
+});
+
+const catalogImageUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false
+});
+
 function createProductWorkspace(pool){const admin=Router(),publicApi=Router();
- publicApi.get('/catalog-images/:id',async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readCatalogImageContent(row.content));}catch(e){next(e);}});
+ publicApi.get('/catalog-images/:id',catalogImagePublicLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readCatalogImageContent(row.content));}catch(e){next(e);}});
  admin.use('/product-workspace',requirePermission('catalog.read'));
  admin.get('/product-workspace/:id',async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const data=await read(pool,req.params.id);if(!data)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});res.set('Cache-Control','no-store').json(data);}catch(e){next(e);}});
- admin.get('/catalog-images/:id',requirePermission('catalog.read'),async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readCatalogImageContent(row.content));}catch(e){next(e);}});
+ admin.get('/catalog-images/:id',catalogImageAdminLimiter,requirePermission('catalog.read'),async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readCatalogImageContent(row.content));}catch(e){next(e);}});
  const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:0}}).single('image');
 admin.post('/catalog-images',
+  catalogImageUploadLimiter,
   requirePermission('catalog.write'),
   requireCsrf,
   (req, res, next) => upload(req, res, e => e
