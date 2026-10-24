@@ -1,4 +1,3 @@
-const {restoreCustomer}=require('./account-retention');
 const { createHash, randomBytes } = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { Router } = require("express");
@@ -109,7 +108,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       const isEmail = parsed.data.identifier.includes('@');
       const result = await pool.query(
-        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt",deletion_recoverable,deleted_at>now()-interval '30 days' AS "selfRestore"
+        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt"
          FROM customers WHERE ${isEmail ? 'email = $1' : 'phone = ANY($1::text[])'} LIMIT 2`,
         [isEmail ? parsed.data.identifier.toLowerCase() : loginPhoneCandidates(parsed.data.identifier)]
       );
@@ -117,11 +116,10 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       const customer = result.rows.length === 1 ? result.rows[0] : null;
       const passwordMatches = await bcrypt.compare(parsed.data.password, customer?.password_hash || DUMMY_PASSWORD_HASH);
       if (!customer || !passwordMatches) return res.status(401).json({ error: "Email/số điện thoại hoặc mật khẩu không đúng. Nếu số điện thoại dùng chung nhiều tài khoản, vui lòng đăng nhập bằng email." });
-      if(customer.deletedAt&&(!customer.deletion_recoverable||!customer.selfRestore))return res.status(403).json({error:'Tài khoản đã quá 30 ngày tự khôi phục. Vui lòng liên hệ quản trị GAERU; tài khoản không thể khôi phục sau 1 năm.'});
+      if(customer.deletedAt)return res.status(403).json({error:'Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'});
       if (customer.active === false&&!customer.deletedAt) return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
 
       if(accountSecurity&&await accountSecurity.beginLogin(req,res,"customer:"+customer.id,parsed.data.password))return;
-      if(customer.deletedAt){await withTransaction(pool,client=>restoreCustomer(client,customer.id,{expectedPasswordHash:customer.password_hash}));if(req.securityLoginVersion)req.securityLoginVersion++;customer.active=true;customer.deletedAt=null;}
       startCustomerSession(req, res, next, customer,accountSecurity);
     } catch (error) {
       if(error.status)return res.status(error.status).json({error:error.message});

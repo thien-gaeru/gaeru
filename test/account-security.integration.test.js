@@ -56,19 +56,19 @@ test('owner credentials and recovery, email and app MFA, backup codes and sessio
  await login.security('/disable',{password,factorCode:appCodes.recoveryCodes[0]},403); // Backup code used once.
  await login.security('/disable',{password,factorCode:appCodes.recoveryCodes[1]});assert.equal((await login.security('/settings')).method,'off');
  assert.equal((await customer.request('/api/customer-auth/me')).data.authenticated,false);
- // Deletion requires current password and a single-use email confirmation tied to this account.
- await pool.query('INSERT INTO customer_addresses(customer_id,label,full_name,phone,address,city) VALUES($1,$2,$3,$4,$5,$6)',[customerId,'Home','Fixture Customer','0900000001','123 Test Street','Hà Nội']);
- assert.equal((await login.request('/api/account-security/delete/request','POST',{password},false)).status,403);
- await login.security('/delete/request',{password:'incorrect'},403);
- const deletion=await login.security('/delete/request',{password});assert.match(deletion.message,/email/);assert.equal((await login.ok('/api/customer-auth/me')).authenticated,true);
- const deletionLink=new URL(messages.at(-1).text.match(/https:\/\/[^\s]+/)[0]);const deleteToken=deletionLink.searchParams.get('deleteAccount');assert.ok(deleteToken);
- await owner.login('owner');await owner.security('/login/complete',{code:code()});await owner.security('/delete/confirm',{token:deleteToken},403);
- await login.security('/delete/confirm',{token:'0'.repeat(64)},400);
- await login.security('/delete/confirm',{token:deleteToken});assert.equal((await login.ok('/api/customer-auth/me')).authenticated,false);
- const erased=(await pool.query('SELECT * FROM customers WHERE id=$1',[customerId])).rows[0];assert.equal(erased.active,false);assert.ok(erased.deleted_at);assert.equal(erased.phone,'0900000001');assert.equal(erased.email,'customer@example.invalid');assert.equal((await pool.query('SELECT * FROM customer_addresses WHERE customer_id=$1',[customerId])).rows.length,1);
+ // Retired customer deletion endpoints cannot change state or send email.
+ const mailCount=messages.length;
+ await login.security('/delete/request',{password},404);
+ await login.security('/delete/confirm',{token:'0'.repeat(64)},404);
+ assert.equal(messages.length,mailCount);assert.equal((await login.ok('/api/customer-auth/me')).authenticated,true);
+ await owner.login('owner');await owner.security('/login/complete',{code:code()});
+ const deletionBody={reason:'Khách liên hệ và đã đối chiếu thông tin.',confirmed:true};
+ await owner.ok('/api/gaeru_ceo/customers/'+customerId+'/delete','POST',deletionBody);
+ assert.equal((await login.ok('/api/customer-auth/me')).authenticated,false);
+ assert.equal((await login.request('/api/customer-auth/login','POST',{email:'customer@example.invalid',password})).status,403);
  assert.equal((await owner.request('/api/gaeru_ceo/customers/'+customerId,'PATCH',{active:true})).status,404);
- assert.equal((await login.request('/api/account-security/delete/confirm','POST',{token:deleteToken})).status,401);
- await login.ok('/api/csrf');await login.ok('/api/customer-auth/login','POST',{email:'customer@example.invalid',password});assert.equal((await login.ok('/api/customer-auth/me')).authenticated,true);const restored=(await pool.query('SELECT active,deleted_at FROM customers WHERE id=$1',[customerId])).rows[0];assert.equal(restored.active,true);assert.equal(restored.deleted_at,null);
+ await owner.ok('/api/gaeru_ceo/customers/'+customerId+'/restore','POST',{reason:deletionBody.reason});
+ await login.ok('/api/customer-auth/login','POST',{email:'customer@example.invalid',password});assert.equal((await login.ok('/api/customer-auth/me')).authenticated,true);
  // Staff accounts share the same optional MFA controls; no owner privilege required.
  await pool.query('INSERT INTO staff_accounts(username,full_name,password_hash,role) VALUES($1,$2,$3,$4)',['staff-fixture','Staff Fixture',bcrypt.hashSync(password,4),'viewer']);
  const staff=client();await staff.login('staff-fixture');challenge=await staff.security('/contacts/request',{password,email:'staff@example.invalid',phone:'0900000002'});await staff.security('/contacts/confirm',{challengeId:challenge.challengeId,code:code()});setup=await staff.security('/setup',{password,method:'email'});await staff.security('/confirm',{method:'email',challengeId:setup.challengeId,code:code()});
