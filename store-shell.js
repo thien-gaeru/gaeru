@@ -147,7 +147,7 @@ if (footerRoot) {
         </details>
       </div>
       <div class="footer-help">
-        <p>Cần hỗ trợ? <button type="button" class="footer-chat-link" data-product-chat="">Chat ngay</button>, email <a href="mailto:business@gaeru.com">business@gaeru.com</a> hoặc gọi <a href="tel:0829191080">082 919 1080</a>. Giờ hỗ trợ: Thứ Hai–Thứ Sáu 10:00–17:00, cuối tuần và ngày lễ 10:00–16:00.</p>
+        <p>Cần hỗ trợ? <button type="button" class="chat-product-button footer-chat-link" data-product-chat="">Chat ngay ↗</button>, email <a href="mailto:business@gaeru.com">business@gaeru.com</a> hoặc gọi <a href="tel:0829191080">082 919 1080</a>. Giờ hỗ trợ: Thứ Hai–Thứ Sáu 10:00–17:00, cuối tuần và ngày lễ 10:00–16:00.</p>
       </div>
       <div class="footer-bottom">
         <span class="footer-region">Việt Nam</span>
