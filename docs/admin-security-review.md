@@ -29,3 +29,6 @@
 - https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
 - https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
 - https://developer.apple.com/design/human-interface-guidelines/sidebars
+
+## TLS — xác minh ngày 24/10/2026
+Kết nối thử riêng trên hosting xác nhận stream.encrypted=true và stream.authorized=true. pg_stat_ssl đồng thời báo false; vì vậy không dùng riêng pg_stat_ssl để kết luận TLS của ứng dụng. Có thể có điểm kết nối trung gian; mã hóa chặng phía sau cần nhà cung cấp xác minh. Production bắt buộc TLS 1.2 trở lên, kiểm tra chứng chỉ và không cho query string sslmode ghi đè. Nếu không xác minh được TLS, không tự hạ xuống kết nối không mã hóa. Có thể cung cấp PGSSL_CA nếu nhà cung cấp dùng CA riêng. Giao diện chủ hiển thị riêng TLS ứng dụng/chứng chỉ và trạng thái pg_stat_ssl. Không thay toàn bộ biến môi trường vì API hosting chỉ đọc lại giá trị đã che.
