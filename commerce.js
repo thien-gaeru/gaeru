@@ -162,7 +162,8 @@ function renderCatalog() {
   document.querySelectorAll('[data-category-art]').forEach((art) => {
     const category = art.dataset.categoryArt;
     const representative = products.find(product => category === 'all' || product.category === category);
-    art.innerHTML = representative ? `<img src="${escapeHtml(representative.imageUrl)}" alt="" loading="lazy">` : '<span class="category-placeholder" aria-hidden="true">◌</span>';
+    const icons={all:'<rect x="4" y="4" width="14" height="14" rx="3"/><rect x="26" y="4" width="14" height="14" rx="3"/><rect x="4" y="26" width="14" height="14" rx="3"/><rect x="26" y="26" width="14" height="14" rx="3"/>',audio:'<rect x="16" y="3" width="12" height="24" rx="6"/><path d="M10 21v3a12 12 0 0024 0v-3M22 36v6M16 42h12"/>',video:'<rect x="3" y="10" width="26" height="25" rx="5"/><path d="M29 18l12-7v23l-12-7"/>',accessory:'<path d="M14 3v9m10-9v9M9 12h20v6a10 10 0 01-20 0zm10 16v5a8 8 0 008 8h9"/>'};
+    art.innerHTML = representative ? `<img src="${escapeHtml(representative.imageUrl)}" alt="" loading="lazy">` : `<svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[category]||icons.all}</svg>`;
   });
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
