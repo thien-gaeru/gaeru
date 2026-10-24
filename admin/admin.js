@@ -43,7 +43,7 @@ const formatPrice = (value) => value == null ? "Chưa xác định" : `${new Int
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
-const can = (permission) => Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));
+const can = (permission) => !state.session?.mfaEnrollmentRequired && Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));
 
 function applyPermissions() {
   document.querySelectorAll("[data-permission], [data-require]").forEach((element) => {
@@ -97,7 +97,10 @@ async function showAdmin(session) {
   const roleLabel = window.GAERUAdminUI.roleName(session.role);
   document.querySelector("#admin-identity").textContent = roleLabel && identityName !== roleLabel ? `${identityName} · ${roleLabel}` : identityName;
   applyPermissions();
+  if(session.mfaEnrollmentRequired){document.querySelectorAll('[data-view]').forEach(b=>{b.hidden=b.dataset.view!=='security';});document.querySelectorAll('.nav-group').forEach(g=>{g.hidden=![...g.querySelectorAll('[data-view]')].some(b=>!b.hidden);});}
+
   document.dispatchEvent(new CustomEvent("gaeru:admin-ready", { detail: session }));
+  if(session.mfaEnrollmentRequired){await activateView('security');showGlobal('Bắt buộc bật xác thực hai yếu tố trước khi truy cập quản trị.');return;}
   let initialView = "";
   try { initialView = decodeURIComponent(location.hash.slice(1)); } catch {}
   const buttons = [...document.querySelectorAll('[data-view]')];
@@ -720,7 +723,7 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
 
 async function activateView(view, { updateHistory = true } = {}) {
   const button = [...document.querySelectorAll('[data-view]')].find(item => item.dataset.view === view);
-  if (!button || button.hidden || !can(button.dataset.permission)) return;
+  if (!button || button.hidden || (!can(button.dataset.permission)&&!(view==='security'&&state.session?.mfaEnrollmentRequired))) return;
   const requestId = ++state.viewRequest;
   if (updateHistory && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
   showGlobal('');
@@ -947,7 +950,7 @@ document.querySelector(".sidebar-toggle").addEventListener("click", (event) => {
   const open = document.querySelector(".sidebar").classList.toggle("navigation-open");
   event.currentTarget.setAttribute("aria-expanded", String(open));
 });
-window.GAERUAdmin = Object.freeze({ request, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ request, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});

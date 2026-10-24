@@ -44,18 +44,7 @@ function normalizePhone(phone) {
 
 function createMailer(smtpConfig) {
   if (!smtpConfig) return null;
-  return nodemailer.createTransport({
-    host: smtpConfig.host,
-    port: smtpConfig.port,
-    secure: smtpConfig.secure,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 20000,
-    auth: {
-      user: smtpConfig.user,
-      pass: smtpConfig.password
-    }
-  });
+  return nodemailer.createTransport(require('./smtp-security').smtpOptions(smtpConfig));
 }
 
 function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig), accountSecurity } = {}) {

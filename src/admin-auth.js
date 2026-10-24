@@ -36,6 +36,7 @@ function destroySession(req) {
 function createAdminAuthRouter(config, pool) {
   const router = Router();
   const loginLimit = rateLimit({
+    ...require("./security-hardening").sharedStore(pool,config,"admin-login"),
     windowMs: 15 * 60 * 1000,
     limit: 10,
     standardHeaders: "draft-8",
@@ -79,7 +80,7 @@ function createAdminAuthRouter(config, pool) {
       if(config.accountSecurity)await config.accountSecurity.stamp(req,securityKey);
       req.session.csrfToken = require("node:crypto").randomBytes(32).toString("hex");
       await saveSession(req);
-      res.json({ ...publicIdentity(principal), csrfToken: req.session.csrfToken });
+      res.json({ ...publicIdentity(principal), mfaEnrollmentRequired:await require("./security-hardening").enrollment(config,req,principal), csrfToken: req.session.csrfToken });
     } catch (error) {
       if(error.status)return res.status(error.status).json({error:error.message});
       next(error);
@@ -98,7 +99,8 @@ function createAdminAuthRouter(config, pool) {
   router.get("/me", async (req, res, next) => {
     try {
       const principal = await resolveAdminSession(req, pool, config);
-      res.json({ authenticated: Boolean(principal), ...publicIdentity(principal) });
+      if(principal&&require('./security-hardening').required(config)&&!await require('./security-hardening').enrollment(config,req,principal)&&req.session.adminMfaVerified!==true){delete req.session.admin;return res.json({authenticated:false,...publicIdentity(null)});}
+      res.json({ authenticated: Boolean(principal), ...publicIdentity(principal), ...(principal?{mfaEnrollmentRequired:await require("./security-hardening").enrollment(config,req,principal)}:{}) });
     } catch (error) { next(error); }
   });
 
