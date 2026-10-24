@@ -1,0 +1,36 @@
+/* GAERU type scale: 17px reading text; 56/48/32px responsive display headings.
+   Original GAERU styling with system fonts; no third-party font download. */
+:root{--type-body:1.0625rem;--type-small:.875rem;--type-caption:.75rem;--type-display:3.5rem;--type-section:3rem;--type-subhead:1.75rem}
+html{font-size:100%;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{font-size:var(--type-body);line-height:1.4706;letter-spacing:-.012em}
+button,input,select,textarea{font-family:inherit}
+h1,h2,h3{font-weight:600;letter-spacing:-.022em}
+.hero h1,.story-page-hero h1,.discover-hero h1{font-size:var(--type-display);line-height:1.08;letter-spacing:-.02em}
+.hero-lead,.discover-hero>p:not(.eyebrow){font-size:var(--type-subhead);line-height:1.25;letter-spacing:0}
+.hero-lead{max-width:42rem}
+.section-heading h2,.story-copy h2,.care-intro h2,.closing-banner h2,.story-page-intro h2,.story-product-copy h2,.story-support h2,.discover-section h2,.shop-page .store-welcome h1{font-size:var(--type-section);line-height:1.12;letter-spacing:-.02em}
+.section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:1.3125rem;line-height:1.4}
+.product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:2.5rem;line-height:1.1;letter-spacing:-.02em}
+.story-copy>p:not(.eyebrow),.story-product-copy>p:not(.eyebrow),.story-support>div:last-child>p,.care-card>p:not(.eyebrow),.shop-page .catalog-description,.store-benefit-grid p,.store-story p{font-size:var(--type-body);line-height:1.5}
+.button,.card-actions .button,.hero-actions .text-link,.card-actions .text-link,.care-card .text-link,.shop-page .catalog-actions .button,.detail-actions .text-link,.continue-shopping{font-size:var(--type-body);line-height:1.3}
+.button,.card-actions .button,.shop-page .catalog-actions .button{min-height:44px}
+.announcement,.eyebrow,.filter-chip,.filter-status,.breadcrumb,.stock-note,.cart-feedback,.detail-benefits p,.store-price-note,.store-promotion-note,.checkout-notice,.checkout-privacy-notice,.form-section label,.payment-placeholder,.cart-item-info>p,.remove-item,.mini-cart-name,.mini-cart-total,.mini-cart-footer .prototype-note,.store-concierge,.store-category{font-size:var(--type-small);line-height:1.5}
+.price,.shop-page .catalog-price,.detail-price,.cart-line-total,.cart-summary>p:not(.prototype-note){font-size:var(--type-body);line-height:1.5}
+.cart-summary .summary-total{font-size:1.3125rem!important}
+.form-section input,.form-section select,.form-section textarea{font-size:1rem;line-height:1.5}
+.footer-brand p,.footer-column p,.footer-column summary,.footer-column a,.footer-help,.footer-bottom,.footer-business-info{font-size:var(--type-caption);line-height:1.5}
+.hero-caption,.mini-cart-price,.mini-line-total,.mini-checkout{font-size:var(--type-small);line-height:1.5}
+.hero-actions,.card-actions,.detail-actions{flex-wrap:wrap}
+.hero h1,.section-heading h2,.product-card h3,.product-detail-copy h1{overflow-wrap:break-word}
+.page-intro h1,.account-copy h1,.is-authenticated .account-copy h1{font-size:var(--type-section);line-height:1.12;letter-spacing:-.02em}
+.shop-page .catalog-card h2{font-size:1.75rem;line-height:1.15;letter-spacing:-.015em}
+.account-page .account-form .button,.customer-workspace article p,.customer-workspace ul,.account-copy>p:last-of-type,.is-authenticated .account-copy>p:last-of-type{font-size:var(--type-body);line-height:1.5}
+.account-hub-nav a,.customer-workspace [role=status],.prototype-note,.catalog-toolbar p,.catalog-card .eyebrow{font-size:var(--type-small);line-height:1.5}
+.catalog-toolbar input{font-size:1rem}
+@media(min-width:735px) and (max-width:1068px){:root{--type-display:3rem;--type-section:2.5rem;--type-subhead:1.5rem}}
+@media(max-width:734px){:root{--type-display:2rem;--type-section:2rem;--type-subhead:1.1875rem}
+ .product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:2rem;line-height:1.125}
+ .section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:1.1875rem}
+ .hero-actions{gap:16px}.hero-lead{max-width:30rem}
+ .primary-nav a{font-size:var(--type-body)}
+}
