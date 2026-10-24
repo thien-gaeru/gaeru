@@ -13,3 +13,13 @@ Thanh toán có ô mã và nút Áp dụng. Bước báo giá tính từ giá s�
 Cập nhật phí giao hàng, công nợ và VNPAY dùng tổng sau giảm. Dòng sản phẩm và subtotal giữ giá gốc; discount hiển thị riêng. Không tự giảm lại khi quản trị đổi điều kiện voucher. Voucher phần trăm được làm tròn xuống theo đồng. Đơn VNPAY tổng bằng 0 bị từ chối theo giới hạn thanh toán hiện có.
 
 Kiểm thử tích hợp dùng PostgreSQL nhúng: quyền quản trị, validation, lưu/cấp ví, không vượt quota, tính giảm/cap, chặn tái sử dụng, hủy đơn lặp, snapshot khi sửa voucher/phí giao hàng, công nợ sau giảm, không đọc chéo tài khoản, chiến dịch đã đọc và mã chưa đến hạn. Khóa dòng được dùng cho PostgreSQL thực, nhưng chưa thực hiện kiểm tra nhiều kết nối đồng thời trên production. Không tạo chiến dịch/voucher hoặc đơn thử thật trên website trong quá trình triển khai.
+
+
+## Product discounts and Flash Sale
+- Marketing readers can list promotions and product choices; writes require `marketing.write` and CSRF.
+- Select 1–100 variant IDs, fixed VND reduction or percentage, start/end, and active state. New forms default inactive. Update uses optimistic version checks and immutable audit.
+- The lowest effective variant price wins across active, in-window promotions. Discounts do not stack with each other. Prices floor at 0 VND; ordinary stock reservation applies. No separate sale-stock quota or per-buyer cap is implied.
+- Vouchers apply to the reduced merchandise subtotal, with existing minimum spend, caps and redemption quota.
+- Catalog, voucher quote and checkout calculate effective prices from the same module. Product editing continues to show base prices. Order items preserve original price and promotion snapshot. Existing orders never reprice.
+- Checkout sends the displayed subtotal; a changed price returns 409 before stock reservation or payment creation. The buyer reloads and reviews the new price. Flash Sale timers indicate expiry; server time controls eligibility.
+- No promotion, payment, test order, or outbound notification is created on production during deployment.

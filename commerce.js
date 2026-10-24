@@ -93,6 +93,7 @@ function getPriceLabel(product) {
   return low === high ? formatPrice(low) : `${formatPrice(low)} – ${formatPrice(high)}`;
 }
 
+function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];return `<p class="store-promotion-note"><strong>${flash?'Flash Sale':'Ưu đãi sản phẩm'}</strong>${flash?` <span data-sale-end="${new Date(end).toISOString()}"></span>`:''} · Giá gốc ${escapeHtml(getPriceLabel({...product,variants:product.variants.map(v=>({...v,priceVnd:v.originalPriceVnd??v.priceVnd}))}))}</p>`;}
 function productCard(product, compact = false) {
   const discoverUrl = ["k9","m3","p01","g1-ultra"].includes(product.slug) ? "discover-"+product.slug+".html" : "product.html?id="+encodeURIComponent(product.slug);
   const variants = product.variants.filter((variant) => variant.active);
@@ -109,7 +110,7 @@ function productCard(product, compact = false) {
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.name)}</h3>
         <p>${escapeHtml(product.description)}</p>
-        <p class="price">${escapeHtml(getPriceLabel(product))}</p>
+        <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
         <div class="card-actions">
           <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
           ${action}
@@ -124,7 +125,7 @@ function productCard(product, compact = false) {
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a></h2>
       <p class="catalog-description">${escapeHtml(product.description)}</p>
-      <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>
+      <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
       <div class="catalog-actions">
         <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
         ${action}
@@ -236,7 +237,7 @@ function renderProduct() {
         <h1>${escapeHtml(product.name)}</h1>
         ${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}
         ${["k9","m3","p01","g1-ultra"].includes(product.slug)?`<a class="text-link" href="discover-${product.slug}.html">Khám phá ${escapeHtml(product.name)} ↗</a>`:""}
-        ${variantField}
+        ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
         <p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p>
         <div class="detail-actions">
           <button class="button button-blue" type="button" data-add-to-cart="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Thêm vào giỏ</button>
@@ -251,10 +252,15 @@ function renderProduct() {
     <section class="detail-more"><p class="eyebrow">Khám phá thêm</p><h2>Thiết bị khác. Cùng cảm hứng.</h2><a class="text-link" href="shop.html">Xem toàn bộ cửa hàng <span aria-hidden="true">›</span></a></section>`;
 
   const selector = root.querySelector("#product-variant");
+  const countdown=root.querySelector('[data-selected-countdown]');
+  const setCountdown=variant=>{if(variant?.promotion?.type==='flash')countdown.dataset.saleEnd=new Date(variant.promotion.endsAt).toISOString();else{delete countdown.dataset.saleEnd;countdown.textContent='';}};
+  setCountdown(selected);
   selector?.addEventListener("change", () => {
     const variant = variants.find((item) => item.id === selector.value);
     if (!variant) return;
+    setCountdown(variant);
     root.querySelector("[data-selected-price]").textContent = formatPrice(variant.priceVnd);
+    root.querySelector("[data-selected-promotion]").textContent=variant.promotion?(variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(variant.originalPriceVnd)+' · Kết thúc '+new Date(variant.promotion.endsAt).toLocaleString('vi-VN'):'';
     root.querySelector("[data-stock-note]").textContent = variant.stockQuantity ? `Còn ${variant.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng";
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;
@@ -442,6 +448,7 @@ async function renderCheckout() {
           },
           voucherCode:appliedVoucher||undefined,
           paymentMethod: paymentMethod.value,
+          expectedSubtotalVnd:total,
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))
         })
       });
@@ -568,6 +575,8 @@ function bindGlobalControls() {
   });
 }
 
+function updateSaleCountdowns(){document.querySelectorAll('[data-sale-end]').forEach(node=>{const seconds=Math.max(0,Math.floor((new Date(node.dataset.saleEnd)-Date.now())/1000));if(!seconds){node.textContent='Đã kết thúc · tải lại để cập nhật giá';return;}const days=Math.floor(seconds/86400),hours=Math.floor(seconds%86400/3600),minutes=Math.floor(seconds%3600/60);node.textContent='Còn '+(days?days+' ngày ':'')+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');});}
+setInterval(updateSaleCountdowns,1000);
 function showStoreError(error) {
   console.error("Không thể tải dữ liệu cửa hàng GAERU:", error);
   const message = document.createElement("p");
