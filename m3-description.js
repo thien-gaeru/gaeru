@@ -12,4 +12,18 @@ function renderM3(){
   <section class="m3-chapter m3-specs"><header><p class="eyebrow">CHI TIẾT THIẾT BỊ</p><h3>Thông số GAERU M3.</h3><p>Thông số theo tài liệu sản phẩm được cung cấp. Thời lượng pin và khoảng cách sử dụng thực tế tùy điều kiện.</p></header><dl>${specs.map(([k,v])=>`<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl><details><summary>Xem ảnh thông số gốc</summary>${image(9,'Bảng thông số sản phẩm GAERU M3')}</details></section></div>`;
 }
 
+renderM3.content=function(){
+ const paragraphs=[
+ 'Ghi lại giọng nói. Giữ trọn cảm hứng.\nGAERU M3 đồng hành cùng vlog, livestream và những cuộc trò chuyện trước ống kính. Hai micro nhỏ gọn, một đầu thu Type-C và hộp sạc giúp bạn bắt đầu dễ dàng.',
+ 'Nhẹ trên áo. Gọn trong túi.\nThiết kế cài áo nhỏ gọn. Theo dõi phần trăm pin ngay trên thiết bị.',
+ 'Hai giọng nói. Một kết nối.\nĐầu thu hỗ trợ hai bộ phát cùng lúc. Thu âm đa hướng 360°, kết hợp điều chỉnh độ lợi và giới hạn âm lượng tự động.',
+ 'Tự tin ghi âm, trong nhà và ngoài trời.\nGiảm ồn AI kết hợp bông lọc gió. Khoảng cách truyền lên đến 20 m trong môi trường mở, không có vật cản; thực tế thay đổi theo môi trường.',
+ 'Thu âm quanh bạn.\nHướng thu 360° giúp đón giọng nói từ nhiều hướng.',
+ 'Biết lượng pin. Chủ động buổi quay.\nMột bộ phát lên đến 3,5 giờ. Tổng thời lượng lên đến 24 giờ khi luân phiên hai bộ phát và kết hợp hộp sạc. Màn hình hiển thị phần trăm pin.',
+ 'Thông số GAERU M3\nĐa hướng · 120 dB · 24-bit / 48 kHz · SNR 100 dB.\nPin bộ phát 70 mAh; hộp sạc 500 mAh.\nHộp sạc: 82 × 45 × 39 mm; bộ phát: 28 × 28 × 14,1 mm; đầu thu: 25,35 × 16 × 7,5 mm.\nThông số theo tài liệu được cung cấp. Thời lượng và khoảng cách thực tế tùy điều kiện.'
+ ];
+ const entries=[[12,1,'Bộ hai micro và đầu thu Type-C'],[1,2,'Sáu điểm nổi bật'],[2,2,'Vlog và livestream nhiều người'],[3,3,'Thu âm hai người'],[4,3,'Điều chỉnh âm lượng tự động'],[6,4,'Bông lọc gió'],[7,4,'Truyền âm thanh lên đến 20 m khi không vật cản'],[8,5,'Thu âm đa hướng 360 độ'],[10,6,'Thời lượng pin cùng hộp sạc'],[11,6,'Hiển thị phần trăm pin'],[9,7,'Bảng thông số GAERU M3']];
+ return {description:paragraphs.join('\n\n'),descriptionMedia:entries.map(([n,afterParagraph,alt])=>({type:'image',url:`/assets/products/m3-description/${n}.png`,alt,caption:'',afterParagraph}))};
+};
+renderM3.isLegacyDescription=value=>value==="🎤 **MIC KHÔNG DÂY CÀI ÁO GAERU M3 – NHỎ GỌN, TIỆN LỢI, ÂM THANH RÕ NÉT!**\n\nBạn đang tìm kiếm một chiếc micro nhỏ gọn để quay video, livestream, bán hàng online hay sáng tạo nội dung? **Mic không dây cài áo GAERU M3** là lựa chọn tiện lợi, giúp thu giọng nói rõ ràng và mang lại trải nghiệm ghi âm linh hoạt. Với thiết kế nhỏ gọn, dễ dàng cài lên áo và kết nối thuận tiện với thiết bị tương thích, GAERU M3 giúp bạn tự do di chuyển, tự tin giao tiếp và tạo ra những video chuyên nghiệp hơn mà không bị vướng víu bởi dây nối.";
 if(typeof module==='object'&&module.exports)module.exports=renderM3;
