@@ -9,7 +9,7 @@ const {
 const { appendAudit } = require("./audit");
 
 const loginSchema = z.object({
-  username: z.string().min(1).max(100),
+  username: z.string().trim().min(1).max(254),
   password: z.string().min(1).max(200)
 });
 
@@ -46,24 +46,20 @@ function createAdminAuthRouter(config, pool) {
   router.post("/login", loginLimit, requireCsrf, async (req, res, next) => {
     try {
       const parsed = loginSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "Tên đăng nhập hoặc mật khẩu chưa hợp lệ." });
+      if (!parsed.success) return res.status(400).json({ error: "Thông tin đăng nhập hoặc mật khẩu chưa hợp lệ." });
 
       let principal = null;
       let identity;
       const effectiveConfig=config.accountSecurity?await config.accountSecurity.ownerConfig():config;
-      const reservedUsername = parsed.data.username.toLowerCase() === config.ADMIN_USERNAME.toLowerCase();
-      if (reservedUsername) {
+      const resolved=await require("./admin-login-identity").resolveLogin(pool,config,parsed.data.username);
+      if (resolved?.source=== "bootstrap") {
         const passwordMatches = await bcrypt.compare(parsed.data.password, effectiveConfig.ADMIN_PASSWORD_HASH);
-        if (parsed.data.username === config.ADMIN_USERNAME && passwordMatches && Buffer.byteLength(parsed.data.password, "utf8") <= 72) {
+        if (passwordMatches && Buffer.byteLength(parsed.data.password, "utf8") <= 72) {
           principal = bootstrapPrincipal(effectiveConfig);
           identity = { source: "bootstrap", username: config.ADMIN_USERNAME, credentialVersion: bootstrapCredentialVersion(effectiveConfig) };
         }
       } else {
-        const result = pool ? await pool.query(
-          `SELECT id, username, full_name AS "fullName", role, active, password_hash AS "passwordHash", auth_version AS "authVersion"
-           FROM staff_accounts WHERE lower(username)=lower($1)`, [parsed.data.username]
-        ) : { rows: [] };
-        const employee = result.rows[0];
+        const employee=resolved?.staff;
         const passwordMatches = await bcrypt.compare(parsed.data.password, employee?.passwordHash || config.ADMIN_PASSWORD_HASH);
         if (passwordMatches && Buffer.byteLength(parsed.data.password, "utf8") <= 72 && employee?.active) {
           principal = principalFromStaff(employee);
@@ -71,7 +67,7 @@ function createAdminAuthRouter(config, pool) {
         }
       }
       if (!principal) {
-        return res.status(401).json({ error: "Tên đăng nhập hoặc mật khẩu không đúng." });
+        return res.status(401).json({ error: "Thông tin đăng nhập hoặc mật khẩu không đúng." });
       }
 
       const securityKey=identity.source==="bootstrap"?"owner":"staff:"+identity.id;

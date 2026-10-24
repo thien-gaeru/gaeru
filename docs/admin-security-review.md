@@ -32,3 +32,12 @@
 
 ## TLS — xác minh ngày 24/10/2026
 Kết nối thử riêng trên hosting xác nhận stream.encrypted=true và stream.authorized=true. pg_stat_ssl đồng thời báo false; vì vậy không dùng riêng pg_stat_ssl để kết luận TLS của ứng dụng. Có thể có điểm kết nối trung gian; mã hóa chặng phía sau cần nhà cung cấp xác minh. Production bắt buộc TLS 1.2 trở lên, kiểm tra chứng chỉ và không cho query string sslmode ghi đè. Nếu không xác minh được TLS, không tự hạ xuống kết nối không mã hóa. Có thể cung cấp PGSSL_CA nếu nhà cung cấp dùng CA riêng. Giao diện chủ hiển thị riêng TLS ứng dụng/chứng chỉ và trạng thái pg_stat_ssl. Không thay toàn bộ biến môi trường vì API hosting chỉ đọc lại giá trị đã che.
+
+
+## Verified admin login aliases
+- `/api/auth/login` keeps the `username` field for compatibility; it accepts a username, verified email, or confirmed recovery phone. The form labels all three choices.
+- `account_security.contacts_verified_at` is set only when the authenticated contacts confirmation challenge succeeds. Existing admin contacts are backfilled only when an immutable `security.recovery_contacts.verified` account audit event exists. Pending/unverified and customer contact records cannot authenticate as administrators.
+- Recovery phones follow the existing email confirmation flow, not SMS ownership verification. Vietnamese mobile numbers accept local 0, +84 and 84 prefixes, with common spacing/punctuation stripped.
+- Resolve to exactly one canonical owner/staff account before checking the password. Duplicate aliases or collisions with staff usernames fail closed. Disabled accounts cannot authenticate. Existing reserved bootstrap username behavior is preserved.
+- Password hashing, current owner credentials, CSRF, attempt limits, bot protection, MFA and canonical session roles remain in force. No contact values or secrets are returned in login responses.
+- Embedded PostgreSQL tests cover audited upgrade backfill, pending/unverified contacts, case/phone normalization, owner and staff identities, MFA, duplicate numbers, disabled staff, and customer isolation. No real account passwords or MFA settings are modified during deployment.
