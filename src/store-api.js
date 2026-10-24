@@ -18,6 +18,7 @@ const orderSchema = z.object({
     city: z.string().trim().min(2).max(120),
     note: z.string().trim().max(1000).default("")
   }),
+  voucherCode: z.string().trim().toUpperCase().max(40).optional(),
   paymentMethod: z.enum(["cod", "vnpay"]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
@@ -276,7 +277,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         const shippingFee = shippingRates[parsed.data.customer.city];
-        const total = subtotal + shippingFee;
+        const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true):null;
+        const total = subtotal + shippingFee - (promotion?.discountVnd||0);
         if (!Number.isSafeInteger(total) || total > 2_000_000_000) {
           const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
           error.status = 400;
@@ -300,6 +302,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
+        if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
         }
@@ -644,7 +647,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const result = await pool.query(
       `SELECT o.id, o.order_number AS "orderNumber", o.customer_name AS "customerName",
         o.email, o.phone, o.address, o.city, o.note, o.payment_method AS "paymentMethod",
-        o.payment_status AS "paymentStatus", o.status, o.subtotal_vnd AS "subtotalVnd",
+        o.payment_status AS "paymentStatus", o.status, o.discount_vnd AS "discountVnd",o.voucher_code AS "voucherCode",o.subtotal_vnd AS "subtotalVnd",
         o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",
         p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus", p.expires_at AS "paymentAttemptExpiresAt",
         COALESCE(jsonb_agg(jsonb_build_object('productName', i.product_name, 'variantName', i.variant_name,
@@ -779,6 +782,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         if (update.status === "cancelled" && current.status !== "cancelled") {
+          if(current.voucher_code)await client.query('UPDATE voucher_redemptions SET released=true WHERE order_id=$1 AND released=false',[current.id]);
           if (inventory) await inventory.releaseOrderStock(client, { orderId: current.id, actor: req.admin });
           else await client.query(
             `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at=now()
@@ -786,7 +790,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             [current.id]
           );
         }
-        const total = shippingFee === null ? null : current.subtotal_vnd + shippingFee;
+        const total = shippingFee === null ? null : current.subtotal_vnd + shippingFee - (current.discount_vnd||0);
         if (total !== null && total > 2_000_000_000) {
           const error = new Error("Tổng đơn hàng vượt giới hạn cho phép.");
           error.status = 400;

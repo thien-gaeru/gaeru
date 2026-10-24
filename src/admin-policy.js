@@ -4,6 +4,7 @@ function adminPolicy(req, res, next) {
   const path = req.path.toLowerCase().replace(/\/$/, "");
   if (/^\/notifications(\/|$)/.test(path)) return next();
   const read = req.method === "GET";
+  if (/^\/marketing(\/|$)/.test(path)) return next();
   if (/^\/care-requests(\/|$)/.test(path)) return next();
   if (/^\/owner(\/|$)/.test(path)) return next();
   if (/^\/warranties(\/|$)/.test(path)) return next();
