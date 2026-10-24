@@ -55,6 +55,7 @@
       <div class="care-pagination"><button class="care-plain" type="button" data-w-page="-1" disabled>Trước</button><span data-w-page-label>Trang 1</span><button class="care-plain" type="button" data-w-page="1" disabled>Tiếp</button><button class="care-plain" type="button" data-w-page="0">Tải lại</button></div>
     </div>`;
   const disclosure=section.querySelector('[data-w-disclosure]');
+  if(section.dataset?.standalone==='true')disclosure.open=true;
   function openActivation(){disclosure.open=true;}
   function openFromHash(){if(location.hash==='#warranty-activation')openActivation();}
   window.addEventListener('hashchange',openFromHash);

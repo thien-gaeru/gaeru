@@ -1,7 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-function page(authenticated,savedCity='Hồ Chí Minh',initialHash='',activations=[]){
+function page(authenticated,savedCity='Hồ Chí Minh',initialHash='',activations=[],standalone=false){
  const nodes=new Map(),requests=[],events={},location={hash:initialHash};
  const node=key=>{if(!nodes.has(key))nodes.set(key,{hidden:false,disabled:false,value:'',textContent:'',innerHTML:'',options:[],listeners:{},addEventListener(event,fn){const old=this.listeners[event];this.listeners[event]=old?async e=>{await old(e);await fn(e);}:fn;},append(option){this.options.push(option);},querySelector:node,scrollIntoView(){}});return nodes.get(key);};
+ node('#warranty-activation').dataset={standalone:String(standalone)};
  const form=node('form');form.elements=Object.fromEntries(['source','orderId','orderItemId','externalOrderNumber','productName','purchaseDate','fullName','email','phone','address','city'].map(name=>[name,node(name)]));
  form.elements.source.value='website';form.elements.orderId.options.push({value:''});
  const fetch=async(url,options={})=>{
@@ -48,3 +49,5 @@ test('activation stays collapsed normally but opens on its link, initial fragmen
 });
 
 test('rejected request opens populated correction form and submits the original version',async()=>{const row={id:'claim-one',status:'rejected',version:2,automatic:false,channel:'shopee',orderNumber:'ORDER-OLD',productName:'Product fixture',claimedPurchaseDate:'2026-01-01',contactName:'Buyer Name',contactPhone:'0900000000',contactAddress:'Fixture address',contactCity:'Hà Nội',contactEmail:'buyer@example.test',reason:'Sai mã đơn'};const ui=page(true,'Hồ Chí Minh','',[row]);await settled();assert.match(ui.node('[data-w-list]').innerHTML,/Sửa và gửi lại/);await ui.node('#warranty-activation').listeners.click({target:{closest:s=>s==='[data-w-edit]'?{dataset:{wEdit:row.id}}:null}});assert.equal(ui.form.elements.externalOrderNumber.value,row.orderNumber);assert.equal(ui.form.elements.source.disabled,true);assert.equal(ui.form.elements.email.value,row.contactEmail);ui.form.elements.externalOrderNumber.value='ORDER-FIXED';await ui.form.listeners.submit({preventDefault(){}});const request=ui.requests.find(r=>r.options.method==='PATCH');assert.ok(request);assert.equal(request.url,'/api/warranty-requests/'+row.id);const body=JSON.parse(request.options.body);assert.equal(body.version,2);assert.equal(body.externalOrderNumber,'ORDER-FIXED');assert.equal(body.requestKey,undefined);});
+
+test('standalone warranty page opens activation without a fragment',async()=>{const p=page(false,'Hồ Chí Minh','',[],true);await settled();assert.equal(p.node('[data-w-disclosure]').open,true);assert.ok(p.requests.some(r=>r.url==='/api/customer-auth/me'));});
