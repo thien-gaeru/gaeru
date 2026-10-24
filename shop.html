@@ -9,10 +9,10 @@
     <link rel="stylesheet" href="styles.css?v=20261024-product-sales">
 
     <script src="customer-session.js" defer></script><script src="store-shell.js?v=20261024-scope-fix" defer></script>
-    <script src="commerce.js?v=20261024-store-redesign" defer></script>
+    <script src="commerce.js?v=20261024-product-navigation" defer></script>
   <link rel="stylesheet" href="brand.css?v=20261024-logo-mask">
     <link rel="icon" type="image/png" href="assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/typography.css?v=20261024-card-copy"><link rel="stylesheet" href="/shop-store.css?v=20261024-store-balanced"></head>
+  <link rel="stylesheet" href="/typography.css?v=20261024-card-copy"><link rel="stylesheet" href="/shop-store.css?v=20261024-support-layout"></head>
   <body>
     <a class="skip-link" href="#main">Bỏ qua điều hướng</a>
     <div id="site-header"></div>
@@ -22,12 +22,7 @@
         <aside class="store-concierge" aria-label="Hỗ trợ mua hàng"><span class="concierge-icon" aria-hidden="true"><svg viewBox="0 0 40 40" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="20" cy="14" r="6"/><path d="M8 34c0-8 4-12 12-12s12 4 12 12M7 16a13 13 0 0126 0M7 16v7m26-7v7m0 0c0 4-3 6-8 6"/></svg></span><div><strong>Cùng bạn chọn đúng thiết bị.</strong><a href="support.html">Nhận tư vấn từ GAERU <span aria-hidden="true">↗</span></a><a href="account.html">Tài khoản & đơn hàng <span aria-hidden="true">↗</span></a></div></aside>
       </section>
       <section class="catalog store-container" aria-labelledby="store-products-title">
-        <div class="store-categories" role="group" aria-label="Chọn danh mục sản phẩm">
-          <button class="store-category is-active" type="button" data-filter="all" aria-pressed="true"><span class="category-art" data-category-art="all"></span><span>Tất cả thiết bị</span></button>
-          <button class="store-category" type="button" data-filter="audio" aria-pressed="false"><span class="category-art" data-category-art="audio"></span><span>Thu âm</span></button>
-          <button class="store-category" type="button" data-filter="video" aria-pressed="false"><span class="category-art" data-category-art="video"></span><span>Ghi hình</span></button>
-          <button class="store-category" type="button" data-filter="accessory" aria-pressed="false"><span class="category-art" data-category-art="accessory"></span><span>Phụ kiện</span></button>
-        </div>
+        <nav class="store-categories" aria-label="Khám phá sản phẩm" data-store-products><p class="store-navigation-status">Đang tải sản phẩm…</p></nav>
         <div class="store-section-heading"><h2 id="store-products-title">Khám phá thiết bị. <span>Chọn cách bạn sáng tạo.</span></h2><label class="store-search"><span class="visually-hidden">Tìm kiếm sản phẩm</span><input id="catalog-search" type="search" placeholder="Tìm thiết bị, phiên bản, SKU" maxlength="120"></label></div>
         <div class="store-rail-toolbar"><p id="catalog-count" aria-live="polite"></p><div><button type="button" data-store-scroll="-1" aria-label="Xem sản phẩm trước" aria-controls="catalog-grid">←</button><button type="button" data-store-scroll="1" aria-label="Xem sản phẩm tiếp theo" aria-controls="catalog-grid">→</button></div></div>
         <div class="catalog-grid" id="catalog-grid" tabindex="0" aria-label="Danh sách sản phẩm, cuộn ngang để xem thêm"></div>
@@ -38,7 +33,7 @@
         <h2 id="store-help-title">Có GAERU đồng hành. <span>Từ lúc chọn đến khi sử dụng.</span></h2>
         <div class="store-help-grid">
           <a class="store-story story-audio" href="shop.html?category=audio"><span class="eyebrow">THU ÂM</span><h3>Để điều bạn nói<br>được nghe rõ hơn.</h3><span class="story-link">Khám phá thiết bị thu âm ↗</span><img src="assets/products/k9.png" alt="Micro GAERU K9" loading="lazy"></a>
-          <a class="store-story story-support" href="support.html"><span class="eyebrow">GAERU ĐỒNG HÀNH</span><h3>Chưa biết<br>chọn thiết bị nào?</h3><p>Trao đổi về điện thoại, nhu cầu quay và cách bạn sử dụng. Cùng tìm lựa chọn phù hợp.</p><span class="story-link">Tìm hỗ trợ ↗</span><span class="story-mark" aria-hidden="true"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.png" alt="GAERU" width="375" height="375"></span></span></a>
+          <a class="store-story store-story-support" href="support.html"><span class="eyebrow">GAERU ĐỒNG HÀNH</span><h3>Chưa biết<br>chọn thiết bị nào?</h3><p>Trao đổi về điện thoại, nhu cầu quay và cách bạn sử dụng. Cùng tìm lựa chọn phù hợp.</p><span class="story-link">Tìm hỗ trợ ↗</span><svg class="store-support-art" viewBox="0 0 160 120" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><rect x="14" y="12" width="106" height="70" rx="18"/><path d="M40 82v20l25-20M134 42h2a12 12 0 0112 12v36a12 12 0 01-12 12h-8v12l-18-12H89"/><path d="M36 36h62M36 53h44" stroke-linecap="round"/></svg></a>
           <a class="store-story story-care" href="care.html"><span class="eyebrow">GAERU CARE+</span><h3>An tâm sử dụng.<br>Chủ động theo dõi.</h3><p>Đăng ký bảo hành, theo dõi yêu cầu và tìm lại thông tin sản phẩm của bạn.</p><span class="story-link">Khám phá GAERU CARE+ ↗</span><span class="care-art" aria-hidden="true">+</span></a>
         </div>
       </section>
