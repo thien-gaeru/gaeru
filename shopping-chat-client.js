@@ -2,7 +2,7 @@
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
     let stopped=false, busy=false, sending=false, thread=null, key=null, files=[];
-    root.innerHTML = `<p class="chat-state" data-chat-state>Gửi câu hỏi, GAERU sẽ hỗ trợ bạn tại đây.</p>
+    root.innerHTML = `<p class="chat-state" data-chat-state>Xin chào! AI của GAERU sẽ tiếp nhận câu hỏi của bạn trước.</p>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
       <div class="shopping-messages" data-chat-messages aria-live="polite"></div>
       <form data-chat-compose><div data-chat-selected class="chat-selected"></div>
@@ -21,10 +21,10 @@
       <input hidden type="file" data-file="camera" accept="image/jpeg,image/png,image/webp" capture="environment">
       <input hidden type="file" data-file="video" accept="video/mp4,video/quicktime,video/webm" capture="environment">
       <p role="status" data-chat-feedback></p></form>
-      ${admin?'':'<div class="chat-ai"><button type="button" data-chat-ai data-no-action-feedback>Hỏi AI về câu vừa gửi</button><p data-ai-note>AI nhận câu hỏi vừa gửi và dữ liệu sản phẩm qua OpenAI, không nhận tệp hoặc lịch sử tài khoản. Câu trả lời có thể sai; nhân viên vẫn tiếp nhận.</p></div>'}`;
+      ${admin?'':'<div class="chat-ai"><button type="button" data-chat-ai data-no-action-feedback>Gặp nhân viên</button><p data-ai-note>AI tiếp nhận và trả lời tự động qua OpenAI, dựa trên câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm. Không gửi tệp cho AI. Bạn có thể yêu cầu nhân viên bất cứ lúc nào. Không gửi mật khẩu hoặc OTP.</p></div>'}`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
     function renderFiles(){root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<span>${escape(f.file.name)} <button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}">×</button></span>`).join('');}
-    function setClosed(){const closed=thread?.status==='closed';send.disabled=closed||sending;form.elements.body.disabled=closed||sending;plus.disabled=closed||sending;actions.querySelectorAll('button').forEach(b=>b.disabled=closed||sending);}
+    function setClosed(){const closed=thread?.status==='closed';send.disabled=closed||sending;form.elements.body.disabled=closed||sending;plus.disabled=closed||sending;actions.querySelectorAll('button').forEach(b=>b.disabled=closed||sending);const human=root.querySelector('[data-chat-ai]');if(human){human.disabled=closed||sending||thread?.handlingMode==='human';human.textContent=thread?.handlingMode==='human'?'Đã chuyển nhân viên':'Gặp nhân viên';}}
     async function refresh(before){
       if(stopped||busy||!id)return;busy=true;
       try{
@@ -35,7 +35,7 @@
         if(before)messages.insertAdjacentHTML('afterbegin',html);else messages.insertAdjacentHTML('beforeend',html);
         if(before)messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;else if(near||first)messages.scrollTop=messages.scrollHeight;
         if(first||before)root.querySelector('[data-chat-earlier]').hidden=!d.hasMore;
-        root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':'')+thread.product_name;setClosed();
+        root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?'Chờ nhân viên · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
         if(d.hasMore&&!before&&!first)setTimeout(()=>refresh(),0);
       }finally{busy=false;}
     }
@@ -83,8 +83,8 @@
       }catch(error){feedback.textContent=error.message;}finally{sending=false;setClosed();}
     };
     const ai=root.querySelector('[data-chat-ai]');
-    if(ai){request('/api/shopping-chat/capabilities').then(d=>{if(!d.aiConfigured){ai.disabled=true;root.querySelector('[data-ai-note]').textContent='AI chưa được cấu hình. Nhân viên GAERU vẫn tiếp nhận tin nhắn.';}}).catch(()=>{ai.disabled=true;});
-      ai.onclick=async()=>{if(sending)return;if(!id){feedback.textContent='Gửi câu hỏi trước khi hỏi AI.';return;}ai.disabled=true;feedback.textContent='AI đang trả lời…';try{await request(base+'/'+id+'/ai',{method:'POST',body:JSON.stringify({requestKey:crypto.randomUUID()})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{ai.disabled=false;}};
+    if(ai){
+      ai.onclick=async()=>{if(sending)return;sending=true;setClosed();ai.disabled=true;try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='Đã chuyển cho nhân viên. Bạn có thể để lại thông tin để được hỗ trợ.';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}};
     }
     const poll=window.GAERUCareLive.poll({delay:4000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>refresh(),status:()=>{}});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
