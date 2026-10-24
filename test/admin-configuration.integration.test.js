@@ -48,5 +48,14 @@ test('private configuration is owner-only, encrypted, versioned, reauthenticated
  const audits=(await pool.query('SELECT * FROM audit_events')).rows;assert.ok(!JSON.stringify(audits).includes(payment.hashSecret));
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/security','PUT',{version:0,data:{idleMinutes:5,absoluteHours:2},password:'Owner-settings-password'})).status,200);
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/security','PUT',{version:1,data:{idleMinutes:1,absoluteHours:2},password:'Owner-settings-password'})).status,400);
+ assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:0,data:{ordersEnabled:false},password:'wrong'})).status,403);
+ assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:0,data:{ordersEnabled:false},password:'Owner-settings-password'})).status,200);
+ assert.equal((await api('/api/settings/public')).data.ordersEnabled,false);
+ assert.equal((await api('/api/orders','POST',{})).status,503);
+ assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:1,data:{ordersEnabled:true},password:'Owner-settings-password'})).status,400);
+ await api('/api/gaeru_ceo/settings','PUT',{shippingNote:'Test rates',shippingRates:{'Toàn quốc':0}});
+ assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:1,data:{ordersEnabled:true},password:'Owner-settings-password'})).status,200);
+ assert.equal((await api('/api/settings/public')).data.ordersEnabled,true);
+ assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:1,data:{ordersEnabled:false},password:'Owner-settings-password'})).status,409);
  await api('/api/gaeru_ceo/staff','POST',{username:'config-staff',fullName:'Staff Test',password:'Staff-settings-password',role:'admin'});await api('/api/auth/logout','POST',{});await api('/api/csrf');await api('/api/auth/login','POST',{username:'config-staff',password:'Staff-settings-password'});assert.equal((await api('/api/gaeru_ceo/owner/configuration')).status,403);
 });

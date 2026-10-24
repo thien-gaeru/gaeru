@@ -8,15 +8,15 @@
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261024-compact">
     <script src="/gaeru_ceo/assets/admin-ui.js?v=20261024-audit" defer></script>
-    <script src="/gaeru_ceo/assets/admin.js?v=20261024-config" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261024-controls" defer></script>
     <script src="/gaeru_ceo/assets/enterprise.js?v=20261024-config" defer></script>
     <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
-    <script src="/gaeru_ceo/assets/owner.js?v=20261024-tls" defer></script>
+    <script src="/gaeru_ceo/assets/owner.js?v=20261024-controls" defer></script>
     <script src="/gaeru_ceo/assets/warranty.js?v=20261024-order-groups" defer></script>
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css">
     <link rel="icon" type="image/png" href="/assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-config"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-config" defer></script></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-controls"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-controls" defer></script></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -97,7 +97,7 @@
             </div>
             <div class="notice-card" id="orders-gate-notice" role="status">
               <h2>Tiếp nhận đơn hàng đang tạm khóa</h2>
-              <p>Checkout sẽ chỉ được mở khi cờ vận hành trên máy chủ được bật. Không thể bật nhận đơn từ trang quản trị.</p>
+              <p>Checkout đang tạm dừng nhận đơn mới. Chủ doanh nghiệp có thể bật nhận đơn tại Quản trị tối cao → Điều khiển vận hành.</p>
             </div>
             <div class="notice-card" id="shipping-rates-notice" role="status">
               <h2>Chưa có bảng phí giao hàng</h2>
@@ -205,7 +205,7 @@
           </section>
 
           <section class="view-panel" id="settings-view" hidden>
-            <form class="editor-card settings-card" id="settings-form">
+            <details class="configuration-panel shipping-settings"><summary><span>Thanh toán &amp; giao hàng</span><small>Mở để chỉnh thông tin và phí giao hàng</small></summary><form class="editor-card settings-card" id="settings-form">
               <p class="eyebrow">Cấu hình công khai</p>
               <h2>Thanh toán &amp; giao hàng</h2>
               <p class="help-text" id="payment-provider-status">Đang tải trạng thái cổng thanh toán…</p>
@@ -217,7 +217,7 @@
               <p class="help-text">Cấu hình cổng thanh toán nằm trong khu vực riêng của chủ doanh nghiệp bên dưới. Khóa bí mật được mã hóa khi lưu.</p>
               <button class="primary-button" type="submit">Lưu cài đặt</button>
               <p class="feedback" data-form-feedback role="alert"></p>
-            </form>
+            </form></details>
 <section class="editor-card" id="system-configuration" data-owner-only hidden></section>
           </section>
           <section class="view-panel enterprise-view" id="inventory-view" hidden></section>

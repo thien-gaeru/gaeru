@@ -147,6 +147,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   }, createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
+    getOrdersEnabled: (client=pool) => require("./admin-configuration").getOrdersEnabled(client,config),
     vnpayConfig: config.vnpay || null,
     getVnpayConfig: (client=pool) => require("./admin-configuration").getVnpay(client,config),
     inventory,
