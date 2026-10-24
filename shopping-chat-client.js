@@ -12,7 +12,7 @@
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
       <button type="button" data-pick="file">▤ <span>Tệp<small>PDF, Word, Excel, TXT, CSV</small></span></button>
       <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Chọn từ thiết bị</small></span></button>
-      ${admin?'':'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button>'}
+      ${admin?(window.GAERUAdmin?.can('marketing.read')?'<button type="button" data-offer="vouchers">▱ <span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">▤ <span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>':''):'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button>'}
       <button type="button" data-pick="camera">◎ <span>Máy ảnh<small>Chụp ảnh trên thiết bị hỗ trợ</small></span></button>
       <button type="button" data-pick="video">▷ <span>Máy quay<small>Quay video trên thiết bị hỗ trợ</small></span></button></div>
       <div data-chat-reference class="chat-reference" hidden></div>
@@ -57,6 +57,19 @@
         target.querySelector('[data-reference-close]').onclick=()=>target.hidden=true;
         target.querySelectorAll('[data-reference-item]').forEach(b=>b.onclick=()=>{const r=rows[Number(b.dataset.referenceItem)],text=orders?'Tôi cần hỗ trợ đơn hàng '+r.orderNumber+'.':'Tôi cần tư vấn voucher '+r.code+'.';form.elements.body.value=(form.elements.body.value+'\n'+text).trim().slice(0,3000);target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');form.elements.body.focus();});
       }catch(e){target.innerHTML='<p>'+escape(e.message)+'</p><a href="account.html">Đăng nhập tài khoản</a>';}
+    });
+    root.querySelectorAll('[data-offer]').forEach(button=>button.onclick=async()=>{
+      const target=root.querySelector('[data-chat-reference]');let page=1;
+      async function loadOffers(){
+        target.hidden=false;target.textContent='Đang tải…';
+        try{
+          const d=await request(base+'/'+id+'/offers?kind='+button.dataset.offer+'&page='+page);
+          target.innerHTML='<p>Chọn để soạn tin, sau đó nhấn gửi:</p>'+(d.items.length?d.items.map((r,i)=>`<button type="button" data-offer-item="${i}">${escape(r.title)}</button>`).join(''):'<p>Không có chương trình còn hiệu lực phù hợp với khách này.</p>')+`<div class="chat-offer-pages"><button type="button" data-offer-prev ${page===1?'disabled':''}>Trước</button><span>Trang ${page}</span><button type="button" data-offer-next ${d.hasMore?'':'disabled'}>Tiếp</button><button type="button" data-offer-close>Đóng</button></div>`;
+          target.querySelector('[data-offer-close]').onclick=()=>target.hidden=true;
+          target.querySelector('[data-offer-prev]').onclick=()=>{page--;loadOffers();};target.querySelector('[data-offer-next]').onclick=()=>{page++;loadOffers();};
+          target.querySelectorAll('[data-offer-item]').forEach(b=>b.onclick=()=>{form.elements.body.value=d.items[Number(b.dataset.offerItem)].text;target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');form.elements.body.focus();feedback.textContent='Đã soạn ưu đãi. Kiểm tra nội dung rồi nhấn gửi.';});
+        }catch(e){target.textContent=e.message;}
+      }await loadOffers();
     });
     form.onsubmit=async e=>{
       e.preventDefault();if(sending)return;feedback.textContent='';sending=true;setClosed();key ||= crypto.randomUUID();

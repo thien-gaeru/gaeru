@@ -8,7 +8,7 @@ test('visual product selection updates the exact cart variant, price, stock and 
  vm.runInNewContext('function renderProduct(){'+source+'\nrenderProduct();',{document,products:[{slug:'fixture',name:'Fixture',descriptor:'Test',description:'Description',imageUrl:'/cover.png',imageAlt:'Cover',variants,gallery:['/cover.png']}],location:{search:'?id=fixture'},URLSearchParams,escapeHtml:v=>String(v??''),formatPrice:v=>String(v),window:{GAERUVariantChoices:choices},Event:class{constructor(type){this.type=type;}}});
  assert.match(root.innerHTML,/data-option-value="Lightning"/);
  root.listeners.click({target:{closest:s=>s==='[data-option-group]'?{dataset:{optionGroup:'Cổng',optionValue:'Lightning'}}:null}});
- assert.equal(node('[data-add-to-cart]').dataset.addToCart,'two');assert.equal(node('[data-add-to-cart]').disabled,true);assert.equal(node('[data-selected-price]').textContent,'120000');assert.equal(node('[data-product-main-image]').src,'/two.png');assert.match(node('[data-stock-note]').textContent,/hết hàng/);
+ assert.equal(node('[data-add-to-cart]').dataset.addToCart,'two');assert.equal(node('[data-add-to-cart]').disabled,true);assert.equal(node('[data-selected-price]').textContent,'120000');assert.equal(node('[data-product-main-image]').src,'/two.png');assert.equal(node('[data-stock-note]').textContent,'Hết hàng');
  root.listeners.click({target:{closest:s=>s==='[data-option-group]'?{dataset:{optionGroup:'Cổng',optionValue:'Type-C'}}:null}});
- assert.equal(node('[data-add-to-cart]').dataset.addToCart,'one');assert.equal(node('[data-add-to-cart]').disabled,false);assert.equal(node('[data-product-main-image]').src,'/one.png');
+ assert.equal(node('[data-add-to-cart]').dataset.addToCart,'one');assert.equal(node('[data-add-to-cart]').disabled,false);assert.equal(node('[data-product-main-image]').src,'/one.png');assert.equal(node('[data-stock-note]').textContent,'Còn hàng');
 });

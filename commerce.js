@@ -221,7 +221,7 @@ function renderProduct() {
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
-        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
+        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>${selected ? (Number(selected.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng") : "Hết hàng"}</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
           <button class="button button-blue" type="button" data-add-to-cart="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Thêm vào giỏ</button>
         </div>
@@ -243,7 +243,7 @@ function renderProduct() {
     setCountdown(variant);
     root.querySelector("[data-selected-price]").textContent = formatPrice(variant.priceVnd);
     root.querySelector("[data-selected-promotion]").textContent=variant.promotion?(variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(variant.originalPriceVnd)+' · Kết thúc '+new Date(variant.promotion.endsAt).toLocaleString('vi-VN'):'';
-    root.querySelector("[data-stock-note]").textContent = variant.stockQuantity ? `Còn ${variant.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng";
+    root.querySelector("[data-stock-note]").textContent = Number(variant.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng";
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;
     button.disabled = variant.stockQuantity === 0;
