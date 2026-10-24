@@ -16,10 +16,11 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-let server;let stopRetention;let stopEmail;let stopWarrantyEmail;
+let server;let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;
 
 async function start() {
   await migrateDatabase(pool);
+  stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
   stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
   stopEmail=require("./email-marketing").startEmailWorker(pool,config);
   stopRetention=require("./account-retention").startRetentionWorker(pool);
@@ -40,6 +41,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopChatEmail?.();
   stopRetention?.();
   stopEmail?.();
   stopWarrantyEmail?.();
