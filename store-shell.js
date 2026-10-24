@@ -50,10 +50,7 @@ if (headerRoot) {
         <button class="panel-close menu-panel-close" type="button" aria-label="Đóng menu">×</button>
         <nav class="menu-link-list" aria-label="Danh mục GAERU">
           <a class="menu-store-link" id="menu-title" href="shop.html">Cửa Hàng <span aria-hidden="true">›</span></a>
-          <a href="product.html?id=k9">GAERU K9</a>
-          <a href="product.html?id=p01">GAERU P01</a>
-          <a href="product.html?id=g1-ultra">GAERU G1 Ultra</a>
-          <a href="shop.html?category=accessory">Phụ kiện</a>
+          <div data-menu-products aria-live="polite"></div>
           <a class="mobile-menu-link" href="support.html">Hỗ trợ</a>
           <a class="mobile-menu-link" href="care.html">GAERU CARE+</a>
         </nav>
@@ -95,6 +92,27 @@ if (headerRoot) {
     </section>`);
   headerRoot.querySelector("[data-mini-cart]").innerHTML = window.GAERUEmptyCartMarkup;
 }
+
+let menuProductsRequest = null;
+async function refreshMenuProducts() {
+  const target = document.querySelector('[data-menu-products]');
+  if (!target || menuProductsRequest) return menuProductsRequest;
+  menuProductsRequest = (async () => {
+    try {
+      const response = await fetch('/api/products', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Catalog unavailable');
+      const { products } = await response.json();
+      if (!Array.isArray(products)) throw new Error('Invalid catalog');
+      const links = products.filter(product => product.active !== false && product.slug && product.name)
+        .map(product => `<a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeShellHtml(product.name)}</a>`).join('');
+      if (target.innerHTML !== links) target.innerHTML = links;
+    } catch {
+      // Keep the store link available when the catalog is temporarily unavailable.
+    } finally { menuProductsRequest = null; }
+  })();
+  return menuProductsRequest;
+}
+refreshMenuProducts();
 
 if (footerRoot) {
   footerRoot.innerHTML = `
@@ -209,6 +227,7 @@ function openPanel(panel, trigger) {
   }
   closeActivePanel({ restoreFocus: false, immediate: true });
   clearTimeout(closeTimer);
+  if (panel.id === "menu-panel") refreshMenuProducts();
   panelOrigin = trigger;
   activePanel = panel;
   savedBodyOverflow = document.body.style.overflow;
