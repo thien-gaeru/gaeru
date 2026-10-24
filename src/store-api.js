@@ -39,7 +39,7 @@ const transitions = {
 async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
   const visibility = includeDrafts ? "" : "WHERE p.active = true";
   const query = `
-    SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description,
+    SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description, p.card_title AS "cardTitle", p.card_summary AS "cardSummary",
       p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active,
       p.sort_order AS "sortOrder",
       COALESCE(m.description_media,'[]'::jsonb) AS "descriptionMedia",COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",

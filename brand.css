@@ -12,3 +12,6 @@
 .story-mark .brand-logo{width:340px!important;height:340px!important}
 .care-emblem .brand-window{margin-top:12px;letter-spacing:normal}
 @media(max-width:600px){.site-header .brand-window{width:90px;height:30px}.site-header .brand-logo{width:144px!important;height:144px!important}}
+
+/* Blend the complete logo group with translucent navigation, including opaque PNG white. */
+.site-header .wordmark,.site-header .brand-window{mix-blend-mode:multiply;background:transparent}

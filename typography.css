@@ -41,3 +41,5 @@ h1,h2,h3{font-weight:600;letter-spacing:-.022em}
 .product-detail-copy .eyebrow{font-size:.75rem;letter-spacing:.06em;line-height:1.5}
 .shop-page .store-search input{font-size:1rem}
 @media(max-width:734px){.hero .eyebrow{font-size:.75rem;letter-spacing:.08em}.shop-page .catalog-actions{gap:12px}.shop-page .catalog-actions .button{padding-inline:12px}.hero-content{padding-top:44px}}
+
+.catalog-description:empty,.product-card .product-copy>p:empty{display:none}
