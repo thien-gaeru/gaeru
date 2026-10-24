@@ -15,7 +15,7 @@
   for (const obsoleteAction of ["product.create", "product.update", "variant.create", "variant.update", "variant.delete"]) delete actionNames[obsoleteAction];
   const e = { views: {}, lookup: { warehouses: [], suppliers: [], variants: [], departments: [] }, activePurchase: null };
   const can = admin.can;
-  const api = (path, options) => admin.request(`/api/admin${path}`, options);
+  const api = (path, options) => admin.request(`/api/gaeru_ceo${path}`, options);
   const key = () => crypto.randomUUID();
   const badge = (status) => `<span class="status-pill status-${h(status)}">${h(statusNames[status] || status)}</span>`;
   const empty = (text = "Chưa có dữ liệu phù hợp.") => `<div class="empty-message">${h(text)}</div>`;

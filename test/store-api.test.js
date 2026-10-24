@@ -212,7 +212,7 @@ test("variant deletion preserves variants referenced by historical orders", asyn
   context.after(() => new Promise((resolve) => server.close(resolve)));
   await new Promise((resolve) => server.once("listening", resolve));
 
-  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/admin/variants/4b4cfca4-96cd-47b1-a851-ed6f9944359f`, {
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/gaeru_ceo/variants/4b4cfca4-96cd-47b1-a851-ed6f9944359f`, {
     method: "DELETE",
     headers: { "X-CSRF-Token": "valid-token" }
   });
@@ -240,7 +240,7 @@ test("admin order search is paginated and validates filters", async (context) =>
   context.after(() => new Promise((resolve) => server.close(resolve)));
   await new Promise((resolve) => server.once("listening", resolve));
 
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api/admin/orders`;
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api/gaeru_ceo/orders`;
   const response = await fetch(`${baseUrl}?status=pending&q=GR-123&page=2`);
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -299,7 +299,7 @@ test("admin can complete a COD delivery and record collection in the same update
   await new Promise((resolve) => server.once("listening", resolve));
 
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const response = await fetch(`${baseUrl}/api/admin/orders/${currentOrder.id}`, {
+  const response = await fetch(`${baseUrl}/api/gaeru_ceo/orders/${currentOrder.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": "valid-token" },
     body: JSON.stringify({ status: "completed", paymentStatus: "paid" })
@@ -337,7 +337,7 @@ test("admin cannot mark COD as paid before completing delivery", async (context)
   context.after(() => new Promise((resolve) => server.close(resolve)));
   await new Promise((resolve) => server.once("listening", resolve));
 
-  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/admin/orders/${currentOrder.id}`, {
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/gaeru_ceo/orders/${currentOrder.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": "valid-token" },
     body: JSON.stringify({ paymentStatus: "paid" })

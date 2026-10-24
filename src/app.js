@@ -48,8 +48,15 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     },
     crossOriginEmbedderPolicy: false
   }));
-  app.use("/api/admin/product-workspace",express.json({limit:"256kb"}));
-  app.use("/api/admin/news", express.json({limit:"128kb"}));
+  // Retired routes must not redirect or fall through to the static admin folder.
+  app.use((req,res,next)=>{
+    let pathname=req.path;
+    try{for(let i=0;i<3;i++){const decoded=decodeURIComponent(pathname);if(decoded===pathname)break;pathname=decoded;}pathname=path.posix.normalize(pathname.replace(/\\/g,'/'));}catch{return res.sendStatus(404);}
+    if(/^\/(?:admin(?:\/|$)|api\/admin(?:\/|$))/i.test(pathname))return res.set('Cache-Control','no-store').sendStatus(404);
+    next();
+  });
+  app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
+  app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
   app.use(express.json({ limit: "32kb" }));
   app.use(session({
     name: "gaeru.sid",
@@ -96,19 +103,19 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     smtpConfig: config.smtp,
     mailer: customerMailer
   }));
-  app.use("/api/admin", createAdminAccess(pool, config), adminPolicy);
-  app.use("/api/admin", createStaffApi(pool, config));
-  app.use("/api/admin", createOperationsApi(pool));
-  app.use("/api/admin", createFinanceApi(pool));
-  app.use("/api/admin", createCareAdminApi(pool));
-  app.use("/api/admin", createOwnerApi(pool, config));
-  app.use("/api/admin", createWarrantyAdminApi(pool));
-  app.use("/api/admin", createBusinessApi(pool));
-  app.use("/api/admin", createNewsAI(pool,config));
-  app.use("/api/admin", createNewsAdminApi(pool));
+  app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy);
+  app.use("/api/gaeru_ceo", createStaffApi(pool, config));
+  app.use("/api/gaeru_ceo", createOperationsApi(pool));
+  app.use("/api/gaeru_ceo", createFinanceApi(pool));
+  app.use("/api/gaeru_ceo", createCareAdminApi(pool));
+  app.use("/api/gaeru_ceo", createOwnerApi(pool, config));
+  app.use("/api/gaeru_ceo", createWarrantyAdminApi(pool));
+  app.use("/api/gaeru_ceo", createBusinessApi(pool));
+  app.use("/api/gaeru_ceo", createNewsAI(pool,config));
+  app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
   const productWorkspace=createProductWorkspace(pool);
-  app.use("/api/admin",productWorkspace.admin);
+  app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
   app.use("/api", createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
@@ -126,7 +133,12 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  app.get(["/admin", "/admin/", "/admin/index.html"], (_req, res) => res.redirect(308, "/gaeru_ceo"));
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js']);
+  app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
+    if(!managementAssets.has(req.params.file))return res.sendStatus(404);
+    res.set('Cache-Control','no-store');
+    res.sendFile(path.join(__dirname,'..','admin',req.params.file),error=>{if(error)next(error);});
+  });
   app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res)=>{res.set("Cache-Control","no-store").sendFile(path.join(__dirname,"..","admin","product-editor.html"));});
   app.get("/gaeru_ceo", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
