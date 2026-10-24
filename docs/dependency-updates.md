@@ -16,3 +16,5 @@ Node.js ghim 24.22.1, LTS mới nhất theo nodejs.org/dist/index.json. Nhánh C
 Không tìm thấy thư viện JavaScript phía trình duyệt lấy từ CDN trong mã HTML/JS. Giao diện sử dụng mã nguồn nội bộ. Đợt này cập nhật phần mềm trong kho mã nguồn; không nâng phiên bản máy chủ PostgreSQL, hệ điều hành hay hạ tầng do nhà cung cấp quản lý.
 
 Xác minh: cài sạch npm ci và chạy 152 kiểm thử trên Node.js 24.22.1; email dùng giả lập, không gửi thư thật. Cần kiểm tra trạng thái triển khai và các tuyến HTTP sau khi đẩy mã.
+
+Các workflow Pages hiện có cũng được nâng checkout 7.0.1, configure-pages 6.0.0, jekyll-build-pages 1.0.13, upload-pages-artifact 5.0.0 và deploy-pages 5.0.1 theo bản phát hành ổn định của từng dự án.
