@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 function page(authenticated,savedCity='Hồ Chí Minh',initialHash=''){
  const nodes=new Map(),requests=[],events={},location={hash:initialHash};
  const node=key=>{if(!nodes.has(key))nodes.set(key,{hidden:false,disabled:false,value:'',textContent:'',innerHTML:'',options:[],listeners:{},addEventListener(event,fn){this.listeners[event]=fn;},append(option){this.options.push(option);},querySelector:node,scrollIntoView(){}});return nodes.get(key);};
- const form=node('form');form.elements=Object.fromEntries(['source','orderId','orderItemId','externalOrderNumber','productName','fullName','phone','address','city'].map(name=>[name,node(name)]));
+ const form=node('form');form.elements=Object.fromEntries(['source','orderId','orderItemId','externalOrderNumber','productName','purchaseDate','fullName','phone','address','city'].map(name=>[name,node(name)]));
  form.elements.source.value='website';form.elements.orderId.options.push({value:''});
  const fetch=async(url,options={})=>{
   requests.push({url,options});
@@ -18,10 +18,10 @@ test('guest can select a marketplace and submit contact details without logging 
  const ui=page(false);await settled();
  ui.form.elements.source.value='shopee';ui.form.elements.source.listeners.change();
  assert.equal(ui.node('[data-w-account]').disabled,true);assert.equal(ui.node('[data-w-external]').disabled,false);
- for(const [key,value]of Object.entries({externalOrderNumber:'SHOP-123',productName:'GAERU K9',fullName:'Guest Name',phone:'0900000000',address:'123 Guest Street',city:'Hà Nội'}))ui.form.elements[key].value=value;
+ for(const [key,value]of Object.entries({externalOrderNumber:'SHOP-123',productName:'GAERU K9',purchaseDate:'2026-01-01',fullName:'Guest Name',phone:'0900000000',address:'123 Guest Street',city:'Hà Nội'}))ui.form.elements[key].value=value;
  await ui.form.listeners.submit({preventDefault(){}});
  const request=ui.requests.find(r=>r.url==='/api/warranty-requests');assert.ok(request);
- const body=JSON.parse(request.options.body);assert.equal(body.channel,'shopee');assert.equal(body.contact.fullName,'Guest Name');assert.equal(body.externalOrderNumber,'SHOP-123');
+ const body=JSON.parse(request.options.body);assert.equal(body.channel,'shopee');assert.equal(body.purchaseDate,'2026-01-01');assert.equal(body.contact.fullName,'Guest Name');assert.equal(body.externalOrderNumber,'SHOP-123');
  assert.match(ui.node('[data-w-status]').textContent,/lưu mã hồ sơ/);
 });
 test('authenticated form pre-fills saved address and selecting an order uses its delivery details',async()=>{
