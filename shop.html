@@ -9,10 +9,10 @@
     <link rel="stylesheet" href="styles.css?v=20261024-product-sales">
 
     <script src="customer-session.js" defer></script><script src="store-shell.js?v=20261024-scope-fix" defer></script>
-    <script src="commerce.js?v=20261024-product-navigation" defer></script>
+    <script src="/product-services.js?v=20261024-chat" defer></script><script src="commerce.js?v=20261024-product-services" defer></script>
   <link rel="stylesheet" href="brand.css?v=20261024-logo-mask">
     <link rel="icon" type="image/png" href="assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/typography.css?v=20261024-card-copy"><link rel="stylesheet" href="/shop-store.css?v=20261024-support-layout"></head>
+  <link rel="stylesheet" href="/typography.css?v=20261024-card-copy"><link rel="stylesheet" href="/shop-store.css?v=20261024-product-services"></head>
   <body>
     <a class="skip-link" href="#main">Bỏ qua điều hướng</a>
     <div id="site-header"></div>
@@ -23,7 +23,7 @@
       </section>
       <section class="catalog store-container" aria-labelledby="store-products-title">
         <nav class="store-categories" aria-label="Khám phá sản phẩm" data-store-products><p class="store-navigation-status">Đang tải sản phẩm…</p></nav>
-        <div class="store-section-heading"><h2 id="store-products-title">Khám phá thiết bị. <span>Chọn cách bạn sáng tạo.</span></h2><label class="store-search"><span class="visually-hidden">Tìm kiếm sản phẩm</span><input id="catalog-search" type="search" placeholder="Tìm thiết bị, phiên bản, SKU" maxlength="120"></label></div>
+        <a class="saved-shop-link" href="shop.html?saved=1" data-saved-count>Đã lưu (0)</a><div class="store-section-heading"><h2 id="store-products-title">Khám phá thiết bị. <span>Chọn cách bạn sáng tạo.</span></h2><label class="store-search"><span class="visually-hidden">Tìm kiếm sản phẩm</span><input id="catalog-search" type="search" placeholder="Tìm thiết bị, phiên bản, SKU" maxlength="120"></label></div>
         <div class="store-rail-toolbar"><p id="catalog-count" aria-live="polite"></p><div><button type="button" data-store-scroll="-1" aria-label="Xem sản phẩm trước" aria-controls="catalog-grid">←</button><button type="button" data-store-scroll="1" aria-label="Xem sản phẩm tiếp theo" aria-controls="catalog-grid">→</button></div></div>
         <div class="catalog-grid" id="catalog-grid" tabindex="0" aria-label="Danh sách sản phẩm, cuộn ngang để xem thêm"></div>
         <p class="empty-state" id="catalog-empty" hidden>Không tìm thấy sản phẩm phù hợp. Hãy thử từ khóa khác.</p>

@@ -7,8 +7,8 @@
     <title>Quản trị GAERU</title>
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261024-compact">
-    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261024-product-sales" defer></script>
-    <script src="/gaeru_ceo/assets/admin.js?v=20261024-hardened" defer></script>
+    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261024-chat" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261024-live-chat" defer></script>
     <script src="/gaeru_ceo/assets/enterprise.js?v=20261024-config" defer></script>
     <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
     <script src="/gaeru_ceo/assets/owner.js?v=20261024-owner-status-dot" defer></script>
@@ -16,7 +16,7 @@
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css">
     <link rel="icon" type="image/png" href="/assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-banner"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-owner-status-dot" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261024-banner" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-banner"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-owner-status-dot" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261024-banner" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261024-chat" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-live-chat" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261024-live-chat"></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -40,7 +40,7 @@
             <div class="nav-group"><button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật tài khoản</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden>Quản trị tối cao</button></div>
             <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
               <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
-              <button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
+              <button class="nav-item" type="button" data-view="shopping-chat" data-permission="customers.read">Chat trực tuyến</button><button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
               <button class="nav-item" type="button" data-view="warranty" data-permission="orders.read">Bảo hành sản phẩm</button>
               <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
               <button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button><button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button><button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
@@ -229,7 +229,7 @@
           <section class="view-panel enterprise-view" id="staff-view" hidden></section>
           <section class="view-panel enterprise-view" id="departments-view" hidden></section>
           <section class="view-panel enterprise-view" id="audit-view" hidden></section>
-          <section class="view-panel enterprise-view" id="notifications-view" hidden></section><section class="view-panel enterprise-view" id="security-view" hidden></section><section class="view-panel enterprise-view" id="news-view" hidden></section><section class="view-panel enterprise-view" id="care-view" hidden></section>
+          <section class="view-panel enterprise-view" id="notifications-view" hidden></section><section class="view-panel enterprise-view" id="security-view" hidden></section><section class="view-panel enterprise-view" id="news-view" hidden></section><section class="view-panel enterprise-view" id="care-view" hidden></section><section class="view-panel enterprise-view" id="shopping-chat-view" hidden></section>
           <section class="view-panel enterprise-view" id="marketing-view" hidden></section>
           <section class="view-panel enterprise-view" id="owner-view" hidden></section>
           <section class="view-panel enterprise-view" id="warranty-view" hidden></section>

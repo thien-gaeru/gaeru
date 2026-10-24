@@ -26,3 +26,5 @@
 .shop-page .store-story h3{font-size:27px;line-height:1.2;min-height:65px}.shop-page .store-story .story-link{margin-top:4px}.shop-page .store-story>img{height:190px;margin-top:auto;align-self:center}
 .store-support-art{width:160px;height:120px;color:#366c77;margin-top:auto;align-self:center;padding-top:18px}.store-story-support{background:#e8eef2}
 @media(max-width:1068px){.shop-page .store-help-grid{display:flex;gap:18px;overflow-x:auto;margin-inline:calc(-1 * var(--store-side));padding:0 var(--store-side) 24px;scroll-snap-type:x mandatory}.shop-page .store-story{flex:0 0 min(340px,calc(100vw - 64px));min-height:410px}}
+
+.shop-page .saved-shop-link{display:inline-block;color:#0066cc;font-size:14px;margin:0 0 18px}
