@@ -30,6 +30,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   const accountPage = await fetch(`${baseUrl}/account.html`);
   assert.equal(accountPage.status, 200);
   assert.equal(accountPage.headers.get('cache-control'), 'no-store');
+  for(const page of ['/', '/index.html','/shop.html','/product.html']){const response=await fetch(baseUrl+page);assert.equal(response.headers.get('cache-control'),'no-cache',page);}
   const accountScript = await fetch(`${baseUrl}/account.js?v=20261023-mfa`);
   assert.equal(accountScript.headers.get('cache-control'), 'no-store');
   const accountMarkup = await accountPage.text();

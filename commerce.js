@@ -109,7 +109,7 @@ function productCard(product, compact = false) {
       <div class="product-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.name)}</h3>
-        <p>${escapeHtml(product.description)}</p>
+        <p>${escapeHtml(String(product.description||'').replace(/\*\*|__/g,''))}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
         <div class="card-actions">
           <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
@@ -124,7 +124,7 @@ function productCard(product, compact = false) {
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a></h2>
-      <p class="catalog-description">${escapeHtml(product.description)}</p>
+      <p class="catalog-description">${escapeHtml(String(product.description||'').replace(/\*\*|__/g,''))}</p>
       <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
       <div class="catalog-actions">
         <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>

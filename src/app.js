@@ -198,6 +198,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     dotfiles: "deny",
     index: "index.html",
     setHeaders(res, file) {
+      if (path.extname(file) === '.html') {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
       if (['account.html', 'account.js'].includes(path.basename(file))) {
         res.setHeader('Cache-Control', 'no-store');
       }
