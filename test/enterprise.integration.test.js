@@ -214,6 +214,9 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     const warrantyBody={orderItemId:itemId,requestKey:randomUUID(),serial:'QA-ABC-001'};
     assert.equal((await second.request('/api/customer/warranties','POST',warrantyBody)).status,404);
     const activation=(await first.ok('/api/customer/warranties','POST',warrantyBody,201)).activation;
+    const searched=await owner.ok('/api/gaeru_ceo/warranties?q='+encodeURIComponent(activation.id));assert.equal(searched.activations.length,1);assert.equal(searched.activations[0].id,activation.id);
+    assert.equal((await owner.ok('/api/gaeru_ceo/warranties?q=NONEXISTENT-SEARCH')).activations.length,0);
+    assert.equal((await owner.ok('/api/gaeru_ceo/warranties?q='+encodeURIComponent("' OR 1=1 --"))).activations.length,0);
     assert.equal((await first.ok('/api/customer/warranties','POST',warrantyBody)).activation.id,activation.id);
     assert.equal((await first.request('/api/customer/warranties','POST',{...warrantyBody,serial:'DIFFERENT'})).status,409);
     assert.equal((await first.request('/api/customer/warranties','POST',{...warrantyBody,requestKey:randomUUID(),serial:'EXCEEDS-QUANTITY'})).status,409);
@@ -291,7 +294,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 16);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 17);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });

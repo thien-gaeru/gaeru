@@ -16,10 +16,11 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-let server;
+let server;let stopRetention;
 
 async function start() {
   await migrateDatabase(pool);
+  stopRetention=require("./account-retention").startRetentionWorker(pool);
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
@@ -36,6 +37,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopRetention?.();
   server.close(async () => {
     try {
       await sessionStore.close();
