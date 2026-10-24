@@ -455,7 +455,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
-  router.get("/gaeru_ceo/summary", async (_req, res) => {
+  router.get("/gaeru_ceo/summary", async (req, res) => {
     const [products, orders, settings] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
         (SELECT COUNT(*)::int FROM product_variants v JOIN products p ON p.id = v.product_id

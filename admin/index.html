@@ -16,7 +16,7 @@
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css">
     <link rel="icon" type="image/png" href="/assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-marketing-mobile"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-owner-status-dot" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-marketing-mobile" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261024-marketing-mobile" defer></script></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-marketing-mobile"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-owner-status-dot" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-marketing-mobile" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261024-marketing-mobile" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-full-mobile"></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -95,11 +95,11 @@
               <button class="secondary-button" type="button" data-shortcut="unpaid" data-require="orders.read">Kiểm tra thanh toán <span aria-hidden="true">↗</span></button>
               <button class="secondary-button" type="button" data-shortcut="stock" data-require="inventory.read">Kiểm tra tồn kho <span aria-hidden="true">↗</span></button>
             </div>
-            <div class="notice-card" id="orders-gate-notice" role="status">
+            <div class="notice-card" id="orders-gate-notice" hidden role="status">
               <h2>Tiếp nhận đơn hàng đang tạm khóa</h2>
               <p>Checkout đang tạm dừng nhận đơn mới. Chủ doanh nghiệp có thể bật nhận đơn tại Quản trị tối cao → Điều khiển vận hành.</p>
             </div>
-            <div class="notice-card" id="shipping-rates-notice" role="status">
+            <div class="notice-card" id="shipping-rates-notice" hidden role="status">
               <h2>Chưa có bảng phí giao hàng</h2>
               <p>Thêm phí theo tỉnh/thành tại Cài đặt cửa hàng. Checkout sẽ không nhận đơn nếu chưa có khu vực giao hàng hợp lệ.</p>
             </div>
