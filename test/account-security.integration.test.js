@@ -23,22 +23,22 @@ test('owner credentials and recovery, email and app MFA, backup codes and sessio
  assert.equal((await owner.security('/settings')).email,'');
  await owner.security('/contacts/confirm',{challengeId:challenge.challengeId,code:'wrong'},400);
  await owner.security('/contacts/confirm',{challengeId:challenge.challengeId,code:code()});
- assert.equal((await oldSession.request('/api/admin/owner')).status,401);
+ assert.equal((await oldSession.request('/api/gaeru_ceo/owner')).status,401);
  assert.equal((await owner.security('/settings')).email,'owner@example.invalid');
  let setup=await owner.security('/setup',{password,method:'email'});assert.equal((await owner.security('/settings')).method,'off');
  const enabled=await owner.security('/confirm',{method:'email',challengeId:setup.challengeId,code:code()});assert.equal(enabled.recoveryCodes.length,8);
  const second=client();const pending=await second.login('owner');assert.equal(pending.mfaRequired,true);assert.equal(pending.method,'email');
- assert.equal((await second.request('/api/admin/owner')).status,401);
+ assert.equal((await second.request('/api/gaeru_ceo/owner')).status,401);
  await second.security('/login/complete',{code:'000000'},403);await second.security('/login/complete',{code:code()});
  await second.security('/login/complete',{code:code()},401);
  const authorized=await second.security('/authorize',{password});await second.security('/password',{password,newPassword,factorChallengeId:authorized.challengeId,factorCode:code()});
- assert.equal((await owner.request('/api/admin/owner')).status,401);
+ assert.equal((await owner.request('/api/gaeru_ceo/owner')).status,401);
  const denied=client();await denied.ok('/api/csrf');assert.equal((await denied.request('/api/auth/login','POST',{username:'owner',password})).status,401);
  const guest=client();await guest.ok('/api/csrf');await guest.security('/recover/request',{email:'owner@example.invalid',phone:'0900000000'});
  const link=new URL(messages.at(-1).text.match(/https:\/\/\S+/)[0]);assert.match(messages.at(-1).text,/Tên đăng nhập quản trị GAERU của bạn: owner/);
  const reset={id:link.searchParams.get('securityReset'),token:link.searchParams.get('token'),newPassword:password};await guest.security('/recover/complete',reset,400);
  const recoveryCode=await guest.security('/recover/code',reset);await guest.security('/recover/complete',{...reset,factorChallengeId:recoveryCode.challengeId,factorCode:code()});await guest.security('/recover/complete',reset,400);
- assert.equal((await second.request('/api/admin/owner')).status,401);
+ assert.equal((await second.request('/api/gaeru_ceo/owner')).status,401);
  // A verified customer can use an authenticator app, never exposing its secret in storage.
  const customerId=(await pool.query("INSERT INTO customers(full_name,email,phone,password_hash,email_verified_at) VALUES($1,$2,$3,$4,now()) RETURNING id",['Fixture Customer','customer@example.invalid','0900000001',bcrypt.hashSync(password,4)])).rows[0].id;
  const customer=client();await customer.ok('/api/csrf');await customer.ok('/api/customer-auth/login','POST',{email:'customer@example.invalid',password});

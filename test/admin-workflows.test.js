@@ -61,7 +61,7 @@ test("publishing locks the parent before checking active variants", async (conte
         release() {}
       };
       const request = await startAdminApi(subcontext, { connect: async () => client });
-      const response = await request(`/admin/products/${productId}`, { method: "PUT", body: productPayload });
+      const response = await request(`/gaeru_ceo/products/${productId}`, { method: "PUT", body: productPayload });
       assert.equal(response.status, activeVariants ? 200 : 409);
       const lock = statements.findIndex((sql) => sql === "SELECT id FROM products WHERE id=$1 FOR UPDATE");
       const count = statements.findIndex((sql) => sql.startsWith("SELECT COUNT(*)"));
@@ -95,7 +95,7 @@ test("variant editing and deletion preserve a published product's final active v
           release() {}
         };
         const request = await startAdminApi(subcontext, { connect: async () => client });
-        const response = await request(`/admin/variants/${variantId}`, {
+        const response = await request(`/gaeru_ceo/variants/${variantId}`, {
           method, ...(method === "PUT" ? { body: variantPayload } : {})
         });
         const expected = method === "DELETE" && scenario.expected === 200 ? 204 : scenario.expected;
@@ -136,7 +136,7 @@ test("admin cannot undo received payments, alter gateway results, or reprice pai
         release() {}
       };
       const request = await startAdminApi(subcontext, { connect: async () => client });
-      const response = await request(`/admin/orders/${orderId}`, { method: "PATCH", body: scenario.body });
+      const response = await request(`/gaeru_ceo/orders/${orderId}`, { method: "PATCH", body: scenario.body });
       assert.equal(response.status, 409);
       assert.match((await response.json()).error, scenario.error);
       assert.equal(statements.some((sql) => /^UPDATE (orders|product_variants|payment_attempts)/.test(sql)), false);
@@ -160,7 +160,7 @@ test("unchanged gateway payment status permits normal order processing", async (
     release() {}
   };
   const request = await startAdminApi(context, { connect: async () => client });
-  const response = await request(`/admin/orders/${orderId}`, {
+  const response = await request(`/gaeru_ceo/orders/${orderId}`, {
     method: "PATCH", body: { status: "confirmed", paymentStatus: "paid", shippingFeeVnd: 30000 }
   });
   assert.equal(response.status, 200);
@@ -179,7 +179,7 @@ test("order payment filters use the same count/page predicate and preserve pagin
     }
   };
   const request = await startAdminApi(context, pool);
-  const response = await request("/admin/orders?status=pending&q=GR-123&paymentStatus=paid&paymentMethod=vnpay&page=2");
+  const response = await request("/gaeru_ceo/orders?status=pending&q=GR-123&paymentStatus=paid&paymentMethod=vnpay&page=2");
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.pagination, { page: 2, pageSize: 25, total: 31, pageCount: 2 });
@@ -194,12 +194,12 @@ test("order payment filters use the same count/page predicate and preserve pagin
   assert.match(queries[1].sql, /p.expires_at AS "paymentAttemptExpiresAt"/);
   assert.match(queries[1].sql, /SELECT provider, status, expires_at FROM payment_attempts/);
   for (const query of ["paymentStatus=refunded", "paymentMethod=paypal", "paymentStatus=paid&paymentStatus=pending"]) {
-    const invalid = await request(`/admin/orders?${query}`);
+    const invalid = await request(`/gaeru_ceo/orders?${query}`);
     assert.equal(invalid.status, 400);
   }
   assert.equal(queries.length, 2);
   for (const paymentMethod of ["cod", "bank_transfer", "9pay", "vnpay"]) {
-    const valid = await request(`/admin/orders?paymentStatus=pending&paymentMethod=${paymentMethod}`);
+    const valid = await request(`/gaeru_ceo/orders?paymentStatus=pending&paymentMethod=${paymentMethod}`);
     assert.equal(valid.status, 200);
   }
 });

@@ -40,10 +40,10 @@ async function staffApi(context, pool, actor = bootstrapPrincipal(config)) {
     req.session = { csrfToken: "valid-csrf-token" };
     next();
   });
-  app.use("/api/admin", createStaffApi(pool, config));
+  app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use(testErrorHandler);
   const origin = await listen(context, app);
-  return (path, { method = "GET", body } = {}) => fetch(`${origin}/api/admin${path}`, {
+  return (path, { method = "GET", body } = {}) => fetch(`${origin}/api/gaeru_ceo${path}`, {
     method, headers: { "Content-Type": "application/json", "X-CSRF-Token": "valid-csrf-token" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });

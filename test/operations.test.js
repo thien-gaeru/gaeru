@@ -159,12 +159,12 @@ async function startApi(context, client, principal = actor) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => { req.admin = principal; req.session = { csrfToken: "valid-token" }; next(); });
-  app.use("/api/admin", createOperationsApi({ connect: async () => client, query: (...args) => client.query(...args) }));
+  app.use("/api/gaeru_ceo", createOperationsApi({ connect: async () => client, query: (...args) => client.query(...args) }));
   app.use((error, _req, res, _next) => res.status(500).json({ error: error.message }));
   const server = app.listen(0, "127.0.0.1");
   context.after(() => new Promise((resolve) => server.close(resolve)));
   await new Promise((resolve) => server.once("listening", resolve));
-  return (path, body = {}) => fetch(`http://127.0.0.1:${server.address().port}/api/admin${path}`, {
+  return (path, body = {}) => fetch(`http://127.0.0.1:${server.address().port}/api/gaeru_ceo${path}`, {
     method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": "valid-token" }, body: JSON.stringify(body)
   });
 }

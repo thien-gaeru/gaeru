@@ -112,7 +112,7 @@ async function showAdmin(session) {
 
 async function loadSummary() {
   if (!can("dashboard.read")) return;
-  const summary = await request("/api/admin/summary");
+  const summary = await request("/api/gaeru_ceo/summary");
   document.querySelector("#active-product-count").textContent = summary.products.active;
   document.querySelector("#product-count").textContent = summary.products.total;
   document.querySelector("#pending-order-count").textContent = summary.orders.needsAction;
@@ -130,7 +130,7 @@ async function loadProducts(search = "") {
   root.setAttribute("aria-busy", "true");
   document.querySelector("#product-list-status").textContent = "Đang tải sản phẩm…";
   try {
-    const result = await request(`/api/admin/products${search ? `?q=${encodeURIComponent(search)}` : ""}`);
+    const result = await request(`/api/gaeru_ceo/products${search ? `?q=${encodeURIComponent(search)}` : ""}`);
     if (requestId !== state.productRequest || search !== document.querySelector("#product-search").value.trim()) return;
     state.products = result.products;
     renderProducts();
@@ -330,7 +330,7 @@ function updateImagePreview() {
 }
 
 async function reloadSelectedProduct(productId, originalEditorId = productId, { preserveDraft = false } = {}) {
-  const result = await request("/api/admin/products");
+  const result = await request("/api/gaeru_ceo/products");
   const product = result.products.find((item) => item.id === productId);
   if (product && !document.querySelector("#product-editor").hidden
     && document.querySelector("#product-form").elements.id.value === originalEditorId) {
@@ -377,11 +377,11 @@ async function saveProduct(event) {
     if (file) {
       const upload = new FormData();
       upload.append("image", file);
-      const result = await request("/api/admin/uploads", { method: "POST", body: upload });
+      const result = await request("/api/gaeru_ceo/uploads", { method: "POST", body: upload });
       payload.imageUrl = result.imageUrl;
       if (form.elements.id.value === id) form.elements.imageUrl.value = result.imageUrl;
     }
-    const result = await request(id ? `/api/admin/products/${encodeURIComponent(id)}` : "/api/admin/products", {
+    const result = await request(id ? `/api/gaeru_ceo/products/${encodeURIComponent(id)}` : "/api/gaeru_ceo/products", {
       method: id ? "PUT" : "POST", body: JSON.stringify(payload)
     });
     await reloadSelectedProduct(id || result.id, id);
@@ -417,7 +417,7 @@ async function saveVariant(event) {
     };
     const variantId = form.elements.id.value;
     const productId = state.currentProduct.id;
-    await request(variantId ? `/api/admin/variants/${encodeURIComponent(variantId)}` : `/api/admin/products/${encodeURIComponent(productId)}/variants`, {
+    await request(variantId ? `/api/gaeru_ceo/variants/${encodeURIComponent(variantId)}` : `/api/gaeru_ceo/products/${encodeURIComponent(productId)}/variants`, {
       method: variantId ? "PUT" : "POST", body: JSON.stringify(payload)
     });
     await reloadSelectedProduct(productId, productId, { preserveDraft: true });
@@ -448,7 +448,7 @@ async function loadOrders(page = state.orderPage) {
   root.setAttribute("aria-busy", "true");
   document.querySelector("#order-list-status").textContent = "Đang tải đơn hàng…";
   try {
-    const result = await request(`/api/admin/orders?${params}`);
+    const result = await request(`/api/gaeru_ceo/orders?${params}`);
     if (requestId !== state.orderRequest || status !== document.querySelector("#order-filter").value
       || search !== document.querySelector("#order-search").value.trim()
       || paymentStatus !== document.querySelector("#order-payment-filter").value
@@ -558,7 +558,7 @@ async function updateOrder(event) {
   try {
     if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");
     if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
-    await request(`/api/admin/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
+    await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     await Promise.all([loadOrders(), loadSummary()]);
     showGlobal("Đã cập nhật đơn hàng.");
   } catch (error) {
@@ -575,7 +575,7 @@ async function loadCustomers(page = state.customerPage) {
   const search = document.querySelector("#customer-search").value.trim();
   const params = new URLSearchParams({ page: String(page) });
   if (search) params.set("q", search);
-  const result = await request(`/api/admin/customers?${params}`);
+  const result = await request(`/api/gaeru_ceo/customers?${params}`);
   state.customers = result.customers;
   state.customerPage = result.pagination.page;
   state.customerPagination = result.pagination;
@@ -609,7 +609,7 @@ function renderCustomers() {
 async function showCustomerDetail(id, panel) {
   panel.hidden = false;
   panel.textContent = "Đang tải lịch sử đơn hàng…";
-  const result = await request(`/api/admin/customers/${encodeURIComponent(id)}`);
+  const result = await request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}`);
   if (!result.orders.length) {
     panel.innerHTML = '<p class="help-text">Khách hàng chưa có đơn hàng.</p>';
     return;
@@ -618,14 +618,14 @@ async function showCustomerDetail(id, panel) {
 }
 
 async function toggleCustomer(id, active) {
-  await request(`/api/admin/customers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active: !active }) });
+  await request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ active: !active }) });
   await loadCustomers();
   showGlobal(!active ? "Đã mở khóa tài khoản khách hàng." : "Đã khóa tài khoản khách hàng.");
 }
 
 async function loadSettings() {
   if (!can("settings.read")) return;
-  const settings = await request("/api/admin/settings");
+  const settings = await request("/api/gaeru_ceo/settings");
   const form = document.querySelector("#settings-form");
   form.elements.shippingNote.value = settings.shipping_note || "";
   document.querySelector("#payment-provider-status").textContent =
@@ -669,7 +669,7 @@ async function saveSettings(event) {
       }
       shippingRates[province] = fee;
     }
-    await request("/api/admin/settings", {
+    await request("/api/gaeru_ceo/settings", {
       method: "PUT",
       body: JSON.stringify({
         shippingNote: form.elements.shippingNote.value,
@@ -814,7 +814,7 @@ document.querySelector("#variant-list").addEventListener("click", async (event) 
     remove.disabled = true;
     try {
       const productId = state.currentProduct.id;
-      await request(`/api/admin/variants/${encodeURIComponent(remove.dataset.deleteVariant)}`, { method: "DELETE" });
+      await request(`/api/gaeru_ceo/variants/${encodeURIComponent(remove.dataset.deleteVariant)}`, { method: "DELETE" });
       await reloadSelectedProduct(productId, productId, { preserveDraft: true });
       showGlobal("Đã xóa phiên bản.");
     } catch (error) {

@@ -20,7 +20,7 @@ async function main() {
         product
       );
     }
-    console.log("Draft GAERU catalog is ready. Add verified variants and stock in /admin before publishing products.");
+    console.log("Draft GAERU catalog is ready. Add verified variants and stock in /gaeru_ceo before publishing products.");
   } finally {
     await pool.end();
   }

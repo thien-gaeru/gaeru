@@ -63,18 +63,28 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.equal(anonymousIdentity.authenticated, false);
   assert.equal(anonymousIdentity.username, null);
   assert.deepEqual(anonymousIdentity.permissions, []);
-  assert.equal((await fetch(`${baseUrl}/api/admin/summary`)).status, 401);
+  assert.equal((await fetch(`${baseUrl}/api/gaeru_ceo/summary`)).status, 401);
   for (const route of ["/gaeru_ceo", "/gaeru_ceo/"]) {
     const page = await fetch(baseUrl + route);
     assert.equal(page.status, 200);
     assert.ok((await page.text()).includes('id="login-form"'));
   }
-  for (const route of ["/admin", "/admin/", "/admin/index.html"]) {
-    const redirect = await fetch(baseUrl + route, { redirect: "manual" });
-    assert.equal(redirect.status, 308);
-    assert.equal(redirect.headers.get("location"), "/gaeru_ceo");
+  for (const route of ['/admin','/admin/','/admin/index.html','/admin/admin.js','/admin/product-editor.html','/admin/product-editor.js','/ADMIN','/%61dmin/index.html','/admin%2fadmin.css','/%2fadmin/index.html','/api/admin/summary','/api/%61dmin/products']) {
+    for(const method of ['GET','HEAD','POST']){
+      const retired=await fetch(baseUrl+route,{method,redirect:'manual'});
+      assert.equal(retired.status,404,method+' '+route);
+      assert.equal(retired.headers.get('location'),null);
+      assert.equal(retired.headers.get('cache-control'),'no-store');
+    }
   }
-  assert.equal((await fetch(baseUrl + "/admin/admin.js")).status, 200);
+  for(const route of ['/gaeru_ceo','/gaeru_ceo/products/new']){
+    const page=await fetch(baseUrl+route);assert.equal(page.status,200);const html=await page.text();
+    assert.ok(!html.includes('"/admin/'));
+    const resources=[...html.matchAll(/(?:src|href)="(\/gaeru_ceo\/assets\/[^"?]+)(?:[^" ]*)"/g)].map(m=>m[1]);
+    assert.ok(resources.length>=3);
+    for(const resource of resources){const asset=await fetch(baseUrl+resource);assert.equal(asset.status,200,resource);assert.equal(asset.headers.get('cache-control'),'no-store');}
+  }
+  for(const route of ['/gaeru_ceo/assets/index.html','/gaeru_ceo/assets/product-editor.html','/gaeru_ceo/assets/package.json'])assert.equal((await fetch(baseUrl+route)).status,404);
   assert.equal((await fetch(`${baseUrl}/src/app.js`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/db/schema.sql`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/package.json`)).status, 404);

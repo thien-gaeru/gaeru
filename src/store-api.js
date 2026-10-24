@@ -344,9 +344,9 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.use("/admin", requireAdmin);
+  router.use("/gaeru_ceo", requireAdmin);
 
-  router.post("/admin/uploads", requireCsrf, parseImageUpload, async (req, res, next) => {
+  router.post("/gaeru_ceo/uploads", requireCsrf, parseImageUpload, async (req, res, next) => {
     let uploadedPath;
     try {
       if (!req.file) return res.status(400).json({ error: "Chọn một tệp ảnh để tải lên." });
@@ -370,7 +370,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.get("/admin/customers", async (req, res, next) => {
+  router.get("/gaeru_ceo/customers", async (req, res, next) => {
     try {
       const query = String(req.query.q || "").trim().slice(0, 100);
       const requestedPage = Number.parseInt(req.query.page || "1", 10);
@@ -400,7 +400,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.get("/admin/customers/:id", requireUuidParam("id"), async (req, res, next) => {
+  router.get("/gaeru_ceo/customers/:id", requireUuidParam("id"), async (req, res, next) => {
     try {
       const customerResult = await pool.query(
         `SELECT id, full_name AS "fullName", email, phone, active,
@@ -420,7 +420,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.patch("/admin/customers/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.patch("/gaeru_ceo/customers/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = z.object({ active: z.boolean() }).safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Trạng thái khách hàng chưa hợp lệ." });
@@ -442,7 +442,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.get("/admin/summary", async (_req, res) => {
+  router.get("/gaeru_ceo/summary", async (_req, res) => {
     const [products, orders, settings] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
         (SELECT COUNT(*)::int FROM product_variants v JOIN products p ON p.id = v.product_id
@@ -459,11 +459,11 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled, shippingRatesConfigured });
   });
 
-  router.get("/admin/products", async (req, res) => {
+  router.get("/gaeru_ceo/products", async (req, res) => {
     res.json({ products: await loadProducts(pool, { includeDrafts: true, search: String(req.query.q || "") }) });
   });
 
-  router.post("/admin/products", requireCsrf, async (req, res, next) => {
+  router.post("/gaeru_ceo/products", requireCsrf, async (req, res, next) => {
     try {
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
@@ -485,7 +485,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.put("/admin/products/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.put("/gaeru_ceo/products/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
@@ -519,7 +519,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.post("/admin/products/:id/variants", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.post("/gaeru_ceo/products/:id/variants", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
@@ -545,7 +545,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.put("/admin/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.put("/gaeru_ceo/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
@@ -575,7 +575,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.delete("/admin/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.delete("/gaeru_ceo/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const result = await withTransaction(pool, async (client) => {
         const current = await lockVariantWithProduct(client, req.params.id);
@@ -604,7 +604,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.get("/admin/orders", async (req, res) => {
+  router.get("/gaeru_ceo/orders", async (req, res) => {
     const status = String(req.query.status || "");
     if (status && !Object.hasOwn(transitions, status)) {
       return res.status(400).json({ error: "Bộ lọc trạng thái đơn hàng không hợp lệ." });
@@ -667,7 +667,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     });
   });
 
-  router.patch("/admin/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.patch("/gaeru_ceo/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = orderUpdateSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Cập nhật đơn hàng chưa hợp lệ.", details: parsed.error.issues });
@@ -805,14 +805,14 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.get("/admin/settings", async (_req, res) => {
+  router.get("/gaeru_ceo/settings", async (_req, res) => {
     res.json({
       ...await getSettings(pool, ["shipping_note", "shipping_rates"]),
       paymentMethods: ["cod", ...(vnpayConfig ? ["vnpay"] : [])]
     });
   });
 
-  router.put("/admin/settings", requireCsrf, async (req, res) => {
+  router.put("/gaeru_ceo/settings", requireCsrf, async (req, res) => {
     const parsed = settingsSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Cài đặt chưa hợp lệ.", details: parsed.error.issues });
     const settings = {
