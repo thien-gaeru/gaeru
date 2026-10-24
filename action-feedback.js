@@ -171,7 +171,7 @@
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, location.href);
     const ctx = current || (active.size === 1 ? [...active][0] : null);
     const mutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
-    const track = ctx && url.origin === location.origin && url.pathname.startsWith('/api/') && (current || mutation);
+    const track = !options.gaeruBackground && ctx && url.origin === location.origin && url.pathname.startsWith('/api/') && (current || mutation);
     if (track) begin(ctx);
     try {
       const response = await fetchRequest(input, options);

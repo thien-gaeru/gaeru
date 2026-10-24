@@ -8,7 +8,7 @@ function getCsrfToken(req) {
 function requireCsrf(req, res, next) {
   const expected = req.session?.csrfToken;
   const actual = req.get("x-csrf-token");
-  if (!expected || !actual || expected.length !== actual.length) {
+  if (!expected || !actual || Buffer.byteLength(expected) !== Buffer.byteLength(actual)) {
     return res.status(403).json({ error: "Yêu cầu không hợp lệ. Hãy tải lại trang và thử lại." });
   }
   const matches = timingSafeEqual(Buffer.from(expected), Buffer.from(actual));

@@ -12,7 +12,7 @@ const { createAdminAuthRouter } = require("./admin-auth");
 const { createCustomerAuthRouter } = require("./customer-auth");
 const { createContactChangeApi } = require("./contact-change-api");
 const { createStoreApi } = require("./store-api");
-const { getCsrfToken } = require("./security");
+const { getCsrfToken, requireCsrf } = require("./security");
 const { createAdminAccess } = require("./staff-access");
 const { createStaffApi } = require("./staff-api");
 const { createOperationsApi } = require("./operations-api");
@@ -33,7 +33,18 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   config={...config,accountSecurity:createAccountSecurity(pool,config,customerMailer)};
 
   app.disable("x-powered-by");
+  app.set('case sensitive routing', true);
   app.set("trust proxy", config.NODE_ENV === "production" ? 1 : false);
+  app.use((req,res,next)=>{
+    if (/^\/api(?:\/|$)/i.test(req.path)) {
+      res.set({'Cache-Control':'no-store','Pragma':'no-cache','Expires':'0','X-Robots-Tag':'noindex, nofollow, noarchive'});
+      res.vary('Cookie');
+      if (!/^\/api(?:\/|$)/.test(req.path) || (/^\/api\/gaeru_ceo(?:\/|$)/i.test(req.path) && !/^\/api\/gaeru_ceo(?:\/|$)/.test(req.path))) return res.sendStatus(404);
+    }
+    if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
+    res.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
+    next();
+  });
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -77,6 +88,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     }
   }));
 
+  app.use(require('./admin-session-policy').adminSessionPolicy);
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
   app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
@@ -109,7 +121,10 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     smtpConfig: config.smtp,
     mailer: customerMailer
   }));
-  app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy);
+  app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy, (req,res,next)=>{
+    if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
+    next();
+  });
   app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
   app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool,config,customerMailer));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
@@ -126,7 +141,10 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const productWorkspace=createProductWorkspace(pool);
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
-  app.use("/api", createStoreApi(pool, {
+  app.use("/api", (req,res,next)=>{
+    if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
+    next();
+  }, createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     vnpayConfig: config.vnpay || null,
     inventory,
@@ -142,7 +160,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css']);
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
     res.set('Cache-Control','no-store');
@@ -152,6 +170,18 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.get("/gaeru_ceo", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.sendFile(path.join(__dirname, "..", "admin", "index.html"), error => { if (error) next(error); });
+  });
+  app.use((req,res,next)=>{
+    let pathname=req.path;
+    try {
+      for(let i=0;i<4;i++){const decoded=decodeURIComponent(pathname);if(decoded===pathname)break;pathname=decoded;}
+      pathname=path.posix.normalize(pathname.replace(/\\/g,'/'));
+    } catch {return res.set('Cache-Control','no-store').sendStatus(404);}
+    const publicFiles=require('./public-files');
+    const isFile=pathname==='/' || publicFiles.has(pathname.slice(1));
+    const isAsset=pathname.startsWith('/assets/') && /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf)$/i.test(pathname);
+    if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
+    next();
   });
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",
@@ -170,7 +200,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if (status >= 400 && status < 500) {
       return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : "Yêu cầu không hợp lệ." });
     }
-    console.error("Request failed:", error);
+    console.error("Request failed:", {name:error.name||'Error',code:error.code||'INTERNAL_ERROR'});
     res.status(500).json({ error: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
   });
 

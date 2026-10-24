@@ -1,21 +1,9 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+The maintained release is the current gaeru branch of thien-gaeru/gaeru. Dependency versions and checks are recorded in package-lock.json and CI; this policy does not declare older releases supported.
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Report suspected vulnerabilities privately to the GAERU owner through an established support contact. Do not post keys, customer data, session cookies or exploit details in a public issue. Use GitHub private vulnerability reporting if enabled for the repository. No response-time commitment has been established.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+Security fixes should include a regression test and a recoverable source backup. Never rotate the session or MFA encryption key without a migration and recovery plan. Never use production customer data in public test fixtures.
 
-## Reporting a Vulnerability
-
-Use this section to tell people how to report a vulnerability.
-
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+See docs/admin-security-review.md for the scoped review, evidence and remaining infrastructure checks. Passing automated checks is not a penetration-test certification.
