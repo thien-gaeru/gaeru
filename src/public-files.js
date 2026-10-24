@@ -1,5 +1,6 @@
 // Only reviewed browser assets are eligible for static delivery.
 module.exports = new Set([
+  "typography.css",
   "customer-marketing.js",
   "marketing.css",
   "account-deletion.js",
