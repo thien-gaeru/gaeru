@@ -117,3 +117,48 @@
 #marketing-view .marketing-tabs button[aria-pressed="true"]{background:#0071e3;color:#fff}#marketing-view .marketing-launchers button[aria-pressed="true"]{background:#0071e3;border-color:#0071e3;color:#fff}
 
 .marketing-section-actions{display:flex;flex-wrap:wrap;gap:10px}#marketing-view>.marketing-tabs{margin-top:24px}@media(max-width:650px){.marketing-section-actions{width:100%}.marketing-section-actions button{flex:1}}
+
+/* Mobile Marketing: bounded layouts, touch controls and compact voucher cards. */
+@media(max-width:760px){
+ #marketing-view{min-width:0;max-width:100%}
+ #marketing-view .marketing-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;padding:5px;margin:12px 0 20px;border-radius:16px;overflow:visible}
+ #marketing-view .marketing-tabs button{min-height:44px;white-space:normal;padding:10px 7px;font-size:12px;line-height:1.4;min-width:0}
+ #marketing-view .marketing-section-heading{align-items:stretch;gap:12px;margin-bottom:16px}
+ #marketing-view h2{font-size:20px;line-height:1.35;margin:0}
+ #marketing-view h3{font-size:18px;line-height:1.4;overflow-wrap:anywhere}
+ #marketing-view .help-text{font-size:12px;line-height:1.65}
+ #marketing-view .editor-card,#marketing-view .marketing-promotion-card,#marketing-view .marketing-email-card{padding:18px 15px;border-radius:20px;margin-top:16px;min-width:0}
+ #marketing-view .marketing-promotion-list,#marketing-view .marketing-campaign-list{grid-template-columns:minmax(0,1fr);gap:12px}
+ #marketing-view .form-grid{grid-template-columns:minmax(0,1fr);gap:16px;margin-bottom:16px}
+ #marketing-view .form-grid>*,#marketing-view fieldset,#marketing-view label{min-width:0}
+ #marketing-view input:not([type=checkbox]),#marketing-view select,#marketing-view textarea{font-size:16px;width:100%;max-width:100%;box-sizing:border-box;min-height:46px}
+ #marketing-view textarea{min-height:160px}
+ #marketing-view button{min-height:44px;max-width:100%;white-space:normal;line-height:1.4}
+ #marketing-view .editor-heading{align-items:flex-start;gap:12px}
+ #marketing-view .editor-heading>div{min-width:0}
+ #marketing-view .editor-heading>button{flex-shrink:0}
+ #marketing-view .marketing-section-actions,#marketing-view .marketing-email-actions{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+ #marketing-view .marketing-section-actions>button,#marketing-view .marketing-email-actions>button{flex:1 1 130px}
+ #marketing-view form>.primary-button,#marketing-view [data-m-grant]>button{width:100%}
+ #marketing-view label:has(input[type=checkbox]){min-height:44px;align-items:center;line-height:1.5}
+ #marketing-view input[type=checkbox]{width:22px;height:22px;min-height:22px;flex:0 0 22px}
+ #marketing-view .marketing-product-option{padding:12px;gap:10px}
+ #marketing-view .marketing-product-option img{width:44px;height:44px;flex:0 0 44px}
+ #marketing-view .marketing-product-option span{min-width:0;overflow-wrap:anywhere}
+ #marketing-view .marketing-product-picker{max-height:320px;overscroll-behavior:contain}
+ #marketing-view .marketing-email-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 8px}
+ #marketing-view .marketing-email-preview:not(:empty),#marketing-view .marketing-email-confirm{padding:16px}
+ #marketing-view .marketing-promotion-top{flex-wrap:wrap}
+ #marketing-view .workspace-empty{padding:28px 18px;grid-column:1/-1}
+ #marketing-view .enterprise-table-wrap{border:0;background:transparent;overflow:visible}
+ #marketing-view .enterprise-table-wrap table{min-width:0;width:100%;border:0;display:block}
+ #marketing-view .enterprise-table-wrap thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ #marketing-view .enterprise-table-wrap tbody{display:grid;gap:12px}
+ #marketing-view .enterprise-table-wrap tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));background:#fff;border:1px solid #e5e5ea;border-radius:18px;padding:16px;gap:16px 12px}
+ #marketing-view .enterprise-table-wrap td{display:block;border:0!important;padding:0;min-width:0;overflow-wrap:anywhere;white-space:normal}
+ #marketing-view .enterprise-table-wrap td[data-label]:before{content:attr(data-label);display:block;color:#6e6e73;font-size:11px;font-weight:400;margin-bottom:6px}
+ #marketing-view .enterprise-table-wrap td:first-child,#marketing-view .enterprise-table-wrap td:last-child{grid-column:1/-1}
+ #marketing-view .enterprise-table-wrap td:last-child button{width:100%}
+ #marketing-view .enterprise-table-wrap td small{display:block;max-width:none}
+ #marketing-view .pagination{flex-wrap:wrap;gap:10px;margin-top:20px}
+}
