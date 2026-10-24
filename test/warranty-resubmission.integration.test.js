@@ -1,0 +1,54 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { randomBytes, randomUUID } = require("node:crypto");
+const { PGlite } = require("@electric-sql/pglite");
+const bcrypt = require("bcryptjs");
+const session = require("express-session");
+const { createApp } = require("../src/app");
+const { migrateDatabase } = require("../src/migrate");
+
+// Runs real PostgreSQL statements in one embedded connection. Multi-connection
+// locking and production integrations still require a separate staging run.
+async function database() {
+  const db = await PGlite.create();
+  let queue = Promise.resolve();
+  async function lock() {
+    const previous = queue;
+    let release;
+    queue = new Promise((resolve) => { release = resolve; });
+    await previous;
+    return release;
+  }
+  async function query(sql, values) {
+    const result = !values && sql.includes(";") ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
+    return { ...result, rows: result?.rows || [], rowCount: result?.affectedRows ?? result?.rows?.length ?? 0 };
+  }
+  return {
+    async query(sql, values) { const release = await lock(); try { return await query(sql, values); } finally { release(); } },
+    async connect() { const release = await lock(); return { query, release }; },
+    end: () => db.close()
+  };
+}
+
+
+const {processWarrantyEmail}=require('../src/warranty-email');
+test('warranty corrections, withdrawal, ownership and activation email outbox',{timeout:60000},async t=>{
+ const pool=await database();await migrateDatabase(pool);const messages=[],mailer={async sendMail(m){messages.push(m);return {accepted:[m.to],rejected:[]};}};const config={NODE_ENV:'test',SESSION_SECRET:randomBytes(48).toString('hex'),ADMIN_USERNAME:'warranty-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Warranty-owner-password',4),PUBLIC_BASE_URL:'https://example.test',smtp:{from:'store@example.test',publicBaseUrl:'https://example.test'}};const app=createApp({pool,config,customerMailer:mailer,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await pool.end();});const base='http://127.0.0.1:'+server.address().port;
+ function client(){let cookie='',csrf='';return {async api(url,method='GET',body,extra={},sendCsrf=true){const r=await fetch(base+url,{method,headers:{Cookie:cookie,...(sendCsrf?{'X-CSRF-Token':csrf}:{}),...extra,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.status===204?{}:await r.json();if(data.csrfToken)csrf=data.csrfToken;return {status:r.status,data};},async ok(url,method='GET',body,expected=200,extra={}){const r=await this.api(url,method,body,extra);assert.equal(r.status,expected,url+': '+JSON.stringify(r.data));return r.data;}};}
+ const owner=client(),guest=client(),intruder=client();for(const c of [owner,guest,intruder])await c.ok('/api/csrf');await owner.ok('/api/auth/login','POST',{username:'warranty-owner',password:'Warranty-owner-password'});
+ const payload={channel:'shopee',externalOrderNumber:'WRONG-ORDER',productName:'GAERU Fixture',serial:'WRONG-SERIAL',purchaseDate:'2026-01-01',contact:{fullName:'Buyer Fixture',phone:'0900000000',address:'Fixture Street 123',city:'Hà Nội',email:'guest@example.test'},requestKey:randomUUID()};
+ const created=await guest.ok('/api/warranty-requests','POST',payload,201),id=created.activation.id;assert.match(created.managementToken,/^[a-f0-9]{64}$/);assert.equal((await guest.ok('/api/warranty-requests?page=1')).activations.length,1);assert.equal((await intruder.ok('/api/warranty-requests?page=1')).activations.length,0);assert.equal((await intruder.api('/api/warranty-requests/'+id)).status,404);
+ const proof={'X-Warranty-Token':created.managementToken};assert.equal((await intruder.ok('/api/warranty-requests/'+id,'GET',undefined,200,proof)).activation.id,id);
+ await owner.ok('/api/gaeru_ceo/warranties/'+id,'PATCH',{status:'rejected',version:1,reason:'Mã đơn chưa chính xác.'});const corrected={...payload,externalOrderNumber:'RIGHT-ORDER',productName:'GAERU Corrected',serial:'RIGHT-SERIAL',contact:{...payload.contact,email:'corrected@example.test'},version:2};delete corrected.requestKey;
+ assert.equal((await intruder.api('/api/warranty-requests/'+id,'PATCH',corrected)).status,404);assert.equal((await guest.api('/api/warranty-requests/'+id,'PATCH',corrected,{},false)).status,403);
+ const resubmitted=await intruder.ok('/api/warranty-requests/'+id,'PATCH',corrected,200,proof);assert.equal(resubmitted.activation.status,'pending');assert.equal(resubmitted.activation.version,3);assert.equal((await owner.api('/api/gaeru_ceo/warranties/'+id,'PATCH',{status:'active',version:2,purchaseDate:'2026-01-01',reason:'Stale approval fixture'})).status,409);
+ const oldOrder=await guest.ok('/api/warranty-requests','POST',{...payload,requestKey:randomUUID()},201);await owner.ok('/api/gaeru_ceo/warranties/'+id,'PATCH',{status:'active',version:3,purchaseDate:'2026-01-01',reason:'Đã đối chiếu chính xác.'});assert.equal(messages.length,0);assert.equal((await pool.query('SELECT count(*)::int AS n FROM warranty_email_outbox')).rows[0].n,1);
+ assert.equal((await guest.api('/api/warranty-requests/'+id,'PATCH',{...corrected,version:4})).status,409);assert.equal((await guest.api('/api/warranty-requests/'+id,'DELETE',{version:4,confirmation:'DELETE_WARRANTY_REQUEST'})).status,409);
+ await Promise.all([processWarrantyEmail(pool,config,mailer),processWarrantyEmail(pool,config,mailer)]);assert.equal(messages.length,1);assert.equal(messages[0].to,'corrected@example.test');assert.ok(messages[0].text.includes('GAERU Corrected'));assert.equal((await pool.query('SELECT status FROM warranty_email_outbox')).rows[0].status,'sent');
+ await guest.ok('/api/warranty-requests/'+oldOrder.activation.id,'DELETE',{version:1,confirmation:'DELETE_WARRANTY_REQUEST'});assert.equal((await guest.api('/api/warranty-requests/'+oldOrder.activation.id)).status,404);assert.ok((await pool.query('SELECT withdrawn_at FROM warranty_activations WHERE id=$1',[oldOrder.activation.id])).rows[0].withdrawn_at);assert.ok(!(await owner.ok('/api/gaeru_ceo/warranties')).activations.some(w=>w.id===oldOrder.activation.id));const repost=await guest.ok('/api/warranty-requests','POST',{...payload,requestKey:randomUUID()},201);assert.equal((await owner.api('/api/gaeru_ceo/warranties/'+repost.activation.id,'DELETE',{version:2,confirmation:'DELETE_WARRANTY_REQUEST'})).status,409);await owner.ok('/api/gaeru_ceo/warranties/'+repost.activation.id,'DELETE',{version:1,confirmation:'DELETE_WARRANTY_REQUEST'});
+ const customerId=(await pool.query('INSERT INTO customers(full_name,email,phone,password_hash) VALUES($1,$2,$3,$4) RETURNING id',['Member','member@example.test','0900000001',bcrypt.hashSync('Member-password',4)])).rows[0].id;const member=client();await member.ok('/api/csrf');await member.ok('/api/customer-auth/login','POST',{identifier:'member@example.test',password:'Member-password'});const memberRequest=await member.ok('/api/warranty-requests','POST',{...payload,externalOrderNumber:'MEMBER-ORDER',serial:'MEMBER-SERIAL',requestKey:randomUUID()},201);assert.equal((await intruder.api('/api/warranty-requests/'+memberRequest.activation.id)).status,404);await member.ok('/api/warranty-requests/'+memberRequest.activation.id,'PATCH',{...corrected,externalOrderNumber:'MEMBER-EDITED',serial:'MEMBER-EDITED',version:1});assert.equal((await member.ok('/api/customer/warranties')).activations[0].status,'pending');
+ const order=(await pool.query("INSERT INTO orders(order_number,customer_name,email,phone,address,city,payment_method,subtotal_vnd,total_vnd,status,payment_status) VALUES('AUTO-NOTIFY','Buyer','auto@example.test','0900000002','Fixture Street','Hà Nội','cod',200000,200000,'completed','paid') RETURNING id")).rows[0];await pool.query("INSERT INTO order_items(order_id,product_name,variant_name,sku,unit_price_vnd,quantity,line_total_vnd) VALUES($1,'GAERU Auto','Type C','AUTO-NOTIFY',100000,2,200000)",[order.id]);await pool.query('SELECT sync_website_warranty($1)',[order.id]);assert.equal((await pool.query('SELECT count(*)::int AS n FROM warranty_email_outbox WHERE order_id=$1',[order.id])).rows[0].n,1);await processWarrantyEmail(pool,config,mailer);assert.equal(messages.length,2);assert.equal(messages[1].to,'auto@example.test');assert.ok(messages[1].text.includes('× 2'));
+ // A pre-delivery connection failure is retryable; the queue never rolls back approval.
+ await owner.ok('/api/gaeru_ceo/warranties/'+memberRequest.activation.id,'PATCH',{status:'active',version:2,purchaseDate:'2026-01-01',reason:'Đã đối chiếu thành công.'});let attempts=0;await processWarrantyEmail(pool,config,{async sendMail(){attempts++;throw Object.assign(Error('offline'),{command:'CONN'});}});assert.equal(attempts,1);assert.equal((await pool.query('SELECT status FROM warranty_email_outbox WHERE warranty_id=$1',[memberRequest.activation.id])).rows[0].status,'pending');await pool.query("UPDATE warranty_email_outbox SET next_attempt_at=now()-interval '1 second' WHERE status='pending'");await processWarrantyEmail(pool,config,mailer);assert.equal(messages.length,3);
+const uncertain=await guest.ok('/api/warranty-requests','POST',{...payload,externalOrderNumber:'UNKNOWN-MAIL',serial:'UNKNOWN-SERIAL',requestKey:randomUUID()},201);await owner.ok('/api/gaeru_ceo/warranties/'+uncertain.activation.id,'PATCH',{status:'active',version:1,purchaseDate:'2026-01-01',reason:'Đã đối chiếu.'});let uncertainAttempts=0;const uncertainMailer={async sendMail(){uncertainAttempts++;throw Object.assign(Error('timeout after DATA'),{command:'DATA'});}};await processWarrantyEmail(pool,config,uncertainMailer);await processWarrantyEmail(pool,config,uncertainMailer);assert.equal(uncertainAttempts,1);assert.equal((await pool.query('SELECT status FROM warranty_email_outbox WHERE warranty_id=$1',[uncertain.activation.id])).rows[0].status,'unknown');
+});
