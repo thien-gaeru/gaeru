@@ -1,5 +1,6 @@
 const state = {
   session: null,
+  viewRequest: 0,
   csrfToken: "",
   products: [],
   orders: [],
@@ -38,7 +39,7 @@ const paymentAttemptLabels = {
   pending: "Đang chờ VNPAY xác nhận giao dịch.",
   failed: "Giao dịch VNPAY chưa thành công; khách có thể cần đặt lại đơn."
 };
-const formatPrice = (value) => `${new Intl.NumberFormat("vi-VN").format(value)} ₫`;
+const formatPrice = (value) => value == null ? "Chưa xác định" : `${new Intl.NumberFormat("vi-VN").format(value)} ₫`;
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
@@ -60,6 +61,7 @@ async function request(url, options = {}) {
   const response = await fetch(url, { ...options, headers, credentials: "same-origin" });
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
+  if (response.status === 401 && state.session) { state.session = null; location.replace("/gaeru_ceo?expired=1"); }
   if (!response.ok) throw Object.assign(new Error(body.error || `Yêu cầu thất bại (${response.status}).`),{status:response.status});
   return body;
 }
@@ -80,7 +82,7 @@ async function initialize() {
     state.csrfToken = csrf.csrfToken;
     const session = await request("/api/auth/me");
     if (session.authenticated&&!new URLSearchParams(location.search).has("securityReset")) await showAdmin(session);
-    else document.querySelector("#login-panel").hidden = false;
+    else { document.querySelector("#login-panel").hidden = false; if (new URLSearchParams(location.search).has("expired")) document.querySelector("#login-feedback").textContent = "Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại."; }
   } catch (error) {
     document.querySelector("#login-panel").hidden = false;
     document.querySelector("#login-feedback").textContent = `Không thể kết nối máy chủ: ${error.message}`;
@@ -92,21 +94,15 @@ async function showAdmin(session) {
   document.querySelector("#login-panel").hidden = true;
   document.querySelector("#admin-app").hidden = false;
   const identityName = session.fullName || session.username;
-  const roleLabel = ({ owner: "Chủ doanh nghiệp", admin: "Quản trị", manager: "Quản lý", sales: "Bán hàng", warehouse: "Kho", accountant: "Kế toán", viewer: "Chỉ xem" })[session.role] || session.role;
+  const roleLabel = window.GAERUAdminUI.roleName(session.role);
   document.querySelector("#admin-identity").textContent = roleLabel && identityName !== roleLabel ? `${identityName} · ${roleLabel}` : identityName;
   applyPermissions();
   document.dispatchEvent(new CustomEvent("gaeru:admin-ready", { detail: session }));
-  const tasks = [];
-  if (can("dashboard.read")) tasks.push(loadSummary());
-  if (can("catalog.read")) tasks.push(loadProducts());
-  if (can("orders.read")) tasks.push(loadOrders());
-  if (can("settings.read")) tasks.push(loadSettings());
-  const results = await Promise.allSettled(tasks);
-  const failed = results.find((result) => result.status === "rejected");
-  if (failed) showGlobal(`Đã đăng nhập nhưng một số dữ liệu chưa tải được: ${failed.reason.message}`, true);
-  const firstView = document.querySelector('[data-view]:not([hidden])');
-  if(location.hash==="#products"&&can("catalog.read"))await activateView("products");
-  else if (firstView) await activateView(firstView.dataset.view);
+  let initialView = "";
+  try { initialView = decodeURIComponent(location.hash.slice(1)); } catch {}
+  const buttons = [...document.querySelectorAll('[data-view]')];
+  const firstView = buttons.find(button => button.dataset.view === initialView && !button.hidden && can(button.dataset.permission)) || buttons.find(button => !button.hidden && can(button.dataset.permission));
+  if (firstView) await activateView(firstView.dataset.view, { updateHistory: false });
   else showGlobal("Tài khoản chưa được cấp quyền truy cập chức năng. Liên hệ người quản trị.", true);
 }
 
@@ -720,12 +716,20 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   }
 });
 
-async function activateView(view) {
-  const button = document.querySelector(`[data-view="${view}"]`);
-  if (!button || !can(button.dataset.permission)) return;
+async function activateView(view, { updateHistory = true } = {}) {
+  const button = [...document.querySelectorAll('[data-view]')].find(item => item.dataset.view === view);
+  if (!button || button.hidden || !can(button.dataset.permission)) return;
+  const requestId = ++state.viewRequest;
+  if (updateHistory && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
+  showGlobal('');
+  const panel = document.getElementById(view + '-view');
+  const loading = document.getElementById('admin-view-state');
+  panel?.setAttribute('aria-busy', 'true');
+  if (loading) loading.textContent = 'Đang tải dữ liệu…';
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("is-active", item === button));
   document.querySelectorAll(".view-panel").forEach((panel) => { panel.hidden = panel.id !== `${button.dataset.view}-view`; });
-  document.querySelector("#view-title").textContent = view === "notifications" ? "Thông báo" : button.textContent;
+  document.querySelector("#view-title").textContent = window.GAERUAdminUI.title(view);
+  document.querySelector("#view-description").textContent = window.GAERUAdminUI.description(view);
   document.querySelectorAll("[data-view]").forEach((item) => item.setAttribute("aria-current", item === button ? "page" : "false"));
   document.querySelector(".sidebar").classList.remove("navigation-open");
   document.querySelector(".sidebar-toggle").setAttribute("aria-expanded", "false");
@@ -744,9 +748,16 @@ async function activateView(view) {
     if (["payroll","tax","invoice","marketplace"].includes(view) && window.GAERUBusiness) await window.GAERUBusiness.load(view);
     if (window.GAERUEnterprise) await window.GAERUEnterprise.loadView(view);
   } catch (error) {
-    showGlobal(error.message, true);
+    if (requestId === state.viewRequest) showGlobal(error.message, true);
+  } finally {
+    panel?.setAttribute("aria-busy", "false");
+    if (requestId === state.viewRequest && loading) loading.textContent = "";
   }
 }
+window.addEventListener("hashchange", () => {
+  if (!state.session) return;
+  try { activateView(decodeURIComponent(location.hash.slice(1)), { updateHistory: false }); } catch {}
+});
 document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => activateView(button.dataset.view)));
 document.querySelectorAll("[data-shortcut]").forEach((button) => button.addEventListener("click", () => {
   if (button.dataset.shortcut === "stock") {

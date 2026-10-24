@@ -79,6 +79,7 @@ function createAdminAuthRouter(config, pool) {
       if (pool) await appendAudit(pool, { actor: principal, action: "auth.login", entityType: "staff", entityId: principal.id || principal.username });
       await regenerateSession(req);
       req.session.admin = identity;
+      require('./admin-session-policy').stampAdminSession(req.session);
       if(config.accountSecurity)await config.accountSecurity.stamp(req,securityKey);
       req.session.csrfToken = require("node:crypto").randomBytes(32).toString("hex");
       await saveSession(req);
@@ -103,6 +104,13 @@ function createAdminAuthRouter(config, pool) {
       const principal = await resolveAdminSession(req, pool, config);
       res.json({ authenticated: Boolean(principal), ...publicIdentity(principal) });
     } catch (error) { next(error); }
+  });
+
+  router.post('/activity', rateLimit({windowMs:15*60*1000,limit:300,standardHeaders:'draft-8',legacyHeaders:false}), requireCsrf, async(req,res,next)=>{
+    try {
+      if(!await resolveAdminSession(req,pool,config)) return res.status(401).json({error:'Phiên quản trị đã kết thúc. Vui lòng đăng nhập lại.'});
+      res.status(204).end();
+    } catch(error){next(error);}
   });
 
   return router;

@@ -32,3 +32,10 @@ test("rejects missing or invalid CSRF tokens and unauthenticated admin access", 
   requireAdmin({ session: {} }, adminResponse, () => {});
   assert.equal(adminResponse.statusCode, 401);
 });
+
+test('rejects equal-character-length unicode CSRF tokens without throwing', () => {
+ const response=makeResponse();
+ assert.doesNotThrow(()=>requireCsrf({session:{csrfToken:'a'.repeat(64)},get:()=> 'é'.repeat(64)},response,()=>assert.fail('must reject')));
+ assert.equal(response.statusCode,403);
+ assert.equal(require('../src/totp').equal('a','é'),false);
+});

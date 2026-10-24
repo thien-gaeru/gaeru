@@ -47,6 +47,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   const csrf = await fetch(`${baseUrl}/api/csrf`);
   assert.equal(csrf.status, 200);
   const csrfBody = await csrf.json();
+  assert.equal(csrf.headers.get('cache-control'),'no-store');
   assert.equal(csrfBody.csrfToken.length, 64);
   const csrfCookie = csrf.headers.get("set-cookie").split(";")[0];
 
@@ -59,11 +60,16 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.deepEqual(await malformedJson.json(), { error: "Yêu cầu không hợp lệ." });
 
   const me = await fetch(`${baseUrl}/api/auth/me`);
+  assert.equal(me.headers.get('cache-control'),'no-store');
+  assert.equal(me.headers.get('x-robots-tag'),'noindex, nofollow, noarchive');
   const anonymousIdentity = await me.json();
   assert.equal(anonymousIdentity.authenticated, false);
   assert.equal(anonymousIdentity.username, null);
   assert.deepEqual(anonymousIdentity.permissions, []);
   assert.equal((await fetch(`${baseUrl}/api/gaeru_ceo/summary`)).status, 401);
+  for(const route of ['/s%72c/server.js','/%64b/schema.sql','/%2573rc/server.js','/assets/%2e%2e/s%72c/server.js','/src%5cserver.js','/docs/anti-bot.md','/README.md','/SECURITY.md','/package-lock.json','/API/auth/me','/api/GAERU_CEO/summary']){
+    assert.equal((await fetch(baseUrl+route)).status,404,route);
+  }
   for (const route of ["/gaeru_ceo", "/gaeru_ceo/"]) {
     const page = await fetch(baseUrl + route);
     assert.equal(page.status, 200);
@@ -110,6 +116,9 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.equal(identity.role, "owner");
   assert.ok(identity.permissions.includes("staff.write"));
 
+  assert.equal((await fetch(baseUrl+'/api/auth/activity',{method:'POST',headers:{Cookie:adminCookie}})).status,403);
+  assert.equal((await fetch(baseUrl+'/api/auth/activity',{method:'POST',headers:{Cookie:adminCookie,'X-CSRF-Token':loginBody.csrfToken}})).status,204);
+  assert.equal((await fetch(baseUrl+'/api/gaeru_ceo/products',{method:'POST',headers:{Cookie:adminCookie}})).status,403);
   const logout = await fetch(`${baseUrl}/api/auth/logout`, {
     method: "POST",
     headers: { "X-CSRF-Token": loginBody.csrfToken, Cookie: adminCookie },
