@@ -87,3 +87,36 @@
  .admin-shell .stat-card strong{font-size:22px}
  .admin-shell .sidebar{padding-inline:12px}
 }
+
+/* Readable admin typography at every size; navigation groups never stretch. */
+.admin-shell{font-size:15px}
+.admin-shell .sidebar .nav-item{font-size:15px;line-height:1.5;min-height:46px}
+.admin-shell .sidebar .nav-group-label{font-size:12px;line-height:1.5}
+.admin-shell .sidebar .nav-group{align-content:start;align-items:start;grid-auto-rows:max-content}
+.admin-shell .sidebar>nav{align-content:start;align-items:start;grid-auto-rows:max-content}
+.admin-shell .view-panel label,.admin-shell .view-panel button,.admin-shell .view-panel .row-button{font-size:14px}
+.admin-shell .view-panel p,.admin-shell .view-panel .help-text,.admin-shell .admin-section-description,.admin-shell .view-panel small{font-size:14px;line-height:1.65}
+.admin-shell .view-panel .stat-card span,.admin-shell .catalog-summary>article>span{font-size:14px}
+.admin-shell .enterprise-table,.admin-shell .enterprise-table td,.admin-shell .enterprise-table th{font-size:14px;line-height:1.5}
+.admin-shell .sidebar-bottom a,.admin-shell .sidebar-bottom button,.admin-shell .admin-view-state{font-size:14px}
+#marketing-view .help-text,#marketing-view .marketing-tabs button,#marketing-view .marketing-product-option small,#marketing-view .marketing-email-metrics span{font-size:14px}
+@media(max-width:760px){
+ .admin-shell .sidebar.navigation-open nav{grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;align-items:start;gap:8px;padding-top:8px}
+ .admin-shell .sidebar nav>.nav-group{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:4px;margin:0}
+ .admin-shell .sidebar .nav-item{width:100%;padding:12px;min-height:48px;font-size:16px;line-height:1.5}
+ .admin-shell .sidebar .nav-group-label{font-size:13px;padding:16px 12px 6px}
+ .admin-shell .sidebar>.sidebar-toggle{font-size:14px}
+ .admin-shell .admin-nav-search input{font-size:16px;min-height:46px}
+ .admin-shell .admin-nav-search small{font-size:12px}
+ .admin-shell .topbar h1{font-size:29px}
+ .admin-shell .admin-identity{font-size:12px;max-width:110px}
+ .admin-shell .stat-card,.admin-shell .catalog-summary>article{min-height:112px}
+ .admin-shell .view-panel .stat-card span,.admin-shell .catalog-summary>article>span{font-size:14px}
+ .admin-shell .view-panel .stat-card strong{font-size:28px}
+ .admin-shell .topbar .eyebrow{font-size:12px}
+ .admin-shell .view-panel .status-pill{font-size:12px}
+ .admin-shell .view-panel .pagination span{font-size:14px}
+ .admin-shell .view-panel .configuration-panel>summary small{font-size:13px}
+ .product-workspace{font-size:15px}
+ .product-workspace .workspace-card>p,.product-workspace .help-text,.product-workspace .workspace-form label,.product-workspace .preview-card p{font-size:14px;line-height:1.65}
+}
