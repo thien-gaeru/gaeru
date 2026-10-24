@@ -21,6 +21,7 @@ const schema = z.object({
   TURNSTILE_SITE_KEY: z.string().trim().min(1).max(200).optional(),
   TURNSTILE_SECRET_KEY: z.string().trim().min(1).max(500).optional(),
   OPENAI_API_KEY: z.string().trim().min(1).optional(),
+  OPENAI_CHAT_MODEL: z.string().trim().regex(/^[a-zA-Z0-9._-]{1,100}$/).default('gpt-4.1-mini'),
   OPENAI_NEWS_MODEL: z.string().trim().regex(/^[a-zA-Z0-9._-]{1,100}$/).default('gpt-4.1-mini'),
   SMTP_HOST: z.string().trim().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
