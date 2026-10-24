@@ -51,7 +51,7 @@ module.exports = new Set([
   "pricing.html",
   "privacy.html",
   "product-choices.css",
-  "product-description.js",
+  "product-description.js", "m3-description.js",
   "product-support.html",
   "product-support.js",
   "product.html",
