@@ -38,6 +38,7 @@ test('private configuration is owner-only, encrypted, versioned, reauthenticated
  const profile={fullName:'Owner Test',company:'GAERU Test',position:'Director',taxCode:'TEST',address:'Fixture'};
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/profile','PUT',{version:0,data:profile},false)).status,403);
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/profile','PUT',{version:0,data:profile})).status,200);
+ const overview=await api('/api/gaeru_ceo/owner');assert.equal(overview.status,200);assert.equal(overview.data.owner.fullName,profile.fullName);assert.equal(overview.data.owner.company,profile.company);assert.ok(Number.isFinite(overview.data.runtime.uptimeSeconds));assert.ok(overview.data.runtime.memoryRssBytes>0);assert.ok(!JSON.stringify(overview.data).includes(profile.taxCode));
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/profile','PUT',{version:0,data:profile})).status,409);
  const row=(await pool.query("SELECT setting_value FROM store_settings WHERE setting_key='private_admin:profile'")).rows[0];assert.ok(!JSON.stringify(row).includes('Owner Test'));
  const payment={tmnCode:'TEST1234',hashSecret:'private-vnpay-test-secret',environment:'sandbox',enabled:true};
