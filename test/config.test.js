@@ -95,3 +95,5 @@ test("requires complete HTTPS configuration for VNPAY", () => {
     VNPAY_PAYMENT_URL: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
   }), /HTTPS/);
 });
+
+test('Turnstile requires both keys and an HTTPS public origin',()=>{const base={DATABASE_URL:'postgres://localhost/gaeru',SESSION_SECRET:'a-session-secret-with-at-least-32-chars',ADMIN_USERNAME:'manager',ADMIN_PASSWORD_HASH:bcrypt.hashSync('test-password',4)};assert.throws(()=>loadConfig({...base,TURNSTILE_SITE_KEY:'site'}),/TURNSTILE/);assert.throws(()=>loadConfig({...base,TURNSTILE_SITE_KEY:'site',TURNSTILE_SECRET_KEY:'secret'}),/PUBLIC_BASE_URL/);const config=loadConfig({...base,TURNSTILE_SITE_KEY:'site',TURNSTILE_SECRET_KEY:'secret',PUBLIC_BASE_URL:'https://gaeru.org'});assert.equal(config.TURNSTILE_SITE_KEY,'site');});

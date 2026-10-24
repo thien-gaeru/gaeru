@@ -9,7 +9,7 @@
   section.innerHTML = `
     <details class="care-surface warranty-surface care-disclosure" data-w-disclosure>
       <summary><div><p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2></div><span aria-hidden="true">+</span></summary><div class="care-disclosure-body">
-      <p>Chọn nơi mua và đăng ký từng sản phẩm để GAERU đối chiếu. Bảo hành 12 tháng tính từ ngày mua đã xác nhận, không phải ngày gửi đăng ký.</p>
+      <p>Đơn website được tạo hồ sơ tự động và kích hoạt sau khi hoàn tất, thanh toán đủ. Chỉ gửi đăng ký cho đơn ngoài hệ thống chưa có dữ liệu. Bảo hành 12 tháng tính từ ngày mua đã xác nhận, không phải ngày gửi đăng ký.</p>
       <p data-w-session role="status">Đang kiểm tra tài khoản…</p>
       <form id="warranty-form">
         <label>Nơi mua hàng<select name="source" required>
@@ -96,7 +96,7 @@
       const fieldset=section.querySelector(selector);fieldset.hidden=!enabled;fieldset.disabled=!enabled;
     }
     section.querySelector('[data-w-order-label]').textContent='Mã đơn hàng '+(channels[form.elements.source.value]||'website');
-    key=null;serialized=null;
+    form.querySelector('[type=submit]').disabled=account;feedback.textContent=account?'Đơn website tự động kích hoạt khi hoàn tất và thanh toán. Xem hồ sơ bảo hành bên dưới; không cần gửi đăng ký.':'';key=null;serialized=null;
   }
   async function orders() {
     const data=await api('/api/customer/orders?page='+orderPage);
@@ -110,7 +110,7 @@
   const labels={pending:'Chờ xác nhận',active:'Đã kích hoạt',rejected:'Chưa được duyệt',revoked:'Đã thu hồi'};
   async function list() {
     const data=await api('/api/customer/warranties?page='+page);
-    section.querySelector('[data-w-list]').innerHTML=data.activations.map(w=>`<article class="care-case"><span class="care-status">${w.status==='active'&&w.expiresOn<=data.today?'Đã hết hạn':escape(labels[w.status])}</span><h4>${escape(w.productName)}${w.variantName?' · '+escape(w.variantName):''}</h4><p>${escape(channels[w.channel]||'Website GAERU')} · Đơn: ${escape(w.orderNumber)}${w.serial?'<br>Serial: '+escape(w.serial):''}<br>Mã hồ sơ: ${escape(w.id)}</p>${w.purchaseDate?`<p>Ngày mua đã xác nhận: ${escape(w.purchaseDate)}<br>Ngày kết thúc thời hạn: ${escape(w.expiresOn)} (giờ Việt Nam)</p>`:'<p>Thời hạn sẽ hiển thị sau khi GAERU đối chiếu ngày mua.</p>'}${w.reason?`<p>${escape(w.reason)}</p>`:''}</article>`).join('')||'<p>Chưa có hồ sơ ở trang này.</p>';
+    section.querySelector('[data-w-list]').innerHTML=data.activations.map(w=>`<article class="care-case"><span class="care-status">${w.status==='active'&&w.expiresOn<=data.today?'Đã hết hạn':escape(w.automatic&&w.status==='pending'?'Chờ đơn hoàn tất và thanh toán':labels[w.status])}</span><h4>${escape(w.productName)}${w.variantName?' · '+escape(w.variantName):''}</h4><p>${escape(channels[w.channel]||'Website GAERU')} · Đơn: ${escape(w.orderNumber)}${w.serial?'<br>Serial: '+escape(w.serial):''}<br>Mã hồ sơ: ${escape(w.id)}</p>${w.purchaseDate?`<p>Ngày mua đã xác nhận: ${escape(w.purchaseDate)}<br>Ngày kết thúc thời hạn: ${escape(w.expiresOn)} (giờ Việt Nam)</p>`:'<p>Thời hạn sẽ hiển thị sau khi GAERU đối chiếu ngày mua.</p>'}${w.reason?`<p>${escape(w.reason)}</p>`:''}</article>`).join('')||'<p>Chưa có hồ sơ ở trang này.</p>';
     section.querySelector('[data-w-page-label]').textContent='Trang '+page;
     section.querySelector('[data-w-page="-1"]').disabled=page===1;
     section.querySelector('[data-w-page="1"]').disabled=data.activations.length<20;
@@ -128,7 +128,7 @@
     } catch(error){if(current===sequence)feedback.textContent=error.message;}
   });
   form.addEventListener('submit',async event=>{
-    event.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='Đang gửi đăng ký…';
+    event.preventDefault();if(form.elements.source.value==='account'){feedback.textContent='Đơn website được kích hoạt tự động; không cần gửi lại.';return;}const button=form.querySelector('[type=submit]');button.disabled=true;button.textContent='Đang gửi đăng ký…';
     feedback.textContent='Đang lưu đăng ký, vui lòng chờ…';
     try {
       const contact=Object.fromEntries(['fullName','phone','address','city'].map(name=>[name,form.elements[name].value]));

@@ -17,6 +17,8 @@ const schema = z.object({
   VNPAY_TMN_CODE: z.string().trim().regex(/^[A-Za-z0-9]{8}$/).optional(),
   VNPAY_HASH_SECRET: z.string().min(1).optional(),
   VNPAY_PAYMENT_URL: z.string().url().refine((value) => /^https:\/\//i.test(value), "Must use HTTPS").optional(),
+  TURNSTILE_SITE_KEY: z.string().trim().min(1).max(200).optional(),
+  TURNSTILE_SECRET_KEY: z.string().trim().min(1).max(500).optional(),
   OPENAI_API_KEY: z.string().trim().min(1).optional(),
   OPENAI_NEWS_MODEL: z.string().trim().regex(/^[a-zA-Z0-9._-]{1,100}$/).default('gpt-4.1-mini'),
   SMTP_HOST: z.string().trim().min(1).optional(),
@@ -26,6 +28,7 @@ const schema = z.object({
   SMTP_PASSWORD: z.string().min(1).optional(),
   SMTP_FROM: z.string().email().optional()
 }).superRefine((values, context) => {
+  if((values.TURNSTILE_SITE_KEY||values.TURNSTILE_SECRET_KEY)&&(!values.TURNSTILE_SITE_KEY||!values.TURNSTILE_SECRET_KEY||!values.PUBLIC_BASE_URL))context.addIssue({code:'custom',message:'TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY và PUBLIC_BASE_URL phải được cấu hình cùng nhau.'});
   const vnpayConfigured = Boolean(values.VNPAY_TMN_CODE || values.VNPAY_HASH_SECRET || values.VNPAY_PAYMENT_URL);
   if (vnpayConfigured && (!values.VNPAY_TMN_CODE || !values.VNPAY_HASH_SECRET || !values.PUBLIC_BASE_URL || !values.VNPAY_PAYMENT_URL)) {
     context.addIssue({ code: "custom", message: "VNPAY_TMN_CODE, VNPAY_HASH_SECRET, PUBLIC_BASE_URL và VNPAY_PAYMENT_URL phải được cấu hình cùng nhau." });

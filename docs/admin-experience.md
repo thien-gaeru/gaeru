@@ -9,6 +9,6 @@ Trang sản phẩm có ô ảnh chính cao bằng hai hàng ảnh nhỏ, một �
 Biến thể: mẫu Cổng kết nối, Bộ micro, Màu sắc; có thể sửa lựa chọn trước khi tạo tổ hợp. Áp dụng giá/tồn kho chung cho các biến thể trong biểu mẫu rồi lưu; tồn kho vẫn yêu cầu quyền duyệt kho và kiểm tra phiên bản. Biến thể đã lưu không bị xóa khỏi lịch sử.
 
 
-Khách liên hệ GAERU để xóa hoặc khôi phục tài khoản. Quản trị đối chiếu yêu cầu và ghi lý do; đăng nhập không tự khôi phục. Sau 1 năm tài khoản bị xóa vĩnh viễn theo tác vụ định kỳ. Xem account-retention.md.
+Khách liên hệ GAERU để xóa hoặc khôi phục tài khoản. Quản trị đối chiếu yêu cầu, ghi lý do và gửi email xác nhận. Khách đăng nhập đúng tài khoản rồi xác nhận mới ngừng hoạt động; đăng nhập không tự khôi phục. Sau 1 năm tài khoản bị xóa vĩnh viễn theo tác vụ định kỳ. Xem account-retention.md.
 
 Kiểm thử dùng PostgreSQL nhúng, email giả lập và tệp media kiểm tra giao thức. Không gửi yêu cầu xóa hay email kiểm thử đến khách trên production. Kiểm tra giao diện trực tiếp và phát video thực chưa thực hiện khi trình duyệt điều khiển không khả dụng.
