@@ -159,12 +159,8 @@ function renderCatalog() {
   const categoryParam = new URLSearchParams(location.search).get("category");
   let selectedCategory = ["audio", "video", "accessory"].includes(categoryParam) ? categoryParam : "all";
   queryInput.value = initialQuery;
-  document.querySelectorAll('[data-category-art]').forEach((art) => {
-    const category = art.dataset.categoryArt;
-    const representative = products.find(product => category === 'all' || product.category === category);
-    const icons={all:'<rect x="4" y="4" width="14" height="14" rx="3"/><rect x="26" y="4" width="14" height="14" rx="3"/><rect x="4" y="26" width="14" height="14" rx="3"/><rect x="26" y="26" width="14" height="14" rx="3"/>',audio:'<rect x="16" y="3" width="12" height="24" rx="6"/><path d="M10 21v3a12 12 0 0024 0v-3M22 36v6M16 42h12"/>',video:'<rect x="3" y="10" width="26" height="25" rx="5"/><path d="M29 18l12-7v23l-12-7"/>',accessory:'<path d="M14 3v9m10-9v9M9 12h20v6a10 10 0 01-20 0zm10 16v5a8 8 0 008 8h9"/>'};
-    art.innerHTML = representative ? `<img src="${escapeHtml(representative.imageUrl)}" alt="" loading="lazy">` : `<svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[category]||icons.all}</svg>`;
-  });
+  const navigation=document.querySelector('[data-store-products]');
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
   });
@@ -183,20 +179,6 @@ function renderCatalog() {
     updateRail();
   };
 
-  document.querySelectorAll(".catalog [data-filter]").forEach((button) => {
-    const selected = button.dataset.filter === selectedCategory;
-    button.classList.toggle("is-active", selected);
-    button.setAttribute("aria-pressed", String(selected));
-    button.addEventListener("click", () => {
-      selectedCategory = button.dataset.filter;
-      document.querySelectorAll(".catalog [data-filter]").forEach((item) => {
-        const isSelected = item === button;
-        item.classList.toggle("is-active", isSelected);
-        item.setAttribute("aria-pressed", String(isSelected));
-      });
-      applyFilters();
-    });
-  });
   queryInput.addEventListener("input", applyFilters);
   applyFilters();
 }
