@@ -50,7 +50,7 @@ function applyPermissions() {
     element.hidden = !can(element.dataset.permission || element.dataset.require);
   });
   document.querySelectorAll(".nav-group").forEach((group) => { group.hidden = ![...group.querySelectorAll("[data-view]")].some((button) => !button.hidden); });
-  document.querySelectorAll('[data-owner-only]').forEach(element=>{element.hidden=state.session?.role!=='owner'||state.session?.source!=='bootstrap';element.closest('.nav-group').hidden=element.hidden;});
+  document.querySelectorAll('[data-owner-only]').forEach(element=>{element.hidden=state.session?.role!=='owner'||state.session?.source!=='bootstrap';if(element.closest('.nav-group'))element.closest('.nav-group').hidden=element.hidden;});
   document.querySelectorAll("#settings-form input,#settings-form textarea,#settings-form button").forEach((element) => { element.disabled = !can("settings.write"); });
 }
 
@@ -629,6 +629,7 @@ async function loadSettings() {
   document.querySelector("#payment-provider-status").textContent =
     `Đang khả dụng: ${settings.paymentMethods.map((method) => method === "cod" ? "COD" : method.toUpperCase()).join(", ")}. 9Pay chưa được cấu hình.`;
   renderShippingRates(settings.shipping_rates || {});
+  if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
   applyPermissions();
 }
 

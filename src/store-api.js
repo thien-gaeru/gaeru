@@ -99,7 +99,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -123,6 +123,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     });
   };
 
+  router.use(async(req,res,next)=>{try{req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;next();}catch(error){next(error);}});
   router.get("/products", async (req, res) => {
     const products = await loadProducts(pool, { search: String(req.query.q || "") });
     res.json({ products });
@@ -135,20 +136,20 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     res.json({ product });
   });
 
-  router.get("/settings/public", async (_req, res) => {
+  router.get("/settings/public", async (req, res) => {
     const settings = await getSettings(pool, ["shipping_note", "shipping_rates"]);
     res.json({
       shippingNote: settings.shipping_note || "",
       shippingRates: settings.shipping_rates || {},
-      paymentMethods: ["cod", ...(vnpayConfig ? ["vnpay"] : [])],
+      paymentMethods: ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
       ordersEnabled
     });
   });
 
   router.get("/payments/vnpay/return", (req, res) => {
-    if (!vnpayConfig) return res.sendStatus(404);
-    const { valid, parameters } = verifyVnpayQuery(req.query, vnpayConfig.hashSecret);
-    if (!valid || parameters.vnp_TmnCode !== vnpayConfig.tmnCode) {
+    if (!req.vnpayConfig) return res.sendStatus(404);
+    const { valid, parameters } = verifyVnpayQuery(req.query, req.vnpayConfig.hashSecret);
+    if (!valid || parameters.vnp_TmnCode !== req.vnpayConfig.tmnCode) {
       return res.redirect("/payment-result.html?result=invalid");
     }
     const successful = parameters.vnp_ResponseCode === "00" && parameters.vnp_TransactionStatus === "00";
@@ -160,10 +161,10 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
   });
 
   router.get("/payments/vnpay/ipn", async (req, res, next) => {
-    if (!vnpayConfig) return res.status(404).json({ RspCode: "99", Message: "Provider unavailable" });
+    if (!req.vnpayConfig) return res.status(404).json({ RspCode: "99", Message: "Provider unavailable" });
     try {
-      const { valid, parameters } = verifyVnpayQuery(req.query, vnpayConfig.hashSecret);
-      if (!valid || parameters.vnp_TmnCode !== vnpayConfig.tmnCode) {
+      const { valid, parameters } = verifyVnpayQuery(req.query, req.vnpayConfig.hashSecret);
+      if (!valid || parameters.vnp_TmnCode !== req.vnpayConfig.tmnCode) {
         return res.json({ RspCode: "97", Message: "Invalid signature" });
       }
       if (parameters.vnp_Command !== "pay") {
@@ -218,7 +219,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
       if (!parsed.success) {
         return res.status(400).json({ error: "Thông tin đặt hàng chưa hợp lệ.", details: parsed.error.issues });
       }
-      if (parsed.data.paymentMethod === "vnpay" && !vnpayConfig) {
+      if (parsed.data.paymentMethod === "vnpay" && !req.vnpayConfig) {
         return res.status(503).json({ error: "VNPAY chưa được cấu hình trên máy chủ." });
       }
       const uniqueItems = new Map();
@@ -230,6 +231,11 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
       }
 
       const order = await withTransaction(pool, async (client) => {
+        if(parsed.data.paymentMethod === "vnpay" && getVnpayConfig){
+          await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:vnpay-config'))");
+          req.vnpayConfig=await getVnpayConfig(client);
+          if(!req.vnpayConfig)throw Object.assign(Error("VNPAY vừa ngừng khả dụng. Vui lòng chọn phương thức khác."),{status:409});
+        }
         const prepared = [];
         for (const [variantId, quantity] of [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b))) {
           const result = await client.query(
@@ -318,7 +324,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
              VALUES ($1, 'vnpay', $2, $3, now() + interval '15 minutes')`,
             [createdOrder.id, createdOrder.orderNumber, createdOrder.totalVnd]
           );
-          paymentUrl = buildVnpayPaymentUrl(vnpayConfig, {
+          paymentUrl = buildVnpayPaymentUrl(req.vnpayConfig, {
             amountVnd: createdOrder.totalVnd,
             txnRef: createdOrder.orderNumber,
             ipAddress: req.ip
@@ -805,10 +811,10 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
     }
   });
 
-  router.get("/gaeru_ceo/settings", async (_req, res) => {
+  router.get("/gaeru_ceo/settings", async (req, res) => {
     res.json({
       ...await getSettings(pool, ["shipping_note", "shipping_rates"]),
-      paymentMethods: ["cod", ...(vnpayConfig ? ["vnpay"] : [])]
+      paymentMethods: ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])]
     });
   });
 

@@ -88,7 +88,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     }
   }));
 
-  app.use(require('./admin-session-policy').adminSessionPolicy);
+  app.use(async(req,res,next)=>{try{if(req.session?.admin&&req.path.startsWith('/api/')){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
   app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
@@ -137,6 +137,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createNewsAI(pool,config));
   app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
+  app.use("/api/gaeru_ceo",require("./admin-configuration").createAdminConfiguration(pool,config));
   const videos=createCatalogVideos(pool);app.use("/api/gaeru_ceo",videos.admin);app.use("/api",videos.publicApi);
   const productWorkspace=createProductWorkspace(pool);
   app.use("/api/gaeru_ceo",productWorkspace.admin);
@@ -147,6 +148,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   }, createStoreApi(pool, {
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     vnpayConfig: config.vnpay || null,
+    getVnpayConfig: (client=pool) => require("./admin-configuration").getVnpay(client,config),
     inventory,
     audit: appendAudit,
     finance: { receiptTotal, recordFullOrderPayment }
@@ -160,7 +162,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','configuration.js']);
+  app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
     res.set('Cache-Control','no-store');

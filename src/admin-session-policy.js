@@ -7,8 +7,10 @@ function stampAdminSession(session, now = Date.now()) {
 function adminSessionPolicy(req, _res, next) {
   if (!req.session?.admin || !req.path.startsWith('/api/')) return next();
   const now = Date.now();
+  const idleMs=(req.adminSessionLimits?.idleMinutes || 30)*60000;
+  const absoluteMs=(req.adminSessionLimits?.absoluteHours || 8)*3600000;
   if (!req.session.adminAuthenticatedAt || !req.session.adminLastSeenAt) stampAdminSession(req.session, now);
-  if (now - req.session.adminAuthenticatedAt >= ADMIN_ABSOLUTE_MS || now - req.session.adminLastSeenAt >= ADMIN_IDLE_MS) {
+  if (now - req.session.adminAuthenticatedAt >= absoluteMs || now - req.session.adminLastSeenAt >= idleMs) {
     delete req.session.admin;
     delete req.session.adminAuthenticatedAt;
     delete req.session.adminLastSeenAt;
