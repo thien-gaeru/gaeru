@@ -157,6 +157,7 @@ function renderCatalog() {
   const empty = document.querySelector("#catalog-empty");
   const initialQuery = new URLSearchParams(location.search).get("q") || "";
   const categoryParam = new URLSearchParams(location.search).get("category");
+  const savedOnly=new URLSearchParams(location.search).get("saved")==="1";
   let selectedCategory = ["audio", "video", "accessory"].includes(categoryParam) ? categoryParam : "all";
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
@@ -170,11 +171,12 @@ function renderCatalog() {
 
   const applyFilters = () => {
     const matching = searchProducts(queryInput.value.trim()).filter((product) =>
-      selectedCategory === "all" || product.category === selectedCategory
+      (selectedCategory === "all" || product.category === selectedCategory) && (!savedOnly||window.GAERUSavedProducts?.has(product.slug))
     );
     grid.innerHTML = matching.map((product) => productCard(product)).join("");
     count.textContent = `${matching.length} sản phẩm`;
     empty.hidden = matching.length > 0;
+    if(savedOnly)empty.textContent="Chưa có sản phẩm đã lưu phù hợp trên trình duyệt này.";
     grid.scrollLeft = 0;
     updateRail();
   };
@@ -219,15 +221,13 @@ function renderProduct() {
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
-        <p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p>
+        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
           <button class="button button-blue" type="button" data-add-to-cart="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Thêm vào giỏ</button>
         </div>
         <p class="cart-feedback" data-cart-feedback aria-live="polite"></p>
-        <div class="detail-benefits">
-          <p><strong>Đặt hàng trực tiếp</strong><span>Đơn hàng được quản lý bởi hệ thống GAERU.</span></p>
-          <p><strong>Hỗ trợ</strong><span>Liên hệ <a href="tel:0829191080">082 919 1080</a> nếu cần tư vấn.</span></p>
-        </div>
+        <section class="product-save-later"><h3>Vẫn chưa thể quyết định?</h3><p>Lưu sản phẩm để dễ dàng quay lại xem trên trình duyệt này.</p><button type="button" class="save-product-button" data-save-product="${escapeHtml(product.slug)}" aria-pressed="false">Lưu để xem lại sau</button><a href="shop.html?saved=1">Xem sản phẩm đã lưu ↗</a><p role="status" aria-live="polite"></p></section>
+        <section class="product-shopping-help"><svg viewBox="0 0 32 30" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 3h20v17H10l-6 6v-6H3zM23 10h6v15h-7l-4 4v-9"/></svg><div><h3>Trợ giúp mua sắm.</h3><p><button type="button" class="chat-product-button" data-product-chat="${escapeHtml(product.slug)}">Chat ngay ↗</button> hoặc gọi <a href="tel:0829191080">082 919 1080</a>.</p><small>Để lại tin nhắn khi chưa có nhân viên tiếp nhận.</small></div></section>
       </div>
     </section>
     <section class="product-information section-wrap" id="product-information"><header><p class="eyebrow">TÌM HIỂU SẢN PHẨM</p><h2>${escapeHtml(product.name)}. <span>Chi tiết cho lựa chọn của bạn.</span></h2></header>${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}</section>

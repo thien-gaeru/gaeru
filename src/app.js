@@ -142,6 +142,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config);
   app.use("/api/gaeru_ceo",emailMarketing.admin);
   app.use("/api/marketing-email",emailMarketing.publicApi);
+  const chat=require("./shopping-chat").createShoppingChat(pool,config);app.use("/api/shopping-chat",chat.publicApi);app.use("/api/gaeru_ceo",chat.admin);
   const marketing=require("./marketing").createMarketing(pool);
   app.use("/api/gaeru_ceo",marketing.admin);
   app.use("/api/customer/marketing",marketing.customer);
@@ -170,7 +171,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
