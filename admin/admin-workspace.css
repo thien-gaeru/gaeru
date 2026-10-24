@@ -162,3 +162,5 @@
  #marketing-view .enterprise-table-wrap td small{display:block;max-width:none}
  #marketing-view .pagination{flex-wrap:wrap;gap:10px;margin-top:20px}
 }
+
+.marketing-banner{display:block;width:100%;max-width:100%;height:auto;max-height:420px;object-fit:contain;border-radius:16px;margin:0 0 18px;background:#f5f5f7}.marketing-banner[hidden]{display:none}.marketing-banner-editor{min-width:0}.marketing-banner-editor input[type=file]{max-width:100%}
