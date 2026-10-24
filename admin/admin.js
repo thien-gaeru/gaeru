@@ -621,6 +621,7 @@ async function toggleCustomer(id, active) {
   showGlobal(!active ? "Đã mở khóa tài khoản khách hàng." : "Đã khóa tài khoản khách hàng.");
 }
 
+document.querySelector('#settings-form').addEventListener('invalid',()=>{const details=document.querySelector('#settings-form').closest('details');if(details)details.open=true;},true);
 async function loadSettings() {
   if (!can("settings.read")) return;
   const settings = await request("/api/gaeru_ceo/settings");

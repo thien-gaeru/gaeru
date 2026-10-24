@@ -99,7 +99,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -123,7 +123,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, getVn
     });
   };
 
-  router.use(async(req,res,next)=>{try{req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;next();}catch(error){next(error);}});
+  router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;next();}catch(error){next(error);}});
   router.get("/products", async (req, res) => {
     const products = await loadProducts(pool, { search: String(req.query.q || "") });
     res.json({ products });
@@ -142,7 +142,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, getVn
       shippingNote: settings.shipping_note || "",
       shippingRates: settings.shipping_rates || {},
       paymentMethods: ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
-      ordersEnabled
+      ordersEnabled:req.ordersEnabled
     });
   });
 
@@ -208,8 +208,8 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, getVn
     }
   });
 
-  router.post("/orders", (_req, res, next) => {
-    if (!ordersEnabled) {
+  router.post("/orders", (req, res, next) => {
+    if (!req.ordersEnabled) {
       return res.status(503).json({ error: "GAERU đang tạm dừng tiếp nhận đơn hàng trực tuyến." });
     }
     next();
@@ -462,7 +462,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, getVn
       getSettings(pool, ["shipping_rates"])
     ]);
     const shippingRatesConfigured = Object.keys(settings.shipping_rates || {}).length > 0;
-    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled, shippingRatesConfigured });
+    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled:req.ordersEnabled, shippingRatesConfigured });
   });
 
   router.get("/gaeru_ceo/products", async (req, res) => {

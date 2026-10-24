@@ -4,7 +4,7 @@ Chỉ tài khoản chủ nguồn bootstrap được đọc và sửa phần cấ
 
 Thông tin hồ sơ và cấu hình lưu trong store_settings với tiền tố private_admin:, mã hóa AES-256-GCM bằng AUTH_ENCRYPTION_KEY hoặc khóa dự phòng SESSION_SECRET giống MFA hiện có. Không xoay khóa tùy tiện; phải lập kế hoạch giải mã và mã hóa lại toàn bộ các bản ghi cùng bí mật MFA. API không trả lại hash secret/partner key/app secret. Để trống trường bí mật giữ khóa cũ. Audit chỉ ghi tên trường và phiên bản, không ghi giá trị. Dùng phiên bản chống ghi đè, CSRF và phân quyền phía máy chủ. Cập nhật hệ thống cần nhập lại mật khẩu và MFA nếu tài khoản đã bật.
 
-VNPAY: lưu TmnCode, secret, môi trường và trạng thái sử dụng. Dùng các endpoint cố định, không chấp nhận địa chỉ tùy ý. Cấu hình mới áp dụng cho yêu cầu tiếp theo và tồn tại qua khởi động lại; cấu hình môi trường cũ tiếp tục dùng khi chưa có bản ghi DB. Lưu bản ghi với trạng thái tắt sẽ ngừng đề xuất VNPAY cho đơn mới. Chặn thay đổi khi còn payment_attempt pending; khóa giao dịch chung giữa tạo đơn VNPAY và đổi cấu hình tránh race. Trên production không cho bật sandbox. Chưa kiểm tra giao dịch thật; cần xác nhận merchant, URL Return/IPN và thử giao dịch trên môi trường phù hợp. COD và cờ nhận đơn máy chủ không thay đổi.
+VNPAY: lưu TmnCode, secret, môi trường và trạng thái sử dụng. Dùng các endpoint cố định, không chấp nhận địa chỉ tùy ý. Cấu hình mới áp dụng cho yêu cầu tiếp theo và tồn tại qua khởi động lại; cấu hình môi trường cũ tiếp tục dùng khi chưa có bản ghi DB. Lưu bản ghi với trạng thái tắt sẽ ngừng đề xuất VNPAY cho đơn mới. Chặn thay đổi khi còn payment_attempt pending; khóa giao dịch chung giữa tạo đơn VNPAY và đổi cấu hình tránh race. Trên production không cho bật sandbox. Chưa kiểm tra giao dịch thật; cần xác nhận merchant, URL Return/IPN và thử giao dịch trên môi trường phù hợp. COD vẫn khả dụng. Cờ nhận đơn lấy từ môi trường khi chưa có bản ghi vận hành; sau đó dùng thiết lập của chủ doanh nghiệp.
 
 MISA eShop/Shopee/TikTok Shop: hiện lưu hồ sơ ứng dụng và khóa mã hóa; chưa có OAuth callback, quản lý token, webhooks hoặc đồng bộ đơn/tồn kho. Giao diện ghi rõ chưa cấp quyền và chưa đồng bộ; không gắn trạng thái kết nối giả. Cần ứng dụng được phê duyệt và thông tin cửa hàng trước khi triển khai bước cấp quyền theo API của từng nền tảng.
 
@@ -17,3 +17,6 @@ Tài liệu nhà cung cấp:
 - https://helpeshop.misa.vn/kb/ket-noi-voi-cac-ung-dung-khac-qua-open-api-tren-may-tinh
 - https://partner.tiktokshop.com/docv2/page/create-your-app
 - https://open.shopee.com/
+
+## Điều khiển vận hành
+Quản trị tối cao có công tắc tiếp nhận đơn trực tuyến, yêu cầu nhập lại mật khẩu/MFA và lưu có phiên bản, mã hóa, audit. Bật nhận đơn cần ít nhất một cấu hình phí giao hàng. Trạng thái mới áp dụng cho yêu cầu mới trên mọi tiến trình qua dữ liệu DB; không sửa trạng thái đơn đã đặt và không tự bật khi triển khai. Có nút mở đúng khu vực cấu hình VNPAY/bảo mật. Khu vực Thanh toán & giao hàng ở Cài đặt mặc định thu gọn bằng details; mở khi cần chỉnh và khi biểu mẫu có lỗi xác thực.
