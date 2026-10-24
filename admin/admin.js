@@ -594,10 +594,10 @@ function renderCustomers() {
     <article class="customer-card">
       <div class="customer-card-header">
         <div><h3>${escapeHtml(customer.fullName)}</h3><p>${escapeHtml(customer.email)} · ${escapeHtml(customer.phone)}</p></div>
-        <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
+        <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.deletedAt ? "Đã xóa hồ sơ" : customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
       </div>
       <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh email" : "Chưa xác minh email"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
-      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}</div>
+      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") && !customer.deletedAt ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}</div>
       <div class="customer-detail" data-customer-detail-panel="${escapeHtml(customer.id)}" hidden></div>
     </article>`).join("");
   pagination.hidden = state.customerPagination.pageCount <= 1;
@@ -723,7 +723,7 @@ async function activateView(view) {
   if (!button || !can(button.dataset.permission)) return;
   document.querySelectorAll("[data-view]").forEach((item) => item.classList.toggle("is-active", item === button));
   document.querySelectorAll(".view-panel").forEach((panel) => { panel.hidden = panel.id !== `${button.dataset.view}-view`; });
-  document.querySelector("#view-title").textContent = button.textContent;
+  document.querySelector("#view-title").textContent = view === "notifications" ? "Thông báo" : button.textContent;
   document.querySelectorAll("[data-view]").forEach((item) => item.setAttribute("aria-current", item === button ? "page" : "false"));
   document.querySelector(".sidebar").classList.remove("navigation-open");
   document.querySelector(".sidebar-toggle").setAttribute("aria-expanded", "false");
@@ -733,6 +733,7 @@ async function activateView(view) {
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
     if (button.dataset.view === "overview") await loadSummary();
+    if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();
     if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
     if (view === "news" && window.GAERUNewsAdmin) await window.GAERUNewsAdmin.load();
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();

@@ -40,7 +40,7 @@ async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description,
       p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active,
       p.sort_order AS "sortOrder",
-      COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",
+      COALESCE(m.description_media,'[]'::jsonb) AS "descriptionMedia",COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
           'id', v.id, 'sku', v.sku, 'name', v.name, 'options', v.options,
@@ -385,11 +385,11 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
       const pageCount = Math.max(1, Math.ceil(total / pageSize));
       const page = Math.min(requestedPage, pageCount);
       const result = await pool.query(
-        `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,
+        `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,c.deleted_at AS "deletedAt",
                 c.email_verified_at IS NOT NULL AS "emailVerified", c.created_at AS "createdAt",
                 COUNT(o.id)::int AS "orderCount", MAX(o.created_at) AS "lastOrderAt"
          FROM customers c
-         LEFT JOIN orders o ON lower(o.email) = lower(c.email)
+         LEFT JOIN orders o ON o.customer_id=c.id OR (o.customer_id IS NULL AND lower(o.email)=lower(c.email))
          WHERE ${where}
          GROUP BY c.id ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`,
         [query, pageSize, (page - 1) * pageSize]
@@ -412,7 +412,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
       const orders = await pool.query(
         `SELECT id, order_number AS "orderNumber", status, payment_method AS "paymentMethod",
                 payment_status AS "paymentStatus", total_vnd AS "totalVnd", created_at AS "createdAt"
-         FROM orders WHERE lower(email) = lower($1) ORDER BY created_at DESC LIMIT 50`, [customer.email]
+         FROM orders WHERE customer_id=$2 OR (customer_id IS NULL AND lower(email) = lower($1)) ORDER BY created_at DESC LIMIT 50`, [customer.email,customer.id]
       );
       res.json({ customer, orders: orders.rows });
     } catch (error) {
@@ -426,7 +426,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
       if (!parsed.success) return res.status(400).json({ error: "Trạng thái khách hàng chưa hợp lệ." });
       const customer = await withTransaction(pool, async (client) => {
       const result = await client.query(
-        `UPDATE customers SET active = $2, updated_at = now() WHERE id = $1
+        `UPDATE customers SET active = $2, updated_at = now() WHERE id = $1 AND deleted_at IS NULL
          RETURNING id, full_name AS "fullName", email, phone, active,
                    email_verified_at IS NOT NULL AS "emailVerified"`,
         [req.params.id, parsed.data.active]

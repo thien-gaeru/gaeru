@@ -7,7 +7,7 @@
     <title>Quản trị GAERU</title>
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css">
-    <script src="/gaeru_ceo/assets/admin.js?v=20261023-live" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261024-notices" defer></script>
     <script src="/gaeru_ceo/assets/enterprise.js" defer></script>
     <script src="/care-live.js?v=20261023-live" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261023-live" defer></script>
     <script src="/gaeru_ceo/assets/owner.js?v=20261023-security" defer></script>
@@ -15,7 +15,7 @@
     <script src="/gaeru_ceo/assets/business.js" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261023-ai" defer></script>
   <link rel="stylesheet" href="/brand.css">
     <link rel="icon" type="image/png" href="/assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/account-security.css?v=20261023-focus"><script src="/account-security.js?v=20261023-focus" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261023"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-delete" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-media"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024" defer></script></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -35,7 +35,7 @@
           <a class="admin-wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="/assets/brand/gaeru-logo.png" alt="GAERU" width="375" height="375"></span> <span>ADMIN</span></a>
           <button class="sidebar-toggle secondary-button" type="button" aria-controls="admin-navigation" aria-expanded="false">Menu quản lý <span aria-hidden="true">☰</span></button>
           <nav id="admin-navigation" aria-label="Quản trị">
-            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div>
+            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
             <div class="nav-group"><button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật tài khoản</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden>Quản trị tối cao</button></div>
             <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
               <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
@@ -226,7 +226,7 @@
           <section class="view-panel enterprise-view" id="staff-view" hidden></section>
           <section class="view-panel enterprise-view" id="departments-view" hidden></section>
           <section class="view-panel enterprise-view" id="audit-view" hidden></section>
-          <section class="view-panel enterprise-view" id="security-view" hidden></section><section class="view-panel enterprise-view" id="news-view" hidden></section><section class="view-panel enterprise-view" id="care-view" hidden></section>
+          <section class="view-panel enterprise-view" id="notifications-view" hidden></section><section class="view-panel enterprise-view" id="security-view" hidden></section><section class="view-panel enterprise-view" id="news-view" hidden></section><section class="view-panel enterprise-view" id="care-view" hidden></section>
           <section class="view-panel enterprise-view" id="owner-view" hidden></section>
           <section class="view-panel enterprise-view" id="warranty-view" hidden></section>
           <section class="view-panel enterprise-view" id="payroll-view" hidden></section>
