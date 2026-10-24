@@ -34,3 +34,10 @@ h1,h2,h3{font-weight:600;letter-spacing:-.022em}
  .hero-actions{gap:16px}.hero-lead{max-width:30rem}
  .primary-nav a{font-size:var(--type-body)}
 }
+
+/* Visual review: keep browsing cards compact when catalog copy is long. */
+.shop-page .catalog-description,.product-card .product-copy>p:not(.eyebrow):not(.price):not(.store-promotion-note){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;max-height:4.5em}
+.product-detail-copy .detail-description{font-size:var(--type-body);line-height:1.55;letter-spacing:0}
+.product-detail-copy .eyebrow{font-size:.75rem;letter-spacing:.06em;line-height:1.5}
+.shop-page .store-search input{font-size:1rem}
+@media(max-width:734px){.hero .eyebrow{font-size:.75rem;letter-spacing:.08em}.shop-page .catalog-actions{gap:12px}.shop-page .catalog-actions .button{padding-inline:12px}.hero-content{padding-top:44px}}
