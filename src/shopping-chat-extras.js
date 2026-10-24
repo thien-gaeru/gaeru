@@ -66,6 +66,20 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
   publicApi.get('/threads/:id/files/:fileId',authorize(false),download);
   admin.post('/shopping-chat/:id/files',requirePermission('customers.write'),requireCsrf,limit,authorize(true),parseUpload,save(true));
   admin.get('/shopping-chat/:id/files/:fileId',authorize(true),download);
+  admin.get('/shopping-chat/:id/offers',requirePermission('marketing.read'),authorize(true),wrap(async(req,res)=>{
+    const kind=z.enum(['vouchers','campaigns']).parse(req.query.kind),page=z.coerce.number().int().min(1).max(10000).parse(req.query.page||1);
+    const money=n=>new Intl.NumberFormat('vi-VN').format(n)+' ₫';
+    const date=d=>new Date(d).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'});
+    let items;
+    if(kind==='vouchers'){
+      const rows=(await pool.query(`SELECT v.* FROM marketing_vouchers v WHERE v.active=true AND now() BETWEEN v.starts_at AND v.ends_at AND (v.public_claim=true OR EXISTS(SELECT 1 FROM customer_vouchers w WHERE w.voucher_id=v.id AND w.customer_id=$1)) AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.released=false)<v.total_limit AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.customer_id=$1 AND r.released=false)<v.per_customer_limit ORDER BY v.created_at DESC,v.id LIMIT 25 OFFSET $2`,[req.chatThread.customer_id,(page-1)*25])).rows;
+      items=rows.map(v=>({id:v.id,title:v.code+' · '+v.title,text:'Voucher '+v.code+' — '+v.title+'\nGiảm '+(v.kind==='percent'?v.amount+'%':money(v.amount))+(v.max_discount_vnd?' (tối đa '+money(v.max_discount_vnd)+')':'')+'\nĐơn sản phẩm từ '+money(v.min_spend_vnd)+' · Mỗi khách tối đa '+v.per_customer_limit+' lượt.\nHiệu lực đến '+date(v.ends_at)+' (giờ Việt Nam).\nĐăng nhập để lưu/kiểm tra điều kiện tại Tài khoản → Ví voucher & ưu đãi. Không giảm phí giao hàng; áp dụng theo điều kiện và lượt còn lại khi thanh toán.'}));
+    }else{
+      const rows=(await pool.query('SELECT id,title,body,ends_at FROM marketing_campaigns WHERE active=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC,id LIMIT 25 OFFSET $1',[(page-1)*25])).rows;
+      items=rows.map(c=>({id:c.id,title:c.title,text:'Chương trình: '+c.title+'\n'+c.body.slice(0,2400)+'\nHiệu lực đến '+date(c.ends_at)+' (giờ Việt Nam).\nXem chương trình trong Tài khoản → Ví voucher & ưu đãi.'}));
+    }
+    res.set('Cache-Control','no-store').json({items,page,hasMore:items.length===25});
+  }));
   publicApi.get('/capabilities',(_req,res)=>res.json({aiConfigured:Boolean(config.OPENAI_API_KEY),maxFileBytes:10485760}));
   let aiActive=0;
   const aiLimit=require('express-rate-limit').rateLimit({...require('./security-hardening').sharedStore(pool,config,'shopping-ai'),windowMs:3600000,limit:12,standardHeaders:'draft-8',legacyHeaders:false});
