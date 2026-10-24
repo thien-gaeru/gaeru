@@ -39,6 +39,7 @@
         if(d.hasMore&&!before&&!first)setTimeout(()=>refresh(),0);
       }finally{busy=false;}
     }
+    form.elements.body.addEventListener('focus',()=>{actions.hidden=true;plus.setAttribute('aria-expanded','false');root.querySelector('[data-chat-reference]').hidden=true;});
     plus.onclick=()=>{actions.hidden=!actions.hidden;plus.setAttribute('aria-expanded',String(!actions.hidden));};
     root.querySelector('[data-chat-earlier]').onclick=()=>refresh(messages.firstElementChild?.dataset.messageId).catch(e=>feedback.textContent=e.message);
     root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>root.querySelector('[data-file="'+button.dataset.pick+'"]').click());

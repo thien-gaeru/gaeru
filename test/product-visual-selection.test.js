@@ -11,4 +11,12 @@ test('visual product selection updates the exact cart variant, price, stock and 
  assert.equal(node('[data-add-to-cart]').dataset.addToCart,'two');assert.equal(node('[data-add-to-cart]').disabled,true);assert.equal(node('[data-selected-price]').textContent,'120000');assert.equal(node('[data-product-main-image]').src,'/two.png');assert.equal(node('[data-stock-note]').textContent,'Hết hàng');
  root.listeners.click({target:{closest:s=>s==='[data-option-group]'?{dataset:{optionGroup:'Cổng',optionValue:'Type-C'}}:null}});
  assert.equal(node('[data-add-to-cart]').dataset.addToCart,'one');assert.equal(node('[data-add-to-cart]').disabled,false);assert.equal(node('[data-product-main-image]').src,'/one.png');assert.equal(node('[data-stock-note]').textContent,'Còn hàng');
+ const pressed=new Map();const rail={offsetLeft:0,clientWidth:200,scrollTo(){}};
+ const gallery=['/one.png','/two.png'].map((url,index)=>({dataset:{galleryImage:url},parentElement:rail,offsetLeft:index*80,offsetWidth:70,getAttribute(){return pressed.get(url)||'false';},setAttribute(name,value){pressed.set(url,value);},click(){root.listeners.click({target:{closest:s=>s==='[data-gallery-image]'?this:null}});}}));pressed.set('/one.png','true');root.querySelectorAll=s=>s==='[data-gallery-image]'?gallery:[];
+ const start=(x,y)=>root.listeners.touchstart({touches:[{clientX:x,clientY:y}],target:{closest:()=>node('[data-product-main-image]')}});
+ const end=(x,y)=>root.listeners.touchend({changedTouches:[{clientX:x,clientY:y}]});
+ start(200,100);end(100,105);assert.equal(node('[data-product-main-image]').src,'/two.png');assert.equal(node('[data-add-to-cart]').dataset.addToCart,'one');
+ start(100,100);end(105,220);assert.equal(node('[data-product-main-image]').src,'/two.png');
+ start(100,100);end(200,105);assert.equal(node('[data-product-main-image]').src,'/one.png');
+
 });
