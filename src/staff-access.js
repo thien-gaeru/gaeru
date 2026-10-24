@@ -1,7 +1,7 @@
 const { createHash } = require("node:crypto");
 
 const PERMISSIONS = Object.freeze([
-  "dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve",
+  "marketing.read", "marketing.write", "dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve",
   "orders.read", "orders.write", "payments.write", "customers.read", "customers.write",
   "suppliers.read", "suppliers.write", "purchases.read", "purchases.write", "purchases.approve",
   "finance.read", "finance.write", "finance.approve", "reports.read", "staff.read", "staff.write",
@@ -17,7 +17,7 @@ const ROLE_PERMISSIONS = Object.freeze({
   sales: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "orders.read", "orders.write", "customers.read", "customers.write"]),
   warehouse: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "inventory.write", "orders.read", "orders.write", "suppliers.read", "purchases.read", "purchases.write"]),
   accountant: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "orders.read", "payments.write", "customers.read", "suppliers.read", "purchases.read", "finance.read", "finance.write", "reports.read", "audit.read", "payroll.read", "payroll.write", "tax.read", "tax.write", "invoice.read", "invoice.write", "marketplace.read", "marketplace.write"]),
-  viewer: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "orders.read", "customers.read", "suppliers.read", "purchases.read", "finance.read", "reports.read"])
+  viewer: Object.freeze(["marketing.read", "dashboard.read", "catalog.read", "inventory.read", "orders.read", "customers.read", "suppliers.read", "purchases.read", "finance.read", "reports.read"])
 });
 
 const ROLE_LABELS = Object.freeze({

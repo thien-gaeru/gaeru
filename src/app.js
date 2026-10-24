@@ -138,6 +138,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
   app.use("/api/gaeru_ceo",require("./admin-configuration").createAdminConfiguration(pool,config));
+  const marketing=require("./marketing").createMarketing(pool);
+  app.use("/api/gaeru_ceo",marketing.admin);
+  app.use("/api/customer/marketing",marketing.customer);
   const videos=createCatalogVideos(pool);app.use("/api/gaeru_ceo",videos.admin);app.use("/api",videos.publicApi);
   const productWorkspace=createProductWorkspace(pool);
   app.use("/api/gaeru_ceo",productWorkspace.admin);
@@ -163,7 +166,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','configuration.js']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','configuration.js','marketing.js']);
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);

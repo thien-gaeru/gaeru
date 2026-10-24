@@ -389,6 +389,7 @@ async function renderCheckout() {
         <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
       <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
       <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chọn tỉnh/thành</strong></p>
+      <section class="checkout-voucher"><label for="checkout-voucher-code">Voucher của bạn</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã đã lưu trong tài khoản" autocomplete="off"><div><button class="secondary-button" type="button" data-voucher-apply>Áp dụng</button> <button class="secondary-button" type="button" data-voucher-remove>Bỏ mã</button></div><p><a href="account.html#account-offers">Xem ví voucher ↗</a></p><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
       <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>Chọn tỉnh/thành</strong></p>
       <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
     </aside>`;
@@ -396,13 +397,19 @@ async function renderCheckout() {
   const form = root.querySelector("#checkout-form");
   const paymentMethod = form.elements.paymentMethod;
   const paymentHelp = form.querySelector("[data-payment-help]");
+  let voucherDiscount=0,appliedVoucher="";
   const updateShippingTotal = () => {
     const fee = shippingRates[form.elements.city.value];
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chọn tỉnh/thành" : formatPrice(fee);
     root.querySelector("[data-checkout-total]").textContent =
-      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(total + fee);
+      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(total + fee - voucherDiscount);
   };
+  const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
+  const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
+  voucherInput.addEventListener('input',()=>{resetVoucher();voucherFeedback.textContent='';});
+  root.querySelector('[data-voucher-remove]').addEventListener('click',()=>{voucherInput.value='';resetVoucher();voucherFeedback.textContent='Đã bỏ voucher.';});
+  root.querySelector('[data-voucher-apply]').addEventListener('click',async event=>{const code=voucherInput.value.trim().toUpperCase();event.currentTarget.disabled=true;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(voucherInput.value.trim().toUpperCase()!==code)return;if(quote.subtotalVnd!==total)throw Error('Giá sản phẩm đã thay đổi. Tải lại trang để kiểm tra tổng tiền trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;updateShippingTotal();}catch(error){resetVoucher();voucherFeedback.textContent=error.message;}finally{root.querySelector('[data-voucher-apply]').disabled=false;}});
   form.elements.city.addEventListener("change", updateShippingTotal);
   updateShippingTotal();
   const updatePaymentHelp = () => {
@@ -421,6 +428,7 @@ async function renderCheckout() {
     feedback.textContent = "Đang gửi yêu cầu đặt hàng…";
     try {
       if (!csrfToken) csrfToken = (await apiRequest("/api/csrf")).csrfToken;
+      if(voucherInput.value.trim()&&appliedVoucher!==voucherInput.value.trim().toUpperCase())throw Error('Bấm Áp dụng để kiểm tra voucher trước khi đặt hàng.');
       const result = await apiRequest("/api/orders", {
         method: "POST",
         body: JSON.stringify({
@@ -432,6 +440,7 @@ async function renderCheckout() {
             city: form.elements.city.value,
             note: form.elements.note.value
           },
+          voucherCode:appliedVoucher||undefined,
           paymentMethod: paymentMethod.value,
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))
         })
@@ -441,7 +450,7 @@ async function renderCheckout() {
         location.assign(result.paymentUrl);
         return;
       }
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
     } catch (error) {
       feedback.textContent = error.message;
       button.disabled = false;

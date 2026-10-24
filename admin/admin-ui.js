@@ -8,6 +8,7 @@
     care:['GAERU CARE+','Bán hàng','Tiếp nhận yêu cầu và trao đổi trực tiếp trong từng hội thoại.','M3 4h16v12H9l-6 4z M7 8h8 M7 12h5'],
     warranty:['Bảo hành sản phẩm','Bán hàng','Hồ sơ theo mã đơn; tự động cho website, đối chiếu đơn bên ngoài.','M11 2l8 3v6c0 5-8 9-8 9S3 16 3 11V5z M7 11l3 3 5-6'],
     customers:['Khách hàng','Bán hàng','Thông tin liên hệ, đơn hàng và các yêu cầu tài khoản.','M7 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 20v-2a8 6 0 0 1 16 0v2'],
+    marketing:['Marketing','Bán hàng','Voucher, giảm giá và thông báo chiến dịch cho người mua.','M3 7h18v12H3z M8 3l4 4 4-4 M12 7v12'],
     news:['Tin tức','Nội dung & sản phẩm','Soạn bài, kiểm tra bản nháp và quản lý nội dung xuất bản.','M3 3h16v17H3z M6 7h10 M6 11h4v5H6z M13 11h3 M13 15h3'],
     products:['Sản phẩm','Nội dung & sản phẩm','Danh mục, biến thể, giá bán và trạng thái hiển thị.','M11 2l9 5v10l-9 5-9-5V7z M2 7l9 5 9-5 M11 12v10'],
     inventory:['Tồn kho & điều chuyển','Kho & mua hàng','Theo dõi tồn thực tế và lịch sử nghiệp vụ kho.','M3 5h16v15H3z M3 10h16 M8 5V2 M14 5V2 M7 14h8'],
