@@ -13,3 +13,8 @@ test('chat attachment validation rejects executable or forged image content',()=
   assert.equal(fileType({originalname:'file.pdf',buffer:Buffer.from('%PDF-1.7')}),'application/pdf');
   assert.equal(fileType({originalname:'notes.txt',buffer:Buffer.from('Nội dung tiếng Việt')}),'text/plain');
 });
+
+test('AI decision uses a strict handoff schema and human requests bypass the model',async()=>{
+ const {requestsHuman}=require('../src/shopping-chat-ai-first');assert.equal(requestsHuman('Tôi muốn gặp nhân viên'),true);assert.equal(requestsHuman('Chuyển cho người thật giúp tôi'),true);assert.equal(requestsHuman('Tôi không cần nhân viên'),false);assert.equal(requestsHuman('Sản phẩm có Type C không?'),false);
+ const result=await answerAI({config:{OPENAI_API_KEY:'fixture'},product:{name:'Fixture'},question:'Need verified account action',decision:true,transport:async(url,options)=>{const body=JSON.parse(options.body);assert.equal(body.text.format.type,'json_schema');assert.equal(body.text.format.strict,true);return{ok:true,json:async()=>({output:[{content:[{type:'output_text',text:JSON.stringify({answer:'Cần nhân viên kiểm tra.',handoff:true})}]}]})};}});assert.equal(result.handoff,true);
+});

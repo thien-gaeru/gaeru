@@ -30,12 +30,12 @@ async function processChatEmail(pool,config,mailer){
     const row=(await c.query("SELECT * FROM shopping_chat_email_outbox WHERE status='pending' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];if(!row)return null;
     const person=(await recipients(c)).find(r=>r.key===row.account_key&&r.enabled&&r.eligible);
     const thread=(await c.query('SELECT product_name,status,awaiting_admin FROM shopping_chat_threads WHERE id=$1',[row.thread_id])).rows[0];
-    if(!person||!thread||thread.status==='closed'||!thread.awaiting_admin){await c.query("UPDATE shopping_chat_email_outbox SET status='skipped',finished_at=now(),result='Không còn đủ điều kiện hoặc đã được phản hồi' WHERE id=$1",[row.id]);return null;}
+    if(!person||!thread||thread.status==='closed'){await c.query("UPDATE shopping_chat_email_outbox SET status='skipped',finished_at=now(),result='Không còn đủ điều kiện hoặc đã được phản hồi' WHERE id=$1",[row.id]);return null;}
     await c.query("UPDATE shopping_chat_email_outbox SET status='sending',attempted_at=now() WHERE id=$1",[row.id]);return {...row,to:person.email,topic:thread.product_name};
   });if(!job)return false;
   try{
     const link=(config.PUBLIC_BASE_URL||config.smtp.publicBaseUrl||'https://gaeru.org')+'/gaeru_ceo#shopping-chat';
-    const result=await mailer.sendMail({from:config.smtp.from,to:job.to,subject:'GAERU · Có tin nhắn chat mới',text:'Có tin nhắn mới cần phản hồi trong hội thoại: '+job.topic+'\n\nĐăng nhập quản trị để đọc và trả lời: '+link+'\n\nEmail không chứa nội dung tin nhắn hoặc tệp đính kèm. Tối đa một email cho mỗi hội thoại trong 5 phút. Quản trị có thể đổi người nhận tại Chat trực tuyến → Thông báo qua email.',messageId:'<shopping-chat-'+job.id+'@gaeru.org>'});
+    const result=await mailer.sendMail({from:config.smtp.from,to:job.to,subject:job.kind==='handoff'?'GAERU · Chat cần nhân viên hỗ trợ':'GAERU · Phiên chat mới do AI tiếp nhận',text:(job.kind==='handoff'?'Hội thoại đã chuyển cho nhân viên: ':'Có phiên chat mới. AI tiếp nhận trước; nhân viên chỉ cần xử lý khi được chuyển: ')+job.topic+'\n\nĐăng nhập quản trị để đọc và trả lời: '+link+'\n\nEmail không chứa nội dung tin nhắn hoặc tệp đính kèm. Tối đa một email cho mỗi loại thông báo trong mỗi khung 5 phút. Quản trị có thể đổi người nhận tại Chat trực tuyến → Thông báo qua email.',messageId:'<shopping-chat-'+job.id+'@gaeru.org>'});
     const accepted=result?.accepted?.some(v=>String(v.address||v).toLowerCase()===job.to.toLowerCase());
     await pool.query("UPDATE shopping_chat_email_outbox SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'",[job.id,accepted?'sent':result?.rejected?.length?'failed':'unknown',accepted?'SMTP đã tiếp nhận':'Chưa xác định tiếp nhận hoặc SMTP từ chối']);
   }catch{await pool.query("UPDATE shopping_chat_email_outbox SET status='unknown',finished_at=now(),result='Không xác định kết quả SMTP; không tự gửi trùng' WHERE id=$1 AND status='sending'",[job.id]);}
