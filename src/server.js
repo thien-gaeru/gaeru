@@ -25,6 +25,7 @@ async function start() {
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
     console.log(`GAERU standalone store listening on ${host}:${port}`);
+    if(config.NODE_ENV === "production")require("./database-tls-probe").probeDatabaseTls(config).then(result=>console.log("Database TLS diagnostic:",JSON.stringify(result))).catch(()=>console.log("Database TLS diagnostic unavailable"));
   });
 }
 
