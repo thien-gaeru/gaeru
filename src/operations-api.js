@@ -153,7 +153,7 @@ function createOperationsApi(pool) {
     const paging = pagination(count, page, pageSize);
     const result = await pool.query(
       `SELECT s.warehouse_id AS "warehouseId",w.name AS "warehouseName",s.variant_id AS "variantId",v.sku,
-        p.name AS "productName",v.name AS "variantName",s.quantity ${from}
+        p.name AS "productName",v.name AS "variantName",COALESCE(NULLIF(v.image_url,''),p.image_url) AS "imageUrl",s.quantity ${from}
        ORDER BY w.code,v.sku LIMIT $3 OFFSET $4`, [...values, pageSize, (paging.page - 1) * pageSize]
     );
     res.json({ stock: result.rows, pagination: paging, warehouses: await listWarehouses(pool) });

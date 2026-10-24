@@ -1,0 +1,1 @@
+self.addEventListener('notificationclick',event=>{event.notification.close();const target=String(event.notification.data?.target||'notifications');const hash=/^[a-z]+$/.test(target)?target:'notifications';event.waitUntil(clients.openWindow('/gaeru_ceo#'+hash));});

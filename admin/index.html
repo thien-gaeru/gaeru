@@ -8,15 +8,15 @@
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261024-compact">
     <script src="/gaeru_ceo/assets/admin-ui.js?v=20261024-audit" defer></script>
-    <script src="/gaeru_ceo/assets/admin.js?v=20261024-audit" defer></script>
-    <script src="/gaeru_ceo/assets/enterprise.js" defer></script>
-    <script src="/care-live.js?v=20261023-live" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
-    <script src="/gaeru_ceo/assets/owner.js?v=20261024-audit" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261024-config" defer></script>
+    <script src="/gaeru_ceo/assets/enterprise.js?v=20261024-config" defer></script>
+    <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
+    <script src="/gaeru_ceo/assets/owner.js?v=20261024-config" defer></script>
     <script src="/gaeru_ceo/assets/warranty.js?v=20261024-order-groups" defer></script>
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css">
     <link rel="icon" type="image/png" href="/assets/brand/gaeru-logo.png">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-confirm-mail" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-design"></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-config"><script src="/gaeru_ceo/assets/configuration.js?v=20261024-config" defer></script></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -214,10 +214,11 @@
                 <div class="editor-heading"><div><h3>Phí giao hàng theo tỉnh/thành phố</h3><p class="help-text">Phí tính một lần cho mỗi đơn. Chỉ các tỉnh/thành phố được khai báo mới xuất hiện khi khách đặt hàng.</p></div><button class="secondary-button" id="add-shipping-rate" type="button">Thêm tỉnh/thành</button></div>
                 <div id="shipping-rate-list"></div>
               </section>
-              <p class="help-text">Thông tin merchant và khóa bí mật cổng thanh toán chỉ được cấu hình trong secrets của máy chủ, không lưu tại giao diện quản trị.</p>
+              <p class="help-text">Cấu hình cổng thanh toán nằm trong khu vực riêng của chủ doanh nghiệp bên dưới. Khóa bí mật được mã hóa khi lưu.</p>
               <button class="primary-button" type="submit">Lưu cài đặt</button>
               <p class="feedback" data-form-feedback role="alert"></p>
             </form>
+<section class="editor-card" id="system-configuration" data-owner-only hidden></section>
           </section>
           <section class="view-panel enterprise-view" id="inventory-view" hidden></section>
           <section class="view-panel enterprise-view" id="warehouses-view" hidden></section>
