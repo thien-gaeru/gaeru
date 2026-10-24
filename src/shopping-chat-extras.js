@@ -90,7 +90,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     if((await pool.query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 AND request_key=$2',[req.chatThread.id,key])).rows.length)return res.json({message:'Đã trả lời.'});
     const latest=(await pool.query('SELECT id,sender,body FROM shopping_chat_messages WHERE thread_id=$1 ORDER BY id DESC LIMIT 1',[req.chatThread.id])).rows[0];
     if(!latest || latest.sender!=='customer')throw fail('Gửi câu hỏi mới trước khi hỏi AI.');
-    const product=(await require('./store-api').loadProducts(pool)).find(p=>p.id===req.chatThread.product_id);
+    const product=req.chatThread.product_id?(await require('./store-api').loadProducts(pool)).find(p=>p.id===req.chatThread.product_id):{name:'Hỗ trợ GAERU',description:'Hỗ trợ tư vấn sản phẩm, đơn hàng và sau mua. Liên hệ business@gaeru.com hoặc 082 919 1080. Với thông tin đơn hàng, chính sách hoặc sản phẩm chưa có dữ liệu, hãy đề nghị nhân viên tiếp nhận.',variants:[]};
     if(!product)throw fail('Sản phẩm không còn được đăng bán.',404);
     if(aiActive>=2)throw fail('AI đang bận. Thử lại sau.',429);
     aiActive++;
