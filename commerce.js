@@ -213,13 +213,11 @@ function renderProduct() {
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
   root.innerHTML = `
-    <section class="product-detail section-wrap">
-      <div class="product-detail-art"><img data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}"><img src="${escapeHtml(url)}" alt="" loading="lazy"></button>`).join("")}</div></div>
+    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></header>
+    <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
+      <div class="product-detail-art"><img data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===(selected?.imageUrl||product.imageUrl)}"><img src="${escapeHtml(url)}" alt="" loading="lazy"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
-        <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
-        <h1>${escapeHtml(product.name)}</h1>
-        ${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}
-        ${["k9","m3","p01","g1-ultra"].includes(product.slug)?`<a class="text-link" href="discover-${product.slug}.html">Khám phá ${escapeHtml(product.name)} ↗</a>`:""}
+        <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
         <p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p>
         <div class="detail-actions">
@@ -232,6 +230,7 @@ function renderProduct() {
         </div>
       </div>
     </section>
+    <section class="product-information section-wrap" id="product-information"><header><p class="eyebrow">TÌM HIỂU SẢN PHẨM</p><h2>${escapeHtml(product.name)}. <span>Chi tiết cho lựa chọn của bạn.</span></h2></header>${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}</section>
     <section class="detail-more"><p class="eyebrow">Khám phá thêm</p><h2>Thiết bị khác. Cùng cảm hứng.</h2><a class="text-link" href="shop.html">Xem toàn bộ cửa hàng <span aria-hidden="true">›</span></a></section>`;
 
   const selector = root.querySelector("#product-variant");
@@ -250,9 +249,9 @@ function renderProduct() {
     button.disabled = variant.stockQuantity === 0;
     root.querySelectorAll("[data-option-group]").forEach(b=>b.setAttribute("aria-pressed",String(variant.options?.[b.dataset.optionGroup]===b.dataset.optionValue)));
     root.querySelectorAll("[data-visual-variant]").forEach(b=>b.setAttribute("aria-pressed",String(variant.id===b.dataset.visualVariant)));
-    const image=root.querySelector("[data-product-main-image]");image.src=variant.imageUrl||product.imageUrl;image.alt=variant.name+" · "+product.name;
+    const image=root.querySelector("[data-product-main-image]");image.src=variant.imageUrl||product.imageUrl;image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.galleryImage===(variant.imageUrl||product.imageUrl))));
   });
-  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=imageButton.dataset.galleryImage;return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}});
+  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=imageButton.dataset.galleryImage;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}});
 }
 
 function renderCart() {
