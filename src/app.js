@@ -1,4 +1,6 @@
+const {createAdminNotifications}=require('./admin-notifications');
 const {createNewsAI}=require("./news-ai");
+const {createCatalogVideos}=require('./catalog-videos');
 const {createProductWorkspace}=require("./product-workspace");
 const {createAccountSecurity}=require("./account-security");
 const {createNewsPublicApi,createNewsAdminApi}=require("./news-api");
@@ -104,6 +106,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     mailer: customerMailer
   }));
   app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy);
+  app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use("/api/gaeru_ceo", createOperationsApi(pool));
   app.use("/api/gaeru_ceo", createFinanceApi(pool));
@@ -114,6 +117,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createNewsAI(pool,config));
   app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
+  const videos=createCatalogVideos(pool);app.use("/api/gaeru_ceo",videos.admin);app.use("/api",videos.publicApi);
   const productWorkspace=createProductWorkspace(pool);
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
@@ -133,7 +137,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css']);
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
     res.set('Cache-Control','no-store');
