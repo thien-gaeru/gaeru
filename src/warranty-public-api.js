@@ -14,6 +14,7 @@ const contactSchema=z.object({
 const requestSchema=z.object({
  channel:z.enum(['website','shopee','tiktok','lazada']),
  externalOrderNumber:z.string().trim().min(3).max(100),
+ purchaseDate:z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/).refine(v=>v>='2000-01-01'&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v&&v<=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),'Ngày mua không hợp lệ hoặc nằm trong tương lai.').optional(),
  productName:z.string().trim().min(2).max(200),
  serial:z.string().trim().max(80).regex(/^[A-Za-z0-9 ._/-]*$/).default(''),
  contact:contactSchema,requestKey:z.string().uuid()
@@ -40,9 +41,9 @@ function createWarrantyPublicApi(pool){
     const claim=(await client.query('INSERT INTO warranty_order_claims(channel,order_key) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING order_key',[a.channel,orderKey])).rows[0];
     if(!claim)return {status:409,error:'Mã đơn này đã được gửi đăng ký hoặc đã kích hoạt bảo hành. Không thể gửi lại; vui lòng liên hệ GAERU nếu cần điều chỉnh.'};
     const activation=(await client.query(`INSERT INTO warranty_activations
-     (customer_id,channel,external_order_number,external_product_name,serial,request_key,request_hash,guest_owner_hash,contact_name,contact_phone,contact_address,contact_city)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,status`,
-     [customerId,a.channel,a.externalOrderNumber,a.productName,a.serial.toUpperCase()||null,a.requestKey,hash,guestHash,a.contact.fullName,a.contact.phone,a.contact.address,a.contact.city])).rows[0];
+     (customer_id,channel,external_order_number,external_product_name,serial,request_key,request_hash,guest_owner_hash,contact_name,contact_phone,contact_address,contact_city,claimed_purchase_date)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id,status`,
+     [customerId,a.channel,a.externalOrderNumber,a.productName,a.serial.toUpperCase()||null,a.requestKey,hash,guestHash,a.contact.fullName,a.contact.phone,a.contact.address,a.contact.city,a.purchaseDate||null])).rows[0];
     await appendAudit(client,{actor:{username:customerId||'guest',source:customerId?'customer':'guest'},action:'warranty.request',entityType:'warranty',entityId:activation.id,metadata:{channel:a.channel}});
     return {status:201,activation};
    });

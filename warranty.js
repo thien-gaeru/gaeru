@@ -26,6 +26,7 @@
         <fieldset data-w-external>
           <legend>Thông tin mua hàng</legend>
           <label><span data-w-order-label>Mã đơn hàng website</span><input name="externalOrderNumber" minlength="3" maxlength="100" autocomplete="off" required></label>
+          <label>Ngày mua trên chứng từ<input name="purchaseDate" type="date" min="2000-01-01" max="${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}" required></label>
           <label>Sản phẩm / phiên bản đã mua<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 1 Mic · Type-C" required></label>
           <p class="care-field-note">Nhập mã đơn theo lịch sử mua hàng của kênh đã chọn. Hồ sơ cần được GAERU đối chiếu; chưa kết nối xác minh tự động với sàn.</p>
         </fieldset>
@@ -134,7 +135,7 @@
       const contact=Object.fromEntries(['fullName','phone','address','city'].map(name=>[name,form.elements[name].value]));
       const account=form.elements.source.value==='account';
       if(account&&(form.elements.orderItemId.disabled||!form.elements.orderItemId.value))throw Error('Chọn sản phẩm trong đơn hàng trước khi đăng ký.');
-      const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,contact};
+      const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,...(form.elements.purchaseDate?.value?{purchaseDate:form.elements.purchaseDate.value}:{}),contact};
       if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=crypto.randomUUID();}
       const data=await api(account?'/api/customer/warranties':'/api/warranty-requests','POST',{...body,requestKey:key});
       feedback.textContent='Đã tiếp nhận đăng ký. Mã hồ sơ: '+data.activation.id+'. GAERU sẽ đối chiếu đơn và ngày mua trước khi xác nhận kích hoạt.';

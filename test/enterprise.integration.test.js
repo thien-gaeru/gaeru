@@ -288,7 +288,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!JSON.stringify(events).includes(password));
     for (const sql of ["UPDATE audit_events SET action='tamper'", "DELETE FROM audit_events", "TRUNCATE audit_events"]) await assert.rejects(pool.query(sql), /append-only/);
     await migrateDatabase(pool);
-    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 19);
+    assert.equal((await pool.query("SELECT COUNT(*)::int total FROM schema_migrations")).rows[0].total, 20);
     const balances = await pool.query("SELECT v.stock_quantity,COALESCE(SUM(s.quantity),0)::int total FROM product_variants v LEFT JOIN warehouse_stock s ON s.variant_id=v.id GROUP BY v.id");
     assert.ok(balances.rows.every((row) => row.stock_quantity === row.total));
   });
@@ -357,7 +357,8 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     await account.ok('/api/customer-auth/login','POST',{email:'second@example.test',password:'Customer-test-password-2026'});
     await account.ok('/api/csrf');
     const contact={fullName:'Warranty Customer',phone:'0900000000',address:'123 Warranty Street',city:'Hồ Chí Minh'};
-    const data={channel:'shopee',externalOrderNumber:'SHOPEE-TEST-001',productName:'GAERU K9 · Type-C',serial:'EXTERNAL-SERIAL-01',contact,requestKey:randomUUID()};
+    const data={channel:'shopee',externalOrderNumber:'SHOPEE-TEST-001',productName:'GAERU K9 · Type-C',purchaseDate:'2026-01-01',serial:'EXTERNAL-SERIAL-01',contact,requestKey:randomUUID()};
+    assert.equal((await guest.request('/api/warranty-requests','POST',{...data,purchaseDate:'2026-02-30'})).status,400);assert.equal((await guest.request('/api/warranty-requests','POST',{...data,purchaseDate:'2099-01-01'})).status,400);
     const ordersBefore=(await pool.query('SELECT count(*)::int total FROM orders')).rows[0].total;
     const saved=(await guest.ok('/api/warranty-requests','POST',data,201)).activation;
     assert.equal(saved.status,'pending');
@@ -380,6 +381,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.ok(!(await account.ok('/api/customer/warranties')).activations.some(w=>w.id===saved.id));
     const row=(await owner.ok('/api/gaeru_ceo/warranties')).activations.find(w=>w.id===saved.id);
     assert.equal(row.contactName,contact.fullName);assert.equal(row.contactAddress,contact.address);assert.equal(row.orderNumber,data.externalOrderNumber);
+    assert.equal(row.claimedPurchaseDate,'2026-01-01');assert.equal(row.purchaseDate,null);
     assert.equal(row.channel,'shopee');assert.equal(row.productName,data.productName);
     assert.equal((await sales.request('/api/gaeru_ceo/warranties/'+saved.id,'PATCH',{status:'active',purchaseDate:'2026-01-01',reason:'Proof checked',version:1})).status,403);
     await owner.ok('/api/gaeru_ceo/warranties/'+saved.id,'PATCH',{status:'active',purchaseDate:'2026-01-01',reason:'Đã đối chiếu chứng từ mua trên sàn.',version:1});
@@ -423,4 +425,6 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal((await owner.ok('/api/gaeru_ceo/owner')).owner.role,'owner');
     assert.ok((await owner.ok('/api/gaeru_ceo/audit-logs')).events.some(e=>e.action==='owner.revoke_staff_sessions'));
   });
+  await context.test('warranty pagination keeps every product of each order together',async()=>{await pool.query("INSERT INTO warranty_activations(channel,external_order_number,external_product_name,request_key) SELECT 'shopee','GROUP-PAGE-'||g::text,'Pagination Product '||n::text,gen_random_uuid() FROM generate_series(1,26) g CROSS JOIN generate_series(1,2) n");const first=await owner.ok('/api/gaeru_ceo/warranties?q=GROUP-PAGE-&page=1'),second=await owner.ok('/api/gaeru_ceo/warranties?q=GROUP-PAGE-&page=2');assert.equal(first.activations.length,50);assert.equal(new Set(first.activations.map(w=>w.orderKey)).size,25);assert.equal(first.pagination.hasNext,true);assert.equal(second.activations.length,2);assert.equal(second.pagination.hasNext,false);const before=new Set(first.activations.map(w=>w.orderKey));assert.ok(second.activations.every(w=>!before.has(w.orderKey)));});
+
 });

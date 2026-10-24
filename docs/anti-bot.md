@@ -1,6 +1,6 @@
 # Cloudflare Turnstile
 
-Tạo widget Managed tại https://dash.cloudflare.com/ → Turnstile → Add widget. Cho phép hostname gaeru.org (và www.gaeru.org nếu website thực sự dùng). Trong cấu hình môi trường Node.js tại Hostinger, thêm TURNSTILE_SITE_KEY (công khai), TURNSTILE_SECRET_KEY (bí mật) và giữ PUBLIC_BASE_URL=https://gaeru.org. Triển khai lại ứng dụng sau khi lưu. Không đưa Secret key vào trình duyệt, kho Git hoặc ảnh chụp công khai. Không dùng khóa thử nghiệm trên production.
+Tạo widget Managed tại https://dash.cloudflare.com/ → Turnstile → Add widget. Cho phép hostname gaeru.org (và www.gaeru.org nếu website thực sự dùng). Trong cấu hình môi trường Node.js tại Hostinger, thêm TURNSTILE_SITE_KEY (công khai), TURNSTILE_SECRET_KEY (bí mật) và giữ PUBLIC_BASE_URL=https://gaeru.org. Bấm Apply changes rồi khởi động lại ứng dụng để áp dụng biến chạy lúc khởi động; có thể dùng Redeploy nếu không thấy thay đổi. Không đưa Secret key vào trình duyệt, kho Git hoặc ảnh chụp công khai. Không dùng khóa thử nghiệm trên production.
 
 Nếu thiếu khóa, CAPTCHA chưa được bật; thông báo quản trị nhắc cần cấu hình. Không tự lấy khóa hoặc tạo tài khoản Cloudflare thay khách. Các giới hạn yêu cầu hiện hữu vẫn hoạt động.
 
