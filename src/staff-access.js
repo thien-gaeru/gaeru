@@ -77,6 +77,10 @@ function createAdminAccess(pool, config) {
       req.admin = null;
       req.admin = await resolveAdminSession(req, pool, config);
       if (!req.admin) return res.status(401).json({ error: "Phiên quản trị đã hết hạn hoặc không còn quyền truy cập. Vui lòng đăng nhập lại." });
+      if(require('./security-hardening').required(config)){
+        if(await require('./security-hardening').enrollment(config,req,req.admin))return res.status(403).json({code:'MFA_SETUP_REQUIRED',error:'Bật xác thực hai yếu tố trong Cài đặt bảo mật tài khoản trước khi sử dụng quản trị.'});
+        if(req.session.adminMfaVerified!==true){delete req.session.admin;return res.status(401).json({error:'Đăng nhập lại và xác thực hai yếu tố để tiếp tục.'});}
+      }
       next();
     } catch (error) {
       next(error);

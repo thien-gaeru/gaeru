@@ -11,7 +11,7 @@ const hash=value=>createHash('sha256').update(value).digest('hex');
 const schema=z.object({email:z.string().trim().email().max(254).transform(v=>v.toLowerCase()),phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).transform(v=>v.replace(/[().\-\s]/g,'')).refine(v=>/^\+?\d{8,15}$/.test(v)),password:z.string().min(1).max(200)}).strict();
 const fail=(status,message)=>Object.assign(Error(message),{status});
 function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
- if(mailer===undefined&&smtpConfig)mailer=nodemailer.createTransport({host:smtpConfig.host,port:smtpConfig.port,secure:smtpConfig.secure,auth:{user:smtpConfig.user,pass:smtpConfig.password},connectionTimeout:10000,greetingTimeout:10000,socketTimeout:20000});
+ if(mailer===undefined&&smtpConfig)mailer=nodemailer.createTransport(require('./smtp-security').smtpOptions(smtpConfig));
  const router=Router();
  router.use(async(req,res,next)=>{try{const id=req.session?.customer?.id;if(!id)return res.status(401).json({error:'Đăng nhập tài khoản để xác nhận thay đổi thông tin.'});const found=(await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true',[id])).rows[0];if(!found)return res.status(401).json({error:'Tài khoản không còn hoạt động.'});req.customerId=id;next();}catch(e){next(e);}});
  router.post('/request',requireCsrf,rateLimit({windowMs:60*60*1000,limit:5,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều yêu cầu đổi thông tin. Vui lòng thử lại sau.'}}),async(req,res,next)=>{
