@@ -35,6 +35,10 @@ function createWarrantyPublicApi(pool){
      if(previous.request_hash!==hash||previous.guest_owner_hash!==guestHash)return {status:409,error:'Mã yêu cầu đã được sử dụng. Vui lòng tải lại biểu mẫu.'};
      return {status:200,activation:{id:previous.id,status:previous.status}};
     }
+    const orderKey=a.externalOrderNumber.replace(/\s/g,'').toUpperCase();
+    if((await client.query("SELECT id FROM orders WHERE upper(regexp_replace(order_number,'[[:space:]]','','g'))=$1 LIMIT 1",[orderKey])).rows.length)return {status:409,error:'Mã đơn đã có trong hệ thống website. Bảo hành được kích hoạt tự động sau khi hoàn tất và thanh toán; không gửi đăng ký lại.',code:'WARRANTY_AUTOMATIC'};
+    const claim=(await client.query('INSERT INTO warranty_order_claims(channel,order_key) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING order_key',[a.channel,orderKey])).rows[0];
+    if(!claim)return {status:409,error:'Mã đơn này đã được gửi đăng ký hoặc đã kích hoạt bảo hành. Không thể gửi lại; vui lòng liên hệ GAERU nếu cần điều chỉnh.'};
     const activation=(await client.query(`INSERT INTO warranty_activations
      (customer_id,channel,external_order_number,external_product_name,serial,request_key,request_hash,guest_owner_hash,contact_name,contact_phone,contact_address,contact_city)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,status`,

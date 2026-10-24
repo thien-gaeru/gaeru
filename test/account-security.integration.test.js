@@ -63,7 +63,7 @@ test('owner credentials and recovery, email and app MFA, backup codes and sessio
  assert.equal(messages.length,mailCount);assert.equal((await login.ok('/api/customer-auth/me')).authenticated,true);
  await owner.login('owner');await owner.security('/login/complete',{code:code()});
  const deletionBody={reason:'Khách liên hệ và đã đối chiếu thông tin.',confirmed:true};
- await owner.ok('/api/gaeru_ceo/customers/'+customerId+'/delete','POST',deletionBody);
+ await owner.ok('/api/gaeru_ceo/customers/'+customerId+'/delete','POST',deletionBody);assert.equal((await login.ok('/api/customer-auth/me')).authenticated,true);const confirmationToken=new URL(messages.at(-1).text.match(/https:\/\/[^\s]+/)[0]).searchParams.get('confirmDeletion');assert.ok(confirmationToken);await login.ok('/api/account-deletion/confirm','POST',{token:confirmationToken});
  assert.equal((await login.ok('/api/customer-auth/me')).authenticated,false);
  assert.equal((await login.request('/api/customer-auth/login','POST',{email:'customer@example.invalid',password})).status,403);
  assert.equal((await owner.request('/api/gaeru_ceo/customers/'+customerId,'PATCH',{active:true})).status,404);

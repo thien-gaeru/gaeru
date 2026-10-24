@@ -38,10 +38,11 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
+        frameSrc: ["'self'", "https://challenges.cloudflare.com"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", "https://challenges.cloudflare.com"],
         mediaSrc: ["'self'", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
@@ -57,6 +58,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if(/^\/(?:admin(?:\/|$)|api\/admin(?:\/|$))/i.test(pathname))return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });
+  app.use(require("./bot-protection").createBotProtection(pool,config));
   app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
   app.use(express.json({ limit: "32kb" }));
@@ -77,6 +79,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
+  app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
   app.get("/api/health", async (_req, res, next) => {
     try {
       await pool.query("SELECT 1");
@@ -86,6 +89,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     }
   });
 
+  app.get('/api/bot-protection',(_req,res)=>res.set('Cache-Control','no-store').json({enabled:Boolean(config.TURNSTILE_SITE_KEY&&config.TURNSTILE_SECRET_KEY&&config.PUBLIC_BASE_URL)}));
   app.get("/api/csrf", (req, res) => {
     const csrfToken = getCsrfToken(req);
     req.session.save((error) => {
@@ -107,7 +111,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   }));
   app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy);
   app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
-  app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool));
+  app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool,config,customerMailer));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use("/api/gaeru_ceo", createOperationsApi(pool));
   app.use("/api/gaeru_ceo", createFinanceApi(pool));
