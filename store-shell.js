@@ -1,6 +1,6 @@
 const headerRoot = document.querySelector("#site-header");
 const footerRoot = document.querySelector("#site-footer");
-const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+const escapeShellHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
 const anonymousEmptyCartMarkup = `
@@ -14,7 +14,7 @@ const anonymousEmptyCartMarkup = `
     </nav>
   </div>`;
 
-Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU CARE+</a></nav></div>`;}});
+Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeShellHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU CARE+</a></nav></div>`;}});
 document.addEventListener('gaeru:customer-updated',()=>{const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
 
 if (headerRoot) {
@@ -290,8 +290,8 @@ searchInput?.addEventListener("input", () => {
     }
     searchResults.innerHTML = `<p class="search-results-label">Sản phẩm phù hợp</p>${matches.map((product, index) => `
       <a class="search-result" href="product.html?id=${encodeURIComponent(product.slug)}">
-        <img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy">
-        <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.description)}</small></span>
+        <img src="${escapeShellHtml(product.imageUrl)}" alt="" loading="lazy">
+        <span><strong>${escapeShellHtml(product.name)}</strong><small>${escapeShellHtml(product.description)}</small></span>
         <b aria-hidden="true">›</b>
       </a>`).join("")}`;
   }, 100);
