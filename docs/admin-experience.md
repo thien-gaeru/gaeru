@@ -10,6 +10,6 @@ Biến thể: mẫu Cổng kết nối, Bộ micro, Màu sắc; có thể sửa 
 
 Khách yêu cầu xóa trong Cài đặt bảo mật tài khoản, cần mật khẩu và mã hai yếu tố nếu đã bật. Máy chủ gửi liên kết một lần, hiệu lực 30 phút, đến email đăng ký. Khách đăng nhập đúng tài khoản và bấm xác nhận trong trang liên kết. Không xóa bằng truy cập GET. Sai tài khoản, mật khẩu, liên kết hết hạn/đã dùng hoặc thông tin bảo mật thay đổi sẽ không xóa. Có chống CSRF và giới hạn yêu cầu. Email chưa gửi được không kích hoạt yêu cầu hợp lệ.
 
-Xác nhận xóa sẽ làm tài khoản ngừng đăng nhập, thay thông tin hồ sơ bằng dữ liệu vô danh, xóa sổ địa chỉ, yêu cầu đổi liên hệ, mã khôi phục và mã xác minh cũ; thu hồi phiên bảo mật. Dữ liệu đơn hàng, chứng từ và nội dung hỗ trợ phát sinh vẫn được giữ để đối chiếu, được nêu rõ trước khi yêu cầu và xác nhận. Đây không phải xóa toàn bộ dữ liệu giao dịch. Tài khoản đã xóa không thể mở khóa trong quản trị.
+Xác nhận xóa chuyển tài khoản sang chờ xóa. Trong 30 ngày khách đăng nhập lại để tự khôi phục; từ sau 30 ngày đến trước 1 năm cần quản trị hỗ trợ; đủ 1 năm tài khoản bị xóa vĩnh viễn theo tác vụ định kỳ. Xem account-retention.md cho phạm vi dữ liệu và cách vận hành.
 
 Kiểm thử dùng PostgreSQL nhúng, email giả lập và tệp media kiểm tra giao thức. Không gửi yêu cầu xóa hay email kiểm thử đến khách trên production. Kiểm tra giao diện trực tiếp và phát video thực chưa thực hiện khi trình duyệt điều khiển không khả dụng.

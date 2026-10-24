@@ -385,7 +385,7 @@ function createStoreApi(pool, { ordersEnabled = false, vnpayConfig = null, inven
       const pageCount = Math.max(1, Math.ceil(total / pageSize));
       const page = Math.min(requestedPage, pageCount);
       const result = await pool.query(
-        `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,c.deleted_at AS "deletedAt",
+        `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,c.deleted_at AS "deletedAt",c.deletion_recoverable AS "deletionRecoverable",(c.deleted_at>now()-interval '1 year') AS "canRestore",
                 c.email_verified_at IS NOT NULL AS "emailVerified", c.created_at AS "createdAt",
                 COUNT(o.id)::int AS "orderCount", MAX(o.created_at) AS "lastOrderAt"
          FROM customers c

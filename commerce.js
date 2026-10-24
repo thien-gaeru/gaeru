@@ -234,7 +234,7 @@ function renderProduct() {
       <div class="product-detail-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h1>${escapeHtml(product.name)}</h1>
-        <p class="detail-description">${escapeHtml(product.description)}</p><div class="product-description-media">${(product.descriptionMedia||[]).map(m=>`<figure>${m.type==='image'?`<img loading="lazy" src="${escapeHtml(m.url)}" alt="${escapeHtml(m.alt)}">`:`<video controls playsinline preload="metadata" aria-label="${escapeHtml(m.alt)}" src="${escapeHtml(m.url)}"></video>`}${m.caption?`<figcaption>${escapeHtml(m.caption)}</figcaption>`:''}</figure>`).join('')}</div>
+        ${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}
         ${["k9","m3","p01","g1-ultra"].includes(product.slug)?`<a class="text-link" href="discover-${product.slug}.html">Khám phá ${escapeHtml(product.name)} ↗</a>`:""}
         ${variantField}
         <p class="stock-note" data-stock-note>${selected ? (selected.stockQuantity ? `Còn ${selected.stockQuantity} sản phẩm` : "Phiên bản hiện đã hết hàng") : "Sản phẩm chưa có phiên bản được mở bán."}</p>

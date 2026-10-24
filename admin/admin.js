@@ -594,10 +594,11 @@ function renderCustomers() {
     <article class="customer-card">
       <div class="customer-card-header">
         <div><h3>${escapeHtml(customer.fullName)}</h3><p>${escapeHtml(customer.email)} · ${escapeHtml(customer.phone)}</p></div>
-        <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.deletedAt ? "Đã xóa hồ sơ" : customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
+        <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.deletedAt ? (customer.deletionRecoverable?"Chờ xóa tài khoản":"Đã xóa hồ sơ") : customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
       </div>
       <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh email" : "Chưa xác minh email"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
       <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") && !customer.deletedAt ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}</div>
+      ${customer.deletedAt&&customer.deletionRecoverable&&customer.canRestore&&can('customers.write')?`<details class="customer-restore"><summary>Khôi phục tài khoản</summary><form data-customer-restore="${escapeHtml(customer.id)}"><p>Ngày xác nhận xóa: ${new Date(customer.deletedAt).toLocaleDateString('vi-VN')}. Khôi phục giữ nguyên mật khẩu và xác thực hai yếu tố.</p><label>Lý do khôi phục<textarea name="reason" required minlength="10" maxlength="500" rows="2"></textarea></label><button class="secondary-button">Xác nhận khôi phục</button><p role="status"></p></form></details>`:''}
       <div class="customer-detail" data-customer-detail-panel="${escapeHtml(customer.id)}" hidden></div>
     </article>`).join("");
   pagination.hidden = state.customerPagination.pageCount <= 1;
@@ -933,3 +934,5 @@ document.querySelector(".sidebar-toggle").addEventListener("click", (event) => {
 });
 window.GAERUAdmin = Object.freeze({ request, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
 initialize();
+
+document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});

@@ -107,6 +107,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   }));
   app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy);
   app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
+  app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use("/api/gaeru_ceo", createOperationsApi(pool));
   app.use("/api/gaeru_ceo", createFinanceApi(pool));
