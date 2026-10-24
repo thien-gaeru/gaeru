@@ -18,6 +18,7 @@ const orderSchema = z.object({
     city: z.string().trim().min(2).max(120),
     note: z.string().trim().max(1000).default("")
   }),
+  expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
   paymentMethod: z.enum(["cod", "vnpay"]),
   items: z.array(z.object({
@@ -54,6 +55,7 @@ async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
     ${visibility}
     ORDER BY p.sort_order, p.name`;
   const result = await pool.query(query);
+  if(!includeDrafts){const priced=await require("./product-promotions").applyPromotions(pool,result.rows.flatMap(p=>p.variants));const byId=new Map(priced.map(v=>[v.id,v]));for(const p of result.rows)p.variants=p.variants.map(v=>byId.get(v.id));}
   const needle = search.trim().toLocaleLowerCase("vi");
   if (!needle) return result.rows;
   return result.rows.filter((product) =>
@@ -237,7 +239,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           req.vnpayConfig=await getVnpayConfig(client);
           if(!req.vnpayConfig)throw Object.assign(Error("VNPAY vừa ngừng khả dụng. Vui lòng chọn phương thức khác."),{status:409});
         }
-        const prepared = [];
+        let prepared = [];
         for (const [variantId, quantity] of [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b))) {
           const result = await client.query(
             `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd",
@@ -261,12 +263,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           prepared.push({ ...variant, quantity });
         }
 
+        prepared=await require("./product-promotions").applyPromotions(client,prepared);
         const subtotal = prepared.reduce((sum, item) => sum + item.priceVnd * item.quantity, 0);
         if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) {
           const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
           error.status = 400;
           throw error;
         }
+        if(parsed.data.expectedSubtotalVnd!==undefined&&parsed.data.expectedSubtotalVnd!==subtotal)throw Object.assign(Error("Giá hoặc chương trình đã thay đổi. Tải lại trang để xác nhận giá mới trước khi đặt hàng."),{status:409});
         const shippingResult = await client.query(
           "SELECT setting_value FROM store_settings WHERE setting_key = 'shipping_rates' FOR SHARE"
         );
@@ -309,10 +313,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         for (const item of prepared) {
           await client.query(
             `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
-              unit_price_vnd, quantity, line_total_vnd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
-              item.priceVnd, item.quantity, item.priceVnd * item.quantity]
+              item.priceVnd, item.quantity, item.priceVnd * item.quantity,item.originalPriceVnd,item.promotion]
           );
           if (inventory) await inventory.reserveStock(client, { variantId: item.id, quantity: item.quantity, orderId: createdOrder.id, actor: { username: "customer", source: "customer" } });
           else await client.query(

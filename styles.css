@@ -1048,3 +1048,7 @@ body { overflow-x: clip; }
 @media (max-width: 760px) {
   .menu-link-list .mobile-menu-link { display: flex; }
 }
+
+.store-promotion-note{font-size:13px;color:#6e6e73;line-height:1.6}.store-promotion-note strong{color:#bf4800}
+
+.store-sale-countdown{font-size:14px;font-weight:600;color:#bf4800;font-variant-numeric:tabular-nums}
