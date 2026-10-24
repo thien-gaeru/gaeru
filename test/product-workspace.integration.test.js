@@ -12,7 +12,18 @@ test('product workspace saves variant combinations atomically, protects history 
  const password='Product-owner-2026';const app=createApp({pool,sessionStore:new session.MemoryStore(),config:{NODE_ENV:'test',SESSION_SECRET:'workspace-fixture-session-secret-32',ADMIN_USERNAME:'workspace-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync(password,4)}});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await db.close();});const base=`http://127.0.0.1:${server.address().port}`;let cookie='',csrf='';
  async function api(path,method='GET',body,withCsrf=true){const r=await fetch(base+path,{method,headers:{Cookie:cookie,...(withCsrf?{'X-CSRF-Token':csrf}:{}),...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.headers.get('content-type')?.includes('application/json')?await r.json():null;if(data?.csrfToken)csrf=data.csrfToken;return {status:r.status,data};}
  assert.equal((await api('/api/gaeru_ceo/product-workspace')).status,401);await api('/api/csrf');assert.equal((await api('/api/auth/login','POST',{username:'workspace-owner',password})).status,200);
- const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64'),upload=new FormData();upload.append('image',new Blob([image],{type:'image/png'}),'fixture.png');const uploaded=await api('/api/gaeru_ceo/catalog-images','POST',upload);assert.equal(uploaded.status,201);const url=uploaded.data.imageUrl;
+ const image=await require('sharp')({
+  create: {
+    width: 16,
+    height: 16,
+    channels: 3,
+    background: {
+      r: 80,
+      g: 140,
+      b: 200
+    }
+  }
+}).png().toBuffer(),upload=new FormData();upload.append('image',new Blob([image],{type:'image/png'}),'fixture.png');const uploaded=await api('/api/gaeru_ceo/catalog-images','POST',upload);assert.equal(uploaded.status,201);const url=uploaded.data.imageUrl;
  const video=Buffer.alloc(32);video.writeUInt32BE(32,0);video.write('ftypisom',4,'ascii');const videoForm=new FormData();videoForm.append('video',new Blob([video],{type:'video/mp4'}),'fixture.mp4');const uploadedVideo=await api('/api/gaeru_ceo/catalog-videos','POST',videoForm);assert.equal(uploadedVideo.status,201);const videoUrl=uploadedVideo.data.url;assert.equal((await api(videoUrl)).status,404);
  const privateVideo=await fetch(base+videoUrl.replace('/api/','/api/gaeru_ceo/'),{headers:{Cookie:cookie,Range:'bytes=0-3'}});assert.equal(privateVideo.status,206);assert.equal((await privateVideo.arrayBuffer()).byteLength,4);
  const invalidRange=await fetch(base+videoUrl.replace('/api/','/api/gaeru_ceo/'),{headers:{Cookie:cookie,Range:'bytes=999-1000'}});assert.equal(invalidRange.status,416);
