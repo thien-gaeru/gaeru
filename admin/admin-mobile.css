@@ -120,3 +120,33 @@
  .product-workspace{font-size:15px}
  .product-workspace .workspace-card>p,.product-workspace .help-text,.product-workspace .workspace-form label,.product-workspace .preview-card p{font-size:14px;line-height:1.65}
 }
+
+/* Desktop readability without changing phone breakpoints. */
+@media(min-width:761px){
+ .admin-shell{font-size:16px}
+ .admin-shell .sidebar .nav-item{font-size:16px;line-height:1.5;padding-block:12px}
+ .admin-shell .sidebar .nav-group-label{font-size:13px}
+ .admin-shell .admin-nav-search input{font-size:16px;min-height:46px}
+ .admin-shell .admin-nav-search small{font-size:12px}
+ .admin-shell .sidebar-bottom a,.admin-shell .sidebar-bottom button{font-size:15px}
+ .admin-shell .admin-section-description,.admin-shell .view-panel p,.admin-shell .view-panel label,.admin-shell .view-panel button,.admin-shell .view-panel .row-button{font-size:16px;line-height:1.6}
+ .admin-shell .view-panel small,.admin-shell .view-panel .help-text{font-size:15px;line-height:1.65}
+ .admin-shell .view-panel input:not([type=checkbox]):not([type=radio]),.admin-shell .view-panel select,.admin-shell .view-panel textarea{font-size:16px;min-height:46px}
+ .admin-shell .view-panel h2{font-size:25px;line-height:1.35}
+ .admin-shell .view-panel h3{font-size:21px;line-height:1.4}
+ .admin-shell .topbar h1{font-size:40px}
+ .admin-shell .topbar .eyebrow,.admin-shell .admin-identity{font-size:13px}
+ .admin-shell .enterprise-table,.admin-shell .enterprise-table td,.admin-shell .enterprise-table th{font-size:15px;line-height:1.6}
+ .admin-shell .view-panel .stat-card span,.admin-shell .catalog-summary>article>span{font-size:16px}
+ .admin-shell .view-panel .stat-card strong,.admin-shell .catalog-summary>article>strong{font-size:36px}
+ .admin-shell .view-panel .status-pill{font-size:13px}
+ .admin-shell .view-panel .configuration-panel>summary span{font-size:17px}
+ .admin-shell .view-panel .configuration-panel>summary small{font-size:14px}
+ .admin-shell .view-panel .owner-status-tile>span,.admin-shell .view-panel .owner-status-tile small{font-size:15px}
+ .admin-shell .view-panel .owner-status-tile strong{font-size:22px}
+ #marketing-view .help-text,#marketing-view .marketing-tabs button,#marketing-view .marketing-product-option small,#marketing-view .marketing-email-metrics span{font-size:15px}
+ #marketing-view .enterprise-table-wrap td,#marketing-view .enterprise-table-wrap th{font-size:15px}
+ .product-workspace{font-size:16px}
+ .product-workspace .workspace-form label,.product-workspace .workspace-form input,.product-workspace .workspace-form select,.product-workspace .workspace-form textarea,.product-workspace button{font-size:16px}
+ .product-workspace .workspace-card>p,.product-workspace .help-text,.product-workspace .preview-card p,.product-workspace .workspace-aside nav a{font-size:15px;line-height:1.65}
+}
