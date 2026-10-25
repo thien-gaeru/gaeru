@@ -172,7 +172,7 @@
     try {
       const session=await api('/api/customer-auth/me');
       if(session.authenticated) {
-        customer=session.customer;fillContact(customer);
+        customer=session.customer;fillContact(customer,false);
         form.elements.source.querySelector('[value=account]').disabled=false;
         form.elements.source.value='account';changeSource();
         section.querySelector('[data-w-session]').textContent='Đăng ký cho '+customer.fullName+'. Vui lòng kiểm tra thông tin trước khi gửi.';

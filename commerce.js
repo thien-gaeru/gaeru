@@ -95,7 +95,8 @@ function getPriceLabel(product) {
 
 function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];return `<p class="store-promotion-note"><strong>${flash?'Flash Sale':'Ưu đãi sản phẩm'}</strong>${flash?` <span data-sale-end="${new Date(end).toISOString()}"></span>`:''} · Giá gốc ${escapeHtml(getPriceLabel({...product,variants:product.variants.map(v=>({...v,priceVnd:v.originalPriceVnd??v.priceVnd}))}))}</p>`;}
 function productCard(product, compact = false) {
-  const discoverUrl = ["k9","m3","p01","g1-ultra"].includes(product.slug) ? "discover-"+product.slug+".html" : "product.html?id="+encodeURIComponent(product.slug);
+  const discoverSlug=product.slug.replace(/^gaeru-/, "");
+  const discoverUrl = ["k9","m3","p01","g1-ultra"].includes(discoverSlug) ? "discover-"+discoverSlug+".html" : "product.html?id="+encodeURIComponent(product.slug);
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
   const action = variants.length === 1 && availableVariants.length === 1
@@ -112,8 +113,8 @@ function productCard(product, compact = false) {
         <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
         <div class="card-actions">
-          <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
-          ${action}
+          <a class="button button-blue" href="${discoverUrl}">Tìm hiểu thêm</a>
+          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua</a>
         </div>
       </div>
       <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
@@ -139,14 +140,15 @@ function renderHomeProducts() {
   grid.innerHTML = products.length
     ? products.map((product) => productCard(product, true)).join("")
     : '<p class="empty-state">Chưa có sản phẩm được xuất bản.</p>';
-  const k9 = products.find((product) => product.slug === "k9");
+  const k9 = products.find((product) => ["k9","gaeru-k9"].includes(product.slug));
   if (k9) {
     const heroImage = document.querySelector(".hero-art img");
     if (heroImage) {
-      heroImage.src = k9.imageUrl;
+      heroImage.src = "/assets/products/k9.webp";
       heroImage.alt = k9.imageAlt;
     }
   }
+  window.GAERUK9Loop?.mountHome();
 }
 
 function renderCatalog() {
@@ -161,7 +163,8 @@ function renderCatalog() {
   let selectedCategory = ["audio", "video", "accessory"].includes(categoryParam) ? categoryParam : "all";
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
-  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  const categoryArtwork=product=>({'gaeru-m3':'/assets/products/m3-home-cutout.webp','gaeru-k9':'/assets/products/k9.webp','gaeru-p01':'/assets/products/p01.webp','gaeru-g1-ultra':'/api/site-media/g1-home'})[product.slug]||product.imageUrl;
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(categoryArtwork(product))}" alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
   });
