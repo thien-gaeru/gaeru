@@ -16,8 +16,7 @@ const TYPES = {
   'image/webp': 'webp'
 };
 
-const KEY_PATTERN =
-  /^(?:products|banners)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
+const KEY_PATTERN = /^(?:(?:products|banners|news)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)|videos\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mp4|chat\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp|heic|mp4|mov|webm|pdf|bin|txt))$/;
 
 let client;
 
@@ -95,7 +94,18 @@ async function deleteProductImage(key) {
   }));
 }
 
+async function uploadAsset(scope,buffer,mimeType){
+ const types={...TYPES,'image/heic':'heic','video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm','application/pdf':'pdf','application/octet-stream':'bin','text/plain':'txt'};
+ const limits={products:8,banners:5,news:5,videos:25,chat:10};
+ const ext=types[mimeType];
+ if(!Object.hasOwn(limits,scope)||!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>limits[scope]*1024*1024||!ext)throw Error('Invalid storage asset');
+ if(['products','banners','news'].includes(scope)&&!TYPES[mimeType]||scope==='videos'&&mimeType!=='video/mp4')throw Error('Invalid storage asset type');
+ const key=scope+'/'+randomUUID()+'.'+ext;checkKey(key);
+ await getClient().send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:buffer,ContentType:mimeType,ContentLength:buffer.length}));
+ return {key};
+}
 module.exports = {
+  uploadAsset,checkKey,
   uploadProductImage,
   downloadProductImage,
   deleteProductImage

@@ -212,6 +212,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.use((error, _req, res, _next) => {
     if (res.headersSent) return;
+    if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;
     if (status >= 400 && status < 500) {
       return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : "Yêu cầu không hợp lệ." });
