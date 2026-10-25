@@ -127,8 +127,8 @@ if (footerRoot) {
           <summary>Khám phá GAERU</summary>
           <div class="footer-links">
             <a href="shop.html">Cửa hàng</a>
-            <a href="product.html?id=k9">GAERU K9</a>
-            <a href="product.html?id=p01">GAERU P01</a>
+            <a href="product.html?id=gaeru-k9">GAERU K9</a>
+            <a href="product.html?id=gaeru-p01">GAERU P01</a>
           </div>
         </details>
         <details class="footer-column" open>

@@ -112,12 +112,13 @@ function productCard(product, compact = false) {
         <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
         <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
+
+      </div>
+      <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
           <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua</a>
         </div>
-      </div>
-      <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
     </article>` : `
     <article class="${cardClass}">
       <a class="catalog-card-image" href="product.html?id=${encodeURIComponent(product.slug)}">
@@ -194,7 +195,7 @@ function renderProduct() {
   const root = document.querySelector("#product-detail");
   if (!root) return;
   const slug = new URLSearchParams(location.search).get("id");
-  const product = products.find((item) => item.slug === slug);
+  const product = products.find((item) => item.slug === slug || item.slug === "gaeru-"+slug);
   if (!product) {
     root.innerHTML = `<section class="not-found section-wrap"><p class="eyebrow">Không tìm thấy sản phẩm</p><h1>Sản phẩm này chưa có hoặc đang được cập nhật.</h1><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></section>`;
     return;

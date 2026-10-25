@@ -95,7 +95,7 @@ function showProductUnavailable(message) {
 }
 
 function loadProductSupport() {
-  const product = window.GAERUStore?.products.find((item) => item.slug === supportProductSlug);
+  const product = window.GAERUStore?.products.find((item) => item.slug === supportProductSlug || item.slug === "gaeru-"+supportProductSlug);
   if (!supportProductSlug) {
     showProductUnavailable("Vui lòng chọn sản phẩm từ danh sách hỗ trợ GAERU.");
   } else if (!product) {
