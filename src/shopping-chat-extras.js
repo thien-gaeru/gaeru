@@ -1,3 +1,4 @@
+const {storeMedia,readMedia}=require('./lib/stored-media');
 const multer = require('multer');
 const { z } = require('zod');
 const { randomUUID } = require('node:crypto');
@@ -38,11 +39,11 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
       const row=(await c.query('SELECT status FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[req.chatThread.id])).rows[0];
       if((await c.query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 AND request_key=$2',[req.chatThread.id,key])).rows.length)return;
       if(row.status==='closed')throw fail('Hội thoại đã đóng.',409);
-      const usage=(await c.query('SELECT COALESCE(sum(octet_length(content)),0)::bigint AS total,COALESCE(sum(octet_length(content)) FILTER(WHERE thread_id IN(SELECT id FROM shopping_chat_threads WHERE owner_key=$1 OR (customer_id IS NOT NULL AND customer_id=$2))),0)::bigint AS thread FROM shopping_chat_files',[req.chatThread.owner_key,req.chatThread.customer_id])).rows[0];
+      const usage=(await c.query('SELECT COALESCE(sum(byte_size),0)::bigint AS total,COALESCE(sum(byte_size) FILTER(WHERE thread_id IN(SELECT id FROM shopping_chat_threads WHERE owner_key=$1 OR (customer_id IS NOT NULL AND customer_id=$2))),0)::bigint AS thread FROM shopping_chat_files',[req.chatThread.owner_key,req.chatThread.customer_id])).rows[0];
       if(Number(usage.total)+req.file.size>1073741824 || Number(usage.thread)+req.file.size>52428800)throw fail('Đã đạt giới hạn lưu tệp. Liên hệ nhân viên để được hỗ trợ.',413);
       if(!isAdmin)await require('./shopping-chat-ai-first').offerHandoff(c,req.chatThread.id,'attachment','Nhân viên GAERU có thể xem tệp và hỗ trợ bạn. Chọn Gặp nhân viên để kết nối.');
       const message=(await c.query('INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,$2,$3,$4) RETURNING id',[req.chatThread.id,isAdmin?'admin':'customer','Tệp đính kèm: '+name,key])).rows[0];
-      await c.query('INSERT INTO shopping_chat_files(message_id,thread_id,name,mime,content) VALUES($1,$2,$3,$4,$5)',[message.id,req.chatThread.id,name,mime,req.file.buffer]);
+      await c.query('INSERT INTO shopping_chat_files(message_id,thread_id,name,mime,content,byte_size) VALUES($1,$2,$3,$4,$5,$6)',[message.id,req.chatThread.id,name,mime,await storeMedia('chat',req.file.buffer,mime),req.file.size]);
       await c.query('UPDATE shopping_chat_threads SET version=version+1,awaiting_admin=$2,updated_at=now() WHERE id=$1',[req.chatThread.id,!isAdmin&&req.chatThread.handling_mode==='human']);
       if(isAdmin)await require('./audit').appendAudit(c,{actor:req.admin,action:'shopping.chat.file',entityType:'shopping_chat',entityId:req.chatThread.id,metadata:{size:req.file.size}});
     });res.status(201).json({message:'Đã gửi tệp.'});
@@ -52,7 +53,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     const file=(await pool.query('SELECT name,mime,content FROM shopping_chat_files WHERE id=$1 AND thread_id=$2',[id,req.chatThread.id])).rows[0];
     if(!file)throw fail('Không tìm thấy tệp.',404);
     const inline=['image/jpeg','image/png','image/webp','video/mp4','video/quicktime','video/webm'].includes(file.mime)&&req.query.download!=='1';
-    const content=Buffer.from(file.content),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Type':file.mime,'Content-Disposition':(inline?'inline':'attachment')+"; filename=download; filename*=UTF-8''"+encodeURIComponent(file.name),'Content-Security-Policy':"sandbox; default-src 'none'"};
+    const content=await readMedia(file.content),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Type':file.mime,'Content-Disposition':(inline?'inline':'attachment')+"; filename=download; filename*=UTF-8''"+encodeURIComponent(file.name),'Content-Security-Policy':"sandbox; default-src 'none'"};
     if(inline&&file.mime.startsWith('video/')){
       headers['Accept-Ranges']='bytes';const range=req.headers.range;
       if(range){const match=/^bytes=(\d*)-(\d*)$/.exec(range);let start,end;
