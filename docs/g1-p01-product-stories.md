@@ -1,0 +1,13 @@
+# G1 ULTRA and P01 product stories
+
+The layout uses original GAERU copy and existing product imagery, with generous whitespace, alternating text/image sections, and expandable original technical information. Main product images preserve proportions through object-fit:contain; hover distortion is disabled. Text and attributes remain escaped. Other product renderers are unchanged.
+
+Reviewed content is in content/product-stories.json. Store staff can subsequently edit description paragraphs and media positions through the product editor. Each paragraph's first line becomes the section heading; “Thông số và thông tin sản phẩm” opens the specifications disclosure.
+
+Data update: scripts/update-product-stories.cjs defaults to transaction rehearsal/rollback. Set DATABASE_URL through the deployment environment. To apply, set PRODUCT_STORY_BACKUP to a new private backup file, then run node scripts/update-product-stories.cjs --apply. It requires the editorial CSS on gaeru.org, rejects changed text/media, preserves variants/prices/stock, and records audit events. --image-only updates only the G1 main image/gallery ordering without publishing description changes.
+
+The G1 primary artwork is catalog image 0779b270-eedf-4585-bc58-2275d25a06ac. It was edited from the original GAERU advertisement using imagegen to remove its frame, background, marketing text and icons, then converted to WebP with alpha. The published primary image/gallery ordering and served bytes were verified; variants/prices/stock were unchanged. Browser/mobile visual verification remains pending because local browser use is disabled in Work settings. Standalone HTML previews were prepared; do not treat them as a verified live deployment.
+
+The owner subsequently requested restoring the advertising text and connection icons. The original advertisement 9b20b771-a130-4b2b-bf95-3283ea680cc2 is again the live primary image and the planned story image. The transparent cutout remains saved for recovery. Original public image bytes were verified after restoration.
+
+Final artwork refinement removes the outer border, Official badge and entire Micro GAERU G1 ULTRA headline while retaining feature copy, icons and physical product branding. Live catalog image is c505fa34-697e-4c8b-90aa-6060e0f4a308. Homepage also adds a G1 ULTRA introduction immediately after the existing P01 story, with discovery and product links; that HTML/CSS change is pending deployment.
