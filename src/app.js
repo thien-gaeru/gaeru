@@ -30,6 +30,8 @@ const { createBusinessApi } = require("./business-api");
 function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
+  const compression=require('compression');
+  app.use(compression({threshold:1024,filter:(req,res)=>!/^\/(?:gaeru_ceo|api\/(?!products(?:\/|$)|news(?:\/|$)))/.test(req.path)&&compression.filter(req,res)}));
   config={...config,accountSecurity:createAccountSecurity(pool,config,customerMailer)};
 
   app.disable("x-powered-by");
@@ -171,7 +173,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
+  const managementAssets=new Set(['admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
@@ -200,6 +202,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     dotfiles: "deny",
     index: "index.html",
     setHeaders(res, file) {
+      if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)&&/^[a-zA-Z0-9._-]{6,80}$/.test(String(res.req.query.v||'')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
       }
