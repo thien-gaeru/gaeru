@@ -347,6 +347,7 @@ async function renderCheckout() {
       </div>`;
     return;
   }
+  root.classList.add("checkout-single");
   root.innerHTML = `
     <form class="checkout-form" id="checkout-form">
       <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> Phí giao hàng được tính theo tỉnh/thành phố bạn chọn.</div>
@@ -368,7 +369,16 @@ async function renderCheckout() {
           <label>Ghi chú <span>(không bắt buộc)</span><input name="note" maxlength="1000"></label>
         </div>
       </div>
-      </details><div class="form-section">
+      </details>    <aside class="checkout-summary cart-summary">
+      <h2>Đơn hàng</h2>
+      ${rows.map(({ quantity, product, variant }) => `
+        <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
+      <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
+      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chọn tỉnh/thành</strong></p>
+      <section class="checkout-voucher"><label for="checkout-voucher-code">Voucher của bạn</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã đã lưu trong tài khoản" autocomplete="off"><div><button class="secondary-button" type="button" data-voucher-apply>Áp dụng</button> <button class="secondary-button" type="button" data-voucher-remove>Bỏ mã</button></div><p><a href="account.html#account-offers">Xem ví voucher ↗</a></p><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
+      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>Chọn tỉnh/thành</strong></p>
+      <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
+    </aside><div class="form-section">
         <h2>Phương thức thanh toán</h2>
         <label>Chọn phương thức
           <select name="paymentMethod">
@@ -378,21 +388,13 @@ async function renderCheckout() {
         </label>
         <p class="payment-placeholder" data-payment-help>GAERU sẽ xác nhận đơn hàng trước khi gửi.</p>
       </div>
-      <p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="privacy.html">Chính sách quyền riêng tư</a>. <a href="terms.html">Điều khoản mua hàng</a>.</p>
+      <p class="checkout-account-notice">Khi đặt hàng, GAERU tạo tài khoản theo email nếu bạn chưa có tài khoản và gửi hướng dẫn đặt mật khẩu. Bạn không tự động đăng ký nhận tin quảng cáo.</p><p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="privacy.html">Chính sách quyền riêng tư</a>. <a href="terms.html">Điều khoản mua hàng</a>.</p>
       <button class="button button-blue" type="submit">Đặt hàng</button>
       <p class="checkout-feedback" id="checkout-feedback" aria-live="polite"></p>
     </form>
-    <aside class="checkout-summary cart-summary">
-      <h2>Đơn hàng</h2>
-      ${rows.map(({ quantity, product, variant }) => `
-        <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
-      <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
-      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chọn tỉnh/thành</strong></p>
-      <section class="checkout-voucher"><label for="checkout-voucher-code">Voucher của bạn</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã đã lưu trong tài khoản" autocomplete="off"><div><button class="secondary-button" type="button" data-voucher-apply>Áp dụng</button> <button class="secondary-button" type="button" data-voucher-remove>Bỏ mã</button></div><p><a href="account.html#account-offers">Xem ví voucher ↗</a></p><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
-      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>Chọn tỉnh/thành</strong></p>
-      <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
-    </aside>`;
+`;
 
+  window.GAERUAddress?.enhance(root);
   const form = root.querySelector("#checkout-form");
   const paymentMethod = form.elements.paymentMethod;
   const paymentHelp = form.querySelector("[data-payment-help]");
@@ -457,7 +459,7 @@ async function renderCheckout() {
         location.assign(result.paymentUrl);
         return;
       }
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
     } catch (error) {
       feedback.textContent = error.message;
       button.disabled = false;

@@ -188,7 +188,7 @@ test("password reset requires matching email and phone, sends a single-use link,
           tokenUsed = true;
           return { rowCount: 1, rows: [] };
         }
-        if (sql.includes("UPDATE customer_password_reset_tokens")) return { rowCount: 1, rows: [] };
+        if (sql.includes("UPDATE customer_password_reset_tokens")||sql.includes("UPDATE customer_account_setup_tokens")) return { rowCount: 1, rows: [] };
         throw new Error(`Unexpected client query: ${sql}`);
       },
       release() {}

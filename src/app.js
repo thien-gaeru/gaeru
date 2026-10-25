@@ -117,6 +117,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/customer/care", createCareCustomerApi(pool));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
+  app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool));
   app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     accountSecurity:config.accountSecurity,
@@ -155,6 +156,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
     next();
   }, createStoreApi(pool, {
+    checkoutAccounts: true,
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     getOrdersEnabled: (client=pool) => require("./admin-configuration").getOrdersEnabled(client,config),
     vnpayConfig: config.vnpay || null,

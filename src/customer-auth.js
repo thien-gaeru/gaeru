@@ -224,11 +224,12 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         if (!resetToken) return false;
 
         const updateResult = await client.query(
-          `UPDATE customers SET password_hash = $2, updated_at = now()
+          `UPDATE customers SET password_hash = $2, checkout_pending=false, updated_at = now()
            WHERE id = $1`,
           [resetToken.customerId, passwordHash]
         );
         if (updateResult.rowCount !== 1) return false;
+        await client.query("UPDATE customer_account_setup_tokens SET used_at=now() WHERE customer_id=$1 AND used_at IS NULL",[resetToken.customerId]);
         if(accountSecurity){await client.query("INSERT INTO account_security(account_key) VALUES($1) ON CONFLICT DO NOTHING",["customer:"+resetToken.customerId]);await client.query("UPDATE account_security SET version=version+1 WHERE account_key=$1",["customer:"+resetToken.customerId]);}
         await client.query(
           "UPDATE customer_password_reset_tokens SET used_at = now() WHERE id = $1",
