@@ -3,9 +3,8 @@ const { createHash } = require('node:crypto');
 const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
-const { uploadProductImage, deleteProductImage } = require('./lib/neon-storage');
 const { optimizeProductImage } = require('./lib/image-optimizer');
-const { readStoredImage, STORAGE_POINTER_PREFIX } = require('./lib/stored-images');
+const { readStoredImage } = require('./lib/stored-images');
 // Only images attached to published products reach this function.
 // Storage objects use immutable keys; a format migration changes the pointer and MIME.
 async function sendPublicCatalogImage(req, res, row) {
@@ -86,22 +85,10 @@ admin.post('/catalog-images',
       });
     }
 
-    let uploadedKey = null;
 
     try {
       const optimized = await optimizeProductImage(b, f.mimetype);
-      if (process.env.NEON_STORAGE_UPLOADS_ENABLED === 'true') {
-        uploadedKey = (
-          await uploadProductImage(optimized.buffer, optimized.mimeType)
-        ).key;
-      }
-
-      const content = uploadedKey
-        ? Buffer.concat([
-            STORAGE_POINTER_PREFIX,
-            Buffer.from(uploadedKey, 'utf8')
-          ])
-        : optimized.buffer;
+      const content = await require('./lib/stored-media').storeMedia('products',optimized.buffer,optimized.mimeType);
 
       const row = (await pool.query(
         'INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',
@@ -112,13 +99,6 @@ admin.post('/catalog-images',
         imageUrl: '/api/catalog-images/' + row.id
       });
     } catch (e) {
-      if (uploadedKey) {
-        try {
-          await deleteProductImage(uploadedKey);
-        } catch (cleanupError) {
-          console.error('Neon Storage cleanup failed:', cleanupError);
-        }
-      }
       if (e.status === 400) return res.status(400).json({error: e.message});
       return next(e);
     }
