@@ -147,13 +147,13 @@ function createOperationsApi(pool) {
     const values = [warehouseId, q];
     const from = `FROM warehouse_stock s JOIN warehouses w ON w.id=s.warehouse_id
       JOIN product_variants v ON v.id=s.variant_id JOIN products p ON p.id=v.product_id
-      WHERE ($1::text='' OR s.warehouse_id=NULLIF($1,'')::uuid)
+      WHERE p.deleted_at IS NULL AND ($1::text='' OR s.warehouse_id=NULLIF($1,'')::uuid)
         AND ($2::text='' OR v.sku ILIKE '%'||$2||'%' OR v.name ILIKE '%'||$2||'%' OR p.name ILIKE '%'||$2||'%')`;
     const count = (await pool.query(`SELECT COUNT(*)::int AS total ${from}`, values)).rows[0].total;
     const paging = pagination(count, page, pageSize);
     const result = await pool.query(
       `SELECT s.warehouse_id AS "warehouseId",w.name AS "warehouseName",s.variant_id AS "variantId",v.sku,
-        p.name AS "productName",v.name AS "variantName",COALESCE(NULLIF(v.image_url,''),p.image_url) AS "imageUrl",s.quantity ${from}
+        p.id AS "productId",p.edit_version AS "productVersion",p.name AS "productName",v.name AS "variantName",COALESCE(NULLIF(v.image_url,''),p.image_url) AS "imageUrl",s.quantity ${from}
        ORDER BY w.code,v.sku LIMIT $3 OFFSET $4`, [...values, pageSize, (paging.page - 1) * pageSize]
     );
     res.json({ stock: result.rows, pagination: paging, warehouses: await listWarehouses(pool) });
@@ -254,7 +254,7 @@ function createOperationsApi(pool) {
       await activeReference(client, "warehouses", data.warehouseId, "Kho nhận hàng");
       const variants = await client.query(
         `SELECT v.id,v.sku,v.name AS "variantName",p.name AS "productName" FROM product_variants v
-         JOIN products p ON p.id=v.product_id WHERE v.id=ANY($1::uuid[]) ORDER BY v.id FOR SHARE OF v`, [data.items.map((item) => item.variantId).sort()]
+         JOIN products p ON p.id=v.product_id WHERE p.deleted_at IS NULL AND v.id=ANY($1::uuid[]) ORDER BY v.id FOR SHARE OF v`, [data.items.map((item) => item.variantId).sort()]
       );
       if (variants.rows.length !== data.items.length) throw inventory.operationError("Một phiên bản trong đơn mua không còn tồn tại.");
       const inserted = await client.query(
