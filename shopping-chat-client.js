@@ -1,10 +1,10 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[];
+    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[], supportReadAt=Date.now();
     root.innerHTML = `<p class="chat-state" data-chat-state>Xin chào! AI của GAERU sẽ tiếp nhận câu hỏi của bạn trước.</p>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
-      <div class="shopping-messages" data-chat-messages aria-live="polite"></div>
+      <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose><div data-chat-selected class="chat-selected"></div>
       <div class="chat-composer"><button type="button" class="chat-plus" aria-label="Thêm đính kèm" aria-expanded="false" aria-controls="${admin?'admin':'customer'}-chat-actions" data-chat-plus data-no-action-feedback>+</button>
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" placeholder="Bạn cần tư vấn điều gì?"></textarea>
@@ -21,21 +21,35 @@
       <input hidden type="file" data-file="camera" accept="image/jpeg,image/png,image/webp" capture="environment">
       <input hidden type="file" data-file="video" accept="video/mp4,video/quicktime,video/webm" capture="environment">
       <p role="status" data-chat-feedback></p></form>
-      ${admin?'':'<div class="chat-ai"><button type="button" data-chat-ai data-no-action-feedback>Gặp nhân viên</button><p data-ai-note>AI tiếp nhận và trả lời tự động qua OpenAI, dựa trên câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm. Không gửi tệp cho AI. Bạn có thể yêu cầu nhân viên bất cứ lúc nào. Không gửi mật khẩu hoặc OTP.</p></div>'}`;
+      ${admin?'':'<div class="chat-ai"><button type="button" data-chat-ai data-no-action-feedback>Gặp nhân viên</button><p data-ai-note>AI tiếp nhận và trả lời tự động qua nhà cung cấp được GAERU cấu hình, dựa trên câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm. Không gửi tệp cho AI. Bạn có thể yêu cầu nhân viên bất cứ lúc nào. Không gửi mật khẩu hoặc OTP.</p></div>'}`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
-    function renderFiles(){root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<span>${escape(f.file.name)} <button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}">×</button></span>`).join('');}
-    function setClosed(){const closed=thread?.status==='closed';send.disabled=closed||sending;form.elements.body.disabled=closed||sending;plus.disabled=closed||sending;actions.querySelectorAll('button').forEach(b=>b.disabled=closed||sending);const human=root.querySelector('[data-chat-ai]');if(human){human.disabled=closed||sending||thread?.handlingMode==='human';human.textContent=thread?.handlingMode==='human'?'Đã chuyển nhân viên':'Gặp nhân viên';}}
+    function media(url,mime,name){
+      if(['image/jpeg','image/png','image/webp','image/heic'].includes(mime))return `<img class="chat-inline-media" src="${escape(url)}" alt="${escape(name)}" loading="lazy">`;
+      if(['video/mp4','video/quicktime','video/webm'].includes(mime))return `<video class="chat-inline-media" controls playsinline preload="metadata" src="${escape(url)}">Thiết bị chưa phát được video này.</video>`;
+      return '';
+    }
+    function attachment(file){const url=base+'/'+id+'/files/'+encodeURIComponent(file.id);return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${Math.ceil(file.size/1024)} KB</a>`;}
+    function release(file){if(file?.url)URL.revokeObjectURL(file.url);}
+    function renderFiles(){root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<figure class="chat-preview">${f.url?media(f.url,f.file.type,f.file.name):''}<figcaption>${escape(f.file.name)}<small>Chưa gửi</small><small data-media-error hidden>Thiết bị chưa xem được định dạng này. Bạn vẫn có thể gửi tệp.</small></figcaption><button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}" ${sending?'disabled':''}>×</button></figure>`).join('');root.querySelectorAll('.chat-preview img,.chat-preview video').forEach(el=>el.addEventListener('error',()=>{el.hidden=true;el.closest('figure').querySelector('[data-media-error]').hidden=false;},{once:true}));}
+    function syncSupport(){
+      const human=root.querySelector('[data-chat-ai]'),closed=thread?.status==='closed';
+      if(human){human.hidden=thread?.handlingMode==='human'||thread?.handoffOffered===true;human.disabled=closed||sending;}
+      const state=root.querySelector('[data-chat-support]');state.hidden=admin||closed||(!thread?.handoffOffered&&thread?.handlingMode!=='human')||thread?.staffReplied===true;
+      if(!state.hidden){const seconds=(thread.handoffWaitSeconds||0)+(Date.now()-supportReadAt)/1000;const html=thread.handoffOffered?'AI chưa thể tiếp tục trả lời. Kết nối nhân viên GAERU để được hỗ trợ.<button type="button" class="chat-handoff-button" data-inline-handoff data-no-action-feedback '+(sending?'disabled':'')+'>Gặp nhân viên</button>':seconds>=300?'Chưa có nhân viên phản hồi sau 5 phút. Gọi <a href="tel:0829191080">082.919.1080</a> để được hỗ trợ nhanh chóng.':'Đang chờ kết nối nhân viên hỗ trợ GAERU…';if(state.dataset.renderKey!==html){state.innerHTML=html;state.dataset.renderKey=html;}}
+    }
+
+    function setClosed(){const closed=thread?.status==='closed';send.disabled=closed||sending;form.elements.body.disabled=closed||sending;plus.disabled=closed||sending;actions.querySelectorAll('button').forEach(b=>b.disabled=closed||sending);syncSupport();}
     async function refresh(before){
       if(stopped||busy||!id)return;busy=true;
       try{
         const first=!messages.children.length,last=messages.lastElementChild?.dataset.messageId;
-        const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;
+        const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;supportReadAt=Date.now();
         const near=messages.scrollHeight-messages.scrollTop-messages.clientHeight<60,oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set([...messages.children].map(e=>e.dataset.messageId));
-        const html=d.messages.filter(m=>!known.has(String(m.id))).map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?`<a class="chat-file-link" href="${base}/${id}/files/${encodeURIComponent(m.attachment.id)}" target="_blank" rel="noopener">↓ ${escape(m.attachment.name)} · ${Math.ceil(m.attachment.size/1024)} KB</a>`:''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
+        const html=d.messages.filter(m=>!known.has(String(m.id))).map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);else messages.insertAdjacentHTML('beforeend',html);
         if(before)messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;else if(near||first)messages.scrollTop=messages.scrollHeight;
         if(first||before)root.querySelector('[data-chat-earlier]').hidden=!d.hasMore;
-        root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?'Chờ nhân viên · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
+        root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?(thread.staffReplied?'Nhân viên đang hỗ trợ · ':'Chờ nhân viên · '):thread.handoffOffered?'AI tạm dừng · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
         if(d.hasMore&&!before&&!first)setTimeout(()=>refresh(),0);
       }finally{busy=false;}
     }
@@ -47,9 +61,9 @@
       const file=input.files[0];input.value='';if(!file)return;
       if(file.size>10485760){feedback.textContent='Mỗi tệp tối đa 10 MB.';return;}
       if(files.length>=3){feedback.textContent='Chọn tối đa 3 tệp mỗi lần gửi.';return;}
-      files.push({file,key:crypto.randomUUID()});renderFiles();feedback.textContent='Tệp sẵn sàng. Nhấn gửi để chia sẻ với nhân viên.';actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      files.push({file,key:crypto.randomUUID(),url:/^(image|video)\//.test(file.type)?URL.createObjectURL(file):null});renderFiles();feedback.textContent='Tệp sẵn sàng. Nhấn gửi để chia sẻ với nhân viên.';actions.hidden=true;plus.setAttribute('aria-expanded','false');
     });
-    root.querySelector('[data-chat-selected]').onclick=e=>{const b=e.target.closest('[data-remove]');if(b&&!sending){files.splice(Number(b.dataset.remove),1);renderFiles();}};
+    root.querySelector('[data-chat-selected]').onclick=e=>{const b=e.target.closest('[data-remove]');if(b&&!sending){release(files.splice(Number(b.dataset.remove),1)[0]);renderFiles();}};
     root.querySelectorAll('[data-reference]').forEach(button=>button.onclick=async()=>{
       const target=root.querySelector('[data-chat-reference]');target.hidden=false;target.textContent='Đang tải…';
       try{
@@ -78,16 +92,17 @@
         const body=form.elements.body.value.trim()||(files.length?'Tôi gửi tệp để được tư vấn.':'');if(!body)throw Error('Nhập tin nhắn hoặc chọn tệp.');
         if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body,requestKey:key})});id=d.thread.id;}
         else await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body,requestKey:key})});
-        while(files.length){const item=files[0],data=new FormData();data.append('file',item.file);data.append('requestKey',item.key);await request(base+'/'+id+'/files',{method:'POST',body:data});files.shift();renderFiles();}
+        while(files.length){const item=files[0],data=new FormData();data.append('file',item.file);data.append('requestKey',item.key);await request(base+'/'+id+'/files',{method:'POST',body:data});release(files.shift());renderFiles();}
         key=null;form.reset();feedback.textContent='Đã gửi.';await refresh();
       }catch(error){feedback.textContent=error.message;}finally{sending=false;setClosed();}
     };
-    const ai=root.querySelector('[data-chat-ai]');
-    if(ai){
-      ai.onclick=async()=>{if(sending)return;sending=true;setClosed();ai.disabled=true;try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='Đã chuyển cho nhân viên. Bạn có thể để lại thông tin để được hỗ trợ.';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}};
-    }
+    async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
+    const ai=root.querySelector('[data-chat-ai]');if(ai)ai.onclick=requestHuman;
+    root.addEventListener('click',event=>{if(event.target.closest('[data-inline-handoff]'))void requestHuman();});
+    const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
+    if(!admin)request('/api/shopping-chat/capabilities').then(value=>{if(!stopped){const names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};root.querySelector('[data-ai-note]').textContent='AI tự động qua '+(names[value.provider]||'nhà cung cấp được GAERU cấu hình')+'. Chỉ gửi câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm cho AI; tệp dành cho nhân viên. Không gửi mật khẩu hoặc OTP.';}}).catch(()=>{});
     const poll=window.GAERUCareLive.poll({delay:4000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>refresh(),status:()=>{}});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
-    return {refresh,stop(){stopped=true;poll.stop();},get thread(){return thread;}};
+    return {refresh,stop(){stopped=true;poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];},get thread(){return thread;}};
   }};
 })();

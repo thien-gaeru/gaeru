@@ -54,7 +54,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'", "https://challenges.cloudflare.com"],
-        mediaSrc: ["'self'", "https://gaeru.com"],
+        mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         ...(config.NODE_ENV === "production" ? { upgradeInsecureRequests: [] } : {})
