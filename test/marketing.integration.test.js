@@ -55,7 +55,7 @@ const pool=await database();await migrateDatabase(pool);const app=createApp({con
 
 const owner=client(),first=client(),second=client(),guest=client();await owner.login('marketing-owner','Marketing-owner-password');
 await context.test('banner uploads enforce permissions, file limits and scheduled buyer visibility',async()=>{
- const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+ const png=await require('sharp')({create:{width:16,height:16,channels:4,background:{r:20,g:100,b:200,alpha:.8}}}).png().toBuffer();
  const file=(bytes,type)=>{const form=new FormData();form.append('image',new Blob([bytes],{type}),'banner.png');return form;};
  assert.equal((await guest.request('/api/gaeru_ceo/marketing/banners','POST',file(png,'image/png'))).status,401);
  assert.equal((await owner.request('/api/gaeru_ceo/marketing/banners','POST',file(Buffer.from('<svg></svg>'),'image/png'))).status,400);
