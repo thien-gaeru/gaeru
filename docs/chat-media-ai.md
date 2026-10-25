@@ -16,3 +16,11 @@ Official API references reviewed on 2026-10-25:
 - Claude Messages: https://platform.claude.com/docs/en/api/messages/create
 
 Validation uses real PostgreSQL-compatible PGlite for the role/CSRF/secret retention/handoff/media workflows and mocked provider transports for all three providers. Browser fixtures verify actual media decoding/playback, unsent previews, mobile layout and waiting/hotline transitions. No production customer data, provider key or paid model call is used by these tests.
+
+Connection diagnostics (2026-10-25): owner probes now return the tested provider/model, a localized diagnostic category, the upstream HTTP status and a bounded request ID when available. They never return upstream error text, API keys, customer questions or response bodies. Categories distinguish invalid/restricted keys, API disabled, workspace requirements, permissions, billing/quota, unsupported model/request, service/network/TLS/timeout failures, incomplete output and invalid chat JSON. Authentication/configuration failures are reported before a provider request.
+
+The UI refuses unsaved selection/model/key changes, includes its expected provider/model with the saved version, and keeps the AI panel open after saving. Save and probe remain separate reauthenticated operations. A provider failure clears already-consumed authentication fields before another attempt; it does not log the owner out when the upstream service returned 401.
+
+Claude now requests constrained JSON using output_config.format. Gemini/Claude output ceilings increase from 1200 to 4096 tokens to leave room for model output/reasoning; this can increase maximum API usage. Timeouts remain 25 seconds, no automatic paid retries are introduced, and the existing chat request/rate limits remain. These changes do not prove a particular real account/key/model works. The owner must run the saved-configuration test after release to obtain the actual diagnosis.
+
+Error references: https://ai.google.dev/gemini-api/docs/troubleshooting ; https://platform.claude.com/docs/en/api/errors ; https://developers.openai.com/api/docs/guides/error-codes . Claude JSON reference: https://platform.claude.com/docs/en/build-with-claude/structured-outputs .
