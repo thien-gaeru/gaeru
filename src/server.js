@@ -1,3 +1,4 @@
+let stopOrderEmail;
 require("dotenv").config();
 const expressSession = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
@@ -22,6 +23,7 @@ async function start() {
   await migrateDatabase(pool);
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
+  stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
   stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
   stopEmail=require("./email-marketing").startEmailWorker(pool,config);
   stopRetention=require("./account-retention").startRetentionWorker(pool);
@@ -47,6 +49,7 @@ async function shutdown() {
   stopRetention?.();
   stopEmail?.();
   stopWarrantyEmail?.();
+  stopOrderEmail?.();
   server.close(async () => {
     try {
       await sessionStore.close();

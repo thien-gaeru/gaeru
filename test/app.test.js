@@ -34,7 +34,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   const accountScript = await fetch(`${baseUrl}/account.js?v=20261023-mfa`);
   assert.equal(accountScript.headers.get('cache-control'), 'no-store');
   const accountMarkup = await accountPage.text();
-  assert.match(accountMarkup, /account\.js\?v=20261023-mfa/);
+  assert.match(accountMarkup, /account\.js\?v=20261025-address-mail/);
   assert.match(accountMarkup, /data-account-panel="login"[^>]*hidden/);
   assert.match(accountMarkup, /data-account-loading-message>Đang tải tài khoản/);
   assert.match(accountMarkup, /Tài khoản khách hàng/);

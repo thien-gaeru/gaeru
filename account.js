@@ -233,7 +233,7 @@ document.querySelector('[data-account-form="password-reset-complete"]')?.addEven
   }
   const token = new URLSearchParams(window.location.search).get("token");
   try {
-    const result = await accountRequest("/api/customer-auth/password-reset/complete", {
+    const result = await accountRequest(new URLSearchParams(window.location.search).get("setup")==="1"?"/api/customer-auth/account-setup":"/api/customer-auth/password-reset/complete", {
       token,
       password: values.password
     });
