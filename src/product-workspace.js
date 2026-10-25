@@ -1,31 +1,16 @@
 const { rateLimit } = require('express-rate-limit');
+const { createHash } = require('node:crypto');
 const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
-const { uploadProductImage, downloadProductImage, deleteProductImage } = require('./lib/neon-storage');
+const { uploadProductImage, deleteProductImage } = require('./lib/neon-storage');
 const { optimizeProductImage } = require('./lib/image-optimizer');
-
-const STORAGE_POINTER_PREFIX =
-  Buffer.from('GAERU_S3_V1:', 'ascii');
-
-async function readCatalogImageContent(content) {
-  const data = Buffer.isBuffer(content)
-    ? content : Buffer.from(content);
-
-  if (data.length > STORAGE_POINTER_PREFIX.length &&
-      data.subarray(0, STORAGE_POINTER_PREFIX.length)
-        .equals(STORAGE_POINTER_PREFIX)) {
-    const key = data
-      .subarray(STORAGE_POINTER_PREFIX.length)
-      .toString('utf8');
-    return downloadProductImage(key);
-  }
-  return data;
-}
+const { readStoredImage, STORAGE_POINTER_PREFIX } = require('./lib/stored-images');
 // Only images attached to published products reach this function.
-// A new upload always receives a new UUID, so the image content is immutable.
+// Storage objects use immutable keys; a format migration changes the pointer and MIME.
 async function sendPublicCatalogImage(req, res, row) {
-  const etag = '"gaeru-catalog-image-' + req.params.id + '-v1"';
+  const version = createHash('sha256').update(row.content).update('\0').update(row.mime_type).digest('hex');
+  const etag = '"gaeru-catalog-image-' + req.params.id + '-' + version + '"';
   res.type(row.mime_type);
   res.set('Cache-Control', 'private, max-age=60, must-revalidate');
   res.set('ETag', etag);
@@ -33,10 +18,10 @@ async function sendPublicCatalogImage(req, res, row) {
   // Check after the database verifies the product is still published.
   // Avoid downloading the object again when the browser already has it.
   if (req.fresh) return res.status(304).end();
-  return res.send(await readCatalogImageContent(row.content));
+  return res.send(await readStoredImage(row.content));
 }
 
-const uuid=z.string().uuid(),image=z.string().regex(/^(?:\/assets\/products\/(?:[a-zA-Z0-9._-]+|m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)\.png)|\/api\/catalog-images\/[0-9a-f-]{36})$/).refine(v=>v.startsWith('/assets/')||uuid.safeParse(v.split('/').at(-1)).success);
+const uuid=z.string().uuid(),image=z.string().regex(/^(?:\/assets\/products\/(?:[a-zA-Z0-9._-]+|m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)\.(?:png|webp))|\/api\/catalog-images\/[0-9a-f-]{36})$/).refine(v=>v.startsWith('/assets/')||uuid.safeParse(v.split('/').at(-1)).success);
 const group=z.object({name:z.string().trim().min(1).max(50),values:z.array(z.string().trim().min(1).max(80)).min(1).max(20)}).strict();
 const media=z.object({type:z.enum(["image","video"]),url:z.string(),alt:z.string().trim().min(3).max(250),caption:z.string().max(300).default(""),afterParagraph:z.number().int().min(0).max(100).nullable().default(null)}).strict().refine(m=>m.type==="image"?image.safeParse(m.url).success:/^\/api\/catalog-videos\/[0-9a-f-]{36}$/.test(m.url)&&uuid.safeParse(m.url.split("/").at(-1)).success);
 const schema=z.object({descriptionMedia:z.array(media).max(12).default([]),id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),product:z.object({name:z.string().trim().min(2).max(160),slug:z.string().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),category:z.enum(['audio','video','accessory']),descriptor:z.string().trim().max(160),cardTitle:z.string().trim().max(100).default(''),cardSummary:z.string().trim().max(240).default(''),description:z.string().trim().max(3000),imageUrl:image,imageAlt:z.string().max(250),active:z.boolean(),sortOrder:z.number().int().min(-1000).max(10000)}).strict(),gallery:z.array(image).min(1).max(9),groups:z.array(group).max(3),variants:z.array(z.object({id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),sku:z.string().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/),name:z.string().min(1).max(160),options:z.record(z.string().min(1).max(50),z.string().min(1).max(80)),priceVnd:z.number().int().min(0).max(20000000),stockQuantity:z.number().int().min(0).max(1000000),active:z.boolean(),imageUrl:z.union([image,z.literal('')])}).strict()).max(100)}).strict();
@@ -68,7 +53,7 @@ function createProductWorkspace(pool){const admin=Router(),publicApi=Router();
  publicApi.get('/catalog-images/:id',catalogImagePublicLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}});
  admin.use('/product-workspace',requirePermission('catalog.read'));
  admin.get('/product-workspace/:id',async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const data=await read(pool,req.params.id);if(!data)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});res.set('Cache-Control','no-store').json(data);}catch(e){next(e);}});
- admin.get('/catalog-images/:id',catalogImageAdminLimiter,requirePermission('catalog.read'),async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readCatalogImageContent(row.content));}catch(e){next(e);}});
+ admin.get('/catalog-images/:id',catalogImageAdminLimiter,requirePermission('catalog.read'),async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readStoredImage(row.content));}catch(e){next(e);}});
  const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:0}}).single('image');
 admin.post('/catalog-images',
   catalogImageUploadLimiter,

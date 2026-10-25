@@ -17,7 +17,7 @@ const TYPES = {
 };
 
 const KEY_PATTERN =
-  /^products\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
+  /^(?:products|banners)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
 
 let client;
 
@@ -53,8 +53,8 @@ function bucket() {
 }
 
 function checkKey(key) {
-  if (typeof key !== 'string' || !KEY_PATTERN.test(key)) {
-    throw new Error('Invalid Neon Storage product image key');
+  if (typeof key !== 'string' || key !== key.trim() || !KEY_PATTERN.test(key)) {
+    throw new Error('Invalid Neon Storage image key');
   }
 }
 
