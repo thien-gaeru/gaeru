@@ -1069,3 +1069,5 @@ svg.points-mark{width:180px;height:180px;right:24px;bottom:-32px;color:rgb(8 127
 @media(max-width:760px){svg.points-mark{width:144px;height:144px;right:18px;bottom:-24px}.care-card{padding:28px;min-height:320px}}
 /* White image canvases blend with the product frame, including future uploads. */
 .product-card:not(.product-card-dark){isolation:isolate}.product-card:not(.product-card-dark)>.product-image{mix-blend-mode:multiply}
+
+.home-g1-story{background:radial-gradient(ellipse at 76% 50%,#dce5ee 0,transparent 50%),#f5f5f7}.home-g1-story .story-art img{width:min(100%,480px);height:auto;max-height:500px;object-fit:contain;transform:none}.home-g1-story .story-art:hover img{transform:none}.home-g1-story .home-m3-actions{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.home-g1-story .story-art:before{display:none}@media(max-width:760px){.home-g1-story .home-m3-actions{justify-content:center}.home-g1-story .story-art img{max-height:360px;width:min(100%,360px)}}
