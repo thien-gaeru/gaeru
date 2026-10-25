@@ -1,0 +1,10 @@
+(function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.GAERUProductArtwork=api;})(typeof window==='object'?window:globalThis,function(){
+ const curated={'gaeru-m3':'/assets/products/m3-home-cutout.webp','gaeru-k9':'/assets/products/k9.webp','gaeru-p01':'/assets/products/p01.webp','gaeru-g1-ultra':'/api/site-media/g1-home'};
+ function image(product){return curated[product.slug]||product.imageUrl||'/assets/brand/gaeru-logo.webp';}
+ function mountStory(win=window){const doc=win.document,root=doc.querySelector('[data-audio-art]');if(!root||root.dataset.mounted)return;root.dataset.mounted='true';const img=root.querySelector('img'),button=root.querySelector('button'),motion=win.matchMedia('(prefers-reduced-motion: reduce)');let timer=null,visible=false,paused=false,index=0;const frames=[['/assets/products/k9.webp','Micro GAERU K9'],['/assets/products/m3-home-cutout.webp','Bộ micro GAERU M3 cùng hộp sạc']];
+ function paint(){img.src=frames[index][0];img.alt=frames[index][1];button.textContent=paused?'▶':'Ⅱ';button.setAttribute('aria-pressed',String(paused));button.setAttribute('aria-label',paused?'Tiếp tục đổi ảnh sản phẩm':'Tạm dừng đổi ảnh sản phẩm');button.hidden=motion.matches;}
+ function sync(){if(motion.matches){index=0;paint();}const run=visible&&!paused&&!motion.matches&&!doc.hidden;if(!run&&timer!==null){win.clearInterval(timer);timer=null;}if(run&&timer===null)timer=win.setInterval(()=>{index=(index+1)%frames.length;paint();},4200);}
+ const observer=win.IntersectionObserver?new win.IntersectionObserver(rows=>{visible=rows.some(r=>r.isIntersecting);sync();},{threshold:.15}):null;observer?.observe(root);button.addEventListener('click',()=>{paused=!paused;paint();sync();});doc.addEventListener('visibilitychange',sync);motion.addEventListener?.('change',sync);paint();return {destroy(){if(timer!==null)win.clearInterval(timer);observer?.disconnect();doc.removeEventListener('visibilitychange',sync);motion.removeEventListener?.('change',sync);delete root.dataset.mounted;}};
+ }
+ return {image,mountStory};
+});

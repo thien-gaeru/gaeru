@@ -1,5 +1,6 @@
 // Only reviewed browser assets are eligible for static delivery.
 module.exports = new Set([
+  "product-art.js", "store-media.css", "sitemap.css",
   "k9-loop.js", "home-responsive.css",
   "product-services.js", "shopping-chat-client.js", "shopping-chat.css",
   "product-purchase.css",
