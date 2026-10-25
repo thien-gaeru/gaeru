@@ -113,7 +113,7 @@ function productCard(product, compact = false) {
         <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
         <div class="card-actions">
-          <a class="button button-blue" href="${discoverUrl}">Tìm hiểu thêm</a>
+          <a class="button button-blue" href="${discoverUrl}">Khám phá ${escapeHtml(product.name)}</a>
           <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua</a>
         </div>
       </div>
@@ -152,6 +152,7 @@ function renderHomeProducts() {
 }
 
 function renderCatalog() {
+  window.GAERUProductArtwork?.mountStory();
   const grid = document.querySelector("#catalog-grid");
   if (!grid) return;
   const queryInput = document.querySelector("#catalog-search");
@@ -163,7 +164,7 @@ function renderCatalog() {
   let selectedCategory = ["audio", "video", "accessory"].includes(categoryParam) ? categoryParam : "all";
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
-  const categoryArtwork=product=>({'gaeru-m3':'/assets/products/m3-home-cutout.webp','gaeru-k9':'/assets/products/k9.webp','gaeru-p01':'/assets/products/p01.webp','gaeru-g1-ultra':'/api/site-media/g1-home'})[product.slug]||product.imageUrl;
+  const categoryArtwork=product=>window.GAERUProductArtwork?.image(product)||product.imageUrl;
   if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(categoryArtwork(product))}" alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
