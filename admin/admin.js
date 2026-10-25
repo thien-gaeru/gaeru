@@ -7,6 +7,7 @@ const state = {
   customers: [],
   currentProduct: null,
   productRequest: 0,
+  productScope: /(?:[?&])productScope=trash(?:&|$)/.test(location.search||'')?"trash":"catalog",
   productSearchTimer: 0,
   orderSearchTimer: 0,
   orderRequest: 0,
@@ -97,6 +98,8 @@ async function showAdmin(session) {
   const roleLabel = window.GAERUAdminUI.roleName(session.role);
   document.querySelector("#admin-identity").textContent = roleLabel && identityName !== roleLabel ? `${identityName} · ${roleLabel}` : identityName;
   applyPermissions();
+  document.querySelectorAll('[data-product-scope]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.productScope===state.productScope)));
+  document.querySelector('#product-trash-note').hidden=state.productScope!=='trash';
   if(session.mfaEnrollmentRequired){document.querySelectorAll('[data-view]').forEach(b=>{b.hidden=b.dataset.view!=='security';});document.querySelectorAll('.nav-group').forEach(g=>{g.hidden=![...g.querySelectorAll('[data-view]')].some(b=>!b.hidden);});}
 
   document.dispatchEvent(new CustomEvent("gaeru:admin-ready", { detail: session }));
@@ -129,7 +132,7 @@ async function loadProducts(search = "") {
   root.setAttribute("aria-busy", "true");
   document.querySelector("#product-list-status").textContent = "Đang tải sản phẩm…";
   try {
-    const result = await request(`/api/gaeru_ceo/products${search ? `?q=${encodeURIComponent(search)}` : ""}`);
+    const result = await request(`/api/gaeru_ceo/products?scope=${state.productScope}${search ? `&q=${encodeURIComponent(search)}` : ""}`);
     if (requestId !== state.productRequest || search !== document.querySelector("#product-search").value.trim()) return;
     state.products = result.products;
     renderProducts();
@@ -142,7 +145,7 @@ async function loadProducts(search = "") {
 }
 
 function productStock(product) {
-  const active = product.variants.filter((variant) => variant.active);
+  const active = product.deletedAt ? product.variants : product.variants.filter((variant) => variant.active);
   return {
     active,
     total: active.reduce((sum, variant) => sum + variant.stockQuantity, 0),
@@ -151,6 +154,7 @@ function productStock(product) {
 }
 
 function renderProducts() {
+  const trash=state.productScope==="trash";
   const root = document.querySelector("#product-list");
   const summary=document.querySelector("[data-catalog-summary]");if(summary)summary.innerHTML=`<article><span>Sản phẩm trong kết quả</span><strong>${state.products.length}</strong></article><article><span>Đang hiển thị</span><strong>${state.products.filter(p=>p.active).length}</strong></article><article><span>Biến thể bán hàng</span><strong>${state.products.reduce((n,p)=>n+p.variants.length,0)}</strong></article>`;
   const category = document.querySelector("#product-category-filter").value;
@@ -167,7 +171,7 @@ function renderProducts() {
   document.querySelector("#product-list-status").textContent = `${matching.length} sản phẩm${matching.length !== state.products.length ? ` / ${state.products.length} kết quả tìm kiếm` : ""}`;
   if (!matching.length) {
     const filtered = document.querySelector("#product-search").value.trim() || category || publication || stockFilter;
-    root.innerHTML = `<div class="empty-message"><strong>${filtered ? "Không có sản phẩm phù hợp." : "Danh mục đang trống."}</strong><p>${filtered ? "Thử từ khóa, SKU khác hoặc xóa bộ lọc để xem toàn bộ danh mục." : "Thêm sản phẩm đầu tiên, sau đó bổ sung phiên bản, giá bán và tồn kho."}</p></div>`;
+    root.innerHTML = `<div class="empty-message"><strong>${filtered ? "Không có sản phẩm phù hợp." : trash ? "Khu vực đã xóa đang trống." : "Danh mục đang trống."}</strong><p>${filtered ? "Thử từ khóa, SKU khác hoặc xóa bộ lọc để xem toàn bộ danh mục." : trash ? "Sản phẩm chuyển vào đây có thể chỉnh sửa, khôi phục hoặc kích hoạt lại." : "Thêm sản phẩm đầu tiên, sau đó bổ sung phiên bản, giá bán và tồn kho."}</p></div>`;
     return;
   }
   root.innerHTML = matching.map((product) => {
@@ -180,8 +184,8 @@ function renderProducts() {
     return `<article class="product-row ${state.currentProduct?.id === product.id ? "is-selected" : ""}">
       <img src="${escapeHtml(window.GAERUAdminUI.imageUrl(product.imageUrl))}" alt="">
       <div class="product-row-copy"><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(categoryLabels[product.category] || product.category)} · ${stock.active.length} phiên bản đang bán</p><p class="product-row-price">${price}</p><div class="product-option-summary">${product.variants.slice(0,3).map(v=>`<span>${escapeHtml(v.name)}</span>`).join("")}${product.variants.length>3?`<span>+${product.variants.length-3} biến thể</span>`:""}</div><div class="product-stock">${inventory}</div></div>
-      <span class="status-pill ${product.active ? "is-active" : ""}">${product.active ? "Đang hiển thị" : "Bản nháp"}</span>
-      <div class="product-row-actions"><button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Chỉnh sửa</button>${can("catalog.write") ? `<button class="row-button product-delete-button" type="button" data-delete-product="${escapeHtml(product.id)}" aria-label="Xóa ${escapeHtml(product.name)}">Xóa sản phẩm</button>` : ""}</div>
+      <span class="status-pill ${product.active ? "is-active" : ""}">${product.deletedAt ? "Đã xóa · "+escapeHtml(new Date(product.deletedAt).toLocaleDateString("vi-VN")) : product.active ? "Đang hiển thị" : "Bản nháp"}</span>
+      <div class="product-row-actions"><button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Chỉnh sửa</button>${can("catalog.write") ? trash ? `<button class="row-button" type="button" data-restore-product="${escapeHtml(product.id)}">Khôi phục</button><button class="row-button" type="button" data-activate-product="${escapeHtml(product.id)}">Khôi phục & kích hoạt</button>${['owner','admin'].includes(state.session?.role)?`<button class="row-button product-delete-button" type="button" data-purge-product="${escapeHtml(product.id)}">Xóa vĩnh viễn</button>`:''}` : `<button class="row-button product-delete-button" type="button" data-delete-product="${escapeHtml(product.id)}" aria-label="Xóa ${escapeHtml(product.name)}">Xóa sản phẩm</button>` : ""}</div>
     </article>`;
   }).join("");
 }
@@ -794,12 +798,29 @@ document.querySelector("#reset-product-filters").addEventListener("click", () =>
   document.querySelectorAll(".product-filters select").forEach((select) => { select.value = ""; });
   loadProducts().catch((error) => showGlobal(error.message, true));
 });
+document.querySelectorAll('[data-product-scope]').forEach(button=>button.addEventListener('click',async()=>{
+  state.productScope=button.dataset.productScope;const address=new URL(location.href);if(state.productScope==='trash')address.searchParams.set('productScope','trash');else address.searchParams.delete('productScope');history.replaceState(null,'',address.pathname+address.search+address.hash);
+  document.querySelectorAll('[data-product-scope]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
+  document.querySelector('#product-status-filter').value='';document.querySelector('#product-stock-filter').value='';
+  document.querySelector('#product-trash-note').hidden=state.productScope!=='trash';
+  try{await loadProducts(document.querySelector('#product-search').value.trim());}catch(e){showGlobal(e.message,true);}
+}));
 document.querySelector("#product-list").addEventListener("click", async (event) => {
+  const recover=event.target.closest('[data-restore-product],[data-activate-product],[data-purge-product]');
+  if(recover){
+    const product=state.products.find(p=>p.id===(recover.dataset.restoreProduct||recover.dataset.activateProduct||recover.dataset.purgeProduct));
+    if(!product||!can('catalog.write')||recover.disabled)return;
+    const purge=Boolean(recover.dataset.purgeProduct),activate=Boolean(recover.dataset.activateProduct);
+    if(!await confirmProductAction(product,{permanent:purge,message:purge?'Xóa vĩnh viễn sản phẩm này? Không thể khôi phục. Sản phẩm còn tồn hoặc có chứng từ sẽ được giữ lại.':activate?'Khôi phục sản phẩm và các biến thể đã chọn để hiển thị trên cửa hàng?':'Khôi phục sản phẩm về bản nháp để tiếp tục chỉnh sửa?'}))return;
+    recover.disabled=true;
+    try{await request('/api/gaeru_ceo/products/'+encodeURIComponent(product.id)+(purge?'/permanent':'/restore'),{method:purge?'DELETE':'POST',body:JSON.stringify(purge?{version:product.version,confirmation:product.slug}:{version:product.version,activate})});await Promise.all([loadProducts(document.querySelector('#product-search').value.trim()),loadSummary()]);showGlobal(purge?'Đã xóa vĩnh viễn sản phẩm.':activate?'Đã khôi phục và kích hoạt sản phẩm.':'Đã khôi phục về bản nháp.');}
+    catch(error){showGlobal(error.message,true);recover.disabled=false;}return;
+  }
   const remove=event.target.closest('[data-delete-product]');
   if(remove){
     const product=state.products.find(item=>item.id===remove.dataset.deleteProduct);
     if(!product||!can('catalog.write')||remove.disabled)return;
-    if(!window.confirm('Xóa sản phẩm "'+product.name+'" khỏi danh mục? Lịch sử đơn hàng và tồn kho được giữ lại.'))return;
+    if(!await confirmProductAction(product,{message:'Chuyển sản phẩm vào khu vực đã xóa? Lịch sử đơn hàng và tồn kho được giữ lại.'}))return;
     remove.disabled=true;
     try{
       await request('/api/gaeru_ceo/products/'+encodeURIComponent(product.id),{method:'DELETE',body:JSON.stringify({version:product.version,confirmation:'DELETE_PRODUCT'})});
@@ -810,7 +831,7 @@ document.querySelector("#product-list").addEventListener("click", async (event) 
     return;
   }
   const button = event.target.closest("[data-edit-product]");
-  if (button) location.href="/gaeru_ceo/products/"+encodeURIComponent(button.dataset.editProduct)+"/edit";
+  if (button) location.href="/gaeru_ceo/products/"+encodeURIComponent(button.dataset.editProduct)+"/edit"+(state.productScope==='trash'?'?trash=1':'');
 });
 document.querySelector("#product-form").addEventListener("submit", saveProduct);
 document.querySelector('#product-form input[name="imageFile"]').addEventListener("change", updateImagePreview);
@@ -965,7 +986,20 @@ document.querySelector(".sidebar-toggle").addEventListener("click", (event) => {
   const open = document.querySelector(".sidebar").classList.toggle("navigation-open");
   event.currentTarget.setAttribute("aria-expanded", String(open));
 });
-window.GAERUAdmin = Object.freeze({ request, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
+function confirmProductAction(product,{permanent=false,message}={}){
+ return new Promise(resolve=>{
+  const previous=document.activeElement,dialog=document.createElement('dialog');dialog.className='enterprise-confirm-dialog';dialog.setAttribute('aria-labelledby','product-action-title');
+  dialog.innerHTML='<h2 id="product-action-title">'+(permanent?'Xóa vĩnh viễn sản phẩm':'Xác nhận thao tác')+'</h2><p data-product-action-name></p><p data-product-action-message></p>'+(permanent?'<label>Nhập đường dẫn sản phẩm để xác nhận<input data-product-action-input autocomplete="off"></label><p data-product-action-slug></p>':'')+'<div class="enterprise-confirm-actions"><button type="button" data-product-action-cancel autofocus>Quay lại</button><button type="button" class="primary-button" data-product-action-accept '+(permanent?'disabled':'')+'>Xác nhận</button></div>';
+  dialog.querySelector('[data-product-action-name]').textContent=product.name;
+  dialog.querySelector('[data-product-action-message]').textContent=message;
+  let done=false;function finish(value){if(done)return;done=true;dialog.close();dialog.remove();previous?.focus();resolve(value);}
+  const accept=dialog.querySelector('[data-product-action-accept]');
+  if(permanent){dialog.querySelector('[data-product-action-slug]').textContent=product.slug;dialog.querySelector('input').addEventListener('input',event=>{accept.disabled=event.target.value!==product.slug;});}
+  accept.onclick=()=>{if(!permanent||dialog.querySelector('input').value===product.slug)finish(true);};
+  dialog.querySelector('[data-product-action-cancel]').onclick=()=>finish(false);dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});dialog.addEventListener('close',()=>finish(false));document.body.append(dialog);dialog.showModal();
+ });
+}
+window.GAERUAdmin = Object.freeze({ request, confirmProductAction, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});

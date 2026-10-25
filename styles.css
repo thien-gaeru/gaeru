@@ -1067,3 +1067,5 @@ svg.points-mark{width:180px;height:180px;right:24px;bottom:-32px;color:rgb(8 127
 .footer-help{font-size:17px;overflow-wrap:anywhere}
 .footer-help .footer-chat-link{padding:0;min-height:auto;vertical-align:baseline}
 @media(max-width:760px){svg.points-mark{width:144px;height:144px;right:18px;bottom:-24px}.care-card{padding:28px;min-height:320px}}
+/* White image canvases blend with the product frame, including future uploads. */
+.product-card:not(.product-card-dark){isolation:isolate}.product-card:not(.product-card-dark)>.product-image{mix-blend-mode:multiply}
