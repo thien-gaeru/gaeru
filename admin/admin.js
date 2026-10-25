@@ -181,7 +181,7 @@ function renderProducts() {
       <img src="${escapeHtml(window.GAERUAdminUI.imageUrl(product.imageUrl))}" alt="">
       <div class="product-row-copy"><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(categoryLabels[product.category] || product.category)} · ${stock.active.length} phiên bản đang bán</p><p class="product-row-price">${price}</p><div class="product-option-summary">${product.variants.slice(0,3).map(v=>`<span>${escapeHtml(v.name)}</span>`).join("")}${product.variants.length>3?`<span>+${product.variants.length-3} biến thể</span>`:""}</div><div class="product-stock">${inventory}</div></div>
       <span class="status-pill ${product.active ? "is-active" : ""}">${product.active ? "Đang hiển thị" : "Bản nháp"}</span>
-      <button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Chỉnh sửa</button>
+      <div class="product-row-actions"><button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Chỉnh sửa</button>${can("catalog.write") ? `<button class="row-button product-delete-button" type="button" data-delete-product="${escapeHtml(product.id)}" aria-label="Xóa ${escapeHtml(product.name)}">Xóa sản phẩm</button>` : ""}</div>
     </article>`;
   }).join("");
 }
@@ -794,7 +794,21 @@ document.querySelector("#reset-product-filters").addEventListener("click", () =>
   document.querySelectorAll(".product-filters select").forEach((select) => { select.value = ""; });
   loadProducts().catch((error) => showGlobal(error.message, true));
 });
-document.querySelector("#product-list").addEventListener("click", (event) => {
+document.querySelector("#product-list").addEventListener("click", async (event) => {
+  const remove=event.target.closest('[data-delete-product]');
+  if(remove){
+    const product=state.products.find(item=>item.id===remove.dataset.deleteProduct);
+    if(!product||!can('catalog.write')||remove.disabled)return;
+    if(!window.confirm('Xóa sản phẩm "'+product.name+'" khỏi danh mục? Lịch sử đơn hàng và tồn kho được giữ lại.'))return;
+    remove.disabled=true;
+    try{
+      await request('/api/gaeru_ceo/products/'+encodeURIComponent(product.id),{method:'DELETE',body:JSON.stringify({version:product.version,confirmation:'DELETE_PRODUCT'})});
+      if(state.currentProduct?.id===product.id){state.currentProduct=null;document.querySelector('#product-editor').hidden=true;}
+      await Promise.all([loadProducts(document.querySelector('#product-search').value.trim()),loadSummary()]);
+      showGlobal('Đã xóa sản phẩm khỏi danh mục. Lịch sử đơn hàng và kho được giữ lại.');
+    }catch(error){showGlobal(error.message,true);remove.disabled=false;}
+    return;
+  }
   const button = event.target.closest("[data-edit-product]");
   if (button) location.href="/gaeru_ceo/products/"+encodeURIComponent(button.dataset.editProduct)+"/edit";
 });

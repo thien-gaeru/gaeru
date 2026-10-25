@@ -330,6 +330,8 @@ function initializeMotion() {
     ".product-card",
     ".story-copy",
     ".story-art",
+    ".home-m3-copy",
+    ".home-m3-art",
     ".care-intro",
     ".care-card",
     ".closing-banner > *",
