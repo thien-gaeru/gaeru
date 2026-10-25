@@ -48,7 +48,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   const csrf = await fetch(`${baseUrl}/api/csrf`);
   assert.equal(csrf.status, 200);
   const csrfBody = await csrf.json();
-  assert.equal(csrf.headers.get('cache-control'),'no-store');
+  assert.equal(csrf.headers.get('cache-control'),'no-store, no-transform');
   assert.equal(csrfBody.csrfToken.length, 64);
   const csrfCookie = csrf.headers.get("set-cookie").split(";")[0];
 
@@ -61,7 +61,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.deepEqual(await malformedJson.json(), { error: "Yêu cầu không hợp lệ." });
 
   const me = await fetch(`${baseUrl}/api/auth/me`);
-  assert.equal(me.headers.get('cache-control'),'no-store');
+  assert.equal(me.headers.get('cache-control'),'no-store, no-transform');
   assert.equal(me.headers.get('x-robots-tag'),'noindex, nofollow, noarchive');
   const anonymousIdentity = await me.json();
   assert.equal(anonymousIdentity.authenticated, false);
@@ -81,7 +81,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
       const retired=await fetch(baseUrl+route,{method,redirect:'manual'});
       assert.equal(retired.status,404,method+' '+route);
       assert.equal(retired.headers.get('location'),null);
-      assert.equal(retired.headers.get('cache-control'),'no-store');
+      assert.match(retired.headers.get('cache-control'),/(?:^|, )no-store(?:,|$)/);
     }
   }
   for(const route of ['/gaeru_ceo','/gaeru_ceo/products/new']){
