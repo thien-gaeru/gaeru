@@ -166,7 +166,8 @@ function renderCatalog() {
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
   const categoryArtwork=product=>window.GAERUProductArtwork?.image(product)||product.imageUrl;
-  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(categoryArtwork(product))}" alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  window.GAERUK9Loop?.mountHome();
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
   });
@@ -375,7 +376,7 @@ async function renderCheckout() {
         <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
       <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
       <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chọn tỉnh/thành</strong></p>
-      <section class="checkout-voucher"><label for="checkout-voucher-code">Voucher của bạn</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã đã lưu trong tài khoản" autocomplete="off"><div><button class="secondary-button" type="button" data-voucher-apply>Áp dụng</button> <button class="secondary-button" type="button" data-voucher-remove>Bỏ mã</button></div><p><a href="account.html#account-offers">Xem ví voucher ↗</a></p><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
+      <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã voucher</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã voucher" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-remove aria-label="Bỏ mã voucher" title="Bỏ mã voucher">×</button><a href="account.html#account-offers">Ví mã ↗</a><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
       <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>Chọn tỉnh/thành</strong></p>
       <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
     </aside><div class="form-section">
@@ -408,9 +409,12 @@ async function renderCheckout() {
   };
   const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
   const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
-  voucherInput.addEventListener('input',()=>{resetVoucher();voucherFeedback.textContent='';});
-  root.querySelector('[data-voucher-remove]').addEventListener('click',()=>{voucherInput.value='';resetVoucher();voucherFeedback.textContent='Đã bỏ voucher.';});
-  root.querySelector('[data-voucher-apply]').addEventListener('click',async event=>{const code=voucherInput.value.trim().toUpperCase();event.currentTarget.disabled=true;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(voucherInput.value.trim().toUpperCase()!==code)return;if(quote.subtotalVnd!==total)throw Error('Giá sản phẩm đã thay đổi. Tải lại trang để kiểm tra tổng tiền trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;updateShippingTotal();}catch(error){resetVoucher();voucherFeedback.textContent=error.message;}finally{root.querySelector('[data-voucher-apply]').disabled=false;}});
+  let voucherRevision=0,voucherTimer;
+  const validateVoucher=async()=>{const revision=++voucherRevision,code=voucherInput.value.trim().toUpperCase();if(!code)return false;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(revision!==voucherRevision||voucherInput.value.trim().toUpperCase()!==code)return false;if(quote.subtotalVnd!==total)throw Error('Giá đã thay đổi. Tải lại trang trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;updateShippingTotal();return true;}catch(error){if(revision===voucherRevision){resetVoucher();voucherFeedback.textContent=error.message;}return false;}};
+  voucherInput.addEventListener('input',()=>{voucherRevision++;clearTimeout(voucherTimer);resetVoucher();voucherFeedback.textContent='';if(voucherInput.value.trim())voucherTimer=setTimeout(()=>validateVoucher(),650);});
+  voucherInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(voucherTimer);void validateVoucher();}});
+  root.querySelector('[data-voucher-remove]').addEventListener('click',()=>{voucherRevision++;clearTimeout(voucherTimer);voucherInput.value='';resetVoucher();voucherFeedback.textContent='Đã bỏ voucher.';});
+  root.querySelector('[data-voucher-apply]').addEventListener('click',()=>{clearTimeout(voucherTimer);void validateVoucher();});
   form.elements.city.addEventListener("change", updateShippingTotal);
   form.elements.city.addEventListener("input", updateShippingTotal);
   root.shippingRates=shippingRates;
@@ -436,7 +440,7 @@ async function renderCheckout() {
     try {
       if (window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value)===undefined)throw Error("Chưa có phí giao hàng cho tỉnh/thành phố này. Kiểm tra lại địa chỉ.");
       if (!csrfToken) csrfToken = (await apiRequest("/api/csrf")).csrfToken;
-      if(voucherInput.value.trim()&&appliedVoucher!==voucherInput.value.trim().toUpperCase())throw Error('Bấm Áp dụng để kiểm tra voucher trước khi đặt hàng.');
+      if(voucherInput.value.trim()&&appliedVoucher!==voucherInput.value.trim().toUpperCase()){clearTimeout(voucherTimer);if(!await validateVoucher())throw Error('Voucher chưa hợp lệ. Kiểm tra hoặc bỏ mã để tiếp tục.');}
       const result = await apiRequest("/api/orders", {
         method: "POST",
         body: JSON.stringify({

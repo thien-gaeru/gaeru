@@ -659,7 +659,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
     const pageSize = 25;
     const filterValues = [status, search, paymentStatus, paymentMethod];
-    const where = `($1::text = '' OR o.status = $1)
+    const where = `${checkoutAccounts ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1)
       AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
         OR o.customer_name ILIKE '%' || $2 || '%'
         OR o.email ILIKE '%' || $2 || '%' OR o.phone ILIKE '%' || $2 || '%')
@@ -720,6 +720,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             const error = new Error("Tài khoản không có quyền cập nhật nghiệp vụ này."); error.status = 403; throw error;
           }
         }
+        if(checkoutAccounts && update.status && ['confirmed','processing','shipped','completed'].includes(update.status) && (await client.query('SELECT order_id FROM order_reviews WHERE order_id=$1 AND resolved_at IS NULL',[current.id])).rows.length)throw Object.assign(Error('Cần gọi xác nhận và xử lý đơn trong mục Đơn hàng rác / chờ xác minh trước.'),{status:409});
         const receivedAmount = finance ? await finance.receiptTotal(client, current.id) : 0;
         if (receivedAmount > 0 && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
           const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
