@@ -116,11 +116,11 @@ function productCard(product, compact = false) {
           ${action}
         </div>
       </div>
-      <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy">
+      <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
     </article>` : `
     <article class="${cardClass}">
       <a class="catalog-card-image" href="product.html?id=${encodeURIComponent(product.slug)}">
-        <img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy">
+        <img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
@@ -161,7 +161,7 @@ function renderCatalog() {
   let selectedCategory = ["audio", "video", "accessory"].includes(categoryParam) ? categoryParam : "all";
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
-  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
   });
@@ -216,7 +216,7 @@ function renderProduct() {
   root.innerHTML = `
     <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
-      <div class="product-detail-art"><img data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===(selected?.imageUrl||product.imageUrl)}"><img src="${escapeHtml(url)}" alt="" loading="lazy"></button>`).join("")}</div></div>
+      <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===(selected?.imageUrl||product.imageUrl)}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
@@ -270,7 +270,7 @@ function renderCart() {
     <div class="cart-items">
       ${rows.map(({ variantId, quantity, product, variant }) => `
         <article class="cart-item">
-          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy"></a>
+          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async"></a>
           <div class="cart-item-info">
             <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
               <p>${escapeHtml(variant.name)} · ${escapeHtml(variant.sku)} · ${formatPrice(variant.priceVnd)}${variant.stockQuantity ? "" : " · Hết hàng"}</p>
@@ -478,7 +478,7 @@ function renderMiniCart() {
   cartHeading?.classList.remove("is-empty");
   root.innerHTML = rows.map(({ variantId, quantity, product, variant }) => `
     <article class="mini-cart-item">
-      <a class="mini-cart-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy"></a>
+      <a class="mini-cart-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async"></a>
       <div class="mini-cart-info">
         <a class="mini-cart-name" href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a>
         <span class="mini-cart-price">${escapeHtml(variant.name)} · ${formatPrice(variant.priceVnd)}</span>

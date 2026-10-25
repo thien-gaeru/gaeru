@@ -1,4 +1,4 @@
-const {storeMedia,readMedia}=require('./lib/stored-media');
+const {storeUpload,readMedia}=require('./lib/stored-media');
 const multer = require('multer');
 const { z } = require('zod');
 const { randomUUID } = require('node:crypto');
@@ -31,9 +31,9 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
   const parseUpload = (req,res,next)=>upload(req,res,error=>error?res.status(400).json({error:'Mỗi lần gửi một tệp tối đa 10 MB.'}):next());
   const authorize = isAdmin => wrap(async(req,res,next)=>{ const id=z.string().uuid().parse(req.params.id); const row=isAdmin?(await pool.query('SELECT * FROM shopping_chat_threads WHERE id=$1',[id])).rows[0]:(await owns(req,id)).rows[0]; if(!row)throw fail('Không tìm thấy hội thoại.',404);req.chatThread=row;next(); });
   const save = isAdmin => wrap(async(req,res)=>{
-    const key=z.string().uuid().parse(req.body.requestKey),mime=fileType(req.file);
+    const key=z.string().uuid().parse(req.body.requestKey);let mime=fileType(req.file);
     if(!mime)throw fail('Chỉ nhận JPG, PNG, WebP, HEIC, MP4, MOV, WebM, PDF, Word, Excel, TXT hoặc CSV hợp lệ.');
-    const name=req.file.originalname.replace(/[\x00-\x1f\x7f/\\]/g,'_').slice(0,180);
+    let name=req.file.originalname.replace(/[\x00-\x1f\x7f/\\]/g,'_').slice(0,180);
     await withTransaction(pool,async c=>{
       await c.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
       const row=(await c.query('SELECT status FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[req.chatThread.id])).rows[0];
@@ -41,9 +41,11 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
       if(row.status==='closed')throw fail('Hội thoại đã đóng.',409);
       const usage=(await c.query('SELECT COALESCE(sum(byte_size),0)::bigint AS total,COALESCE(sum(byte_size) FILTER(WHERE thread_id IN(SELECT id FROM shopping_chat_threads WHERE owner_key=$1 OR (customer_id IS NOT NULL AND customer_id=$2))),0)::bigint AS thread FROM shopping_chat_files',[req.chatThread.owner_key,req.chatThread.customer_id])).rows[0];
       if(Number(usage.total)+req.file.size>1073741824 || Number(usage.thread)+req.file.size>52428800)throw fail('Đã đạt giới hạn lưu tệp. Liên hệ nhân viên để được hỗ trợ.',413);
+      const uploaded=await storeUpload('chat',req.file.buffer,mime);mime=uploaded.mimeType;if(mime==='image/webp')name=name.replace(/\.[^.]+$/,'')+'.webp';
+      if(Number(usage.total)+uploaded.byteSize>1073741824||Number(usage.thread)+uploaded.byteSize>52428800)throw fail('Đã đạt giới hạn lưu tệp.',413);
       if(!isAdmin)await require('./shopping-chat-ai-first').offerHandoff(c,req.chatThread.id,'attachment','Nhân viên GAERU có thể xem tệp và hỗ trợ bạn. Chọn Gặp nhân viên để kết nối.');
       const message=(await c.query('INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,$2,$3,$4) RETURNING id',[req.chatThread.id,isAdmin?'admin':'customer','Tệp đính kèm: '+name,key])).rows[0];
-      await c.query('INSERT INTO shopping_chat_files(message_id,thread_id,name,mime,content,byte_size) VALUES($1,$2,$3,$4,$5,$6)',[message.id,req.chatThread.id,name,mime,await storeMedia('chat',req.file.buffer,mime),req.file.size]);
+      await c.query('INSERT INTO shopping_chat_files(message_id,thread_id,name,mime,content,byte_size) VALUES($1,$2,$3,$4,$5,$6)',[message.id,req.chatThread.id,name,mime,uploaded.content,uploaded.byteSize]);
       await c.query('UPDATE shopping_chat_threads SET version=version+1,awaiting_admin=$2,updated_at=now() WHERE id=$1',[req.chatThread.id,!isAdmin&&req.chatThread.handling_mode==='human']);
       if(isAdmin)await require('./audit').appendAudit(c,{actor:req.admin,action:'shopping.chat.file',entityType:'shopping_chat',entityId:req.chatThread.id,metadata:{size:req.file.size}});
     });res.status(201).json({message:'Đã gửi tệp.'});

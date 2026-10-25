@@ -7,18 +7,19 @@ const MAX_DIMENSION = 1600;
 const EXPECTED_FORMATS = Object.freeze({
   'image/jpeg': 'jpeg',
   'image/png': 'png',
-  'image/webp': 'webp'
+  'image/webp': 'webp',
+  'image/heic':'heif'
 });
 
 function invalidImage() {
-  const error = new Error('Ảnh không hợp lệ hoặc độ phân giải quá lớn (tối đa 24 MP).');
+  const error = new Error('Chọn ảnh tĩnh PNG, JPG hoặc WebP hợp lệ, tối đa 24 MP. Nếu HEIC chưa được hỗ trợ, hãy chuyển sang JPG trước.');
   error.status = 400;
   return error;
 }
 
-async function optimizeProductImage(buffer, mimeType) {
+async function optimizeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}={}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 ||
-      buffer.length > MAX_UPLOAD_BYTES || !EXPECTED_FORMATS[mimeType]) {
+      buffer.length > maxUploadBytes || !EXPECTED_FORMATS[mimeType]) {
     throw invalidImage();
   }
   try {
@@ -26,18 +27,20 @@ async function optimizeProductImage(buffer, mimeType) {
     const info = await sharp(buffer, input).metadata();
     if (info.format !== EXPECTED_FORMATS[mimeType] ||
         !info.width || !info.height ||
-        info.width * info.height > MAX_INPUT_PIXELS) {
+        info.width * info.height > MAX_INPUT_PIXELS || (info.pages||1)>1) {
       throw invalidImage();
     }
+    if(info.format==='webp'&&info.width<=MAX_DIMENSION&&info.height<=MAX_DIMENSION&&!info.exif&&!info.icc&&!info.xmp&&!info.orientation)return {buffer,mimeType:'image/webp'};
     const webp = await sharp(buffer, input)
       .rotate() // Apply EXIF orientation; output metadata is stripped.
       .resize(MAX_DIMENSION, MAX_DIMENSION, {
         fit: 'inside',
         withoutEnlargement: true
       })
-      .webp({ quality: 78, effort: 3 })
+      .toColourspace('srgb')
+      .webp({ quality: 90, alphaQuality:100, effort: 5, smartSubsample:true })
       .toBuffer();
-    if (webp.length === 0 || webp.length > MAX_UPLOAD_BYTES) {
+    if (webp.length === 0 || webp.length > maxUploadBytes) {
       throw invalidImage();
     }
     return { buffer: webp, mimeType: 'image/webp' };
@@ -46,4 +49,4 @@ async function optimizeProductImage(buffer, mimeType) {
   }
 }
 
-module.exports = { optimizeProductImage };
+module.exports = { optimizeImage, optimizeProductImage:optimizeImage };

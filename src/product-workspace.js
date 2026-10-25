@@ -3,7 +3,6 @@ const { createHash } = require('node:crypto');
 const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
-const { optimizeProductImage } = require('./lib/image-optimizer');
 const { readStoredImage } = require('./lib/stored-images');
 // Only images attached to published products reach this function.
 // Storage objects use immutable keys; a format migration changes the pointer and MIME.
@@ -87,8 +86,8 @@ admin.post('/catalog-images',
 
 
     try {
-      const optimized = await optimizeProductImage(b, f.mimetype);
-      const content = await require('./lib/stored-media').storeMedia('products',optimized.buffer,optimized.mimeType);
+      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype);
+      const content=optimized.content;
 
       const row = (await pool.query(
         'INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',
