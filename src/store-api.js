@@ -14,8 +14,8 @@ const { decoratePublicProductImages } = require("./lib/public-image-urls");
 const orderSchema = z.object({
   customer: z.object({
     name: z.string().trim().min(2).max(120),
-    email: z.string().trim().email().max(254),
-    phone: z.string().trim().min(8).max(30),
+    email: z.string().trim().email().max(254).transform(value=>value.toLowerCase()),
+    phone: z.string().trim().regex(/^[+0-9().\s-]{8,30}$/),
     address: z.string().trim().min(5).max(250),
     city: z.string().trim().min(2).max(120),
     note: z.string().trim().max(1000).default("")
@@ -104,7 +104,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {} } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {}, checkoutAccounts = false } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -312,6 +312,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
         }
+        if(checkoutAccounts)await require("./checkout-account").enroll(client,createdOrder,parsed.data.customer,req.session?.customer?.id);
         for (const item of prepared) {
           await client.query(
             `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
