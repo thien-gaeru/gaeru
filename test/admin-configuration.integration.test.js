@@ -58,5 +58,22 @@ test('private configuration is owner-only, encrypted, versioned, reauthenticated
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:1,data:{ordersEnabled:true},password:'Owner-settings-password'})).status,200);
  assert.equal((await api('/api/settings/public')).data.ordersEnabled,true);
  assert.equal((await api('/api/gaeru_ceo/owner/configuration/operations','PUT',{version:1,data:{ordersEnabled:false},password:'Owner-settings-password'})).status,409);
- await api('/api/gaeru_ceo/staff','POST',{username:'config-staff',fullName:'Staff Test',password:'Staff-settings-password',role:'admin'});await api('/api/auth/logout','POST',{});await api('/api/csrf');await api('/api/auth/login','POST',{username:'config-staff',password:'Staff-settings-password'});assert.equal((await api('/api/gaeru_ceo/owner/configuration')).status,403);
+
+ const aiPath='/api/gaeru_ceo/owner/configuration/chat_ai',ai={enabled:true,provider:'gemini',profiles:{openai:{model:'fixture-gpt',apiKey:'private-openai-fixture'},gemini:{model:'fixture-gemini',apiKey:'private-gemini-fixture'},claude:{model:'fixture-claude',apiKey:'private-claude-fixture'}}};
+ assert.equal((await api(aiPath,'PUT',{version:0,data:ai,password:'wrong'})).status,403);
+ assert.equal((await api(aiPath,'PUT',{version:0,data:ai,password:'Owner-settings-password'},false)).status,403);
+ r=await api(aiPath,'PUT',{version:0,data:ai,password:'Owner-settings-password'});assert.equal(r.status,200);assert.equal(r.data.data.profiles.gemini.secretConfigured,true);assert.ok(!JSON.stringify(r.data).includes('private-gemini-fixture'));
+ const encryptedAI=(await pool.query("SELECT setting_value FROM store_settings WHERE setting_key='private_admin:chat_ai'")).rows[0];assert.ok(!JSON.stringify(encryptedAI).includes('private-gemini-fixture'));
+ const {getChatAIConfig}=require('../src/chat-ai-provider');assert.equal((await getChatAIConfig(pool,{SESSION_SECRET:secret})).apiKey,'private-gemini-fixture');
+ assert.equal((await api('/api/shopping-chat/capabilities')).data.provider,'gemini');
+ const nextAI={...ai,provider:'claude',profiles:Object.fromEntries(Object.entries(ai.profiles).map(([id,p])=>[id,{model:p.model}]))};
+ assert.equal((await api(aiPath,'PUT',{version:1,data:nextAI,password:'Owner-settings-password'})).status,200);assert.equal((await getChatAIConfig(pool,{SESSION_SECRET:secret})).apiKey,'private-claude-fixture');
+ assert.equal((await api(aiPath,'PUT',{version:1,data:ai,password:'Owner-settings-password'})).status,409);
+ assert.equal((await api(aiPath+'/test','POST',{version:2,password:'wrong'})).status,403);
+ const provider=require('../src/chat-ai-provider');const probe=t.mock.method(provider,'generate',async ({settings,question,product})=>{assert.equal(settings.provider,'claude');assert.equal(settings.apiKey,'private-claude-fixture');assert.equal(question,'Chào GAERU');assert.ok(!JSON.stringify(product).includes('Owner Test'));return {answer:'Chào bạn.',handoff:false};});
+ r=await api(aiPath+'/test','POST',{version:2,password:'Owner-settings-password'});assert.equal(r.status,200);assert.equal(r.data.compatible,true);assert.ok(!JSON.stringify(r.data).includes('private-claude-fixture'));
+ probe.mock.mockImplementation(async()=>{throw Object.assign(Error('Fixture provider unavailable'),{status:503});});assert.equal((await api(aiPath+'/test','POST',{version:2,password:'Owner-settings-password'})).status,503);probe.mock.restore();
+ assert.equal((await api(aiPath,'PUT',{version:2,data:{...nextAI,enabled:false},password:'Owner-settings-password'})).status,200);assert.equal((await api('/api/shopping-chat/capabilities')).data.aiConfigured,false);
+ assert.ok(!JSON.stringify((await pool.query('SELECT * FROM audit_events')).rows).includes('private-claude-fixture'));
+ await api('/api/gaeru_ceo/staff','POST',{username:'config-staff',fullName:'Staff Test',password:'Staff-settings-password',role:'admin'});await api('/api/auth/logout','POST',{});await api('/api/csrf');await api('/api/auth/login','POST',{username:'config-staff',password:'Staff-settings-password'});assert.equal((await api('/api/gaeru_ceo/owner/configuration')).status,403);assert.equal((await api(aiPath+'/test','POST',{version:3,password:'Staff-settings-password'})).status,403);
 });
