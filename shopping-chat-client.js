@@ -23,6 +23,15 @@
       <p role="status" data-chat-feedback></p></form>
       ${admin?'':'<div class="chat-ai"><p data-ai-note>Đang kiểm tra trạng thái Chat AI…</p></div>'}`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
+    const nearBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<80;
+    function scrollToLatest(smooth=false){messages.scrollTo({top:messages.scrollHeight,behavior:smooth&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches?'smooth':'instant'});}
+    let composing=false;
+    form.elements.body.addEventListener('compositionstart',()=>composing=true);
+    form.elements.body.addEventListener('compositionend',()=>composing=false);
+    form.elements.body.addEventListener('keydown',event=>{
+      if(event.key!=='Enter'||event.shiftKey||event.ctrlKey||event.altKey||event.metaKey||event.isComposing||composing||event.keyCode===229)return;
+      event.preventDefault();if(!sending&&!send.disabled&&(form.elements.body.value.trim()||files.length))form.requestSubmit(send);
+    });
     function media(url,mime,name){
       if(['image/jpeg','image/png','image/webp','image/heic'].includes(mime))return `<img class="chat-inline-media" src="${escape(url)}" alt="${escape(name)}" loading="lazy">`;
       if(['video/mp4','video/quicktime','video/webm'].includes(mime))return `<video class="chat-inline-media" controls playsinline preload="metadata" src="${escape(url)}">Thiết bị chưa phát được video này.</video>`;
@@ -54,10 +63,10 @@
       try{
         const first=!messages.children.length,last=messages.lastElementChild?.dataset.messageId;
         const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
-        const near=messages.scrollHeight-messages.scrollTop-messages.clientHeight<60,oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set([...messages.children].map(e=>e.dataset.messageId));
+        const near=nearBottom(),oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set([...messages.children].map(e=>e.dataset.messageId));
         const html=d.messages.filter(m=>!known.has(String(m.id))).map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);else messages.insertAdjacentHTML('beforeend',html);
-        if(before)messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;else if(near||first)messages.scrollTop=messages.scrollHeight;
+        if(before)messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;else if(html&&(near||first))scrollToLatest(!first);
         if(first||before)root.querySelector('[data-chat-earlier]').hidden=!d.hasMore;
         root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?(thread.staffReplied?'Nhân viên đang hỗ trợ · ':'Chờ nhân viên · '):thread.handoffOffered?'AI tạm dừng · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
         if(d.hasMore&&!before&&!first)setTimeout(()=>refresh(),0);
@@ -103,7 +112,7 @@
         if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body,requestKey:key})});id=d.thread.id;}
         else await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body,requestKey:key})});
         while(files.length){const item=files[0],data=new FormData();data.append('file',item.file);data.append('requestKey',item.key);await request(base+'/'+id+'/files',{method:'POST',body:data});release(files.shift());renderFiles();}
-        key=null;form.reset();feedback.textContent='Đã gửi.';await refresh();
+        key=null;form.reset();feedback.textContent='Đã gửi.';await refresh();scrollToLatest(true);
       }catch(error){feedback.textContent=error.message;}finally{sending=false;setClosed();}
     };
     async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
