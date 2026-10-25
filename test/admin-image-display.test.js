@@ -28,7 +28,7 @@ test('admin product list renders WebP display URLs without mutating canonical pr
  const products=['/assets/products/k9.png',catalog].map((imageUrl,index)=>({id:String(index),name:'Fixture '+index,category:'audio',active:true,imageUrl,variants:[{active:true,stockQuantity:9,priceVnd:100,name:'Standard'}]}));
  const original=JSON.stringify(products),nodes=new Map();
  const node=key=>{if(!nodes.has(key))nodes.set(key,{value:'',innerHTML:'',textContent:''});return nodes.get(key);};
- const context={document:{querySelector:node},window:{GAERUAdminUI:ui},state:{products,currentProduct:null},escapeHtml:value=>String(value),categoryLabels:{audio:'Audio'},formatPrice:value=>String(value)};
+ const context={can:()=>true,document:{querySelector:node},window:{GAERUAdminUI:ui},state:{products,currentProduct:null},escapeHtml:value=>String(value),categoryLabels:{audio:'Audio'},formatPrice:value=>String(value)};
  vm.createContext(context);vm.runInContext(render,context);context.renderProducts();
  assert.match(node('#product-list').innerHTML,/<img src="\/assets\/products\/k9\.webp"/);
  assert.ok(node('#product-list').innerHTML.includes('src="'+catalogPreview+'"'));
