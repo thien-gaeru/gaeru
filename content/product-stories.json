@@ -2,10 +2,10 @@
   {
     "slug": "gaeru-g1-ultra",
     "name": "GAERU G1 ULTRA",
-    "imageUrl": "/api/catalog-images/9b20b771-a130-4b2b-bf95-3283ea680cc2",
+    "imageUrl": "/api/catalog-images/0779b270-eedf-4585-bc58-2275d25a06ac",
     "imageAlt": "GAERU G1 ULTRA với hộp sạc, micro cài áo và bộ thu",
     "gallery": [
-      "/api/catalog-images/9b20b771-a130-4b2b-bf95-3283ea680cc2",
+      "/api/catalog-images/0779b270-eedf-4585-bc58-2275d25a06ac",
       "/assets/products/g1-ultra.webp",
       "/api/catalog-images/9875bb5d-ee7e-45a4-8714-04f46522f655",
       "/api/catalog-images/c881803f-db61-45b2-a999-c01005aa1da8",
@@ -19,7 +19,7 @@
     "descriptionMedia": [
       {
         "type": "image",
-        "url": "/api/catalog-images/9b20b771-a130-4b2b-bf95-3283ea680cc2",
+        "url": "/api/catalog-images/0779b270-eedf-4585-bc58-2275d25a06ac",
         "alt": "Tổng quan bộ micro GAERU G1 ULTRA",
         "caption": "",
         "afterParagraph": 1
