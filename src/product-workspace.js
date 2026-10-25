@@ -48,6 +48,9 @@ const catalogImageUploadLimiter = rateLimit({
 });
 
 function createProductWorkspace(pool){const admin=Router(),publicApi=Router();
+ // Explicitly approved homepage artwork; other unreferenced catalog objects stay private.
+ publicApi.get('/site-media/g1-home',catalogImagePublicLimiter,async(req,res,next)=>{try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',['0779b270-eedf-4585-bc58-2275d25a06ac'])).rows[0];if(!row)return res.sendStatus(404);req.params.id='g1-home';await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}});
+
  publicApi.get('/catalog-images/:id',catalogImagePublicLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}});
  admin.use('/product-workspace',requirePermission('catalog.read'));
  admin.get('/product-workspace/:id',async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const data=await read(pool,req.params.id,req.query.trash==='1');if(!data)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});res.set('Cache-Control','no-store').json(data);}catch(e){next(e);}});
