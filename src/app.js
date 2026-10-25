@@ -30,8 +30,7 @@ const { createBusinessApi } = require("./business-api");
 function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
-  const compression=require('compression');
-  app.use(compression({threshold:1024,filter:(req,res)=>!/^\/(?:gaeru_ceo|api\/(?!products(?:\/|$)|news(?:\/|$)))/.test(req.path)&&compression.filter(req,res)}));
+  app.use(require('./lib/public-compression').publicCompression());
   config={...config,accountSecurity:createAccountSecurity(pool,config,customerMailer)};
 
   app.disable("x-powered-by");
