@@ -53,7 +53,7 @@ test("publishing locks the parent before checking active variants", async (conte
       const client = {
         async query(sql) {
           statements.push(sql);
-          if (sql === "SELECT id FROM products WHERE id=$1 FOR UPDATE") return { rows: [{ id: productId }] };
+          if (sql === "SELECT id FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE") return { rows: [{ id: productId }] };
           if (sql.startsWith("SELECT COUNT(*)")) return { rows: [{ count: activeVariants }] };
           if (sql.startsWith("UPDATE products")) return { rows: [{ id: productId }] };
           return { rows: [] };
@@ -63,7 +63,7 @@ test("publishing locks the parent before checking active variants", async (conte
       const request = await startAdminApi(subcontext, { connect: async () => client });
       const response = await request(`/gaeru_ceo/products/${productId}`, { method: "PUT", body: productPayload });
       assert.equal(response.status, activeVariants ? 200 : 409);
-      const lock = statements.findIndex((sql) => sql === "SELECT id FROM products WHERE id=$1 FOR UPDATE");
+      const lock = statements.findIndex((sql) => sql === "SELECT id FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE");
       const count = statements.findIndex((sql) => sql.startsWith("SELECT COUNT(*)"));
       assert.ok(lock >= 0 && count > lock);
       assert.equal(statements.some((sql) => sql.startsWith("UPDATE products")), Boolean(activeVariants));

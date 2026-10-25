@@ -201,8 +201,7 @@ function renderProduct() {
   if (breadcrumb) breadcrumb.textContent = product.name;
   const optionGroups=window.GAERUVariantChoices?.groups(variants,product.optionGroups)||[];
   const visualOptions=optionGroups.length?optionGroups.map(g=>`<div class="product-choice-group"><p>${escapeHtml(g.name)}</p><div class="product-choice-buttons" role="group" aria-label="${escapeHtml(g.name)}">${g.values.map(value=>`<button type="button" data-option-group="${escapeHtml(g.name)}" data-option-value="${escapeHtml(value)}" aria-pressed="${selected?.options?.[g.name]===value}">${escapeHtml(value)}</button>`).join("")}</div></div>`).join(""):variants.map(v=>`<button class="product-variant-card" type="button" data-visual-variant="${escapeHtml(v.id)}" aria-pressed="${v.id===selected?.id}">${escapeHtml(v.name)}<small>${formatPrice(v.priceVnd)}${v.stockQuantity?"":" · Hết hàng"}</small></button>`).join("");
-  const variantField = variants.length ? `${visualOptions}<details class="variant-list-toggle"><summary>Xem danh sách phiên bản</summary>
-    <label class="variant-select-label" for="product-variant">Phiên bản
+  const variantField = variants.length ? `${visualOptions}<label class="variant-select-label variant-select-internal" for="product-variant">Phiên bản
       <select id="product-variant">
         ${variants.map((variant) => {
           const options = Object.entries(variant.options || {}).map(([key, value]) => `${key}: ${value}`).join(" · ");
@@ -210,7 +209,7 @@ function renderProduct() {
           return `<option value="${escapeHtml(variant.id)}" ${variant.id === selected?.id ? "selected" : ""} ${variant.stockQuantity ? "" : "disabled"}>${escapeHtml(label)} · ${formatPrice(variant.priceVnd)}</option>`;
         }).join("")}
       </select>
-    </label></details>
+    </label>
     <p class="detail-price" data-selected-price>${formatPrice(selected.priceVnd)}</p>` : `
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 

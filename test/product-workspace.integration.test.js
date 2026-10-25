@@ -45,5 +45,31 @@ test('product workspace saves variant combinations atomically, protects history 
  const notices=(await api('/api/gaeru_ceo/notifications')).data;assert.ok(notices.items.some(n=>n.key==='config:smtp'));const notice=notices.items.find(n=>n.key==='config:smtp');assert.equal((await api('/api/gaeru_ceo/notifications/read','POST',{key:notice.key,version:notice.version},false)).status,403);assert.equal((await api('/api/gaeru_ceo/notifications/read','POST',{key:notice.key,version:notice.version})).status,200);assert.equal((await api('/api/gaeru_ceo/notifications')).data.items.find(n=>n.key===notice.key).read,true);
  const stockNotice=notices.items.find(n=>n.key.startsWith('stock:'));assert.ok(stockNotice);await api('/api/gaeru_ceo/notifications/read','POST',{key:stockNotice.key,version:stockNotice.version});await pool.query('UPDATE product_variants SET stock_quantity=0 WHERE id=$1',[stockNotice.key.split(':')[1]]);const changedStock=(await api('/api/gaeru_ceo/notifications')).data.items.find(n=>n.key===stockNotice.key);assert.equal(changedStock.read,false);assert.equal(changedStock.version,'0');
  await pool.query('INSERT INTO staff_accounts(username,full_name,password_hash,role) VALUES($1,$2,$3,$4)',['fixture-viewer','Fixture Viewer',bcrypt.hashSync(password,4),'viewer']);await api('/api/auth/logout','POST');await api('/api/csrf');assert.equal((await api('/api/auth/login','POST',{username:'fixture-viewer',password})).status,200);assert.equal((await api('/api/gaeru_ceo/product-workspace/'+model.id)).status,200);assert.equal((await api('/api/gaeru_ceo/product-workspace','POST',updated.data)).status,403);const viewerNotices=(await api('/api/gaeru_ceo/notifications')).data;assert.ok(!viewerNotices.items.some(n=>n.key.startsWith('config:')));assert.equal((await api('/api/gaeru_ceo/notifications/read','POST',{key:'config:smtp',version:'missing'})).status,409);
-});
+ // Removing a listing preserves stock, immutable audit and linked order history.
+ const deletePath='/api/gaeru_ceo/products/'+model.id;
+ const current=(await api('/api/gaeru_ceo/products')).data.products.find(p=>p.id===model.id);
+ const deletion={version:current.version,confirmation:'DELETE_PRODUCT'};
+ assert.equal((await api(deletePath,'DELETE',deletion)).status,403);
+ await api('/api/auth/logout','POST');await api('/api/csrf');await api('/api/auth/login','POST',{username:'workspace-owner',password});
+ assert.equal((await api(deletePath,'DELETE',deletion,false)).status,403);
+ assert.equal((await api(deletePath,'DELETE',{version:current.version})).status,400);
+ assert.equal((await api(deletePath,'DELETE',{...deletion,version:current.version+1})).status,409);
+ const order=(await pool.query("INSERT INTO orders(order_number,customer_name,email,phone,address,city,payment_method,subtotal_vnd) VALUES('DELETE-FIXTURE','Fixture','fixture@example.test','000','Fixture','Fixture','cod',100000) RETURNING id")).rows[0];
+ await pool.query("INSERT INTO order_items(order_id,variant_id,product_name,variant_name,sku,unit_price_vnd,quantity,line_total_vnd) VALUES($1,$2,'Fixture Micro','Type-C','FIXTURE-0',100000,1,100000)",[order.id,model.variants[0].id]);
+ const stockBefore=(await pool.query('SELECT variant_id,quantity FROM warehouse_stock ORDER BY variant_id')).rows;
+ const variantsBefore=(await pool.query('SELECT id,stock_quantity FROM product_variants WHERE product_id=$1 ORDER BY id',[model.id])).rows;
+ assert.equal((await api(deletePath,'DELETE',deletion)).status,204);
+ assert.equal((await api(deletePath,'DELETE',deletion)).status,404);
+ assert.ok(!(await api('/api/products')).data.products.some(p=>p.id===model.id));
+ assert.ok(!(await api('/api/gaeru_ceo/products')).data.products.some(p=>p.id===model.id));
+ assert.equal((await api('/api/products/fixture-micro')).status,404);
+ assert.equal((await api('/api/gaeru_ceo/product-workspace/'+model.id)).status,404);
+ assert.equal((await api('/api/gaeru_ceo/product-workspace','POST',updated.data)).status,404);
+ assert.deepEqual((await pool.query('SELECT variant_id,quantity FROM warehouse_stock ORDER BY variant_id')).rows,stockBefore);
+ assert.deepEqual((await pool.query('SELECT id,stock_quantity FROM product_variants WHERE product_id=$1 ORDER BY id',[model.id])).rows,variantsBefore);
+ assert.equal((await pool.query('SELECT variant_id FROM order_items WHERE order_id=$1',[order.id])).rows[0].variant_id,model.variants[0].id);
+ assert.equal((await pool.query('SELECT active,deleted_at IS NOT NULL deleted FROM products WHERE id=$1',[model.id])).rows[0].deleted,true);
+ assert.equal((await pool.query('SELECT COUNT(*)::int n FROM product_variants WHERE product_id=$1 AND active',[model.id])).rows[0].n,0);
+ assert.equal((await pool.query("SELECT COUNT(*)::int n FROM audit_events WHERE action='catalog.product.delete' AND entity_id=$1",[model.id])).rows[0].n,1);
 
+});
