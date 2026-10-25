@@ -43,3 +43,5 @@ h1,h2,h3{font-weight:600;letter-spacing:-.022em}
 @media(max-width:734px){.hero .eyebrow{font-size:.75rem;letter-spacing:.08em}.shop-page .catalog-actions{gap:12px}.shop-page .catalog-actions .button{padding-inline:12px}.hero-content{padding-top:44px}}
 
 .catalog-description:empty,.product-card .product-copy>p:empty{display:none}
+
+.footer-help{font-size:var(--type-body)}.footer-help p,.footer-help a,.footer-help .footer-chat-link{font-size:inherit;font-family:inherit;font-weight:inherit;line-height:inherit}

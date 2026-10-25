@@ -6,6 +6,7 @@ const { Router } = require("express");
 const { rateLimit } = require("express-rate-limit");
 const { z } = require("zod");
 const { requireAdmin, requireCsrf } = require("./security");
+const { requirePermission } = require("./staff-access");
 const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
 const { decoratePublicProductImages } = require("./lib/public-image-urls");
@@ -38,10 +39,10 @@ const transitions = {
 };
 
 async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
-  const visibility = includeDrafts ? "" : "WHERE p.active = true";
+  const visibility = includeDrafts ? "WHERE p.deleted_at IS NULL" : "WHERE p.active = true AND p.deleted_at IS NULL";
   const query = `
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description, p.card_title AS "cardTitle", p.card_summary AS "cardSummary",
-      p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active,
+      p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active, p.edit_version AS version,
       p.sort_order AS "sortOrder",
       COALESCE(m.description_media,'[]'::jsonb) AS "descriptionMedia",COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",
       COALESCE((
@@ -69,7 +70,7 @@ async function lockVariantWithProduct(client, variantId) {
   const parentResult = await client.query(
     `SELECT p.id, p.active FROM products p
      JOIN product_variants v ON v.product_id = p.id
-     WHERE v.id=$1 FOR UPDATE OF p`,
+     WHERE v.id=$1 AND p.deleted_at IS NULL FOR UPDATE OF p`,
     [variantId]
   );
   const product = parentResult.rows[0];
@@ -461,7 +462,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
         (SELECT COUNT(*)::int FROM product_variants v JOIN products p ON p.id = v.product_id
          WHERE v.active = true AND p.active = true AND v.stock_quantity <= 5) AS "lowStock"
-        FROM products`),
+        FROM products WHERE deleted_at IS NULL`),
       pool.query(`SELECT COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
         COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled'))::int AS "needsAction",
@@ -499,13 +500,32 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
+  router.delete('/gaeru_ceo/products/:id', requireUuidParam('id'), requirePermission('catalog.write'), requireCsrf, async (req,res,next)=>{
+    const parsed=z.object({version:z.number().int().positive(),confirmation:z.literal('DELETE_PRODUCT')}).strict().safeParse(req.body);
+    if(!parsed.success)return res.status(400).json({error:'Xác nhận sản phẩm cần xóa và tải lại dữ liệu mới nhất.'});
+    try{
+      const removed=await withTransaction(pool,async client=>{
+        const product=(await client.query('SELECT id,name,active,edit_version FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE',[req.params.id])).rows[0];
+        if(!product)return false;
+        if(product.edit_version!==parsed.data.version){const error=new Error('Sản phẩm vừa thay đổi. Tải lại trước khi xóa.');error.status=409;throw error;}
+        await client.query('SELECT id FROM product_variants WHERE product_id=$1 ORDER BY id FOR UPDATE',[product.id]);
+        await client.query('UPDATE products SET active=false,deleted_at=now(),updated_at=now() WHERE id=$1',[product.id]);
+        await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1',[product.id]);
+        await audit(client,{actor:req.admin,action:'catalog.product.delete',entityType:'product',entityId:product.id,before:product,after:{deleted:true},metadata:{historyPreserved:true}});
+        return true;
+      });
+      if(!removed)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});
+      res.status(204).end();
+    }catch(error){if(error.status)return res.status(error.status).json({error:error.message});next(error);}
+  });
+
   router.put("/gaeru_ceo/products/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
       const p = parsed.data;
       const product = await withTransaction(pool, async (client) => {
-        const current = await client.query("SELECT id FROM products WHERE id=$1 FOR UPDATE", [req.params.id]);
+        const current = await client.query("SELECT id FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE", [req.params.id]);
         if (!current.rows[0]) return null;
         if (p.active) {
           const variants = await client.query("SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND active = true", [req.params.id]);
@@ -542,7 +562,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const variant = await withTransaction(pool, async (client) => {
       const result = await client.query(
         `INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active)
-         SELECT id, $2, $3, $4, $5, $6, $7 FROM products WHERE id=$1
+         SELECT id, $2, $3, $4, $5, $6, $7 FROM products WHERE id=$1 AND deleted_at IS NULL
          RETURNING id`,
         [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
       );
