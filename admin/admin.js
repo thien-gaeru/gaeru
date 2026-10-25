@@ -63,7 +63,7 @@ async function request(url, options = {}) {
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && state.session) { state.session = null; location.replace("/gaeru_ceo?expired=1"); }
-  if (!response.ok) throw Object.assign(new Error(body.error || `Yêu cầu thất bại (${response.status}).`),{status:response.status});
+  if (!response.ok) throw Object.assign(new Error(body.error || `Yêu cầu thất bại (${response.status}).`),{status:response.status,diagnostic:body.diagnostic,stage:body.stage});
   return body;
 }
 

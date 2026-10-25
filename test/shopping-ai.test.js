@@ -5,7 +5,7 @@ test('shopping AI sends only explicit question and product facts, labels failure
   const answer=await answerAI({config:{OPENAI_API_KEY:'fixture'},product:{name:'Fixture',description:'USB C'},question:'Kết nối nào?',transport:async(url,options)=>{assert.equal(url,'https://api.openai.com/v1/responses');sent=JSON.parse(options.body);return {ok:true,json:async()=>({output:[{content:[{type:'output_text',text:'Sản phẩm hỗ trợ USB C.'}]}]})};}});
   assert.equal(sent.store,false);assert.equal(sent.max_output_tokens,650);assert.deepEqual(JSON.parse(sent.input),{product:{name:'Fixture',description:'USB C'},question:'Kết nối nào?'});assert.equal(answer,'Sản phẩm hỗ trợ USB C.');
   await assert.rejects(answerAI({config:{},product:{},question:'test'}),/chưa được cấu hình/);
-  await assert.rejects(answerAI({config:{OPENAI_API_KEY:'fixture'},product:{},question:'test',transport:async()=>({ok:false})}),/chưa phản hồi/);
+  await assert.rejects(answerAI({config:{OPENAI_API_KEY:'fixture'},product:{},question:'test',transport:async()=>({ok:false})}),e=>e.aiDiagnostic?.code==='UNKNOWN');
 });
 test('chat attachment validation rejects executable or forged image content',()=>{
   assert.equal(fileType({originalname:'bad.png',buffer:Buffer.from('<script>bad</script>')}),null);
