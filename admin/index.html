@@ -5,18 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f5f5f7">
     <title>Quản trị GAERU</title>
-    <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css?v=20261025-mobile-delete">
+    <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css?v=20261025-product-trash">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261024-compact">
     <script src="/gaeru_ceo/assets/admin-ui.js?v=20261025-webp" defer></script>
-    <script src="/gaeru_ceo/assets/admin.js?v=20261025-mobile-delete" defer></script>
-    <script src="/gaeru_ceo/assets/enterprise.js?v=20261025-webp" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261025-product-trash" defer></script>
+    <script src="/gaeru_ceo/assets/enterprise.js?v=20261025-product-trash" defer></script>
     <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
     <script src="/gaeru_ceo/assets/owner.js?v=20261024-owner-status-dot" defer></script>
     <script src="/gaeru_ceo/assets/warranty.js?v=20261024-resubmit" defer></script>
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-banner"><script src="/gaeru_ceo/assets/configuration.js?v=20261025-chat-media-ai" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261025-chat-media-ai" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261025-chat-media-ai"></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-banner"><script src="/gaeru_ceo/assets/configuration.js?v=20261025-chat-media-ai" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261025-product-trash" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261025-product-trash"></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -110,7 +110,7 @@
             </div>
           </section>
 
-          <section class="view-panel" id="products-view" hidden><div class="catalog-summary" data-catalog-summary></div>
+          <section class="view-panel" id="products-view" hidden><div class="product-scope-tabs" role="group" aria-label="Khu vực sản phẩm"><button type="button" data-product-scope="catalog" aria-pressed="true">Danh mục sản phẩm</button><button type="button" data-product-scope="trash" aria-pressed="false">Sản phẩm đã xóa</button></div><p id="product-trash-note" class="help-text" hidden>Khôi phục đưa sản phẩm về bản nháp. Kích hoạt lại dùng các biến thể đã chọn; sản phẩm xóa từ bản cũ có thể cần chỉnh sửa biến thể trước. Xóa vĩnh viễn chỉ áp dụng khi không còn tồn và chưa có chứng từ liên quan.</p><div class="catalog-summary" data-catalog-summary></div>
             <div class="toolbar">
               <input id="product-search" type="search" placeholder="Tìm tên sản phẩm, đường dẫn hoặc SKU" aria-label="Tìm sản phẩm theo tên, đường dẫn hoặc SKU">
               <button class="primary-button" id="new-product-button" type="button" data-require="catalog.write">Thêm sản phẩm</button>

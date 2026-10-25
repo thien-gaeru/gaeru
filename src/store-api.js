@@ -38,11 +38,11 @@ const transitions = {
   cancelled: []
 };
 
-async function loadProducts(pool, { includeDrafts = false, search = "" } = {}) {
-  const visibility = includeDrafts ? "WHERE p.deleted_at IS NULL" : "WHERE p.active = true AND p.deleted_at IS NULL";
+async function loadProducts(pool, { includeDrafts = false, deleted = false, search = "" } = {}) {
+  const visibility = includeDrafts ? (deleted ? "WHERE p.deleted_at IS NOT NULL" : "WHERE p.deleted_at IS NULL") : "WHERE p.active = true AND p.deleted_at IS NULL";
   const query = `
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description, p.card_title AS "cardTitle", p.card_summary AS "cardSummary",
-      p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active, p.edit_version AS version,
+      p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active, p.edit_version AS version, p.deleted_at AS "deletedAt",
       p.sort_order AS "sortOrder",
       COALESCE(m.description_media,'[]'::jsonb) AS "descriptionMedia",COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",
       COALESCE((
@@ -475,7 +475,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/gaeru_ceo/products", async (req, res) => {
-    res.json({ products: await loadProducts(pool, { includeDrafts: true, search: String(req.query.q || "") }) });
+    res.json({ products: await loadProducts(pool, { includeDrafts: true, deleted:req.query.scope==="trash", search: String(req.query.q || "") }) });
   });
 
   router.post("/gaeru_ceo/products", requireCsrf, async (req, res, next) => {
@@ -509,7 +509,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if(!product)return false;
         if(product.edit_version!==parsed.data.version){const error=new Error('Sản phẩm vừa thay đổi. Tải lại trước khi xóa.');error.status=409;throw error;}
         await client.query('SELECT id FROM product_variants WHERE product_id=$1 ORDER BY id FOR UPDATE',[product.id]);
-        await client.query('UPDATE products SET active=false,deleted_at=now(),updated_at=now() WHERE id=$1',[product.id]);
+        await client.query("UPDATE products SET active=false,deleted_at=now(),deleted_variant_state=(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'active',active)),'[]'::jsonb) FROM product_variants WHERE product_id=$1),updated_at=now() WHERE id=$1",[product.id]);
         await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1',[product.id]);
         await audit(client,{actor:req.admin,action:'catalog.product.delete',entityType:'product',entityId:product.id,before:product,after:{deleted:true},metadata:{historyPreserved:true}});
         return true;
@@ -518,6 +518,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       res.status(204).end();
     }catch(error){if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });
+
+  require('./product-trash').attachProductTrash(router,pool);
 
   router.put("/gaeru_ceo/products/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
