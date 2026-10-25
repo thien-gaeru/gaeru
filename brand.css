@@ -19,5 +19,5 @@
 /* Use the original logo's luminance as a knockout mask, so white pixels are transparent. */
 .site-header .wordmark,.site-header .brand-window{mix-blend-mode:normal}
 .site-header .brand-window .brand-logo{opacity:0}
-.site-header .brand-window::before{content:"";position:absolute;left:50%;top:50%;width:160px;height:160px;transform:translate(-50%,-50%);background:#000;mask-image:linear-gradient(#fff,#fff),url('/assets/brand/gaeru-logo.png');mask-mode:alpha,luminance;mask-size:100% 100%;mask-repeat:no-repeat;mask-composite:exclude;pointer-events:none}
+.site-header .brand-window::before{content:"";position:absolute;left:50%;top:50%;width:160px;height:160px;transform:translate(-50%,-50%);background:#000;mask-image:linear-gradient(#fff,#fff),url('/assets/brand/gaeru-logo.webp');mask-mode:alpha,luminance;mask-size:100% 100%;mask-repeat:no-repeat;mask-composite:exclude;pointer-events:none}
 @media(max-width:600px){.site-header .brand-window::before{width:144px;height:144px}}

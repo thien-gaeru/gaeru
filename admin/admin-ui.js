@@ -28,7 +28,21 @@
     settings:['Cài đặt cửa hàng','Vận hành','Thông tin cửa hàng, phí giao hàng và cấu hình nghiệp vụ.','M3 6h16 M3 16h16 M7 3v6 M15 13v6']
   };
   const roles={owner:'Chủ doanh nghiệp',admin:'Quản trị viên',manager:'Quản lý',sales:'Kinh doanh',warehouse:'Nhân viên kho',accountant:'Kế toán',viewer:'Chỉ xem'};
-  const api={views,roleName:value=>roles[value]||value,title:view=>views[view]?.[0],description:view=>views[view]?.[2]};
+  const staticImages=new Set(['assets/brand/gaeru-logo.png',...['g1-ultra','k9','m3','p01','m3-home-cutout'].map(name=>'assets/products/'+name+'.png'),...[1,2,3,4,6,7,8,9,10,11,12].map(number=>'assets/products/m3-description/'+number+'.png')]);
+  const catalogImage=/^\/api\/(?:gaeru_ceo\/)?catalog-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  // Display only: keep DTOs, input values and administrator save payloads canonical.
+  function imageUrl(value){
+    if(typeof value!=='string')return value;
+    const suffixAt=value.search(/[?#]/),pathname=suffixAt<0?value:value.slice(0,suffixAt),suffix=suffixAt<0?'':value.slice(suffixAt);
+    if(catalogImage.test(pathname)){
+      const hashAt=suffix.indexOf('#'),fragment=hashAt<0?'':suffix.slice(hashAt),query=hashAt<0?suffix:suffix.slice(0,hashAt);
+      const parameters=new URLSearchParams(query.startsWith('?')?query.slice(1):'');parameters.set('v','webp-20261025');
+      return pathname.replace('/api/catalog-images/','/api/gaeru_ceo/catalog-images/')+'?'+parameters.toString()+fragment;
+    }
+    const relative=pathname.startsWith('/')?pathname.slice(1):pathname;
+    return staticImages.has(relative)?pathname.replace(/\.png$/,'.webp')+suffix:value;
+  }
+  const api={views,imageUrl,roleName:value=>roles[value]||value,title:view=>views[view]?.[0],description:view=>views[view]?.[2]};
   if(typeof module!=='undefined')module.exports=api;
   if(!root.document)return;
   root.GAERUAdminUI=api;
