@@ -1,8 +1,8 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[], supportReadAt=Date.now();
-    root.innerHTML = `<p class="chat-state" data-chat-state>Xin chào! AI của GAERU sẽ tiếp nhận câu hỏi của bạn trước.</p>
+    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0;
+    root.innerHTML = `<p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
       <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose><div data-chat-selected class="chat-selected"></div>
@@ -14,14 +14,14 @@
       <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Chọn từ thiết bị</small></span></button>
       ${admin?(window.GAERUAdmin?.can('marketing.read')?'<button type="button" data-offer="vouchers">▱ <span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">▤ <span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>':''):'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button>'}
       <button type="button" data-pick="camera">◎ <span>Máy ảnh<small>Chụp ảnh trên thiết bị hỗ trợ</small></span></button>
-      <button type="button" data-pick="video">▷ <span>Máy quay<small>Quay video trên thiết bị hỗ trợ</small></span></button></div>
+      <button type="button" data-pick="video">▷ <span>Máy quay<small>Quay video trên thiết bị hỗ trợ</small></span></button>${admin?'':'<button type="button" data-chat-human>☏ <span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button>'}</div>
       <div data-chat-reference class="chat-reference" hidden></div>
       <input hidden type="file" data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv">
       <input hidden type="file" data-file="media" accept="image/jpeg,image/png,image/webp,image/heic,video/mp4,video/quicktime,video/webm">
       <input hidden type="file" data-file="camera" accept="image/jpeg,image/png,image/webp" capture="environment">
       <input hidden type="file" data-file="video" accept="video/mp4,video/quicktime,video/webm" capture="environment">
       <p role="status" data-chat-feedback></p></form>
-      ${admin?'':'<div class="chat-ai"><button type="button" data-chat-ai data-no-action-feedback>Gặp nhân viên</button><p data-ai-note>AI tiếp nhận và trả lời tự động qua nhà cung cấp được GAERU cấu hình, dựa trên câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm. Không gửi tệp cho AI. Bạn có thể yêu cầu nhân viên bất cứ lúc nào. Không gửi mật khẩu hoặc OTP.</p></div>'}`;
+      ${admin?'':'<div class="chat-ai"><p data-ai-note>Đang kiểm tra trạng thái Chat AI…</p></div>'}`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
     function media(url,mime,name){
       if(['image/jpeg','image/png','image/webp','image/heic'].includes(mime))return `<img class="chat-inline-media" src="${escape(url)}" alt="${escape(name)}" loading="lazy">`;
@@ -31,9 +31,19 @@
     function attachment(file){const url=base+'/'+id+'/files/'+encodeURIComponent(file.id);return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${Math.ceil(file.size/1024)} KB</a>`;}
     function release(file){if(file?.url)URL.revokeObjectURL(file.url);}
     function renderFiles(){root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<figure class="chat-preview">${f.url?media(f.url,f.file.type,f.file.name):''}<figcaption>${escape(f.file.name)}<small>Chưa gửi</small><small data-media-error hidden>Thiết bị chưa xem được định dạng này. Bạn vẫn có thể gửi tệp.</small></figcaption><button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}" ${sending?'disabled':''}>×</button></figure>`).join('');root.querySelectorAll('.chat-preview img,.chat-preview video').forEach(el=>el.addEventListener('error',()=>{el.hidden=true;el.closest('figure').querySelector('[data-media-error]').hidden=false;},{once:true}));}
+    function renderAINote(){
+      if(admin)return;const note=root.querySelector('[data-ai-note]'),names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};let text;
+      if(thread?.status==='closed')text='Hội thoại đã đóng. Mở một hội thoại mới khi bạn cần hỗ trợ.';
+      else if(thread?.handlingMode==='human')text='Hội thoại được nhân viên GAERU hỗ trợ. AI đã tạm dừng trong hội thoại này.';
+      else if(!aiCapabilities)text='Chưa xác minh được trạng thái Chat AI. Bạn vẫn có thể yêu cầu nhân viên hỗ trợ.';
+      else if(!aiCapabilities.aiConfigured)text='Chat AI chưa bật hoặc chưa đủ cấu hình. Chọn Gặp nhân viên để được hỗ trợ.';
+      else text=(names[aiCapabilities.provider]||'Chat AI')+(thread?.handoffOffered?' đang tạm dừng trả lời. Bạn có thể kết nối nhân viên.':' đang được bật để hỗ trợ tự động.')+' Chỉ gửi câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm cho AI; tệp dành cho nhân viên. Không gửi mật khẩu hoặc OTP.';
+      if(note.textContent!==text)note.textContent=text;if(!thread){const state=root.querySelector('[data-chat-state]');state.textContent=aiCapabilities?.aiConfigured?'Xin chào! '+(names[aiCapabilities.provider]||'AI của GAERU')+' sẽ tiếp nhận câu hỏi của bạn.':'Xin chào! Bạn có thể gửi yêu cầu cho nhân viên GAERU.';}
+    }
+    async function loadCapabilities(){capabilitiesReadAt=Date.now();try{aiCapabilities=await request('/api/shopping-chat/capabilities');}catch{aiCapabilities=null;}if(!stopped)renderAINote();}
     function syncSupport(){
-      const human=root.querySelector('[data-chat-ai]'),closed=thread?.status==='closed';
-      if(human){human.hidden=thread?.handlingMode==='human'||thread?.handoffOffered===true;human.disabled=closed||sending;}
+      renderAINote();
+      const closed=thread?.status==='closed',human=root.querySelector('[data-chat-human]');if(human)human.hidden=closed||thread?.handlingMode==='human';
       const state=root.querySelector('[data-chat-support]');state.hidden=admin||closed||(!thread?.handoffOffered&&thread?.handlingMode!=='human')||thread?.staffReplied===true;
       if(!state.hidden){const seconds=(thread.handoffWaitSeconds||0)+(Date.now()-supportReadAt)/1000;const html=thread.handoffOffered?'AI chưa thể tiếp tục trả lời. Kết nối nhân viên GAERU để được hỗ trợ.<button type="button" class="chat-handoff-button" data-inline-handoff data-no-action-feedback '+(sending?'disabled':'')+'>Gặp nhân viên</button>':seconds>=300?'Chưa có nhân viên phản hồi sau 5 phút. Gọi <a href="tel:0829191080">082.919.1080</a> để được hỗ trợ nhanh chóng.':'Đang chờ kết nối nhân viên hỗ trợ GAERU…';if(state.dataset.renderKey!==html){state.innerHTML=html;state.dataset.renderKey=html;}}
     }
@@ -43,7 +53,7 @@
       if(stopped||busy||!id)return;busy=true;
       try{
         const first=!messages.children.length,last=messages.lastElementChild?.dataset.messageId;
-        const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;supportReadAt=Date.now();
+        const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
         const near=messages.scrollHeight-messages.scrollTop-messages.clientHeight<60,oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set([...messages.children].map(e=>e.dataset.messageId));
         const html=d.messages.filter(m=>!known.has(String(m.id))).map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);else messages.insertAdjacentHTML('beforeend',html);
@@ -97,11 +107,10 @@
       }catch(error){feedback.textContent=error.message;}finally{sending=false;setClosed();}
     };
     async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
-    const ai=root.querySelector('[data-chat-ai]');if(ai)ai.onclick=requestHuman;
-    root.addEventListener('click',event=>{if(event.target.closest('[data-inline-handoff]'))void requestHuman();});
+    root.addEventListener('click',event=>{if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();});
     const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
-    if(!admin)request('/api/shopping-chat/capabilities').then(value=>{if(!stopped){const names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};root.querySelector('[data-ai-note]').textContent='AI tự động qua '+(names[value.provider]||'nhà cung cấp được GAERU cấu hình')+'. Chỉ gửi câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm cho AI; tệp dành cho nhân viên. Không gửi mật khẩu hoặc OTP.';}}).catch(()=>{});
-    const poll=window.GAERUCareLive.poll({delay:4000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>refresh(),status:()=>{}});
+    if(!admin)void loadCapabilities();
+    const poll=window.GAERUCareLive.poll({delay:4000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
     return {refresh,stop(){stopped=true;poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];},get thread(){return thread;}};
   }};
