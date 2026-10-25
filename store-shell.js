@@ -14,7 +14,7 @@ const anonymousEmptyCartMarkup = `
     </nav>
   </div>`;
 
-Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeShellHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU CARE+</a></nav></div>`;}});
+Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeShellHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của tôi"><h3>Hồ Sơ Của Tôi</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU Care+</a></nav></div>`;}});
 document.addEventListener('gaeru:customer-updated',()=>{const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
 
 if (headerRoot) {
@@ -28,7 +28,7 @@ if (headerRoot) {
         <nav class="primary-nav" aria-label="Điều hướng chính">
           <button class="menu-nav-trigger" type="button" aria-expanded="false" aria-controls="menu-panel">Sản phẩm <span aria-hidden="true">⌄</span></button>
           <a href="story.html">Câu chuyện</a>
-          <a href="care.html">GAERU CARE+</a>
+          <a href="care.html">GAERU Care+</a>
           <a href="support.html">Hỗ trợ</a>
         </nav>
         <div class="nav-actions">
@@ -52,7 +52,8 @@ if (headerRoot) {
           <a class="menu-store-link" id="menu-title" href="shop.html">Cửa Hàng <span aria-hidden="true">›</span></a>
           <div data-menu-products aria-live="polite"></div>
           <a class="mobile-menu-link" href="support.html">Hỗ trợ</a>
-          <a class="mobile-menu-link" href="care.html">GAERU CARE+</a>
+          <a class="mobile-menu-link" href="care.html">GAERU Care+</a>
+          <a class="mobile-menu-link" href="account.html">Tài khoản</a>
         </nav>
       </div>
     </section>
@@ -133,7 +134,7 @@ if (footerRoot) {
         <details class="footer-column" open>
           <summary>Hỗ trợ &amp; tài khoản</summary>
           <div class="footer-links">
-            <a href="care.html">GAERU CARE+</a>
+            <a href="care.html">GAERU Care+</a>
             <a href="support.html#guide">Hướng dẫn</a>
             <a href="support.html">Trung tâm hỗ trợ</a>
             <a href="account.html">Tài khoản</a>
