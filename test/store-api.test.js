@@ -417,3 +417,81 @@ test("VNPAY IPN verifies amount and signature, then updates payment idempotently
   assert.deepEqual(await invalidSignatureResponse.json(), { RspCode: "97", Message: "Invalid signature" });
   assert.equal(orderUpdates, 1);
 });
+
+test("order creation accepts a recipient city with a configured nationwide fee", async (context) => {
+  const statements = [];
+  const variantId = "4b4cfca4-96cd-47b1-a851-ed6f9944359f";
+  const createdOrder = {
+    id: "8fdd01fd-c15d-42d0-b95d-beb8cc3a5ef7",
+    orderNumber: "GR-20260101-ABCDE12345",
+    subtotalVnd: 200000,
+    shippingFeeVnd: 30000,
+    totalVnd: 230000,
+    status: "pending",
+    paymentMethod: "vnpay",
+    createdAt: "2026-01-01T00:00:00.000Z"
+  };
+  const client = {
+    async query(sql, values) {
+      statements.push({ sql, values });
+      if (sql.startsWith("SELECT v.id")) {
+        return { rows: [{
+          id: variantId,
+          sku: "K9-USB",
+          variantName: "USB-C",
+          priceVnd: 100000,
+          stockQuantity: 10,
+          productName: "GAERU K9"
+        }] };
+      }
+      if (sql.includes("setting_key = 'shipping_rates'")) return { rows: [{ setting_value: { "Toàn quốc": 30000 } }] };
+      if (sql.startsWith("INSERT INTO orders")) return { rows: [createdOrder] };
+      return { rows: [] };
+    },
+    release() {}
+  };
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.session = { csrfToken: "valid-token" };
+    next();
+  });
+  app.use("/api", createStoreApi({ connect: async () => client }, {
+    ordersEnabled: true,
+    vnpayConfig: {
+      tmnCode: "ABC12345",
+      hashSecret: "sandbox-secret",
+      paymentUrl: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+      returnUrl: "https://store.example/api/payments/vnpay/return"
+    }
+  }));
+  const server = app.listen(0, "127.0.0.1");
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/orders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": "valid-token" },
+    body: JSON.stringify({
+      customer: {
+        name: "Nguyen An",
+        email: "an@example.com",
+        phone: "0829191080",
+        address: "12 Nguyen Trai",
+        city: "Hà Nội"
+      },
+      paymentMethod: "vnpay",
+      items: [{ variantId, quantity: 2 }]
+    })
+  });
+  assert.equal(response.status, 201);
+  const body = await response.json();
+  assert.equal(body.order.totalVnd, 230000);
+  assert.equal(new URL(body.paymentUrl).origin, "https://sandbox.vnpayment.vn");
+  const insert = statements.find(({ sql }) => sql.startsWith("INSERT INTO orders"));
+  assert.equal(insert.values[9], 30000);
+  assert.equal(insert.values[10], 230000);
+  const paymentAttempt = statements.find(({ sql }) => sql.startsWith("INSERT INTO payment_attempts"));
+  assert.deepEqual(paymentAttempt.values, [createdOrder.id, createdOrder.orderNumber, 230000]);
+  assert.equal(statements.some(({ sql }) => sql.startsWith("UPDATE product_variants SET stock_quantity")), true);
+});

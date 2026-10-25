@@ -277,12 +277,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           "SELECT setting_value FROM store_settings WHERE setting_key = 'shipping_rates' FOR SHARE"
         );
         const shippingRates = shippingResult.rows[0]?.setting_value || {};
-        if (!Object.hasOwn(shippingRates, parsed.data.customer.city)) {
+        if (require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city) === undefined) {
           const error = new Error("Tỉnh/thành phố giao hàng hiện chưa được hỗ trợ hoặc chưa có phí vận chuyển.");
           error.status = 409;
           throw error;
         }
-        const shippingFee = shippingRates[parsed.data.customer.city];
+        const shippingFee = require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city);
         const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true):null;
         const total = subtotal + shippingFee - (promotion?.discountVnd||0);
         if (!Number.isSafeInteger(total) || total > 2_000_000_000) {

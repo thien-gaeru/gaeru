@@ -113,7 +113,7 @@ function productCard(product, compact = false) {
         <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
         <div class="card-actions">
-          <a class="button button-blue" href="${discoverUrl}">Khám phá ${escapeHtml(product.name)}</a>
+          <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
           <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua</a>
         </div>
       </div>
@@ -183,6 +183,7 @@ function renderCatalog() {
     if(savedOnly)empty.textContent="Chưa có sản phẩm đã lưu phù hợp trên trình duyệt này.";
     grid.scrollLeft = 0;
     updateRail();
+    window.GAERUAutoRail?.mount();
   };
 
   queryInput.addEventListener("input", applyFilters);
@@ -226,6 +227,7 @@ function renderProduct() {
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
         <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>${selected ? (Number(selected.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng") : "Hết hàng"}</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
+          <button class="button button-blue buy-now-button" type="button" data-buy-now="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Mua ngay</button>
           <button class="button button-blue" type="button" data-add-to-cart="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Thêm vào giỏ</button>
         </div>
         <p class="cart-feedback" data-cart-feedback aria-live="polite"></p>
@@ -250,6 +252,7 @@ function renderProduct() {
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;
     button.disabled = variant.stockQuantity === 0;
+    const buyNow=root.querySelector("[data-buy-now]");buyNow.dataset.buyNow=variant.id;buyNow.disabled=variant.stockQuantity===0;
     root.querySelectorAll("[data-option-group]").forEach(b=>b.setAttribute("aria-pressed",String(variant.options?.[b.dataset.optionGroup]===b.dataset.optionValue)));
     root.querySelectorAll("[data-visual-variant]").forEach(b=>b.setAttribute("aria-pressed",String(variant.id===b.dataset.visualVariant)));
     const image=root.querySelector("[data-product-main-image]");image.src=variant.imageUrl||product.imageUrl;image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.galleryImage===(variant.imageUrl||product.imageUrl))));
@@ -299,9 +302,10 @@ function renderCart() {
 async function renderCheckout() {
   const root = document.querySelector("#checkout-content");
   if (!root) return;
-  const rows = cartRows(readCart());
+  const purchase=window.GAERUCheckout.selection(products,location.search);
+  const rows = cartRows(purchase.direct?purchase.items:readCart());
   if (!rows.length) {
-    root.innerHTML = `<div class="empty-cart"><h2>Chưa có sản phẩm để đặt hàng.</h2><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></div>`;
+    root.innerHTML = `<div class="empty-cart"><h2>${purchase.direct?"Phiên bản này hiện không còn hàng hoặc không còn được bán.":"Chưa có sản phẩm để đặt hàng."}</h2><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></div>`;
     return;
   }
   const total = rows.reduce((sum, item) => sum + item.variant.priceVnd * item.quantity, 0);
@@ -345,6 +349,8 @@ async function renderCheckout() {
   root.innerHTML = `
     <form class="checkout-form" id="checkout-form">
       <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> Phí giao hàng được tính theo tỉnh/thành phố bạn chọn.</div>
+      <label class="saved-address-label" data-saved-address-label hidden>Địa chỉ đã lưu<select data-saved-address><option value="">Nhập địa chỉ mới</option></select></label><p class="address-status" data-address-status role="status"></p>
+      <details class="checkout-contact-details" data-contact-details open><summary>Thông tin giao hàng<span data-contact-summary></span></summary>
       <div class="form-section">
         <h2>Thông tin liên hệ</h2>
         <label>Họ và tên<input name="name" autocomplete="name" required maxlength="120"></label>
@@ -357,14 +363,11 @@ async function renderCheckout() {
         <h2>Địa chỉ giao hàng</h2>
         <label>Địa chỉ<input name="address" autocomplete="street-address" required maxlength="250"></label>
         <div class="form-row">
-          <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" required>
-            <option value="" selected disabled>Chọn tỉnh/thành phố</option>
-            ${provinces.map((province) => `<option value="${escapeHtml(province)}">${escapeHtml(province)}</option>`).join("")}
-          </select></label>
+          <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" required maxlength="120" list="checkout-cities" placeholder="Nhập tỉnh/thành phố"><datalist id="checkout-cities">${provinces.filter(p=>p!=='Toàn quốc').map(p=>`<option value="${escapeHtml(p)}"></option>`).join('')}</datalist></label>
           <label>Ghi chú <span>(không bắt buộc)</span><input name="note" maxlength="1000"></label>
         </div>
       </div>
-      <div class="form-section">
+      </details><div class="form-section">
         <h2>Phương thức thanh toán</h2>
         <label>Chọn phương thức
           <select name="paymentMethod">
@@ -375,7 +378,7 @@ async function renderCheckout() {
         <p class="payment-placeholder" data-payment-help>GAERU sẽ xác nhận đơn hàng trước khi gửi.</p>
       </div>
       <p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="privacy.html">Chính sách quyền riêng tư</a>. <a href="terms.html">Điều khoản mua hàng</a>.</p>
-      <button class="button button-blue" type="submit">Gửi yêu cầu đặt hàng</button>
+      <button class="button button-blue" type="submit">Đặt hàng</button>
       <p class="checkout-feedback" id="checkout-feedback" aria-live="polite"></p>
     </form>
     <aside class="checkout-summary cart-summary">
@@ -394,7 +397,7 @@ async function renderCheckout() {
   const paymentHelp = form.querySelector("[data-payment-help]");
   let voucherDiscount=0,appliedVoucher="";
   const updateShippingTotal = () => {
-    const fee = shippingRates[form.elements.city.value];
+    const fee = window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chọn tỉnh/thành" : formatPrice(fee);
     root.querySelector("[data-checkout-total]").textContent =
@@ -406,6 +409,9 @@ async function renderCheckout() {
   root.querySelector('[data-voucher-remove]').addEventListener('click',()=>{voucherInput.value='';resetVoucher();voucherFeedback.textContent='Đã bỏ voucher.';});
   root.querySelector('[data-voucher-apply]').addEventListener('click',async event=>{const code=voucherInput.value.trim().toUpperCase();event.currentTarget.disabled=true;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(voucherInput.value.trim().toUpperCase()!==code)return;if(quote.subtotalVnd!==total)throw Error('Giá sản phẩm đã thay đổi. Tải lại trang để kiểm tra tổng tiền trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;updateShippingTotal();}catch(error){resetVoucher();voucherFeedback.textContent=error.message;}finally{root.querySelector('[data-voucher-apply]').disabled=false;}});
   form.elements.city.addEventListener("change", updateShippingTotal);
+  form.elements.city.addEventListener("input", updateShippingTotal);
+  root.shippingRates=shippingRates;
+  window.GAERUCheckout.hydrateContact({root,form,request:apiRequest,updateTotal:updateShippingTotal});
   updateShippingTotal();
   const updatePaymentHelp = () => {
     paymentHelp.textContent = paymentMethod.value === "cod"
@@ -415,13 +421,17 @@ async function renderCheckout() {
   paymentMethod.addEventListener("change", updatePaymentHelp);
   updatePaymentHelp();
 
+  let sending=false;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if(sending)return;
+    sending=true;
     const button = form.querySelector('button[type="submit"]');
     const feedback = root.querySelector("#checkout-feedback");
     button.disabled = true;
     feedback.textContent = "Đang gửi yêu cầu đặt hàng…";
     try {
+      if (window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value)===undefined)throw Error("Chưa có phí giao hàng cho tỉnh/thành phố này. Kiểm tra lại địa chỉ.");
       if (!csrfToken) csrfToken = (await apiRequest("/api/csrf")).csrfToken;
       if(voucherInput.value.trim()&&appliedVoucher!==voucherInput.value.trim().toUpperCase())throw Error('Bấm Áp dụng để kiểm tra voucher trước khi đặt hàng.');
       const result = await apiRequest("/api/orders", {
@@ -441,7 +451,7 @@ async function renderCheckout() {
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))
         })
       });
-      writeCart([]);
+      if(!purchase.direct)writeCart([]);
       if (result.paymentUrl) {
         location.assign(result.paymentUrl);
         return;
@@ -450,6 +460,7 @@ async function renderCheckout() {
     } catch (error) {
       feedback.textContent = error.message;
       button.disabled = false;
+      sending=false;
     }
   });
 }
@@ -501,6 +512,10 @@ function renderMiniCart() {
 
 function bindGlobalControls() {
   document.addEventListener("click", (event) => {
+    const buyNow=event.target.closest('[data-buy-now]');
+    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0)location.assign('checkout.html?variant='+encodeURIComponent(row.variant.id));return;}
+    const choose=event.target.closest('[data-choose-cart]');
+    if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
     const addButton = event.target.closest("[data-add-to-cart]");
     if (addButton) {
       const variantId = addButton.dataset.addToCart;
@@ -517,6 +532,7 @@ function bindGlobalControls() {
       if (existing) existing.quantity += 1;
       else cart.push({ variantId, quantity: 1 });
       if (!writeCart(cart)) return;
+      addButton.closest("#quick-cart-dialog")?.close();
       const feedback = document.querySelector("[data-cart-feedback]");
       if (feedback) feedback.textContent = `${selected.product.name} đã được thêm vào giỏ.`;
       addButton.setAttribute("aria-label", `${selected.product.name} đã được thêm vào giỏ hàng`);
