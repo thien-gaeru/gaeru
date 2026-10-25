@@ -215,6 +215,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.use((error, _req, res, _next) => {
     if (res.headersSent) return;
+    if(error.code==='IMAGE_PROCESSING_BUSY')return res.status(503).json({error:'Đang tối ưu nhiều ảnh. Vui lòng thử lại sau.'});
     if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;
     if (status >= 400 && status < 500) {

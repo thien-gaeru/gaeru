@@ -17,7 +17,7 @@ function invalidImage() {
   return error;
 }
 
-async function optimizeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}={}) {
+async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}={}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 ||
       buffer.length > maxUploadBytes || !EXPECTED_FORMATS[mimeType]) {
     throw invalidImage();
@@ -49,4 +49,6 @@ async function optimizeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}
   }
 }
 
+let active=0;const waiting=[];
+async function optimizeImage(...args){if(active>=2){if(waiting.length>=8)throw Object.assign(Error('Đang tối ưu nhiều ảnh. Vui lòng thử lại sau.'),{status:503,code:'IMAGE_PROCESSING_BUSY'});await new Promise(resolve=>waiting.push(resolve));}active++;try{return await encodeImage(...args);}finally{active--;waiting.shift()?.();}}
 module.exports = { optimizeImage, optimizeProductImage:optimizeImage };
