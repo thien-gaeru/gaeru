@@ -6,7 +6,8 @@ const session=require('express-session');
 const {createApp}=require('../src/app');
 const {migrateDatabase}=require('../src/migrate');
 const {totp}=require('../src/totp');
-const {PNG}=require('pngjs');
+const sharp=require('sharp');
+const QRCode=require('qrcode');
 const decodeQR=require('jsqr');
 test('owner credentials and recovery, email and app MFA, backup codes and session revocation integrate',{timeout:60000},async t=>{
  const db=await PGlite.create();let queue=Promise.resolve();async function lock(){const previous=queue;let release;queue=new Promise(r=>release=r);await previous;return release;}
@@ -43,9 +44,14 @@ test('owner credentials and recovery, email and app MFA, backup codes and sessio
  const customerId=(await pool.query("INSERT INTO customers(full_name,email,phone,password_hash,email_verified_at) VALUES($1,$2,$3,$4,now()) RETURNING id",['Fixture Customer','customer@example.invalid','0900000001',bcrypt.hashSync(password,4)])).rows[0].id;
  const customer=client();await customer.ok('/api/csrf');await customer.ok('/api/customer-auth/login','POST',{email:'customer@example.invalid',password});
  setup=await customer.security('/setup',{password,method:'app'});assert.equal((await customer.security('/settings')).method,'off');
- assert.match(setup.qrDataUrl,/^data:image\/png;base64,/);
- const qr=PNG.sync.read(Buffer.from(setup.qrDataUrl.split(',')[1],'base64'));
- const decoded=decodeQR(new Uint8ClampedArray(qr.data),qr.width,qr.height);
+ assert.match(setup.qrDataUrl,/^data:image\/webp;base64,/);
+ const qrBytes=Buffer.from(setup.qrDataUrl.split(',')[1],'base64');
+ const qrInfo=await sharp(qrBytes).metadata();assert.equal(qrInfo.format,'webp');assert.equal(qrInfo.width,280);assert.equal(qrInfo.height,280);
+ const qr=await sharp(qrBytes).ensureAlpha().raw().toBuffer({resolveWithObject:true});
+ const originalPng=await QRCode.toBuffer(setup.uri,{width:280,margin:4,errorCorrectionLevel:'M'});
+ const originalPixels=await sharp(originalPng).ensureAlpha().raw().toBuffer();
+ assert.deepEqual(qr.data,originalPixels,'WebP authenticator QR must retain the original pixels');
+ const decoded=decodeQR(new Uint8ClampedArray(qr.data),qr.info.width,qr.info.height);
  assert.equal(decoded?.data,setup.uri);assert.equal(new URL(decoded.data).searchParams.get('secret'),setup.secret);
  const counter=Math.floor(Date.now()/30000);const appCodes=await customer.security('/confirm',{method:'app',setupId:setup.setupId,code:totp(setup.secret,counter)});assert.equal(appCodes.recoveryCodes.length,8);
  const stored=(await pool.query('SELECT * FROM account_security WHERE account_key=$1',['customer:'+customerId])).rows[0];assert.notEqual(stored.encrypted_secret,setup.secret);assert.ok(!JSON.stringify(stored).includes(appCodes.recoveryCodes[0]));

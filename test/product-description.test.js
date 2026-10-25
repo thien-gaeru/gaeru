@@ -6,7 +6,7 @@ test('bold product text renders without exposing HTML markup',()=>{const html=re
 
 test('M3 story includes all supplied artwork and qualified battery and range data',()=>{
   const html=render({slug:'gaeru-m3',...require('../m3-description').content()});
-  const files=[...html.matchAll(/src="(\/assets\/products\/m3-description\/\d+\.png)"/g)].map(m=>m[1]);
+  const files=[...html.matchAll(/src="(\/assets\/products\/m3-description\/\d+\.webp)"/g)].map(m=>m[1]);
   assert.equal(files.length,11);assert.equal(new Set(files).size,11);
   for(const file of files)assert.ok(require('node:fs').existsSync(require('node:path').join(__dirname,'..',file)));
   assert.match(html,/3,5 giờ/);assert.match(html,/luân phiên hai bộ phát/);assert.match(html,/không có vật cản/);
@@ -24,5 +24,8 @@ test('M3 edits and explicit removal of media use editable description, not the c
 test('editable M3 artwork uses reviewed static paths and rejects traversal',()=>{
  const {schema}=require('../src/product-workspace');const urls=require('../m3-description').content().descriptionMedia;
  assert.equal(schema.shape.descriptionMedia.safeParse(urls).success,true);
- for(const url of ['/assets/products/m3-description/../secret.png','/assets/products/m3-description/5.png','https://other.test/a.png'])assert.equal(schema.shape.gallery.safeParse([url]).success,false);
+ for(const ext of ['png','webp']) {
+   assert.equal(schema.shape.gallery.safeParse(['/assets/products/m3-description/1.'+ext]).success,true);
+   for(const url of ['/assets/products/m3-description/../secret.'+ext,'/assets/products/m3-description/5.'+ext,'https://other.test/a.'+ext])assert.equal(schema.shape.gallery.safeParse([url]).success,false);
+ }
 });
