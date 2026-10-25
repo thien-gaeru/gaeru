@@ -178,7 +178,7 @@ function renderProducts() {
       : stock.total === 0 ? '<span class="status-pill status-cancelled">Hết hàng</span>'
         : `${stock.low ? '<span class="status-pill status-warning">Có phiên bản tồn thấp</span>' : ""}<span class="stock-total">${stock.total} sản phẩm trong kho</span>`;
     return `<article class="product-row ${state.currentProduct?.id === product.id ? "is-selected" : ""}">
-      <img src="${escapeHtml(product.imageUrl)}" alt="">
+      <img src="${escapeHtml(window.GAERUAdminUI.imageUrl(product.imageUrl))}" alt="">
       <div class="product-row-copy"><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(categoryLabels[product.category] || product.category)} · ${stock.active.length} phiên bản đang bán</p><p class="product-row-price">${price}</p><div class="product-option-summary">${product.variants.slice(0,3).map(v=>`<span>${escapeHtml(v.name)}</span>`).join("")}${product.variants.length>3?`<span>+${product.variants.length-3} biến thể</span>`:""}</div><div class="product-stock">${inventory}</div></div>
       <span class="status-pill ${product.active ? "is-active" : ""}">${product.active ? "Đang hiển thị" : "Bản nháp"}</span>
       <button class="row-button" type="button" data-edit-product="${escapeHtml(product.id)}" aria-label="Quản lý ${escapeHtml(product.name)}">Chỉnh sửa</button>
@@ -322,7 +322,7 @@ function updateImagePreview() {
     const path = form.elements.imageUrl.value.trim();
     preview.hidden = !/^\/assets\/products\/[a-zA-Z0-9._-]+$/.test(path);
     if (!preview.hidden) {
-      image.src = path;
+      image.src = window.GAERUAdminUI.imageUrl(path);
       caption.textContent = "Ảnh đang lưu trên cửa hàng";
     }
   }

@@ -8,6 +8,7 @@ const { z } = require("zod");
 const { requireAdmin, requireCsrf } = require("./security");
 const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
+const { decoratePublicProductImages } = require("./lib/public-image-urls");
 
 const orderSchema = z.object({
   customer: z.object({
@@ -129,14 +130,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;next();}catch(error){next(error);}});
   router.get("/products", async (req, res) => {
     const products = await loadProducts(pool, { search: String(req.query.q || "") });
-    res.json({ products });
+    res.json(decoratePublicProductImages({ products }));
   });
 
   router.get("/products/:slug", async (req, res) => {
     const products = await loadProducts(pool);
     const product = products.find((item) => item.slug === req.params.slug);
     if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-    res.json({ product });
+    res.json(decoratePublicProductImages({ product }));
   });
 
   router.get("/settings/public", async (req, res) => {

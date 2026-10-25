@@ -29,11 +29,16 @@ test("store API serves products from the database-backed repository", async (con
   const address = server.address();
   const list = await fetch(`http://127.0.0.1:${address.port}/api/products`);
   assert.equal(list.status, 200);
-  assert.deepEqual((await list.json()).products.map((item) => item.slug), ["k9"]);
+  const listed = (await list.json()).products;
+  assert.deepEqual(listed.map((item) => item.slug), ["k9"]);
+  assert.equal(listed[0].imageUrl, "/assets/products/k9.webp");
+  assert.equal(product.imageUrl, "/assets/products/k9.png");
 
   const detail = await fetch(`http://127.0.0.1:${address.port}/api/products/k9`);
   assert.equal(detail.status, 200);
-  assert.equal((await detail.json()).product.name, "GAERU K9");
+  const shown = (await detail.json()).product;
+  assert.equal(shown.name, "GAERU K9");
+  assert.equal(shown.imageUrl, "/assets/products/k9.webp");
 });
 
 test("order submission is closed by default and does not touch the database", async (context) => {
