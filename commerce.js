@@ -597,7 +597,7 @@ function showStoreError(error) {
   message.textContent = "Không thể kết nối máy chủ cửa hàng. Hãy thử tải lại trang hoặc liên hệ GAERU để được hỗ trợ.";
   document.querySelector("main")?.prepend(message);
   const grid = document.querySelector(".product-grid, #catalog-grid");
-  if (grid) grid.replaceChildren();
+  if (grid && !grid.hasAttribute("data-ssr")) grid.replaceChildren();
 }
 
 async function initializeStore() {

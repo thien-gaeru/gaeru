@@ -1,0 +1,60 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),{Router}=require('express'),{rateLimit}=require('express-rate-limit'),{parseHTML}=require('linkedom');
+const {loadProducts}=require('./store-api'),{decoratePublicProductImages}=require('./lib/public-image-urls');
+const artwork=require('../product-art'),description=require('../product-description');
+const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const paragraph=value=>String(value).split(/(https:\/\/[^\s<>"']+)/g).map((part,index)=>index%2?'<a href="'+escape(part)+'" target="_blank" rel="noopener noreferrer">'+escape(part)+'</a>':escape(part)).join('').replace(/\n/g,'<br>');
+const money=n=>new Intl.NumberFormat('vi-VN').format(n)+' ₫';
+const productUrl=p=>'/product.html?id='+encodeURIComponent(p.slug),postUrl=p=>'/news-article.html?slug='+encodeURIComponent(p.slug);
+const safeUrl=value=>{const v=typeof value==='string'&&value.startsWith('assets/')?'/'+value:value;return typeof v==='string'&&/^\/(?!\/)[a-zA-Z0-9/_?.=&%+-]+$/.test(v)?v:'/assets/brand/gaeru-logo.webp';};
+const plain=s=>String(s||'').replace(/\*\*/g,'').replace(/\s+/g,' ').trim();
+function price(p){const values=p.variants.filter(v=>v.active).map(v=>v.priceVnd);if(!values.length)return 'Chưa có phiên bản đang bán';const low=Math.min(...values),high=Math.max(...values);return money(low)+(low===high?'':' – '+money(high));}
+function productCard(p,home=false){return '<article class="product-card is-visible" id="'+escape(p.slug)+'" data-category="'+escape(p.category)+'"><div class="product-copy"><p class="eyebrow">'+escape(p.descriptor)+'</p><h3>'+escape(p.name)+'</h3><p>'+escape(p.cardSummary)+'</p><p class="price">'+escape(price(p))+'</p></div><img class="product-image" src="'+escape(safeUrl(artwork.image(p)))+'" alt="'+escape(p.imageAlt||p.name)+'" loading="lazy" width="480" height="400"><div class="card-actions"><a class="button button-blue" href="'+productUrl(p)+'">'+(home?'Khám phá '+escape(p.name):'Khám phá sản phẩm')+'</a><a class="text-link" href="'+productUrl(p)+'">Chọn phiên bản</a></div></article>';}
+function newsCards(rows){return rows.map(p=>'<a class="news-card is-visible" href="'+postUrl(p)+'"><img src="/api/news-images/'+escape(p.coverId)+'" alt="'+escape(p.imageAlt)+'" loading="lazy" width="480" height="300"><div><time datetime="'+escape(new Date(p.publishedAt).toISOString())+'">'+escape(new Date(p.publishedAt).toLocaleDateString('vi-VN'))+'</time><h3>'+escape(p.title)+'</h3><p>'+escape(p.excerpt)+'</p><span>Đọc bài viết ↗</span></div></a>').join('');}
+function articleBody(p){return '<header><p class="eyebrow">TIN TỨC GAERU</p><h1>'+escape(p.title)+'</h1><time datetime="'+escape(new Date(p.publishedAt).toISOString())+'">'+escape(new Date(p.publishedAt).toLocaleDateString('vi-VN'))+'</time><p class="news-intro">'+escape(p.excerpt)+'</p></header><img class="news-cover" src="/api/news-images/'+escape(p.coverId)+'" alt="'+escape(p.imageAlt)+'" width="1200" height="750"><div class="news-body">'+p.body.split(/\n\s*\n/).filter(Boolean).map(text=>'<p>'+paragraph(text)+'</p>').join('')+'</div><a class="text-link" href="/news.html">Xem các bài viết khác ↗</a>';}
+function productBody(p){return '<header class="product-purchase-heading section-wrap"><p class="eyebrow">'+escape(p.descriptor)+'</p><h1>Mua '+escape(p.name)+'</h1><p class="product-purchase-intro">'+escape(p.cardSummary)+'</p><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></header><section class="product-detail section-wrap"><div class="product-detail-art is-visible"><img src="'+escape(safeUrl(p.imageUrl))+'" alt="'+escape(p.imageAlt||p.name)+'" width="800" height="800" fetchpriority="high"></div><div class="product-detail-copy is-visible"><h2>Phiên bản '+escape(p.name)+'</h2><p class="detail-price">'+escape(price(p))+'</p><ul>'+p.variants.filter(v=>v.active).map(v=>'<li><strong>'+escape(v.name)+'</strong> · '+money(v.priceVnd)+' · '+(v.stockQuantity>0?'Còn hàng':'Hết hàng')+(v.stockQuantity>0?' · <a href="/checkout.html?variant='+encodeURIComponent(v.id)+'">Mua ngay</a>':'')+'</li>').join('')+'</ul><p>Phí vận chuyển tính theo địa chỉ.</p><a class="text-link" href="/support.html">Nhận hỗ trợ GAERU</a></div></section><section class="section-wrap product-information" id="product-information"><p class="eyebrow">TÌM HIỂU SẢN PHẨM</p><h2>'+escape(p.name)+'</h2>'+description.render(p)+'</section>';}
+const postFields='slug,title,excerpt,body,cover_id AS "coverId",image_alt AS "imageAlt",published_at AS "publishedAt",updated_at AS "updatedAt"';
+function createSeoPages(pool,base='https://gaeru.org'){
+ const origin=new URL(base||'https://gaeru.org').origin,router=Router({caseSensitive:true,strict:true}),limit=rateLimit({windowMs:60000,limit:120,standardHeaders:'draft-8',legacyHeaders:false});
+ router.get('/index.html',(_req,res)=>res.redirect(301,'/'+(_req.originalUrl.includes('?')?_req.originalUrl.slice(_req.originalUrl.indexOf('?')):'')));
+ router.get(['/','/shop.html','/product.html','/news.html','/news-article.html'],limit,async(req,res,next)=>{
+  res.set('Cache-Control','no-cache');
+  try{
+   const file=({'/':'index.html','/shop.html':'shop.html','/product.html':'product.html','/news.html':'news.html','/news-article.html':'news-article.html'})[req.path];if(!file)return next();const {document:doc}=parseHTML(fs.readFileSync(path.join(__dirname,'..',file),'utf8'));
+   let canonical=origin+(req.path==='/'?'/':req.path),structured=null,status=200;
+   const setMeta=(selector,attrs)=>{let node=doc.head.querySelector(selector);if(!node){node=doc.createElement(selector.startsWith('link')?'link':'meta');doc.head.append(node);}for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);};
+   const fail=message=>{status=404;doc.querySelector('main').innerHTML='<section class="section-wrap"><h1>'+escape(message)+'</h1><a href="/shop.html">Cửa hàng GAERU</a> · <a href="/news.html">Tin tức GAERU</a></section>';doc.title=message+' — GAERU';res.set('X-Robots-Tag','noindex');};
+   if(['/','/shop.html','/product.html'].includes(req.path)){
+    const products=decoratePublicProductImages(await loadProducts(pool));
+    if(req.path==='/product.html'){
+     const id=typeof req.query.id==='string'?req.query.id:'';const p=products.find(p=>p.slug===id||p.slug==='gaeru-'+id);
+     if(!p)fail('Không tìm thấy sản phẩm');else if(p.slug!==id)return res.redirect(301,productUrl(p));else{
+      canonical=origin+productUrl(p);doc.title=p.name+' — GAERU';setMeta('meta[name="description"]',{name:'description',content:plain(p.cardSummary||p.description||p.descriptor).slice(0,300)});doc.querySelector('#breadcrumb-product').textContent=p.name;const root=doc.querySelector('#product-detail');root.innerHTML=productBody(p);root.dataset.ssr='true';
+      structured={'@context':'https://schema.org','@type':'Product',name:p.name,description:plain(p.description),image:[new URL(safeUrl(p.imageUrl),origin).href],url:canonical,brand:{'@type':'Brand',name:'GAERU'},offers:p.variants.filter(v=>v.active).map(v=>({'@type':'Offer',sku:v.sku,name:v.name,url:canonical,priceCurrency:'VND',price:v.priceVnd,availability:'https://schema.org/'+(v.stockQuantity>0?'InStock':'OutOfStock')}))};
+     }
+    }else{
+     let shown=products;if(req.path==='/shop.html'){
+      const category=typeof req.query.category==='string'?req.query.category:'';if(['audio','video','accessory'].includes(category))shown=shown.filter(p=>p.category===category);
+      const q=typeof req.query.q==='string'?req.query.q.trim().slice(0,120).toLocaleLowerCase('vi'):'';if(q)shown=shown.filter(p=>(p.name+' '+p.descriptor+' '+p.description+' '+p.variants.map(v=>v.sku+' '+v.name).join(' ')).toLocaleLowerCase('vi').includes(q));
+      const nav=doc.querySelector('[data-store-products]');if(nav)nav.innerHTML=products.map(p=>'<a class="store-category" href="'+productUrl(p)+'"><span class="category-art"><img src="'+escape(safeUrl(artwork.image(p)))+'" alt="" width="144" height="120"></span><span>'+escape(p.name)+'</span></a>').join('');doc.querySelector('#catalog-count').textContent=shown.length+' sản phẩm';
+     }
+     const root=doc.querySelector(req.path==='/'?'.product-grid':'#catalog-grid');root.innerHTML=shown.map(p=>productCard(p,req.path==='/')).join('')||'<p>Chưa có sản phẩm phù hợp.</p>';root.dataset.ssr='true';
+    }
+   }
+   if(['/','/news.html'].includes(req.path)){
+    const page=req.path==='/news.html'?Number(req.query.page||1):1;if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).set('X-Robots-Tag','noindex').type('html').send('<h1>Trang không hợp lệ</h1>');
+    const rows=(await pool.query(`SELECT ${postFields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 13 OFFSET $1`,[(page-1)*12])).rows,more=rows.length>12,posts=rows.slice(0,12);
+    if(page>1&&!posts.length)fail('Không tìm thấy trang tin');else{const root=doc.querySelector(req.path==='/'?'[data-news-strip]':'[data-news-list]');root.innerHTML=newsCards(posts);root.dataset.ssr='true';root.dataset.ssrPage=page;root.dataset.hasMore=String(more);doc.querySelector('[data-news-status]').textContent=posts.length?'':'Các bài viết mới sẽ xuất hiện tại đây.';if(req.path==='/news.html'){canonical=origin+'/news.html'+(page>1?'?page='+page:'');if(page>1)doc.title='Tin tức · Trang '+page+' — GAERU';const nav=doc.createElement('nav');nav.setAttribute('aria-label','Phân trang tin tức');nav.setAttribute('data-ssr-pagination','');nav.innerHTML=(page>1?'<a href="/news.html'+(page>2?'?page='+(page-1):'')+'">← Trang trước</a> ':'')+(more?'<a href="/news.html?page='+(page+1)+'">Trang tiếp →</a>':'');root.after(nav);}}
+   }
+   if(req.path==='/news-article.html'){
+    const slug=typeof req.query.slug==='string'?req.query.slug:'';const p=/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)&&slug.length<=120?(await pool.query(`SELECT ${postFields} FROM news_posts WHERE slug=$1 AND status='published'`,[slug])).rows[0]:null;
+    if(!p)fail('Không tìm thấy bài viết');else{canonical=origin+postUrl(p);doc.title=p.title+' — GAERU';setMeta('meta[name="description"]',{name:'description',content:p.excerpt});const root=doc.querySelector('[data-news-article]');root.innerHTML=articleBody(p);root.dataset.ssr='true';structured={'@context':'https://schema.org','@type':'NewsArticle',headline:p.title,description:p.excerpt,image:[origin+'/api/news-images/'+p.coverId],datePublished:new Date(p.publishedAt).toISOString(),dateModified:new Date(p.updatedAt).toISOString(),mainEntityOfPage:canonical,author:{'@type':'Organization',name:'GAERU'},publisher:{'@type':'Organization',name:'GAERU'}};}
+   }
+   if(status===200){doc.head.querySelectorAll('link[rel="canonical"]').forEach(n=>n.remove());setMeta('link[rel="canonical"]',{rel:'canonical',href:canonical});setMeta('meta[property="og:url"]',{property:'og:url',content:canonical});setMeta('meta[property="og:title"]',{property:'og:title',content:doc.title});}
+   if(structured){const script=doc.createElement('script');script.type='application/ld+json';script.textContent=JSON.stringify(structured).replace(/</g,'\\u003c');doc.head.append(script);}
+   for(const a of doc.querySelectorAll('a[href="index.html"],a[href="/index.html"]'))a.setAttribute('href','/');
+   res.status(status).type('html').send('<!doctype html>'+doc.documentElement.outerHTML);
+  }catch(error){console.error('Public SSR temporarily unavailable',{name:error.name||'Error',code:error.code||'INTERNAL_ERROR'});res.set('Retry-After','60').status(503).type('html').send('<!doctype html><html lang="vi"><meta charset="utf-8"><title>Tạm thời chưa tải được nội dung — GAERU</title><main><h1>Tạm thời chưa tải được nội dung.</h1><p>Vui lòng thử lại sau.</p></main></html>');}
+ });return router;
+}
+module.exports={createSeoPages,productBody,newsCards,articleBody,productCard};

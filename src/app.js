@@ -189,6 +189,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   });
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile(path.join(__dirname,'..','warranty-activation.html'));});
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
+  app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));
   app.use((req,res,next)=>{
     let pathname=req.path;
     try {

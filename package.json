@@ -26,6 +26,7 @@
     "express-rate-limit": "^8.7.1",
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
+    "linkedom": "^0.18.14",
     "multer": "^2.5.0",
     "nodemailer": "^10.2.1",
     "pg": "^8.23.1",
@@ -35,7 +36,6 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.11",
-    "jsqr": "1.4.0",
-    "linkedom": "^0.18.14"
+    "jsqr": "1.4.0"
   }
 }
