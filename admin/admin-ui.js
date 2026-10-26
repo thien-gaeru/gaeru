@@ -1,5 +1,5 @@
 (function(root){
-  const views={shipping:['Quản lý vận chuyển','Bán hàng','Thiết lập tài khoản và kho lấy hàng cho các hãng vận chuyển.','M3 6h12v12H3z M15 10h4l2 4v4h-6'],
+  const views={pages:["Quản lý trang","Nội dung & sản phẩm","Nội dung trang, trạng thái xuất bản và metadata SEO.","M3 3h16v17H3z M6 7h10 M6 11h10"],shipping:['Quản lý vận chuyển','Bán hàng','Thiết lập tài khoản và kho lấy hàng cho các hãng vận chuyển.','M3 6h12v12H3z M15 10h4l2 4v4h-6'],
     'shopping-chat':['Chat trực tuyến','Bán hàng','Tư vấn mua sắm và phản hồi trực tiếp cho khách.','M4 4h16v12H9l-5 4z'],
     overview:['Tổng quan','Không gian vận hành','Các chỉ số và công việc cần xử lý của cửa hàng.','M3 3h6v6H3z M13 3h6v6h-6z M3 13h6v6H3z M13 13h6v6h-6z'],
     notifications:['Thông báo','Không gian vận hành','Theo dõi cảnh báo và mở đúng hồ sơ cần xử lý.','M5 15V9a6 6 0 0 1 12 0v6l2 2H3z M9 20h4'],

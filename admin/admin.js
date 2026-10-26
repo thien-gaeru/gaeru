@@ -838,6 +838,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();
     if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
     if (view === "marketing" && window.GAERUMarketing) await window.GAERUMarketing.load();
+    if (view === "pages") await window.GAERUPages.load();
     if (view === "news" && window.GAERUNewsAdmin) await window.GAERUNewsAdmin.load();
     if (view === "shopping-chat" && window.GAERUShoppingChat) await window.GAERUShoppingChat.load();
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();
