@@ -28,3 +28,5 @@ Quét thư mục được giới hạn 10.000 mục và không đi theo symlink.
 ## Kiểm tra
 
 `node --test test/file-library.integration.test.js test/file-library-ui.test.js test/filesystem-media.test.js` kiểm tra xác thực/quyền, CSRF, upload ảnh WebP/PDF/video, tải xuống riêng tư, byte range video, thư mục thật, di chuyển/đổi tên/thùng rác/khôi phục, rollback xóa, liên kết hệ thống, traversal/symlink và escape tên tệp. Toàn bộ bộ kiểm thử dùng `npm test`.
+
+Ảnh giao diện đóng gói được lưu bền vững và phục vụ qua URL cũ theo [quy ước liên kết và ảnh](primary-links-and-assets.md).

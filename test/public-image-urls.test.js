@@ -40,8 +40,7 @@ test('only the reviewed static artwork gets a WebP path, retaining URL suffixes'
     '/assets/products/m3-description/../secret.png',
     '/assets/products/../brand/gaeru-logo.png',
     '/assets/products/uploaded-photo.png',
-    '/assets/products/m3.png/extra',
-    'https://gaeru.com/assets/products/m3.png'
+    '/assets/products/m3.png/extra'
   ]) assert.equal(publicImageUrl(url), url, url);
 });
 
@@ -99,3 +98,5 @@ test('public DTO decoration leaves non-image scalar values intact', () => {
     assert.equal(decoratePublicProductImages(value), value);
   }
 });
+
+test('owned absolute image URLs become primary same-site paths while external URLs stay intact',()=>{for(const host of ['gaeru.com','gaeru.org','www.gaeru.com','www.gaeru.org'])assert.equal(publicImageUrl('https://'+host+'/assets/products/m3.png?v=one'),'/assets/products/m3.webp?v=one');assert.equal(publicImageUrl('https://external.invalid/image.png'),'https://external.invalid/image.png');});
