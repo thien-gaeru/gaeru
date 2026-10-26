@@ -5,6 +5,7 @@ function adminPolicy(req, res, next) {
   if (/^\/notifications(\/|$)/.test(path)) return next();
   if (/^\/shopping-chat(\/|$)/.test(path)) return next();
   const read = req.method === "GET";
+  if (/^\/file-library(\/|$)/.test(path)) return next();
   if (/^\/marketing(\/|$)/.test(path)) return next();
   if (/^\/care-requests(\/|$)/.test(path)) return next();
   if (/^\/owner(\/|$)/.test(path)) return next();
