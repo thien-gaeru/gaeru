@@ -40,3 +40,9 @@ Verification: real multipart upload against embedded PostgreSQL and a temporary 
 
 
 Root creation update: implement mkdir(MEDIA_ROOT,{recursive:true}) as requested, after validation; do not hard-code account paths or mount private files publicly. Startup returns a nonsecret sentinel fingerprint for comparison across deployments. Automatic legacy-media migration now requires MEDIA_MIGRATION_ENABLED=true and remains paused by default until the operator verifies persistent storage. This does not change read compatibility or delete existing objects. Full suite after change: 341 tests.
+
+## Migration activation after destination verification
+
+On 26 October 2026 the user explicitly requested proceeding with the transfer while retaining high-quality WebP behavior. A real redeploy completed (build 01a17860-c59e-7028-911d-9a1b9bcace47); the random sentinel fingerprint was 6bc15b31e821dba1 both before and after, read/write checks passed, and seven sampled public image hashes were unchanged. This release authorizes automatic migration only on that verified volume. MEDIA_MIGRATION_ENABLED=false still disables it; explicit true retains the operator override.
+
+Migration copies source bytes exactly, without calling the image encoder or changing resolution/format. Existing WebP uploads retain the current optimizer behavior; no new claim of mathematical losslessness is made for the quality-90 encoder. Migration logs only aggregate counts/states and bounded error categories, not keys, customer data or credentials. Original S3 objects remain for recovery.
