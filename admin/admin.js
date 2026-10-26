@@ -51,8 +51,8 @@ function applyPermissions() {
   document.querySelectorAll("[data-permission], [data-require]").forEach((element) => {
     element.hidden = !can(element.dataset.permission || element.dataset.require);
   });
+  document.querySelectorAll('[data-owner-only]').forEach(element=>{element.hidden=state.session?.role!=='owner'||state.session?.source!=='bootstrap';});
   document.querySelectorAll(".nav-group").forEach((group) => { group.hidden = ![...group.querySelectorAll("[data-view]")].some((button) => !button.hidden); });
-  document.querySelectorAll('[data-owner-only]').forEach(element=>{element.hidden=state.session?.role!=='owner'||state.session?.source!=='bootstrap';if(element.closest('.nav-group'))element.closest('.nav-group').hidden=element.hidden;});
   document.querySelectorAll("#settings-form input,#settings-form textarea,#settings-form button").forEach((element) => { element.disabled = !can("settings.write"); });
 }
 
@@ -843,6 +843,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
     if (view === "marketing" && window.GAERUMarketing) await window.GAERUMarketing.load();
     if (view === "pages") await window.GAERUPages.load();
+    if (view === "file-library") await window.GAERUFileLibrary.load();
     if (view === "news" && window.GAERUNewsAdmin) await window.GAERUNewsAdmin.load();
     if (view === "shopping-chat" && window.GAERUShoppingChat) await window.GAERUShoppingChat.load();
     if (view === "care" && window.GAERUCare) await window.GAERUCare.load();
