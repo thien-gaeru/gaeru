@@ -195,7 +195,7 @@ function renderCatalog() {
 function renderProduct() {
   const root = document.querySelector("#product-detail");
   if (!root) return;
-  const slug = new URLSearchParams(location.search).get("id");
+  const slug = (new URLSearchParams(location.search).get("id") || (location.pathname.startsWith("/san-pham/") ? decodeURIComponent(location.pathname.split("/").pop()) : null));
   const product = products.find((item) => item.slug === slug || item.slug === "gaeru-"+slug);
   if (!product) {
     root.innerHTML = `<section class="not-found section-wrap"><p class="eyebrow">Không tìm thấy sản phẩm</p><h1>Sản phẩm này chưa có hoặc đang được cập nhật.</h1><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></section>`;
@@ -528,7 +528,7 @@ function renderMiniCart() {
 function bindGlobalControls() {
   document.addEventListener("click", (event) => {
     const buyNow=event.target.closest('[data-buy-now]');
-    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0)location.assign('checkout.html?variant='+encodeURIComponent(row.variant.id));return;}
+    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0)location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));return;}
     const choose=event.target.closest('[data-choose-cart]');
     if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
     const addButton = event.target.closest("[data-add-to-cart]");
@@ -611,7 +611,8 @@ function showStoreError(error) {
 async function initializeStore() {
   renderMiniCart();
   try {
-    const response = await apiRequest("/api/products");
+    const embedded=document.querySelector('#store-bootstrap');
+    const response = embedded ? JSON.parse(embedded.textContent) : await apiRequest("/api/products");
     products = response.products;
     document.dispatchEvent(new CustomEvent("gaeru:products-loaded"));
     const validVariantIds = new Set(products.flatMap((product) => product.variants.map((variant) => variant.id)));

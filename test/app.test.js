@@ -36,11 +36,11 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   const accountMarkup = await accountPage.text();
   assert.match(accountMarkup, /account\.js\?v=20261025-address-mail/);
   assert.match(accountMarkup, /data-account-panel="login"[^>]*hidden/);
-  assert.match(accountMarkup, /data-account-loading-message>Đang tải tài khoản/);
+  assert.match(accountMarkup, /data-account-loading-message(?:="")?>Đang tải tài khoản/);
   assert.match(accountMarkup, /Tài khoản khách hàng/);
-  assert.match(accountMarkup, /href="#register" data-account-show-register/);
+  assert.ok(require('linkedom').parseHTML(accountMarkup).document.querySelector('[data-account-show-register][href="/tai-khoan#register"]'));
   assert.doesNotMatch(accountMarkup, /data-account-tab="register"/);
-  assert.match(accountMarkup, /href="#login" data-account-show-login/);
+  assert.ok(require('linkedom').parseHTML(accountMarkup).document.querySelector('[data-account-show-login][href="/tai-khoan#login"]'));
   const storeShell = await fetch(`${baseUrl}/store-shell.js`);
   assert.match(await storeShell.text(), /account\.html#register/);
   assert.equal((await fetch(`${baseUrl}/account.js`)).status, 200);

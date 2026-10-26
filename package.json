@@ -22,10 +22,10 @@
     "compression": "^1.8.2",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^18.0.9",
-    "exceljs": "^4.4.0",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "express-session": "^1.19.0",
+    "fflate": "^0.8.3",
     "helmet": "^8.3.0",
     "linkedom": "^0.18.14",
     "multer": "^2.5.0",
@@ -33,15 +33,11 @@
     "pg": "^8.23.1",
     "qrcode": "1.5.4",
     "sharp": "^0.35.5",
+    "write-excel-file": "^4.1.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.11",
     "jsqr": "1.4.0"
-  },
-  "overrides": {
-    "exceljs": {
-      "uuid": "11.1.1"
-    }
   }
 }
