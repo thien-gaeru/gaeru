@@ -69,9 +69,18 @@
   },getAddress(validate=true){validity();if(validate&&province&&!ward&&!legacy){proxy.reportValidity?.();throw Error('Chọn phường / xã để hoàn tất địa chỉ.');}const street=String(address.value||'').trim();return ward&&street&&!street.endsWith(', '+ward.name)?street+', '+ward.name:street;},refresh:sync};
   controls.set(city,controller);city.addEventListener('change',()=>{if(city.value!==(province?.name||''))controller.restore(address.value,city.value,false);});controller.restore(address.value,city.value,true);
  }
+ function unifyAddressForm(form,city){
+  const address=form.querySelector('[name="address"]');if(!address)return;
+  const streetLabel=address.closest('label'),cityLabel=city.closest('label'),nickname=form.querySelector('input[name="label"]');
+  if(nickname){nickname.type='hidden';nickname.required=false;const old=nickname.closest('label');if(old){old.hidden=true;old.classList.add('vn-address-name-legacy');}if(!nickname.value)nickname.value='Địa chỉ giao hàng';}
+  if(streetLabel){streetLabel.classList.add('vn-street-label');for(const node of streetLabel.childNodes)if(node.nodeType===3&&node.textContent.trim())node.textContent='Địa chỉ nhận hàng';if(cityLabel&&cityLabel.parentNode===streetLabel.parentNode&&streetLabel.nextElementSibling!==cityLabel)cityLabel.before(streetLabel);}
+  address.placeholder='Số nhà, tên đường, thôn / tổ dân phố';
+  if(!form.dataset.vnUnified){form.dataset.vnUnified='true';form.addEventListener('submit',()=>{const name=form.querySelector('input[name="label"]');if(name&&!name.value.trim())name.value='Địa chỉ giao hàng';},{capture:true});}
+ }
  function enhance(target){
   const selector='input[name="city"],select[name="city"],select[data-delivery-city]';const nodes=[...(target.matches?.(selector)?[target]:[]),...(target.querySelectorAll?.(selector)||[])];
   for(let node of nodes){if(!node.dataset.vnCity)node=selectProvince(node);const form=node.closest('form');if(form&&!node.hasAttribute('data-delivery-city')){
+   unifyAddressForm(form,node);
    if(!data&&form.querySelector('[name="address"]')&&!node._vnFallback){
     const help=node.ownerDocument.createElement('p');help.className='vn-address-fallback';const message=node.ownerDocument.createElement('span');message.textContent='Danh mục phường / xã đang tải. ';const retry=node.ownerDocument.createElement('button');retry.type='button';retry.textContent='Tải lại';help.append(message,retry);node.insertAdjacentElement('afterend',help);node._vnFallback=help;
     const refresh=async force=>{const ready=await loadData(force);if(ready)enhance(form);else message.textContent='Chưa tải được danh mục phường / xã. Bạn có thể thử lại. ';};retry.addEventListener('click',()=>refresh(true));node.addEventListener('focus',()=>refresh(false));
