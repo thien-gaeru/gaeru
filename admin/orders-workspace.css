@@ -26,3 +26,23 @@
 #orders-view #after-sales-panel h2{font-size:20px;margin:0 0 10px}
 @media(max-width:760px){#orders-view .orders-heading{align-items:stretch}#orders-view .order-export-actions{width:100%;gap:8px}#orders-view .order-export-actions>label{flex:1 1 100%}#orders-view .order-export-actions select{width:100%;max-width:none}#orders-view .order-bulk-actions>span{flex-basis:100%;margin:0}#orders-view .order-bulk-actions button{flex:1;min-width:120px}#orders-view .order-tabs{margin-bottom:12px}}
 .order-processing-dialog{width:min(960px,calc(100vw - 24px));max-height:90dvh;padding:0;border:1px solid #d9e1e7;border-radius:20px;background:white;color:#202329;box-shadow:0 24px 80px #001e3440}.order-processing-dialog::backdrop{background:#11233080;backdrop-filter:blur(3px)}.order-processing-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 24px;border-bottom:1px solid #e2e7ec}.order-processing-dialog h2{font-size:22px;margin:0}.order-processing-dialog header p{font-size:12px;color:#6b7380;margin:0 0 6px}.order-processing-content,.bulk-process-form{padding:24px}.bulk-process-form{display:grid;gap:18px}.bulk-process-form label{display:grid;gap:8px}.order-process-steps{list-style:none;display:flex;overflow-x:auto;gap:10px;padding:16px 24px;margin:0;background:#f4f7fa}.order-process-steps li{flex:none;font-size:12px;color:#737d87;border-bottom:3px solid #dce3e8;padding:8px}.order-process-steps li.current{color:#007aff;border-color:#007aff;font-weight:700}.order-process-steps li.done{color:#16836d;border-color:#16836d}.after-sales-toolbar{display:flex;gap:18px;align-items:start;flex-wrap:wrap;margin:18px 0}.after-sales-toolbar>label{min-width:200px;display:grid;gap:8px}.after-sales-toolbar details{flex:1;min-width:260px}.after-sales-toolbar form{display:grid;gap:12px;padding:16px 0}.after-sales-toolbar label{display:grid;gap:8px}@media(max-width:600px){.order-processing-dialog>header,.order-processing-content,.bulk-process-form{padding:16px}.order-processing-dialog h2{font-size:18px}.order-process-steps{padding:10px 16px}.order-processing-dialog .order-controls{grid-template-columns:1fr}.after-sales-toolbar details{min-width:0;flex-basis:100%}}
+
+/* Keep the processing header and actions visible within short screens. */
+#order-processing-dialog{max-height:calc(100dvh - 24px);overflow:hidden}
+#order-processing-dialog[open]{display:flex;flex-direction:column}
+#order-processing-dialog>header{padding:12px 20px;flex:none}
+#order-processing-dialog .order-process-steps{padding:6px 20px;flex:none}
+#order-processing-dialog .order-processing-content{min-height:0;overflow:auto;padding:12px 20px;overscroll-behavior:contain}
+#order-processing-dialog .order-meta{gap:12px;padding:0;margin:0}
+#order-processing-dialog .order-meta p{margin:6px 0}
+#order-processing-dialog .order-items{margin:8px 0;padding:0}
+#order-processing-dialog .order-items li{padding:8px 0}
+#order-processing-dialog .order-totals{margin:8px 0}
+#order-processing-dialog .order-totals>div{padding:5px 0}
+#order-processing-dialog .order-controls{gap:10px;padding-top:10px;margin-top:8px}
+#order-processing-dialog .order-controls>label[hidden]{display:none}
+.order-status-buttons{grid-column:1/-1;border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:8px}
+.order-status-buttons legend{font-size:12px;font-weight:700;margin-bottom:8px}
+.order-status-buttons button[aria-pressed=true]{background:#007aff;color:white;border-color:#007aff}
+#order-processing-dialog .order-controls>button[type=submit]{position:sticky;bottom:0;box-shadow:0 0 0 6px white;z-index:1}
+@media(max-width:600px){#order-processing-dialog>header,#order-processing-dialog .order-processing-content{padding:10px 14px}#order-processing-dialog .order-controls{grid-template-columns:1fr 1fr}#order-processing-dialog .order-controls>button,#order-processing-dialog .order-feedback{grid-column:1/-1}.order-status-buttons button{padding:9px 12px;font-size:12px}}
