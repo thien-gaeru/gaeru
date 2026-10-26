@@ -100,7 +100,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.get("/api/health", async (_req, res, next) => {
     try {
       await pool.query("SELECT 1");
-      res.set({'Cache-Control':'no-store','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Migration':require('./media-filesystem-migration').status().state,'X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
+      res.set({'Cache-Control':'no-store','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Migration':require('./media-filesystem-migration').status().state,'X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
     } catch (error) {
       next(error);
     }
