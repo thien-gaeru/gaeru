@@ -8,3 +8,20 @@
 @media(max-width:760px){.orders-heading{align-items:start;flex-direction:column}.orders-heading h2{font-size:25px}.order-overview{grid-template-columns:repeat(3,minmax(0,1fr))}.order-overview button{padding:16px 12px;gap:12px;font-size:12px}.order-overview strong{font-size:23px}.order-tabs{gap:18px}.order-tabs button{font-size:13px}#orders-view .order-filters label{flex-basis:calc(50% - 12px)}#orders-view .toolbar{flex-wrap:wrap}#orders-view .toolbar input{flex-basis:100%}.orders-table-scroll{max-width:100%}}
 @media(max-width:380px){.order-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .order-export-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.order-export-actions label{font-size:12px}.order-export-actions select{display:block;margin-top:6px}#after-sales-panel{padding:16px;border:1px solid #dae0e5;border-radius:12px;margin:0 0 20px;background:white}#after-sales-panel summary{cursor:pointer;font-weight:600}#after-sales-list form{display:grid;gap:12px}#shipping-configuration .configuration-panel{margin:18px 0;padding:20px;background:white;border:1px solid #dfe4e9;border-radius:14px}#shipping-configuration summary{cursor:pointer;font-weight:600;font-size:18px}
+#orders-view .orders-heading{justify-content:flex-end;margin-bottom:16px}
+#orders-view .order-table-head,#orders-view .order-table-row{grid-template-columns:32px 1.25fr 1fr 1.4fr 1fr 1fr .9fr 90px;min-width:1120px;gap:16px}
+#orders-view #order-list>.order-card{min-width:1120px}
+#orders-view .order-table-row{cursor:default}
+#orders-view .order-table-row:hover{background:#fbfcfd}
+#orders-view .order-select-cell{display:flex;align-items:center;justify-content:center;margin:0;padding:0;min-width:0}
+#orders-view .order-select-cell input{width:18px;height:18px;min-height:18px;margin:0;accent-color:#087e8b;cursor:pointer}
+#orders-view .order-action-cell{justify-self:end}
+#orders-view .order-process-button{padding:9px 16px;min-height:38px;white-space:nowrap;font-size:13px;border-radius:9px}
+#orders-view .order-bulk-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--order-line);border-radius:12px;padding:12px 16px;margin:16px 0}
+#orders-view .order-bulk-actions>span{font-size:13px;font-weight:600;margin-right:auto}
+#orders-view .order-bulk-actions small{flex-basis:100%;font-size:12px;color:var(--order-muted)}
+#orders-view [hidden]{display:none!important}
+#orders-view #after-sales-toggle[aria-expanded=true]{border-bottom-color:#009eaa;color:#152b31}
+#orders-view #after-sales-panel{margin:16px 0;padding:20px;border-radius:12px}
+#orders-view #after-sales-panel h2{font-size:20px;margin:0 0 10px}
+@media(max-width:760px){#orders-view .orders-heading{align-items:stretch}#orders-view .order-export-actions{width:100%;gap:8px}#orders-view .order-export-actions>label{flex:1 1 100%}#orders-view .order-export-actions select{width:100%;max-width:none}#orders-view .order-bulk-actions>span{flex-basis:100%;margin:0}#orders-view .order-bulk-actions button{flex:1;min-width:120px}#orders-view .order-tabs{margin-bottom:12px}}

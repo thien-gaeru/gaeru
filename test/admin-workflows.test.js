@@ -232,5 +232,5 @@ test('Excel export produces a real workbook with literal text, numeric money and
  const ExcelJS=require('exceljs');const queries=[];
  const request=await startAdminApi(context,{async query(sql,values){queries.push({sql,values});return sql.startsWith('SELECT COUNT(*)')?{rows:[{total:1}]}:{rows:[{orderNumber:'=1+1',customerName:'Khách hàng',phone:'0900000000',createdAt:'2026-10-26T00:00:00Z',totalVnd:1200000,status:'pending',paymentMethod:'cod',items:[]}]};}});
  const response=await request('/gaeru_ceo/orders?format=xlsx&scope=all&status=pending');assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/spreadsheetml/);
- const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));const sheet=workbook.worksheets[0];assert.equal(sheet.getCell('A2').value,'=1+1');assert.equal(sheet.getCell('D2').value,'0900000000');assert.equal(sheet.getCell('O2').value,1200000);assert.deepEqual(queries[1].values,['pending','','','',5000,0]);
+ const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));const sheet=workbook.worksheets[0];assert.equal(sheet.getCell('A2').value,'=1+1');assert.equal(sheet.getCell('D2').value,'0900000000');assert.equal(sheet.getCell('P2').value,1200000);assert.deepEqual(queries[1].values,['pending','','','',5000,0]);
 });
