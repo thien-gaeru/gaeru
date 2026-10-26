@@ -90,7 +90,7 @@ function getPriceLabel(product) {
   const prices = availableVariants.map((variant) => variant.priceVnd);
   const low = Math.min(...prices);
   const high = Math.max(...prices);
-  return low === high ? formatPrice(low) : `Từ ${formatPrice(low)}`;
+  return low === high ? formatPrice(low) : `Từ ${formatPrice(low)} đến ${formatPrice(high)}`;
 }
 
 function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];return `<p class="store-promotion-note"><strong>${flash?'Flash Sale':'Ưu đãi sản phẩm'}</strong>${flash?` <span data-sale-end="${new Date(end).toISOString()}"></span>`:''} · Giá gốc ${escapeHtml(getPriceLabel({...product,variants:product.variants.map(v=>({...v,priceVnd:v.originalPriceVnd??v.priceVnd}))}))}</p>`;}

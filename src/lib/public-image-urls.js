@@ -11,6 +11,7 @@ const STATIC_IMAGES = new Set([
 
 function publicImageUrl(url) {
   if (typeof url !== 'string') return url;
+  if (/^(?:https?:)?\/\//i.test(url)) url=require('../../clean-urls').clean(url,'https://gaeru.com');
   if (CATALOG_IMAGE.test(url)) return url + '?v=webp-20261025';
   const suffixAt = url.search(/[?#]/);
   const pathname = suffixAt < 0 ? url : url.slice(0, suffixAt);
