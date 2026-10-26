@@ -229,8 +229,11 @@ test("order workspace validates sorting, paginates and returns global counts", a
 });
 
 test('Excel export produces a real workbook with literal text, numeric money and filter scope',async context=>{
- const ExcelJS=require('exceljs');const queries=[];
+ const {unzipSync,strFromU8}=require('fflate');const {parseHTML}=require('linkedom');const queries=[];
  const request=await startAdminApi(context,{async query(sql,values){queries.push({sql,values});return sql.startsWith('SELECT COUNT(*)')?{rows:[{total:1}]}:{rows:[{orderNumber:'=1+1',customerName:'Khách hàng',phone:'0900000000',createdAt:'2026-10-26T00:00:00Z',totalVnd:1200000,status:'pending',paymentMethod:'cod',items:[]}]};}});
  const response=await request('/gaeru_ceo/orders?format=xlsx&scope=all&status=pending');assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/spreadsheetml/);
- const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));const sheet=workbook.worksheets[0];assert.equal(sheet.getCell('A2').value,'=1+1');assert.equal(sheet.getCell('D2').value,'0900000000');assert.equal(sheet.getCell('P2').value,1200000);assert.deepEqual(queries[1].values,['pending','','','',5000,0]);
+ const files=unzipSync(new Uint8Array(await response.arrayBuffer()));const sheet=parseHTML(strFromU8(files['xl/worksheets/sheet1.xml'])).document;
+ const strings=parseHTML(strFromU8(files['xl/sharedStrings.xml'])).document.querySelectorAll('si');
+ const value=id=>{const cell=sheet.querySelector('c[r="'+id+'"]');assert.equal(cell.querySelector('f'),null);return cell.getAttribute('t')==='s'?strings[Number(cell.querySelector('v').textContent)].textContent:cell.querySelector('v').textContent};
+ assert.equal(value('A2'),'=1+1');assert.equal(value('D2'),'0900000000');assert.equal(Number(value('P2')),1200000);assert.match(strFromU8(files['xl/worksheets/sheet1.xml']),/autoFilter ref="A1:P2"/);assert.match(strFromU8(files['xl/worksheets/sheet1.xml']),/state="frozen"/);assert.deepEqual(queries[1].values,['pending','','','',5000,0]);
 });

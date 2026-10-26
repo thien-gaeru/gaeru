@@ -73,6 +73,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(require("./bot-protection").createBotProtection(pool,config));
   app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
+  app.use("/api/gaeru_ceo/pages", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/marketing/emails",express.json({limit:"64kb"}));
   app.use(express.json({ limit: "32kb" }));
   app.use(session({
@@ -128,6 +129,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
     next();
   });
+  app.use("/api/gaeru_ceo", require("./site-pages").createPagesAdmin(pool));
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
   app.use("/api/gaeru_ceo", require("./order-after-sales").afterSalesRouter(pool));
   app.use("/api/gaeru_ceo", require("./order-print").createOrderPrint(pool));
@@ -179,7 +181,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
+  const managementAssets=new Set(['pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
@@ -191,7 +193,10 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     res.set("Cache-Control", "no-store");
     res.sendFile(path.join(__dirname, "..", "admin", "index.html"), error => { if (error) next(error); });
   });
+  app.use(require('./site-pages').pageMetadata(pool));
+  app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.org').origin));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile(path.join(__dirname,'..','warranty-activation.html'));});
+  app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
   app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));
   app.use((req,res,next)=>{
@@ -206,11 +211,13 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });
+  app.use(require('./clean-routes').staticHtml);
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",
     index: "index.html",
     setHeaders(res, file) {
       if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)&&/^[a-zA-Z0-9._-]{6,80}$/.test(String(res.req.query.v||'')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
+      if (/\/assets\/.*-[0-9a-f]{12}\.webp$/i.test(file.replace(/\\/g,'/')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
       }
