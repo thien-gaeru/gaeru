@@ -6,7 +6,7 @@ function enrich(html,original,origin,override){origin=require('./primary-domain'
  if(override){doc.title=override.title;let description=doc.head.querySelector('meta[name=description]');if(!description){description=doc.createElement('meta');description.name='description';doc.head.append(description)}description.content=override.description}
  doc.documentElement.setAttribute('lang','vi');let base=doc.head.querySelector('base');if(!base){base=doc.createElement('base');base.setAttribute('href','/');doc.head.prepend(base)}
  for(const el of doc.querySelectorAll('[href],[action],[src],[poster]'))for(const key of ['href','action','src','poster'])if(el.hasAttribute(key))el.setAttribute(key,clean(el.getAttribute(key),origin));
- if(!doc.querySelector('script[src^="/clean-urls.js"]')){const script=doc.createElement('script');script.src='/clean-urls.js?v=20261027-primary-links';script.defer=true;doc.head.append(script)}
+ if(!doc.querySelector('script[src^="/clean-urls.js"]')){const script=doc.createElement('script');script.src='/clean-urls.js?v=20261027-registration-links';script.defer=true;doc.head.append(script)}
  const u=new URL(original,origin);for(const a of doc.querySelectorAll('a[href^="#"]'))a.setAttribute('href',u.pathname+u.search+a.getAttribute('href'));
  const canonical=doc.head.querySelector('link[rel=canonical]')?.getAttribute('href')||origin+u.pathname;
  const meta=(key,value,property=false)=>{const attr=property?'property':'name';let n=doc.head.querySelector('meta['+attr+'="'+key+'"]');if(!n){n=doc.createElement('meta');n.setAttribute(attr,key);doc.head.append(n)}n.setAttribute('content',value)};
