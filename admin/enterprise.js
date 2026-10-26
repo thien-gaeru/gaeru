@@ -122,11 +122,29 @@
     if (departments && can("staff.read")) tasks.push(api("/departments").then((result) => { e.lookup.departments = result.departments || []; }));
     await Promise.all(tasks);
   }
+  let activeEditor = null;
+  function closeEditor(editor = activeEditor, force = false) {
+    if (!editor || (!force && editor.querySelector('form[data-saving]'))) return false;
+    if (typeof editor.close === 'function') editor.close(); else editor.removeAttribute('open');
+    editor.hidden = true;
+    if (activeEditor === editor) { activeEditor = null; document.body.classList.remove('enterprise-editor-open'); }
+    if (editor.opener?.isConnected) editor.opener.focus?.({preventScroll:true});
+    return true;
+  }
   function showEditor(view, html) {
-    const editor = root(view).querySelector("[data-e-editor]");
-    editor.innerHTML = html; editor.hidden = false;
-    editor.scrollIntoView({ behavior: "smooth", block: "start" });
-    editor.querySelector("input:not([type=hidden]),select")?.focus({ preventScroll: true });
+    closeEditor(activeEditor, true);
+    let editor = root(view).querySelector('[data-e-editor]');
+    if (editor.tagName !== 'DIALOG') {
+      const dialog = document.createElement('dialog');dialog.setAttribute('data-e-editor','');dialog.className='enterprise-editor-dialog';editor.replaceWith(dialog);editor=dialog;
+      editor.addEventListener('cancel', event => { event.preventDefault();closeEditor(editor); });
+      editor.addEventListener('close', () => { if(!editor.hasAttribute('open')){editor.hidden=true;if(activeEditor===editor){activeEditor=null;document.body.classList.remove('enterprise-editor-open');}} });
+    }
+    editor.opener = document.activeElement;
+    editor.innerHTML = '<header><button type="button" class="secondary-button" data-e-close aria-label="Đóng cửa sổ">×</button></header><div class="enterprise-editor-content">'+html+'</div>';
+    const heading=editor.querySelector('h2');if(heading){heading.id='enterprise-editor-title-'+view;editor.setAttribute('aria-labelledby',heading.id);editor.querySelector('header').prepend(heading);}
+    editor.hidden=false;activeEditor=editor;document.body.classList.add('enterprise-editor-open');
+    if(typeof editor.showModal==='function')editor.showModal();else editor.setAttribute('open','');
+    editor.querySelector('input:not([type=hidden]),select,textarea')?.focus({preventScroll:true});
   }
 
   const definitions = {
@@ -163,6 +181,7 @@
     const warehouseFilter = root("inventory").querySelector('[name="warehouseId"]'), selected = warehouseFilter.value;
     warehouseFilter.innerHTML = '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses, selected);
   }
+  let inventoryEditorRequest=0;
   async function inventoryEditor(type, entry = null) {
     if (!can(type === "adjustment" ? "inventory.approve" : "inventory.write")) return;
     await lookups({ warehouses: true, variants: true });
@@ -329,7 +348,7 @@
       payload.active = values.id ? Boolean(values.active) : true;
       if (view === "departments" && values.id) payload.version = Number(values.version);
       await api(`${definition.path}${values.id ? `/${encodeURIComponent(values.id)}` : ""}`, { method: values.id ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      form.closest("[data-e-editor]").hidden = true; await loadEntity(view);
+      closeEditor(form.closest("[data-e-editor]"), true); await loadEntity(view);
     } else if (action === "staff") {
       if (!can("staff.write")) throw new Error("Bạn chưa có quyền quản lý nhân viên.");
       const payload = { fullName: values.fullName.trim(), role: values.role, departmentId: values.departmentId || null };
@@ -341,7 +360,7 @@
       }
       if (values.id && (!payload.active || values.password) && !await confirmAction("Lưu thay đổi tài khoản? Các phiên đăng nhập hiện tại của nhân viên có thể bị kết thúc.", form.querySelector('[type="submit"]'))) return false;
       await api(`/staff${values.id ? `/${encodeURIComponent(values.id)}` : ""}`, { method: values.id ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      form.closest("[data-e-editor]").hidden = true; await loadStaff();
+      closeEditor(form.closest("[data-e-editor]"), true); await loadStaff();
     } else if (["adjustment", "transfer"].includes(action)) {
       if (!can(action === "adjustment" ? "inventory.approve" : "inventory.write")) throw new Error("Bạn chưa có quyền thực hiện nghiệp vụ kho này.");
       if (values.reason.trim().length < 5) throw new Error("Nhập lý do rõ ràng, ít nhất 5 ký tự.");
@@ -357,7 +376,7 @@
         if (!await confirmAction(`Điều chuyển ${payload.quantity} sản phẩm? Tồn kho nguồn sẽ giảm và kho đích sẽ tăng tương ứng.`, form.querySelector('[type="submit"]'))) return false;
       }
       await api(`/inventory/${action === "adjustment" ? "adjustments" : "transfers"}`, { method: "POST", body: JSON.stringify(payload) });
-      form.closest("[data-e-editor]").hidden = true; await loadInventory(); await loadMovements();
+      closeEditor(form.closest("[data-e-editor]"), true); await loadInventory(); await loadMovements();
     } else if (action === "purchase") {
       if (!can("purchases.write")) throw new Error("Bạn chưa có quyền lập đơn mua.");
       if (values.reference.trim().length > 120) throw new Error("Số tham chiếu chỉ được dài tối đa 120 ký tự.");
@@ -367,7 +386,7 @@
       const result = await api("/purchase-orders", { method: "POST", body: JSON.stringify({ supplierId: values.supplierId, warehouseId: values.warehouseId, reference: values.reference.trim(), note: values.note.trim(), items }) });
       await loadPurchases();
       const id = result.purchaseOrder?.id || result.id;
-      if (id) await purchaseDetail(id); else form.closest("[data-e-editor]").hidden = true;
+      if (id) await purchaseDetail(id); else closeEditor(form.closest("[data-e-editor]"), true);
     } else if (action === "receipt") {
       if (!can("inventory.write")) throw new Error("Bạn chưa có quyền nhập kho.");
       if (values.reference.trim().length > 120) throw new Error("Số phiếu chỉ được dài tối đa 120 ký tự.");
@@ -390,7 +409,7 @@
       if (!await confirmAction(`${action === "collection" ? "Xác nhận đã thực thu" : "Trình duyệt ghi nhận khoản đã thực chi"} ${money(payload.amountVnd)}? Hệ thống chỉ lưu chứng từ, không chuyển tiền.`, form.querySelector('[type="submit"]'))) return false;
       const path = { "supplier-payment": "supplier-payments", expense: "expenses", collection: "customer-payments" }[action];
       await api(`/finance/${path}`, { method: "POST", body: JSON.stringify(payload) });
-      form.closest("[data-e-editor]").hidden = true; await loadFinance();
+      closeEditor(form.closest("[data-e-editor]"), true); await loadFinance();
     }
     return true;
   }
@@ -410,7 +429,7 @@
     buttons.forEach((button) => { button.disabled = true; });
     formMessage(form, "");
     try { if (await saveForm(form)) admin.showGlobal("Đã lưu nghiệp vụ thành công."); }
-    catch (error) { formMessage(form, error.message); }
+    catch (error) { formMessage(form, error.message); if(!form.isConnected||form.closest("[data-e-editor]")?.hidden)admin.showGlobal(error.message,true); }
     finally { delete form.dataset.saving; buttons.forEach((button) => { button.disabled = false; }); }
   });
   document.addEventListener("click", async (event) => {
@@ -418,7 +437,7 @@
     if (!button || button.disabled || (button.type === "submit" && button.form)) return;
     const view = button.closest(".enterprise-view").id.replace(/-view$/, "");
     try {
-      if (button.hasAttribute("data-e-close")) button.closest("[data-e-editor]").hidden = true;
+      if (button.hasAttribute("data-e-close")) closeEditor(button.closest("[data-e-editor]"));
       else if (button.dataset.eNew) {
         if (button.dataset.eNew === "purchase") await purchaseEditor();
         else if (button.dataset.eNew === "staff") staffEditor();
@@ -465,5 +484,6 @@
   document.addEventListener("change", (event) => {
     if (event.target.matches('.enterprise-view [data-e-form="staff"] [name="role"]')) renderRolePermissions(event.target.closest("form"));
   });
+  window.addEventListener('hashchange',()=>closeEditor(activeEditor,true));
   window.GAERUEnterprise = Object.freeze({ loadView });
 })();
