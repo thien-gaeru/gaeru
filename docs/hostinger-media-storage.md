@@ -27,3 +27,13 @@ The database job lease prevents concurrent workers and is renewed between operat
 A blocked run retries after one minute. Missing/unwritable MEDIA_ROOT requires correcting the environment/path and restarting; startup never asserts success without its actual probe. A completed run is not a continuous S3 synchronizer: files independently added to S3 after this migration snapshot are outside its completion statement. New uploads from this release go to MEDIA_ROOT.
 
 Tests use real filesystem and embedded PostgreSQL-compatible fixtures for S3 V1/V2, unreferenced paginated objects, metadata retention, rollback, hash mismatch, retry/idempotency, target identity and concurrent lease ownership. No original S3 objects are removed, and no customer orders/payment data are rewritten.
+
+## Hostinger upload and URL checks
+
+The owner configuration panel now has “Kiểm tra lưu trữ ngay”, POST /api/gaeru_ceo/owner/media-storage/probe. It runs a fresh write/read/delete probe without restarting, requires the bootstrap owner and CSRF, is limited to six checks/minute and reports filesystem operation, configured path and failing path only to the owner. Public health headers remain bounded categories without paths. Rechecking does not itself start a new migration or publish an image.
+
+POST /api/gaeru_ceo/uploads/image is an authenticated alias of the existing image upload: same multipart image field, catalog.write permission, CSRF, rate/size/signature checks, WebP conversion and database reference. It is not an anonymous /api/upload endpoint.
+
+GET /media/products/<UUID>.<webp|png|jpg> resolves an existing filesystem pointer and reuses the exact catalog image publication checks and response handler. A file merely existing on disk is insufficient. Draft, unreferenced, unpublished and private/chat objects are not exposed. There is no static mount of the complete MEDIA_ROOT directory.
+
+Verification: real multipart upload against embedded PostgreSQL and a temporary filesystem, successful public image decode bytes after publication, 404 before/after unpublishing, malicious payload rejection, owner-only recheck, CSRF and private-path protection. Full suite: 340 passing. Production read/write results must be reported separately from fixture success.
