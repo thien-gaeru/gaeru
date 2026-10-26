@@ -435,12 +435,21 @@ async function saveVariant(event) {
   }
 }
 
-async function loadOrders(page = state.orderPage) {
+function orderEditing() {
+  return state.selectedOrders.size > 0 || Boolean(document.querySelector('dialog[open]'))
+    || Boolean(document.activeElement?.closest('#orders-view input,#orders-view select,#orders-view textarea,#order-review,#after-sales-panel'));
+}
+let orderSnapshot = '';
+async function loadOrders(page = state.orderPage, { background = false } = {}) {
   if (!can("orders.read")) return;
+  const root = document.querySelector("#order-list");
+  if (background && (root.getAttribute('aria-busy') === 'true' || document.querySelector('#orders-view').hidden)) return;
   const requestId = ++state.orderRequest;
-  state.selectedOrders.clear();
-  document.querySelectorAll('[data-select-order]').forEach(input => { input.checked = false; });
-  updateOrderSelection();
+  if (!background) {
+    state.selectedOrders.clear();
+    document.querySelectorAll('[data-select-order]').forEach(input => { input.checked = false; });
+    updateOrderSelection();
+  }
   const status = document.querySelector("#order-filter").value;
   const search = document.querySelector("#order-search").value.trim();
   const params = new URLSearchParams();
@@ -454,28 +463,53 @@ async function loadOrders(page = state.orderPage) {
   params.set("sort", document.querySelector("#order-sort").value || "newest");
   params.set("pageSize", document.querySelector("#order-page-size").value || "25");
   params.set("overview", "1");
-  const root = document.querySelector("#order-list");
   root.setAttribute("aria-busy", "true");
-  document.querySelector("#order-list-status").textContent = "Đang tải đơn hàng…";
+  if (!background) document.querySelector("#order-list-status").textContent = "Đang tải đơn hàng…";
   try {
     const result = await request(`/api/gaeru_ceo/orders?${params}`);
     if (requestId !== state.orderRequest || status !== document.querySelector("#order-filter").value
       || search !== document.querySelector("#order-search").value.trim()
       || paymentStatus !== document.querySelector("#order-payment-filter").value
-      || paymentMethod !== document.querySelector("#order-method-filter").value) return;
+      || paymentMethod !== document.querySelector("#order-method-filter").value
+      || params.get('sort') !== (document.querySelector('#order-sort').value || 'newest')
+      || params.get('pageSize') !== (document.querySelector('#order-page-size').value || '25')) return;
+    const snapshot = JSON.stringify(result);
+    if (background) {
+      if (document.hidden || document.querySelector('#orders-view').hidden) return;
+      if (snapshot === orderSnapshot) return;
+      if (orderEditing()) {
+        document.querySelector('#order-live-status').textContent = 'Có cập nhật đơn hàng. Sẽ tự cập nhật sau khi bạn hoàn tất thao tác hoặc bỏ chọn đơn.';
+        return;
+      }
+    }
+    orderSnapshot = snapshot;
     state.orderPage = result.pagination.page;
     state.orderPagination = result.pagination;
     state.orders = result.orders;
     state.selectedOrders.clear();
     renderOrderOverview(result.overview || {});
     renderOrders();
+    document.querySelector('#order-live-status').textContent = 'Tự cập nhật mỗi 15 giây' + (background ? ' · Đã cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN') : '');
   } catch (error) {
-    if (requestId === state.orderRequest) document.querySelector("#order-list-status").textContent = "Chưa tải được đơn hàng. Nhấn Tải lại để thử lại.";
+    if (requestId === state.orderRequest) document.querySelector(background ? '#order-live-status' : '#order-list-status').textContent = background ? 'Mất kết nối cập nhật. Hệ thống sẽ tự thử lại.' : "Chưa tải được đơn hàng. Nhấn Tải lại để thử lại.";
     throw error;
   } finally {
     if (requestId === state.orderRequest) root.setAttribute("aria-busy", "false");
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const poll = window.GAERUCareLive.poll({
+    delay: 15000,
+    active: () => Boolean(state.session) && !document.querySelector('#admin-app').hidden && can('orders.read')
+      && (!document.querySelector('#orders-view').hidden || !document.querySelector('#overview-view').hidden),
+    run: () => document.querySelector('#orders-view').hidden ? loadSummary() : loadOrders(state.orderPage, { background: true }),
+    status: message => { if (message.includes('Phiên')) document.querySelector('#order-live-status').textContent = message; }
+  });
+  window.addEventListener('focus', poll.refresh);
+  window.addEventListener('pagehide', event => { if (!event.persisted) poll.stop(); });
+  window.addEventListener('pageshow', poll.refresh);
+});
 
 function isLiveVnpayAttempt(order) {
   return order.paymentMethod === "vnpay" && order.paymentAttemptStatus === "pending"
@@ -514,6 +548,12 @@ function openOrderProcessing(id,opener){
  closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
  const steps=['pending','confirmed','processing','shipped','completed'],current=steps.indexOf(order.status);
  dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
+ const statusSelect=dialog.querySelector('select[name="status"]');
+ if(statusSelect){
+  const choices=document.createElement('fieldset');choices.className='order-status-buttons';choices.innerHTML='<legend>Trạng thái đơn</legend>'+[...statusSelect.options].map(option=>'<button type="button" class="secondary-button" data-status-choice="'+escapeHtml(option.value)+'" aria-pressed="'+(option.value===statusSelect.value)+'" '+(statusSelect.disabled?'disabled':'')+'>'+escapeHtml(option.textContent)+'</button>').join('');
+  statusSelect.closest('label').hidden=true;statusSelect.closest('label').after(choices);
+  choices.addEventListener('click',event=>{const button=event.target.closest('[data-status-choice]');if(!button||statusSelect.closest('form').dataset.saving)return;statusSelect.value=button.dataset.statusChoice;statusSelect.dispatchEvent(new Event('change',{bubbles:true}));choices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
+ }
  dialog.addEventListener('submit',updateOrder);dialog.addEventListener('change',changeOrderControl);dialog.querySelector('[data-close-order]').addEventListener('click',closeOrderProcessing);dialog.addEventListener('close',()=>{dialog.remove();opener?.isConnected&&opener.focus();});document.body.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
 }
 function openBulkProcessing(){
