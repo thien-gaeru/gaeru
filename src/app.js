@@ -131,6 +131,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
     next();
   });
+  app.use("/api/gaeru_ceo", require("./media-diagnostics").createMediaDiagnostics());
   app.use("/api/gaeru_ceo", require("./site-pages").createPagesAdmin(pool));
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
   app.use("/api/gaeru_ceo", require("./order-after-sales").afterSalesRouter(pool));
@@ -160,6 +161,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const productWorkspace=createProductWorkspace(pool);
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
+  app.use("/media",productWorkspace.publicMedia);
   app.use("/api", (req,res,next)=>{
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
     next();

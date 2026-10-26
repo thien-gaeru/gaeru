@@ -47,16 +47,18 @@ const catalogImageUploadLimiter = rateLimit({
   legacyHeaders: false
 });
 
-function createProductWorkspace(pool){const admin=Router(),publicApi=Router();
+function createProductWorkspace(pool){const admin=Router(),publicApi=Router(),publicMedia=Router();
  // Explicitly approved homepage artwork; other unreferenced catalog objects stay private.
  publicApi.get('/site-media/g1-home',(_req,res)=>res.redirect(301,'/assets/products/g1-ultra-874bf1d3db77.webp'));
 
- publicApi.get('/catalog-images/:id',catalogImagePublicLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}});
+async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}}
+ publicApi.get('/catalog-images/:id',catalogImagePublicLimiter,serveCatalogImage);
+ publicMedia.get('/products/:filename',catalogImagePublicLimiter,async(req,res,next)=>{if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|png|jpg)$/.test(req.params.filename))return res.sendStatus(404);try{const key='products/'+req.params.filename;const row=(await pool.query("SELECT id FROM catalog_images WHERE CASE WHEN substring(content from 1 for 12)=convert_to('GAERU_FS_V1:','UTF8') THEN convert_from(substring(content from 13),'UTF8')::jsonb->>'key' ELSE NULL END=$1 LIMIT 1",[key])).rows[0];if(!row)return res.sendStatus(404);req.params.id=row.id;return serveCatalogImage(req,res,next);}catch(e){next(e);}});
  admin.use('/product-workspace',requirePermission('catalog.read'));
  admin.get('/product-workspace/:id',async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const data=await read(pool,req.params.id,req.query.trash==='1');if(!data)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});res.set('Cache-Control','no-store').json(data);}catch(e){next(e);}});
  admin.get('/catalog-images/:id',catalogImageAdminLimiter,requirePermission('catalog.read'),async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readStoredImage(row.content));}catch(e){next(e);}});
  const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:0}}).single('image');
-admin.post('/catalog-images',
+admin.post(['/catalog-images','/uploads/image'],
   catalogImageUploadLimiter,
   requirePermission('catalog.write'),
   requireCsrf,
@@ -120,6 +122,6 @@ admin.post('/catalog-images',
  for(const v of a.variants){if(v.id){await inventory.setVariantStock(client,{variantId:v.id,quantity:v.stockQuantity,actor:req.admin});await client.query('UPDATE product_variants SET sku=$2,name=$3,options=$4,price_vnd=$5,active=$6,image_url=$7,updated_at=now() WHERE id=$1',[v.id,v.sku,v.name,v.options,v.priceVnd,a.inTrash?false:v.active,v.imageUrl]);}else{const row=(await client.query('INSERT INTO product_variants(product_id,sku,name,options,price_vnd,stock_quantity,active,image_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[id,v.sku,v.name,v.options,v.priceVnd,v.stockQuantity,a.inTrash?false:v.active,v.imageUrl])).rows[0];await inventory.initializeVariantStock(client,{variantId:row.id,quantity:v.stockQuantity,actor:req.admin});v.id=row.id;}}
  if(a.inTrash)await client.query('UPDATE products SET deleted_variant_state=$2 WHERE id=$1',[id,JSON.stringify(a.variants.map(v=>({id:v.id,active:v.active})))]);await client.query('INSERT INTO product_presentations(product_id,gallery,option_groups,description_media) VALUES($1,$2,$3,$4) ON CONFLICT(product_id) DO UPDATE SET gallery=$2,option_groups=$3,description_media=$4',[id,JSON.stringify(a.gallery),JSON.stringify(a.groups),JSON.stringify(a.descriptionMedia)]);await appendAudit(client,{actor:req.admin,action:a.id?'catalog.workspace.update':'catalog.workspace.create',entityType:'product',entityId:id,metadata:{variants:a.variants.length,images:a.gallery.length,published:p.active}});return id;});res.status(a.id?200:201).json(await read(pool,id,a.inTrash===true));
  }catch(e){if(e.status)return res.status(e.status).json({error:e.message});if(e.code==='23505')return res.status(409).json({error:'SKU hoặc đường dẫn sản phẩm đã tồn tại. Kiểm tra lại trước khi lưu.'});next(e);}});
- return {admin,publicApi};
+ return {admin,publicApi,publicMedia};
 }
 module.exports={createProductWorkspace,schema};
