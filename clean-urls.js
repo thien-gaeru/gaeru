@@ -1,9 +1,9 @@
 (function(scope){
  const paths={'index.html':'/','shop.html':'/cua-hang','news.html':'/tin-tuc','story.html':'/cau-chuyen','support.html':'/ho-tro','care.html':'/care','guides.html':'/huong-dan','account.html':'/tai-khoan','cart.html':'/gio-hang','checkout.html':'/thanh-toan','payment-result.html':'/ket-qua-thanh-toan','warranty-activation.html':'/dang-ky-bao-hanh','privacy.html':'/chinh-sach/quyen-rieng-tu','terms.html':'/chinh-sach/dieu-khoan','pricing.html':'/chinh-sach/gia','payment.html':'/chinh-sach/thanh-toan','delivery-returns.html':'/chinh-sach/giao-hang-doi-tra','legal.html':'/phap-ly','complaints.html':'/khieu-nai','sitemap.html':'/so-do-trang-web','product-support.html':'/ho-tro/san-pham'};
  for(const id of ['k9','m3','p01','g1-ultra']){paths['discover-'+id+'.html']='/kham-pha/gaeru-'+id;paths['guide-'+id+'.html']='/huong-dan/gaeru-'+id;}
- function clean(value,origin='https://gaeru.org'){
+ function clean(value,origin='https://gaeru.com'){
   if(typeof value!=='string'||!value||value.startsWith('#')||/^(?:mailto:|tel:|javascript:|data:)/i.test(value))return value;
-  let u;try{u=new URL(value,origin+'/')}catch{return value}if(u.origin!==origin)return value;
+  let u;try{u=new URL(value,origin+'/')}catch{return value}if(u.origin!==origin&&!((u.origin==='https://gaeru.com'||u.origin==='https://gaeru.org')&&(origin==='https://gaeru.com'||origin==='https://gaeru.org')))return value;
   const file=u.pathname.replace(/^\//,'');let target=paths[file];
   if(file==='product.html'&&u.searchParams.get('id')){target='/san-pham/'+encodeURIComponent(u.searchParams.get('id'));u.searchParams.delete('id');}
   if(file==='news-article.html'&&u.searchParams.get('slug')){target='/tin-tuc/'+encodeURIComponent(u.searchParams.get('slug'));u.searchParams.delete('slug');}

@@ -1073,3 +1073,5 @@ svg.points-mark{width:180px;height:180px;right:24px;bottom:-32px;color:rgb(8 127
 .home-g1-story{background:radial-gradient(ellipse at 76% 50%,#dce5ee 0,transparent 50%),#f5f5f7}.home-g1-story .story-art img{width:min(100%,480px);height:auto;max-height:500px;object-fit:contain;transform:none}.home-g1-story .story-art:hover img{transform:none}.home-g1-story .home-m3-actions{display:flex;gap:18px;align-items:center;flex-wrap:wrap}.home-g1-story .story-art:before{display:none}@media(max-width:760px){.home-g1-story .home-m3-actions{justify-content:center}.home-g1-story .story-art img{max-height:360px;width:min(100%,360px)}}
 
 .managed-page{padding-block:48px;max-width:900px}.managed-page p{line-height:1.8}.managed-page h2{margin-top:32px}
+
+.footer-products-more{margin:0}.footer-column .footer-products-more>summary{display:flex;align-items:center;gap:6px;color:#0066cc;font-size:12px;font-weight:500;cursor:pointer;margin:0;min-height:28px}.footer-products-more[open]>summary span{transform:rotate(180deg)}.footer-products-more>.footer-links{margin-top:6px}.footer-products-more>summary:focus-visible{outline:2px solid #007aff;outline-offset:3px}
