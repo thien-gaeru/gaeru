@@ -204,7 +204,8 @@ function renderProduct() {
   const variants = product.variants.filter((variant) => variant.active);
   const selected = variants.find((variant) => variant.stockQuantity > 0) || variants[0];
   const seoDescriptor=String(product.descriptor||'').replace(/\*\*/g,'').replace(/\s+/g,' ').trim();
-  document.title=product.name+(seoDescriptor?' — '+seoDescriptor.toLocaleLowerCase('vi'):' — Thiết bị sáng tạo GAERU');
+  const seoLabel=(seoDescriptor||'Thiết bị sáng tạo GAERU').toLocaleLowerCase('vi').replace(/\bai\b/g,'AI');
+  document.title=product.name+' — '+seoLabel.charAt(0).toLocaleUpperCase('vi')+seoLabel.slice(1);
   const breadcrumb = document.querySelector("#breadcrumb-product");
   if (breadcrumb) breadcrumb.textContent = product.name;
   const optionGroups=window.GAERUVariantChoices?.groups(variants,product.optionGroups)||[];
