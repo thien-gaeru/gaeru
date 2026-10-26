@@ -320,6 +320,7 @@ async function renderCheckout() {
   const shippingRates = storeSettings.shippingRates || {};
   const provinces = Object.keys(shippingRates).sort((left, right) => left.localeCompare(right, "vi"));
   const paymentMethods = storeSettings.paymentMethods || ["cod"];
+  const shippingCarriers=storeSettings.shippingCarriers||[];
   if (settingsError || !storeSettings.ordersEnabled || !provinces.length) {
     const noticeTitle = settingsError
       ? "Chưa thể xác nhận trạng thái đặt hàng."
@@ -370,7 +371,9 @@ async function renderCheckout() {
           <label>Ghi chú <span>(không bắt buộc)</span><input name="note" maxlength="1000"></label>
         </div>
       </div>
-      </details>    <aside class="checkout-summary cart-summary">
+      </details>
+      ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label><p class="prototype-note">Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU.</p></section>`:''}
+      <aside class="checkout-summary cart-summary">
       <h2>Đơn hàng</h2>
       ${rows.map(({ quantity, product, variant }) => `
         <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
@@ -439,6 +442,7 @@ async function renderCheckout() {
     feedback.textContent = "Đang gửi yêu cầu đặt hàng…";
     try {
       if (window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value)===undefined)throw Error("Chưa có phí giao hàng cho tỉnh/thành phố này. Kiểm tra lại địa chỉ.");
+      if(shippingCarriers.length&&!form.elements.shippingCarrierId?.value)throw Error('Vui lòng chọn đơn vị vận chuyển.');
       if (!csrfToken) csrfToken = (await apiRequest("/api/csrf")).csrfToken;
       if(voucherInput.value.trim()&&appliedVoucher!==voucherInput.value.trim().toUpperCase()){clearTimeout(voucherTimer);if(!await validateVoucher())throw Error('Voucher chưa hợp lệ. Kiểm tra hoặc bỏ mã để tiếp tục.');}
       const result = await apiRequest("/api/orders", {
@@ -448,10 +452,12 @@ async function renderCheckout() {
             name: form.elements.name.value,
             email: form.elements.email.value,
             phone: form.elements.phone.value,
-            address: form.elements.address.value,
+            address: window.GAERUAddress?.getAddress?.(form) || form.elements.address.value,
             city: form.elements.city.value,
             note: form.elements.note.value
           },
+          shippingCarrierId:form.elements.shippingCarrierId?.value||undefined,
+          expectedShippingFeeVnd:window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value),
           voucherCode:appliedVoucher||undefined,
           paymentMethod: paymentMethod.value,
           expectedSubtotalVnd:total,
@@ -463,7 +469,7 @@ async function renderCheckout() {
         location.assign(result.paymentUrl);
         return;
       }
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p><p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
     } catch (error) {
       feedback.textContent = error.message;
       button.disabled = false;

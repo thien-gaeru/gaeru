@@ -61,6 +61,7 @@
   document.addEventListener('click',event=>{if(event.target.closest('a[href="#warranty-activation"]'))openActivation();});
   openFromHash();
   const form=section.querySelector('form'),feedback=section.querySelector('[data-w-status]');
+  window.GAERUAddress?.enhance?.(form);
   let page=1,orderPage=1,sequence=0,key=null,serialized=null,customer=null,editing=null,rows=[];
   let guestTokens={};try{const saved=JSON.parse(localStorage.getItem('gaeru-warranty-tokens')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))guestTokens=Object.fromEntries(Object.entries(saved).filter(([id,token])=>/^[a-f0-9-]{36}$/.test(id)&&typeof token==='string'&&/^[a-f0-9]{64}$/.test(token)));}catch{}
   function storeToken(id,token){guestTokens[id]=token;try{localStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}}
@@ -84,6 +85,11 @@
     } finally {clearTimeout(timeout);}
   }
   function fillContact(data,overwrite=true) {
+    let currentAddress=form.elements.address.value;
+    try{currentAddress=window.GAERUAddress?.getAddress?.(form)||currentAddress;}catch{}
+    const currentCity=form.elements.city.value;
+    const mergedAddress=overwrite?(data.address||currentAddress):(currentAddress||data.address);
+    const mergedCity=overwrite?(data.city||currentCity):(currentCity||data.city);
     for(const [name,value] of Object.entries({fullName:data.fullName||data.customerName,email:data.email,phone:data.phone,address:data.address,city:data.city}))
       if(value&&form.elements[name]&&(overwrite||!form.elements[name].value)){
         if(name==='city'){
@@ -94,6 +100,7 @@
           note.textContent=canonical?'':'Tỉnh/thành phố đã lưu: '+value+'. Vui lòng chọn đơn vị hành chính hiện hành.';
         }else form.elements[name].value=value;
       }
+    if((data.address||data.city)&&window.GAERUAddress?.setAddress)window.GAERUAddress.setAddress(form,{address:mergedAddress||'',city:mergedCity||''});
   }
   form.elements.city.addEventListener('change',()=>{section.querySelector('[data-w-city-note]').hidden=true;});
   function changeSource() {
@@ -140,6 +147,7 @@
     feedback.textContent='Đang lưu đăng ký, vui lòng chờ…';
     try {
       const contact=Object.fromEntries(['fullName','phone','address','city','email'].filter(name=>form.elements[name]).map(name=>[name,form.elements[name].value]));
+      if(window.GAERUAddress?.getAddress)contact.address=window.GAERUAddress.getAddress(form);
       const account=form.elements.source.value==='account';
       if(account&&(form.elements.orderItemId.disabled||!form.elements.orderItemId.value))throw Error('Chọn sản phẩm trong đơn hàng trước khi đăng ký.');
       const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,serial:form.elements.serial?.value||editing?.serial||'',...(form.elements.purchaseDate?.value?{purchaseDate:form.elements.purchaseDate.value}:{}),contact};
