@@ -40,6 +40,7 @@
       const data = await api.request('/api/gaeru_ceo/file-library?' + params);
       if (request !== state.request) return;
       state.data = data;
+      for(const button of root.querySelectorAll('[data-fl-new],[data-fl-upload]'))button.disabled=state.scope==='site-assets';
       if (state.page > data.pages) { state.page = data.pages; return refresh(); }
       root.querySelector('[data-fl-summary]').textContent = `${data.summary.files} tệp · ${size(data.summary.bytes)} · ${data.summary.trash} tệp trong thùng rác`;
       root.querySelector('[data-fl-root]').textContent = data.root;
@@ -77,7 +78,7 @@
     else content = '<p>Định dạng này chưa có bản xem trước. Tải xuống để mở bằng ứng dụng phù hợp.</p>';
     modal(file.name, content + `<p>${size(file.size)} · ${esc(file.mime)}</p><a class="secondary-button" href="${fileUrl(file)}" download>Tải xuống</a>`, '');
   }
-  function scopeOptions(selected) { return Object.entries(state.data.scopes).map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`).join(''); }
+  function scopeOptions(selected) { return Object.entries(state.data.scopes).filter(([value])=>value!=='site-assets').map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`).join(''); }
   function folderOptions(scope, selected = '') { return '<option value="">Thư mục gốc</option>' + state.data.folders.filter(f => f.scope === scope).map(f => `<option value="${f.id}" ${f.id === selected ? 'selected' : ''}>${esc(f.name)}</option>`).join(''); }
   async function submit(dialog, operation) {
     const form = dialog.querySelector('form'), button = form.querySelector('[type=submit]'), feedback = form.querySelector('[role=alert]');

@@ -23,6 +23,7 @@ async function start() {
   await migrateDatabase(pool);
   const mediaCheck=await require('./lib/filesystem-media').probe();
   console.log('Media storage:',JSON.stringify(mediaCheck));
+  console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
   stopMediaMigration=require('./media-filesystem-migration').startMigration(pool);
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);

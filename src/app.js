@@ -8,6 +8,7 @@ const path = require("node:path");
 const express = require("express");
 const session = require("express-session");
 const helmet = require("helmet");
+const { rateLimit } = require("express-rate-limit");
 const { createAdminAuthRouter } = require("./admin-auth");
 const { createCustomerAuthRouter } = require("./customer-auth");
 const { createContactChangeApi } = require("./contact-change-api");
@@ -163,6 +164,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
   app.use("/media",productWorkspace.publicMedia);
+  app.use("/assets",rateLimit({windowMs:60000,limit:600,standardHeaders:"draft-8",legacyHeaders:false}),require("./persistent-assets").serveAssets(pool));
   app.use("/api", (req,res,next)=>{
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
     next();
