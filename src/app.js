@@ -130,6 +130,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   });
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
   app.use("/api/gaeru_ceo", require("./order-after-sales").afterSalesRouter(pool));
+  app.use("/api/gaeru_ceo", require("./order-print").createOrderPrint(pool));
+  app.use("/api/gaeru_ceo", require("./shipping-choice").createShippingAdmin(pool,config));
   app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
   app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool,config,customerMailer));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
@@ -158,6 +160,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
     next();
   }, createStoreApi(pool, {
+    shippingChoices: true,
     checkoutAccounts: true,
     ordersEnabled: config.STORE_ORDERS_ENABLED,
     getOrdersEnabled: (client=pool) => require("./admin-configuration").getOrdersEnabled(client,config),
@@ -176,7 +179,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
+  const managementAssets=new Set(['order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','marketing.js','email-marketing.js','shopping-chat.js']);
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile(path.join(__dirname,'..','admin','notification-worker.js')));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
@@ -199,7 +202,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     } catch {return res.set('Cache-Control','no-store').sendStatus(404);}
     const publicFiles=require('./public-files');
     const isFile=pathname==='/' || publicFiles.has(pathname.slice(1));
-    const isAsset=pathname.startsWith('/assets/') && /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf)$/i.test(pathname);
+    const isAsset=pathname==='/assets/data/vietnam-addresses.json' || pathname.startsWith('/assets/') && /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf)$/i.test(pathname);
     if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });

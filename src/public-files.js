@@ -1,5 +1,5 @@
 // Only reviewed browser assets are eligible for static delivery.
-module.exports = new Set([
+module.exports = new Set(['vietnam-address.css',
   "voucher-wallet.js","vietnam-address.js",
   "checkout-flow.js", "quick-purchase.css", "auto-product-rail.js",
   "product-art.js", "store-media.css", "sitemap.css",

@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
-function page(authenticated,savedCity='Hồ Chí Minh',initialHash='',activations=[],standalone=false){
+function page(authenticated,savedCity='Hồ Chí Minh',initialHash='',activations=[],standalone=false,addressApi=null){
  const nodes=new Map(),requests=[],events={},location={hash:initialHash};
  const node=key=>{if(!nodes.has(key))nodes.set(key,{hidden:false,disabled:false,value:'',textContent:'',innerHTML:'',options:[],listeners:{},addEventListener(event,fn){const old=this.listeners[event];this.listeners[event]=old?async e=>{await old(e);await fn(e);}:fn;},append(option){this.options.push(option);},querySelector:node,scrollIntoView(){}});return nodes.get(key);};
  node('#warranty-activation').dataset={standalone:String(standalone)};
@@ -10,7 +10,7 @@ function page(authenticated,savedCity='Hồ Chí Minh',initialHash='',activation
   const data=url==='/api/csrf'?{csrfToken:'test'}:url==='/api/customer-auth/me'?{authenticated,customer:{id:'one',fullName:'Customer Name',phone:'0900000000'}}:url.startsWith('/api/customer/orders?')?{orders:[{id:'order-one',orderNumber:'GAERU-ONE',status:'completed'}]}:url==='/api/customer/addresses'?{addresses:[{isDefault:true,fullName:'Recipient',phone:'0911111111',address:'123 Default Street',city:savedCity}]}:(url.startsWith('/api/customer/warranties?')||url.startsWith('/api/warranty-requests?'))?{activations,today:'2026-10-23'}:url==='/api/customer/orders/order-one'?{order:{customerName:'Order Recipient',phone:'0922222222',address:'456 Order Street',city:'Hà Nội',items:[]}}:{activation:{id:'reference-one',status:'pending'}};
   return {ok:true,json:async()=>data};
  };
- const context={document:{querySelector:node,createElement:()=>({}),addEventListener:(name,fn)=>events[name]=fn},window:{addEventListener:(name,fn)=>events[name]=fn},fetch,AbortController,setTimeout,clearTimeout,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},location};
+ const context={document:{querySelector:node,createElement:()=>({}),addEventListener:(name,fn)=>events[name]=fn},window:{addEventListener:(name,fn)=>events[name]=fn,...(addressApi?{GAERUAddress:addressApi}:{})},fetch,AbortController,setTimeout,clearTimeout,crypto:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},location};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../warranty.js'),'utf8'),context);
  return {node,form,requests,events,location};
 }
@@ -53,4 +53,27 @@ test('rejected request opens populated correction form and submits the original 
 test('standalone warranty page opens activation without a fragment',async()=>{const p=page(false,'Hồ Chí Minh','',[],true);await settled();assert.equal(p.node('[data-w-disclosure]').open,true);assert.ok(p.requests.some(r=>r.url==='/api/customer-auth/me'));});
 test('account and saved-address loading preserve contact details already entered by the buyer',async()=>{
  const ui=page(true);ui.form.elements.address.value='Buyer typed address';ui.form.elements.city.value='Hà Nội';ui.form.elements.fullName.value='Buyer typed name';await settled();assert.equal(ui.form.elements.address.value,'Buyer typed address');assert.equal(ui.form.elements.city.value,'Hà Nội');assert.equal(ui.form.elements.fullName.value,'Buyer typed name');
+});
+
+
+test('warranty submission persists the ward supplied by the shared address picker and blocks incomplete picks',async()=>{
+ const addressApi={enhance(){},getAddress(form){if(!form.elements.city.value)throw Error('Chọn phường / xã trước khi gửi.');return form.elements.address.value+', Phường Ba Đình';}};
+ const ui=page(false,'Hà Nội','',[],false,addressApi);await settled();
+ ui.form.elements.source.value='shopee';ui.form.elements.source.listeners.change();
+ for(const [key,value]of Object.entries({externalOrderNumber:'WARD-TEST',productName:'GAERU K9',purchaseDate:'2026-01-01',fullName:'Guest Name',phone:'0900000000',address:'123 Guest Street',city:'Hà Nội'}))ui.form.elements[key].value=value;
+ await ui.form.listeners.submit({preventDefault(){}});
+ const body=JSON.parse(ui.requests.find(r=>r.url==='/api/warranty-requests').options.body);
+ assert.equal(body.contact.address,'123 Guest Street, Phường Ba Đình');assert.equal(body.contact.city,'Hà Nội');
+ const blocked=page(false,'Hà Nội','',[],false,addressApi);await settled();blocked.form.elements.source.value='shopee';blocked.form.elements.source.listeners.change();await blocked.form.listeners.submit({preventDefault(){}});
+ assert.equal(blocked.requests.some(r=>r.url==='/api/warranty-requests'),false);assert.match(blocked.node('[data-w-status]').textContent,/Chọn phường/);
+});
+
+
+test('warranty saved-address fill invokes the shared picker and preserves typed province and ward',async()=>{
+ const calls=[];const api={enhance(){},getAddress(form){return form.elements.address.value;},setAddress(form,value){calls.push({form,address:value.address,city:value.city});}};
+ const saved=page(true,'Hồ Chí Minh','',[],false,api);await settled();assert.ok(calls.some(call=>call.form===saved.form&&call.address==='123 Default Street'&&call.city==='Hồ Chí Minh'));
+ calls.length=0;
+ const typed=page(true,'Hồ Chí Minh','',[],false,api);typed.form.elements.address.value='12 Buyer Street, Phường Ba Đình';typed.form.elements.city.value='Hà Nội';await settled();
+ assert.ok(calls.some(call=>call.form===typed.form&&call.address==='12 Buyer Street, Phường Ba Đình'&&call.city==='Hà Nội'));
+ assert.equal(typed.form.elements.address.value,'12 Buyer Street, Phường Ba Đình');assert.equal(typed.form.elements.city.value,'Hà Nội');
 });

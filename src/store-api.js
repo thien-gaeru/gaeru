@@ -20,6 +20,8 @@ const orderSchema = z.object({
     city: z.string().trim().min(2).max(120),
     note: z.string().trim().max(1000).default("")
   }),
+  shippingCarrierId:z.enum(['ghn','ghtk','viettel','jt']).optional(),
+  expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
   paymentMethod: z.enum(["cod", "vnpay"]),
@@ -104,7 +106,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {}, checkoutAccounts = false } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -144,6 +146,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.get("/settings/public", async (req, res) => {
     const settings = await getSettings(pool, ["shipping_note", "shipping_rates"]);
     res.json({
+      ...(shippingChoices ? {shippingCarriers:(await require("./shipping-choice").availableCarriers(pool)).map(({id,name})=>({id,name}))} : {}),
       shippingNote: settings.shipping_note || "",
       shippingRates: settings.shipping_rates || {},
       paymentMethods: ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
@@ -283,6 +286,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         const shippingFee = require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city);
+        const shippingSelection=shippingChoices?await require('./shipping-choice').validateSelection(client,parsed.data.shippingCarrierId):null;
+        if(parsed.data.expectedShippingFeeVnd!==undefined&&parsed.data.expectedShippingFeeVnd!==shippingFee)throw Object.assign(Error('Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng.'),{status:409});
         const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true):null;
         const total = subtotal + shippingFee - (promotion?.discountVnd||0);
         if (!Number.isSafeInteger(total) || total > 2_000_000_000) {
@@ -308,6 +313,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
+        if(shippingSelection){await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);createdOrder.shippingCarrierName=shippingSelection.name;}
         if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
@@ -696,6 +702,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
        GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY ${sortSql[sort]} LIMIT $5 OFFSET $6`,
       [...filterValues, exportAll ? 5000 : pageSize, exportAll ? 0 : (page - 1) * pageSize]
     );
+    if(shippingChoices&&result.rows.length){const selected=(await pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])',[result.rows.map(o=>o.id)])).rows;for(const order of result.rows)order.shippingCarrierName=selected.find(r=>r.order_id===order.id)?.carrier_name||null;}
     if (finance && result.rows.length) {
       const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
       const receivedByOrder = new Map(receipts.rows.map((row) => [row.order_id, Number(row.received)]));
