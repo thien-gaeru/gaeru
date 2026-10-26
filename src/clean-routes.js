@@ -24,7 +24,6 @@ function enrich(html,original,origin,override){const {document:doc}=parseHTML(ht
 function cleanRoutes(origin){return(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method)||/^\/(?:api|gaeru_ceo)(?:\/|$)/.test(req.path))return next();
  const target=clean(req.originalUrl,origin);if(target!==req.originalUrl)return res.redirect(301,target);
- if(req.path.length>1&&req.path.endsWith('/')&&(reverse[req.path.slice(0,-1)]||/^\/(san-pham|tin-tuc)\/[a-z0-9-]+\/$/.test(req.path)))return res.redirect(301,req.path.slice(0,-1)+(req.url.includes('?')?req.url.slice(req.url.indexOf('?')):''));
  const send=res.send.bind(res);res.send=body=>send(typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body);
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
