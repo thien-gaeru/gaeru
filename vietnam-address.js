@@ -49,8 +49,9 @@
   function render(){
    back.setAttribute('aria-current',stage==='province'?'step':'false');wardTab.setAttribute('aria-current',stage==='ward'?'step':'false');search.placeholder=stage==='province'?'Tìm tỉnh / thành phố':'Tìm phường / xã';
    const rows=(stage==='province'?data.provinces:(province?.wards||[])).filter(row=>key(row.name).includes(key(search.value)));list.replaceChildren();
-   for(const row of rows){const button=doc.createElement('button');button.type='button';button.textContent=row.name;button.dataset.addressCode=row.code;button.addEventListener('click',()=>{
-    if(stage==='province'){province=row;ward=null;legacy=false;delete city.dataset.wardCode;city.value=canonical(row.name);stage='ward';search.value='';sync();event(city,'change');render();search.focus();}
+   for(const row of rows){const button=doc.createElement('button');button.type='button';button.textContent=row.name;button.dataset.addressCode=row.code;button.addEventListener('click',clickEvent=>{
+    clickEvent.preventDefault();clickEvent.stopPropagation();
+    if(stage==='province'){province=row;ward=null;legacy=false;delete city.dataset.wardCode;city.value=canonical(row.name);stage='ward';search.value='';sync();event(city,'change');render();list.scrollTop=0;search.focus();}
     else{ward=row;legacy=false;city.dataset.wardCode=row.code;sync();event(city,'change');event(address,'input');close();proxy.focus();}
    });list.append(button);}status.textContent=rows.length?'':(stage==='province'?'Không tìm thấy tỉnh / thành phố.':'Không tìm thấy phường / xã.');
   }

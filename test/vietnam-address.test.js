@@ -22,3 +22,14 @@ test('address picker supports text search and Escape while delivery estimates re
  const search=document.querySelector('.vn-address-search');search.value='ha noi';search.dispatchEvent(new window.Event('input',{bubbles:true}));assert.equal(document.querySelectorAll('.vn-address-options button').length,1);assert.equal(document.querySelector('.vn-address-options button').textContent,'Hà Nội');
  const closeEvent=new window.Event('keydown',{bubbles:true});closeEvent.key='Escape';search.dispatchEvent(closeEvent);assert.equal(proxy.getAttribute('aria-expanded'),'false');assert.equal(document.querySelector('[data-delivery-city]').hidden,false);assert.equal(document.querySelector('[data-delivery-city]').querySelectorAll('option').length,35);
 });
+
+test('province selection immediately shows wards in the same open panel during a bubbling click',()=>{
+ address.setData(require('../assets/data/vietnam-addresses.json'));
+ const {document,window}=parseHTML('<html><body><form><label>Địa chỉ<input name="address" value="12 Đường chính"></label><label>Tỉnh<input name="city" required></label></form><button type="button" id="outside">Ngoài hộp</button></body></html>');
+ address.enhance(document);const form=document.querySelector('form'),city=form.querySelector('[name=city]'),proxy=form.querySelector('.vn-address-choice'),panel=form.querySelector('.vn-address-panel');let cityValue='';Object.defineProperty(city,'value',{configurable:true,get:()=>cityValue,set:value=>{cityValue=value;}});
+ const click=node=>node.dispatchEvent(new window.Event('click',{bubbles:true,cancelable:true}));
+ click(proxy);assert.equal(panel.hidden,false);click(form.querySelector('[data-address-code="01"]'));
+ assert.equal(city.value,'Hà Nội');assert.equal(panel.hidden,false,'the province click must not be mistaken for an outside click after the list is replaced');assert.equal(proxy.getAttribute('aria-expanded'),'true');assert.equal(form.querySelector('.vn-address-search').placeholder,'Tìm phường / xã');assert.ok(form.querySelector('[data-address-code="00004"]'));assert.equal(form.querySelector('[data-address-code="01"]'),null);
+ click(form.querySelector('[data-address-code="00004"]'));assert.equal(panel.hidden,true);assert.equal(address.getAddress(form),'12 Đường chính, Phường Ba Đình');
+ click(proxy);assert.equal(panel.hidden,false);click(document.getElementById('outside'));assert.equal(panel.hidden,true,'genuine outside clicks still dismiss the picker');
+});
