@@ -54,3 +54,11 @@ The legacy POST /api/gaeru_ceo/uploads endpoint previously wrote bytes into depl
 A read-only audit runs after completed migration on startup: verify every manifest file, inspect all five media tables, hash-check every filesystem reference, and count any remaining S3 pointers or inline payloads. Oversized inline database contents are counted without loading entire media blobs into memory. Audit logs contain aggregate counts only. Original shipped assets/fonts/code remain part of the deployment; generated Excel exports are responses, not newly persisted documents. This distinction is separate from user-uploaded media storage.
 
 Validation: all 342 tests pass; multipart regression covers both upload endpoints and checks real MEDIA_ROOT files plus WebP metadata. Full migration audit tests detect inline leftovers instead of incorrectly reporting complete filesystem storage.
+
+## File Manager versus application-path diagnostics
+
+Owner storage recheck now reports the configured root, resolved real path, application working directory and file/byte counts by allowed scope, excluding hidden staging files and not following symlinks. The post-migration audit logs the same inventory and one published sample's actual /media URL plus its catalog API URL. These diagnostics are owner/server-side only; no public directory listing is introduced.
+
+The /media sample resolves the real UUID filename, not an illustrative products/k9/main.webp path. Existing /api/catalog-images URLs are application readers for filesystem references and are not old Neon bucket URLs. Neither route requires mounting all private storage with express.static.
+
+Validation: 342 tests pass, including a real filesystem inventory of a resolved directory, upload/publication/privacy checks and the full reference audit. Public checks on both gaeru.com and gaeru.org confirmed the same storage sentinel fingerprint and a WebP image response with status 200 before release.
