@@ -379,15 +379,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       ];
       const image = signatures.find((entry) => entry.type === req.file.mimetype && entry.valid);
       if (!image) return res.status(400).json({ error: "Nội dung tệp không khớp định dạng ảnh được phép." });
-      const filename = `${randomUUID()}.${image.ext}`;
-      const imageDirectory = path.join(__dirname, "..", "assets", "products");
-      await fs.mkdir(imageDirectory, { recursive: true });
-      uploadedPath = path.join(imageDirectory, filename);
-      await fs.writeFile(uploadedPath, req.file.buffer, { flag: "wx" });
-      await audit(pool, { actor: req.admin, action: "catalog.image.upload", entityType: "product_image", entityId: filename, metadata: { size: req.file.size, type: image.type } });
-      res.status(201).json({ imageUrl: `/assets/products/${filename}` });
+      const uploaded=await require('./lib/stored-media').storeUpload('products',req.file.buffer,req.file.mimetype);
+      const saved=await withTransaction(pool,async client=>{const row=(await client.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',[uploaded.content,uploaded.mimeType])).rows[0];await audit(client,{actor:req.admin,action:'catalog.image.upload',entityType:'product_image',entityId:row.id,metadata:{size:uploaded.byteSize,type:uploaded.mimeType}});return row;});
+      res.status(201).json({imageUrl:'/api/catalog-images/'+saved.id});
     } catch (error) {
-      if (uploadedPath) await fs.unlink(uploadedPath).catch(() => {});
       next(error);
     }
   });

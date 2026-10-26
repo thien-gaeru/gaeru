@@ -46,3 +46,11 @@ Root creation update: implement mkdir(MEDIA_ROOT,{recursive:true}) as requested,
 On 26 October 2026 the user explicitly requested proceeding with the transfer while retaining high-quality WebP behavior. A real redeploy completed (build 01a17860-c59e-7028-911d-9a1b9bcace47); the random sentinel fingerprint was 6bc15b31e821dba1 both before and after, read/write checks passed, and seven sampled public image hashes were unchanged. This release authorizes automatic migration only on that verified volume. MEDIA_MIGRATION_ENABLED=false still disables it; explicit true retains the operator override.
 
 Migration copies source bytes exactly, without calling the image encoder or changing resolution/format. Existing WebP uploads retain the current optimizer behavior; no new claim of mathematical losslessness is made for the quality-90 encoder. Migration logs only aggregate counts/states and bounded error categories, not keys, customer data or credentials. Original S3 objects remain for recovery.
+
+## Full upload-route review
+
+The legacy POST /api/gaeru_ceo/uploads endpoint previously wrote bytes into deployment assets/products. It now uses the same storeUpload('products') WebP/filesystem/metadata pipeline as the new editor, with catalog.write, CSRF and rate limits. Its response keeps imageUrl but points to the checked catalog image API. No user-upload endpoint writes into the checkout asset directory after this change.
+
+A read-only audit runs after completed migration on startup: verify every manifest file, inspect all five media tables, hash-check every filesystem reference, and count any remaining S3 pointers or inline payloads. Oversized inline database contents are counted without loading entire media blobs into memory. Audit logs contain aggregate counts only. Original shipped assets/fonts/code remain part of the deployment; generated Excel exports are responses, not newly persisted documents. This distinction is separate from user-uploaded media storage.
+
+Validation: all 342 tests pass; multipart regression covers both upload endpoints and checks real MEDIA_ROOT files plus WebP metadata. Full migration audit tests detect inline leftovers instead of incorrectly reporting complete filesystem storage.
