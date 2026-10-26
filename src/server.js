@@ -1,4 +1,4 @@
-let stopOrderEmail;
+let stopOrderEmail;let stopMediaMigration;
 require("dotenv").config();
 const expressSession = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
@@ -23,6 +23,7 @@ async function start() {
   await migrateDatabase(pool);
   const mediaCheck=await require('./lib/filesystem-media').probe();
   console.log('Media storage:',JSON.stringify(mediaCheck));
+  stopMediaMigration=require('./media-filesystem-migration').startMigration(pool);
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
   stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
@@ -46,6 +47,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopMediaMigration?.();
   stopAIChat?.();
   stopChatEmail?.();
   stopRetention?.();
