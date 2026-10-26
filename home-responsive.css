@@ -9,3 +9,5 @@
 @media(prefers-reduced-motion:reduce){.k9-loop .k9-single,.k9-loop .k9-double{transition:none}}
 
 .discover-hero>.k9-loop{width:min(100%,860px);height:clamp(260px,48vw,520px);margin:24px auto}.guide-card>.k9-loop{width:100%;height:240px;margin:0 auto 24px}
+
+.home-page .announcement .announcement-call{white-space:nowrap;font-weight:600;margin-left:12px}@media(max-width:600px){.home-page .announcement .announcement-call{display:block;margin:6px 0 0}.home-page .hero-actions,.home-page .home-m3-actions{gap:10px}.home-page .hero-actions .button,.home-page .home-m3-actions .button{font-size:14px;padding-inline:14px}}
