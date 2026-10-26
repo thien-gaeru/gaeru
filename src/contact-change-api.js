@@ -32,7 +32,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '30 minutes') RETURNING id`,[req.customerId,owner.email,a.email,owner.phone,a.phone,hash(owner.password_hash),hash(oldToken),newToken?hash(newToken):null,!newToken])).rows[0].id;
    });
    const send=async(to,token,step)=>{
-    const link=new URL('/account.html',smtpConfig.publicBaseUrl);link.searchParams.set('contactVerify',token);
+    const link=new URL('/tai-khoan',smtpConfig.publicBaseUrl);link.searchParams.set('contactVerify',token);
     await mailer.sendMail({from:`GAERU Support <${smtpConfig.from}>`,to,subject:'Xác nhận thay đổi thông tin tài khoản GAERU',text:`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`});
    };
    await send(owner.email,oldToken,'Xác nhận từ email hiện tại.');

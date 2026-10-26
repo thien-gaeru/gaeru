@@ -180,7 +180,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         );
       });
 
-      const resetUrl = new URL("/account.html", smtpConfig.publicBaseUrl);
+      const resetUrl = new URL("/tai-khoan", smtpConfig.publicBaseUrl);
       resetUrl.hash = "password-reset";
       resetUrl.searchParams.set("token", token);
       try {
@@ -284,7 +284,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       });
 
       if (!customer) return res.json({ verified: true, message: "Email tài khoản này đã được xác minh." });
-      const verificationUrl = new URL("/account.html", smtpConfig.publicBaseUrl);
+      const verificationUrl = new URL("/tai-khoan", smtpConfig.publicBaseUrl);
       verificationUrl.hash = "customer-account";
       verificationUrl.searchParams.set("verify", token);
       try {
