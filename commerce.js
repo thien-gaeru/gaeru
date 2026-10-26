@@ -90,7 +90,7 @@ function getPriceLabel(product) {
   const prices = availableVariants.map((variant) => variant.priceVnd);
   const low = Math.min(...prices);
   const high = Math.max(...prices);
-  return low === high ? formatPrice(low) : `${formatPrice(low)} – ${formatPrice(high)}`;
+  return low === high ? formatPrice(low) : `Từ ${formatPrice(low)}`;
 }
 
 function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];return `<p class="store-promotion-note"><strong>${flash?'Flash Sale':'Ưu đãi sản phẩm'}</strong>${flash?` <span data-sale-end="${new Date(end).toISOString()}"></span>`:''} · Giá gốc ${escapeHtml(getPriceLabel({...product,variants:product.variants.map(v=>({...v,priceVnd:v.originalPriceVnd??v.priceVnd}))}))}</p>`;}
@@ -117,7 +117,7 @@ function productCard(product, compact = false) {
       <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
-          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua</a>
+          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Chọn phiên bản</a>
         </div>
     </article>` : `
     <article class="${cardClass}">
@@ -228,7 +228,7 @@ function renderProduct() {
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
   root.innerHTML = `
-    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></header>
+    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a><a class="purchase-call" href="tel:0829191080">Gọi tư vấn 082 919 1080</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
       <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===(selected?.imageUrl||product.imageUrl)}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
@@ -607,7 +607,8 @@ function showStoreError(error) {
   const message = document.createElement("p");
   message.className = "store-error";
   message.setAttribute("role", "alert");
-  message.textContent = "Không thể kết nối máy chủ cửa hàng. Hãy thử tải lại trang hoặc liên hệ GAERU để được hỗ trợ.";
+  message.textContent = "Không thể kết nối máy chủ cửa hàng. Hãy thử tải lại trang hoặc gọi 082 919 1080 để được hỗ trợ.";
+  const call=document.createElement("a");call.href="tel:0829191080";call.textContent=" Gọi GAERU 082 919 1080";message.append(call);
   document.querySelector("main")?.prepend(message);
   const grid = document.querySelector(".product-grid, #catalog-grid");
   if (grid && !grid.hasAttribute("data-ssr")) grid.replaceChildren();
