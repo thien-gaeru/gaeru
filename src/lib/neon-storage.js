@@ -3,6 +3,7 @@ const {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   DeleteObjectCommand
 } = require('@aws-sdk/client-s3');
 
@@ -104,7 +105,9 @@ async function uploadAsset(scope,buffer,mimeType){
  await getClient().send(new PutObjectCommand({Bucket:bucket(),Key:key,Body:buffer,ContentType:mimeType,ContentLength:buffer.length}));
  return {key};
 }
+async function listAssets(continuationToken){const r=await getClient().send(new ListObjectsV2Command({Bucket:bucket(),MaxKeys:100,ContinuationToken:continuationToken}));return {objects:(r.Contents||[]).map(o=>({key:o.Key,size:o.Size,etag:o.ETag})),next:r.IsTruncated?r.NextContinuationToken:null};}
 module.exports = {
+  listAssets,
   uploadAsset,checkKey,
   uploadProductImage,
   downloadProductImage,
