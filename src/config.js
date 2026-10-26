@@ -48,6 +48,7 @@ function loadConfig(env = process.env) {
     throw new Error(`Invalid environment configuration: ${details}`);
   }
   const config = parsed.data;
+  config.PUBLIC_BASE_URL=require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL);
   return {
     ...config,
     vnpay: config.VNPAY_TMN_CODE ? {

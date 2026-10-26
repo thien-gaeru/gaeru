@@ -31,8 +31,10 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
   app.use(require('./lib/public-compression').publicCompression());
+  config={...config,PUBLIC_BASE_URL:require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL)};
   config={...config,accountSecurity:createAccountSecurity(pool,config,customerMailer)};
 
+  app.use(require('./primary-domain').publicAliasRedirect);
   app.disable("x-powered-by");
   app.set('case sensitive routing', true);
   app.set("trust proxy", config.NODE_ENV === "production" ? 1 : false);
@@ -194,7 +196,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     res.sendFile(path.join(__dirname, "..", "admin", "index.html"), error => { if (error) next(error); });
   });
   app.use(require('./site-pages').pageMetadata(pool));
-  app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.org').origin));
+  app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile(path.join(__dirname,'..','warranty-activation.html'));});
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
