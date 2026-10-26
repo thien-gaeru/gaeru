@@ -3,7 +3,7 @@
  for(const id of ['k9','m3','p01','g1-ultra']){paths['discover-'+id+'.html']='/kham-pha/gaeru-'+id;paths['guide-'+id+'.html']='/huong-dan/gaeru-'+id;}
  function clean(value,origin='https://gaeru.com'){
   if(typeof value!=='string'||!value||value.startsWith('#')||/^(?:mailto:|tel:|javascript:|data:)/i.test(value))return value;
-  let u;try{u=new URL(value,origin+'/')}catch{return value}if(u.origin!==origin&&!(['https://gaeru.com','https://gaeru.org'].includes(u.origin)&&['https://gaeru.com','https://gaeru.org'].includes(origin)))return value;
+  let u;try{u=new URL(value,origin+'/')}catch{return value}if(u.origin!==origin&&!((u.origin==='https://gaeru.com'||u.origin==='https://gaeru.org')&&(origin==='https://gaeru.com'||origin==='https://gaeru.org')))return value;
   const file=u.pathname.replace(/^\//,'');let target=paths[file];
   if(file==='product.html'&&u.searchParams.get('id')){target='/san-pham/'+encodeURIComponent(u.searchParams.get('id'));u.searchParams.delete('id');}
   if(file==='news-article.html'&&u.searchParams.get('slug')){target='/tin-tuc/'+encodeURIComponent(u.searchParams.get('slug'));u.searchParams.delete('slug');}
