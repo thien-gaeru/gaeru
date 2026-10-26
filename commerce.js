@@ -375,7 +375,7 @@ async function renderCheckout() {
         <label>Địa chỉ<input name="address" autocomplete="street-address" required maxlength="250"></label>
         <div class="form-row">
           <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" required maxlength="120" list="checkout-cities" placeholder="Nhập tỉnh/thành phố"><datalist id="checkout-cities">${provinces.filter(p=>p!=='Toàn quốc').map(p=>`<option value="${escapeHtml(p)}"></option>`).join('')}</datalist></label>
-          <label>Ghi chú <span>(không bắt buộc)</span><input name="note" maxlength="1000"></label>
+          <label class="checkout-note"><span class="checkout-field-title">Ghi chú <small>(không bắt buộc)</small></span><input name="note" maxlength="1000"></label>
         </div>
       </div>
       </details>
