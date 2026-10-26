@@ -46,3 +46,5 @@
 .order-status-buttons button[aria-pressed=true]{background:#007aff;color:white;border-color:#007aff}
 #order-processing-dialog .order-controls>button[type=submit]{position:sticky;bottom:0;box-shadow:0 0 0 6px white;z-index:1}
 @media(max-width:600px){#order-processing-dialog>header,#order-processing-dialog .order-processing-content{padding:10px 14px}#order-processing-dialog .order-controls{grid-template-columns:1fr 1fr}#order-processing-dialog .order-controls>button,#order-processing-dialog .order-feedback{grid-column:1/-1}.order-status-buttons button{padding:9px 12px;font-size:12px}}
+
+.page-manager-list{display:grid;gap:12px}.page-manager-list article{padding:18px}.page-editor{display:grid;gap:12px;padding:20px;background:white;border:1px solid #dce2e8;border-radius:18px;margin-bottom:18px}.page-editor label{display:grid;gap:6px}.page-editor textarea{width:100%;resize:vertical}.managed-page{padding-block:48px;max-width:900px}.managed-page p{line-height:1.8}
