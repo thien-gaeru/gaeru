@@ -6,9 +6,10 @@ const {seal,open}=require('./totp');
 const {withTransaction}=require('./db');
 const {requireCsrf}=require('./security');
 const {appendAudit}=require('./audit');
-const names=['vnpay','misa','shopee','tiktok'];
+const names=['vnpay','misa','shopee','tiktok','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt'];
 const aiProfile=z.object({model:z.string().trim().max(120).regex(/^[a-zA-Z0-9._-]*$/),apiKey:z.string().trim().min(1).max(2000).optional()}).strict();
-const schemas={
+const shippingSchema=z.object({accountId:z.string().trim().max(160),partnerCode:z.string().trim().max(160),pickupName:z.string().trim().max(160),pickupPhone:z.string().trim().max(30),pickupAddress:z.string().trim().max(500),secret:z.string().trim().min(1).max(2000).optional()}).strict();
+const schemas={shipping_ghn:shippingSchema,shipping_ghtk:shippingSchema,shipping_viettel:shippingSchema,shipping_jt:shippingSchema,
  chat_ai:z.object({enabled:z.boolean(),provider:z.enum(['openai','gemini','claude']),profiles:z.object({openai:aiProfile,gemini:aiProfile,claude:aiProfile}).strict()}).strict(),
  operations:z.object({ordersEnabled:z.boolean()}).strict(),
  profile:z.object({fullName:z.string().trim().max(160),company:z.string().trim().max(200),position:z.string().trim().max(100),taxCode:z.string().trim().max(30),address:z.string().trim().max(500)}).strict(),
