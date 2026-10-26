@@ -95,18 +95,20 @@ if (headerRoot) {
 }
 
 let menuProductsRequest = null;
-async function refreshMenuProducts() {
+async function refreshMenuProducts({fresh=false}={}) {
   const target = document.querySelector('[data-menu-products]');
-  if (!target || menuProductsRequest) return menuProductsRequest;
+  const footer=document.querySelector('[data-footer-products]');
+  if ((!target&&!footer) || menuProductsRequest) return menuProductsRequest;
   menuProductsRequest = (async () => {
     try {
-      const response = await fetch('/api/products', { cache: 'no-store' });
-      if (!response.ok) throw new Error('Catalog unavailable');
-      const { products } = await response.json();
+      const embedded=!fresh&&document.querySelector('#store-bootstrap');
+      let data;if(embedded)data=await Promise.resolve(JSON.parse(embedded.textContent));else{const response=await fetch('/api/products',{cache:'no-store'});if(!response.ok)throw Error('Catalog unavailable');data=await response.json();}
+      const {products}=data;
       if (!Array.isArray(products)) throw new Error('Invalid catalog');
       const links = products.filter(product => product.active !== false && product.slug && product.name)
         .map(product => `<a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeShellHtml(product.name)}</a>`).join('');
-      if (target.innerHTML !== links) target.innerHTML = links;
+      if (target&&target.innerHTML !== links) target.innerHTML = links;
+      window.GAERUFooterProducts?.render(footer,products);
     } catch {
       // Keep the store link available when the catalog is temporarily unavailable.
     } finally { menuProductsRequest = null; }
@@ -125,11 +127,7 @@ if (footerRoot) {
         </div>
         <details class="footer-column" open>
           <summary>Khám phá GAERU</summary>
-          <div class="footer-links">
-            <a href="shop.html">Cửa hàng</a>
-            <a href="product.html?id=gaeru-k9">GAERU K9</a>
-            <a href="product.html?id=gaeru-p01">GAERU P01</a>
-          </div>
+          <div class="footer-links" data-footer-products><a href="/cua-hang">Cửa hàng</a></div>
         </details>
         <details class="footer-column" open>
           <summary>Hỗ trợ &amp; tài khoản</summary>
@@ -417,3 +415,6 @@ if (document.readyState === "loading") {
 } else {
   initializeMotion();
 }
+
+document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),window.GAERUStore?.products));
+document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',poll.refresh)});
