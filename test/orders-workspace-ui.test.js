@@ -39,3 +39,5 @@ test('bulk print opens window before network and sends only current selected ord
  state.selectedOrders.add(order.id);state.selectedOrders.add('stale-id');context.updateOrderSelection();document.querySelector('[data-print-orders="invoice"]').dispatchEvent(new window.Event('click',{bubbles:true}));
  await new Promise(resolve=>setImmediate(resolve));assert.equal(called,true);assert.equal(printWindow.opener,null);assert.equal(written,'<html>fixture print</html>');
 });
+
+test('processing offers only valid next states and omits the current state button',()=>{const f=fixture();f.context.can=()=>true;f.context.orderTransitions={pending:['confirmed','cancelled']};f.context.labels.confirmed='Đã xác nhận';f.context.labels.cancelled='Đã hủy';f.context.renderOrders();f.context.openOrderProcessing(f.order.id,null);const popup=f.document.querySelector('#order-processing-dialog');const values=[...popup.querySelectorAll('[data-status-choice]')].map(b=>b.dataset.statusChoice);assert.deepEqual(values,['confirmed','cancelled']);assert.equal(popup.querySelector('[data-status-choice="pending"]'),null);});
