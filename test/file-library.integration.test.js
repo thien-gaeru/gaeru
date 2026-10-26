@@ -50,11 +50,12 @@ test('owner file library manages real files, protects references and preserves p
  assert.equal((await request(endpoint+'/folders','POST',{scope:'documents',name:'Hướng dẫn'})).status,409);
  assert.equal((await upload(Buffer.from('console.log(1)'),'application/javascript','test.js')).status,400);
  assert.equal((await upload(Buffer.from('not an image'),'image/png','spoof.png')).status,400);
- const source=await sharp({create:{width:60,height:45,channels:4,background:'#2967df'}}).png().toBuffer();
+ const source=await sharp({create:{width:600,height:450,channels:4,background:'#2967df'}}).png().toBuffer();
  const image=await upload(source,'image/png','Photo.png');assert.equal(image.status,201);
  let key=image.data.key;
  let list=await request(endpoint);assert.equal(list.status,200);assert.equal(list.data.root,await fs.realpath(root));assert.equal(list.data.files.length,1);assert.equal(list.data.files[0].name,'Photo.webp');assert.equal(list.data.files[0].managed,true);
- const preview=await request(endpoint+'/file?preview=1&key='+encodeURIComponent(key));assert.equal(preview.status,200);assert.match(preview.headers.get('cache-control'),/no-store/);assert.equal((await sharp(preview.data).metadata()).width,60);
+ const preview=await request(endpoint+'/file?preview=1&key='+encodeURIComponent(key));assert.equal(preview.status,200);assert.match(preview.headers.get('cache-control'),/no-store/);assert.equal((await sharp(preview.data).metadata()).width,600);
+ const thumb=await request(endpoint+'/file?preview=1&thumbnail=1&key='+encodeURIComponent(key));assert.equal(thumb.status,200);assert.equal((await sharp(thumb.data).metadata()).width,400);assert.deepEqual(await fs.readFile(path.join(root,key)),preview.data,'thumbnails do not alter original files');
  assert.equal((await request('/media/'+key)).status,404,'library uploads are not published by public media routes');
  assert.equal((await change(key,'rename',{name:'Ảnh mới'})).status,200);
  assert.equal((await change(key,'move',{folder:folder.data.id})).status,200);
