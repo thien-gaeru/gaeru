@@ -494,6 +494,38 @@ function orderPaymentControl(order) {
   return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
 
+function changeOrderControl(event){
+  if (!event.target.matches('select[name="status"]')) return;
+  const form = event.target.closest("[data-order-form]");
+  const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
+  const paymentField = form.elements.paymentStatus;
+  if (order?.paymentMethod === "cod" && paymentField) {
+    paymentField.disabled = event.target.value !== "completed";
+    if (paymentField.disabled) paymentField.value = "pending";
+    form.querySelector("[data-payment-guidance]").textContent = paymentField.disabled
+      ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng."
+      : "Chọn Đã thanh toán sau khi đã thu đủ tiền của khách.";
+  }
+
+}
+function closeOrderProcessing(){const dialog=document.getElementById('order-processing-dialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');dialog.remove();}
+function openOrderProcessing(id,opener){
+ const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
+ closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
+ const steps=['pending','confirmed','processing','shipped','completed'],current=steps.indexOf(order.status);
+ dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
+ dialog.addEventListener('submit',updateOrder);dialog.addEventListener('change',changeOrderControl);dialog.querySelector('[data-close-order]').addEventListener('click',closeOrderProcessing);dialog.addEventListener('close',()=>{dialog.remove();opener?.isConnected&&opener.focus();});document.body.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+}
+function openBulkProcessing(){
+ const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
+ document.getElementById('order-bulk-dialog')?.remove();const dialog=document.createElement('dialog');dialog.id='order-bulk-dialog';dialog.className='order-processing-dialog';
+ dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="confirm">Xác nhận đơn → Đã xác nhận</option><option value="prepare">Chuẩn bị hàng → Cần gửi</option><option value="ship">Xác nhận bàn giao → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ số tiền còn lại của các đơn COD đã giao.</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
+ const form=dialog.querySelector('form'),hint=dialog.querySelector('[data-bulk-hint]');const refresh=()=>{const target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[form.elements.action.value];const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=='confirmed'||o.shippingFeeVnd!=null)&&(target!=='cancelled'||o.paymentStatus!=='paid'&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=='completed'||o.paymentStatus==='paid'||can('payments.write')&&!['vnpay','9pay'].includes(o.paymentMethod)));hint.textContent=eligible.length+'/'+orders.length+' đơn đủ điều kiện cho bước đã chọn.';dialog.querySelector('[data-bulk-money]').hidden=target!=='completed';form.elements.confirmReceived.required=target==='completed'&&orders.some(o=>o.paymentStatus!=='paid');form.elements.confirmReceived.checked=false;form.querySelector('[type=submit]').disabled=eligible.length!==orders.length;};
+ const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:'confirm',confirmed:'prepare',processing:'ship',shipped:'complete'}[common];if(next)form.elements.action.value=next;form.elements.action.addEventListener('change',refresh);dialog.querySelector('[data-close-bulk]').addEventListener('click',()=>{if(typeof dialog.close==='function')dialog.close();dialog.remove();});dialog.addEventListener('close',()=>dialog.remove());
+ form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');if(button.disabled)return;button.disabled=true;feedback.textContent='Đang kiểm tra và xử lý…';let saved=false;try{const result=await request('/api/gaeru_ceo/orders/bulk',{method:'POST',body:JSON.stringify({action:form.elements.action.value,confirmReceived:form.elements.confirmReceived.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==='function')dialog.close();dialog.remove();document.querySelector('#order-filter').value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal('Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;button.disabled=false;}});
+ document.body.append(dialog);refresh();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+}
+
 function renderOrders() {
   const root = document.querySelector("#order-list");
   const pagination = document.querySelector("#order-pagination");
@@ -525,8 +557,8 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
-      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong>${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell"><button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-expanded="${state.openOrders.has(order.id)}" aria-controls="order-body-${escapeHtml(order.id)}">${state.openOrders.has(order.id) ? "Đóng" : "Xử lý"}</button></span></div>
-      <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" ${state.openOrders.has(order.id) ? "" : "hidden"}>${can("orders.write") ? `<button type="button" class="secondary-button" data-after-sales-order="${escapeHtml(order.id)}" data-after-sales-kind="${["shipped","completed"].includes(order.status)?"return":"cancellation"}">Tạo yêu cầu ${["shipped","completed"].includes(order.status)?"trả hàng":"hủy đơn"}</button>` : ""}
+      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong>${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell"><button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button></span></div>
+      <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
       <div class="order-meta">
         <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
         <p>${escapeHtml(order.address)}, ${escapeHtml(order.city)}${order.note ? `<br>Ghi chú: ${escapeHtml(order.note)}` : ""}</p>
@@ -565,6 +597,7 @@ async function updateOrder(event) {
   feedback.textContent = "";
   const payload = {};
   const targetStatus = form.elements.status.value;
+  let saved=false;
   if (targetStatus !== order.status) payload.status = targetStatus;
   const paymentField = form.elements.paymentStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
@@ -573,10 +606,12 @@ async function updateOrder(event) {
     if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");
     if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
-    await Promise.all([loadOrders(), loadSummary()]);
+    saved=true;closeOrderProcessing();
+    if(targetStatus!==order.status)document.querySelector("#order-filter").value=targetStatus;
+    await Promise.all([loadOrders(1), loadSummary()]);
     showGlobal("Đã cập nhật đơn hàng.");
   } catch (error) {
-    feedback.textContent = error.message;
+    if(saved)showGlobal("Đã lưu đơn hàng nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent = error.message;
   } finally {
     submitButton.disabled = false;
     delete form.dataset.saving;
@@ -920,31 +955,9 @@ document.querySelector("#next-orders").addEventListener("click", () => {
   if (state.orderPage < state.orderPagination.pageCount) loadOrders(state.orderPage + 1).catch((error) => showGlobal(error.message, true));
 });
 document.querySelector("#order-list").addEventListener("submit", updateOrder);
-document.querySelector("#order-list").addEventListener("click", (event) => {
-  const button = event.target.closest('[data-process-order]');
-  if (!button) return;
-  const body = document.getElementById('order-body-' + button.dataset.processOrder);
-  if (!body) return;
-  body.hidden = !body.hidden;
-  button.setAttribute('aria-expanded', String(!body.hidden));
-  button.textContent = body.hidden ? 'Xử lý' : 'Đóng';
-  if (body.hidden) state.openOrders.delete(button.dataset.processOrder);
-  else state.openOrders.add(button.dataset.processOrder);
-});
+document.querySelector("#order-list").addEventListener("click",event=>{const button=event.target.closest('[data-process-order]');if(button)openOrderProcessing(button.dataset.processOrder,button);});
 
-document.querySelector("#order-list").addEventListener("change", (event) => {
-  if (!event.target.matches('select[name="status"]')) return;
-  const form = event.target.closest("[data-order-form]");
-  const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
-  const paymentField = form.elements.paymentStatus;
-  if (order?.paymentMethod === "cod" && paymentField) {
-    paymentField.disabled = event.target.value !== "completed";
-    if (paymentField.disabled) paymentField.value = "pending";
-    form.querySelector("[data-payment-guidance]").textContent = paymentField.disabled
-      ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng."
-      : "Chọn Đã thanh toán sau khi đã thu đủ tiền của khách.";
-  }
-});
+document.querySelector("#order-list").addEventListener("change", changeOrderControl);
 document.querySelector("#customer-search").addEventListener("input", (event) => {
   window.clearTimeout(state.customerSearchTimer);
   const value = event.currentTarget.value;
@@ -1044,7 +1057,7 @@ function updateOrderSelection() {
   all.checked = Boolean(state.orders.length) && count === state.orders.length;
   all.indeterminate = count > 0 && count < state.orders.length;
   all.disabled = !state.orders.length;
-  document.querySelectorAll('[data-print-orders]').forEach(button => { button.disabled = count === 0; });
+  document.querySelectorAll('[data-print-orders],[data-bulk-process]').forEach(button => { button.disabled = count === 0 || button.hasAttribute('data-bulk-process')&&!can('orders.write'); });
 }
 document.querySelector('#select-order-page').addEventListener('change', event => {
   state.selectedOrders = new Set(event.target.checked ? state.orders.map(order => order.id) : []);
@@ -1089,3 +1102,5 @@ document.querySelector('#export-order-excel').addEventListener('click',()=>{
  for(const [key,id] of [['status','order-filter'],['q','order-search'],['paymentStatus','order-payment-filter'],['paymentMethod','order-method-filter'],['sort','order-sort'],['pageSize','order-page-size']])params.set(key,document.getElementById(id).value);
  window.open('/api/gaeru_ceo/orders?'+params,'_blank','noopener');
 });
+
+document.querySelector('[data-bulk-process]').addEventListener('click',openBulkProcessing);

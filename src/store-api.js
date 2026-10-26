@@ -727,19 +727,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     });
   });
 
-  router.patch("/gaeru_ceo/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
-    try {
-      const parsed = orderUpdateSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "Cập nhật đơn hàng chưa hợp lệ.", details: parsed.error.issues });
-      const update = parsed.data;
-      const result = await withTransaction(pool, async (client) => {
-        const currentResult = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [req.params.id]);
+  async function applyOrderUpdate(client,id,update,actor){
+        const currentResult = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [id]);
         const current = currentResult.rows[0];
         if (!current) return null;
-        if (req.admin) {
+        if (actor) {
           const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
           const paymentChange = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
-          if ((fulfillmentChange && !req.admin.permissions.includes("orders.write")) || (paymentChange && !req.admin.permissions.includes("payments.write"))) {
+          if ((fulfillmentChange && !actor.permissions.includes("orders.write")) || (paymentChange && !actor.permissions.includes("payments.write"))) {
             const error = new Error("Tài khoản không có quyền cập nhật nghiệp vụ này."); error.status = 403; throw error;
           }
         }
@@ -835,7 +830,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         if (update.status === "cancelled" && current.status !== "cancelled") {
           if(current.voucher_code)await client.query('UPDATE voucher_redemptions SET released=true WHERE order_id=$1 AND released=false',[current.id]);
-          if (inventory) await inventory.releaseOrderStock(client, { orderId: current.id, actor: req.admin });
+          if (inventory) await inventory.releaseOrderStock(client, { orderId: current.id, actor: actor });
           else await client.query(
             `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at=now()
              FROM order_items i WHERE i.order_id=$1 AND i.variant_id=v.id`,
@@ -848,7 +843,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 400;
           throw error;
         }
-        if (finance && update.paymentStatus === "paid" && current.payment_status !== "paid") await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: req.admin });
+        if (finance && update.paymentStatus === "paid" && current.payment_status !== "paid") await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: actor });
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
             shipping_fee_vnd=$4, total_vnd=$5, updated_at=now()
@@ -856,8 +851,41 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
           [current.id, update.status || null, update.paymentStatus || null, shippingFee, total]
         );
-        await audit(client, { actor: req.admin, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
+        await audit(client, { actor: actor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         return updated.rows[0];
+  }
+
+  router.post('/gaeru_ceo/orders/bulk',requirePermission('orders.write'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+    try{
+      const parsed=z.object({action:z.enum(['confirm','prepare','ship','complete','cancel']),confirmReceived:z.boolean().default(false),orders:z.array(z.object({id:z.string().uuid(),expectedStatus:z.enum(['pending','confirmed','processing','shipped','completed','cancelled']),expectedPaymentStatus:z.enum(['pending','paid']),expectedTotalVnd:z.number().int().min(0).max(2000000000).nullable()}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(o=>o.id)).size===rows.length)}).strict().safeParse(req.body);
+      if(!parsed.success)return res.status(400).json({error:'Chọn từ 1 đến 100 đơn khác nhau và bước xử lý hợp lệ.'});
+      const data=parsed.data,target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[data.action];
+      const result=await withTransaction(pool,async client=>{
+        const changed=[];
+        for(const expected of [...data.orders].sort((a,b)=>a.id.localeCompare(b.id))){
+          const current=(await client.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE',[expected.id])).rows[0];
+          if(!current)throw Object.assign(Error('Có đơn không còn tồn tại. Tải lại danh sách.'),{status:409});
+          if(current.status!==expected.expectedStatus||current.payment_status!==expected.expectedPaymentStatus||current.total_vnd!==expected.expectedTotalVnd)throw Object.assign(Error('Đơn '+current.order_number+' đã thay đổi. Tải lại trước khi xử lý hàng loạt.'),{status:409});
+          if(!transitions[current.status].includes(target))throw Object.assign(Error('Đơn '+current.order_number+' không ở bước phù hợp. Các đơn cần cùng đủ điều kiện cho thao tác đã chọn.'),{status:409});
+          const update={status:target};
+          if(target==='completed'&&current.payment_status!=='paid'){
+            if(!data.confirmReceived)throw Object.assign(Error('Xác nhận đã thu đủ tiền trước khi hoàn tất các đơn chưa thanh toán.'),{status:409});
+            update.paymentStatus='paid';
+          }
+          changed.push(await applyOrderUpdate(client,expected.id,update,req.admin));
+        }
+        return changed;
+      });
+      res.json({orders:result,targetStatus:target,message:'Đã cập nhật '+result.length+' đơn hàng.'});
+    }catch(error){next(error);}
+  });
+  router.patch("/gaeru_ceo/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+    try {
+      const parsed = orderUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Cập nhật đơn hàng chưa hợp lệ.", details: parsed.error.issues });
+      const update = parsed.data;
+      const result = await withTransaction(pool, async (client) => {
+        return applyOrderUpdate(client,req.params.id,update,req.admin);
       });
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
       res.json({ order: result });
