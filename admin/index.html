@@ -7,8 +7,8 @@
     <title>Quản trị GAERU</title>
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css?v=20261025-ai-diagnostics">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261024-compact">
-    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261025-webp" defer></script>
-    <script src="/gaeru_ceo/assets/admin.js?v=20261025-ai-diagnostics" defer></script>
+    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261026-shipping-20261025-webp" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261026-orders" defer></script>
     <script src="/gaeru_ceo/assets/enterprise.js?v=20261025-product-trash" defer></script>
     <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
     <script src="/gaeru_ceo/assets/owner.js?v=20261024-owner-status-dot" defer></script>
@@ -16,7 +16,7 @@
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-banner"><script src="/gaeru_ceo/assets/configuration.js?v=20261025-ai-diagnostics" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261025-enter-scroll" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261025-enter-scroll"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261024-banner"><script src="/gaeru_ceo/assets/configuration.js?v=20261026-shipping" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261025-enter-scroll" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261025-enter-scroll"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/orders-workspace.css?v=20261026-orders"><script src="/gaeru_ceo/assets/after-sales.js?v=20261026-orders" defer></script></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -39,7 +39,7 @@
             <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
             <div class="nav-group"><button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật tài khoản</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden>Quản trị tối cao</button></div>
             <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
-              <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
+              <button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button><button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
               <button class="nav-item" type="button" data-view="shopping-chat" data-permission="customers.read">Chat trực tuyến</button><button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
               <button class="nav-item" type="button" data-view="warranty" data-permission="orders.read">Bảo hành sản phẩm</button>
               <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
@@ -165,7 +165,10 @@
             </section>
           </section>
 
-          <section class="view-panel" id="orders-view" hidden>
+          <section class="view-panel" id="shipping-view" hidden><h2>Quản lý vận chuyển</h2><p>Kết nối GHN, GHTK, Viettel Post và J&T Express.</p><div id="shipping-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
+<div class="orders-heading"><div><h2>Quản lý đơn hàng</h2><p>Theo dõi, xác nhận và xử lý đơn hàng tại một nơi.</p></div><div class="order-export-actions"><label>Phạm vi xuất<select id="order-export-scope"><option value="page">Trang hiện tại</option><option value="all">Tất cả theo bộ lọc (tối đa 5.000 đơn)</option></select></label><button type="button" class="secondary-button" id="export-order-excel">Xuất Excel</button><button type="button" class="plain-button" id="export-order-page">CSV trang hiện tại</button></div></div>
+<details id="after-sales-panel"><summary>Yêu cầu hủy / trả hàng</summary><p>Ghi nhận và theo dõi xử lý. Nhận hàng trả không tự cộng tồn kho; đóng yêu cầu không xác nhận chuyển tiền hoàn. Đối soát hoàn tiền và nhập kho phải có chứng từ riêng.</p><button type="button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></details><div id="order-overview" class="order-overview" aria-label="Tổng quan đơn hàng"></div>
+<nav id="order-tabs" class="order-tabs" aria-label="Lọc theo trạng thái đơn"></nav>
             <div class="toolbar">
               <input id="order-search" type="search" placeholder="Tìm mã đơn, tên, email hoặc số điện thoại" aria-label="Tìm đơn hàng">
               <button class="secondary-button" id="refresh-orders" type="button">Tải lại</button>
@@ -180,10 +183,10 @@
               </label>
               <label for="order-payment-filter">Thanh toán<select id="order-payment-filter"><option value="">Tất cả thanh toán</option><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select></label>
               <label for="order-method-filter">Phương thức<select id="order-method-filter"><option value="">Tất cả phương thức</option><option value="cod">COD</option><option value="bank_transfer">Chuyển khoản thủ công</option><option value="vnpay">VNPAY</option><option value="9pay">9Pay</option></select></label>
-              <button class="plain-button" type="button" id="reset-order-filters">Xóa bộ lọc</button>
+              <label>Sắp xếp<select id="order-sort"><option value="newest">Mới nhất</option><option value="oldest">Cũ nhất</option><option value="highest">Tổng tiền giảm dần</option><option value="lowest">Tổng tiền tăng dần</option></select></label><label>Số đơn / trang<select id="order-page-size"><option value="20">20</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label><button class="plain-button" type="button" id="reset-order-filters">Xóa bộ lọc</button>
             </div>
             <p class="list-status" id="order-list-status" aria-live="polite"></p>
-            <details id="order-review" data-permission="orders.read"><summary>Đơn hàng rác / chờ xác minh qua điện thoại</summary><p>Email lỗi chưa đủ để kết luận đơn giả. Gọi xác nhận trước khi tiếp tục xử lý. Không tự động hủy đơn hoặc thay đổi thanh toán.</p><button type="button" class="secondary-button" data-review-refresh>Tải lại danh sách</button><p data-review-status role="status"></p><div data-review-orders></div></details><div class="order-list" id="order-list"></div>
+            <details id="order-review" data-permission="orders.read"><summary>Đơn hàng rác / chờ xác minh qua điện thoại</summary><p>Email lỗi chưa đủ để kết luận đơn giả. Gọi xác nhận trước khi tiếp tục xử lý. Không tự động hủy đơn hoặc thay đổi thanh toán.</p><button type="button" class="secondary-button" data-review-refresh>Tải lại danh sách</button><p data-review-status role="status"></p><div data-review-orders></div></details><div class="orders-table-scroll" tabindex="0" aria-label="Danh sách đơn hàng, cuộn ngang để xem đầy đủ"><div class="order-table-head" aria-hidden="true"><span>Đơn hàng</span><span>Khách hàng</span><span>Mặt hàng</span><span>Trạng thái</span><span>Thanh toán</span><span>Tổng cộng</span></div><div class="order-list" id="order-list"></div></div>
             <nav class="pagination" id="order-pagination" aria-label="Phân trang đơn hàng" hidden>
               <button class="secondary-button" id="previous-orders" type="button">Trước</button>
               <span id="order-page-label"></span>
