@@ -21,6 +21,8 @@ let server;let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEma
 
 async function start() {
   await migrateDatabase(pool);
+  const mediaCheck=await require('./lib/filesystem-media').probe();
+  console.log('Media storage:',JSON.stringify(mediaCheck));
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
   stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
