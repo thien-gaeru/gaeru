@@ -95,13 +95,8 @@ function getPriceLabel(product) {
 
 function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];return `<p class="store-promotion-note"><strong>${flash?'Flash Sale':'Ưu đãi sản phẩm'}</strong>${flash?` <span data-sale-end="${new Date(end).toISOString()}"></span>`:''} · Giá gốc ${escapeHtml(getPriceLabel({...product,variants:product.variants.map(v=>({...v,priceVnd:v.originalPriceVnd??v.priceVnd}))}))}</p>`;}
 function productCard(product, compact = false) {
-  const discoverSlug=product.slug.replace(/^gaeru-/, "");
-  const discoverUrl = ["k9","m3","p01","g1-ultra"].includes(discoverSlug) ? "discover-"+discoverSlug+".html" : "product.html?id="+encodeURIComponent(product.slug);
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
-  const action = variants.length === 1 && availableVariants.length === 1
-    ? `<button class="${compact ? "text-link buy-link" : "button button-blue"}" type="button" data-add-to-cart="${escapeHtml(availableVariants[0].id)}">Thêm vào giỏ</button>`
-    : `<a class="${compact ? "text-link" : "button button-blue"}" href="product.html?id=${encodeURIComponent(product.slug)}">${variants.length ? "Chọn phiên bản" : "Tìm hiểu thêm"}</a>`;
   const cardClass = compact
     ? `product-card ${product.slug === "k9" ? "product-card-dark" : ""} ${product.slug === "g1-ultra" ? "product-card-wide" : ""}`
     : `catalog-card ${product.slug === "k9" ? "catalog-card-dark" : ""}`;
@@ -117,7 +112,7 @@ function productCard(product, compact = false) {
       <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
-          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Chọn phiên bản</a>
+          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">${product.slug === "gaeru-m3" ? "Mua Ngay" : "Mua ngay"}</a>
         </div>
     </article>` : `
     <article class="${cardClass}">
@@ -127,10 +122,10 @@ function productCard(product, compact = false) {
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
       <p class="catalog-description">${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
-      <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
+      ${promotionLabel(product)}
       <div class="catalog-actions">
-        <a class="button button-blue" href="${discoverUrl}">Khám phá sản phẩm</a>
-        ${action}
+        <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>
+        <a class="button button-blue" href="product.html?id=${encodeURIComponent(product.slug)}">Mua Ngay</a>
       </div>
     </article>`;
 }
