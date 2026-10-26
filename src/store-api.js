@@ -657,7 +657,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     if (search.length > 120 || !Number.isInteger(requestedPage) || requestedPage < 1 || requestedPage > 100000) {
       return res.status(400).json({ error: "Bộ lọc hoặc trang đơn hàng không hợp lệ." });
     }
-    const pageSize = 25;
+    const pageSize = Number(req.query.pageSize || 25);
+    const sort = String(req.query.sort || 'newest');
+    const sortSql = {newest:'o.created_at DESC, o.id DESC',oldest:'o.created_at ASC, o.id ASC',highest:'o.total_vnd DESC NULLS LAST, o.id DESC',lowest:'o.total_vnd ASC NULLS LAST, o.id ASC'};
+    if (![20,25,50,100].includes(pageSize) || !Object.hasOwn(sortSql, sort)) return res.status(400).json({error:'Bộ lọc sắp xếp hoặc số đơn mỗi trang không hợp lệ.'});
+    const exportXlsx = req.query.format === 'xlsx';
+    const exportAll = exportXlsx && req.query.scope === 'all';
     const filterValues = [status, search, paymentStatus, paymentMethod];
     const where = `${checkoutAccounts ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1)
       AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
@@ -670,6 +675,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       filterValues
     );
     const total = countResult.rows[0]?.total || 0;
+    if (exportAll && total > 5000) return res.status(400).json({error:"Có hơn 5.000 đơn. Thu hẹp bộ lọc hoặc xuất từng trang."});
     const pageCount = Math.ceil(total / pageSize);
     const page = Math.min(requestedPage, Math.max(1, pageCount));
     const result = await pool.query(
@@ -687,8 +693,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
          SELECT provider, status, expires_at FROM payment_attempts WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1
        ) p ON true
        WHERE ${where}
-       GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY o.created_at DESC LIMIT $5 OFFSET $6`,
-      [...filterValues, pageSize, (page - 1) * pageSize]
+       GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY ${sortSql[sort]} LIMIT $5 OFFSET $6`,
+      [...filterValues, exportAll ? 5000 : pageSize, exportAll ? 0 : (page - 1) * pageSize]
     );
     if (finance && result.rows.length) {
       const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
@@ -698,7 +704,17 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
       }
     }
+    if (exportXlsx) {
+      const buffer = await require('./order-export').orderWorkbook(result.rows);
+      return res.set({'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="gaeru-orders.xlsx"','Cache-Control':'no-store'}).send(Buffer.from(buffer));
+    }
+    let overview;
+    if (req.query.overview === '1') {
+      const counts = await pool.query(`SELECT o.status, COUNT(*)::int AS total FROM orders o WHERE ${checkoutAccounts ? 'NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL)' : 'true'} GROUP BY o.status`);
+      overview = Object.fromEntries(counts.rows.map(row => [row.status, row.total]));
+    }
     res.json({
+      ...(overview ? {overview} : {}),
       orders: result.rows,
       pagination: { page, pageSize, total, pageCount }
     });

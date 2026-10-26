@@ -447,6 +447,9 @@ async function loadOrders(page = state.orderPage) {
   if (paymentStatus) params.set("paymentStatus", paymentStatus);
   if (paymentMethod) params.set("paymentMethod", paymentMethod);
   params.set("page", String(page));
+  params.set("sort", document.querySelector("#order-sort").value || "newest");
+  params.set("pageSize", document.querySelector("#order-page-size").value || "25");
+  params.set("overview", "1");
   const root = document.querySelector("#order-list");
   root.setAttribute("aria-busy", "true");
   document.querySelector("#order-list-status").textContent = "Đang tải đơn hàng…";
@@ -459,6 +462,7 @@ async function loadOrders(page = state.orderPage) {
     state.orderPage = result.pagination.page;
     state.orderPagination = result.pagination;
     state.orders = result.orders;
+    renderOrderOverview(result.overview || {});
     renderOrders();
   } catch (error) {
     if (requestId === state.orderRequest) document.querySelector("#order-list-status").textContent = "Chưa tải được đơn hàng. Nhấn Tải lại để thử lại.";
@@ -515,8 +519,8 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<details class="order-card" data-order-detail="${escapeHtml(order.id)}" ${state.openOrders.has(order.id) ? "open" : ""}>
-      <summary class="order-card-summary"><div class="order-summary-main"><h3>${escapeHtml(order.orderNumber)}</h3><p>${escapeHtml(orderDate)} · ${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}</p><p class="order-customer-summary">${escapeHtml(order.customerName)} · ${itemCount} sản phẩm</p></div><div class="order-summary-end"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong><div class="order-badges"><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(labels[order.status])}</span><span class="status-pill ${order.paymentStatus === "paid" ? "status-active" : "status-warning"}">${paymentStatus}</span></div><span class="order-expand-label">Chi tiết & xử lý <span aria-hidden="true">⌄</span></span></div></summary>
-      <div class="order-card-body">
+      <summary class="order-card-summary order-table-row"><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small><span class="order-expand-label">Chi tiết & xử lý ⌄</span></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong>${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small></span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span></summary>
+      <div class="order-card-body">${can("orders.write") ? `<button type="button" class="secondary-button" data-after-sales-order="${escapeHtml(order.id)}" data-after-sales-kind="${["shipped","completed"].includes(order.status)?"return":"cancellation"}">Tạo yêu cầu ${["shipped","completed"].includes(order.status)?"trả hàng":"hủy đơn"}</button>` : ""}
       <div class="order-meta">
         <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
         <p>${escapeHtml(order.address)}, ${escapeHtml(order.city)}${order.note ? `<br>Ghi chú: ${escapeHtml(order.note)}` : ""}</p>
@@ -745,6 +749,7 @@ async function activateView(view, { updateHistory = true } = {}) {
   try {
     if (button.dataset.view === "products") await loadProducts(document.querySelector("#product-search").value.trim());
     if (button.dataset.view === "orders") await loadOrders();
+    if (view === "shipping") await window.GAERUConfiguration.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
     if (button.dataset.view === "overview") await loadSummary();
@@ -795,7 +800,7 @@ document.querySelector("#new-product-button").addEventListener("click", () => { 
 document.querySelectorAll(".product-filters select").forEach((select) => select.addEventListener("change", renderProducts));
 document.querySelector("#reset-product-filters").addEventListener("click", () => {
   document.querySelector("#product-search").value = "";
-  document.querySelectorAll(".product-filters select").forEach((select) => { select.value = ""; });
+  document.querySelectorAll(".product-filters select").forEach((select) => { select.value = select.id === "order-sort" ? "newest" : select.id === "order-page-size" ? "25" : ""; });
   loadProducts().catch((error) => showGlobal(error.message, true));
 });
 document.querySelectorAll('[data-product-scope]').forEach(button=>button.addEventListener('click',async()=>{
@@ -1005,3 +1010,28 @@ initialize();
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-delete]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');if(!form.reportValidity())return;button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerDelete+'/delete',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value,confirmed:form.elements.confirmed.checked})});await loadCustomers();showGlobal('Đã gửi email xác nhận xóa; tài khoản vẫn hoạt động đến khi khách xác nhận.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
+
+function renderOrderOverview(counts) {
+  const tabs = [['','Tất cả'],['pending','Chờ xác nhận'],['confirmed','Đã xác nhận'],['processing','Cần gửi'],['shipped','Đang giao'],['completed','Hoàn tất'],['cancelled','Đã hủy']];
+  const total = Object.values(counts).reduce((sum,n)=>sum+Number(n),0);
+  document.querySelector('#order-tabs').innerHTML = tabs.map(([key,title])=>`<button type="button" data-order-tab="${key}" aria-pressed="${document.querySelector('#order-filter').value===key}">${title} <span>${key ? Number(counts[key]||0) : total}</span></button>`).join('');
+  document.querySelector('#order-overview').innerHTML = tabs.slice(1).map(([key,title])=>`<button type="button" data-order-tab="${key}"><span>${title}</span><strong>${Number(counts[key]||0)}</strong></button>`).join('') + '<p>Số liệu toàn bộ đơn đang quản lý, không gồm đơn chờ xác minh. Bộ lọc bên dưới chỉ áp dụng cho danh sách.</p>';
+}
+document.querySelector('#orders-view').addEventListener('click',event=>{
+  const tab=event.target.closest('[data-order-tab]'); if(!tab)return;
+  document.querySelector('#order-filter').value=tab.dataset.orderTab;
+  loadOrders(1).catch(error=>showGlobal(error.message,true));
+});
+document.querySelector('#export-order-page').addEventListener('click',()=>{
+  if(!state.orders.length)return showGlobal('Không có đơn hàng để xuất.',true);
+  const cell=value=>'"'+String(value??'').replace(/^(\s*[=+@-])/ ,"'$1").replace(/"/g,'""')+'"';
+  const rows=[['Mã đơn','Khách hàng','Điện thoại','Email','Trạng thái','Thanh toán','Tổng tiền'],...state.orders.map(o=>[o.orderNumber,o.customerName,o.phone,o.email,labels[o.status]||o.status,labels[o.paymentMethod]||o.paymentMethod,o.totalVnd??''])];
+  const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(r=>r.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download='gaeru-don-hang-trang-'+state.orderPage+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+
+document.querySelector('#export-order-excel').addEventListener('click',()=>{
+ const params=new URLSearchParams({format:'xlsx',scope:document.querySelector('#order-export-scope').value,page:String(state.orderPage)});
+ for(const [key,id] of [['status','order-filter'],['q','order-search'],['paymentStatus','order-payment-filter'],['paymentMethod','order-method-filter'],['sort','order-sort'],['pageSize','order-page-size']])params.set(key,document.getElementById(id).value);
+ window.open('/api/gaeru_ceo/orders?'+params,'_blank','noopener');
+});

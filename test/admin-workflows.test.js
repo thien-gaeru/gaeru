@@ -203,3 +203,34 @@ test("order payment filters use the same count/page predicate and preserve pagin
     assert.equal(valid.status, 200);
   }
 });
+
+test("order workspace validates sorting, paginates and returns global counts", async context => {
+  const queries=[];
+  const request=await startAdminApi(context,{async query(sql,values){
+    queries.push({sql,values});
+    if(sql.startsWith('SELECT COUNT(*)'))return {rows:[{total:61}]};
+    if(sql.startsWith('SELECT o.status, COUNT'))return {rows:[{status:'pending',total:45},{status:'completed',total:16}]};
+    return {rows:[]};
+  }});
+  for(const sort of ['newest','oldest','highest','lowest']){
+    const response=await request('/gaeru_ceo/orders?overview=1&sort='+sort+'&pageSize=20&page=2&status=pending');
+    assert.equal(response.status,200);const body=await response.json();
+    assert.deepEqual(body.pagination,{page:2,pageSize:20,total:61,pageCount:4});
+    assert.deepEqual(body.overview,{pending:45,completed:16});
+    assert.deepEqual(queries.at(-2).values,['pending','','','',20,20]);
+    assert.match(queries.at(-2).sql,/ORDER BY o\.(created_at|total_vnd) (ASC|DESC)/);
+    assert.doesNotMatch(queries.at(-1).sql,/o.status = \$1/);
+  }
+  const count=queries.length;
+  for(const suffix of ['sort=drop%20table','pageSize=0','pageSize=1000','pageSize=2.5']){
+    assert.equal((await request('/gaeru_ceo/orders?'+suffix)).status,400);
+  }
+  assert.equal(queries.length,count);
+});
+
+test('Excel export produces a real workbook with literal text, numeric money and filter scope',async context=>{
+ const ExcelJS=require('exceljs');const queries=[];
+ const request=await startAdminApi(context,{async query(sql,values){queries.push({sql,values});return sql.startsWith('SELECT COUNT(*)')?{rows:[{total:1}]}:{rows:[{orderNumber:'=1+1',customerName:'Khách hàng',phone:'0900000000',createdAt:'2026-10-26T00:00:00Z',totalVnd:1200000,status:'pending',paymentMethod:'cod',items:[]}]};}});
+ const response=await request('/gaeru_ceo/orders?format=xlsx&scope=all&status=pending');assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/spreadsheetml/);
+ const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));const sheet=workbook.worksheets[0];assert.equal(sheet.getCell('A2').value,'=1+1');assert.equal(sheet.getCell('D2').value,'0900000000');assert.equal(sheet.getCell('O2').value,1200000);assert.deepEqual(queries[1].values,['pending','','','',5000,0]);
+});
