@@ -39,7 +39,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(require('./primary-domain').publicAliasRedirect);
   app.disable("x-powered-by");
   app.set('case sensitive routing', true);
-  app.set("trust proxy", config.NODE_ENV === "production" ? 1 : false);
+  app.set("trust proxy", 1);
   app.use((req,res,next)=>{
     if (/^\/api(?:\/|$)/i.test(req.path)) {
       res.set({'Cache-Control':'no-store','Pragma':'no-cache','Expires':'0','X-Robots-Tag':'noindex, nofollow, noarchive'});
@@ -62,7 +62,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
-        ...(config.NODE_ENV === "production" ? { upgradeInsecureRequests: [] } : {})
+        upgradeInsecureRequests: []
       }
     },
     crossOriginEmbedderPolicy: false
@@ -88,7 +88,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: config.NODE_ENV === "production",
+      secure: config.NODE_ENV === "production" ? true : "auto",
       sameSite: "strict",
       maxAge: 8 * 60 * 60 * 1000,
       path: "/"
@@ -102,7 +102,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.get("/api/health", async (_req, res, next) => {
     try {
       await pool.query("SELECT 1");
-      res.set({'Cache-Control':'no-store','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Migration':require('./media-filesystem-migration').status().state,'X-GAERU-Media-Volume':require('./lib/filesystem-media').status().volumeFingerprint||'unverified','X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
+      res.set({'Cache-Control':'no-store','X-GAERU-Web-TLS':'enforced','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Migration':require('./media-filesystem-migration').status().state,'X-GAERU-Media-Volume':require('./lib/filesystem-media').status().volumeFingerprint||'unverified','X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
     } catch (error) {
       next(error);
     }
