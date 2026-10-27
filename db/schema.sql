@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS orders (
   address text NOT NULL,
   city text NOT NULL,
   note text NOT NULL DEFAULT '',
-  payment_method text NOT NULL CHECK (payment_method IN ('cod', 'bank_transfer', '9pay', 'vnpay')),
+  payment_method text NOT NULL CHECK (payment_method IN ('cod', 'bank_transfer', '9pay', 'vnpay', 'momo', 'zalopay')),
   payment_status text NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid')),
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'processing', 'shipped', 'completed', 'cancelled')),
   subtotal_vnd integer NOT NULL CHECK (subtotal_vnd >= 0),
@@ -82,7 +82,7 @@ BEGIN
   ) THEN
     ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_payment_method_check;
     ALTER TABLE orders ADD CONSTRAINT orders_payment_method_check
-      CHECK (payment_method IN ('cod', 'bank_transfer', '9pay', 'vnpay'));
+      CHECK (payment_method IN ('cod', 'bank_transfer', '9pay', 'vnpay', 'momo', 'zalopay'));
   END IF;
 END $$;
 
@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 CREATE TABLE IF NOT EXISTS payment_attempts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
-  provider text NOT NULL CHECK (provider IN ('9pay', 'vnpay')),
+  provider text NOT NULL CHECK (provider IN ('9pay', 'vnpay', 'momo', 'zalopay', 'bank_transfer')),
   transaction_ref text NOT NULL UNIQUE,
   amount_vnd integer NOT NULL CHECK (amount_vnd > 0),
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed')),

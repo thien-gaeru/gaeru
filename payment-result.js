@@ -1,10 +1,19 @@
 const result = new URLSearchParams(location.search);
 const content = document.querySelector("#payment-result");
 const orderNumber = result.get("order");
+const providerKey = String(result.get("provider") || "vnpay").toLowerCase();
+const providerNames = {
+  vnpay: "VNPAY",
+  "9pay": "9Pay",
+  momo: "MoMo",
+  zalopay: "ZaloPay",
+  bank_transfer: "Chuyển khoản ngân hàng"
+};
+const providerLabel = providerNames[providerKey] || "Cổng thanh toán";
 const messages = {
   processing: {
-    title: "VNPAY đã gửi kết quả thanh toán.",
-    detail: "GAERU đang xác nhận giao dịch qua thông báo bảo mật từ VNPAY. Trạng thái đơn hàng chỉ được cập nhật sau khi máy chủ xác minh."
+    title: `${providerLabel} đã gửi kết quả thanh toán.`,
+    detail: `GAERU đang tự động đối soát giao dịch bảo mật từ ${providerLabel}. Ngay khi so khớp thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
   },
   failed: {
     title: "Giao dịch chưa hoàn tất.",
@@ -25,4 +34,15 @@ if (orderNumber) {
   const order = document.createElement("p");
   order.textContent = `Mã đơn: ${orderNumber}`;
   content.append(order);
+  if (result.get("result") === "processing") {
+    fetch(`/api/payments/order-status?order=${encodeURIComponent(orderNumber)}`, { credentials: "same-origin" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (body?.order?.paymentStatus === "paid") {
+          title.textContent = `Đã thanh toán thành công qua ${providerNames[body.order.paymentMethod] || providerLabel}.`;
+          detail.textContent = "Giao dịch đã được hệ thống so khớp tự động. Đơn hàng của bạn đã được duyệt thẳng sang trạng thái Chờ gửi hàng.";
+        }
+      })
+      .catch(() => {});
+  }
 }
