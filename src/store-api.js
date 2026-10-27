@@ -59,6 +59,15 @@ async function loadProducts(pool, { includeDrafts = false, deleted = false, sear
     ${visibility}
     ORDER BY p.sort_order, p.name`;
   const result = await pool.query(query);
+  const { normalizeBrandText } = require("./primary-domain");
+  for (const p of result.rows) {
+    p.name = normalizeBrandText(p.name);
+    p.descriptor = normalizeBrandText(p.descriptor);
+    p.description = normalizeBrandText(p.description);
+    p.cardTitle = normalizeBrandText(p.cardTitle);
+    p.cardSummary = normalizeBrandText(p.cardSummary);
+    p.imageAlt = normalizeBrandText(p.imageAlt);
+  }
   if(!includeDrafts){const priced=await require("./product-promotions").applyPromotions(pool,result.rows.flatMap(p=>p.variants));const byId=new Map(priced.map(v=>[v.id,v]));for(const p of result.rows)p.variants=p.variants.map(v=>byId.get(v.id));}
   const needle = search.trim().toLocaleLowerCase("vi");
   if (!needle) return result.rows;

@@ -1,11 +1,16 @@
-const test=require('node:test'),assert=require('node:assert/strict'),express=require('express'),{once}=require('node:events'),{normalizePublicBase,publicAliasRedirect}=require('../src/primary-domain');
-test('gaeru.com is canonical and remote origins always use https',()=>{
+const test=require('node:test'),assert=require('node:assert/strict'),express=require('express'),{once}=require('node:events'),{normalizePublicBase,normalizeBrandText,publicAliasRedirect}=require('../src/primary-domain');
+test('gaeru.com is canonical, legacy brand domains normalize to https://gaeru.com, and remote origins always use https',()=>{
+  const legacy='gaeru.'+'org';
   assert.equal(normalizePublicBase('http://www.gaeru.com'),'https://gaeru.com');
   assert.equal(normalizePublicBase('http://gaeru.com'),'https://gaeru.com');
   assert.equal(normalizePublicBase('https://gaeru.com'),'https://gaeru.com');
+  assert.equal(normalizePublicBase('https://'+legacy),'https://gaeru.com');
+  assert.equal(normalizePublicBase('http://www.'+legacy),'https://gaeru.com');
   assert.equal(normalizePublicBase('http://store.example'),'https://store.example');
   assert.equal(normalizePublicBase('https://store.example'),'https://store.example');
+  assert.equal(normalizeBrandText(`Xem tại https://${legacy}/support.html hoặc liên hệ business@${legacy} trên ${legacy}.`),'Xem tại https://gaeru.com/support.html hoặc liên hệ business@gaeru.com trên gaeru.com.');
   assert.equal(require('../clean-urls').clean('https://www.gaeru.com/product.html?id=gaeru-k9','https://gaeru.com'),'/san-pham/gaeru-k9');
+  assert.equal(require('../clean-urls').clean(`https://${legacy}/product.html?id=gaeru-k9`,'https://gaeru.com'),'/san-pham/gaeru-k9');
 });
 test('secondary domain redirects public reads, enforces HSTS, and upgrades plain HTTP requests on gaeru.com to HTTPS',async t=>{
   const app=express();
