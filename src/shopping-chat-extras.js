@@ -243,6 +243,13 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     res.set('Cache-Control','no-store').json({items,page,hasMore:items.length===25});
   }));
   publicApi.post('/threads/:id/handoff',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{await withTransaction(pool,c=>require('./shopping-chat-ai-first').handoff(c,req.chatThread.id,'customer_request'));res.json({message:'Đã chuyển hội thoại cho nhân viên.'});}));
+  publicApi.post('/threads/:id/close',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{
+    await withTransaction(pool,async c=>{
+      await c.query("UPDATE shopping_chat_threads SET status='closed',awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1",[req.chatThread.id]);
+      await c.query("UPDATE shopping_chat_ai_jobs SET status='skipped' WHERE thread_id=$1 AND status='pending'",[req.chatThread.id]);
+    });
+    res.json({message:'Đã kết thúc phiên chat.',status:'closed'});
+  }));
   publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),provider:settings.enabled?settings.provider:null,maxFileBytes:null,unlimitedFileSize:true,chunkSizeBytes:4194304,backgroundCompression:true});}));
   publicApi.post('/threads/:id/ai',requireCsrf,limit,authorize(false),(_req,res)=>res.status(409).json({error:'AI đang trả lời tự động. Bạn có thể chọn Gặp nhân viên để chuyển hỗ trợ.'}));
 }

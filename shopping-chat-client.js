@@ -15,16 +15,16 @@
           'Hướng dẫn kết nối thiết bị',
           'Chính sách bảo hành Care+'
         ];
-    root.innerHTML = `<p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p>
+    root.innerHTML = `<div class="chat-state-bar"><p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p>${admin?'':'<div class="chat-session-actions"><button type="button" class="chat-end-session" data-chat-end data-no-action-feedback hidden>Kết thúc phiên chat</button><button type="button" class="chat-new-session" data-chat-new data-no-action-feedback hidden>Bắt đầu chat mới</button></div>'}</div>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
       <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose>
       <div class="chat-quick-bar" data-chat-quick-bar>
         <div class="chat-quick-header">
-          <button type="button" class="chat-quick-toggle" data-chat-quick-toggle data-no-action-feedback aria-expanded="true">⚡ Chọn hiển thị phản hồi nhanh</button>
+          <button type="button" class="chat-quick-toggle" data-chat-quick-toggle data-no-action-feedback aria-expanded="false">⚡ Chọn hiển thị phản hồi nhanh</button>
           <label class="chat-instant-toggle"><input type="checkbox" data-chat-instant-mode checked> <span>Gửi nhanh ngay</span></label>
         </div>
-        <div class="chat-quick-list" data-chat-quick-list>${quickReplies.map((q,i)=>`<button type="button" class="chat-quick-chip" data-quick-reply="${i}" data-no-action-feedback>${escape(q)}</button>`).join('')}</div>
+        <div class="chat-quick-list" data-chat-quick-list hidden>${quickReplies.map((q,i)=>`<button type="button" class="chat-quick-chip" data-quick-reply="${i}" data-no-action-feedback>${escape(q)}</button>`).join('')}</div>
       </div>
       <div data-chat-selected class="chat-selected"></div>
       <div class="chat-composer"><button type="button" class="chat-plus" aria-label="Thêm đính kèm" aria-expanded="false" aria-controls="${admin?'admin':'customer'}-chat-actions" data-chat-plus data-no-action-feedback>+</button>
@@ -33,14 +33,10 @@
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
       <button type="button" data-pick="file">▤ <span>Tệp<small>Không giới hạn dung lượng · Tự động nén ngầm</small></span></button>
       <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Không giới hạn dung lượng · Tải ngầm sau khi gửi</small></span></button>
-      ${admin?(window.GAERUAdmin?.can('marketing.read')?'<button type="button" data-offer="vouchers">▱ <span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">▤ <span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>':''):'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button>'}
-      <button type="button" data-pick="camera">◎ <span>Máy ảnh<small>Chụp ảnh trên thiết bị hỗ trợ</small></span></button>
-      <button type="button" data-pick="video">▷ <span>Máy quay<small>Quay video trên thiết bị hỗ trợ</small></span></button>${admin?'':'<button type="button" data-chat-human>☏ <span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button>'}</div>
+      ${admin?(window.GAERUAdmin?.can('marketing.read')?'<button type="button" data-offer="vouchers">▱ <span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">▤ <span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>':''):'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>☏ <span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>✕ <span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>'}</div>
       <div data-chat-reference class="chat-reference" hidden></div>
       <input hidden type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv">
       <input hidden type="file" multiple data-file="media" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo">
-      <input hidden type="file" data-file="camera" accept="image/jpeg,image/png,image/webp" capture="environment">
-      <input hidden type="file" data-file="video" accept="video/mp4,video/quicktime,video/webm" capture="environment">
       <p role="status" data-chat-feedback></p></form>
       ${admin?'':'<div class="chat-ai"><p data-ai-note>Đang kiểm tra trạng thái Chat AI…</p></div>'}`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
@@ -122,7 +118,7 @@
     }
     function renderAINote(){
       if(admin)return;const note=root.querySelector('[data-ai-note]'),names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};let text;
-      if(thread?.status==='closed')text='Hội thoại đã đóng. Mở một hội thoại mới khi bạn cần hỗ trợ.';
+      if(thread?.status==='closed')text='Hội thoại đã đóng. Nhấn Bắt đầu chat mới khi bạn cần hỗ trợ.';
       else if(thread?.handlingMode==='human')text='Hội thoại được nhân viên GAERU hỗ trợ. AI đã tạm dừng trong hội thoại này.';
       else if(!aiCapabilities)text='Chưa xác minh được trạng thái Chat AI. Bạn vẫn có thể yêu cầu nhân viên hỗ trợ.';
       else if(!aiCapabilities.aiConfigured)text='Chat AI chưa bật hoặc chưa đủ cấu hình. Chọn Gặp nhân viên để được hỗ trợ.';
@@ -133,6 +129,12 @@
     function syncSupport(){
       renderAINote();
       const closed=thread?.status==='closed',human=root.querySelector('[data-chat-human]');if(human)human.hidden=closed||thread?.handlingMode==='human';
+      if(!admin){
+        const endButtons=root.querySelectorAll('[data-chat-end]');
+        endButtons.forEach(b=>{b.hidden=!id||closed;});
+        const newButton=root.querySelector('[data-chat-new]');
+        if(newButton)newButton.hidden=!closed;
+      }
       const state=root.querySelector('[data-chat-support]');state.hidden=admin||closed||(!thread?.handoffOffered&&thread?.handlingMode!=='human')||thread?.staffReplied===true;
       if(!state.hidden){const seconds=(thread.handoffWaitSeconds||0)+(Date.now()-supportReadAt)/1000;const html=thread.handoffOffered?'AI chưa thể tiếp tục trả lời. Kết nối nhân viên GAERU để được hỗ trợ.<button type="button" class="chat-handoff-button" data-inline-handoff data-no-action-feedback>Gặp nhân viên</button>':seconds>=300?'Chưa có nhân viên phản hồi sau 5 phút. Gọi <a href="tel:0829191080">082.919.1080</a> để được hỗ trợ nhanh chóng.':'Đang chờ kết nối nhân viên hỗ trợ GAERU…';if(state.dataset.renderKey!==html){state.innerHTML=html;state.dataset.renderKey=html;}}
     }
@@ -171,18 +173,26 @@
     }
 
     const quickToggle=root.querySelector('[data-chat-quick-toggle]'),quickList=root.querySelector('[data-chat-quick-list]'),instantCheck=root.querySelector('[data-chat-instant-mode]');
+    function collapseQuickReplies(){
+      if(quickList&&quickToggle){
+        quickList.hidden=true;
+        quickToggle.setAttribute('aria-expanded','false');
+      }
+    }
     if(quickToggle&&quickList){
+      collapseQuickReplies();
       quickToggle.onclick=()=>{quickList.hidden=!quickList.hidden;quickToggle.setAttribute('aria-expanded',String(!quickList.hidden));};
       quickList.onclick=e=>{
         const chip=e.target.closest('[data-quick-reply]');if(!chip||thread?.status==='closed')return;
         const text=quickReplies[Number(chip.dataset.quickReply)];if(!text)return;
+        collapseQuickReplies();
         if(instantCheck?.checked){dispatchInstantSend(text,[]);}
         else{form.elements.body.value=(form.elements.body.value?form.elements.body.value+'\n'+text:text).slice(0,3000);form.elements.body.focus();}
       };
     }
 
-    form.elements.body.addEventListener('focus',()=>{actions.hidden=true;plus.setAttribute('aria-expanded','false');root.querySelector('[data-chat-reference]').hidden=true;});
-    plus.onclick=()=>{actions.hidden=!actions.hidden;plus.setAttribute('aria-expanded',String(!actions.hidden));};
+    form.elements.body.addEventListener('focus',()=>{collapseQuickReplies();actions.hidden=true;plus.setAttribute('aria-expanded','false');root.querySelector('[data-chat-reference]').hidden=true;});
+    plus.onclick=()=>{collapseQuickReplies();actions.hidden=!actions.hidden;plus.setAttribute('aria-expanded',String(!actions.hidden));};
     root.querySelector('[data-chat-earlier]').onclick=()=>refresh(messages.querySelector('[data-message-id]')?.dataset.messageId).catch(e=>feedback.textContent=e.message);
     root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>root.querySelector('[data-file="'+button.dataset.pick+'"]').click());
     root.querySelectorAll('[data-file]').forEach(input=>input.onchange=()=>{
@@ -272,6 +282,7 @@
       if(thread?.status==='closed')return;
       const textBody=String(rawText||'').trim()||(queuedFiles.length?'Tôi gửi tệp để được tư vấn.':'');
       if(!textBody&&!queuedFiles.length){feedback.textContent='Nhập tin nhắn hoặc chọn tệp.';return;}
+      collapseQuickReplies();
       const msgKey=crypto.randomUUID();
       const nowLabel=new Date().toLocaleString('vi-VN');
       const textNode=insertOptimisticBubble(msgKey,nowLabel,textBody,'',queuedFiles.length?'Đã gửi nhanh · Đang chuẩn bị tải tệp ngầm…':'Đang gửi nhanh…');
@@ -325,7 +336,45 @@
     };
 
     async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
-    root.addEventListener('click',event=>{if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();});
+    async function endChatSession(){
+      if(admin||sending||thread?.status==='closed')return;
+      actions.hidden=true;plus.setAttribute('aria-expanded','false');collapseQuickReplies();
+      if(!id){
+        const dialog=root.closest('dialog');
+        if(dialog?.open)dialog.close();
+        return;
+      }
+      sending=true;setClosed();
+      try{
+        clearFastAiTimers();
+        syncAiTypingIndicator(false);
+        await request(base+'/'+id+'/close',{method:'POST',body:JSON.stringify({})});
+        await refresh();
+        feedback.textContent='Đã kết thúc phiên chat.';
+      }catch(e){
+        feedback.textContent=e.message;
+      }finally{
+        sending=false;setClosed();
+      }
+    }
+    function startNewChatSession(){
+      if(admin)return;
+      clearFastAiTimers();
+      syncAiTypingIndicator(false);
+      id=null;thread=null;
+      messages.innerHTML='';
+      root.querySelector('[data-chat-earlier]').hidden=true;
+      actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      collapseQuickReplies();
+      feedback.textContent='Đã bắt đầu phiên chat mới.';
+      setClosed();
+      form.elements.body.focus();
+    }
+    root.addEventListener('click',event=>{
+      if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();
+      else if(event.target.closest('[data-chat-end]'))void endChatSession();
+      else if(event.target.closest('[data-chat-new]'))startNewChatSession();
+    });
     const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
     if(!admin)void loadCapabilities();
     const poll=window.GAERUCareLive.poll({delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
