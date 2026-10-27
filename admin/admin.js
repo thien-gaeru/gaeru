@@ -835,6 +835,7 @@ async function activateView(view, { updateHistory = true } = {}) {
   try {
     if (button.dataset.view === "products") await loadProducts(document.querySelector("#product-search").value.trim());
     if (button.dataset.view === "orders") await loadOrders();
+    if (view === "payments") await window.GAERUConfiguration.mountPayments();
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") await loadSettings();
