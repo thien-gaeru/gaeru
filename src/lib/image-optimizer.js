@@ -23,11 +23,12 @@ async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}={
     throw invalidImage();
   }
   try {
-    const input = { failOn: 'error', limitInputPixels: MAX_INPUT_PIXELS };
+    const pixelLimit = maxUploadBytes === Infinity ? 100_000_000 : MAX_INPUT_PIXELS;
+    const input = { failOn: 'error', limitInputPixels: pixelLimit };
     const info = await sharp(buffer, input).metadata();
     if (info.format !== EXPECTED_FORMATS[mimeType] ||
         !info.width || !info.height ||
-        info.width * info.height > MAX_INPUT_PIXELS || (info.pages||1)>1) {
+        info.width * info.height > pixelLimit || (info.pages||1)>1) {
       throw invalidImage();
     }
     if(info.format==='webp'&&info.width<=MAX_DIMENSION&&info.height<=MAX_DIMENSION&&!info.exif&&!info.icc&&!info.xmp&&!info.orientation)return {buffer,mimeType:'image/webp'};

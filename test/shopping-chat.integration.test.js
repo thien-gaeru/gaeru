@@ -32,6 +32,18 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  assert.equal((await other.call(videoPath)).status,404);assert.match((await guest.call(videoPath)).headers.get('content-disposition'),/^inline/);assert.match((await guest.call(videoPath+'?download=1')).headers.get('content-disposition'),/^attachment/);
  // Native video playback seeks through authenticated byte-range requests.
  const mediaResponse=await guest.call(videoPath,'GET',null,true,{Range:'bytes=0-3'});assert.equal(mediaResponse.status,206);assert.equal(mediaResponse.data.bytes,4);assert.equal(mediaResponse.headers.get('content-range'),'bytes 0-3/32');assert.equal((await guest.call(videoPath,'GET',null,true,{Range:'bytes=999-'})).status,416);
+ // Chunked background upload + automatic background file compression.
+ const chunkKey=randomUUID(),bigPdf=Buffer.from('%PDF-1.7\n'+'GAERU compressible document content line\n'.repeat(120));
+ const part1=bigPdf.subarray(0,500),part2=bigPdf.subarray(500);
+ const c1=new FormData();c1.append('file',new Blob([part1]),'manual.pdf');c1.append('requestKey',chunkKey);c1.append('fileName','manual.pdf');c1.append('chunkIndex','0');c1.append('totalChunks','2');c1.append('totalBytes',String(bigPdf.length));
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c1)).status,202);
+ const c2=new FormData();c2.append('file',new Blob([part2]),'manual.pdf');c2.append('requestKey',chunkKey);c2.append('fileName','manual.pdf');c2.append('chunkIndex','1');c2.append('totalChunks','2');c2.append('totalBytes',String(bigPdf.length));
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c2)).status,201);
+ const compressedMsg=(await guest.call(path)).data.messages.find(m=>m.attachment?.name==='manual.pdf');
+ assert.ok(compressedMsg);
+ assert.equal(compressedMsg.attachment.compressionStatus,'compressed');
+ assert.ok(compressedMsg.attachment.compressedSize<compressedMsg.attachment.originalSize);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/'+compressedMsg.attachment.id)).data.bytes,bigPdf.length);
  const bad=new FormData();bad.append('file',new Blob(['<script>bad</script>'],{type:'image/png'}),'bad.png');bad.append('requestKey',randomUUID());
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',bad)).status,400);
  assert.equal((await guest.call('/api/shopping-chat/capabilities')).data.aiConfigured,false);

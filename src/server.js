@@ -17,7 +17,7 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-let server;let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;
+let server;let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;
 
 async function start() {
   await migrateDatabase(pool);
@@ -26,6 +26,7 @@ async function start() {
   console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
   stopMediaMigration=require('./media-filesystem-migration').startMigration(pool);
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
+  stopChatCompression=require('./shopping-chat-compression').startChatCompressionWorker(pool);
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
   stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
   stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
@@ -51,6 +52,7 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   stopMediaMigration?.();
+  stopChatCompression?.();
   stopAIChat?.();
   stopChatEmail?.();
   stopRetention?.();
