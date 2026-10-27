@@ -1,5 +1,6 @@
 const {randomUUID}=require('node:crypto');
 const {withTransaction}=require('./db');
+const {getRelevantWebKnowledge}=require('./chat-web-knowledge');
 
 let activeWakeup=null;
 function kickAIChatWorker(){
@@ -91,7 +92,10 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
         const facts=p=>({name:p.name,description:p.description.slice(0,job.thread.product_id?2400:360),variants:p.variants.slice(0,12).map(v=>({name:v.name,priceVnd:v.priceVnd,available:Number(v.stockQuantity)>0}))});
         const selected=catalog.find(p=>p.id===job.thread.product_id);
         if(job.thread.product_id&&!selected)throw Error('Product unavailable');
-        const product=selected?facts(selected):{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
+        const webKnowledge=await getRelevantWebKnowledge(pool,{question:job.question,selectedProduct:selected});
+        const product=selected
+          ?{...facts(selected),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}}
+          :{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
         const history=historyRes.rows.reverse();
         const run=decisionFn||require('./shopping-chat-extras').answerAI;
         result=await run({config:{...config,chatAI:settings},product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});
