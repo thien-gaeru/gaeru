@@ -243,6 +243,11 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     res.set('Cache-Control','no-store').json({items,page,hasMore:items.length===25});
   }));
   publicApi.post('/threads/:id/handoff',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{await withTransaction(pool,c=>require('./shopping-chat-ai-first').handoff(c,req.chatThread.id,'customer_request'));res.json({message:'Đã chuyển hội thoại cho nhân viên.'});}));
+  publicApi.post('/threads/:id/resume-ai',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{
+    const resumed=await withTransaction(pool,c=>require('./shopping-chat-ai-first').resumeAI(c,req.chatThread.id,'staff_timeout'));
+    if(resumed)require('./shopping-chat-ai-first').kickAIChatWorker();
+    res.json({resumed,handlingMode:'ai',message:'Đã kích hoạt lại hỗ trợ bằng AI.'});
+  }));
   publicApi.post('/threads/:id/close',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{
     await withTransaction(pool,async c=>{
       await c.query("UPDATE shopping_chat_threads SET status='closed',awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1",[req.chatThread.id]);

@@ -1,7 +1,7 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[];
+    let stopped=false, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[];
     const quickReplies = admin
       ? [
           'Xin chào! GAERU đã nhận thông tin và đang kiểm tra giúp bạn.',
@@ -128,13 +128,24 @@
     function renderAINote(){
       if(admin)return;const note=root.querySelector('[data-ai-note]'),names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};let text;
       if(thread?.status==='closed')text='Hội thoại đã đóng. Nhấn Bắt đầu chat mới khi bạn cần hỗ trợ.';
-      else if(thread?.handlingMode==='human')text='Hội thoại được nhân viên GAERU hỗ trợ. AI đã tạm dừng trong hội thoại này.';
+      else if(thread?.handlingMode==='human')text='Hội thoại được nhân viên GAERU hỗ trợ. Sau 5 phút nếu chưa có nhân viên phản hồi, AI sẽ tự động hỗ trợ lại.';
       else if(!aiCapabilities)text='Chưa xác minh được trạng thái Chat AI. Bạn vẫn có thể yêu cầu nhân viên hỗ trợ.';
       else if(!aiCapabilities.aiConfigured)text='Chat AI chưa bật hoặc chưa đủ cấu hình. Chọn Gặp nhân viên để được hỗ trợ.';
       else text=(names[aiCapabilities.provider]||'Chat AI')+(thread?.handoffOffered?' đang tạm dừng trả lời. Bạn có thể kết nối nhân viên.':' đang bật chế độ phản hồi tốc độ cao.')+' Hỗ trợ gửi nhanh, tải tệp/ảnh/video không giới hạn dung lượng và tự động nén ngầm.';
       if(note.textContent!==text)note.textContent=text;if(!thread){const state=root.querySelector('[data-chat-state]');state.textContent=aiCapabilities?.aiConfigured?'Xin chào! '+(names[aiCapabilities.provider]||'AI của GAERU')+' sẽ tiếp nhận và phản hồi nhanh câu hỏi của bạn.':'Xin chào! Bạn có thể gửi yêu cầu cho nhân viên GAERU.';}
     }
     async function loadCapabilities(){capabilitiesReadAt=Date.now();try{aiCapabilities=await request('/api/shopping-chat/capabilities');}catch{aiCapabilities=null;}if(!stopped)renderAINote();}
+    async function resumeAiAfterTimeout(){
+      if(admin||stopped||resumingAi||!id||thread?.status==='closed'||thread?.handlingMode!=='human'||thread?.staffReplied)return;
+      resumingAi=true;
+      try{
+        await request(base+'/'+id+'/resume-ai',{method:'POST',body:JSON.stringify({})});
+        await refresh();
+        feedback.textContent='Sau 5 phút chưa có nhân viên phản hồi, trợ lý GAERU AI đã tự động kích hoạt lại để hỗ trợ bạn.';
+      }catch{}finally{
+        resumingAi=false;
+      }
+    }
     function syncSupport(){
       renderAINote();
       const closed=thread?.status==='closed',human=root.querySelector('[data-chat-human]');if(human)human.hidden=closed||thread?.handlingMode==='human';
@@ -145,7 +156,18 @@
         if(newButton)newButton.hidden=!closed;
       }
       const state=root.querySelector('[data-chat-support]');state.hidden=admin||closed||(!thread?.handoffOffered&&thread?.handlingMode!=='human')||thread?.staffReplied===true;
-      if(!state.hidden){const seconds=(thread.handoffWaitSeconds||0)+(Date.now()-supportReadAt)/1000;const html=thread.handoffOffered?'AI chưa thể tiếp tục trả lời. Kết nối nhân viên GAERU để được hỗ trợ.<button type="button" class="chat-handoff-button" data-inline-handoff data-no-action-feedback>Gặp nhân viên</button>':seconds>=300?'Chưa có nhân viên phản hồi sau 5 phút. Gọi <a href="tel:0829191080">082.919.1080</a> để được hỗ trợ nhanh chóng.':'Đang chờ kết nối nhân viên hỗ trợ GAERU…';if(state.dataset.renderKey!==html){state.innerHTML=html;state.dataset.renderKey=html;}}
+      if(!state.hidden){
+        const seconds=(thread.handoffWaitSeconds||0)+(Date.now()-supportReadAt)/1000;
+        if(thread.handlingMode==='human'&&!thread.staffReplied&&seconds>=300){
+          void resumeAiAfterTimeout();
+        }
+        const html=thread.handoffOffered
+          ?'AI chưa thể tiếp tục trả lời. Kết nối nhân viên GAERU để được hỗ trợ.<button type="button" class="chat-handoff-button" data-inline-handoff data-no-action-feedback>Gặp nhân viên</button>'
+          :seconds>=300
+            ?'Chưa có nhân viên phản hồi sau 5 phút. Đang tự động kích hoạt lại hỗ trợ bằng GAERU AI (hoặc gọi <a href="tel:0829191080">082.919.1080</a>).'
+            :'Đang chờ kết nối nhân viên hỗ trợ GAERU… (Sau 5 phút chưa có phản hồi, AI sẽ tự động hỗ trợ lại)';
+        if(state.dataset.renderKey!==html){state.innerHTML=html;state.dataset.renderKey=html;}
+      }
     }
 
     function setClosed(){const closed=thread?.status==='closed';send.disabled=closed;form.elements.body.disabled=closed;plus.disabled=closed;actions.querySelectorAll('button').forEach(b=>b.disabled=closed);root.querySelectorAll('[data-quick-reply]').forEach(b=>b.disabled=closed);syncSupport();}

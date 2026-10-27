@@ -25,6 +25,40 @@ async function offerHandoff(client,id,reason,answer){
   await client.query('UPDATE shopping_chat_threads SET handoff_offered_at=now(),handoff_reason=$2,awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1',[id,reason]);
   await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,answer||'AI chưa thể tiếp tục trả lời. Chọn Gặp nhân viên để được hỗ trợ.',randomUUID()]);return true;
 }
+async function resumeAI(client,id,reason='staff_timeout'){
+  const row=(await client.query('SELECT handling_mode,status,handoff_started_at FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[id])).rows[0];
+  if(!row||row.status!=='open'||row.handling_mode!=='human')return false;
+  const staffReplied=(await client.query("SELECT EXISTS(SELECT 1 FROM shopping_chat_messages WHERE thread_id=$1 AND sender='admin' AND created_at>=COALESCE($2::timestamptz,'epoch'::timestamptz)) AS replied",[id,row.handoff_started_at])).rows[0]?.replied;
+  if(staffReplied)return false;
+  await client.query("UPDATE shopping_chat_threads SET handling_mode='ai',handoff_offered_at=NULL,handoff_started_at=NULL,handoff_reason=$2,awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1",[id,reason]);
+  await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,'Sau 5 phút chưa có nhân viên phản hồi, trợ lý GAERU AI đã tự động kích hoạt lại để tiếp tục hỗ trợ bạn ngay lập tức. Bạn cũng có thể gọi 082.919.1080 nếu cần gặp trực tiếp.',randomUUID()]);
+  return true;
+}
+async function resumeTimedOutHumanThreads(pool){
+  let count=0;
+  await withTransaction(pool,async c=>{
+    const rows=(await c.query(`
+      SELECT t.id
+      FROM shopping_chat_threads t
+      WHERE t.status='open'
+        AND t.handling_mode='human'
+        AND t.handoff_started_at IS NOT NULL
+        AND t.handoff_started_at <= now() - interval '300 seconds'
+        AND NOT EXISTS (
+          SELECT 1 FROM shopping_chat_messages m
+          WHERE m.thread_id = t.id
+            AND m.sender = 'admin'
+            AND m.created_at >= t.handoff_started_at
+        )
+      FOR UPDATE SKIP LOCKED
+      LIMIT 10
+    `)).rows;
+    for(const r of rows){
+      if(await resumeAI(c,r.id,'staff_timeout'))count++;
+    }
+  });
+  return count;
+}
 async function processAIChat(pool,config,{decisionFn,transport}={}){
   const job=await withTransaction(pool,async c=>{
     const stale=(await c.query("UPDATE shopping_chat_ai_jobs SET status='failed' WHERE status='running' AND started_at<now()-interval '2 minutes' RETURNING thread_id")).rows;
@@ -88,6 +122,7 @@ function startAIChatWorker(pool,config){
     try{
       do{
         pendingKick=false;
+        await resumeTimedOutHumanThreads(pool).catch(()=>{});
         for(let i=0;i<8&&!stopped;i++){
           if(!await processAIChat(pool,config))break;
         }
@@ -108,4 +143,4 @@ function startAIChatWorker(pool,config){
     clearInterval(timer);
   };
 }
-module.exports={requestsHuman,handoff,offerHandoff,processAIChat,startAIChatWorker,kickAIChatWorker};
+module.exports={requestsHuman,handoff,offerHandoff,resumeAI,resumeTimedOutHumanThreads,processAIChat,startAIChatWorker,kickAIChatWorker};
