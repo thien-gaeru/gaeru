@@ -33,7 +33,7 @@
   // Display only: keep DTOs, input values and administrator save payloads canonical.
   function imageUrl(value){
     if(typeof value!=='string')return value;
-    if(/^(?:https?:)?\/\//i.test(value))try{const u=new URL(value,'https://gaeru.com');if(/^(?:www\.)?gaeru\.(?:com|org)$/i.test(u.hostname))value=u.pathname+u.search+u.hash;}catch{}
+    if(/^(?:https?:)?\/\//i.test(value))try{const u=new URL(value,'https://gaeru.com');if(/^(?:www\.)?gaeru\.com$/i.test(u.hostname))value=u.pathname+u.search+u.hash;}catch{}
     const suffixAt=value.search(/[?#]/),pathname=suffixAt<0?value:value.slice(0,suffixAt),suffix=suffixAt<0?'':value.slice(suffixAt);
     if(catalogImage.test(pathname)){
       const hashAt=suffix.indexOf('#'),fragment=hashAt<0?'':suffix.slice(hashAt),query=hashAt<0?suffix:suffix.slice(0,hashAt);

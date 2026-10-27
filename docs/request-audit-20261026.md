@@ -4,7 +4,7 @@ Kết luận: **chưa hoàn tất toàn bộ yêu cầu**. Báo cáo phân biệ
 
 ## Đã đối chiếu trên website công khai
 
-- gaeru.com là miền chính; gaeru.org chuyển hướng 301 sang gaeru.com với trang sản phẩm đã kiểm tra. API và trang quản trị miền phụ được giữ để tương thích phiên đăng nhập/callback.
+- gaeru.com là miền chính; www.gaeru.com chuyển hướng 301 sang gaeru.com với trang sản phẩm đã kiểm tra. API và trang quản trị được giữ để tương thích phiên đăng nhập/callback.
 - 51 URL sitemap trả 200; canonical dùng miền chính và URL sạch; đủ lastmod. robots.txt khai báo sitemap. Chuyển hướng URL HTML cũ đã kiểm tra.
 - HTML có lang=vi, Open Graph, Twitter Card, Organization, BreadcrumbList. Các trang sản phẩm có Product; bài viết có NewsArticle; FAQPage được kiểm tra ở phần FAQ K9 có nội dung hiển thị.
 - Nội dung sản phẩm, giá, bài viết và liên kết cốt lõi có trong HTML trả về; không cần đợi JavaScript để crawler đọc. Không suy ra Google đã index/xếp hạng tốt từ kết quả này.
