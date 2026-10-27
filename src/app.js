@@ -140,6 +140,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", require("./order-after-sales").afterSalesRouter(pool));
   app.use("/api/gaeru_ceo", require("./order-print").createOrderPrint(pool));
   app.use("/api/gaeru_ceo", require("./shipping-choice").createShippingAdmin(pool,config));
+  app.use("/api/gaeru_ceo", require("./payment-channels").createPaymentAdmin(pool,config));
   app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
   app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool,config,customerMailer));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
