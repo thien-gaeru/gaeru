@@ -1,7 +1,7 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve();
+    let stopped=false, busy=false, sending=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[];
     const quickReplies = admin
       ? [
           'Xin chào! GAERU đã nhận thông tin và đang kiểm tra giúp bạn.',
@@ -70,6 +70,33 @@
       return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a>`;
     }
     function release(file){if(file?.url)URL.revokeObjectURL(file.url);}
+    function clearFastAiTimers(){
+      while(fastAiTimers.length)clearTimeout(fastAiTimers.pop());
+    }
+    function syncAiTypingIndicator(active){
+      if(admin)return;
+      const existing=messages.querySelector('[data-ai-typing]');
+      if(!active){
+        if(existing)existing.remove();
+        return;
+      }
+      if(!existing){
+        messages.insertAdjacentHTML('beforeend','<article class="shopping-message from-admin is-ai-typing" data-ai-typing><strong>GAERU AI</strong><p>Đang phản hồi nhanh…</p></article>');
+        if(nearBottom())scrollToLatest(true);
+      }
+    }
+    function scheduleFastAIRefresh(){
+      if(admin||stopped)return;
+      clearFastAiTimers();
+      if(aiCapabilities?.aiConfigured&&thread?.handlingMode!=='human'&&!thread?.handoffOffered&&thread?.status!=='closed'){
+        syncAiTypingIndicator(true);
+      }
+      for(const delayMs of [160,380,700,1150,1750,2500,3500]){
+        fastAiTimers.push(setTimeout(()=>{
+          if(!stopped&&id)void refresh();
+        },delayMs));
+      }
+    }
     function renderFiles(){
       root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<figure class="chat-preview">${f.url?media(f.url,f.file.type,f.file.name):''}<figcaption>${escape(f.file.name)}<small>${formatSize(f.file.size)} · Sẵn sàng gửi nhanh & tải ngầm</small><small data-media-error hidden>Thiết bị chưa xem được định dạng này. Bạn vẫn có thể gửi tệp.</small></figcaption><button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}">×</button></figure>`).join('');
       root.querySelectorAll('.chat-preview img,.chat-preview video').forEach(el=>el.addEventListener('error',()=>{el.hidden=true;el.closest('figure').querySelector('[data-media-error]').hidden=false;},{once:true}));
@@ -99,8 +126,8 @@
       else if(thread?.handlingMode==='human')text='Hội thoại được nhân viên GAERU hỗ trợ. AI đã tạm dừng trong hội thoại này.';
       else if(!aiCapabilities)text='Chưa xác minh được trạng thái Chat AI. Bạn vẫn có thể yêu cầu nhân viên hỗ trợ.';
       else if(!aiCapabilities.aiConfigured)text='Chat AI chưa bật hoặc chưa đủ cấu hình. Chọn Gặp nhân viên để được hỗ trợ.';
-      else text=(names[aiCapabilities.provider]||'Chat AI')+(thread?.handoffOffered?' đang tạm dừng trả lời. Bạn có thể kết nối nhân viên.':' đang được bật để hỗ trợ tự động.')+' Hỗ trợ gửi nhanh, tải tệp/ảnh/video không giới hạn dung lượng và tự động nén ngầm.';
-      if(note.textContent!==text)note.textContent=text;if(!thread){const state=root.querySelector('[data-chat-state]');state.textContent=aiCapabilities?.aiConfigured?'Xin chào! '+(names[aiCapabilities.provider]||'AI của GAERU')+' sẽ tiếp nhận câu hỏi của bạn.':'Xin chào! Bạn có thể gửi yêu cầu cho nhân viên GAERU.';}
+      else text=(names[aiCapabilities.provider]||'Chat AI')+(thread?.handoffOffered?' đang tạm dừng trả lời. Bạn có thể kết nối nhân viên.':' đang bật chế độ phản hồi tốc độ cao.')+' Hỗ trợ gửi nhanh, tải tệp/ảnh/video không giới hạn dung lượng và tự động nén ngầm.';
+      if(note.textContent!==text)note.textContent=text;if(!thread){const state=root.querySelector('[data-chat-state]');state.textContent=aiCapabilities?.aiConfigured?'Xin chào! '+(names[aiCapabilities.provider]||'AI của GAERU')+' sẽ tiếp nhận và phản hồi nhanh câu hỏi của bạn.':'Xin chào! Bạn có thể gửi yêu cầu cho nhân viên GAERU.';}
     }
     async function loadCapabilities(){capabilitiesReadAt=Date.now();try{aiCapabilities=await request('/api/shopping-chat/capabilities');}catch{aiCapabilities=null;}if(!stopped)renderAINote();}
     function syncSupport(){
@@ -119,16 +146,26 @@
         const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
         const near=nearBottom(),oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set(confirmedNodes.map(e=>e.dataset.messageId));
         for(const m of d.messages){if(m.requestKey){const opt=messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(m.requestKey):m.requestKey}"]`);if(opt)opt.remove();}}
-        const html=d.messages.filter(m=>!known.has(String(m.id))).map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
+        const newMessages=d.messages.filter(m=>!known.has(String(m.id)));
+        const html=newMessages.map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);
         else{
-          const firstOptimistic=messages.querySelector('[data-optimistic-key]');
-          if(firstOptimistic)firstOptimistic.insertAdjacentHTML('beforebegin',html);
+          const anchor=messages.querySelector('[data-optimistic-key],[data-ai-typing]');
+          if(anchor)anchor.insertAdjacentHTML('beforebegin',html);
           else messages.insertAdjacentHTML('beforeend',html);
+        }
+        if(!admin){
+          const gotAiOrStaffReply=newMessages.some(m=>m.sender==='ai'||m.sender==='admin');
+          if(gotAiOrStaffReply||!thread?.aiPending||thread?.handlingMode==='human'||thread?.handoffOffered||thread?.status==='closed'){
+            syncAiTypingIndicator(false);
+            if(gotAiOrStaffReply||!thread?.aiPending)clearFastAiTimers();
+          }else if(thread?.aiPending&&aiCapabilities?.aiConfigured){
+            syncAiTypingIndicator(true);
+          }
         }
         if(before)messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;else if(html&&(near||first))scrollToLatest(!first);
         if(first||before)root.querySelector('[data-chat-earlier]').hidden=!d.hasMore;
-        root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?(thread.staffReplied?'Nhân viên đang hỗ trợ · ':'Chờ nhân viên · '):thread.handoffOffered?'AI tạm dừng · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
+        root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?(thread.staffReplied?'Nhân viên đang hỗ trợ · ':'Chờ nhân viên · '):thread.handoffOffered?'AI tạm dừng · ':thread.aiPending?'GAERU AI đang trả lời… · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
         if(d.hasMore&&!before&&!first)setTimeout(()=>refresh(),0);
       }finally{busy=false;}
     }
@@ -223,7 +260,10 @@
     function insertOptimisticBubble(reqKey,label,bodyText,previewHtml,statusText){
       const senderClass=admin?'from-admin':'from-customer';
       const senderLabel=admin?'GAERU':'Bạn';
-      messages.insertAdjacentHTML('beforeend',`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}"><strong>${senderLabel}</strong><p>${escape(bodyText)}</p>${previewHtml||''}<small class="chat-bg-status" data-bg-status>${escape(statusText)}</small><time>${escape(label)}</time></article>`);
+      const typingNode=messages.querySelector('[data-ai-typing]');
+      const html=`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}"><strong>${senderLabel}</strong><p>${escape(bodyText)}</p>${previewHtml||''}<small class="chat-bg-status" data-bg-status>${escape(statusText)}</small><time>${escape(label)}</time></article>`;
+      if(typingNode)typingNode.insertAdjacentHTML('beforebegin',html);
+      else messages.insertAdjacentHTML('beforeend',html);
       scrollToLatest(true);
       return messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(reqKey):reqKey}"]`);
     }
@@ -251,6 +291,7 @@
           }
           const msgStatus=textNode?.querySelector('[data-bg-status]');
           if(msgStatus)msgStatus.textContent='Đã gửi';
+          if(!queuedFiles.length)scheduleFastAIRefresh();
           for(const {item,node} of fileNodes){
             const statusNode=node?.querySelector('[data-bg-status]');
             try{
@@ -261,8 +302,10 @@
             }
           }
           await refresh();
+          if(!admin&&thread?.aiPending)scheduleFastAIRefresh();
           feedback.textContent=queuedFiles.length?'Đã tải lên và nén tệp ngầm hoàn tất.':'Đã gửi.';
         }catch(error){
+          syncAiTypingIndicator(false);
           const msgStatus=textNode?.querySelector('[data-bg-status]');
           if(msgStatus)msgStatus.textContent='Chưa gửi được: '+error.message;
           feedback.textContent=error.message;
@@ -285,8 +328,8 @@
     root.addEventListener('click',event=>{if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();});
     const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
     if(!admin)void loadCapabilities();
-    const poll=window.GAERUCareLive.poll({delay:4000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
+    const poll=window.GAERUCareLive.poll({delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
-    return {refresh,stop(){stopped=true;poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];},get thread(){return thread;}};
+    return {refresh,stop(){stopped=true;clearFastAiTimers();poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];},get thread(){return thread;}};
   }};
 })();

@@ -34,3 +34,6 @@
 .chat-quick-chip:hover:not(:disabled){border-color:#0071e3;background:#f0f6ff;color:#0066cc}
 .shopping-message.is-optimistic{opacity:.92;border:1px dashed #0071e3}
 .shopping-message .chat-bg-status{display:block;font-size:11px;font-weight:600;color:#0066cc;margin:4px 0}
+
+.shopping-message.is-ai-typing{border:1px solid #cce3ff;background:#f0f7ff;opacity:.95}
+.shopping-message.is-ai-typing p{color:#0066cc;font-style:italic}
