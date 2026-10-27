@@ -390,7 +390,13 @@ async function renderCheckout() {
         <label>
           <select name="paymentMethod" aria-label="Phương thức thanh toán">
             ${paymentMethods.includes("cod") ? '<option value="cod">Thanh toán khi nhận hàng (COD)</option>' : ""}
+            ${paymentMethods.includes("bank_transfer") ? '<option value="bank_transfer">Chuyển khoản ngân hàng</option>' : ""}
             ${paymentMethods.includes("vnpay") ? '<option value="vnpay">Thanh toán trực tuyến qua VNPAY</option>' : ""}
+
+            ${paymentMethods.includes("9pay") ? '<option value="9pay">Thanh toán trực tuyến qua 9Pay</option>' : ""}
+            ${paymentMethods.includes("momo") ? '<option value="momo">Ví điện tử MoMo</option>' : ""}
+            ${paymentMethods.includes("zalopay") ? '<option value="zalopay">Ví điện tử ZaloPay</option>' : ""}
+
           </select>
         </label>
         <p class="payment-placeholder" data-payment-help>GAERU sẽ xác nhận đơn hàng trước khi gửi.</p>
@@ -427,10 +433,23 @@ async function renderCheckout() {
   window.GAERUCheckout.hydrateContact({root,form,request:apiRequest,updateTotal:updateShippingTotal});
   updateShippingTotal();
   const updatePaymentHelp = () => {
-    paymentHelp.textContent = paymentMethod.value === "cod"
-      ? "Thanh toán trực tiếp khi nhận hàng."
-      : "Bạn sẽ được chuyển tới VNPAY để hoàn tất thanh toán an toàn.";
+    const bank = storeSettings.bankTransfer;
+    const map = {
+      cod: storeSettings.cod?.instructions || "Thanh toán trực tiếp khi nhận hàng. GAERU sẽ xác nhận đơn trước khi gửi.",
+      bank_transfer: bank
+        ? `Chuyển khoản tới ${bank.bankName} · STK ${bank.accountNumber} (${bank.accountHolder}) với nội dung theo cú pháp ${bank.transferSyntax}. Giao dịch khớp tự động sẽ duyệt đơn sang Chờ gửi hàng, bỏ qua bước xác nhận.`
+        : "Chuyển khoản ngân hàng theo cú pháp mã đơn. Đơn được duyệt tự động sang Chờ gửi hàng ngay khi khớp giao dịch.",
+      vnpay: "Bạn sẽ được chuyển tới VNPAY để thanh toán an toàn. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.",
+      "9pay": "Bạn sẽ được chuyển tới cổng 9Pay để thanh toán. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.",
+      momo: "Bạn sẽ được chuyển tới Ví MoMo để thanh toán. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng.",
+      zalopay: "Bạn sẽ được chuyển tới Ví ZaloPay để thanh toán. Giao dịch thành công sẽ tự động duyệt đơn sang Chờ gửi hàng."
+    };
+    paymentHelp.textContent = map[paymentMethod.value] || map.cod;
   };
+
+
+
+  // bind paymentMethod change
   paymentMethod.addEventListener("change", updatePaymentHelp);
   updatePaymentHelp();
 
@@ -472,7 +491,21 @@ async function renderCheckout() {
         location.assign(result.paymentUrl);
         return;
       }
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p><a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      const bt = result.bankTransfer;
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="checkout-notice"><strong>Thông tin chuyển khoản ngân hàng</strong><p>Ngân hàng: <strong>${escapeHtml(bt.bankName)}</strong>${bt.branch?` (${escapeHtml(bt.branch)})`:""}<br>Số tài khoản: <strong>${escapeHtml(bt.accountNumber)}</strong><br>Chủ tài khoản: <strong>${escapeHtml(bt.accountHolder)}</strong><br>Số tiền: <strong>${formatPrice(bt.amountVnd ?? result.order.totalVnd)}</strong><br>Nội dung chuyển khoản: <strong>${escapeHtml(bt.transferContent)}</strong></p><p data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      if (bt) {
+        const pollTimer = setInterval(async () => {
+          const liveNode = root.querySelector("[data-prepaid-live-status]");
+          if (!liveNode) { clearInterval(pollTimer); return; }
+          try {
+            const check = await apiRequest(`/api/payments/order-status?order=${encodeURIComponent(result.order.orderNumber)}`);
+            if (check.order?.paymentStatus === "paid") {
+              liveNode.textContent = "Đã so khớp giao dịch thành công! Đơn hàng đã tự động duyệt sang trạng thái Chờ gửi hàng.";
+              clearInterval(pollTimer);
+            }
+          } catch {}
+        }, 4000);
+      }
     } catch (error) {
       feedback.textContent = error.message;
       button.disabled = false;

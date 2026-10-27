@@ -6,7 +6,7 @@ const { requireCsrf } = require('./security');
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const money = value => value == null ? 'Chưa chốt' : new Intl.NumberFormat('vi-VN').format(Number(value)) + ' ₫';
-const labels = {pending:'Chờ xác nhận',confirmed:'Đã xác nhận',processing:'Đang xử lý',shipped:'Đang giao',completed:'Hoàn tất',cancelled:'Đã hủy',cod:'Thanh toán khi nhận hàng',bank_transfer:'Chuyển khoản',vnpay:'VNPAY','9pay':'9Pay'};
+const labels = {pending:'Chờ xác nhận',confirmed:'Đã xác nhận',processing:'Đang xử lý',shipped:'Đang giao',completed:'Hoàn tất',cancelled:'Đã hủy',cod:'Thanh toán khi nhận hàng',bank_transfer:'Chuyển khoản',vnpay:'VNPAY','9pay':'9Pay',momo:'MoMo',zalopay:'ZaloPay'};
 const printSchema = z.object({ids:z.array(z.string().uuid()).min(1).max(100).refine(ids => new Set(ids).size === ids.length),format:z.enum(['invoice','label'])}).strict();
 function due(order) {
   if (order.paymentMethod !== 'cod' || order.paymentStatus === 'paid') return 0;

@@ -24,7 +24,7 @@ const orderSchema = z.object({
   expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
-  paymentMethod: z.enum(["cod", "vnpay"]),
+  paymentMethod: z.enum(["cod", "bank_transfer", "vnpay", "9pay", "momo", "zalopay"]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
     quantity: z.number().int().min(1).max(99)
@@ -106,7 +106,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, paymentChannels = null, getPaymentChannels = null, publicBaseUrl = "https://gaeru.com", inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -130,7 +130,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     });
   };
 
-  router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;next();}catch(error){next(error);}});
+  router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;req.paymentChannels=getPaymentChannels?await getPaymentChannels():paymentChannels;next();}catch(error){next(error);}});
   router.get("/products", async (req, res) => {
     const products = await loadProducts(pool, { search: String(req.query.q || "") });
     res.json(decoratePublicProductImages({ products }));
@@ -149,7 +149,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       ...(shippingChoices ? {shippingCarriers:(await require("./shipping-choice").availableCarriers(pool)).map(({id,name})=>({id,name}))} : {}),
       shippingNote: settings.shipping_note || "",
       shippingRates: settings.shipping_rates || {},
-      paymentMethods: ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
+      paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
+      ...(req.paymentChannels?.bankTransfer ? { bankTransfer: req.paymentChannels.bankTransfer } : {}),
+      ...(req.paymentChannels?.cod ? { cod: req.paymentChannels.cod } : {}),
       ordersEnabled:req.ordersEnabled
     });
   });
@@ -205,7 +207,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           [attempt.id, successful ? "paid" : "failed", parameters.vnp_TransactionNo || null, parameters.vnp_ResponseCode || null]
         );
         if (successful) {
-          await client.query("UPDATE orders SET payment_status='paid', updated_at=now() WHERE id=$1", [attempt.orderId]);
+          await client.query("UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, updated_at=now() WHERE id=$1", [attempt.orderId]);
         }
         await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
         return { code: "00", message: "Confirm Success" };
@@ -215,6 +217,89 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       next(error);
     }
   });
+
+  router.get("/payments/order-status", async (req, res, next) => {
+    try {
+      const orderNumber = require("./payment-channels").extractOrderNumber(req.query.order);
+      if (!orderNumber) return res.status(400).json({ error: "Thiếu mã đơn hàng." });
+      const row = (await pool.query(
+        `SELECT order_number AS "orderNumber", status, payment_method AS "paymentMethod",
+          payment_status AS "paymentStatus", total_vnd AS "totalVnd", updated_at AS "updatedAt"
+         FROM orders WHERE order_number = $1`,
+        [orderNumber]
+      )).rows[0];
+      if (!row) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
+      res.json({ order: row });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/payments/:provider/return", async (req, res, next) => {
+    const provider = String(req.params.provider || "");
+    if (!["9pay", "momo", "zalopay"].includes(provider)) return next();
+    try {
+      const channelConfig = req.paymentChannels?.configs?.[provider];
+      if (!channelConfig) return res.sendStatus(404);
+      const verified = require("./payment-channels").verifyGatewayPayload(provider, req.query, channelConfig);
+      if (!verified.valid) return res.redirect(`/payment-result.html?result=invalid&provider=${encodeURIComponent(provider)}`);
+      await require("./payment-channels").reconcilePrepaidOrder(pool, {
+        provider,
+        orderNumber: verified.orderNumber,
+        amountVnd: verified.amountVnd,
+        successful: verified.successful,
+        providerTransactionId: verified.providerTransactionId,
+        responseCode: verified.responseCode,
+        finance,
+        audit
+      });
+      const query = new URLSearchParams({
+        result: verified.successful ? "processing" : "failed",
+        provider,
+        order: verified.orderNumber || ""
+      });
+      res.redirect(`/payment-result.html?${query}`);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  const handleGatewayIpn = async (req, res, next) => {
+    const provider = String(req.params.provider || "");
+    if (!["9pay", "momo", "zalopay", "bank_transfer"].includes(provider)) return next();
+    try {
+      const channelConfig = req.paymentChannels?.configs?.[provider];
+      if (!channelConfig) return res.status(404).json({ code: "99", message: "Provider unavailable" });
+      const payload = { ...(req.query || {}), ...(req.body || {}) };
+      if (req.headers["x-gaeru-signature"] && !payload.signature) payload.signature = String(req.headers["x-gaeru-signature"]);
+      const verified = require("./payment-channels").verifyGatewayPayload(provider, payload, channelConfig);
+      if (!verified.valid) {
+        return res.status(400).json({ code: "97", return_code: -1, resultCode: 97, message: verified.reason || "Invalid signature" });
+      }
+      const outcome = await require("./payment-channels").reconcilePrepaidOrder(pool, {
+        provider,
+        orderNumber: verified.orderNumber,
+        amountVnd: verified.amountVnd,
+        successful: verified.successful,
+        providerTransactionId: verified.providerTransactionId,
+        responseCode: verified.responseCode,
+        finance,
+        audit
+      });
+      if (provider === "zalopay") {
+        return res.json({ return_code: outcome.code === "00" || outcome.code === "02" ? 1 : 0, return_message: outcome.message, orderStatus: outcome.orderStatus, paymentStatus: outcome.paymentStatus });
+      }
+      if (provider === "momo") {
+        return res.json({ resultCode: outcome.code === "00" || outcome.code === "02" ? 0 : Number(outcome.code), message: outcome.message, orderStatus: outcome.orderStatus, paymentStatus: outcome.paymentStatus });
+      }
+      res.json({ code: outcome.code, RspCode: outcome.code, Message: outcome.message, orderStatus: outcome.orderStatus, paymentStatus: outcome.paymentStatus });
+    } catch (error) {
+      next(error);
+    }
+  };
+  router.get("/payments/:provider/ipn", handleGatewayIpn);
+  router.post("/payments/:provider/ipn", handleGatewayIpn);
+  router.post("/payments/bank_transfer/webhook", (req, res, next) => { req.params.provider = "bank_transfer"; return handleGatewayIpn(req, res, next); });
 
   router.post("/orders", (req, res, next) => {
     if (!req.ordersEnabled) {
@@ -227,8 +312,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if (!parsed.success) {
         return res.status(400).json({ error: "Thông tin đặt hàng chưa hợp lệ.", details: parsed.error.issues });
       }
-      if (parsed.data.paymentMethod === "vnpay" && !req.vnpayConfig) {
-        return res.status(503).json({ error: "VNPAY chưa được cấu hình trên máy chủ." });
+      if (parsed.data.paymentMethod === "vnpay" && !req.vnpayConfig) { return res.status(503).json({ error: "VNPAY chưa được cấu hình trên máy chủ." }); }
+      if (req.paymentChannels && !req.paymentChannels.methods.includes(parsed.data.paymentMethod)) { return res.status(503).json({ error: "Phương thức thanh toán đã chọn hiện chưa khả dụng." }); }
+      if (!req.paymentChannels && ["bank_transfer", "9pay", "momo", "zalopay"].includes(parsed.data.paymentMethod)) { return res.status(503).json({ error: "Kênh thanh toán chưa được cấu hình trên máy chủ." });
+      // payment method checked above
       }
       const uniqueItems = new Map();
       for (const item of parsed.data.items) {
@@ -300,6 +387,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 400;
           throw error;
         }
+        if (parsed.data.paymentMethod === "cod" && req.paymentChannels?.cod?.maxAmountVnd && total > req.paymentChannels.cod.maxAmountVnd) {
+          throw Object.assign(new Error(`Đơn hàng vượt hạn mức thu hộ COD (${new Intl.NumberFormat("vi-VN").format(req.paymentChannels.cod.maxAmountVnd)} ₫). Vui lòng chọn phương thức thanh toán trước.`), { status: 400 });
+        }
         const orderNumber = `GR-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
         const inserted = await client.query(
           `INSERT INTO orders (order_number, customer_name, email, phone, address, city, note,
@@ -334,6 +424,38 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           );
         }
         let paymentUrl = null;
+        let bankTransfer = null;
+        if (["9pay", "momo", "zalopay"].includes(parsed.data.paymentMethod)) {
+          const channelConfig = req.paymentChannels?.configs?.[parsed.data.paymentMethod];
+          if (!channelConfig) throw Object.assign(new Error("Kênh thanh toán vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
+          await client.query(
+            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
+             VALUES ($1, $2, $3, $4, now() + interval '15 minutes')`,
+            [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd]
+          );
+          const builders = {
+            "9pay": require("./payment-channels").buildNinepayPaymentUrl,
+            momo: require("./payment-channels").buildMomoPaymentUrl,
+            zalopay: require("./payment-channels").buildZalopayPaymentUrl
+          };
+          paymentUrl = builders[parsed.data.paymentMethod](channelConfig, {
+            amountVnd: createdOrder.totalVnd,
+            txnRef: createdOrder.orderNumber,
+            baseUrl: publicBaseUrl
+          });
+        } else if (parsed.data.paymentMethod === "bank_transfer") {
+          const channelConfig = req.paymentChannels?.configs?.bank_transfer;
+          if (!channelConfig) throw Object.assign(new Error("Chuyển khoản ngân hàng vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
+          await client.query(
+            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
+             VALUES ($1, 'bank_transfer', $2, $3, now() + interval '24 hours')`,
+            [createdOrder.id, createdOrder.orderNumber, createdOrder.totalVnd]
+          );
+          bankTransfer = require("./payment-channels").formatBankTransferInstructions(channelConfig, {
+            orderNumber: createdOrder.orderNumber,
+            amountVnd: createdOrder.totalVnd
+          });
+        }
         if (parsed.data.paymentMethod === "vnpay") {
           await client.query(
             `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
@@ -349,16 +471,24 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         await audit(client, { actor: { username: "customer", source: "customer" }, action: "order.create", entityType: "order", entityId: createdOrder.id, metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod } });
         return {
           order: { ...createdOrder, items: prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({ productName, variantName, sku, priceVnd, quantity })) },
-          paymentUrl
+          paymentUrl,
+          ...(bankTransfer ? { bankTransfer } : {})
         };
       });
 
       res.status(201).json({
         order: order.order,
         paymentUrl: order.paymentUrl,
+        ...(order.bankTransfer ? { bankTransfer: order.bankTransfer } : {}),
         message: parsed.data.paymentMethod === "cod"
           ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
-          : "Đã tạo phiên thanh toán VNPAY. Hoàn tất thanh toán trên trang VNPAY để đơn hàng được xác nhận."
+
+          : parsed.data.paymentMethod === "bank_transfer"
+            ? "Đã tiếp nhận đơn chuyển khoản. Sau khi giao dịch được xác nhận khớp số tiền và mã đơn, đơn hàng sẽ tự động chuyển sang trạng thái Chờ gửi hàng."
+            : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
+
+
+
       });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -650,7 +780,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const paymentStatus = String(req.query.paymentStatus || "");
     const paymentMethod = String(req.query.paymentMethod || "");
     if ((paymentStatus && !["pending", "paid"].includes(paymentStatus)) ||
-        (paymentMethod && !["cod", "bank_transfer", "9pay", "vnpay"].includes(paymentMethod))) {
+        (paymentMethod && !["cod", "bank_transfer", "9pay", "vnpay", "momo", "zalopay"].includes(paymentMethod))) {
       return res.status(400).json({ error: "Bộ lọc thanh toán đơn hàng không hợp lệ." });
     }
     const search = String(req.query.q || "").trim();
@@ -738,7 +868,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if (receivedAmount > 0 && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
           const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
         }
-        if (update.status && update.status !== current.status && !transitions[current.status].includes(update.status)) {
+        const prepaidAutoProcess = current.payment_method !== "cod" && (current.payment_status === "paid" || update.paymentStatus === "paid");
+        if (update.status && update.status !== current.status && !transitions[current.status].includes(update.status) && !(prepaidAutoProcess && current.status === "pending" && update.status === "processing")) {
           const error = new Error(`Không thể chuyển đơn từ ${current.status} sang ${update.status}.`);
           error.status = 409;
           throw error;
@@ -749,7 +880,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        if (paymentStatusChanged && ["vnpay", "9pay"].includes(current.payment_method)) {
+        if (paymentStatusChanged && ["vnpay", "9pay", "momo", "zalopay"].includes(current.payment_method)) {
           const error = new Error("Trạng thái thanh toán trực tuyến được cập nhật từ cổng thanh toán, không thể sửa thủ công.");
           error.status = 409;
           throw error;
@@ -759,7 +890,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        const targetStatus = update.status ?? current.status;
+        const autoApproveToProcessing = paymentStatusChanged && update.paymentStatus === "paid" && current.payment_method !== "cod" && ["pending", "confirmed"].includes(current.status) && (!update.status || ["pending", "confirmed", "processing"].includes(update.status));
+        const targetStatus = autoApproveToProcessing ? "processing" : (update.status ?? current.status);
         const targetPaymentStatus = update.paymentStatus ?? current.payment_status;
         const shippingFee = update.shippingFeeVnd ?? current.shipping_fee_vnd;
         const shippingFeeChanged = update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd;
@@ -768,7 +900,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        if (shippingFeeChanged && current.payment_method === "vnpay") {
+        if (shippingFeeChanged && ["vnpay", "9pay", "momo", "zalopay"].includes(current.payment_method)) {
           const paymentAttempt = await client.query(
             "SELECT EXISTS (SELECT 1 FROM payment_attempts WHERE order_id = $1) AS active",
             [current.id]
@@ -779,7 +911,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             throw error;
           }
         }
-        if (update.status === "cancelled" && current.status !== "cancelled" && current.payment_method === "vnpay") {
+        if (update.status === "cancelled" && current.status !== "cancelled" && ["vnpay", "9pay", "momo", "zalopay"].includes(current.payment_method)) {
           const activeAttempt = await client.query(
             `SELECT EXISTS (
                SELECT 1 FROM payment_attempts
@@ -844,7 +976,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             shipping_fee_vnd=$4, total_vnd=$5, updated_at=now()
            WHERE id=$1 RETURNING id, status, payment_status AS "paymentStatus",
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
-          [current.id, update.status || null, update.paymentStatus || null, shippingFee, total]
+          [current.id, (autoApproveToProcessing ? "processing" : update.status) || null, update.paymentStatus || null, shippingFee, total]
         );
         await audit(client, { actor: actor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         return updated.rows[0];
@@ -893,7 +1025,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.get("/gaeru_ceo/settings", async (req, res) => {
     res.json({
       ...await getSettings(pool, ["shipping_note", "shipping_rates"]),
-      paymentMethods: ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])]
+      paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])]
     });
   });
 

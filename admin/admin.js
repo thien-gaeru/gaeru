@@ -30,7 +30,9 @@ const labels = {
   cod: "Thanh toán khi nhận hàng",
   bank_transfer: "Chuyển khoản thủ công",
   vnpay: "VNPAY",
-  "9pay": "9Pay"
+  "9pay": "9Pay",
+  momo: "MoMo",
+  zalopay: "ZaloPay"
 };
 const categoryLabels = { audio: "Thu âm", video: "Ghi hình", accessory: "Phụ kiện" };
 const orderTransitions = {
@@ -512,7 +514,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function isLiveVnpayAttempt(order) {
-  return order.paymentMethod === "vnpay" && order.paymentAttemptStatus === "pending"
+  return ["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod) && order.paymentAttemptStatus === "pending"
     && (!order.paymentAttemptExpiresAt || new Date(order.paymentAttemptExpiresAt).getTime() > Date.now());
 }
 
@@ -523,7 +525,7 @@ function canEditShipping(order) {
 
 function orderPaymentControl(order) {
   const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
-  if (["vnpay", "9pay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật từ cổng thanh toán.</small></div>`;
+  if (["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
   if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
   return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
@@ -587,7 +589,7 @@ function renderOrders() {
   root.innerHTML = state.orders.map((order) => {
     const orderDate = new Date(order.createdAt).toLocaleString("vi-VN");
     const allowed = can("orders.write") ? (orderTransitions[order.status] || []).filter((status) => (status !== "cancelled" || (order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0) && !isLiveVnpayAttempt(order)))
-      && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "9pay"].includes(order.paymentMethod)))) : [];
+      && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod)))) : [];
     const optionMarkup = [order.status, ...allowed].map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(labels[key] || key)}</option>`).join("");
     const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
     const paymentNote = order.paymentProvider === "vnpay" ? (order.paymentAttemptStatus === "pending" && !isLiveVnpayAttempt(order) ? "Phiên thanh toán VNPAY đã hết hạn; kiểm tra đối soát trước khi xử lý đơn." : paymentAttemptLabels[order.paymentAttemptStatus]) : "";
@@ -725,7 +727,7 @@ async function loadSettings() {
   const form = document.querySelector("#settings-form");
   form.elements.shippingNote.value = settings.shipping_note || "";
   document.querySelector("#payment-provider-status").textContent =
-    `Đang khả dụng: ${settings.paymentMethods.map((method) => method === "cod" ? "COD" : method.toUpperCase()).join(", ")}. 9Pay chưa được cấu hình.`;
+    `Đang kích hoạt tại trang đặt hàng: ${settings.paymentMethods.map((method) => method === "cod" ? "COD" : (labels[method] || method.toUpperCase())).join(", ")}.`;
   renderShippingRates(settings.shipping_rates || {});
   if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
   applyPermissions();
