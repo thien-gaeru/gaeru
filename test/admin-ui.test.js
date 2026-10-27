@@ -9,7 +9,7 @@ test('every admin navigation entry has a unique title and contextual description
  assert.deepEqual([...keys].sort(),Object.keys(ui.views).sort());
  for(const key of keys){assert.ok(ui.title(key));assert.ok(ui.description(key).length>20);}
  assert.equal(ui.roleName('owner'),'Chủ doanh nghiệp');
- assert.equal(ui.title('warranty'),'Bảo hành sản phẩm');assert.equal(ui.imageUrl('https://gaeru.org/assets/products/k9.png'),'/assets/products/k9.webp');assert.equal(ui.imageUrl('https://gaeru.com/api/catalog-images/11111111-2222-3333-4444-555555555555'),'/api/gaeru_ceo/catalog-images/11111111-2222-3333-4444-555555555555?v=webp-20261025');
+ assert.equal(ui.title('warranty'),'Bảo hành sản phẩm');assert.equal(ui.imageUrl('https://www.gaeru.com/assets/products/k9.png'),'/assets/products/k9.webp');assert.equal(ui.imageUrl('https://gaeru.com/api/catalog-images/11111111-2222-3333-4444-555555555555'),'/api/gaeru_ceo/catalog-images/11111111-2222-3333-4444-555555555555?v=webp-20261025');
 });
 
 test('navigation validates access and maintains loading state and direct links',async()=>{

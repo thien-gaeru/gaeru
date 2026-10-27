@@ -4,7 +4,7 @@ Trong quản trị, vào Tin tức → Viết bài mới (hoặc Chỉnh sửa) 
 
 ## Cấu hình OpenAI trên Hostinger
 
-Trong cấu hình biến môi trường của ứng dụng Node.js gaeru.org, bổ sung OPENAI_API_KEY bằng khóa riêng của tài khoản OpenAI API. Giữ nguyên toàn bộ biến đang có, lưu và khởi động lại/triển khai lại ứng dụng. Có thể thêm OPENAI_NEWS_MODEL (mặc định gpt-4.1-mini). Không đặt khóa trong bài viết, HTML, JavaScript trình duyệt hoặc Git. Giao diện chỉ báo đã có cấu hình, không hiển thị khóa. Khóa phải có quyền gọi mô hình và tài khoản còn hạn mức API.
+Trong cấu hình biến môi trường của ứng dụng Node.js gaeru.com, bổ sung OPENAI_API_KEY bằng khóa riêng của tài khoản OpenAI API. Giữ nguyên toàn bộ biến đang có, lưu và khởi động lại/triển khai lại ứng dụng. Có thể thêm OPENAI_NEWS_MODEL (mặc định gpt-4.1-mini). Không đặt khóa trong bài viết, HTML, JavaScript trình duyệt hoặc Git. Giao diện chỉ báo đã có cấu hình, không hiển thị khóa. Khóa phải có quyền gọi mô hình và tài khoản còn hạn mức API.
 
 Dữ kiện được gửi đến OpenAI theo hành động của người soạn; không nhập dữ liệu khách hàng vào phần này. Ứng dụng gọi Responses API từ máy chủ với store:false và định dạng JSON cố định; không tự truy cập liên kết hoặc tự xuất bản. Mỗi yêu cầu giới hạn 6000 output tokens, chờ tối đa 60 giây; tối đa 2 yêu cầu đang xử lý và 20 lần mỗi giờ theo IP trên mỗi tiến trình. Bộ đếm này đặt lại khi khởi động lại.
 

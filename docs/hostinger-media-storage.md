@@ -61,6 +61,6 @@ Owner storage recheck now reports the configured root, resolved real path, appli
 
 The /media sample resolves the real UUID filename, not an illustrative products/k9/main.webp path. Existing /api/catalog-images URLs are application readers for filesystem references and are not old Neon bucket URLs. Neither route requires mounting all private storage with express.static.
 
-Validation: 342 tests pass, including a real filesystem inventory of a resolved directory, upload/publication/privacy checks and the full reference audit. Public checks on both gaeru.com and gaeru.org confirmed the same storage sentinel fingerprint and a WebP image response with status 200 before release.
+Validation: 342 tests pass, including a real filesystem inventory of a resolved directory, upload/publication/privacy checks and the full reference audit. Public checks on gaeru.com confirmed the storage sentinel fingerprint and a WebP image response with status 200 before release.
 
 Ảnh giao diện đóng gói được lưu bền vững và phục vụ qua URL cũ theo [quy ước liên kết và ảnh](primary-links-and-assets.md).

@@ -99,4 +99,4 @@ test('public DTO decoration leaves non-image scalar values intact', () => {
   }
 });
 
-test('owned absolute image URLs become primary same-site paths while external URLs stay intact',()=>{for(const host of ['gaeru.com','gaeru.org','www.gaeru.com','www.gaeru.org'])assert.equal(publicImageUrl('https://'+host+'/assets/products/m3.png?v=one'),'/assets/products/m3.webp?v=one');assert.equal(publicImageUrl('https://external.invalid/image.png'),'https://external.invalid/image.png');});
+test('owned absolute image URLs become primary same-site paths while external URLs stay intact',()=>{for(const host of ['gaeru.com','www.gaeru.com'])assert.equal(publicImageUrl('https://'+host+'/assets/products/m3.png?v=one'),'/assets/products/m3.webp?v=one');assert.equal(publicImageUrl('https://external.invalid/image.png'),'https://external.invalid/image.png');});

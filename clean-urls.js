@@ -3,7 +3,7 @@
  for(const id of ['k9','m3','p01','g1-ultra']){paths['discover-'+id+'.html']='/kham-pha/gaeru-'+id;paths['guide-'+id+'.html']='/huong-dan/gaeru-'+id;}
  function clean(value,origin='https://gaeru.com'){
   if(typeof value!=='string'||!value||value.startsWith('#')||/^(?:mailto:|tel:|javascript:|data:)/i.test(value))return value;
-  let u;try{u=new URL(value,origin+'/')}catch{return value}const brand=url=>['http:','https:'].includes(url.protocol)&&['gaeru.com','gaeru.org','www.gaeru.com','www.gaeru.org'].includes(url.hostname)&&!url.username&&!url.password;const owned=brand(u)&&brand(new URL(origin));if(u.origin!==origin&&!owned)return value;
+  let u;try{u=new URL(value,origin+'/')}catch{return value}const brand=url=>['http:','https:'].includes(url.protocol)&&['gaeru.com','www.gaeru.com'].includes(url.hostname)&&!url.username&&!url.password;const owned=brand(u)&&brand(new URL(origin));if(u.origin!==origin&&!owned)return value;
   const file=u.pathname.replace(/^\//,'');let target=paths[file];if(file==='gaeru-k9'||file==='gaeru-k9/')target='/kham-pha/gaeru-k9';
   if(file==='product.html'&&u.searchParams.get('id')){target='/san-pham/'+encodeURIComponent(u.searchParams.get('id'));u.searchParams.delete('id');}
   if(file==='news-article.html'&&u.searchParams.get('slug')){target='/tin-tuc/'+encodeURIComponent(u.searchParams.get('slug'));u.searchParams.delete('slug');}

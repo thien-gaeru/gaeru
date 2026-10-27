@@ -2,7 +2,7 @@
 
 Miền công khai chính: `https://gaeru.com`. Liên kết nội bộ trong HTML và phần JavaScript bổ sung dùng đường dẫn gốc như `/cua-hang`, `/san-pham/gaeru-k9`, `/dang-ky-bao-hanh`. Canonical, Open Graph, Twitter và sitemap dùng URL tuyệt đối của miền chính. Query và fragment phục vụ giỏ hàng, xác thực và chiến dịch được giữ nguyên.
 
-Các liên kết tuyệt đối thuộc `gaeru.org`, `www.gaeru.org`, `www.gaeru.com` hoặc HTTP được chuẩn hóa khi dựng HTML và khi thêm phần tử mới trên trình duyệt. Miền ngoài, mailto và tel được giữ nguyên. Miền phụ chuyển hướng các lượt đọc trang công khai; API, callback thanh toán và phiên quản trị cũ tiếp tục hoạt động để không làm hỏng các yêu cầu đang chạy. Không thay đổi cấu hình DNS trong bản này.
+Các liên kết tuyệt đối thuộc `gaeru.com`, `www.gaeru.com` hoặc HTTP được chuẩn hóa khi dựng HTML và khi thêm phần tử mới trên trình duyệt. Miền ngoài, mailto và tel được giữ nguyên. Miền `www.gaeru.com` chuyển hướng các lượt đọc trang công khai sang `gaeru.com`; API, callback thanh toán và phiên quản trị tiếp tục hoạt động để không làm hỏng các yêu cầu đang chạy. Không thay đổi cấu hình DNS trong bản này.
 
 ## URL ảnh và nơi lưu
 

@@ -189,7 +189,7 @@ function renderCatalog() {
 }
 
 function safeProductImage(value) {
- const image=String(value||'').replace(/^https?:\/\/(?:www\.)?gaeru\.(?:com|org)(?=\/)/i,'').replace(/^assets\//,'/assets/');
+ const image=String(value||'').replace(/^https?:\/\/(?:www\.)?gaeru\.com(?=\/)/i,'').replace(/^assets\//,'/assets/');
  return /^\/(?:assets\/products\/|api\/catalog-images\/|media\/products\/)[a-zA-Z0-9/_.?=&%+-]+$/.test(image) ? image : '/assets/products/k9.webp';
 }
 
