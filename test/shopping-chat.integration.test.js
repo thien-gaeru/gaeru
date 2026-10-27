@@ -69,7 +69,7 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  await owner.call('/api/gaeru_ceo/shopping-chat/email/preferences','PUT',{accounts:[]});
  const general=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'General support question',requestKey:randomUUID()});assert.equal(general.status,201);assert.equal(general.data.thread.product_name,'Hỗ trợ GAERU');
  assert.equal((await guest.call('/api/shopping-chat/threads')).data.threads.find(t=>t.id===general.data.thread.id).product_slug,null);
- const {processAIChat}=require('../src/shopping-chat-ai-first');
+ const {processAIChat,resumeTimedOutHumanThreads}=require('../src/shopping-chat-ai-first');
  const drain=async decisionFn=>{for(let i=0;i<40;i++)if(!await processAIChat(pool,{}, {decisionFn}))break;};
  await drain(async()=>({answer:'AI fixture reply',handoff:false}));
  const aiSession=await guest.call('/api/shopping-chat/threads','POST',{productSlug:'chat-fixture',body:'Explain the product',requestKey:randomUUID()});const aiPath='/api/shopping-chat/threads/'+aiSession.data.thread.id+'/messages';
@@ -81,6 +81,16 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  await owner.call('/api/gaeru_ceo/shopping-chat/'+aiSession.data.thread.id+'/messages','POST',{body:'Staff response stops hotline reminder',requestKey:randomUUID()});assert.equal((await guest.call(aiPath)).data.thread.staffReplied,true);
 
  const humanSession=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Tôi muốn gặp nhân viên',requestKey:randomUUID()});await drain(async()=>{throw Error('Provider must not run for explicit human request');});assert.equal((await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages')).data.thread.handlingMode,'human');
+ // After 5 minutes (300s) without staff response, AI automatically reactivates.
+ await pool.query("UPDATE shopping_chat_threads SET handoff_started_at=now()-interval '301 seconds' WHERE id=$1",[humanSession.data.thread.id]);
+ assert.equal(await resumeTimedOutHumanThreads(pool),1);
+ const resumedRead=(await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages')).data;
+ assert.equal(resumedRead.thread.handlingMode,'ai');
+ assert.match(resumedRead.messages.at(-1).body,/Sau 5 phút chưa có nhân viên phản hồi/);
+ await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages','POST',{body:'Tư vấn tiếp giúp tôi',requestKey:randomUUID()});
+ await drain(async()=>({answer:'AI đã hỗ trợ lại cho bạn.',handoff:false}));
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages')).data.messages.at(-1).body,'AI đã hỗ trợ lại cho bạn.');
+
  const race=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Race fixture question',requestKey:randomUUID()});await drain(async()=>{await owner.call('/api/gaeru_ceo/shopping-chat/'+race.data.thread.id+'/messages','POST',{body:'Staff already answered',requestKey:randomUUID()});return{answer:'Stale AI answer',handoff:false};});assert.equal((await guest.call('/api/shopping-chat/threads/'+race.data.thread.id+'/messages')).data.messages.at(-1).body,'Staff already answered');
  const direct=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Direct handoff fixture',requestKey:randomUUID()});assert.equal((await guest.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/handoff','POST',{})).status,200);assert.equal((await other.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/handoff','POST',{})).status,404);
  assert.equal((await other.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/close','POST',{})).status,404);
