@@ -28,8 +28,8 @@
       </div>
       <div data-chat-selected class="chat-selected"></div>
       <div class="chat-composer"><button type="button" class="chat-plus" aria-label="Thêm đính kèm" aria-expanded="false" aria-controls="${admin?'admin':'customer'}-chat-actions" data-chat-plus data-no-action-feedback>+</button>
-      <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" placeholder="Bạn cần tư vấn điều gì?"></textarea>
-      <button class="chat-send" type="submit" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
+      <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
+      <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
       <button type="button" data-pick="file">▤ <span>Tệp<small>Không giới hạn dung lượng · Tự động nén ngầm</small></span></button>
       <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Không giới hạn dung lượng · Tải ngầm sau khi gửi</small></span></button>
@@ -54,6 +54,15 @@
       if(['video/mp4','video/quicktime','video/webm'].includes(mime)||String(mime||'').startsWith('video/'))return `<video class="chat-inline-media" controls playsinline preload="metadata" src="${escape(url)}">Thiết bị chưa phát được video này.</video>`;
       return '';
     }
+    // Keep virtual keyboard open on mobile/desktop when tapping or clicking Send.
+    send.addEventListener?.('pointerdown',event=>{event.preventDefault();});
+    send.addEventListener?.('mousedown',event=>{event.preventDefault();});
+    send.addEventListener?.('touchstart',event=>{
+      event.preventDefault();
+      if(!sending&&!send.disabled&&(form.elements.body.value.trim()||files.length)){
+        form.requestSubmit(send);
+      }
+    },{passive:false});
     function formatSize(bytes){
       const n=Number(bytes)||0;
       if(n>=1073741824)return (n/1073741824).toFixed(2)+' GB';
@@ -187,7 +196,7 @@
         const text=quickReplies[Number(chip.dataset.quickReply)];if(!text)return;
         collapseQuickReplies();
         if(instantCheck?.checked){dispatchInstantSend(text,[]);}
-        else{form.elements.body.value=(form.elements.body.value?form.elements.body.value+'\n'+text:text).slice(0,3000);form.elements.body.focus();}
+        else{form.elements.body.value=(form.elements.body.value?form.elements.body.value+'\n'+text:text).slice(0,3000);form.elements.body.focus({preventScroll:true});}
       };
     }
 
@@ -215,7 +224,7 @@
           const r=rows[Number(b.dataset.referenceItem)],text=orders?'Tôi cần hỗ trợ đơn hàng '+r.orderNumber+'.':'Tôi cần tư vấn voucher '+r.code+'.';
           target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');
           if(instantCheck?.checked)dispatchInstantSend(text,[]);
-          else{form.elements.body.value=(form.elements.body.value+'\n'+text).trim().slice(0,3000);form.elements.body.focus();}
+          else{form.elements.body.value=(form.elements.body.value+'\n'+text).trim().slice(0,3000);form.elements.body.focus({preventScroll:true});}
         });
       }catch(e){target.innerHTML='<p>'+escape(e.message)+'</p><a href="account.html">Đăng nhập tài khoản</a>';}
     });
@@ -232,7 +241,7 @@
             const text=d.items[Number(b.dataset.offerItem)].text;
             target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');
             if(instantCheck?.checked)dispatchInstantSend(text,[]);
-            else{form.elements.body.value=text;form.elements.body.focus();feedback.textContent='Đã soạn ưu đãi. Kiểm tra nội dung rồi nhấn gửi.';}
+            else{form.elements.body.value=text;form.elements.body.focus({preventScroll:true});feedback.textContent='Đã soạn ưu đãi. Kiểm tra nội dung rồi nhấn gửi.';}
           });
         }catch(e){target.textContent=e.message;}
       }await loadOffers();
@@ -330,7 +339,8 @@
       const bodyText=form.elements.body.value.trim();
       const queued=files.splice(0,files.length);
       if(!bodyText&&!queued.length){feedback.textContent='Nhập tin nhắn hoặc chọn tệp.';return;}
-      form.reset();
+      form.elements.body.value='';
+      if(!form.elements.body.disabled)form.elements.body.focus?.({preventScroll:true});
       renderFiles();
       dispatchInstantSend(bodyText,queued);
     };
@@ -368,7 +378,7 @@
       collapseQuickReplies();
       feedback.textContent='Đã bắt đầu phiên chat mới.';
       setClosed();
-      form.elements.body.focus();
+      form.elements.body.focus?.({preventScroll:true});
     }
     root.addEventListener('click',event=>{
       if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();
