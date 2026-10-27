@@ -1,8 +1,8 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),{constants}=require('node:fs'),{randomUUID}=require('node:crypto');
 const {checkKey}=require('./neon-storage');
-const limits={products:8,banners:5,news:5,videos:25,chat:10};
-const types={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/heic':'heic','video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm','application/pdf':'pdf','application/octet-stream':'bin','text/plain':'txt'};
+const limits={products:8,banners:5,news:5,videos:25,chat:102400};
+const types={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/heic':'heic','video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm','application/pdf':'pdf','application/octet-stream':'bin','text/plain':'txt'};
 let lastCheck=null;
 function configured(){return typeof process.env.MEDIA_ROOT==='string'&&process.env.MEDIA_ROOT.trim().length>0;}
 async function rootPath(create=false){const value=process.env.MEDIA_ROOT?.trim();if(!value||!path.isAbsolute(value)||value===path.parse(value).root)throw Error('MEDIA_ROOT_INVALID');const root=path.resolve(value),unsafe=p=>/(?:^|[\\/])(?:hbuilds|public_html|node_modules|\.git)(?:[\\/]|$)/i.test(p);if(unsafe(root))throw Error('MEDIA_ROOT_DEPLOY_DIRECTORY');let ancestor=root;while(true){try{const real=await fs.realpath(ancestor);if(unsafe(real))throw Error('MEDIA_ROOT_DEPLOY_DIRECTORY');break;}catch(e){if(e.code!=='ENOENT')throw e;const parent=path.dirname(ancestor);if(parent===ancestor)throw e;ancestor=parent;}}if(create)await fs.mkdir(root,{recursive:true,mode:0o700});const stat=await fs.lstat(root);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('MEDIA_ROOT_INVALID');const real=await fs.realpath(root);if(unsafe(real))throw Error('MEDIA_ROOT_DEPLOY_DIRECTORY');return real;}
