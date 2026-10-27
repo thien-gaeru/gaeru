@@ -37,8 +37,7 @@
       <div data-chat-reference class="chat-reference" hidden></div>
       <input hidden type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv">
       <input hidden type="file" multiple data-file="media" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo">
-      <p role="status" data-chat-feedback></p></form>
-      ${admin?'':'<div class="chat-ai"><p data-ai-note>Đang kiểm tra trạng thái Chat AI…</p></div>'}`;
+      <p role="status" data-chat-feedback></p></form>`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
     const nearBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<80;
     function scrollToLatest(smooth=false){messages.scrollTo({top:messages.scrollHeight,behavior:smooth&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches?'smooth':'instant'});}
@@ -126,13 +125,11 @@
       return rawFile;
     }
     function renderAINote(){
-      if(admin)return;const note=root.querySelector('[data-ai-note]'),names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};let text;
-      if(thread?.status==='closed')text='Hội thoại đã đóng. Nhấn Bắt đầu chat mới khi bạn cần hỗ trợ.';
-      else if(thread?.handlingMode==='human')text='Hội thoại được nhân viên GAERU hỗ trợ. Sau 5 phút nếu chưa có nhân viên phản hồi, AI sẽ tự động hỗ trợ lại.';
-      else if(!aiCapabilities)text='Chưa xác minh được trạng thái Chat AI. Bạn vẫn có thể yêu cầu nhân viên hỗ trợ.';
-      else if(!aiCapabilities.aiConfigured)text='Chat AI chưa bật hoặc chưa đủ cấu hình. Chọn Gặp nhân viên để được hỗ trợ.';
-      else text=(names[aiCapabilities.provider]||'Chat AI')+(thread?.handoffOffered?' đang tạm dừng trả lời. Bạn có thể kết nối nhân viên.':' đang bật chế độ phản hồi tốc độ cao.')+' Hỗ trợ gửi nhanh, tải tệp/ảnh/video không giới hạn dung lượng và tự động nén ngầm.';
-      if(note.textContent!==text)note.textContent=text;if(!thread){const state=root.querySelector('[data-chat-state]');state.textContent=aiCapabilities?.aiConfigured?'Xin chào! '+(names[aiCapabilities.provider]||'AI của GAERU')+' sẽ tiếp nhận và phản hồi nhanh câu hỏi của bạn.':'Xin chào! Bạn có thể gửi yêu cầu cho nhân viên GAERU.';}
+      if(admin)return;
+      if(!thread){
+        const state=root.querySelector('[data-chat-state]');
+        if(state)state.textContent='Xin chào! GAERU sẵn sàng hỗ trợ bạn.';
+      }
     }
     async function loadCapabilities(){capabilitiesReadAt=Date.now();try{aiCapabilities=await request('/api/shopping-chat/capabilities');}catch{aiCapabilities=null;}if(!stopped)renderAINote();}
     async function resumeAiAfterTimeout(){
@@ -141,7 +138,6 @@
       try{
         await request(base+'/'+id+'/resume-ai',{method:'POST',body:JSON.stringify({})});
         await refresh();
-        feedback.textContent='Sau 5 phút chưa có nhân viên phản hồi, trợ lý GAERU AI đã tự động kích hoạt lại để hỗ trợ bạn.';
       }catch{}finally{
         resumingAi=false;
       }
@@ -232,7 +228,7 @@
         files.push({file,key:crypto.randomUUID(),url:/^(image|video)\//.test(file.type)?URL.createObjectURL(file):null});
       }
       renderFiles();
-      feedback.textContent=`Đã chọn ${files.length} tệp. Nhấn gửi để hiển thị ngay và tải ngầm tự động.`;
+      feedback.textContent='';
       actions.hidden=true;plus.setAttribute('aria-expanded','false');
     });
     root.querySelector('[data-chat-selected]').onclick=e=>{const b=e.target.closest('[data-remove]');if(b){release(files.splice(Number(b.dataset.remove),1)[0]);renderFiles();}};
@@ -263,7 +259,7 @@
             const text=d.items[Number(b.dataset.offerItem)].text;
             target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');
             if(instantCheck?.checked)dispatchInstantSend(text,[]);
-            else{form.elements.body.value=text;form.elements.body.focus({preventScroll:true});feedback.textContent='Đã soạn ưu đãi. Kiểm tra nội dung rồi nhấn gửi.';}
+            else{form.elements.body.value=text;form.elements.body.focus({preventScroll:true});feedback.textContent='';}
           });
         }catch(e){target.textContent=e.message;}
       }await loadOffers();
@@ -302,7 +298,8 @@
       const senderClass=admin?'from-admin':'from-customer';
       const senderLabel=admin?'GAERU':'Bạn';
       const typingNode=messages.querySelector('[data-ai-typing]');
-      const html=`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}"><strong>${senderLabel}</strong><p>${escape(bodyText)}</p>${previewHtml||''}<small class="chat-bg-status" data-bg-status>${escape(statusText)}</small><time>${escape(label)}</time></article>`;
+      const statusHtml=statusText?`<small class="chat-bg-status" data-bg-status>${escape(statusText)}</small>`:'';
+      const html=`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}"><strong>${senderLabel}</strong><p>${escape(bodyText)}</p>${previewHtml||''}${statusHtml}<time>${escape(label)}</time></article>`;
       if(typingNode)typingNode.insertAdjacentHTML('beforebegin',html);
       else messages.insertAdjacentHTML('beforeend',html);
       scrollToLatest(true);
@@ -314,14 +311,14 @@
       const textBody=String(rawText||'').trim()||(queuedFiles.length?'Tôi gửi tệp để được tư vấn.':'');
       if(!textBody&&!queuedFiles.length){feedback.textContent='Nhập tin nhắn hoặc chọn tệp.';return;}
       collapseQuickReplies();
+      feedback.textContent='';
       const msgKey=crypto.randomUUID();
       const nowLabel=new Date().toLocaleString('vi-VN');
-      const textNode=insertOptimisticBubble(msgKey,nowLabel,textBody,'',queuedFiles.length?'Đã gửi nhanh · Đang chuẩn bị tải tệp ngầm…':'Đang gửi nhanh…');
+      const textNode=insertOptimisticBubble(msgKey,nowLabel,textBody,'','');
       const fileNodes=queuedFiles.map(item=>{
         const preview=item.url?media(item.url,item.file.type,item.file.name):'';
         return {item,node:insertOptimisticBubble(item.key,nowLabel,'Tệp đính kèm: '+item.file.name,preview,`Đang chờ tải ngầm (${formatSize(item.file.size)})…`)};
       });
-      feedback.textContent=queuedFiles.length?'Đã gửi nhanh! Tệp đang được nén và tải lên hệ thống ngầm.':'Đã gửi nhanh.';
 
       bgChain=bgChain.then(async()=>{
         try{
@@ -331,21 +328,19 @@
           }else{
             await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body:textBody,requestKey:msgKey})});
           }
-          const msgStatus=textNode?.querySelector('[data-bg-status]');
-          if(msgStatus)msgStatus.textContent='Đã gửi';
           if(!queuedFiles.length)scheduleFastAIRefresh();
           for(const {item,node} of fileNodes){
             const statusNode=node?.querySelector('[data-bg-status]');
             try{
               await uploadFileInBackground(id,item,statusNode);
-              if(statusNode)statusNode.textContent='Đã tải lên & nén hoàn tất';
+              if(statusNode)statusNode.remove();
             }finally{
               release(item);
             }
           }
           await refresh();
           if(!admin&&thread?.aiPending)scheduleFastAIRefresh();
-          feedback.textContent=queuedFiles.length?'Đã tải lên và nén tệp ngầm hoàn tất.':'Đã gửi.';
+          feedback.textContent='';
         }catch(error){
           syncAiTypingIndicator(false);
           const msgStatus=textNode?.querySelector('[data-bg-status]');
@@ -382,7 +377,7 @@
         syncAiTypingIndicator(false);
         await request(base+'/'+id+'/close',{method:'POST',body:JSON.stringify({})});
         await refresh();
-        feedback.textContent='Đã kết thúc phiên chat.';
+        feedback.textContent='';
       }catch(e){
         feedback.textContent=e.message;
       }finally{
@@ -398,7 +393,7 @@
       root.querySelector('[data-chat-earlier]').hidden=true;
       actions.hidden=true;plus.setAttribute('aria-expanded','false');
       collapseQuickReplies();
-      feedback.textContent='Đã bắt đầu phiên chat mới.';
+      feedback.textContent='';
       setClosed();
       form.elements.body.focus?.({preventScroll:true});
     }

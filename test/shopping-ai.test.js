@@ -18,3 +18,14 @@ test('AI decision uses a strict handoff schema and human requests bypass the mod
  const {requestsHuman}=require('../src/shopping-chat-ai-first');assert.equal(requestsHuman('Tôi muốn gặp nhân viên'),true);assert.equal(requestsHuman('Chuyển cho người thật giúp tôi'),true);assert.equal(requestsHuman('Tôi không cần nhân viên'),false);assert.equal(requestsHuman('Sản phẩm có Type C không?'),false);
  const result=await answerAI({config:{OPENAI_API_KEY:'fixture'},product:{name:'Fixture'},question:'Need verified account action',decision:true,transport:async(url,options)=>{const body=JSON.parse(options.body);assert.equal(body.text.format.type,'json_schema');assert.equal(body.text.format.strict,true);return{ok:true,json:async()=>({output:[{content:[{type:'output_text',text:JSON.stringify({answer:'Cần nhân viên kiểm tra.',handoff:true})}]}]})};}});assert.equal(result.handoff,true);
 });
+
+test('web knowledge crawler automatically indexes website pages and retrieves relevant content',async()=>{
+  const {loadWebPagesIndex,getRelevantWebKnowledge}=require('../src/chat-web-knowledge');
+  const pages=loadWebPagesIndex();
+  assert.ok(pages.length>=15);
+  assert.ok(pages.some(p=>p.url==='https://gaeru.com/care.html'));
+  const careKnowledge=await getRelevantWebKnowledge(null,{question:'Chính sách bảo hành Care+ và đổi mới'});
+  assert.ok(careKnowledge.webPages.some(p=>p.url.includes('care.html')||p.url.includes('warranty')));
+  const k9Knowledge=await getRelevantWebKnowledge(null,{question:'Hướng dẫn kết nối',selectedProduct:{slug:'gaeru-k9',name:'GAERU K9'}});
+  assert.ok(k9Knowledge.webPages.some(p=>p.url.includes('k9')));
+});
