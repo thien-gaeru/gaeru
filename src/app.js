@@ -32,7 +32,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
   app.use(require('./lib/public-compression').publicCompression());
-  config={...config,PUBLIC_BASE_URL:require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL)};
+  const normalizePublicBase=require('./primary-domain').normalizePublicBase;
+  config={...config,PUBLIC_BASE_URL:normalizePublicBase(config.PUBLIC_BASE_URL),...(config.smtp?{smtp:{...config.smtp,publicBaseUrl:normalizePublicBase(config.smtp.publicBaseUrl||config.PUBLIC_BASE_URL)}}:{})};
   config={...config,accountSecurity:createAccountSecurity(pool,config,customerMailer)};
 
   app.use(require('./primary-domain').publicAliasRedirect);

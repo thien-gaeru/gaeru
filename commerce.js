@@ -97,6 +97,7 @@ function promotionLabel(product){const sale=product.variants.filter(v=>v.active&
 function productCard(product, compact = false) {
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
+  const cardImage = window.GAERUProductArtwork?.image(product) || product.imageUrl;
   const cardClass = compact
     ? `product-card ${product.slug === "k9" ? "product-card-dark" : ""} ${product.slug === "g1-ultra" ? "product-card-wide" : ""}`
     : `catalog-card ${product.slug === "k9" ? "catalog-card-dark" : ""}`;
@@ -109,7 +110,7 @@ function productCard(product, compact = false) {
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
 
       </div>
-      <img class="product-image" src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
+      <img class="product-image" src="${escapeHtml(cardImage)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
           <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">${product.slug === "gaeru-m3" ? "Mua Ngay" : "Mua ngay"}</a>
@@ -117,7 +118,7 @@ function productCard(product, compact = false) {
     </article>` : `
     <article class="${cardClass}">
       <a class="catalog-card-image" href="product.html?id=${encodeURIComponent(product.slug)}">
-        <img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
+        <img src="${escapeHtml(cardImage)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
@@ -188,8 +189,8 @@ function renderCatalog() {
 }
 
 function safeProductImage(value) {
- const image=String(value||'').replace(/^assets\//,'/assets/');
- return /^\/(?:assets\/products\/|api\/catalog-images\/)[a-zA-Z0-9/_.?=&%+-]+$/.test(image) ? image : '/assets/products/k9.webp';
+ const image=String(value||'').replace(/^https?:\/\/(?:www\.)?gaeru\.(?:com|org)(?=\/)/i,'').replace(/^assets\//,'/assets/');
+ return /^\/(?:assets\/products\/|api\/catalog-images\/|media\/products\/)[a-zA-Z0-9/_.?=&%+-]+$/.test(image) ? image : '/assets/products/k9.webp';
 }
 
 function renderProduct() {
