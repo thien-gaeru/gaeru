@@ -1,3 +1,62 @@
-const test=require('node:test'),assert=require('node:assert/strict');const {poolOptions}=require('../src/db');
-test('production requires verified TLS despite legacy disabled flags or URI overrides',()=>{const v=poolOptions({NODE_ENV:'production',PGSSL:'disable',DATABASE_URL:'postgres://user:pass@db.example/store?sslmode=no-verify&ssl=false&application_name=gaeru'});assert.equal(v.ssl.rejectUnauthorized,true);assert.equal(v.ssl.minVersion,'TLSv1.2');const url=new URL(v.connectionString);assert.equal(url.searchParams.has('sslmode'),false);assert.equal(url.searchParams.has('ssl'),false);assert.equal(url.searchParams.get('application_name'),'gaeru');});
-test('custom CA is retained and local development can remain without TLS',()=>{assert.equal(poolOptions({PGSSL:'require',DATABASE_URL:'postgres://u:p@db.example/store',PGSSL_CA:'fixture-ca'}).ssl.ca,'fixture-ca');assert.equal(poolOptions({NODE_ENV:'development',DATABASE_URL:'postgres://localhost/store'}).ssl,undefined);});
+const test=require('node:test'),assert=require('node:assert/strict');
+const {poolOptions,inspectDatabaseTls}=require('../src/db');
+
+test('production requires verified TLS despite legacy disabled flags or URI overrides',()=>{
+  const v=poolOptions({NODE_ENV:'production',PGSSL:'disable',DATABASE_URL:'postgres://user:pass@db.example/store?sslmode=no-verify&ssl=false&application_name=gaeru'});
+  assert.equal(v.ssl.rejectUnauthorized,true);
+  assert.equal(v.ssl.minVersion,'TLSv1.2');
+  const url=new URL(v.connectionString);
+  assert.equal(url.searchParams.has('sslmode'),false);
+  assert.equal(url.searchParams.has('ssl'),false);
+  assert.equal(url.searchParams.get('application_name'),'gaeru');
+});
+
+test('custom CA is retained, remote database hosts require TLS by default, and local development can remain without TLS',()=>{
+  assert.equal(poolOptions({PGSSL:'require',DATABASE_URL:'postgres://u:p@db.example/store',PGSSL_CA:'fixture-ca'}).ssl.ca,'fixture-ca');
+  assert.equal(poolOptions({NODE_ENV:'development',DATABASE_URL:'postgres://u:p@ep-cool-pooler.ap-southeast-1.aws.neon.tech/gaeru'}).ssl.rejectUnauthorized,true);
+  assert.equal(poolOptions({NODE_ENV:'development',DATABASE_URL:'postgres://localhost/store'}).ssl,undefined);
+});
+
+test('inspectDatabaseTls verifies both direct pg_stat_ssl and pooler/proxy TLS connections',async()=>{
+  const directPool={
+    async connect(){
+      return {
+        connection:{stream:{encrypted:true,authorized:true,getProtocol:()=>'TLSv1.3',getCipher:()=>({name:'TLS_AES_256_GCM_SHA384'})}},
+        async query(sql){
+          if(sql.includes('pg_stat_ssl'))return {rows:[{ssl:true,version:'TLSv1.3',cipher:'TLS_AES_256_GCM_SHA384',bits:256}]};
+          if(sql.includes('current_setting'))return {rows:[{ssl:'on'}]};
+          return {rows:[{'?column?':1}]};
+        },
+        release(){}
+      };
+    }
+  };
+  const direct=await inspectDatabaseTls(directPool,{NODE_ENV:'production',PGSSL:'require',DATABASE_URL:'postgres://u:p@db.example/store'});
+  assert.equal(direct.databaseTls,true);
+  assert.equal(direct.databaseCertificateVerified,true);
+  assert.equal(direct.databaseBackendTls,true);
+  assert.equal(direct.databaseDirectBackendSsl,true);
+  assert.equal(direct.databaseTlsProtocol,'TLSv1.3');
+  assert.equal(direct.databaseTlsCipher,'TLS_AES_256_GCM_SHA384');
+
+  const poolerPool={
+    async connect(){
+      return {
+        connection:{stream:{encrypted:true,authorized:true,getProtocol:()=>'TLSv1.3',getCipher:()=>({name:'TLS_AES_128_GCM_SHA256'})}},
+        async query(sql){
+          if(sql.includes('pg_stat_ssl'))return {rows:[{ssl:false,version:null,cipher:null,bits:null}]};
+          if(sql.includes('current_setting'))return {rows:[{ssl:'on'}]};
+          return {rows:[{'?column?':1}]};
+        },
+        release(){}
+      };
+    }
+  };
+  const pooler=await inspectDatabaseTls(poolerPool,{NODE_ENV:'production',PGSSL:'require',DATABASE_URL:'postgres://u:p@ep-pooler.aws.neon.tech/store'});
+  assert.equal(pooler.databaseTls,true);
+  assert.equal(pooler.databaseCertificateVerified,true);
+  assert.equal(pooler.databaseBackendTls,true);
+  assert.equal(pooler.databaseDirectBackendSsl,false);
+  assert.equal(pooler.databaseServerSslSetting,'on');
+  assert.equal(pooler.databaseTlsProtocol,'TLSv1.3');
+});

@@ -3,7 +3,7 @@ require("dotenv").config();
 const expressSession = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
 const { loadConfig } = require("./config");
-const { createPool } = require("./db");
+const { createPool, inspectDatabaseTls } = require("./db");
 const { createApp } = require("./app");
 const { migrateDatabase } = require("./migrate");
 
@@ -35,7 +35,9 @@ async function start() {
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
     console.log(`GAERU standalone store listening on ${host}:${port}`);
-    pool.connect().then(client=>{try{console.log("Database TLS active:",JSON.stringify({encrypted:client.connection?.stream?.encrypted===true,certificateAuthorized:client.connection?.stream?.authorized===true}));}finally{client.release();}}).catch(()=>console.log("Database TLS active: unavailable"));
+    inspectDatabaseTls(pool, config)
+      .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
+      .catch(() => console.log("Database TLS active: unavailable"));
   });
 }
 
