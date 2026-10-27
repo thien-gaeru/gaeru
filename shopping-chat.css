@@ -37,3 +37,11 @@
 
 .shopping-message.is-ai-typing{border:1px solid #cce3ff;background:#f0f7ff;opacity:.95}
 .shopping-message.is-ai-typing p{color:#0066cc;font-style:italic}
+.chat-state-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:6px 0}
+.chat-state-bar .chat-state{margin:0;flex:1;min-width:160px}
+.chat-session-actions{display:flex;gap:6px;align-items:center}
+.chat-end-session,.chat-new-session{border:1px solid #d2d2d7;border-radius:999px;background:#fff;padding:4px 10px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.chat-end-session{color:#d70015;border-color:#f2b8bc;background:#fff5f5}
+.chat-end-session:hover{background:#ffe5e7}
+.chat-new-session{color:#0066cc;border-color:#0071e3;background:#f0f6ff}
+.chat-end-session[hidden],.chat-new-session[hidden]{display:none!important}
