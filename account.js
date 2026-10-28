@@ -340,3 +340,113 @@ document.querySelector('[data-account-retry]')?.addEventListener('click', () => 
 });
 
 initializeCustomerAccount();
+
+
+let oauthConfig = null;
+async function loadOAuthConfig() {
+  if (oauthConfig) return oauthConfig;
+  try {
+    const res = await fetch('/api/customer-auth/oauth/config', { cache: 'no-store' });
+    if (res.ok) oauthConfig = await res.json();
+  } catch (e) {
+    console.warn('Cannot load oauth config', e);
+  }
+  return oauthConfig || { google: { configured: false }, apple: { configured: false } };
+}
+
+async function handleGoogleOAuth() {
+  try {
+    const cfg = await loadOAuthConfig();
+    if (!cfg?.google?.configured || !cfg.google.clientId) {
+      setAccountFeedback('Chức năng đăng nhập Google đang được hoàn thiện hoặc cần cấu hình GOOGLE_CLIENT_ID.', true);
+      return;
+    }
+    if (!window.google?.accounts?.id) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://accounts.google.com/gsi/client';
+        s.async = true;
+        s.defer = true;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Không thể tải Google Identity Services SDK. Vui lòng kiểm tra kết nối mạng.'));
+        document.head.appendChild(s);
+      });
+    }
+    window.google.accounts.id.initialize({
+      client_id: cfg.google.clientId,
+      callback: async (response) => {
+        try {
+          if (!response?.credential) throw new Error('Không nhận được thông tin xác thực từ Google.');
+          const result = await accountRequest('/api/customer-auth/oauth/google', {
+            credential: response.credential
+          });
+          accountCsrfToken = result.csrfToken;
+          showCustomerProfile(result.customer);
+          setAccountFeedback(result.isNew ? 'Đăng ký tài khoản Google thành công!' : 'Đăng nhập Google thành công!');
+        } catch (err) {
+          setAccountFeedback(err.message, true);
+        }
+      }
+    });
+    window.google.accounts.id.prompt();
+  } catch (err) {
+    setAccountFeedback(err.message || 'Không thể đăng nhập với Google lúc này.', true);
+  }
+}
+
+async function handleAppleOAuth() {
+  try {
+    const cfg = await loadOAuthConfig();
+    if (!cfg?.apple?.configured || !cfg.apple.clientId) {
+      setAccountFeedback('Chức năng đăng nhập Apple đang được hoàn thiện hoặc cần cấu hình APPLE_CLIENT_ID.', true);
+      return;
+    }
+    if (!window.AppleID) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/auth.js';
+        s.async = true;
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Không thể tải Apple Sign In SDK. Vui lòng kiểm tra kết nối mạng.'));
+        document.head.appendChild(s);
+      });
+    }
+    window.AppleID.auth.init({
+      clientId: cfg.apple.clientId,
+      scope: 'name email',
+      redirectURI: window.location.origin + '/account.html',
+      usePopup: true
+    });
+    const response = await window.AppleID.auth.signIn();
+    const idToken = response?.authorization?.id_token;
+    const user = response?.user;
+    if (!idToken) throw new Error('Không nhận được mã xác thực Apple.');
+    const result = await accountRequest('/api/customer-auth/oauth/apple', {
+      idToken,
+      user
+    });
+    accountCsrfToken = result.csrfToken;
+    showCustomerProfile(result.customer);
+    setAccountFeedback(result.isNew ? 'Đăng ký tài khoản Apple thành công!' : 'Đăng nhập Apple thành công!');
+  } catch (err) {
+    if (err && err.error === 'popup_closed_by_user') return;
+    setAccountFeedback(err?.message || 'Đăng nhập Apple không thành công.', true);
+  }
+}
+
+function bindOAuthButtons() {
+  document.querySelectorAll('[data-oauth-action="google"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleGoogleOAuth();
+    });
+  });
+  document.querySelectorAll('[data-oauth-action="apple"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleAppleOAuth();
+    });
+  });
+}
+
+bindOAuthButtons();

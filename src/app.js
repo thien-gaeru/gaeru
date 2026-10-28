@@ -129,6 +129,11 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
   app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool));
   app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
+  app.use("/api/customer-auth/oauth", require("./customer-oauth").createCustomerOAuthRouter(pool, {
+    config,
+    accountSecurity: config.accountSecurity,
+    startCustomerSession: require("./customer-auth").startCustomerSession
+  }));
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     accountSecurity:config.accountSecurity,
     smtpConfig: config.smtp,

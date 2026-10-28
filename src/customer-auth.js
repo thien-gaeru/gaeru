@@ -396,4 +396,4 @@ function startCustomerSession(req, res, next, customer,accountSecurity) {
   });
 }
 
-module.exports = { createCustomerAuthRouter, normalizePhone };
+module.exports = { createCustomerAuthRouter, normalizePhone, startCustomerSession };
