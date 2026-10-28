@@ -6,7 +6,6 @@ const {z}=require('zod');
 const {withTransaction}=require('./db');
 const {requireCsrf}=require('./security');
 const {readRecord,writeRecord,getVnpay}=require('./admin-configuration');
-const {buildVnpayPaymentUrl,verifyVnpayQuery}=require('./vnpay');
 const {appendAudit}=require('./audit');
 
 const channels=Object.freeze({
@@ -41,7 +40,11 @@ async function readChannelRecord(pool,config,id){
  const meta=channels[id];
  if(!meta)throw fail('Kênh thanh toán không hợp lệ.',404);
  const record=await readRecord(pool,config,meta.configId);
- return {version:record.version,data:{...defaultChannelData(id),...record.data}};
+ const fallback=id==='vnpay'&&!record.version&&config.vnpay?{
+  tmnCode:config.vnpay.tmnCode,hashSecret:config.vnpay.hashSecret,
+  environment:String(config.vnpay.paymentUrl).includes('sandbox.')?'sandbox':'production',enabled:true
+ }:{};
+ return {version:record.version,data:{...defaultChannelData(id),...fallback,...record.data}};
 }
 
 function isChannelConfigured(id,record,vnpayConfig){
@@ -76,78 +79,7 @@ function formatBankTransferInstructions(settings,{orderNumber,amountVnd}={}){
  };
 }
 
-function buildNinepayPaymentUrl(settings,{amountVnd,txnRef,baseUrl='https://gaeru.com'}){
- const endpoint=settings.environment==='production'?'https://payment.9pay.vn/payments/create':'https://sand-payment.9pay.vn/payments/create';
- const returnUrl=new URL('/api/payments/9pay/return',baseUrl).toString();
- const ipnUrl=new URL('/api/payments/9pay/ipn',baseUrl).toString();
- const time=String(Math.floor(Date.now()/1000));
- const canonical=`merchant_key=${settings.merchantKey}&invoice_no=${txnRef}&amount=${amountVnd}&time=${time}`;
- const signature=createHmac('sha256',settings.secretKey).update(canonical,'utf8').digest('hex');
- const checksum=createHmac('sha256',settings.checksumKey).update(`${txnRef}:${amountVnd}`,'utf8').digest('hex');
- const url=new URL(endpoint);
- url.searchParams.set('merchant_key',settings.merchantKey);
- url.searchParams.set('invoice_no',txnRef);
- url.searchParams.set('amount',String(amountVnd));
- url.searchParams.set('time',time);
- url.searchParams.set('return_url',returnUrl);
- url.searchParams.set('ipn_url',ipnUrl);
- url.searchParams.set('signature',signature);
- url.searchParams.set('checksum',checksum);
- return url.toString();
-}
-
-function signMomoMessage(secretKey,raw){
- return createHmac('sha256',secretKey).update(raw,'utf8').digest('hex');
-}
-
-function buildMomoPaymentUrl(settings,{amountVnd,txnRef,baseUrl='https://gaeru.com'}){
- const endpoint=settings.environment==='production'?'https://payment.momo.vn/v2/gateway/pay':'https://test-payment.momo.vn/v2/gateway/pay';
- const redirectUrl=new URL('/api/payments/momo/return',baseUrl).toString();
- const ipnUrl=new URL('/api/payments/momo/ipn',baseUrl).toString();
- const requestId=`${txnRef}-${Date.now()}`;
- const orderInfo=`Thanh toan don hang ${txnRef}`;
- const raw=`accessKey=${settings.accessKey}&amount=${amountVnd}&extraData=&ipnUrl=${ipnUrl}&orderId=${txnRef}&orderInfo=${orderInfo}&partnerCode=${settings.partnerCode}&redirectUrl=${redirectUrl}&requestId=${requestId}&requestType=captureWallet`;
- const signature=signMomoMessage(settings.secretKey,raw);
- const url=new URL(endpoint);
- url.searchParams.set('partnerCode',settings.partnerCode);
- url.searchParams.set('accessKey',settings.accessKey);
- url.searchParams.set('requestId',requestId);
- url.searchParams.set('amount',String(amountVnd));
- url.searchParams.set('orderId',txnRef);
- url.searchParams.set('orderInfo',orderInfo);
- url.searchParams.set('redirectUrl',redirectUrl);
- url.searchParams.set('ipnUrl',ipnUrl);
- url.searchParams.set('requestType','captureWallet');
- url.searchParams.set('extraData','');
- url.searchParams.set('signature',signature);
- return url.toString();
-}
-
-function buildZalopayPaymentUrl(settings,{amountVnd,txnRef,baseUrl='https://gaeru.com'}){
- const endpoint=settings.environment==='production'?'https://openapi.zalopay.vn/v2/pay':'https://sb-openapi.zalopay.vn/v2/pay';
- const redirectUrl=new URL('/api/payments/zalopay/return',baseUrl).toString();
- const callbackUrl=new URL('/api/payments/zalopay/ipn',baseUrl).toString();
- const now=new Date();
- const yymmdd=now.toISOString().slice(2,10).replaceAll('-','');
- const appTransId=`${yymmdd}_${txnRef}`;
- const appTime=String(now.getTime());
- const embedData=JSON.stringify({redirecturl:redirectUrl,orderNumber:txnRef});
- const item='[]';
- const raw=`${settings.appId}|${appTransId}|gaeru|${amountVnd}|${appTime}|${embedData}|${item}`;
- const mac=createHmac('sha256',settings.key1).update(raw,'utf8').digest('hex');
- const url=new URL(endpoint);
- url.searchParams.set('app_id',settings.appId);
- url.searchParams.set('app_trans_id',appTransId);
- url.searchParams.set('app_user','gaeru');
- url.searchParams.set('amount',String(amountVnd));
- url.searchParams.set('app_time',appTime);
- url.searchParams.set('embed_data',embedData);
- url.searchParams.set('item',item);
- url.searchParams.set('callback_url',callbackUrl);
- url.searchParams.set('redirect_url',redirectUrl);
- url.searchParams.set('mac',mac);
- return url.toString();
-}
+function signMomoMessage(secretKey,raw){return createHmac('sha256',secretKey).update(raw,'utf8').digest('hex');}
 
 function extractOrderNumber(input){
  const text=String(input||'').trim();
@@ -160,86 +92,60 @@ function extractOrderNumber(input){
 
 function verifyGatewayPayload(provider,payload,settings){
  if(!settings)return {valid:false,reason:'Provider not configured'};
+ if(!payload||typeof payload!=='object'||Array.isArray(payload))return {valid:false,reason:'Invalid callback payload'};
+ const scalar=value=>(typeof value==='string'||typeof value==='number')&&!(typeof value==='number'&&!Number.isSafeInteger(value));
+ const unsigned=value=>scalar(value)&&/^(?:0|[1-9]\d{0,19})$/.test(String(value));
+ const amount=value=>unsigned(value)&&Number.isSafeInteger(Number(value))&&Number(value)>0&&Number(value)<=2000000000;
+ const positiveId=value=>unsigned(value)&&String(value)!=='0';
+ const orderPattern=/^GR-\d{8}-[A-Z0-9]{4,20}$/;
  if(provider==='9pay'){
-  const orderNumber=extractOrderNumber(payload.invoice_no||payload.orderNumber||payload.order);
-  const amountVnd=Number(payload.amount??payload.amountVnd);
-  const status=String(payload.status??payload.result??'').toUpperCase();
-  const receivedChecksum=String(payload.checksum||payload.signature||'');
-  if(!orderNumber||!Number.isSafeInteger(amountVnd)||!receivedChecksum||!settings.checksumKey)return {valid:false,reason:'Missing 9Pay parameters'};
-  const expectedWithStatus=createHmac('sha256',settings.checksumKey).update(`${orderNumber}:${amountVnd}:${status}`,'utf8').digest('hex');
-  if(!safeHexEqual(receivedChecksum,expectedWithStatus))return {valid:false,reason:'Invalid 9Pay checksum'};
-  const successful=['SUCCESS','PAID','00','000','COMPLETED'].includes(status);
-  return {
-   valid:true,
-   orderNumber,
-   amountVnd,
-   successful,
-   providerTransactionId:String(payload.payment_no||payload.transaction_id||payload.transId||''),
-   responseCode:status||'00'
-  };
+  return {valid:false,reason:'Automatic 9Pay callbacks are unavailable until a verified merchant contract is configured. Use owner-authorized reconciliation.'};
  }
  if(provider==='momo'){
-  const partnerCode=String(payload.partnerCode||settings.partnerCode||'');
-  const orderId=String(payload.orderId||payload.orderNumber||payload.order||'');
-  const orderNumber=extractOrderNumber(orderId);
-  const amountVnd=Number(payload.amount??payload.amountVnd);
-  const resultCode=String(payload.resultCode??payload.status??'');
-  const transId=String(payload.transId??payload.transactionId??'');
-  const signature=String(payload.signature||'');
-  if(!orderNumber||!Number.isSafeInteger(amountVnd)||!signature||!settings.secretKey||partnerCode!==settings.partnerCode){
+  const textFields=['partnerCode','orderId','orderInfo','orderType','payType','requestId','message','extraData'];
+  if(textFields.some(field=>typeof payload[field]!=='string'||payload[field].length>4000)
+   ||!orderPattern.test(payload.orderId)||!payload.requestId||payload.requestId.length>100
+   ||!payload.orderType||!amount(payload.amount)||!unsigned(payload.resultCode)
+   ||!unsigned(payload.transId)||!positiveId(payload.responseTime)
+   ||(String(payload.resultCode)==='0'&&!positiveId(payload.transId))
+   ||typeof payload.signature!=='string'||!/^[a-f0-9]{64}$/i.test(payload.signature)
+   ||typeof settings.accessKey!=='string'||!settings.accessKey||typeof settings.secretKey!=='string'||!settings.secretKey
+   ||payload.partnerCode!==settings.partnerCode){
    return {valid:false,reason:'Invalid MoMo parameters'};
   }
-  const fullRaw=`accessKey=${settings.accessKey}&amount=${amountVnd}&extraData=${payload.extraData||''}&message=${payload.message||''}&orderId=${orderId}&orderInfo=${payload.orderInfo||''}&orderType=${payload.orderType||''}&partnerCode=${partnerCode}&payType=${payload.payType||''}&requestId=${payload.requestId||orderId}&responseTime=${payload.responseTime||''}&resultCode=${resultCode}&transId=${transId}`;
-  const compactRaw=`partnerCode=${partnerCode}&orderId=${orderId}&amount=${amountVnd}&resultCode=${resultCode}&transId=${transId}`;
+  const fullRaw=`accessKey=${settings.accessKey}&amount=${payload.amount}&extraData=${payload.extraData}&message=${payload.message}&orderId=${payload.orderId}&orderInfo=${payload.orderInfo}&orderType=${payload.orderType}&partnerCode=${payload.partnerCode}&payType=${payload.payType}&requestId=${payload.requestId}&responseTime=${payload.responseTime}&resultCode=${payload.resultCode}&transId=${payload.transId}`;
   const expectedFull=signMomoMessage(settings.secretKey,fullRaw);
-  const expectedCompact=signMomoMessage(settings.secretKey,compactRaw);
-  if(!safeHexEqual(signature,expectedFull)&&!safeHexEqual(signature,expectedCompact))return {valid:false,reason:'Invalid MoMo signature'};
-  const successful=resultCode==='0'||resultCode.toUpperCase()==='PAID'||resultCode.toUpperCase()==='SUCCESS';
+  if(!safeHexEqual(payload.signature,expectedFull))return {valid:false,reason:'Invalid MoMo signature'};
   return {
    valid:true,
-   orderNumber,
-   amountVnd,
-   successful,
-   providerTransactionId:transId||null,
-   responseCode:resultCode
+   orderNumber:payload.orderId,
+   providerOrderId:payload.orderId,
+   requestId:payload.requestId,
+   amountVnd:Number(payload.amount),
+   successful:String(payload.resultCode)==='0',
+   providerTransactionId:String(payload.transId),
+   responseCode:String(payload.resultCode)
   };
  }
  if(provider==='zalopay'){
-  if(!settings.key2)return {valid:false,reason:'Missing ZaloPay key2'};
-  if(typeof payload.data==='string'&&payload.mac){
-   const expectedMac=createHmac('sha256',settings.key2).update(payload.data,'utf8').digest('hex');
-   if(!safeHexEqual(payload.mac,expectedMac))return {valid:false,reason:'Invalid ZaloPay callback mac'};
-   let parsedData;
-   try{parsedData=JSON.parse(payload.data);}catch{return {valid:false,reason:'Malformed ZaloPay data'};}
-   if(String(parsedData.app_id||settings.appId)!==String(settings.appId))return {valid:false,reason:'Mismatched ZaloPay app_id'};
-   const orderNumber=extractOrderNumber(parsedData.app_trans_id||parsedData.orderNumber);
-   const amountVnd=Number(parsedData.amount);
-   return {
-    valid:Boolean(orderNumber&&Number.isSafeInteger(amountVnd)),
-    orderNumber,
-    amountVnd,
-    successful:true,
-    providerTransactionId:String(parsedData.zp_trans_id||''),
-    responseCode:'1'
-   };
-  }
-  const appTransId=String(payload.app_trans_id||payload.apptransid||payload.orderNumber||payload.order||'');
-  const orderNumber=extractOrderNumber(appTransId);
-  const amountVnd=Number(payload.amount??payload.amountVnd);
-  const status=String(payload.status??payload.return_code??'1');
-  const mac=String(payload.mac||payload.checksum||'');
-  if(!orderNumber||!Number.isSafeInteger(amountVnd)||!mac)return {valid:false,reason:'Missing ZaloPay query parameters'};
-  const raw=`${settings.appId}|${appTransId}|${amountVnd}|${status}`;
-  const expectedMac=createHmac('sha256',settings.key2).update(raw,'utf8').digest('hex');
-  if(!safeHexEqual(mac,expectedMac))return {valid:false,reason:'Invalid ZaloPay mac'};
-  const successful=status==='1'||status.toUpperCase()==='PAID'||status.toUpperCase()==='SUCCESS';
+  if(typeof settings.key2!=='string'||!settings.key2||payload.type!==1||typeof payload.data!=='string'||payload.data.length>65536
+   ||typeof payload.mac!=='string'||!/^[a-f0-9]{64}$/i.test(payload.mac))return {valid:false,reason:'Invalid ZaloPay callback envelope'};
+  const expectedMac=createHmac('sha256',settings.key2).update(payload.data,'utf8').digest('hex');
+  if(!safeHexEqual(payload.mac,expectedMac))return {valid:false,reason:'Invalid ZaloPay callback mac'};
+  let parsedData;
+  try{parsedData=JSON.parse(payload.data);}catch{return {valid:false,reason:'Malformed ZaloPay data'};}
+  if(!parsedData||typeof parsedData!=='object'||Array.isArray(parsedData)||!positiveId(parsedData.app_id)
+   ||String(parsedData.app_id)!==String(settings.appId))return {valid:false,reason:'Mismatched ZaloPay app_id'};
+  const matched=typeof parsedData.app_trans_id==='string'&&parsedData.app_trans_id.match(/^\d{6}_(GR-\d{8}-[A-Z0-9]{4,20})$/);
+  if(!matched||!amount(parsedData.amount)||!positiveId(parsedData.zp_trans_id))return {valid:false,reason:'Invalid ZaloPay transaction parameters'};
   return {
    valid:true,
-   orderNumber,
-   amountVnd,
-   successful,
-   providerTransactionId:String(payload.zp_trans_id||payload.transId||''),
-   responseCode:status
+   orderNumber:matched[1],
+   providerOrderId:parsedData.app_trans_id,
+   amountVnd:Number(parsedData.amount),
+   successful:true,
+   providerTransactionId:String(parsedData.zp_trans_id),
+   responseCode:'1'
   };
  }
  if(provider==='bank_transfer'){
@@ -262,6 +168,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    [orderNumber,provider]
   );
   let attempt=attemptQuery.rows[0];
+  if(!attempt&&actor?.role!=='owner')return {code:'01',matched:false,message:'Order not found'};
   if(!attempt){
    const orderQuery=await client.query(
     `SELECT id AS "orderId", order_number AS "orderNumber", status AS "orderStatus",
@@ -325,7 +232,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     successful,
     amountVnd:attempt.amountVnd,
     responseCode:responseCode||null,
-    autoApprovedToProcessing:Boolean(successful)
+    autoApprovedToProcessing:Boolean(successful&&['pending','confirmed'].includes(attempt.orderStatus))
    }
   });
   return {
@@ -342,178 +249,76 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
  return typeof poolOrClient.connect==='function'?withTransaction(poolOrClient,run):run(poolOrClient);
 }
 
+async function assertPaymentConfigurationChange(client,id,before,after){
+ if(!['vnpay','9pay','momo','zalopay'].includes(id))return;
+ await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[id==='vnpay'?'gaeru:vnpay-config':'gaeru:payment-config:'+id]);
+ const fields={vnpay:['tmnCode','hashSecret','environment'],'9pay':['merchantKey','secretKey','checksumKey','environment'],momo:['partnerCode','accessKey','secretKey','environment'],zalopay:['appId','key1','key2','environment']}[id];
+ if(fields.every(k=>before[k]===after[k]))return;
+ const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts WHERE provider=$1 AND status='pending'",[id])).rows[0]?.count||0;
+ if(count)throw fail('Có giao dịch đang chờ. Đối soát hoặc hủy đơn trước khi đổi tài khoản, khóa hoặc môi trường thanh toán.',409);
+}
+function authenticatedProof(method,scope){
+ return method==='signed_callback'?scope==='callback_signature':['authenticated_api','provider_order_create'].includes(method)&&scope==='api_credentials';
+}
+function availability(id,record,vnpayConfig,config={}){
+ const supported=id!=='9pay';
+ const configured=isChannelConfigured(id,record,vnpayConfig);
+ const sandboxOnProduction=config.NODE_ENV==='production'&&(record.data.environment==='sandbox'||(id==='vnpay'&&String(vnpayConfig?.paymentUrl||'').includes('sandbox.')));
+ const canEnable=supported&&configured&&!sandboxOnProduction;
+ const enabled=supported&&isChannelEnabled(id,record,vnpayConfig);
+ return {supported,canEnable,enabled,checkoutReady:enabled&&canEnable,unsupportedReason:!supported?'9Pay chưa có bộ kết nối được đối chiếu với tài liệu merchant.':sandboxOnProduction?'Dùng cấu hình chính thức trên website đang hoạt động.':!configured?'Lưu đủ thông tin cấu hình trước khi bật.':null};
+}
+async function recordGatewayEvidence(client,id,version,{method='signed_callback',scope='callback_signature',enabled=false}={}){
+ if(!authenticatedProof(method,scope))throw fail('Bằng chứng xác thực không hợp lệ.',400);
+ await client.query(`INSERT INTO payment_channel_connections(channel_id,config_version,verified_at,enabled,last_method,last_checked_at,reachable,verification_scope)
+ VALUES($1,$2,now(),$3,$4,now(),true,$5)
+ ON CONFLICT(channel_id) DO UPDATE SET verified_at=now(),last_method=$4,last_checked_at=now(),reachable=true,verification_scope=$5,verification_nonce=NULL,updated_at=now()
+ WHERE payment_channel_connections.config_version=$2`,[id,version,enabled,method,scope]);
+}
 async function getCheckoutPaymentChannels(pool,config={},fallbackVnpay=null){
- const vnpayConfig=(await getVnpay(pool,config))||fallbackVnpay||null;
- const methods=[];
- const configs={};
- let bankTransfer=null;
- let cod=null;
+ const storedVnpay=await readChannelRecord(pool,config,'vnpay');
+ const vnpayConfig=storedVnpay.version?await getVnpay(pool,config):(await getVnpay(pool,config))||fallbackVnpay||null;
+ const callbackVnpay=await getVnpay(pool,config,{forCallback:true});
+ const methods=[],configs={},callbackConfigs={},versions={};let bankTransfer=null,cod=null;
  for(const id of channelIds){
-  const record=await readChannelRecord(pool,config,id);
-  const enabled=isChannelEnabled(id,record,vnpayConfig);
-  if(id==='vnpay'){
-   if(enabled&&vnpayConfig){
-    methods.push('vnpay');
-    configs.vnpay=vnpayConfig;
-   }
-   continue;
-  }
-  if(enabled){
-   methods.push(id);
-   configs[id]=record.data;
-   if(id==='bank_transfer')bankTransfer=formatBankTransferInstructions(record.data);
-   if(id==='cod')cod={maxAmountVnd:Number(record.data.maxAmountVnd||50000000),instructions:String(record.data.instructions||'')};
-  }
+  const record=await readChannelRecord(pool,config,id);versions[id]=record.version;
+  if(id==='vnpay'){const callback=storedVnpay.version?callbackVnpay:callbackVnpay||fallbackVnpay;if(callback)callbackConfigs.vnpay=callback;}
+  else if(id!=='9pay'&&isChannelConfigured(id,record,null))callbackConfigs[id]=record.data;
+  if(!availability(id,record,vnpayConfig,config).checkoutReady)continue;
+  methods.push(id);configs[id]=id==='vnpay'?vnpayConfig:record.data;
+  if(id==='bank_transfer')bankTransfer=formatBankTransferInstructions(record.data);
+  if(id==='cod')cod={maxAmountVnd:Number(record.data.maxAmountVnd||50000000),instructions:String(record.data.instructions||'')};
  }
- return {methods,bankTransfer,cod,configs};
+ return {methods,bankTransfer,cod,configs,callbackConfigs,versions};
 }
 
 async function verifyPaymentChannel(id,settings,{config={},pool=null,fetcher=fetch}={}){
- const meta=channels[id];
- if(!meta)throw fail('Kênh thanh toán không hợp lệ.',404);
- const checkedAt=new Date().toISOString();
+ const meta=channels[id];if(!meta)throw fail('Kênh thanh toán không hợp lệ.',404);
+ const base={id,name:meta.name,verified:false,checkedAt:new Date().toISOString(),verificationScope:null,callbackVerified:false};
  if(id==='cod'){
-  const maxAmount=Number(settings.maxAmountVnd??50000000);
-  if(!Number.isSafeInteger(maxAmount)||maxAmount<100000||maxAmount>2000000000)throw fail('Hạn mức tối đa đơn COD phải từ 100.000 ₫ đến 2.000.000.000 ₫.',400);
-  let shippingConfigured=true;
-  if(pool){
-   const row=(await pool.query("SELECT setting_value FROM store_settings WHERE setting_key='shipping_rates'")).rows[0];
-   shippingConfigured=Boolean(row?.setting_value&&typeof row.setting_value==='object'&&Object.keys(row.setting_value).length>0);
-  }
-  return {
-   id:'cod',
-   name:meta.name,
-   verified:true,
-   checkedAt,
-   method:'policy_check',
-   message:shippingConfigured
-    ?'Kết nối kênh COD sẵn sàng. Bảng phí giao hàng và hạn mức thu hộ đã hợp lệ.'
-    :'Đã xác minh cấu hình COD. Lưu ý thêm bảng phí giao hàng theo tỉnh/thành trước khi nhận đơn.'
-  };
+  const max=Number(settings.maxAmountVnd??50000000);
+  if(!Number.isSafeInteger(max)||max<100000||max>2000000000)throw fail('Hạn mức COD chưa hợp lệ.',400);
+  let shippingConfigured=true;if(pool){const row=(await pool.query("SELECT setting_value FROM store_settings WHERE setting_key='shipping_rates'")).rows[0];shippingConfigured=Boolean(row?.setting_value&&Object.keys(row.setting_value).length);}
+  return {...base,configured:true,reachable:null,method:'configuration_validation',message:'Cấu hình COD hợp lệ.'+(!shippingConfigured?' Thêm bảng phí giao hàng trước khi nhận đơn.':'')};
  }
  if(id==='bank_transfer'){
-  if(!settings.bankName||settings.bankName.trim().length<2)throw fail('Nhập tên ngân hàng thụ hưởng trước khi kiểm tra.',400);
-  if(!/^[0-9A-Za-z]{6,30}$/.test(String(settings.accountNumber||'')))throw fail('Số tài khoản ngân hàng chưa hợp lệ (6–30 ký tự chữ hoặc số).',400);
-  if(!settings.accountHolder||settings.accountHolder.trim().length<2)throw fail('Nhập tên chủ tài khoản thụ hưởng trước khi kiểm tra.',400);
-  const syntax=String(settings.transferSyntax||'GAERU {MA_DON}').trim();
-  if(syntax.length<3)throw fail('Nhập cú pháp nội dung chuyển khoản hợp lệ.',400);
-  const preview=syntax.replace(/\{MA_DON\}/g,'GR-20261027-DEMO');
-  return {
-   id:'bank_transfer',
-   name:meta.name,
-   verified:true,
-   checkedAt,
-   method:'account_verification',
-   message:`Đã xác minh thông tin chuyển khoản ${settings.bankName.trim()} · STK ${settings.accountNumber.trim()} (${settings.accountHolder.trim()}). Nội dung mẫu: ${preview}.`
-  };
+  if(!settings.bankName||settings.bankName.trim().length<2||!settings.accountHolder||settings.accountHolder.trim().length<2||!(/^[0-9A-Za-z]{6,30}$/).test(String(settings.accountNumber||''))||String(settings.transferSyntax||'GAERU {MA_DON}').trim().length<3)throw fail('Thông tin chuyển khoản chưa hợp lệ.',400);
+  return {...base,configured:true,reachable:null,method:'configuration_validation',message:'Thông tin chuyển khoản đúng định dạng. Chưa xác minh quyền sở hữu tài khoản; chủ doanh nghiệp đối soát giao dịch trước khi ghi nhận đã thu tiền.'};
+ }
+ if(id==='9pay')return {...base,reachable:null,supported:false,method:'unsupported',message:'9Pay chưa có bộ kết nối được đối chiếu với tài liệu merchant; chưa cho phép nhận thanh toán.'};
+ if(id==='momo'||id==='zalopay'){
+  let attempt=null;if(pool)attempt=(await pool.query("SELECT transaction_ref,amount_vnd,provider_request_id FROM payment_attempts WHERE provider=$1 AND provider_request_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",[id])).rows[0]||null;
+  const result=await require('./payment-provider-clients').verifyGatewayAccount(id,settings,{fetcher,...(attempt?{txnRef:attempt.transaction_ref,amountVnd:attempt.amount_vnd,requestId:attempt.provider_request_id}:{})});
+  return {...base,...result,id,name:meta.name,method:result.verified?'authenticated_api':'gateway_reachability'};
  }
  if(id==='vnpay'){
-  if(!/^[a-zA-Z0-9]{8}$/.test(String(settings.tmnCode||'')))throw fail('Lưu Mã website (TmnCode 8 ký tự) trước khi kiểm tra kết nối VNPAY.',400);
-  if(!settings.hashSecret||String(settings.hashSecret).length<8)throw fail('Lưu Hash secret VNPAY trước khi kiểm tra kết nối.',400);
-  const baseUrl=config.PUBLIC_BASE_URL||'https://gaeru.com';
-  const paymentUrl=settings.environment==='production'?'https://pay.vnpay.vn/vpcpay.html':'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-  const returnUrl=new URL('/api/payments/vnpay/return',baseUrl).toString();
-  const signedUrl=buildVnpayPaymentUrl({tmnCode:settings.tmnCode,hashSecret:settings.hashSecret,paymentUrl,returnUrl},{amountVnd:100000,txnRef:'GR-VNPAY-PROBE',ipAddress:'127.0.0.1'});
-  const parsed=new URL(signedUrl);
-  const query=Object.fromEntries(parsed.searchParams.entries());
-  const verifiedSig=verifyVnpayQuery(query,settings.hashSecret);
-  if(!verifiedSig.valid)throw fail('Đối chiếu chữ ký HMAC-SHA512 của VNPAY không khớp.',502);
-  try{
-   const response=await fetcher(paymentUrl,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(12000)});
-   if(response.status>=500)throw fail('Máy chủ cổng VNPAY đang phản hồi lỗi ('+response.status+').',502);
-  }catch(e){
-   if(e.status)throw e;
-   throw fail('Không thể kết nối tới cổng VNPAY. Kiểm tra mạng hoặc thử lại sau.',502);
-  }
-  return {
-   id:'vnpay',
-   name:meta.name,
-   verified:true,
-   checkedAt,
-   method:'gateway_handshake',
-   environment:settings.environment,
-   message:`Đã xác minh chữ ký HMAC-SHA512 và kết nối thành công tới cổng VNPAY (${settings.environment==='production'?'Chính thức':'Thử nghiệm'}).`
-  };
+  if(!(/^[a-zA-Z0-9]{8}$/).test(String(settings.tmnCode||''))||String(settings.hashSecret||'').length<8)throw fail('Lưu đủ mã website và khóa VNPAY trước khi kiểm tra.',400);
+  const endpoint=settings.environment==='production'?'https://pay.vnpay.vn/vpcpay.html':'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+  try{const response=await fetcher(endpoint,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(12000)});await response.body?.cancel?.();const reachable=response.ok===true;
+   return {...base,reachable,method:'gateway_reachability',message:reachable?'Liên lạc được máy chủ VNPAY. Chưa xác minh tài khoản hoặc khóa; cần phản hồi giao dịch có chữ ký hợp lệ.':'Máy chủ VNPAY chưa trả phản hồi thành công. Chưa xác minh tài khoản hoặc khóa.'};
+  }catch{return {...base,reachable:false,method:'gateway_reachability',message:'Chưa liên lạc được VNPAY; tài khoản chưa được xác minh.'};}
  }
- if(id==='9pay'){
-  if(!settings.merchantKey||String(settings.merchantKey).trim().length<2)throw fail('Lưu Merchant Key 9Pay trước khi kiểm tra kết nối.',400);
-  if(!settings.secretKey||String(settings.secretKey).length<8)throw fail('Lưu Secret Key 9Pay trước khi kiểm tra kết nối.',400);
-  if(!settings.checksumKey||String(settings.checksumKey).length<8)throw fail('Lưu Checksum Key 9Pay trước khi kiểm tra kết nối.',400);
-  const endpoint=settings.environment==='production'?'https://payment.9pay.vn':'https://sand-payment.9pay.vn';
-  const samplePayload=`POST\n${endpoint}/payments/create\n${Math.floor(Date.now()/1000)}\nmerchant_key=${settings.merchantKey}&amount=100000&invoice_no=GR-9PAY-PROBE`;
-  const signature=createHmac('sha256',settings.secretKey).update(samplePayload,'utf8').digest('base64');
-  const checksum=createHmac('sha256',settings.checksumKey).update('GR-9PAY-PROBE:100000','utf8').digest('hex');
-  if(!signature||!checksum)throw fail('Không thể khởi tạo chữ ký bảo mật 9Pay.',500);
-  try{
-   const response=await fetcher(endpoint,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(12000)});
-   if(response.status>=500)throw fail('Máy chủ cổng 9Pay đang phản hồi lỗi ('+response.status+').',502);
-  }catch(e){
-   if(e.status)throw e;
-   throw fail('Không thể kết nối tới cổng 9Pay. Kiểm tra mạng hoặc thử lại sau.',502);
-  }
-  return {
-   id:'9pay',
-   name:meta.name,
-   verified:true,
-   checkedAt,
-   method:'gateway_handshake',
-   environment:settings.environment,
-   message:`Đã xác minh chữ ký HMAC-SHA256 và kết nối thành công tới cổng 9Pay (${settings.environment==='production'?'Chính thức':'Thử nghiệm'}).`
-  };
- }
- if(id==='momo'){
-  if(!settings.partnerCode||String(settings.partnerCode).trim().length<2)throw fail('Lưu Partner Code MoMo trước khi kiểm tra kết nối.',400);
-  if(!settings.accessKey||String(settings.accessKey).trim().length<2)throw fail('Lưu Access Key MoMo trước khi kiểm tra kết nối.',400);
-  if(!settings.secretKey||String(settings.secretKey).length<8)throw fail('Lưu Secret Key MoMo trước khi kiểm tra kết nối.',400);
-  const endpoint=settings.environment==='production'?'https://payment.momo.vn':'https://test-payment.momo.vn';
-  const signedUrl=buildMomoPaymentUrl(settings,{amountVnd:100000,txnRef:'GR-20261027-MOMOPROBE1',baseUrl:config.PUBLIC_BASE_URL||'https://gaeru.com'});
-  const parsed=new URL(signedUrl);
-  const sig=parsed.searchParams.get('signature');
-  if(!sig||sig.length!==64)throw fail('Không thể khởi tạo chữ ký HMAC-SHA256 cho MoMo.',500);
-  try{
-   const response=await fetcher(endpoint,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(12000)});
-   if(response.status>=500)throw fail('Máy chủ cổng MoMo đang phản hồi lỗi ('+response.status+').',502);
-  }catch(e){
-   if(e.status)throw e;
-   throw fail('Không thể kết nối tới cổng MoMo. Kiểm tra mạng hoặc thử lại sau.',502);
-  }
-  return {
-   id:'momo',
-   name:meta.name,
-   verified:true,
-   checkedAt,
-   method:'gateway_handshake',
-   environment:settings.environment,
-   message:`Đã xác minh chữ ký HMAC-SHA256 và kết nối thành công tới cổng MoMo (${settings.environment==='production'?'Chính thức':'Thử nghiệm'}).`
-  };
- }
- if(id==='zalopay'){
-  if(!/^\d{1,20}$/.test(String(settings.appId||'')))throw fail('Lưu App ID ZaloPay hợp lệ trước khi kiểm tra kết nối.',400);
-  if(!settings.key1||String(settings.key1).length<8)throw fail('Lưu Key 1 ZaloPay trước khi kiểm tra kết nối.',400);
-  if(!settings.key2||String(settings.key2).length<8)throw fail('Lưu Key 2 ZaloPay trước khi kiểm tra kết nối.',400);
-  const endpoint=settings.environment==='production'?'https://openapi.zalopay.vn':'https://sb-openapi.zalopay.vn';
-  const signedUrl=buildZalopayPaymentUrl(settings,{amountVnd:100000,txnRef:'GR-20261027-ZLPPROBE01',baseUrl:config.PUBLIC_BASE_URL||'https://gaeru.com'});
-  const parsed=new URL(signedUrl);
-  const mac=parsed.searchParams.get('mac');
-  if(!mac||mac.length!==64)throw fail('Không thể khởi tạo chữ ký MAC HMAC-SHA256 cho ZaloPay.',500);
-  try{
-   const response=await fetcher(endpoint,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(12000)});
-   if(response.status>=500)throw fail('Máy chủ cổng ZaloPay đang phản hồi lỗi ('+response.status+').',502);
-  }catch(e){
-   if(e.status)throw e;
-   throw fail('Không thể kết nối tới cổng ZaloPay. Kiểm tra mạng hoặc thử lại sau.',502);
-  }
-  return {
-   id:'zalopay',
-   name:meta.name,
-   verified:true,
-   checkedAt,
-   method:'gateway_handshake',
-   environment:settings.environment,
-   message:`Đã xác minh chữ ký MAC HMAC-SHA256 và kết nối thành công tới cổng ZaloPay (${settings.environment==='production'?'Chính thức':'Thử nghiệm'}).`
-  };
- }
- throw fail('Kênh thanh toán chưa hỗ trợ kiểm tra kết nối.',501);
+ throw fail('Kênh thanh toán chưa hỗ trợ kiểm tra.',501);
 }
 
 async function verifyAndRecordPayment(pool,config,id,version,{fetcher,actor}={}){
@@ -531,25 +336,25 @@ async function verifyAndRecordPayment(pool,config,id,version,{fetcher,actor}={})
   const current=await readChannelRecord(c,config,id);
   if(current.version!==version)throw fail('Cấu hình vừa thay đổi. Kiểm tra lại kết nối.');
   const changed=await c.query(
-   'UPDATE payment_channel_connections SET verified_at=now(),enabled=$4,last_method=$5,updated_at=now() WHERE channel_id=$1 AND config_version=$2 AND verification_nonce=$3 RETURNING channel_id',
-   [id,version,nonce,Boolean(current.data.enabled),result.method]
+   'UPDATE payment_channel_connections SET verified_at=CASE WHEN $6 THEN now() ELSE NULL END,enabled=$4,last_method=$5,last_checked_at=now(),reachable=$7,verification_scope=$8,updated_at=now() WHERE channel_id=$1 AND config_version=$2 AND verification_nonce=$3 RETURNING channel_id',
+   [id,version,nonce,Boolean(current.data.enabled),result.method,result.verified===true&&authenticatedProof(result.method,result.verificationScope),result.reachable??null,result.verificationScope||null]
   );
   if(!changed.rows.length)throw fail('Có lần kiểm tra mới hơn. Tải lại trạng thái kết nối.');
-  await appendAudit(c,{actor,action:'payment.connection.verify',entityType:'configuration',entityId:meta.configId,metadata:{channelId:id,version,method:result.method}});
+  await appendAudit(c,{actor,action:'payment.connection.verify',entityType:'configuration',entityId:meta.configId,metadata:{channelId:id,version,method:result.method,verified:result.verified===true&&authenticatedProof(result.method,result.verificationScope),reachable:result.reachable??null,verificationScope:result.verificationScope||null}});
  });
  return {...result,version};
 }
 
 async function listPaymentChannels(pool,config){
- const rows=(await pool.query('SELECT channel_id,config_version,verified_at,enabled,last_method FROM payment_channel_connections')).rows;
+ const rows=(await pool.query('SELECT channel_id,config_version,verified_at,enabled,last_method,last_checked_at,reachable,verification_scope FROM payment_channel_connections')).rows;
  const vnpayConfig=await getVnpay(pool,config);
  const items=[];
  for(const id of channelIds){
   const meta=channels[id];
   const record=await readChannelRecord(pool,config,id);
   const row=rows.find(r=>r.channel_id===id);
-  const verified=Boolean(row?.verified_at)&&row.config_version===record.version;
-  const enabled=isChannelEnabled(id,record,vnpayConfig);
+  const current=row?.config_version===record.version;const verified=Boolean(row?.verified_at)&&current&&authenticatedProof(row.last_method,row.verification_scope);
+  const state=availability(id,record,vnpayConfig,config);const enabled=state.enabled;
   items.push({
    id,
    configId:meta.configId,
@@ -560,7 +365,8 @@ async function listPaymentChannels(pool,config){
    verifiedAt:verified?row.verified_at:null,
    enabled,
    configured:isChannelConfigured(id,record,vnpayConfig),
-   environment:record.data.environment||null
+   environment:record.data.environment||null,
+    ...state,method:current?row.last_method:null,checkedAt:current?row.last_checked_at:null,reachable:current?row.reachable:null,verificationScope:verified?row.verification_scope:null,callbackVerified:verified&&row.last_method==='signed_callback'
   });
  }
  const baseUrl=config.PUBLIC_BASE_URL||'https://gaeru.com';
@@ -614,7 +420,9 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    await config.accountSecurity.authorize(req,async(_a,c)=>{
     const current=await readChannelRecord(c,config,id);
     if(current.version!==payload.version)throw fail('Cấu hình đã thay đổi. Tải lại trang.');
-    if(payload.enabled&&id!=='cod'&&current.version===0)throw fail('Lưu thông tin kết nối kênh thanh toán trước khi bật.');
+    if(payload.enabled&&id==='9pay')throw fail('9Pay chưa sẵn sàng nhận thanh toán.',409);
+     await assertPaymentConfigurationChange(c,id,current.data,{...current.data,enabled:payload.enabled});
+     if(payload.enabled&&id!=='cod'&&current.version===0)throw fail('Lưu thông tin kết nối kênh thanh toán trước khi bật.');
     if(['vnpay','9pay','momo','zalopay'].includes(id)&&payload.enabled&&config.NODE_ENV==='production'&&current.data.environment==='sandbox'){
      throw fail(`Chỉ bật ${meta.name} chính thức trên website đang hoạt động. Dùng môi trường riêng để thử sandbox.`,400);
     }
@@ -688,9 +496,9 @@ module.exports={
  isChannelEnabled,
  getCheckoutPaymentChannels,
  formatBankTransferInstructions,
- buildNinepayPaymentUrl,
- buildMomoPaymentUrl,
- buildZalopayPaymentUrl,
+ availability,
+ recordGatewayEvidence,
+ assertPaymentConfigurationChange,
  extractOrderNumber,
  verifyGatewayPayload,
  reconcilePrepaidOrder,

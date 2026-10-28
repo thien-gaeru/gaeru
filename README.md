@@ -8,7 +8,7 @@ Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL th�
 
 - Cửa hàng công khai: trang chủ, danh mục, tìm kiếm, chi tiết sản phẩm, giỏ hàng và đặt hàng.
 - Giỏ hàng lưu trên trình duyệt; giá, phiên bản và tồn kho được đọc từ PostgreSQL.
-- Checkout có COD và hỗ trợ VNPAY khi merchant cấu hình đủ secrets trên máy chủ; phí giao hàng theo tỉnh/thành được áp dụng phía server. Tài liệu merchant 9Pay chưa có trong workspace nên phương thức này chưa được bật.
+- Checkout có COD, chuyển khoản đối soát bởi chủ, VNPAY và client tạo phiên MoMo/ZaloPay phía máy chủ. Chỉ dùng URL thanh toán do provider trả về; callback được kiểm tra riêng. 9Pay bị chặn nhận thanh toán khi chưa có adapter đối chiếu hợp đồng merchant. Xem [luồng thanh toán và ý nghĩa xác minh](docs/payment-providers.md). Kiểm thử provider hiện dùng mô phỏng; cần nghiệm thu merchant sandbox trước production. Phí giao hàng theo tỉnh/thành được áp dụng phía server.
 - Khu vực `/gaeru_ceo`: quản lý sản phẩm, phiên bản/SKU, giá, tồn kho; dashboard có số đơn cần xử lý, đơn chờ thanh toán và cảnh báo tồn thấp; tra cứu/lọc/phân trang lịch sử đơn, cập nhật trạng thái và cấu hình phí giao hàng theo tỉnh/thành.
 - Đăng nhập quản trị bằng mật khẩu băm; phiên lưu trong PostgreSQL, có CSRF token, giới hạn đăng nhập và giới hạn đặt hàng.
 - Khách hàng có thể đăng ký/đăng nhập bằng email và mật khẩu, lưu số điện thoại liên hệ; tài khoản chưa xác minh vẫn đăng nhập và mua hàng bình thường. Trong tài khoản, khách có thể yêu cầu gửi email xác minh với liên kết dùng một lần (hiệu lực 30 phút); trạng thái chưa xác minh biến mất sau khi xác nhận. Khôi phục mật khẩu đối chiếu email và số điện thoại rồi gửi liên kết dùng một lần qua email (hiệu lực 30 phút).
