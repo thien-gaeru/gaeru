@@ -2,7 +2,7 @@
 
 Trang quản trị đã được mở rộng cho một doanh nghiệp với nhiều nhân viên và kho hàng. Xem [hướng dẫn quản trị doanh nghiệp](docs/enterprise-admin.md) để biết nghiệp vụ, quyền, quy tắc tồn kho/công nợ và quy trình nâng cấp cơ sở dữ liệu.
 
-Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL; không dùng WordPress hoặc WooCommerce. Giao diện responsive lấy cảm hứng từ cách Apple giới thiệu sản phẩm, nhưng nội dung, thương hiệu và quản trị thuộc GAERU.
+Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL thương hiệu và quản trị thuộc GAERU.
 
 ## Tính năng
 
