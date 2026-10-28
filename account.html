@@ -1,30 +1,30 @@
 <!doctype html>
 <html lang="vi">
-  <head>
+  <head><script src="/bot-protection.js?v=20261024" defer></script><script src="/action-feedback.js?v=20261028-validation" defer></script><link rel="stylesheet" href="/action-feedback.css?v=20261028-validation"><link rel="stylesheet" href="/bot-protection.css?v=20261024">
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Tài khoản khách hàng · GAERU</title>
-    <meta name="description" content="Quản lý thông tin tài khoản, đơn hàng và bảo mật cá nhân trên GAERU Store.">
-    <link rel="stylesheet" href="styles.css?v=20261025-product-trash">
-    <link rel="stylesheet" href="account-upgrade.css?v=20261023-session-loading">
-    <script src="customer-session.js" defer></script><script src="store-shell.js?v=20261025-affiliate" defer></script>
+    <meta name="theme-color" content="#f5f5f7">
+    <meta name="referrer" content="no-referrer">
+    <meta name="description" content="Đăng nhập hoặc tạo tài khoản khách hàng GAERU.">
+    <title>Tài khoản khách hàng — GAERU</title>
+    <link rel="stylesheet" href="styles.css?v=20261029-oauth">
+    <link rel="stylesheet" href="account-upgrade.css?v=20261029-oauth">
+    <script src="customer-session.js" defer></script><script src="/footer-products.js?v=20261027-all-products" defer></script><script src="store-shell.js?v=20261026-footer-live" defer></script>
     <script src="account.js?v=20261025-address-mail" defer></script>
-    <script src="customer-experience.js?v=20261025-address-mail" defer></script>
+    <script src="customer-experience.js?v=20261027-warranty-link" defer></script>
   <link rel="stylesheet" href="brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="assets/brand/gaeru-logo.webp">
   <link rel="stylesheet" href="/account-security.css?v=20261029-oauth"><script src="/account-security.js?v=20261024-hardened" defer></script><script src="/account-deletion.js?v=20261024-confirm-mail" defer></script><link rel="stylesheet" href="/marketing.css?v=20261024-banner"><script src="/customer-marketing.js?v=20261024-banner" defer></script><link rel="stylesheet" href="/typography.css?v=20261025-mobile-delete"><script src="/care-live.js?v=20261024-support-email" defer></script><script src="/shopping-chat-client.js?v=20261029-clean-chat" defer></script><script src="/product-services.js?v=20261028-chat-v2" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261029-clean-chat"><script src="vietnam-address.js?v=20261026-unified-ui" defer></script><link rel="stylesheet" href="quick-purchase.css?v=20261025-wallet-compact"><link rel="stylesheet" href="vietnam-address.css?v=20261026-unified-ui"><style>
-.account-panel{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;width:100%!important;text-align:center!important;}
-.account-page .account-form{width:100%!important;max-width:390px!important;margin:0 auto!important;}
 .account-oauth-divider{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:100%!important;max-width:390px!important;margin:22px auto 16px auto!important;color:#86868b!important;font-size:13px!important;}
 .account-oauth-divider::before,.account-oauth-divider::after{content:''!important;flex:1!important;border-bottom:1px solid #d2d2d7!important;}
 .account-oauth-divider:not(:empty)::before{margin-right:.85em!important;}
 .account-oauth-divider:not(:empty)::after{margin-left:.85em!important;}
 .account-oauth-group{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:12px!important;width:100%!important;max-width:390px!important;margin:0 auto 20px auto!important;box-sizing:border-box!important;}
-.button-oauth{display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:10px!important;width:100%!important;max-width:390px!important;min-height:46px!important;padding:10px 18px!important;border-radius:12px!important;font-size:14px!important;font-weight:500!important;cursor:pointer!important;transition:all .18s ease-in-out!important;text-decoration:none!important;box-sizing:border-box!important;font-family:inherit!important;margin:0 auto!important;}
+.button-oauth{display:inline-flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;gap:10px!important;width:100%!important;max-width:390px!important;min-height:46px!important;padding:10px 18px!important;border-radius:12px!important;font-size:14px!important;font-weight:500!important;cursor:pointer!important;transition:all .2s cubic-bezier(0.16, 1, 0.3, 1)!important;box-sizing:border-box!important;text-decoration:none!important;font-family:inherit!important;margin:0 auto!important;}
+.button-oauth:active{transform:scale(0.985)!important;}
+.button-oauth:focus-visible{outline:2px solid #0071e3!important;outline-offset:2px!important;}
 .button-oauth-google{background:#ffffff!important;color:#3c4043!important;border:1px solid #dadce0!important;box-shadow:0 1px 2px rgba(60,64,67,0.08)!important;}
-.button-oauth-google:hover{background:#f8fafd!important;border-color:#c2e7ff!important;box-shadow:0 2px 4px rgba(60,64,67,0.15)!important;}
-
-.button-oauth svg{flex-shrink:0!important;}
+.button-oauth-google:hover{background:#f8f9fa!important;border-color:#c6c8cc!important;box-shadow:0 2px 4px rgba(60,64,67,0.12)!important;}
 .account-login-links{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:100%!important;max-width:390px!important;margin:20px auto 0 auto!important;}
 .account-card .account-login-links p,.account-login-links p{margin:14px auto 0 auto!important;text-align:center!important;width:100%!important;max-width:100%!important;display:block!important;}
 .account-reset-link{display:inline-block!important;text-align:center!important;margin:0 auto!important;}
@@ -33,10 +33,21 @@
   <body>
     <a class="skip-link" href="#main">Bỏ qua điều hướng</a>
     <div id="site-header"></div>
-    <main id="main">
-      <section class="section account-page">
-        <div class="shell">
-          <div class="account-card" data-account-card>
+    <main id="main" class="store-main account-page">
+      <section class="account-layout section-wrap" id="customer-account">
+        <div class="account-copy">
+          <p class="eyebrow">GAERU ACCOUNT</p>
+          <h1>Tài khoản GAERU</h1>
+          <p data-account-intro>Quản lý thông tin, đơn hàng và bảo hành của bạn.</p>
+          <nav class="account-hub-nav" aria-label="Quản lý tài khoản" data-account-navigation hidden>
+            <a href="#orders" data-account-tab="orders">Đơn hàng</a>
+            <a href="#profile" data-account-tab="profile">Hồ sơ cá nhân</a>
+            <a href="#security" data-account-tab="security">Bảo mật</a>
+          </nav>
+        </div>
+
+        <div class="account-workspace">
+          <section class="account-card" data-account-card>
             <div class="account-card-heading" data-account-heading hidden>
               <div>
                 <span class="account-icon" aria-hidden="true">GAERU</span>
@@ -53,10 +64,9 @@
               <div class="account-oauth-divider"><span>Hoặc tiếp tục với</span></div>
               <div class="account-oauth-group">
                 <button type="button" class="button-oauth button-oauth-google" data-oauth-action="google" aria-label="Đăng nhập với Google">
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="flex-shrink:0;"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
                   <span>Đăng nhập với Google</span>
                 </button>
-                
               </div>
               <div class="account-login-links">
                 <a class="account-reset-link" href="#password-reset" data-account-show-reset>Quên mật khẩu? <span aria-hidden="true">↗</span></a>
@@ -77,10 +87,9 @@
               <div class="account-oauth-divider"><span>Hoặc đăng ký nhanh</span></div>
               <div class="account-oauth-group">
                 <button type="button" class="button-oauth button-oauth-google" data-oauth-action="google" aria-label="Đăng ký với Google">
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="flex-shrink:0;"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
                   <span>Đăng ký với Google</span>
                 </button>
-                
               </div>
               <div class="account-login-links">
                 <p>Bạn đã có tài khoản GAERU? <a href="#login" data-account-show-login>Đăng nhập <span aria-hidden="true">↗</span></a></p>
@@ -108,62 +117,34 @@
               </div>
             </div>
 
-            <div class="account-panel" data-account-panel="profile" role="tabpanel" hidden>
-              <div class="account-profile-header">
+            <div class="account-panel customer-profile" id="account-overview" data-account-profile hidden>
+              <div class="account-overview-card">
+              <div class="account-profile-header"><div>
+              <p class="eyebrow">ĐÃ ĐĂNG NHẬP</p>
+              <h3 data-customer-name></h3>
+              </div><span class="account-verification-badge" data-customer-verification-status>Chưa xác minh email</span></div>
+              <dl>
+                <div><dt>Email</dt><dd data-customer-email></dd></div>
+                <div><dt>Điện thoại</dt><dd data-customer-phone></dd></div>
+              </dl>
+              <div class="account-trust-note" data-email-verification-notice hidden>
+                <span aria-hidden="true">i</span>
                 <div>
-                  <h3 id="profile-display-name">Khách hàng</h3>
-                  <p id="profile-display-email" class="subtle-copy"></p>
-                </div>
-                <div class="account-profile-header-actions">
-                  <button class="button button-secondary" id="logout-button" type="button">Đăng xuất</button>
-                  <a class="account-home-shortcut" href="/">Về trang chủ ↗</a>
+                  <p>Tài khoản chưa được xác minh. Bạn vẫn có thể đăng nhập và mua hàng bình thường. Xác minh email để hoàn tất thông tin tài khoản.</p>
+                  <button class="button button-blue" type="button" data-email-verification-request>Gửi email xác minh</button>
+                  <p class="account-feedback" data-email-verification-feedback role="status" aria-live="polite"></p>
                 </div>
               </div>
-              <div class="account-sections">
-                <section class="account-section" aria-labelledby="heading-orders">
-                  <div class="account-section-heading">
-                    <div>
-                      <h4 id="heading-orders">Đơn hàng của bạn</h4>
-                      <p class="subtle-copy">Danh sách đơn hàng đã đặt và trạng thái vận chuyển.</p>
-                    </div>
-                  </div>
-                  <div id="account-orders" data-account-orders>
-                    <p class="subtle-copy">Đang tải danh sách đơn hàng…</p>
-                  </div>
-                </section>
-                <section class="account-section" aria-labelledby="heading-profile-edit">
-                  <div class="account-section-heading">
-                    <div>
-                      <h4 id="heading-profile-edit">Thông tin liên hệ</h4>
-                      <p class="subtle-copy">Cập nhật thông tin giao hàng mặc định.</p>
-                    </div>
-                  </div>
-                  <form class="account-form" data-account-form="profile">
-                    <label>Họ và tên<input name="fullName" type="text" autocomplete="name" minlength="2" maxlength="120" required></label>
-                    <label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" minlength="10" maxlength="20" placeholder="10 số di động" required></label>
-                    <div id="account-address-picker"></div>
-                    <label>Ghi chú giao hàng<textarea name="deliveryNote" rows="2" maxlength="300" placeholder="Ví dụ: Giao giờ hành chính"></textarea></label>
-                    <button class="button button-blue" type="submit">Lưu thông tin</button>
-                  </form>
-                </section>
-                <section class="account-section" id="account-security-section" aria-labelledby="heading-security">
-                  <div class="account-section-heading">
-                    <div>
-                      <h4 id="heading-security">Bảo mật tài khoản</h4>
-                      <p class="subtle-copy">Quản lý mật khẩu và các tùy chọn bảo vệ đăng nhập.</p>
-                    </div>
-                  </div>
-                  <div id="account-security-container"></div>
-                </section>
+              <div class="account-profile-footer"><p>Thông tin của bạn được dùng để liên hệ và giao hàng.</p><button class="secondary-button" type="button" data-account-logout>Đăng xuất</button></div>
               </div>
             </div>
-
-            <div class="account-loading" data-account-loading role="status" aria-live="polite">
-              <span class="account-spinner" aria-hidden="true"></span>
-              <p data-account-loading-message>Đang tải tài khoản…</p>
-            </div>
-
+            <div class="account-loading" data-account-loading role="status" aria-live="polite"><span class="account-spinner" aria-hidden="true"></span><p data-account-loading-message>Đang tải tài khoản…</p></div>
             <p class="account-feedback" data-account-feedback role="status" aria-live="polite"></p>
+          </section>
+
+          <div class="account-shortcuts">
+            <a href="care.html">GAERU CARE+ · Quản lý bảo hành <span aria-hidden="true">›</span></a>
+            <a href="privacy.html">Chính sách dữ liệu <span aria-hidden="true">›</span></a>
           </div>
         </div>
       </section>

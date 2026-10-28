@@ -36,7 +36,7 @@ function activateAccountPanel(panelName) {
   finishAccountLoading();
   setAccountPresentation(null);
   const profile = document.querySelector("[data-account-profile]");
-  profile.hidden = true;
+  if (profile) profile.hidden = true;
   accountPanels.forEach((panel) => {
     panel.hidden = panel.dataset.accountPanel !== panelName;
   });
