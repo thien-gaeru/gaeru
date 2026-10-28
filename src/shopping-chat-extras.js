@@ -34,7 +34,7 @@ async function answerAI({config,product,question,decision=false,transport=fetch}
 }
 
 async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,originalName,buffer,mime,client=null}) {
-  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > uploadRules.MAX_FILE_BYTES) throw fail("File exceeds 10 MiB.", 413);
+  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > uploadRules.MAX_FILE_BYTES) throw fail("File exceeds upload limit (" + Math.round(uploadRules.MAX_FILE_BYTES / 1048576) + " MiB).", 413);
   let safeName = String(originalName || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
   const originalSize = buffer.length;
   let fileRecord = null;
@@ -213,7 +213,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     });
     res.json({message:'Đã kết thúc phiên chat.',status:'closed'});
   }));
-  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),provider:settings.enabled?settings.provider:null,maxFileBytes:uploadRules.MAX_FILE_BYTES,unlimitedFileSize:false,chunkSizeBytes:4194304,backgroundCompression:true});}));
+  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),provider:settings.enabled?settings.provider:null,maxFileBytes:uploadRules.MAX_FILE_BYTES,unlimitedFileSize:true,chunkSizeBytes:4194304,backgroundCompression:true});}));
   publicApi.post('/threads/:id/ai',requireCsrf,limit,authorize(false),(_req,res)=>res.status(409).json({error:'AI đang trả lời tự động. Bạn có thể chọn Gặp nhân viên để chuyển hỗ trợ.'}));
 }
 module.exports={attachShoppingChat,fileType,answerAI};
