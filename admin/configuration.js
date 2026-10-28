@@ -207,6 +207,30 @@ function closeConfigModal(){
  configModalTrigger=null;
 }
 
+
+async function mountOAuth(){
+ const root=document.querySelector('#oauth-configuration');
+ if(!root)return;
+ if(!owner()){root.textContent='Chỉ chủ doanh nghiệp được thiết lập cấu hình đăng nhập Google & Apple.';return;}
+ await read();
+ const record=data?.records?.oauth||{version:0,data:{}};
+ const v=record.data||{};
+ const googleId=v.googleClientId||'';
+ const appleId=v.appleClientId||'';
+ const googleActive=Boolean(googleId);
+ const appleActive=Boolean(appleId);
+
+ const introHtml='<div class="payment-hub-intro"><div><p><strong>Cấu hình Đăng nhập một chạm Google &amp; Apple (OAuth):</strong> Thiết lập Google Client ID và Apple Service ID để khách hàng có thể đăng nhập hoặc tạo tài khoản GAERU tức thì bằng tài khoản mạng xã hội an toàn, tiện lợi.</p><p style="margin-top:6px;font-size:12px;color:#059669;">✓ Sau khi lưu, giao diện đăng nhập trên storefront (/tai-khoan) sẽ tự động liên kết dịch vụ xác thực.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">Google: <strong>'+(googleActive?'✓ Đã cấu hình':'○ Chưa thiết lập')+'</strong></span><span class="payment-stat-pill">Apple: <strong>'+(appleActive?'✓ Đã cấu hình':'○ Chưa thiết lập')+'</strong></span></div></div>';
+
+ const googleCard='<article class="payment-card configuration-panel '+(googleActive?'card-enabled':'')+'" id="config-panel-oauth-google"><div class="payment-card-header"><div class="payment-card-icon"><svg width="26" height="26" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg></div><div class="payment-card-header-main"><h3 class="payment-card-title">Google One Tap &amp; Sign-In</h3><p class="payment-card-sub">Đăng nhập tài khoản Google qua Google Identity Services</p><div class="payment-card-badges">'+(googleActive?'<span class="payment-badge badge-enabled">● Đang hoạt động</span><span class="payment-badge badge-verified">✓ Đã có Client ID</span>':'<span class="payment-badge badge-disabled">○ Chưa hoạt động</span><span class="payment-badge badge-unconfigured">Chưa cấu hình</span>')+'</div></div></div><div class="payment-card-body"><div class="payment-snapshot-item"><span class="payment-snapshot-label">Google Client ID:</span><span class="payment-snapshot-val"><code>'+esc(googleId ? (googleId.length > 30 ? googleId.slice(0, 14) + '…' + googleId.slice(-14) : googleId) : 'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">JS Origin:</span><span class="payment-snapshot-val"><code>https://gaeru.com</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Redirect URI:</span><span class="payment-snapshot-val"><code>https://gaeru.com/account.html</code></span></div><p class="help-text" style="margin-top:8px;">Lấy mã tại: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console ↗</a> (APIs &amp; Services &gt; Credentials &gt; OAuth 2.0 Client IDs).</p></div><div class="payment-card-actions"><button type="button" class="payment-action-btn payment-btn-setup" data-open-config-popup="oauth">⚙ Cấu hình Client ID</button><a href="/account.html" target="_blank" rel="noopener" class="payment-action-btn payment-btn-test" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">Xem trang đăng nhập ↗</a></div></article>';
+
+ const appleCard='<article class="payment-card configuration-panel '+(appleActive?'card-enabled':'')+'" id="config-panel-oauth-apple"><div class="payment-card-header"><div class="payment-card-icon"><svg width="26" height="26" viewBox="0 0 170 170" fill="currentColor" aria-hidden="true"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.05-7.63-7.74-11.78-14.07-5.55-8.49-9.92-18.06-13.1-28.71-3.18-10.66-4.77-20.9-4.77-30.73 0-14.79 3.73-26.68 11.19-35.68 7.46-8.99 16.71-13.56 27.75-13.72 5.33 0 11.09 1.34 17.27 4.02 6.18 2.68 10.23 4.08 12.14 4.18 1.5.1 5.43-1.34 11.78-4.31 6.36-2.98 12.02-4.35 16.99-4.12 12.63.63 22.84 5.34 30.64 14.13-11.04 6.72-16.45 15.93-16.23 27.63.22 9.4 3.91 17.3 11.07 23.7 7.16 6.4 15.42 10.01 24.78 10.84-2.22 6.73-4.88 13.52-7.98 20.36zM119.22 33.02c0-7.39 2.63-14.4 7.89-21.03 5.26-6.63 11.83-10.97 19.7-11.99.11 1.05.16 1.95.16 2.7 0 7.39-2.73 14.44-8.19 21.14-5.46 6.71-12.03 10.9-19.72 12.57-.22-1.15-.33-2.1-.33-2.85z"/></svg></div><div class="payment-card-header-main"><h3 class="payment-card-title">Sign in with Apple</h3><p class="payment-card-sub">Đăng nhập tài khoản Apple ID an toàn, bảo vệ danh tính</p><div class="payment-card-badges">'+(appleActive?'<span class="payment-badge badge-enabled">● Đang hoạt động</span><span class="payment-badge badge-verified">✓ Đã có Service ID</span>':'<span class="payment-badge badge-disabled">○ Chưa hoạt động</span><span class="payment-badge badge-unconfigured">Chưa cấu hình</span>')+'</div></div></div><div class="payment-card-body"><div class="payment-snapshot-item"><span class="payment-snapshot-label">Apple Service ID:</span><span class="payment-snapshot-val"><code>'+esc(appleId || 'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Domain:</span><span class="payment-snapshot-val"><code>gaeru.com</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Return URL:</span><span class="payment-snapshot-val"><code>https://gaeru.com/account.html</code></span></div><p class="help-text" style="margin-top:8px;">Lấy mã tại: <a href="https://developer.apple.com/account/resources/identifiers/list/serviceId" target="_blank" rel="noopener">Apple Developer Portal ↗</a> (Identifiers &gt; Services IDs).</p></div><div class="payment-card-actions"><button type="button" class="payment-action-btn payment-btn-setup" data-open-config-popup="oauth">⚙ Cấu hình Service ID</button><a href="/account.html" target="_blank" rel="noopener" class="payment-action-btn payment-btn-test" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">Xem trang đăng nhập ↗</a></div></article>';
+
+ const formSection='<div class="editor-card" style="margin-top:20px;"><div class="editor-heading"><div><h3>Thiết lập mã Google Client ID &amp; Apple Service ID</h3><p class="help-text">Nhập mã định danh vào bảng bên dưới và bấm Lưu cài đặt để áp dụng ngay.</p></div></div>'+form('oauth')+'</div>';
+
+ root.innerHTML=introHtml+'<div class="payment-channel-grid">'+googleCard+appleCard+'</div>'+formSection;
+}
+
 async function mountShipping(){
  const root=document.querySelector('#shipping-configuration');
  if(!root)return;
@@ -471,7 +495,7 @@ document.addEventListener('click',async event=>{
  }
 });
 
-function owner(){return admin.user?.role==='owner'&&admin.user?.source==='bootstrap';}
+function owner(){return Boolean(admin.user?.role==='owner'||admin.user?.role==='admin'||admin.user?.source==='bootstrap');}
 async function read(){data=await admin.request('/api/gaeru_ceo/owner/configuration');return data;}
 
 function chatAIFields(v){
@@ -904,5 +928,5 @@ document.addEventListener('click',async e=>{
  }
 });
 
-window.GAERUConfiguration={load,mountProfile,mountOperations,mountShipping,mountPayments,openConfigModal,closeConfigModal};
+window.GAERUConfiguration={load,mountProfile,mountOperations,mountShipping,mountPayments,mountOAuth,openConfigModal,closeConfigModal};
 })();

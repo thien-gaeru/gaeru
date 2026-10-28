@@ -381,7 +381,8 @@ function showOAuthConfigModal(provider, cfg) {
     <div style="background:#f5f5f7;border-radius:14px;padding:16px;margin-bottom:20px;font-size:13px;line-height:1.65;color:#1d1d1f;">
       <strong style="display:block;margin-bottom:6px;color:#0071e3;">📌 2 Cách cấu hình nhanh:</strong>
       <strong>Cách 1: Trực quan trong Trang Quản trị (Khuyên dùng)</strong><br>
-      Đăng nhập Quản trị viên (Chủ shop) ➔ vào menu <strong>Cấu hình</strong> ➔ chọn <strong>Đăng nhập Google & Apple (OAuth)</strong> ➔ nhập ${provider} Client ID và bấm Lưu.<br><br>
+      Đăng nhập Quản trị viên (Chủ shop) ➔ vào menu <strong>Đăng nhập Google & Apple</strong> ➔ nhập Client ID / Service ID và bấm Lưu.<br>
+      <a href="/gaeru_ceo/#oauth" target="_blank" rel="noopener" class="button button-blue" style="display:inline-block;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;margin-top:6px;margin-bottom:8px;">Mở ngay trang Cấu hình Google &amp; Apple trong Quản trị ↗</a><br><br>
       <strong>Cách 2: Cấu hình qua tệp .env trên máy chủ</strong><br>
       Thêm dòng sau vào tệp <code>.env</code>:<br>
       <code style="display:block;background:#ffffff;padding:8px 12px;border-radius:8px;border:1px solid #d2d2d7;margin-top:6px;word-break:break-all;">

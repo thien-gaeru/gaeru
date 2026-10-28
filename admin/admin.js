@@ -1007,6 +1007,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (button.dataset.view === "products") { await loadProducts(document.querySelector("#product-search").value.trim()); checkProductAddedNotice(); }
     if (button.dataset.view === "orders") await loadOrders();
     if (view === "payments") await window.GAERUConfiguration.mountPayments();
+    if (view === "oauth" && window.GAERUConfiguration) await window.GAERUConfiguration.mountOAuth();
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") {await loadSettings();if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();}
