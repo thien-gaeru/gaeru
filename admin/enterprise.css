@@ -19,3 +19,22 @@
 @media(max-width:680px){.enterprise-editor-dialog>header,.enterprise-editor-content{padding:12px 14px}.enterprise-editor-dialog>header h2{font-size:19px}.enterprise-editor-dialog .form-grid{grid-template-columns:1fr}.enterprise-editor-content .enterprise-form-actions{gap:8px}.enterprise-editor-content input,.enterprise-editor-content select,.enterprise-editor-content textarea{font-size:16px}}
 
 .enterprise-editor-dialog [data-e-close]{border:1px solid #d6dce2;border-radius:999px;padding:9px 18px;background:white;color:#202329;min-height:40px;cursor:pointer}.enterprise-editor-dialog>header [data-e-close]{width:40px;padding:8px}
+
+.marketplace-hub-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:16px 0 20px}
+.marketplace-hub-card{background:#fff;border:1px solid #e5e5e8;border-radius:14px;padding:16px;display:flex;flex-direction:column;justify-content:space-between;transition:border-color .15s,box-shadow .15s}
+.marketplace-hub-card:hover{border-color:#cbd5e1;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.marketplace-hub-card.connected{border-color:#86efac;background:#fcfdfc}
+.marketplace-hub-card .hub-card-header{display:flex;align-items:center;gap:10px}
+@media(max-width:900px){.marketplace-hub-cards{grid-template-columns:1fr}}
+
+.report-metrics-grid .stat-card{position:relative;border-left:4px solid #cbd5e1;transition:box-shadow .15s}
+.report-metrics-grid .stat-card:hover{box-shadow:0 3px 10px rgba(0,0,0,.04)}
+.report-metrics-grid .kpi-card-positive{border-left-color:#16a34a;background:#fafdfb}
+.report-metrics-grid .kpi-card-warning{border-left-color:#f59e0b;background:#fffdfa}
+.report-metrics-grid .kpi-card-negative{border-left-color:#ef4444;background:#fffafa}
+.kpi-note{font-size:11px;color:var(--muted);margin-top:6px;display:block}
+.product-rank-badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;font-size:11px;font-weight:700}
+.product-rank-badge.rank-1{background:#fef08a;color:#854d0e}
+.product-rank-badge.rank-2{background:#e2e8f0;color:#334155}
+.product-rank-badge.rank-3{background:#fed7aa;color:#9a3412}
+.product-rank-badge.rank-rest{background:#f1f5f9;color:#64748b}

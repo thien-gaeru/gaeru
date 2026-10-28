@@ -1,12 +1,119 @@
-(()=>{const admin=window.GAERUAdmin,root=document.querySelector('#shopping-chat-view'),h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let page=1,selected=null,client=null,loading=false;
-async function load(){if(loading||!admin.can('customers.read'))return;loading=true;try{if(!root.querySelector('[data-admin-chat-list]')){root.innerHTML=(admin.can('staff.write')?'<details class="chat-email-settings" data-chat-email-settings><summary>Thông báo qua email</summary><div data-chat-email-content></div></details>':'')+'<div class="admin-shopping-chat"><aside><h2>Hộp thư</h2><div data-admin-chat-list></div><div class="pagination"><button data-chat-page="-1">Trước</button><span data-chat-page-label></span><button data-chat-page="1">Tiếp</button></div></aside><section><div data-admin-chat-controls></div><div data-admin-chat-thread><p>Chọn hội thoại để đọc và phản hồi.</p></div></section></div><p role="status" data-admin-chat-status></p>';}const d=await admin.request('/api/gaeru_ceo/shopping-chat?page='+page);root.querySelector('[data-admin-chat-list]').innerHTML=d.threads.map(t=>'<button type="button" data-chat-thread="'+h(t.id)+'" aria-pressed="'+(t.id===selected)+'"><strong>'+h(t.product_name)+'</strong><small>'+(t.status==='closed'?'Đã đóng':t.awaiting_admin?'Cần nhân viên':t.handling_mode==='ai'?'AI đang hỗ trợ':'Nhân viên hỗ trợ')+'</small><time title="'+h(new Date(t.updated_at).toLocaleString('vi-VN'))+'">'+h(new Date(t.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}))+'</time></button>').join('')||'<p>Chưa có hội thoại.</p>';root.querySelector('[data-chat-page-label]').textContent='Trang '+page;root.querySelector('[data-chat-page="-1"]').disabled=page===1;root.querySelector('[data-chat-page="1"]').disabled=d.threads.length<30;}catch(e){admin.showGlobal(e.message,true);}finally{loading=false;}}
-root.addEventListener('click',async e=>{const thread=e.target.closest('[data-chat-thread]'),pager=e.target.closest('[data-chat-page]'),status=e.target.closest('[data-chat-status]');try{if(pager){page+=Number(pager.dataset.chatPage);await load();}if(thread){selected=thread.dataset.chatThread;client?.stop();client=window.GAERUChatClient.mount(root.querySelector('[data-admin-chat-thread]'),{base:'/api/gaeru_ceo/shopping-chat',request:admin.request,id:selected,admin:true});const controls=root.querySelector('[data-admin-chat-controls]');controls.innerHTML=admin.can('customers.write')?'<button data-chat-status="closed">Đóng hội thoại</button><button data-chat-status="open">Mở lại hội thoại</button>':'<p>Bạn chỉ có quyền xem hội thoại.</p>';if(!admin.can('customers.write'))root.querySelector('[data-chat-compose]').hidden=true;await load();}if(status){await client.refresh();if(!client.thread)throw Error('Hãy tải hội thoại trước.');await admin.request('/api/gaeru_ceo/shopping-chat/'+selected+'/status',{method:'PUT',body:JSON.stringify({status:status.dataset.chatStatus,version:client.thread.version})});await client.refresh();await load();}}catch(error){root.querySelector('[data-admin-chat-status]').textContent=error.message;}});
-async function loadEmailSettings(){const target=root.querySelector('[data-chat-email-content]');if(!target)return;target.textContent='Đang tải…';try{const d=await admin.request('/api/gaeru_ceo/shopping-chat/email/preferences');target.innerHTML='<p>Chọn người nhận thông báo phiên mới và yêu cầu chuyển nhân viên. Chỉ dùng email đã xác thực của tài khoản có quyền xem chat. Tối đa một email/loại thông báo trong mỗi khung 5 phút.</p>'+(!d.smtpConfigured?'<p>Máy chủ chưa cấu hình SMTP; thư sẽ chờ trong hàng đợi.</p>':'')+'<form data-chat-email-form>'+d.recipients.map(r=>'<label><input type="checkbox" name="account" value="'+h(r.key)+'" '+(r.enabled?'checked ':'')+(!r.eligible?'disabled':'')+'><span>'+h(r.name)+'<small>'+h(r.email||'Chưa có email xác thực')+(!r.allowed?' · Không có quyền xem chat hoặc tài khoản đã khóa':'')+'</small></span></label>').join('')+'<button class="primary-button" type="submit" data-no-action-feedback>Lưu người nhận email</button><p role="status"></p></form><p>Hàng đợi: '+d.counts.map(c=>h(({pending:'Đang chờ',sending:'Đang gửi',sent:'SMTP đã nhận',skipped:'Đã bỏ qua',failed:'Gửi thất bại',unknown:'Cần kiểm tra kết quả'})[c.status])+': '+c.total).join(' · ')+'</p>';}catch(e){target.textContent=e.message;}}
-root.addEventListener('toggle',e=>{if(e.target.matches('[data-chat-email-settings]')&&e.target.open)loadEmailSettings();},true);
-root.addEventListener('submit',async e=>{if(!e.target.matches('[data-chat-email-form]'))return;e.preventDefault();const form=e.target;try{const accounts=[...form.querySelectorAll('input:checked:not(:disabled)')].map(i=>i.value);const d=await admin.request('/api/gaeru_ceo/shopping-chat/email/preferences',{method:'PUT',body:JSON.stringify({accounts})});form.querySelector('[role=status]').textContent=d.message;}catch(error){form.querySelector('[role=status]').textContent=error.message;}});
-const bubble=document.createElement('button');bubble.type='button';bubble.setAttribute('data-no-action-feedback','');bubble.className='admin-chat-bubble';bubble.setAttribute('aria-label','Mở chat trực tuyến');bubble.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/></svg><span data-chat-bubble-badge hidden>•</span>';bubble.hidden=true;document.body.append(bubble);
-bubble.onclick=()=>{admin.activateView('shopping-chat');root.scrollIntoView({block:'start'});};
-function syncBubble(){bubble.hidden=!admin.can('customers.read')||!document.querySelector('#login-panel')?.hidden||!root.hidden;}
-new MutationObserver(syncBubble).observe(document.querySelector('#admin-app'),{attributes:true,subtree:true,attributeFilter:['hidden']});
-window.GAERUCareLive.poll({delay:15000,active:()=>admin.can('customers.read')&&root.hidden&&matchMedia('(max-width:800px)').matches,run:async()=>{syncBubble();if(bubble.hidden)return;const d=await admin.request('/api/gaeru_ceo/shopping-chat?page=1');const unread=d.threads.some(t=>t.awaiting_admin);bubble.querySelector('[data-chat-bubble-badge]').hidden=!unread;bubble.setAttribute('aria-label',unread?'Mở chat trực tuyến, có tin cần phản hồi':'Mở chat trực tuyến');},status:()=>{}});syncBubble();
-window.GAERUShoppingChat={load};window.GAERUCareLive.poll({delay:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:()=>{}});})();
+(()=>{
+  const admin=window.GAERUAdmin,root=document.querySelector('#shopping-chat-view'),h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let page=1,selected=null,client=null,loading=false,chatFilter='open';
+
+  async function load(){
+    if(loading||!admin.can('customers.read'))return;
+    loading=true;
+    try{
+      if(!root.querySelector('[data-admin-chat-list]')){
+        root.innerHTML=(admin.can('staff.write')?'<details class="chat-email-settings" data-chat-email-settings><summary>Thông báo qua email</summary><div data-chat-email-content></div></details>':'')+
+          '<div class="admin-shopping-chat"><aside><h2>Hộp thư</h2>'+
+          '<div class="chat-scope-tabs" role="group" aria-label="Bộ lọc chat" style="display:flex;gap:6px;margin:8px 0 12px">'+
+            '<button type="button" class="secondary-button" data-chat-filter="open" style="font-size:11px;padding:6px 10px;flex:1;border-radius:8px;font-weight:700;border-color:#087e8b;background:#e6f4f6">Đang xử lý (<span data-chat-count="open">0</span>)</button>'+
+            '<button type="button" class="secondary-button" data-chat-filter="closed" style="font-size:11px;padding:6px 10px;flex:1;border-radius:8px;font-weight:400;border-color:#d1d5db;background:#fff">Lịch sử chat (<span data-chat-count="closed">0</span>)</button>'+
+          '</div>'+
+          '<div data-admin-chat-list></div><div class="pagination"><button data-chat-page="-1">Trước</button><span data-chat-page-label></span><button data-chat-page="1">Tiếp</button></div></aside>'+
+          '<section><div data-admin-chat-controls></div><div data-admin-chat-thread><p>Chọn hội thoại để đọc và phản hồi.</p></div></section></div><p role="status" data-admin-chat-status></p>';
+      }
+      root.querySelectorAll('[data-chat-filter]').forEach(btn=>{
+        const active=btn.dataset.chatFilter===chatFilter;
+        btn.style.fontWeight=active?'700':'400';
+        btn.style.borderColor=active?'#087e8b':'#d1d5db';
+        btn.style.background=active?'#e6f4f6':'#fff';
+      });
+      const d=await admin.request('/api/gaeru_ceo/shopping-chat?page='+page+'&status='+chatFilter);
+      const openEl=root.querySelector('[data-chat-count="open"]');
+      const closedEl=root.querySelector('[data-chat-count="closed"]');
+      if(openEl)openEl.textContent=d.openCount||0;
+      if(closedEl)closedEl.textContent=d.closedCount||0;
+
+      root.querySelector('[data-admin-chat-list]').innerHTML=d.threads.map(t=>'<button type="button" data-chat-thread="'+h(t.id)+'" aria-pressed="'+(t.id===selected)+'"><strong>'+h(t.product_name)+'</strong><small>'+(t.status==='closed'?'Đã đóng':t.awaiting_admin?'Cần nhân viên':t.handling_mode==='ai'?'AI đang hỗ trợ':'Nhân viên hỗ trợ')+'</small><time title="'+h(new Date(t.updated_at).toLocaleString('vi-VN'))+'">'+h(new Date(t.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}))+'</time></button>').join('')||'<p style="padding:16px 0;font-size:12px;color:var(--muted)">Không có hội thoại trong mục này.</p>';
+      root.querySelector('[data-chat-page-label]').textContent='Trang '+page;
+      root.querySelector('[data-chat-page="-1"]').disabled=page===1;
+      root.querySelector('[data-chat-page="1"]').disabled=d.threads.length<30;
+    }catch(e){
+      admin.showGlobal(e.message,true);
+    }finally{
+      loading=false;
+    }
+  }
+
+  root.addEventListener('click',async e=>{
+    const filterBtn=e.target.closest('[data-chat-filter]'),thread=e.target.closest('[data-chat-thread]'),pager=e.target.closest('[data-chat-page]'),status=e.target.closest('[data-chat-status]');
+    try{
+      if(filterBtn){
+        chatFilter=filterBtn.dataset.chatFilter;
+        page=1;
+        await load();
+        return;
+      }
+      if(pager){
+        page+=Number(pager.dataset.chatPage);
+        await load();
+        return;
+      }
+      if(thread){
+        selected=thread.dataset.chatThread;
+        client?.stop();
+        client=window.GAERUChatClient.mount(root.querySelector('[data-admin-chat-thread]'),{base:'/api/gaeru_ceo/shopping-chat',request:admin.request,id:selected,admin:true});
+        const controls=root.querySelector('[data-admin-chat-controls]');
+        controls.innerHTML=admin.can('customers.write')?'<button data-chat-status="closed">Đóng hội thoại</button><button data-chat-status="open">Mở lại hội thoại</button>':'<p>Bạn chỉ có quyền xem hội thoại.</p>';
+        if(!admin.can('customers.write'))root.querySelector('[data-chat-compose]').hidden=true;
+        await load();
+        return;
+      }
+      if(status){
+        await client.refresh();
+        if(!client.thread)throw Error('Hãy tải hội thoại trước.');
+        await admin.request('/api/gaeru_ceo/shopping-chat/'+selected+'/status',{method:'PUT',body:JSON.stringify({status:status.dataset.chatStatus,version:client.thread.version})});
+        await client.refresh();
+        await load();
+      }
+    }catch(error){
+      root.querySelector('[data-admin-chat-status]').textContent=error.message;
+    }
+  });
+
+  async function loadEmailSettings(){
+    const target=root.querySelector('[data-chat-email-content]');
+    if(!target)return;
+    target.textContent='Đang tải…';
+    try{
+      const d=await admin.request('/api/gaeru_ceo/shopping-chat/email/preferences');
+      target.innerHTML='<p>Chọn người nhận thông báo phiên mới và yêu cầu chuyển nhân viên. Chỉ dùng email đã xác thực của tài khoản có quyền xem chat. Tối đa một email/loại thông báo trong mỗi khung 5 phút.</p>'+(!d.smtpConfigured?'<p>Máy chủ chưa cấu hình SMTP; thư sẽ chờ trong hàng đợi.</p>':'')+'<form data-chat-email-form>'+d.recipients.map(r=>'<label><input type="checkbox" name="account" value="'+h(r.key)+'" '+(r.enabled?'checked ':'')+(!r.eligible?'disabled':'')+'><span>'+h(r.name)+'<small>'+h(r.email||'Chưa có email xác thực')+(!r.allowed?' · Không có quyền xem chat hoặc tài khoản đã khóa':'')+'</small></span></label>').join('')+'<button class="primary-button" type="submit" data-no-action-feedback>Lưu người nhận email</button><p role="status"></p></form><p>Hàng đợi: '+d.counts.map(c=>h(({pending:'Đang chờ',sending:'Đang gửi',sent:'SMTP đã nhận',skipped:'Đã bỏ qua',failed:'Gửi thất bại',unknown:'Cần kiểm tra kết quả'})[c.status])+': '+c.total).join(' · ')+'</p>';
+    }catch(e){
+      target.textContent=e.message;
+    }
+  }
+
+  root.addEventListener('toggle',e=>{if(e.target.matches('[data-chat-email-settings]')&&e.target.open)loadEmailSettings();},true);
+  root.addEventListener('submit',async e=>{
+    if(!e.target.matches('[data-chat-email-form]'))return;
+    e.preventDefault();
+    const form=e.target;
+    try{
+      const accounts=[...form.querySelectorAll('input:checked:not(:disabled)')].map(i=>i.value);
+      const d=await admin.request('/api/gaeru_ceo/shopping-chat/email/preferences',{method:'PUT',body:JSON.stringify({accounts})});
+      form.querySelector('[role=status]').textContent=d.message;
+    }catch(error){
+      form.querySelector('[role=status]').textContent=error.message;
+    }
+  });
+
+  const bubble=document.createElement('button');
+  bubble.type='button';
+  bubble.setAttribute('data-no-action-feedback','');
+  bubble.className='admin-chat-bubble';
+  bubble.setAttribute('aria-label','Mở chat trực tuyến');
+  bubble.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/></svg><span data-chat-bubble-badge hidden>•</span>';
+  bubble.hidden=true;
+  document.body.append(bubble);
+  bubble.onclick=()=>{admin.activateView('shopping-chat');root.scrollIntoView({block:'start'});};
+
+  function syncBubble(){bubble.hidden=!admin.can('customers.read')||!document.querySelector('#login-panel')?.hidden||!root.hidden;}
+  new MutationObserver(syncBubble).observe(document.querySelector('#admin-app'),{attributes:true,subtree:true,attributeFilter:['hidden']});
+  window.GAERUCareLive.poll({delay:15000,active:()=>admin.can('customers.read')&&root.hidden&&matchMedia('(max-width:800px)').matches,run:async()=>{syncBubble();if(bubble.hidden)return;const d=await admin.request('/api/gaeru_ceo/shopping-chat?page=1');const unread=d.threads.some(t=>t.awaiting_admin);bubble.querySelector('[data-chat-bubble-badge]').hidden=!unread;bubble.setAttribute('aria-label',unread?'Mở chat trực tuyến, có tin cần phản hồi':'Mở chat trực tuyến');},status:()=>{}});syncBubble();
+  window.GAERUShoppingChat={load};
+  window.GAERUCareLive.poll({delay:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:()=>{}});
+})();

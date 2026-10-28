@@ -37,19 +37,26 @@
           <a class="admin-wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="/assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375"></span> <span>ADMIN</span></a>
           <button class="sidebar-toggle secondary-button" type="button" aria-controls="admin-navigation" aria-expanded="false">Menu quản lý <span aria-hidden="true">☰</span></button>
           <nav id="admin-navigation" aria-label="Quản trị">
-            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
-            <div class="nav-group"><button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật tài khoản</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden>Quản trị tối cao</button></div>
+            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Trang tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
+            <button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden style="display:none !important;" aria-hidden="true" tabindex="-1">Quản trị tối cao</button>
             <div class="nav-group" data-nav-group="sales">
               <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="sales">
                 <span class="nav-group-title">Bán hàng</span>
                 <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
                 <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </button>
-              <button class="nav-item" type="button" data-view="payments" data-permission="orders.read">Quản lý thanh toán</button><button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button><button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
-              <button class="nav-item" type="button" data-view="shopping-chat" data-permission="customers.read">Chat trực tuyến</button><button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
+              <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
+              <button class="nav-item" type="button" data-view="shopping-chat" data-permission="customers.read">Chat trực tuyến</button>
+              <button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
               <button class="nav-item" type="button" data-view="warranty" data-permission="orders.read">Bảo hành sản phẩm</button>
               <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
-              <button class="nav-item" type="button" data-view="file-library" data-permission="settings.read" data-owner-only hidden>Thư viện tệp</button><button class="nav-item" type="button" data-view="pages" data-permission="settings.read">Quản lý trang</button><button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button><button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button><button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
+              <button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
+              <button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button>
+              <button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button>
+              <button class="nav-item" type="button" data-view="payments" data-permission="orders.read">Quản lý thanh toán</button>
+              <button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button>
+              <button class="nav-item" type="button" data-view="pages" data-permission="settings.read">Quản lý trang</button>
+              <button class="nav-item" type="button" data-view="file-library" data-permission="settings.read" data-owner-only hidden>Thư viện tệp</button>
             </div>
             <div class="nav-group" data-nav-group="inventory">
               <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="inventory">
@@ -72,7 +79,7 @@
               <button class="nav-item" type="button" data-view="payroll" data-permission="payroll.read">Tính lương</button>
               <button class="nav-item" type="button" data-view="tax" data-permission="tax.read">Đối chiếu thuế</button>
               <button class="nav-item" type="button" data-view="invoice" data-permission="invoice.read">Hóa đơn điện tử</button>
-              <button class="nav-item" type="button" data-view="marketplace" data-permission="marketplace.read">Sàn TMĐT &amp; lợi nhuận</button>
+              <button class="nav-item" type="button" data-view="marketplace" data-permission="marketplace.read">Quản lý Sàn TMĐT</button>
               <button class="nav-item" type="button" data-view="reports" data-permission="reports.read">Báo cáo kinh doanh</button>
             </div>
             <div class="nav-group" data-nav-group="organization">
@@ -85,6 +92,7 @@
               <button class="nav-item" type="button" data-view="departments" data-permission="staff.read">Phòng ban</button>
               <button class="nav-item" type="button" data-view="audit" data-permission="audit.read">Nhật ký hoạt động</button>
               <button class="nav-item" type="button" data-view="settings" data-permission="settings.read">Cài đặt cửa hàng</button>
+              <button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật tài khoản</button>
             </div>
           </nav>
           <div class="sidebar-bottom">
@@ -95,7 +103,7 @@
 
         <section class="admin-content">
           <header class="topbar">
-            <div><p class="eyebrow">GAERU Store</p><h1 id="view-title">Tổng quan</h1><p class="admin-section-description" id="view-description">Các chỉ số và công việc cần xử lý của cửa hàng.</p></div>
+            <div><p class="eyebrow">GAERU Store</p><h1 id="view-title">Trang tổng quan</h1><p class="admin-section-description" id="view-description">Các chỉ số kinh doanh, công việc cần xử lý và điều hành quản trị hệ thống.</p></div>
             <span class="admin-identity" id="admin-identity"></span>
           </header>
 
@@ -118,7 +126,7 @@
             </div>
             <div class="notice-card" id="orders-gate-notice" hidden role="status">
               <h2>Tiếp nhận đơn hàng đang tạm khóa</h2>
-              <p>Checkout đang tạm dừng nhận đơn mới. Chủ doanh nghiệp có thể bật nhận đơn tại Quản trị tối cao → Điều khiển vận hành.</p>
+              <p>Checkout đang tạm dừng nhận đơn mới. Chủ doanh nghiệp có thể bật nhận đơn tại Trang tổng quan → Điều khiển vận hành.</p>
             </div>
             <div class="notice-card" id="shipping-rates-notice" hidden role="status">
               <h2>Chưa có bảng phí giao hàng</h2>
@@ -129,6 +137,7 @@
               <p>Thêm phiên bản/SKU với giá và tồn kho đã xác minh, sau đó bật sản phẩm. Sản phẩm mẫu ban đầu được tạo ở trạng thái nháp và không có giá mặc định.</p>
               <p>VNPAY chỉ xuất hiện khi cấu hình merchant trên máy chủ; 9Pay chưa được bật. Không nhập khóa bí mật cổng thanh toán tại đây.</p>
             </div>
+            <div id="overview-owner-section" data-owner-only hidden></div>
           </section>
 
           <section class="view-panel" id="products-view" hidden><div class="product-scope-tabs" role="group" aria-label="Khu vực sản phẩm"><button type="button" data-product-scope="catalog" aria-pressed="true">Danh mục sản phẩm</button><button type="button" data-product-scope="trash" aria-pressed="false">Sản phẩm đã xóa</button></div><p id="product-trash-note" class="help-text" hidden>Khôi phục đưa sản phẩm về bản nháp. Kích hoạt lại dùng các biến thể đã chọn; sản phẩm xóa từ bản cũ có thể cần chỉnh sửa biến thể trước. Xóa vĩnh viễn chỉ áp dụng khi không còn tồn và chưa có chứng từ liên quan.</p><div class="catalog-summary" data-catalog-summary></div>
@@ -242,6 +251,12 @@
             </form></details>
 <section class="editor-card" id="system-configuration" data-owner-only hidden></section>
 <section class="editor-card" id="tiktok-ads-configuration" data-owner-only hidden></section>
+            <section class="editor-card settings-security-card" style="margin-top:16px;">
+              <p class="eyebrow">Bảo vệ tài khoản &amp; Cửa hàng</p>
+              <h3>Cài đặt bảo mật tài khoản &amp; 2FA</h3>
+              <p class="help-text">Đổi mật khẩu, liên hệ khôi phục và kích hoạt xác thực hai yếu tố (App TOTP, Email OTP) bảo vệ quyền quản trị.</p>
+              <button type="button" class="secondary-button" data-open-security-settings>Mở Cài đặt bảo mật tài khoản ↗</button>
+            </section>
           </section>
           <section class="view-panel enterprise-view" id="inventory-view" hidden></section>
           <section class="view-panel enterprise-view" id="warehouses-view" hidden></section>
