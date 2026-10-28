@@ -53,7 +53,8 @@ const fieldPlaceholders={
  vnpay:{tmnCode:'Mã website 8 ký tự (VD: GAERUVN1)'},
  payment_9pay:{merchantKey:'Merchant Key do 9Pay cấp'},
  payment_momo:{partnerCode:'Partner Code do MoMo cấp',accessKey:'Access Key do MoMo cấp'},
- payment_zalopay:{appId:'App ID (dãy số do ZaloPay cấp, VD: 2554)'}
+ payment_zalopay:{appId:'App ID (dãy số do ZaloPay cấp, VD: 2554)'},
+ misa:{appId:'App ID Open API do MISA cấp',storeId:'Store ID mã định danh cửa hàng MISA',taxCode:'Mã số thuế doanh nghiệp (VD: 0101243150)',templateCode:'Ký hiệu mẫu hóa đơn (VD: 1/001)',series:'Ký hiệu hóa đơn (VD: C26TGA)'}
 };
 
 const fields={
@@ -67,7 +68,7 @@ const fields={
  payment_9pay:[['merchantKey','Merchant Key'],['secretKey','Secret Key','password'],['checksumKey','Checksum Key','password']],
  payment_momo:[['partnerCode','Partner Code'],['accessKey','Access Key'],['secretKey','Secret Key','password']],
  payment_zalopay:[['appId','App ID'],['key1','Key 1 (Khóa tạo đơn)','password'],['key2','Key 2 (Khóa đối soát callback)','password']],
- misa:[['appId','Mã ứng dụng / kết nối'],['storeId','Mã cửa hàng'],['secret','Khóa bảo mật','password']],
+ misa:[['appId','Mã ứng dụng / App ID Open API'],['storeId','Mã cửa hàng Store ID'],['secret','Khóa bảo mật Open API Secret','password'],['taxCode','Mã số thuế doanh nghiệp xuất HĐ'],['templateCode','Ký hiệu mẫu số hóa đơn (VD: 1/001)'],['series','Ký hiệu hóa đơn (VD: C26TGA)']],
  shopee:[['partnerId','Partner ID'],['shopId','Shop ID'],['secret','Partner key','password']],
  tiktok:[['appKey','App key'],['shopId','Mã cửa hàng'],['secret','App secret','password']]
 };
@@ -113,7 +114,7 @@ const configModalMeta={
  chat_ai:{title:'Cấu hình & Khóa · Chat AI (GPT, Gemini, Claude)',sub:'Model AI, API Keys và kích hoạt trợ lý tư vấn bán hàng',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M9 13v2M15 13v2"></path></svg>'},
  operations:{title:'Cấu hình · Vận hành & Tiếp nhận đơn',sub:'Bật / tắt tiếp nhận đơn đặt hàng trực tuyến trên hệ thống GAERU',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'},
  security:{title:'Cấu hình · Chính sách phiên & Bảo mật',sub:'Thời hạn phiên làm việc và bảo vệ tài khoản quản trị',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'},
- misa:{title:'Cấu hình & Khóa · MISA eShop',sub:'Thông số kết nối phần mềm kế toán và bán hàng MISA',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M4 4h16v16H4z"></path></svg>'},
+ misa:{title:'Cấu hình & Khóa · MISA eShop',sub:'Kết nối hóa đơn điện tử & phần mềm bán hàng MISA eShop (meInvoice)',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M4 4h16v16H4z"></path></svg>'},
  shopee:{title:'Cấu hình & Khóa · Sàn TMĐT Shopee',sub:'Partner ID, Shop ID và Partner Key liên kết Shopee Open Platform',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ee4d2d" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>'},
  tiktok:{title:'Cấu hình & Khóa · Sàn TMĐT TikTok Shop',sub:'App Key, Shop ID và App Secret TikTok Shop Partner Center',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path></svg>'}
 };
@@ -473,17 +474,17 @@ function chatAIFields(v){
 
 function form(id){
  const record=data?.records?.[id]||{version:0,data:{}},v=record.data||{};
- const values=id==='security'?{idleMinutes:30,absoluteHours:8,...v}:id==='payment_cod'?{maxAmountVnd:50000000,instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.',enabled:true,...v}:id==='payment_bank_transfer'?{transferSyntax:'GAERU {MA_DON}',enabled:false,...v}:v;
+ const values=id==='security'?{idleMinutes:30,absoluteHours:8,...v}:id==='payment_cod'?{maxAmountVnd:50000000,instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.',enabled:true,...v}:id==='payment_bank_transfer'?{transferSyntax:'GAERU {MA_DON}',enabled:false,...v}:id==='misa'?{templateCode:'1/001',series:'C26TGA',environment:'sandbox',autoIssue:true,enabled:false,...v}:v;
  
  const testBtnHtml=id==='chat_ai'
   ?'<button type="button" class="secondary-button" data-chat-ai-test>Kiểm tra chat AI đã lưu</button>'
-  :id.startsWith('shipping_')
+  :id==='misa'?'<button type="button" class="secondary-button" data-misa-test>Kiểm tra kết nối MISA eShop</button>':id.startsWith('shipping_')
   ?'<button type="button" class="secondary-button" data-shipping-test="'+id.slice(9)+'">Kiểm tra kết nối đã lưu</button>'
   :paymentIds.has(id)&&id!=='payments'
   ?'<button type="button" class="secondary-button" data-payment-test="'+(id==='vnpay'?'vnpay':id.slice(8))+'">Kiểm tra kết nối đã lưu</button>'
   :'';
 
- const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='chat_ai'?chatAIFields(v):'')+fields[id].map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+(v.secretConfigured?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_9pay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(id==='chat_ai'?'Chat AI':titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
+ const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='chat_ai'?chatAIFields(v):'')+fields[id].map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+(v.secretConfigured?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_9pay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Tự động xuất hóa đơn khi đơn hoàn thành & đã thanh toán</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Kích hoạt kết nối hóa đơn điện tử MISA eShop</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(id==='chat_ai'?'Chat AI':titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
  return id==='payment_9pay'?markup.replace(/<input type="checkbox" name="enabled"[^>]*>/,'<input type="checkbox" name="enabled" disabled>')+'<p class="help-text">9Pay chưa hỗ trợ nhận thanh toán. Có thể lưu thông tin cấu hình để đối chiếu.</p>':markup;
 }
 
@@ -500,7 +501,7 @@ async function load(){
  const root=document.querySelector('#system-configuration');
  if(!root)return;
  const services=data.services;
- root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối, AI và bảo mật</h2></div><button type="button" class="secondary-button" data-config-open="payments">Mở Quản lý thanh toán ↗</button></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi quan trọng cần mật khẩu và xác thực hai yếu tố. Các kênh thanh toán (COD, Chuyển khoản, VNPAY, 9Pay) được quản lý tập trung tại mục Quản lý thanh toán.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" data-media-storage-probe>Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['chat_ai','misa','shopee','tiktok','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='chat_ai'?(data.records.chat_ai.data.enabled?'Đã bật · kiểm tra model trước khi sử dụng':'Chưa bật'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='chat_ai'?'<p class="help-text">Chọn AI, nhập ID model và khóa tương ứng rồi lưu. Có thể giữ khóa riêng cho cả ba nhà cung cấp. Kiểm tra chat AI gửi một câu thử, có thể tính phí API theo tài khoản của bạn. Chỉ câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm được gửi cho AI; tệp đính kèm dành cho nhân viên.</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Chưa thực hiện OAuth, gọi API hay đồng bộ đơn và tồn kho. Cần quyền và thông tin ứng dụng được nhà cung cấp phê duyệt.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
+ root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối, AI và bảo mật</h2></div><button type="button" class="secondary-button" data-config-open="payments">Mở Quản lý thanh toán ↗</button></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi quan trọng cần mật khẩu và xác thực hai yếu tố. Các kênh thanh toán (COD, Chuyển khoản, VNPAY, 9Pay) được quản lý tập trung tại mục Quản lý thanh toán.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" data-media-storage-probe>Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['chat_ai','misa','shopee','tiktok','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='chat_ai'?(data.records.chat_ai.data.enabled?'Đã bật · kiểm tra model trước khi sử dụng':'Chưa bật'):id==='misa'?(data.records.misa?.data?.enabled?(data.records.misa?.data?.autoIssue?'Đã bật · Tự động xuất hóa đơn':'Đã bật · Xuất thủ công'):'Chưa kích hoạt'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='chat_ai'?'<p class="help-text">Chọn AI, nhập ID model và khóa tương ứng rồi lưu. Có thể giữ khóa riêng cho cả ba nhà cung cấp. Kiểm tra chat AI gửi một câu thử, có thể tính phí API theo tài khoản của bạn. Chỉ câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm được gửi cho AI; tệp đính kèm dành cho nhân viên.</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Chưa thực hiện OAuth, gọi API hay đồng bộ đơn và tồn kho. Cần quyền và thông tin ứng dụng được nhà cung cấp phê duyệt.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
 }
 
 document.addEventListener('click',async e=>{
@@ -782,6 +783,47 @@ document.addEventListener('click',async event=>{
   delete f.dataset.challenge;
  }catch(error){
   const failMsg=probeFailure(error)+(error.stage==='provider'?' Nhập lại thông tin xác thực mới nếu cần kiểm tra lại.':'');
+  if(status)status.textContent=failMsg;
+  if(modalStatus){modalStatus.textContent='❌ '+failMsg;modalStatus.className='config-modal-status is-visible is-error';}
+  if(error.stage==='provider'){
+   for(const input of f.querySelectorAll('input[type=password],[name=factorCode]'))input.value='';
+   delete f.dataset.challenge;
+  }
+ }finally{
+  button.disabled=false;
+ }
+});
+
+document.addEventListener('click',async event=>{
+ const button=event.target.closest('[data-misa-test]');
+ if(!button)return;
+ const f=button.closest('form'),status=f.querySelector('[role=status]');
+ const modalStatus=f.closest('.config-modal-body')?.querySelector('[data-modal-status]');
+ try{
+  if(!f.elements.password?.value){
+   throw Error('Nhập lại mật khẩu hiện tại trước khi kiểm tra. Nếu đã bật xác thực hai yếu tố, dùng mã mới chưa sử dụng.');
+  }
+  const pwd=f.elements.password.value;
+  button.disabled=true;
+  const testingMsg='Đang kiểm tra kết nối MISA eShop…';
+  if(status)status.textContent=testingMsg;
+  if(modalStatus){modalStatus.textContent='⏳ '+testingMsg;modalStatus.className='config-modal-status is-visible';}
+  const result=await admin.request('/api/gaeru_ceo/owner/configuration/misa/test',{
+   method:'POST',
+   body:JSON.stringify({
+    version:Number(f.dataset.version),
+    password:pwd,
+    factorCode:f.elements.factorCode.value,
+    factorChallengeId:f.dataset.challenge
+   })
+  });
+  const succMsg=(result.message||'Kết nối thành công.')+' ('+(result.environment==='production'?'Chính thức':'Thử nghiệm')+' · Cửa hàng: '+result.storeId+')';
+  if(status)status.textContent=succMsg;
+  if(modalStatus){modalStatus.textContent='✅ '+succMsg;modalStatus.className='config-modal-status is-visible is-success';}
+  for(const input of f.querySelectorAll('input[type=password],[name=factorCode]'))input.value='';
+  delete f.dataset.challenge;
+ }catch(error){
+  const failMsg=error.message||'Kiểm tra kết nối MISA eShop thất bại.';
   if(status)status.textContent=failMsg;
   if(modalStatus){modalStatus.textContent='❌ '+failMsg;modalStatus.className='config-modal-status is-visible is-error';}
   if(error.stage==='provider'){
