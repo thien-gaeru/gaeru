@@ -167,8 +167,7 @@ function verifyGatewayPayload(provider,payload,settings){
   const receivedChecksum=String(payload.checksum||payload.signature||'');
   if(!orderNumber||!Number.isSafeInteger(amountVnd)||!receivedChecksum||!settings.checksumKey)return {valid:false,reason:'Missing 9Pay parameters'};
   const expectedWithStatus=createHmac('sha256',settings.checksumKey).update(`${orderNumber}:${amountVnd}:${status}`,'utf8').digest('hex');
-  const expectedBase=createHmac('sha256',settings.checksumKey).update(`${orderNumber}:${amountVnd}`,'utf8').digest('hex');
-  if(!safeHexEqual(receivedChecksum,expectedWithStatus)&&!safeHexEqual(receivedChecksum,expectedBase))return {valid:false,reason:'Invalid 9Pay checksum'};
+  if(!safeHexEqual(receivedChecksum,expectedWithStatus))return {valid:false,reason:'Invalid 9Pay checksum'};
   const successful=['SUCCESS','PAID','00','000','COMPLETED'].includes(status);
   return {
    valid:true,
@@ -244,24 +243,7 @@ function verifyGatewayPayload(provider,payload,settings){
   };
  }
  if(provider==='bank_transfer'){
-  if(!settings.accountNumber)return {valid:false,reason:'Bank transfer not configured'};
-  const content=String(payload.content||payload.description||payload.transferContent||payload.orderNumber||'');
-  const orderNumber=extractOrderNumber(payload.orderNumber||content);
-  const amountVnd=Number(payload.amount??payload.amountVnd??payload.transferAmount);
-  const signature=String(payload.signature||'');
-  const secret=`${settings.accountNumber}:${settings.transferSyntax||'GAERU {MA_DON}'}`;
-  const expected=createHmac('sha256',secret).update(`${orderNumber}:${amountVnd}`,'utf8').digest('hex');
-  if(!orderNumber||!Number.isSafeInteger(amountVnd)||!safeHexEqual(signature,expected)){
-   return {valid:false,reason:'Invalid bank transfer signature or order reference'};
-  }
-  return {
-   valid:true,
-   orderNumber,
-   amountVnd,
-   successful:true,
-   providerTransactionId:String(payload.transactionId||payload.referenceCode||'BANK-AUTO'),
-   responseCode:'PAID'
-  };
+  return {valid:false,reason:'Automatic bank reconciliation is disabled until a verified provider adapter is configured. Use owner-authorized reconciliation.'};
  }
  return {valid:false,reason:'Unsupported provider'};
 }
@@ -303,7 +285,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
   if(!Number.isSafeInteger(amountVnd)||amountVnd!==attempt.amountVnd||attempt.totalVnd!==attempt.amountVnd){
    return {code:'04',matched:false,message:'Invalid amount'};
   }
-  if(attempt.attemptStatus!=='pending'||attempt.paymentStatus==='paid'){
+  if(attempt.attemptStatus==='paid'||attempt.paymentStatus==='paid'){
    return {
     code:'02',
     matched:true,

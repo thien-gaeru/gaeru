@@ -205,7 +205,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if (!Number.isSafeInteger(amount) || amount !== attempt.amountVnd * 100 || attempt.totalVnd !== attempt.amountVnd) {
           return { code: "04", message: "Invalid amount" };
         }
-        if (attempt.attemptStatus !== "pending" || attempt.paymentStatus === "paid") {
+        if (attempt.attemptStatus === "paid" || attempt.paymentStatus === "paid") {
           return { code: "02", message: "Order already confirmed" };
         }
 
@@ -216,6 +216,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           [attempt.id, successful ? "paid" : "failed", parameters.vnp_TransactionNo || null, parameters.vnp_ResponseCode || null]
         );
         if (successful) {
+          const ledger = finance || require("./finance-api");
+          await ledger.recordFullOrderPayment(client, {
+            order: { id: attempt.orderId, order_number: parameters.vnp_TxnRef, payment_method: "vnpay", total_vnd: attempt.totalVnd },
+            actor: { username: "vnpay", source: "payment_gateway" }
+          });
           await client.query("UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, updated_at=now() WHERE id=$1", [attempt.orderId]);
         }
         await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });

@@ -12,7 +12,7 @@ const {appendAudit}=require('./audit');
 const {bootstrapPrincipal,bootstrapCredentialVersion,principalFromStaff,resolveAdminSession}=require('./staff-access');
 const {hash,base32,verify,seal,open,equal}=require('./totp');
 const error=(message,status=400)=>Object.assign(Error(message),{status});
-const passwordSchema=z.string().min(8).max(72).refine(v=>Buffer.byteLength(v,'utf8')<=72);
+const passwordSchema=z.string().min(8).max(200).refine(v=>require('./audit-fixes/password-rules').withinBcryptLimit(v));
 async function authenticatorQrDataUrl(uri){
  const png=await QRCode.toBuffer(uri,{width:280,margin:4,errorCorrectionLevel:'M'});
  const webp=await sharp(png).webp({lossless:true,effort:6}).toBuffer();
