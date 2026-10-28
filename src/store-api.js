@@ -20,7 +20,7 @@ const orderSchema = z.object({
     city: z.string().trim().min(2).max(120),
     note: z.string().trim().max(1000).default("")
   }),
-  shippingCarrierId:z.enum(['ghn','ghtk','viettel','jt']).optional(),
+  shippingCarrierId:z.enum(['ghn','ghtk','viettel','jt','spx']).optional(),
   expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
