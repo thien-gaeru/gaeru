@@ -164,3 +164,111 @@
 }
 
 .marketing-banner{display:block;width:100%;max-width:100%;height:auto;max-height:420px;object-fit:contain;border-radius:16px;margin:0 0 18px;background:#f5f5f7}.marketing-banner[hidden]{display:none}.marketing-banner-editor{min-width:0}.marketing-banner-editor input[type=file]{max-width:100%}
+
+
+/* ==========================================================================
+   GAERU Payment Configuration - Ô vuông trực quan các kênh thanh toán
+   ========================================================================== */
+.payment-hub-intro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;background:linear-gradient(135deg,#f0fdf4 0%,#eff6ff 100%);border:1px solid #bfdbfe;border-radius:14px;padding:16px 20px;margin:12px 0 20px}
+.payment-hub-intro p{margin:0;font-size:13px;line-height:1.6;color:#1e293b;flex:1 1 320px}
+.payment-hub-intro strong{color:#0369a1}
+.payment-hub-stats{display:flex;flex-wrap:wrap;gap:10px;font-size:12px}
+.payment-stat-pill{padding:6px 14px;border-radius:20px;background:#fff;border:1px solid #cbd5e1;color:#334155;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+
+.payment-channel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:20px;margin:16px 0 28px}
+@media (max-width:768px){.payment-channel-grid{grid-template-columns:1fr;gap:16px}}
+
+.payment-card{display:flex;flex-direction:column;justify-content:space-between;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;margin:0 !important;box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;position:relative;overflow:hidden}
+.payment-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,0.08)}
+.payment-card.card-enabled{border-color:#93c5fd;box-shadow:0 3px 12px rgba(2,132,199,0.08)}
+.payment-card::before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:#cbd5e1}
+.payment-card[data-channel-id="cod"]::before{background:#10b981}
+.payment-card[data-channel-id="bank_transfer"]::before{background:#0284c7}
+.payment-card[data-channel-id="vnpay"]::before{background:#005baa}
+.payment-card[data-channel-id="9pay"]::before{background:#ea580c}
+.payment-card[data-channel-id="momo"]::before{background:#d82d8b}
+.payment-card[data-channel-id="zalopay"]::before{background:#0068ff}
+
+.payment-card-header{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px}
+.payment-card-icon{width:48px;height:48px;min-width:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#f8fafc;border:1px solid #e2e8f0}
+.payment-card[data-channel-id="cod"] .payment-card-icon{background:#ecfdf5;border-color:#a7f3d0}
+.payment-card[data-channel-id="bank_transfer"] .payment-card-icon{background:#f0f9ff;border-color:#bae6fd}
+.payment-card[data-channel-id="vnpay"] .payment-card-icon{background:#eff6ff;border-color:#bfdbfe}
+.payment-card[data-channel-id="9pay"] .payment-card-icon{background:#fff7ed;border-color:#fed7aa}
+.payment-card[data-channel-id="momo"] .payment-card-icon{background:#fdf2f8;border-color:#fbcfe8}
+.payment-card[data-channel-id="zalopay"] .payment-card-icon{background:#eff6ff;border-color:#bfdbfe}
+
+.payment-card-header-main{flex:1;min-width:0}
+.payment-card-title{font-size:15px;font-weight:700;color:#0f172a;margin:0 0 3px;line-height:1.3}
+.payment-card-sub{font-size:12px;color:#64748b;margin:0 0 8px;line-height:1.4}
+.payment-card-badges{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.payment-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;line-height:1.2}
+.payment-badge.badge-enabled{background:#dcfce7;color:#15803d;border:1px solid #bbf7d0}
+.payment-badge.badge-disabled{background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0}
+.payment-badge.badge-verified{background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd}
+.payment-badge.badge-pending{background:#fef3c7;color:#b45309;border:1px solid #fde68a}
+.payment-badge.badge-unconfigured{background:#f8fafc;color:#94a3b8;border:1px solid #e2e8f0}
+.payment-badge.badge-prod{background:#f3e8ff;color:#6b21a8;border:1px solid #e9d5ff}
+.payment-badge.badge-sandbox{background:#ffedd5;color:#c2410c;border:1px solid #fed7aa}
+
+.payment-card-body{margin-bottom:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:12px}
+.payment-snapshot-item{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;line-height:1.45}
+.payment-snapshot-item:last-child{margin-bottom:0}
+.payment-snapshot-label{color:#64748b;font-weight:500}
+.payment-snapshot-val{color:#0f172a;font-weight:600;text-align:right;word-break:break-all}
+.payment-snapshot-val code{background:#e2e8f0;padding:2px 6px;border-radius:4px;font-size:11px;font-family:monospace}
+
+.payment-card-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:auto;padding-top:14px;border-top:1px dashed #e2e8f0}
+.payment-action-btn{flex:1 1 auto;min-width:90px;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;text-align:center;transition:all .15s ease;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #cbd5e1;background:#fff;color:#334155}
+.payment-action-btn:hover{background:#f8fafc;border-color:#94a3b8}
+.payment-action-btn.payment-btn-setup{background:#0f172a;color:#fff;border-color:#0f172a}
+.payment-action-btn.payment-btn-setup:hover{background:#1e293b}
+.payment-action-btn.payment-btn-enable{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+.payment-action-btn.payment-btn-enable:hover{background:#d1fae5}
+.payment-action-btn.payment-btn-disable{background:#fff1f2;color:#be123c;border-color:#fecdd3}
+.payment-action-btn.payment-btn-disable:hover{background:#ffe4e6}
+.payment-action-btn.payment-btn-test{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+.payment-action-btn.payment-btn-test:hover{background:#dbeafe}
+
+.payment-card-status{font-size:12px;line-height:1.5;margin:10px 0 0;width:100%}
+.payment-card-status:not(:empty){padding:8px 12px;border-radius:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#15803d}
+
+.payment-card-drawer{margin-top:14px;border-top:1px solid #e2e8f0;padding-top:14px}
+.payment-card-drawer summary{cursor:pointer;font-size:12px;font-weight:600;color:#475569;padding:6px 0;user-select:none}
+.payment-card-drawer summary:hover{color:#0f172a}
+.payment-integration-box{background:#f1f5f9;border-radius:8px;padding:10px 12px;font-size:11px;margin:12px 0;line-height:1.6;border:1px solid #e2e8f0;color:#334155}
+.payment-integration-box code{background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px;word-break:break-all;color:#0f172a}
+
+@media (prefers-color-scheme:dark){
+.payment-hub-intro{background:linear-gradient(135deg,#064e3b 0%,#1e3a8a 100%);border-color:#1e40af}
+.payment-hub-intro p{color:#f1f5f9}
+.payment-hub-intro strong{color:#67e8f9}
+.payment-stat-pill{background:#1e293b;border-color:#334155;color:#e2e8f0}
+.payment-card{background:#1e293b;border-color:#334155;box-shadow:0 2px 8px rgba(0,0,0,0.25)}
+.payment-card.card-enabled{border-color:#38bdf8;box-shadow:0 3px 12px rgba(56,189,248,0.15)}
+.payment-card-icon{background:#0f172a;border-color:#334155}
+.payment-card[data-channel-id="cod"] .payment-card-icon{background:#064e3b;border-color:#059669}
+.payment-card[data-channel-id="bank_transfer"] .payment-card-icon{background:#0c4a6e;border-color:#0284c7}
+.payment-card[data-channel-id="vnpay"] .payment-card-icon{background:#172554;border-color:#1d4ed8}
+.payment-card[data-channel-id="9pay"] .payment-card-icon{background:#431407;border-color:#c2410c}
+.payment-card[data-channel-id="momo"] .payment-card-icon{background:#500724;border-color:#db2777}
+.payment-card[data-channel-id="zalopay"] .payment-card-icon{background:#172554;border-color:#2563eb}
+.payment-card-title{color:#f8fafc}
+.payment-card-sub{color:#94a3b8}
+.payment-card-body{background:#0f172a;border-color:#334155}
+.payment-snapshot-label{color:#94a3b8}
+.payment-snapshot-val{color:#f1f5f9}
+.payment-snapshot-val code{background:#1e293b;color:#93c5fd}
+.payment-card-actions{border-top-color:#334155}
+.payment-action-btn{background:#0f172a;border-color:#334155;color:#e2e8f0}
+.payment-action-btn:hover{background:#1e293b;border-color:#475569}
+.payment-action-btn.payment-btn-setup{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.payment-action-btn.payment-btn-enable{background:#064e3b;border-color:#047857;color:#6ee7b7}
+.payment-action-btn.payment-btn-disable{background:#881337;border-color:#be123c;color:#fda4af}
+.payment-action-btn.payment-btn-test{background:#1e3a8a;border-color:#2563eb;color:#93c5fd}
+.payment-card-drawer{border-top-color:#334155}
+.payment-card-drawer summary{color:#94a3b8}
+.payment-card-drawer summary:hover{color:#f1f5f9}
+.payment-integration-box{background:#0f172a;border-color:#334155;color:#cbd5e1}
+.payment-integration-box code{background:#1e293b;color:#93c5fd}
+}
