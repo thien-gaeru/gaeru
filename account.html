@@ -15,6 +15,8 @@
   <link rel="stylesheet" href="brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="assets/brand/gaeru-logo.webp">
   <link rel="stylesheet" href="/account-security.css?v=20261029-oauth"><script src="/account-security.js?v=20261024-hardened" defer></script><script src="/account-deletion.js?v=20261024-confirm-mail" defer></script><link rel="stylesheet" href="/marketing.css?v=20261024-banner"><script src="/customer-marketing.js?v=20261024-banner" defer></script><link rel="stylesheet" href="/typography.css?v=20261025-mobile-delete"><script src="/care-live.js?v=20261024-support-email" defer></script><script src="/shopping-chat-client.js?v=20261029-clean-chat" defer></script><script src="/product-services.js?v=20261028-chat-v2" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261029-clean-chat"><script src="vietnam-address.js?v=20261026-unified-ui" defer></script><link rel="stylesheet" href="quick-purchase.css?v=20261025-wallet-compact"><link rel="stylesheet" href="vietnam-address.css?v=20261026-unified-ui"><style>
+.account-panel{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;width:100%!important;text-align:center!important;}
+.account-page .account-form{width:100%!important;max-width:390px!important;margin:0 auto!important;}
 .account-oauth-divider{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:100%!important;max-width:390px!important;margin:22px auto 16px auto!important;color:#86868b!important;font-size:13px!important;}
 .account-oauth-divider::before,.account-oauth-divider::after{content:''!important;flex:1!important;border-bottom:1px solid #d2d2d7!important;}
 .account-oauth-divider:not(:empty)::before{margin-right:.85em!important;}
@@ -28,6 +30,9 @@
 .button-oauth-apple{background:#000000!important;color:#ffffff!important;border:1px solid #000000!important;box-shadow:0 1px 2px rgba(0,0,0,0.12)!important;}
 .button-oauth-apple:hover{background:#1d1d1f!important;border-color:#1d1d1f!important;box-shadow:0 2px 4px rgba(0,0,0,0.2)!important;}
 .button-oauth svg{flex-shrink:0!important;}
+.account-login-links{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:100%!important;max-width:390px!important;margin:20px auto 0 auto!important;}
+.account-card .account-login-links p,.account-login-links p{margin:14px auto 0 auto!important;text-align:center!important;width:100%!important;max-width:100%!important;display:block!important;}
+.account-reset-link{display:inline-block!important;text-align:center!important;margin:0 auto!important;}
 </style>
 </head>
   <body>
@@ -66,46 +71,19 @@
                 <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required></label>
                 <button class="button button-blue" type="submit">Đăng nhập</button>
               </form>
-                            <div class="account-oauth-divider" style="display:flex;align-items:center;justify-content:center;text-align:center;width:100%;max-width:390px;margin:22px auto 16px auto;color:#86868b;font-size:13px;"><span>Hoặc tiếp tục với</span></div>
+                                                        <div class="account-oauth-divider" style="display:flex;align-items:center;justify-content:center;text-align:center;width:100%;max-width:390px;margin:22px auto 16px auto;color:#86868b;font-size:13px;"><span>Hoặc đăng ký nhanh</span></div>
               <div class="account-oauth-group" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;width:100%;max-width:390px;margin:0 auto 20px auto;box-sizing:border-box;">
-                <button type="button" class="button-oauth button-oauth-google" data-oauth-action="google" aria-label="Đăng nhập với Google" style="display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:390px;min-height:46px;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;border:1px solid #dadce0;background:#ffffff;color:#3c4043;box-shadow:0 1px 2px rgba(60,64,67,0.08);margin:0 auto;box-sizing:border-box;font-family:inherit;">
+                <button type="button" class="button-oauth button-oauth-google" data-oauth-action="google" aria-label="Đăng ký với Google" style="display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:390px;min-height:46px;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;border:1px solid #dadce0;background:#ffffff;color:#3c4043;box-shadow:0 1px 2px rgba(60,64,67,0.08);margin:0 auto;box-sizing:border-box;font-family:inherit;">
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" style="flex-shrink:0;"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
-                  <span>Đăng nhập với Google</span>
-                </button>
-                <button type="button" class="button-oauth button-oauth-apple" data-oauth-action="apple" aria-label="Đăng nhập với Apple" style="display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:390px;min-height:46px;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;border:1px solid #000000;background:#000000;color:#ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.12);margin:0 auto;box-sizing:border-box;font-family:inherit;">
-                  <svg width="18" height="18" viewBox="0 0 170 170" fill="currentColor" aria-hidden="true" style="flex-shrink:0;"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.05-7.63-7.74-11.78-14.07-5.55-8.49-9.92-18.06-13.1-28.71-3.18-10.66-4.77-20.9-4.77-30.73 0-14.79 3.73-26.68 11.19-35.68 7.46-8.99 16.71-13.56 27.75-13.72 5.33 0 11.09 1.34 17.27 4.02 6.18 2.68 10.23 4.08 12.14 4.18 1.5.1 5.43-1.34 11.78-4.31 6.36-2.98 12.02-4.35 16.99-4.12 12.63.63 22.84 5.34 30.64 14.13-11.04 6.72-16.45 15.93-16.23 27.63.22 9.4 3.91 17.3 11.07 23.7 7.16 6.4 15.42 10.01 24.78 10.84-2.22 6.73-4.88 13.52-7.98 20.36zM119.22 33.02c0-7.39 2.63-14.4 7.89-21.03 5.26-6.63 11.83-10.97 19.7-11.99.11 1.05.16 1.95.16 2.7 0 7.39-2.73 14.44-8.19 21.14-5.46 6.71-12.03 10.9-19.72 12.57-.22-1.15-.33-2.1-.33-2.85z"/></svg>
-                  <span>Đăng nhập với Apple</span>
-                </button>
-              </div>
-              <div class="account-login-links">
-                <a class="account-reset-link" href="#password-reset" data-account-show-reset>Quên mật khẩu? <span aria-hidden="true">↗</span></a>
-                <p>Chưa có tài khoản? <a href="#register" data-account-show-register>Đăng ký GAERU <span aria-hidden="true">↗</span></a></p>
-              </div>
-            </div>
-
-            <div class="account-panel" data-account-panel="register" role="tabpanel" hidden>
-              <form class="account-form" data-account-form="register">
-                <label>Họ và tên<input name="fullName" type="text" autocomplete="name" minlength="2" maxlength="120" required></label>
-                <label>Email<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="Ví dụ: hotro@gaeru.com" required></label>
-                <label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" minlength="10" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
-                <label>Mật khẩu<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="200" required><span class="account-field-note">Tối thiểu 8 ký tự.</span></label>
-                <label>Nhập lại mật khẩu<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="200" required></label>
-                <label class="account-consent"><input name="privacyConsent" type="checkbox" required><span>Tôi đã đọc <a href="privacy.html">Chính sách quyền riêng tư</a>.</span></label>
-                <button class="button button-blue" type="submit">Tạo tài khoản</button>
-              </form>
-              <div class="account-oauth-divider"><span>Hoặc đăng ký nhanh</span></div>
-              <div class="account-oauth-group">
-                <button type="button" class="button-oauth button-oauth-google" data-oauth-action="google" aria-label="Đăng ký với Google">
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>
                   <span>Đăng ký với Google</span>
                 </button>
-                <button type="button" class="button-oauth button-oauth-apple" data-oauth-action="apple" aria-label="Đăng ký với Apple">
-                  <svg width="18" height="18" viewBox="0 0 170 170" fill="currentColor" aria-hidden="true"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.05-7.63-7.74-11.78-14.07-5.55-8.49-9.92-18.06-13.1-28.71-3.18-10.66-4.77-20.9-4.77-30.73 0-14.79 3.73-26.68 11.19-35.68 7.46-8.99 16.71-13.56 27.75-13.72 5.33 0 11.09 1.34 17.27 4.02 6.18 2.68 10.23 4.08 12.14 4.18 1.5.1 5.43-1.34 11.78-4.31 6.36-2.98 12.02-4.35 16.99-4.12 12.63.63 22.84 5.34 30.64 14.13-11.04 6.72-16.45 15.93-16.23 27.63.22 9.4 3.91 17.3 11.07 23.7 7.16 6.4 15.42 10.01 24.78 10.84-2.22 6.73-4.88 13.52-7.98 20.36zM119.22 33.02c0-7.39 2.63-14.4 7.89-21.03 5.26-6.63 11.83-10.97 19.7-11.99.11 1.05.16 1.95.16 2.7 0 7.39-2.73 14.44-8.19 21.14-5.46 6.71-12.03 10.9-19.72 12.57-.22-1.15-.33-2.1-.33-2.85z"/></svg>
+                <button type="button" class="button-oauth button-oauth-apple" data-oauth-action="apple" aria-label="Đăng ký với Apple" style="display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:390px;min-height:46px;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;border:1px solid #000000;background:#000000;color:#ffffff;box-shadow:0 1px 2px rgba(0,0,0,0.12);margin:0 auto;box-sizing:border-box;font-family:inherit;">
+                  <svg width="18" height="18" viewBox="0 0 170 170" fill="currentColor" aria-hidden="true" style="flex-shrink:0;"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.05-7.63-7.74-11.78-14.07-5.55-8.49-9.92-18.06-13.1-28.71-3.18-10.66-4.77-20.9-4.77-30.73 0-14.79 3.73-26.68 11.19-35.68 7.46-8.99 16.71-13.56 27.75-13.72 5.33 0 11.09 1.34 17.27 4.02 6.18 2.68 10.23 4.08 12.14 4.18 1.5.1 5.43-1.34 11.78-4.31 6.36-2.98 12.02-4.35 16.99-4.12 12.63.63 22.84 5.34 30.64 14.13-11.04 6.72-16.45 15.93-16.23 27.63.22 9.4 3.91 17.3 11.07 23.7 7.16 6.4 15.42 10.01 24.78 10.84-2.22 6.73-4.88 13.52-7.98 20.36zM119.22 33.02c0-7.39 2.63-14.4 7.89-21.03 5.26-6.63 11.83-10.97 19.7-11.99.11 1.05.16 1.95.16 2.7 0 7.39-2.73 14.44-8.19 21.14-5.46 6.71-12.03 10.9-19.72 12.57-.22-1.15-.33-2.1-.33-2.85z"/></svg>
                   <span>Đăng ký với Apple</span>
                 </button>
               </div>
-              <div class="account-login-links">
-                <p>Bạn đã có tài khoản GAERU? <a href="#login" data-account-show-login>Đăng nhập <span aria-hidden="true">↗</span></a></p>
+              <div class="account-login-links" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;width:100%;max-width:390px;margin:20px auto 0 auto;">
+                <p style="margin:14px auto 0 auto;text-align:center;width:100%;max-width:100%;display:block;">Bạn đã có tài khoản GAERU? <a href="#login" data-account-show-login>Đăng nhập <span aria-hidden="true">↗</span></a></p>
               </div>
             </div>
 
