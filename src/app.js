@@ -54,18 +54,19 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
-        frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com"],
+        frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com"],
-        connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://*.googleapis.com"],
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         upgradeInsecureRequests: []
       }
     },
-    crossOriginEmbedderPolicy: false
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
   }));
   // Retired routes must not redirect or fall through to the static admin folder.
   app.use((req,res,next)=>{
@@ -129,11 +130,15 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
   app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool));
   app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
-  app.use("/api/customer-auth/oauth", require("./customer-oauth").createCustomerOAuthRouter(pool, {
+  const customerOAuthRouter = require("./customer-oauth").createCustomerOAuthRouter(pool, {
     config,
     accountSecurity: config.accountSecurity,
     startCustomerSession: require("./customer-auth").startCustomerSession
-  }));
+  });
+  app.use("/api/customer-auth/oauth", customerOAuthRouter);
+  if (customerOAuthRouter.handleRedirectCallback) {
+    app.post(['/account.html', '/tai-khoan', '/account'], express.urlencoded({ extended: false, limit: '32kb' }), customerOAuthRouter.handleRedirectCallback);
+  }
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     accountSecurity:config.accountSecurity,
     smtpConfig: config.smtp,

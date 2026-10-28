@@ -324,3 +324,78 @@ test('POST /api/customer-auth/oauth/google rejects blocked or deleted accounts',
   const data = await res.json();
   assert.match(data.error, /Tài khoản đã bị khóa/);
 });
+test('Helmet sets Cross-Origin-Opener-Policy: same-origin-allow-popups for OAuth popups', async (context) => {
+  const pool = { query: async () => ({ rows: [] }) };
+  const baseUrl = await startApp(context, { pool });
+  const res = await fetch(`${baseUrl}/api/health`);
+  assert.equal(res.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups');
+});
+
+test('POST /account.html redirects to #customer-account when receiving valid Google credential', async (context) => {
+  let created = false;
+  const pool = {
+    query: async (sql, values) => {
+      if (sql.includes('customers WHERE google_id = $1') || sql.includes('customers WHERE lower(email) = $1')) {
+        return { rows: [] };
+      }
+      if (sql.includes('INSERT INTO customers')) {
+        created = true;
+        return {
+          rows: [{
+            id: '77777777-7777-4777-8777-777777777777',
+            fullName: values[0],
+            email: values[1],
+            phone: '',
+            emailVerified: true
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const baseUrl = await startApp(context, { pool });
+
+  const googleJwt = makeJwt({
+    iss: 'accounts.google.com',
+    aud: 'test-google-client-id.apps.googleusercontent.com',
+    sub: 'google-redirect-user-1',
+    email: 'redirectuser@gmail.com',
+    email_verified: true,
+    name: 'Redirect User',
+    exp: Math.floor(Date.now() / 1000) + 3600
+  });
+
+  const res = await fetch(`${baseUrl}/account.html`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({ credential: googleJwt }).toString(),
+    redirect: 'manual'
+  });
+
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/account.html#customer-account');
+  assert.equal(created, true);
+  assert.ok(res.headers.get('set-cookie')?.includes('gaeru.sid'));
+});
+
+test('POST /account.html redirects to ?oauthError=... on credential verification failure', async (context) => {
+  const pool = { query: async () => ({ rows: [] }) };
+  const baseUrl = await startApp(context, { pool });
+
+  const res = await fetch(`${baseUrl}/account.html`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: new URLSearchParams({ credential: 'invalid-token' }).toString(),
+    redirect: 'manual'
+  });
+
+  assert.equal(res.status, 302);
+  const loc = res.headers.get('location');
+  assert.ok(loc.startsWith('/account.html?oauthError='));
+});
+

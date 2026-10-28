@@ -28,5 +28,5 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
  const send=res.send.bind(res);res.send=body=>send(typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body);
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
-function staticHtml(req,res,next){const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(fs.readFileSync(path.join(__dirname,'..',file),'utf8'))}
+function staticHtml(req,res,next){if(!['GET','HEAD'].includes(req.method))return next();const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(fs.readFileSync(path.join(__dirname,'..',file),'utf8'))}
 module.exports={legacy,enrich,cleanRoutes,staticHtml};
