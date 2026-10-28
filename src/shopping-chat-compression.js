@@ -60,11 +60,11 @@ async function processOneChatCompression(pool, targetId = null) {
       targetId
         ? `SELECT id, name, mime, content, byte_size, original_byte_size
            FROM shopping_chat_files
-           WHERE id = $1 AND compression_status = 'pending'
+           WHERE id = $1 AND compression_status = 'pending' AND deleted_at IS NULL AND created_at>now()-interval '30 days'
            FOR UPDATE SKIP LOCKED`
         : `SELECT id, name, mime, content, byte_size, original_byte_size
            FROM shopping_chat_files
-           WHERE compression_status = 'pending'
+           WHERE compression_status = 'pending' AND deleted_at IS NULL AND created_at>now()-interval '30 days'
            ORDER BY created_at ASC, id ASC
            FOR UPDATE SKIP LOCKED
            LIMIT 1`,
@@ -112,7 +112,7 @@ async function processOneChatCompression(pool, targetId = null) {
     if (wasCompressed) {
       const storedContent = await storeMedia('chat', nextBuffer, nextMime);
       const logicalSize = nextMime === 'image/webp' && job.mime !== 'image/webp' ? nextBuffer.length : originalSize;
-      await pool.query(
+      const updated=await pool.query(
         `UPDATE shopping_chat_files
          SET name = $2,
              mime = $3,
@@ -121,22 +121,23 @@ async function processOneChatCompression(pool, targetId = null) {
              original_byte_size = $6,
              compressed_byte_size = $7,
              compression_status = 'compressed'
-         WHERE id = $1`,
+         WHERE id = $1 AND deleted_at IS NULL`,
         [job.id, nextName, nextMime, storedContent, logicalSize, originalSize, nextBuffer.length]
       );
+      await require('./shopping-chat-file-retention').cleanupUnreferencedChatMedia(pool,updated.rowCount===0?storedContent:job.content);
     } else {
       await pool.query(
         `UPDATE shopping_chat_files
          SET original_byte_size = $2,
              compressed_byte_size = $3,
              compression_status = 'optimal'
-         WHERE id = $1`,
+         WHERE id = $1 AND deleted_at IS NULL`,
         [job.id, originalSize, raw.length]
       );
     }
   } catch {
     await pool.query(
-      `UPDATE shopping_chat_files SET compression_status = 'failed' WHERE id = $1`,
+      `UPDATE shopping_chat_files SET compression_status = 'failed' WHERE id = $1 AND deleted_at IS NULL`,
       [job.id]
     ).catch(() => {});
   }

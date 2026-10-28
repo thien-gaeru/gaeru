@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { once } = require('node:events');
 const express = require('express');
-const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+const local = require('../src/lib/filesystem-media');
 const { createMarketing } = require('../src/marketing');
 const { STORAGE_POINTER_PREFIX } = require('../src/lib/stored-images');
 
@@ -30,24 +30,7 @@ async function start(t) {
     customerActive: true, campaignLinked: true, campaignActive: true, exists: true,
     storageBytes: Buffer.from('stored WebP banner fixture'), events: []
   };
-  const env = {
-    AWS_ENDPOINT_URL_S3: 'https://storage.example.invalid', AWS_REGION: 'us-east-1',
-    AWS_ACCESS_KEY_ID: 'fixture-access-key', AWS_SECRET_ACCESS_KEY: 'fixture-secret-key', AWS_S3_BUCKET: 'fixture-assets'
-  };
-  const previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
-  Object.assign(process.env, env);
-  t.after(() => {
-    for (const key of Object.keys(env)) {
-      if (previous[key] === undefined) delete process.env[key];
-      else process.env[key] = previous[key];
-    }
-  });
-  const send = t.mock.method(S3Client.prototype, 'send', async command => {
-    fixture.events.push('storage');
-    assert.ok(command instanceof GetObjectCommand);
-    assert.deepEqual(command.input, { Bucket: 'fixture-assets', Key: bannerKey });
-    return { Body: { transformToByteArray: async () => new Uint8Array(fixture.storageBytes) } };
-  });
+  const send=t.mock.method(local,'readAsset',async key=>{fixture.events.push('storage');assert.equal(key,bannerKey);return fixture.storageBytes;});
   const pool = {
     async query(sql, values) {
       if (sql === 'SELECT id FROM customers WHERE id=$1 AND active=true') {

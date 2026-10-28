@@ -1,5 +1,5 @@
 'use strict';
-// Optimize all new product-image uploads before writing to Neon or PostgreSQL.
+// Optimize all new product-image uploads before writing to persistent storage.
 const sharp = require('sharp');
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_INPUT_PIXELS = 24_000_000;

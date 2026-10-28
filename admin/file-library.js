@@ -48,7 +48,7 @@
       const select = root.querySelector('[name=folder]');
       select.innerHTML = '<option value="*">Tất cả thư mục con</option><option value="">Thư mục gốc</option>' + data.folders.filter(f => !state.scope || f.scope === state.scope).map(f => `<option value="${f.id}">${esc(f.name)}${state.scope ? '' : ' · ' + esc(data.scopes[f.scope])}</option>`).join('');
       select.value = state.folder;
-      feedback.textContent = `${state.trash ? 'Thùng rác' : data.scopes[state.scope] || 'Tất cả tệp'} · ${data.total} tệp`;
+      feedback.textContent = `${state.trash ? 'Thùng rác' : data.scopes[state.scope] || 'Tất cả tệp'} · ${data.total} tệp`+(state.scope==='chat'?' · Tệp hội thoại tự động xóa sau 30 ngày.':'');
       root.querySelector('.fl-grid').innerHTML = data.files.length ? data.files.map((f, i) => {
         const image = /^image\/(jpeg|png|webp)$/.test(f.mime);
         const locked = f.references.length > 0 || !f.managed;
@@ -57,7 +57,7 @@
         return `<article class="fl-card"><button class="fl-thumbnail" type="button" data-fl-file="${i}" data-action="preview" aria-label="Xem ${esc(f.name)}">${image ? `<img src="${fileUrl(f, true)}&thumbnail=1" alt="" loading="lazy" decoding="async">` : `<span aria-hidden="true">${f.mime.startsWith('video/') ? '▷' : '▤'}</span><span>${esc(f.mime.split('/').at(-1).toUpperCase())}</span>`}</button>
           <h3 title="${esc(f.name)}">${esc(f.name)}</h3><p>${size(f.size)} · ${esc(data.scopes[f.scope])}${folder ? ' / ' + esc(folder) : ''}</p>
           <details class="fl-usage"><summary>${f.references.length ? 'Đã liên kết hệ thống' : f.managed ? 'Chưa liên kết' : 'Tệp hệ thống'}</summary><p>${esc(label)}</p><p class="fl-key">${esc(f.key)}</p></details>
-          <div class="fl-card-actions"><a class="secondary-button" href="${fileUrl(f)}" download>Tải xuống</a>${f.deletedAt ? `<button type="button" class="secondary-button" data-fl-file="${i}" data-action="restore">Khôi phục</button><button type="button" class="secondary-button fl-danger" data-fl-file="${i}" data-action="delete">Xóa vĩnh viễn</button>` : `<button type="button" class="secondary-button" data-fl-file="${i}" data-action="rename" ${locked ? 'disabled' : ''}>Đổi tên</button><button type="button" class="secondary-button" data-fl-file="${i}" data-action="move" ${locked ? 'disabled' : ''}>Di chuyển</button><button type="button" class="secondary-button" data-fl-file="${i}" data-action="trash" ${locked ? 'disabled' : ''}>Thùng rác</button>`}</div></article>`;
+          <div class="fl-card-actions"><a class="secondary-button" href="${fileUrl(f)}" download>Tải xuống</a>${f.canDeleteChat ? `<button type="button" class="secondary-button fl-danger" data-fl-file="${i}" data-action="chat-delete">Xóa tệp hội thoại</button>` : ''}${f.deletedAt ? `<button type="button" class="secondary-button" data-fl-file="${i}" data-action="restore">Khôi phục</button><button type="button" class="secondary-button fl-danger" data-fl-file="${i}" data-action="delete">Xóa vĩnh viễn</button>` : `<button type="button" class="secondary-button" data-fl-file="${i}" data-action="rename" ${locked ? 'disabled' : ''}>Đổi tên</button><button type="button" class="secondary-button" data-fl-file="${i}" data-action="move" ${locked ? 'disabled' : ''}>Di chuyển</button><button type="button" class="secondary-button" data-fl-file="${i}" data-action="trash" ${locked ? 'disabled' : ''}>Thùng rác</button>`}</div></article>`;
       }).join('') : '<p class="fl-empty">Chưa có tệp phù hợp. Bạn có thể tải tệp lên hoặc chọn thư mục khác.</p>';
       root.querySelector('.fl-pagination').innerHTML = `<button type="button" class="secondary-button" data-fl-page="${data.page - 1}" ${data.page <= 1 ? 'disabled' : ''}>Trước</button><span>Trang ${data.page} / ${data.pages}</span><button type="button" class="secondary-button" data-fl-page="${data.page + 1}" ${data.page >= data.pages ? 'disabled' : ''}>Sau</button>`;
     } catch (error) { if (request === state.request) { feedback.textContent = error.message; root.querySelector('.fl-grid').replaceChildren(); } }
@@ -109,14 +109,15 @@
     });
   }
   function actionDialog(file, action) {
-    const titles = {rename:'Đổi tên tệp',move:'Di chuyển tệp',trash:'Chuyển vào thùng rác',restore:'Khôi phục tệp',delete:'Xóa vĩnh viễn'};
+    const titles = {rename:'Đổi tên tệp',move:'Di chuyển tệp',trash:'Chuyển vào thùng rác',restore:'Khôi phục tệp',delete:'Xóa vĩnh viễn','chat-delete':'Xóa tệp hội thoại'};
     let content = `<p>${esc(file.name)}</p>`;
     if (action === 'rename') content += `<label>Tên hiển thị<input name="name" required maxlength="150" value="${esc(file.name.replace(/\.[^.]*$/, ''))}"></label><p>Giữ nguyên định dạng tệp.</p>`;
     if (action === 'move') content += `<label>Thư mục đích<select name="folder">${folderOptions(file.scope, file.folder)}</select></label>`;
     if (action === 'trash') content += '<p>Tệp được ẩn khỏi danh sách chính và có thể khôi phục trong thùng rác.</p>';
+    if (action === 'chat-delete') content += '<p>Tệp được gỡ khỏi các hội thoại liên quan, giữ lại lịch sử tin nhắn. Bản được nơi khác sử dụng vẫn được giữ. Không thể khôi phục tệp đã xóa.</p><label class="fl-confirm"><input type="checkbox" name="confirm" required> Tôi xác nhận xóa tệp hội thoại.</label>';
     if (action === 'delete') content += '<p>Tệp này sẽ bị xóa khỏi kho và không thể khôi phục bằng thư viện.</p><label class="fl-confirm"><input type="checkbox" name="confirm" required> Tôi xác nhận xóa vĩnh viễn tệp này.</label>';
     const dialog = modal(titles[action], content, titles[action]);
-    dialog.querySelector('form').addEventListener('submit', e => { e.preventDefault(); submit(dialog, f => api.request('/api/gaeru_ceo/file-library/change', {method:'POST', body:JSON.stringify({key:file.key,action,name:f.elements.name?.value,folder:f.elements.folder?.value,confirm:f.elements.confirm?.checked === true})})); });
+    dialog.querySelector('form').addEventListener('submit', e => { e.preventDefault(); submit(dialog, f => api.request(action==='chat-delete'?'/api/gaeru_ceo/file-library/chat-file':'/api/gaeru_ceo/file-library/change', {method:'POST', body:JSON.stringify({key:file.key,action,name:f.elements.name?.value,folder:f.elements.folder?.value,confirm:f.elements.confirm?.checked === true})})); });
   }
   window.GAERUFileLibrary = {async load() { shell(); await refresh(); }};
 })();

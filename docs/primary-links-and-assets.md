@@ -22,6 +22,6 @@ Trong Thư viện tệp, nhóm **Ảnh giao diện (chỉ đọc)** hiển thị
 
 ## Kiểm tra
 
-`test/persistent-assets.test.js` xác minh giữ nguyên byte, ảnh vẫn mở sau khi bỏ nguồn deploy, cập nhật ánh xạ không xóa snapshot cũ, ETag/304, chặn traversal/symlink, từ chối dữ liệu không toàn vẹn và API catalog/news vẫn đọc filesystem khi S3 không hoạt động.
+`test/persistent-assets.test.js` xác minh giữ nguyên byte, ảnh vẫn mở sau khi bỏ nguồn deploy, cập nhật ánh xạ không xóa snapshot cũ, ETag/304, chặn traversal/symlink, từ chối dữ liệu không toàn vẹn và API catalog/news đọc trực tiếp filesystem.
 
 `test/primary-link-audit.test.js` xác minh chuẩn hóa miền/đường dẫn ở href, action, src, srcset, poster, canonical/social; giữ query/fragment và miền ngoài; giá đầy đủ từ thấp đến cao; CTA đăng ký bảo hành đúng trang. Kiểm tra footer xác nhận tất cả sản phẩm xuất hiện mà không cần mở Xem thêm.

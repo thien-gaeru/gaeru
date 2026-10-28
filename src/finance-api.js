@@ -182,7 +182,8 @@ function createFinanceApi(pool) {
       pool.query(`SELECT COALESCE(SUM(amount_vnd),0) AS total FROM supplier_payments WHERE status='posted' AND (posted_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN $1::date AND $2::date`, dates),
       pool.query(`SELECT COALESCE(SUM(amount_vnd),0) AS total FROM expense_requests WHERE status='posted' AND (posted_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN $1::date AND $2::date`, dates)
     ]);
-    res.json({ from: dates[0], to: dates[1], definition: "Đơn theo ngày tạo tại Việt Nam; tiền thu là số đã ghi nhận đến hiện tại của các đơn trong kỳ. Không phải báo cáo lợi nhuận hoặc báo cáo kế toán pháp định.", summary: numeric({ ...summary.rows[0], purchaseReceivedVnd: purchases.rows[0].total, supplierPaidVnd: payments.rows[0].total, expensesVnd: expenses.rows[0].total }), daily: daily.rows.map(numeric), topProducts: top.rows.map((row) => ({ ...numeric(row), quantity: Number(row.quantity) })), inventory: numeric(inventory.rows[0]) });
+    const salesChannels=await require('./channel-reports').channelReport(pool,dates[0],dates[1]);
+    res.json({salesChannels, from: dates[0], to: dates[1], definition: "Đơn theo ngày tạo tại Việt Nam; tiền thu là số đã ghi nhận đến hiện tại của các đơn trong kỳ. Không phải báo cáo lợi nhuận hoặc báo cáo kế toán pháp định.", summary: numeric({ ...summary.rows[0], purchaseReceivedVnd: purchases.rows[0].total, supplierPaidVnd: payments.rows[0].total, expensesVnd: expenses.rows[0].total }), daily: daily.rows.map(numeric), topProducts: top.rows.map((row) => ({ ...numeric(row), quantity: Number(row.quantity) })), inventory: numeric(inventory.rows[0]) });
   }));
   return router;
 }

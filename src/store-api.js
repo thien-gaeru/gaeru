@@ -515,11 +515,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if (!Number.isInteger(requestedPage) || requestedPage < 1) {
         return res.status(400).json({ error: "Trang khách hàng không hợp lệ." });
       }
+      const verification=String(req.query.verification||'all');
+      if(!['all','verified','unverified'].includes(verification))return res.status(400).json({error:'Bộ lọc xác minh chưa hợp lệ.'});
       const pageSize = 25;
       const values = [query];
       const where = `($1::text = '' OR c.full_name ILIKE '%' || $1 || '%' OR c.email ILIKE '%' || $1 || '%' OR c.phone ILIKE '%' || $1 || '%')`;
       const countResult = await pool.query(`SELECT COUNT(*)::int AS total FROM customers c WHERE ${where}`, values);
-      const total = countResult.rows[0]?.total || 0;
+      const counts=(await pool.query(`SELECT COUNT(*) FILTER(WHERE c.email_verified_at IS NOT NULL)::int AS verified,COUNT(*) FILTER(WHERE c.email_verified_at IS NULL)::int AS unverified FROM customers c WHERE ${where}`,values)).rows[0]||{verified:0,unverified:0};
+      const verifiedWhere=verification==='verified'?' AND c.email_verified_at IS NOT NULL':verification==='unverified'?' AND c.email_verified_at IS NULL':'';
+      const total = verification==='all'?(countResult.rows[0]?.total||0):Number(counts[verification]);
       const pageCount = Math.max(1, Math.ceil(total / pageSize));
       const page = Math.min(requestedPage, pageCount);
       const result = await pool.query(
@@ -528,11 +532,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                 COUNT(o.id)::int AS "orderCount", MAX(o.created_at) AS "lastOrderAt"
          FROM customers c
          LEFT JOIN orders o ON o.customer_id=c.id OR (o.customer_id IS NULL AND lower(o.email)=lower(c.email))
-         WHERE ${where}
+         WHERE ${where}${verifiedWhere}
          GROUP BY c.id ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`,
         [query, pageSize, (page - 1) * pageSize]
       );
-      res.json({ customers: result.rows, pagination: { page, pageSize, total, pageCount } });
+      res.json({ customers: result.rows, verification, verificationCounts:{all:Number(counts.verified)+Number(counts.unverified),verified:Number(counts.verified),unverified:Number(counts.unverified)}, pagination: { page, pageSize, total, pageCount } });
     } catch (error) {
       next(error);
     }
@@ -765,7 +769,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.get("/gaeru_ceo/orders", async (req, res) => {
     const status = String(req.query.status || "");
-    if (status && !Object.hasOwn(transitions, status)) {
+    if (status && !Object.hasOwn(transitions, status) && !['ready_to_ship','cancelled_or_returned'].includes(status)) {
       return res.status(400).json({ error: "Bộ lọc trạng thái đơn hàng không hợp lệ." });
     }
     const paymentStatus = String(req.query.paymentStatus || "");
@@ -786,12 +790,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const exportXlsx = req.query.format === 'xlsx';
     const exportAll = exportXlsx && req.query.scope === 'all';
     const filterValues = [status, search, paymentStatus, paymentMethod];
-    const where = `${checkoutAccounts ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1)
+    const where = `${checkoutAccounts ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1
+      OR ($1='ready_to_ship' AND o.status IN ('confirmed','processing') AND o.return_completed_at IS NULL)
+      OR ($1='cancelled_or_returned' AND (o.status='cancelled' OR EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return'))))
       AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
         OR o.customer_name ILIKE '%' || $2 || '%'
         OR o.email ILIKE '%' || $2 || '%' OR o.phone ILIKE '%' || $2 || '%')
       AND ($3::text = '' OR o.payment_status = $3)
-      AND ($4::text = '' OR o.payment_method = $4)`;
+      AND ($4::text = '' OR o.payment_method = $4)
+      AND ($1 NOT IN ('completed','shipped') OR o.return_completed_at IS NULL)`;
     const countResult = await pool.query(
       `SELECT COUNT(*)::int AS total FROM orders o WHERE ${where}`,
       filterValues
@@ -804,7 +811,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       `SELECT o.id, o.order_number AS "orderNumber", o.customer_name AS "customerName",
         o.email, o.phone, o.address, o.city, o.note, o.payment_method AS "paymentMethod",
         o.payment_status AS "paymentStatus", o.status, o.discount_vnd AS "discountVnd",o.voucher_code AS "voucherCode",o.subtotal_vnd AS "subtotalVnd",
-        o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",
+        o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",o.management_version AS version,o.return_completed_at AS "returnedAt",
+        CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' WHEN EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return' AND a.status NOT IN ('resolved','rejected')) THEN 'open' ELSE NULL END AS "returnStatus",
         p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus", p.expires_at AS "paymentAttemptExpiresAt",
         COALESCE(jsonb_agg(jsonb_build_object('productName', i.product_name, 'variantName', i.variant_name,
           'sku', i.sku, 'unitPriceVnd', i.unit_price_vnd, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
@@ -833,8 +841,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
     let overview;
     if (req.query.overview === '1') {
-      const counts = await pool.query(`SELECT o.status, COUNT(*)::int AS total FROM orders o WHERE ${checkoutAccounts ? 'NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL)' : 'true'} GROUP BY o.status`);
+      const counts = await pool.query(`SELECT CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' ELSE o.status END AS status, COUNT(*)::int AS total FROM orders o WHERE ${checkoutAccounts ? 'NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL)' : 'true'} GROUP BY CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' ELSE o.status END`);
       overview = Object.fromEntries(counts.rows.map(row => [row.status, row.total]));
+      const cancelledAndReturns=await pool.query(`SELECT count(*)::int AS total FROM orders o WHERE ${checkoutAccounts ? 'NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND ' : ''}(o.status='cancelled' OR EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return'))`);
+      overview.cancelled_or_returned=cancelledAndReturns.rows[0]?.total||0;
     }
     res.json({
       ...(overview ? {overview} : {}),
@@ -847,6 +857,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const currentResult = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [id]);
         const current = currentResult.rows[0];
         if (!current) return null;
+        if(current.return_completed_at)throw Object.assign(Error('Đơn đã hoàn trả xong; không thể xử lý lại.'),{status:409});
         if (actor) {
           const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
           const paymentChange = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
@@ -997,6 +1008,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       res.json({orders:result,targetStatus:target,message:'Đã cập nhật '+result.length+' đơn hàng.'});
     }catch(error){next(error);}
   });
+  router.post('/gaeru_ceo/orders/:id/restore',requirePermission('orders.write'),requireUuidParam('id'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+    try{const {restoreOrder,restorationSchema}=require('./order-restoration');const data=restorationSchema.parse(req.body);
+      const order=await withTransaction(pool,client=>restoreOrder(client,{id:req.params.id,data,actor:req.admin,inventory:inventory||require('./inventory'),audit}));
+      res.json({order,message:order.alreadyRestored?'Yêu cầu đã được xử lý trước đó.':'Đã khôi phục đơn về Chờ xác nhận và giữ lại tồn kho. Chưa ghi nhận thanh toán hoặc gửi hàng.'});
+    }catch(error){if(error instanceof z.ZodError)return res.status(400).json({error:'Nhập lý do, phiên bản và xác nhận đã đối chiếu chưa nhận tiền trước khi khôi phục.'});if(error.code==='23505')return res.status(409).json({error:'Mã yêu cầu khôi phục đã được dùng. Tải lại để kiểm tra trạng thái.'});if(error.status)return res.status(error.status).json({error:error.message});next(error);}
+  });
+
   router.patch("/gaeru_ceo/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = orderUpdateSchema.safeParse(req.body);

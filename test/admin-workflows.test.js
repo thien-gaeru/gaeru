@@ -11,6 +11,20 @@ const productPayload = {
   slug: "k9", name: "GAERU K9", category: "audio", imageUrl: "/assets/products/k9.png", active: true
 };
 
+// Locate the outer predicate instead of confusing a nested EXISTS/LATERAL WHERE
+// with the paginated query's actual filter.
+function outerWhere(sql) {
+  let depth=0,start;
+  for(const token of sql.matchAll(/'(?:''|[^'])*'|"(?:""|[^"])*"|[()]|\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|LIMIT)\b/gi)){
+    const word=token[0];if(word[0]==="'"||word[0]==='"')continue;
+    if(word==='('){depth++;continue;}if(word===')'){depth--;continue;}if(depth)continue;
+    if(word.toUpperCase()==='WHERE'){start=token.index+word.length;continue;}
+    if(start!==undefined)return sql.slice(start,token.index).trim();
+  }
+  assert.notEqual(start,undefined,'SQL must contain an outer WHERE clause');
+  return sql.slice(start).trim();
+}
+
 async function startAdminApi(context, pool) {
   const app = express();
   app.use(express.json());
@@ -186,8 +200,8 @@ test("order payment filters use the same count/page predicate and preserve pagin
   assert.equal(body.orders[0].paymentAttemptExpiresAt, paymentAttemptExpiresAt);
   assert.deepEqual(queries[0].values, ["pending", "GR-123", "paid", "vnpay"]);
   assert.deepEqual(queries[1].values, ["pending", "GR-123", "paid", "vnpay", 25, 25]);
-  const countWhere = queries[0].sql.slice(queries[0].sql.indexOf("WHERE ") + 6).trim();
-  const listWhere = queries[1].sql.slice(queries[1].sql.lastIndexOf("WHERE ") + 6).split("GROUP BY")[0].trim();
+  const countWhere = outerWhere(queries[0].sql);
+  const listWhere = outerWhere(queries[1].sql);
   assert.equal(listWhere, countWhere);
   assert.match(listWhere, /o.payment_status = \$3/);
   assert.match(listWhere, /o.payment_method = \$4/);
@@ -208,24 +222,50 @@ test("order workspace validates sorting, paginates and returns global counts", a
   const queries=[];
   const request=await startAdminApi(context,{async query(sql,values){
     queries.push({sql,values});
-    if(sql.startsWith('SELECT COUNT(*)'))return {rows:[{total:61}]};
-    if(sql.startsWith('SELECT o.status, COUNT'))return {rows:[{status:'pending',total:45},{status:'completed',total:16}]};
+    if(sql.startsWith('SELECT COUNT(*)'))return {rows:[{total:45}]};
+    if(sql.startsWith("SELECT CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' ELSE o.status END AS status, COUNT"))return {rows:[{status:'pending',total:45},{status:'completed',total:16},{status:'returned',total:3},{status:'cancelled',total:4}]};
+    if(sql.startsWith('SELECT count(*)::int AS total FROM orders o WHERE')&&sql.includes("o.status='cancelled' OR EXISTS"))return {rows:[{total:7}]};
     return {rows:[]};
   }});
   for(const sort of ['newest','oldest','highest','lowest']){
+    const start=queries.length;
     const response=await request('/gaeru_ceo/orders?overview=1&sort='+sort+'&pageSize=20&page=2&status=pending');
     assert.equal(response.status,200);const body=await response.json();
-    assert.deepEqual(body.pagination,{page:2,pageSize:20,total:61,pageCount:4});
-    assert.deepEqual(body.overview,{pending:45,completed:16});
-    assert.deepEqual(queries.at(-2).values,['pending','','','',20,20]);
-    assert.match(queries.at(-2).sql,/ORDER BY o\.(created_at|total_vnd) (ASC|DESC)/);
-    assert.doesNotMatch(queries.at(-1).sql,/o.status = \$1/);
+    assert.deepEqual(body.pagination,{page:2,pageSize:20,total:45,pageCount:3});
+    assert.deepEqual(body.overview,{pending:45,completed:16,returned:3,cancelled:4,cancelled_or_returned:7});
+    const batch=queries.slice(start),pageQuery=batch.find(q=>q.sql.includes('LIMIT $5 OFFSET $6'));
+    assert.ok(pageQuery);assert.deepEqual(pageQuery.values,['pending','','','',20,20]);
+    assert.match(pageQuery.sql,/ORDER BY o\.(created_at|total_vnd) (ASC|DESC)/);
+    const globals=batch.filter(q=>q!==pageQuery&&!q.sql.startsWith('SELECT COUNT(*)'));
+    assert.equal(globals.length,2,'global status groups and cancellation/return count are both queried');
+    for(const query of globals){assert.equal(query.values,undefined);assert.doesNotMatch(query.sql,/o.status = \$1/);}
   }
   const count=queries.length;
   for(const suffix of ['sort=drop%20table','pageSize=0','pageSize=1000','pageSize=2.5']){
     assert.equal((await request('/gaeru_ceo/orders?'+suffix)).status,400);
   }
   assert.equal(queries.length,count);
+});
+
+test('real PostgreSQL pagination and global workflow counts stay correct with grouped filters and closed returns',async context=>{
+ const {PGlite}=require('@electric-sql/pglite'),db=await PGlite.create();
+ const pool={async query(sql,args){const r=!args&&sql.includes(';')?(await db.exec(sql)).at(-1):await db.query(sql,args);return {...r,rows:r?.rows||[],rowCount:r?.affectedRows??r?.rows?.length??0};},async connect(){return {query:pool.query,release(){}};}};
+ await require('../src/migrate').migrateDatabase(pool);
+ const statuses=[...Array(25).fill('pending'),'confirmed','confirmed','processing','processing','shipped','completed','completed','cancelled'],ids=[];
+ for(const [index,status]of statuses.entries()){
+  const row=(await pool.query("INSERT INTO orders(order_number,customer_name,email,phone,address,city,payment_method,subtotal_vnd,total_vnd,status,payment_status) VALUES($1,$2,'paging@example.invalid','0900000000','Fixture Address','Hà Nội','cod',100000,100000,$3,$4) RETURNING id",['GR-PAGING-'+(index+1),'Buyer-'+(index+1),status,status==='completed'?'paid':'pending'])).rows[0];ids.push(row.id);
+ }
+ await pool.query("INSERT INTO order_after_sales(order_id,kind,status,reason,resolution) VALUES($1,'return','resolved','Fixture closed return','Fixture return processed')",[ids[30]]);
+ await pool.query('UPDATE orders SET return_completed_at=now() WHERE id=$1',[ids[30]]);
+ const request=await startAdminApi(context,pool);context.after(()=>db.close());
+ const ready=await(await request('/gaeru_ceo/orders?status=ready_to_ship&overview=1&pageSize=20')).json();
+ assert.deepEqual(ready.pagination,{page:1,pageSize:20,total:4,pageCount:1});assert.deepEqual(new Set(ready.orders.map(o=>o.id)),new Set(ids.slice(25,29)));
+ assert.deepEqual(ready.overview,{pending:25,confirmed:2,processing:2,shipped:1,completed:1,cancelled:1,returned:1,cancelled_or_returned:2});
+ const first=await(await request('/gaeru_ceo/orders?status=pending&pageSize=20&page=1')).json(),second=await(await request('/gaeru_ceo/orders?status=pending&pageSize=20&page=2')).json();
+ assert.equal(first.orders.length,20);assert.equal(second.orders.length,5);assert.deepEqual(second.pagination,{page:2,pageSize:20,total:25,pageCount:2});assert.equal(new Set([...first.orders,...second.orders].map(o=>o.id)).size,25);
+ const searched=await(await request('/gaeru_ceo/orders?status=pending&q=Buyer-2&overview=1&pageSize=20')).json();assert.equal(searched.pagination.total,7);assert.equal(searched.orders.length,7);assert.equal(searched.overview.pending,25,'global counts remain independent of current search');
+ const returned=await(await request('/gaeru_ceo/orders?status=cancelled_or_returned&pageSize=20')).json();assert.deepEqual(new Set(returned.orders.map(o=>o.id)),new Set([ids[30],ids[32]]));assert.equal(returned.orders.find(o=>o.id===ids[30]).returnStatus,'returned');
+ const completed=await(await request('/gaeru_ceo/orders?status=completed&pageSize=20')).json();assert.deepEqual(completed.orders.map(o=>o.id),[ids[31]]);
 });
 
 test('Excel export produces a real workbook with literal text, numeric money and filter scope',async context=>{
