@@ -10,6 +10,7 @@ const titles={
  shipping_ghtk:'Giao Hàng Tiết Kiệm (GHTK)',
  shipping_viettel:'Viettel Post',
  shipping_jt:'J&T Express',
+ shipping_spx:'Shopee Express (SPX Express)',
  payment_cod:'Thanh toán khi nhận hàng (COD)',
  payment_bank_transfer:'Chuyển khoản ngân hàng (VietQR)',
  vnpay:'Cổng thanh toán VNPAY',
@@ -73,7 +74,7 @@ const fields={
  tiktok:[['appKey','App key'],['shopId','Mã cửa hàng'],['secret','App secret','password']]
 };
 
-for(const id of ['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt']){
+for(const id of ['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx']){
  fields[id]=[
   ['accountId',id==='shipping_ghn'?'Shop ID':'Mã khách hàng / tài khoản API'],
   ['partnerCode','Mã đối tác / API account (nếu hãng cấp)'],
@@ -97,7 +98,8 @@ const shippingMeta={
  shipping_ghn:{id:'ghn',name:'Giao Hàng Nhanh (GHN)',sub:'Mạng lưới bưu cục toàn quốc, giao nhanh 24h',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>'},
  shipping_ghtk:{id:'ghtk',name:'Giao Hàng Tiết Kiệm (GHTK)',sub:'Tối ưu chi phí cho shop online, giao hàng nội ngoại tỉnh',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"></circle><circle cx="5.5" cy="17.5" r="3.5"></circle><circle cx="15" cy="5" r="1"></circle><path d="M12 17.5V14l-3-3 4-3 2 3h2"></path></svg>'},
  shipping_viettel:{id:'viettel',name:'Viettel Post',sub:'Chuyển phát bưu chính quân đội, phủ sóng đến từng xã đảo',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>'},
- shipping_jt:{id:'jt',name:'J&T Express',sub:'Chuyển phát nhanh tiêu chuẩn & dịch vụ hỏa tốc toàn quốc',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>'}
+ shipping_jt:{id:'jt',name:'J&T Express',sub:'Chuyển phát nhanh tiêu chuẩn & dịch vụ hỏa tốc toàn quốc',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>'},
+ shipping_spx:{id:'spx',name:'Shopee Express (SPX)',sub:'Vận chuyển Shopee Express, mạng lưới bưu cục và giao nhanh toàn quốc',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ee4d2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>'}
 };
 
 const configModalMeta={
@@ -111,6 +113,7 @@ const configModalMeta={
  shipping_ghtk:{title:'Cấu hình & Khóa API · Giao Hàng Tiết Kiệm (GHTK)',sub:'Mã tài khoản, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_ghtk.icon},
  shipping_viettel:{title:'Cấu hình & Khóa API · Viettel Post',sub:'Mã đối tác, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_viettel.icon},
  shipping_jt:{title:'Cấu hình & Khóa API · J&T Express',sub:'Mã khách hàng, Khóa API Private Key và thông tin kho lấy hàng',icon:shippingMeta.shipping_jt.icon},
+ shipping_spx:{title:'Cấu hình & Khóa API · Shopee Express (SPX)',sub:'Mã khách hàng / Shop ID, API Key / Token SPX và thông tin kho lấy hàng',icon:shippingMeta.shipping_spx.icon},
  chat_ai:{title:'Cấu hình & Khóa · Chat AI (GPT, Gemini, Claude)',sub:'Model AI, API Keys và kích hoạt trợ lý tư vấn bán hàng',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M9 13v2M15 13v2"></path></svg>'},
  operations:{title:'Cấu hình · Vận hành & Tiếp nhận đơn',sub:'Bật / tắt tiếp nhận đơn đặt hàng trực tuyến trên hệ thống GAERU',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'},
  security:{title:'Cấu hình · Chính sách phiên & Bảo mật',sub:'Thời hạn phiên làm việc và bảo vệ tài khoản quản trị',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'},
@@ -211,9 +214,9 @@ async function mountShipping(){
  const activeCount=carriers.filter(c=>c.enabled).length;
  const verifiedCount=carriers.filter(c=>c.verified).length;
 
- const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý kết nối vận chuyển:</strong> Thiết lập tài khoản API, mã hóa Token kết nối của các đơn vị vận chuyển hàng đầu tại Việt Nam. Bật đơn vị vận chuyển đã xác minh để người mua tự do lựa chọn khi đặt hàng.</p><p style="margin-top:6px;font-size:12px;color:#059669;">✓ Phí giao hàng áp dụng linh hoạt theo cấu hình bảng giá tỉnh/thành phố GAERU.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/4</strong></span><span class="payment-stat-pill">🛡️ Đã xác minh: <strong>'+verifiedCount+'/4</strong></span></div></div>';
+ const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý kết nối vận chuyển:</strong> Thiết lập tài khoản API, mã hóa Token kết nối của các đơn vị vận chuyển hàng đầu tại Việt Nam. Bật đơn vị vận chuyển đã xác minh để người mua tự do lựa chọn khi đặt hàng.</p><p style="margin-top:6px;font-size:12px;color:#059669;">✓ Phí giao hàng áp dụng linh hoạt theo cấu hình bảng giá tỉnh/thành phố GAERU.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/5</strong></span><span class="payment-stat-pill">🛡️ Đã xác minh: <strong>'+verifiedCount+'/5</strong></span></div></div>';
 
- const cardsHtml=['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt'].map(configId=>{
+ const cardsHtml=['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx'].map(configId=>{
   const meta=shippingMeta[configId];
   const carrier=carriers.find(c=>c.id===meta.id)||{id:meta.id,verified:false,enabled:false,supported:true};
   const record=data?.records?.[configId]||{version:0,data:{}};
