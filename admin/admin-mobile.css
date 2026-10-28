@@ -2,12 +2,12 @@
 @media(max-width:760px){
  .admin-shell,#admin-app,.admin-content,.view-panel{min-width:0;max-width:100%;box-sizing:border-box}
  #admin-app{display:block;width:100%}
- .admin-shell .sidebar{position:static;display:grid;grid-template-columns:minmax(0,1fr) auto;height:auto;max-height:none;width:100%;padding:12px 15px;gap:6px 10px;overflow:visible}
+ .admin-shell .sidebar{position:sticky;top:0;z-index:1000;display:grid;grid-template-columns:minmax(0,1fr) auto;height:auto;max-height:none;width:100%;padding:10px 14px;gap:8px 10px;background:#ffffff;border-bottom:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.04);overflow:visible}
  .admin-shell .sidebar>.admin-wordmark{grid-column:1;grid-row:1;align-self:center;margin:0;min-width:0}
- .admin-shell .sidebar>.sidebar-toggle{grid-column:2;grid-row:1;float:none;width:auto;min-height:44px;padding:10px 12px;margin:0;font-size:12px;white-space:nowrap}
+ .admin-shell .sidebar>.sidebar-toggle{grid-column:2;grid-row:1;display:inline-flex!important;align-items:center;justify-content:center;float:none;width:auto;min-height:38px;padding:6px 14px;margin:0;font-size:13px;font-weight:600;white-space:nowrap;border-radius:999px;background:#f1f5f9;border:1px solid #cbd5e1;color:#0f172a;cursor:pointer}
  .admin-shell .sidebar>.admin-nav-search,.admin-shell .sidebar>nav,.admin-shell .sidebar>.sidebar-bottom{grid-column:1/-1;width:100%;box-sizing:border-box}
- .admin-shell .sidebar:not(.navigation-open)>.admin-nav-search{display:none}
- .admin-shell .sidebar.navigation-open nav{display:grid;max-height:55dvh;overflow-y:auto;overscroll-behavior:contain;margin-top:4px;gap:14px 8px}
+ .admin-shell .sidebar:not(.navigation-open)>.admin-nav-search,.admin-shell .sidebar:not(.navigation-open)>nav,.admin-shell .sidebar:not(.navigation-open)>.sidebar-bottom{display:none!important}
+ .admin-shell .sidebar.navigation-open nav{display:flex!important;flex-direction:column!important;max-height:calc(75dvh - 56px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;margin-top:4px;gap:4px;padding:8px 0 16px;border-top:1px solid #f1f5f9}
  .admin-shell .sidebar .nav-item{min-height:44px;white-space:normal;overflow-wrap:anywhere}
  .admin-shell .sidebar-bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0;padding:0;border:0}
  .admin-shell .sidebar-bottom>*{min-height:40px;display:inline-flex;align-items:center}
@@ -123,6 +123,11 @@
 
 /* Desktop readability without changing phone breakpoints. */
 @media(min-width:761px){
+ .sidebar-toggle,.admin-shell .sidebar-toggle,.admin-shell .sidebar>.sidebar-toggle{display:none!important}
+ .admin-shell .sidebar{position:sticky;top:0;height:100vh;max-height:100vh;overflow-y:auto;width:250px;min-width:250px}
+ .admin-shell .sidebar>nav{display:flex!important;flex-direction:column!important}
+ .admin-shell .sidebar>.admin-nav-search{display:block!important}
+ .admin-shell .sidebar>.sidebar-bottom{display:flex!important}
  .admin-shell{font-size:16px}
  .admin-shell .sidebar .nav-item{font-size:16px;line-height:1.5;padding-block:12px}
  .admin-shell .sidebar .nav-group-label{font-size:13px}

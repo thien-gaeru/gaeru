@@ -5,20 +5,111 @@
 /* Keep navigation content in the sidebar's scroll flow; never shrink it over the footer. */
 .sidebar>nav,.sidebar>.admin-nav-search,.sidebar>.sidebar-bottom,.sidebar>.sidebar-toggle{flex-shrink:0}
 .sidebar>nav{min-height:auto}
+/* Mặc định trên Desktop: Nút "Menu quản lý" tuyệt đối ẩn */
+.sidebar-toggle,
+.admin-shell .sidebar-toggle,
+.sidebar > .sidebar-toggle {
+  display: none !important;
+}
+
 @media(max-width:760px){
- .sidebar{position:static;border-right:0;border-bottom:1px solid var(--line)}
- .sidebar-toggle{display:inline-flex;float:right;gap:12px}
- .sidebar nav{display:none;grid-template-columns:1fr 1fr;overflow:visible}
- .sidebar.navigation-open nav{display:grid}
- .sidebar nav>.nav-group:first-child{grid-column:1/-1}
- .sidebar-bottom{grid-template-columns:1fr auto;align-items:center}
+  .sidebar{position:sticky;top:0;z-index:1000;border-right:0;border-bottom:1px solid var(--line);background:#ffffff}
+  .sidebar-toggle,
+  .admin-shell .sidebar > .sidebar-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 999px;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #0f172a;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    transition: all 0.15s ease;
+  }
+  .sidebar-toggle:hover,
+  .sidebar-toggle:active {
+    background: #e2e8f0;
+    color: #0284c7;
+    border-color: #94a3b8;
+  }
+  .sidebar.navigation-open .sidebar-toggle {
+    background: #e0f2fe;
+    color: #0369a1;
+    border-color: #7dd3fc;
+  }
+  .sidebar:not(.navigation-open) > nav,
+  .sidebar:not(.navigation-open) #admin-navigation,
+  .sidebar:not(.navigation-open) > .admin-nav-search,
+  .sidebar:not(.navigation-open) .admin-nav-search,
+  .sidebar:not(.navigation-open) > .sidebar-bottom,
+  .sidebar:not(.navigation-open) .sidebar-bottom,
+  .admin-shell .sidebar:not(.navigation-open) > nav,
+  .admin-shell .sidebar:not(.navigation-open) #admin-navigation,
+  .admin-shell .sidebar:not(.navigation-open) > .admin-nav-search,
+  .admin-shell .sidebar:not(.navigation-open) .admin-nav-search,
+  .admin-shell .sidebar:not(.navigation-open) > .sidebar-bottom,
+  .admin-shell .sidebar:not(.navigation-open) .sidebar-bottom {
+    display: none !important;
+  }
+  .sidebar.navigation-open nav {
+    display: flex !important;
+    flex-direction: column !important;
+    max-height: calc(75dvh - 56px) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 8px 4px 16px !important;
+    border-top: 1px solid #f1f5f9 !important;
+  }
+  .sidebar.navigation-open .admin-nav-search {
+    display: block !important;
+    margin: 10px 0 6px !important;
+  }
+  .sidebar.navigation-open .sidebar-bottom {
+    display: flex !important;
+    margin-top: 8px !important;
+    padding: 12px 6px 4px !important;
+    border-top: 1px solid #e2e8f0 !important;
+  }
+}
+
+@media(min-width:761px){
+  .sidebar-toggle,
+  .admin-shell .sidebar-toggle,
+  .sidebar > .sidebar-toggle {
+    display: none !important;
+  }
+  .sidebar nav {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+  }
+  .sidebar > .admin-nav-search {
+    display: block !important;
+  }
+  .sidebar > .sidebar-bottom {
+    display: flex !important;
+  }
 }
 
 
 /* ==========================================================================
    Collapsible Navigation Groups ("Thu gọn trỏ xuống cho các mục chính")
    ========================================================================== */
-.sidebar nav {
+@media (min-width: 761px) {
+  .sidebar nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+.sidebar.navigation-open nav {
   display: flex;
   flex-direction: column;
   gap: 4px;

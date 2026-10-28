@@ -148,6 +148,36 @@
   }
   input.addEventListener('input',filter);document.addEventListener('gaeru:admin-ready',()=>queueMicrotask(filter));
   document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){if(document.querySelector('#admin-app').hidden)return;event.preventDefault();document.querySelector('.sidebar').classList.add('navigation-open');document.querySelector('.sidebar-toggle').setAttribute('aria-expanded','true');input.focus();}if(event.key==='Escape'&&document.activeElement===input){input.value='';filter();}});
+    function closeMobileNavigation() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar || !sidebar.classList.contains('navigation-open')) return;
+    sidebar.classList.remove('navigation-open');
+    document.querySelector('.sidebar-toggle')?.setAttribute('aria-expanded', 'false');
+  }
+
+  // Tap outside mobile sidebar to dismiss navigation
+  document.addEventListener('click', event => {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar || !sidebar.classList.contains('navigation-open')) return;
+    if (!sidebar.contains(event.target)) {
+      closeMobileNavigation();
+    }
+  });
+
+  // Tap any menu item closes mobile navigation
+  nav.addEventListener('click', event => {
+    if (event.target.closest('[data-view]')) {
+      closeMobileNavigation();
+    }
+  });
+
+  // Escape key closes mobile navigation
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      closeMobileNavigation();
+    }
+  });
+
   let heartbeatAt=Date.now(),running=false;
   function activity(event){if(!event.isTrusted||!root.GAERUAdmin?.user||running||Date.now()-heartbeatAt<60000)return;running=true;heartbeatAt=Date.now();root.GAERUAdmin.request('/api/auth/activity',{method:'POST',gaeruBackground:true}).catch(()=>{}).finally(()=>running=false);}
   document.addEventListener('keydown',activity);document.addEventListener('click',activity);
