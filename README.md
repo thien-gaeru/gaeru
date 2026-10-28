@@ -45,7 +45,7 @@ Lệnh cuối tạo giá trị ngẫu nhiên để đặt vào `SESSION_SECRET`.
 - `SESSION_SECRET`: chuỗi bí mật ngẫu nhiên tối thiểu 32 ký tự.
 - `ADMIN_USERNAME`: tên đăng nhập quản trị.
 - `ADMIN_PASSWORD_HASH`: giá trị băm bcrypt được tạo bởi `npm run admin:hash-password` trong terminal tương tác; lệnh yêu cầu mật khẩu dài ít nhất 12 ký tự và không hiển thị mật khẩu khi nhập.
-- `PGSSL=require` nếu dịch vụ PostgreSQL yêu cầu TLS có xác minh chứng chỉ; nếu không, giữ `disable`.
+- `PGSSL=require` nếu dịch vụ PostgreSQL yêu cầu TLS có xác minh chứng chỉ (mặc định kích hoạt bộ mã hóa hiện đại và tự động đàm phán nâng cấp lên TLS 1.3 mới nhất, baseline tối thiểu TLS 1.2; có thể đặt `PGSSL_MIN_VERSION=TLSv1.3` để bắt buộc); nếu kết nối nội bộ không mã hóa, giữ `disable`.
 - `STORE_ORDERS_ENABLED=false` giữ checkout khóa theo mặc định. Chỉ bật thành `true` sau khi xác định và hoàn tất nghĩa vụ pháp lý hiện hành, xác minh chính sách/thông tin website khớp vận hành production, và kiểm thử end-to-end các phương thức thanh toán thật.
 - Để bật xác minh email và khôi phục mật khẩu khách hàng, cấu hình `PUBLIC_BASE_URL` (HTTPS origin) cùng `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` trong secrets của máy chủ. Nếu chưa cấu hình SMTP, khách vẫn đăng ký/đăng nhập và mua hàng được nhưng yêu cầu gửi email sẽ báo dịch vụ chưa sẵn sàng.
 - Để bật VNPAY, đặt đủ `PUBLIC_BASE_URL` (HTTPS), `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET` và `VNPAY_PAYMENT_URL` trong secrets của máy chủ. Phải khai báo rõ URL sandbox hoặc production do VNPAY cấp; ứng dụng không tự chọn sandbox hay production. Cấu hình URL IPN trên merchant portal thành `https://<domain>/api/payments/vnpay/ipn`; Return URL được tạo tự động.
