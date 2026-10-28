@@ -124,6 +124,81 @@
               <button class="secondary-button" type="button" data-shortcut="unpaid" data-require="orders.read">Kiểm tra thanh toán <span aria-hidden="true">↗</span></button>
               <button class="secondary-button" type="button" data-shortcut="stock" data-require="inventory.read">Kiểm tra tồn kho <span aria-hidden="true">↗</span></button>
             </div>
+            <section class="overview-health-card" id="overview-health-section" aria-label="Sức khỏe hệ thống và an ninh bảo vệ web">
+              <div class="health-card-header">
+                <div class="health-title-group">
+                  <div class="health-icon-pulse" aria-hidden="true">
+                    <span class="health-pulse-dot"></span>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  </div>
+                  <div>
+                    <h2 class="health-heading">Trạng thái sức khỏe &amp; An ninh bảo vệ</h2>
+                    <p class="health-subheading">Hệ thống giám sát thời gian thực: Chống Spam • Chống Hack • Chống Bot • Chống DDoS</p>
+                  </div>
+                </div>
+                <div class="health-header-actions">
+                  <span class="health-overall-badge tag-healthy" id="health-overall-status">
+                    <span class="status-indicator"></span> Đang hoạt động tối ưu &amp; An toàn
+                  </span>
+                  <button type="button" class="plain-button btn-refresh-health" id="btn-refresh-health" title="Quét lại sức khỏe hệ thống">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Quét lại
+                  </button>
+                </div>
+              </div>
+
+              <div class="health-grid">
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🗄️</span>
+                    <strong class="health-item-title">Máy chủ &amp; Cơ sở dữ liệu</strong>
+                    <span class="health-pill tag-healthy" id="health-db-status">Bình thường</span>
+                  </div>
+                  <p class="health-item-desc" id="health-db-desc">PostgreSQL Pooler đang phản hồi ổn định</p>
+                  <div class="health-item-meta">Độ trễ: <span id="health-db-latency">&lt; 5ms</span></div>
+                </article>
+
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🛡️</span>
+                    <strong class="health-item-title">Lá chắn chống DDoS</strong>
+                    <span class="health-pill tag-healthy" id="health-ddos-status">Đang bảo vệ</span>
+                  </div>
+                  <p class="health-item-desc" id="health-ddos-desc">Adaptive Rate Limiting điều tiết lưu lượng API</p>
+                  <div class="health-item-meta">Giới hạn: <span id="health-ddos-limit">600 req/phút/IP</span></div>
+                </article>
+
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🤖</span>
+                    <strong class="health-item-title">Chống Bot &amp; Chống Spam</strong>
+                    <span class="health-pill tag-healthy" id="health-bot-status">Đang bật</span>
+                  </div>
+                  <p class="health-item-desc" id="health-bot-desc">Honeypot thông minh + Bộ lọc hành vi bot rác</p>
+                  <div class="health-item-meta">Cơ chế: <span id="health-bot-mode">Turnstile &amp; Smart Form Guard</span></div>
+                </article>
+
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🔒</span>
+                    <strong class="health-item-title">Tường lửa WAF &amp; Mã hóa TLS</strong>
+                    <span class="health-pill tag-healthy" id="health-waf-status">Đang bảo vệ</span>
+                  </div>
+                  <p class="health-item-desc" id="health-waf-desc">Chống SQLi, XSS, Path Traversal &amp; Scanners</p>
+                  <div class="health-item-meta">Mối đe dọa đã chặn: <strong id="health-threats-count">0</strong></div>
+                </article>
+              </div>
+
+              <div class="health-footer-row">
+                <div class="health-server-details">
+                  <span>RAM Heap: <strong id="health-memory-info">—</strong></span>
+                  <span>Thời gian máy chủ chạy: <strong id="health-uptime-info">—</strong></span>
+                </div>
+                <div class="health-timestamp">
+                  Lần kiểm tra gần nhất: <span id="health-last-check">—</span>
+                </div>
+              </div>
+            </section>
             <div class="notice-card" id="orders-gate-notice" hidden role="status">
               <h2>Tiếp nhận đơn hàng đang tạm khóa</h2>
               <p>Checkout đang tạm dừng nhận đơn mới. Chủ doanh nghiệp có thể bật nhận đơn tại Trang tổng quan → Điều khiển vận hành.</p>

@@ -15,7 +15,7 @@ function adminPolicy(req, res, next) {
   if (/^\/(product-workspace|catalog-images|catalog-videos)(\/|$)/.test(path)) return next();
   let permission;
   if (/^\/pages(\/|$)/.test(path)) return next();
-  if (path === "/summary") permission = "dashboard.read";
+  if (path === "/summary" || path === "/system-health") permission = "dashboard.read";
   else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
   else if (/^\/orders(\/|$)/.test(path)) permission = "orders.read";
   else if (/^\/customers(\/|$)/.test(path)) permission = read ? "customers.read" : "customers.write";

@@ -74,12 +74,17 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if(/^\/(?:admin(?:\/|$)|api\/admin(?:\/|$))/i.test(pathname))return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });
+  const { createWafShield, createHoneypotShield, createDdosShield, createAuthBruteForceShield, getSystemHealth } = require('./security-shield');
+  app.use(createWafShield());
+  app.use(['/api/auth', '/api/customer-auth'], createAuthBruteForceShield(config));
+  app.use('/api', createDdosShield(config));
   app.use(require("./bot-protection").createBotProtection(pool,config));
   app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/pages", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/marketing/emails",express.json({limit:"64kb"}));
   app.use(express.json({ limit: "32kb" }));
+  app.use(createHoneypotShield());
   app.use(session({
     name: "gaeru.sid",
     store: sessionStore,
@@ -132,6 +137,14 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy, (req,res,next)=>{
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
     next();
+  });
+  app.get("/api/gaeru_ceo/system-health", async (_req, res, next) => {
+    try {
+      const health = await getSystemHealth(pool, config);
+      res.set("Cache-Control", "no-store").json(health);
+    } catch (err) {
+      next(err);
+    }
   });
   app.use("/api/gaeru_ceo", require("./media-diagnostics").createMediaDiagnostics());
   app.use("/api/gaeru_ceo", require("./file-library").createFileLibrary(pool));
