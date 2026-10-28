@@ -18,7 +18,7 @@ function adminSessionPolicy(req, _res, next) {
   }
   // Background refreshes must not count as a person's activity. The UI sends
   // /api/auth/activity for real keyboard and click interactions.
-  const passive = req.method === 'GET' && /^\/api\/gaeru_ceo\/(?:notifications|care-requests|orders|summary|shopping-chat)(?:\/|$)/.test(req.path);
+  const passive = req.method === 'GET' && /^\/api\/gaeru_ceo\/(?:notifications|care-requests|orders|summary|traffic-summary|shopping-chat)(?:\/|$)/.test(req.path);
   if (!passive) req.session.adminLastSeenAt = now;
   next();
 }
