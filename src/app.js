@@ -246,7 +246,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;
     if (status >= 400 && status < 500) {
-      return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : "Yêu cầu không hợp lệ." });
+      const isSyntaxOrBody = error instanceof SyntaxError || error.type === 'entity.parse.failed' || status === 413 || !error.message;
+      return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : (isSyntaxOrBody ? "Yêu cầu không hợp lệ." : error.message) });
     }
     console.error("Request failed:", {name:error.name||'Error',code:error.code||'INTERNAL_ERROR'});
     res.status(500).json({ error: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
