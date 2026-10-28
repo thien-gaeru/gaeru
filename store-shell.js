@@ -164,8 +164,9 @@ if (footerRoot) {
           </nav>
         </div>
         <p class="footer-business-info">
-          GAERU HOUSEHOLD BUSINESS (GAERU) · Mã số đăng ký 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
-          Địa chỉ: Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình.
+          HỘ KINH DOANH GAERU (GAERU HOUSEHOLD BUSINESS) · Mã số đăng ký &amp; Mã số thuế: 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
+          Địa chỉ: Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình · Hotline: 082 919 1080 · Email: business@gaeru.com<br>
+          Website thương mại điện tử bán hàng tuân thủ Nghị định 52/2013/NĐ-CP và Nghị định 85/2021/NĐ-CP.
         </p>
       </div>
     </footer>`;
