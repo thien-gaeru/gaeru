@@ -45,3 +45,6 @@
 .chat-end-session:hover{background:#ffe5e7}
 .chat-new-session{color:#0066cc;border-color:#0071e3;background:#f0f6ff}
 .chat-end-session[hidden],.chat-new-session[hidden]{display:none!important}
+.chat-action-icon{width:22px;height:22px;min-width:22px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+.chat-hotline-session{display:inline-flex;align-items:center;text-decoration:none;border:1px solid #34c759;border-radius:999px;background:#f0fdf4;color:#15803d;padding:4px 10px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.chat-hotline-session:hover{background:#dcfce7}

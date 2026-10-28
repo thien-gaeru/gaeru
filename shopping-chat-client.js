@@ -1,5 +1,11 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const ICONS = {
+    file: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
+    media: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 15-4.5-4.5a1.5 1.5 0 0 0-2.1 0L6 19"/></svg>',
+    orders: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 11h8M8 15h6"/></svg>',
+    hotline: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'
+  };
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
     let stopped=false, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[];
     const quickReplies = admin
@@ -15,7 +21,7 @@
           'Hướng dẫn kết nối thiết bị',
           'Chính sách bảo hành Care+'
         ];
-    root.innerHTML = `<div class="chat-state-bar"><p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p>${admin?'':'<div class="chat-session-actions"><button type="button" class="chat-end-session" data-chat-end data-no-action-feedback hidden>Kết thúc phiên chat</button><button type="button" class="chat-new-session" data-chat-new data-no-action-feedback hidden>Bắt đầu chat mới</button></div>'}</div>
+    root.innerHTML = `<div class="chat-state-bar"><p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p>${admin?'':'<div class="chat-session-actions"><a href="tel:0829191080" class="chat-hotline-session" data-chat-hotline data-no-action-feedback>☏ Gọi hotline</a><button type="button" class="chat-end-session" data-chat-end data-no-action-feedback hidden>Kết thúc phiên chat</button><button type="button" class="chat-new-session" data-chat-new data-no-action-feedback hidden>Bắt đầu chat mới</button></div>'}</div>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
       <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose>
@@ -31,9 +37,6 @@
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
-      <button type="button" data-pick="file">▤ <span>Tệp<small>Tối đa 10 MiB mỗi tệp · Tự động nén ngầm</small></span></button>
-      <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Tối đa 10 MiB mỗi tệp · Tải ngầm sau khi gửi</small></span></button>
-      ${admin?(window.GAERUAdmin?.can('marketing.read')?'<button type="button" data-offer="vouchers">▱ <span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">▤ <span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>':''):'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>☏ <span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>✕ <span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>'}</div>
       <div data-chat-reference class="chat-reference" hidden></div>
       <input hidden type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv">
       <input hidden type="file" multiple data-file="media" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo">
@@ -166,7 +169,7 @@
       }
     }
 
-    function setClosed(){const closed=thread?.status==='closed';send.disabled=closed;form.elements.body.disabled=closed;plus.disabled=closed;actions.querySelectorAll('button').forEach(b=>b.disabled=closed);root.querySelectorAll('[data-quick-reply]').forEach(b=>b.disabled=closed);syncSupport();}
+    function setClosed(){const closed=thread?.status==='closed';send.disabled=closed;form.elements.body.disabled=closed;plus.disabled=closed;actions.querySelectorAll('button:not([data-chat-hotline])').forEach(b=>b.disabled=closed);root.querySelectorAll('[data-quick-reply]').forEach(b=>b.disabled=closed);syncSupport();}
     async function refresh(before){
       if(stopped||busy||!id)return;busy=true;
       try{
@@ -400,8 +403,16 @@
       setClosed();
       form.elements.body.focus?.({preventScroll:true});
     }
+    function dialHotline(event){
+      const hotlineEl=event.target.closest('button[data-chat-hotline]');
+      if(!hotlineEl)return;
+      actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      collapseQuickReplies();
+      if(typeof window!=='undefined'&&window.location)window.location.href='tel:0829191080';
+    }
     root.addEventListener('click',event=>{
-      if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();
+      if(event.target.closest('button[data-chat-hotline]'))dialHotline(event);
+      else if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();
       else if(event.target.closest('[data-chat-end]'))void endChatSession();
       else if(event.target.closest('[data-chat-new]'))startNewChatSession();
     });
