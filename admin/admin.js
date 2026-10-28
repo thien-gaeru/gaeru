@@ -94,6 +94,8 @@ function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành c
     if (container && typeof container.appendChild === "function") container.appendChild(popup);
   } else {
     popup.hidden = false;
+    const h2 = popup.querySelector("h2");
+    if (h2) h2.textContent = message;
   }
   setTimeout(() => {
     try { popup?.remove(); } catch (_) {}
@@ -430,11 +432,12 @@ async function saveProduct(event) {
     if (!id) {
       showProductAddedPopup("Đã thêm sản phẩm mới thành công");
       showGlobal("Đã thêm sản phẩm mới thành công");
-      const editor = document.querySelector("#product-editor");
-      if (editor) editor.hidden = true;
     } else {
-      showGlobal("Đã lưu thông tin sản phẩm.");
+      showProductAddedPopup("Đã sửa sản phẩm thành công");
+      showGlobal("Đã sửa sản phẩm thành công");
     }
+    const editor = document.querySelector("#product-editor");
+    if (editor) editor.hidden = true;
   } catch (error) {
     setFeedback(form, error.message);
   } finally {
