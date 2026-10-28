@@ -227,6 +227,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     res.set("Cache-Control", "no-store");
     res.sendFile("index.html", { root: adminRoot }, error => { if (error) next(error); });
   });
+  app.use(require('./traffic-tracker').createTrafficTracker(pool));
   app.use(require('./site-pages').pageMetadata(pool));
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});

@@ -119,12 +119,54 @@
               <article class="stat-card"><span>Tổng đơn hàng</span><strong id="order-count">—</strong></article>
               <article class="stat-card"><span>Đơn chờ thanh toán</span><strong id="unpaid-order-count">—</strong></article>
               <article class="stat-card"><span>Phiên bản sắp hết hàng</span><strong id="low-stock-count">—</strong></article>
+              <article class="stat-card"><span>Truy cập hôm nay</span><strong id="traffic-today-visits">0</strong></article>
+              <article class="stat-card"><span>Tổng lượt truy cập</span><strong id="traffic-total-visits">0</strong></article>
             </div>
             <div class="overview-actions" aria-label="Thao tác nhanh">
               <button class="secondary-button" type="button" data-shortcut="pending" data-require="orders.read">Xử lý đơn mới <span aria-hidden="true">↗</span></button>
               <button class="secondary-button" type="button" data-shortcut="unpaid" data-require="orders.read">Kiểm tra thanh toán <span aria-hidden="true">↗</span></button>
               <button class="secondary-button" type="button" data-shortcut="stock" data-require="inventory.read">Kiểm tra tồn kho <span aria-hidden="true">↗</span></button>
             </div>
+                        <section class="overview-traffic-card" id="overview-traffic-section" aria-label="Bộ đếm truy cập tự động Storefront">
+              <div class="traffic-card-header">
+                <div class="traffic-title-group">
+                  <div class="traffic-icon-pulse" aria-hidden="true">
+                    <span class="traffic-pulse-dot"></span>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+                  <div>
+                    <h2 class="traffic-heading">Bộ đếm truy cập Storefront</h2>
+                    <p class="traffic-subheading">Theo dõi lưu lượng khách ghé thăm website tự động theo thời gian thực</p>
+                  </div>
+                </div>
+                <div class="traffic-header-actions">
+                  <span class="traffic-live-badge tag-live" id="traffic-live-badge">
+                    <span class="status-indicator"></span> Đang đếm tự động
+                  </span>
+                  <button type="button" class="plain-button btn-refresh-traffic" id="btn-refresh-traffic" title="Làm mới bộ đếm truy cập">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="traffic-metrics-grid">
+                <div class="traffic-metric-item">
+                  <span class="traffic-metric-label">Lượt xem hôm nay (Pageviews)</span>
+                  <strong class="traffic-metric-val" id="metric-today-pageviews">0</strong>
+                </div>
+                <div class="traffic-metric-item">
+                  <span class="traffic-metric-label">Khách hôm nay (Unique Visitors)</span>
+                  <strong class="traffic-metric-val" id="metric-today-visitors">0</strong>
+                </div>
+                <div class="traffic-metric-item">
+                  <span class="traffic-metric-label">Tổng lượt xem tích lũy</span>
+                  <strong class="traffic-metric-val" id="metric-total-pageviews">0</strong>
+                </div>
+                <div class="traffic-metric-item highlight-metric">
+                  <span class="traffic-metric-label">Khách đang online (15 phút)</span>
+                  <strong class="traffic-metric-val active-now" id="metric-active-visitors"><span class="traffic-live-dot"></span><span id="metric-active-count">0</span></strong>
+                </div>
+              </div>
+            </section>
             <section class="overview-health-card" id="overview-health-section" aria-label="Sức khỏe hệ thống và an ninh bảo vệ web">
               <div class="health-card-header">
                 <div class="health-title-group">

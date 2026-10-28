@@ -164,6 +164,27 @@ async function loadSummary() {
   document.querySelector("#low-stock-count").textContent = summary.products.lowStock;
   document.querySelector("#orders-gate-notice").hidden = summary.ordersEnabled;
   document.querySelector("#shipping-rates-notice").hidden = summary.shippingRatesConfigured;
+  if (summary.traffic) renderTrafficMetrics(summary.traffic);
+}
+
+function renderTrafficMetrics(traffic) {
+  if (!traffic) return;
+  const fmt = (n) => Number(n || 0).toLocaleString("vi-VN");
+  const el = (id) => document.querySelector(id);
+  if (el("#traffic-today-visits")) el("#traffic-today-visits").textContent = fmt(traffic.todayPageviews);
+  if (el("#traffic-total-visits")) el("#traffic-total-visits").textContent = fmt(traffic.totalPageviews);
+  if (el("#metric-today-pageviews")) el("#metric-today-pageviews").textContent = fmt(traffic.todayPageviews);
+  if (el("#metric-today-visitors")) el("#metric-today-visitors").textContent = fmt(traffic.todayVisitors);
+  if (el("#metric-total-pageviews")) el("#metric-total-pageviews").textContent = fmt(traffic.totalPageviews);
+  if (el("#metric-active-count")) el("#metric-active-count").textContent = fmt(traffic.activeNow);
+}
+
+async function loadTrafficSummary() {
+  if (!can("dashboard.read")) return;
+  try {
+    const traffic = await request("/api/gaeru_ceo/traffic-summary");
+    renderTrafficMetrics(traffic);
+  } catch {}
 }
 
 async function loadSystemHealth() {
@@ -1251,6 +1272,17 @@ function confirmProductAction(product,{permanent=false,message}={}){
   dialog.querySelector('[data-product-action-cancel]').onclick=()=>finish(false);dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});dialog.addEventListener('close',()=>finish(false));document.body.append(dialog);dialog.showModal();
  });
 }
+
+document.querySelector("#btn-refresh-traffic")?.addEventListener("click", async () => {
+  const btn = document.querySelector("#btn-refresh-traffic");
+  if (btn) btn.disabled = true;
+  try {
+    await loadTrafficSummary();
+    showGlobal("Đã làm mới dữ liệu bộ đếm truy cập tự động.");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
 
 document.querySelector("#btn-refresh-health")?.addEventListener("click", async () => {
   const btn = document.querySelector("#btn-refresh-health");

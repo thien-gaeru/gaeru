@@ -584,8 +584,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
+  const { getTrafficSummary } = require("./traffic-tracker");
+
   router.get("/gaeru_ceo/summary", async (req, res) => {
-    const [products, orders, settings] = await Promise.all([
+    const [products, orders, settings, traffic] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
         (SELECT COUNT(*)::int FROM product_variants v JOIN products p ON p.id = v.product_id
          WHERE v.active = true AND p.active = true AND v.stock_quantity <= 5) AS "lowStock"
@@ -595,10 +597,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled'))::int AS "needsAction",
         COUNT(*) FILTER (WHERE payment_status = 'pending' AND status <> 'cancelled')::int AS "paymentPending"
         FROM orders`),
-      getSettings(pool, ["shipping_rates"])
+      getSettings(pool, ["shipping_rates"]),
+      getTrafficSummary(pool)
     ]);
     const shippingRatesConfigured = Object.keys(settings.shipping_rates || {}).length > 0;
-    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled:req.ordersEnabled, shippingRatesConfigured });
+    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled:req.ordersEnabled, shippingRatesConfigured, traffic });
+  });
+
+  router.get("/gaeru_ceo/traffic-summary", async (req, res) => {
+    res.json(await getTrafficSummary(pool));
   });
 
   router.get("/gaeru_ceo/products", async (req, res) => {
