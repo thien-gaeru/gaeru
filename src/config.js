@@ -9,6 +9,7 @@ const schema = z.object({
   ADMIN_PASSWORD_HASH: z.string().regex(/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/),
   PGSSL_CA: z.string().min(1).optional(),
   PGSSL: z.enum(["disable", "require"]).default("disable"),
+  PGSSL_MIN_VERSION: z.enum(["TLSv1.2", "TLSv1.3"]).default("TLSv1.2"),
   STORE_ORDERS_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   PUBLIC_BASE_URL: z.string().url().refine((value) => {
     if (!URL.canParse(value)) return false;

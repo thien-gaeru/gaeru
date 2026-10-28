@@ -1,4 +1,25 @@
 const { Pool } = require("pg");
+const tls = require("node:tls");
+
+if (tls.DEFAULT_MIN_VERSION !== "TLSv1.3") {
+  tls.DEFAULT_MIN_VERSION = "TLSv1.2";
+}
+tls.DEFAULT_MAX_VERSION = "TLSv1.3";
+
+const SECURE_TLS13_CIPHERSUITES = [
+  "TLS_AES_256_GCM_SHA384",
+  "TLS_CHACHA20_POLY1305_SHA256",
+  "TLS_AES_128_GCM_SHA256"
+].join(":");
+
+const SECURE_TLS12_CIPHERS = [
+  "ECDHE-ECDSA-AES256-GCM-SHA384",
+  "ECDHE-RSA-AES256-GCM-SHA384",
+  "ECDHE-ECDSA-CHACHA20-POLY1305",
+  "ECDHE-RSA-CHACHA20-POLY1305",
+  "ECDHE-ECDSA-AES128-GCM-SHA256",
+  "ECDHE-RSA-AES128-GCM-SHA256"
+].join(":");
 
 function isLocalDatabaseHost(hostname) {
   const h = String(hostname || "").trim().toLowerCase();
@@ -21,12 +42,17 @@ function poolOptions(config) {
     }
     connectionString = parsed.toString();
   }
+  const minVersion = config.PGSSL_MIN_VERSION === "TLSv1.3" ? "TLSv1.3" : "TLSv1.2";
   return {
     connectionString,
     ssl: requireTls
       ? {
           rejectUnauthorized: true,
-          minVersion: "TLSv1.2",
+          minVersion,
+          maxVersion: "TLSv1.3",
+          ciphersuites: SECURE_TLS13_CIPHERSUITES,
+          ciphers: SECURE_TLS12_CIPHERS,
+          honorCipherOrder: true,
           ...(config.PGSSL_CA ? { ca: config.PGSSL_CA } : {})
         }
       : undefined,
@@ -48,6 +74,9 @@ async function inspectDatabaseTls(pool, config = {}) {
   let databaseBackendTls = null;
   let databaseDirectBackendSsl = null;
   let databaseServerSslSetting = null;
+  let databaseServerSslMinProtocol = null;
+  let databaseServerSslMaxProtocol = null;
+  let databaseServerSslCiphers = null;
   let databaseTlsProtocol = null;
   let databaseTlsCipher = null;
   let databaseTlsBits = null;
@@ -85,6 +114,18 @@ async function inspectDatabaseTls(pool, config = {}) {
       const settingRow = (await connection.query("SELECT current_setting('ssl', true) AS ssl")).rows[0];
       if (settingRow?.ssl) databaseServerSslSetting = String(settingRow.ssl).toLowerCase();
     } catch {}
+    try {
+      const protoMinRow = (await connection.query("SELECT current_setting('ssl_min_protocol_version', true) AS val")).rows[0];
+      if (protoMinRow?.val) databaseServerSslMinProtocol = protoMinRow.val;
+    } catch {}
+    try {
+      const protoMaxRow = (await connection.query("SELECT current_setting('ssl_max_protocol_version', true) AS val")).rows[0];
+      if (protoMaxRow?.val) databaseServerSslMaxProtocol = protoMaxRow.val;
+    } catch {}
+    try {
+      const ciphersRow = (await connection.query("SELECT current_setting('ssl_ciphers', true) AS val")).rows[0];
+      if (ciphersRow?.val) databaseServerSslCiphers = ciphersRow.val;
+    } catch {}
     // Report the observed database session separately from the application socket.
     // ssl=on describes server capability; a verified socket may terminate at a
     // pooler, so neither establishes encryption on the pooler's database leg.
@@ -100,9 +141,13 @@ async function inspectDatabaseTls(pool, config = {}) {
     databaseBackendTls,
     databaseDirectBackendSsl,
     databaseServerSslSetting,
+    databaseServerSslMinProtocol,
+    databaseServerSslMaxProtocol,
+    databaseServerSslCiphers,
     databaseTlsProtocol,
     databaseTlsCipher,
-    databaseTlsBits
+    databaseTlsBits,
+    databaseTlsLatest: databaseTlsProtocol === "TLSv1.3"
   };
 }
 
