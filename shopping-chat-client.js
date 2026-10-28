@@ -42,7 +42,7 @@
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
       <button type="button" data-pick="file">${ICONS.file}<span>Tệp<small>Tối đa 100 MiB · Tự động nén ngầm</small></span></button>
-      <button type="button" data-pick="media">${ICONS.media}<span>Ảnh / Video<small>Tối đa 100 MiB · Tải ngầm sau khi gửi</small></span></button>
+      <button type="button" data-pick="media">${ICONS.media}<span>Ảnh / Video<small>Tự động nén nếu vượt 100 MiB</small></span></button>
       ${admin?(window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:''):`<button type="button" data-reference="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">${ICONS.voucher}<span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>${ICONS.human}<span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>${ICONS.endChat}<span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>`}
       <div data-chat-reference class="chat-reference" hidden></div>
       </div>
@@ -124,26 +124,158 @@
       }
     }
     function renderFiles(){
-      root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<figure class="chat-preview">${f.url?media(f.url,f.file.type,f.file.name):''}<figcaption>${escape(f.file.name)}<small>${formatSize(f.file.size)} · Sẵn sàng gửi nhanh & tải ngầm</small><small data-media-error hidden>Thiết bị chưa xem được định dạng này. Bạn vẫn có thể gửi tệp.</small></figcaption><button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}">×</button></figure>`).join('');
+      root.querySelector('[data-chat-selected]').innerHTML=files.map((f,i)=>`<figure class="chat-preview">${f.url?media(f.url,f.file.type,f.file.name):''}<figcaption>${escape(f.file.name)}<small>${formatSize(f.file.size)} · ${f.file.size>MAX_UPLOAD_BYTES?'Sẽ tự động nén trước khi gửi':'Sẵn sàng gửi nhanh & tải ngầm'}</small><small data-media-error hidden>Thiết bị chưa xem được định dạng này. Bạn vẫn có thể gửi tệp.</small></figcaption><button type="button" data-remove="${i}" aria-label="Bỏ tệp ${escape(f.file.name)}">×</button></figure>`).join('');
       root.querySelectorAll('.chat-preview img,.chat-preview video').forEach(el=>el.addEventListener('error',()=>{el.hidden=true;el.closest('figure').querySelector('[data-media-error]').hidden=false;},{once:true}));
+    }
+    // Upload limit enforced by the server (src/audit-fixes/upload-state.js).
+    const MAX_UPLOAD_BYTES=100*1024*1024;
+    // Leave headroom for container overhead / encoder bitrate drift.
+    const COMPRESS_TARGET_BYTES=92*1024*1024;
+    const isImageFile=f=>/^image\//i.test(f?.type||'')||/\.(jpe?g|png|webp|gif|heic|heif|bmp|tiff?)$/i.test(f?.name||'');
+    const isVideoFile=f=>/^video\//i.test(f?.type||'')||/\.(mp4|mov|m4v|webm|mkv|avi|3gp)$/i.test(f?.name||'');
+    async function encodeCanvas(canvas,quality){
+      const toBlob=(type,q)=>new Promise(resolve=>{try{canvas.toBlob(resolve,type,q);}catch{resolve(null);}});
+      let blob=await toBlob('image/webp',quality);
+      // Safari versions without WebP encoding silently return PNG; fall back to JPEG.
+      if(!blob||blob.type!=='image/webp')blob=await toBlob('image/jpeg',quality);
+      return blob;
+    }
+    async function compressImage(rawFile,force){
+      if(typeof createImageBitmap!=='function'||typeof document==='undefined')return rawFile;
+      try{
+        const bmp=await createImageBitmap(rawFile);
+        const srcW=bmp.width||1,srcH=bmp.height||1;
+        // Normal images: 2048px. Oversized images: step down until under the limit.
+        const steps=force?[[2048,.86],[2048,.72],[1600,.7],[1280,.65],[1024,.6]]:[[2048,.86]];
+        let best=null;
+        for(const [maxDim,quality] of steps){
+          const scale=Math.min(1,maxDim/Math.max(srcW,srcH));
+          const w=Math.max(1,Math.round(srcW*scale)),h=Math.max(1,Math.round(srcH*scale));
+          const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+          canvas.getContext('2d').drawImage(bmp,0,0,w,h);
+          const blob=await encodeCanvas(canvas,quality);
+          if(blob&&blob.size>0&&(!best||blob.size<best.size))best=blob;
+          if(best&&best.size<=COMPRESS_TARGET_BYTES)break;
+        }
+        bmp.close?.();
+        if(best&&best.size<rawFile.size){
+          const ext=best.type==='image/webp'?'.webp':'.jpg';
+          return new File([best],rawFile.name.replace(/\.[^.]+$/,'')+ext,{type:best.type});
+        }
+      }catch{}
+      return rawFile;
+    }
+    function pickRecorderType(){
+      if(typeof MediaRecorder==='undefined'||typeof MediaRecorder.isTypeSupported!=='function')return null;
+      // MP4 first (Safari/iOS, recent Chrome), then WebM (Chrome/Android/Firefox). Both are accepted by the server.
+      const types=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+      return types.find(type=>{try{return MediaRecorder.isTypeSupported(type);}catch{return false;}})||null;
+    }
+    // Re-encode a video in the browser (real-time playback -> canvas -> MediaRecorder)
+    // with a bitrate computed so the result fits under COMPRESS_TARGET_BYTES.
+    async function transcodeVideo(rawFile,targetBytes){
+      const mimeType=pickRecorderType();
+      if(!mimeType||typeof document==='undefined')return null;
+      const url=URL.createObjectURL(rawFile);
+      const video=document.createElement('video');
+      video.playsInline=true;video.setAttribute('playsinline','');video.preload='auto';video.muted=true;video.src=url;
+      let audioCtx=null,raf=0,frameCb=0,recorder=null;
+      const cleanup=()=>{
+        try{cancelAnimationFrame(raf);}catch{}
+        try{if(frameCb&&video.cancelVideoFrameCallback)video.cancelVideoFrameCallback(frameCb);}catch{}
+        try{video.pause();}catch{}
+        video.removeAttribute('src');try{video.load();}catch{}
+        URL.revokeObjectURL(url);
+        try{audioCtx?.close();}catch{}
+      };
+      try{
+        await new Promise((resolve,reject)=>{
+          const timer=setTimeout(()=>reject(Error('metadata timeout')),20000);
+          video.onloadedmetadata=()=>{clearTimeout(timer);resolve();};
+          video.onerror=()=>{clearTimeout(timer);reject(Error('decode error'));};
+        });
+        const duration=video.duration;
+        if(!Number.isFinite(duration)||duration<=0)throw Error('unknown duration');
+        const totalBps=Math.floor(targetBytes*8/duration);
+        const audioBps=Math.max(32000,Math.min(128000,Math.floor(totalBps*.08)));
+        const videoBps=Math.max(120000,totalBps-audioBps);
+        // Pick an output resolution that suits the available bitrate.
+        const maxEdge=videoBps>=4e6?1920:videoBps>=2e6?1280:videoBps>=9e5?960:videoBps>=45e4?720:540;
+        const srcW=video.videoWidth||1280,srcH=video.videoHeight||720;
+        const scale=Math.min(1,maxEdge/Math.max(srcW,srcH));
+        const w=Math.max(2,Math.round(srcW*scale/2)*2),h=Math.max(2,Math.round(srcH*scale/2)*2);
+        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext('2d');
+        if(typeof canvas.captureStream!=='function')throw Error('captureStream unsupported');
+        const stream=canvas.captureStream(30);
+        // Keep the audio track: route the element through Web Audio into the recording only (not the speakers).
+        try{
+          const AC=window.AudioContext||window.webkitAudioContext;
+          if(AC){
+            audioCtx=new AC();
+            const source=audioCtx.createMediaElementSource(video);
+            const dest=audioCtx.createMediaStreamDestination();
+            source.connect(dest);
+            dest.stream.getAudioTracks().forEach(track=>stream.addTrack(track));
+            video.muted=false;
+            await audioCtx.resume?.().catch?.(()=>{});
+          }
+        }catch{video.muted=true;}
+        const chunks=[];
+        recorder=new MediaRecorder(stream,{mimeType,videoBitsPerSecond:videoBps,audioBitsPerSecond:audioBps});
+        recorder.ondataavailable=ev=>{if(ev.data&&ev.data.size)chunks.push(ev.data);};
+        const stoppedP=new Promise(resolve=>{recorder.onstop=resolve;});
+        const draw=()=>{try{ctx.drawImage(video,0,0,w,h);}catch{}};
+        const loopRaf=()=>{draw();if(!video.ended&&!video.paused)raf=requestAnimationFrame(loopRaf);};
+        const loopFrame=()=>{draw();if(!video.ended)frameCb=video.requestVideoFrameCallback(loopFrame);};
+        try{await video.play();}
+        catch{video.muted=true;await video.play();}
+        draw();
+        recorder.start(1000);
+        if(typeof video.requestVideoFrameCallback==='function')frameCb=video.requestVideoFrameCallback(loopFrame);
+        else raf=requestAnimationFrame(loopRaf);
+        await new Promise((resolve,reject)=>{
+          // Allow slow devices some slack beyond the real-time duration.
+          const guard=setTimeout(()=>reject(Error('transcode timeout')),Math.max(60000,duration*3000+30000));
+          video.onended=()=>{clearTimeout(guard);resolve();};
+          video.onerror=()=>{clearTimeout(guard);reject(Error('playback error'));};
+          // Mobile browsers pause media when the page is hidden; resume when visible again.
+          video.onpause=()=>{if(!video.ended)setTimeout(()=>{if(!video.ended)video.play().catch(()=>{});},300);};
+        });
+        draw();
+        if(recorder.state!=='inactive')recorder.stop();
+        await stoppedP;
+        const outType=mimeType.split(';')[0];
+        const blob=new Blob(chunks,{type:outType});
+        if(!blob.size)return null;
+        const ext=outType==='video/mp4'?'.mp4':'.webm';
+        return new File([blob],rawFile.name.replace(/\.[^.]+$/,'')+'-nen'+ext,{type:outType});
+      }catch{
+        try{if(recorder&&recorder.state!=='inactive')recorder.stop();}catch{}
+        return null;
+      }finally{cleanup();}
+    }
+    async function compressVideo(rawFile){
+      let target=COMPRESS_TARGET_BYTES,best=null;
+      // Encoders overshoot sometimes; retry once with a lower bitrate if needed.
+      for(let attempt=0;attempt<2;attempt++){
+        const out=await transcodeVideo(rawFile,target);
+        if(out&&(!best||out.size<best.size))best=out;
+        if(best&&best.size<=MAX_UPLOAD_BYTES)break;
+        if(!out)break;
+        target=Math.floor(target*Math.min(.8,MAX_UPLOAD_BYTES/out.size*.85));
+      }
+      return best&&best.size<rawFile.size?best:rawFile;
     }
     async function compressFileInBackground(rawFile){
       if(!rawFile||typeof rawFile.size!=='number')return rawFile;
-      if(['image/jpeg','image/png'].includes(rawFile.type)&&rawFile.size>307200&&typeof createImageBitmap==='function'&&typeof document!=='undefined'){
-        try{
-          const bmp=await createImageBitmap(rawFile);
-          const maxDim=2048;
-          const scale=Math.min(1,maxDim/Math.max(bmp.width||1,bmp.height||1));
-          const w=Math.max(1,Math.round(bmp.width*scale)),h=Math.max(1,Math.round(bmp.height*scale));
-          const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
-          const ctx=canvas.getContext('2d');ctx.drawImage(bmp,0,0,w,h);bmp.close?.();
-          const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/webp',0.86));
-          if(blob&&blob.size>0&&blob.size<rawFile.size){
-            const nextName=rawFile.name.replace(/\.[^.]+$/,'')+'.webp';
-            return new File([blob],nextName,{type:'image/webp'});
-          }
-        }catch{}
+      const oversized=rawFile.size>MAX_UPLOAD_BYTES;
+      const type=String(rawFile.type||'');
+      if(isImageFile(rawFile)&&type!=='image/gif'&&type!=='image/svg+xml'){
+        if(oversized||(['image/jpeg','image/png'].includes(type)&&rawFile.size>307200))return compressImage(rawFile,oversized);
+        return rawFile;
       }
+      if(oversized&&isVideoFile(rawFile))return compressVideo(rawFile);
       return rawFile;
     }
     function renderAINote(){
@@ -261,9 +393,8 @@
           feedback.textContent=`Tệp "${file.name||'đã chọn'}" không có dữ liệu (0 KB). Vui lòng chọn tệp hợp lệ.`;
           return;
         }
-        const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic|heif)$)/i.test(file.type||file.name);
-        if(!isImage&&file.size>100*1024*1024){
-          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Vui lòng chọn tệp nhỏ hơn.`;
+        if(!isImageFile(file)&&!isVideoFile(file)&&file.size>MAX_UPLOAD_BYTES){
+          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Ảnh và video sẽ được tự động nén, còn tài liệu vui lòng chọn tệp nhỏ hơn.`;
           return;
         }
       }
@@ -352,7 +483,7 @@
     async function uploadFileInBackground(threadId,item){
       const prepared=await compressFileInBackground(item.file);
       if(!prepared?.size)throw Error('Tệp không có nội dung hợp lệ.');
-      if(prepared.size>100*1024*1024)throw Error(`Dung lượng tệp (${formatSize(prepared.size)}) vượt quá mức 100 MiB.`);
+      if(prepared.size>MAX_UPLOAD_BYTES)throw Error(isVideoFile(item.file)?`Không thể tự nén video xuống dưới 100 MiB (${formatSize(prepared.size)}). Vui lòng cắt ngắn video hoặc quay ở độ phân giải thấp hơn.`:`Dung lượng tệp (${formatSize(prepared.size)}) vượt quá mức 100 MiB.`);
 
       async function doRequestWithRetry(url,options,maxAttempts=3){
         for(let attempt=1;attempt<=maxAttempts;attempt++){

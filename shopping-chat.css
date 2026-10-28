@@ -76,7 +76,7 @@
 
 /* Compact 2-line dialog header:
    line 1 = "Trợ giúp GAERU" + close, line 2 = Gọi hotline + Kết thúc phiên chat. */
-.shopping-chat-dialog>header{align-items:center;gap:8px;padding:0;margin:0;border:0}
+.shopping-chat-dialog>header{align-items:center;gap:8px;padding:0;margin:0;border:0;background:transparent!important}
 .chat-header-main{display:flex;flex-direction:column;flex:1;min-width:0}
 .chat-header-main h2,.shopping-chat-dialog .chat-header-main h2{margin:0;font-size:18px;line-height:1.25}
 .shopping-chat-dialog>header [data-chat-close]{min-width:34px;min-height:34px;width:34px;height:34px;font-size:22px;line-height:1;padding:0}
@@ -88,3 +88,262 @@
 /* Composer textarea: 1 row at rest, grows with content up to 3 rows. */
 .chat-composer{align-items:flex-end}
 .chat-composer textarea{box-sizing:border-box;min-height:38px;height:38px;max-height:82px;overflow-y:auto}
+
+
+/* ==============================================================
+   Automatic theme adaptation (prefers-color-scheme: dark / light)
+   Follows phone / OS interface mode automatically.
+   ============================================================== */
+@media (prefers-color-scheme: dark) {
+  .shopping-chat-dialog {
+    background: #1c1c1e !important;
+    color: #f5f5f7 !important;
+    border-color: #38383a !important;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.75) !important;
+    color-scheme: dark;
+  }
+  .shopping-chat-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.75) !important;
+  }
+  .shopping-chat-dialog>header {
+    background: transparent !important;
+  }
+  .shopping-chat-dialog h2,
+  .shopping-chat-dialog .chat-header-main h2 {
+    color: #ffffff !important;
+  }
+  .shopping-chat-dialog [data-chat-close] {
+    background: #2c2c2e !important;
+    color: #f5f5f7 !important;
+  }
+  .shopping-chat-dialog [data-chat-close]:hover {
+    background: #3a3a3c !important;
+  }
+  .shopping-chat-dialog .chat-state-bar {
+    border-bottom-color: #2c2c2e !important;
+  }
+  .shopping-chat-dialog select,
+  .shopping-chat-dialog [data-chat-compose] textarea {
+    background: #242426 !important;
+    color: #f5f5f7 !important;
+    border-color: #38383a !important;
+  }
+
+  /* Chat messages */
+  .shopping-messages {
+    scrollbar-color: #3a3a3c transparent;
+  }
+  .shopping-message {
+    background: #2c2c2e !important;
+    color: #f5f5f7 !important;
+  }
+  .shopping-message.from-admin {
+    background: #15293d !important;
+    color: #e5f2ff !important;
+  }
+  .shopping-message.from-admin>strong {
+    color: #5ea8ff !important;
+  }
+  .shopping-message.from-customer {
+    background: #343438 !important;
+    color: #f5f5f7 !important;
+  }
+  .shopping-message time {
+    color: #98989d !important;
+  }
+  .shopping-message.is-optimistic {
+    border-color: #388af6 !important;
+  }
+  .shopping-message.is-ai-typing {
+    background: #142538 !important;
+    border-color: #254266 !important;
+  }
+  .shopping-message.is-ai-typing p {
+    color: #72b6ff !important;
+  }
+  .chat-file-link {
+    color: #64a5ff !important;
+  }
+
+  /* Chat Composer Input */
+  .chat-composer {
+    background: #242426 !important;
+    border-color: #38383a !important;
+  }
+  .chat-composer textarea {
+    color: #f5f5f7 !important;
+    background: transparent !important;
+  }
+  .chat-composer textarea::placeholder {
+    color: #8e8e93;
+  }
+  .chat-plus {
+    background: #343438 !important;
+    color: #f5f5f7 !important;
+  }
+  .chat-plus:hover {
+    background: #404044 !important;
+  }
+  .chat-send {
+    background: #0a84ff !important;
+    color: #ffffff !important;
+  }
+  .chat-send:disabled {
+    opacity: 0.35 !important;
+  }
+
+  /* Menu Action Buttons (+ panel) */
+  .chat-actions button {
+    border: 1px solid #233b35 !important;
+    background: #162420 !important;
+    color: #3ddbd0 !important;
+  }
+  .chat-actions button:hover {
+    background: #1e332d !important;
+    border-color: #2e4f47 !important;
+  }
+  .chat-actions span {
+    color: #f5f5f7 !important;
+  }
+  .chat-actions small {
+    color: #9ca3af !important;
+  }
+  .chat-actions button[data-chat-hotline] {
+    color: #4ade80 !important;
+    border-color: #1e532d !important;
+    background: #13281b !important;
+  }
+  .chat-actions button[data-chat-hotline]:hover {
+    background: #1b3826 !important;
+  }
+  .chat-actions button[data-chat-end] {
+    color: #f87171 !important;
+    border-color: #5c1d24 !important;
+    background: #2b1417 !important;
+  }
+  .chat-actions button[data-chat-end]:hover {
+    background: #3b1c21 !important;
+  }
+
+  /* Header action pills */
+  .chat-hotline-session {
+    background: #13281b !important;
+    border-color: #1e532d !important;
+    color: #4ade80 !important;
+  }
+  .chat-hotline-session:hover {
+    background: #1b3826 !important;
+  }
+  .chat-end-session {
+    background: #2b1417 !important;
+    border-color: #5c1d24 !important;
+    color: #f87171 !important;
+  }
+  .chat-end-session:hover {
+    background: #3b1c21 !important;
+  }
+  .chat-new-session {
+    background: #15293d !important;
+    border-color: #1d4ed8 !important;
+    color: #60a5fa !important;
+  }
+  .chat-new-session:hover {
+    background: #1a3552 !important;
+  }
+
+  /* Quick replies bar */
+  .chat-quick-bar {
+    background: #202022 !important;
+    border-color: #343438 !important;
+  }
+  .chat-quick-toggle {
+    color: #64a5ff !important;
+  }
+  .chat-instant-toggle {
+    color: #98989d !important;
+  }
+  .chat-quick-chip {
+    background: #2c2c2e !important;
+    border-color: #3a3a3c !important;
+    color: #f5f5f7 !important;
+  }
+  .chat-quick-chip:hover:not(:disabled) {
+    background: #15293d !important;
+    border-color: #0a84ff !important;
+    color: #64a5ff !important;
+  }
+
+  /* File preview & chips */
+  .chat-preview {
+    background: #242426 !important;
+    border-color: #38383a !important;
+    color: #f5f5f7 !important;
+  }
+  .chat-preview small {
+    color: #9ca3af !important;
+  }
+  .chat-preview [data-remove] {
+    background: #343438 !important;
+    color: #f5f5f7 !important;
+  }
+  .chat-preview [data-remove]:hover {
+    background: #48484a !important;
+  }
+  .chat-file-chip {
+    background: #242426 !important;
+    border-color: #38383a !important;
+  }
+  .chat-file-chip-icon {
+    color: #64a5ff !important;
+  }
+  .chat-file-chip-info strong {
+    color: #f5f5f7 !important;
+  }
+  .chat-file-chip-info small {
+    color: #9ca3af !important;
+  }
+  .chat-inline-media {
+    background: #28282b !important;
+  }
+
+  /* Reference panel */
+  .chat-reference {
+    background: #202022 !important;
+    border-color: #38383a !important;
+    color: #f5f5f7 !important;
+  }
+  .chat-reference button {
+    background: #2c2c2e !important;
+    color: #f5f5f7 !important;
+  }
+  .chat-reference button:hover {
+    background: #38383c !important;
+  }
+
+  /* Support state banner */
+  .chat-support-state {
+    background: #15293d !important;
+    color: #e5f2ff !important;
+  }
+  .chat-support-state a {
+    color: #64a5ff !important;
+  }
+  .chat-handoff-button {
+    background: #242426 !important;
+    border-color: #0a84ff !important;
+    color: #64a5ff !important;
+  }
+
+  /* Error & status */
+  .chat-state {
+    color: #98989d !important;
+  }
+  .chat-retry-upload {
+    background: #2b1417 !important;
+    border-color: #5c1d24 !important;
+    color: #f87171 !important;
+  }
+  .chat-retry-upload:hover {
+    background: #3b1c21 !important;
+  }
+}
