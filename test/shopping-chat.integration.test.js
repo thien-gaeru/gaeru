@@ -1,8 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),{PGlite}=require('@electric-sql/pglite'),{randomUUID}=require('node:crypto'),bcrypt=require('bcryptjs'),session=require('express-session'),{createApp}=require('../src/app'),{migrateDatabase}=require('../src/migrate');
+const {startChatCompressionWorker}=require('../src/shopping-chat-compression');
 test('shopping chat isolates guest sessions, preserves messages, enforces permissions and supports live pagination',{timeout:60000},async t=>{
  const db=await PGlite.create();let queue=Promise.resolve();async function lock(){let release;const previous=queue;queue=new Promise(r=>release=r);await previous;return release;}
  async function query(sql,values){const r=!values&&sql.includes(';')?(await db.exec(sql)).at(-1):await db.query(sql,values);return {...r,rows:r?.rows||[],rowCount:r?.affectedRows??r?.rows?.length??0};}const pool={async query(sql,values){const release=await lock();try{return await query(sql,values);}finally{release();}},async connect(){const release=await lock();return {query,release};}};await migrateDatabase(pool);
  const app=createApp({pool,sessionStore:new session.MemoryStore(),config:{NODE_ENV:'test',SESSION_SECRET:'shopping-chat-fixture-session-secret-32',ADMIN_USERNAME:'owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('fixture-password',4)}}),server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await db.close();});const base='http://127.0.0.1:'+server.address().port;
+ const stopChatCompression=startChatCompressionWorker(pool);
  function client(){let cookie='',csrf='';return {async call(path,method='GET',body,token=true,extraHeaders={}){const r=await fetch(base+path,{method,headers:{Cookie:cookie,...extraHeaders,'X-CSRF-Token':token?csrf:'',...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.headers.get('content-type')?.includes('application/json')?await r.json():{bytes:(await r.arrayBuffer()).byteLength};if(data.csrfToken)csrf=data.csrfToken;return{status:r.status,data,headers:r.headers};},async login(username){await this.call('/api/csrf');return this.call('/api/auth/login','POST',{username,password:'fixture-password'});}};}
  const product=(await pool.query("INSERT INTO products(slug,name,category,descriptor,description,image_url,image_alt,active) VALUES('chat-fixture','Chat fixture','audio','','','/assets/products/k9.png','Fixture',true) RETURNING id")).rows[0];const guest=client(),other=client(),owner=client();await guest.call('/api/csrf');await other.call('/api/csrf');await owner.login('owner');const first={productSlug:'chat-fixture',body:'Help choosing a connector',requestKey:randomUUID()};assert.equal((await guest.call('/api/shopping-chat/threads','POST',first,false)).status,403);const created=await guest.call('/api/shopping-chat/threads','POST',first);assert.equal(created.status,201);const id=created.data.thread.id,path='/api/shopping-chat/threads/'+id+'/messages';assert.equal((await guest.call('/api/shopping-chat/threads','POST',first)).data.thread.id,id);assert.equal((await guest.call(path)).data.messages.length,1);assert.equal((await other.call(path)).status,404);assert.equal((await other.call(path,'POST',{body:'intrusion',requestKey:randomUUID()})).status,404);assert.equal((await other.call('/api/shopping-chat/threads')).data.threads.length,0);
  const reply={body:'My phone has USB C',requestKey:randomUUID()};assert.equal((await guest.call(path,'POST',reply)).status,200);await guest.call(path,'POST',reply);assert.equal((await guest.call(path)).data.messages.length,2);assert.equal((await owner.call('/api/gaeru_ceo/shopping-chat')).data.threads[0].awaiting_admin,false);
@@ -39,10 +41,21 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c1)).status,202);
  const c2=new FormData();c2.append('file',new Blob([part2]),'manual.pdf');c2.append('requestKey',chunkKey);c2.append('fileName','manual.pdf');c2.append('chunkIndex','1');c2.append('totalChunks','2');c2.append('totalBytes',String(bigPdf.length));
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c2)).status,201);
- const compressedMsg=(await guest.call(path)).data.messages.find(m=>m.attachment?.name==='manual.pdf');
- assert.ok(compressedMsg);
- assert.equal(compressedMsg.attachment.compressionStatus,'compressed');
- assert.ok(compressedMsg.attachment.compressedSize<compressedMsg.attachment.originalSize);
+let compressedMsg;
+
+for(let i=0;i<50;i++){
+  compressedMsg=(await guest.call(path)).data.messages.find(
+    m=>m.attachment?.name==='manual.pdf'
+  );
+
+  if(compressedMsg?.attachment?.compressionStatus==='compressed') break;
+
+  await new Promise(resolve=>setTimeout(resolve,100));
+}
+
+assert.ok(compressedMsg);
+assert.equal(compressedMsg.attachment.compressionStatus,'compressed');
+assert.ok(compressedMsg.attachment.compressedSize<compressedMsg.attachment.originalSize);
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/'+compressedMsg.attachment.id)).data.bytes,bigPdf.length);
  const bad=new FormData();bad.append('file',new Blob(['<script>bad</script>'],{type:'image/png'}),'bad.png');bad.append('requestKey',randomUUID());
  assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',bad)).status,400);

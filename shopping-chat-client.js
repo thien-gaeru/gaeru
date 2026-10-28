@@ -31,8 +31,8 @@
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
-      <button type="button" data-pick="file">▤ <span>Tệp<small>Không giới hạn dung lượng · Tự động nén ngầm</small></span></button>
-      <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Không giới hạn dung lượng · Tải ngầm sau khi gửi</small></span></button>
+      <button type="button" data-pick="file">▤ <span>Tệp<small>Tối đa 10 MiB mỗi tệp · Tự động nén ngầm</small></span></button>
+      <button type="button" data-pick="media">▧ <span>Ảnh / Video<small>Tối đa 10 MiB mỗi tệp · Tải ngầm sau khi gửi</small></span></button>
       ${admin?(window.GAERUAdmin?.can('marketing.read')?'<button type="button" data-offer="vouchers">▱ <span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">▤ <span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>':''):'<button type="button" data-reference="orders">▤ <span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">▱ <span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>☏ <span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>✕ <span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>'}</div>
       <div data-chat-reference class="chat-reference" hidden></div>
       <input hidden type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv">
@@ -224,6 +224,7 @@
     root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>root.querySelector('[data-file="'+button.dataset.pick+'"]').click());
     root.querySelectorAll('[data-file]').forEach(input=>input.onchange=()=>{
       const picked=[...(input.files||[])];input.value='';if(!picked.length)return;
+      if(picked.some(file=>!file.size||file.size>10*1024*1024)){feedback.textContent='Tệp phải có dữ liệu và không vượt quá 10 MiB. Vui lòng chọn lại.';return;}
       for(const file of picked){
         files.push({file,key:crypto.randomUUID(),url:/^(image|video)\//.test(file.type)?URL.createObjectURL(file):null});
       }
@@ -267,8 +268,10 @@
 
     async function uploadFileInBackground(threadId,item,statusNode){
       if(statusNode)statusNode.textContent='Đang nén tệp ngầm tự động…';
+      if(!item.file?.size||item.file.size>10*1024*1024)throw Error('Tệp vượt giới hạn 10 MiB.');
       const prepared=await compressFileInBackground(item.file);
-      const chunkBytes=aiCapabilities?.chunkSizeBytes||4194304;
+      if(!prepared?.size||prepared.size>10*1024*1024)throw Error('Tệp vượt giới hạn 10 MiB.');
+      const chunkBytes=4194304;
       if(prepared.size>chunkBytes){
         const totalChunks=Math.ceil(prepared.size/chunkBytes);
         for(let i=0;i<totalChunks;i++){

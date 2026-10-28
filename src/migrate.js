@@ -4,13 +4,15 @@ const path = require("node:path");
 const { loadConfig } = require("./config");
 const { createPool } = require("./db");
 
+const MIGRATION_FILES = Object.freeze(["schema.sql","access.sql","operations.sql","finance.sql","customer-experience.sql","care.sql","warranty.sql","business.sql","warranty-channels.sql","care-channels.sql","contact-changes.sql","news.sql","account-security.sql","product-workspace.sql","care-messages.sql","admin-experience.sql","account-retention.sql","account-contact-only.sql","bot-warranty-deletion.sql","warranty-purchase-date.sql","marketing.sql","product-promotions.sql","email-marketing.sql","admin-login-aliases.sql","warranty-resubmission.sql","marketing-banners.sql","security-hardening.sql","product-card-copy.sql","shopping-chat.sql","shopping-chat-media.sql","shopping-chat-email.sql","shopping-chat-ai-first.sql","product-deletion.sql","shopping-chat-handoff.sql","product-trash.sql","primary-media-storage.sql","checkout-account-email.sql","order-review.sql","order-after-sales.sql","shipping-choice.sql","site-pages.sql","hostinger-media-migration.sql","file-library.sql","site-asset-snapshots.sql","payment-channels.sql","domain-gaeru-com.sql","shopping-chat-unlimited-compression.sql","source-audit-upload.sql"]);
+
 async function migrateDatabase(pool) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
     await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
-    for (const file of ["schema.sql", "access.sql", "operations.sql", "finance.sql", "customer-experience.sql", "care.sql", "warranty.sql", "business.sql", "warranty-channels.sql", "care-channels.sql", "contact-changes.sql", "news.sql", "account-security.sql", "product-workspace.sql", "care-messages.sql", "admin-experience.sql", "account-retention.sql", "account-contact-only.sql", "bot-warranty-deletion.sql", "warranty-purchase-date.sql", "marketing.sql", "product-promotions.sql", "email-marketing.sql", "admin-login-aliases.sql", "warranty-resubmission.sql", "marketing-banners.sql", "security-hardening.sql", "product-card-copy.sql", "shopping-chat.sql", "shopping-chat-media.sql", "shopping-chat-email.sql", "shopping-chat-ai-first.sql", "product-deletion.sql", "shopping-chat-handoff.sql", "product-trash.sql", "primary-media-storage.sql", "checkout-account-email.sql", "order-review.sql", "order-after-sales.sql", "shipping-choice.sql", "site-pages.sql", "hostinger-media-migration.sql", "file-library.sql", "site-asset-snapshots.sql", "payment-channels.sql", "domain-gaeru-com.sql", "shopping-chat-unlimited-compression.sql"]) {
+    for (const file of MIGRATION_FILES) {
       const applied = await client.query("SELECT name FROM schema_migrations WHERE name=$1", [file]);
       if (applied.rows.length) continue;
       const schema = await fs.readFile(path.join(__dirname, "..", "db", file), "utf8");
@@ -34,4 +36,4 @@ async function main() {
 if (require.main === module) main().catch((error) => {
   console.error("Database migration failed:", error.message); process.exitCode = 1;
 });
-module.exports = { migrateDatabase };
+module.exports = { migrateDatabase, MIGRATION_FILES };
