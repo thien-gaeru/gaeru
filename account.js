@@ -9,6 +9,48 @@ function setAccountFeedback(message, isError = false) {
   accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
 }
 
+let currentActiveTab = 'orders';
+
+function resolveInitialAccountTab() {
+  const hash = (typeof window !== 'undefined' && window.location?.hash ? window.location.hash : '').replace('#', '').toLowerCase();
+  if (hash === 'profile' || hash === 'account-overview' || hash === 'account-addresses') return 'profile';
+  if (hash === 'security' || hash === 'account-security') return 'security';
+  if (hash === 'warranties' || hash === 'account-warranties') return 'warranties';
+  if (hash === 'orders' || hash === 'customer-orders') return 'orders';
+  return 'orders';
+}
+
+function switchAccountTab(tabName, updateHash = true) {
+  const validTabs = ['orders', 'profile', 'security', 'warranties'];
+  if (!validTabs.includes(tabName)) tabName = 'orders';
+  currentActiveTab = tabName;
+
+  const links = document.querySelectorAll?.('[data-account-tab]') || [];
+  links.forEach(link => {
+    const isActive = link.dataset?.accountTab === tabName;
+    link.classList?.toggle('is-active', isActive);
+    link.setAttribute?.('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  const panels = document.querySelectorAll?.('[data-account-tab-panel]') || [];
+  panels.forEach(panel => {
+    const isActive = panel.dataset?.accountTabPanel === tabName;
+    panel.classList?.toggle('is-active', isActive);
+  });
+
+  if (tabName === 'security') {
+    const secPanel = document.querySelector?.('[data-security-panel]');
+    if (secPanel) {
+      secPanel.open = true;
+      secPanel.dispatchEvent?.(new Event('toggle'));
+    }
+  }
+
+  if (updateHash && typeof window !== 'undefined' && window.location?.hash !== '#' + tabName) {
+    history.replaceState(null, '', window.location.pathname + '#' + tabName);
+  }
+}
+
 function setAccountPresentation(customer) {
   document.querySelector('.account-layout')?.classList.toggle('is-authenticated', Boolean(customer));
   const navigation = document.querySelector('[data-account-navigation]');
@@ -23,6 +65,21 @@ function setAccountPresentation(customer) {
   if (badge) {
     badge.textContent = customer?.emailVerified ? 'Đã xác minh email' : 'Chưa xác minh email';
     badge.classList.toggle('is-verified', Boolean(customer?.emailVerified));
+  }
+  const userBadge = document.querySelector?.('[data-account-user-badge]');
+  if (userBadge) {
+    userBadge.hidden = !customer;
+    if (customer) {
+      const nameEl = userBadge.querySelector?.('[data-account-user-name]');
+      const emailEl = userBadge.querySelector?.('[data-account-user-email]');
+      const avatarEl = userBadge.querySelector?.('[data-account-user-avatar]');
+      if (nameEl) nameEl.textContent = customer.fullName || 'Khách hàng';
+      if (emailEl) emailEl.textContent = customer.email || customer.phone || '';
+      if (avatarEl) avatarEl.textContent = (customer.fullName || 'G').trim().charAt(0).toUpperCase();
+    }
+  }
+  if (customer) {
+    switchAccountTab(resolveInitialAccountTab(), false);
   }
 }
 
@@ -254,19 +311,56 @@ document.querySelector('[data-account-form="password-reset-complete"]')?.addEven
   }
 });
 
-document.querySelector("[data-account-logout]")?.addEventListener("click", async () => {
+async function handleCustomerLogout() {
   try {
     const result = await accountRequest("/api/customer-auth/logout", {});
-    if (result.csrfToken) accountCsrfToken = result.csrfToken;
+    if (result?.csrfToken) accountCsrfToken = result.csrfToken;
     activateAccountPanel("login");
     currentCustomer = null;
     document.querySelector('[data-address-book]')?.remove();
+    document.querySelector('[data-security-panel]')?.remove();
     window.GAERUCustomerSession?.set(null);
     setAccountFeedback("Bạn đã đăng xuất.");
   } catch (error) {
     setAccountFeedback(error.message, true);
   }
+}
+
+document.querySelector("[data-account-logout]")?.addEventListener("click", handleCustomerLogout);
+
+document.addEventListener("click", (e) => {
+  const tabLink = e.target?.closest?.('[data-account-tab]');
+  if (tabLink) {
+    e.preventDefault();
+    switchAccountTab(tabLink.dataset?.accountTab, true);
+    if (typeof window !== 'undefined' && window.innerWidth <= 800) {
+      document.querySelector('.account-workspace')?.scrollIntoView({ behavior: 'smooth' });
+    }
+    return;
+  }
+  const logoutBtn = e.target?.closest?.('[data-account-logout]');
+  if (logoutBtn) {
+    e.preventDefault();
+    handleCustomerLogout();
+    return;
+  }
 });
+
+if (typeof window !== 'undefined') {
+  window.addEventListener?.('hashchange', () => {
+    if (document.querySelector?.('.account-layout')?.classList?.contains('is-authenticated')) {
+      switchAccountTab(resolveInitialAccountTab(), false);
+    }
+  });
+
+  window.addEventListener?.('gaeru:workspace-ready', () => {
+    if (currentCustomer) switchAccountTab(currentActiveTab, false);
+  });
+
+  window.addEventListener?.('gaeru:security-ready', () => {
+    if (currentCustomer) switchAccountTab(currentActiveTab, false);
+  });
+}
 
 let verificationSending = false;
 let verificationCooldownTimer;
@@ -441,37 +535,60 @@ function showOAuthConfigModal(provider, cfg) {
 
 let googleGsiInitialized = false;
 
+function redirectToGoogleOAuth(cfg) {
+  if (!cfg?.google?.clientId) return;
+  const origin = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : '';
+  const redirectUri = origin + '/api/customer-auth/oauth/google-callback';
+  const state = Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', cfg.google.clientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('response_type', 'id_token');
+  authUrl.searchParams.set('response_mode', 'form_post');
+  authUrl.searchParams.set('scope', 'openid email profile');
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('nonce', nonce);
+  authUrl.searchParams.set('prompt', 'select_account');
+  window.location.href = authUrl.toString();
+}
+
 async function initGoogleOAuth(interactive = false) {
+  let cfg = null;
   try {
-    const cfg = await loadOAuthConfig();
+    cfg = await loadOAuthConfig();
     if (!cfg?.google?.clientId) {
       if (interactive) showOAuthConfigModal('Google', cfg);
       return;
     }
-    if (!window.google?.accounts?.id) {
-      await new Promise((resolve, reject) => {
-        const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
-        if (existing) {
-          if (window.google?.accounts?.id) return resolve();
-          existing.addEventListener('load', resolve, { once: true });
-          existing.addEventListener('error', () => reject(new Error('Không thể tải Google Identity Services SDK. Vui lòng kiểm tra kết nối mạng.')), { once: true });
-        } else {
-          const s = document.createElement('script');
-          s.src = 'https://accounts.google.com/gsi/client';
-          s.async = true;
-          s.defer = true;
-          s.onload = resolve;
-          s.onerror = () => reject(new Error('Không thể tải Google Identity Services SDK. Vui lòng kiểm tra kết nối mạng.'));
-          document.head.appendChild(s);
-        }
-        setTimeout(() => {
-          if (window.google?.accounts?.id) resolve();
-          else reject(new Error('Thời gian kết nối đến dịch vụ Google quá lâu. Vui lòng kiểm tra mạng.'));
-        }, 8000);
-      });
+
+    let sdkReady = Boolean(window.google?.accounts?.id);
+    if (!sdkReady) {
+      try {
+        await new Promise((resolve, reject) => {
+          const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+          if (existing && window.google?.accounts?.id) return resolve();
+          const s = existing || document.createElement('script');
+          if (!existing) {
+            s.src = 'https://accounts.google.com/gsi/client';
+            s.async = true;
+            s.defer = true;
+            document.head.appendChild(s);
+          }
+          s.addEventListener('load', resolve, { once: true });
+          s.addEventListener('error', () => reject(new Error('GIS_LOAD_ERROR')), { once: true });
+          setTimeout(() => {
+            if (window.google?.accounts?.id) resolve();
+            else reject(new Error('GIS_TIMEOUT'));
+          }, 3500);
+        });
+        sdkReady = Boolean(window.google?.accounts?.id);
+      } catch (e) {
+        sdkReady = false;
+      }
     }
 
-    if (!googleGsiInitialized && window.google?.accounts?.id) {
+    if (sdkReady && !googleGsiInitialized && window.google?.accounts?.id) {
       window.google.accounts.id.initialize({
         client_id: cfg.google.clientId,
         ux_mode: 'popup',
@@ -500,15 +617,23 @@ async function initGoogleOAuth(interactive = false) {
       googleGsiInitialized = true;
     }
 
-    if (interactive && window.google?.accounts?.id) {
-      window.google.accounts.id.prompt((notification) => {
-        if (notification.isNotDisplayed()) {
-          console.warn('GIS prompt not displayed:', notification.getNotDisplayedReason());
-        }
-      });
+    if (interactive) {
+      if (sdkReady && window.google?.accounts?.id) {
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            redirectToGoogleOAuth(cfg);
+          }
+        });
+      } else {
+        redirectToGoogleOAuth(cfg);
+      }
     }
   } catch (err) {
     if (interactive) {
+      if (cfg?.google?.clientId) {
+        redirectToGoogleOAuth(cfg);
+        return;
+      }
       setAccountFeedback(err.message || 'Không thể đăng nhập với Google lúc này.', true);
     }
   }
@@ -525,7 +650,6 @@ function bindOAuthButtons() {
 
 bindOAuthButtons();
 
-// Preload GIS in background so button clicks are instantaneous
 setTimeout(() => {
   initGoogleOAuth(false).catch(() => {});
 }, 300);

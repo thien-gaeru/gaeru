@@ -270,7 +270,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
 
   const handleRedirectCallback = async (req, res, next) => {
     try {
-      const credential = req.body?.credential;
+      const credential = req.body?.credential || req.body?.id_token;
       if (!credential) {
         return res.redirect(302, '/account.html#login');
       }
