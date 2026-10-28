@@ -203,37 +203,38 @@ function renderProduct() {
     return;
   }
   const variants = product.variants.filter((variant) => variant.active);
-  const selected = variants.find((variant) => variant.stockQuantity > 0) || variants[0];
+  const selected = null;
   const seoDescriptor=String(product.descriptor||'').replace(/\*\*/g,'').replace(/\s+/g,' ').trim();
   const seoLabel=(seoDescriptor||'Thiết bị sáng tạo GAERU').toLocaleLowerCase('vi').replace(/\bai\b/g,'AI');
   document.title=product.name+' — '+seoLabel.charAt(0).toLocaleUpperCase('vi')+seoLabel.slice(1);
   const breadcrumb = document.querySelector("#breadcrumb-product");
   if (breadcrumb) breadcrumb.textContent = product.name;
   const optionGroups=window.GAERUVariantChoices?.groups(variants,product.optionGroups)||[];
-  const visualOptions=optionGroups.length?optionGroups.map(g=>`<div class="product-choice-group"><p>${escapeHtml(g.name)}</p><div class="product-choice-buttons" role="group" aria-label="${escapeHtml(g.name)}">${g.values.map(value=>`<button type="button" data-option-group="${escapeHtml(g.name)}" data-option-value="${escapeHtml(value)}" aria-pressed="${selected?.options?.[g.name]===value}">${escapeHtml(value)}</button>`).join("")}</div></div>`).join(""):variants.map(v=>`<button class="product-variant-card" type="button" data-visual-variant="${escapeHtml(v.id)}" aria-pressed="${v.id===selected?.id}">${escapeHtml(v.name)}<small>${formatPrice(v.priceVnd)}${v.stockQuantity?"":" · Hết hàng"}</small></button>`).join("");
+  const visualOptions=optionGroups.length?optionGroups.map(g=>`<div class="product-choice-group"><p>${escapeHtml(g.name)}</p><div class="product-choice-buttons" role="group" aria-label="${escapeHtml(g.name)}">${g.values.map(value=>`<button type="button" data-option-group="${escapeHtml(g.name)}" data-option-value="${escapeHtml(value)}" aria-pressed="false">${escapeHtml(value)}</button>`).join("")}</div></div>`).join(""):variants.map(v=>`<button class="product-variant-card" type="button" data-visual-variant="${escapeHtml(v.id)}" aria-pressed="false">${escapeHtml(v.name)}<small>${formatPrice(v.priceVnd)}${v.stockQuantity?"":" · Hết hàng"}</small></button>`).join("");
   const variantField = variants.length ? `${visualOptions}<label class="variant-select-label variant-select-internal" for="product-variant">Phiên bản
       <select id="product-variant">
+        <option value="" disabled selected>Chọn phiên bản</option>
         ${variants.map((variant) => {
           const options = Object.entries(variant.options || {}).map(([key, value]) => `${key}: ${value}`).join(" · ");
           const label = [variant.name, options, `SKU ${variant.sku}`, variant.stockQuantity ? "" : "Hết hàng"].filter(Boolean).join(" — ");
-          return `<option value="${escapeHtml(variant.id)}" ${variant.id === selected?.id ? "selected" : ""} ${variant.stockQuantity ? "" : "disabled"}>${escapeHtml(label)} · ${formatPrice(variant.priceVnd)}</option>`;
+          return `<option value="${escapeHtml(variant.id)}"  ${variant.stockQuantity ? "" : "disabled"}>${escapeHtml(label)} · ${formatPrice(variant.priceVnd)}</option>`;
         }).join("")}
       </select>
     </label>
-    <p class="detail-price" data-selected-price>${formatPrice(selected.priceVnd)}</p>` : `
+    <p class="detail-price" data-selected-price>${escapeHtml(getPriceLabel(product))}</p>` : `
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
   root.innerHTML = `
     <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
-      <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(selected?.imageUrl||product.imageUrl)}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===(selected?.imageUrl||product.imageUrl)}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
+      <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
-        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>${selected ? (Number(selected.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng") : "Hết hàng"}</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
+        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>Vui lòng chọn phiên bản</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
-          <button class="button button-blue buy-now-button" type="button" data-buy-now="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Mua ngay</button>
-          <button class="button button-blue" type="button" data-add-to-cart="${escapeHtml(selected?.id || "")}" ${selected?.stockQuantity ? "" : "disabled"}>Thêm vào giỏ</button>
+          <button class="button button-blue buy-now-button" type="button" data-buy-now="" disabled>Mua ngay</button>
+          <button class="button button-blue" type="button" data-add-to-cart="" disabled>Thêm vào giỏ</button>
         </div>
         <p class="cart-feedback" data-cart-feedback aria-live="polite"></p>
         <section class="product-save-later"><h3>Vẫn chưa thể quyết định?</h3><p>Lưu sản phẩm để dễ dàng quay lại xem trên trình duyệt này.</p><button type="button" class="save-product-button" data-save-product="${escapeHtml(product.slug)}" aria-pressed="false">Lưu để xem lại sau</button><a href="shop.html?saved=1">Xem sản phẩm đã lưu ↗</a><p role="status" aria-live="polite"></p></section>
