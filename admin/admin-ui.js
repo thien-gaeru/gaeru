@@ -57,10 +57,95 @@
     const label=document.createElement('span');label.className='admin-nav-label';
     while(button.firstChild)label.append(button.firstChild);button.append(icon,label);
   }
+  // Collapsible Navigation Groups with state persistence & active item tracking
+  const NAV_STORAGE_KEY = 'gaeru_admin_nav_collapsed';
+  let navState = {};
+  try { navState = JSON.parse(root.localStorage?.getItem(NAV_STORAGE_KEY) || '{}'); } catch {}
+
+  function setGroupCollapsed(group, collapsed, persist = true) {
+    const id = group.dataset.navGroup;
+    const toggle = group.querySelector('.nav-group-toggle');
+    const dot = group.querySelector('.nav-group-dot');
+
+    group.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+    if (toggle) toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+
+    if (collapsed) {
+      const hasActive = Boolean(group.querySelector('[data-view].is-active'));
+      if (dot) dot.hidden = !hasActive;
+    } else {
+      if (dot) dot.hidden = true;
+    }
+
+    if (id && persist) {
+      navState[id] = collapsed;
+      try { root.localStorage?.setItem(NAV_STORAGE_KEY, JSON.stringify(navState)); } catch {}
+    }
+  }
+
+  // Initialize group states: 'sales' starts expanded, others collapsed by default
+  nav.querySelectorAll('.nav-group[data-nav-group]').forEach(group => {
+    const id = group.dataset.navGroup;
+    const isCollapsed = id in navState ? Boolean(navState[id]) : (id !== 'sales');
+    setGroupCollapsed(group, isCollapsed, false);
+  });
+
+  // Toggle group on click
+  nav.addEventListener('click', event => {
+    const toggle = event.target.closest('.nav-group-toggle');
+    if (!toggle) return;
+    const group = toggle.closest('.nav-group');
+    if (!group) return;
+    const isCurrentlyCollapsed = group.getAttribute('data-collapsed') === 'true';
+    setGroupCollapsed(group, !isCurrentlyCollapsed, true);
+  });
+
+  // Sync active group to automatically expand when user navigates to an item in that group
+  function syncActiveGroup() {
+    const activeItem = nav.querySelector('[data-view].is-active');
+    if (!activeItem) return;
+    const activeGroup = activeItem.closest('.nav-group[data-nav-group]');
+    if (activeGroup) {
+      setGroupCollapsed(activeGroup, false, true);
+    }
+    nav.querySelectorAll('.nav-group[data-nav-group]').forEach(group => {
+      const isCollapsed = group.getAttribute('data-collapsed') === 'true';
+      const dot = group.querySelector('.nav-group-dot');
+      if (dot) {
+        dot.hidden = !(isCollapsed && group.querySelector('[data-view].is-active'));
+      }
+    });
+  }
+
+  window.addEventListener('hashchange', () => queueMicrotask(syncActiveGroup));
+  nav.addEventListener('click', event => {
+    if (event.target.closest('[data-view]')) queueMicrotask(syncActiveGroup);
+  });
+  document.addEventListener('gaeru:admin-ready', () => queueMicrotask(syncActiveGroup));
+  setTimeout(syncActiveGroup, 100);
+
   const search=document.createElement('label');search.className='admin-nav-search';
   search.innerHTML='<span>Tìm mục quản trị</span><input type="search" placeholder="Tìm mục…" autocomplete="off" aria-controls="admin-navigation"><small>⌘ / Ctrl K</small>';
   nav.before(search);const input=search.querySelector('input');
-  function filter(){const q=input.value.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase().trim();for(const button of nav.querySelectorAll('[data-view]')){const hay=button.textContent.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase();button.toggleAttribute('data-search-hidden',Boolean(q&&!hay.includes(q)));}for(const group of nav.querySelectorAll('.nav-group'))group.toggleAttribute('data-search-empty',![...group.querySelectorAll('[data-view]')].some(b=>!b.hidden&&!b.hasAttribute('data-search-hidden')));}
+  function filter(){
+    const q=input.value.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase().trim();
+    for(const button of nav.querySelectorAll('[data-view]')){
+      const hay=button.textContent.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase();
+      button.toggleAttribute('data-search-hidden',Boolean(q&&!hay.includes(q)));
+    }
+    for(const group of nav.querySelectorAll('.nav-group')){
+      const hasVisible = [...group.querySelectorAll('[data-view]')].some(b=>!b.hidden&&!b.hasAttribute('data-search-hidden'));
+      group.toggleAttribute('data-search-empty',!hasVisible);
+      if (q && hasVisible && group.hasAttribute('data-nav-group')) {
+        setGroupCollapsed(group, false, false);
+      } else if (!q && group.hasAttribute('data-nav-group')) {
+        const id = group.dataset.navGroup;
+        const savedCollapsed = id in navState ? Boolean(navState[id]) : (id !== 'sales');
+        setGroupCollapsed(group, savedCollapsed, false);
+      }
+    }
+    if (!q) syncActiveGroup();
+  }
   input.addEventListener('input',filter);document.addEventListener('gaeru:admin-ready',()=>queueMicrotask(filter));
   document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){if(document.querySelector('#admin-app').hidden)return;event.preventDefault();document.querySelector('.sidebar').classList.add('navigation-open');document.querySelector('.sidebar-toggle').setAttribute('aria-expanded','true');input.focus();}if(event.key==='Escape'&&document.activeElement===input){input.value='';filter();}});
   let heartbeatAt=Date.now(),running=false;
