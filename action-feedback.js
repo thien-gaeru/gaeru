@@ -120,6 +120,185 @@
     return promise;
   }
 
+  
+  // --- Global Form Field Validation (Phone & Email) ---
+  function isPhoneInput(input) {
+    if (!input || input.tagName !== 'INPUT') return false;
+    const type = (input.type || '').toLowerCase();
+    const name = (input.name || '').toLowerCase();
+    const autocomplete = (input.autocomplete || '').toLowerCase();
+    if (name === 'identifier' || name === 'username' || type === 'search' || (input.id && input.id.includes('search'))) return false;
+    return type === 'tel' ||
+           name === 'phone' ||
+           name === 'customerphone' ||
+           name === 'shippingphone' ||
+           name.endsWith('phone') ||
+           autocomplete === 'tel' ||
+           (typeof input.hasAttribute === 'function' && input.hasAttribute('data-phone'));
+  }
+
+  function isEmailInput(input) {
+    if (!input || input.tagName !== 'INPUT') return false;
+    const type = (input.type || '').toLowerCase();
+    const name = (input.name || '').toLowerCase();
+    const autocomplete = (input.autocomplete || '').toLowerCase();
+    if (name === 'identifier' || name === 'username' || type === 'search' || (input.id && input.id.includes('search'))) return false;
+    return type === 'email' ||
+           name === 'email' ||
+           name === 'customeremail' ||
+           name.endsWith('email') ||
+           autocomplete === 'email' ||
+           (typeof input.hasAttribute === 'function' && input.hasAttribute('data-email'));
+  }
+
+  function validatePhoneNumber(value, isRequired = false) {
+    const raw = String(value ?? '').trim();
+    if (!raw) {
+      if (isRequired) return { valid: false, message: 'Vui lòng nhập số điện thoại di động.' };
+      return { valid: true };
+    }
+    let clean = raw.replace(/[\s\-\.\(\)]/g, '');
+    if (clean.startsWith('+84')) {
+      clean = '0' + clean.slice(3);
+    } else if (clean.startsWith('84') && clean.length === 11) {
+      clean = '0' + clean.slice(2);
+    }
+    if (!/^\d+$/.test(clean)) {
+      return { valid: false, message: 'Số điện thoại chỉ được chứa chữ số (Ví dụ: 0912345678).' };
+    }
+    if (clean.length !== 10) {
+      return { valid: false, message: 'Số điện thoại phải gồm đúng 10 chữ số (hiện có ' + clean.length + ' số).' };
+    }
+    if (!clean.startsWith('0')) {
+      return { valid: false, message: 'Số điện thoại di động phải bắt đầu bằng số 0 (Ví dụ: 0912345678).' };
+    }
+    if (!/^0[35789]\d{8}$/.test(clean)) {
+      return { valid: false, message: 'Đầu số không hợp lệ. Vui lòng nhập đầu số di động (03, 05, 07, 08, 09).' };
+    }
+    return { valid: true, normalized: clean };
+  }
+
+  function validateEmailAddress(value, isRequired = false) {
+    const raw = String(value ?? '').trim();
+    if (!raw) {
+      if (isRequired) return { valid: false, message: 'Vui lòng nhập địa chỉ email.' };
+      return { valid: true };
+    }
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(raw) || /\s/.test(raw) || !raw.includes('.')) {
+      return { valid: false, message: 'Email không đúng định dạng. Ví dụ: hotro@gaeru.com.' };
+    }
+    return { valid: true, normalized: raw.toLowerCase() };
+  }
+
+  function showInputError(input, message) {
+    if (!input || !input.classList) return;
+    input.classList.add('is-invalid');
+    input.setAttribute('aria-invalid', 'true');
+    input.setAttribute('data-invalid', 'true');
+    if (typeof input.setCustomValidity === 'function') {
+      try { input.setCustomValidity(message); } catch {}
+    }
+
+    const container = input.parentElement;
+    let msgEl = null;
+    if (container && typeof container.querySelector === 'function') {
+      msgEl = container.querySelector('.field-error-msg');
+    }
+    if (!msgEl && input.nextElementSibling && input.nextElementSibling.classList?.contains('field-error-msg')) {
+      msgEl = input.nextElementSibling;
+    }
+
+    if (!msgEl && typeof document.createElement === 'function') {
+      msgEl = document.createElement('span');
+      msgEl.className = 'field-error-msg';
+      msgEl.setAttribute('role', 'alert');
+      msgEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg><span></span>';
+      if (input.parentNode) {
+        if (input.nextSibling) {
+          input.parentNode.insertBefore(msgEl, input.nextSibling);
+        } else {
+          input.parentNode.appendChild(msgEl);
+        }
+      }
+    }
+
+    if (msgEl) {
+      const textNode = (typeof msgEl.querySelector === 'function' ? msgEl.querySelector('span') : null) || msgEl;
+      textNode.textContent = message;
+      msgEl.hidden = false;
+    }
+  }
+
+  function clearInputError(input) {
+    if (!input || !input.classList) return;
+    input.classList.remove('is-invalid');
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('data-invalid');
+    if (typeof input.setCustomValidity === 'function') {
+      try { input.setCustomValidity(''); } catch {}
+    }
+
+    const container = input.parentElement;
+    let msgEl = null;
+    if (container && typeof container.querySelector === 'function') {
+      msgEl = container.querySelector('.field-error-msg');
+    }
+    if (!msgEl && input.nextElementSibling && input.nextElementSibling.classList?.contains('field-error-msg')) {
+      msgEl = input.nextElementSibling;
+    }
+    if (msgEl && typeof msgEl.remove === 'function') {
+      msgEl.remove();
+    }
+  }
+
+  function validateField(input) {
+    if (!input || input.disabled || input.readOnly) return true;
+    if (isPhoneInput(input)) {
+      const res = validatePhoneNumber(input.value, input.required);
+      if (!res.valid) {
+        showInputError(input, res.message);
+        return false;
+      }
+      clearInputError(input);
+      return true;
+    }
+    if (isEmailInput(input)) {
+      const res = validateEmailAddress(input.value, input.required);
+      if (!res.valid) {
+        showInputError(input, res.message);
+        return false;
+      }
+      clearInputError(input);
+      return true;
+    }
+    return true;
+  }
+
+  function validateForm(form) {
+    if (!form || typeof form.querySelectorAll !== 'function') return true;
+    const inputs = form.querySelectorAll('input');
+    if (!inputs || !inputs.length) return true;
+    let firstInvalid = null;
+    for (const input of inputs) {
+      if (isPhoneInput(input) || isEmailInput(input)) {
+        const ok = validateField(input);
+        if (!ok && !firstInvalid) {
+          firstInvalid = input;
+        }
+      }
+    }
+    if (firstInvalid) {
+      try { firstInvalid.focus(); } catch {}
+      const msg = firstInvalid.getAttribute?.('aria-invalid') === 'true'
+        ? (firstInvalid.parentElement?.querySelector?.('.field-error-msg')?.textContent || 'Vui lòng kiểm tra lại thông tin nhập liệu.')
+        : 'Vui lòng kiểm tra lại số điện thoại hoặc email.';
+      notify(msg, true);
+      return false;
+    }
+    return true;
+  }
+
   EventTarget.prototype.addEventListener = function(type, listener, options) {
     if (!['click', 'submit'].includes(type) || typeof listener !== 'function') return add.call(this, type, listener, options);
     let map = listeners.get(this);
@@ -127,7 +306,17 @@
     let wrappers = map.get(listener);
     if (!wrappers) map.set(listener, wrappers = new Map());
     const key = type + ':' + Boolean(typeof options === 'boolean' ? options : options?.capture);
-    if (!wrappers.has(key)) wrappers.set(key, function(event) { return invoke(event, () => listener.call(this, event)); });
+    if (!wrappers.has(key)) wrappers.set(key, function(event) {
+      if (event?.type === 'submit') {
+        const form = this?.tagName === 'FORM' ? this : (event.target?.tagName === 'FORM' ? event.target : event.target?.form || event.target?.closest?.('form'));
+        if (form && !validateForm(form)) {
+          event.preventDefault();
+          event.stopImmediatePropagation?.();
+          return;
+        }
+      }
+      return invoke(event, () => listener.call(this, event));
+    });
     return add.call(this, type, wrappers.get(key), options);
   };
   EventTarget.prototype.removeEventListener = function(type, listener, options) {
@@ -193,4 +382,44 @@
       if (track) finish(ctx);
     }
   };
+
+
+  // Bind capture listeners on document for instant feedback
+  add.call(document, 'blur', event => {
+    const target = event.target;
+    if (target && (isPhoneInput(target) || isEmailInput(target))) {
+      validateField(target);
+    }
+  }, true);
+
+  add.call(document, 'input', event => {
+    const target = event.target;
+    if (target && (isPhoneInput(target) || isEmailInput(target))) {
+      if (target.classList?.contains('is-invalid') || target.getAttribute?.('aria-invalid') === 'true') {
+        validateField(target);
+      }
+    }
+  }, true);
+
+  add.call(document, 'submit', event => {
+    const form = event.target?.tagName === 'FORM' ? event.target : event.target?.form || event.target?.closest?.('form');
+    if (form && !validateForm(form)) {
+      event.preventDefault();
+      event.stopImmediatePropagation?.();
+    }
+  }, true);
+
+  if (typeof window !== 'undefined') {
+    window.GAERUValidation = Object.freeze({
+      validatePhone: validatePhoneNumber,
+      validateEmail: validateEmailAddress,
+      showError: showInputError,
+      clearError: clearInputError,
+      validateField,
+      validateForm,
+      isPhoneInput,
+      isEmailInput
+    });
+  }
+
 })();

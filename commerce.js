@@ -362,8 +362,8 @@ async function renderCheckout() {
         <h2>Thông tin liên hệ</h2>
         <label>Họ và tên<input name="name" autocomplete="name" required maxlength="120"></label>
         <div class="form-row">
-          <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254"></label>
-          <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="30"></label>
+          <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: hotro@gaeru.com"></label>
+          <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)"></label>
         </div>
       </div>
       <div class="form-section">

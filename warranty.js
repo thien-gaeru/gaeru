@@ -35,9 +35,9 @@
           <p class="care-field-note">Thông tin được tự điền khi có địa chỉ đã lưu hoặc khi chọn đơn website. Bạn có thể sửa trước khi gửi.</p>
           <div class="warranty-contact-row">
             <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
-            <label>Số điện thoại<input name="phone" type="tel" minlength="8" maxlength="25" autocomplete="tel" required></label>
+            <label>Số điện thoại<input name="phone" type="tel" minlength="10" maxlength="20" autocomplete="tel" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
           </div>
-          <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" required></label>
+          <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="Ví dụ: hotro@gaeru.com" required></label>
           <div class="warranty-contact-row">
             <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã" required></label>
             <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" aria-describedby="warranty-city-note" required><option value="">Chọn tỉnh / thành phố</option>${provinces.map(name=>`<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
