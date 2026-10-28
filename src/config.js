@@ -29,7 +29,9 @@ const schema = z.object({
   SMTP_SECURE: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASSWORD: z.string().min(1).optional(),
-  SMTP_FROM: z.string().email().optional()
+  SMTP_FROM: z.string().email().optional(),
+  GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
+  APPLE_CLIENT_ID: z.string().trim().min(1).optional()
 }).superRefine((values, context) => {
   if((values.TURNSTILE_SITE_KEY||values.TURNSTILE_SECRET_KEY)&&(!values.TURNSTILE_SITE_KEY||!values.TURNSTILE_SECRET_KEY||!values.PUBLIC_BASE_URL))context.addIssue({code:'custom',message:'TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY và PUBLIC_BASE_URL phải được cấu hình cùng nhau.'});
   const vnpayConfigured = Boolean(values.VNPAY_TMN_CODE || values.VNPAY_HASH_SECRET || values.VNPAY_PAYMENT_URL);

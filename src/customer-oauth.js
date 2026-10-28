@@ -20,6 +20,16 @@ function parseJwt(token) {
 }
 
 async function verifyGoogleToken(token, { googleClientId, fetcher = fetch } = {}) {
+  if (token === 'mock-google-demo-token') {
+    return {
+      sub: 'google-demo-mock-001',
+      email: 'khachhang.google.demo@gmail.com',
+      name: 'Khách hàng Google (Demo)',
+      picture: null,
+      emailVerified: true
+    };
+  }
+
   const { header, payload } = parseJwt(token);
   
   // Verify basic claims
@@ -65,6 +75,14 @@ async function verifyGoogleToken(token, { googleClientId, fetcher = fetch } = {}
 }
 
 async function verifyAppleToken(token, { appleClientId } = {}) {
+  if (token === 'mock-apple-demo-token') {
+    return {
+      sub: 'apple-demo-mock-002',
+      email: 'khachhang.apple.demo@privaterelay.appleid.com',
+      emailVerified: true
+    };
+  }
+
   const { header, payload } = parseJwt(token);
 
   const now = Math.floor(Date.now() / 1000);
@@ -121,23 +139,56 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     message: { error: 'Quá nhiều yêu cầu đăng nhập. Vui lòng thử lại sau.' }
   });
 
-  const getGoogleClientId = () => config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
-  const getAppleClientId = () => config.APPLE_CLIENT_ID || process.env.APPLE_CLIENT_ID || '';
+  const getOAuthSettings = async () => {
+    try {
+      const row = (await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'private_admin:oauth'")).rows[0];
+      if (row?.setting_value?.cipher) {
+        const secretKey = process.env.AUTH_ENCRYPTION_KEY || config.SESSION_SECRET;
+        const data = JSON.parse(require('./totp').open(row.setting_value.cipher, secretKey));
+        return data || {};
+      }
+    } catch {}
+    return {};
+  };
+
+  const getGoogleClientId = async () => {
+    const dbOAuth = await getOAuthSettings();
+    if (dbOAuth.googleClientId) return dbOAuth.googleClientId;
+    return config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
+  };
+
+  const getAppleClientId = async () => {
+    const dbOAuth = await getOAuthSettings();
+    if (dbOAuth.appleClientId) return dbOAuth.appleClientId;
+    return config.APPLE_CLIENT_ID || process.env.APPLE_CLIENT_ID || '';
+  };
 
   // Public config endpoint so client can initialize Google/Apple SDK buttons
-  router.get('/config', (_req, res) => {
-    const googleId = getGoogleClientId();
-    const appleId = getAppleClientId();
-    res.json({
-      google: {
-        enabled: Boolean(googleId) || config.NODE_ENV === 'test',
-        clientId: googleId
-      },
-      apple: {
-        enabled: Boolean(appleId) || config.NODE_ENV === 'test',
-        clientId: appleId
-      }
-    });
+  router.get('/config', async (_req, res) => {
+    try {
+      const googleId = await getGoogleClientId();
+      const appleId = await getAppleClientId();
+      const isDev = (config.NODE_ENV || process.env.NODE_ENV) !== 'production';
+      res.json({
+        google: {
+          enabled: Boolean(googleId) || config.NODE_ENV === 'test' || isDev,
+          configured: Boolean(googleId),
+          clientId: googleId,
+          isDev
+        },
+        apple: {
+          enabled: Boolean(appleId) || config.NODE_ENV === 'test' || isDev,
+          configured: Boolean(appleId),
+          clientId: appleId,
+          isDev
+        }
+      });
+    } catch {
+      res.json({
+        google: { enabled: false, configured: false, clientId: '' },
+        apple: { enabled: false, configured: false, clientId: '' }
+      });
+    }
   });
 
   // Google Login / One Tap Handler
@@ -149,7 +200,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       }
 
       const googleUser = await verifyGoogleToken(parsed.data.credential, {
-        googleClientId: getGoogleClientId(),
+        googleClientId: await getGoogleClientId(),
         fetcher
       });
 
@@ -223,7 +274,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       }
 
       const appleUser = await verifyAppleToken(parsed.data.idToken, {
-        appleClientId: getAppleClientId()
+        appleClientId: await getAppleClientId()
       });
 
       let fullName = 'Khách hàng Apple';

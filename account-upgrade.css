@@ -71,3 +71,88 @@
 .account-session-loading{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
 .account-page .account-session-loading p{margin:0;font-size:15px;color:#6e6e73}
 .account-session-loading button{padding:12px 22px;border:1px solid #d2d2d7;border-radius:24px;background:#fff;color:#0066cc;cursor:pointer;min-height:44px}
+
+
+/* OAuth Social Login Buttons & Divider */
+.account-oauth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: #86868b;
+  font-size: 13px;
+  margin: 22px 0 16px;
+}
+.account-oauth-divider::before,
+.account-oauth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #d2d2d7;
+}
+.account-oauth-divider:not(:empty)::before {
+  margin-right: 0.85em;
+}
+.account-oauth-divider:not(:empty)::after {
+  margin-left: 0.85em;
+}
+.account-oauth-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+@media (min-width: 480px) {
+  .account-oauth-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+}
+.button-oauth {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  text-decoration: none;
+  font-family: inherit;
+}
+.button-oauth:active {
+  transform: scale(0.985);
+}
+.button-oauth:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: 2px;
+}
+.button-oauth-google {
+  background: #ffffff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 2px rgba(60,64,67,0.08);
+}
+.button-oauth-google:hover {
+  background: #f8f9fa;
+  border-color: #c6c8cc;
+  box-shadow: 0 2px 4px rgba(60,64,67,0.12);
+}
+.button-oauth-apple {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #000000;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+}
+.button-oauth-apple:hover {
+  background: #1d1d1f;
+  border-color: #1d1d1f;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.button-oauth svg {
+  flex-shrink: 0;
+}
