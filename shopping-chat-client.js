@@ -26,7 +26,6 @@
       ${admin?'':`<div class="chat-quick-bar" data-chat-quick-bar>
         <div class="chat-quick-header">
           <button type="button" class="chat-quick-toggle" data-chat-quick-toggle data-no-action-feedback aria-expanded="false">⚡ Chọn hiển thị phản hồi nhanh</button>
-          <label class="chat-instant-toggle"><input type="checkbox" data-chat-instant-mode checked> <span>Gửi nhanh ngay</span></label>
         </div>
         <div class="chat-quick-list" data-chat-quick-list hidden>${quickReplies.map((q,i)=>`<button type="button" class="chat-quick-chip" data-quick-reply="${i}" data-no-action-feedback>${escape(q)}</button>`).join('')}</div>
       </div>`}
@@ -356,7 +355,7 @@
       try{const result=await request(base+'/'+id+'/files/'+encodeURIComponent(button.dataset.chatDeleteFile),{method:'DELETE',body:JSON.stringify({confirm:true})});feedback.textContent=result.message;messages.replaceChildren();await refresh();}
       catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}
     });
-    const quickToggle=root.querySelector('[data-chat-quick-toggle]'),quickList=root.querySelector('[data-chat-quick-list]'),instantCheck=root.querySelector('[data-chat-instant-mode]');
+    const quickToggle=root.querySelector('[data-chat-quick-toggle]'),quickList=root.querySelector('[data-chat-quick-list]');
     function collapseQuickReplies(){
       if(quickList&&quickToggle){
         quickList.hidden=true;
@@ -370,8 +369,7 @@
         const chip=e.target.closest('[data-quick-reply]');if(!chip||thread?.status==='closed')return;
         const text=quickReplies[Number(chip.dataset.quickReply)];if(!text)return;
         collapseQuickReplies();
-        if(instantCheck?.checked){dispatchInstantSend(text,[]);}
-        else{form.elements.body.value=(form.elements.body.value?form.elements.body.value+'\n'+text:text).slice(0,3000);form.elements.body.focus({preventScroll:true});}
+        dispatchInstantSend(text,[]);
       };
     }
 
@@ -459,8 +457,7 @@
         target.querySelectorAll('[data-reference-item]').forEach(b=>b.onclick=()=>{
           const r=rows[Number(b.dataset.referenceItem)],text=orders?'Tôi cần hỗ trợ đơn hàng '+r.orderNumber+'.':'Tôi cần tư vấn voucher '+r.code+'.';
           target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');
-          if(instantCheck?.checked)dispatchInstantSend(text,[]);
-          else{form.elements.body.value=(form.elements.body.value+'\n'+text).trim().slice(0,3000);form.elements.body.focus({preventScroll:true});}
+          dispatchInstantSend(text,[]);
         });
       }catch(e){target.innerHTML='<p>'+escape(e.message)+'</p><a href="account.html">Đăng nhập tài khoản</a>';}
     });
@@ -476,8 +473,7 @@
           target.querySelectorAll('[data-offer-item]').forEach(b=>b.onclick=()=>{
             const text=d.items[Number(b.dataset.offerItem)].text;
             target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');
-            if(instantCheck?.checked)dispatchInstantSend(text,[]);
-            else{form.elements.body.value=text;form.elements.body.focus({preventScroll:true});feedback.textContent='';}
+            dispatchInstantSend(text,[]);
           });
         }catch(e){target.textContent=e.message;}
       }await loadOffers();
@@ -547,24 +543,12 @@
       feedback.textContent='';
       const msgKey=crypto.randomUUID();
       const nowLabel=new Date().toLocaleString('vi-VN');
+
+      // 1. Ưu tiên gửi và hiển thị tin nhắn văn bản trước
       const textNode=textBody?insertOptimisticBubble(msgKey,nowLabel,textBody,''):null;
-      const fileNodes=queuedFiles.map(item=>{
-        let preview='';
-        if(item.url){
-          preview=media(item.url,item.file.type,item.file.name);
-        }
-        if(!preview){
-          preview=`<div class="chat-file-chip"><span class="chat-file-chip-icon">${ICONS.file}</span><div class="chat-file-chip-info"><strong>${escape(item.file.name)}</strong><small>${formatSize(item.file.size)}</small></div></div>`;
-        }
-        const fileContent=`<div class="chat-file-wrap" data-file-wrap>
-          ${preview}
-          <div class="chat-file-spinner" data-file-spinner aria-label="Đang xử lý và tải tệp...">
-            <svg class="chat-spinner-svg" viewBox="0 0 24 24"><circle class="chat-spinner-circle" cx="12" cy="12" r="9"/></svg>
-          </div>
-          <div class="chat-file-err" data-file-err hidden></div>
-        </div>`;
-        return {item,node:insertOptimisticBubble(item.key,nowLabel,'',fileContent)};
-      });
+      if(queuedFiles.length){
+        feedback.textContent='Đang chuẩn bị và tải lên '+queuedFiles.length+' tệp...';
+      }
 
       bgChain=bgChain.then(async()=>{
         try{
@@ -581,35 +565,34 @@
           if(textNode){
             textNode.insertAdjacentHTML('beforeend','<small class="chat-bg-status chat-bg-error">Chưa gửi được: '+escape(error.message)+'</small>');
           }
-          for(const {node} of fileNodes){
-            node?.querySelector('[data-file-spinner]')?.remove();
-            const errEl=node?.querySelector('[data-file-err]');
-            if(errEl){
-              errEl.hidden=false;
-              errEl.textContent='Tạm dừng tải tệp do lỗi gửi tin nhắn.';
-            }
-          }
           feedback.textContent=error.message;
           return;
         }
 
+        // 2. Tải tệp lên; file, video, ảnh chỉ hiển thị sau khi hoàn thành tải lên
         let anySuccess=false;
-        for(const {item,node} of fileNodes){
-          pendingUploads.set(item.key,{item,node});
+        for(let idx=0;idx<queuedFiles.length;idx++){
+          const item=queuedFiles[idx];
+          feedback.textContent='Đang tải tệp ('+(idx+1)+'/'+queuedFiles.length+'): '+item.file.name+'...';
           try{
             await uploadFileInBackground(id,item);
-            node?.querySelector('[data-file-spinner]')?.remove();
-            pendingUploads.delete(item.key);
             release(item);
             anySuccess=true;
-          }catch(fileErr){
-            node?.querySelector('[data-file-spinner]')?.remove();
-            const errEl=node?.querySelector('[data-file-err]');
-            if(errEl){
-              errEl.hidden=false;
-              errEl.innerHTML=`<span class="chat-upload-err-text">Lỗi: ${escape(fileErr.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
+
+            // Hiển thị tệp sau khi hoàn thành tải lên
+            let preview='';
+            if(item.url){
+              preview=media(item.url,item.file.type,item.file.name);
             }
-            feedback.textContent=`Chưa tải được tệp "${item.file.name}": ${fileErr.message}`;
+            if(!preview){
+              preview='<div class="chat-file-chip"><span class="chat-file-chip-icon">'+ICONS.file+'</span><div class="chat-file-chip-info"><strong>'+escape(item.file.name)+'</strong><small>'+formatSize(item.file.size)+' · Đã tải lên</small></div></div>';
+            }
+            const fileContent='<div class="chat-file-wrap" data-file-wrap>'+preview+'</div>';
+            insertOptimisticBubble(item.key,new Date().toLocaleString('vi-VN'),'',fileContent);
+          }catch(fileErr){
+            feedback.textContent='Chưa tải được tệp "'+item.file.name+'": '+fileErr.message;
+            const errContent='<div class="chat-file-wrap" data-file-wrap><div class="chat-file-chip"><span class="chat-file-chip-icon">⚠️</span><div class="chat-file-chip-info"><strong>'+escape(item.file.name)+'</strong><small class="chat-upload-err-text">Lỗi: '+escape(fileErr.message)+'</small></div></div><button type="button" class="chat-retry-upload" data-retry-file="'+escape(item.key)+'" data-no-action-feedback>Thử lại</button></div>';
+            insertOptimisticBubble(item.key,new Date().toLocaleString('vi-VN'),'',errContent);
           }
         }
         await refresh();

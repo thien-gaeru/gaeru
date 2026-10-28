@@ -1,5 +1,5 @@
 CREATE TABLE shipping_carrier_connections (
- carrier_id text PRIMARY KEY CHECK (carrier_id IN ('ghn','ghtk','viettel','jt')),
+ carrier_id text PRIMARY KEY CHECK (carrier_id IN ('ghn','ghtk','viettel','jt','spx')),
  config_version integer NOT NULL,
  verification_nonce uuid,
  verified_at timestamptz,
@@ -8,7 +8,7 @@ CREATE TABLE shipping_carrier_connections (
 );
 CREATE TABLE order_shipping_selection (
  order_id uuid PRIMARY KEY REFERENCES orders(id),
- carrier_id text NOT NULL CHECK (carrier_id IN ('ghn','ghtk','viettel','jt')),
+ carrier_id text NOT NULL CHECK (carrier_id IN ('ghn','ghtk','viettel','jt','spx')),
  carrier_name text NOT NULL,
  fee_vnd integer NOT NULL CHECK(fee_vnd>=0),
  config_version integer NOT NULL,

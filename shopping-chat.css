@@ -26,8 +26,6 @@
 .chat-quick-bar{margin-bottom:8px;padding:8px 10px;border:1px solid #e5e5ea;border-radius:14px;background:#fafafc}
 .chat-quick-header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .chat-quick-toggle{border:0;background:none;padding:2px 0;font:inherit;font-size:12px;font-weight:600;color:#0066cc;cursor:pointer}
-.chat-instant-toggle{display:inline-flex!important;align-items:center;gap:6px!important;font-size:12px!important;color:#48484a;cursor:pointer;margin:0}
-.chat-instant-toggle input{width:15px!important;height:15px!important;margin:0}
 .chat-quick-list{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .chat-quick-list[hidden]{display:none!important}
 .chat-quick-chip{border:1px solid #d2d2d7;border-radius:999px;background:#fff;color:#1d1d1f;padding:6px 12px;font:inherit;font-size:12px;line-height:1.35;cursor:pointer;transition:background .15s,border-color .15s}
@@ -261,9 +259,6 @@
   }
   .chat-quick-toggle {
     color: #64a5ff !important;
-  }
-  .chat-instant-toggle {
-    color: #98989d !important;
   }
   .chat-quick-chip {
     background: #2c2c2e !important;
