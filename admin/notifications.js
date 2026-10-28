@@ -59,7 +59,7 @@
 
   function controls(){
     const p=preference();
-    return '<section class="notice-preferences"><div><strong>Thông báo trên thiết bị này</strong><p>Nhận thông báo và âm thanh khi trang quản trị đang mở, kể cả ở tab nền. Đóng trang sẽ dừng cập nhật.</p></div><div><button type="button" data-notice-desktop>'+ (p.desktop?'Tắt thông báo trình duyệt':'Bật thông báo trình duyệt')+'</button><button type="button" data-notice-sound aria-pressed="'+Boolean(p.sound)+'">Âm thanh: '+(p.sound?'Bật':'Tắt')+'</button><button type="button" data-notice-test>Thử âm thanh</button></div><p data-notice-preference-status role="status"></p></section>';
+    return '<section class="notice-preferences"><div><strong>Thông báo trên thiết bị này</strong><p>Nhận thông báo và âm thanh khi trang quản trị đang mở, kể cả ở tab nền. Đóng trang sẽ dừng cập nhật.</p></div><div><button type="button" data-notice-desktop aria-pressed="'+Boolean(p.desktop)+'">Thông báo trình duyệt: '+(p.desktop?'Bật':'Tắt')+'</button><button type="button" data-notice-sound aria-pressed="'+Boolean(p.sound)+'">Âm thanh: '+(p.sound?'Bật':'Tắt')+'</button><button type="button" data-notice-test>Thử âm thanh</button></div><p data-notice-preference-status role="status"></p></section>';
   }
 
   function render(){
