@@ -16,7 +16,7 @@ function searchProducts(query) {
   const normalized = normalizeSearchText(query.trim());
   if (!normalized) return products;
   return products.filter((product) =>
-    normalizeSearchText(`${product.name} ${product.description} ${product.category} ${product.descriptor}`).includes(normalized)
+    normalizeSearchText(`${product.name} ${product.slug} ${product.description} ${product.category} ${product.descriptor} ${(product.variants || []).map(variant => `${variant.name} ${variant.sku}`).join(" ")}`).includes(normalized)
   );
 }
 

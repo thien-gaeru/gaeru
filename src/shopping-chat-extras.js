@@ -1,6 +1,8 @@
 const {storeUpload,readMedia}=require('./lib/stored-media');
 const {processChatCompression}=require('./shopping-chat-compression');
 const multer = require('multer');
+const uploadRules = require('./audit-fixes/upload-state');
+const { receiveChunk } = require('./audit-fixes/upload-session');
 const { z } = require('zod');
 const { requireCsrf } = require('./security');
 const { requirePermission } = require('./staff-access');
@@ -31,11 +33,12 @@ async function answerAI({config,product,question,decision=false,transport=fetch}
   return require('./chat-ai-provider').generate({settings,product,question,decision,transport});
 }
 
-async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,originalName,buffer,mime}) {
+async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,originalName,buffer,mime,client=null}) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > uploadRules.MAX_FILE_BYTES) throw fail("File exceeds 10 MiB.", 413);
   let safeName = String(originalName || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
   const originalSize = buffer.length;
   let fileRecord = null;
-  await withTransaction(pool, async (c) => {
+  const persist = async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
     const row = (await c.query('SELECT status FROM shopping_chat_threads WHERE id=$1 FOR UPDATE', [chatThread.id])).rows[0];
     const existing = (await c.query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 AND request_key=$2', [chatThread.id, requestKey])).rows[0];
@@ -44,6 +47,8 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
       return;
     }
     if (row.status === 'closed') throw fail('Hội thoại đã đóng.', 409);
+    const quota = (await c.query("SELECT COALESCE(SUM(COALESCE(original_byte_size,byte_size)),0)::bigint AS bytes FROM shopping_chat_files WHERE thread_id=$1", [chatThread.id])).rows[0];
+    if (Number(quota.bytes) + originalSize > uploadRules.MAX_THREAD_BYTES) throw fail("Chat file quota exceeded.", 413);
     const uploaded = await storeUpload('chat', buffer, mime);
     const finalMime = uploaded.mimeType;
     if (finalMime === 'image/webp') safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
@@ -74,14 +79,18 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
         metadata: { size: originalSize, storedSize: uploaded.byteSize }
       });
     }
-  });
+  };
+  if (client) await persist(client);
+  else await withTransaction(pool, persist);
   return fileRecord;
 }
 
 function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
+  const uploadGate = uploadRules.createUploadGate(2);
+  const uploadWrap = handler => uploadRules.withUploadWork(wrap(handler));
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: Infinity, files: 1, fields: 8, fieldSize: 2048 }
+    limits: { fileSize: uploadRules.MAX_FILE_BYTES, files: 1, fields: 8, fieldSize: 2048 }
   }).single('file');
   const parseUpload = (req,res,next)=>upload(req,res,error=>error?res.status(400).json({error:'Không thể đọc tệp tải lên. Vui lòng thử lại.'}):next());
   const authorize = isAdmin => wrap(async(req,res,next)=>{
@@ -92,7 +101,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     next();
   });
 
-  const save = isAdmin => wrap(async(req,res)=>{
+  const save = isAdmin => uploadWrap(async(req,res)=>{
     const key=z.string().uuid().parse(req.body.requestKey);
     const mime=fileType(req.file);
     if(!mime)throw fail('Chỉ nhận JPG, PNG, WebP, GIF, HEIC, MP4, MOV, WebM, MKV, AVI, PDF, Word, Excel, PowerPoint, ZIP, TXT hoặc CSV hợp lệ.');
@@ -123,80 +132,29 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
   const chunkSchema = z.object({
     requestKey: z.string().uuid(),
     fileName: z.string().trim().min(1).max(180),
-    chunkIndex: z.coerce.number().int().min(0).max(100000),
-    totalChunks: z.coerce.number().int().min(1).max(100000),
-    totalBytes: z.coerce.number().int().min(1)
+    chunkIndex: z.coerce.number().int().min(0).max(uploadRules.MAX_CHUNKS-1),
+    totalChunks: z.coerce.number().int().min(1).max(uploadRules.MAX_CHUNKS),
+    totalBytes: z.coerce.number().int().min(1).max(uploadRules.MAX_FILE_BYTES)
   });
 
-  const saveChunk = isAdmin => wrap(async(req,res)=>{
+  const saveChunk = isAdmin => uploadWrap(async(req,res)=>{
     const meta = chunkSchema.parse(req.body);
-    if (!req.file?.buffer?.length) throw fail('Không tìm thấy dữ liệu phân đoạn tệp.');
-    if (meta.chunkIndex >= meta.totalChunks) throw fail('Chỉ số phân đoạn không hợp lệ.');
-
-    if (meta.chunkIndex === 0) {
-      const detectedMime = fileType({ originalname: meta.fileName, buffer: req.file.buffer });
-      if (!detectedMime) {
-        throw fail('Chỉ nhận JPG, PNG, WebP, GIF, HEIC, MP4, MOV, WebM, MKV, AVI, PDF, Word, Excel, PowerPoint, ZIP, TXT hoặc CSV hợp lệ.');
-      }
-      await pool.query(
-        `INSERT INTO shopping_chat_upload_sessions(thread_id,sender,request_key,file_name,mime_type,total_bytes,total_chunks,received_chunks,content)
-         VALUES($1,$2,$3,$4,$5,$6,$7,1,$8)
-         ON CONFLICT(thread_id,request_key) DO UPDATE
-         SET content=EXCLUDED.content,received_chunks=1,updated_at=now()`,
-        [req.chatThread.id, isAdmin ? 'admin' : 'customer', meta.requestKey, meta.fileName, detectedMime, meta.totalBytes, meta.totalChunks, req.file.buffer]
-      );
-    } else {
-      const updated = (await pool.query(
-        `UPDATE shopping_chat_upload_sessions
-         SET content = content || $3,
-             received_chunks = received_chunks + 1,
-             updated_at = now()
-         WHERE thread_id = $1 AND request_key = $2
-         RETURNING received_chunks, total_chunks`,
-        [req.chatThread.id, meta.requestKey, req.file.buffer]
-      )).rows[0];
-      if (!updated) throw fail('Phiên tải tệp không tồn tại hoặc đã hết hạn.', 404);
-    }
-
-    const sessionRow = (await pool.query(
-      'SELECT * FROM shopping_chat_upload_sessions WHERE thread_id=$1 AND request_key=$2',
-      [req.chatThread.id, meta.requestKey]
-    )).rows[0];
-
-    if (sessionRow.received_chunks < sessionRow.total_chunks) {
-      return res.status(202).json({
-        status: 'uploading',
-        receivedChunks: sessionRow.received_chunks,
-        totalChunks: sessionRow.total_chunks
-      });
-    }
-
-    const fullBuffer = Buffer.from(sessionRow.content);
-    await pool.query('DELETE FROM shopping_chat_upload_sessions WHERE id=$1', [sessionRow.id]);
-    const fileRecord = await persistChatFile({
-      pool,
-      chatThread: req.chatThread,
-      isAdmin,
-      adminActor: req.admin,
-      requestKey: meta.requestKey,
-      originalName: sessionRow.file_name,
-      buffer: fullBuffer,
-      mime: sessionRow.mime_type
-    });
-    await processChatCompression(pool).catch(() => {});
-    res.status(201).json({
-      status: 'completed',
-      message: 'Đã tải lên và nén tệp ngầm thành công.',
-      file: fileRecord ? {
-        id: fileRecord.id,
-        name: fileRecord.name,
-        mime: fileRecord.mime,
-        size: Number(fileRecord.byte_size)
-      } : null
+    const result = await withTransaction(pool, client => receiveChunk(client, {
+      thread: req.chatThread, isAdmin, meta, buffer: req.file?.buffer, detectType: fileType,
+      persist: (transaction, buffer, mime) => persistChatFile({
+        pool, client: transaction, chatThread: req.chatThread, isAdmin,
+        adminActor: req.admin, requestKey: meta.requestKey,
+        originalName: meta.fileName, buffer, mime
+      })
+    }));
+    const file = result.file;
+    res.status(result.status === 'completed' ? 201 : 202).json({
+      ...result,
+      ...(file ? {file: {id:file.id,name:file.name,mime:file.mime,size:Number(file.byte_size)}} : {})
     });
   });
 
-  const compressRoute = wrap(async(_req,res)=>{
+  const compressRoute = uploadWrap(async(_req,res)=>{
     const processed = await processChatCompression(pool);
     res.json({ processed });
   });
@@ -218,14 +176,14 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     res.set(headers).send(content);
   });
 
-  publicApi.post('/threads/:id/files',requireCsrf,limit,authorize(false),parseUpload,save(false));
-  publicApi.post('/threads/:id/files/chunk',requireCsrf,authorize(false),parseUpload,saveChunk(false));
-  publicApi.post('/threads/:id/files/compress',requireCsrf,authorize(false),compressRoute);
+  publicApi.post('/threads/:id/files',requireCsrf,limit,authorize(false),uploadGate,parseUpload,save(false));
+  publicApi.post('/threads/:id/files/chunk',requireCsrf,limit,authorize(false),uploadGate,parseUpload,saveChunk(false));
+  publicApi.post('/threads/:id/files/compress',requireCsrf,limit,authorize(false),uploadGate,compressRoute);
   publicApi.get('/threads/:id/files/:fileId',authorize(false),download);
 
-  admin.post('/shopping-chat/:id/files',requirePermission('customers.write'),requireCsrf,limit,authorize(true),parseUpload,save(true));
-  admin.post('/shopping-chat/:id/files/chunk',requirePermission('customers.write'),requireCsrf,authorize(true),parseUpload,saveChunk(true));
-  admin.post('/shopping-chat/:id/files/compress',requirePermission('customers.write'),requireCsrf,authorize(true),compressRoute);
+  admin.post('/shopping-chat/:id/files',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,parseUpload,save(true));
+  admin.post('/shopping-chat/:id/files/chunk',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,parseUpload,saveChunk(true));
+  admin.post('/shopping-chat/:id/files/compress',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,compressRoute);
   admin.get('/shopping-chat/:id/files/:fileId',authorize(true),download);
 
   admin.get('/shopping-chat/:id/offers',requirePermission('marketing.read'),authorize(true),wrap(async(req,res)=>{
@@ -255,7 +213,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     });
     res.json({message:'Đã kết thúc phiên chat.',status:'closed'});
   }));
-  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),provider:settings.enabled?settings.provider:null,maxFileBytes:null,unlimitedFileSize:true,chunkSizeBytes:4194304,backgroundCompression:true});}));
+  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),provider:settings.enabled?settings.provider:null,maxFileBytes:uploadRules.MAX_FILE_BYTES,unlimitedFileSize:false,chunkSizeBytes:4194304,backgroundCompression:true});}));
   publicApi.post('/threads/:id/ai',requireCsrf,limit,authorize(false),(_req,res)=>res.status(409).json({error:'AI đang trả lời tự động. Bạn có thể chọn Gặp nhân viên để chuyển hỗ trợ.'}));
 }
 module.exports={attachShoppingChat,fileType,answerAI};
