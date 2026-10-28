@@ -41,12 +41,13 @@
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
-      <button type="button" data-pick="file">${ICONS.file}<span>Tệp<small>Không giới hạn dung lượng · Tự động nén ngầm</small></span></button>
-      <button type="button" data-pick="media">${ICONS.media}<span>Ảnh / Video<small>Không giới hạn dung lượng · Tải ngầm sau khi gửi</small></span></button>
-      ${admin?(window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:''):`<button type="button" data-reference="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">${ICONS.voucher}<span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-hotline>${ICONS.hotline}<span>Gọi hotline<small>Quay số 0829191080</small></span></button><button type="button" data-chat-human>${ICONS.human}<span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>${ICONS.endChat}<span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>`}
+      <button type="button" data-pick="file">${ICONS.file}<span>Tệp<small>Tối đa 100 MiB · Tự động nén ngầm</small></span></button>
+      <button type="button" data-pick="media">${ICONS.media}<span>Ảnh / Video<small>Tối đa 100 MiB · Tải ngầm sau khi gửi</small></span></button>
+      ${admin?(window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:''):`<button type="button" data-reference="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">${ICONS.voucher}<span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>${ICONS.human}<span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>${ICONS.endChat}<span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>`}
       <div data-chat-reference class="chat-reference" hidden></div>
-      <input hidden type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv">
-      <input hidden type="file" multiple data-file="media" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo">
+      </div>
+      <input class="chat-file-input visually-hidden" type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
+      <input class="chat-file-input visually-hidden" type="file" multiple data-file="media" accept="image/*,video/*,.heic,.heif,.mp4,.mov,.m4v,.webm,.mkv,.avi">
       <p role="status" data-chat-feedback></p></form>`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
     const nearBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<80;
@@ -231,26 +232,35 @@
     form.elements.body.addEventListener('focus',()=>{collapseQuickReplies();actions.hidden=true;plus.setAttribute('aria-expanded','false');root.querySelector('[data-chat-reference]').hidden=true;});
     plus.onclick=()=>{collapseQuickReplies();actions.hidden=!actions.hidden;plus.setAttribute('aria-expanded',String(!actions.hidden));};
     root.querySelector('[data-chat-earlier]').onclick=()=>refresh(messages.querySelector('[data-message-id]')?.dataset.messageId).catch(e=>feedback.textContent=e.message);
-    root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>root.querySelector('[data-file="'+button.dataset.pick+'"]').click());
+    root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>{
+      actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      const input=root.querySelector('[data-file="'+button.dataset.pick+'"]');
+      if(input)input.click();
+    });
     root.querySelectorAll('[data-file]').forEach(input=>input.onchange=()=>{
-      const picked=[...(input.files||[])];input.value='';if(!picked.length)return;
+      const picked=[...(input.files||[])];if(!picked.length)return;
       for(const file of picked){
-        if(!file.size){
-          feedback.textContent=`Tệp "${file.name}" không có nội dung (0 KB). Vui lòng chọn tệp hợp lệ.`;
-          return;
+        if(!file.size&&file.size!==undefined){
+          feedback.textContent=`Tệp "${file.name||'đã chọn'}" không có dữ liệu (0 KB). Vui lòng chọn tệp hợp lệ.`;
+          input.value='';return;
         }
-        const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic)$)/i.test(file.type||file.name);
-        if(!isImage&&file.size>10*1024*1024){
-          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 10 MiB. Vui lòng chọn tệp nhỏ hơn.`;
-          return;
+        const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic|heif)$)/i.test(file.type||file.name);
+        if(!isImage&&file.size>100*1024*1024){
+          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Vui lòng chọn tệp nhỏ hơn.`;
+          input.value='';return;
         }
       }
       for(const file of picked){
-        files.push({file,key:crypto.randomUUID(),url:/^(image|video)\//.test(file.type)?URL.createObjectURL(file):null});
+        files.push({
+          file,
+          key:crypto.randomUUID(),
+          url:/^(image|video)\//i.test(file.type)||/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)?URL.createObjectURL(file):null
+        });
       }
       renderFiles();
       feedback.textContent='';
       actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      setTimeout(()=>{input.value='';},100);
     });
     root.querySelector('[data-chat-selected]').onclick=e=>{const b=e.target.closest('[data-remove]');if(b){release(files.splice(Number(b.dataset.remove),1)[0]);renderFiles();}};
     root.querySelectorAll('[data-reference]').forEach(button=>button.onclick=async()=>{
@@ -286,11 +296,10 @@
       }await loadOffers();
     });
 
-    async function uploadFileInBackground(threadId,item,statusNode){
-      if(statusNode)statusNode.textContent='Đang nén tệp ngầm tự động…';
+    async function uploadFileInBackground(threadId,item){
       const prepared=await compressFileInBackground(item.file);
       if(!prepared?.size)throw Error('Tệp không có nội dung hợp lệ.');
-      if(prepared.size>10*1024*1024)throw Error(`Dung lượng sau khi nén (${formatSize(prepared.size)}) vẫn vượt quá mức 10 MiB.`);
+      if(prepared.size>100*1024*1024)throw Error(`Dung lượng tệp (${formatSize(prepared.size)}) vượt quá mức 100 MiB.`);
 
       async function doRequestWithRetry(url,options,maxAttempts=3){
         for(let attempt=1;attempt<=maxAttempts;attempt++){
@@ -299,7 +308,6 @@
           }catch(err){
             const isCapacity=err.status===429||/busy|capacity/i.test(err.message||'');
             if(isCapacity&&attempt<maxAttempts){
-              if(statusNode)statusNode.textContent=`Hệ thống đang bận, tự động thử lại (${attempt}/${maxAttempts-1})…`;
               await new Promise(r=>setTimeout(r,attempt*1000));
               continue;
             }
@@ -320,12 +328,9 @@
           data.append('chunkIndex',String(i));
           data.append('totalChunks',String(totalChunks));
           data.append('totalBytes',String(prepared.size));
-          const pct=Math.round(((i+1)/totalChunks)*100);
-          if(statusNode)statusNode.textContent=`Đang tải ngầm & nén tự động… ${pct}%`;
           await doRequestWithRetry(base+'/'+threadId+'/files/chunk',{method:'POST',body:data});
         }
       }else{
-        if(statusNode)statusNode.textContent='Đang tải lên hệ thống ngầm…';
         const data=new FormData();
         data.append('file',prepared,prepared.name);
         data.append('requestKey',item.key);
@@ -334,12 +339,13 @@
       }
     }
 
-    function insertOptimisticBubble(reqKey,label,bodyText,previewHtml,statusText){
+    function insertOptimisticBubble(reqKey,label,bodyText,previewHtml){
       const senderClass=admin?'from-admin':'from-customer';
-      const senderLabel=admin?'GAERU':'Bạn';
+      const senderLabel=admin?'GAERU':'';
       const typingNode=messages.querySelector('[data-ai-typing]');
-      const statusHtml=statusText?`<small class="chat-bg-status" data-bg-status>${escape(statusText)}</small>`:'';
-      const html=`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}"><strong>${senderLabel}</strong><p>${escape(bodyText)}</p>${previewHtml||''}${statusHtml}<time>${escape(label)}</time></article>`;
+      const headerHtml=admin?'<strong>'+escape(senderLabel)+'</strong>':'';
+      const bodyHtml=bodyText?'<p>'+escape(bodyText)+'</p>':'';
+      const html=`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}">${headerHtml}${bodyHtml}${previewHtml||''}<time>${escape(label)}</time></article>`;
       if(typingNode)typingNode.insertAdjacentHTML('beforebegin',html);
       else messages.insertAdjacentHTML('beforeend',html);
       scrollToLatest(true);
@@ -348,39 +354,52 @@
 
     function dispatchInstantSend(rawText,queuedFiles){
       if(thread?.status==='closed')return;
-      const textBody=String(rawText||'').trim()||(queuedFiles.length?'Tôi gửi tệp để được tư vấn.':'');
+      const textBody=String(rawText||'').trim();
       if(!textBody&&!queuedFiles.length){feedback.textContent='Nhập tin nhắn hoặc chọn tệp.';return;}
       collapseQuickReplies();
       feedback.textContent='';
       const msgKey=crypto.randomUUID();
       const nowLabel=new Date().toLocaleString('vi-VN');
-      const textNode=insertOptimisticBubble(msgKey,nowLabel,textBody,'','');
+      const textNode=textBody?insertOptimisticBubble(msgKey,nowLabel,textBody,''):null;
       const fileNodes=queuedFiles.map(item=>{
-        const preview=item.url?media(item.url,item.file.type,item.file.name):'';
-        return {item,node:insertOptimisticBubble(item.key,nowLabel,'Tệp đính kèm: '+item.file.name,preview,`Đang chờ tải ngầm (${formatSize(item.file.size)})…`)};
+        let preview='';
+        if(item.url){
+          preview=media(item.url,item.file.type,item.file.name);
+        }
+        if(!preview){
+          preview=`<div class="chat-file-chip"><span class="chat-file-chip-icon">${ICONS.file}</span><div class="chat-file-chip-info"><strong>${escape(item.file.name)}</strong><small>${formatSize(item.file.size)}</small></div></div>`;
+        }
+        const fileContent=`<div class="chat-file-wrap" data-file-wrap>
+          ${preview}
+          <div class="chat-file-spinner" data-file-spinner aria-label="Đang xử lý và tải tệp...">
+            <svg class="chat-spinner-svg" viewBox="0 0 24 24"><circle class="chat-spinner-circle" cx="12" cy="12" r="9"/></svg>
+          </div>
+          <div class="chat-file-err" data-file-err hidden></div>
+        </div>`;
+        return {item,node:insertOptimisticBubble(item.key,nowLabel,'',fileContent)};
       });
 
       bgChain=bgChain.then(async()=>{
         try{
+          const firstBody=textBody||'Tôi gửi tệp để được tư vấn.';
           if(!id){
-            const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:textBody,requestKey:msgKey})});
+            const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:firstBody,requestKey:msgKey})});
             id=d.thread.id;
-          }else{
+          }else if(textBody){
             await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body:textBody,requestKey:msgKey})});
           }
           if(!queuedFiles.length)scheduleFastAIRefresh();
         }catch(error){
           syncAiTypingIndicator(false);
-          const msgStatus=textNode?.querySelector('[data-bg-status]');
-          if(msgStatus){
-            msgStatus.className='chat-bg-status chat-bg-error';
-            msgStatus.textContent='Chưa gửi được: '+error.message;
+          if(textNode){
+            textNode.insertAdjacentHTML('beforeend','<small class="chat-bg-status chat-bg-error">Chưa gửi được: '+escape(error.message)+'</small>');
           }
           for(const {node} of fileNodes){
-            const statusNode=node?.querySelector('[data-bg-status]');
-            if(statusNode){
-              statusNode.className='chat-bg-status chat-bg-error';
-              statusNode.textContent='Tạm dừng tải tệp do lỗi gửi tin nhắn.';
+            node?.querySelector('[data-file-spinner]')?.remove();
+            const errEl=node?.querySelector('[data-file-err]');
+            if(errEl){
+              errEl.hidden=false;
+              errEl.textContent='Tạm dừng tải tệp do lỗi gửi tin nhắn.';
             }
           }
           feedback.textContent=error.message;
@@ -390,17 +409,18 @@
         let anySuccess=false;
         for(const {item,node} of fileNodes){
           pendingUploads.set(item.key,{item,node});
-          const statusNode=node?.querySelector('[data-bg-status]');
           try{
-            await uploadFileInBackground(id,item,statusNode);
-            if(statusNode)statusNode.remove();
+            await uploadFileInBackground(id,item);
+            node?.querySelector('[data-file-spinner]')?.remove();
             pendingUploads.delete(item.key);
             release(item);
             anySuccess=true;
           }catch(fileErr){
-            if(statusNode){
-              statusNode.className='chat-bg-status chat-bg-error';
-              statusNode.innerHTML=`<span>Lỗi tải tệp: ${escape(fileErr.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
+            node?.querySelector('[data-file-spinner]')?.remove();
+            const errEl=node?.querySelector('[data-file-err]');
+            if(errEl){
+              errEl.hidden=false;
+              errEl.innerHTML=`<span class="chat-upload-err-text">Lỗi: ${escape(fileErr.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
             }
             feedback.textContent=`Chưa tải được tệp "${item.file.name}": ${fileErr.message}`;
           }
@@ -462,23 +482,26 @@
       const entry=pendingUploads.get(fileKey);
       if(!entry||!id)return;
       const {item,node}=entry;
-      const statusNode=node?.querySelector('[data-bg-status]');
-      if(statusNode){
-        statusNode.className='chat-bg-status';
-        statusNode.textContent='Đang thử lại tải tệp…';
+      const wrap=node?.querySelector('[data-file-wrap]');
+      const errEl=node?.querySelector('[data-file-err]');
+      if(errEl)errEl.hidden=true;
+      let spinner=node?.querySelector('[data-file-spinner]');
+      if(!spinner&&wrap){
+        wrap.insertAdjacentHTML('beforeend','<div class="chat-file-spinner" data-file-spinner aria-label="Đang xử lý và tải tệp..."><svg class="chat-spinner-svg" viewBox="0 0 24 24"><circle class="chat-spinner-circle" cx="12" cy="12" r="9"/></svg></div>');
       }
       feedback.textContent='';
       try{
-        await uploadFileInBackground(id,item,statusNode);
-        if(statusNode)statusNode.remove();
+        await uploadFileInBackground(id,item);
+        node?.querySelector('[data-file-spinner]')?.remove();
         pendingUploads.delete(item.key);
         release(item);
         await refresh();
         feedback.textContent='';
       }catch(err){
-        if(statusNode){
-          statusNode.className='chat-bg-status chat-bg-error';
-          statusNode.innerHTML=`<span>Lỗi tải tệp: ${escape(err.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
+        node?.querySelector('[data-file-spinner]')?.remove();
+        if(errEl){
+          errEl.hidden=false;
+          errEl.innerHTML=`<span class="chat-upload-err-text">Lỗi: ${escape(err.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
         }
         feedback.textContent=`Chưa tải được tệp "${item.file.name}": ${err.message}`;
       }

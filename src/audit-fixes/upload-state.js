@@ -1,10 +1,10 @@
 'use strict';
 const { createHash } = require('node:crypto');
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_CHUNK_BYTES = 5 * 1024 * 1024;
 const MAX_CHUNKS = 256;
-const MAX_THREAD_BYTES = 100 * 1024 * 1024;
-const MAX_PENDING_BYTES = 512 * 1024 * 1024;
+const MAX_THREAD_BYTES = 500 * 1024 * 1024;
+const MAX_PENDING_BYTES = 1024 * 1024 * 1024;
 const MAX_PENDING_SESSIONS = 128;
 const MAX_ACTIVE_PER_THREAD = 2;
 const sha256 = data => createHash('sha256').update(data).digest('hex');
@@ -17,7 +17,7 @@ function validateMeta(meta, buffer) {
     throw failure('Invalid file name.', 400);
   const { chunkIndex, totalChunks, totalBytes } = meta;
   if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes > MAX_FILE_BYTES)
-    throw failure('File exceeds the 10 MiB upload limit.', 413);
+    throw failure('File exceeds the upload limit (' + Math.round(MAX_FILE_BYTES / 1048576) + ' MiB).', 413);
   if (!Number.isSafeInteger(totalChunks) || totalChunks < 1 || totalChunks > MAX_CHUNKS || totalChunks > totalBytes ||
       !Number.isSafeInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= totalChunks)
     throw failure('Invalid upload chunk metadata.', 400);
