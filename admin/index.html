@@ -54,6 +54,7 @@
               <button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button>
               <button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button>
               <button class="nav-item" type="button" data-view="payments" data-permission="orders.read">Quản lý thanh toán</button>
+              <button class="nav-item" type="button" data-view="oauth" data-permission="settings.read">Đăng nhập Google &amp; Apple</button>
               <button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button>
               <button class="nav-item" type="button" data-view="pages" data-permission="settings.read">Quản lý trang</button>
               <button class="nav-item" type="button" data-view="file-library" data-permission="settings.read" data-owner-only hidden>Thư viện tệp</button>
@@ -270,7 +271,7 @@
             </section>
           </section>
 
-          <section class="view-panel" id="payments-view" hidden><h2>Quản lý thanh toán</h2><p>Kết nối, kiểm tra và điều khiển các kênh thanh toán COD, Chuyển khoản ngân hàng, VNPAY, 9Pay, MoMo và ZaloPay.</p><div id="payment-configuration"></div></section><section class="view-panel" id="shipping-view" hidden><h2>Quản lý vận chuyển</h2><p>Kết nối GHN, GHTK, Viettel Post, J&T Express và Shopee Express (SPX).</p><div id="shipping-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
+          <section class="view-panel" id="payments-view" hidden><h2>Quản lý thanh toán</h2><p>Kết nối, kiểm tra và điều khiển các kênh thanh toán COD, Chuyển khoản ngân hàng, VNPAY, 9Pay, MoMo và ZaloPay.</p><div id="payment-configuration"></div></section><section class="view-panel" id="shipping-view" hidden><h2>Quản lý vận chuyển</h2><p>Kết nối GHN, GHTK, Viettel Post, J&T Express và Shopee Express (SPX).</p><div id="shipping-configuration"></div></section><section class="view-panel" id="oauth-view" hidden><h2>Đăng nhập Google &amp; Apple</h2><p>Cấu hình Google Client ID và Apple Service ID cho phép khách hàng đăng nhập nhanh chóng và bảo mật.</p><div id="oauth-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
 <div class="orders-heading"><div class="order-export-actions"><label>Phạm vi xuất<select id="order-export-scope"><option value="page">Trang hiện tại</option><option value="all">Tất cả theo bộ lọc (tối đa 5.000 đơn)</option></select></label><button type="button" class="secondary-button" id="export-order-excel">Xuất Excel</button><button type="button" class="plain-button" id="export-order-page">CSV trang hiện tại</button></div></div>
 <nav id="order-tabs" class="order-tabs" aria-label="Lọc theo trạng thái đơn"></nav>
 <p class="help-text">Chờ gửi hàng gồm đơn đã xác nhận và đang chuẩn bị. Đã giao hàng là đã bàn giao cho hãng vận chuyển.</p>
