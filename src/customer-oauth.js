@@ -167,7 +167,6 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   router.get('/config', async (_req, res) => {
     try {
       const googleId = await getGoogleClientId();
-      const appleId = await getAppleClientId();
       const isDev = (config.NODE_ENV || process.env.NODE_ENV) !== 'production';
       res.json({
         google: {
@@ -176,12 +175,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
           clientId: googleId,
           isDev
         },
-        apple: {
-          enabled: Boolean(appleId) || config.NODE_ENV === 'test' || isDev,
-          configured: Boolean(appleId),
-          clientId: appleId,
-          isDev
-        }
+        apple: { enabled: false, configured: false, clientId: '' }
       });
     } catch {
       res.json({
@@ -266,83 +260,8 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   });
 
   // Sign in with Apple Handler
-  router.post('/apple', oauthLimit, requireCsrf, async (req, res, next) => {
-    try {
-      const parsed = appleSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: 'Chứng thực Apple chưa hợp lệ.' });
-      }
-
-      const appleUser = await verifyAppleToken(parsed.data.idToken, {
-        appleClientId: await getAppleClientId()
-      });
-
-      let fullName = 'Khách hàng Apple';
-      if (parsed.data.user?.name) {
-        const { firstName, lastName } = parsed.data.user.name;
-        fullName = [lastName, firstName].filter(Boolean).join(' ').trim() || fullName;
-      } else if (appleUser.email) {
-        fullName = appleUser.email.split('@')[0];
-      }
-
-      const customer = await withTransaction(pool, async (client) => {
-        // 1. Tìm tài khoản theo apple_id
-        let existing = (await client.query(
-          `SELECT id, full_name AS "fullName", email, phone,
-                  email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
-           FROM customers WHERE apple_id = $1 FOR UPDATE`,
-          [appleUser.sub]
-        )).rows[0];
-
-        // 2. Nếu chưa liên kết theo apple_id và có email, tìm theo email
-        if (!existing && appleUser.email) {
-          existing = (await client.query(
-            `SELECT id, full_name AS "fullName", email, phone,
-                    email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
-             FROM customers WHERE lower(email) = $1 FOR UPDATE`,
-            [appleUser.email]
-          )).rows[0];
-
-          if (existing) {
-            await client.query(
-              `UPDATE customers
-               SET apple_id = $1,
-                   email_verified_at = COALESCE(email_verified_at, now()),
-                   updated_at = now()
-               WHERE id = $2`,
-              [appleUser.sub, existing.id]
-            );
-            existing.emailVerified = true;
-          }
-        }
-
-        // 3. Kiểm tra tính hợp lệ
-        if (existing) {
-          if (existing.deletedAt) {
-            throw Object.assign(new Error('Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'), { status: 403 });
-          }
-          if (existing.active === false) {
-            throw Object.assign(new Error('Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ.'), { status: 403 });
-          }
-          return existing;
-        }
-
-        // 4. Tạo tài khoản mới qua Apple
-        const email = appleUser.email || `apple-${appleUser.sub.slice(0, 16)}@privaterelay.appleid.com`;
-        const inserted = await client.query(
-          `INSERT INTO customers (full_name, email, phone, apple_id, active, email_verified_at)
-           VALUES ($1, $2, '', $3, true, now())
-           RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
-          [fullName, email, appleUser.sub]
-        );
-        return inserted.rows[0];
-      });
-
-      startCustomerSession(req, res, next, customer, accountSecurity);
-    } catch (error) {
-      if (error.status) return res.status(error.status).json({ error: error.message });
-      next(error);
-    }
+  router.post('/apple', (_req, res) => {
+    res.status(404).json({ error: 'Tính năng Đăng nhập Apple không còn được hỗ trợ.' });
   });
 
   return router;

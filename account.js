@@ -363,30 +363,24 @@ function showOAuthConfigModal(provider, cfg) {
     document.body.appendChild(modal);
   }
 
-  const isGoogle = provider === 'Google';
-  const paramName = isGoogle ? 'GOOGLE_CLIENT_ID' : 'APPLE_CLIENT_ID';
-  const guideLink = isGoogle
-    ? 'https://console.cloud.google.com/apis/credentials'
-    : 'https://developer.apple.com/account/resources/identifiers/list/serviceId';
-
   modal.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
-      <h3 style="margin:0;font-size:20px;letter-spacing:-0.02em;">Cấu hình Đăng nhập ${provider}</h3>
+      <h3 style="margin:0;font-size:20px;letter-spacing:-0.02em;">Cấu hình Đăng nhập Google</h3>
       <button type="button" style="border:none;background:none;font-size:24px;cursor:pointer;color:#86868b;padding:4px 8px;" data-oauth-dialog-close aria-label="Đóng">×</button>
     </div>
     <p style="font-size:14px;line-height:1.6;color:#515154;margin-bottom:16px;">
-      Để khách hàng có thể đăng nhập bằng tài khoản <strong>${provider}</strong>, hệ thống cần được cấu hình mã định danh <code>${paramName}</code>.
+      Để khách hàng có thể đăng nhập bằng tài khoản <strong>Google</strong>, hệ thống cần được cấu hình mã định danh <code>GOOGLE_CLIENT_ID</code>.
     </p>
 
     <div style="background:#f5f5f7;border-radius:14px;padding:16px;margin-bottom:20px;font-size:13px;line-height:1.65;color:#1d1d1f;">
       <strong style="display:block;margin-bottom:6px;color:#0071e3;">📌 2 Cách cấu hình nhanh:</strong>
       <strong>Cách 1: Trực quan trong Trang Quản trị (Khuyên dùng)</strong><br>
-      Đăng nhập Quản trị viên (Chủ shop) ➔ vào menu <strong>Đăng nhập Google & Apple</strong> ➔ nhập Client ID / Service ID và bấm Lưu.<br>
-      <a href="/gaeru_ceo/#oauth" target="_blank" rel="noopener" class="button button-blue" style="display:inline-block;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;margin-top:6px;margin-bottom:8px;">Mở ngay trang Cấu hình Google &amp; Apple trong Quản trị ↗</a><br><br>
+      Đăng nhập Quản trị viên (Chủ shop) ➔ vào menu <strong>Đăng nhập Google</strong> ➔ nhập Google Client ID và bấm Lưu.<br>
+      <a href="/gaeru_ceo/#oauth" target="_blank" rel="noopener" class="button button-blue" style="display:inline-block;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;text-decoration:none;margin-top:6px;margin-bottom:8px;">Mở ngay trang Cấu hình Google trong Quản trị ↗</a><br><br>
       <strong>Cách 2: Cấu hình qua tệp .env trên máy chủ</strong><br>
       Thêm dòng sau vào tệp <code>.env</code>:<br>
       <code style="display:block;background:#ffffff;padding:8px 12px;border-radius:8px;border:1px solid #d2d2d7;margin-top:6px;word-break:break-all;">
-        ${paramName}=${isGoogle ? '123456789-xyz.apps.googleusercontent.com' : 'com.gaeru.web.signin'}
+        GOOGLE_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
       </code>
     </div>
 
@@ -395,16 +389,16 @@ function showOAuthConfigModal(provider, cfg) {
       <strong>🧪 Chế độ phát triển (Development / Admin Test):</strong><br>
       Bạn có thể thử nghiệm ngay luồng đăng nhập mà không cần Client ID thật.
       <div style="margin-top:10px;">
-        <button type="button" class="button-blue" data-oauth-demo-test="${isGoogle ? 'google' : 'apple'}" style="width:100%;min-height:38px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;">
-          Thử nghiệm Đăng nhập Mock ${provider} ngay
+        <button type="button" class="button-blue" data-oauth-demo-test style="width:100%;min-height:38px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;">
+          Thử nghiệm Đăng nhập Mock Google ngay
         </button>
       </div>
     </div>
     ` : ''}
 
     <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
-      <a href="${guideLink}" target="_blank" rel="noopener" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;padding:9px 16px;border-radius:20px;font-size:13px;color:#0071e3;">
-        Mở trang cấp mã ${provider} ↗
+      <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;padding:9px 16px;border-radius:20px;font-size:13px;color:#0071e3;">
+        Mở trang cấp mã Google ↗
       </a>
       <button type="button" class="button-blue" data-oauth-dialog-close style="min-height:38px;padding:8px 18px;border-radius:20px;font-size:13px;">
         Đã hiểu
@@ -421,15 +415,11 @@ function showOAuthConfigModal(provider, cfg) {
     demoBtn.onclick = async () => {
       modal.close();
       try {
-        setAccountFeedback(`Đang mô phỏng đăng nhập ${provider}…`);
-        const endpoint = isGoogle ? '/api/customer-auth/oauth/google' : '/api/customer-auth/oauth/apple';
-        const payload = isGoogle
-          ? { credential: 'mock-google-demo-token' }
-          : { idToken: 'mock-apple-demo-token', user: { name: { firstName: 'Demo', lastName: 'Apple' } } };
-        const result = await accountRequest(endpoint, payload);
+        setAccountFeedback('Đang mô phỏng đăng nhập Google…');
+        const result = await accountRequest('/api/customer-auth/oauth/google', { credential: 'mock-google-demo-token' });
         accountCsrfToken = result.csrfToken;
         showCustomerProfile(result.customer);
-        setAccountFeedback(`Đăng nhập thành công tài khoản ${provider} (Demo)!`);
+        setAccountFeedback('Đăng nhập thành công tài khoản Google (Demo)!');
       } catch (err) {
         setAccountFeedback(err.message, true);
       }
@@ -483,57 +473,11 @@ async function handleGoogleOAuth() {
   }
 }
 
-async function handleAppleOAuth() {
-  try {
-    const cfg = await loadOAuthConfig();
-    if (!cfg?.apple?.clientId) {
-      showOAuthConfigModal('Apple', cfg);
-      return;
-    }
-    if (!window.AppleID) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/auth.js';
-        s.async = true;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('Không thể tải Apple Sign In SDK. Vui lòng kiểm tra kết nối mạng.'));
-        document.head.appendChild(s);
-      });
-    }
-    window.AppleID.auth.init({
-      clientId: cfg.apple.clientId,
-      scope: 'name email',
-      redirectURI: window.location.origin + '/account.html',
-      usePopup: true
-    });
-    const response = await window.AppleID.auth.signIn();
-    const idToken = response?.authorization?.id_token;
-    const user = response?.user;
-    if (!idToken) throw new Error('Không nhận được mã xác thực Apple.');
-    const result = await accountRequest('/api/customer-auth/oauth/apple', {
-      idToken,
-      user
-    });
-    accountCsrfToken = result.csrfToken;
-    showCustomerProfile(result.customer);
-    setAccountFeedback(result.isNew ? 'Đăng ký tài khoản Apple thành công!' : 'Đăng nhập Apple thành công!');
-  } catch (err) {
-    if (err && err.error === 'popup_closed_by_user') return;
-    setAccountFeedback(err?.message || 'Đăng nhập Apple không thành công.', true);
-  }
-}
-
 function bindOAuthButtons() {
   document.querySelectorAll('[data-oauth-action="google"]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       handleGoogleOAuth();
-    });
-  });
-  document.querySelectorAll('[data-oauth-action="apple"]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      handleAppleOAuth();
     });
   });
 }

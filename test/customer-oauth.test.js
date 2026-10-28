@@ -152,8 +152,7 @@ test('GET /api/customer-auth/oauth/config returns client configuration', async (
   const data = await res.json();
   assert.equal(data.google.enabled, true);
   assert.equal(data.google.clientId, 'test-google-client-id.apps.googleusercontent.com');
-  assert.equal(data.apple.enabled, true);
-  assert.equal(data.apple.clientId, 'com.gaeru.web.signin');
+  assert.equal(data.apple.enabled, false);
 });
 
 test('POST /api/customer-auth/oauth/google creates a new customer and returns session', async (context) => {
@@ -277,73 +276,6 @@ test('POST /api/customer-auth/oauth/google links existing email account', async 
   assert.equal(linked, true);
   assert.equal(data.customer.email, 'existing@gmail.com');
   assert.equal(data.customer.emailVerified, true);
-});
-
-test('POST /api/customer-auth/oauth/apple logs in and creates session with Apple identity', async (context) => {
-  let inserted = false;
-  const pool = {
-    query: async (sql, values) => {
-      if (sql.includes('customers WHERE apple_id = $1')) {
-        return { rows: [] };
-      }
-      if (sql.includes('customers WHERE lower(email) = $1')) {
-        return { rows: [] };
-      }
-      if (sql.includes('INSERT INTO customers')) {
-        inserted = true;
-        assert.equal(values[0], 'Tran Thi Apple');
-        assert.equal(values[1], 'appleuser@privaterelay.appleid.com');
-        assert.equal(values[2], 'apple-sub-888');
-        return {
-          rows: [{
-            id: '44444444-4444-4444-8444-444444444444',
-            fullName: values[0],
-            email: values[1],
-            phone: '',
-            emailVerified: true
-          }]
-        };
-      }
-      return { rows: [] };
-    }
-  };
-
-  const baseUrl = await startApp(context, { pool });
-  const csrf = await getCsrf(baseUrl);
-
-  const appleJwt = makeJwt({
-    iss: 'https://appleid.apple.com',
-    aud: 'com.gaeru.web.signin',
-    sub: 'apple-sub-888',
-    email: 'appleuser@privaterelay.appleid.com',
-    email_verified: true,
-    exp: Math.floor(Date.now() / 1000) + 3600
-  });
-
-  const res = await fetch(`${baseUrl}/api/customer-auth/oauth/apple`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-CSRF-Token': csrf.token,
-      Cookie: csrf.cookie
-    },
-    body: JSON.stringify({
-      idToken: appleJwt,
-      user: {
-        name: {
-          firstName: 'Apple',
-          lastName: 'Tran Thi'
-        }
-      }
-    })
-  });
-
-  assert.equal(res.status, 200);
-  const data = await res.json();
-  assert.equal(inserted, true);
-  assert.equal(data.customer.fullName, 'Tran Thi Apple');
-  assert.equal(data.customer.email, 'appleuser@privaterelay.appleid.com');
-  assert.ok(data.csrfToken);
 });
 
 test('POST /api/customer-auth/oauth/google rejects blocked or deleted accounts', async (context) => {
