@@ -442,13 +442,24 @@ async function handleGoogleOAuth() {
     }
     if (!window.google?.accounts?.id) {
       await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://accounts.google.com/gsi/client';
-        s.async = true;
-        s.defer = true;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error('Không thể tải Google Identity Services SDK. Vui lòng kiểm tra kết nối mạng.'));
-        document.head.appendChild(s);
+        const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+        if (existing) {
+          if (window.google?.accounts?.id) return resolve();
+          existing.addEventListener('load', resolve, { once: true });
+          existing.addEventListener('error', () => reject(new Error('Không thể tải Google Identity Services SDK. Vui lòng kiểm tra kết nối mạng.')), { once: true });
+        } else {
+          const s = document.createElement('script');
+          s.src = 'https://accounts.google.com/gsi/client';
+          s.async = true;
+          s.defer = true;
+          s.onload = resolve;
+          s.onerror = () => reject(new Error('Không thể tải Google Identity Services SDK. Vui lòng kiểm tra kết nối mạng.'));
+          document.head.appendChild(s);
+        }
+        setTimeout(() => {
+          if (window.google?.accounts?.id) resolve();
+          else reject(new Error('Thời gian kết nối đến dịch vụ Google quá lâu. Vui lòng kiểm tra mạng.'));
+        }, 8000);
       });
     }
     window.google.accounts.id.initialize({
