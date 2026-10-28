@@ -352,13 +352,12 @@ test("admin cannot mark COD as paid before completing delivery", async (context)
   assert.equal(orderUpdated, false);
 });
 
-test("VNPAY IPN verifies amount and signature, then updates payment idempotently", async (context) => {
+test("VNPAY IPN accepts the documented callback without vnp_Command and verifies amount, merchant, signature and idempotency", async (context) => {
   const transactionRef = "GR-20260101-ABCDE12345";
   const parameters = {
     vnp_TmnCode: "ABC12345",
     vnp_TxnRef: transactionRef,
     vnp_Amount: "23000000",
-    vnp_Command: "pay",
     vnp_ResponseCode: "00",
     vnp_TransactionStatus: "00",
     vnp_TransactionNo: "123456"
@@ -403,12 +402,31 @@ test("VNPAY IPN verifies amount and signature, then updates payment idempotently
   const callbackUrl = `http://127.0.0.1:${server.address().port}/api/payments/vnpay/ipn`;
   const signedQuery = new URLSearchParams(parameters).toString();
 
+  function signed(overrides) {
+    const payload = { ...parameters, ...overrides };
+    delete payload.vnp_SecureHash;
+    const canonical = new URLSearchParams(Object.entries(payload).sort(([left], [right]) => left.localeCompare(right))).toString();
+    payload.vnp_SecureHash = createHmac("sha512", "sandbox-secret").update(canonical).digest("hex");
+    return new URLSearchParams(payload).toString();
+  }
+  const unsupported = await fetch(`${callbackUrl}?${signed({ vnp_Command: "refund" })}`);
+  assert.deepEqual(await unsupported.json(), { RspCode: "99", Message: "Unsupported command" });
+  const wrongMerchant = await fetch(`${callbackUrl}?${signed({ vnp_TmnCode: "OTHER123" })}`);
+  assert.deepEqual(await wrongMerchant.json(), { RspCode: "97", Message: "Invalid signature" });
+  const wrongAmount = await fetch(`${callbackUrl}?${signed({ vnp_Amount: "100" })}`);
+  assert.deepEqual(await wrongAmount.json(), { RspCode: "04", Message: "Invalid amount" });
+  assert.equal(orderUpdates, 0);
+
   const firstResponse = await fetch(`${callbackUrl}?${signedQuery}`);
   assert.deepEqual(await firstResponse.json(), { RspCode: "00", Message: "Confirm Success" });
   assert.equal(orderUpdates, 1);
 
   const duplicateResponse = await fetch(`${callbackUrl}?${signedQuery}`);
   assert.deepEqual(await duplicateResponse.json(), { RspCode: "02", Message: "Order already confirmed" });
+  assert.equal(orderUpdates, 1);
+
+  const legacyCommand = await fetch(`${callbackUrl}?${signed({ vnp_Command: "pay" })}`);
+  assert.deepEqual(await legacyCommand.json(), { RspCode: "02", Message: "Order already confirmed" });
   assert.equal(orderUpdates, 1);
 
   const tampered = new URLSearchParams(parameters);

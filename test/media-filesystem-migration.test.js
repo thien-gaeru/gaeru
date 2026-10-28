@@ -9,3 +9,57 @@ test('migration rejects corruption before reference replacement and refuses a di
 test('only one migration worker owns a live lease and an interrupted bucket copy resumes safely', {timeout:60000},async t=>{const {pool}=await setup(t),key='products/'+randomUUID()+'.webp',bytes=Buffer.from('unchanged'),objects=new Map([[key,bytes]]),id=randomUUID();await pool.query('INSERT INTO catalog_images(id,content,mime_type) VALUES($1,$2,$3)',[id,media.pointer(key,bytes),'image/webp']);let ready,release;const started=new Promise(r=>ready=r),waiting=new Promise(r=>release=r);const first=runMigration(pool,{source:source(objects),read:async()=>{ready();await waiting;return bytes;}});await started;const second=await runMigration(pool,{source:source(objects),read:async()=>{throw Error('must not copy concurrently')}});assert.equal(second.state,'copying');release();assert.equal((await first).state,'completed');assert.equal((await pool.query('SELECT COUNT(*)::int n FROM media_filesystem_reference_backups')).rows[0].n,1);});
 
 test('automatic migration is limited to the verified Hostinger target and honors explicit disable',()=>{const {migrationAllowed}=require('../src/media-filesystem-migration');assert.equal(migrationAllowed('6bc15b31e821dba1',''),true);assert.equal(migrationAllowed('different-volume',''),false);assert.equal(migrationAllowed(undefined,''),false);assert.equal(migrationAllowed('6bc15b31e821dba1','false'),false);});
+
+async function compressedChat(t){
+ const fixture=await setup(t),raw=Buffer.from('Private chat text fixture '.repeat(1000));
+ const compressed=await require('../src/shopping-chat-compression').compressBuffer(raw,'text/plain');
+ assert.equal(compressed.compressed,true);
+ const key='chat/'+randomUUID()+'.txt',objects=new Map([[key,compressed.buffer]]);
+ const thread=(await fixture.pool.query("INSERT INTO shopping_chat_threads(owner_key,product_name,request_key) VALUES('fixture','Fixture',gen_random_uuid()) RETURNING id")).rows[0];
+ async function file(pointer){
+  const message=(await fixture.pool.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'customer','Fixture attachment',gen_random_uuid()) RETURNING id",[thread.id])).rows[0];
+  return (await fixture.pool.query("INSERT INTO shopping_chat_files(thread_id,message_id,name,mime,content,byte_size,compression_status) VALUES($1,$2,'fixture.txt','text/plain',$3,$4,'compressed') RETURNING id",[thread.id,message.id,pointer,raw.length])).rows[0].id;
+ }
+ return {...fixture,raw,wrapped:compressed.buffer,key,objects,file};
+}
+
+test('default migration reader preserves compressed chat envelopes, legacy pointers and idempotence', {timeout:60000},async t=>{
+ const {pool,root,raw,wrapped,key,objects,file}=await compressedChat(t);
+ const originals=[media.pointer(key,wrapped),Buffer.from('GAERU_S3_V1:'+key)],ids=[];
+ for(const pointer of originals)ids.push(await file(pointer));
+ const result=await runMigration(pool,{source:source(objects)});
+ assert.equal(result.state,'completed');
+ assert.equal(result.objects,1);
+ assert.equal(result.references,2);
+ assert.deepEqual(await fs.readFile(path.join(root,key)),wrapped);
+ for(const [index,id] of ids.entries()){
+  const row=(await pool.query('SELECT content,byte_size,compression_status FROM shopping_chat_files WHERE id=$1',[id])).rows[0];
+  assert.match(Buffer.from(row.content).toString(),/^GAERU_FS_V1:/);
+  assert.equal(media.metadata(row.content).size,wrapped.length);
+  assert.deepEqual(await media.readMedia(row.content),raw);
+  assert.equal(Number(row.byte_size),raw.length);
+  assert.equal(row.compression_status,'compressed');
+  const backup=(await pool.query('SELECT previous_content FROM media_filesystem_reference_backups WHERE row_id=$1',[id])).rows[0];
+  assert.deepEqual(Buffer.from(backup.previous_content),originals[index]);
+ }
+ const again=await runMigration(pool,{source:{listAssets(){throw Error('Completed migration must not enumerate again');},downloadProductImage(){throw Error('Completed migration must not read again');}}});
+ assert.equal(again.state,'completed');
+ assert.equal((await pool.query('SELECT COUNT(*)::int n FROM media_filesystem_objects')).rows[0].n,1);
+ assert.equal((await pool.query('SELECT COUNT(*)::int n FROM media_filesystem_reference_backups')).rows[0].n,2);
+ assert.equal((await require('../src/media-filesystem-migration').auditMediaStorage(pool)).state,'verified');
+});
+
+test('default migration reader rejects corrupted compressed bytes and safely resumes with the original object', {timeout:60000},async t=>{
+ const {pool,root,raw,wrapped,key,objects,file}=await compressedChat(t),pointer=media.pointer(key,wrapped),id=await file(pointer);
+ const corrupt={...source(objects),async downloadProductImage(){return Buffer.from('corrupted object');}};
+ const blocked=await runMigration(pool,{source:corrupt});
+ assert.equal(blocked.state,'blocked');
+ assert.equal(blocked.errorCode,'MIGRATION_SOURCE_CHECKSUM');
+ assert.deepEqual(Buffer.from((await pool.query('SELECT content FROM shopping_chat_files WHERE id=$1',[id])).rows[0].content),pointer);
+ assert.equal((await pool.query('SELECT COUNT(*)::int n FROM media_filesystem_objects')).rows[0].n,0);
+ const recovered=await runMigration(pool,{source:source(objects)});
+ assert.equal(recovered.state,'completed');
+ assert.equal(recovered.references,1);
+ assert.deepEqual(await fs.readFile(path.join(root,key)),wrapped);
+ assert.deepEqual(await media.readMedia((await pool.query('SELECT content FROM shopping_chat_files WHERE id=$1',[id])).rows[0].content),raw);
+});

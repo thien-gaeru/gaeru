@@ -104,7 +104,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       // Shared phone numbers must never select an arbitrary customer's account.
       const customer = result.rows.length === 1 ? result.rows[0] : null;
       const passwordMatches = await bcrypt.compare(parsed.data.password, customer?.password_hash || DUMMY_PASSWORD_HASH);
-      if (!customer || !passwordMatches) return res.status(401).json({ error: "Email/số điện thoại hoặc mật khẩu không đúng. Nếu số điện thoại dùng chung nhiều tài khoản, vui lòng đăng nhập bằng email." });
+      if (!customer || !passwordMatches || !require("./audit-fixes/password-rules").withinBcryptLimit(parsed.data.password)) return res.status(401).json({ error: "Email/số điện thoại hoặc mật khẩu không đúng. Nếu số điện thoại dùng chung nhiều tài khoản, vui lòng đăng nhập bằng email." });
       if(customer.deletedAt)return res.status(403).json({error:'Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'});
       if (customer.active === false&&!customer.deletedAt) return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
 
