@@ -38,7 +38,7 @@
       </div>
       <div data-chat-selected class="chat-selected"></div>
       <div class="chat-composer"><button type="button" class="chat-plus" aria-label="Thêm đính kèm" aria-expanded="false" aria-controls="${admin?'admin':'customer'}-chat-actions" data-chat-plus data-no-action-feedback>+</button>
-      <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
+      <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="1" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
       <button type="button" data-pick="file">${ICONS.file}<span>Tệp<small>Tối đa 100 MiB · Tự động nén ngầm</small></span></button>
@@ -59,6 +59,17 @@
       if(event.key!=='Enter'||event.shiftKey||event.ctrlKey||event.altKey||event.metaKey||event.isComposing||composing||event.keyCode===229)return;
       event.preventDefault();if(!sending&&!send.disabled&&(form.elements.body.value.trim()||files.length))form.requestSubmit(send);
     });
+    // Auto-resize textarea: 1 row default → max 3 rows
+    (function(){
+      const ta=form.elements.body;
+      function resizeTA(){
+        ta.style.height='auto';
+        const maxH=Math.round(parseFloat(getComputedStyle(ta).lineHeight||'22')*3+16);
+        ta.style.height=Math.min(ta.scrollHeight,maxH)+'px';
+      }
+      ta.addEventListener('input',resizeTA);
+      ta.addEventListener('focus',resizeTA);
+    })();
     function media(url,mime,name){
       if(['image/jpeg','image/png','image/webp','image/gif','image/heic'].includes(mime)||String(mime||'').startsWith('image/'))return `<img class="chat-inline-media" src="${escape(url)}" alt="${escape(name)}" loading="lazy">`;
       if(['video/mp4','video/quicktime','video/webm'].includes(mime)||String(mime||'').startsWith('video/'))return `<video class="chat-inline-media" controls playsinline preload="metadata" src="${escape(url)}">Thiết bị chưa phát được video này.</video>`;
@@ -237,30 +248,41 @@
       const input=root.querySelector('[data-file="'+button.dataset.pick+'"]');
       if(input)input.click();
     });
-    root.querySelectorAll('[data-file]').forEach(input=>input.onchange=()=>{
-      const picked=[...(input.files||[])];if(!picked.length)return;
-      for(const file of picked){
-        if(!file.size&&file.size!==undefined){
-          feedback.textContent=`Tệp "${file.name||'đã chọn'}" không có dữ liệu (0 KB). Vui lòng chọn tệp hợp lệ.`;
-          input.value='';return;
+        root.querySelectorAll('[data-file]').forEach(input=>{
+      // Use addEventListener (not onchange) so we can also attach 'cancel' for iOS dismiss
+      input.addEventListener('change',()=>{
+        const picked=[...(input.files||[])];if(!picked.length)return;
+        for(const file of picked){
+          if(!file.size&&file.size!==undefined){
+            feedback.textContent=`Tệp "${file.name||'đã chọn'}" không có dữ liệu (0 KB). Vui lòng chọn tệp hợp lệ.`;
+            try{input.value='';}catch(e){}return;
+          }
+          const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic|heif)$)/i.test(file.type||file.name);
+          if(!isImage&&file.size>100*1024*1024){
+            feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Vui lòng chọn tệp nhỏ hơn.`;
+            try{input.value='';}catch(e){}return;
+          }
         }
-        const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic|heif)$)/i.test(file.type||file.name);
-        if(!isImage&&file.size>100*1024*1024){
-          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Vui lòng chọn tệp nhỏ hơn.`;
-          input.value='';return;
+        for(const file of picked){
+          files.push({
+            file,
+            key:crypto.randomUUID(),
+            url:/^(image|video)\//i.test(file.type)||/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)?URL.createObjectURL(file):null
+          });
         }
-      }
-      for(const file of picked){
-        files.push({
-          file,
-          key:crypto.randomUUID(),
-          url:/^(image|video)\//i.test(file.type)||/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)?URL.createObjectURL(file):null
+        renderFiles();
+        feedback.textContent='';
+        actions.hidden=true;plus.setAttribute('aria-expanded','false');
+        // iOS Safari fix: use rAF chain to force DOM repaint before resetting input
+        requestAnimationFrame(()=>{
+          form.elements.body.focus({preventScroll:true});
+          requestAnimationFrame(()=>{try{input.value='';}catch(e){}});
         });
-      }
-      renderFiles();
-      feedback.textContent='';
-      actions.hidden=true;plus.setAttribute('aria-expanded','false');
-      setTimeout(()=>{input.value='';},100);
+      });
+      // iOS: user dismissed picker without choosing — close actions panel
+      input.addEventListener('cancel',()=>{
+        actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      });
     });
     root.querySelector('[data-chat-selected]').onclick=e=>{const b=e.target.closest('[data-remove]');if(b){release(files.splice(Number(b.dataset.remove),1)[0]);renderFiles();}};
     root.querySelectorAll('[data-reference]').forEach(button=>button.onclick=async()=>{
