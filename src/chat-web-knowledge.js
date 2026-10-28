@@ -1,3 +1,4 @@
+const { getExternalWebKnowledge } = require('./chat-external-knowledge');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -138,7 +139,7 @@ async function loadLiveSiteFacts(pool) {
   return facts;
 }
 
-async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = null } = {}) {
+async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = null, transport = fetch } = {}) {
   const pages = loadWebPagesIndex();
   const qNorm = normalizeText(typeof question === 'string' ? question : JSON.stringify(question || ''));
   const tokens = qNorm.split(/[^a-z0-9]+/).filter(t => t.length >= 2);
@@ -178,9 +179,13 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
       excerpt: page.content.slice(0, 1200)
     }));
 
-  const liveFacts = await loadLiveSiteFacts(pool);
+  const [liveFacts, externalKnowledge] = await Promise.all([
+    loadLiveSiteFacts(pool),
+    getExternalWebKnowledge({ question, selectedProduct, transport }).catch(() => ({ ecosystemFacts: [], searchSnippets: [] }))
+  ]);
   return {
     webPages: topPages,
+    externalKnowledge,
     ...liveFacts
   };
 }
