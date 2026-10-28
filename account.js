@@ -91,6 +91,12 @@ function showCustomerProfile(customer, publish = true) {
 
 document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;setAccountPresentation(customer);const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
 
+const initialOauthError = new URLSearchParams(window.location.search).get('oauthError');
+if (initialOauthError) {
+  setAccountFeedback(decodeURIComponent(initialOauthError), true);
+  history.replaceState(null, '', window.location.pathname + (window.location.hash || '#login'));
+}
+
 async function confirmContactChangeFromUrl() {
   const token=new URLSearchParams(window.location.search).get('contactVerify');
   if(!token)return;
@@ -433,11 +439,13 @@ function showOAuthConfigModal(provider, cfg) {
   }
 }
 
-async function handleGoogleOAuth() {
+let googleGsiInitialized = false;
+
+async function initGoogleOAuth(interactive = false) {
   try {
     const cfg = await loadOAuthConfig();
     if (!cfg?.google?.clientId) {
-      showOAuthConfigModal('Google', cfg);
+      if (interactive) showOAuthConfigModal('Google', cfg);
       return;
     }
     if (!window.google?.accounts?.id) {
@@ -462,25 +470,47 @@ async function handleGoogleOAuth() {
         }, 8000);
       });
     }
-    window.google.accounts.id.initialize({
-      client_id: cfg.google.clientId,
-      callback: async (response) => {
-        try {
-          if (!response?.credential) throw new Error('Không nhận được thông tin xác thực từ Google.');
-          const result = await accountRequest('/api/customer-auth/oauth/google', {
-            credential: response.credential
-          });
-          accountCsrfToken = result.csrfToken;
-          showCustomerProfile(result.customer);
-          setAccountFeedback(result.isNew ? 'Đăng ký tài khoản Google thành công!' : 'Đăng nhập Google thành công!');
-        } catch (err) {
-          setAccountFeedback(err.message, true);
+
+    if (!googleGsiInitialized && window.google?.accounts?.id) {
+      window.google.accounts.id.initialize({
+        client_id: cfg.google.clientId,
+        ux_mode: 'popup',
+        login_uri: window.location.origin + '/api/customer-auth/oauth/google-callback',
+        cancel_on_tap_outside: true,
+        callback: async (response) => {
+          try {
+            if (!response?.credential) throw new Error('Không nhận được thông tin xác thực từ Google.');
+            setAccountFeedback('Đang xác thực thông tin tài khoản Google...');
+            const result = await accountRequest('/api/customer-auth/oauth/google', {
+              credential: response.credential
+            });
+            accountCsrfToken = result.csrfToken;
+            showCustomerProfile(result.customer);
+            history.replaceState(null, '', window.location.pathname + '#customer-account');
+            setAccountFeedback('Đăng nhập Google thành công!');
+            const returnUrl = new URLSearchParams(window.location.search).get('returnUrl') || new URLSearchParams(window.location.search).get('redirect');
+            if (returnUrl && returnUrl.startsWith('/')) {
+              setTimeout(() => { window.location.href = returnUrl; }, 600);
+            }
+          } catch (err) {
+            setAccountFeedback(err.message || 'Không thể đăng nhập Google lúc này.', true);
+          }
         }
-      }
-    });
-    window.google.accounts.id.prompt();
+      });
+      googleGsiInitialized = true;
+    }
+
+    if (interactive && window.google?.accounts?.id) {
+      window.google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed()) {
+          console.warn('GIS prompt not displayed:', notification.getNotDisplayedReason());
+        }
+      });
+    }
   } catch (err) {
-    setAccountFeedback(err.message || 'Không thể đăng nhập với Google lúc này.', true);
+    if (interactive) {
+      setAccountFeedback(err.message || 'Không thể đăng nhập với Google lúc này.', true);
+    }
   }
 }
 
@@ -488,9 +518,14 @@ function bindOAuthButtons() {
   document.querySelectorAll('[data-oauth-action="google"]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
-      handleGoogleOAuth();
+      initGoogleOAuth(true);
     });
   });
 }
 
 bindOAuthButtons();
+
+// Preload GIS in background so button clicks are instantaneous
+setTimeout(() => {
+  initGoogleOAuth(false).catch(() => {});
+}, 300);

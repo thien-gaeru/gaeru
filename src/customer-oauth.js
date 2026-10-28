@@ -129,6 +129,63 @@ const appleSchema = z.object({
   }).optional()
 }).strict();
 
+
+async function resolveOrCreateGoogleCustomer(pool, googleUser) {
+  return await withTransaction(pool, async (client) => {
+    // 1. Tim tai khoan theo google_id da lien ket
+    let existing = (await client.query(
+      `SELECT id, full_name AS "fullName", email, phone,
+              email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
+       FROM customers WHERE google_id = $1 FOR UPDATE`,
+      [googleUser.sub]
+    )).rows[0];
+
+    // 2. Neu chua lien ket theo google_id, tim theo email da dang ky
+    if (!existing) {
+      existing = (await client.query(
+        `SELECT id, full_name AS "fullName", email, phone,
+                email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
+         FROM customers WHERE lower(email) = $1 FOR UPDATE`,
+        [googleUser.email]
+      )).rows[0];
+
+      if (existing) {
+        // Lien ket google_id voi tai khoan san co
+        await client.query(
+          `UPDATE customers
+           SET google_id = $1,
+               email_verified_at = COALESCE(email_verified_at, now()),
+               avatar_url = COALESCE(avatar_url, $2),
+               updated_at = now()
+           WHERE id = $3`,
+          [googleUser.sub, googleUser.picture, existing.id]
+        );
+        existing.emailVerified = true;
+      }
+    }
+
+    // 3. Kiem tra tinh hop le cua tai khoan da ton tai
+    if (existing) {
+      if (existing.deletedAt) {
+        throw Object.assign(new Error('Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'), { status: 403 });
+      }
+      if (existing.active === false) {
+        throw Object.assign(new Error('Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ.'), { status: 403 });
+      }
+      return existing;
+    }
+
+    // 4. Dang ky tai khoan moi tu dong qua Google
+    const inserted = await client.query(
+      `INSERT INTO customers (full_name, email, phone, google_id, avatar_url, active, email_verified_at)
+       VALUES ($1, $2, '', $3, $4, true, now())
+       RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
+      [googleUser.name, googleUser.email, googleUser.sub, googleUser.picture]
+    );
+    return inserted.rows[0];
+  });
+}
+
 function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher = fetch, startCustomerSession } = {}) {
   const router = Router();
   const oauthLimit = rateLimit({
@@ -198,60 +255,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         fetcher
       });
 
-      const customer = await withTransaction(pool, async (client) => {
-        // 1. Tìm tài khoản theo google_id đã liên kết
-        let existing = (await client.query(
-          `SELECT id, full_name AS "fullName", email, phone,
-                  email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
-           FROM customers WHERE google_id = $1 FOR UPDATE`,
-          [googleUser.sub]
-        )).rows[0];
-
-        // 2. Nếu chưa liên kết theo google_id, tìm theo email đã đăng ký
-        if (!existing) {
-          existing = (await client.query(
-            `SELECT id, full_name AS "fullName", email, phone,
-                    email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
-             FROM customers WHERE lower(email) = $1 FOR UPDATE`,
-            [googleUser.email]
-          )).rows[0];
-
-          if (existing) {
-            // Liên kết google_id với tài khoản sẵn có
-            await client.query(
-              `UPDATE customers
-               SET google_id = $1,
-                   email_verified_at = COALESCE(email_verified_at, now()),
-                   avatar_url = COALESCE(avatar_url, $2),
-                   updated_at = now()
-               WHERE id = $3`,
-              [googleUser.sub, googleUser.picture, existing.id]
-            );
-            existing.emailVerified = true;
-          }
-        }
-
-        // 3. Kiểm tra tính hợp lệ của tài khoản đã tồn tại
-        if (existing) {
-          if (existing.deletedAt) {
-            throw Object.assign(new Error('Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'), { status: 403 });
-          }
-          if (existing.active === false) {
-            throw Object.assign(new Error('Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ.'), { status: 403 });
-          }
-          return existing;
-        }
-
-        // 4. Đăng ký tài khoản mới tự động qua Google
-        const inserted = await client.query(
-          `INSERT INTO customers (full_name, email, phone, google_id, avatar_url, active, email_verified_at)
-           VALUES ($1, $2, '', $3, $4, true, now())
-           RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
-          [googleUser.name, googleUser.email, googleUser.sub, googleUser.picture]
-        );
-        return inserted.rows[0];
-      });
-
+      const customer = await resolveOrCreateGoogleCustomer(pool, googleUser);
       startCustomerSession(req, res, next, customer, accountSecurity);
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -263,6 +267,30 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   router.post('/apple', (_req, res) => {
     res.status(404).json({ error: 'Tính năng Đăng nhập Apple không còn được hỗ trợ.' });
   });
+
+  const handleRedirectCallback = async (req, res, next) => {
+    try {
+      const credential = req.body?.credential;
+      if (!credential) {
+        return res.redirect(302, '/account.html#login');
+      }
+      const googleUser = await verifyGoogleToken(credential, {
+        googleClientId: await getGoogleClientId(),
+        fetcher
+      });
+      const customer = await resolveOrCreateGoogleCustomer(pool, googleUser);
+      startCustomerSession(req, res, next, customer, accountSecurity, {
+        redirectUrl: '/account.html#customer-account'
+      });
+    } catch (error) {
+      console.warn('Google OAuth Redirect Callback error:', error.message);
+      res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(error.message || 'Không thể xác thực Google.'));
+    }
+  };
+
+  const express = require('express');
+  router.post('/google-callback', express.urlencoded({ extended: false, limit: '32kb' }), handleRedirectCallback);
+  router.handleRedirectCallback = handleRedirectCallback;
 
   return router;
 }

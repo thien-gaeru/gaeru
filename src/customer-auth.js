@@ -377,7 +377,7 @@ function escapeHtml(value) {
   })[character]);
 }
 
-function startCustomerSession(req, res, next, customer,accountSecurity) {
+function startCustomerSession(req, res, next, customer, accountSecurity, { redirectUrl } = {}) {
   req.session.regenerate(async(error) => {
     if (error) return next(error);
     req.session.customer = {
@@ -391,6 +391,7 @@ function startCustomerSession(req, res, next, customer,accountSecurity) {
     req.session.csrfToken = randomBytes(32).toString("hex");
     req.session.save((saveError) => {
       if (saveError) return next(saveError);
+      if (redirectUrl) { return res.redirect(302, redirectUrl); }
       res.json({ customer: req.session.customer, csrfToken: req.session.csrfToken });
     });
   });
