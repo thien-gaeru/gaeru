@@ -526,3 +526,105 @@
   .payment-card[data-carrier-id="viettel"] .payment-card-icon{background:#450a0a;border-color:#dc2626}
   .payment-card[data-carrier-id="jt"] .payment-card-icon{background:#4c0519;border-color:#e11d48}
 }
+
+
+/* Product Success Popup Modal */
+.product-success-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: productSuccessFadeIn 0.2s ease-out;
+}
+.product-success-popup-backdrop[hidden] {
+  display: none !important;
+}
+.product-success-popup-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 34px 28px 28px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e2e8f0;
+  animation: productSuccessScaleIn 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes productSuccessFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes productSuccessScaleIn {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.product-success-icon-wrap {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: #ecfdf5;
+  color: #16a34a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 8px #f0fdf4;
+}
+.product-success-popup-card h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.product-success-sub {
+  font-size: 14px;
+  color: #64748b;
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+.product-success-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+.product-success-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  background: #0071e3;
+  color: #fff;
+  border: none;
+  transition: background 0.15s ease;
+}
+.product-success-btn:hover {
+  background: #0077ed;
+}
+@media (prefers-color-scheme: dark) {
+  .product-success-popup-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+  }
+  .product-success-popup-card h2 {
+    color: #f8fafc;
+  }
+  .product-success-sub {
+    color: #94a3b8;
+  }
+  .product-success-icon-wrap {
+    background: #064e3b;
+    box-shadow: 0 0 0 8px rgba(6, 78, 59, 0.35);
+  }
+}
