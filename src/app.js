@@ -54,11 +54,11 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
-        frameSrc: ["'self'", "https://challenges.cloudflare.com"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'", "https://challenges.cloudflare.com"],
+        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com"],
+        connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com"],
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
