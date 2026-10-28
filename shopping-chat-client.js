@@ -1,6 +1,7 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const ICONS = {
+    mediaFile: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
     file: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
     media: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 15-4.5-4.5a1.5 1.5 0 0 0-2.1 0L6 19"/></svg>',
     orders: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 11h8M8 15h6"/></svg>',
@@ -41,13 +42,11 @@
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="1" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
-      <button type="button" data-pick="file">${ICONS.file}<span>Tệp<small>Tối đa 100 MiB · Tự động nén ngầm</small></span></button>
-      <button type="button" data-pick="media">${ICONS.media}<span>Ảnh / Video<small>Tự động nén nếu vượt 100 MiB</small></span></button>
+      <button type="button" data-pick="media">${ICONS.mediaFile}<span>Tệp, Ảnh / Video<small>Ảnh, video, tài liệu · Tự động nén ngầm</small></span></button>
       ${admin?(window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:''):`<button type="button" data-reference="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">${ICONS.voucher}<span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>${ICONS.human}<span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>${ICONS.endChat}<span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>`}
       <div data-chat-reference class="chat-reference" hidden></div>
       </div>
-      <input class="chat-file-input visually-hidden" type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
-      <input class="chat-file-input visually-hidden" type="file" multiple data-file="media" accept="image/*,video/*,.heic,.heif,.mp4,.mov,.m4v,.webm,.mkv,.avi">
+      <input class="chat-file-input visually-hidden" type="file" multiple data-file="media" accept="image/*,video/*,.heic,.heif,.mp4,.mov,.m4v,.webm,.mkv,.avi,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv">
       <p role="status" data-chat-feedback></p></form>`;
     const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
     const nearBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<80;
@@ -430,7 +429,7 @@
     document.addEventListener?.('visibilitychange',onPickerReturn);
     root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>{
       actions.hidden=true;plus.setAttribute('aria-expanded','false');
-      const input=root.querySelector('[data-file="'+button.dataset.pick+'"]');
+      const input=root.querySelector('[data-file="'+button.dataset.pick+'"]')||root.querySelector('[data-file]');
       if(!input)return;
       clearPickerTimers();
       activePicker=input;
