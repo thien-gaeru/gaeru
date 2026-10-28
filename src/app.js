@@ -149,7 +149,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createCareAdminApi(pool));
   app.use("/api/gaeru_ceo", createOwnerApi(pool, config));
   app.use("/api/gaeru_ceo", createWarrantyAdminApi(pool));
-  app.use("/api/gaeru_ceo", createBusinessApi(pool));
+  app.use("/api/gaeru_ceo", createBusinessApi(pool, config));
   app.use("/api/gaeru_ceo", createNewsAI(pool,config));
   app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
@@ -183,6 +183,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     publicBaseUrl: config.PUBLIC_BASE_URL || "https://gaeru.com",
     inventory,
     audit: appendAudit,
+    config,
+    misaFetcher: config.misaFetcher,
     finance: { receiptTotal, recordFullOrderPayment }
   }));
   app.use("/api", (_req, res) => res.status(404).json({ error: "Không tìm thấy API." }));

@@ -115,7 +115,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, paymentChannels = null, getPaymentChannels = null, paymentFetcher = fetch, publicBaseUrl = "https://gaeru.com", inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, paymentChannels = null, getPaymentChannels = null, paymentFetcher = fetch, publicBaseUrl = "https://gaeru.com", inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false, config = null, misaFetcher = fetch } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -835,6 +835,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
       }
     }
+    if (config && result.rows.length) {
+      try {
+        const einvoices = await pool.query('SELECT order_id, invoice_number AS "invoiceNumber", invoice_series AS "invoiceSeries", template_code AS "templateCode", view_url AS "viewUrl", issued_at AS "issuedAt" FROM misa_einvoices WHERE order_id=ANY($1::uuid[])', [result.rows.map((order) => order.id)]);
+        const invoiceMap = new Map(einvoices.rows.map((r) => [r.order_id, r]));
+        for (const order of result.rows) {
+          order.einvoice = invoiceMap.get(order.id) || null;
+        }
+      } catch {}
+    }
     if (exportXlsx) {
       const buffer = await require('./order-export').orderWorkbook(result.rows);
       return res.set({'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="gaeru-orders.xlsx"','Cache-Control':'no-store'}).send(Buffer.from(buffer));
@@ -1005,6 +1014,18 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         return changed;
       });
+      if (target === 'completed') {
+        try {
+          const { autoIssueForOrder } = require('./misa-einvoice');
+          for (const order of result) {
+            if (order.status === 'completed' && order.paymentStatus === 'paid') {
+              await autoIssueForOrder(pool, config, order.id, { fetcher: misaFetcher });
+            }
+          }
+        } catch (misaErr) {
+          console.error('MISA auto-issue error in bulk:', misaErr.message);
+        }
+      }
       res.json({orders:result,targetStatus:target,message:'Đã cập nhật '+result.length+' đơn hàng.'});
     }catch(error){next(error);}
   });
@@ -1024,6 +1045,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return applyOrderUpdate(client,req.params.id,update,req.admin);
       });
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
+      if (result.status === 'completed' && result.paymentStatus === 'paid') {
+        try {
+          const { autoIssueForOrder } = require('./misa-einvoice');
+          await autoIssueForOrder(pool, config, req.params.id, { fetcher: misaFetcher });
+        } catch (misaErr) {
+          console.error('MISA auto-issue error for order ' + req.params.id + ':', misaErr.message);
+        }
+      }
       res.json({ order: result });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
