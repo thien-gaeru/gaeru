@@ -1,5 +1,5 @@
 (() => {
- const admin=window.GAERUAdmin,states={},names={payroll:'Tính lương',tax:'Đối chiếu thuế',invoice:'Hồ sơ hóa đơn điện tử',marketplace:'Đối soát sàn TMĐT'},statuses={draft:'Nháp',approved:'Đã duyệt',paid:'Đã ghi nhận chi',void:'Đã hủy'};
+ const admin=window.GAERUAdmin,states={},names={payroll:'Tính lương',tax:'Đối chiếu thuế',invoice:'Hồ sơ hóa đơn điện tử',marketplace:'Quản lý Sàn TMĐT'},statuses={draft:'Nháp',approved:'Đã duyệt',paid:'Đã ghi nhận chi',void:'Đã hủy'};
  const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const money=value=>value===null?'Chưa đủ dữ liệu':new Intl.NumberFormat('vi-VN').format(value)+' ₫';
  const input=(name,label,type='text',value='',extra='')=>`<label>${label}<input name="${name}" type="${type}" value="${escape(value)}" ${extra}></label>`;
@@ -17,7 +17,53 @@
  async function load(kind){if(!Object.hasOwn(names,kind)||!admin.can(kind+'.read'))return;const state=states[kind]||={page:1,period:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit'}).format(new Date())};const result=await admin.request(`/api/gaeru_ceo/business/${kind}?period=${state.period}&page=${state.page}`);state.rows=result.documents;const root=document.querySelector('#'+kind+'-view');root.innerHTML=`${kind==='marketplace'?'<details class="marketplace-help"><summary>Hướng dẫn nhập và đối soát</summary><p>'+help[kind]+'</p></details>':'<details class="business-guidance"><summary>Hướng dẫn và lưu ý xử lý</summary><p>'+help[kind]+'</p></details>'}<form data-business-period="${kind}" class="enterprise-filter">${input('period','Kỳ đối chiếu','month',state.period,'required')}<button class="secondary-button">Xem kỳ</button></form><div data-business-summary></div>${admin.can(kind+'.write')?`<details class="business-create"><summary>Tạo bản nháp ${names[kind].toLowerCase()}</summary><form class="enterprise-form" data-business-new="${kind}">${fields(kind)}${kind==='payroll'?'':input('note','Ghi chú','text','','maxlength="1000"')}<button class="primary-button">Lưu bản nháp</button><p role="status"></p></form></details>`:''}<div>${state.rows.map(d=>`<article class="editor-card" style="margin:18px 0"><p>${escape(statuses[d.status])} · Người lập ${escape(d.createdBy)}</p>${facts(d)}${d.paymentReference?`<p>Chứng từ chi: ${escape(d.paymentReference)}</p>`:''}${d.voidReason?`<p>Lý do hủy: ${escape(d.voidReason)}</p>`:''}${actions(d)}</article>`).join('')||'<div class="workspace-empty"><span class="workspace-empty-symbol" aria-hidden="true">▤</span><strong>Chưa có chứng từ trong kỳ</strong><p>Chọn kỳ khác hoặc tạo bản nháp để bắt đầu đối chiếu.</p></div>'}</div><div class="pagination"><button class="secondary-button" data-business-page="-1" ${state.page===1?'disabled':''}>Trước</button> Trang ${state.page} <button class="secondary-button" data-business-page="1" ${state.rows.length<25?'disabled':''}>Tiếp</button></div>`;
  if(kind==='invoice'&&admin.can('invoice.write')){state.orderPage=1;await invoiceOrders();}
  if(kind==='tax'){const summary=await admin.request('/api/gaeru_ceo/business/tax-summary?period='+state.period);root.querySelector('[data-business-summary]').innerHTML=`<div class="tax-summary"><article><span>VAT đầu ra</span><strong>${money(summary.outputVatVnd)}</strong></article><article><span>VAT đầu vào khấu trừ</span><strong>${money(summary.deductibleInputVatVnd)}</strong></article><article><span>Chênh lệch đối chiếu</span><strong>${money(summary.differenceVnd)}</strong></article></div><p class="help-text">${escape(summary.definition)}</p>`;}
- if(kind==='marketplace'){const summary=await admin.request('/api/gaeru_ceo/business/marketplace-summary?period='+state.period);root.querySelector('[data-business-summary]').innerHTML=`<div class="marketplace-connection"><div><strong>Đối soát các kênh bán hàng</strong><p>Dữ liệu nhập thủ công · Chưa kết nối API MISA eShop và các sàn</p></div><a href="https://helpeshop.misa.vn/kb/ket-noi-voi-cac-ung-dung-khac-qua-open-api-tren-may-tinh" target="_blank" rel="noopener noreferrer">Hướng dẫn kết nối ↗</a></div><div class="marketplace-summary-grid">${summary.channels.map(c=>`<article class="marketplace-channel"><header><h3>${escape(({shopee:'Shopee',tiktok:'TikTok Shop',lazada:'Lazada'})[c.channel]||c.channel)}</h3><span>${c.orders} đơn đã duyệt</span></header><dl><div><dt>Doanh thu thuần</dt><dd>${money(c.netRevenueVnd)}</dd></div><div><dt>Lợi nhuận đóng góp</dt><dd>${money(c.profitVnd)}</dd></div></dl><div class="marketplace-channel-notes"><span>${c.reconciledOrders} đã đối soát</span><span>${c.pendingReconciliation} chờ đối soát</span><span>${c.incompleteCosts} thiếu chi phí</span></div></article>`).join('')}</div><p class="marketplace-definition">${escape(summary.definition)}</p>`;}
+ if(kind==='marketplace'){
+    const [summary, integrations] = await Promise.all([
+      admin.request('/api/gaeru_ceo/business/marketplace-summary?period='+state.period),
+      admin.request('/api/gaeru_ceo/business/integrations').catch(()=>null)
+    ]);
+    const misaProvider = integrations?.providers?.find(p=>p.name==='MISA eShop');
+    const shopeeProvider = integrations?.providers?.find(p=>p.name==='Shopee');
+    const tiktokProvider = integrations?.providers?.find(p=>p.name==='TikTok Shop');
+    
+    const integrationCardsHtml = `<div class="marketplace-hub-cards">
+      <article class="marketplace-hub-card ${misaProvider?.connected ? 'connected' : ''}">
+        <div class="hub-card-header">
+          <span class="hub-card-badge" style="background:#eff6ff;color:#2563eb;font-weight:700;padding:4px 8px;border-radius:6px;font-size:11px">MISA</span>
+          <div>
+            <h4 style="margin:0;font-size:14px">MISA eShop</h4>
+            <p class="hub-status-text" style="margin:2px 0 0;font-size:11px;color:${misaProvider?.connected?'#15803d':'#6b7280'}">${misaProvider?.connected ? '🟢 Đã kết nối meInvoice' : '⚪ Chưa kết nối API meInvoice'}</p>
+          </div>
+        </div>
+        <p class="hub-card-desc" style="font-size:12px;color:#4b5563;margin:8px 0 12px;line-height:1.5">Tự động phát hành hóa đơn điện tử khi đơn hoàn tất & thanh toán.</p>
+        <button type="button" class="secondary-button" data-open-config-popup="misa" style="font-size:12px;padding:6px 12px;width:100%">Cấu hình &amp; Khóa MISA eShop ⚙</button>
+      </article>
+      <article class="marketplace-hub-card ${shopeeProvider?.connected ? 'connected' : ''}">
+        <div class="hub-card-header">
+          <span class="hub-card-badge" style="background:#fff1ee;color:#ee4d2d;font-weight:700;padding:4px 8px;border-radius:6px;font-size:11px">Shopee</span>
+          <div>
+            <h4 style="margin:0;font-size:14px">Sàn Shopee</h4>
+            <p class="hub-status-text" style="margin:2px 0 0;font-size:11px;color:${shopeeProvider?.connected?'#15803d':'#6b7280'}">${shopeeProvider?.connected ? '🟢 Đã lưu kết nối' : '⚪ Chưa kết nối Open Platform'}</p>
+          </div>
+        </div>
+        <p class="hub-card-desc" style="font-size:12px;color:#4b5563;margin:8px 0 12px;line-height:1.5">Partner ID, Shop ID & Partner Key liên kết sàn Shopee.</p>
+        <button type="button" class="secondary-button" data-open-config-popup="shopee" style="font-size:12px;padding:6px 12px;width:100%">Cấu hình &amp; Khóa Shopee ⚙</button>
+      </article>
+      <article class="marketplace-hub-card ${tiktokProvider?.connected ? 'connected' : ''}">
+        <div class="hub-card-header">
+          <span class="hub-card-badge" style="background:#f3f4f6;color:#111827;font-weight:700;padding:4px 8px;border-radius:6px;font-size:11px">TikTok</span>
+          <div>
+            <h4 style="margin:0;font-size:14px">TikTok Shop</h4>
+            <p class="hub-status-text" style="margin:2px 0 0;font-size:11px;color:${tiktokProvider?.connected?'#15803d':'#6b7280'}">${tiktokProvider?.connected ? '🟢 Đã lưu kết nối' : '⚪ Chưa kết nối Partner Center'}</p>
+          </div>
+        </div>
+        <p class="hub-card-desc" style="font-size:12px;color:#4b5563;margin:8px 0 12px;line-height:1.5">App Key, Shop ID & App Secret liên kết sàn TikTok Shop.</p>
+        <button type="button" class="secondary-button" data-open-config-popup="tiktok" style="font-size:12px;padding:6px 12px;width:100%">Cấu hình &amp; Khóa TikTok Shop ⚙</button>
+      </article>
+    </div>`;
+
+    root.querySelector('[data-business-summary]').innerHTML = `${integrationCardsHtml}<div class="marketplace-connection" style="margin-top:16px;"><div><strong>Đối soát các kênh bán hàng &amp; Lợi nhuận sàn</strong><p>Dữ liệu đối soát kỳ ${state.period}</p></div><a href="https://helpeshop.misa.vn/kb/ket-noi-voi-cac-ung-dung-khac-qua-open-api-tren-may-tinh" target="_blank" rel="noopener noreferrer">Hướng dẫn kết nối ↗</a></div><div class="marketplace-summary-grid">${summary.channels.map(c=>`<article class="marketplace-channel"><header><h3>${escape(({shopee:'Shopee',tiktok:'TikTok Shop',lazada:'Lazada'})[c.channel]||c.channel)}</h3><span>${c.orders} đơn đã duyệt</span></header><dl><div><dt>Doanh thu thuần</dt><dd>${money(c.netRevenueVnd)}</dd></div><div><dt>Lợi nhuận đóng góp</dt><dd>${money(c.profitVnd)}</dd></div></dl><div class="marketplace-channel-notes"><span>${c.reconciledOrders} đã đối soát</span><span>${c.pendingReconciliation} chờ đối soát</span><span>${c.incompleteCosts} thiếu chi phí</span></div></article>`).join('')}</div><p class="marketplace-definition">${escape(summary.definition)}</p>`;
+  }
 
  }
  document.addEventListener('submit',async event=>{const form=event.target.closest('[data-business-new],[data-business-action],[data-business-period]');if(!form)return;event.preventDefault();const kind=form.closest('.view-panel').id.replace('-view',''),state=states[kind],button=form.querySelector('button'),feedback=form.querySelector('[role=status]');button.disabled=true;try{const values=Object.fromEntries(new FormData(form));if(form.dataset.businessPeriod){state.period=values.period;state.page=1;await load(kind);return;}if(form.dataset.businessAction){const row=state.rows.find(r=>r.id===form.dataset.businessAction);const body={version:row.version};if(values.reason)body.reason=values.reason;if(values.paymentReference)body.paymentReference=values.paymentReference;await admin.request(`/api/gaeru_ceo/business/${kind}/${row.id}/${values.action}`,{method:'POST',body:JSON.stringify(body)});}else{let body={...values,period:state.period};const numberNames=kind==='payroll'?[...Object.keys(payrollMoney),'plannedDays','workedDays']:kind==='tax'?['netVnd','vatVnd','deductibleVatVnd']:kind==='marketplace'?['netRevenueVnd','refundVnd',...Object.keys(costs)]:[];for(const name of numberNames)body[name]=kind==='marketplace'&&Object.hasOwn(costs,name)&&values[name]===''?null:Number(values[name]);if(kind==='payroll'){body.workedMinutes=Math.round(Number(values.workedHours)*60);delete body.workedHours;}if(kind==='marketplace'){body.reconciled=values.reconciled==='true';if(body.costMode==='warehouse'){body.cogsVnd=null;body.items=[...form.querySelectorAll('[data-stock-line]')].map(row=>({variantId:row.dataset.stockLine,quantity:Number(row.querySelector('input').value)}));}}const serialized=JSON.stringify(body);if(form.dataset.businessPayload!==serialized){form.dataset.businessPayload=serialized;form.dataset.businessKey=crypto.randomUUID();}await admin.request('/api/gaeru_ceo/business/'+kind,{method:'POST',body:JSON.stringify({...body,requestKey:form.dataset.businessKey})});}await load(kind);admin.showGlobal('Đã lưu chứng từ.');}catch(error){if(feedback)feedback.textContent=error.message;else admin.showGlobal(error.message,true);}finally{button.disabled=false;}});

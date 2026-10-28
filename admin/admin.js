@@ -628,7 +628,7 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
-      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}</span></div>
+      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}</span></div>
       <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
       <div class="order-meta">
         <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
@@ -846,6 +846,7 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
 });
 
 async function activateView(view, { updateHistory = true } = {}) {
+  if (view === "owner") return activateView("overview", { updateHistory });
   const button = [...document.querySelectorAll('[data-view]')].find(item => item.dataset.view === view);
   if (!button || button.hidden || (!can(button.dataset.permission)&&!(view==='security'&&state.session?.mfaEnrollmentRequired))) return;
   const requestId = ++state.viewRequest;
@@ -869,7 +870,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
     if (button.dataset.view === "settings") {await loadSettings();if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();}
-    if (button.dataset.view === "overview") await loadSummary();
+    if (button.dataset.view === "overview") { await loadSummary(); if (window.GAERUOwner && (state.session?.role === "owner" || state.user?.role === "owner")) await window.GAERUOwner.load(); }
     if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();
     if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
     if (view === "marketing" && window.GAERUMarketing) await window.GAERUMarketing.load();
@@ -1186,3 +1187,9 @@ document.querySelector('#export-order-excel').addEventListener('click',()=>{
 });
 
 document.querySelector('[data-bulk-process]').addEventListener('click',openBulkProcessing);
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-open-security-settings]")) {
+    activateView("security");
+  }
+});
