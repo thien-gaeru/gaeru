@@ -55,8 +55,37 @@ test('inspectDatabaseTls verifies both direct pg_stat_ssl and pooler/proxy TLS c
   const pooler=await inspectDatabaseTls(poolerPool,{NODE_ENV:'production',PGSSL:'require',DATABASE_URL:'postgres://u:p@ep-pooler.aws.neon.tech/store'});
   assert.equal(pooler.databaseTls,true);
   assert.equal(pooler.databaseCertificateVerified,true);
-  assert.equal(pooler.databaseBackendTls,true);
+  assert.equal(pooler.databaseBackendTls,false);
   assert.equal(pooler.databaseDirectBackendSsl,false);
   assert.equal(pooler.databaseServerSslSetting,'on');
   assert.equal(pooler.databaseTlsProtocol,'TLSv1.3');
+});
+
+test('TLS configuration and server capability never substitute for connection evidence',async()=>{
+  const pool={async connect(){return {
+    async query(sql){
+      if(sql.includes('pg_stat_ssl'))throw Error('Statistics are unavailable');
+      if(sql.includes('current_setting'))return {rows:[{ssl:'on'}]};
+      return {rows:[{}]};
+    },release(){}
+  };}};
+  const result=await inspectDatabaseTls(pool,{NODE_ENV:'production',PGSSL:'require',DATABASE_URL:'postgres://u:p@db.example/store'});
+  assert.equal(result.databaseServerSslSetting,'on');
+  assert.equal(result.databaseBackendTls,null);
+  assert.equal(result.databaseTls,null);
+  assert.equal(result.databaseCertificateVerified,null);
+});
+
+test('database-side TLS does not prove the application authenticated its peer certificate',async()=>{
+  const pool={async connect(){return {
+    async query(sql){
+      if(sql.includes('pg_stat_ssl'))return {rows:[{ssl:true}]};
+      if(sql.includes('current_setting'))return {rows:[{ssl:'on'}]};
+      return {rows:[{}]};
+    },release(){}
+  };}};
+  const result=await inspectDatabaseTls(pool,{NODE_ENV:'production',PGSSL:'require',DATABASE_URL:'postgres://u:p@db.example/store'});
+  assert.equal(result.databaseBackendTls,true);
+  assert.equal(result.databaseTls,null);
+  assert.equal(result.databaseCertificateVerified,null);
 });

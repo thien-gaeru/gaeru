@@ -186,7 +186,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if (!valid || parameters.vnp_TmnCode !== req.vnpayConfig.tmnCode) {
         return res.json({ RspCode: "97", Message: "Invalid signature" });
       }
-      if (parameters.vnp_Command !== "pay") {
+      // VNPAY 2.1 IPN callbacks omit the checkout-only vnp_Command parameter.
+      if (parameters.vnp_Command !== undefined && parameters.vnp_Command !== "pay") {
         return res.json({ RspCode: "99", Message: "Unsupported command" });
       }
 

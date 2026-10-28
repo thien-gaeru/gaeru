@@ -21,9 +21,11 @@ let server;let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEma
 
 async function start() {
   await migrateDatabase(pool);
+  if (shuttingDown) return;
   const mediaCheck=await require('./lib/filesystem-media').probe();
   console.log('Media storage:',JSON.stringify(mediaCheck));
   console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
+  if (shuttingDown) return;
   stopMediaMigration=require('./media-filesystem-migration').startMigration(pool);
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
   stopChatCompression=require('./shopping-chat-compression').startChatCompressionWorker(pool);
@@ -40,17 +42,30 @@ async function start() {
       .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
       .catch(() => console.log("Database TLS active: unavailable"));
   });
+  server.on('error', (error) => {
+    console.error('GAERU listener failed:', errorSummary(error));
+    process.exitCode = 1;
+    void shutdown();
+  });
 }
 
-start().catch((error) => {
-  console.error("GAERU startup failed:", error);
-  process.exitCode = 1;
-});
 let shuttingDown = false;
+function errorSummary(error) {
+  const safe = value => /^[A-Za-z0-9_]{1,50}$/.test(String(value || '')) ? String(value) : 'unavailable';
+  return { name: safe(error?.name), code: safe(error?.code) };
+}
+const startTask = start();
+startTask.catch(async (error) => {
+  console.error('GAERU startup failed:', errorSummary(error));
+  process.exitCode = 1;
+  await shutdown();
+});
 
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  // Let any in-flight startup work settle before closing the pool it is using.
+  await startTask.catch(() => {});
   stopMediaMigration?.();
   stopChatCompression?.();
   stopAIChat?.();
@@ -59,22 +74,21 @@ async function shutdown() {
   stopEmail?.();
   stopWarrantyEmail?.();
   stopOrderEmail?.();
-  server.close(async () => {
-    try {
-      await sessionStore.close();
-    } catch (error) {
-      console.error("Session store shutdown failed:", error);
-      process.exitCode = 1;
-    }
-    try {
-      await pool.end();
-    } catch (error) {
-      console.error("Database shutdown failed:", error);
-      process.exitCode = 1;
-    }
-  });
+  if (server) await new Promise(resolve => server.close(resolve));
+  try {
+    await sessionStore.close();
+  } catch (error) {
+    console.error("Session store shutdown failed:", errorSummary(error));
+    process.exitCode = 1;
+  }
+  try {
+    await pool.end();
+  } catch (error) {
+    console.error("Database shutdown failed:", errorSummary(error));
+    process.exitCode = 1;
+  }
 }
 
-pool.on("error", (error) => console.error("Unexpected database pool error:", error));
+pool.on("error", (error) => console.error("Unexpected database pool error:", errorSummary(error)));
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

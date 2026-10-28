@@ -85,20 +85,10 @@ async function inspectDatabaseTls(pool, config = {}) {
       const settingRow = (await connection.query("SELECT current_setting('ssl', true) AS ssl")).rows[0];
       if (settingRow?.ssl) databaseServerSslSetting = String(settingRow.ssl).toLowerCase();
     } catch {}
-    if (databaseDirectBackendSsl === true) {
-      databaseBackendTls = true;
-    } else if (databaseServerSslSetting === "on" || (databaseTls === true && databaseCertificateVerified === true)) {
-      databaseBackendTls = true;
-    } else if (databaseDirectBackendSsl === false || databaseServerSslSetting === "off") {
-      databaseBackendTls = false;
-    }
-    if (databaseTls === null && config?.DATABASE_URL) {
-      const opts = poolOptions(config);
-      if (opts.ssl && databaseBackendTls === true) {
-        databaseTls = true;
-        databaseCertificateVerified = opts.ssl.rejectUnauthorized === true;
-      }
-    }
+    // Report the observed database session separately from the application socket.
+    // ssl=on describes server capability; a verified socket may terminate at a
+    // pooler, so neither establishes encryption on the pooler's database leg.
+    databaseBackendTls = databaseDirectBackendSsl;
   } finally {
     connection.release();
   }

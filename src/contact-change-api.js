@@ -20,7 +20,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
   const a=parsed.data;let requestId;
   try{
    const owner=(await pool.query('SELECT id,email,phone,password_hash FROM customers WHERE id=$1 AND active=true',[req.customerId])).rows[0];
-   if(!owner||!await bcrypt.compare(a.password,owner.password_hash))throw fail(403,'Mật khẩu hiện tại không đúng.');
+   if(!owner||!require('./audit-fixes/password-rules').withinBcryptLimit(a.password)||!await bcrypt.compare(a.password,owner.password_hash))throw fail(403,'Mật khẩu hiện tại không đúng.');
    if(owner.email===a.email&&owner.phone===a.phone)return res.json({unchanged:true,message:'Email và số điện thoại không thay đổi.'});
    const oldToken=randomBytes(32).toString('base64url'),newToken=owner.email===a.email?null:randomBytes(32).toString('base64url');
    requestId=await withTransaction(pool,async client=>{

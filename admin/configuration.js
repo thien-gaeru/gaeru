@@ -2,7 +2,8 @@
 const admin=window.GAERUAdmin;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let data=null;
-let sessionOwnerPassword='';
+let configModalTrigger=null;
+let configModalPreviousOverflow='';
 
 const titles={
  shipping_ghn:'Giao Hàng Nhanh (GHN)',
@@ -136,7 +137,7 @@ function renderWebhookBox(configId){
  return '<div class="config-url-list">'+(note?'<p style="margin:0 0 8px;font-size:12px;color:#475569;line-height:1.4;">'+esc(note)+'</p>':'')+rows.map(r=>'<div class="config-url-row"><span class="config-url-label">'+esc(r.label)+':</span><code class="config-url-code">'+esc(r.url)+'</code><button type="button" class="config-copy-btn" data-copy="'+esc(r.url)+'">Sao chép</button></div>').join('')+'</div>';
 }
 
-function openConfigModal(configId){
+function openConfigModal(configId,actionButton){
  if(typeof document==='undefined'||typeof document.createElement!=='function')return;
  let backdrop=document.getElementById('config-popup-modal');
  if(!backdrop){
@@ -149,30 +150,38 @@ function openConfigModal(configId){
  const meta=configModalMeta[configId]||{title:titles[configId]||'Cấu hình hệ thống',sub:'Thiết lập tham số và khóa bảo mật',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="12" cy="12" r="3"></circle></svg>'};
  const webhookHtml=renderWebhookBox(configId);
  const formHtml=form(configId);
+ if(backdrop.hidden){
+  configModalTrigger=document.activeElement;
+  configModalPreviousOverflow=document.body.style.overflow||'';
+ }
  backdrop.innerHTML='<div class="config-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modal-title-'+configId+'"><header class="config-modal-header"><div class="config-modal-icon">'+meta.icon+'</div><div class="config-modal-header-text"><h3 class="config-modal-title" id="modal-title-'+configId+'">'+esc(meta.title)+'</h3><p class="config-modal-sub">'+esc(meta.sub)+'</p></div><button type="button" class="config-modal-close" data-close-config-modal aria-label="Đóng">×</button></header><div class="config-modal-body">'+webhookHtml+formHtml+'<div class="config-modal-status" data-modal-status></div></div></div>';
+ if(actionButton?.matches('[data-shipping-enable],[data-payment-enable]')){
+  const confirmButton=actionButton.cloneNode(true);
+  confirmButton.textContent='Xác nhận '+actionButton.textContent.toLocaleLowerCase('vi-VN');
+  backdrop.querySelector('.configuration-actions').prepend(confirmButton);
+ }
  backdrop.hidden=false;
  if(typeof document.body!=='undefined'&&document.body.style){
   document.body.style.overflow='hidden';
  }
- const pwdInput=backdrop.querySelector('input[name="password"]');
- if(pwdInput&&sessionOwnerPassword){
-  pwdInput.value=sessionOwnerPassword;
- }
  const firstInput=backdrop.querySelector('input:not([type=hidden]):not([type=password]), select');
  if(firstInput&&typeof firstInput.focus==='function'){
-  setTimeout(()=>{try{firstInput.focus();}catch(e){}},50);
+  setTimeout(()=>{if(!backdrop.hidden&&firstInput.isConnected)try{firstInput.focus();}catch(e){}},50);
  }
 }
 
 function closeConfigModal(){
  const backdrop=document.getElementById('config-popup-modal');
+ if(!backdrop||backdrop.hidden)return;
  if(backdrop){
   backdrop.hidden=true;
   backdrop.innerHTML='';
  }
  if(typeof document.body!=='undefined'&&document.body.style){
-  document.body.style.overflow='';
+  document.body.style.overflow=configModalPreviousOverflow;
  }
+ if(configModalTrigger?.isConnected&&typeof configModalTrigger.focus==='function')configModalTrigger.focus();
+ configModalTrigger=null;
 }
 
 async function mountShipping(){
@@ -274,24 +283,18 @@ document.addEventListener('click',async event=>{
  const form=details.querySelector('form');
  const id=button.dataset.shippingTest||button.dataset.shippingEnable;
  const status=details.querySelector('[data-shipping-result]')||details.querySelector('[data-modal-status]')||details.querySelector('[role=status]');
- if(form&&form.elements&&form.elements.password&&!form.elements.password.value&&sessionOwnerPassword){
-  form.elements.password.value=sessionOwnerPassword;
- }
  if(!form||!form.elements||!form.elements.password||!form.elements.password.value){
-  if(!sessionOwnerPassword){
-   openConfigModal('shipping_'+id);
+   openConfigModal('shipping_'+id,button);
    if(status)status.textContent='Vui lòng nhập mật khẩu chủ doanh nghiệp để xác thực.';
    return;
-  }
  }
  button.disabled=true;
  try{
   const testing=!!button.dataset.shippingTest;
-  const pwd=form?.elements?.password?.value||sessionOwnerPassword;
+  const pwd=form.elements.password.value;
   const factorCode=form?.elements?.factorCode?form.elements.factorCode.value:'';
   const version=Number(form?.dataset?.version||data?.records?.['shipping_'+id]?.version||0);
   const result=await admin.request('/api/gaeru_ceo/owner/shipping/'+id+(testing?'/test':'/availability'),{method:testing?'POST':'PATCH',body:JSON.stringify({version,...(testing?{}:{enabled:button.dataset.enabled==='true'}),password:pwd,factorCode:factorCode,factorChallengeId:form?.dataset?.challenge})});
-  if(pwd)sessionOwnerPassword=pwd;
   admin.showGlobal(result.message);
   if(status){
    status.textContent=(testing?'✓ ':'')+result.message;
@@ -312,11 +315,13 @@ document.addEventListener('click',async event=>{
     status.className='config-modal-status is-visible is-error';
    }
   }
-  if(error.status===401||error.status===403)sessionOwnerPassword='';
   if(form&&form.elements&&form.elements.password)form.elements.password.value='';
   if(form&&form.elements&&form.elements.factorCode)form.elements.factorCode.value='';
   if(form)delete form.dataset.challenge;
  }finally{
+  if(form&&form.elements&&form.elements.password)form.elements.password.value='';
+  if(form&&form.elements&&form.elements.factorCode)form.elements.factorCode.value='';
+  if(form)delete form.dataset.challenge;
   button.disabled=false;
  }
 });
@@ -341,8 +346,20 @@ document.addEventListener('click',event=>{
 });
 
 document.addEventListener('keydown',event=>{
+ const backdrop=document.getElementById('config-popup-modal');
+ if(!backdrop||backdrop.hidden)return;
  if(event.key==='Escape'){
+  event.preventDefault();
   closeConfigModal();
+  return;
+ }
+ if(event.key==='Tab'){
+  const controls=[...backdrop.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(el=>!el.closest('[hidden]'));
+  const first=controls[0],last=controls.at(-1),active=document.activeElement;
+  if(first&&(!backdrop.contains(active)||(event.shiftKey?active===first:active===last))){
+   event.preventDefault();
+   (event.shiftKey?last:first).focus();
+  }
  }
 });
 
@@ -384,25 +401,19 @@ document.addEventListener('click',async event=>{
  const form=details.querySelector('form');
  const id=button.dataset.paymentTest||button.dataset.paymentEnable;
  const status=details.querySelector('[data-payment-result]')||details.querySelector('[data-modal-status]')||details.querySelector('[role=status]');
- if(form&&form.elements&&form.elements.password&&!form.elements.password.value&&sessionOwnerPassword){
-  form.elements.password.value=sessionOwnerPassword;
- }
  if(!form||!form.elements||!form.elements.password||!form.elements.password.value){
-  if(!sessionOwnerPassword){
    const configId=paymentMap[id]||id;
-   openConfigModal(configId);
+   openConfigModal(configId,button);
    if(status)status.textContent='Vui lòng nhập mật khẩu chủ doanh nghiệp để xác thực.';
    return;
-  }
  }
  button.disabled=true;
  try{
   const testing=!!button.dataset.paymentTest;
-  const pwd=form?.elements?.password?.value||sessionOwnerPassword;
+  const pwd=form.elements.password.value;
   const factorCode=form?.elements?.factorCode?form.elements.factorCode.value:'';
   const version=Number(form?.dataset?.version||data?.records?.[paymentMap[id]||id]?.version||0);
   const result=await admin.request('/api/gaeru_ceo/owner/payments/'+id+(testing?'/test':'/availability'),{method:testing?'POST':'PATCH',body:JSON.stringify({version,...(testing?{}:{enabled:button.dataset.enabled==='true'}),password:pwd,factorCode:factorCode,factorChallengeId:form?.dataset?.challenge})});
-  sessionOwnerPassword=pwd;
   admin.showGlobal(result.message);
   if(status){
    status.textContent=(testing?'✓ ':'')+result.message;
@@ -423,11 +434,13 @@ document.addEventListener('click',async event=>{
     status.className='config-modal-status is-visible is-error';
    }
   }
-  if(error.status===401||error.status===403)sessionOwnerPassword='';
   if(form&&form.elements&&form.elements.password)form.elements.password.value='';
   if(form&&form.elements&&form.elements.factorCode)form.elements.factorCode.value='';
   if(form)delete form.dataset.challenge;
  }finally{
+  if(form&&form.elements&&form.elements.password)form.elements.password.value='';
+  if(form&&form.elements&&form.elements.factorCode)form.elements.factorCode.value='';
+  if(form)delete form.dataset.challenge;
   button.disabled=false;
  }
 });
@@ -586,9 +599,7 @@ document.addEventListener('submit',async e=>{
   const record=data?.records?.[id]||{version:0,data:{}};
   const curVersion=Number(f.dataset.version||record.version||0);
 
-  const inputPwd=f.elements.password?.value?.trim();
-  const effectivePwd=inputPwd||sessionOwnerPassword;
-  if(id!=='profile'&&!effectivePwd){
+   if(id!=='profile'&&!f.elements.password?.value){
    if(f.elements.password&&typeof f.elements.password.focus==='function')f.elements.password.focus();
    showMsg('Vui lòng nhập mật khẩu hiện tại của chủ doanh nghiệp để xác thực.',true);
    if(button)button.disabled=false;
@@ -646,15 +657,12 @@ document.addEventListener('submit',async e=>{
    }
   }
 
-  if(inputPwd)sessionOwnerPassword=inputPwd;
-  else if(sessionOwnerPassword&&f.elements.password)f.elements.password.value=sessionOwnerPassword;
-
   const result=await admin.request('/api/gaeru_ceo/owner/configuration/'+id,{
    method:'PUT',
    body:JSON.stringify({
     data:values,
     version:curVersion,
-    password:f.elements.password?.value||sessionOwnerPassword,
+     password:f.elements.password?.value,
     factorCode:f.elements.factorCode?.value,
     factorChallengeId:f.dataset.challenge
    })
@@ -701,7 +709,6 @@ document.addEventListener('submit',async e=>{
  }catch(error){
   showMsg(error.message,true);
   if(error.status===401||error.status===403){
-   sessionOwnerPassword='';
    if(f.elements.password)f.elements.password.value='';
   }
  }finally{
@@ -748,7 +755,6 @@ document.addEventListener('click',async event=>{
     factorChallengeId:f.dataset.challenge
    })
   });
-  sessionOwnerPassword=pwd;
   const succMsg=result.message+' '+result.provider+' · '+result.model;
   if(status)status.textContent=succMsg;
   if(modalStatus){modalStatus.textContent='✅ '+succMsg;modalStatus.className='config-modal-status is-visible is-success';}
