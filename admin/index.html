@@ -7,7 +7,7 @@
     <title>Quản trị GAERU</title>
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css?v=20261025-ai-diagnostics">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261026-direct-dialogs">
-    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261026-file-library" defer></script>
+    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261028-nav-collapse" defer></script>
     <script src="/gaeru_ceo/assets/admin.js?v=20261026-file-library" defer></script>
     <script src="/gaeru_ceo/assets/enterprise.js?v=20261026-direct-dialogs" defer></script>
     <script src="/gaeru_ceo/assets/tiktok-ads.js?v=20261028-ad-spend" defer></script>
@@ -17,7 +17,7 @@
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261024-sidebar"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261028-config-modal"><script src="/gaeru_ceo/assets/configuration.js?v=20261028-config-modal" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261028-chat-single-media-gray" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261028-chat-single-media-gray"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/orders-workspace.css?v=20261026-return-entry"><script src="/gaeru_ceo/assets/after-sales.js?v=20261026-return-entry" defer></script><script src="/gaeru_ceo/assets/pages.js?v=20261026" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/file-library.css?v=20261026"><script src="/gaeru_ceo/assets/file-library.js?v=20261026" defer></script></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261024-config" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261028-nav-collapse"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261028-config-modal"><script src="/gaeru_ceo/assets/configuration.js?v=20261028-config-modal" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261024-warranty-actions"><script src="/shopping-chat-client.js?v=20261028-chat-single-media-gray" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261028-chat-single-media-gray"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/orders-workspace.css?v=20261026-return-entry"><script src="/gaeru_ceo/assets/after-sales.js?v=20261026-return-entry" defer></script><script src="/gaeru_ceo/assets/pages.js?v=20261026" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/file-library.css?v=20261026"><script src="/gaeru_ceo/assets/file-library.js?v=20261026" defer></script></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -39,20 +39,35 @@
           <nav id="admin-navigation" aria-label="Quản trị">
             <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
             <div class="nav-group"><button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật tài khoản</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden>Quản trị tối cao</button></div>
-            <div class="nav-group"><p class="nav-group-label">Bán hàng</p>
+            <div class="nav-group" data-nav-group="sales">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="sales">
+                <span class="nav-group-title">Bán hàng</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <button class="nav-item" type="button" data-view="payments" data-permission="orders.read">Quản lý thanh toán</button><button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button><button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
               <button class="nav-item" type="button" data-view="shopping-chat" data-permission="customers.read">Chat trực tuyến</button><button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
               <button class="nav-item" type="button" data-view="warranty" data-permission="orders.read">Bảo hành sản phẩm</button>
               <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
               <button class="nav-item" type="button" data-view="file-library" data-permission="settings.read" data-owner-only hidden>Thư viện tệp</button><button class="nav-item" type="button" data-view="pages" data-permission="settings.read">Quản lý trang</button><button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button><button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button><button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
             </div>
-            <div class="nav-group"><p class="nav-group-label">Kho &amp; mua hàng</p>
+            <div class="nav-group" data-nav-group="inventory">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="inventory">
+                <span class="nav-group-title">Kho &amp; mua hàng</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <button class="nav-item" type="button" data-view="inventory" data-permission="inventory.read">Tồn kho &amp; điều chuyển</button>
               <button class="nav-item" type="button" data-view="warehouses" data-permission="inventory.read">Kho hàng</button>
               <button class="nav-item" type="button" data-view="suppliers" data-permission="suppliers.read">Nhà cung cấp</button>
               <button class="nav-item" type="button" data-view="purchases" data-permission="purchases.read">Đơn mua &amp; nhập hàng</button>
             </div>
-            <div class="nav-group"><p class="nav-group-label">Tài chính</p>
+            <div class="nav-group" data-nav-group="finance">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="finance">
+                <span class="nav-group-title">Tài chính</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <button class="nav-item" type="button" data-view="finance" data-permission="finance.read">Công nợ &amp; thanh toán</button>
               <button class="nav-item" type="button" data-view="payroll" data-permission="payroll.read">Tính lương</button>
               <button class="nav-item" type="button" data-view="tax" data-permission="tax.read">Đối chiếu thuế</button>
@@ -60,7 +75,12 @@
               <button class="nav-item" type="button" data-view="marketplace" data-permission="marketplace.read">Sàn TMĐT &amp; lợi nhuận</button>
               <button class="nav-item" type="button" data-view="reports" data-permission="reports.read">Báo cáo kinh doanh</button>
             </div>
-            <div class="nav-group"><p class="nav-group-label">Tổ chức</p>
+            <div class="nav-group" data-nav-group="organization">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="organization">
+                <span class="nav-group-title">Tổ chức</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <button class="nav-item" type="button" data-view="staff" data-permission="staff.read">Nhân viên &amp; quyền</button>
               <button class="nav-item" type="button" data-view="departments" data-permission="staff.read">Phòng ban</button>
               <button class="nav-item" type="button" data-view="audit" data-permission="audit.read">Nhật ký hoạt động</button>
