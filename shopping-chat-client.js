@@ -243,44 +243,75 @@
     form.elements.body.addEventListener('focus',()=>{collapseQuickReplies();actions.hidden=true;plus.setAttribute('aria-expanded','false');root.querySelector('[data-chat-reference]').hidden=true;});
     plus.onclick=()=>{collapseQuickReplies();actions.hidden=!actions.hidden;plus.setAttribute('aria-expanded',String(!actions.hidden));};
     root.querySelector('[data-chat-earlier]').onclick=()=>refresh(messages.querySelector('[data-message-id]')?.dataset.messageId).catch(e=>feedback.textContent=e.message);
+    // Mobile pickers (iOS Photos, Android Google Photos) may return to the page
+    // before or without firing `change`; track the open picker and re-check
+    // its files when the page regains focus/visibility.
+    let activePicker=null,pickerTimers=[];
+    function clearPickerTimers(){while(pickerTimers.length)clearTimeout(pickerTimers.pop());}
+    function takePickedFiles(input){
+      if(!input)return;
+      // Copy File references first, then reset the input synchronously so the
+      // same selection can never be processed twice (change + focus fallback).
+      const picked=[...(input.files||[])];
+      if(!picked.length)return;
+      try{input.value='';}catch(e){}
+      if(activePicker===input){activePicker=null;clearPickerTimers();}
+      for(const file of picked){
+        if(!file.size&&file.size!==undefined){
+          feedback.textContent=`Tệp "${file.name||'đã chọn'}" không có dữ liệu (0 KB). Vui lòng chọn tệp hợp lệ.`;
+          return;
+        }
+        const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic|heif)$)/i.test(file.type||file.name);
+        if(!isImage&&file.size>100*1024*1024){
+          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Vui lòng chọn tệp nhỏ hơn.`;
+          return;
+        }
+      }
+      for(const file of picked){
+        files.push({
+          file,
+          key:crypto.randomUUID(),
+          url:/^(image|video)\//i.test(file.type)||/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)?URL.createObjectURL(file):null
+        });
+      }
+      feedback.textContent='';
+      actions.hidden=true;plus.setAttribute('aria-expanded','false');
+      renderFiles();
+      // Defer layout work to the next frame so iOS Safari repaints after the
+      // native picker closes, then bring the preview + send button into view.
+      requestAnimationFrame(()=>{
+        renderFiles();
+        const selected=root.querySelector('[data-chat-selected]');
+        try{selected?.scrollIntoView?.({block:'nearest'});}catch(e){}
+        try{send.scrollIntoView?.({block:'nearest'});}catch(e){}
+      });
+    }
+    function recheckPicker(){
+      if(!activePicker)return;
+      const input=activePicker;
+      clearPickerTimers();
+      // Some Android/iOS builds populate input.files slightly after focus returns.
+      for(const delay of [0,250,700,1500,3000])pickerTimers.push(setTimeout(()=>takePickedFiles(input),delay));
+      pickerTimers.push(setTimeout(()=>{if(activePicker===input)activePicker=null;},3200));
+    }
+    const onPickerReturn=()=>{if(globalThis.document?.visibilityState!=='hidden')recheckPicker();};
+    window.addEventListener?.('focus',onPickerReturn);
+    document.addEventListener?.('visibilitychange',onPickerReturn);
     root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>{
       actions.hidden=true;plus.setAttribute('aria-expanded','false');
       const input=root.querySelector('[data-file="'+button.dataset.pick+'"]');
-      if(input)input.click();
+      if(!input)return;
+      clearPickerTimers();
+      activePicker=input;
+      try{input.value='';}catch(e){}
+      input.click();
     });
-        root.querySelectorAll('[data-file]').forEach(input=>{
-      // Use addEventListener (not onchange) so we can also attach 'cancel' for iOS dismiss
-      input.addEventListener('change',()=>{
-        const picked=[...(input.files||[])];if(!picked.length)return;
-        for(const file of picked){
-          if(!file.size&&file.size!==undefined){
-            feedback.textContent=`Tệp "${file.name||'đã chọn'}" không có dữ liệu (0 KB). Vui lòng chọn tệp hợp lệ.`;
-            try{input.value='';}catch(e){}return;
-          }
-          const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic|heif)$)/i.test(file.type||file.name);
-          if(!isImage&&file.size>100*1024*1024){
-            feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 100 MiB. Vui lòng chọn tệp nhỏ hơn.`;
-            try{input.value='';}catch(e){}return;
-          }
-        }
-        for(const file of picked){
-          files.push({
-            file,
-            key:crypto.randomUUID(),
-            url:/^(image|video)\//i.test(file.type)||/\.(jpe?g|png|webp|gif|heic|heif|mp4|mov|m4v|webm|mkv|avi)$/i.test(file.name)?URL.createObjectURL(file):null
-          });
-        }
-        renderFiles();
-        feedback.textContent='';
-        actions.hidden=true;plus.setAttribute('aria-expanded','false');
-        // iOS Safari fix: use rAF chain to force DOM repaint before resetting input
-        requestAnimationFrame(()=>{
-          form.elements.body.focus({preventScroll:true});
-          requestAnimationFrame(()=>{try{input.value='';}catch(e){}});
-        });
-      });
-      // iOS: user dismissed picker without choosing — close actions panel
+    root.querySelectorAll('[data-file]').forEach(input=>{
+      input.addEventListener('change',()=>takePickedFiles(input));
+      input.addEventListener('input',()=>takePickedFiles(input));
+      // User dismissed the picker without choosing — close the actions panel.
       input.addEventListener('cancel',()=>{
+        if(activePicker===input){activePicker=null;clearPickerTimers();}
         actions.hidden=true;plus.setAttribute('aria-expanded','false');
       });
     });
@@ -459,7 +490,7 @@
       const bodyText=form.elements.body.value.trim();
       const queued=files.splice(0,files.length);
       if(!bodyText&&!queued.length){feedback.textContent='Nhập tin nhắn hoặc chọn tệp.';return;}
-      form.elements.body.value='';
+      form.elements.body.value='';form.elements.body.style.height='';
       if(!form.elements.body.disabled)form.elements.body.focus?.({preventScroll:true});
       renderFiles();
       dispatchInstantSend(bodyText,queued);
@@ -551,6 +582,6 @@
     if(!admin)void loadCapabilities();
     const poll=window.GAERUCareLive.poll({delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
-    return {refresh,stop(){stopped=true;clearFastAiTimers();poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};
+    return {refresh,stop(){stopped=true;clearFastAiTimers();clearPickerTimers();activePicker=null;window.removeEventListener?.('focus',onPickerReturn);document.removeEventListener?.('visibilitychange',onPickerReturn);poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};
   }};
 })();
