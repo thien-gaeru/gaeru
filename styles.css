@@ -1078,3 +1078,35 @@ svg.points-mark{width:180px;height:180px;right:24px;bottom:-32px;color:rgb(8 127
 
 .checkout-form .checkout-field-title{display:block;color:var(--ink,#1d1d1f);font-weight:600;line-height:1.5}.checkout-field-title small{font-size:inherit;color:var(--muted);font-weight:400}.checkout-contact-details .form-row{align-items:start}.checkout-note{min-width:0}
 .checkout-contact-details input:not([type="hidden"]),.checkout-contact-details select{min-height:48px}
+
+input.is-invalid,select.is-invalid,textarea.is-invalid,
+input[data-invalid="true"],select[data-invalid="true"],textarea[data-invalid="true"],
+input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{
+  border-color:#ef4444!important;
+  box-shadow:0 0 0 3px rgba(239,68,68,.18)!important;
+  background-color:#fff9f9!important;
+}
+.field-error-msg{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  color:#b91c1c;
+  background:#fef2f2;
+  border:1px solid #fecaca;
+  border-radius:8px;
+  padding:6px 12px;
+  font-size:12px;
+  font-weight:600;
+  margin-top:6px;
+  line-height:1.4;
+  animation:gaeru-field-shake .25s ease-in-out;
+}
+.field-error-msg svg{
+  flex-shrink:0;
+  color:#ef4444;
+}
+@keyframes gaeru-field-shake{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-3px)}
+  75%{transform:translateX(3px)}
+}
