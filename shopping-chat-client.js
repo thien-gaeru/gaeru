@@ -4,10 +4,14 @@
     file: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
     media: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 15-4.5-4.5a1.5 1.5 0 0 0-2.1 0L6 19"/></svg>',
     orders: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 11h8M8 15h6"/></svg>',
-    hotline: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'
+    voucher: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3 3 3 0 0 0 0 6 3 3 0 0 1-3 3H5a3 3 0 0 1-3-3 3 3 0 0 0 0-6z"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="15" x2="15.01" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>',
+    campaign: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>',
+    hotline: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.58 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
+    human: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>',
+    endChat: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
   };
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[];
+    let stopped=false, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[], pendingUploads=new Map();
     const quickReplies = admin
       ? [
           'Xin chào! GAERU đã nhận thông tin và đang kiểm tra giúp bạn.',
@@ -37,6 +41,9 @@
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="2" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
       <button class="chat-send" type="submit" tabindex="-1" data-no-action-feedback aria-label="Gửi tin nhắn">↑</button></div>
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
+      <button type="button" data-pick="file">${ICONS.file}<span>Tệp<small>Không giới hạn dung lượng · Tự động nén ngầm</small></span></button>
+      <button type="button" data-pick="media">${ICONS.media}<span>Ảnh / Video<small>Không giới hạn dung lượng · Tải ngầm sau khi gửi</small></span></button>
+      ${admin?(window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:''):`<button type="button" data-reference="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">${ICONS.voucher}<span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-hotline>${ICONS.hotline}<span>Gọi hotline<small>Quay số 0829191080</small></span></button><button type="button" data-chat-human>${ICONS.human}<span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>${ICONS.endChat}<span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>`}
       <div data-chat-reference class="chat-reference" hidden></div>
       <input hidden type="file" multiple data-file="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,.csv">
       <input hidden type="file" multiple data-file="media" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo">
@@ -227,7 +234,17 @@
     root.querySelectorAll('[data-pick]').forEach(button=>button.onclick=()=>root.querySelector('[data-file="'+button.dataset.pick+'"]').click());
     root.querySelectorAll('[data-file]').forEach(input=>input.onchange=()=>{
       const picked=[...(input.files||[])];input.value='';if(!picked.length)return;
-      if(picked.some(file=>!file.size||file.size>10*1024*1024)){feedback.textContent='Tệp phải có dữ liệu và không vượt quá 10 MiB. Vui lòng chọn lại.';return;}
+      for(const file of picked){
+        if(!file.size){
+          feedback.textContent=`Tệp "${file.name}" không có nội dung (0 KB). Vui lòng chọn tệp hợp lệ.`;
+          return;
+        }
+        const isImage=/^(image\/|.*\.(jpe?g|png|webp|gif|heic)$)/i.test(file.type||file.name);
+        if(!isImage&&file.size>10*1024*1024){
+          feedback.textContent=`Tệp "${file.name}" (${formatSize(file.size)}) vượt quá dung lượng tối đa 10 MiB. Vui lòng chọn tệp nhỏ hơn.`;
+          return;
+        }
+      }
       for(const file of picked){
         files.push({file,key:crypto.randomUUID(),url:/^(image|video)\//.test(file.type)?URL.createObjectURL(file):null});
       }
@@ -271,9 +288,26 @@
 
     async function uploadFileInBackground(threadId,item,statusNode){
       if(statusNode)statusNode.textContent='Đang nén tệp ngầm tự động…';
-      if(!item.file?.size||item.file.size>10*1024*1024)throw Error('Tệp vượt giới hạn 10 MiB.');
       const prepared=await compressFileInBackground(item.file);
-      if(!prepared?.size||prepared.size>10*1024*1024)throw Error('Tệp vượt giới hạn 10 MiB.');
+      if(!prepared?.size)throw Error('Tệp không có nội dung hợp lệ.');
+      if(prepared.size>10*1024*1024)throw Error(`Dung lượng sau khi nén (${formatSize(prepared.size)}) vẫn vượt quá mức 10 MiB.`);
+
+      async function doRequestWithRetry(url,options,maxAttempts=3){
+        for(let attempt=1;attempt<=maxAttempts;attempt++){
+          try{
+            return await request(url,options);
+          }catch(err){
+            const isCapacity=err.status===429||/busy|capacity/i.test(err.message||'');
+            if(isCapacity&&attempt<maxAttempts){
+              if(statusNode)statusNode.textContent=`Hệ thống đang bận, tự động thử lại (${attempt}/${maxAttempts-1})…`;
+              await new Promise(r=>setTimeout(r,attempt*1000));
+              continue;
+            }
+            throw err;
+          }
+        }
+      }
+
       const chunkBytes=4194304;
       if(prepared.size>chunkBytes){
         const totalChunks=Math.ceil(prepared.size/chunkBytes);
@@ -288,14 +322,14 @@
           data.append('totalBytes',String(prepared.size));
           const pct=Math.round(((i+1)/totalChunks)*100);
           if(statusNode)statusNode.textContent=`Đang tải ngầm & nén tự động… ${pct}%`;
-          await request(base+'/'+threadId+'/files/chunk',{method:'POST',body:data});
+          await doRequestWithRetry(base+'/'+threadId+'/files/chunk',{method:'POST',body:data});
         }
       }else{
         if(statusNode)statusNode.textContent='Đang tải lên hệ thống ngầm…';
         const data=new FormData();
         data.append('file',prepared,prepared.name);
         data.append('requestKey',item.key);
-        await request(base+'/'+threadId+'/files',{method:'POST',body:data});
+        await doRequestWithRetry(base+'/'+threadId+'/files',{method:'POST',body:data});
         void request(base+'/'+threadId+'/files/compress',{method:'POST',body:'{}'}).catch(()=>{});
       }
     }
@@ -335,24 +369,45 @@
             await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body:textBody,requestKey:msgKey})});
           }
           if(!queuedFiles.length)scheduleFastAIRefresh();
-          for(const {item,node} of fileNodes){
-            const statusNode=node?.querySelector('[data-bg-status]');
-            try{
-              await uploadFileInBackground(id,item,statusNode);
-              if(statusNode)statusNode.remove();
-            }finally{
-              release(item);
-            }
-          }
-          await refresh();
-          if(!admin&&thread?.aiPending)scheduleFastAIRefresh();
-          feedback.textContent='';
         }catch(error){
           syncAiTypingIndicator(false);
           const msgStatus=textNode?.querySelector('[data-bg-status]');
-          if(msgStatus)msgStatus.textContent='Chưa gửi được: '+error.message;
+          if(msgStatus){
+            msgStatus.className='chat-bg-status chat-bg-error';
+            msgStatus.textContent='Chưa gửi được: '+error.message;
+          }
+          for(const {node} of fileNodes){
+            const statusNode=node?.querySelector('[data-bg-status]');
+            if(statusNode){
+              statusNode.className='chat-bg-status chat-bg-error';
+              statusNode.textContent='Tạm dừng tải tệp do lỗi gửi tin nhắn.';
+            }
+          }
           feedback.textContent=error.message;
+          return;
         }
+
+        let anySuccess=false;
+        for(const {item,node} of fileNodes){
+          pendingUploads.set(item.key,{item,node});
+          const statusNode=node?.querySelector('[data-bg-status]');
+          try{
+            await uploadFileInBackground(id,item,statusNode);
+            if(statusNode)statusNode.remove();
+            pendingUploads.delete(item.key);
+            release(item);
+            anySuccess=true;
+          }catch(fileErr){
+            if(statusNode){
+              statusNode.className='chat-bg-status chat-bg-error';
+              statusNode.innerHTML=`<span>Lỗi tải tệp: ${escape(fileErr.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
+            }
+            feedback.textContent=`Chưa tải được tệp "${item.file.name}": ${fileErr.message}`;
+          }
+        }
+        await refresh();
+        if(!admin&&thread?.aiPending)scheduleFastAIRefresh();
+        if(anySuccess)feedback.textContent='';
       });
     }
 
@@ -403,6 +458,31 @@
       setClosed();
       form.elements.body.focus?.({preventScroll:true});
     }
+    async function retryFileUpload(fileKey){
+      const entry=pendingUploads.get(fileKey);
+      if(!entry||!id)return;
+      const {item,node}=entry;
+      const statusNode=node?.querySelector('[data-bg-status]');
+      if(statusNode){
+        statusNode.className='chat-bg-status';
+        statusNode.textContent='Đang thử lại tải tệp…';
+      }
+      feedback.textContent='';
+      try{
+        await uploadFileInBackground(id,item,statusNode);
+        if(statusNode)statusNode.remove();
+        pendingUploads.delete(item.key);
+        release(item);
+        await refresh();
+        feedback.textContent='';
+      }catch(err){
+        if(statusNode){
+          statusNode.className='chat-bg-status chat-bg-error';
+          statusNode.innerHTML=`<span>Lỗi tải tệp: ${escape(err.message)}</span> <button type="button" class="chat-retry-upload" data-retry-file="${escape(item.key)}" data-no-action-feedback>Thử lại</button>`;
+        }
+        feedback.textContent=`Chưa tải được tệp "${item.file.name}": ${err.message}`;
+      }
+    }
     function dialHotline(event){
       const hotlineEl=event.target.closest('button[data-chat-hotline]');
       if(!hotlineEl)return;
@@ -411,6 +491,12 @@
       if(typeof window!=='undefined'&&window.location)window.location.href='tel:0829191080';
     }
     root.addEventListener('click',event=>{
+      const retryBtn=event.target.closest('[data-retry-file]');
+      if(retryBtn){
+        event.preventDefault();
+        void retryFileUpload(retryBtn.dataset.retryFile);
+        return;
+      }
       if(event.target.closest('button[data-chat-hotline]'))dialHotline(event);
       else if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();
       else if(event.target.closest('[data-chat-end]'))void endChatSession();
@@ -420,6 +506,6 @@
     if(!admin)void loadCapabilities();
     const poll=window.GAERUCareLive.poll({delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
-    return {refresh,stop(){stopped=true;clearFastAiTimers();poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];},get thread(){return thread;}};
+    return {refresh,stop(){stopped=true;clearFastAiTimers();poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};
   }};
 })();
