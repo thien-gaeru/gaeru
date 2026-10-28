@@ -452,6 +452,11 @@
   border: 1px solid #bbf7d0;
   color: #15803d;
 }
+.config-modal-status.is-notice {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
 
 @media (prefers-color-scheme: dark) {
   .config-modal-dialog {

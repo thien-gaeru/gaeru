@@ -1,14 +1,14 @@
 # Rà soát mã nguồn GAERU ngày 28 tháng 10 năm 2026
 
-Đã đồng bộ mã nguồn mới nhất từ nhánh mặc định `gaeru` của [thien-gaeru/gaeru](https://github.com/thien-gaeru/gaeru) và rà soát trên nhánh riêng `audit/2026-10-28`. Xác nhận 12 lỗi: đã vá 10, còn 2 liên quan tích hợp thanh toán. Bộ kiểm thử sau vá đạt **422/422**, không bỏ qua test, trên **Node.js 24.22.1**.
+Đã đồng bộ mã nguồn mới nhất từ nhánh mặc định `gaeru` của [thien-gaeru/gaeru](https://github.com/thien-gaeru/gaeru) và rà soát trên nhánh riêng `audit/2026-10-28`. Đã vá **12/12 lỗi mã nguồn được xác nhận**, bao gồm hai lỗi tích hợp thanh toán. Bộ kiểm thử sau toàn bộ bản vá đạt **456/456**, không bỏ qua test, trên **Node.js 24.22.1**. Xác minh provider thật vẫn cần merchant sandbox; đây không phải tuyên bố đã nghiệm thu thanh toán production.
 
 | Mức độ | Tổng lỗi xác nhận | Đã vá | Còn lại |
 | --- | ---: | ---: | ---: |
 | Critical | 0 | 0 | 0 |
-| High | 2 | 1 | 1 |
-| Medium | 9 | 8 | 1 |
+| High | 2 | 2 | 0 |
+| Medium | 9 | 9 | 0 |
 | Low | 1 | 1 | 0 |
-| Tổng | 12 | 10 | 2 |
+| Tổng | 12 | 12 | 0 |
 
 Không có thao tác push, deploy, thay khóa, chỉnh cơ sở dữ liệu production, gửi email thật hoặc thanh toán thật trong đợt này. Các kết quả HTTP và giao diện dưới đây dùng máy chủ riêng trên `127.0.0.1`, PostgreSQL nhúng trong bộ nhớ và dữ liệu thử nghiệm; chúng không xác nhận trạng thái vận hành production.
 
@@ -40,25 +40,29 @@ Các số dòng dưới đây theo bản mã sau vá. Mỗi nhóm có test thự
 
 G01 dựa trên [đặc tả thanh toán VNPAY](https://sandbox.vnpayment.vn/apis/docs/thanh-toan-pay/pay.html). Fixture chữ ký hợp lệ trong test không thay thế giao dịch merchant sandbox thực tế.
 
-## Lỗi còn lại và cách sửa
+## Bản vá thanh toán và kiểm thử tích hợp
 
-### G11 High Luồng tạo phiên thanh toán MoMo và ZaloPay chưa đúng
+### G11 High Tạo phiên thanh toán MoMo và ZaloPay
 
-**Vị trí:** `src/payment-channels.js:103` và `:126`; nơi dùng `src/store-api.js:451`.
+**Đã vá.** Vị trí: `src/payment-provider-clients.js:142`, `:182`; tích hợp checkout `src/store-api.js:431`; xác minh callback `src/payment-channels.js:93`.
 
-Hai builder tự ghép URL GET tại `/v2/gateway/pay` và `/v2/pay`; chưa gọi API xác thực phía máy chủ để tạo đơn tại nhà cung cấp và dùng `payUrl` hoặc `order_url` trả về. Vì các kênh có thể được bật trong cấu hình, checkout có thể tạo đơn chờ và giữ hàng cục bộ rồi đưa khách sang URL chưa phải phiên thanh toán do nhà cung cấp cấp. Test hiện tại kiểm tra URL tự ghép và callback mô phỏng, nên vẫn đạt dù luồng tích hợp này thiếu.
+Trước vá, hai builder tự ghép URL GET thay cho tạo đơn tại provider. Đã thay bằng POST tạo đơn và truy vấn theo [MoMo](https://developers.momo.vn/v3/docs/payment/api/wallet/onetime/) và [ZaloPay](https://docs.zalopay.vn/vi/docs/specs/order-create/). Chỉ trả `payUrl`/`order_url` do provider cấp; kiểm tra mã kết quả, trường ID/số tiền có thể đối chiếu và host HTTPS cố định. Giới hạn phản hồi 64 KiB, timeout 30 giây, không tự retry, không lộ body chứa dữ liệu provider trong lỗi.
 
-[MoMo](https://developers.momo.vn/v3/vi/docs/payment/api/wallet/onetime/) yêu cầu API tạo thanh toán `/v2/gateway/api/create`; [ZaloPay](https://docs.zalopay.vn/vi/docs/specs/order-create/) có API tạo đơn, và [luồng cổng thanh toán ZaloPay](https://developers.zalopay.vn/v2/docs/gateway/guide.html) chuyển hướng bằng URL trả về sau khi tạo đơn thành công.
+Lưu provider request ID với đơn; app_trans_id ZaloPay dùng ngày Việt Nam. Callback chỉ nhận định dạng/chữ ký chính thức, đối chiếu merchant, request ID, số tiền và đơn. MoMo trả HTTP 204 khi ghi nhận hoặc xử lý lặp thành công. Browser return chỉ hiển thị; không ghi thu tiền. Trang kết quả đọc trạng thái máy chủ tối đa 6 lần/30 giây, có timeout, kiểm tra lại và nội dung đúng với đơn hủy/đang giao/hoàn tất.
 
-**Cách sửa:** adapter riêng theo hợp đồng từng nhà cung cấp; kiểm tra chữ ký, mã kết quả và host URL trả về; lưu request ID/provider ID phục vụ truy vấn và xử lý callback lặp; test contract với merchant sandbox trước khi mở checkout. Giữ những kênh chưa có adapter được xác minh ở trạng thái không khả dụng cho người mua. Chưa tự đổi endpoint hoặc vô hiệu hóa cấu hình thật vì chưa có dữ liệu merchant và cần kiểm tra toàn bộ luồng. 9Pay cũng có builder cục bộ, nhưng chưa có hợp đồng merchant đủ để kết luận cùng một lỗi giao thức.
+Tắt kênh chặn đơn mới nhưng tiếp tục xử lý callback đang chờ. Khóa thay tài khoản/secret/môi trường khi còn giao dịch pending; sửa fallback VNPAY để cấu hình môi trường không làm kênh đã tắt sống lại. Lỗi tạo phiên rollback đơn, kho và outbox cục bộ. Callback lặp không ghi phiếu thu lần hai. Bỏ các builder và chữ ký rút gọn suy đoán. 9Pay không được bật/tạo checkout/settle tự động khi chưa có hợp đồng adapter; không tuyên bố đã tích hợp 9Pay.
 
-### G12 Medium Kiểm tra gateway có thể báo xác minh thành công với HTTP 404 và khóa giả
+**Bằng chứng:** 12 test provider client, 6 test callback và kiểm thử PGlite tại `test/payment-channels.test.js:40` kiểm tra request thật qua fetch double, provider-issued URL, rollback, browser return chính thức, pending config, disabled callback, sai chữ ký/request/số tiền và callback lặp. 7 test trang kết quả xác nhận URL không thể tự làm đơn thành paid, polling có giới hạn và không ghi đè từ phản hồi cũ. Không gọi provider thật hoặc chuyển tiền.
 
-**Vị trí:** `src/payment-channels.js:371`; điều kiện HTTP tại `:423`, `:449`, `:475`, `:501`; ghi `verified_at` tại `:534`.
+### G12 Medium Phân biệt cấu hình liên lạc và xác thực tài khoản
 
-Luồng kiểm tra xác thực định dạng chuỗi, tự tính HMAC, rồi GET một URL công khai không mang thông tin xác thực. Mọi HTTP status dưới 500 được coi là thành công. Tái hiện bằng credentials giả và fetch double trả `{ok:false,status:404}` cho VNPAY, 9Pay, MoMo và ZaloPay: cả bốn trả `verified:true`, `method:gateway_handshake`. HTTP 200 của trang công khai cũng không chứng minh merchant hoặc khóa hợp lệ.
+**Đã vá.** Vị trí: `src/payment-channels.js:295`, `:324`, `:348`; migration `db/payment-provider-verification.sql`; UI `admin/configuration.js`.
 
-**Cách sửa:** tách trạng thái liên lạc được máy chủ khỏi trạng thái xác thực tài khoản; public probe chỉ trả reachability, `verified:false` và không ghi `verified_at`. Chỉ đánh dấu xác minh khi có phản hồi API được xác thực hoặc giao dịch sandbox đã đối soát. Đổi điều kiện sang `response.ok` là cần thiết nhưng chưa đủ. Kiểm tra chuỗi thông tin chuyển khoản cũng phải ghi rõ là kiểm tra định dạng, không phải xác minh quyền sở hữu tài khoản ngân hàng. Chưa thay hành vi xác minh/bật kênh trong đợt vá nhỏ này vì cần đồng bộ API, dữ liệu xác minh cũ và giao diện.
+Trước vá, public HTTP 404 với khóa giả vẫn trả verified:true và ghi verified_at. Hiện COD/ngân hàng chỉ được đánh dấu kiểm tra cấu hình; HTTP public 200/404 không xác minh merchant. Probe query với mã đơn không tồn tại giữ verified:false. Chỉ API tạo đơn hợp lệ, truy vấn đơn đã có khớp số tiền hoặc callback đã đối chiếu mới tạo bằng chứng có phương thức, phạm vi và version đúng.
+
+Xác thực API không tuyên bố callback Key 2 của ZaloPay đã được thử. Timestamp hoặc method không khớp scope bị bỏ qua. Migration thu hồi dấu xác minh probe cũ, giữ lựa chọn và cấu hình mã hóa. Giao diện phân biệt đã cấu hình, liên lạc được, xác thực API và xác thực phản hồi; không hiển thị thông báo tự so khớp ngân hàng khi chưa có adapter.
+
+**Bằng chứng:** `test/payment-verification-state.test.js` chạy migration nâng cấp, kiểm tra giá trị cũ, version/scope, HTTP404/200 và VNPAY môi trường đã tắt; `test/payment-verification-ui.test.js` kiểm tra nhãn, phản hồi và chặn bật 9Pay. Kiểm tra trình duyệt qua form đăng nhập với tài khoản fixture riêng xác nhận hiển thị đúng trên 390×844 sau cuộn, không tràn ngang hoặc có lỗi console. Ảnh chụp dùng dữ liệu giả lập, không chứng minh tài khoản merchant thật.
 
 ## Kết quả kiểm tra
 
@@ -69,15 +73,15 @@ Luồng kiểm tra xác thực định dạng chuỗi, tự tính HMAC, rồi GE
 | Phiên bản mới | `@aws-sdk/client-s3` 3.1156.0 có patch 3.1158.0; PGlite ghim 0.5.11 có 0.5.12. Ghi nhận để bảo trì; không tự nâng khi chưa cần cho bản vá. |
 | Runtime đúng phiên bản | Tải Node 24.22.1 từ nodejs.org và đối chiếu SHA-256 với manifest chính thức; không thay Node toàn máy. Node cài sẵn 24.21.0 nằm trong engines nhưng khác bản ghim. |
 | Test trước vá | **405/405**, Node 24.21.0, thời gian khoảng 52,8 giây; vẫn bỏ sót các lỗi đã tái hiện riêng. |
-| Test sau vá | **422/422**, 0 fail, 0 skip, 0 cancelled; Node 24.22.1, khoảng **54,1 giây**, `node --test --test-concurrency=2`. |
-| Cú pháp và import | Kiểm tra mọi JS/CJS nền bằng `node --check`; không có lỗi cú pháp hoặc relative `require` tĩnh bị thiếu. Các file test mới cũng được thực thi trong toàn bộ suite. Quét tĩnh không chứng minh mọi import/URL tạo động đều đúng. |
+| Test sau vá | **456/456**, 0 fail, 0 skip, 0 cancelled; Node 24.22.1, khoảng **55,6 giây**, `node --test --test-concurrency=2`. |
+| Cú pháp và import | Kiểm tra toàn bộ 262 JS/CJS sau vá bằng `node --check`; không có lỗi cú pháp hoặc relative `require` tĩnh bị thiếu. Các file test mới cũng được thực thi trong toàn bộ suite. Quét tĩnh không chứng minh mọi import/URL tạo động đều đúng. |
 | Build lint typecheck | Dự án CommonJS/HTML/CSS không có bước đóng gói, không có TypeScript hoặc script `build`, `lint`, `typecheck`. Không báo các bước này là đã chạy/đạt. Thay thế phù hợp cho cấu trúc hiện tại là syntax, dependency resolution, startup HTTP và test; chưa có kiểm tra lint/type toàn codebase. |
 | Database và storage | Test PGlite chạy migration, giao dịch, ràng buộc, sở hữu dữ liệu, xử lý lặp, kho, đơn, tài chính và các nhánh media. Mock S3/SMTP/provider. Không đối chiếu schema/index/backup/quyền hoặc dữ liệu DB production. |
 | HTTP route và SEO | Máy chủ local trả **200 cho 26/26 URL sitemap** từ fixture; mỗi trang có `lang`, title, description, canonical và một H1. Test có server render, schema, robots, URL sạch, draft không công khai, DB lỗi trả 503. Không xác nhận index Google. |
 | Tài nguyên giao diện | Đối chiếu 33 HTML: không thấy tệp JS/CSS/ảnh/poster cục bộ được tham chiếu bị thiếu sau khi ánh xạ đúng `/gaeru_ceo/assets/`; không thấy ID trùng hoặc ảnh tĩnh thiếu alt, HTML thiếu viewport/lang. Dynamic DOM và toàn bộ tiêu chí WCAG chưa được chứng nhận. |
 | Responsive và accessibility thực tế | Kiểm tra bằng trình duyệt trang chủ, cửa hàng, sản phẩm sau cuộn và popup thanh toán ở **390×844**; checkout khóa ở **320×740**. Mẫu đo không có tràn ngang; popup 358×760 nằm trong viewport, dùng được Tab/Escape. Chưa xác minh mọi trang, hướng xoay, thiết bị thật hoặc đầy đủ form checkout đang bật. |
 | Security API auth input | Suite bao phủ CSRF, role/permission, MFA, token một lần, replay, sở hữu đơn/địa chỉ, version check và đầu vào; đã sửa G02/G07/G10. Đọc mã các router và SQL tham số hóa; không gọi đây là chứng nhận penetration test. |
-| Secrets | Quét 261 commit, 4.298 Git object, 3.072 text blob lịch sử theo 9 nhóm chữ ký. 8 ứng viên hiện tại/13 lịch sử đều là URL PostgreSQL mẫu/test; **không xác nhận credential thật**. Bỏ qua binary và text blob trên 2 MiB; không quét cấu hình hosting/log/nhánh chưa tải, không bảo đảm bắt được secret định dạng tùy ý. |
+| Secrets | Quét 262 commit đến checkpoint audit trước bản vá thanh toán, 4.325 Git object, 3.093 text blob lịch sử và toàn bộ mã hiện tại theo 9 nhóm chữ ký. 9 ứng viên hiện tại/21 lịch sử đều là URL PostgreSQL mẫu/test; **không xác nhận credential thật**. Bỏ qua binary và text blob trên 2 MiB; không quét cấu hình hosting/log/nhánh chưa tải, không bảo đảm bắt được secret định dạng tùy ý. |
 | Runtime error handling logging | Thử HTTP, lỗi JSON/DB, upload ngắt, startup/listener lỗi, shutdown sớm và làm sạch log. Test local không chứng minh máy chủ production không có lỗi hoặc hết tài nguyên dưới tải. |
 | Performance | Test có compression, cache public/versioned assets, no-store dữ liệu riêng và bộ nhớ upload. Đọc toàn buffer khi phục vụ media/range vẫn là cơ hội tối ưu; chưa có số đo tải production hay LCP/CLS/INP trên điện thoại thật. |
 | Dead code | Kiểm tra liên kết/import, phạm vi script storefront, các module dùng chung và handler mới; chưa có bằng chứng đủ để xóa nhánh mã an toàn. Không xóa code chỉ vì tìm kiếm tĩnh không thấy nơi gọi. |
@@ -92,15 +96,17 @@ Luồng kiểm tra xác thực định dạng chuỗi, tự tính HMAC, rồi GE
 - **Thời hạn phiên nhàn rỗi:** phát hiện polling mới làm suy yếu quy tắc cũ; đã vá G02.
 - **TLS:** yêu cầu kết nối có xác minh vẫn được giữ; sửa phần chẩn đoán G04 vốn suy diễn quá mức so với giới hạn trong báo cáo cũ.
 - **Mobile:** đã bổ sung kiểm tra trình duyệt sau cuộn trên các trang mẫu, cùng kiểm tra bàn phím popup; chưa đóng yêu cầu kiểm tra mọi trang/điện thoại.
-- **Tích hợp nhà cung cấp:** chưa thể coi hoàn tất AI thật, email đến hộp thư, vận đơn/tem/webhook hãng, toàn bộ object lưu trữ, Core Web Vitals hoặc index Google. G11/G12 còn là lỗi mã được xác nhận, bên cạnh các giới hạn vận hành đó.
+- **Tích hợp nhà cung cấp:** chưa thể coi hoàn tất AI thật, email đến hộp thư, vận đơn/tem/webhook hãng, toàn bộ object lưu trữ, Core Web Vitals hoặc index Google. G11/G12 đã được vá ở mã nguồn và có kiểm thử hợp đồng mô phỏng; các xác minh vận hành thật vẫn cần bằng chứng riêng.
 - **Các yêu cầu tính năng/nội dung ngày 26/10:** banner trang chủ đúng vị trí, khôi phục đơn hủy an toàn, ảnh K9/G1 thực tế, tách nền và tính nguyên bản nội dung không được coi là đã hoàn tất bởi đợt audit này. Không thấy bằng chứng đủ để đóng các mục cũ; cần kiểm tra theo yêu cầu riêng và dữ liệu catalog/asset thật. Không tự triển khai thêm tính năng trong phạm vi bản vá lỗi.
 
 ## Các file thay đổi
 
-**11 file ứng dụng:** `admin/configuration.js`, `clean-urls.js`, `src/account-security.js`, `src/admin-session-policy.js`, `src/catalog-videos.js`, `src/contact-change-api.js`, `src/customer-auth.js`, `src/db.js`, `src/media-filesystem-migration.js`, `src/server.js`, `src/store-api.js`.
+18 file ứng dụng: `admin/configuration.js`, `admin/admin-workspace.css`, `clean-urls.js`, `payment-result.js`, `src/account-security.js`, `src/admin-configuration.js`, `src/admin-session-policy.js`, `src/app.js`, `src/catalog-videos.js`, `src/contact-change-api.js`, `src/customer-auth.js`, `src/db.js`, `src/media-filesystem-migration.js`, `src/migrate.js`, `src/payment-channels.js`, `src/payment-provider-clients.js`, `src/server.js`, `src/store-api.js`.
 
-**9 file kiểm thử:** sửa `test/admin-session-policy.test.js`, `test/database-tls.test.js`, `test/media-filesystem-migration.test.js`, `test/store-api.test.js`; thêm `test/catalog-video-upload-gate.test.js`, `test/client-url-normalization.test.js`, `test/configuration-reauth-ui.test.js`, `test/password-boundary.test.js`, `test/server-lifecycle.test.js`.
+Migration mới: `db/payment-provider-verification.sql`. Được đăng ký trong migrate.js và kiểm thử PGlite; chưa chạy trên production. Nó thu hồi bằng chứng xác minh cũ, không thay secret hay dữ liệu thanh toán. Xem [hướng dẫn vận hành và migration](payment-providers.md).
 
-**Tài liệu:** báo cáo này. Dependency/lockfile, migration SQL và cấu hình deploy không đổi.
+15 file kiểm thử: các test đã liệt kê ở từng lỗi, gồm 9 file của nhóm G01–G10 và `test/payment-channels.test.js`, `test/payment-integrity-regression.test.js`, `test/payment-provider-clients.test.js`, `test/payment-result-status.test.js`, `test/payment-verification-state.test.js`, `test/payment-verification-ui.test.js`.
 
-Các bằng chứng bàn giao nằm trong thư mục `audit-evidence` cạnh repository: log test đầy đủ, kết quả npm audit/outdated, quét secret đã che giá trị, kiểm tra HTTP/tài nguyên và ảnh popup/checkout. Ưu tiên tiếp theo là sửa G11/G12 trong một thay đổi tích hợp có kiểm thử sandbox; sau đó mới xác nhận phát hành trên hosting.
+Tài liệu: báo cáo này, README, admin-configuration và payment-providers. Dependency/lockfile và cấu hình deploy không đổi.
+
+Bằng chứng bản vá đầy đủ nằm trong `audit-evidence-fixes` cạnh repository; bằng chứng đợt ban đầu giữ ở `audit-evidence`. Nhánh làm việc vẫn `audit/2026-10-28`; chưa push/deploy hoặc thực hiện giao dịch thật.

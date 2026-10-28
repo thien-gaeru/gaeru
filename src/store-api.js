@@ -115,7 +115,7 @@ async function getSettings(pool, keys) {
   return Object.fromEntries(result.rows.map((row) => [row.setting_key, row.setting_value]));
 }
 
-function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, paymentChannels = null, getPaymentChannels = null, publicBaseUrl = "https://gaeru.com", inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false } = {}) {
+function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, paymentChannels = null, getPaymentChannels = null, paymentFetcher = fetch, publicBaseUrl = "https://gaeru.com", inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false } = {}) {
   const router = Router();
   const orderLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -139,7 +139,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     });
   };
 
-  router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;req.paymentChannels=getPaymentChannels?await getPaymentChannels():paymentChannels;next();}catch(error){next(error);}});
+  router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;req.paymentChannels=getPaymentChannels?await getPaymentChannels():paymentChannels;req.vnpayCallbackConfig=req.paymentChannels?.callbackConfigs?.vnpay||req.vnpayConfig;next();}catch(error){next(error);}});
   router.get("/products", async (req, res) => {
     const products = await loadProducts(pool, { search: String(req.query.q || "") });
     res.json(decoratePublicProductImages({ products }));
@@ -166,9 +166,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/payments/vnpay/return", (req, res) => {
-    if (!req.vnpayConfig) return res.sendStatus(404);
-    const { valid, parameters } = verifyVnpayQuery(req.query, req.vnpayConfig.hashSecret);
-    if (!valid || parameters.vnp_TmnCode !== req.vnpayConfig.tmnCode) {
+    if (!req.vnpayCallbackConfig) return res.sendStatus(404);
+    const { valid, parameters } = verifyVnpayQuery(req.query, req.vnpayCallbackConfig.hashSecret);
+    if (!valid || parameters.vnp_TmnCode !== req.vnpayCallbackConfig.tmnCode) {
       return res.redirect("/payment-result.html?result=invalid");
     }
     const successful = parameters.vnp_ResponseCode === "00" && parameters.vnp_TransactionStatus === "00";
@@ -180,10 +180,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/payments/vnpay/ipn", async (req, res, next) => {
-    if (!req.vnpayConfig) return res.status(404).json({ RspCode: "99", Message: "Provider unavailable" });
+    if (!req.vnpayCallbackConfig) return res.status(404).json({ RspCode: "99", Message: "Provider unavailable" });
     try {
-      const { valid, parameters } = verifyVnpayQuery(req.query, req.vnpayConfig.hashSecret);
-      if (!valid || parameters.vnp_TmnCode !== req.vnpayConfig.tmnCode) {
+      const { valid, parameters } = verifyVnpayQuery(req.query, req.vnpayCallbackConfig.hashSecret);
+      if (!valid || parameters.vnp_TmnCode !== req.vnpayCallbackConfig.tmnCode) {
         return res.json({ RspCode: "97", Message: "Invalid signature" });
       }
       // VNPAY 2.1 IPN callbacks omit the checkout-only vnp_Command parameter.
@@ -225,6 +225,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           await client.query("UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, updated_at=now() WHERE id=$1", [attempt.orderId]);
         }
         await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
+        if(req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,'vnpay',req.paymentChannels.versions.vnpay,{enabled:req.paymentChannels.methods.includes('vnpay')});
         return { code: "00", message: "Confirm Success" };
       });
       res.json({ RspCode: result.code, Message: result.message });
@@ -250,71 +251,44 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
-  router.get("/payments/:provider/return", async (req, res, next) => {
-    const provider = String(req.params.provider || "");
-    if (!["9pay", "momo", "zalopay"].includes(provider)) return next();
-    try {
-      const channelConfig = req.paymentChannels?.configs?.[provider];
-      if (!channelConfig) return res.sendStatus(404);
-      const verified = require("./payment-channels").verifyGatewayPayload(provider, req.query, channelConfig);
-      if (!verified.valid) return res.redirect(`/payment-result.html?result=invalid&provider=${encodeURIComponent(provider)}`);
-      await require("./payment-channels").reconcilePrepaidOrder(pool, {
-        provider,
-        orderNumber: verified.orderNumber,
-        amountVnd: verified.amountVnd,
-        successful: verified.successful,
-        providerTransactionId: verified.providerTransactionId,
-        responseCode: verified.responseCode,
-        finance,
-        audit
-      });
-      const query = new URLSearchParams({
-        result: verified.successful ? "processing" : "failed",
-        provider,
-        order: verified.orderNumber || ""
-      });
-      res.redirect(`/payment-result.html?${query}`);
-    } catch (error) {
-      next(error);
-    }
+  router.get("/payments/:provider/return", async (req,res,next)=>{
+    const provider=String(req.params.provider||'');if(!['9pay','momo','zalopay'].includes(provider))return next();
+    if(provider==='9pay')return res.sendStatus(404);
+    const channelConfig=req.paymentChannels?.callbackConfigs?.[provider]||req.paymentChannels?.configs?.[provider];
+    if(!channelConfig)return res.sendStatus(404);
+    const verified=require('./payment-channels').verifyGatewayPayload(provider,req.query,channelConfig);
+    const order=require('./payment-channels').extractOrderNumber(verified.orderNumber||req.query.orderId||req.query.apptransid||req.query.app_trans_id||req.query.order||'');
+    // Browser-controlled navigation is display only. IPN/query is authoritative.
+    const query=new URLSearchParams({result:verified.valid?(verified.successful?'processing':'failed'):'pending',provider,order});
+    res.redirect('/payment-result.html?'+query);
   });
 
-  const handleGatewayIpn = async (req, res, next) => {
-    const provider = String(req.params.provider || "");
-    if (!["9pay", "momo", "zalopay", "bank_transfer"].includes(provider)) return next();
-    try {
-      const channelConfig = req.paymentChannels?.configs?.[provider];
-      if (!channelConfig) return res.status(404).json({ code: "99", message: "Provider unavailable" });
-      const payload = { ...(req.query || {}), ...(req.body || {}) };
-      if (req.headers["x-gaeru-signature"] && !payload.signature) payload.signature = String(req.headers["x-gaeru-signature"]);
-      const verified = require("./payment-channels").verifyGatewayPayload(provider, payload, channelConfig);
-      if (!verified.valid) {
-        return res.status(400).json({ code: "97", return_code: -1, resultCode: 97, message: verified.reason || "Invalid signature" });
-      }
-      const outcome = await require("./payment-channels").reconcilePrepaidOrder(pool, {
-        provider,
-        orderNumber: verified.orderNumber,
-        amountVnd: verified.amountVnd,
-        successful: verified.successful,
-        providerTransactionId: verified.providerTransactionId,
-        responseCode: verified.responseCode,
-        finance,
-        audit
+  const handleGatewayIpn=async(req,res,next)=>{
+    const provider=String(req.params.provider||'');if(!['9pay','momo','zalopay','bank_transfer'].includes(provider))return next();
+    if(provider==='9pay')return res.status(503).json({code:'99',message:'Provider adapter unavailable'});
+    try{
+      const channelConfig=req.paymentChannels?.callbackConfigs?.[provider]||req.paymentChannels?.configs?.[provider];
+      if(!channelConfig)return res.status(404).json({code:'99',message:'Provider unavailable'});
+      // Official wallet notifications are server POST JSON, never query aliases.
+      if(req.method!=='POST')return res.status(405).end();
+      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig);
+      if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback'});
+      const outcome=await withTransaction(pool,async client=>{
+        const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE transaction_ref=$1 AND provider=$2',[verified.orderNumber,provider])).rows[0];
+        if(!row)return {code:'01',matched:false,message:'Order not found'};
+        if(row.provider_request_id&&row.provider_request_id!==(provider==='momo'?verified.requestId:verified.providerOrderId))return {code:'97',matched:false,message:'Provider request mismatch'};
+        const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,finance,audit});
+        if(outcome.matched&&req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,provider,req.paymentChannels.versions[provider],{enabled:req.paymentChannels.methods.includes(provider)});
+        return outcome;
       });
-      if (provider === "zalopay") {
-        return res.json({ return_code: outcome.code === "00" || outcome.code === "02" ? 1 : 0, return_message: outcome.message, orderStatus: outcome.orderStatus, paymentStatus: outcome.paymentStatus });
-      }
-      if (provider === "momo") {
-        return res.json({ resultCode: outcome.code === "00" || outcome.code === "02" ? 0 : Number(outcome.code), message: outcome.message, orderStatus: outcome.orderStatus, paymentStatus: outcome.paymentStatus });
-      }
-      res.json({ code: outcome.code, RspCode: outcome.code, Message: outcome.message, orderStatus: outcome.orderStatus, paymentStatus: outcome.paymentStatus });
-    } catch (error) {
-      next(error);
-    }
+      if(provider==='zalopay')return res.json({return_code:outcome.code==='00'||outcome.code==='02'?1:0,return_message:outcome.message,orderStatus:outcome.orderStatus,paymentStatus:outcome.paymentStatus});
+      if(provider==='momo')return outcome.matched?res.status(204).end():res.status(409).json({resultCode:Number(outcome.code)||99,message:outcome.message});
+      return res.json({code:outcome.code,message:outcome.message});
+    }catch(error){next(error);}
   };
-  router.get("/payments/:provider/ipn", handleGatewayIpn);
-  router.post("/payments/:provider/ipn", handleGatewayIpn);
-  router.post("/payments/bank_transfer/webhook", (req, res, next) => { req.params.provider = "bank_transfer"; return handleGatewayIpn(req, res, next); });
+  router.get('/payments/:provider/ipn',handleGatewayIpn);
+  router.post('/payments/:provider/ipn',handleGatewayIpn);
+  router.post('/payments/bank_transfer/webhook',(req,res,next)=>{req.params.provider='bank_transfer';return handleGatewayIpn(req,res,next);});
 
   router.post("/orders", (req, res, next) => {
     if (!req.ordersEnabled) {
@@ -332,6 +306,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if (!req.paymentChannels && ["bank_transfer", "9pay", "momo", "zalopay"].includes(parsed.data.paymentMethod)) { return res.status(503).json({ error: "Kênh thanh toán chưa được cấu hình trên máy chủ." });
       // payment method checked above
       }
+      if(parsed.data.paymentMethod==='9pay')return res.status(503).json({error:'9Pay chưa sẵn sàng nhận thanh toán.'});
       const uniqueItems = new Map();
       for (const item of parsed.data.items) {
         uniqueItems.set(item.variantId, (uniqueItems.get(item.variantId) || 0) + item.quantity);
@@ -345,6 +320,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:vnpay-config'))");
           req.vnpayConfig=await getVnpayConfig(client);
           if(!req.vnpayConfig)throw Object.assign(Error("VNPAY vừa ngừng khả dụng. Vui lòng chọn phương thức khác."),{status:409});
+        }
+        if(['momo','zalopay'].includes(parsed.data.paymentMethod)){
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['gaeru:payment-config:'+parsed.data.paymentMethod]);
+          if(getPaymentChannels)req.paymentChannels=await getPaymentChannels(client);
+          if(!req.paymentChannels?.methods.includes(parsed.data.paymentMethod))throw Object.assign(Error('Kênh thanh toán vừa ngừng khả dụng.'),{status:409});
         }
         let prepared = [];
         for (const [variantId, quantity] of [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -448,16 +428,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
              VALUES ($1, $2, $3, $4, now() + interval '15 minutes')`,
             [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd]
           );
-          const builders = {
-            "9pay": require("./payment-channels").buildNinepayPaymentUrl,
-            momo: require("./payment-channels").buildMomoPaymentUrl,
-            zalopay: require("./payment-channels").buildZalopayPaymentUrl
-          };
-          paymentUrl = builders[parsed.data.paymentMethod](channelConfig, {
-            amountVnd: createdOrder.totalVnd,
-            txnRef: createdOrder.orderNumber,
-            baseUrl: publicBaseUrl
+          const gateway=await require('./payment-provider-clients').createGatewayPayment(parsed.data.paymentMethod,channelConfig,{
+            amountVnd:createdOrder.totalVnd,txnRef:createdOrder.orderNumber,baseUrl:publicBaseUrl,fetcher:paymentFetcher
           });
+          paymentUrl=gateway.paymentUrl;
+          await client.query('UPDATE payment_attempts SET provider_request_id=$3,provider_transaction_id=$4 WHERE order_id=$1 AND provider=$2',[createdOrder.id,parsed.data.paymentMethod,gateway.requestId,gateway.providerTransactionId]);
+          if(req.paymentChannels.versions)await require('./payment-channels').recordGatewayEvidence(client,parsed.data.paymentMethod,req.paymentChannels.versions[parsed.data.paymentMethod],{method:'provider_order_create',scope:'api_credentials',enabled:true});
         } else if (parsed.data.paymentMethod === "bank_transfer") {
           const channelConfig = req.paymentChannels?.configs?.bank_transfer;
           if (!channelConfig) throw Object.assign(new Error("Chuyển khoản ngân hàng vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });

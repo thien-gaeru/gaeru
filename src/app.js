@@ -178,6 +178,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     vnpayConfig: config.vnpay || null,
     getVnpayConfig: (client=pool) => require("./admin-configuration").getVnpay(client,config),
     getPaymentChannels: (client=pool) => require("./payment-channels").getCheckoutPaymentChannels(client,config,config.vnpay||null),
+    paymentFetcher: config.paymentFetcher,
     publicBaseUrl: config.PUBLIC_BASE_URL || "https://gaeru.com",
     inventory,
     audit: appendAudit,
