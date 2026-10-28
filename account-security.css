@@ -6,3 +6,19 @@
 .security-identity{scroll-margin-top:90px}.security-identity input[aria-invalid="true"]{border:2px solid #b42318}
 
 .security-admin .security-heading{margin-bottom:16px;align-items:center}.security-admin .security-facts{padding:16px 0;margin-bottom:18px;gap:16px}.security-admin .security-form{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.security-admin .security-identity,.security-admin .security-feedback{grid-column:1/-1}.security-admin .security-identity{padding:18px}.security-field-grid{align-items:start}.security-field-grid label>span:first-child{display:flex;align-items:end;min-height:38px}.security-admin .security-section>summary{padding:16px 18px}.security-admin .security-section-body{padding:18px;gap:14px}.security-admin .security-section:has([data-setup]:not([hidden])){grid-column:1/-1}@media(max-width:850px){.security-admin .security-form{grid-template-columns:1fr}.security-field-grid label>span:first-child{min-height:0}}
+
+/* Google Login & Apple Sign In Styles */
+.account-oauth-divider{display:flex;align-items:center;text-align:center;margin:18px 0 14px;color:#86868b;font-size:12px;font-weight:500}
+.account-oauth-divider::before,.account-oauth-divider::after{content:'';flex:1;border-bottom:1px solid #e5e5ea}
+.account-oauth-divider:not(:empty)::before{margin-right:.75em}
+.account-oauth-divider:not(:empty)::after{margin-left:.75em}
+.account-oauth-group{display:grid;gap:10px;margin-bottom:18px}
+.button-oauth{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:44px;padding:10px 16px;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;transition:all .18s ease-in-out;border:1px solid #d2d2d7;background:#ffffff;color:#1d1d1f;text-decoration:none;box-sizing:border-box}
+.button-oauth:hover{background:#f5f5f7;border-color:#bcbcc0}
+.button-oauth:active{transform:scale(0.99)}
+.button-oauth:focus-visible{outline:2px solid #0071e3;outline-offset:2px}
+.button-oauth-google{background:#ffffff;color:#3c4043;border-color:#dadce0}
+.button-oauth-google:hover{background:#f8f9fa;border-color:#c6c8cc}
+.button-oauth-apple{background:#000000;color:#ffffff;border-color:#000000}
+.button-oauth-apple:hover{background:#1d1d1f;border-color:#1d1d1f}
+.button-oauth svg{flex-shrink:0}
