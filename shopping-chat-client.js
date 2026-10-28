@@ -13,14 +13,7 @@
   };
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
     let stopped=false, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[], pendingUploads=new Map();
-    const quickReplies = admin
-      ? [
-          'Xin chào! GAERU đã nhận thông tin và đang kiểm tra giúp bạn.',
-          'Bạn vui lòng gửi thêm hình ảnh hoặc video tình trạng thiết bị nhé.',
-          'Đơn hàng của bạn đang được chuẩn bị bàn giao cho đơn vị vận chuyển.',
-          'Cảm ơn bạn đã liên hệ GAERU! Bạn cần hỗ trợ thêm thông tin gì không?'
-        ]
-      : [
+    const quickReplies = admin ? []      : [
           'Tư vấn chọn phiên bản phù hợp',
           'Kiểm tra tồn kho & ưu đãi',
           'Hướng dẫn kết nối thiết bị',
@@ -30,13 +23,13 @@
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
       <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose>
-      <div class="chat-quick-bar" data-chat-quick-bar>
+      ${admin?'':`<div class="chat-quick-bar" data-chat-quick-bar>
         <div class="chat-quick-header">
           <button type="button" class="chat-quick-toggle" data-chat-quick-toggle data-no-action-feedback aria-expanded="false">⚡ Chọn hiển thị phản hồi nhanh</button>
           <label class="chat-instant-toggle"><input type="checkbox" data-chat-instant-mode checked> <span>Gửi nhanh ngay</span></label>
         </div>
         <div class="chat-quick-list" data-chat-quick-list hidden>${quickReplies.map((q,i)=>`<button type="button" class="chat-quick-chip" data-quick-reply="${i}" data-no-action-feedback>${escape(q)}</button>`).join('')}</div>
-      </div>
+      </div>`}
       <div data-chat-selected class="chat-selected"></div>
       <div class="chat-composer"><button type="button" class="chat-plus" aria-label="Thêm đính kèm" aria-expanded="false" aria-controls="${admin?'admin':'customer'}-chat-actions" data-chat-plus data-no-action-feedback>+</button>
       <label class="visually-hidden" for="${admin?'admin':'customer'}-chat-body">Tin nhắn</label><textarea id="${admin?'admin':'customer'}-chat-body" name="body" maxlength="3000" rows="1" enterkeyhint="send" placeholder="Bạn cần tư vấn điều gì?"></textarea>
@@ -90,9 +83,11 @@
       return Math.max(1,Math.ceil(n/1024))+' KB';
     }
     function attachment(file){
+      if(file.deletedAt||file.expired)return '<p class="chat-attachment-deleted">'+escape(file.deletionReason==='retention'||file.expired?'Tệp đã hết hạn lưu trữ 30 ngày.':'Tệp đã được quản trị viên xóa.')+'</p>';
+      const deleteButton=admin&&window.GAERUAdmin?.can('chat.files.delete')?`<button type="button" class="chat-file-delete" data-chat-delete-file="${escape(file.id)}" data-no-action-feedback>Xóa tệp</button>`:'';
       const url=base+'/'+id+'/files/'+encodeURIComponent(file.id);
       const saved=file.originalSize&&file.compressedSize&&file.compressedSize<file.originalSize?` · Đã nén tự động (${formatSize(file.compressedSize)})`:'';
-      return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a>`;
+      return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a>${deleteButton}`;
     }
     function release(file){if(file?.url)URL.revokeObjectURL(file.url);}
     function clearFastAiTimers(){
@@ -325,7 +320,9 @@
       try{
         const confirmedNodes=[...messages.querySelectorAll('[data-message-id]')];
         const first=!confirmedNodes.length,last=confirmedNodes.at(-1)?.dataset.messageId;
-        const d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
+        let d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;
+        if(!before&&!first&&thread&&d.thread.version!==thread.version&&!d.messages.length){d=await request(base+'/'+id+'/messages');messages.replaceChildren();confirmedNodes.length=0;}
+        thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
         const near=nearBottom(),oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set(confirmedNodes.map(e=>e.dataset.messageId));
         for(const m of d.messages){if(m.requestKey){const opt=messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(m.requestKey):m.requestKey}"]`);if(opt)opt.remove();}}
         const newMessages=d.messages.filter(m=>!known.has(String(m.id)));
@@ -352,6 +349,13 @@
       }finally{busy=false;}
     }
 
+    root.addEventListener('click',async event=>{
+      const button=event.target.closest('[data-chat-delete-file]');if(!button||!admin||!window.GAERUAdmin?.can('chat.files.delete'))return;
+      if(!window.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.'))return;
+      button.disabled=true;
+      try{const result=await request(base+'/'+id+'/files/'+encodeURIComponent(button.dataset.chatDeleteFile),{method:'DELETE',body:JSON.stringify({confirm:true})});feedback.textContent=result.message;messages.replaceChildren();await refresh();}
+      catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}
+    });
     const quickToggle=root.querySelector('[data-chat-quick-toggle]'),quickList=root.querySelector('[data-chat-quick-list]'),instantCheck=root.querySelector('[data-chat-instant-mode]');
     function collapseQuickReplies(){
       if(quickList&&quickToggle){

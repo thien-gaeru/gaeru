@@ -15,7 +15,6 @@ test('static image snapshots survive missing deploy sources, preserve old URLs a
 });
 test('catalog, news and legacy media URLs read MEDIA_ROOT without S3 or a public static mount of private files',async t=>{
  const f=await fixture(t),bytes=await sharp({create:{width:24,height:18,channels:3,background:'#2277bb'}}).png().toBuffer(),media=require('../src/lib/stored-media');
- t.mock.method(require('../src/lib/neon-storage'),'downloadProductImage',async()=>{throw Error('S3 must not be read');});
  const catalog=await media.storeUpload('products',bytes,'image/png'),news=await media.storeUpload('news',bytes,'image/png'),id=randomUUID(),cover=randomUUID();
  await f.pool.query('INSERT INTO catalog_images(id,content,mime_type) VALUES($1,$2,$3)',[id,catalog.content,catalog.mimeType]);await f.pool.query("INSERT INTO products(slug,name,category,image_url,active) VALUES('fixture','Fixture','audio',$1,true)",['/api/catalog-images/'+id]);
  await f.pool.query('INSERT INTO news_images(id,content,mime_type) VALUES($1,$2,$3)',[cover,news.content,news.mimeType]);await f.pool.query("INSERT INTO news_posts(slug,title,excerpt,body,cover_id,image_alt,status,published_at) VALUES('fixture-news','Fixture','Excerpt','Body',$1,'Fixture','published',now())",[cover]);

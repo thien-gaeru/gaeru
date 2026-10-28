@@ -2,7 +2,7 @@ const { createHash } = require("node:crypto");
 
 const PERMISSIONS = Object.freeze([
   "marketing.read", "marketing.write", "dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve",
-  "orders.read", "orders.write", "payments.write", "customers.read", "customers.write",
+  "orders.read", "orders.write", "payments.write", "customers.read", "customers.write", "chat.files.delete",
   "suppliers.read", "suppliers.write", "purchases.read", "purchases.write", "purchases.approve",
   "finance.read", "finance.write", "finance.approve", "reports.read", "staff.read", "staff.write",
   "audit.read", "settings.read", "settings.write", "warranty.approve",
@@ -13,7 +13,7 @@ const PERMISSIONS = Object.freeze([
 const ROLE_PERMISSIONS = Object.freeze({
   owner: PERMISSIONS,
   admin: PERMISSIONS,
-  manager: Object.freeze(PERMISSIONS.filter((name) => !["staff.write", "settings.write", "tax.approve", "invoice.approve"].includes(name) && !name.startsWith("payroll."))),
+  manager: Object.freeze(PERMISSIONS.filter((name) => !["staff.write", "settings.write", "tax.approve", "invoice.approve", "chat.files.delete"].includes(name) && !name.startsWith("payroll."))),
   sales: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "orders.read", "orders.write", "customers.read", "customers.write"]),
   warehouse: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "inventory.write", "orders.read", "orders.write", "suppliers.read", "purchases.read", "purchases.write"]),
   accountant: Object.freeze(["dashboard.read", "catalog.read", "inventory.read", "orders.read", "payments.write", "customers.read", "suppliers.read", "purchases.read", "finance.read", "finance.write", "reports.read", "audit.read", "payroll.read", "payroll.write", "tax.read", "tax.write", "invoice.read", "invoice.write", "marketplace.read", "marketplace.write"]),

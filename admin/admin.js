@@ -548,10 +548,11 @@ async function startOrderReturn(id){const order=state.orders.find(o=>o.id===id);
 function closeOrderProcessing(){const dialog=document.getElementById('order-processing-dialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');dialog.remove();}
 function openOrderProcessing(id,opener){
  const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
+ if(order.returnStatus==='returned'||order.returnedAt)return showGlobal('Đơn đã hoàn trả xong; không thể xử lý lại.',true);
  closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
  const steps=['pending','confirmed','processing','shipped','completed'],current=steps.indexOf(order.status);
  dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
- if(can('orders.write')&&order.status==='completed'){const action=document.createElement('div');action.className='order-return-action';action.innerHTML='<button class="secondary-button" type="button" data-return-order="'+escapeHtml(order.id)+'">Ghi nhận hoàn trả hàng</button>';dialog.querySelector('.order-processing-content').prepend(action);}
+ if(can('orders.write')&&order.status==='completed'&&order.returnStatus!=='open'){const action=document.createElement('div');action.className='order-return-action';action.innerHTML='<button class="secondary-button" type="button" data-return-order="'+escapeHtml(order.id)+'">Ghi nhận hoàn trả hàng</button>';dialog.querySelector('.order-processing-content').prepend(action);}
  dialog.addEventListener('click',event=>{const button=event.target.closest('[data-return-order]');if(button)startOrderReturn(button.dataset.returnOrder);});
  const statusSelect=dialog.querySelector('select[name="status"]');
  if(statusSelect){
@@ -572,6 +573,29 @@ function openBulkProcessing(){
  document.body.append(dialog);refresh();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
 }
 
+function orderRestoreReason(order){
+ if(order.returnStatus==='returned'||order.returnedAt)return 'Đơn đã hoàn trả xong; không xử lý lại.';
+ if(!['cod','bank_transfer'].includes(order.paymentMethod))return 'Đơn cổng thanh toán cần tạo đơn và phiên thanh toán mới.';
+ if(order.paymentStatus==='paid'||Number(order.receivedVnd)>0)return 'Đơn đã ghi nhận tiền; cần đối soát riêng trước.';
+ return '';
+}
+function openOrderRestoration(id){
+ const order=state.orders.find(o=>o.id===id);if(!order||order.status!=='cancelled'||!can('orders.write'))return;
+ const blocked=orderRestoreReason(order);if(blocked)return showGlobal(blocked,true);
+ document.getElementById('order-restoration-dialog')?.remove();
+ const dialog=document.createElement('dialog');dialog.id='order-restoration-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-restoration-title');
+ dialog.innerHTML='<header><h2 id="order-restoration-title">Khôi phục '+escapeHtml(order.orderNumber)+'</h2><button type="button" class="secondary-button" data-close-restoration aria-label="Đóng khôi phục đơn">×</button></header><form><p>Đơn sẽ về Chờ xác nhận. Máy chủ kiểm tra lại tồn kho và voucher trước khi giữ hàng; không tự ghi nhận tiền hoặc gửi hàng.</p><label>Lý do khôi phục<textarea name="reason" required minlength="5" maxlength="1000"></textarea></label><label><input type="checkbox" name="confirmedUnpaid" required> Tôi đã đối chiếu chưa nhận tiền và khách vẫn muốn tiếp tục đơn hàng.</label><button type="submit" class="primary-button">Kiểm tra & khôi phục đơn</button><p role="alert"></p></form>';
+ document.body.append(dialog);const form=dialog.querySelector('form'),requestKey=crypto.randomUUID();
+ dialog.querySelector('[data-close-restoration]').addEventListener('click',()=>{if(!form.dataset.saving){dialog.close();dialog.remove();}});
+ dialog.addEventListener('cancel',event=>{if(form.dataset.saving)event.preventDefault();});
+ form.addEventListener('submit',async event=>{event.preventDefault();if(form.dataset.saving)return;const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');form.dataset.saving='true';button.disabled=true;let saved=false;
+  try{const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});saved=true;dialog.close();dialog.remove();document.querySelector('#order-filter').value='pending';await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}
+  catch(error){if(saved)showGlobal('Đã khôi phục nhưng chưa tải lại danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;}
+  finally{delete form.dataset.saving;button.disabled=false;}
+ });
+ dialog.showModal();form.elements.reason.focus();
+}
+
 function renderOrders() {
   const root = document.querySelector("#order-list");
   const pagination = document.querySelector("#order-pagination");
@@ -588,7 +612,8 @@ function renderOrders() {
   }
   root.innerHTML = state.orders.map((order) => {
     const orderDate = new Date(order.createdAt).toLocaleString("vi-VN");
-    const allowed = can("orders.write") ? (orderTransitions[order.status] || []).filter((status) => (status !== "cancelled" || (order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0) && !isLiveVnpayAttempt(order)))
+    const returned=order.returnStatus==='returned'||Boolean(order.returnedAt);
+    const allowed = can("orders.write")&&!returned ? (orderTransitions[order.status] || []).filter((status) => (status !== "cancelled" || (order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0) && !isLiveVnpayAttempt(order)))
       && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod)))) : [];
     const optionMarkup = [order.status, ...allowed].map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(labels[key] || key)}</option>`).join("");
     const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
@@ -603,7 +628,7 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
-      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell"><button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>${can("orders.write") && order.status==="completed" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}</span></div>
+      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}</span></div>
       <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
       <div class="order-meta">
         <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
@@ -635,7 +660,7 @@ async function updateOrder(event) {
   const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
   if (!order) return;
   if (form.elements.status.value === "cancelled" && order.status !== "cancelled"
-    && !window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Đơn đã hủy không thể mở lại.`)) return;
+      && !window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`)) return;
   const feedback = form.querySelector('[role="alert"]');
   submitButton.disabled = true;
   form.dataset.saving = "true";
@@ -670,7 +695,10 @@ async function loadCustomers(page = state.customerPage) {
   const search = document.querySelector("#customer-search").value.trim();
   const params = new URLSearchParams({ page: String(page) });
   if (search) params.set("q", search);
+  params.set('verification',document.querySelector('#customer-verification')?.value||'all');
   const result = await request(`/api/gaeru_ceo/customers?${params}`);
+  const select=document.querySelector('#customer-verification');
+  if(select&&result.verificationCounts)for(const option of select.options){const labels={all:'Tất cả tài khoản',verified:'Đã xác minh',unverified:'Chưa xác minh'};option.textContent=labels[option.value]+' ('+result.verificationCounts[option.value]+')';}
   state.customers = result.customers;
   state.customerPage = result.pagination.page;
   state.customerPagination = result.pagination;
@@ -691,7 +719,7 @@ function renderCustomers() {
         <div><h3>${escapeHtml(customer.fullName)}</h3><p>${escapeHtml(customer.email)} · ${escapeHtml(customer.phone)}</p></div>
         <span class="status-pill ${customer.active ? "status-active" : "status-cancelled"}">${customer.deletedAt ? (customer.deletionRecoverable?"Chờ xóa tài khoản":"Đã xóa hồ sơ") : customer.active ? "Đang hoạt động" : "Đã khóa"}</span>
       </div>
-      <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh email" : "Chưa xác minh email"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
+      <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh" : "Chưa xác minh"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
       <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") && !customer.deletedAt ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}</div>
       ${!customer.deletedAt&&can('customers.write')?`<details class="customer-restore"><summary>Xử lý yêu cầu xóa tài khoản</summary><form data-customer-delete="${escapeHtml(customer.id)}"><p>Chỉ thực hiện sau khi khách liên hệ và đã đối chiếu thông tin. Hệ thống gửi email xác nhận; tài khoản chỉ ngừng hoạt động sau khi khách xác nhận.</p><label>Lý do xóa<textarea name="reason" required minlength="10" maxlength="500" rows="2"></textarea></label><label class="deletion-consent"><input type="checkbox" name="confirmed" required> Đã đối chiếu yêu cầu xóa của khách</label><button class="secondary-button">Gửi email xác nhận xóa</button><p role="status"></p></form></details>`:''}
       ${customer.deletedAt&&customer.deletionRecoverable&&customer.canRestore&&can('customers.write')?`<details class="customer-restore"><summary>Khôi phục tài khoản</summary><form data-customer-restore="${escapeHtml(customer.id)}"><p>Ngày xác nhận xóa: ${new Date(customer.deletedAt).toLocaleDateString('vi-VN')}. Khôi phục giữ nguyên mật khẩu và xác thực hai yếu tố.</p><label>Lý do khôi phục<textarea name="reason" required minlength="10" maxlength="500" rows="2"></textarea></label><button class="secondary-button">Xác nhận khôi phục</button><p role="status"></p></form></details>`:''}
@@ -840,7 +868,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (view === "payments") await window.GAERUConfiguration.mountPayments();
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
-    if (button.dataset.view === "settings") await loadSettings();
+    if (button.dataset.view === "settings") {await loadSettings();if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();}
     if (button.dataset.view === "overview") await loadSummary();
     if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();
     if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
@@ -1016,6 +1044,7 @@ document.querySelector("#customer-search").addEventListener("input", (event) => 
     loadCustomers(1).catch((error) => showGlobal(error.message, true));
   }, 200);
 });
+document.querySelector('#customer-verification')?.addEventListener('change',()=>loadCustomers(1).catch(error=>showGlobal(error.message,true)));
 document.querySelector("#refresh-customers").addEventListener("click", () => loadCustomers().catch((error) => showGlobal(error.message, true)));
 document.querySelector("#previous-customers").addEventListener("click", () => {
   if (state.customerPage > 1) loadCustomers(state.customerPage - 1).catch((error) => showGlobal(error.message, true));
@@ -1088,11 +1117,14 @@ document.querySelector('#customer-list').addEventListener('submit',async e=>{if(
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-delete]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');if(!form.reportValidity())return;button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerDelete+'/delete',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value,confirmed:form.elements.confirmed.checked})});await loadCustomers();showGlobal('Đã gửi email xác nhận xóa; tài khoản vẫn hoạt động đến khi khách xác nhận.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
 
 function renderOrderOverview(counts) {
-  const tabs = [['','Tất cả'],['pending','Chờ xác nhận'],['confirmed','Đã xác nhận'],['processing','Cần gửi'],['shipped','Đang giao'],['completed','Hoàn tất'],['cancelled','Đã hủy']];
-  const total = Object.values(counts).reduce((sum,n)=>sum+Number(n),0);
+  const tabs = [['','Tất cả'],['pending','Chờ xác nhận'],['ready_to_ship','chờ gửi hàng'],['shipped','Đã giao hàng'],['completed','Hoàn Tất'],['cancelled_or_returned','Hủy & Hoàn trả']];
+  const total = ['pending','confirmed','processing','shipped','completed','cancelled','returned'].reduce((sum,key)=>sum+Number(counts[key]||0),0);
+  const values={...counts,ready_to_ship:Number(counts.confirmed||0)+Number(counts.processing||0)};
   const afterSalesOpen = !document.querySelector('#after-sales-panel').hidden;
-  document.querySelector('#order-tabs').innerHTML = tabs.map(([key,title])=>`<button type="button" data-order-tab="${key}" aria-pressed="${!afterSalesOpen && document.querySelector('#order-filter').value===key}">${title} <span>${key ? Number(counts[key]||0) : total}</span></button>`).join('') + `<button type="button" id="after-sales-toggle" aria-expanded="${afterSalesOpen}" aria-controls="after-sales-panel">Hủy / trả hàng</button>`;
+  document.querySelector('#order-tabs').innerHTML = tabs.map(([key,title])=>`<button type="button" data-order-tab="${key}" ${key==='shipped'?'title="Đơn đã bàn giao cho hãng vận chuyển"':''} aria-pressed="${!afterSalesOpen && document.querySelector('#order-filter').value===key}">${title} <span>${key ? Number(values[key]||0) : total}</span></button>`).join('');
 }
+document.addEventListener('gaeru:after-sales-updated',()=>{loadOrders(state.orderPage).catch(error=>showGlobal(error.message,true));});
+document.querySelector('#order-list').addEventListener('click',event=>{const button=event.target.closest('[data-restore-order]');if(button&&!button.disabled)openOrderRestoration(button.dataset.restoreOrder);});
 document.querySelector('#orders-view').addEventListener('click',event=>{
   const tab=event.target.closest('[data-order-tab]'); if(!tab)return;
   window.GAERUAfterSales?.close();
@@ -1106,7 +1138,8 @@ function updateOrderSelection() {
   all.checked = Boolean(state.orders.length) && count === state.orders.length;
   all.indeterminate = count > 0 && count < state.orders.length;
   all.disabled = !state.orders.length;
-  document.querySelectorAll('[data-print-orders],[data-bulk-process]').forEach(button => { button.disabled = count === 0 || button.hasAttribute('data-bulk-process')&&!can('orders.write'); });
+  const returnedSelected=state.orders.some(order=>state.selectedOrders.has(order.id)&&(order.returnStatus==='returned'||order.returnedAt));
+  document.querySelectorAll('[data-print-orders],[data-bulk-process]').forEach(button => { button.disabled = count === 0 || button.hasAttribute('data-bulk-process')&&(!can('orders.write')||returnedSelected); });
 }
 document.querySelector('#select-order-page').addEventListener('change', event => {
   state.selectedOrders = new Set(event.target.checked ? state.orders.map(order => order.id) : []);

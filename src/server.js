@@ -1,4 +1,4 @@
-let stopOrderEmail;let stopMediaMigration;
+let stopOrderEmail;let stopChatFileRetention;let stopTikTokAds;
 require("dotenv").config();
 const expressSession = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
@@ -17,16 +17,24 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-let server;let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;
+let server;let mediaAuditTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;
 
 async function start() {
   await migrateDatabase(pool);
   if (shuttingDown) return;
   const mediaCheck=await require('./lib/filesystem-media').probe();
   console.log('Media storage:',JSON.stringify(mediaCheck));
-  console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
+  const mediaAudit=require('./media-storage-audit');
+  if(mediaCheck.verified){
+    console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
+    if (shuttingDown) return;
+  }else{
+    const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
+    console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
+  }
   if (shuttingDown) return;
-  stopMediaMigration=require('./media-filesystem-migration').startMigration(pool);
+  stopChatFileRetention=require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool);
+  stopTikTokAds=require('./tiktok-ads').startTikTokAdsWorker(pool,config);
   stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
   stopChatCompression=require('./shopping-chat-compression').startChatCompressionWorker(pool);
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
@@ -38,6 +46,14 @@ async function start() {
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
     console.log(`GAERU standalone store listening on ${host}:${port}`);
+    if(mediaCheck.verified&&!shuttingDown){
+      mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)
+        .then(({localization,audit})=>{
+          console.log('Local media:',JSON.stringify(localization));
+          console.log('Local media checks:',JSON.stringify({state:audit.state,failedChecks:audit.failedChecks,legacyReferences:audit.legacyReferences}));
+        })
+        .catch(error=>console.error('Local media audit failed:',errorSummary(error)));
+    }
     inspectDatabaseTls(pool, config)
       .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
       .catch(() => console.log("Database TLS active: unavailable"));
@@ -66,7 +82,8 @@ async function shutdown() {
   shuttingDown = true;
   // Let any in-flight startup work settle before closing the pool it is using.
   await startTask.catch(() => {});
-  stopMediaMigration?.();
+  stopChatFileRetention?.();
+  stopTikTokAds?.();
   stopChatCompression?.();
   stopAIChat?.();
   stopChatEmail?.();
@@ -75,6 +92,8 @@ async function shutdown() {
   stopWarrantyEmail?.();
   stopOrderEmail?.();
   if (server) await new Promise(resolve => server.close(resolve));
+  // Background conversion and verification must finish before releasing its database.
+  await mediaAuditTask;
   try {
     await sessionStore.close();
   } catch (error) {

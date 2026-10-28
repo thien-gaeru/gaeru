@@ -53,3 +53,15 @@
 .order-status-buttons[hidden]{display:none!important}
 
 #orders-view .order-return-button{font-size:11px;padding:5px 8px;min-height:28px;border-radius:999px;white-space:nowrap}.order-return-action{padding-bottom:12px;margin-bottom:8px;border-bottom:1px solid #e3e7ec}@media(min-width:1280px){#orders-view .order-table-head,#orders-view .order-table-row{grid-template-columns:24px minmax(125px,1.35fr) minmax(70px,.8fr) minmax(90px,1.2fr) minmax(75px,.9fr) minmax(82px,1fr) minmax(85px,.9fr) 78px}}@media(max-width:760px){#orders-view .order-return-button{min-height:40px}}
+
+/* All six workflow filters remain visible instead of hiding off-screen. */
+#orders-view .order-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;overflow:visible;border:0}
+#orders-view .order-tabs button{min-width:0;white-space:normal;line-height:1.4;padding:11px 8px;border:1px solid #d9e0e8;border-radius:18px;background:#fff}
+#orders-view .order-tabs button[aria-pressed=true]{border-color:#007aff;background:#eaf4ff;color:#0055b8}
+#order-restoration-dialog form{display:grid;gap:16px;padding:20px 24px}
+#order-restoration-dialog label{display:grid;gap:8px}
+#order-restoration-dialog label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:10px}
+#order-restoration-dialog input[type=checkbox]{flex:none;width:20px;height:20px;margin:2px 0}
+#order-restoration-dialog textarea{width:100%;min-height:90px;resize:vertical}
+@media(max-width:1100px){#orders-view .order-tabs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:480px){#orders-view .order-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}#order-restoration-dialog form{padding:16px}}

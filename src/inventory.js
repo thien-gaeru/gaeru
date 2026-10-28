@@ -203,7 +203,7 @@ async function releaseOrderStock(client, { orderId, actor }) {
   for (const { id: variantId } of result.rows) {
     const variant = await lockVariant(client, variantId);
     const allocations = await client.query(
-      `SELECT warehouse_id AS "warehouseId",quantity FROM order_stock_allocations
+      `SELECT warehouse_id AS "warehouseId",quantity,reservation_cycle AS "reservationCycle" FROM order_stock_allocations
        WHERE order_id=$1 AND variant_id=$2 AND released_at IS NULL ORDER BY warehouse_id FOR UPDATE`, [orderId, variantId]
     );
     const balances = await allBalances(client, variantId);
@@ -212,7 +212,7 @@ async function releaseOrderStock(client, { orderId, actor }) {
     for (const allocation of allocations.rows) {
       const before = await lockBalance(client, allocation.warehouseId, variantId);
       await move(client, { variant, warehouseId: allocation.warehouseId, before, delta: allocation.quantity,
-        type: "sale_release", eventKey: `release:${orderId}:${variantId}:${allocation.warehouseId}`,
+        type: "sale_release", eventKey: `release:${orderId}:${variantId}:${allocation.warehouseId}${allocation.reservationCycle ? ':cycle:'+allocation.reservationCycle : ''}`,
         referenceType: "order", referenceId: orderId, reason: "Hoàn tồn khả dụng do hủy đơn", actor });
       await client.query(
         "UPDATE order_stock_allocations SET released_at=now() WHERE order_id=$1 AND variant_id=$2 AND warehouse_id=$3",
@@ -224,6 +224,31 @@ async function releaseOrderStock(client, { orderId, actor }) {
       await updateAggregate(client, variantId, variant.stockQuantity + released);
       await appendAudit(client, { actor, action: "inventory.release", entityType: "order", entityId: orderId, metadata: { variantId, quantity: released } });
     }
+  }
+}
+
+// Released allocations are reactivated with a fresh cycle while inventory
+// movements remain immutable. The cycle keeps a later cancellation idempotent.
+async function restoreOrderStock(client,{orderId,items,requestKey,actor}){
+  const active=await client.query('SELECT variant_id FROM order_stock_allocations WHERE order_id=$1 AND released_at IS NULL',[orderId]);
+  if(active.rows.length)throw operationError('Đơn đã hủy vẫn có phân bổ kho đang giữ. Cần đối soát trước khi khôi phục.');
+  for(const item of [...items].sort((a,b)=>a.variantId.localeCompare(b.variantId))){
+    validateQuantity(item.quantity,{allowZero:false});
+    const variant=await lockVariant(client,item.variantId),balances=await allBalances(client,item.variantId);
+    verifyBalanceTotal(variant,balances);
+    if(variant.stockQuantity<item.quantity||balances.filter(b=>b.active).reduce((n,b)=>n+b.quantity,0)<item.quantity)throw operationError('Không đủ tồn kho khả dụng để khôi phục đơn.');
+    let remaining=item.quantity;
+    for(const balance of balances.filter(b=>b.active)){
+      const quantity=Math.min(remaining,balance.quantity);if(!quantity)continue;
+      await client.query(`INSERT INTO order_stock_allocations(order_id,variant_id,warehouse_id,quantity,reservation_cycle)
+        VALUES($1,$2,$3,$4,$5) ON CONFLICT(order_id,variant_id,warehouse_id)
+        DO UPDATE SET quantity=$4,released_at=NULL,reservation_cycle=$5`,[orderId,item.variantId,balance.warehouseId,quantity,requestKey]);
+      await move(client,{variant,warehouseId:balance.warehouseId,before:balance.quantity,delta:-quantity,type:'sale_reservation',
+        eventKey:`restore:${requestKey}:${item.variantId}:${balance.warehouseId}`,referenceType:'order',referenceId:orderId,reason:'Giữ lại tồn kho khi khôi phục đơn đã hủy',actor});
+      remaining-=quantity;if(!remaining)break;
+    }
+    await updateAggregate(client,item.variantId,variant.stockQuantity-item.quantity);
+    await appendAudit(client,{actor,action:'inventory.restore_reservation',entityType:'order',entityId:orderId,metadata:{variantId:item.variantId,quantity:item.quantity,requestKey}});
   }
 }
 
@@ -278,5 +303,5 @@ async function receiveStock(client, { warehouseId, variantId, quantity, receiptI
   await updateAggregate(client, variantId, variant.stockQuantity + quantity);
 }
 
-module.exports = { initializeVariantStock, setVariantStock, reserveStock, releaseOrderStock,
+module.exports = { initializeVariantStock, setVariantStock, reserveStock, releaseOrderStock,restoreOrderStock,
   adjustWarehouseStock, transferStock, receiveStock, operationError, MAX_STOCK };

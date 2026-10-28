@@ -5,9 +5,8 @@ const express = require('express');
 const { createCatalogVideos } = require('../src/catalog-videos');
 
 test('disconnected video uploads retain their capacity until storage work settles', { timeout: 10000 }, async t => {
-  const previous = { NODE_ENV: process.env.NODE_ENV, NEON_STORAGE_UPLOADS_ENABLED: process.env.NEON_STORAGE_UPLOADS_ENABLED, MEDIA_ROOT: process.env.MEDIA_ROOT };
+  const previous = { NODE_ENV: process.env.NODE_ENV, MEDIA_ROOT: process.env.MEDIA_ROOT };
   process.env.NODE_ENV = 'test';
-  process.env.NEON_STORAGE_UPLOADS_ENABLED = 'false';
   delete process.env.MEDIA_ROOT;
   t.after(() => {
     for (const [key, value] of Object.entries(previous)) value === undefined ? delete process.env[key] : process.env[key] = value;

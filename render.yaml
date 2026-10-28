@@ -9,17 +9,7 @@ services:
     healthCheckPath: /api/health
     autoDeployTrigger: off
     envVars:
-      - key: NEON_STORAGE_UPLOADS_ENABLED
-        value: "true"
-      - key: AWS_ENDPOINT_URL_S3
-        sync: false
-      - key: AWS_REGION
-        sync: false
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: AWS_S3_BUCKET
+      - key: MEDIA_ROOT
         sync: false
       - key: NODE_VERSION
         value: 24.22.1

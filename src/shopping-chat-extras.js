@@ -161,8 +161,9 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
 
   const download = wrap(async(req,res)=>{
     const id=z.string().uuid().parse(req.params.fileId);
-    const file=(await pool.query('SELECT name,mime,content FROM shopping_chat_files WHERE id=$1 AND thread_id=$2',[id,req.chatThread.id])).rows[0];
+    const file=(await pool.query("SELECT name,mime,content,deleted_at,(created_at<=now()-interval '30 days') AS expired FROM shopping_chat_files WHERE id=$1 AND thread_id=$2",[id,req.chatThread.id])).rows[0];
     if(!file)throw fail('Không tìm thấy tệp.',404);
+    if(file.deleted_at||file.expired)throw fail('Tệp đã bị xóa hoặc đã hết hạn lưu trữ 30 ngày.',410);
     const inline=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/quicktime','video/webm'].includes(file.mime)&&req.query.download!=='1';
     const content=await readMedia(file.content),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Type':file.mime,'Content-Disposition':(inline?'inline':'attachment')+"; filename=download; filename*=UTF-8''"+encodeURIComponent(file.name),'Content-Security-Policy':"sandbox; default-src 'none'"};
     if(inline&&file.mime.startsWith('video/')){
@@ -185,6 +186,11 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
   admin.post('/shopping-chat/:id/files/chunk',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,parseUpload,saveChunk(true));
   admin.post('/shopping-chat/:id/files/compress',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,compressRoute);
   admin.get('/shopping-chat/:id/files/:fileId',authorize(true),download);
+  admin.delete('/shopping-chat/:id/files/:fileId',requirePermission('chat.files.delete'),requireCsrf,authorize(true),wrap(async(req,res)=>{
+    const fileId=z.string().uuid().parse(req.params.fileId);
+    const result=await require('./shopping-chat-file-retention').deleteChatFile(pool,{id:fileId,threadId:req.chatThread.id,actor:req.admin,confirm:req.body?.confirm});
+    res.json({...result,message:result.preserved?'Đã xóa khỏi hội thoại; bản dùng chung khác được giữ lại.':'Đã xóa tệp khỏi hội thoại.'});
+  }));
 
   admin.get('/shopping-chat/:id/offers',requirePermission('marketing.read'),authorize(true),wrap(async(req,res)=>{
     const kind=z.enum(['vouchers','campaigns']).parse(req.query.kind),page=z.coerce.number().int().min(1).max(10000).parse(req.query.page||1);

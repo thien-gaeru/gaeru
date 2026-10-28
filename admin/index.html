@@ -10,6 +10,7 @@
     <script src="/gaeru_ceo/assets/admin-ui.js?v=20261026-file-library" defer></script>
     <script src="/gaeru_ceo/assets/admin.js?v=20261026-file-library" defer></script>
     <script src="/gaeru_ceo/assets/enterprise.js?v=20261026-direct-dialogs" defer></script>
+    <script src="/gaeru_ceo/assets/tiktok-ads.js?v=20261028-ad-spend" defer></script>
     <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
     <script src="/gaeru_ceo/assets/owner.js?v=20261024-owner-status-dot" defer></script>
     <script src="/gaeru_ceo/assets/warranty.js?v=20261024-resubmit" defer></script>
@@ -168,6 +169,8 @@
           <section class="view-panel" id="payments-view" hidden><h2>Quản lý thanh toán</h2><p>Kết nối, kiểm tra và điều khiển các kênh thanh toán COD, Chuyển khoản ngân hàng, VNPAY, 9Pay, MoMo và ZaloPay.</p><div id="payment-configuration"></div></section><section class="view-panel" id="shipping-view" hidden><h2>Quản lý vận chuyển</h2><p>Kết nối GHN, GHTK, Viettel Post và J&T Express.</p><div id="shipping-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
 <div class="orders-heading"><div class="order-export-actions"><label>Phạm vi xuất<select id="order-export-scope"><option value="page">Trang hiện tại</option><option value="all">Tất cả theo bộ lọc (tối đa 5.000 đơn)</option></select></label><button type="button" class="secondary-button" id="export-order-excel">Xuất Excel</button><button type="button" class="plain-button" id="export-order-page">CSV trang hiện tại</button></div></div>
 <nav id="order-tabs" class="order-tabs" aria-label="Lọc theo trạng thái đơn"></nav>
+<p class="help-text">Chờ gửi hàng gồm đơn đã xác nhận và đang chuẩn bị. Đã giao hàng là đã bàn giao cho hãng vận chuyển.</p>
+<button type="button" class="secondary-button" id="after-sales-toggle" aria-expanded="false" aria-controls="after-sales-panel">Hồ sơ hủy & hoàn trả</button>
 <section id="after-sales-panel" hidden aria-labelledby="after-sales-title"><h2 id="after-sales-title">Hủy / trả hàng</h2><p>Ghi nhận và theo dõi yêu cầu hủy, trả hàng. Kiểm tra chứng từ hoàn tiền và nhập kho trước khi đóng yêu cầu.</p><button type="button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></section>
 <div id="order-workspace"><input type="hidden" id="order-filter" value="">
             <div class="toolbar">
@@ -191,6 +194,7 @@
 
           <section class="view-panel" id="customers-view" hidden>
             <div class="toolbar">
+              <label>Trạng thái xác minh<select id="customer-verification" aria-label="Trạng thái xác minh khách hàng"><option value="all">Tất cả tài khoản</option><option value="verified">Đã xác minh</option><option value="unverified">Chưa xác minh</option></select></label>
               <input id="customer-search" type="search" placeholder="Tìm tên, email hoặc số điện thoại" aria-label="Tìm khách hàng">
               <button class="secondary-button" id="refresh-customers" type="button">Tải lại</button>
             </div>
@@ -217,6 +221,7 @@
               <p class="feedback" data-form-feedback role="alert"></p>
             </form></details>
 <section class="editor-card" id="system-configuration" data-owner-only hidden></section>
+<section class="editor-card" id="tiktok-ads-configuration" data-owner-only hidden></section>
           </section>
           <section class="view-panel enterprise-view" id="inventory-view" hidden></section>
           <section class="view-panel enterprise-view" id="warehouses-view" hidden></section>
