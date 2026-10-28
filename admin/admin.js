@@ -76,6 +76,42 @@ function showGlobal(message, isError = false) {
   feedback.classList.toggle("is-error", isError);
 }
 
+function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành công") {
+  let popup = document.querySelector("#product-added-popup");
+  if (!popup) {
+    popup = document.createElement("div");
+    popup.id = "product-added-popup";
+    popup.className = "product-success-popup-backdrop";
+    popup.setAttribute("role", "dialog");
+    popup.setAttribute("aria-modal", "true");
+    popup.innerHTML = '<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2>' + escapeHtml(message) + '</h2><p class="product-success-sub">Sản phẩm đã được lưu và cập nhật vào danh sách quản lý sản phẩm.</p><div class="product-success-actions"><button type="button" class="primary-button product-success-btn" data-close-product-popup>Đóng thông báo</button></div></div>';
+    popup.addEventListener("click", (e) => {
+      if (e.target.closest("[data-close-product-popup]") || e.target === popup) {
+        popup.remove();
+      }
+    });
+    const container = document.body || document.querySelector("body") || document.documentElement || document;
+    if (container && typeof container.appendChild === "function") container.appendChild(popup);
+  } else {
+    popup.hidden = false;
+  }
+  setTimeout(() => {
+    try { popup?.remove(); } catch (_) {}
+  }, 4000);
+}
+
+function checkProductAddedNotice() {
+  try {
+    const notice = sessionStorage.getItem("gaeru:product-added-notice");
+    if (notice) {
+      sessionStorage.removeItem("gaeru:product-added-notice");
+      showProductAddedPopup(notice);
+      showGlobal(notice);
+    }
+  } catch (_) {}
+}
+
+
 function setFeedback(form, message) {
   form.querySelector('[role="alert"]')?.replaceChildren(document.createTextNode(message));
 }
@@ -391,7 +427,14 @@ async function saveProduct(event) {
       method: id ? "PUT" : "POST", body: JSON.stringify(payload)
     });
     await reloadSelectedProduct(id || result.id, id);
-    showGlobal(id ? "Đã lưu thông tin sản phẩm." : "Đã lưu bản nháp. Thêm phiên bản với giá và tồn kho để tiếp tục.");
+    if (!id) {
+      showProductAddedPopup("Đã thêm sản phẩm mới thành công");
+      showGlobal("Đã thêm sản phẩm mới thành công");
+      const editor = document.querySelector("#product-editor");
+      if (editor) editor.hidden = true;
+    } else {
+      showGlobal("Đã lưu thông tin sản phẩm.");
+    }
   } catch (error) {
     setFeedback(form, error.message);
   } finally {
@@ -864,7 +907,7 @@ async function activateView(view, { updateHistory = true } = {}) {
   document.querySelector(".sidebar").classList.remove("navigation-open");
   document.querySelector(".sidebar-toggle").setAttribute("aria-expanded", "false");
   try {
-    if (button.dataset.view === "products") await loadProducts(document.querySelector("#product-search").value.trim());
+    if (button.dataset.view === "products") { await loadProducts(document.querySelector("#product-search").value.trim()); checkProductAddedNotice(); }
     if (button.dataset.view === "orders") await loadOrders();
     if (view === "payments") await window.GAERUConfiguration.mountPayments();
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
@@ -1110,7 +1153,7 @@ function confirmProductAction(product,{permanent=false,message}={}){
   dialog.querySelector('[data-product-action-cancel]').onclick=()=>finish(false);dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});dialog.addEventListener('close',()=>finish(false));document.body.append(dialog);dialog.showModal();
  });
 }
-window.GAERUAdmin = Object.freeze({ request, confirmProductAction, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, activateView, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ request, confirmProductAction, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});

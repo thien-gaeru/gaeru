@@ -48,6 +48,31 @@
    }
  }
 
+ function showProductAddedSuccess(){
+   try{sessionStorage.setItem('gaeru:product-added-notice','Đã thêm sản phẩm mới thành công');}catch(_){}
+   let popup=document.querySelector('#product-success-popup');
+   if(!popup){
+     popup=document.createElement('div');
+     popup.id='product-success-popup';
+     popup.className='product-success-popup-backdrop';
+     popup.setAttribute('role','dialog');
+     popup.setAttribute('aria-modal','true');
+     popup.setAttribute('aria-labelledby','product-success-title');
+     popup.innerHTML='<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2 id="product-success-title">Đã thêm sản phẩm mới thành công</h2><p class="product-success-sub">Đang tự động chuyển hướng về trang quản lý sản phẩm…</p><div class="product-success-actions"><a href="/gaeru_ceo#products" class="primary-button product-success-btn">Về trang quản lý sản phẩm</a></div></div>';
+     const container=document.body||document.querySelector('body')||document.documentElement||document;
+     if(container&&typeof container.appendChild==='function')container.appendChild(popup);
+   }else{
+     popup.hidden=false;
+   }
+   feedback('Đã thêm sản phẩm mới thành công. Đang tự động chuyển hướng về trang quản lý sản phẩm…');
+   setTimeout(()=>{
+     if(typeof location!=='undefined'){
+       if(typeof location.assign==='function')location.assign('/gaeru_ceo#products');
+       else location.href='/gaeru_ceo#products';
+     }
+   },1000);
+ }
+
  function clearValidationErrors(){
    document.querySelectorAll('.is-invalid').forEach(el=>el.classList.remove('is-invalid'));
    document.querySelectorAll('.field-error-msg').forEach(el=>el.remove());
@@ -1001,9 +1026,14 @@
        variants:model.variants
      };
 
+     const isNew=!model.id;
      model=await request('/api/gaeru_ceo/product-workspace','POST',payload);
      dirty=false;
      clearValidationErrors();
+     if(isNew){
+       showProductAddedSuccess();
+       return;
+     }
      history.replaceState(null,'','/gaeru_ceo/products/'+model.id+'/edit'+(model.inTrash?'?trash=1':''));
      render();
      feedback(model.inTrash?'Đã lưu thay đổi trong khu vực đã xóa.':p.active?'Đã lưu và xuất bản sản phẩm thành công lên cửa hàng!':'Đã lưu bản nháp thành công. Sản phẩm chưa hiển thị trên cửa hàng.');
