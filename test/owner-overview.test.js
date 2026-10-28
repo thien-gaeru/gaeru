@@ -27,3 +27,11 @@ test('owner name is escaped and missing name falls back to username',async()=>{
   assert.ok(!(await render('<img src=x>')).includes('<img src=x>'));
   assert.ok((await render('')).includes('owner-login</strong>'));
 });
+
+test('owner overview clearly distinguishes pooler or proxy TLS connections without contradictory unencrypted status',()=>{
+  return render('Owner Pooler',{databaseTls:true,databaseCertificateVerified:true,databaseBackendTls:false,databaseTlsProtocol:'TLSv1.3',databaseTlsCipher:'TLS_AES_256_GCM_SHA384'})
+    .then(html=>{
+      assert.ok(html.includes('Qua Pooler / Proxy'));
+      assert.ok(html.includes('Ứng dụng dùng TLSv1.3 · phiên backend nội bộ'));
+    });
+});
