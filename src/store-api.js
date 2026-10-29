@@ -511,6 +511,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.get("/gaeru_ceo/customers", async (req, res, next) => {
     try {
+      await require("./account-retention").lockExpiredJunkAccounts(pool).catch(() => {});
       const query = String(req.query.q || "").trim().slice(0, 100);
       const requestedPage = Number.parseInt(req.query.page || "1", 10);
       if (!Number.isInteger(requestedPage) || requestedPage < 1) {
@@ -528,23 +529,23 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const statusCounts = (await pool.query(`
         SELECT
           COUNT(*)::int AS all,
-          COUNT(*) FILTER(WHERE c.active = true AND c.deleted_at IS NULL AND (c.phone_invalid_at IS NULL OR c.phone_invalid_at > now() - interval '12 hours'))::int AS active,
-          COUNT(*) FILTER(WHERE c.active = true AND c.deleted_at IS NULL AND c.phone_invalid_at IS NOT NULL AND c.phone_invalid_at > now() - interval '12 hours')::int AS warning,
+          COUNT(*) FILTER(WHERE c.active = true AND c.deleted_at IS NULL AND (c.phone_invalid_at IS NULL OR c.phone_invalid_at > now() - interval '12 hours') AND (c.reg_email_failed_at IS NULL OR c.reg_email_failed_at > now() - interval '12 hours'))::int AS active,
+          COUNT(*) FILTER(WHERE c.active = true AND c.deleted_at IS NULL AND ((c.phone_invalid_at IS NOT NULL AND c.phone_invalid_at > now() - interval '12 hours') OR (c.reg_email_failed_at IS NOT NULL AND c.reg_email_failed_at > now() - interval '12 hours')))::int AS warning,
           COUNT(*) FILTER(WHERE c.active = false AND c.deleted_at IS NULL)::int AS locked,
-          COUNT(*) FILTER(WHERE (c.lock_reason = 'spam_email' OR c.lock_reason = 'invalid_phone_timeout') AND c.deleted_at IS NULL)::int AS spam,
+          COUNT(*) FILTER(WHERE (c.lock_reason = 'spam_email' OR c.lock_reason = 'invalid_phone_timeout' OR c.lock_reason = 'reg_email_failed_timeout') AND c.deleted_at IS NULL)::int AS spam,
           COUNT(*) FILTER(WHERE c.deleted_at IS NOT NULL)::int AS trash
         FROM customers c WHERE ${where}`, values)).rows[0] || { all: 0, active: 0, warning: 0, locked: 0, spam: 0, trash: 0 };
       let statusWhere = '';
       if (status === 'trash') {
         statusWhere = ' AND c.deleted_at IS NOT NULL';
       } else if (status === 'active') {
-        statusWhere = " AND c.active = true AND c.deleted_at IS NULL AND (c.phone_invalid_at IS NULL OR c.phone_invalid_at > now() - interval '12 hours')";
+        statusWhere = " AND c.active = true AND c.deleted_at IS NULL AND (c.phone_invalid_at IS NULL OR c.phone_invalid_at > now() - interval '12 hours') AND (c.reg_email_failed_at IS NULL OR c.reg_email_failed_at > now() - interval '12 hours')";
       } else if (status === 'warning') {
-        statusWhere = " AND c.active = true AND c.deleted_at IS NULL AND c.phone_invalid_at IS NOT NULL AND c.phone_invalid_at > now() - interval '12 hours'";
+        statusWhere = " AND c.active = true AND c.deleted_at IS NULL AND ((c.phone_invalid_at IS NOT NULL AND c.phone_invalid_at > now() - interval '12 hours') OR (c.reg_email_failed_at IS NOT NULL AND c.reg_email_failed_at > now() - interval '12 hours'))";
       } else if (status === 'locked') {
         statusWhere = ' AND c.active = false AND c.deleted_at IS NULL';
       } else if (status === 'spam') {
-        statusWhere = " AND (c.lock_reason = 'spam_email' OR c.lock_reason = 'invalid_phone_timeout') AND c.deleted_at IS NULL";
+        statusWhere = " AND (c.lock_reason = 'spam_email' OR c.lock_reason = 'invalid_phone_timeout' OR c.lock_reason = 'reg_email_failed_timeout') AND c.deleted_at IS NULL";
       }
       const verifiedWhere=verification==='verified'?' AND c.email_verified_at IS NOT NULL':verification==='unverified'?' AND c.email_verified_at IS NULL':'';
       const filterTotalRes = await pool.query(`SELECT COUNT(*)::int AS total FROM customers c WHERE ${where}${statusWhere}${verifiedWhere}`, values);
@@ -568,11 +569,19 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           phone_invalid_at: row.phoneInvalidAt,
           created_at: row.createdAt
         });
+        const regEmailCheck = checkCustomerRegEmailStatus({
+          reg_email_failed_at: row.regEmailFailedAt,
+          google_id: row.googleId,
+          email_verified: row.emailVerified
+        });
         return {
           ...row,
           phoneWarning: phoneCheck.isWarning,
           phoneWarningHours: phoneCheck.remainingHours,
-          phoneWarningExpiresAt: phoneCheck.warningExpiresAt
+          phoneWarningExpiresAt: phoneCheck.warningExpiresAt,
+          regEmailWarning: regEmailCheck.isWarning,
+          regEmailWarningHours: regEmailCheck.remainingHours,
+          regEmailWarningExpiresAt: regEmailCheck.warningExpiresAt
         };
       });
       res.json({
