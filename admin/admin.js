@@ -1,3 +1,10 @@
+const reviewReasonLabels = {
+  domain_missing: 'Email tên miền không tồn tại · Cần gọi xác nhận',
+  recipient_rejected: 'Email người mua bị từ chối · Cần gọi xác nhận',
+  delivery_failed: 'Gửi email lỗi · Cần gọi xác nhận',
+  delivery_unknown: 'Chưa rõ kết quả email · Cần gọi xác nhận',
+  delivery_delayed: 'Email gửi chậm > 15 phút · Cần gọi xác nhận'
+};
 const state = {
   session: null,
   viewRequest: 0,
@@ -657,6 +664,7 @@ async function loadOrders(page = state.orderPage, { background = false } = {}) {
     state.selectedOrders.clear();
     renderOrderOverview(result.overview || {});
     renderOrders();
+    if (typeof document?.dispatchEvent === 'function') { try { const ev = typeof CustomEvent === 'function' ? new CustomEvent('gaeru:orders-loaded') : (typeof Event === 'function' ? new Event('gaeru:orders-loaded') : null); if (ev) document.dispatchEvent(ev); } catch {} }
     document.querySelector('#order-live-status').textContent = 'Tự cập nhật mỗi 15 giây' + (background ? ' · Đã cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN') : '');
   } catch (error) {
     if (requestId === state.orderRequest) document.querySelector(background ? '#order-live-status' : '#order-list-status').textContent = background ? 'Mất kết nối cập nhật. Hệ thống sẽ tự thử lại.' : "Chưa tải được đơn hàng. Nhấn Tải lại để thử lại.";
@@ -718,6 +726,13 @@ function openOrderProcessing(id,opener){
  closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
  const steps=['pending','confirmed','processing','shipped','completed'],current=steps.indexOf(order.status);
  dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
+ if(order.reviewReason){
+   const callout=document.createElement('div');
+   callout.className='order-review-callout';
+   callout.style.cssText='background:#fff8ed;border:1px solid #f0dfbd;border-radius:8px;padding:12px;margin:12px 0;font-size:13px;color:#856404;';
+   callout.innerHTML='<strong>⚠️ Đơn đang chờ xác minh qua điện thoại:</strong> '+escapeHtml(reviewReasonLabels[order.reviewReason]||order.reviewReason)+'.<br>Vui lòng gọi khách <strong>'+escapeHtml(order.phone)+'</strong> trước khi xác nhận đơn.<div style="margin-top:8px"><button type="button" class="secondary-button" data-focus-review="'+escapeHtml(order.id)+'">Mở mục xác minh để ghi kết quả</button></div>';
+   dialog.querySelector('.order-processing-content').prepend(callout);
+ }
  if(can('orders.write')&&order.status==='completed'&&order.returnStatus!=='open'){const action=document.createElement('div');action.className='order-return-action';action.innerHTML='<button class="secondary-button" type="button" data-return-order="'+escapeHtml(order.id)+'">Ghi nhận hoàn trả hàng</button>';dialog.querySelector('.order-processing-content').prepend(action);}
  if(can('orders.write')){
     const dangerZone=document.createElement('div');
@@ -729,6 +744,16 @@ function openOrderProcessing(id,opener){
   dialog.addEventListener('click',event=>{
     const button=event.target.closest('[data-return-order]');
     if(button)startOrderReturn(button.dataset.returnOrder);
+    const focusReview=event.target.closest('[data-focus-review]');
+    if(focusReview){
+      closeOrderProcessing();
+      const reviewDetails=document.querySelector('#order-review');
+      if(reviewDetails){
+        reviewDetails.open=true;
+        reviewDetails.scrollIntoView({behavior:'smooth',block:'start'});
+        reviewDetails.dispatchEvent(new Event('toggle'));
+      }
+    }
     const del=event.target.closest('[data-permanent-delete-order]');
     if(del){closeOrderProcessing();handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder);}
   });
@@ -806,7 +831,7 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
-      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}${can("orders.write") ? `<button type="button" class="order-delete-button" data-permanent-delete-order="${escapeHtml(order.id)}" title="Xóa vĩnh viễn đơn hàng này">Xóa vĩnh viễn</button>` : ""}</span></div>
+      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span>${order.reviewReason ? `<span class="status-pill status-warning" style="background:#fff3cd;color:#856404;border:1px solid #ffeeba;margin-top:4px;display:inline-block;font-size:11px" title="${escapeHtml(reviewReasonLabels[order.reviewReason] || 'Cần gọi xác nhận qua điện thoại')}">⚠️ Chờ xác minh SĐT</span>` : ''}</span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}${can("orders.write") ? `<button type="button" class="order-delete-button" data-permanent-delete-order="${escapeHtml(order.id)}" title="Xóa vĩnh viễn đơn hàng này">Xóa vĩnh viễn</button>` : ""}</span></div>
       <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
       <div class="order-meta">
         <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
@@ -1397,9 +1422,9 @@ document.querySelector('#customer-list').addEventListener('submit',async e=>{if(
 function renderOrderOverview(counts) {
   const tabs = [['','Tất cả'],['payment_pending','Đơn chờ thanh toán'],['pending','Chờ xác nhận'],['ready_to_ship','chờ gửi hàng'],['shipped','Đã giao hàng'],['completed','Hoàn Tất'],['cancelled_or_returned','Hủy & Hoàn trả']];
   const total = ['pending','confirmed','processing','shipped','completed','cancelled','returned'].reduce((sum,key)=>sum+Number(counts[key]||0),0);
-  const values={...counts,ready_to_ship:Number(counts.confirmed||0)+Number(counts.processing||0),payment_pending:Number(counts.payment_pending??counts.paymentPending??0)};
   const afterSalesOpen = !document.querySelector('#after-sales-panel').hidden;
-  const currentFilter = document.querySelector('#order-filter').value;
+  const currentFilter = document.querySelector('#order-filter')?.value || '';
+  const values={...counts,ready_to_ship:Number(counts.confirmed||0)+Number(counts.processing||0),payment_pending:Number(counts.payment_pending??counts.paymentPending??(currentFilter==='payment_pending'?state.orderPagination?.total:undefined)??state.paymentPending??0)};
   document.querySelector('#order-tabs').innerHTML = tabs.map(([key,title])=>`<button type="button" data-order-tab="${key}" ${key==='shipped'?'title="Đơn đã bàn giao cho hãng vận chuyển"':''} aria-pressed="${!afterSalesOpen && currentFilter===key}">${title} <span>${key ? Number(values[key]||0) : total}</span></button>`).join('');
   const unpaidBtn = document.querySelector('#btn-unpaid-orders');
   if (unpaidBtn) {

@@ -853,7 +853,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const exportXlsx = req.query.format === 'xlsx';
     const exportAll = exportXlsx && req.query.scope === 'all';
     const filterValues = [status, search, paymentStatus, paymentMethod];
-    const where = `${checkoutAccounts ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1
+    const excludeReviews = checkoutAccounts && status !== 'payment_pending' && !search;
+    const where = `${excludeReviews ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1
       OR ($1='ready_to_ship' AND o.status IN ('confirmed','processing') AND o.return_completed_at IS NULL)
       OR ($1='payment_pending' AND o.payment_status = 'pending' AND o.status <> 'cancelled' AND o.return_completed_at IS NULL)
       OR ($1='cancelled_or_returned' AND (o.status='cancelled' OR EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return'))))
@@ -878,6 +879,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",o.management_version AS version,o.return_completed_at AS "returnedAt",
         CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' WHEN EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return' AND a.status NOT IN ('resolved','rejected')) THEN 'open' ELSE NULL END AS "returnStatus",
         p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus", p.expires_at AS "paymentAttemptExpiresAt",
+        ${checkoutAccounts ? '(SELECT r.reason FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL ORDER BY r.created_at DESC LIMIT 1) AS "reviewReason",' : 'NULL AS "reviewReason",'}
         COALESCE(jsonb_agg(jsonb_build_object('productName', i.product_name, 'variantName', i.variant_name,
           'sku', i.sku, 'unitPriceVnd', i.unit_price_vnd, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
           FILTER (WHERE i.id IS NOT NULL), '[]'::jsonb) AS items
