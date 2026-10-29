@@ -70,3 +70,24 @@
 #order-restoration-dialog textarea{width:100%;min-height:90px;resize:vertical}
 @media(max-width:1100px){#orders-view .order-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:480px){#orders-view .order-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}#order-restoration-dialog form{padding:16px}}
+
+#orders-view .order-delete-button, .order-processing-dialog .order-delete-button{
+  padding: 4px 8px;
+  min-height: 26px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  color: #b42318;
+  border: 1px solid #fecdca;
+  background: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+#orders-view .order-delete-button:hover, .order-processing-dialog .order-delete-button:hover{
+  background: #fef3f2;
+  border-color: #fda29b;
+}

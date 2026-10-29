@@ -1100,6 +1100,29 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }catch(error){if(error instanceof z.ZodError)return res.status(400).json({error:'Nhập lý do, phiên bản và xác nhận đã đối chiếu chưa nhận tiền trước khi khôi phục.'});if(error.code==='23505')return res.status(409).json({error:'Mã yêu cầu khôi phục đã được dùng. Tải lại để kiểm tra trạng thái.'});if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });
 
+    const handleOrderPermanentDelete = async (req, res, next) => {
+    try {
+      const { deleteOrderPermanently } = require('./order-deletion');
+      const deleted = await withTransaction(pool, client =>
+        deleteOrderPermanently(client, req.params.id, {
+          actor: req.admin,
+          inventory: inventory || require('./inventory')
+        })
+      );
+      if (!deleted) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+      res.json({
+        id: req.params.id,
+        orderNumber: deleted.order_number,
+        message: 'Đã xóa vĩnh viễn đơn hàng ' + (deleted.order_number || req.params.id) + ' khỏi hệ thống và loại khỏi dữ liệu doanh số.'
+      });
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      next(error);
+    }
+  };
+  router.post('/gaeru_ceo/orders/:id/permanent-delete', requirePermission('orders.write'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
+  router.delete('/gaeru_ceo/orders/:id', requirePermission('orders.write'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
+
   router.patch("/gaeru_ceo/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = orderUpdateSchema.safeParse(req.body);

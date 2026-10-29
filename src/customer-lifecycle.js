@@ -361,12 +361,11 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
     await client.query('DELETE FROM account_deletion_requests WHERE customer_id = $1', [customerId]);
     await client.query('DELETE FROM security_challenges WHERE account_key = $1', ['customer:' + customerId]);
     await client.query('DELETE FROM account_security WHERE account_key = $1', ['customer:' + customerId]);
-    await client.query(
-      `UPDATE orders
-       SET customer_id = NULL, customer_name = 'Khách hàng đã xóa', email = '', phone = '', address = '', city = '', note = ''
-       WHERE customer_id = $1 OR (customer_id IS NULL AND lower(email) = lower($2))`,
-      [customerId, customer.email]
-    );
+    const { deleteCustomerOrdersPermanently } = require('./order-deletion');
+    await deleteCustomerOrdersPermanently(client, customerId, customer.email, {
+      actor,
+      inventory: require('./inventory')
+    });
     const deleteRes = await client.query('DELETE FROM customers WHERE id = $1 RETURNING id', [customerId]);
     if (!deleteRes.rowCount) return null;
 
