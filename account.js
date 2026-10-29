@@ -21,6 +21,84 @@ function resolveInitialAccountTab() {
   return 'orders';
 }
 
+function openAccountPopup(tabName) {
+  const validTabs = ['orders', 'offers', 'profile', 'warranties', 'security'];
+  if (!validTabs.includes(tabName)) tabName = 'orders';
+  switchAccountTab(tabName, true);
+
+  const dialog = document.querySelector('[data-account-popup-dialog]');
+  if (!dialog) return;
+
+  const meta = {
+    orders: {
+      icon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
+      iconBg: '#e8f2fe',
+      iconColor: '#0071e3',
+      title: 'Đơn hàng của bạn',
+      subtitle: 'Theo dõi tiến trình vận chuyển, thanh toán và lịch sử đơn hàng'
+    },
+    profile: {
+      icon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+      iconBg: '#f3e8ff',
+      iconColor: '#7c3aed',
+      title: 'Hồ sơ & Sổ địa chỉ',
+      subtitle: 'Chỉnh sửa thông tin cá nhân và quản lý sổ địa chỉ giao nhận hàng'
+    },
+    security: {
+      icon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>',
+      iconBg: '#e6f8f0',
+      iconColor: '#0d9488',
+      title: 'Cài đặt bảo mật',
+      subtitle: 'Xác thực hai yếu tố (2FA), đổi mật khẩu và đăng nhập Google'
+    },
+    warranties: {
+      icon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>',
+      iconBg: '#fef3c7',
+      iconColor: '#d97706',
+      title: 'Bảo hành CARE+',
+      subtitle: 'Quản lý thiết bị bảo hành chính hãng GAERU 12 tháng và tra cứu hồ sơ'
+    },
+    offers: {
+      icon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>',
+      iconBg: '#fee2e2',
+      iconColor: '#e11d48',
+      title: 'Ví voucher & Ưu đãi',
+      subtitle: 'Xem và lưu mã ưu đãi độc quyền, mã giảm giá áp dụng khi thanh toán'
+    }
+  }[tabName] || { icon: '📁', iconBg: '#f5f5f7', iconColor: '#1d1d1f', title: 'Chi tiết tài khoản', subtitle: '' };
+
+  const iconEl = dialog.querySelector('[data-popup-icon]');
+  const titleEl = dialog.querySelector('[data-popup-title]');
+  const subtitleEl = dialog.querySelector('[data-popup-subtitle]');
+  if (iconEl) {
+    iconEl.innerHTML = meta.icon;
+    iconEl.style.backgroundColor = meta.iconBg;
+    iconEl.style.color = meta.iconColor;
+  }
+  if (titleEl) titleEl.textContent = meta.title;
+  if (subtitleEl) subtitleEl.textContent = meta.subtitle;
+
+  if (typeof dialog.showModal === 'function') {
+    if (!dialog.open) dialog.showModal();
+  } else {
+    dialog.setAttribute('open', '');
+  }
+}
+
+function closeAccountPopup() {
+  const dialog = document.querySelector('[data-account-popup-dialog]');
+  if (!dialog) return;
+  if (typeof dialog.close === 'function') {
+    if (dialog.open) dialog.close();
+  } else {
+    dialog.removeAttribute('open');
+  }
+  if (typeof window !== 'undefined' && window.location?.hash) {
+    history.replaceState(null, '', window.location.pathname + '#customer-account');
+  }
+}
+
+
 function switchAccountTab(tabName, updateHash = true) {
   const validTabs = ['orders', 'offers', 'profile', 'warranties', 'security'];
   if (!validTabs.includes(tabName)) tabName = 'orders';
@@ -98,8 +176,20 @@ function setAccountPresentation(customer) {
       }
     }
   }
+  const hubGrid = document.querySelector?.('[data-account-hub-grid]');
+  if (hubGrid) hubGrid.hidden = !customer;
+
   if (customer) {
-    switchAccountTab(resolveInitialAccountTab(), false);
+    const initialTab = resolveInitialAccountTab();
+    switchAccountTab(initialTab, false);
+    const hash = (typeof window !== 'undefined' && window.location?.hash ? window.location.hash : '').replace('#', '').toLowerCase();
+    if (['orders', 'offers', 'profile', 'warranties', 'security'].includes(hash)) {
+      openAccountPopup(hash);
+    } else {
+      closeAccountPopup();
+    }
+  } else {
+    closeAccountPopup();
   }
 }
 
@@ -352,15 +442,24 @@ document.addEventListener("click", (e) => {
   const tabLink = e.target?.closest?.('[data-account-tab]');
   if (tabLink) {
     e.preventDefault();
-    switchAccountTab(tabLink.dataset?.accountTab, true);
-    if (typeof window !== 'undefined' && window.innerWidth <= 800) {
-      document.querySelector('.account-workspace')?.scrollIntoView({ behavior: 'smooth' });
-    }
+    openAccountPopup(tabLink.dataset?.accountTab);
+    return;
+  }
+  const closeBtn = e.target?.closest?.('[data-popup-close]');
+  if (closeBtn) {
+    e.preventDefault();
+    closeAccountPopup();
+    return;
+  }
+  const dialog = document.querySelector('[data-account-popup-dialog]');
+  if (dialog && e.target === dialog) {
+    closeAccountPopup();
     return;
   }
   const logoutBtn = e.target?.closest?.('[data-account-logout]');
   if (logoutBtn) {
     e.preventDefault();
+    closeAccountPopup();
     handleCustomerLogout();
     return;
   }
@@ -369,7 +468,12 @@ document.addEventListener("click", (e) => {
 if (typeof window !== 'undefined') {
   window.addEventListener?.('hashchange', () => {
     if (document.querySelector?.('.account-layout')?.classList?.contains('is-authenticated')) {
-      switchAccountTab(resolveInitialAccountTab(), false);
+      const h = (window.location?.hash || '').replace('#', '').toLowerCase();
+      if (['orders', 'offers', 'profile', 'warranties', 'security'].includes(h)) {
+        openAccountPopup(h);
+      } else {
+        closeAccountPopup();
+      }
     }
   });
 
@@ -582,6 +686,8 @@ async function initGoogleOAuth(interactive = false) {
       return;
     }
 
+    if (!interactive) return;
+
     let sdkReady = Boolean(window.google?.accounts?.id);
     if (!sdkReady) {
       try {
@@ -600,7 +706,7 @@ async function initGoogleOAuth(interactive = false) {
           setTimeout(() => {
             if (window.google?.accounts?.id) resolve();
             else reject(new Error('GIS_TIMEOUT'));
-          }, 3500);
+          }, 2500);
         });
         sdkReady = Boolean(window.google?.accounts?.id);
       } catch (e) {
@@ -637,16 +743,14 @@ async function initGoogleOAuth(interactive = false) {
       googleGsiInitialized = true;
     }
 
-    if (interactive) {
-      if (sdkReady && window.google?.accounts?.id) {
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            redirectToGoogleOAuth(cfg);
-          }
-        });
-      } else {
-        redirectToGoogleOAuth(cfg);
-      }
+    if (sdkReady && window.google?.accounts?.id) {
+      window.google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          redirectToGoogleOAuth(cfg);
+        }
+      });
+    } else {
+      redirectToGoogleOAuth(cfg);
     }
   } catch (err) {
     if (interactive) {
@@ -654,9 +758,13 @@ async function initGoogleOAuth(interactive = false) {
         redirectToGoogleOAuth(cfg);
         return;
       }
-      setAccountFeedback(err.message || 'Không thể đăng nhập với Google lúc này.', true);
+      setAccountFeedback(err.message || 'Chức năng đăng nhập Google cần được bật cấu hình GOOGLE_CLIENT_ID.', true);
     }
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.GAERUConnectGoogle = () => initGoogleOAuth(true);
 }
 
 function bindOAuthButtons() {
@@ -670,6 +778,12 @@ function bindOAuthButtons() {
 
 bindOAuthButtons();
 
-setTimeout(() => {
-  initGoogleOAuth(false).catch(() => {});
-}, 300);
+if (typeof window !== 'undefined') {
+  const popupDialog = document.querySelector('[data-account-popup-dialog]');
+  if (popupDialog) {
+    popupDialog.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      closeAccountPopup();
+    });
+  }
+}

@@ -40,13 +40,7 @@
           <p class="eyebrow">GAERU ACCOUNT</p>
           <h1>Tài khoản GAERU</h1>
           <p data-account-intro>Quản lý thông tin, đơn hàng và bảo hành của bạn.</p>
-          <div class="account-user-badge" data-account-user-badge hidden>
-            <div class="account-user-avatar" data-account-user-avatar aria-hidden="true">G</div>
-            <div class="account-user-info">
-              <strong data-account-user-name>Khách hàng</strong>
-              <span data-account-user-email></span>
-            </div>
-          </div>
+          
           <nav class="account-hub-nav" aria-label="Quản lý tài khoản" data-account-navigation hidden>
             <a href="#orders" class="account-hub-link is-active" data-account-tab="orders" role="tab" aria-selected="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
@@ -95,6 +89,75 @@
                 <span>Đăng xuất</span>
               </button>
             </div>
+          </div>
+
+          
+          <!-- Quick Access Hub Cards: 4 nút chính theo yêu cầu + 1 nút ưu đãi -->
+          <div class="account-hub-grid" data-account-hub-grid hidden>
+            <button type="button" class="account-hub-tile" data-account-tab="orders" aria-label="Mở Đơn hàng của bạn">
+              <div class="account-hub-tile-icon" style="background:#e8f2fe;color:#0071e3;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+              </div>
+              <div class="account-hub-tile-content">
+                <div class="account-hub-tile-header">
+                  <h3 class="account-hub-tile-title">Đơn hàng của bạn</h3>
+                  <span class="account-hub-tile-arrow" aria-hidden="true">›</span>
+                </div>
+                <p class="account-hub-tile-desc">Theo dõi tiến trình giao hàng, thanh toán và lịch sử đơn hàng.</p>
+              </div>
+            </button>
+
+            <button type="button" class="account-hub-tile" data-account-tab="profile" aria-label="Mở Hồ sơ và Sổ địa chỉ">
+              <div class="account-hub-tile-icon" style="background:#f3e8ff;color:#7c3aed;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              </div>
+              <div class="account-hub-tile-content">
+                <div class="account-hub-tile-header">
+                  <h3 class="account-hub-tile-title">Hồ sơ &amp; Sổ địa chỉ</h3>
+                  <span class="account-hub-tile-arrow" aria-hidden="true">›</span>
+                </div>
+                <p class="account-hub-tile-desc">Chỉnh sửa thông tin cá nhân và quản lý sổ địa chỉ giao nhận hàng.</p>
+              </div>
+            </button>
+
+            <button type="button" class="account-hub-tile" data-account-tab="security" aria-label="Mở Cài đặt bảo mật">
+              <div class="account-hub-tile-icon" style="background:#e6f8f0;color:#0d9488;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+              </div>
+              <div class="account-hub-tile-content">
+                <div class="account-hub-tile-header">
+                  <h3 class="account-hub-tile-title">Cài đặt bảo mật</h3>
+                  <span class="account-hub-tile-arrow" aria-hidden="true">›</span>
+                </div>
+                <p class="account-hub-tile-desc">Xác thực 2 yếu tố (2FA), đổi mật khẩu và đăng nhập Google.</p>
+              </div>
+            </button>
+
+            <button type="button" class="account-hub-tile" data-account-tab="warranties" aria-label="Mở Bảo hành CARE+">
+              <div class="account-hub-tile-icon" style="background:#fef3c7;color:#d97706;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+              </div>
+              <div class="account-hub-tile-content">
+                <div class="account-hub-tile-header">
+                  <h3 class="account-hub-tile-title">Bảo hành CARE+</h3>
+                  <span class="account-hub-tile-arrow" aria-hidden="true">›</span>
+                </div>
+                <p class="account-hub-tile-desc">Quản lý thiết bị bảo hành chính hãng GAERU 12 tháng và tra cứu hồ sơ.</p>
+              </div>
+            </button>
+
+            <button type="button" class="account-hub-tile account-hub-tile-offers" data-account-tab="offers" aria-label="Mở Ví voucher và Ưu đãi">
+              <div class="account-hub-tile-icon" style="background:#fee2e2;color:#e11d48;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+              </div>
+              <div class="account-hub-tile-content">
+                <div class="account-hub-tile-header">
+                  <h3 class="account-hub-tile-title">Ví voucher &amp; Ưu đãi</h3>
+                  <span class="account-hub-tile-arrow" aria-hidden="true">›</span>
+                </div>
+                <p class="account-hub-tile-desc">Xem và lưu mã ưu đãi độc quyền, mã giảm giá áp dụng khi thanh toán.</p>
+              </div>
+            </button>
           </div>
 
           <section class="account-card" data-account-card>
@@ -167,13 +230,30 @@
               </div>
             </div>
 
-            <div class="account-panel customer-profile" id="account-overview" data-account-profile hidden>
+            
+          <!-- Popup Dialog Modal hiển thị chi tiết khi bấm nút tương ứng -->
+          <dialog class="account-popup-dialog" data-account-popup-dialog aria-modal="true" aria-label="Chi tiết tài khoản">
+            <div class="account-popup-shell">
+              <header class="account-popup-header">
+                <div class="account-popup-title-group">
+                  <div class="account-popup-icon" data-popup-icon aria-hidden="true"></div>
+                  <div>
+                    <h2 class="account-popup-title" data-popup-title>Chi tiết</h2>
+                    <p class="account-popup-subtitle" data-popup-subtitle></p>
+                  </div>
+                </div>
+                <button type="button" class="account-popup-close" data-popup-close aria-label="Đóng popup">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+              </header>
+              <div class="account-popup-body" data-popup-body>
+                <div class="account-panel customer-profile" id="account-overview" data-account-profile hidden>
               <div class="account-overview-card account-tab-panel" data-account-tab-panel="profile">
-              <div class="account-profile-header"><div>
+              <div class="account-profile-header account-profile-compact-header" style="display:none!important;"><div>
               <p class="eyebrow">THÔNG TIN KHÁCH HÀNG</p>
               <h3 data-customer-name></h3>
               </div><span class="account-verification-badge" data-customer-verification-status>Chưa xác minh email</span></div>
-              <dl>
+              <dl class="account-profile-summary-dl" style="display:none!important;">
                 <div><dt>Email</dt><dd data-customer-email></dd></div>
                 <div><dt>Điện thoại</dt><dd data-customer-phone></dd></div>
               </dl>
@@ -185,9 +265,16 @@
                   <p class="account-feedback" data-email-verification-feedback role="status" aria-live="polite"></p>
                 </div>
               </div>
-              <div class="account-profile-footer"><p>Thông tin của bạn được dùng để liên hệ và giao hàng.</p><button class="secondary-button" type="button" data-account-logout>Đăng xuất</button></div>
+              <div class="account-profile-footer" style="display:none!important;">
+    <button class="secondary-button" type="button" data-account-logout style="display:none!important;">Đăng xuất</button>
+  </div>
               </div>
             </div>
+            
+              </div>
+            </div>
+          </dialog>
+
             <div class="account-loading" data-account-loading role="status" aria-live="polite"><span class="account-spinner" aria-hidden="true"></span><p data-account-loading-message>Đang tải tài khoản…</p></div>
             <p class="account-feedback" data-account-feedback role="status" aria-live="polite"></p>
           </section>
