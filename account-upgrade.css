@@ -600,3 +600,16 @@
 [data-account-header-banner] {
   display: none !important;
 }
+
+/* ==========================================================================
+   ẨN HOÀN TOÀN KÝ TỰ ĐẠI DIỆN, TÊN VÀ EMAIL DƯỚI TIÊU ĐỀ TÀI KHOẢN GAERU
+   ========================================================================== */
+.account-user-badge,
+[data-account-user-badge],
+.account-user-avatar,
+[data-account-user-avatar],
+.account-user-info,
+[data-account-user-name],
+[data-account-user-email] {
+  display: none !important;
+}
