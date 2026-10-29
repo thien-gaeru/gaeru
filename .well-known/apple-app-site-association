@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "GAERU2026.com.gaeru.store",
+        "paths": [
+          "/",
+          "/shop.html*",
+          "/product.html*",
+          "/cart.html*",
+          "/account.html*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "GAERU2026.com.gaeru.store"
+    ]
+  }
+}
