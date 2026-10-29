@@ -38,3 +38,7 @@
 .product-rank-badge.rank-2{background:#e2e8f0;color:#334155}
 .product-rank-badge.rank-3{background:#fed7aa;color:#9a3412}
 .product-rank-badge.rank-rest{background:#f1f5f9;color:#64748b}
+
+
+.pwa-install-dialog{width:min(100% - 30px, 520px);padding:22px;border-radius:18px}
+.pwa-install-dialog header button{cursor:pointer}
