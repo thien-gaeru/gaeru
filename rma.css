@@ -1,0 +1,307 @@
+.rma-page {
+  background-color: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  line-height: 1.6;
+}
+
+.rma-header {
+  border-bottom: 1px solid #30363d;
+  background: #161b22;
+  padding: 16px 24px;
+}
+
+.rma-header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rma-logo {
+  font-size: 22px;
+  font-weight: 800;
+  color: #58a6ff;
+  text-decoration: none;
+  letter-spacing: 1px;
+}
+
+.rma-badge {
+  background: rgba(56, 139, 253, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(56, 139, 253, 0.3);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rma-container {
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.rma-hero {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.rma-hero h1 {
+  font-size: 28px;
+  margin-bottom: 12px;
+  color: #f0f6fc;
+}
+
+.rma-hero p {
+  color: #8b949e;
+  font-size: 15px;
+  max-width: 650px;
+  margin: 0 auto;
+}
+
+.rma-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 12px;
+}
+
+.rma-tab {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rma-tab.active {
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+}
+
+.rma-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 28px;
+  margin-bottom: 32px;
+}
+
+.rma-card h2 {
+  font-size: 20px;
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: #f0f6fc;
+}
+
+.rma-card-desc {
+  color: #8b949e;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.rma-search-form {
+  display: flex;
+  gap: 12px;
+}
+
+.rma-search-form input {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.rma-btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s ease;
+}
+
+.rma-btn-primary {
+  background: #238636;
+  color: #ffffff;
+}
+
+.rma-btn-primary:hover {
+  background: #2ea043;
+}
+
+.rma-form-group {
+  margin-bottom: 16px;
+}
+
+.rma-form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.rma-form-row .rma-form-group {
+  flex: 1;
+}
+
+.rma-form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #c9d1d9;
+}
+
+.rma-form-group input,
+.rma-form-group select,
+.rma-form-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.rma-results {
+  margin-top: 24px;
+}
+
+.rma-ticket-box {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.rma-ticket-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.rma-ticket-code {
+  font-size: 18px;
+  font-weight: 700;
+  color: #58a6ff;
+}
+
+.rma-status-pill {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(56, 139, 253, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(56, 139, 253, 0.3);
+}
+
+.rma-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0 0;
+  position: relative;
+}
+
+.rma-timeline-item {
+  position: relative;
+  padding-left: 28px;
+  margin-bottom: 16px;
+}
+
+.rma-timeline-item::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #238636;
+}
+
+.rma-timeline-item::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 18px;
+  bottom: -16px;
+  width: 2px;
+  background: #30363d;
+}
+
+.rma-timeline-item:last-child::after {
+  display: none;
+}
+
+.rma-timeline-date {
+  font-size: 12px;
+  color: #8b949e;
+}
+
+.rma-timeline-desc {
+  font-size: 14px;
+  color: #e6edf3;
+  margin-top: 2px;
+}
+
+.rma-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.rma-step-box {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.rma-step-num {
+  font-size: 18px;
+  font-weight: 800;
+  color: #238636;
+  margin-bottom: 8px;
+}
+
+.rma-step-box h4 {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  color: #f0f6fc;
+}
+
+.rma-step-box p {
+  margin: 0;
+  font-size: 13px;
+  color: #8b949e;
+}
+
+.rma-footer {
+  text-align: center;
+  padding: 24px;
+  border-top: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 13px;
+  margin-top: 40px;
+}
