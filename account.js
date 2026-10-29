@@ -10,7 +10,7 @@ function setAccountFeedback(message, isError = false) {
   accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
 }
 
-let currentActiveTab = 'orders';
+let currentActiveTab = 'profile';
 
 function resolveInitialAccountTab() {
   const hash = (typeof window !== 'undefined' && window.location?.hash ? window.location.hash : '').replace('#', '').toLowerCase();
@@ -19,7 +19,7 @@ function resolveInitialAccountTab() {
   if (hash === 'security' || hash === 'account-security') return 'security';
   if (hash === 'warranties' || hash === 'account-warranties') return 'warranties';
   if (hash === 'orders' || hash === 'customer-orders') return 'orders';
-  return 'orders';
+  return 'profile';
 }
 
 function switchAccountTab(tabName, updateHash = true) {
