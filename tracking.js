@@ -16,10 +16,22 @@
     void doLookup(initialQuery);
   }
 
+  // Expose globally
+  window.doTrackingLookup = doLookup;
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     void doLookup(input.value);
   });
+
+  if (trackBtn) {
+    trackBtn.addEventListener('click', (e) => {
+      if (input && input.value) {
+        e.preventDefault();
+        void doLookup(input.value);
+      }
+    });
+  }
 
   async function doLookup(query) {
     const trimmed = String(query || '').trim();

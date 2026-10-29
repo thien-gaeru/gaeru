@@ -129,7 +129,7 @@
           </div>
           <div class="gaeru-vip-actions-row">
             <span>${tier === 'diamond' ? 'Bạn đang hưởng đặc quyền cao nhất của GAERU VIP!' : `Tích lũy thêm ${(Math.max(0, targetPoints - lifetime)).toLocaleString('vi-VN')} điểm để đạt Hạng ${escapeHtml(nextTierName)}`}</span>
-            <button type="button" class="gaeru-vip-history-btn" data-open-loyalty-history>
+            <button type="button" class="gaeru-vip-history-btn" data-open-loyalty-history onclick="window.GAERUCustomerUpgrades?.openLoyaltyHistoryModal()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
               Lịch sử tích điểm
             </button>
@@ -155,11 +155,11 @@
             <span class="gaeru-action-pill-icon">🛡️</span>
             <span class="gaeru-action-pill-text">Đổi mới 1-1 & Bảo hành</span>
           </a>
-          <button type="button" class="gaeru-action-pill" data-service-tile="affiliate" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
+          <button type="button" class="gaeru-action-pill" data-service-tile="affiliate" onclick="window.GAERUCustomerUpgrades?.openAffiliateModal()" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
             <span class="gaeru-action-pill-icon">🤝</span>
             <span class="gaeru-action-pill-text">Mã giới thiệu CTV (8%)</span>
           </button>
-          <button type="button" class="gaeru-action-pill" data-service-tile="push" title="Cài đặt nhận thông báo đơn hàng qua trình duyệt">
+          <button type="button" class="gaeru-action-pill" data-service-tile="push" onclick="window.GAERUCustomerUpgrades?.handlePushClick(this)" title="Cài đặt nhận thông báo đơn hàng qua trình duyệt">
             <span class="gaeru-action-pill-icon">🔔</span>
             <span class="gaeru-action-pill-text" data-push-action-text>Thông báo đơn hàng</span>
             <span class="gaeru-action-pill-badge" data-push-badge>Trình duyệt</span>
@@ -257,6 +257,16 @@
       dialog.id = id;
       dialog.className = 'gaeru-dialog';
       document.body.appendChild(dialog);
+    }
+    if (typeof dialog.showModal !== 'function') {
+      dialog.showModal = function() {
+        this.setAttribute('open', '');
+        this.style.display = 'block';
+      };
+      dialog.close = function() {
+        this.removeAttribute('open');
+        this.style.display = 'none';
+      };
     }
     return dialog;
   }
@@ -605,12 +615,65 @@
       openAffiliateModal(customer);
     });
 
+    // Expose helpers globally
+    window.GAERUCustomerUpgrades = {
+      openBnplCalculatorModal,
+      openAffiliateModal: (cust) => openAffiliateModal(cust || currentCustomerData || window.GAERUCustomerSession?.customer || { id: 'VIP' }),
+      openLoyaltyHistoryModal,
+      handlePushClick: (tile) => setupWebPushHandler(tile || hub.querySelector('[data-service-tile="push"]')),
+      initCustomerUpgrades
+    };
+
     const pushTile = hub.querySelector('[data-service-tile="push"]');
     if (pushTile) setupWebPushHandler(pushTile);
 
     // Nâng cấp lịch sử đơn hàng
     enhanceCustomerOrders();
   }
+
+  // Khai báo global API sẵn sàng ngay lập tức
+  window.GAERUCustomerUpgrades = {
+    openBnplCalculatorModal,
+    openAffiliateModal: (cust) => openAffiliateModal(cust || currentCustomerData || window.GAERUCustomerSession?.customer || { id: 'VIP' }),
+    openLoyaltyHistoryModal,
+    initCustomerUpgrades
+  };
+
+  // Ủy quyền sự kiện click toàn tài liệu (Global Event Delegation)
+  document.addEventListener('click', (e) => {
+    // 1. Mở modal lịch sử điểm
+    const loyaltyBtn = e.target.closest('[data-open-loyalty-history]');
+    if (loyaltyBtn) {
+      e.preventDefault();
+      openLoyaltyHistoryModal();
+      return;
+    }
+
+    // 2. Mở modal Tiếp thị liên kết KOC (Affiliate CTV)
+    const affBtn = e.target.closest('[data-service-tile="affiliate"]');
+    if (affBtn) {
+      e.preventDefault();
+      openAffiliateModal(currentCustomerData || window.GAERUCustomerSession?.customer || { id: 'VIP' });
+      return;
+    }
+
+    // 3. Mở modal tính trả góp BNPL
+    const bnplBtn = e.target.closest('[data-service-tile="bnpl"]');
+    if (bnplBtn) {
+      e.preventDefault();
+      openBnplCalculatorModal();
+      return;
+    }
+
+    // 4. Nút đóng modal
+    const closeBtn = e.target.closest('[data-dialog-close]');
+    if (closeBtn) {
+      e.preventDefault();
+      const dlg = closeBtn.closest('dialog');
+      if (dlg && typeof dlg.close === 'function') dlg.close();
+      return;
+    }
+  });
 
   // Lắng nghe các sự kiện thay đổi phiên & workspace ready
   document.addEventListener('gaeru:customer-updated', () => {
