@@ -37,6 +37,10 @@ const DEFAULT_SETTINGS = {
     payoutDayOfMonth: 15,
     autoApprovePartners: true
   },
+  promotions: {
+    maxDiscountPercentCap: 40,
+    blockVoucherOnFlashSale: true
+  },
   webPush: {
     autoNotifyNewOrder: true,
     autoNotifyShipping: true,
