@@ -591,3 +591,12 @@
     justify-content: flex-end !important;
   }
 }
+
+
+/* ==========================================================================
+   ẨN KHỐI TÊN KHÁCH HÀNG, EMAIL, NÚT ĐĂNG XUẤT PHÍA TRÊN Ô THÔNG TIN KHÁCH HÀNG
+   ========================================================================== */
+.account-header-banner,
+[data-account-header-banner] {
+  display: none !important;
+}
