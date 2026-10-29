@@ -586,7 +586,7 @@
             });
             if (badge) { badge.textContent = 'Đã bật'; badge.classList.add('is-highlight'); }
             if (actionText) actionText.textContent = 'Đang nhận thông báo (Bấm để gửi test)';
-            new Notification('GAERU Official Store', {
+            new Notification('GAERU', {
               body: 'Tuyệt vời! Bạn sẽ nhận được thông báo khi đơn hàng được duyệt và giao hàng.',
               icon: '/assets/brand/gaeru-logo.webp'
             });
