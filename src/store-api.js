@@ -10,6 +10,7 @@ const { requirePermission } = require("./staff-access");
 const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
 const { decoratePublicProductImages } = require("./lib/public-image-urls");
+const { checkCustomerPhoneStatus } = require("./customer-lifecycle");
 
 const orderSchema = z.object({
   customer: z.object({
@@ -517,26 +518,72 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       }
       const verification=String(req.query.verification||'all');
       if(!['all','verified','unverified'].includes(verification))return res.status(400).json({error:'Bộ lọc xác minh chưa hợp lệ.'});
+      const status = String(req.query.status || 'all').trim().toLowerCase();
+      const validStatuses = ['all', 'active', 'warning', 'locked', 'spam', 'trash'];
+      if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Bộ lọc trạng thái tài khoản chưa hợp lệ.' });
       const pageSize = 25;
       const values = [query];
       const where = `($1::text = '' OR c.full_name ILIKE '%' || $1 || '%' OR c.email ILIKE '%' || $1 || '%' OR c.phone ILIKE '%' || $1 || '%')`;
-      const countResult = await pool.query(`SELECT COUNT(*)::int AS total FROM customers c WHERE ${where}`, values);
       const counts=(await pool.query(`SELECT COUNT(*) FILTER(WHERE c.email_verified_at IS NOT NULL)::int AS verified,COUNT(*) FILTER(WHERE c.email_verified_at IS NULL)::int AS unverified FROM customers c WHERE ${where}`,values)).rows[0]||{verified:0,unverified:0};
+      const statusCounts = (await pool.query(`
+        SELECT
+          COUNT(*)::int AS all,
+          COUNT(*) FILTER(WHERE c.active = true AND c.deleted_at IS NULL AND (c.phone_invalid_at IS NULL OR c.phone_invalid_at > now() - interval '12 hours'))::int AS active,
+          COUNT(*) FILTER(WHERE c.active = true AND c.deleted_at IS NULL AND c.phone_invalid_at IS NOT NULL AND c.phone_invalid_at > now() - interval '12 hours')::int AS warning,
+          COUNT(*) FILTER(WHERE c.active = false AND c.deleted_at IS NULL)::int AS locked,
+          COUNT(*) FILTER(WHERE (c.lock_reason = 'spam_email' OR c.lock_reason = 'invalid_phone_timeout') AND c.deleted_at IS NULL)::int AS spam,
+          COUNT(*) FILTER(WHERE c.deleted_at IS NOT NULL)::int AS trash
+        FROM customers c WHERE ${where}`, values)).rows[0] || { all: 0, active: 0, warning: 0, locked: 0, spam: 0, trash: 0 };
+      let statusWhere = '';
+      if (status === 'trash') {
+        statusWhere = ' AND c.deleted_at IS NOT NULL';
+      } else if (status === 'active') {
+        statusWhere = " AND c.active = true AND c.deleted_at IS NULL AND (c.phone_invalid_at IS NULL OR c.phone_invalid_at > now() - interval '12 hours')";
+      } else if (status === 'warning') {
+        statusWhere = " AND c.active = true AND c.deleted_at IS NULL AND c.phone_invalid_at IS NOT NULL AND c.phone_invalid_at > now() - interval '12 hours'";
+      } else if (status === 'locked') {
+        statusWhere = ' AND c.active = false AND c.deleted_at IS NULL';
+      } else if (status === 'spam') {
+        statusWhere = " AND (c.lock_reason = 'spam_email' OR c.lock_reason = 'invalid_phone_timeout') AND c.deleted_at IS NULL";
+      }
       const verifiedWhere=verification==='verified'?' AND c.email_verified_at IS NOT NULL':verification==='unverified'?' AND c.email_verified_at IS NULL':'';
-      const total = verification==='all'?(countResult.rows[0]?.total||0):Number(counts[verification]);
+      const filterTotalRes = await pool.query(`SELECT COUNT(*)::int AS total FROM customers c WHERE ${where}${statusWhere}${verifiedWhere}`, values);
+      const total = filterTotalRes.rows[0]?.total || 0;
       const pageCount = Math.max(1, Math.ceil(total / pageSize));
       const page = Math.min(requestedPage, pageCount);
       const result = await pool.query(
         `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,c.deleted_at AS "deletedAt",c.deletion_recoverable AS "deletionRecoverable",(c.deleted_at>now()-interval '1 year') AS "canRestore",
                 c.email_verified_at IS NOT NULL AS "emailVerified", c.created_at AS "createdAt",
+                c.phone_invalid_at AS "phoneInvalidAt", c.lock_reason AS "lockReason", c.locked_at AS "lockedAt",
                 COUNT(o.id)::int AS "orderCount", MAX(o.created_at) AS "lastOrderAt"
          FROM customers c
          LEFT JOIN orders o ON o.customer_id=c.id OR (o.customer_id IS NULL AND lower(o.email)=lower(c.email))
-         WHERE ${where}${verifiedWhere}
+         WHERE ${where}${statusWhere}${verifiedWhere}
          GROUP BY c.id ORDER BY c.created_at DESC LIMIT $2 OFFSET $3`,
         [query, pageSize, (page - 1) * pageSize]
       );
-      res.json({ customers: result.rows, verification, verificationCounts:{all:Number(counts.verified)+Number(counts.unverified),verified:Number(counts.verified),unverified:Number(counts.unverified)}, pagination: { page, pageSize, total, pageCount } });
+      const customers = result.rows.map(row => {
+        const phoneCheck = checkCustomerPhoneStatus({
+          phone: row.phone,
+          phone_invalid_at: row.phoneInvalidAt,
+          created_at: row.createdAt
+        });
+        return {
+          ...row,
+          phoneWarning: phoneCheck.isWarning,
+          phoneWarningHours: phoneCheck.remainingHours,
+          phoneWarningExpiresAt: phoneCheck.warningExpiresAt
+        };
+      });
+      res.json({
+        customers,
+        verification,
+        verificationCounts:{all:Number(counts.verified)+Number(counts.unverified),verified:Number(counts.verified),unverified:Number(counts.unverified)},
+        status,
+        statusCounts,
+        filterCounts: statusCounts,
+        pagination: { page, pageSize, total, pageCount }
+      });
     } catch (error) {
       next(error);
     }

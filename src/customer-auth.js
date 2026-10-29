@@ -6,6 +6,7 @@ const nodemailer = require("nodemailer");
 const { z } = require("zod");
 const { requireCsrf } = require("./security");
 const { withTransaction } = require("./db");
+const { isDisposableEmail, isPermanentSendMailError, isValidVietnamMobile, checkCustomerPhoneStatus, autoLockAccount } = require("./customer-lifecycle");
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomBytes(24).toString("hex"), 12);
 const registrationSchema = z.object({
@@ -97,7 +98,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       const isEmail = parsed.data.identifier.includes('@');
       const result = await pool.query(
-        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt"
+        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt", phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt"
          FROM customers WHERE ${isEmail ? 'email = $1' : 'phone = ANY($1::text[])'} LIMIT 2`,
         [isEmail ? parsed.data.identifier.toLowerCase() : loginPhoneCandidates(parsed.data.identifier)]
       );
@@ -106,7 +107,38 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       const passwordMatches = await bcrypt.compare(parsed.data.password, customer?.password_hash || DUMMY_PASSWORD_HASH);
       if (!customer || !passwordMatches || !require("./audit-fixes/password-rules").withinBcryptLimit(parsed.data.password)) return res.status(401).json({ error: "Email/số điện thoại hoặc mật khẩu không đúng. Nếu số điện thoại dùng chung nhiều tài khoản, vui lòng đăng nhập bằng email." });
       if(customer.deletedAt)return res.status(403).json({error:'Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'});
-      if (customer.active === false&&!customer.deletedAt) return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
+      if (customer.active === false&&!customer.deletedAt) {
+        if (customer.lockReason === 'spam_email') {
+          return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do địa chỉ email rác không thể gửi mail xác thực. Vui lòng liên hệ GAERU để được hỗ trợ." });
+        }
+        if (customer.lockReason === 'invalid_phone_timeout') {
+          return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
+        }
+        return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
+      }
+
+      const phoneStatus = checkCustomerPhoneStatus({
+        phone: customer.phone,
+        phone_invalid_at: customer.phoneInvalidAt,
+        created_at: customer.createdAt
+      });
+
+      if (phoneStatus.isExpired) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
+            [customer.id]
+          );
+        } catch (_) {}
+        return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
+      }
+
+      if (phoneStatus.isWarning) {
+        customer.phoneWarning = true;
+        customer.phoneWarningRemainingHours = phoneStatus.remainingHours;
+        customer.phoneWarningExpiresAt = phoneStatus.warningExpiresAt;
+        customer.phoneWarningMessage = phoneStatus.warningMessage;
+      }
 
       if(accountSecurity&&await accountSecurity.beginLogin(req,res,"customer:"+customer.id,parsed.data.password))return;
       startCustomerSession(req, res, next, customer,accountSecurity);
@@ -122,7 +154,8 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
     try {
       const result = await pool.query(
         `SELECT id, full_name AS "fullName", email, phone,
-                email_verified_at IS NOT NULL AS "emailVerified", active
+                email_verified_at IS NOT NULL AS "emailVerified", active,
+                phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt"
          FROM customers WHERE id = $1`,
         [customer.id]
       );
@@ -131,6 +164,38 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         delete req.session.customer;
         return res.json({ authenticated: false, customer: null });
       }
+
+      const phoneStatus = checkCustomerPhoneStatus({
+        phone: currentCustomer.phone,
+        phone_invalid_at: currentCustomer.phoneInvalidAt,
+        created_at: currentCustomer.createdAt
+      });
+
+      if (phoneStatus.isExpired) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
+            [currentCustomer.id]
+          );
+        } catch (_) {}
+        delete req.session.customer;
+        return res.json({
+          authenticated: false,
+          customer: null,
+          error: "Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ."
+        });
+      }
+
+      if (phoneStatus.isWarning) {
+        currentCustomer.phoneWarning = true;
+        currentCustomer.phoneWarningRemainingHours = phoneStatus.remainingHours;
+        currentCustomer.phoneWarningExpiresAt = phoneStatus.warningExpiresAt;
+        currentCustomer.phoneWarningMessage = phoneStatus.warningMessage;
+      }
+      delete currentCustomer.phoneInvalidAt;
+      delete currentCustomer.lockReason;
+      delete currentCustomer.createdAt;
+
       req.session.customer = currentCustomer;
       res.json({ authenticated: true, customer: currentCustomer });
     } catch (error) {
@@ -260,6 +325,17 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         return res.status(503).json({ error: "Chức năng xác minh tài khoản chưa được cấu hình dịch vụ email." });
       }
 
+      if (isDisposableEmail(customerSession.email)) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'spam_email', locked_at = now(), updated_at = now() WHERE id = $1",
+            [customerSession.id]
+          );
+        } catch (_) {}
+        delete req.session.customer;
+        return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do địa chỉ email rác không thể gửi mail xác thực. Vui lòng liên hệ GAERU để được hỗ trợ." });
+      }
+
       const token = randomBytes(32).toString("base64url");
       const tokenHash = createHash("sha256").update(token).digest("hex");
       const customer = await withTransaction(pool, async (client) => {
@@ -304,6 +380,16 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         );
         if (error.code === 'EAUTH' || error.responseCode === 535) {
           return res.status(503).json({ error: 'Chưa gửi được email xác minh do dịch vụ email từ chối xác thực. Vui lòng liên hệ GAERU để kiểm tra cấu hình gửi thư.' });
+        }
+        if (isPermanentSendMailError(error)) {
+          try {
+            await pool.query(
+              "UPDATE customers SET active = false, lock_reason = 'spam_email', locked_at = now(), updated_at = now() WHERE id = $1",
+              [customer.id]
+            );
+          } catch (_) {}
+          delete req.session.customer;
+          return res.status(403).json({ error: "Địa chỉ email không thể nhận thư xác thực. Tài khoản đã bị tự động khóa do nghi ngờ email rác. Vui lòng liên hệ GAERU." });
         }
         return next(error);
       }
@@ -380,13 +466,20 @@ function escapeHtml(value) {
 function startCustomerSession(req, res, next, customer, accountSecurity, { redirectUrl } = {}) {
   req.session.regenerate(async(error) => {
     if (error) return next(error);
-    req.session.customer = {
+    const sessionCustomer = {
       id: customer.id,
       fullName: customer.fullName,
       email: customer.email,
       phone: customer.phone,
       emailVerified: Boolean(customer.emailVerified)
     };
+    if (customer.phoneWarning) {
+      sessionCustomer.phoneWarning = true;
+      sessionCustomer.phoneWarningRemainingHours = customer.phoneWarningRemainingHours || null;
+      sessionCustomer.phoneWarningExpiresAt = customer.phoneWarningExpiresAt || null;
+      sessionCustomer.phoneWarningMessage = customer.phoneWarningMessage || null;
+    }
+    req.session.customer = sessionCustomer;
     if(accountSecurity){try{await accountSecurity.stamp(req,"customer:"+customer.id);}catch(e){return next(e);}}
     req.session.csrfToken = randomBytes(32).toString("hex");
     req.session.save((saveError) => {
