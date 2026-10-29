@@ -10,8 +10,6 @@ const { createUpgradesSettingsRouter, DEFAULT_SETTINGS, getUpgradesSettings, sav
 test('Admin Policy & Upgrades Settings Verification', async (t) => {
   await t.test('adminPolicy allows upgraded domain routes without 404 error', () => {
     const upgradedRoutes = [
-      '/rma/tickets',
-      '/rma/config',
       '/capi/logs',
       '/capi/config',
       '/shipping/config',
@@ -73,18 +71,15 @@ test('Admin Policy & Upgrades Settings Verification', async (t) => {
     };
 
     const initial = await getUpgradesSettings(fakePool);
-    assert.equal(initial.rma.returnDays, 30);
-    assert.equal(initial.affiliate.commissionPercent, 8);
+        assert.equal(initial.affiliate.commissionPercent, 8);
     assert.equal(initial.shipping.defaultCarrier, 'flexible');
 
     await saveUpgradesSettings(fakePool, {
-      rma: { ...initial.rma, returnDays: 45 },
       shipping: { ...initial.shipping, defaultCarrier: 'viettel' }
     });
 
     const updated = await getUpgradesSettings(fakePool);
-    assert.equal(updated.rma.returnDays, 45);
-    assert.equal(updated.shipping.defaultCarrier, 'viettel');
+        assert.equal(updated.shipping.defaultCarrier, 'viettel');
   });
 
   await t.test('Upgrades Settings Router accepts module-based updates and responds with status', async () => {
@@ -112,7 +107,7 @@ test('Admin Policy & Upgrades Settings Verification', async (t) => {
     });
     assert.ok(getPayload);
     assert.equal(getPayload.success, true);
-    assert.equal(getPayload.settings.rma.returnDays, 30);
+    assert.equal(getPayload.settings.affiliate.commissionPercent, 8);
 
     // Test POST /upgrades/settings for specific module
     const postPayload = await new Promise((resolve, reject) => {

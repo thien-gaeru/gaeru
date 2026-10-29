@@ -3,14 +3,6 @@
 const { Router } = require('express');
 
 const DEFAULT_SETTINGS = {
-  rma: {
-    enabled: true,
-    returnDays: 30,
-    warehouseAddress: 'Kho GAERU Logistics, 123 Đường Số 7, P. An Phú, TP. Thủ Đức, TP. Hồ Chí Minh',
-    supportHotline: '0901234567',
-    inspectionLeadHours: 24,
-    policyText: 'Cam kết 1 đổi 1 nguyên seal trong 30 ngày đầu cho mọi lỗi kỹ thuật phát sinh từ nhà sản xuất.'
-  },
   capi: {
     metaPixelId: process.env.META_PIXEL_ID || '',
     metaTokenConfigured: Boolean(process.env.META_CAPI_TOKEN),

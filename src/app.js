@@ -135,7 +135,6 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use('/api', require('./affiliate-system').createAffiliatePublicRouter(pool));
   app.use('/api', require('./instant-search').createSearchRouter(pool));
   app.use('/api', require('./web-push').createPushPublicRouter(pool));
-  app.use('/api', require('./rma-workflow').createRmaPublicRouter(pool));
   app.use('/api', require('./social-proof').createSocialProofRouter(pool));
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
@@ -206,7 +205,6 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use('/api/gaeru_ceo', require('./zalo-zns').createZaloZnsAdmin(config));
   app.use('/api/gaeru_ceo', require('./cod-reconciliation').createCodReconciliationAdmin(pool));
   app.use('/api/gaeru_ceo', require('./web-push').createPushAdminRouter(pool));
-  app.use('/api/gaeru_ceo', require('./rma-workflow').createRmaAdminRouter(pool));
   app.use('/api/gaeru_ceo', require('./server-capi').createCapiAdminRouter(pool, config));
   app.use('/api/gaeru_ceo', require('./inventory-forecast').createInventoryForecastAdmin(pool));
   app.use('/api/gaeru_ceo', require('./rfm-analytics').createRfmAdminRouter(pool));
@@ -273,7 +271,6 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});
   app.get(['/tra-cuu-don-hang','/tra-cuu-don-hang/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('tracking.html',{root:projectRoot});});
-  app.get(['/rma','/rma/','/yeu-cau-bao-hanh','/yeu-cau-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('rma.html',{root:projectRoot});});
   app.use(require('./lib/avif-optimizer').avifNegotiationMiddleware({ rootDirs: [path.join(projectRoot, 'assets'), projectRoot] }));
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));

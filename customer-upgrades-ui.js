@@ -19,7 +19,6 @@
 
   let currentCustomerData = null;
   let loyaltyData = null;
-  let rmaTickets = [];
 
   async function fetchCustomerLoyalty() {
     try {
@@ -32,21 +31,6 @@
       console.warn('Loyalty fetch failed:', e);
     }
     return null;
-  }
-
-  async function fetchCustomerRma(phone) {
-    if (!phone) return [];
-    try {
-      const res = await fetch(`/api/rma/lookup/${encodeURIComponent(phone)}`, { credentials: 'same-origin' });
-      if (res.ok) {
-        const data = await res.json();
-        rmaTickets = Array.isArray(data.tickets) ? data.tickets : [];
-        return rmaTickets;
-      }
-    } catch (e) {
-      console.warn('RMA fetch failed:', e);
-    }
-    return [];
   }
 
   // =========================================================================
@@ -142,10 +126,6 @@
             <span class="gaeru-action-pill-icon">📦</span>
             <span class="gaeru-action-pill-text">Tra cứu vận đơn</span>
           </a>
-          <a href="rma.html" class="gaeru-action-pill" data-service-tile="rma" title="Gửi yêu cầu đổi mới 1-1 cho thiết bị lỗi">
-            <span class="gaeru-action-pill-icon">🛡️</span>
-            <span class="gaeru-action-pill-text">Đổi mới 1-1 & Bảo hành</span>
-          </a>
           <button type="button" class="gaeru-action-pill" data-service-tile="affiliate" onclick="window.GAERUCustomerUpgrades?.openAffiliateModal()" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
             <span class="gaeru-action-pill-icon">🤝</span>
             <span class="gaeru-action-pill-text">Mã giới thiệu CTV (8%)</span>
@@ -156,85 +136,7 @@
   }
 
   // =========================================================================
-  // RENDER KHU VỰC PHIẾU ĐỔI TRẢ & BẢO HÀNH RMA CỦA KHÁCH HÀNG
-  // =========================================================================
-  function renderRmaSection(tickets) {
-    if (!tickets || tickets.length === 0) {
-      return `
-        <div class="gaeru-rma-section">
-          <div class="gaeru-rma-header">
-            <div>
-              <p class="eyebrow" style="font-size:10px;letter-spacing:0.12em;margin:0 0 6px;color:#6e6e73;text-transform:uppercase;font-weight:700;">HỒ SƠ ĐỔI MỚI 1-1 (RMA)</p>
-              <h3>Phiếu yêu cầu đổi trả & bảo hành</h3>
-            </div>
-            <a href="rma.html" class="button button-blue" style="font-size:13px;padding:8px 16px;border-radius:12px;text-decoration:none;">Tạo yêu cầu đổi mới ↗</a>
-          </div>
-          <div class="account-empty-state">
-            <strong>Bạn hiện chưa có yêu cầu đổi mới hoặc bảo hành nào đang xử lý.</strong>
-            <p>Mọi sản phẩm GAERU đều được cam kết 1 đổi 1 trong 30 ngày đầu tiên nếu phát sinh lỗi kỹ thuật từ nhà sản xuất.</p>
-            <a href="rma.html">Tìm hiểu quy trình đổi mới 1-1 ↗</a>
-          </div>
-        </div>
-      `;
-    }
-
-    const stateNames = {
-      pending: 'Chờ xét duyệt',
-      received: 'Đã nhận thiết bị tại kho',
-      inspecting: 'Kỹ thuật đang kiểm định',
-      replacement_approved: 'Đã duyệt đổi máy mới 100%',
-      shipped: 'Đang giao máy mới về bạn',
-      completed: 'Đã hoàn tất đổi trả',
-      rejected: 'Từ chối (Không thuộc phạm vi)'
-    };
-
-    return `
-      <div class="gaeru-rma-section">
-        <div class="gaeru-rma-header">
-          <div>
-            <p class="eyebrow" style="font-size:10px;letter-spacing:0.12em;margin:0 0 6px;color:#6e6e73;text-transform:uppercase;font-weight:700;">HỒ SƠ ĐỔI MỚI 1-1 (RMA)</p>
-            <h3>Phiếu yêu cầu đổi trả & bảo hành (${tickets.length})</h3>
-          </div>
-          <a href="rma.html" class="button button-blue" style="font-size:13px;padding:8px 16px;border-radius:12px;text-decoration:none;">Tạo yêu cầu mới ↗</a>
-        </div>
-
-        <div class="gaeru-rma-list">
-          ${tickets.map(t => {
-            const stepOrder = ['pending', 'received', 'inspecting', 'replacement_approved', 'shipped', 'completed'];
-            const currentIndex = stepOrder.indexOf(t.status);
-            return `
-              <div class="gaeru-rma-card">
-                <div class="gaeru-rma-card-top">
-                  <div>
-                    <h4 class="gaeru-rma-card-title">${escapeHtml(t.productName || 'Thiết bị âm thanh GAERU')}</h4>
-                    <p style="margin:4px 0 0;font-size:13px;color:#6e6e73;">Mã phiếu: <strong>${escapeHtml(t.ticketCode)}</strong> · Ngày gửi: ${new Date(t.createdAt).toLocaleDateString('vi-VN')}</p>
-                  </div>
-                  <span class="gaeru-rma-status-pill status-${escapeHtml(t.status)}">${escapeHtml(stateNames[t.status] || t.status)}</span>
-                </div>
-
-                <div class="gaeru-rma-timeline" title="Tiến trình thẩm định đổi mới">
-                  <div class="gaeru-rma-step ${currentIndex >= 0 ? 'is-done' : ''}"></div>
-                  <div class="gaeru-rma-step ${currentIndex >= 1 ? 'is-done' : ''}"></div>
-                  <div class="gaeru-rma-step ${currentIndex >= 2 ? 'is-done' : ''}"></div>
-                  <div class="gaeru-rma-step ${currentIndex >= 3 ? 'is-done' : ''}"></div>
-                  <div class="gaeru-rma-step ${currentIndex >= 4 ? 'is-done' : ''}"></div>
-                </div>
-
-                <div style="font-size:13px;color:#515154;line-height:1.6;background:#ffffff;padding:12px;border-radius:10px;border:1px solid #e5e5e8;">
-                  <div><strong>Mô tả lỗi:</strong> ${escapeHtml(t.faultDescription || 'Lỗi kỹ thuật phần cứng')}</div>
-                  ${t.replacementTrackingCode ? `<div style="margin-top:6px;color:#0071e3;"><strong>Mã vận đơn máy mới:</strong> <a href="/tra-cuu-don-hang?code=${encodeURIComponent(t.replacementTrackingCode)}" style="color:#0071e3;font-weight:600;">${escapeHtml(t.replacementTrackingCode)} ↗</a></div>` : ''}
-                  ${t.adminNote ? `<div style="margin-top:6px;color:#1d1d1f;"><strong>Ghi chú từ Kỹ thuật viên GAERU:</strong> ${escapeHtml(t.adminNote)}</div>` : ''}
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  // =========================================================================
-  // MODALS & DIALOGS (BNPL, LOYALTY HISTORY, AFFILIATE CTV, WEB PUSH)
+  // MODALS & DIALOGS (LOYALTY HISTORY, AFFILIATE CTV, WEB PUSH)
   // =========================================================================
   function ensureDialog(id) {
     let dialog = document.getElementById(id);
@@ -401,9 +303,6 @@
         <a href="/tra-cuu-don-hang?code=${encodeURIComponent(orderNumber)}" class="secondary-button" style="font-size:12px;padding:6px 12px;text-decoration:none;border-radius:14px;display:inline-flex;align-items:center;gap:4px;">
           📦 Theo dõi vận đơn
         </a>
-        <a href="rma.html?order=${encodeURIComponent(orderNumber)}" class="secondary-button" style="font-size:12px;padding:6px 12px;text-decoration:none;border-radius:14px;display:inline-flex;align-items:center;gap:4px;">
-          🛡️ Đổi mới 1-1
-        </a>
       `;
 
       article.appendChild(actionsRow);
@@ -446,17 +345,13 @@
       }
     }
 
-    // Tải dữ liệu song song
-    const [loyalty, rma] = await Promise.all([
-      fetchCustomerLoyalty(),
-      fetchCustomerRma(customer.phone)
-    ]);
+    // Tải dữ liệu khách hàng
+    const loyalty = await fetchCustomerLoyalty();
 
     // Render các chức năng thiết thực gắn liền với tài khoản
     hub.innerHTML = `
       ${renderVipCard(customer, loyalty)}
       ${renderAccountQuickActions(customer)}
-      ${renderRmaSection(rma)}
     `;
 
     // Gắn sự kiện cho VIP card actions
