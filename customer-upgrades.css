@@ -1,0 +1,693 @@
+/* GAERU Customer Upgrades & Services Hub CSS - Apple Executive Style */
+:root {
+  --gaeru-accent: #0071e3;
+  --gaeru-accent-hover: #0077ed;
+  --gaeru-vip-gold: linear-gradient(135deg, #b8860b 0%, #ffd700 50%, #d4af37 100%);
+  --gaeru-vip-diamond: linear-gradient(135deg, #1f1c2c 0%, #4b5366 50%, #928dab 100%);
+  --gaeru-vip-silver: linear-gradient(135deg, #757f9a 0%, #9fa8a3 50%, #d7dde8 100%);
+  --gaeru-vip-standard: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+}
+
+/* ==========================================================================
+   CONTAINER CHÍNH CỦA CUSTOMER UPGRADES HUB
+   ========================================================================== */
+.customer-upgrades-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-bottom: 24px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   THẺ HỘI VIÊN VIP KỸ THUẬT SỐ (DIGITAL VIP MEMBERSHIP CARD)
+   ========================================================================== */
+.gaeru-vip-card-wrapper {
+  position: relative;
+  width: 100%;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+}
+.gaeru-vip-card-wrapper:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.gaeru-vip-card {
+  position: relative;
+  padding: 30px 32px;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 220px;
+  box-sizing: border-box;
+  background: var(--gaeru-vip-standard);
+  overflow: hidden;
+}
+.gaeru-vip-card.tier-diamond {
+  background: var(--gaeru-vip-diamond);
+}
+.gaeru-vip-card.tier-gold {
+  background: var(--gaeru-vip-gold);
+  color: #1a1500;
+}
+.gaeru-vip-card.tier-silver {
+  background: var(--gaeru-vip-silver);
+  color: #1a1e24;
+}
+
+/* Hiệu ứng tia sáng phản chiếu ánh kim trên mặt thẻ */
+.gaeru-vip-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.25) 0%, transparent 60%);
+  pointer-events: none;
+}
+.gaeru-vip-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Header Thẻ VIP */
+.gaeru-vip-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+.gaeru-vip-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gaeru-vip-logo-text {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.gaeru-vip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.tier-gold .gaeru-vip-badge {
+  background: rgba(0, 0, 0, 0.12);
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #1a1500;
+}
+.tier-silver .gaeru-vip-badge {
+  background: rgba(0, 0, 0, 0.1);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #1a1e24;
+}
+
+/* Thân Thẻ VIP & Chip */
+.gaeru-vip-card-body {
+  position: relative;
+  z-index: 2;
+  margin: 22px 0 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.gaeru-vip-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.gaeru-emv-chip {
+  width: 44px;
+  height: 32px;
+  background: linear-gradient(135deg, #ffd700 0%, #b8860b 100%);
+  border-radius: 6px;
+  position: relative;
+  border: 1px solid #c59b27;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,0.6), 0 2px 4px rgba(0,0,0,0.15);
+}
+.gaeru-emv-chip::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #996515;
+}
+.gaeru-emv-chip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #996515;
+}
+.gaeru-contactless-icon {
+  opacity: 0.75;
+}
+
+/* Số dư điểm tích lũy & Tiền quy đổi */
+.gaeru-vip-balance-box {
+  text-align: right;
+}
+.gaeru-vip-balance-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.8;
+  margin-bottom: 2px;
+}
+.gaeru-vip-balance-points {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.gaeru-vip-balance-vnd {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+/* Footer Thẻ VIP: Chủ thẻ & Mã thẻ */
+.gaeru-vip-card-footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  padding-top: 14px;
+}
+.tier-gold .gaeru-vip-card-footer,
+.tier-silver .gaeru-vip-card-footer {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+.gaeru-vip-holder-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.gaeru-vip-member-id {
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+  opacity: 0.85;
+  letter-spacing: 0.05em;
+  margin-top: 2px;
+}
+.gaeru-vip-perk-summary {
+  font-size: 12px;
+  text-align: right;
+  max-width: 280px;
+  line-height: 1.4;
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+/* Thanh Tiến Trình Thăng Hạng & Nút Lịch Sử Điểm */
+.gaeru-vip-card-extra {
+  background: #ffffff;
+  padding: 16px 24px;
+  border-top: 1px solid #e5e5e8;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.gaeru-tier-progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #1d1d1f;
+}
+.gaeru-tier-progress-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #e5e5e8;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.gaeru-tier-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0071e3, #42a5f5);
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.gaeru-vip-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+  color: #6e6e73;
+  margin-top: 2px;
+}
+.gaeru-vip-history-btn {
+  background: none;
+  border: none;
+  color: var(--gaeru-accent);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.gaeru-vip-history-btn:hover {
+  background: rgba(0, 113, 227, 0.08);
+}
+
+/* ==========================================================================
+   LƯỚI TRUNG TÂM TIỆN ÍCH DỊCH VỤ KHÁCH HÀNG (CUSTOMER ACTIONS HUB GRID)
+   ========================================================================== */
+.gaeru-services-hub-card {
+  background: #ffffff;
+  border: 1px solid #e5e5e8;
+  border-radius: 24px;
+  padding: 28px;
+  box-sizing: border-box;
+}
+.gaeru-services-header {
+  margin-bottom: 20px;
+}
+.gaeru-services-header .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #6e6e73;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.gaeru-services-header h3 {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+  margin: 0;
+  color: #1d1d1f;
+}
+
+.gaeru-services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.gaeru-service-tile {
+  background: #f9f9fb;
+  border: 1px solid #e5e5e8;
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  box-sizing: border-box;
+  text-align: left;
+}
+.gaeru-service-tile:hover {
+  background: #ffffff;
+  border-color: #0071e3;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 113, 227, 0.08);
+}
+.gaeru-service-tile:active {
+  transform: scale(0.985);
+}
+
+.gaeru-service-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gaeru-service-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: #ffffff;
+  border: 1px solid #e5e5e8;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+}
+.gaeru-service-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: #e7f4ed;
+  color: #176b3d;
+}
+.gaeru-service-badge.is-highlight {
+  background: #eef5ff;
+  color: #0071e3;
+}
+.gaeru-service-badge.is-purple {
+  background: #f3e8ff;
+  color: #7c3aed;
+}
+
+.gaeru-service-info h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1d1d1f;
+  letter-spacing: -0.01em;
+}
+.gaeru-service-info p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #6e6e73;
+}
+.gaeru-service-action-link {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gaeru-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* ==========================================================================
+   KHU VỰC PHIẾU RMA ĐỔI MỚI 1-1 CỦA KHÁCH HÀNG
+   ========================================================================== */
+.gaeru-rma-section {
+  background: #ffffff;
+  border: 1px solid #e5e5e8;
+  border-radius: 24px;
+  padding: 28px;
+  margin-bottom: 24px;
+}
+.gaeru-rma-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.gaeru-rma-header h3 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+  color: #1d1d1f;
+}
+.gaeru-rma-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gaeru-rma-card {
+  background: #f9f9fb;
+  border: 1px solid #e5e5e8;
+  border-radius: 16px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.2s ease;
+}
+.gaeru-rma-card:hover {
+  border-color: #0071e3;
+}
+.gaeru-rma-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gaeru-rma-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1d1d1f;
+  margin: 0;
+}
+.gaeru-rma-status-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: #f2f2f4;
+  color: #515154;
+}
+.gaeru-rma-status-pill.status-pending { background: #fff8e6; color: #b78103; }
+.gaeru-rma-status-pill.status-received { background: #eef5ff; color: #0071e3; }
+.gaeru-rma-status-pill.status-inspecting { background: #f3e8ff; color: #7c3aed; }
+.gaeru-rma-status-pill.status-replacement_approved,
+.gaeru-rma-status-pill.status-shipped,
+.gaeru-rma-status-pill.status-completed { background: #e7f4ed; color: #176b3d; }
+.gaeru-rma-status-pill.status-rejected { background: #fdf2f2; color: #e03131; }
+
+.gaeru-rma-timeline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+.gaeru-rma-step {
+  flex: 1;
+  height: 4px;
+  background: #e5e5e8;
+  border-radius: 2px;
+}
+.gaeru-rma-step.is-done {
+  background: #0071e3;
+}
+
+/* ==========================================================================
+   MODAL TƯƠNG TÁC (BNPL CALCULATOR, LỊCH SỬ ĐIỂM, AFFILIATE CTV, WEB PUSH)
+   ========================================================================== */
+.gaeru-dialog {
+  border: none;
+  border-radius: 24px;
+  padding: 0;
+  max-width: 520px;
+  width: min(calc(100% - 32px), 520px);
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.08);
+  margin: auto;
+  overflow: hidden;
+}
+.gaeru-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+.gaeru-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e5e8;
+}
+.gaeru-dialog-header h3 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+}
+.gaeru-dialog-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #86868b;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  line-height: 1;
+}
+.gaeru-dialog-close:hover {
+  color: #1d1d1f;
+  background: #f5f5f7;
+}
+.gaeru-dialog-content {
+  padding: 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #515154;
+  max-height: 75vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* BNPL Form & Results */
+.bnpl-calc-group {
+  margin-bottom: 20px;
+}
+.bnpl-calc-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 6px;
+}
+.bnpl-calc-input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 16px;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.bnpl-calc-input:focus {
+  outline: 2px solid #0071e3;
+  outline-offset: 1px;
+}
+.bnpl-chips-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.bnpl-chip-btn {
+  background: #f5f5f7;
+  border: 1px solid #e5e5e8;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #1d1d1f;
+  transition: all 0.2s ease;
+}
+.bnpl-chip-btn:hover {
+  background: #0071e3;
+  color: #ffffff;
+  border-color: #0071e3;
+}
+.bnpl-schedule-card {
+  background: #f9f9fb;
+  border: 1px solid #e5e5e8;
+  border-radius: 16px;
+  padding: 16px;
+  margin-top: 18px;
+}
+.bnpl-schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 10px;
+}
+.bnpl-schedule-table th,
+.bnpl-schedule-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #e5e5e8;
+}
+.bnpl-schedule-table th {
+  color: #86868b;
+  font-weight: 500;
+}
+
+/* Affiliate Share Box */
+.affiliate-link-box {
+  background: #f5f5f7;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+}
+.affiliate-link-text {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #0071e3;
+  word-break: break-all;
+}
+.affiliate-copy-btn {
+  background: #0071e3;
+  color: #ffffff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.affiliate-copy-btn:hover {
+  background: #0077ed;
+}
+
+/* History table */
+.loyalty-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.loyalty-history-table th,
+.loyalty-history-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e5e8;
+}
+.loyalty-history-table th {
+  color: #86868b;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.points-positive { color: #176b3d; font-weight: 700; }
+.points-negative { color: #e03131; font-weight: 700; }
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .gaeru-vip-card {
+    padding: 22px 20px;
+    min-height: 200px;
+  }
+  .gaeru-vip-card-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .gaeru-vip-perk-summary {
+    text-align: left;
+    max-width: 100%;
+  }
+  .gaeru-services-grid {
+    grid-template-columns: 1fr;
+  }
+}
