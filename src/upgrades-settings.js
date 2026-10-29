@@ -52,6 +52,18 @@ const DEFAULT_SETTINGS = {
     autoNotifyShipping: true,
     autoNotifyFlashSale: true
   },
+  shipping: {
+    defaultCarrier: 'flexible',
+    enabledCarriers: ['ghn', 'ghtk', 'viettel', 'spx', 'jt'],
+    autoSelectCheapest: true,
+    carrierProfiles: {
+      ghn: { name: 'Giao Hàng Nhanh (GHN)', active: true },
+      ghtk: { name: 'Giao Hàng Tiết Kiệm (GHTK)', active: true },
+      viettel: { name: 'Viettel Post', active: true },
+      spx: { name: 'Shopee Express (SPX)', active: true },
+      jt: { name: 'J&T Express', active: true }
+    }
+  },
   inventory: {
     defaultLeadTimeDays: 7,
     safetyStockDays: 14
@@ -117,6 +129,22 @@ function createUpgradesSettingsRouter(pool) {
     } catch (err) {
       next(err);
     }
+  });
+
+  router.get('/shipping/config', async (_req, res, next) => {
+    try {
+      const s = await getUpgradesSettings(pool);
+      res.json({ success: true, config: s.shipping });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/shipping/config', async (req, res, next) => {
+    try {
+      const current = await getUpgradesSettings(pool);
+      current.shipping = { ...(current.shipping || {}), ...(req.body || {}) };
+      const updated = await saveUpgradesSettings(pool, current);
+      res.json({ success: true, config: updated.shipping });
+    } catch (err) { next(err); }
   });
 
   return router;

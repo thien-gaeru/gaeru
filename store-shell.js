@@ -132,7 +132,7 @@ if (footerRoot) {
         <details class="footer-column" open>
           <summary>Dịch vụ &amp; Tiện ích</summary>
           <div class="footer-links">
-            <a href="/tra-cuu-don-hang">Tra cứu đơn hàng SPX</a>
+            <a href="/tra-cuu-don-hang">Tra cứu đơn hàng &amp; Vận đơn</a>
             <a href="rma.html">Bảo hành Đổi mới 1-1 (RMA)</a>
             <a href="/dang-ky-bao-hanh">Kích hoạt bảo hành điện tử</a>
             <a href="quiz.html">AI Creator Setup Finder (30s)</a>

@@ -70,14 +70,18 @@
         </li>
       `).join('');
 
-      const spxBanner = order.spxTrackingCode ? `
-        <div class="spx-tracking-badge">
-          <span>Mã vận đơn Shopee Express: <strong>${escapeHtml(order.spxTrackingCode)}</strong></span>
-          <a href="${escapeHtml(order.spxTrackingUrl)}" target="_blank" rel="noopener" class="spx-link">Xem định vị bưu tá ↗</a>
+      const carrierTitle = order.carrierName || order.carrier || 'Đơn vị vận chuyển đối tác';
+      const trackingCode = order.trackingCode || order.spxTrackingCode;
+      const trackingUrl = order.trackingUrl || order.spxTrackingUrl;
+
+      const spxBanner = trackingCode ? `
+        <div class="spx-tracking-badge carrier-tracking-badge">
+          <span>Đơn vị giao: <strong>${escapeHtml(carrierTitle)}</strong> · Mã vận đơn: <strong>${escapeHtml(trackingCode)}</strong></span>
+          ${trackingUrl ? `<a href="${escapeHtml(trackingUrl)}" target="_blank" rel="noopener" class="spx-link carrier-link">Xem định vị bưu tá (${escapeHtml(carrierTitle)}) ↗</a>` : ''}
         </div>
       ` : `
-        <div class="spx-tracking-badge pending">
-          <span>Đơn hàng đang chuẩn bị giao cho đơn vị vận chuyển Shopee Express (SPX).</span>
+        <div class="spx-tracking-badge pending carrier-tracking-badge">
+          <span>Đơn hàng đang chuẩn bị giao cho đơn vị vận chuyển (${escapeHtml(carrierTitle)}: GHN / GHTK / Viettel Post / SPX).</span>
         </div>
       `;
 

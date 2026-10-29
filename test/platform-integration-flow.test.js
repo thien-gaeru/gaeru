@@ -348,27 +348,38 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.equal(pool.tables.server_capi_logs[0].status, 'sent');
   });
 
-  // Test 6: Upgrades Centralized Settings Persistence
-  await t.test('6. Admin Upgrades Hub Settings Persistence & Live Reflection', async () => {
+  // Test 6: Upgrades Centralized Settings Persistence & Multi-Carrier Support
+  await t.test('6. Admin Upgrades Hub Settings Persistence & Multi-Carrier Support', async () => {
     await saveUpgradesSettings(pool, {
       rma: { returnDays: 45, supportHotline: '0829191080' },
-      affiliate: { commissionPercent: 10 }
+      affiliate: { commissionPercent: 10 },
+      shipping: { defaultCarrier: 'flexible', enabledCarriers: ['ghn', 'ghtk', 'viettel', 'spx', 'jt'] }
     });
 
     const settings = await getUpgradesSettings(pool);
     assert.equal(settings.rma.returnDays, 45);
     assert.equal(settings.rma.supportHotline, '0829191080');
     assert.equal(settings.affiliate.commissionPercent, 10);
+    assert.equal(settings.shipping.defaultCarrier, 'flexible');
+    assert.ok(settings.shipping.enabledCarriers.includes('ghn'));
+    assert.ok(settings.shipping.enabledCarriers.includes('viettel'));
+    assert.ok(settings.shipping.enabledCarriers.includes('ghtk'));
   });
 
-  // Test 7: Footer Shell Synchronization & Brand Consistency
-  await t.test('7. Footer Shell Synchronization and GAERU Brand Consistency', () => {
+  // Test 7: Footer Shell Synchronization, Brand Consistency & Multi-Carrier Order Tracking
+  await t.test('7. Footer Shell Synchronization, Brand Consistency & Multi-Carrier Order Tracking', () => {
     const shell = fs.readFileSync(path.join(__dirname, '..', 'store-shell.js'), 'utf8');
     assert.match(shell, /Dịch vụ &amp; Tiện ích/, 'Footer must contain Services & Utilities column');
-    assert.match(shell, /\/tra-cuu-don-hang/, 'Footer must link to SPX order tracking');
+    assert.match(shell, /\/tra-cuu-don-hang/, 'Footer must link to order tracking');
+    assert.doesNotMatch(shell, /Tra cứu đơn hàng SPX/, 'Footer must not lock to SPX only');
+    assert.match(shell, /Tra cứu đơn hàng &amp; Vận đơn/, 'Footer must display diversified shipping text');
     assert.match(shell, /rma\.html/, 'Footer must link to RMA policy');
     assert.match(shell, /quiz\.html/, 'Footer must link to AI Quiz');
     assert.match(shell, /news\.html/, 'Footer must link to News');
+
+    const trackingHtml = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
+    assert.doesNotMatch(trackingHtml, /giao hàng Shopee Express \(SPX\)\.</, 'Tracking hero must not lock to SPX only');
+    assert.match(trackingHtml, /GHN, GHTK, Viettel Post, SPX/, 'Tracking hero must list diverse carriers');
 
     const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
     assert.doesNotMatch(adminHtml, />GAERU Store</, 'Admin UI must not display GAERU Store');
@@ -376,8 +387,10 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
 
     const rmaHtml = fs.readFileSync(path.join(__dirname, '..', 'rma.html'), 'utf8');
     assert.doesNotMatch(rmaHtml, /GAERU Store/, 'RMA page must not display GAERU Store');
+    assert.doesNotMatch(rmaHtml, /Tra cứu đơn hàng SPX/, 'RMA footer must not lock to SPX only');
 
     const quizHtml = fs.readFileSync(path.join(__dirname, '..', 'quiz.html'), 'utf8');
     assert.doesNotMatch(quizHtml, /GAERU Store/, 'Quiz page must not display GAERU Store');
+    assert.doesNotMatch(quizHtml, /Tra cứu đơn hàng SPX/, 'Quiz footer must not lock to SPX only');
   });
 });

@@ -18,7 +18,7 @@
           <button type="button" class="action-button" data-action="start-cam">📷 Bật Camera quét</button>
           <button type="button" class="secondary-button" data-action="stop-cam" style="display:none">⏹ Tắt Camera</button>
           <div class="manual-input-row">
-            <input type="text" data-field="barcode-code" placeholder="Hoặc nhập mã đơn / mã SPX…" autocomplete="off" />
+            <input type="text" data-field="barcode-code" placeholder="Hoặc nhập mã đơn / mã vận đơn (GHN, GHTK, Viettel, SPX)…" autocomplete="off" />
             <button type="button" class="secondary-button" data-action="lookup-manual">Tìm đơn</button>
           </div>
         </div>
