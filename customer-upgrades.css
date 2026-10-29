@@ -127,49 +127,14 @@
   color: #1a1e24;
 }
 
-/* Thân Thẻ VIP & Chip */
+/* Thân Thẻ VIP */
 .gaeru-vip-card-body {
   position: relative;
   z-index: 2;
   margin: 22px 0 16px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: flex-end;
-}
-.gaeru-vip-chip-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.gaeru-emv-chip {
-  width: 44px;
-  height: 32px;
-  background: linear-gradient(135deg, #ffd700 0%, #b8860b 100%);
-  border-radius: 6px;
-  position: relative;
-  border: 1px solid #c59b27;
-  box-shadow: inset 0 1px 2px rgba(255,255,255,0.6), 0 2px 4px rgba(0,0,0,0.15);
-}
-.gaeru-emv-chip::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: #996515;
-}
-.gaeru-emv-chip::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: #996515;
-}
-.gaeru-contactless-icon {
-  opacity: 0.75;
 }
 
 /* Số dư điểm tích lũy & Tiền quy đổi */
@@ -468,94 +433,7 @@
 }
 
 /* ==========================================================================
-   KHU VỰC PHIẾU RMA ĐỔI MỚI 1-1 CỦA KHÁCH HÀNG
-   ========================================================================== */
-.gaeru-rma-section {
-  background: #ffffff;
-  border: 1px solid #e5e5e8;
-  border-radius: 24px;
-  padding: 28px;
-  margin-bottom: 24px;
-}
-.gaeru-rma-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.gaeru-rma-header h3 {
-  margin: 0;
-  font-size: 22px;
-  letter-spacing: -0.03em;
-  color: #1d1d1f;
-}
-.gaeru-rma-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.gaeru-rma-card {
-  background: #f9f9fb;
-  border: 1px solid #e5e5e8;
-  border-radius: 16px;
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  transition: border-color 0.2s ease;
-}
-.gaeru-rma-card:hover {
-  border-color: #0071e3;
-}
-.gaeru-rma-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.gaeru-rma-card-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1d1d1f;
-  margin: 0;
-}
-.gaeru-rma-status-pill {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 20px;
-  background: #f2f2f4;
-  color: #515154;
-}
-.gaeru-rma-status-pill.status-pending { background: #fff8e6; color: #b78103; }
-.gaeru-rma-status-pill.status-received { background: #eef5ff; color: #0071e3; }
-.gaeru-rma-status-pill.status-inspecting { background: #f3e8ff; color: #7c3aed; }
-.gaeru-rma-status-pill.status-replacement_approved,
-.gaeru-rma-status-pill.status-shipped,
-.gaeru-rma-status-pill.status-completed { background: #e7f4ed; color: #176b3d; }
-.gaeru-rma-status-pill.status-rejected { background: #fdf2f2; color: #e03131; }
-
-.gaeru-rma-timeline {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 0;
-}
-.gaeru-rma-step {
-  flex: 1;
-  height: 4px;
-  background: #e5e5e8;
-  border-radius: 2px;
-}
-.gaeru-rma-step.is-done {
-  background: #0071e3;
-}
-
-/* ==========================================================================
-   MODAL TƯƠNG TÁC (BNPL CALCULATOR, LỊCH SỬ ĐIỂM, AFFILIATE CTV, WEB PUSH)
+   MODAL TƯƠNG TÁC (LỊCH SỬ ĐIỂM, AFFILIATE CTV, WEB PUSH)
    ========================================================================== */
 .gaeru-dialog {
   border: none;

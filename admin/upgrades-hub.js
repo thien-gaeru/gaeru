@@ -27,7 +27,6 @@
     { id: 'web-push', phase: 2, name: 'Thông Báo Đẩy Trình Duyệt (Web Push API)', desc: 'Gửi tin thông báo flash sale và đơn hàng trực tiếp lên màn hình điện thoại.', endpoint: '/api/push/broadcast', status: 'live' },
 
     // Phase 3 (10 upgrades)
-    { id: 'rma', phase: 3, name: 'Quy Trình Bảo Hành & Đổi Trả RMA Trực Tuyến', desc: 'Tiếp nhận video lỗi, cấp mã phiếu RMA-YYMM-xxxx và cập nhật tiến độ đổi mới 1-1.', endpoint: '/api/rma/lookup', status: 'live' },
     { id: 'capi', phase: 3, name: 'Server-Side Conversion API (Meta & TikTok)', desc: 'Bắn trực tiếp sự kiện Purchase từ Node.js Backend chống thất thoát dữ liệu do AdBlock.', endpoint: '/api/gaeru_ceo/capi/logs', status: 'live' },
     { id: 'rop-forecast', phase: 3, name: 'Dự Báo Tồn Kho & Điểm Nhập Hàng (Smart ROP)', desc: 'Tính tốc độ bán hàng ngày và ROP an toàn, tự sinh phiếu đề xuất nhập kho.', endpoint: '/api/gaeru_ceo/inventory/forecast', status: 'live' },
     { id: 'rfm', phase: 3, name: 'Phân Khúc Khách Hàng RFM Analytics', desc: 'Phân loại 5 nhóm: Champions (VIP), Loyal, Promising, At-Risk, Lost kèm gợi ý chăm sóc.', endpoint: '/api/gaeru_ceo/customers/rfm', status: 'live' },
@@ -117,168 +116,6 @@
         </div>
       </div>
     `).join('');
-  }
-
-  // =========================================================================
-  // TAB 1: RMA TICKETS & CÀI ĐẶT RMA
-  // =========================================================================
-  async function loadRmaTickets() {
-    const tbody = document.getElementById('upgrades-rma-tbody');
-    const settingsBox = document.getElementById('rma-settings-container');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Đang tải danh sách phiếu bảo hành RMA...</td></tr>';
-
-    try {
-      const [data, settingsRes] = await Promise.all([
-        requestApi('/api/gaeru_ceo/rma/tickets').catch(e => ({ tickets: [], error: e.message })),
-        requestApi('/api/gaeru_ceo/rma/config').catch(() => ({ config: null }))
-      ]);
-
-      if (data.error) throw new Error(data.error);
-      const tickets = data.tickets || [];
-
-      if (!tickets.length) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Chưa có phiếu RMA nào cần xử lý.</td></tr>';
-      } else {
-        const statusBadges = {
-          pending: 'up-badge-warning',
-          received: 'up-badge-info',
-          inspecting: 'up-badge-info',
-          replacement_approved: 'up-badge-success',
-          approved_replacement: 'up-badge-success',
-          approved_repair: 'up-badge-success',
-          rejected: 'up-badge-critical',
-          shipped: 'up-badge-info',
-          completed: 'up-badge-neutral'
-        };
-
-        if (tbody) {
-          tbody.innerHTML = tickets.map(t => `
-            <tr>
-              <td><strong style="color:#0071e3;">${escapeHtml(t.ticket_code)}</strong></td>
-              <td>
-                <strong>${escapeHtml(t.customer_name)}</strong>
-                <small>${escapeHtml(t.customer_phone)}</small>
-              </td>
-              <td>
-                <strong>${escapeHtml(t.product_name)}</strong>
-                <small style="color:#e05252;">${escapeHtml(t.issue_type || 'Lỗi kỹ thuật')}: ${escapeHtml(t.fault_description || t.issue_description || 'Không mô tả')}</small>
-              </td>
-              <td>
-                <span class="up-badge ${statusBadges[t.status] || 'up-badge-neutral'}">
-                  ${escapeHtml(t.statusLabel || t.status)}
-                </span>
-              </td>
-              <td>${t.replacement_tracking_code || t.tracking_code_outbound ? `<code>${escapeHtml(t.replacement_tracking_code || t.tracking_code_outbound)}</code>` : '<span style="color:#86868b;">—</span>'}</td>
-              <td style="text-align:right;">
-                <button class="up-btn-sm" onclick="window.GAERUUpgradesHub.openRmaModal('${t.id}', '${escapeHtml(t.ticket_code)}', '${t.status}')">
-                  ⚙️ Cập nhật
-                </button>
-              </td>
-            </tr>
-          `).join('');
-        }
-      }
-
-      // Render Cài Đặt RMA
-      if (settingsBox) {
-        const cfg = settingsRes.config || {
-          returnDays: 30,
-          warehouseAddress: 'Kho GAERU Logistics, 123 Đường Số 7, P. An Phú, TP. Thủ Đức, TP. Hồ Chí Minh',
-          supportHotline: '0901234567',
-          policyText: 'Cam kết 1 đổi 1 nguyên seal trong 30 ngày cho mọi lỗi kỹ thuật phát sinh.'
-        };
-
-        settingsBox.innerHTML = `
-          <div class="feature-config-card">
-            <div class="feature-config-header">
-              <h3>⚙️ Cài Đặt Quy Trình Đổi Mới 1-1 (RMA Policy)</h3>
-              <span class="up-badge up-badge-success">Đang kích hoạt</span>
-            </div>
-            <form id="form-rma-config" onsubmit="window.GAERUUpgradesHub.saveRmaConfig(event)">
-              <div class="feature-config-grid">
-                <div class="feature-config-field">
-                  <label>Thời hạn đổi mới 1-1:</label>
-                  <input type="number" name="returnDays" class="feature-config-input" value="${cfg.returnDays}" min="7" max="90" required>
-                  <p class="feature-config-note">Số ngày kể từ khi đơn hàng giao thành công.</p>
-                </div>
-                <div class="feature-config-field">
-                  <label>Hotline tiếp nhận kỹ thuật:</label>
-                  <input type="text" name="supportHotline" class="feature-config-input" value="${escapeHtml(cfg.supportHotline)}" required>
-                  <p class="feature-config-note">Số điện thoại liên hệ trên phiếu và cẩm nang hỗ trợ.</p>
-                </div>
-                <div class="feature-config-field" style="grid-column:1 / -1;">
-                  <label>Địa chỉ kho tiếp nhận thiết bị lỗi:</label>
-                  <input type="text" name="warehouseAddress" class="feature-config-input" value="${escapeHtml(cfg.warehouseAddress)}" required>
-                  <p class="feature-config-note">Địa chỉ bưu cục chuyển phát (GHN / GHTK / Viettel Post / SPX) gửi trả máy về kho thẩm định.</p>
-                </div>
-              </div>
-              <div class="feature-config-actions">
-                <span id="rma-config-status" class="feature-config-feedback"></span>
-                <button type="submit" class="primary-button">Lưu Cài Đặt RMA</button>
-              </div>
-            </form>
-          </div>
-        `;
-      }
-    } catch (err) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải RMA: ${escapeHtml(err.message)}</td></tr>`;
-    }
-  }
-
-  async function saveRmaConfig(e) {
-    e.preventDefault();
-    const form = e.target;
-    const btn = form.querySelector('button[type="submit"]');
-    const statusEl = document.getElementById('rma-config-status');
-    const origBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt RMA';
-    const formData = new FormData(form);
-
-    if (btn) { btn.disabled = true; btn.innerHTML = 'Đang kiểm tra...'; }
-    if (statusEl) {
-      statusEl.className = 'feature-config-feedback';
-      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 1/3]</span> Đang kiểm tra tham số bảo hành...';
-    }
-
-    const returnDays = Number(formData.get('returnDays'));
-    if (isNaN(returnDays) || returnDays < 7 || returnDays > 90) {
-      if (statusEl) { statusEl.className = 'feature-config-feedback is-error'; statusEl.innerHTML = '✕ Thời hạn đổi mới phải từ 7 đến 90 ngày.'; }
-      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
-      return;
-    }
-
-    const body = {
-      returnDays,
-      supportHotline: String(formData.get('supportHotline') || '').trim(),
-      warehouseAddress: String(formData.get('warehouseAddress') || '').trim()
-    };
-
-    if (btn) btn.innerHTML = '⏳ Đang lưu máy chủ...';
-    if (statusEl) {
-      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 2/3]</span> Đang ghi dữ liệu vào cơ sở dữ liệu...';
-    }
-
-    try {
-      await requestApi('/api/gaeru_ceo/rma/config', { method: 'POST', body });
-      const nowStr = new Date().toLocaleTimeString('vi-VN');
-      if (statusEl) {
-        statusEl.className = 'feature-config-feedback is-success';
-        statusEl.innerHTML = `✓ <strong>[Thao tác 3/3 Hoàn tất]</strong> Đã lưu và kích hoạt lúc ${nowStr}!`;
-      }
-      if (btn) { btn.innerHTML = '✓ Đã Lưu'; btn.style.backgroundColor = '#107c41'; }
-      setTimeout(() => {
-        if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; btn.style.backgroundColor = ''; }
-      }, 2500);
-    } catch (err) {
-      if (statusEl) {
-        statusEl.className = 'feature-config-feedback is-error';
-        statusEl.innerHTML = '✕ <strong>Lỗi:</strong> ' + escapeHtml(err.message);
-      }
-      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
-    }
-  }
-
-  // =========================================================================
-  // TAB 2: BNPL TRANSACTIONS & CÀI ĐẶT BNPL
   }
 
   // =========================================================================
@@ -514,34 +351,6 @@
       };
 
       container.innerHTML = `
-        <!-- 1. RMA Settings -->
-        <div class="feature-config-card" id="card-cfg-rma">
-          <div class="feature-config-header">
-            <h3>🛡️ Cài Đặt Bảo Hành 1 Đổi 1 & Gửi Phiếu RMA</h3>
-            <span class="up-badge up-badge-success">Chính hãng 1-1</span>
-          </div>
-          <div class="feature-config-grid">
-            <div class="feature-config-field">
-              <label>Thời hạn đổi mới 1-1 (ngày):</label>
-              <input type="number" id="cfg-rma-days" class="feature-config-input" value="${settings.rma?.returnDays || 30}" min="7" max="90">
-              <p class="feature-config-note">Số ngày áp dụng đổi mới 1-1 cho lỗi kỹ thuật từ lúc nhận.</p>
-            </div>
-            <div class="feature-config-field">
-              <label>Hotline Kỹ thuật hỗ trợ:</label>
-              <input type="text" id="cfg-rma-phone" class="feature-config-input" value="${escapeHtml(settings.rma?.supportHotline || '0829191080')}">
-              <p class="feature-config-note">Số tiếp nhận và tư vấn kỹ thuật trực tiếp.</p>
-            </div>
-            <div class="feature-config-field" style="grid-column:1 / -1;">
-              <label>Địa chỉ kho nhận bưu phẩm hoàn:</label>
-              <input type="text" id="cfg-rma-addr" class="feature-config-input" value="${escapeHtml(settings.rma?.warehouseAddress || '')}">
-              <p class="feature-config-note">Địa chỉ bưu tá (GHN, GHTK, Viettel, SPX) chuyển máy về thẩm định.</p>
-            </div>
-          </div>
-          <div class="feature-config-actions">
-            <span id="status-setting-rma" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-rma" onclick="window.GAERUUpgradesHub.saveSettingModule('rma')">Lưu Cài Đặt RMA</button>
-          </div>
-        </div>
 
         <!-- 3. Server CAPI Settings -->
         <div class="feature-config-card" id="card-cfg-capi">
@@ -736,15 +545,7 @@
 
     let settings = {};
     try {
-      if (moduleName === 'rma') {
-        const days = Number(document.getElementById('cfg-rma-days')?.value);
-        if (isNaN(days) || days < 7 || days > 90) throw new Error('Thời hạn đổi mới phải từ 7 đến 90 ngày.');
-        const hotline = String(document.getElementById('cfg-rma-phone')?.value || '').trim();
-        if (!hotline) throw new Error('Hotline kỹ thuật không được để trống.');
-        const addr = String(document.getElementById('cfg-rma-addr')?.value || '').trim();
-        if (!addr) throw new Error('Địa chỉ kho nhận không được để trống.');
-        settings = { returnDays: days, supportHotline: hotline, warehouseAddress: addr };
-      } else if (moduleName === 'capi') {
+      if (moduleName === 'capi') {
         settings = {
           metaPixelId: String(document.getElementById('cfg-capi-meta')?.value || '').trim(),
           tikTokPixelId: String(document.getElementById('cfg-capi-tiktok')?.value || '').trim(),
@@ -846,38 +647,10 @@
     });
 
     if (tabId === 'matrix') renderMatrix('all');
-    if (tabId === 'rma') loadRmaTickets();
     if (tabId === 'rop') loadInventoryForecast();
     if (tabId === 'rfm') loadRfmSegmentation();
     if (tabId === 'capi') loadCapiLogs();
     if (tabId === 'settings') loadAllSettings();
-  }
-
-  function openRmaModal(ticketId, code, currentStatus) {
-    const newStatus = prompt(`Cập nhật trạng thái phiếu ${code}:\n(pending, received, inspecting, replacement_approved, approved_repair, shipping_back, completed, rejected)`, currentStatus);
-    if (!newStatus || newStatus === currentStatus) return;
-
-    let outboundTracking = null;
-    if (newStatus === 'shipping_back' || newStatus === 'completed' || newStatus === 'shipped') {
-      outboundTracking = prompt('Nhập mã vận đơn bưu cục gửi lại khách (GHN / GHTK / Viettel Post / SPX / J&T):', '');
-    }
-
-    const technicianNotes = prompt('Ghi chú của kỹ thuật viên:', 'Đã kiểm định thiết bị và cập nhật trạng thái.');
-
-    requestApi(`/api/gaeru_ceo/rma/tickets/${ticketId}/status`, {
-      method: 'PATCH',
-      body: {
-        status: newStatus,
-        outboundTracking,
-        technicianNotes,
-        resolutionType: newStatus.includes('replacement') ? 'replace_1_1' : (newStatus.includes('repair') ? 'repair' : null)
-      }
-    }).then(() => {
-      alert(`Đã cập nhật phiếu ${code} thành công!`);
-      loadRmaTickets();
-    }).catch(err => {
-      alert(`Lỗi: ${err.message}`);
-    });
   }
 
   async function triggerTestCapi() {
@@ -896,11 +669,8 @@
   // Build Hub Object immediately on window
   const UpgradesHubApi = {
     switchUpgradeTab,
-    openRmaModal,
     triggerTestCapi,
     renderMatrix,
-    loadRmaTickets,
-    saveRmaConfig,
     loadInventoryForecast,
     loadRfmSegmentation,
     loadCapiLogs,

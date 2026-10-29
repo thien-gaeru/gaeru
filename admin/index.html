@@ -131,9 +131,9 @@
                   <small>100% Nâng cấp Kích hoạt</small>
                 </article>
                 <article class="upgrades-kpi-card">
-                  <span>Bảo hành RMA Trực tuyến</span>
+                  <span>Chăm Sóc &amp; CSKH (Care+)</span>
                   <strong>Chính hãng</strong>
-                  <small>Đổi mới 1-1 trong 48h</small>
+                  <small>Bảo hành điện tử toàn quốc</small>
                 </article>
                 <article class="upgrades-kpi-card">
                   <span>Tiếp Thị Liên Kết (CTV)</span>
@@ -154,7 +154,6 @@
 
               <nav class="upgrades-nav-tabs" aria-label="Danh mục nâng cấp">
                 <button type="button" class="upgrades-tab-btn is-active" data-tab="matrix" onclick="window.GAERUUpgradesHub.switchUpgradeTab('matrix')">🚀 Ma trận 30 Nâng cấp</button>
-                <button type="button" class="upgrades-tab-btn" data-tab="rma" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rma')">🛡️ Bảo hành &amp; Đổi trả RMA</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="rop" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rop')">📦 Dự báo Tồn kho &amp; ROP</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="rfm" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rfm')">👥 Phân khúc Khách hàng RFM</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="capi" onclick="window.GAERUUpgradesHub.switchUpgradeTab('capi')">🎯 Server-Side CAPI</button>
@@ -175,32 +174,6 @@
                   </div>
                 </div>
                 <div class="upgrades-matrix-grid" id="upgrades-matrix-container"></div>
-              </div>
-
-              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rma" hidden>
-                <div class="upgrades-panel-header">
-                  <div>
-                    <h2>Quản Lý Phiếu Bảo Hành &amp; Đổi Trả RMA Trực Tuyến</h2>
-                    <p>Tiếp nhận, kiểm định lỗi kỹ thuật, duyệt đổi mới 1-1 và bàn giao bưu cục chuyển hoàn.</p>
-                  </div>
-                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadRmaTickets()">🔄 Làm mới danh sách</button>
-                </div>
-                <div class="enterprise-table-wrap">
-                  <table class="upgrades-table">
-                    <thead>
-                      <tr>
-                        <th>Mã RMA</th>
-                        <th>Khách hàng</th>
-                        <th>Sản phẩm &amp; Lỗi</th>
-                        <th>Trạng thái</th>
-                        <th>Mã VĐ Gửi Lại</th>
-                        <th style="text-align:right;">Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody id="upgrades-rma-tbody"></tbody>
-                  </table>
-                </div>
-                <div id="rma-settings-container"></div>
               </div>
 
               <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rop" hidden>
@@ -287,7 +260,7 @@
                 <div class="upgrades-panel-header">
                   <div>
                     <h2>Trung Tâm Cài Đặt Cấu Hình Các Tính Năng Nâng Cấp</h2>
-                    <p>Tùy chỉnh thông số vận hành của RMA 1-1, Server CAPI, Điểm thưởng Loyalty, Tiếp thị liên kết KOC, Web Push và Dự báo tồn kho.</p>
+                    <p>Tùy chỉnh thông số vận hành của Server CAPI, Điểm thưởng Loyalty, Tiếp thị liên kết KOC, Web Push và Dự báo tồn kho.</p>
                   </div>
                   <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadAllSettings()">🔄 Tải lại cấu hình</button>
                 </div>

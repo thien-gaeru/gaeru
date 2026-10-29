@@ -3,7 +3,6 @@ const assert = require('node:assert/strict');
 const { PGlite } = require('@electric-sql/pglite');
 
 const { migrateDatabase } = require('../src/migrate');
-const { submitRmaTicket, lookupRmaTicket, updateRmaStatus } = require('../src/rma-workflow');
 const { hashSha256, normalizePhoneE164, dispatchServerCapi } = require('../src/server-capi');
 const { getInventoryForecast } = require('../src/inventory-forecast');
 const { getRfmCustomerSegmentation, scoreRecency, scoreFrequency, scoreMonetary, determineSegment } = require('../src/rfm-analytics');
@@ -42,45 +41,6 @@ async function setupTestDb() {
   await migrateDatabase(pool);
   return { db, pool };
 }
-
-test('4. E-Warranty RMA Workflow: creates ticket, updates lifecycle and appends audit timeline', async () => {
-  const { pool } = await setupTestDb();
-
-  const ticket = await submitRmaTicket(pool, {
-    customerName: 'Hoàng Văn Nam',
-    customerPhone: '0988776655',
-    orderNumber: 'GA-99123',
-    productName: 'Gimbal Chống Rung GAERU G1 Ultra',
-    serialNumber: 'SN-G1-9921',
-    issueType: 'gimbal_axis_jitter',
-    issueDescription: 'Gimbal bị rung lắc mạnh trục roll khi gắn iPhone 15 Pro Max.'
-  });
-
-  assert.match(ticket.ticket_code, /^RMA-\d{4}-\d{4}$/);
-  assert.equal(ticket.status, 'pending');
-
-  // Lookup
-  const lookup = await lookupRmaTicket(pool, ticket.ticket_code);
-  assert.equal(lookup.length, 1);
-  assert.equal(lookup[0].events.length, 1);
-  assert.match(lookup[0].events[0].description, /Khách hàng gửi yêu cầu/);
-
-  // Technician inspection & approval
-  const updated = await updateRmaStatus(pool, ticket.id, {
-    status: 'approved_replacement',
-    resolutionType: 'replace_1_1',
-    technicianNotes: 'Xác nhận lỗi động cơ trục roll. Đã duyệt đổi mới thân máy nguyên seal 1-1.',
-    actorName: 'Kỹ thuật viên Tuấn'
-  });
-
-  assert.equal(updated.status, 'approved_replacement');
-  assert.equal(updated.resolution_type, 'replace_1_1');
-
-  // Re-lookup verifies event appended
-  const lookupAfter = await lookupRmaTicket(pool, '0988776655');
-  assert.equal(lookupAfter[0].events.length, 2);
-  assert.equal(lookupAfter[0].events[1].status, 'approved_replacement');
-});
 
 test('5. Server-Side CAPI: hashes PII fields and formats events for Meta & TikTok', async () => {
   const { pool } = await setupTestDb();

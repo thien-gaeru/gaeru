@@ -7,7 +7,6 @@ const path = require('node:path');
 
 const { addLoyaltyPoints, getLoyaltyProfile } = require('../src/loyalty-api');
 const { registerPartner, attributeOrderCommission } = require('../src/affiliate-system');
-const { submitRmaTicket, lookupRmaTicket, updateRmaStatus } = require('../src/rma-workflow');
 const { logCapiEvent } = require('../src/server-capi');
 const { getUpgradesSettings, saveUpgradesSettings } = require('../src/upgrades-settings');
 
@@ -18,7 +17,6 @@ function createMockPool() {
     loyalty_transactions: [],
     affiliate_partners: new Map(),
     affiliate_commissions: [],
-    rma_tickets: new Map(),
     server_capi_logs: [],
     store_settings: new Map()
   };
@@ -132,15 +130,7 @@ function createMockPool() {
         };
         tables.rma_tickets.set(id, ticket);
         return { rows: [ticket] };
-      }
-      if (s.includes('FROM rma_tickets')) {
-        const q = params[0];
-        const matches = [...tables.rma_tickets.values()].filter(t =>
-          !q || t.customer_phone === q || t.ticket_code === q || t.id === q
-        );
-        return { rows: matches };
-      }
-      if (s.includes('UPDATE rma_tickets')) {
+      }      if (s.includes('UPDATE rma_tickets')) {
         const id = params[4];
         const ticket = tables.rma_tickets.get(id);
         if (ticket) {
@@ -252,48 +242,6 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.equal(updatedPartner.totalOrders, 1);
   });
 
-  // Test 3: Product Fault -> RMA Ticket Creation -> Admin Approval & SPX Outbound Tracking
-  await t.test('3. Defective Device triggers RMA Request and Admin Resolution with SPX Outbound Tracking', async () => {
-    const phone = '0912345678';
-
-    // Khách hàng tạo phiếu RMA
-    const ticket = await submitRmaTicket(pool, {
-      customerName: 'Nguyễn Văn A',
-      customerPhone: phone,
-      orderNumber: 'ORD-001',
-      productName: 'Micro Không Dây GAERU K9',
-      issueType: 'power_loss',
-      issueDescription: 'Micro không nhận sạc pin sau 1 tuần sử dụng',
-      mediaUrls: ['https://storage.gaeru.com/proof-video.mp4'],
-      returnDeliveryAddress: 'Số 45 Lê Lợi, Quận 1, TP.HCM'
-    });
-
-    assert.ok(ticket.ticketCode.startsWith('RMA-'));
-    assert.equal(ticket.status, 'pending');
-
-    // Khách tra cứu phiếu của mình theo số điện thoại
-    const lookup = await lookupRmaTicket(pool, phone);
-    assert.equal(lookup.length, 1);
-    assert.equal(lookup[0].ticket_code, ticket.ticketCode);
-    assert.equal(lookup[0].status, 'pending');
-
-    // Admin thẩm định: Duyệt đổi mới 1-1 và cấp mã vận đơn Shopee Express gửi máy mới
-    const updated = await updateRmaStatus(pool, ticket.id, {
-      status: 'approved_replacement',
-      resolutionType: 'replace_1_1',
-      outboundTracking: 'SPXVN088223344',
-      technicianNotes: 'Đã xác nhận lỗi IC nguồn. Duyệt xuất kho đổi máy mới 100% nguyên seal.'
-    });
-
-    assert.equal(updated.status, 'approved_replacement');
-    assert.equal(updated.tracking_code_outbound, 'SPXVN088223344');
-
-    // Khách tra cứu lại thấy tiến độ hoàn tất đổi mới
-    const lookupAfter = await lookupRmaTicket(pool, phone);
-    assert.equal(lookupAfter[0].status, 'approved_replacement');
-    assert.equal(lookupAfter[0].tracking_code_outbound, 'SPXVN088223344');
-  });
-
   // Test 5: Server-Side Conversion API (CAPI) Logging
   await t.test('5. Server-Side CAPI Purchase Event Logging and Storage', async () => {
     await logCapiEvent(pool, {
@@ -312,14 +260,11 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
   // Test 6: Upgrades Centralized Settings Persistence & Multi-Carrier Support
   await t.test('6. Admin Upgrades Hub Settings Persistence & Multi-Carrier Support', async () => {
     await saveUpgradesSettings(pool, {
-      rma: { returnDays: 45, supportHotline: '0829191080' },
       affiliate: { commissionPercent: 10 },
       shipping: { defaultCarrier: 'flexible', enabledCarriers: ['ghn', 'ghtk', 'viettel', 'spx', 'jt'] }
     });
 
     const settings = await getUpgradesSettings(pool);
-    assert.equal(settings.rma.returnDays, 45);
-    assert.equal(settings.rma.supportHotline, '0829191080');
     assert.equal(settings.affiliate.commissionPercent, 10);
     assert.equal(settings.shipping.defaultCarrier, 'flexible');
     assert.ok(settings.shipping.enabledCarriers.includes('ghn'));
@@ -334,7 +279,6 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.match(shell, /\/tra-cuu-don-hang/, 'Footer must link to order tracking');
     assert.doesNotMatch(shell, /Tra cứu đơn hàng SPX/, 'Footer must not lock to SPX only');
     assert.match(shell, /Tra cứu đơn hàng &amp; Vận đơn/, 'Footer must display diversified shipping text');
-    assert.match(shell, /rma\.html/, 'Footer must link to RMA policy');
     assert.match(shell, /news\.html/, 'Footer must link to News');
 
     const trackingHtml = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
@@ -344,15 +288,11 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
     assert.doesNotMatch(adminHtml, />GAERU Store</, 'Admin UI must not display GAERU Store');
     assert.match(adminHtml, />GAERU</, 'Admin UI must consistently display GAERU');
-
-    const rmaHtml = fs.readFileSync(path.join(__dirname, '..', 'rma.html'), 'utf8');
-    assert.doesNotMatch(rmaHtml, /GAERU Store/, 'RMA page must not display GAERU Store');
-    assert.doesNotMatch(rmaHtml, /Tra cứu đơn hàng SPX/, 'RMA footer must not lock to SPX only');
   });
 
   // Test 8: Storefront Header & Footer Shell Synchronization on All New Functional Pages
   await t.test('8. Storefront Header & Footer Shell Synchronization on All New Functional Pages', () => {
-    const pages = ['rma.html', 'tracking.html'];
+    const pages = ['tracking.html'];
 
     for (const pageName of pages) {
       const pageHtml = fs.readFileSync(path.join(__dirname, '..', pageName), 'utf8');
@@ -363,16 +303,9 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
       assert.match(pageHtml, /brand\.css/, `${pageName} must load brand.css stylesheet`);
 
       // Ensure no standalone custom headers or footers left
-      assert.doesNotMatch(pageHtml, /<header class="rma-header"/, `${pageName} must not have custom rma-header`);
-      assert.doesNotMatch(pageHtml, /<footer class="rma-footer"/, `${pageName} must not have custom rma-footer`);
     }
 
     // Verify critical action buttons on functional pages
-    const rmaContent = fs.readFileSync(path.join(__dirname, '..', 'rma.html'), 'utf8');
-    assert.match(rmaContent, /id="tab-lookup-btn"/, 'RMA must have lookup tab button');
-    assert.match(rmaContent, /id="tab-submit-btn"/, 'RMA must have submit tab button');
-    assert.match(rmaContent, /id="rma-lookup-submit"/, 'RMA must have lookup submit button');
-    assert.match(rmaContent, /id="rma-submit-btn-action"/, 'RMA must have submit action button');
 
     const trackingContent = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
     assert.match(trackingContent, /id="tracking-form"/, 'Tracking must have tracking form');
