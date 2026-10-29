@@ -113,7 +113,7 @@
 
 
 
-.account-panel {
+.account-panel:not([hidden]) {
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
@@ -121,6 +121,11 @@
   width: 100% !important;
   text-align: center !important;
 }
+.account-panel[hidden],
+[data-account-panel][hidden] {
+  display: none !important;
+}
+
 .account-page .account-form {
   width: 100% !important;
   max-width: 390px !important;

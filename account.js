@@ -1,5 +1,6 @@
 const accountFeedback = document.querySelector("[data-account-feedback]");
 const accountPanels = [...document.querySelectorAll("[data-account-panel]")];
+accountPanels.forEach((panel) => { if (panel.hidden) panel.style?.setProperty?.('display', 'none', 'important'); });
 let accountCsrfToken = "";
 let currentCustomer = null;
 
@@ -129,9 +130,15 @@ function activateAccountPanel(panelName) {
   finishAccountLoading();
   setAccountPresentation(null);
   const profile = document.querySelector("[data-account-profile]");
-  if (profile) profile.hidden = true;
+  if (profile) {
+    profile.hidden = true;
+    profile.style?.setProperty?.('display', 'none', 'important');
+  }
   accountPanels.forEach((panel) => {
-    panel.hidden = panel.dataset.accountPanel !== panelName;
+    const isTarget = panel.dataset.accountPanel === panelName;
+    panel.hidden = !isTarget;
+    if (isTarget) panel.style?.removeProperty?.('display');
+    else panel.style?.setProperty?.('display', 'none', 'important');
   });
   setAccountFeedback("");
 }
@@ -170,9 +177,13 @@ function showCustomerProfile(customer, publish = true) {
   document.querySelector('[data-security-panel]')?.remove();
   currentCustomer = customer;
   setAccountPresentation(customer);
-  accountPanels.forEach((panel) => { panel.hidden = true; });
+  accountPanels.forEach((panel) => {
+    panel.hidden = true;
+    panel.style?.setProperty?.('display', 'none', 'important');
+  });
   const profile = document.querySelector("[data-account-profile]");
   profile.hidden = false;
+  profile.style?.removeProperty?.('display');
   profile.querySelector("[data-customer-name]").textContent = customer.fullName;
   profile.querySelector("[data-customer-email]").textContent = customer.email;
   profile.querySelector("[data-customer-phone]").textContent = customer.phone;
