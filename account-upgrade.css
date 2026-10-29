@@ -53,7 +53,7 @@
  .account-page .account-layout.is-authenticated{grid-template-columns:minmax(0,1fr);width:min(calc(100% - 32px),680px);gap:24px;padding-top:36px}
  .is-authenticated .account-copy{position:static}
  .is-authenticated .account-copy h1{font-size:34px}
- .account-hub-nav{display:grid!important;grid-template-columns:1fr 1fr!important;margin-top:20px!important;gap:8px!important}
+ .account-hub-nav{display:none!important}
  .account-hub-link{padding:12px 10px!important;font-size:13px!important;min-height:48px!important;align-items:center!important;justify-content:flex-start!important}
  .account-overview-card,.account-workspace-card{padding:22px;border-radius:20px}
  .account-page .account-layout:not(.is-authenticated) .account-card { padding: 24px; border-radius: 20px; }
@@ -350,70 +350,14 @@
   text-overflow: ellipsis;
 }
 
-/* Apple-style sidebar navigation */
+/* Apple-style navigation hidden */
 .account-hub-nav {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 8px !important;
-  margin-top: 24px !important;
-  text-align: left !important;
-  width: 100% !important;
-}
-.account-hub-link {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: flex-start !important;
-  gap: 12px !important;
-  padding: 12px 16px !important;
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  color: #1d1d1f !important;
-  font-size: 14px !important;
-  font-weight: 500 !important;
-  border: 1px solid #e5e5e8 !important;
-  text-decoration: none !important;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
-  cursor: pointer !important;
-  box-sizing: border-box !important;
-}
-.account-hub-link svg {
-  flex-shrink: 0 !important;
-  color: #86868b !important;
-  transition: color 0.2s ease, stroke 0.2s ease !important;
-}
-.account-hub-link:hover {
-  border-color: #0071e3 !important;
-  color: #0071e3 !important;
-  background: #f5f9ff !important;
-  transform: translateX(2px) !important;
-}
-.account-hub-link:hover svg {
-  stroke: #0071e3 !important;
-}
-.account-hub-link.is-active {
-  background: #0071e3 !important;
-  color: #ffffff !important;
-  border-color: #0071e3 !important;
-  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.28) !important;
-  font-weight: 600 !important;
-  transform: none !important;
-}
-.account-hub-link.is-active svg {
-  stroke: #ffffff !important;
-  color: #ffffff !important;
-}
-
-/* Tab Panels */
-.account-tab-panel {
   display: none !important;
 }
-.account-tab-panel.is-active {
+
+/* Tab Panels - all workspace cards visible */
+.account-tab-panel {
   display: block !important;
-  animation: accountFadeIn 0.2s ease-out !important;
-}
-@keyframes accountFadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 
