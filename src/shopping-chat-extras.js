@@ -192,17 +192,70 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     res.json({...result,message:result.preserved?'Đã xóa khỏi hội thoại; bản dùng chung khác được giữ lại.':'Đã xóa tệp khỏi hội thoại.'});
   }));
 
-  admin.get('/shopping-chat/:id/offers',requirePermission('marketing.read'),authorize(true),wrap(async(req,res)=>{
-    const kind=z.enum(['vouchers','campaigns']).parse(req.query.kind),page=z.coerce.number().int().min(1).max(10000).parse(req.query.page||1);
+  admin.get('/shopping-chat/:id/offers',(req,res,next)=>{
+    if(!req.admin?.permissions.some(p=>['marketing.read','orders.read'].includes(p))){
+      return res.status(403).json({error:'Tài khoản không có quyền truy cập chức năng này.'});
+    }
+    next();
+  },authorize(true),wrap(async(req,res)=>{
+    const kind=z.enum(['vouchers','campaigns','orders']).parse(req.query.kind),page=z.coerce.number().int().min(1).max(10000).parse(req.query.page||1);
+    if(['vouchers','campaigns'].includes(kind)&&!req.admin?.permissions.includes('marketing.read')){
+      return res.status(403).json({error:'Tài khoản không có quyền xem thông tin khuyến mại.'});
+    }
+    if(kind==='orders'&&!req.admin?.permissions.includes('orders.read')){
+      return res.status(403).json({error:'Tài khoản không có quyền xem đơn hàng.'});
+    }
     const money=n=>new Intl.NumberFormat('vi-VN').format(n)+' ₫';
     const date=d=>new Date(d).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh'});
     let items;
     if(kind==='vouchers'){
       const rows=(await pool.query(`SELECT v.* FROM marketing_vouchers v WHERE v.active=true AND now() BETWEEN v.starts_at AND v.ends_at AND (v.public_claim=true OR EXISTS(SELECT 1 FROM customer_vouchers w WHERE w.voucher_id=v.id AND w.customer_id=$1)) AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.released=false)<v.total_limit AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.customer_id=$1 AND r.released=false)<v.per_customer_limit ORDER BY v.created_at DESC,v.id LIMIT 25 OFFSET $2`,[req.chatThread.customer_id,(page-1)*25])).rows;
       items=rows.map(v=>({id:v.id,title:v.code+' · '+v.title,text:'Voucher '+v.code+' — '+v.title+'\nGiảm '+(v.kind==='percent'?v.amount+'%':money(v.amount))+(v.max_discount_vnd?' (tối đa '+money(v.max_discount_vnd)+')':'')+'\nĐơn sản phẩm từ '+money(v.min_spend_vnd)+' · Mỗi khách tối đa '+v.per_customer_limit+' lượt.\nHiệu lực đến '+date(v.ends_at)+' (giờ Việt Nam).\nĐăng nhập để lưu/kiểm tra điều kiện tại Tài khoản → Ví voucher & ưu đãi. Không giảm phí giao hàng; áp dụng theo điều kiện và lượt còn lại khi thanh toán.'}));
-    }else{
+    }else if(kind==='campaigns'){
       const rows=(await pool.query('SELECT id,title,body,ends_at FROM marketing_campaigns WHERE active=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC,id LIMIT 25 OFFSET $1',[(page-1)*25])).rows;
       items=rows.map(c=>({id:c.id,title:c.title,text:'Chương trình: '+c.title+'\n'+c.body.slice(0,2400)+'\nHiệu lực đến '+date(c.ends_at)+' (giờ Việt Nam).\nXem chương trình trong Tài khoản → Ví voucher & ưu đãi.'}));
+    }else{
+      const customerId=req.chatThread.customer_id;
+      const rows=customerId
+        ?(await pool.query(
+            `SELECT o.id, o.order_number, o.customer_name, o.phone, o.email, o.address, o.city,
+               o.status, o.payment_method, o.payment_status, o.total_vnd, o.created_at,
+               COALESCE((SELECT jsonb_agg(jsonb_build_object('name', i.product_name, 'variant', i.variant_name, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
+                 FROM order_items i WHERE i.order_id = o.id), '[]'::jsonb) AS items
+             FROM orders o
+             WHERE o.customer_id = $1
+             ORDER BY o.created_at DESC, o.id DESC LIMIT 25 OFFSET $2`,
+            [customerId, (page - 1) * 25]
+          )).rows
+        :(await pool.query(
+            `SELECT o.id, o.order_number, o.customer_name, o.phone, o.email, o.address, o.city,
+               o.status, o.payment_method, o.payment_status, o.total_vnd, o.created_at,
+               COALESCE((SELECT jsonb_agg(jsonb_build_object('name', i.product_name, 'variant', i.variant_name, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
+                 FROM order_items i WHERE i.order_id = o.id), '[]'::jsonb) AS items
+             FROM orders o
+             ORDER BY o.created_at DESC, o.id DESC LIMIT 25 OFFSET $1`,
+            [(page - 1) * 25]
+          )).rows;
+
+      const statusLabels={pending:'Chờ xác nhận',confirmed:'Đã xác nhận',processing:'Đang chuẩn bị',shipped:'Đang giao hàng',completed:'Hoàn tất',cancelled:'Đã hủy'};
+      const paymentLabels={pending:'Chưa thanh toán',paid:'Đã thanh toán'};
+      items=rows.map(o=>{
+        const st=statusLabels[o.status]||o.status;
+        const pay=paymentLabels[o.payment_status]||o.payment_status;
+        const total=o.total_vnd!=null?money(o.total_vnd):'Chưa chốt';
+        const title=`Đơn ${o.order_number} · ${total} (${st} · ${date(o.created_at)})`;
+        const itemsList=(Array.isArray(o.items)&&o.items.length)
+          ?o.items.map(it=>`+ ${it.name}${it.variant?' · '+it.variant:''} × ${it.quantity} (${money(it.lineTotalVnd)})`).join('\n')
+          :'';
+        const text=`Thông tin đơn hàng ${o.order_number}:\n`+
+          `- Trạng thái: ${st} (Thanh toán: ${pay})\n`+
+          `- Người nhận: ${o.customer_name||'Khách hàng'} · ${o.phone||''}\n`+
+          (o.address?`- Địa chỉ: ${o.address}${o.city?', '+o.city:''}\n`:'')+
+          `- Tổng thanh toán: ${total}\n`+
+          (itemsList?`- Mặt hàng:\n${itemsList}\n`:'')+
+          `Nhân viên GAERU luôn sẵn sàng hỗ trợ nếu bạn cần điều chỉnh hoặc theo dõi đơn.`;
+        return {id:o.id,title,text};
+      });
     }
     res.set('Cache-Control','no-store').json({items,page,hasMore:items.length===25});
   }));
