@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cổng Bảo Hành & Đổi Trả RMA Trực Tuyến — GAERU Store</title>
+  <link rel="stylesheet" href="/typography.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/rma.css">
+</head>
+<body class="rma-page">
+  <header class="rma-header">
+    <div class="rma-header-inner">
+      <a href="/" class="rma-logo">GAERU</a>
+      <span class="rma-badge">Trung Tâm Bảo Hành & Đổi Trả (RMA)</span>
+    </div>
+  </header>
+
+  <main class="rma-container">
+    <section class="rma-hero">
+      <h1>Tra Cứu & Gửi Yêu Cầu Bảo Hành 1 Đổi 1</h1>
+      <p>Chính sách bảo hành chính hãng GAERU — Đổi mới trong 30 ngày đầu, bảo hành 12 tháng, xử lý minh bạch trong 48 giờ.</p>
+    </section>
+
+    <!-- Tab navigation -->
+    <div class="rma-tabs">
+      <button class="rma-tab active" id="tab-lookup-btn" onclick="switchRmaTab('lookup')">Tra Cứu Tiến Độ RMA</button>
+      <button class="rma-tab" id="tab-submit-btn" onclick="switchRmaTab('submit')">Gửi Yêu Cầu Bảo Hành Mới</button>
+    </div>
+
+    <!-- Section 1: Tra cứu RMA -->
+    <section class="rma-card" id="rma-lookup-panel">
+      <h2>Tra cứu phiếu bảo hành</h2>
+      <p class="rma-card-desc">Nhập Số điện thoại mua hàng hoặc Mã phiếu RMA (ví dụ: RMA-2610-8831) để kiểm tra tiến độ xử lý.</p>
+      
+      <form id="rma-lookup-form" class="rma-search-form" onsubmit="handleRmaLookup(event)">
+        <input type="text" id="rma-search-input" placeholder="Nhập SĐT hoặc Mã phiếu RMA..." required>
+        <button type="submit" class="rma-btn rma-btn-primary" id="rma-lookup-submit">Tra Cứu</button>
+      </form>
+
+      <div id="rma-lookup-results" class="rma-results"></div>
+    </section>
+
+    <!-- Section 2: Gửi yêu cầu RMA -->
+    <section class="rma-card" id="rma-submit-panel" style="display: none;">
+      <h2>Gửi yêu cầu bảo hành / đổi trả</h2>
+      <p class="rma-card-desc">Vui lòng cung cấp chi tiết thông tin và video/ảnh chụp lỗi để kỹ thuật viên thẩm định nhanh chóng.</p>
+
+      <form id="rma-submit-form" onsubmit="handleRmaSubmit(event)">
+        <div class="rma-form-group">
+          <label for="rma-customer-name">Họ và tên khách hàng *</label>
+          <input type="text" id="rma-customer-name" required placeholder="Ví dụ: Nguyễn Văn A">
+        </div>
+
+        <div class="rma-form-group">
+          <label for="rma-customer-phone">Số điện thoại liên hệ *</label>
+          <input type="tel" id="rma-customer-phone" required placeholder="Ví dụ: 0912345678">
+        </div>
+
+        <div class="rma-form-row">
+          <div class="rma-form-group">
+            <label for="rma-order-number">Mã đơn hàng (nếu có)</label>
+            <input type="text" id="rma-order-number" placeholder="Ví dụ: GA-92819">
+          </div>
+          <div class="rma-form-group">
+            <label for="rma-serial-number">Số Serial thiết bị (nếu có)</label>
+            <input type="text" id="rma-serial-number" placeholder="Xem ở đáy hộp hoặc thân máy">
+          </div>
+        </div>
+
+        <div class="rma-form-group">
+          <label for="rma-product-name">Tên sản phẩm cần bảo hành *</label>
+          <select id="rma-product-name" required>
+            <option value="">-- Chọn sản phẩm --</option>
+            <option value="Micro Thu Âm Không Dây K9">Micro Thu Âm Không Dây K9</option>
+            <option value="Gimbal Chống Rung GAERU G1 Ultra">Gimbal Chống Rung GAERU G1 Ultra</option>
+            <option value="Gậy Chụp Hình Gimbal P01 AI">Gậy Chụp Hình Gimbal P01 AI Face Tracking</option>
+            <option value="Chân Tripod Để Bàn GAERU M3">Chân Tripod Để Bàn GAERU M3</option>
+            <option value="Khác">Sản phẩm hoặc phụ kiện khác</option>
+          </select>
+        </div>
+
+        <div class="rma-form-group">
+          <label for="rma-issue-type">Hiện tượng lỗi gặp phải *</label>
+          <select id="rma-issue-type" required>
+            <option value="power_loss">Không lên nguồn / Sạc không vào điện</option>
+            <option value="mic_noise">Micro bị rè / Lọc ồn không hoạt động / Mất tiếng</option>
+            <option value="gimbal_axis_jitter">Gimbal bị rung trục / Lệch cân bằng / Khựng motor</option>
+            <option value="connectivity">Không kết nối được Bluetooth / Mất sóng thu phát</option>
+            <option value="physical_defect">Lỗi nút bấm / Lỗi ngàm kẹp / Lỏng chân cắm</option>
+            <option value="other">Hiện tượng lỗi khác</option>
+          </select>
+        </div>
+
+        <div class="rma-form-group">
+          <label for="rma-issue-description">Mô tả chi tiết triệu chứng lỗi *</label>
+          <textarea id="rma-issue-description" rows="4" required placeholder="Vui lòng mô tả chi tiết: Lỗi xảy ra khi nào? Bạn đã thử sạc hoặc khởi động lại chưa?"></textarea>
+        </div>
+
+        <button type="submit" class="rma-btn rma-btn-primary" id="rma-submit-btn-action">Xác Nhận Gửi Yêu Cầu Bảo Hành</button>
+      </form>
+    </section>
+
+    <!-- Hướng dẫn gửi máy -->
+    <section class="rma-guidelines">
+      <h3>Quy Trình Xử Lý Bảo Hành 1 Đổi 1 Tại GAERU</h3>
+      <div class="rma-steps-grid">
+        <div class="rma-step-box">
+          <div class="rma-step-num">1</div>
+          <h4>Gửi Yêu Cầu</h4>
+          <p>Điền form trực tuyến nhận ngay Mã phiếu RMA (ví dụ RMA-2610-xxxx).</p>
+        </div>
+        <div class="rma-step-box">
+          <div class="rma-step-num">2</div>
+          <h4>Gửi Máy Về TTBH</h4>
+          <p>Đóng gói máy kèm Mã RMA gửi về TTBH Hà Nội hoặc TP.HCM qua bưu điện.</p>
+        </div>
+        <div class="rma-step-box">
+          <div class="rma-step-num">3</div>
+          <h4>Kiểm Định 24h</h4>
+          <p>Kỹ thuật viên test lỗi theo video, xác nhận đổi mới 1-1 máy nguyên seal.</p>
+        </div>
+        <div class="rma-step-box">
+          <div class="rma-step-num">4</div>
+          <h4>Nhận Máy Mới</h4>
+          <p>GAERU giao máy mới tận nhà miễn phí qua bưu tá Shopee Express.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="rma-footer">
+    <p>© 2026 GAERU Store — Thiết Bị Sáng Tạo Nội Dung Hàng Đầu. Hotline bảo hành: 1900 8899.</p>
+  </footer>
+
+  <script src="/rma.js"></script>
+</body>
+</html>
