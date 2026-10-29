@@ -17,11 +17,26 @@ function createCustomerExperience(pool) {
   if(!parsed.success)return res.status(400).json({error:'Thông tin hồ sơ chưa hợp lệ.'});
   try {
     const result=await withTransaction(pool,async client=>{
-      const current=(await client.query('SELECT email,phone FROM customers WHERE id=$1 AND active=true FOR UPDATE',[req.customerId])).rows[0];
+      const current=(await client.query('SELECT email,phone,phone_invalid_at FROM customers WHERE id=$1 AND active=true FOR UPDATE',[req.customerId])).rows[0];
       if(!current)return {status:401,error:'Tài khoản không còn hoạt động.'};
       const a=parsed.data;
-      if((a.phone!==undefined&&a.phone!==current.phone)||(a.email!==undefined&&a.email!==current.email))return {status:409,error:'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.'};
-      const customer=(await client.query('UPDATE customers SET full_name=$2,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,email_verified_at IS NOT NULL AS "emailVerified"',[req.customerId,a.fullName])).rows[0];
+      const { isValidVietnamMobile, normalizeVietnamPhone } = require('./customer-lifecycle');
+      let phoneUpdated = false;
+      if (a.phone !== undefined && a.phone !== current.phone) {
+        if (!isValidVietnamMobile(current.phone) && isValidVietnamMobile(a.phone)) {
+          phoneUpdated = true;
+        } else {
+          return {status:409,error:'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.'};
+        }
+      }
+      if (a.email !== undefined && a.email !== current.email) {
+        return {status:409,error:'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.'};
+      }
+      const updateSql = phoneUpdated
+        ? 'UPDATE customers SET full_name=$2,phone=$3,phone_invalid_at=NULL,lock_reason=NULL,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,email_verified_at IS NOT NULL AS "emailVerified"'
+        : 'UPDATE customers SET full_name=$2,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,email_verified_at IS NOT NULL AS "emailVerified"';
+      const updateParams = phoneUpdated ? [req.customerId, a.fullName, normalizeVietnamPhone(a.phone)] : [req.customerId, a.fullName];
+      const customer=(await client.query(updateSql, updateParams)).rows[0];
       return {status:200,customer};
     });
     if(result.customer)req.session.customer=result.customer;

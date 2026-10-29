@@ -341,6 +341,7 @@
 
           <section class="view-panel" id="customers-view" hidden>
             <div class="toolbar">
+              <label>Bộ lọc tài khoản<select id="customer-status" aria-label="Bộ lọc trạng thái tài khoản"><option value="all">Tất cả tài khoản</option><option value="active">Đang hoạt động</option><option value="warning">Cảnh báo SĐT (12h)</option><option value="locked">Bị khóa</option><option value="spam">Tài khoản rác / Spam</option><option value="trash">Thùng rác (Xóa tạm thời)</option></select></label>
               <label>Trạng thái xác minh<select id="customer-verification" aria-label="Trạng thái xác minh khách hàng"><option value="all">Tất cả tài khoản</option><option value="verified">Đã xác minh</option><option value="unverified">Chưa xác minh</option></select></label>
               <input id="customer-search" type="search" placeholder="Tìm tên, email hoặc số điện thoại" aria-label="Tìm khách hàng">
               <button class="secondary-button" id="refresh-customers" type="button">Tải lại</button>

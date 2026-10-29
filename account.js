@@ -188,6 +188,20 @@ function showCustomerProfile(customer, publish = true) {
   profile.querySelector("[data-customer-email]").textContent = customer.email;
   profile.querySelector("[data-customer-phone]").textContent = customer.phone;
   profile.querySelector("[data-email-verification-notice]").hidden = customer.emailVerified;
+  const warningBanner = profile.querySelector("[data-phone-warning-notice]") || (() => {
+    const el = document.createElement("div");
+    el.setAttribute("data-phone-warning-notice", "");
+    el.className = "account-phone-warning-banner";
+    profile.prepend(el);
+    return el;
+  })();
+  if (customer.phoneWarning) {
+    warningBanner.hidden = false;
+    const hours = customer.phoneWarningRemainingHours || 12;
+    warningBanner.innerHTML = `<div class="warning-banner-content"><span class="warning-icon">⚠️</span><div><strong>Cảnh báo thông tin tài khoản:</strong> Số điện thoại của bạn không đúng định dạng chuẩn. Vui lòng cập nhật lại thông tin trong vòng <strong>${hours} giờ tới</strong> trước khi tài khoản bị khóa tự động.</div></div>`;
+  } else {
+    warningBanner.hidden = true;
+  }
   setAccountFeedback("");
   renderVerificationButton();
   if (publish) window.GAERUCustomerSession?.set(customer);
