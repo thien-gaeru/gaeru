@@ -20,6 +20,7 @@ async function main() {
         product
       );
     }
+    await require('./chat-semantic-knowledge').seedInitialKnowledge(pool);
     console.log("Draft GAERU catalog is ready. Add verified variants and stock in /gaeru_ceo before publishing products.");
   } finally {
     await pool.end();
