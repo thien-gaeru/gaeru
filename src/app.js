@@ -238,9 +238,6 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(require('./site-pages').pageMetadata(pool));
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});
-app.get(['/tai-app','/tai-app/'],(_req,res)=>{res.set('Cache-Control','no-cache').sendFile('app.html',{root:projectRoot});});
-app.get('/.well-known/assetlinks.json',(_req,res)=>res.set({'Content-Type':'application/json','Cache-Control':'public, max-age=86400'}).sendFile('assetlinks.json',{root:path.join(projectRoot,'.well-known')}));
-app.get('/.well-known/apple-app-site-association',(_req,res)=>res.set({'Content-Type':'application/json','Cache-Control':'public, max-age=86400'}).sendFile('apple-app-site-association',{root:path.join(projectRoot,'.well-known')}));
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
   app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));
