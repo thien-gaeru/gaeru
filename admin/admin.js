@@ -719,7 +719,19 @@ function openOrderProcessing(id,opener){
  const steps=['pending','confirmed','processing','shipped','completed'],current=steps.indexOf(order.status);
  dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
  if(can('orders.write')&&order.status==='completed'&&order.returnStatus!=='open'){const action=document.createElement('div');action.className='order-return-action';action.innerHTML='<button class="secondary-button" type="button" data-return-order="'+escapeHtml(order.id)+'">Ghi nhận hoàn trả hàng</button>';dialog.querySelector('.order-processing-content').prepend(action);}
- dialog.addEventListener('click',event=>{const button=event.target.closest('[data-return-order]');if(button)startOrderReturn(button.dataset.returnOrder);});
+ if(can('orders.write')){
+    const dangerZone=document.createElement('div');
+    dangerZone.className='order-danger-zone';
+    dangerZone.style.cssText='margin-top:16px;padding-top:14px;border-top:1px solid #fee4e2;display:flex;justify-content:flex-end';
+    dangerZone.innerHTML='<button type="button" class="order-delete-button" data-permanent-delete-order="'+escapeHtml(order.id)+'">Xóa vĩnh viễn đơn hàng</button>';
+    dialog.querySelector('.order-processing-content').append(dangerZone);
+  }
+  dialog.addEventListener('click',event=>{
+    const button=event.target.closest('[data-return-order]');
+    if(button)startOrderReturn(button.dataset.returnOrder);
+    const del=event.target.closest('[data-permanent-delete-order]');
+    if(del){closeOrderProcessing();handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder);}
+  });
  const statusSelect=dialog.querySelector('select[name="status"]');
  if(statusSelect){
   const choices=document.createElement('fieldset');choices.className='order-status-buttons';choices.innerHTML='<legend>Bước tiếp theo</legend>'+[...statusSelect.options].filter(option=>option.value!==order.status).map(option=>'<button type="button" class="secondary-button" data-status-choice="'+escapeHtml(option.value)+'" aria-pressed="'+(option.value===statusSelect.value)+'" '+(statusSelect.disabled?'disabled':'')+'>'+escapeHtml(option.textContent)+'</button>').join('');
@@ -794,7 +806,7 @@ function renderOrders() {
       : isLiveVnpayAttempt(order) ? "Phiên VNPAY đang chờ xác nhận. Chỉ có thể hủy sau khi phiên thanh toán hết hạn."
         : "";
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
-      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}</span></div>
+      <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span></span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="secondary-button order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}${can("orders.write") ? `<button type="button" class="order-delete-button" data-permanent-delete-order="${escapeHtml(order.id)}" title="Xóa vĩnh viễn đơn hàng này">Xóa vĩnh viễn</button>` : ""}</span></div>
       <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
       <div class="order-meta">
         <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
@@ -1233,7 +1245,14 @@ document.querySelector("#next-orders").addEventListener("click", () => {
   if (state.orderPage < state.orderPagination.pageCount) loadOrders(state.orderPage + 1).catch((error) => showGlobal(error.message, true));
 });
 document.querySelector("#order-list").addEventListener("submit", updateOrder);
-document.querySelector("#order-list").addEventListener("click",event=>{const back=event.target.closest('[data-return-order]');if(back){startOrderReturn(back.dataset.returnOrder);return;}const button=event.target.closest('[data-process-order]');if(button)openOrderProcessing(button.dataset.processOrder,button);});
+document.querySelector("#order-list").addEventListener("click",event=>{
+  const back=event.target.closest('[data-return-order]');
+  if(back){startOrderReturn(back.dataset.returnOrder);return;}
+  const button=event.target.closest('[data-process-order]');
+  if(button){openOrderProcessing(button.dataset.processOrder,button);return;}
+  const del=event.target.closest('[data-permanent-delete-order]');
+  if(del){handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder);return;}
+});
 
 document.querySelector("#order-list").addEventListener("change", changeOrderControl);
 document.querySelector("#customer-search").addEventListener("input", (event) => {
@@ -1461,3 +1480,23 @@ document.addEventListener("click", (event) => {
     activateView("security");
   }
 });
+
+async function handleOrderPermanentDeleteUI(orderId) {
+  if (!can('orders.write')) return;
+  const order = state.orders.find(o => o.id === orderId);
+  const label = order ? ('đơn ' + order.orderNumber) : 'đơn hàng này';
+  if (!window.confirm('CẢNH BÁO: Xóa vĩnh viễn ' + label + '?\n\nĐơn hàng sẽ bị xóa hoàn toàn khỏi hệ thống, giải phóng tồn kho (nếu đơn chưa hủy), và các khoản thu liên quan sẽ tự động loại khỏi dữ liệu doanh số và lịch sử đơn hàng. Thao tác này KHÔNG THỂ khôi phục!\n\nBạn có chắc chắn muốn xóa vĩnh viễn không?')) {
+    return;
+  }
+  try {
+    const csrf = await request('/api/csrf');
+    state.csrfToken = csrf.csrfToken;
+    const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/permanent-delete', {
+      method: 'POST'
+    });
+    await Promise.all([loadOrders(state.orderPage), loadSummary()]);
+    showGlobal(res.message || 'Đã xóa vĩnh viễn đơn hàng và loại khỏi dữ liệu doanh số.');
+  } catch (error) {
+    showGlobal(error.message, true);
+  }
+}
