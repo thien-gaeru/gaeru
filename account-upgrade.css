@@ -11,10 +11,10 @@
 .account-hub-nav{display:grid;gap:8px;margin-top:32px;text-align:left}
 .account-hub-nav a{display:flex;justify-content:space-between;gap:16px;padding:16px;border-radius:14px;background:#fff;color:#1d1d1f;font-size:14px;border:1px solid #e5e5e8;text-decoration:none}
 .account-hub-nav a:hover{border-color:#0071e3;color:#0066cc}
-.account-page .account-layout.is-authenticated{width:min(calc(100% - 48px),960px);display:flex;flex-direction:column;gap:24px;align-items:stretch;margin:0 auto;padding-top:48px}
-.is-authenticated .account-copy{position:static;text-align:left;width:100%}
-.is-authenticated .account-copy h1{font-size:36px;letter-spacing:-.035em;text-align:left;margin:0 0 6px 0}
-.is-authenticated .account-copy>p:last-of-type,.is-authenticated .account-copy [data-account-intro]{font-size:15px;margin:0 0 16px 0;line-height:1.5;color:#6e6e73}
+.account-page .account-layout.is-authenticated{width:min(calc(100% - 48px),1120px);grid-template-columns:260px minmax(0,1fr);gap:48px;align-items:start}
+.is-authenticated .account-copy{position:sticky;top:100px;text-align:left}
+.is-authenticated .account-copy h1{font-size:40px;text-align:left}
+.is-authenticated .account-copy>p:last-of-type{font-size:15px;margin:16px 0 0;line-height:1.6}
 .is-authenticated .account-card,.is-authenticated .customer-account-card{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;min-width:0}
 .account-overview-card,.account-workspace-card{background:#fff;border:1px solid #e5e5e8;border-radius:24px;padding:28px;min-width:0}
 .account-profile-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
@@ -50,9 +50,11 @@
 #account-overview,#account-addresses,#customer-orders{scroll-margin-top:100px}
 .account-page :focus-visible{outline:2px solid #0071e3;outline-offset:4px}
 @media(max-width:800px){
- .account-page .account-layout.is-authenticated{width:min(calc(100% - 32px),760px);gap:20px;padding-top:36px}
+ .account-page .account-layout.is-authenticated{grid-template-columns:minmax(0,1fr);width:min(calc(100% - 32px),680px);gap:24px;padding-top:36px}
  .is-authenticated .account-copy{position:static}
- .is-authenticated .account-copy h1{font-size:32px}
+ .is-authenticated .account-copy h1{font-size:34px}
+ .account-hub-nav{display:grid!important;grid-template-columns:1fr 1fr!important;margin-top:20px!important;gap:8px!important}
+ .account-hub-link{padding:12px 10px!important;font-size:13px!important;min-height:48px!important;align-items:center!important;justify-content:flex-start!important}
  .account-overview-card,.account-workspace-card{padding:22px;border-radius:20px}
  .account-page .account-layout:not(.is-authenticated) .account-card { padding: 24px; border-radius: 20px; }
  .account-page .is-authenticated .customer-account-card{padding:0}
@@ -348,22 +350,21 @@
   text-overflow: ellipsis;
 }
 
-/* Apple-style navigation buttons: 2 rows under customer info card */
+/* Apple-style sidebar navigation */
 .account-hub-nav {
-  display: grid !important;
-  grid-template-columns: repeat(3, 1fr) !important;
-  gap: 12px !important;
-  margin: 0 0 24px 0 !important;
-  text-align: center !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin-top: 24px !important;
+  text-align: left !important;
   width: 100% !important;
-  box-sizing: border-box !important;
 }
 .account-hub-link {
   display: flex !important;
   align-items: center !important;
-  justify-content: center !important;
-  gap: 10px !important;
-  padding: 13px 14px !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  padding: 12px 16px !important;
   border-radius: 14px !important;
   background: #ffffff !important;
   color: #1d1d1f !important;
@@ -374,8 +375,6 @@
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   cursor: pointer !important;
   box-sizing: border-box !important;
-  min-height: 48px !important;
-  text-align: center !important;
 }
 .account-hub-link svg {
   flex-shrink: 0 !important;
@@ -386,7 +385,7 @@
   border-color: #0071e3 !important;
   color: #0071e3 !important;
   background: #f5f9ff !important;
-  transform: translateY(-1px) !important;
+  transform: translateX(2px) !important;
 }
 .account-hub-link:hover svg {
   stroke: #0071e3 !important;
@@ -395,61 +394,13 @@
   background: #0071e3 !important;
   color: #ffffff !important;
   border-color: #0071e3 !important;
-  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.24) !important;
+  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.28) !important;
   font-weight: 600 !important;
   transform: none !important;
 }
 .account-hub-link.is-active svg {
   stroke: #ffffff !important;
   color: #ffffff !important;
-}
-.account-hub-logout {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 10px !important;
-  padding: 13px 14px !important;
-  border-radius: 14px !important;
-  background: #ffffff !important;
-  color: #e03131 !important;
-  font-size: 14px !important;
-  font-weight: 500 !important;
-  border: 1px dashed #ffc9c9 !important;
-  cursor: pointer !important;
-  margin: 0 !important;
-  transition: all 0.2s ease !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-  min-height: 48px !important;
-  text-align: center !important;
-}
-.account-hub-logout:hover {
-  background: #fff5f5 !important;
-  border-color: #fa5252 !important;
-  border-style: solid !important;
-  transform: translateY(-1px) !important;
-}
-.account-hub-logout svg {
-  flex-shrink: 0 !important;
-  stroke: #e03131 !important;
-}
-
-@media (max-width: 680px) {
-  .account-hub-nav {
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
-    margin-top: 14px !important;
-  }
-  .account-hub-link, .account-hub-logout {
-    padding: 10px 8px !important;
-    font-size: 13px !important;
-    gap: 6px !important;
-  }
-}
-@media (max-width: 440px) {
-  .account-hub-nav {
-    grid-template-columns: 1fr !important;
-  }
 }
 
 /* Tab Panels */
