@@ -53,7 +53,7 @@ if (headerRoot) {
           <div data-menu-products aria-live="polite"></div>
           <a class="mobile-menu-link" href="support.html">Hỗ trợ</a>
           <a class="mobile-menu-link" href="care.html">GAERU Care+</a>
-          <a class="mobile-menu-link" href="account.html">Tài khoản</a><button type="button" class="mobile-menu-link mobile-pwa-install-btn" data-storefront-pwa-install><span aria-hidden="true">📲</span> Cài đặt App GAERU</button>
+          <a class="mobile-menu-link" href="account.html">Tài khoản</a>
         </nav>
       </div>
     </section>
@@ -136,7 +136,6 @@ if (footerRoot) {
             <a href="support.html#guide">Hướng dẫn</a>
             <a href="support.html">Trung tâm hỗ trợ</a>
             <a href="account.html">Tài khoản</a>
-            <button type="button" class="footer-app-btn" data-storefront-pwa-install><span aria-hidden="true">📲</span> Tải App di động (Android &amp; iOS)</button>
           </div>
         </details>
         <details class="footer-column" open>
@@ -420,53 +419,3 @@ if (document.readyState === "loading") {
 
 document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),window.GAERUStore?.products));
 document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',poll.refresh)});
-
-// GAERU Storefront PWA Bootstrap for Mobile (Android & iOS)
-(function initPWAStorefront() {
-  if (typeof document === 'undefined') return;
-  const head = document.head;
-  if (!head) return;
-
-  if (!document.querySelector('link[rel="manifest"]')) {
-    const manifestLink = document.createElement('link');
-    manifestLink.rel = 'manifest';
-    manifestLink.href = '/manifest.webmanifest';
-    head.appendChild(manifestLink);
-  }
-  if (!document.querySelector('meta[name="mobile-web-app-capable"]')) {
-    const meta = document.createElement('meta');
-    meta.name = 'mobile-web-app-capable';
-    meta.content = 'yes';
-    head.appendChild(meta);
-  }
-  if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
-    const meta = document.createElement('meta');
-    meta.name = 'apple-mobile-web-app-capable';
-    meta.content = 'yes';
-    head.appendChild(meta);
-  }
-  if (!document.querySelector('meta[name="apple-mobile-web-app-title"]')) {
-    const meta = document.createElement('meta');
-    meta.name = 'apple-mobile-web-app-title';
-    meta.content = 'GAERU Store';
-    head.appendChild(meta);
-  }
-  if (!document.querySelector('link[rel="apple-touch-icon"]')) {
-    const icon = document.createElement('link');
-    icon.rel = 'apple-touch-icon';
-    icon.href = '/assets/brand/gaeru-app-192.png';
-    head.appendChild(icon);
-  }
-  if (!document.querySelector('link[href*="pwa-storefront.css"]')) {
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = '/pwa-storefront.css?v=20261029';
-    head.appendChild(css);
-  }
-  if (!document.querySelector('script[src*="pwa-storefront.js"]') && !window.GAERUStorefrontPWA) {
-    const script = document.createElement('script');
-    script.src = '/pwa-storefront.js?v=20261029';
-    script.defer = true;
-    head.appendChild(script);
-  }
-})();
