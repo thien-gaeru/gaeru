@@ -10,16 +10,14 @@ test('Comprehensive Verification of All Interactive Buttons & Actions Across New
   const upgradesHubJs = fs.readFileSync(path.join(__dirname, '..', 'admin', 'upgrades-hub.js'), 'utf8');
   const rmaHtml = fs.readFileSync(path.join(__dirname, '..', 'rma.html'), 'utf8');
   const rmaJs = fs.readFileSync(path.join(__dirname, '..', 'rma.js'), 'utf8');
-  const quizHtml = fs.readFileSync(path.join(__dirname, '..', 'quiz.html'), 'utf8');
-  const quizJs = fs.readFileSync(path.join(__dirname, '..', 'quiz.js'), 'utf8');
   const customerUpgradesJs = fs.readFileSync(path.join(__dirname, '..', 'customer-upgrades-ui.js'), 'utf8');
   const trackingHtml = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
   const trackingJs = fs.readFileSync(path.join(__dirname, '..', 'tracking.js'), 'utf8');
 
   // 1. Admin Upgrades Hub buttons & tabs
   await t.test('1. Admin Upgrades Hub tabs, filters and actions respond reliably', () => {
-    // Check all 7 tabs have onclick attribute
-    const expectedTabs = ['matrix', 'rma', 'bnpl', 'rop', 'rfm', 'capi', 'settings'];
+    // Check all 6 tabs have onclick attribute
+    const expectedTabs = ['matrix', 'rma', 'rop', 'rfm', 'capi', 'settings'];
     for (const tab of expectedTabs) {
       assert.match(
         adminIndex,
@@ -63,35 +61,12 @@ test('Comprehensive Verification of All Interactive Buttons & Actions Across New
     assert.match(rmaJs, /submitForm\.addEventListener\('submit'/, 'rma.js must wire submit form submit');
   });
 
-  // 3. AI Quiz buttons & options
-  await t.test('3. AI Setup Finder quiz buttons (options, buy, restart) respond reliably', () => {
-    // Window assignment
-    assert.match(quizJs, /window\.selectQuizOption\s*=\s*selectQuizOption/, 'selectQuizOption must be on window');
-    assert.match(quizJs, /window\.addComboToCart\s*=\s*addComboToCart/, 'addComboToCart must be on window');
-    assert.match(quizJs, /window\.restartQuiz\s*=\s*restartQuiz/, 'restartQuiz must be on window');
-    assert.match(quizJs, /window\.initQuiz\s*=\s*initQuiz/, 'initQuiz must be on window');
-
-    // Dynamic markup includes window.* calls and data attributes
-    assert.match(quizJs, /data-question-id=/, 'Option card must have data-question-id');
-    assert.match(quizJs, /data-option-id=/, 'Option card must have data-option-id');
-    assert.match(quizJs, /onclick="window\.selectQuizOption/, 'Option card must call window.selectQuizOption');
-    assert.match(quizJs, /onclick="window\.addComboToCart/, 'Buy combo button must call window.addComboToCart');
-    assert.match(quizJs, /onclick="window\.restartQuiz/, 'Restart button must call window.restartQuiz');
-
-    // Delegated click
-    assert.match(quizJs, /document\.addEventListener\('click'/, 'quiz.js must attach document click listener');
-    assert.match(quizJs, /e\.target\.closest\('\.quiz-option-card'\)/, 'Delegated click must handle option cards');
-    assert.match(quizJs, /e\.target\.closest\(.*#btn-add-combo/, 'Delegated click must handle combo add to cart');
-    assert.match(quizJs, /e\.target\.closest\(.*#btn-restart-quiz/, 'Delegated click must handle quiz restart');
-  });
-
-  // 4. Customer Upgrades UI actions
-  await t.test('4. Customer Account upgrades action pills and modals respond reliably', () => {
+  // 3. Customer Upgrades UI actions
+  await t.test('3. Customer Account upgrades action pills and modals respond reliably', () => {
     // Window assignment
     assert.match(customerUpgradesJs, /window\.GAERUCustomerUpgrades\s*=/, 'GAERUCustomerUpgrades must be on window');
     assert.match(customerUpgradesJs, /openAffiliateModal/, 'openAffiliateModal must be exported');
     assert.match(customerUpgradesJs, /openLoyaltyHistoryModal/, 'openLoyaltyHistoryModal must be exported');
-    assert.match(customerUpgradesJs, /openBnplCalculatorModal/, 'openBnplCalculatorModal must be exported');
 
     // Markup has onclick triggers
     assert.match(customerUpgradesJs, /onclick="window\.GAERUCustomerUpgrades\?\.openLoyaltyHistoryModal\(\)"/, 'Loyalty history button must have onclick');
@@ -100,7 +75,6 @@ test('Comprehensive Verification of All Interactive Buttons & Actions Across New
     // Global click delegation
     assert.match(customerUpgradesJs, /e\.target\.closest\('\[data-open-loyalty-history\]'\)/, 'Delegated click handles loyalty history');
     assert.match(customerUpgradesJs, /e\.target\.closest\('\[data-service-tile="affiliate"\]'\)/, 'Delegated click handles affiliate modal');
-    assert.match(customerUpgradesJs, /e\.target\.closest\('\[data-service-tile="bnpl"\]'\)/, 'Delegated click handles BNPL modal');
     assert.match(customerUpgradesJs, /e\.target\.closest\('\[data-dialog-close\]'\)/, 'Delegated click handles dialog close');
 
     // Dialog polyfill / fallback

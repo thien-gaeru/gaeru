@@ -12,8 +12,6 @@ test('Admin Policy & Upgrades Settings Verification', async (t) => {
     const upgradedRoutes = [
       '/rma/tickets',
       '/rma/config',
-      '/bnpl/transactions',
-      '/bnpl/config',
       '/capi/logs',
       '/capi/config',
       '/shipping/config',
@@ -76,7 +74,6 @@ test('Admin Policy & Upgrades Settings Verification', async (t) => {
 
     const initial = await getUpgradesSettings(fakePool);
     assert.equal(initial.rma.returnDays, 30);
-    assert.equal(initial.bnpl.fundiinEnabled, true);
     assert.equal(initial.affiliate.commissionPercent, 8);
     assert.equal(initial.shipping.defaultCarrier, 'flexible');
 
@@ -87,7 +84,6 @@ test('Admin Policy & Upgrades Settings Verification', async (t) => {
 
     const updated = await getUpgradesSettings(fakePool);
     assert.equal(updated.rma.returnDays, 45);
-    assert.equal(updated.bnpl.fundiinEnabled, true);
     assert.equal(updated.shipping.defaultCarrier, 'viettel');
   });
 
@@ -124,15 +120,15 @@ test('Admin Policy & Upgrades Settings Verification', async (t) => {
         method: 'POST',
         url: '/upgrades/settings',
         headers: {},
-        body: { module: 'bnpl', settings: { fundiinEnabled: false, minAmountVnd: 500000 } }
+        body: { module: 'affiliate', settings: { commissionPercent: 10, minPayoutVnd: 300000 } }
       };
       const postRes = { json: resolve, status() { return this; } };
       router.handle(postReq, postRes, (err) => reject(err || new Error('route not matched')));
     });
     assert.ok(postPayload);
     assert.equal(postPayload.success, true);
-    assert.equal(postPayload.settings.bnpl.fundiinEnabled, false);
-    assert.equal(postPayload.settings.bnpl.minAmountVnd, 500000);
+    assert.equal(postPayload.settings.affiliate.commissionPercent, 10);
+    assert.equal(postPayload.settings.affiliate.minPayoutVnd, 300000);
   });
 
   await t.test('Admin UI upgrades-hub.js has CSRF protection, 3-step transparent save feedback and shipping config', () => {

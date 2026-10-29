@@ -3,9 +3,6 @@ const assert = require('node:assert/strict');
 const { PGlite } = require('@electric-sql/pglite');
 
 const { migrateDatabase } = require('../src/migrate');
-const { calculateInstallments, createBnplTransaction, handleBnplCallback } = require('../src/bnpl-payment');
-const { evaluateQuizAnswers, QUIZ_QUESTIONS } = require('../src/creator-quiz');
-const { getComparisonData, PRODUCT_TECH_SPECS } = require('../src/product-comparison');
 const { submitRmaTicket, lookupRmaTicket, updateRmaStatus } = require('../src/rma-workflow');
 const { hashSha256, normalizePhoneE164, dispatchServerCapi } = require('../src/server-capi');
 const { getInventoryForecast } = require('../src/inventory-forecast');
@@ -45,92 +42,6 @@ async function setupTestDb() {
   await migrateDatabase(pool);
   return { db, pool };
 }
-
-test('1. BNPL Payment: calculates installments schedule and processes transaction callbacks', async () => {
-  const { pool } = await setupTestDb();
-
-  // Test quote calculation
-  const quote3 = calculateInstallments(1500000, 3);
-  assert.equal(quote3.eligible, true);
-  assert.equal(quote3.installmentsCount, 3);
-  assert.equal(quote3.installmentAmountVnd, 500000);
-  assert.equal(quote3.schedule.length, 3);
-  assert.equal(quote3.schedule[0].isToday, true);
-
-  const belowMin = calculateInstallments(200000, 3);
-  assert.equal(belowMin.eligible, false);
-
-  // Test transaction creation & callback
-  const tx = await createBnplTransaction(pool, {
-    orderNumber: 'GA-TEST-BNPL-01',
-    amountVnd: 1500000,
-    provider: 'fundiin',
-    installmentsCount: 3,
-    customerPhone: '0912345678'
-  });
-  assert.match(tx.transaction.transaction_id, /^BNPL-FUNDIIN-/);
-  assert.equal(tx.transaction.status, 'pending');
-
-  const cb = await handleBnplCallback(pool, {
-    transactionId: tx.transaction.transaction_id,
-    status: 'approved',
-    gatewayResponse: { code: 'SUCCESS' }
-  });
-  assert.equal(cb.success, true);
-  assert.equal(cb.transaction.status, 'approved');
-});
-
-test('2. Creator Setup Quiz: provides interactive questions and AI-driven combo matching', () => {
-  assert.equal(QUIZ_QUESTIONS.length, 3);
-
-  // Outdoor vlog scenario
-  const rec1 = evaluateQuizAnswers({
-    device: 'iphone_typec',
-    scenario: 'vlog_outdoor',
-    budget: 'medium'
-  });
-  assert.equal(rec1.recommendation.bundleTitle, 'Combo Creator Ngoài Trời Toàn Diện');
-  assert.equal(rec1.recommendation.savingsPercent, 15);
-  assert.equal(rec1.recommendation.discountCode, 'SETUP15');
-  assert.match(rec1.connectorAdvice, /Type-C/);
-
-  // Livestream scenario
-  const rec2 = evaluateQuizAnswers({
-    device: 'iphone_lightning',
-    scenario: 'livestream',
-    budget: 'entry'
-  });
-  assert.equal(rec2.recommendation.bundleTitle, 'Combo Livestream Bán Hàng Cơ Bản');
-  assert.match(rec2.connectorAdvice, /Lightning/);
-});
-
-test('3. Product Comparison: compares technical specs and calculates verdicts', async () => {
-  const { pool } = await setupTestDb();
-
-  // Seed sample products
-  await pool.query(`
-    INSERT INTO products (id, slug, name, category, active)
-    VALUES
-      ('00000000-0000-0000-0000-000000000001', 'k9', 'Micro Thu Âm Không Dây K9', 'audio', true),
-      ('00000000-0000-0000-0000-000000000002', 'g1-ultra', 'Gimbal Chống Rung GAERU G1 Ultra', 'video', true)
-    ON CONFLICT (slug) DO NOTHING
-  `);
-  await pool.query(`
-    INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active)
-    VALUES
-      ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'SKU-K9', 'K9 Type-C', 450000, 50, true),
-      ('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000002', 'SKU-G1', 'G1 Đen', 1850000, 20, true)
-    ON CONFLICT (sku) DO NOTHING
-  `);
-
-  const result = await getComparisonData(pool, ['k9', 'g1-ultra']);
-  assert.equal(result.products.length, 2);
-  assert.equal(result.products[0].slug, 'k9');
-  assert.equal(result.products[1].slug, 'g1-ultra');
-  assert.equal(result.recommendations.bestValue, 'k9');
-  assert.equal(result.recommendations.proPick, 'g1-ultra');
-  assert.ok(result.specFields.length >= 8);
-});
 
 test('4. E-Warranty RMA Workflow: creates ticket, updates lifecycle and appends audit timeline', async () => {
   const { pool } = await setupTestDb();

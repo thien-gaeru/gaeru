@@ -42,7 +42,8 @@ test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) 
     assert.match(script, /data-service-tile="tracking"/, 'Script should have order tracking action');
     assert.match(script, /data-service-tile="rma"/, 'Script should have RMA 1-1 action');
     assert.match(script, /data-service-tile="affiliate"/, 'Script should have KOC affiliate action');
-    assert.match(script, /data-service-tile="push"/, 'Script should have Web Push action');
+    assert.match(script, /autoPromptWebPush/, 'Script should auto-prompt Web Push on supported browsers');
+    assert.doesNotMatch(script, /data-service-tile="push"/, 'Script should NOT have manual push activation button');
     assert.match(script, /enhanceCustomerOrders/, 'Script should enhance customer orders with tracking & RMA links');
 
     // Cluttered catalog features must NOT be rendered in account hub

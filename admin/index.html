@@ -136,9 +136,9 @@
                   <small>Đổi mới 1-1 trong 48h</small>
                 </article>
                 <article class="upgrades-kpi-card">
-                  <span>Trả góp 0% (BNPL)</span>
-                  <strong>Fundiin &amp; Kredivo</strong>
-                  <small>3 - 4 Kỳ linh hoạt</small>
+                  <span>Tiếp Thị Liên Kết (CTV)</span>
+                  <strong>Hoa hồng 8%</strong>
+                  <small>Tự động cộng thưởng ví</small>
                 </article>
                 <article class="upgrades-kpi-card">
                   <span>Dự báo Tồn kho (ROP)</span>
@@ -155,7 +155,6 @@
               <nav class="upgrades-nav-tabs" aria-label="Danh mục nâng cấp">
                 <button type="button" class="upgrades-tab-btn is-active" data-tab="matrix" onclick="window.GAERUUpgradesHub.switchUpgradeTab('matrix')">🚀 Ma trận 30 Nâng cấp</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="rma" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rma')">🛡️ Bảo hành &amp; Đổi trả RMA</button>
-                <button type="button" class="upgrades-tab-btn" data-tab="bnpl" onclick="window.GAERUUpgradesHub.switchUpgradeTab('bnpl')">💳 Trả góp BNPL 0%</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="rop" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rop')">📦 Dự báo Tồn kho &amp; ROP</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="rfm" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rfm')">👥 Phân khúc Khách hàng RFM</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="capi" onclick="window.GAERUUpgradesHub.switchUpgradeTab('capi')">🎯 Server-Side CAPI</button>
@@ -202,32 +201,6 @@
                   </table>
                 </div>
                 <div id="rma-settings-container"></div>
-              </div>
-
-              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-bnpl" hidden>
-                <div class="upgrades-panel-header">
-                  <div>
-                    <h2>Giao Dịch Mua Trước Trả Sau 0% (BNPL — Fundiin / Kredivo)</h2>
-                    <p>Theo dõi các đơn hàng trả góp chia nhỏ kỳ thanh toán qua cổng BNPL.</p>
-                  </div>
-                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadBnplTransactions()">🔄 Làm mới</button>
-                </div>
-                <div class="enterprise-table-wrap">
-                  <table class="upgrades-table">
-                    <thead>
-                      <tr>
-                        <th>Mã Giao Dịch</th>
-                        <th>Mã Đơn Hàng</th>
-                        <th>Cổng BNPL</th>
-                        <th>Tổng Tiền</th>
-                        <th>Kỳ Hạn</th>
-                        <th>Trạng Thái</th>
-                      </tr>
-                    </thead>
-                    <tbody id="upgrades-bnpl-tbody"></tbody>
-                  </table>
-                </div>
-                <div id="bnpl-settings-container"></div>
               </div>
 
               <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rop" hidden>
@@ -314,7 +287,7 @@
                 <div class="upgrades-panel-header">
                   <div>
                     <h2>Trung Tâm Cài Đặt Cấu Hình Các Tính Năng Nâng Cấp</h2>
-                    <p>Tùy chỉnh thông số vận hành của RMA 1-1, Trả góp BNPL, Server CAPI, Điểm thưởng Loyalty, Tiếp thị liên kết KOC, Web Push và Dự báo tồn kho.</p>
+                    <p>Tùy chỉnh thông số vận hành của RMA 1-1, Server CAPI, Điểm thưởng Loyalty, Tiếp thị liên kết KOC, Web Push và Dự báo tồn kho.</p>
                   </div>
                   <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadAllSettings()">🔄 Tải lại cấu hình</button>
                 </div>
