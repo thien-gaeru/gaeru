@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f7">
+  <meta name="description" content="Tra cứu hành trình và trạng thái vận chuyển đơn hàng GAERU bằng số điện thoại hoặc mã đơn.">
+  <title>Tra cứu hành trình đơn hàng · GAERU</title>
+  <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/brand.css">
+  <link rel="stylesheet" href="/tracking.css">
+  <script src="/store-shell.js" defer></script>
+  <script src="/tracking.js" defer></script>
+</head>
+<body class="tracking-page">
+  <div id="site-header"></div>
+  <main class="store-main tracking-main">
+    <div class="tracking-hero">
+      <h1>Tra cứu hành trình đơn hàng</h1>
+      <p>Nhập số điện thoại đặt hàng hoặc mã đơn GAERU để kiểm tra trạng thái đóng gói và lộ trình giao hàng Shopee Express (SPX).</p>
+      <form id="tracking-form" class="tracking-search-bar">
+        <input type="text" id="tracking-query" name="query" placeholder="Nhập số điện thoại (VD: 0901234567) hoặc mã đơn…" required autocomplete="off" />
+        <button type="submit" class="primary-button" id="btn-track">Tra cứu ngay</button>
+      </form>
+    </div>
+
+    <div id="tracking-result" class="tracking-results-container" style="display:none;"></div>
+  </main>
+  <div id="site-footer"></div>
+</body>
+</html>
