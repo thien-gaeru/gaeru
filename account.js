@@ -13,6 +13,7 @@ let currentActiveTab = 'orders';
 
 function resolveInitialAccountTab() {
   const hash = (typeof window !== 'undefined' && window.location?.hash ? window.location.hash : '').replace('#', '').toLowerCase();
+  if (hash === 'offers' || hash === 'account-offers' || hash === 'vouchers') return 'offers';
   if (hash === 'profile' || hash === 'account-overview' || hash === 'account-addresses') return 'profile';
   if (hash === 'security' || hash === 'account-security') return 'security';
   if (hash === 'warranties' || hash === 'account-warranties') return 'warranties';
@@ -21,7 +22,7 @@ function resolveInitialAccountTab() {
 }
 
 function switchAccountTab(tabName, updateHash = true) {
-  const validTabs = ['orders', 'profile', 'security', 'warranties'];
+  const validTabs = ['orders', 'offers', 'profile', 'warranties', 'security'];
   if (!validTabs.includes(tabName)) tabName = 'orders';
   currentActiveTab = tabName;
 
@@ -76,6 +77,25 @@ function setAccountPresentation(customer) {
       if (nameEl) nameEl.textContent = customer.fullName || 'Khách hàng';
       if (emailEl) emailEl.textContent = customer.email || customer.phone || '';
       if (avatarEl) avatarEl.textContent = (customer.fullName || 'G').trim().charAt(0).toUpperCase();
+    }
+  }
+  const headerBanner = document.querySelector?.('[data-account-header-banner]');
+  if (headerBanner) {
+    headerBanner.hidden = !customer;
+    if (customer) {
+      const nameEl = headerBanner.querySelector?.('[data-account-banner-name]');
+      const emailEl = headerBanner.querySelector?.('[data-account-banner-email]');
+      const phoneEl = headerBanner.querySelector?.('[data-account-banner-phone]');
+      const avatarEl = headerBanner.querySelector?.('[data-account-banner-avatar]');
+      const badgeEl = headerBanner.querySelector?.('[data-account-banner-badge]');
+      if (nameEl) nameEl.textContent = customer.fullName || 'Khách hàng';
+      if (emailEl) emailEl.textContent = customer.email || '';
+      if (phoneEl) phoneEl.textContent = customer.phone ? (' · ' + customer.phone) : '';
+      if (avatarEl) avatarEl.textContent = (customer.fullName || 'G').trim().charAt(0).toUpperCase();
+      if (badgeEl) {
+        badgeEl.textContent = customer.emailVerified ? 'Đã xác minh email' : 'Chưa xác minh email';
+        badgeEl.classList.toggle('is-verified', Boolean(customer.emailVerified));
+      }
     }
   }
   if (customer) {
