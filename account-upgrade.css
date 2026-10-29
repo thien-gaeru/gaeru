@@ -602,3 +602,19 @@
 .account-workspace > #account-addresses {
   display: none !important;
 }
+
+/* ==========================================================================
+   BANNER CHIẾN DỊCH & THÔNG BÁO ƯU ĐÃI (CAMPAIGN BANNER DISPLAY)
+   ========================================================================== */
+.buyer-campaign-list .marketing-banner {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: 280px !important;
+  object-fit: cover !important;
+  border-radius: 14px !important;
+  margin: 12px 0 16px !important;
+  background: #f5f5f7 !important;
+}
+
