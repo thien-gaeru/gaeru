@@ -277,7 +277,7 @@
    if(titleEl)titleEl.textContent=model.inTrash?'Chỉnh sửa sản phẩm đã xóa':model.id?'Chỉnh sửa sản phẩm':'Thêm sản phẩm';
    document.title=(titleEl?.textContent||'Sản phẩm')+' — GAERU';
    const pubBtn=document.querySelector('[data-save=publish]');if(pubBtn){pubBtn.hidden=Boolean(model.inTrash);pubBtn.textContent=model.product.active?'Lưu & tiếp tục hiển thị':'Xuất bản sản phẩm';}
-   const dftBtn=document.querySelector('[data-save=draft]');if(dftBtn)dftBtn.textContent=model.inTrash?'Lưu trong khu vực đã xóa':'Lưu bản nháp';
+   const dftBtn=document.querySelector('[data-save=draft]');if(dftBtn)dftBtn.textContent=model.inTrash?'Lưu trong khu vực đã xóa':(model.product.active?'Ẩn sản phẩm (về bản nháp)':'Lưu bản nháp');
    const prefixEl=document.querySelector('#sku-prefix');if(prefixEl)prefixEl.value=model.product.slug.toUpperCase();
    const bsEl=document.querySelector('#bulk-stock');if(bsEl)bsEl.disabled=!can('inventory.approve');
 
