@@ -48,11 +48,18 @@
   }
 
   async function requestApi(url, options = {}) {
-    if (window.GAERUAdmin && window.GAERUAdmin.request) {
-      return await window.GAERUAdmin.request(url, options);
+    const opts = { ...options, credentials: 'same-origin' };
+    if (!opts.headers) opts.headers = {};
+    if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(opts.body);
     }
-    const res = await fetch(url, options);
-    return await res.json();
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}: Không thể hoàn tất yêu cầu.`);
+    }
+    return data;
   }
 
   function renderMatrix(filter = 'all') {
@@ -82,89 +89,361 @@
     `).join('');
   }
 
+  // =========================================================================
+  // TAB 1: RMA TICKETS & CÀI ĐẶT RMA
+  // =========================================================================
   async function loadRmaTickets() {
     const tbody = document.getElementById('upgrades-rma-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Đang tải danh sách phiếu bảo hành RMA...</td></tr>';
+    const settingsBox = document.getElementById('rma-settings-container');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Đang tải danh sách phiếu bảo hành RMA...</td></tr>';
 
     try {
-      const data = await requestApi('/api/gaeru_ceo/rma/tickets');
+      const [data, settingsRes] = await Promise.all([
+        requestApi('/api/gaeru_ceo/rma/tickets').catch(e => ({ tickets: [], error: e.message })),
+        requestApi('/api/gaeru_ceo/rma/config').catch(() => ({ config: null }))
+      ]);
+
+      if (data.error) throw new Error(data.error);
       const tickets = data.tickets || [];
 
       if (!tickets.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Chưa có phiếu RMA nào cần xử lý.</td></tr>';
-        return;
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Chưa có phiếu RMA nào cần xử lý.</td></tr>';
+      } else {
+        const statusBadges = {
+          pending: 'up-badge-warning',
+          received: 'up-badge-info',
+          inspecting: 'up-badge-info',
+          replacement_approved: 'up-badge-success',
+          approved_replacement: 'up-badge-success',
+          approved_repair: 'up-badge-success',
+          rejected: 'up-badge-critical',
+          shipped: 'up-badge-info',
+          completed: 'up-badge-neutral'
+        };
+
+        if (tbody) {
+          tbody.innerHTML = tickets.map(t => `
+            <tr>
+              <td><strong style="color:#0071e3;">${escapeHtml(t.ticket_code)}</strong></td>
+              <td>
+                <strong>${escapeHtml(t.customer_name)}</strong>
+                <small>${escapeHtml(t.customer_phone)}</small>
+              </td>
+              <td>
+                <strong>${escapeHtml(t.product_name)}</strong>
+                <small style="color:#e05252;">${escapeHtml(t.issue_type || 'Lỗi kỹ thuật')}: ${escapeHtml(t.fault_description || t.issue_description || 'Không mô tả')}</small>
+              </td>
+              <td>
+                <span class="up-badge ${statusBadges[t.status] || 'up-badge-neutral'}">
+                  ${escapeHtml(t.statusLabel || t.status)}
+                </span>
+              </td>
+              <td>${t.replacement_tracking_code || t.tracking_code_outbound ? `<code>${escapeHtml(t.replacement_tracking_code || t.tracking_code_outbound)}</code>` : '<span style="color:#86868b;">—</span>'}</td>
+              <td style="text-align:right;">
+                <button class="up-btn-sm" onclick="window.GAERUUpgradesHub.openRmaModal('${t.id}', '${escapeHtml(t.ticket_code)}', '${t.status}')">
+                  ⚙️ Cập nhật
+                </button>
+              </td>
+            </tr>
+          `).join('');
+        }
       }
 
-      const statusBadges = {
-        pending: 'up-badge-warning',
-        received: 'up-badge-info',
-        inspecting: 'up-badge-info',
-        approved_replacement: 'up-badge-success',
-        approved_repair: 'up-badge-success',
-        rejected: 'up-badge-critical',
-        shipping_back: 'up-badge-info',
-        completed: 'up-badge-neutral'
-      };
+      // Render Cài Đặt RMA
+      if (settingsBox) {
+        const cfg = settingsRes.config || {
+          returnDays: 30,
+          warehouseAddress: 'Kho GAERU Logistics, 123 Đường Số 7, P. An Phú, TP. Thủ Đức, TP. Hồ Chí Minh',
+          supportHotline: '0901234567',
+          policyText: 'Cam kết 1 đổi 1 nguyên seal trong 30 ngày cho mọi lỗi kỹ thuật phát sinh.'
+        };
 
-      tbody.innerHTML = tickets.map(t => `
-        <tr>
-          <td><strong style="color:#0071e3;">${escapeHtml(t.ticket_code)}</strong></td>
-          <td>
-            <strong>${escapeHtml(t.customer_name)}</strong>
-            <small>${escapeHtml(t.customer_phone)}</small>
-          </td>
-          <td>
-            <strong>${escapeHtml(t.product_name)}</strong>
-            <small style="color:#e05252;">${escapeHtml(t.issue_type)}: ${escapeHtml(t.issue_description)}</small>
-          </td>
-          <td>
-            <span class="up-badge ${statusBadges[t.status] || 'up-badge-neutral'}">
-              ${escapeHtml(t.statusLabel || t.status)}
-            </span>
-          </td>
-          <td>${t.tracking_code_outbound ? `<code>${escapeHtml(t.tracking_code_outbound)}</code>` : '<span style="color:#86868b;">—</span>'}</td>
-          <td style="text-align:right;">
-            <button class="up-btn-sm" onclick="window.GAERUUpgradesHub.openRmaModal('${t.id}', '${escapeHtml(t.ticket_code)}', '${t.status}')">
-              ⚙️ Xử lý
-            </button>
-          </td>
-        </tr>
-      `).join('');
+        settingsBox.innerHTML = `
+          <div class="feature-config-card">
+            <div class="feature-config-header">
+              <h3>⚙️ Cài Đặt Quy Trình Đổi Mới 1-1 (RMA Policy)</h3>
+              <span class="up-badge up-badge-success">Đang kích hoạt</span>
+            </div>
+            <form id="form-rma-config" onsubmit="window.GAERUUpgradesHub.saveRmaConfig(event)">
+              <div class="feature-config-grid">
+                <div class="feature-config-field">
+                  <label>Thời hạn đổi mới 1-1:</label>
+                  <input type="number" name="returnDays" class="feature-config-input" value="${cfg.returnDays}" min="7" max="90" required>
+                  <p class="feature-config-note">Số ngày kể từ khi đơn hàng giao thành công.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>Hotline tiếp nhận kỹ thuật:</label>
+                  <input type="text" name="supportHotline" class="feature-config-input" value="${escapeHtml(cfg.supportHotline)}" required>
+                  <p class="feature-config-note">Số điện thoại liên hệ trên phiếu và cẩm nang hỗ trợ.</p>
+                </div>
+                <div class="feature-config-field" style="grid-column:1 / -1;">
+                  <label>Địa chỉ kho tiếp nhận thiết bị lỗi:</label>
+                  <input type="text" name="warehouseAddress" class="feature-config-input" value="${escapeHtml(cfg.warehouseAddress)}" required>
+                  <p class="feature-config-note">Địa chỉ bưu cục chuyển phát SPX gửi trả máy về kho thẩm định.</p>
+                </div>
+              </div>
+              <div class="feature-config-actions">
+                <span id="rma-config-status" class="feature-config-feedback"></span>
+                <button type="submit" class="primary-button">Lưu Cài Đặt RMA</button>
+              </div>
+            </form>
+          </div>
+        `;
+      }
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải RMA: ${escapeHtml(err.message)}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải RMA: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 
+  async function saveRmaConfig(e) {
+    e.preventDefault();
+    const form = e.target;
+    const statusEl = document.getElementById('rma-config-status');
+    const formData = new FormData(form);
+    const body = {
+      returnDays: Number(formData.get('returnDays')) || 30,
+      supportHotline: String(formData.get('supportHotline') || '').trim(),
+      warehouseAddress: String(formData.get('warehouseAddress') || '').trim()
+    };
+
+    if (statusEl) { statusEl.textContent = 'Đang lưu...'; statusEl.className = 'feature-config-feedback'; }
+    try {
+      await requestApi('/api/gaeru_ceo/rma/config', { method: 'POST', body });
+      if (statusEl) { statusEl.textContent = '✓ Đã lưu cài đặt RMA thành công!'; statusEl.className = 'feature-config-feedback is-success'; }
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      if (statusEl) { statusEl.textContent = 'Lỗi: ' + err.message; statusEl.className = 'feature-config-feedback is-error'; }
+    }
+  }
+
+  // =========================================================================
+  // TAB 2: BNPL TRANSACTIONS & CÀI ĐẶT BNPL
+  // =========================================================================
   async function loadBnplTransactions() {
     const tbody = document.getElementById('upgrades-bnpl-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Đang tải giao dịch BNPL...</td></tr>';
+    const settingsBox = document.getElementById('bnpl-settings-container');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Đang tải giao dịch BNPL...</td></tr>';
 
     try {
-      const data = await requestApi('/api/gaeru_ceo/bnpl/transactions');
+      const [data, settingsRes] = await Promise.all([
+        requestApi('/api/gaeru_ceo/bnpl/transactions').catch(e => ({ transactions: [], error: e.message })),
+        requestApi('/api/gaeru_ceo/bnpl/config').catch(() => ({ config: null }))
+      ]);
+
+      if (data.error) throw new Error(data.error);
       const list = data.transactions || [];
 
       if (!list.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Chưa có giao dịch trả góp BNPL nào phát sinh.</td></tr>';
-        return;
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Chưa có giao dịch trả góp BNPL nào phát sinh.</td></tr>';
+      } else {
+        if (tbody) {
+          tbody.innerHTML = list.map(tx => `
+            <tr>
+              <td><strong>${escapeHtml(tx.transaction_id || tx.id)}</strong></td>
+              <td><code>${escapeHtml(tx.order_number || tx.order_id)}</code></td>
+              <td><span class="up-badge up-badge-info">${escapeHtml((tx.provider || 'BNPL').toUpperCase())}</span></td>
+              <td><strong>${formatMoney(tx.amount_vnd)}</strong></td>
+              <td>${tx.installments_count || 3} kỳ (${formatMoney(tx.installment_amount_vnd || (tx.amount_vnd / 3))}/kỳ)</td>
+              <td><span class="up-badge ${tx.status === 'approved' ? 'up-badge-success' : 'up-badge-warning'}">${escapeHtml(tx.status)}</span></td>
+            </tr>
+          `).join('');
+        }
       }
 
-      tbody.innerHTML = list.map(tx => `
-        <tr>
-          <td><strong>${escapeHtml(tx.transaction_id)}</strong></td>
-          <td><code>${escapeHtml(tx.order_number)}</code></td>
-          <td><span class="up-badge up-badge-info">${escapeHtml(tx.provider.toUpperCase())}</span></td>
-          <td><strong>${formatMoney(tx.amount_vnd)}</strong></td>
-          <td>${tx.installments_count} kỳ (${formatMoney(tx.installment_amount_vnd)}/kỳ)</td>
-          <td><span class="up-badge ${tx.status === 'approved' ? 'up-badge-success' : 'up-badge-warning'}">${escapeHtml(tx.status)}</span></td>
-        </tr>
-      `).join('');
+      // Render Cài Đặt BNPL
+      if (settingsBox) {
+        const cfg = settingsRes.config || {
+          fundiinEnabled: true,
+          kredivoEnabled: true,
+          minAmountVnd: 300000,
+          maxAmountVnd: 30000000,
+          supportedTenures: [3, 6, 12]
+        };
+
+        settingsBox.innerHTML = `
+          <div class="feature-config-card">
+            <div class="feature-config-header">
+              <h3>⚙️ Cài Đặt Cổng Mua Trước Trả Sau 0% (BNPL Settings)</h3>
+              <span class="up-badge up-badge-success">0% Lãi Suất</span>
+            </div>
+            <form id="form-bnpl-config" onsubmit="window.GAERUUpgradesHub.saveBnplConfig(event)">
+              <div class="feature-config-grid">
+                <div class="feature-config-field">
+                  <label>Cổng Fundiin (3 - 4 kỳ):</label>
+                  <select name="fundiinEnabled" class="feature-config-select">
+                    <option value="true" ${cfg.fundiinEnabled ? 'selected' : ''}>Bật (Hoạt động)</option>
+                    <option value="false" ${!cfg.fundiinEnabled ? 'selected' : ''}>Tạm tắt</option>
+                  </select>
+                  <p class="feature-config-note">Duyệt hồ sơ nhanh qua CCCD trong 30 giây.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>Cổng Kredivo (3 - 6 - 12 tháng):</label>
+                  <select name="kredivoEnabled" class="feature-config-select">
+                    <option value="true" ${cfg.kredivoEnabled ? 'selected' : ''}>Bật (Hoạt động)</option>
+                    <option value="false" ${!cfg.kredivoEnabled ? 'selected' : ''}>Tạm tắt</option>
+                  </select>
+                  <p class="feature-config-note">Hỗ trợ trả góp linh hoạt cho đơn giá trị cao.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>Số tiền đơn hàng tối thiểu (VNĐ):</label>
+                  <input type="number" name="minAmountVnd" class="feature-config-input" value="${cfg.minAmountVnd || 300000}" step="100000" required>
+                  <p class="feature-config-note">Tối thiểu để kích hoạt phương thức trả góp.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>Hạn mức tối đa (VNĐ):</label>
+                  <input type="number" name="maxAmountVnd" class="feature-config-input" value="${cfg.maxAmountVnd || 30000000}" step="1000000" required>
+                  <p class="feature-config-note">Giới hạn mua hàng trả lời trực tiếp từ cổng.</p>
+                </div>
+              </div>
+              <div class="feature-config-actions">
+                <span id="bnpl-config-status" class="feature-config-feedback"></span>
+                <button type="submit" class="primary-button">Lưu Cài Đặt BNPL</button>
+              </div>
+            </form>
+          </div>
+        `;
+      }
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải BNPL: ${escapeHtml(err.message)}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải BNPL: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 
+  async function saveBnplConfig(e) {
+    e.preventDefault();
+    const form = e.target;
+    const statusEl = document.getElementById('bnpl-config-status');
+    const formData = new FormData(form);
+    const body = {
+      fundiinEnabled: formData.get('fundiinEnabled') === 'true',
+      kredivoEnabled: formData.get('kredivoEnabled') === 'true',
+      minAmountVnd: Number(formData.get('minAmountVnd')) || 300000,
+      maxAmountVnd: Number(formData.get('maxAmountVnd')) || 30000000
+    };
+
+    if (statusEl) { statusEl.textContent = 'Đang lưu...'; statusEl.className = 'feature-config-feedback'; }
+    try {
+      await requestApi('/api/gaeru_ceo/bnpl/config', { method: 'POST', body });
+      if (statusEl) { statusEl.textContent = '✓ Đã lưu cài đặt BNPL thành công!'; statusEl.className = 'feature-config-feedback is-success'; }
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      if (statusEl) { statusEl.textContent = 'Lỗi: ' + err.message; statusEl.className = 'feature-config-feedback is-error'; }
+    }
+  }
+
+  // =========================================================================
+  // TAB 3: CAPI LOGS & CÀI ĐẶT CAPI
+  // =========================================================================
+  async function loadCapiLogs() {
+    const tbody = document.getElementById('upgrades-capi-tbody');
+    const settingsBox = document.getElementById('capi-settings-container');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#86868b;">Đang tải nhật ký CAPI...</td></tr>';
+
+    try {
+      const [data, settingsRes] = await Promise.all([
+        requestApi('/api/gaeru_ceo/capi/logs').catch(e => ({ logs: [], error: e.message })),
+        requestApi('/api/gaeru_ceo/capi/config').catch(() => ({ config: null }))
+      ]);
+
+      if (data.error) throw new Error(data.error);
+      const logs = data.logs || [];
+
+      if (!logs.length) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#86868b;">Chưa có sự kiện CAPI nào được ghi nhận. Bấm "Bắn Test Event" để thử nghiệm.</td></tr>';
+      } else {
+        if (tbody) {
+          tbody.innerHTML = logs.map(l => `
+            <tr>
+              <td><small>${new Date(l.created_at).toLocaleString('vi-VN')}</small></td>
+              <td><strong>${escapeHtml(l.event_name)}</strong></td>
+              <td><span class="up-badge ${l.platform === 'meta' ? 'up-badge-info' : 'up-badge-neutral'}">${escapeHtml((l.platform || 'CAPI').toUpperCase())}</span></td>
+              <td><span class="up-badge ${l.status === 'sent' ? 'up-badge-success' : (l.status === 'simulated' ? 'up-badge-info' : 'up-badge-warning')}">${escapeHtml(l.status)}</span></td>
+              <td><code>${escapeHtml(JSON.stringify(l.payload_summary || {}))}</code></td>
+            </tr>
+          `).join('');
+        }
+      }
+
+      // Render Cài Đặt CAPI
+      if (settingsBox) {
+        const cfg = settingsRes.config || {
+          metaPixelId: '',
+          metaTokenConfigured: false,
+          tikTokPixelId: '',
+          tikTokTokenConfigured: false,
+          testEventCode: 'TEST_EVENT',
+          mode: 'simulation'
+        };
+
+        settingsBox.innerHTML = `
+          <div class="feature-config-card">
+            <div class="feature-config-header">
+              <h3>⚙️ Cài Đặt Server-Side Conversion API (Meta & TikTok)</h3>
+              <span class="up-badge ${cfg.mode === 'live' ? 'up-badge-success' : 'up-badge-info'}">Chế độ: ${cfg.mode.toUpperCase()}</span>
+            </div>
+            <form id="form-capi-config" onsubmit="window.GAERUUpgradesHub.saveCapiConfig(event)">
+              <div class="feature-config-grid">
+                <div class="feature-config-field">
+                  <label>Meta Pixel ID (Facebook):</label>
+                  <input type="text" name="metaPixelId" class="feature-config-input" value="${escapeHtml(cfg.metaPixelId)}" placeholder="Ví dụ: 123456789012345">
+                  <p class="feature-config-note">Mã định danh Pixel trên Meta Business Suite.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>TikTok Pixel ID:</label>
+                  <input type="text" name="tikTokPixelId" class="feature-config-input" value="${escapeHtml(cfg.tikTokPixelId)}" placeholder="Ví dụ: C1234567890ABCDEF">
+                  <p class="feature-config-note">Mã định danh Pixel trên TikTok Ads Manager.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>Mã Thử Nghiệm Test Event Code:</label>
+                  <input type="text" name="testEventCode" class="feature-config-input" value="${escapeHtml(cfg.testEventCode)}" placeholder="Ví dụ: TEST12345">
+                  <p class="feature-config-note">Dùng để kiểm tra sự kiện trong tab Trình quản lý sự kiện.</p>
+                </div>
+                <div class="feature-config-field">
+                  <label>Chế độ vận hành CAPI:</label>
+                  <select name="mode" class="feature-config-select">
+                    <option value="simulation" ${cfg.mode === 'simulation' ? 'selected' : ''}>Mô phỏng (Simulation Sandbox)</option>
+                    <option value="live" ${cfg.mode === 'live' ? 'selected' : ''}>Trực tiếp (Live Production)</option>
+                  </select>
+                  <p class="feature-config-note">Tự động băm SHA-256 email và số điện thoại trước khi truyền.</p>
+                </div>
+              </div>
+              <div class="feature-config-actions">
+                <span id="capi-config-status" class="feature-config-feedback"></span>
+                <button type="submit" class="primary-button">Lưu Cài Đặt CAPI</button>
+              </div>
+            </form>
+          </div>
+        `;
+      }
+    } catch (err) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải CAPI: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  async function saveCapiConfig(e) {
+    e.preventDefault();
+    const form = e.target;
+    const statusEl = document.getElementById('capi-config-status');
+    const formData = new FormData(form);
+    const body = {
+      metaPixelId: String(formData.get('metaPixelId') || '').trim(),
+      tikTokPixelId: String(formData.get('tikTokPixelId') || '').trim(),
+      testEventCode: String(formData.get('testEventCode') || '').trim(),
+      mode: formData.get('mode') || 'simulation'
+    };
+
+    if (statusEl) { statusEl.textContent = 'Đang lưu...'; statusEl.className = 'feature-config-feedback'; }
+    try {
+      await requestApi('/api/gaeru_ceo/capi/config', { method: 'POST', body });
+      if (statusEl) { statusEl.textContent = '✓ Đã lưu cài đặt CAPI thành công!'; statusEl.className = 'feature-config-feedback is-success'; }
+      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      if (statusEl) { statusEl.textContent = 'Lỗi: ' + err.message; statusEl.className = 'feature-config-feedback is-error'; }
+    }
+  }
+
+  // =========================================================================
+  // TAB 4: ROP FORECAST
+  // =========================================================================
   async function loadInventoryForecast() {
     const tbody = document.getElementById('upgrades-rop-tbody');
     if (!tbody) return;
@@ -204,6 +483,9 @@
     }
   }
 
+  // =========================================================================
+  // TAB 5: RFM ANALYTICS
+  // =========================================================================
   async function loadRfmSegmentation() {
     const grid = document.getElementById('upgrades-rfm-cards');
     const tbody = document.getElementById('upgrades-rfm-tbody');
@@ -240,34 +522,268 @@
     }
   }
 
-  async function loadCapiLogs() {
-    const tbody = document.getElementById('upgrades-capi-tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#86868b;">Đang tải nhật ký CAPI...</td></tr>';
+  // =========================================================================
+  // TAB 6: TRUNG TÂM CÀI ĐẶT TẤT CẢ TÍNH NĂNG (FEATURE SETTINGS HUB)
+  // =========================================================================
+  async function loadAllSettings() {
+    const container = document.getElementById('all-upgrades-settings-container');
+    if (!container) return;
+    container.innerHTML = '<p style="text-align:center;padding:24px;color:#86868b;">Đang tải thông số cài đặt...</p>';
 
     try {
-      const data = await requestApi('/api/gaeru_ceo/capi/logs');
-      const logs = data.logs || [];
+      const { settings } = await requestApi('/api/gaeru_ceo/upgrades/settings');
 
-      if (!logs.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:#86868b;">Chưa có sự kiện CAPI nào được ghi nhận.</td></tr>';
-        return;
-      }
+      container.innerHTML = `
+        <!-- 1. RMA Settings -->
+        <div class="feature-config-card">
+          <div class="feature-config-header">
+            <h3>🛡️ Cài Đặt Bảo Hành 1 Đổi 1 & Gửi Phiếu RMA</h3>
+            <span class="up-badge up-badge-success">Chính hãng</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Thời hạn đổi mới:</label>
+              <input type="number" id="cfg-rma-days" class="feature-config-input" value="${settings.rma?.returnDays || 30}" min="7" max="90">
+              <p class="feature-config-note">Số ngày áp dụng đổi mới 1-1 cho lỗi kỹ thuật.</p>
+            </div>
+            <div class="feature-config-field">
+              <label>Hotline Kỹ thuật:</label>
+              <input type="text" id="cfg-rma-phone" class="feature-config-input" value="${escapeHtml(settings.rma?.supportHotline || '0901234567')}">
+              <p class="feature-config-note">Số tiếp nhận và tư vấn kỹ thuật trực tiếp.</p>
+            </div>
+            <div class="feature-config-field" style="grid-column:1 / -1;">
+              <label>Địa chỉ kho nhận bưu phẩm hoàn:</label>
+              <input type="text" id="cfg-rma-addr" class="feature-config-input" value="${escapeHtml(settings.rma?.warehouseAddress || '')}">
+              <p class="feature-config-note">Địa chỉ bưu tá Shopee Express gửi máy về kho.</p>
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('rma')">Lưu Cài Đặt RMA</button>
+          </div>
+        </div>
 
-      tbody.innerHTML = logs.map(l => `
-        <tr>
-          <td><small>${new Date(l.created_at).toLocaleString('vi-VN')}</small></td>
-          <td><strong>${escapeHtml(l.event_name)}</strong></td>
-          <td><span class="up-badge ${l.platform === 'meta' ? 'up-badge-info' : 'up-badge-neutral'}">${escapeHtml(l.platform.toUpperCase())}</span></td>
-          <td><span class="up-badge ${l.status === 'sent' ? 'up-badge-success' : 'up-badge-neutral'}">${escapeHtml(l.status)}</span></td>
-          <td><code>${escapeHtml(JSON.stringify(l.payload_summary || {}))}</code></td>
-        </tr>
-      `).join('');
+        <!-- 2. BNPL Settings -->
+        <div class="feature-config-card">
+          <div class="feature-config-header">
+            <h3>💳 Cài Đặt Mua Trước Trả Sau BNPL (Fundiin & Kredivo)</h3>
+            <span class="up-badge up-badge-info">0% Lãi Suất</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Cổng Fundiin:</label>
+              <select id="cfg-bnpl-fundiin" class="feature-config-select">
+                <option value="true" ${settings.bnpl?.fundiinEnabled ? 'selected' : ''}>Kích hoạt (Bật)</option>
+                <option value="false" ${!settings.bnpl?.fundiinEnabled ? 'selected' : ''}>Tạm tắt</option>
+              </select>
+            </div>
+            <div class="feature-config-field">
+              <label>Cổng Kredivo:</label>
+              <select id="cfg-bnpl-kredivo" class="feature-config-select">
+                <option value="true" ${settings.bnpl?.kredivoEnabled ? 'selected' : ''}>Kích hoạt (Bật)</option>
+                <option value="false" ${!settings.bnpl?.kredivoEnabled ? 'selected' : ''}>Tạm tắt</option>
+              </select>
+            </div>
+            <div class="feature-config-field">
+              <label>Đơn hàng tối thiểu (VNĐ):</label>
+              <input type="number" id="cfg-bnpl-min" class="feature-config-input" value="${settings.bnpl?.minAmountVnd || 300000}" step="50000">
+            </div>
+            <div class="feature-config-field">
+              <label>Đơn hàng tối đa (VNĐ):</label>
+              <input type="number" id="cfg-bnpl-max" class="feature-config-input" value="${settings.bnpl?.maxAmountVnd || 30000000}" step="1000000">
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('bnpl')">Lưu Cài Đặt BNPL</button>
+          </div>
+        </div>
+
+        <!-- 3. Server CAPI Settings -->
+        <div class="feature-config-card">
+          <div class="feature-config-header">
+            <h3>🎯 Cài Đặt Server-Side Conversion API (Meta & TikTok)</h3>
+            <span class="up-badge up-badge-success">Chống AdBlock</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Meta Pixel ID:</label>
+              <input type="text" id="cfg-capi-meta" class="feature-config-input" value="${escapeHtml(settings.capi?.metaPixelId || '')}">
+            </div>
+            <div class="feature-config-field">
+              <label>TikTok Pixel ID:</label>
+              <input type="text" id="cfg-capi-tiktok" class="feature-config-input" value="${escapeHtml(settings.capi?.tikTokPixelId || '')}">
+            </div>
+            <div class="feature-config-field">
+              <label>Test Event Code:</label>
+              <input type="text" id="cfg-capi-test" class="feature-config-input" value="${escapeHtml(settings.capi?.testEventCode || '')}">
+            </div>
+            <div class="feature-config-field">
+              <label>Chế độ vận hành:</label>
+              <select id="cfg-capi-mode" class="feature-config-select">
+                <option value="simulation" ${settings.capi?.mode === 'simulation' ? 'selected' : ''}>Mô phỏng (Simulation Sandbox)</option>
+                <option value="live" ${settings.capi?.mode === 'live' ? 'selected' : ''}>Trực tiếp (Live Production)</option>
+              </select>
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('capi')">Lưu Cài Đặt CAPI</button>
+          </div>
+        </div>
+
+        <!-- 4. Loyalty VIP Settings -->
+        <div class="feature-config-card">
+          <div class="feature-config-header">
+            <h3>✦ Cài Đặt Điểm Thưởng Khách Hàng Thân Thiết (Loyalty VIP)</h3>
+            <span class="up-badge up-badge-warning">4 Hạng Thẻ</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Tỷ lệ tích điểm đơn hàng (%):</label>
+              <input type="number" id="cfg-loyalty-rate" class="feature-config-input" value="${settings.loyalty?.earnRatePercent || 1.0}" step="0.1">
+            </div>
+            <div class="feature-config-field">
+              <label>Ngưỡng thăng Hạng Bạc (Điểm):</label>
+              <input type="number" id="cfg-loyalty-silver" class="feature-config-input" value="${settings.loyalty?.silverPointsThreshold || 1000}">
+            </div>
+            <div class="feature-config-field">
+              <label>Ngưỡng thăng Hạng Vàng (Điểm):</label>
+              <input type="number" id="cfg-loyalty-gold" class="feature-config-input" value="${settings.loyalty?.goldPointsThreshold || 5000}">
+            </div>
+            <div class="feature-config-field">
+              <label>Ngưỡng Hạng Kim Cương (Điểm):</label>
+              <input type="number" id="cfg-loyalty-diamond" class="feature-config-input" value="${settings.loyalty?.diamondPointsThreshold || 10000}">
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('loyalty')">Lưu Cài Đặt Loyalty</button>
+          </div>
+        </div>
+
+        <!-- 5. Affiliate CTV KOC Settings -->
+        <div class="feature-config-card">
+          <div class="feature-config-header">
+            <h3>🤝 Cài Đặt Tiếp Thị Liên Kết KOC (Affiliate CTV)</h3>
+            <span class="up-badge up-badge-info">Hoa Hồng 8%</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Tỷ lệ hoa hồng (%):</label>
+              <input type="number" id="cfg-aff-comm" class="feature-config-input" value="${settings.affiliate?.commissionPercent || 8}" min="1" max="50">
+            </div>
+            <div class="feature-config-field">
+              <label>Thời gian lưu Cookie (ngày):</label>
+              <input type="number" id="cfg-aff-cookie" class="feature-config-input" value="${settings.affiliate?.cookieDays || 30}" min="1" max="90">
+            </div>
+            <div class="feature-config-field">
+              <label>Mức rút tiền tối thiểu (VNĐ):</label>
+              <input type="number" id="cfg-aff-payout" class="feature-config-input" value="${settings.affiliate?.minPayoutVnd || 200000}" step="50000">
+            </div>
+            <div class="feature-config-field">
+              <label>Ngày chi trả hàng tháng:</label>
+              <input type="number" id="cfg-aff-day" class="feature-config-input" value="${settings.affiliate?.payoutDayOfMonth || 15}" min="1" max="28">
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('affiliate')">Lưu Cài Đặt Tiếp Thị</button>
+          </div>
+        </div>
+
+        <!-- 6. Web Push Settings -->
+        <div class="feature-config-card">
+          <div class="feature-config-header">
+            <h3>🔔 Cài Đặt Thông Báo Đẩy Web Push Trình Duyệt</h3>
+            <span class="up-badge up-badge-success">Tức thì</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Thông báo khi có đơn hàng mới:</label>
+              <select id="cfg-push-order" class="feature-config-select">
+                <option value="true" ${settings.webPush?.autoNotifyNewOrder ? 'selected' : ''}>Bật</option>
+                <option value="false" ${!settings.webPush?.autoNotifyNewOrder ? 'selected' : ''}>Tắt</option>
+              </select>
+            </div>
+            <div class="feature-config-field">
+              <label>Thông báo khi xuất kho bưu tá SPX:</label>
+              <select id="cfg-push-ship" class="feature-config-select">
+                <option value="true" ${settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Bật</option>
+                <option value="false" ${!settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Tắt</option>
+              </select>
+            </div>
+            <div class="feature-config-field">
+              <label>Thông báo chiến dịch Flash Sale:</label>
+              <select id="cfg-push-sale" class="feature-config-select">
+                <option value="true" ${settings.webPush?.autoNotifyFlashSale ? 'selected' : ''}>Bật</option>
+                <option value="false" ${!settings.webPush?.autoNotifyFlashSale ? 'selected' : ''}>Tắt</option>
+              </select>
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('webPush')">Lưu Cài Đặt Web Push</button>
+          </div>
+        </div>
+      `;
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải CAPI: ${escapeHtml(err.message)}</td></tr>`;
+      container.innerHTML = `<p style="color:#d92d20;padding:20px;">Lỗi tải cài đặt: ${escapeHtml(err.message)}</p>`;
     }
   }
 
+  async function saveSettingModule(moduleName) {
+    let settings = {};
+    if (moduleName === 'rma') {
+      settings = {
+        returnDays: Number(document.getElementById('cfg-rma-days')?.value) || 30,
+        supportHotline: String(document.getElementById('cfg-rma-phone')?.value || '').trim(),
+        warehouseAddress: String(document.getElementById('cfg-rma-addr')?.value || '').trim()
+      };
+    } else if (moduleName === 'bnpl') {
+      settings = {
+        fundiinEnabled: document.getElementById('cfg-bnpl-fundiin')?.value === 'true',
+        kredivoEnabled: document.getElementById('cfg-bnpl-kredivo')?.value === 'true',
+        minAmountVnd: Number(document.getElementById('cfg-bnpl-min')?.value) || 300000,
+        maxAmountVnd: Number(document.getElementById('cfg-bnpl-max')?.value) || 30000000
+      };
+    } else if (moduleName === 'capi') {
+      settings = {
+        metaPixelId: String(document.getElementById('cfg-capi-meta')?.value || '').trim(),
+        tikTokPixelId: String(document.getElementById('cfg-capi-tiktok')?.value || '').trim(),
+        testEventCode: String(document.getElementById('cfg-capi-test')?.value || '').trim(),
+        mode: document.getElementById('cfg-capi-mode')?.value || 'simulation'
+      };
+    } else if (moduleName === 'loyalty') {
+      settings = {
+        earnRatePercent: Number(document.getElementById('cfg-loyalty-rate')?.value) || 1.0,
+        silverPointsThreshold: Number(document.getElementById('cfg-loyalty-silver')?.value) || 1000,
+        goldPointsThreshold: Number(document.getElementById('cfg-loyalty-gold')?.value) || 5000,
+        diamondPointsThreshold: Number(document.getElementById('cfg-loyalty-diamond')?.value) || 10000
+      };
+    } else if (moduleName === 'affiliate') {
+      settings = {
+        commissionPercent: Number(document.getElementById('cfg-aff-comm')?.value) || 8,
+        cookieDays: Number(document.getElementById('cfg-aff-cookie')?.value) || 30,
+        minPayoutVnd: Number(document.getElementById('cfg-aff-payout')?.value) || 200000,
+        payoutDayOfMonth: Number(document.getElementById('cfg-aff-day')?.value) || 15
+      };
+    } else if (moduleName === 'webPush') {
+      settings = {
+        autoNotifyNewOrder: document.getElementById('cfg-push-order')?.value === 'true',
+        autoNotifyShipping: document.getElementById('cfg-push-ship')?.value === 'true',
+        autoNotifyFlashSale: document.getElementById('cfg-push-sale')?.value === 'true'
+      };
+    }
+
+    try {
+      await requestApi('/api/gaeru_ceo/upgrades/settings', {
+        method: 'POST',
+        body: { module: moduleName, settings }
+      });
+      alert(`✓ Đã lưu cài đặt ${moduleName.toUpperCase()} thành công!`);
+    } catch (err) {
+      alert(`Lỗi lưu cài đặt: ${err.message}`);
+    }
+  }
+
+  // =========================================================================
+  // TAB SWITCHING & HELPERS
+  // =========================================================================
   function switchUpgradeTab(tabId) {
     document.querySelectorAll('.upgrades-tab-btn').forEach(btn => {
       btn.classList.toggle('is-active', btn.dataset.tab === tabId);
@@ -283,28 +799,28 @@
     if (tabId === 'rop') loadInventoryForecast();
     if (tabId === 'rfm') loadRfmSegmentation();
     if (tabId === 'capi') loadCapiLogs();
+    if (tabId === 'settings') loadAllSettings();
   }
 
   function openRmaModal(ticketId, code, currentStatus) {
-    const newStatus = prompt(`Cập nhật trạng thái phiếu ${code}:\n(pending, received, inspecting, approved_replacement, approved_repair, shipping_back, completed, rejected)`, currentStatus);
+    const newStatus = prompt(`Cập nhật trạng thái phiếu ${code}:\n(pending, received, inspecting, replacement_approved, approved_repair, shipping_back, completed, rejected)`, currentStatus);
     if (!newStatus || newStatus === currentStatus) return;
 
     let outboundTracking = null;
-    if (newStatus === 'shipping_back' || newStatus === 'completed') {
-      outboundTracking = prompt('Nhập mã vận đơn bưu cục gửi lại khách (ví dụ SPXVN...):', '');
+    if (newStatus === 'shipping_back' || newStatus === 'completed' || newStatus === 'shipped') {
+      outboundTracking = prompt('Nhập mã vận đơn bưu cục gửi lại khách (SPX):', '');
     }
 
     const technicianNotes = prompt('Ghi chú của kỹ thuật viên:', 'Đã kiểm định thiết bị và cập nhật trạng thái.');
 
     requestApi(`/api/gaeru_ceo/rma/tickets/${ticketId}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: {
         status: newStatus,
         outboundTracking,
         technicianNotes,
         resolutionType: newStatus.includes('replacement') ? 'replace_1_1' : (newStatus.includes('repair') ? 'repair' : null)
-      })
+      }
     }).then(() => {
       alert(`Đã cập nhật phiếu ${code} thành công!`);
       loadRmaTickets();
@@ -315,10 +831,9 @@
 
   async function triggerTestCapi() {
     try {
-      const res = await requestApi('/api/gaeru_ceo/capi/test-event', {
+      await requestApi('/api/gaeru_ceo/capi/test-event', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventName: 'Purchase', amountVnd: 1850000, orderNumber: 'TEST-' + Date.now().toString(36).toUpperCase() })
+        body: { eventName: 'Purchase', amountVnd: 1850000, orderNumber: 'TEST-' + Date.now().toString(36).toUpperCase() }
       });
       alert('Đã gửi sự kiện CAPI thử nghiệm thành công!\nKiểm tra lại danh sách nhật ký bên dưới.');
       loadCapiLogs();
@@ -342,10 +857,15 @@
       triggerTestCapi,
       renderMatrix,
       loadRmaTickets,
+      saveRmaConfig,
       loadBnplTransactions,
+      saveBnplConfig,
       loadInventoryForecast,
       loadRfmSegmentation,
-      loadCapiLogs
+      loadCapiLogs,
+      saveCapiConfig,
+      loadAllSettings,
+      saveSettingModule
     };
   }
 

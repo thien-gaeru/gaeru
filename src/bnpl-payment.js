@@ -143,6 +143,24 @@ function createBnplPublicRouter(pool) {
 
 function createBnplAdminRouter(pool) {
   const router = Router();
+  router.get('/bnpl/config', async (_req, res, next) => {
+    try {
+      const { getUpgradesSettings } = require('./upgrades-settings');
+      const settings = await getUpgradesSettings(pool);
+      res.json({ success: true, config: settings.bnpl });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/bnpl/config', async (req, res, next) => {
+    try {
+      const { saveUpgradesSettings, getUpgradesSettings } = require('./upgrades-settings');
+      const current = await getUpgradesSettings(pool);
+      current.bnpl = { ...current.bnpl, ...req.body };
+      await saveUpgradesSettings(pool, current);
+      res.json({ success: true, config: current.bnpl });
+    } catch (err) { next(err); }
+  });
+
   router.get('/bnpl/transactions', async (req, res, next) => {
     try {
       const { rows } = await pool.query(

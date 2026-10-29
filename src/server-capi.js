@@ -192,6 +192,24 @@ async function dispatchServerCapi(pool, config = {}, {
 function createCapiAdminRouter(pool, config) {
   const router = Router();
 
+  router.get('/capi/config', async (_req, res, next) => {
+    try {
+      const { getUpgradesSettings } = require('./upgrades-settings');
+      const settings = await getUpgradesSettings(pool);
+      res.json({ success: true, config: settings.capi });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/capi/config', async (req, res, next) => {
+    try {
+      const { saveUpgradesSettings, getUpgradesSettings } = require('./upgrades-settings');
+      const current = await getUpgradesSettings(pool);
+      current.capi = { ...current.capi, ...req.body };
+      await saveUpgradesSettings(pool, current);
+      res.json({ success: true, config: current.capi });
+    } catch (err) { next(err); }
+  });
+
   router.get('/capi/logs', async (req, res, next) => {
     try {
       const { rows } = await pool.query(
