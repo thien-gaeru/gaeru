@@ -70,5 +70,5 @@ module.exports = new Set(['footer-products.js','clean-urls.js','vietnam-address.
   "support.js",
   "terms.html",
   "variant-choices.js",
-  "warranty.js", "warranty-activation.html", "app.html", "app.css"
+  "warranty.js", "warranty-activation.html"
 ]);

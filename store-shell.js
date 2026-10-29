@@ -53,7 +53,7 @@ if (headerRoot) {
           <div data-menu-products aria-live="polite"></div>
           <a class="mobile-menu-link" href="support.html">Hỗ trợ</a>
           <a class="mobile-menu-link" href="care.html">GAERU Care+</a>
-          <a class="mobile-menu-link" href="account.html">Tài khoản</a><a class="mobile-menu-link" href="app.html">Tải ứng dụng GAERU</a>
+          <a class="mobile-menu-link" href="account.html">Tài khoản</a>
         </nav>
       </div>
     </section>
@@ -135,7 +135,7 @@ if (footerRoot) {
             <a href="care.html">GAERU Care+</a>
             <a href="support.html#guide">Hướng dẫn</a>
             <a href="support.html">Trung tâm hỗ trợ</a>
-            <a href="account.html">Tài khoản</a><a href="app.html">Tải ứng dụng GAERU</a>
+            <a href="account.html">Tài khoản</a>
           </div>
         </details>
         <details class="footer-column" open>
