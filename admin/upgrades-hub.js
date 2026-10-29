@@ -27,9 +27,6 @@
     { id: 'web-push', phase: 2, name: 'Thông Báo Đẩy Trình Duyệt (Web Push API)', desc: 'Gửi tin thông báo flash sale và đơn hàng trực tiếp lên màn hình điện thoại.', endpoint: '/api/push/broadcast', status: 'live' },
 
     // Phase 3 (10 upgrades)
-    { id: 'bnpl', phase: 3, name: 'Trả Góp 0% Mua Trước Trả Sau (BNPL)', desc: 'Fundiin & Kredivo chia nhỏ làm 3-4 kỳ thanh toán cho đơn mic/gimbal giá trị cao.', endpoint: '/api/payments/bnpl/calculate', status: 'live' },
-    { id: 'quiz', phase: 3, name: 'AI Setup Finder (Tư Vấn Thiết Bị 30s)', desc: 'Trắc nghiệm 3 bước gợi ý combo hoàn chỉnh tiết kiệm 15% chỉ bằng 1-click.', endpoint: '/api/quiz/recommend', status: 'live' },
-    { id: 'specs-compare', phase: 3, name: 'So Sánh Thông Số Kỹ Thuật Đối Đầu', desc: 'Bảng so sánh tải trọng, pin, trọng lượng, khử ồn giữa 2-3 sản phẩm cùng loại.', endpoint: '/api/products/compare', status: 'live' },
     { id: 'rma', phase: 3, name: 'Quy Trình Bảo Hành & Đổi Trả RMA Trực Tuyến', desc: 'Tiếp nhận video lỗi, cấp mã phiếu RMA-YYMM-xxxx và cập nhật tiến độ đổi mới 1-1.', endpoint: '/api/rma/lookup', status: 'live' },
     { id: 'capi', phase: 3, name: 'Server-Side Conversion API (Meta & TikTok)', desc: 'Bắn trực tiếp sự kiện Purchase từ Node.js Backend chống thất thoát dữ liệu do AdBlock.', endpoint: '/api/gaeru_ceo/capi/logs', status: 'live' },
     { id: 'rop-forecast', phase: 3, name: 'Dự Báo Tồn Kho & Điểm Nhập Hàng (Smart ROP)', desc: 'Tính tốc độ bán hàng ngày và ROP an toàn, tự sinh phiếu đề xuất nhập kho.', endpoint: '/api/gaeru_ceo/inventory/forecast', status: 'live' },
@@ -282,148 +279,6 @@
 
   // =========================================================================
   // TAB 2: BNPL TRANSACTIONS & CÀI ĐẶT BNPL
-  // =========================================================================
-  async function loadBnplTransactions() {
-    const tbody = document.getElementById('upgrades-bnpl-tbody');
-    const settingsBox = document.getElementById('bnpl-settings-container');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Đang tải giao dịch BNPL...</td></tr>';
-
-    try {
-      const [data, settingsRes] = await Promise.all([
-        requestApi('/api/gaeru_ceo/bnpl/transactions').catch(e => ({ transactions: [], error: e.message })),
-        requestApi('/api/gaeru_ceo/bnpl/config').catch(() => ({ config: null }))
-      ]);
-
-      if (data.error) throw new Error(data.error);
-      const list = data.transactions || [];
-
-      if (!list.length) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:#86868b;">Chưa có giao dịch trả góp BNPL nào phát sinh.</td></tr>';
-      } else {
-        if (tbody) {
-          tbody.innerHTML = list.map(tx => `
-            <tr>
-              <td><strong>${escapeHtml(tx.transaction_id || tx.id)}</strong></td>
-              <td><code>${escapeHtml(tx.order_number || tx.order_id)}</code></td>
-              <td><span class="up-badge up-badge-info">${escapeHtml((tx.provider || 'BNPL').toUpperCase())}</span></td>
-              <td><strong>${formatMoney(tx.amount_vnd)}</strong></td>
-              <td>${tx.installments_count || 3} kỳ (${formatMoney(tx.installment_amount_vnd || (tx.amount_vnd / 3))}/kỳ)</td>
-              <td><span class="up-badge ${tx.status === 'approved' ? 'up-badge-success' : 'up-badge-warning'}">${escapeHtml(tx.status)}</span></td>
-            </tr>
-          `).join('');
-        }
-      }
-
-      // Render Cài Đặt BNPL
-      if (settingsBox) {
-        const cfg = settingsRes.config || {
-          fundiinEnabled: true,
-          kredivoEnabled: true,
-          minAmountVnd: 300000,
-          maxAmountVnd: 30000000,
-          supportedTenures: [3, 6, 12]
-        };
-
-        settingsBox.innerHTML = `
-          <div class="feature-config-card">
-            <div class="feature-config-header">
-              <h3>⚙️ Cài Đặt Cổng Mua Trước Trả Sau 0% (BNPL Settings)</h3>
-              <span class="up-badge up-badge-success">0% Lãi Suất</span>
-            </div>
-            <form id="form-bnpl-config" onsubmit="window.GAERUUpgradesHub.saveBnplConfig(event)">
-              <div class="feature-config-grid">
-                <div class="feature-config-field">
-                  <label>Cổng Fundiin (3 - 4 kỳ):</label>
-                  <select name="fundiinEnabled" class="feature-config-select">
-                    <option value="true" ${cfg.fundiinEnabled ? 'selected' : ''}>Bật (Hoạt động)</option>
-                    <option value="false" ${!cfg.fundiinEnabled ? 'selected' : ''}>Tạm tắt</option>
-                  </select>
-                  <p class="feature-config-note">Duyệt hồ sơ nhanh qua CCCD trong 30 giây.</p>
-                </div>
-                <div class="feature-config-field">
-                  <label>Cổng Kredivo (3 - 6 - 12 tháng):</label>
-                  <select name="kredivoEnabled" class="feature-config-select">
-                    <option value="true" ${cfg.kredivoEnabled ? 'selected' : ''}>Bật (Hoạt động)</option>
-                    <option value="false" ${!cfg.kredivoEnabled ? 'selected' : ''}>Tạm tắt</option>
-                  </select>
-                  <p class="feature-config-note">Hỗ trợ trả góp linh hoạt cho đơn giá trị cao.</p>
-                </div>
-                <div class="feature-config-field">
-                  <label>Số tiền đơn hàng tối thiểu (VNĐ):</label>
-                  <input type="number" name="minAmountVnd" class="feature-config-input" value="${cfg.minAmountVnd || 300000}" step="100000" required>
-                  <p class="feature-config-note">Tối thiểu để kích hoạt phương thức trả góp.</p>
-                </div>
-                <div class="feature-config-field">
-                  <label>Hạn mức tối đa (VNĐ):</label>
-                  <input type="number" name="maxAmountVnd" class="feature-config-input" value="${cfg.maxAmountVnd || 30000000}" step="1000000" required>
-                  <p class="feature-config-note">Giới hạn mua hàng trả lời trực tiếp từ cổng.</p>
-                </div>
-              </div>
-              <div class="feature-config-actions">
-                <span id="bnpl-config-status" class="feature-config-feedback"></span>
-                <button type="submit" class="primary-button">Lưu Cài Đặt BNPL</button>
-              </div>
-            </form>
-          </div>
-        `;
-      }
-    } catch (err) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#d92d20;padding:20px;">Lỗi tải BNPL: ${escapeHtml(err.message)}</td></tr>`;
-    }
-  }
-
-  async function saveBnplConfig(e) {
-    e.preventDefault();
-    const form = e.target;
-    const btn = form.querySelector('button[type="submit"]');
-    const statusEl = document.getElementById('bnpl-config-status');
-    const origBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt BNPL';
-    const formData = new FormData(form);
-
-    if (btn) { btn.disabled = true; btn.innerHTML = 'Đang kiểm tra...'; }
-    if (statusEl) {
-      statusEl.className = 'feature-config-feedback';
-      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 1/3]</span> Đang kiểm tra hạn mức trả góp...';
-    }
-
-    const minAmountVnd = Number(formData.get('minAmountVnd')) || 300000;
-    const maxAmountVnd = Number(formData.get('maxAmountVnd')) || 30000000;
-    if (minAmountVnd >= maxAmountVnd) {
-      if (statusEl) { statusEl.className = 'feature-config-feedback is-error'; statusEl.innerHTML = '✕ Hạn mức tối thiểu phải nhỏ hơn hạn mức tối đa.'; }
-      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
-      return;
-    }
-
-    const body = {
-      fundiinEnabled: formData.get('fundiinEnabled') === 'true',
-      kredivoEnabled: formData.get('kredivoEnabled') === 'true',
-      minAmountVnd,
-      maxAmountVnd
-    };
-
-    if (btn) btn.innerHTML = '⏳ Đang lưu máy chủ...';
-    if (statusEl) {
-      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 2/3]</span> Đang lưu cổng Fundiin & Kredivo vào hệ thống...';
-    }
-
-    try {
-      await requestApi('/api/gaeru_ceo/bnpl/config', { method: 'POST', body });
-      const nowStr = new Date().toLocaleTimeString('vi-VN');
-      if (statusEl) {
-        statusEl.className = 'feature-config-feedback is-success';
-        statusEl.innerHTML = `✓ <strong>[Thao tác 3/3 Hoàn tất]</strong> Đã lưu và kích hoạt lúc ${nowStr}!`;
-      }
-      if (btn) { btn.innerHTML = '✓ Đã Lưu'; btn.style.backgroundColor = '#107c41'; }
-      setTimeout(() => {
-        if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; btn.style.backgroundColor = ''; }
-      }, 2500);
-    } catch (err) {
-      if (statusEl) {
-        statusEl.className = 'feature-config-feedback is-error';
-        statusEl.innerHTML = '✕ <strong>Lỗi:</strong> ' + escapeHtml(err.message);
-      }
-      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
-    }
   }
 
   // =========================================================================
@@ -688,42 +543,6 @@
           </div>
         </div>
 
-        <!-- 2. BNPL Settings -->
-        <div class="feature-config-card" id="card-cfg-bnpl">
-          <div class="feature-config-header">
-            <h3>💳 Cài Đặt Mua Trước Trả Sau BNPL (Fundiin & Kredivo)</h3>
-            <span class="up-badge up-badge-info">0% Lãi Suất</span>
-          </div>
-          <div class="feature-config-grid">
-            <div class="feature-config-field">
-              <label>Cổng Fundiin (3 - 4 kỳ):</label>
-              <select id="cfg-bnpl-fundiin" class="feature-config-select">
-                <option value="true" ${settings.bnpl?.fundiinEnabled ? 'selected' : ''}>Kích hoạt (Bật)</option>
-                <option value="false" ${!settings.bnpl?.fundiinEnabled ? 'selected' : ''}>Tạm tắt</option>
-              </select>
-            </div>
-            <div class="feature-config-field">
-              <label>Cổng Kredivo (3 - 6 - 12 tháng):</label>
-              <select id="cfg-bnpl-kredivo" class="feature-config-select">
-                <option value="true" ${settings.bnpl?.kredivoEnabled ? 'selected' : ''}>Kích hoạt (Bật)</option>
-                <option value="false" ${!settings.bnpl?.kredivoEnabled ? 'selected' : ''}>Tạm tắt</option>
-              </select>
-            </div>
-            <div class="feature-config-field">
-              <label>Đơn hàng tối thiểu (VNĐ):</label>
-              <input type="number" id="cfg-bnpl-min" class="feature-config-input" value="${settings.bnpl?.minAmountVnd || 300000}" step="50000">
-            </div>
-            <div class="feature-config-field">
-              <label>Đơn hàng tối đa (VNĐ):</label>
-              <input type="number" id="cfg-bnpl-max" class="feature-config-input" value="${settings.bnpl?.maxAmountVnd || 30000000}" step="1000000">
-            </div>
-          </div>
-          <div class="feature-config-actions">
-            <span id="status-setting-bnpl" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-bnpl" onclick="window.GAERUUpgradesHub.saveSettingModule('bnpl')">Lưu Cài Đặt BNPL</button>
-          </div>
-        </div>
-
         <!-- 3. Server CAPI Settings -->
         <div class="feature-config-card" id="card-cfg-capi">
           <div class="feature-config-header">
@@ -925,16 +744,6 @@
         const addr = String(document.getElementById('cfg-rma-addr')?.value || '').trim();
         if (!addr) throw new Error('Địa chỉ kho nhận không được để trống.');
         settings = { returnDays: days, supportHotline: hotline, warehouseAddress: addr };
-      } else if (moduleName === 'bnpl') {
-        const minVal = Number(document.getElementById('cfg-bnpl-min')?.value) || 300000;
-        const maxVal = Number(document.getElementById('cfg-bnpl-max')?.value) || 30000000;
-        if (minVal >= maxVal) throw new Error('Hạn mức tối thiểu phải nhỏ hơn hạn mức tối đa.');
-        settings = {
-          fundiinEnabled: document.getElementById('cfg-bnpl-fundiin')?.value === 'true',
-          kredivoEnabled: document.getElementById('cfg-bnpl-kredivo')?.value === 'true',
-          minAmountVnd: minVal,
-          maxAmountVnd: maxVal
-        };
       } else if (moduleName === 'capi') {
         settings = {
           metaPixelId: String(document.getElementById('cfg-capi-meta')?.value || '').trim(),
@@ -1038,7 +847,6 @@
 
     if (tabId === 'matrix') renderMatrix('all');
     if (tabId === 'rma') loadRmaTickets();
-    if (tabId === 'bnpl') loadBnplTransactions();
     if (tabId === 'rop') loadInventoryForecast();
     if (tabId === 'rfm') loadRfmSegmentation();
     if (tabId === 'capi') loadCapiLogs();
@@ -1093,8 +901,6 @@
     renderMatrix,
     loadRmaTickets,
     saveRmaConfig,
-    loadBnplTransactions,
-    saveBnplConfig,
     loadInventoryForecast,
     loadRfmSegmentation,
     loadCapiLogs,

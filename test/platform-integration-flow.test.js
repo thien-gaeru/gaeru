@@ -8,7 +8,6 @@ const path = require('node:path');
 const { addLoyaltyPoints, getLoyaltyProfile } = require('../src/loyalty-api');
 const { registerPartner, attributeOrderCommission } = require('../src/affiliate-system');
 const { submitRmaTicket, lookupRmaTicket, updateRmaStatus } = require('../src/rma-workflow');
-const { calculateInstallments, createBnplTransaction } = require('../src/bnpl-payment');
 const { logCapiEvent } = require('../src/server-capi');
 const { getUpgradesSettings, saveUpgradesSettings } = require('../src/upgrades-settings');
 
@@ -20,7 +19,6 @@ function createMockPool() {
     affiliate_partners: new Map(),
     affiliate_commissions: [],
     rma_tickets: new Map(),
-    bnpl_transactions: new Map(),
     server_capi_logs: [],
     store_settings: new Map()
   };
@@ -155,23 +153,6 @@ function createMockPool() {
         return { rows: ticket ? [ticket] : [] };
       }
 
-      // 3. bnpl_transactions queries
-      if (s.includes('INSERT INTO bnpl_transactions')) {
-        const id = 'bnpl-' + Math.random().toString(36).slice(2);
-        const tx = {
-          id,
-          order_id: params[0],
-          order_number: params[1],
-          provider: params[2],
-          transaction_id: params[3],
-          amount_vnd: params[4],
-          installments_count: params[5],
-          installment_amount_vnd: params[6],
-          status: 'pending'
-        };
-        tables.bnpl_transactions.set(id, tx);
-        return { rows: [tx] };
-      }
 
       // 4. server_capi_logs queries
       if (s.includes('INSERT INTO server_capi_logs')) {
@@ -313,26 +294,6 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.equal(lookupAfter[0].tracking_code_outbound, 'SPXVN088223344');
   });
 
-  // Test 4: Buy Now Pay Later (BNPL) Schedule Calculation & Transaction Lifecycle
-  await t.test('4. BNPL 0% Installment Calculation and Transaction Life Cycle', async () => {
-    const calc = calculateInstallments(1800000, 3);
-    assert.equal(calc.eligible, true);
-    assert.equal(calc.installmentsCount, 3);
-    assert.equal(calc.installmentAmountVnd, 600000);
-    assert.equal(calc.schedule.length, 3);
-
-    const res = await createBnplTransaction(pool, {
-      orderNumber: 'ORD-002',
-      provider: 'fundiin',
-      amountVnd: 1800000,
-      installmentsCount: 3
-    });
-
-    assert.ok(res.transaction);
-    assert.equal(res.transaction.provider, 'fundiin');
-    assert.equal(res.transaction.amount_vnd, 1800000);
-  });
-
   // Test 5: Server-Side Conversion API (CAPI) Logging
   await t.test('5. Server-Side CAPI Purchase Event Logging and Storage', async () => {
     await logCapiEvent(pool, {
@@ -374,7 +335,6 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.doesNotMatch(shell, /Tra cứu đơn hàng SPX/, 'Footer must not lock to SPX only');
     assert.match(shell, /Tra cứu đơn hàng &amp; Vận đơn/, 'Footer must display diversified shipping text');
     assert.match(shell, /rma\.html/, 'Footer must link to RMA policy');
-    assert.match(shell, /quiz\.html/, 'Footer must link to AI Quiz');
     assert.match(shell, /news\.html/, 'Footer must link to News');
 
     const trackingHtml = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
@@ -388,15 +348,11 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     const rmaHtml = fs.readFileSync(path.join(__dirname, '..', 'rma.html'), 'utf8');
     assert.doesNotMatch(rmaHtml, /GAERU Store/, 'RMA page must not display GAERU Store');
     assert.doesNotMatch(rmaHtml, /Tra cứu đơn hàng SPX/, 'RMA footer must not lock to SPX only');
-
-    const quizHtml = fs.readFileSync(path.join(__dirname, '..', 'quiz.html'), 'utf8');
-    assert.doesNotMatch(quizHtml, /GAERU Store/, 'Quiz page must not display GAERU Store');
-    assert.doesNotMatch(quizHtml, /Tra cứu đơn hàng SPX/, 'Quiz footer must not lock to SPX only');
   });
 
   // Test 8: Storefront Header & Footer Shell Synchronization on All New Functional Pages
   await t.test('8. Storefront Header & Footer Shell Synchronization on All New Functional Pages', () => {
-    const pages = ['rma.html', 'quiz.html', 'tracking.html'];
+    const pages = ['rma.html', 'tracking.html'];
 
     for (const pageName of pages) {
       const pageHtml = fs.readFileSync(path.join(__dirname, '..', pageName), 'utf8');
@@ -409,8 +365,6 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
       // Ensure no standalone custom headers or footers left
       assert.doesNotMatch(pageHtml, /<header class="rma-header"/, `${pageName} must not have custom rma-header`);
       assert.doesNotMatch(pageHtml, /<footer class="rma-footer"/, `${pageName} must not have custom rma-footer`);
-      assert.doesNotMatch(pageHtml, /<header class="quiz-header"/, `${pageName} must not have custom quiz-header`);
-      assert.doesNotMatch(pageHtml, /<footer class="quiz-footer"/, `${pageName} must not have custom quiz-footer`);
     }
 
     // Verify critical action buttons on functional pages
@@ -419,11 +373,6 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.match(rmaContent, /id="tab-submit-btn"/, 'RMA must have submit tab button');
     assert.match(rmaContent, /id="rma-lookup-submit"/, 'RMA must have lookup submit button');
     assert.match(rmaContent, /id="rma-submit-btn-action"/, 'RMA must have submit action button');
-
-    const quizContent = fs.readFileSync(path.join(__dirname, '..', 'quiz.html'), 'utf8');
-    assert.match(quizContent, /id="quiz-progress"/, 'Quiz must have progress bar indicator');
-    assert.match(quizContent, /id="quiz-question-container"/, 'Quiz must have question container');
-    assert.match(quizContent, /id="quiz-result-container"/, 'Quiz must have result container');
 
     const trackingContent = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
     assert.match(trackingContent, /id="tracking-form"/, 'Tracking must have tracking form');

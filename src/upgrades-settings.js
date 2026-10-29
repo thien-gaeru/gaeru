@@ -11,16 +11,6 @@ const DEFAULT_SETTINGS = {
     inspectionLeadHours: 24,
     policyText: 'Cam kết 1 đổi 1 nguyên seal trong 30 ngày đầu cho mọi lỗi kỹ thuật phát sinh từ nhà sản xuất.'
   },
-  bnpl: {
-    fundiinEnabled: true,
-    kredivoEnabled: true,
-    minAmountVnd: 300000,
-    maxAmountVnd: 30000000,
-    defaultTenure: 3,
-    supportedTenures: [3, 6, 12],
-    interestRatePercent: 0,
-    downPaymentRate: 0
-  },
   capi: {
     metaPixelId: process.env.META_PIXEL_ID || '',
     metaTokenConfigured: Boolean(process.env.META_CAPI_TOKEN),
