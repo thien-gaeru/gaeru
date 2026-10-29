@@ -1,7 +1,7 @@
 .customer-workspace{margin-top:28px;text-align:left;display:grid;gap:18px;min-width:0}.customer-workspace h3{margin:14px 0 0;font-size:22px}.customer-workspace article,.customer-workspace details{padding:18px;border:1px solid #e5e5e8;border-radius:16px;background:#fff;overflow-wrap:anywhere}.customer-workspace article+article{margin-top:12px}.customer-workspace article p{font-size:13px;line-height:1.7;color:#515154}.customer-workspace button:not(.button){padding:10px 12px;border:1px solid #d2d2d7;border-radius:20px;background:white;color:#0066cc;cursor:pointer;margin:4px 4px 0 0;min-height:44px}.customer-workspace button:disabled{opacity:.55;cursor:wait}.customer-workspace .account-form{width:100%;max-width:none;margin:8px 0}.customer-workspace summary{cursor:pointer;font-weight:600;padding:8px 0}.customer-workspace [role=status]{font-size:13px;color:#515154}.customer-workspace [hidden]{display:none!important}.customer-workspace ul{padding-left:20px;font-size:13px;line-height:1.7}.customer-workspace input[type=checkbox]{width:18px;height:18px}.customer-workspace :focus-visible{outline:2px solid #0071e3;outline-offset:3px}
 .account-page{background:#f5f5f7}
 .account-page .account-layout{width:min(calc(100% - 40px),680px);padding-top:64px;gap:32px}
-.account-page .account-card{border:1px solid #e5e5e8;border-radius:24px;background:#fff;padding:32px}
+.account-page .account-layout:not(.is-authenticated) .account-card { border: 1px solid #e5e5e8; border-radius: 24px; background: #fff; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
 .account-page .account-form{max-width:none;width:100%}
 .account-page .account-form input{font-size:16px;border-radius:12px;min-height:48px}
 .account-page .account-form .button{min-height:48px;font-size:14px}
@@ -56,7 +56,7 @@
  .account-hub-nav{grid-template-columns:1fr 1fr;margin-top:24px;gap:8px}
  .account-hub-nav a{padding:14px 12px;font-size:12px;min-height:48px;align-items:center}
  .account-overview-card,.account-workspace-card{padding:22px;border-radius:20px}
- .account-page .account-card{padding:24px;border-radius:20px}
+ .account-page .account-layout:not(.is-authenticated) .account-card { padding: 24px; border-radius: 20px; }
  .account-page .is-authenticated .customer-account-card{padding:0}
  .account-page .customer-workspace .account-profile-editor{padding:16px 22px}
 }
@@ -454,3 +454,140 @@
   }
 }
 
+
+
+/* ==========================================================================
+   TRIỆT TIÊU HOÀN TOÀN NỀN BO LỚN NGOÀI CÙNG KHI ĐÃ ĐĂNG NHẬP
+   ========================================================================== */
+.account-page .account-layout.is-authenticated .account-card,
+.account-layout.is-authenticated .account-card,
+.account-page.is-authenticated .account-card,
+.is-authenticated .account-card,
+#customer-account.is-authenticated .account-card,
+.account-layout.is-authenticated .customer-account-card {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  transform: none !important;
+}
+
+.account-page .account-layout.is-authenticated .account-card:hover,
+.account-layout.is-authenticated .account-card:hover,
+.is-authenticated .account-card:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   EXECUTIVE USER HEADER BANNER (Apple Executive Style)
+   ========================================================================== */
+.account-header-banner {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 20px !important;
+  background: #ffffff !important;
+  border: 1px solid #e5e5e8 !important;
+  border-radius: 20px !important;
+  padding: 18px 24px !important;
+  margin-bottom: 24px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03) !important;
+  transition: all 0.2s ease !important;
+}
+.account-header-user {
+  display: flex !important;
+  align-items: center !important;
+  gap: 16px !important;
+  min-width: 0 !important;
+}
+.account-header-avatar {
+  width: 52px !important;
+  height: 52px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #0071e3, #42a5f5) !important;
+  color: #ffffff !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  text-transform: uppercase !important;
+  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.25) !important;
+}
+.account-header-meta {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+}
+.account-header-title-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  flex-wrap: wrap !important;
+}
+.account-header-name {
+  margin: 0 !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em !important;
+  color: #1d1d1f !important;
+  line-height: 1.2 !important;
+}
+.account-header-sub {
+  font-size: 13px !important;
+  color: #6e6e73 !important;
+  line-height: 1.4 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+.account-header-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex-shrink: 0 !important;
+}
+.account-header-logout-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 16px !important;
+  border-radius: 20px !important;
+  background: #f5f5f7 !important;
+  color: #1d1d1f !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border: 1px solid #d2d2d7 !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.account-header-logout-btn:hover {
+  background: #fff0f0 !important;
+  color: #e03131 !important;
+  border-color: #ffc9c9 !important;
+}
+.account-header-logout-btn svg {
+  stroke: currentColor !important;
+}
+
+@media (max-width: 600px) {
+  .account-header-banner {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    padding: 16px 18px !important;
+    gap: 14px !important;
+  }
+  .account-header-actions {
+    width: 100% !important;
+    justify-content: flex-end !important;
+  }
+}
