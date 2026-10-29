@@ -83,7 +83,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
          RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
         [parsed.data.fullName, parsed.data.email, parsed.data.phone, passwordHash]
       );
-      startCustomerSession(req, res, next, result.rows[0]);
+      startCustomerSession(req, res, next, result.rows[0], accountSecurity);
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Email này đã có tài khoản. Hãy đăng nhập hoặc khôi phục mật khẩu." });
       next(error);

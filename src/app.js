@@ -95,7 +95,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     cookie: {
       httpOnly: true,
       secure: config.NODE_ENV === "production" ? true : "auto",
-      sameSite: "strict",
+      sameSite: "lax",
       maxAge: 8 * 60 * 60 * 1000,
       path: "/"
     }
