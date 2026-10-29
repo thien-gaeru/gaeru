@@ -20,19 +20,19 @@ function switchRmaTab(tab) {
 }
 
 async function handleRmaLookup(e) {
-  e.preventDefault();
+  if (e && e.preventDefault) e.preventDefault();
   const input = document.getElementById('rma-search-input').value.trim();
   const resultsDiv = document.getElementById('rma-lookup-results');
   if (!input) return;
 
-  resultsDiv.innerHTML = '<p style="color:#8b949e;">Đang tra cứu dữ liệu từ hệ thống...</p>';
+  resultsDiv.innerHTML = '<p style="color:#6e6e73;text-align:center;padding:16px;">Đang tra cứu dữ liệu từ hệ thống GAERU...</p>';
 
   try {
     const res = await fetch('/api/rma/lookup/' + encodeURIComponent(input));
     const data = await res.json();
 
     if (!res.ok || !data.tickets || !data.tickets.length) {
-      resultsDiv.innerHTML = '<div style="padding:16px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);border-radius:8px;color:#f85149;">Không tìm thấy thông tin phiếu bảo hành khớp với: <strong>' + escapeHtml(input) + '</strong>. Vui lòng kiểm tra lại SĐT hoặc Mã phiếu.</div>';
+      resultsDiv.innerHTML = '<div style="padding:16px 20px;background:#fff5f5;border:1px solid #fed7d7;border-radius:12px;color:#c53030;font-size:14px;line-height:1.5;">Không tìm thấy thông tin phiếu bảo hành khớp với: <strong>' + escapeHtml(input) + '</strong>.<br>Vui lòng kiểm tra lại Số điện thoại mua hàng hoặc Mã phiếu RMA (ví dụ: RMA-2610-xxxx).</div>';
       return;
     }
 
@@ -43,27 +43,27 @@ async function handleRmaLookup(e) {
           <div class="rma-ticket-header">
             <div>
               <span class="rma-ticket-code">${escapeHtml(ticket.ticket_code)}</span>
-              <div style="font-size:14px;color:#8b949e;margin-top:4px;">Sản phẩm: <strong style="color:#e6edf3;">${escapeHtml(ticket.product_name)}</strong></div>
+              <div style="font-size:14px;color:#6e6e73;margin-top:4px;">Sản phẩm: <strong style="color:#1d1d1f;">${escapeHtml(ticket.product_name)}</strong></div>
             </div>
             <span class="rma-status-pill">${escapeHtml(ticket.statusLabel || ticket.status)}</span>
           </div>
 
-          <div style="font-size:13px;color:#8b949e;margin-bottom:12px;">
-            <span>Khách hàng: <strong>${escapeHtml(ticket.customer_name)}</strong></span> |
+          <div style="font-size:13.5px;color:#6e6e73;margin-bottom:14px;line-height:1.6;">
+            <span>Khách hàng: <strong style="color:#1d1d1f;">${escapeHtml(ticket.customer_name)}</strong></span> ·
             <span>Ngày tạo: ${new Date(ticket.created_at).toLocaleDateString('vi-VN')}</span>
-            ${ticket.tracking_code_outbound ? ` | <span>Mã vận đơn gửi lại: <strong style="color:#58a6ff;">${escapeHtml(ticket.tracking_code_outbound)}</strong></span>` : ''}
+            ${ticket.tracking_code_outbound ? ` · <span>Mã vận đơn xuất kho: <strong style="color:#0071e3;">${escapeHtml(ticket.tracking_code_outbound)}</strong></span>` : ''}
           </div>
 
-          <div style="font-size:13px;background:#161b22;padding:10px 14px;border-radius:6px;margin-bottom:12px;">
-            <strong>Mô tả lỗi:</strong> ${escapeHtml(ticket.issue_description)}
-            ${ticket.technician_notes ? `<div style="margin-top:6px;color:#58a6ff;"><strong>Ghi chú kỹ thuật:</strong> ${escapeHtml(ticket.technician_notes)}</div>` : ''}
+          <div style="font-size:13.5px;background:#ffffff;border:1px solid #e5e5ea;padding:12px 16px;border-radius:10px;margin-bottom:14px;color:#1d1d1f;line-height:1.6;">
+            <strong>Triệu chứng lỗi:</strong> ${escapeHtml(ticket.issue_description)}
+            ${ticket.technician_notes ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #e5e5ea;color:#0071e3;"><strong>Đánh giá kỹ thuật viên GAERU:</strong> ${escapeHtml(ticket.technician_notes)}</div>` : ''}
           </div>
 
-          <h4 style="margin:12px 0 8px 0;font-size:14px;">Lịch sử xử lý:</h4>
+          <h4 style="margin:14px 0 8px 0;font-size:14px;color:#1d1d1f;font-weight:700;">Lịch sử xử lý tiến độ:</h4>
           <ul class="rma-timeline">
             ${(ticket.events || []).map(ev => `
               <li class="rma-timeline-item">
-                <div class="rma-timeline-date">${new Date(ev.created_at).toLocaleString('vi-VN')} - <em>${escapeHtml(ev.created_by)}</em></div>
+                <div class="rma-timeline-date">${new Date(ev.created_at).toLocaleString('vi-VN')} — <em>${escapeHtml(ev.created_by)}</em></div>
                 <div class="rma-timeline-desc">${escapeHtml(ev.description)}</div>
               </li>
             `).join('')}
@@ -74,15 +74,15 @@ async function handleRmaLookup(e) {
 
     resultsDiv.innerHTML = html;
   } catch (err) {
-    resultsDiv.innerHTML = '<p style="color:#f85149;">Lỗi kết nối tra cứu. Vui lòng thử lại sau.</p>';
+    resultsDiv.innerHTML = '<p style="color:#d70015;text-align:center;padding:16px;">Lỗi kết nối tra cứu. Vui lòng kiểm tra đường truyền và thử lại.</p>';
   }
 }
 
 async function handleRmaSubmit(e) {
-  e.preventDefault();
+  if (e && e.preventDefault) e.preventDefault();
   const btn = document.getElementById('rma-submit-btn-action');
   btn.disabled = true;
-  btn.textContent = 'Đang xử lý...';
+  btn.textContent = 'Đang tiếp nhận yêu cầu...';
 
   const payload = {
     customerName: document.getElementById('rma-customer-name').value.trim(),
@@ -103,13 +103,13 @@ async function handleRmaSubmit(e) {
     const data = await res.json();
 
     if (!res.ok) {
-      alert('Lỗi: ' + (data.error || 'Chưa gửi được yêu cầu.'));
+      alert('Lỗi tiếp nhận: ' + (data.error || 'Chưa gửi được yêu cầu. Vui lòng kiểm tra lại thông tin.'));
       btn.disabled = false;
       btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
       return;
     }
 
-    alert('Gửi yêu cầu bảo hành thành công!\nMã phiếu RMA của bạn là: ' + data.ticket.ticket_code + '\nNhân viên kỹ thuật GAERU sẽ liên hệ với bạn trong vòng 24 giờ.');
+    alert('Gửi yêu cầu bảo hành 1-1 thành công!\nMã phiếu RMA của bạn là: ' + data.ticket.ticket_code + '\nĐội ngũ kỹ thuật viên GAERU sẽ liên hệ thẩm định trong vòng 24 giờ.');
     document.getElementById('rma-submit-form').reset();
     btn.disabled = false;
     btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
@@ -117,9 +117,9 @@ async function handleRmaSubmit(e) {
     // Switch to lookup tab and search immediately
     switchRmaTab('lookup');
     document.getElementById('rma-search-input').value = data.ticket.ticket_code;
-    handleRmaLookup(new Event('submit'));
+    handleRmaLookup();
   } catch (err) {
-    alert('Lỗi mạng khi gửi yêu cầu. Vui lòng thử lại.');
+    alert('Lỗi mạng khi gửi yêu cầu. Vui lòng thử lại sau.');
     btn.disabled = false;
     btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
   }

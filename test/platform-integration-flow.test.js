@@ -393,4 +393,41 @@ test('Platform Upgrades End-to-End Integration Flow', async (t) => {
     assert.doesNotMatch(quizHtml, /GAERU Store/, 'Quiz page must not display GAERU Store');
     assert.doesNotMatch(quizHtml, /Tra cứu đơn hàng SPX/, 'Quiz footer must not lock to SPX only');
   });
+
+  // Test 8: Storefront Header & Footer Shell Synchronization on All New Functional Pages
+  await t.test('8. Storefront Header & Footer Shell Synchronization on All New Functional Pages', () => {
+    const pages = ['rma.html', 'quiz.html', 'tracking.html'];
+
+    for (const pageName of pages) {
+      const pageHtml = fs.readFileSync(path.join(__dirname, '..', pageName), 'utf8');
+      assert.match(pageHtml, /<div id="site-header"><\/div>/, `${pageName} must contain site-header mount point`);
+      assert.match(pageHtml, /<div id="site-footer"><\/div>/, `${pageName} must contain site-footer mount point`);
+      assert.match(pageHtml, /store-shell\.js/, `${pageName} must load store-shell.js script`);
+      assert.match(pageHtml, /styles\.css/, `${pageName} must load styles.css stylesheet`);
+      assert.match(pageHtml, /brand\.css/, `${pageName} must load brand.css stylesheet`);
+
+      // Ensure no standalone custom headers or footers left
+      assert.doesNotMatch(pageHtml, /<header class="rma-header"/, `${pageName} must not have custom rma-header`);
+      assert.doesNotMatch(pageHtml, /<footer class="rma-footer"/, `${pageName} must not have custom rma-footer`);
+      assert.doesNotMatch(pageHtml, /<header class="quiz-header"/, `${pageName} must not have custom quiz-header`);
+      assert.doesNotMatch(pageHtml, /<footer class="quiz-footer"/, `${pageName} must not have custom quiz-footer`);
+    }
+
+    // Verify critical action buttons on functional pages
+    const rmaContent = fs.readFileSync(path.join(__dirname, '..', 'rma.html'), 'utf8');
+    assert.match(rmaContent, /id="tab-lookup-btn"/, 'RMA must have lookup tab button');
+    assert.match(rmaContent, /id="tab-submit-btn"/, 'RMA must have submit tab button');
+    assert.match(rmaContent, /id="rma-lookup-submit"/, 'RMA must have lookup submit button');
+    assert.match(rmaContent, /id="rma-submit-btn-action"/, 'RMA must have submit action button');
+
+    const quizContent = fs.readFileSync(path.join(__dirname, '..', 'quiz.html'), 'utf8');
+    assert.match(quizContent, /id="quiz-progress"/, 'Quiz must have progress bar indicator');
+    assert.match(quizContent, /id="quiz-question-container"/, 'Quiz must have question container');
+    assert.match(quizContent, /id="quiz-result-container"/, 'Quiz must have result container');
+
+    const trackingContent = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
+    assert.match(trackingContent, /id="tracking-form"/, 'Tracking must have tracking form');
+    assert.match(trackingContent, /id="tracking-query"/, 'Tracking must have query input');
+    assert.match(trackingContent, /id="btn-track"/, 'Tracking must have search submit button');
+  });
 });

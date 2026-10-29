@@ -28,7 +28,7 @@
     trackBtn.disabled = true;
     trackBtn.textContent = 'Đang tra cứu…';
     resultContainer.style.display = 'block';
-    resultContainer.innerHTML = '<div class="tracking-loading"><p>Đang tìm kiếm thông tin đơn hàng từ hệ thống GAERU & Shopee Express…</p></div>';
+    resultContainer.innerHTML = '<div class="tracking-loading"><p>Đang tìm kiếm thông tin đơn hàng từ hệ thống GAERU & các đối tác vận chuyển…</p></div>';
 
     try {
       const res = await fetch('/api/tracking/lookup?query=' + encodeURIComponent(trimmed));
