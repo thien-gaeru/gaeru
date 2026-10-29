@@ -54,6 +54,22 @@ function switchAccountTab(tabName, updateHash = true) {
 
 function setAccountPresentation(customer) {
   document.querySelector('.account-layout')?.classList.toggle('is-authenticated', Boolean(customer));
+  const cardEl = document.querySelector('[data-account-card]');
+  if (cardEl?.style) {
+    if (customer) {
+      cardEl.style.setProperty('background', 'transparent', 'important');
+      cardEl.style.setProperty('border', 'none', 'important');
+      cardEl.style.setProperty('border-radius', '0', 'important');
+      cardEl.style.setProperty('box-shadow', 'none', 'important');
+      cardEl.style.setProperty('padding', '0', 'important');
+    } else {
+      cardEl.style.removeProperty('background');
+      cardEl.style.removeProperty('border');
+      cardEl.style.removeProperty('border-radius');
+      cardEl.style.removeProperty('box-shadow');
+      cardEl.style.removeProperty('padding');
+    }
+  }
   const navigation = document.querySelector('[data-account-navigation]');
   if (navigation) navigation.hidden = !customer;
   const heading = document.querySelector('[data-account-heading]');

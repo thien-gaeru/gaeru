@@ -7,8 +7,8 @@
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="description" content="Đăng nhập hoặc tạo tài khoản khách hàng GAERU.">
     <title>Tài khoản khách hàng — GAERU</title>
-    <link rel="stylesheet" href="styles.css?v=20261029-oauth">
-    <link rel="stylesheet" href="account-upgrade.css?v=20261029-oauth">
+    <link rel="stylesheet" href="styles.css?v=20261029-clean-outer-border">
+    <link rel="stylesheet" href="account-upgrade.css?v=20261029-clean-outer-border">
     <script src="customer-session.js" defer></script><script src="/footer-products.js?v=20261027-all-products" defer></script><script src="store-shell.js?v=20261026-footer-live" defer></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="account.js?v=20261025-address-mail" defer></script>
@@ -29,6 +29,32 @@
 .account-login-links{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;width:100%!important;max-width:390px!important;margin:20px auto 0 auto!important;}
 .account-card .account-login-links p,.account-login-links p{margin:14px auto 0 auto!important;text-align:center!important;width:100%!important;max-width:100%!important;display:block!important;}
 .account-reset-link{display:inline-block!important;text-align:center!important;margin:0 auto!important;}
+
+.account-layout.is-authenticated .account-card,
+.account-page .account-layout.is-authenticated .account-card,
+#customer-account.is-authenticated .account-card,
+.is-authenticated .account-card,
+.is-authenticated [data-account-card],
+.account-layout.is-authenticated [data-account-card] {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  transform: none !important;
+}
+
+.account-layout.is-authenticated .account-card:hover,
+.is-authenticated .account-card:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 </style>
 </head>
   <body>
