@@ -140,120 +140,30 @@
   }
 
   // =========================================================================
-  // RENDER LƯỚI TRUNG TÂM TIỆN ÍCH DỊCH VỤ KHÁCH HÀNG (SERVICES HUB GRID)
+  // THANH TIỆN ÍCH TÀI KHOẢN TINH GỌN (COMPACT ACCOUNT QUICK ACTIONS)
+  // Chỉ hiển thị các chức năng trực tiếp gắn liền với quyền lợi & đơn hàng của tài khoản
   // =========================================================================
-  function renderServicesGrid() {
+  function renderAccountQuickActions(customer) {
     return `
-      <div class="gaeru-services-hub-card">
-        <div class="gaeru-services-header">
-          <p class="eyebrow">DỊCH VỤ & TIỆN ÍCH NÂNG CẤP</p>
-          <h3>Đặc quyền & Trợ lý thông minh GAERU</h3>
-        </div>
-
-        <div class="gaeru-services-grid">
-          <!-- 1. SPX Tracking -->
-          <a href="/tra-cuu-don-hang" class="gaeru-service-tile" data-service-tile="tracking">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">📦</div>
-              <span class="gaeru-service-badge is-highlight">Realtime</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>Vận Chuyển Đa Kênh</h4>
-              <p>Tra cứu hành trình vận đơn đa kênh (GHN, GHTK, Viettel Post, SPX, J&T) theo thời gian thực.</p>
-              <span class="gaeru-service-action-link">Tra cứu đơn hàng ↗</span>
-            </div>
+      <div class="gaeru-account-quick-actions" data-account-quick-actions>
+        <div class="gaeru-quick-actions-bar">
+          <a href="/tra-cuu-don-hang" class="gaeru-action-pill" data-service-tile="tracking" title="Tra cứu lộ trình vận chuyển đơn hàng">
+            <span class="gaeru-action-pill-icon">📦</span>
+            <span class="gaeru-action-pill-text">Tra cứu vận đơn</span>
           </a>
-
-          <!-- 2. Bảo hành 1 đổi 1 & RMA -->
-          <a href="rma.html" class="gaeru-service-tile" data-service-tile="rma">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">🛡️</div>
-              <span class="gaeru-service-badge">1 Đổi 1</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>Bảo hành Đổi mới & RMA</h4>
-              <p>Chính sách 1 đổi 1 trong 30 ngày cho lỗi kỹ thuật. Tạo & theo dõi phiếu đổi trả trực tuyến.</p>
-              <span class="gaeru-service-action-link">Gửi yêu cầu đổi mới ↗</span>
-            </div>
+          <a href="rma.html" class="gaeru-action-pill" data-service-tile="rma" title="Gửi yêu cầu đổi mới 1-1 cho thiết bị lỗi">
+            <span class="gaeru-action-pill-icon">🛡️</span>
+            <span class="gaeru-action-pill-text">Đổi mới 1-1 & Bảo hành</span>
           </a>
-
-          <!-- 3. Mua trước trả sau 0% BNPL -->
-          <div class="gaeru-service-tile" role="button" tabindex="0" data-service-tile="bnpl">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">💳</div>
-              <span class="gaeru-service-badge is-highlight">0% Lãi Suất</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>Trả góp BNPL 0%</h4>
-              <p>Hợp tác Fundiin & Kredivo: Chia nhỏ 3 - 6 - 12 kỳ, xét duyệt CCCD 30 giây, trả trước từ 0đ.</p>
-              <span class="gaeru-service-action-link">Mở bảng tính trả góp ↗</span>
-            </div>
-          </div>
-
-          <!-- 4. AI Creator Setup Finder -->
-          <a href="quiz.html" class="gaeru-service-tile" data-service-tile="quiz">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">🎯</div>
-              <span class="gaeru-service-badge is-purple">AI 30 Giây</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>AI Creator Setup Finder</h4>
-              <p>Trắc nghiệm thông minh tư vấn cấu hình combo Micro, Tai nghe, Soundcard tối ưu không gian & ngân sách.</p>
-              <span class="gaeru-service-action-link">Làm bài trắc nghiệm ↗</span>
-            </div>
-          </a>
-
-          <!-- 5. Tiếp thị liên kết CTV KOC -->
-          <div class="gaeru-service-tile" role="button" tabindex="0" data-service-tile="affiliate">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">🤝</div>
-              <span class="gaeru-service-badge is-highlight">8% Hoa Hồng</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>Tiếp thị liên kết KOC & CTV</h4>
-              <p>Nhận link giới thiệu độc quyền, chia sẻ bạn bè và nhận hoa hồng 8% trên mỗi đơn hàng thành công.</p>
-              <span class="gaeru-service-action-link">Lấy link tiếp thị của bạn ↗</span>
-            </div>
-          </div>
-
-          <!-- 6. So sánh sản phẩm -->
-          <a href="/shop.html" class="gaeru-service-tile" data-service-tile="compare">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">⚖️</div>
-              <span class="gaeru-service-badge">Đa Chiều</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>So sánh thông số thiết bị</h4>
-              <p>Bảng đối chiếu thông số độ nhạy micro, dải tần tai nghe kiểm âm và DSP soundcard trực quan.</p>
-              <span class="gaeru-service-action-link">Khám phá cửa hàng ↗</span>
-            </div>
-          </a>
-
-          <!-- 7. GAERU Care+ CSKH Trực Tuyến -->
-          <a href="care.html" class="gaeru-service-tile" data-service-tile="care">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">💬</div>
-              <span class="gaeru-service-badge">24/7 Live</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>GAERU Care+ 24/7</h4>
-              <p>Chat kỹ thuật viên âm thanh chuyên sâu và hỗ trợ kích hoạt bảo hành điện tử chính hãng.</p>
-              <span class="gaeru-service-action-link">Trò chuyện ngay ↗</span>
-            </div>
-          </a>
-
-          <!-- 8. Web Push Notification Toggle -->
-          <div class="gaeru-service-tile" role="button" tabindex="0" data-service-tile="push">
-            <div class="gaeru-service-top">
-              <div class="gaeru-service-icon">🔔</div>
-              <span class="gaeru-service-badge" data-push-badge>Trình duyệt</span>
-            </div>
-            <div class="gaeru-service-info">
-              <h4>Thông báo đẩy trình duyệt</h4>
-              <p>Cập nhật trạng thái đơn hàng tức thì, thông báo xuất kho và ưu đãi độc quyền trên máy tính & điện thoại.</p>
-              <span class="gaeru-service-action-link" data-push-action-text>Cài đặt nhận thông báo ↗</span>
-            </div>
-          </div>
+          <button type="button" class="gaeru-action-pill" data-service-tile="affiliate" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
+            <span class="gaeru-action-pill-icon">🤝</span>
+            <span class="gaeru-action-pill-text">Mã giới thiệu CTV (8%)</span>
+          </button>
+          <button type="button" class="gaeru-action-pill" data-service-tile="push" title="Cài đặt nhận thông báo đơn hàng qua trình duyệt">
+            <span class="gaeru-action-pill-icon">🔔</span>
+            <span class="gaeru-action-pill-text" data-push-action-text>Thông báo đơn hàng</span>
+            <span class="gaeru-action-pill-badge" data-push-badge>Trình duyệt</span>
+          </button>
         </div>
       </div>
     `;
@@ -675,10 +585,10 @@
       fetchCustomerRma(customer.phone)
     ]);
 
-    // Render toàn bộ giao diện
+    // Render các chức năng thiết thực gắn liền với tài khoản
     hub.innerHTML = `
       ${renderVipCard(customer, loyalty)}
-      ${renderServicesGrid()}
+      ${renderAccountQuickActions(customer)}
       ${renderRmaSection(rma)}
     `;
 

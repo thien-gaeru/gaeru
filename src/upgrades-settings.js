@@ -114,7 +114,8 @@ function createUpgradesSettingsRouter(pool) {
 
   router.post('/upgrades/settings', async (req, res, next) => {
     try {
-      const { module: modName, settings } = req.body || {};
+      const body = req.body || {};
+      const { module: modName, settings } = body;
       let updated;
       if (modName && settings) {
         const current = await getUpgradesSettings(pool);
@@ -122,6 +123,8 @@ function createUpgradesSettingsRouter(pool) {
         updated = await saveUpgradesSettings(pool, current);
       } else if (settings) {
         updated = await saveUpgradesSettings(pool, settings);
+      } else if (typeof body === 'object' && Object.keys(body).length > 0) {
+        updated = await saveUpgradesSettings(pool, body);
       } else {
         return res.status(400).json({ error: 'Dữ liệu cấu hình không hợp lệ.' });
       }
