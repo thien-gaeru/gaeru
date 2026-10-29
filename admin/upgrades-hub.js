@@ -21,7 +21,7 @@
     { id: 'flash-sale', phase: 2, name: 'Flash Sale & Đếm Ngược Giờ Vàng (FOMO)', desc: 'Banner đếm ngược giảm giá có hạn giờ kích thích quyết định mua nhanh.', endpoint: '/api/flash-sales/active', status: 'live' },
     { id: 'affiliate', phase: 2, name: 'Tiếp Thị Liên Kết KOC (Affiliate CTV 30 Ngày)', desc: 'Theo dõi cookie 30 ngày, tự động tính hoa hồng 8% cho nhà sáng tạo nội dung.', endpoint: '/api/affiliate/stats', status: 'live' },
     { id: 'zalo-zns', phase: 2, name: 'Thông Báo Trạng Thái Đơn Qua Zalo (ZNS)', desc: 'Gửi tin nhắn Zalo tích vàng tự động khi đơn hàng đã bàn giao vận chuyển.', endpoint: '/api/gaeru_ceo/zalo-zns', status: 'live' },
-    { id: 'cod-recon', phase: 2, name: 'Đối Soát Tiền Hàng COD Shopee Express', desc: 'Tự động đối chiếu chéo số tiền bưu tá thu hộ và ngân hàng chuyển khoản.', endpoint: '/api/gaeru_ceo/cod-reconciliation', status: 'live' },
+    { id: 'cod-recon', phase: 2, name: 'Đối Soát Tiền Hàng COD Đa Vận Chuyển', desc: 'Tự động đối chiếu chéo số tiền bưu tá thu hộ (GHN, GHTK, Viettel Post, SPX, J&T) và ngân hàng chuyển khoản.', endpoint: '/api/gaeru_ceo/cod-reconciliation', status: 'live' },
     { id: 'search', phase: 2, name: 'Tìm Kiếm Tức Thì Autocomplete Header', desc: 'Gõ từ khóa hiển thị ngay ảnh đại diện và giá bán sau 150ms.', endpoint: '/api/search/autocomplete', status: 'live' },
     { id: 'offline-pwa', phase: 2, name: 'Duyệt Hàng Ngoại Tuyến PWA IndexedDB', desc: 'Xem danh mục và giỏ hàng mượt mà ngay cả khi mất sóng mạng 4G.', endpoint: '/offline-catalog.js', status: 'live' },
     { id: 'web-push', phase: 2, name: 'Thông Báo Đẩy Trình Duyệt (Web Push API)', desc: 'Gửi tin thông báo flash sale và đơn hàng trực tiếp lên màn hình điện thoại.', endpoint: '/api/push/broadcast', status: 'live' },
@@ -179,7 +179,7 @@
                 <div class="feature-config-field" style="grid-column:1 / -1;">
                   <label>Địa chỉ kho tiếp nhận thiết bị lỗi:</label>
                   <input type="text" name="warehouseAddress" class="feature-config-input" value="${escapeHtml(cfg.warehouseAddress)}" required>
-                  <p class="feature-config-note">Địa chỉ bưu cục chuyển phát SPX gửi trả máy về kho thẩm định.</p>
+                  <p class="feature-config-note">Địa chỉ bưu cục chuyển phát (GHN / GHTK / Viettel Post / SPX) gửi trả máy về kho thẩm định.</p>
                 </div>
               </div>
               <div class="feature-config-actions">
@@ -702,7 +702,7 @@
               </select>
             </div>
             <div class="feature-config-field">
-              <label>Thông báo khi xuất kho bưu tá SPX:</label>
+              <label>Thông báo khi xuất kho đơn vị vận chuyển:</label>
               <select id="cfg-push-ship" class="feature-config-select">
                 <option value="true" ${settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Bật</option>
                 <option value="false" ${!settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Tắt</option>
@@ -808,7 +808,7 @@
 
     let outboundTracking = null;
     if (newStatus === 'shipping_back' || newStatus === 'completed' || newStatus === 'shipped') {
-      outboundTracking = prompt('Nhập mã vận đơn bưu cục gửi lại khách (SPX):', '');
+      outboundTracking = prompt('Nhập mã vận đơn bưu cục gửi lại khách (GHN / GHTK / Viettel Post / SPX / J&T):', '');
     }
 
     const technicianNotes = prompt('Ghi chú của kỹ thuật viên:', 'Đã kiểm định thiết bị và cập nhật trạng thái.');

@@ -158,8 +158,8 @@
               <span class="gaeru-service-badge is-highlight">Realtime</span>
             </div>
             <div class="gaeru-service-info">
-              <h4>Vận chuyển Shopee Express</h4>
-              <p>Tra cứu hành trình vận đơn SPX từng chặng, thời gian giao dự kiến theo thời gian thực.</p>
+              <h4>Vận Chuyển Đa Kênh</h4>
+              <p>Tra cứu hành trình vận đơn đa kênh (GHN, GHTK, Viettel Post, SPX, J&T) theo thời gian thực.</p>
               <span class="gaeru-service-action-link">Tra cứu đơn hàng ↗</span>
             </div>
           </a>
@@ -326,7 +326,7 @@
 
                 <div style="font-size:13px;color:#515154;line-height:1.6;background:#ffffff;padding:12px;border-radius:10px;border:1px solid #e5e5e8;">
                   <div><strong>Mô tả lỗi:</strong> ${escapeHtml(t.faultDescription || 'Lỗi kỹ thuật phần cứng')}</div>
-                  ${t.replacementTrackingCode ? `<div style="margin-top:6px;color:#0071e3;"><strong>Mã vận đơn máy mới (SPX):</strong> <a href="/tra-cuu-don-hang?code=${encodeURIComponent(t.replacementTrackingCode)}" style="color:#0071e3;font-weight:600;">${escapeHtml(t.replacementTrackingCode)} ↗</a></div>` : ''}
+                  ${t.replacementTrackingCode ? `<div style="margin-top:6px;color:#0071e3;"><strong>Mã vận đơn máy mới:</strong> <a href="/tra-cuu-don-hang?code=${encodeURIComponent(t.replacementTrackingCode)}" style="color:#0071e3;font-weight:600;">${escapeHtml(t.replacementTrackingCode)} ↗</a></div>` : ''}
                   ${t.adminNote ? `<div style="margin-top:6px;color:#1d1d1f;"><strong>Ghi chú từ Kỹ thuật viên GAERU:</strong> ${escapeHtml(t.adminNote)}</div>` : ''}
                 </div>
               </div>
@@ -622,7 +622,7 @@
       actionsRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;';
       actionsRow.innerHTML = `
         <a href="/tra-cuu-don-hang?code=${encodeURIComponent(orderNumber)}" class="secondary-button" style="font-size:12px;padding:6px 12px;text-decoration:none;border-radius:14px;display:inline-flex;align-items:center;gap:4px;">
-          📦 Theo dõi SPX
+          📦 Theo dõi vận đơn
         </a>
         <a href="rma.html?order=${encodeURIComponent(orderNumber)}" class="secondary-button" style="font-size:12px;padding:6px 12px;text-decoration:none;border-radius:14px;display:inline-flex;align-items:center;gap:4px;">
           🛡️ Đổi mới 1-1
