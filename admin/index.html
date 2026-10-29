@@ -2,9 +2,16 @@
 <html lang="vi">
   <head><script src="/bot-protection.js?v=20261024" defer></script><script src="/action-feedback.js?v=20261028-validation" defer></script><link rel="stylesheet" href="/action-feedback.css?v=20261028-validation"><link rel="stylesheet" href="/bot-protection.css?v=20261024">
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f5f5f7">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0055b8">
     <title>Quản trị GAERU</title>
+    <link rel="manifest" href="/gaeru_ceo/manifest.webmanifest">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="GAERU CEO">
+    <link rel="apple-touch-icon" href="/assets/brand/gaeru-app-192.png">
+    <script src="/gaeru_ceo/assets/pwa-install.js?v=20261029-pwa" defer></script>
     <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css?v=20261025-ai-diagnostics">
     <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261026-direct-dialogs">
     <script src="/gaeru_ceo/assets/admin-ui.js?v=20261028-mobile-menu-opt" defer></script>
@@ -97,6 +104,7 @@
             </div>
           </nav>
           <div class="sidebar-bottom">
+            <button class="secondary-button" type="button" data-pwa-install-action style="width:100%;justify-content:center;font-size:12px;font-weight:600;min-height:36px;border-radius:999px;margin-bottom:6px"><span aria-hidden="true">📲</span> <span>Cài đặt App</span></button>
             <a href="/">Mở cửa hàng ↗</a>
             <button class="plain-button" id="logout-button" type="button">Đăng xuất</button>
           </div>
@@ -105,7 +113,10 @@
         <section class="admin-content">
           <header class="topbar">
             <div><p class="eyebrow">GAERU Store</p><h1 id="view-title">Trang tổng quan</h1><p class="admin-section-description" id="view-description">Các chỉ số kinh doanh, công việc cần xử lý và điều hành quản trị hệ thống.</p></div>
-            <span class="admin-identity" id="admin-identity"></span>
+            <div class="topbar-actions" style="display:flex;align-items:center;gap:10px">
+              <button class="secondary-button" type="button" data-pwa-install-action style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:999px;white-space:nowrap" title="Cài đặt App GAERU CEO cho Android và iOS"><span aria-hidden="true">📲</span> <span>App di động</span></button>
+              <span class="admin-identity" id="admin-identity"></span>
+            </div>
           </header>
 
           <div class="admin-view-state" id="admin-view-state" role="status" aria-live="polite"></div>

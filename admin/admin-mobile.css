@@ -13,7 +13,7 @@
  .admin-shell .sidebar-bottom>*{min-height:40px;display:inline-flex;align-items:center}
  .admin-shell .admin-content{width:100%;padding:22px 15px max(32px,env(safe-area-inset-bottom))}
  .admin-shell .topbar{gap:12px;padding-bottom:18px;align-items:flex-start}
- .admin-shell .topbar>div{min-width:0;flex:1}
+ .admin-shell .topbar>div:first-child{min-width:0;flex:1}\n .admin-shell .topbar-actions{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
  .admin-shell .topbar h1{font-size:27px;line-height:1.2;overflow-wrap:anywhere}
  .admin-shell .topbar .eyebrow{margin-bottom:8px}
  .admin-shell .admin-identity{font-size:10px;max-width:95px;padding:8px 10px;line-height:1.4;flex:0 0 auto}
