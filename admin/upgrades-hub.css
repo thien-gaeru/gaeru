@@ -1,0 +1,296 @@
+/* GAERU Platform Upgrades Hub - Unified Admin Center */
+
+.upgrades-hub-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.upgrades-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.upgrades-kpi-card {
+  background: #ffffff;
+  border: 1px solid #e5e5e8;
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.upgrades-kpi-card span {
+  font-size: 12px;
+  color: #6e6e73;
+  font-weight: 500;
+}
+
+.upgrades-kpi-card strong {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1d1d1f;
+}
+
+.upgrades-kpi-card small {
+  font-size: 11px;
+  color: #0071e3;
+  font-weight: 600;
+}
+
+.upgrades-nav-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px;
+  background: #f5f5f7;
+  border-radius: 12px;
+  border: 1px solid #e5e5e8;
+}
+
+.upgrades-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6e6e73;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.upgrades-tab-btn:hover {
+  color: #1d1d1f;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.upgrades-tab-btn.is-active {
+  background: #ffffff;
+  color: #0071e3;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.upgrades-panel {
+  background: #ffffff;
+  border: 1px solid #e5e5e8;
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.upgrades-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #ededf1;
+  padding-bottom: 16px;
+}
+
+.upgrades-panel-header h2 {
+  font-size: 18px;
+  margin: 0;
+  color: #1d1d1f;
+}
+
+.upgrades-panel-header p {
+  font-size: 13px;
+  color: #6e6e73;
+  margin: 4px 0 0 0;
+}
+
+/* 30 Features Matrix Grid */
+.upgrades-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.upgrade-card {
+  border: 1px solid #e5e5e8;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #ffffff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.upgrade-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: #0071e3;
+}
+
+.upgrade-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.upgrade-phase-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f0f0f4;
+  color: #4b4b50;
+}
+
+.upgrade-phase-1 { background: #e8f4fd; color: #0066cc; }
+.upgrade-phase-2 { background: #fef3e2; color: #b86000; }
+.upgrade-phase-3 { background: #eaf8ee; color: #107c41; }
+
+.upgrade-status-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #107c41;
+}
+
+.upgrade-dot-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #107c41;
+}
+
+.upgrade-card h3 {
+  font-size: 15px;
+  margin: 0;
+  color: #1d1d1f;
+  line-height: 1.4;
+}
+
+.upgrade-card p {
+  font-size: 12px;
+  color: #6e6e73;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.upgrade-card-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #86868b;
+}
+
+/* Tables in Upgrades Hub */
+.upgrades-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.upgrades-table th {
+  background: #fafafd;
+  padding: 12px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6e6e73;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #ededf1;
+}
+
+.upgrades-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f0f0f4;
+  vertical-align: middle;
+}
+
+.upgrades-table tr:hover td {
+  background: #fafafd;
+}
+
+/* Badges & Status Pills */
+.up-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.up-badge-critical { background: #fee4e2; color: #d92d20; }
+.up-badge-warning { background: #fef0c7; color: #b54708; }
+.up-badge-success { background: #d1fadf; color: #027a48; }
+.up-badge-info { background: #e0f2fe; color: #026aa2; }
+.up-badge-neutral { background: #f2f4f7; color: #344054; }
+
+/* RFM Cluster Cards */
+.rfm-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.rfm-card-item {
+  border: 1px solid #e5e5e8;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.rfm-card-item strong {
+  font-size: 20px;
+  color: #1d1d1f;
+}
+
+.rfm-card-item span {
+  font-size: 12px;
+  color: #6e6e73;
+}
+
+.rfm-card-item small {
+  font-size: 11px;
+  color: #107c41;
+  font-weight: 600;
+}
+
+/* Action button inside tables */
+.up-btn-sm {
+  background: #f0f0f4;
+  border: 1px solid #d2d2d7;
+  color: #1d1d1f;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.up-btn-sm:hover {
+  background: #0071e3;
+  color: #ffffff;
+  border-color: #0071e3;
+}
+
+@media (max-width: 768px) {
+  .upgrades-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .upgrades-matrix-grid { grid-template-columns: 1fr; }
+  .upgrades-nav-tabs { overflow-x: auto; flex-wrap: nowrap; }
+}

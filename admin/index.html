@@ -24,7 +24,7 @@
     <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
   <link rel="stylesheet" href="/brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
-  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261029-notify-status" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261028-mobile-menu-opt"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261028-config-modal"><script src="/gaeru_ceo/assets/configuration.js?v=20261028-config-modal" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261028-mobile-menu-opt"><script src="/shopping-chat-client.js?v=20261029-clean-chat" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261029-clean-chat"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/orders-workspace.css?v=20261026-return-entry"><script src="/gaeru_ceo/assets/after-sales.js?v=20261026-return-entry" defer></script><script src="/gaeru_ceo/assets/pages.js?v=20261026" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/file-library.css?v=20261026"><script src="/gaeru_ceo/assets/file-library.js?v=20261026" defer></script></head>
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261029-notify-status" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261028-mobile-menu-opt"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261028-config-modal"><script src="/gaeru_ceo/assets/configuration.js?v=20261028-config-modal" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261028-mobile-menu-opt"><script src="/shopping-chat-client.js?v=20261029-clean-chat" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261029-clean-chat"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/orders-workspace.css?v=20261026-return-entry"><script src="/gaeru_ceo/assets/after-sales.js?v=20261026-return-entry" defer></script><script src="/gaeru_ceo/assets/pages.js?v=20261026" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/file-library.css?v=20261026"><script src="/gaeru_ceo/assets/file-library.js?v=20261026" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/upgrades-hub.css"><script src="/gaeru_ceo/assets/upgrades-hub.js" defer></script></head>
   <body>
     <main class="admin-shell">
       <section class="login-card" id="login-panel" hidden>
@@ -44,7 +44,7 @@
           <a class="admin-wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="/assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375"></span> <span>ADMIN</span></a>
           <button class="sidebar-toggle secondary-button" type="button" aria-controls="admin-navigation" aria-expanded="false">Menu quản lý <span aria-hidden="true">☰</span></button>
           <nav id="admin-navigation" aria-label="Quản trị">
-            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Trang tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
+            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Trang tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div><div class="nav-group"><button class="nav-item" type="button" data-view="platform-upgrades" data-permission="dashboard.read">Trung tâm Nâng cấp</button></div>
             <button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden style="display:none !important;" aria-hidden="true" tabindex="-1">Quản trị tối cao</button>
             <div class="nav-group" data-nav-group="sales">
               <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="sales">
@@ -121,6 +121,193 @@
 
           <div class="admin-view-state" id="admin-view-state" role="status" aria-live="polite"></div>
           <div class="global-feedback" id="global-feedback" role="status" aria-live="polite"></div>
+
+          <section class="view-panel" id="platform-upgrades-view" hidden>
+            <div class="upgrades-hub-wrap">
+              <div class="upgrades-kpi-grid">
+                <article class="upgrades-kpi-card">
+                  <span>Trạng thái Nền tảng</span>
+                  <strong style="color:#107c41;">30 / 30</strong>
+                  <small>100% Nâng cấp Kích hoạt</small>
+                </article>
+                <article class="upgrades-kpi-card">
+                  <span>Bảo hành RMA Trực tuyến</span>
+                  <strong>Chính hãng</strong>
+                  <small>Đổi mới 1-1 trong 48h</small>
+                </article>
+                <article class="upgrades-kpi-card">
+                  <span>Trả góp 0% (BNPL)</span>
+                  <strong>Fundiin &amp; Kredivo</strong>
+                  <small>3 - 4 Kỳ linh hoạt</small>
+                </article>
+                <article class="upgrades-kpi-card">
+                  <span>Dự báo Tồn kho (ROP)</span>
+                  <strong>Tự động</strong>
+                  <small>Theo tốc độ bán 30 ngày</small>
+                </article>
+                <article class="upgrades-kpi-card">
+                  <span>Server-Side CAPI</span>
+                  <strong>Meta &amp; TikTok</strong>
+                  <small>Bảo vệ dữ liệu SHA-256</small>
+                </article>
+              </div>
+
+              <nav class="upgrades-nav-tabs" aria-label="Danh mục nâng cấp">
+                <button type="button" class="upgrades-tab-btn is-active" data-tab="matrix">🚀 Ma trận 30 Nâng cấp</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="rma">🛡️ Bảo hành &amp; Đổi trả RMA</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="bnpl">💳 Trả góp BNPL 0%</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="rop">📦 Dự báo Tồn kho &amp; ROP</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="rfm">👥 Phân khúc Khách hàng RFM</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="capi">🎯 Server-Side CAPI</button>
+              </nav>
+
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-matrix">
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Ma Trận 30 Tính Năng Nền Tảng GAERU Store (Phase 1, 2, 3)</h2>
+                    <p>Toàn bộ các module công nghệ nâng cao đang vận hành đồng bộ trên máy chủ.</p>
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('all')">Tất cả (30)</button>
+                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('phase1')">Phase 1 (10)</button>
+                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('phase2')">Phase 2 (10)</button>
+                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('phase3')">Phase 3 (10)</button>
+                  </div>
+                </div>
+                <div class="upgrades-matrix-grid" id="upgrades-matrix-container"></div>
+              </div>
+
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rma" hidden>
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Quản Lý Phiếu Bảo Hành &amp; Đổi Trả RMA Trực Tuyến</h2>
+                    <p>Tiếp nhận, kiểm định lỗi kỹ thuật, duyệt đổi mới 1-1 và bàn giao bưu cục chuyển hoàn.</p>
+                  </div>
+                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadRmaTickets()">🔄 Làm mới danh sách</button>
+                </div>
+                <div class="enterprise-table-wrap">
+                  <table class="upgrades-table">
+                    <thead>
+                      <tr>
+                        <th>Mã RMA</th>
+                        <th>Khách hàng</th>
+                        <th>Sản phẩm &amp; Lỗi</th>
+                        <th>Trạng thái</th>
+                        <th>Mã VĐ Gửi Lại</th>
+                        <th style="text-align:right;">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody id="upgrades-rma-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-bnpl" hidden>
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Giao Dịch Mua Trước Trả Sau 0% (BNPL — Fundiin / Kredivo)</h2>
+                    <p>Theo dõi các đơn hàng trả góp chia nhỏ kỳ thanh toán qua cổng BNPL.</p>
+                  </div>
+                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadBnplTransactions()">🔄 Làm mới</button>
+                </div>
+                <div class="enterprise-table-wrap">
+                  <table class="upgrades-table">
+                    <thead>
+                      <tr>
+                        <th>Mã Giao Dịch</th>
+                        <th>Mã Đơn Hàng</th>
+                        <th>Cổng BNPL</th>
+                        <th>Tổng Tiền</th>
+                        <th>Kỳ Hạn</th>
+                        <th>Trạng Thái</th>
+                      </tr>
+                    </thead>
+                    <tbody id="upgrades-bnpl-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rop" hidden>
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Dự Báo Tồn Kho &amp; Điểm Đặt Hàng Lại An Toàn (Smart ROP)</h2>
+                    <p>Thuật toán tự động tính tốc độ bán 30 ngày để dự báo ngày hết hàng và đề xuất số lượng nhập kho.</p>
+                  </div>
+                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadInventoryForecast()">🔄 Tính toán lại</button>
+                </div>
+                <div class="enterprise-table-wrap">
+                  <table class="upgrades-table">
+                    <thead>
+                      <tr>
+                        <th>Sản Phẩm &amp; SKU</th>
+                        <th>Tồn Kho</th>
+                        <th>Tốc Độ Bán</th>
+                        <th>Ngưỡng ROP</th>
+                        <th>Số Ngày Còn</th>
+                        <th>Tình Trạng</th>
+                        <th>Gợi Ý Nhập</th>
+                      </tr>
+                    </thead>
+                    <tbody id="upgrades-rop-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rfm" hidden>
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Phân Khúc Khách Hàng Tự Động Theo Mô Hình RFM</h2>
+                    <p>Phân loại khách hàng theo Recency (Đơn gần nhất), Frequency (Tần suất) và Monetary (Chi tiêu).</p>
+                  </div>
+                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadRfmSegmentation()">🔄 Cập nhật phân khúc</button>
+                </div>
+                <div class="rfm-cards-grid" id="upgrades-rfm-cards"></div>
+                <h3 style="margin:16px 0 8px 0;font-size:15px;">Danh Sách Khách Hàng Tiêu Biểu Theo Phân Khúc</h3>
+                <div class="enterprise-table-wrap">
+                  <table class="upgrades-table">
+                    <thead>
+                      <tr>
+                        <th>Khách Hàng</th>
+                        <th>Phân Khúc</th>
+                        <th>Đơn Hàng</th>
+                        <th>Tổng Chi Tiêu</th>
+                        <th>Mua Gần Nhất</th>
+                        <th>Hành Động Khuyến Nghị</th>
+                      </tr>
+                    </thead>
+                    <tbody id="upgrades-rfm-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-capi" hidden>
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Nhật Ký Sự Kiện Server-Side CAPI (Meta &amp; TikTok)</h2>
+                    <p>Theo dõi dữ liệu chuyển đổi Purchase được gửi trực tiếp từ máy chủ Node.js với mã băm SHA-256.</p>
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <button type="button" class="secondary-button" onclick="window.GAERUUpgradesHub.triggerTestCapi()">⚡ Bắn Test Event</button>
+                    <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadCapiLogs()">🔄 Làm mới nhật ký</button>
+                  </div>
+                </div>
+                <div class="enterprise-table-wrap">
+                  <table class="upgrades-table">
+                    <thead>
+                      <tr>
+                        <th>Thời Gian</th>
+                        <th>Tên Sự Kiện</th>
+                        <th>Nền Tảng</th>
+                        <th>Trạng Thái</th>
+                        <th>Chi Tiết Payload</th>
+                      </tr>
+                    </thead>
+                    <tbody id="upgrades-capi-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
 
           <section class="view-panel" id="overview-view">
             <div class="stat-grid">
