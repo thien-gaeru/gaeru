@@ -7,32 +7,40 @@ function switchRmaTab(tab) {
   const submitBtn = document.getElementById('tab-submit-btn');
 
   if (tab === 'lookup') {
-    lookupPanel.style.display = 'block';
-    submitPanel.style.display = 'none';
-    lookupBtn.classList.add('active');
-    submitBtn.classList.remove('active');
+    if (lookupPanel) lookupPanel.style.display = 'block';
+    if (submitPanel) submitPanel.style.display = 'none';
+    if (lookupBtn) lookupBtn.classList.add('active');
+    if (submitBtn) submitBtn.classList.remove('active');
   } else {
-    lookupPanel.style.display = 'none';
-    submitPanel.style.display = 'block';
-    lookupBtn.classList.remove('active');
-    submitBtn.classList.add('active');
+    if (lookupPanel) lookupPanel.style.display = 'none';
+    if (submitPanel) submitPanel.style.display = 'block';
+    if (lookupBtn) lookupBtn.classList.remove('active');
+    if (submitBtn) submitBtn.classList.add('active');
   }
 }
 
 async function handleRmaLookup(e) {
   if (e && e.preventDefault) e.preventDefault();
-  const input = document.getElementById('rma-search-input').value.trim();
+  const inputEl = document.getElementById('rma-search-input');
+  const input = inputEl ? inputEl.value.trim() : '';
   const resultsDiv = document.getElementById('rma-lookup-results');
-  if (!input) return;
+  if (!input) {
+    if (inputEl) inputEl.focus();
+    return;
+  }
 
-  resultsDiv.innerHTML = '<p style="color:#6e6e73;text-align:center;padding:16px;">Đang tra cứu dữ liệu từ hệ thống GAERU...</p>';
+  if (resultsDiv) {
+    resultsDiv.innerHTML = '<p style="color:#6e6e73;text-align:center;padding:16px;">Đang tra cứu dữ liệu từ hệ thống GAERU...</p>';
+  }
 
   try {
     const res = await fetch('/api/rma/lookup/' + encodeURIComponent(input));
     const data = await res.json();
 
     if (!res.ok || !data.tickets || !data.tickets.length) {
-      resultsDiv.innerHTML = '<div style="padding:16px 20px;background:#fff5f5;border:1px solid #fed7d7;border-radius:12px;color:#c53030;font-size:14px;line-height:1.5;">Không tìm thấy thông tin phiếu bảo hành khớp với: <strong>' + escapeHtml(input) + '</strong>.<br>Vui lòng kiểm tra lại Số điện thoại mua hàng hoặc Mã phiếu RMA (ví dụ: RMA-2610-xxxx).</div>';
+      if (resultsDiv) {
+        resultsDiv.innerHTML = '<div style="padding:16px 20px;background:#fff5f5;border:1px solid #fed7d7;border-radius:12px;color:#c53030;font-size:14px;line-height:1.5;">Không tìm thấy thông tin phiếu bảo hành khớp với: <strong>' + escapeHtml(input) + '</strong>.<br>Vui lòng kiểm tra lại Số điện thoại mua hàng hoặc Mã phiếu RMA (ví dụ: RMA-2610-xxxx).</div>';
+      }
       return;
     }
 
@@ -72,26 +80,45 @@ async function handleRmaLookup(e) {
       `;
     });
 
-    resultsDiv.innerHTML = html;
+    if (resultsDiv) resultsDiv.innerHTML = html;
   } catch (err) {
-    resultsDiv.innerHTML = '<p style="color:#d70015;text-align:center;padding:16px;">Lỗi kết nối tra cứu. Vui lòng kiểm tra đường truyền và thử lại.</p>';
+    if (resultsDiv) resultsDiv.innerHTML = '<p style="color:#d70015;text-align:center;padding:16px;">Lỗi kết nối tra cứu. Vui lòng kiểm tra đường truyền và thử lại.</p>';
   }
 }
 
 async function handleRmaSubmit(e) {
   if (e && e.preventDefault) e.preventDefault();
   const btn = document.getElementById('rma-submit-btn-action');
-  btn.disabled = true;
-  btn.textContent = 'Đang tiếp nhận yêu cầu...';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Đang tiếp nhận yêu cầu...';
+  }
+
+  const customerName = document.getElementById('rma-customer-name')?.value?.trim() || '';
+  const customerPhone = document.getElementById('rma-customer-phone')?.value?.trim() || '';
+  const orderNumber = document.getElementById('rma-order-number')?.value?.trim() || '';
+  const serialNumber = document.getElementById('rma-serial-number')?.value?.trim() || '';
+  const productName = document.getElementById('rma-product-name')?.value || '';
+  const issueType = document.getElementById('rma-issue-type')?.value || '';
+  const issueDescription = document.getElementById('rma-issue-description')?.value?.trim() || '';
+
+  if (!customerName || !customerPhone || !productName || !issueType || !issueDescription) {
+    alert('Vui lòng điền đầy đủ các trường có dấu hoa thị (*).');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+    }
+    return;
+  }
 
   const payload = {
-    customerName: document.getElementById('rma-customer-name').value.trim(),
-    customerPhone: document.getElementById('rma-customer-phone').value.trim(),
-    orderNumber: document.getElementById('rma-order-number').value.trim(),
-    serialNumber: document.getElementById('rma-serial-number').value.trim(),
-    productName: document.getElementById('rma-product-name').value,
-    issueType: document.getElementById('rma-issue-type').value,
-    issueDescription: document.getElementById('rma-issue-description').value.trim()
+    customerName,
+    customerPhone,
+    orderNumber,
+    serialNumber,
+    productName,
+    issueType,
+    issueDescription
   };
 
   try {
@@ -104,27 +131,100 @@ async function handleRmaSubmit(e) {
 
     if (!res.ok) {
       alert('Lỗi tiếp nhận: ' + (data.error || 'Chưa gửi được yêu cầu. Vui lòng kiểm tra lại thông tin.'));
-      btn.disabled = false;
-      btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+      }
       return;
     }
 
     alert('Gửi yêu cầu bảo hành 1-1 thành công!\nMã phiếu RMA của bạn là: ' + data.ticket.ticket_code + '\nĐội ngũ kỹ thuật viên GAERU sẽ liên hệ thẩm định trong vòng 24 giờ.');
-    document.getElementById('rma-submit-form').reset();
-    btn.disabled = false;
-    btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+    document.getElementById('rma-submit-form')?.reset();
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+    }
 
-    // Switch to lookup tab and search immediately
+    // Chuyển sang tab tra cứu và tìm ngay lập tức
     switchRmaTab('lookup');
-    document.getElementById('rma-search-input').value = data.ticket.ticket_code;
+    const searchInput = document.getElementById('rma-search-input');
+    if (searchInput) searchInput.value = data.ticket.ticket_code;
     handleRmaLookup();
   } catch (err) {
     alert('Lỗi mạng khi gửi yêu cầu. Vui lòng thử lại sau.');
-    btn.disabled = false;
-    btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Xác Nhận Gửi Yêu Cầu Bảo Hành';
+    }
   }
 }
 
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Gán toàn cục ngay lập tức để tương thích mọi phương thức gọi
+window.switchRmaTab = switchRmaTab;
+window.handleRmaLookup = handleRmaLookup;
+window.handleRmaSubmit = handleRmaSubmit;
+window.GAERURma = { switchRmaTab, handleRmaLookup, handleRmaSubmit };
+
+// Khởi tạo sự kiện trực tiếp & ủy quyền toàn cục
+function initRmaPage() {
+  const tabLookupBtn = document.getElementById('tab-lookup-btn');
+  const tabSubmitBtn = document.getElementById('tab-submit-btn');
+  const lookupForm = document.getElementById('rma-lookup-form');
+  const submitForm = document.getElementById('rma-submit-form');
+  const lookupSubmitBtn = document.getElementById('rma-lookup-submit');
+  const submitBtnAction = document.getElementById('rma-submit-btn-action');
+
+  if (tabLookupBtn) tabLookupBtn.addEventListener('click', () => switchRmaTab('lookup'));
+  if (tabSubmitBtn) tabSubmitBtn.addEventListener('click', () => switchRmaTab('submit'));
+  if (lookupForm) lookupForm.addEventListener('submit', handleRmaLookup);
+  if (submitForm) submitForm.addEventListener('submit', handleRmaSubmit);
+
+  if (lookupSubmitBtn) {
+    lookupSubmitBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleRmaLookup(e);
+    });
+  }
+
+  // Tự động kiểm tra URL query param
+  const urlParams = new URLSearchParams(window.location.search);
+  const orderParam = urlParams.get('order');
+  const codeParam = urlParams.get('code') || urlParams.get('ticket');
+  const phoneParam = urlParams.get('phone');
+
+  if (codeParam || phoneParam) {
+    switchRmaTab('lookup');
+    const searchInput = document.getElementById('rma-search-input');
+    if (searchInput) {
+      searchInput.value = codeParam || phoneParam;
+      handleRmaLookup();
+    }
+  } else if (orderParam) {
+    switchRmaTab('submit');
+    const orderInput = document.getElementById('rma-order-number');
+    if (orderInput) orderInput.value = orderParam;
+  }
+}
+
+// Bắt sự kiện click ủy quyền toàn tài liệu
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.rma-tab');
+  if (tab) {
+    e.preventDefault();
+    if (tab.id === 'tab-lookup-btn' || tab.textContent.includes('Tra Cứu')) {
+      switchRmaTab('lookup');
+    } else {
+      switchRmaTab('submit');
+    }
+  }
+});
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initRmaPage);
+} else {
+  initRmaPage();
 }

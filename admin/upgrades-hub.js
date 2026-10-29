@@ -1085,32 +1085,64 @@
     }
   }
 
+  // Build Hub Object immediately on window
+  const UpgradesHubApi = {
+    switchUpgradeTab,
+    openRmaModal,
+    triggerTestCapi,
+    renderMatrix,
+    loadRmaTickets,
+    saveRmaConfig,
+    loadBnplTransactions,
+    saveBnplConfig,
+    loadInventoryForecast,
+    loadRfmSegmentation,
+    loadCapiLogs,
+    saveCapiConfig,
+    loadAllSettings,
+    saveSettingModule
+  };
+
+  window.GAERUUpgradesHub = UpgradesHubApi;
+
   function init() {
     renderMatrix('all');
 
-    // Bind tab clicks
+    // Bind tab clicks directly
     document.querySelectorAll('.upgrades-tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => switchUpgradeTab(btn.dataset.tab));
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        switchUpgradeTab(btn.dataset.tab);
+      });
     });
-
-    // Expose helpers globally
-    window.GAERUUpgradesHub = {
-      switchUpgradeTab,
-      openRmaModal,
-      triggerTestCapi,
-      renderMatrix,
-      loadRmaTickets,
-      saveRmaConfig,
-      loadBnplTransactions,
-      saveBnplConfig,
-      loadInventoryForecast,
-      loadRfmSegmentation,
-      loadCapiLogs,
-      saveCapiConfig,
-      loadAllSettings,
-      saveSettingModule
-    };
   }
+
+  // Global delegated click listener for tabs, filters, and actions
+  document.addEventListener('click', (e) => {
+    // 1. Upgrades Tabs
+    const tabBtn = e.target.closest('.upgrades-tab-btn');
+    if (tabBtn && tabBtn.dataset.tab) {
+      e.preventDefault();
+      switchUpgradeTab(tabBtn.dataset.tab);
+      return;
+    }
+
+    // 2. Matrix Filter buttons
+    const filterBtn = e.target.closest('[data-matrix-filter]');
+    if (filterBtn) {
+      e.preventDefault();
+      renderMatrix(filterBtn.dataset.matrixFilter);
+      return;
+    }
+
+    // 3. Setting Module Save buttons
+    const saveBtn = e.target.closest('[data-save-module]');
+    if (saveBtn) {
+      e.preventDefault();
+      saveSettingModule(saveBtn.dataset.saveModule);
+      return;
+    }
+  });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

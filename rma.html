@@ -25,8 +25,8 @@
 
     <!-- Tab navigation -->
     <div class="rma-tabs">
-      <button class="rma-tab active" id="tab-lookup-btn" type="button" onclick="switchRmaTab('lookup')">Tra Cứu Tiến Độ RMA</button>
-      <button class="rma-tab" id="tab-submit-btn" type="button" onclick="switchRmaTab('submit')">Gửi Yêu Cầu Bảo Hành Mới</button>
+      <button class="rma-tab active" id="tab-lookup-btn" type="button" onclick="window.switchRmaTab('lookup')">Tra Cứu Tiến Độ RMA</button>
+      <button class="rma-tab" id="tab-submit-btn" type="button" onclick="window.switchRmaTab('submit')">Gửi Yêu Cầu Bảo Hành Mới</button>
     </div>
 
     <!-- Section 1: Tra cứu RMA -->
@@ -34,7 +34,7 @@
       <h2>Tra cứu phiếu bảo hành</h2>
       <p class="rma-card-desc">Nhập Số điện thoại mua hàng hoặc Mã phiếu RMA (ví dụ: RMA-2610-8831) để kiểm tra tiến độ xử lý.</p>
       
-      <form id="rma-lookup-form" class="rma-search-form" onsubmit="handleRmaLookup(event)">
+      <form id="rma-lookup-form" class="rma-search-form" onsubmit="window.handleRmaLookup(event)">
         <input type="text" id="rma-search-input" placeholder="Nhập SĐT hoặc Mã phiếu RMA..." required autocomplete="off">
         <button type="submit" class="rma-btn rma-btn-primary" id="rma-lookup-submit">Tra Cứu</button>
       </form>
@@ -47,7 +47,7 @@
       <h2>Gửi yêu cầu bảo hành / đổi trả</h2>
       <p class="rma-card-desc">Vui lòng cung cấp chi tiết thông tin và mô tả lỗi để kỹ thuật viên thẩm định nhanh chóng.</p>
 
-      <form id="rma-submit-form" onsubmit="handleRmaSubmit(event)">
+      <form id="rma-submit-form" onsubmit="window.handleRmaSubmit(event)">
         <div class="rma-form-group">
           <label for="rma-customer-name">Họ và tên khách hàng *</label>
           <input type="text" id="rma-customer-name" required placeholder="Ví dụ: Nguyễn Văn A">
