@@ -142,7 +142,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     accountSecurity:config.accountSecurity,
     smtpConfig: config.smtp,
-    mailer: customerMailer
+    mailer: customerMailer,
+    isTest: config?.NODE_ENV === "test"
   }));
   app.use("/api/gaeru_ceo", createAdminAccess(pool, config), adminPolicy, (req,res,next)=>{
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);

@@ -195,10 +195,18 @@ function showCustomerProfile(customer, publish = true) {
     profile.prepend(el);
     return el;
   })();
-  if (customer.phoneWarning) {
+  if (customer.phoneWarning || customer.regEmailWarning) {
     warningBanner.hidden = false;
-    const hours = customer.phoneWarningRemainingHours || 12;
-    warningBanner.innerHTML = `<div class="warning-banner-content"><span class="warning-icon">⚠️</span><div><strong>Cảnh báo thông tin tài khoản:</strong> Số điện thoại của bạn không đúng định dạng chuẩn. Vui lòng cập nhật lại thông tin trong vòng <strong>${hours} giờ tới</strong> trước khi tài khoản bị khóa tự động.</div></div>`;
+    const hours = customer.regEmailWarningRemainingHours || customer.phoneWarningRemainingHours || 12;
+    let message = "";
+    if (customer.regEmailWarning && customer.phoneWarning) {
+      message = `Không thể gửi email thông báo đăng ký và số điện thoại chưa đúng định dạng chuẩn. Vui lòng cập nhật lại thông tin trong vòng <strong>${hours} giờ tới</strong> trước khi tài khoản bị khóa tự động.`;
+    } else if (customer.regEmailWarning) {
+      message = `Không thể gửi email thông báo đăng ký đến địa chỉ này. Vui lòng cập nhật hoặc kiểm tra lại email trong vòng <strong>${hours} giờ tới</strong> trước khi tài khoản bị khóa tự động.`;
+    } else {
+      message = `Số điện thoại của bạn không đúng định dạng chuẩn. Vui lòng cập nhật lại thông tin trong vòng <strong>${hours} giờ tới</strong> trước khi tài khoản bị khóa tự động.`;
+    }
+    warningBanner.innerHTML = `<div class="warning-banner-content"><span class="warning-icon">⚠️</span><div><strong>Cảnh báo thông tin tài khoản:</strong> ${message}</div></div>`;
   } else {
     warningBanner.hidden = true;
   }

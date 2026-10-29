@@ -6,7 +6,7 @@ const nodemailer = require("nodemailer");
 const { z } = require("zod");
 const { requireCsrf } = require("./security");
 const { withTransaction } = require("./db");
-const { isDisposableEmail, isPermanentSendMailError, isValidVietnamMobile, checkCustomerPhoneStatus, autoLockAccount } = require("./customer-lifecycle");
+const { isDisposableEmail, isPermanentSendMailError, isValidVietnamMobile, checkCustomerPhoneStatus, checkCustomerRegEmailStatus, sendRegistrationNotificationEmail, autoLockAccount } = require("./customer-lifecycle");
 
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomBytes(24).toString("hex"), 12);
 const registrationSchema = z.object({
@@ -48,11 +48,11 @@ function createMailer(smtpConfig) {
   return nodemailer.createTransport(require('./smtp-security').smtpOptions(smtpConfig));
 }
 
-function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig), accountSecurity } = {}) {
+function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig), accountSecurity, isTest = false } = {}) {
   const router = Router();
   const authLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 10,
+    limit: (isTest || process.env.NODE_ENV === "test") ? 100 : 10,
     standardHeaders: "draft-8",
     legacyHeaders: false,
     message: { error: "Quá nhiều yêu cầu tài khoản. Vui lòng thử lại sau." }
@@ -78,13 +78,52 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       if (!parsed.success) return res.status(400).json({ error: "Vui lòng kiểm tra họ tên, email, số điện thoại và mật khẩu tối thiểu 8 ký tự." });
 
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+      const hasPhone = parsed.data.phone && String(parsed.data.phone).trim().length > 0;
+      const isInvalidPhone = hasPhone && !isValidVietnamMobile(parsed.data.phone);
       const result = await pool.query(
-        `INSERT INTO customers (full_name, email, phone, password_hash)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO customers (full_name, email, phone, password_hash, phone_invalid_at)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
-        [parsed.data.fullName, parsed.data.email, parsed.data.phone, passwordHash]
+        [parsed.data.fullName, parsed.data.email, parsed.data.phone, passwordHash, isInvalidPhone ? new Date() : null]
       );
-      startCustomerSession(req, res, next, result.rows[0], accountSecurity);
+      const customer = result.rows[0];
+
+      if (mailer && smtpConfig?.publicBaseUrl) {
+        let sendOk = false;
+        try {
+          if (!isDisposableEmail(customer.email)) {
+            sendOk = await sendRegistrationNotificationEmail({
+              mailer,
+              smtpConfig,
+              to: customer.email,
+              fullName: customer.fullName
+            });
+          }
+        } catch (_) {
+          sendOk = false;
+        }
+        if (!sendOk) {
+          try {
+            await pool.query(
+              "UPDATE customers SET reg_email_failed_at = now() WHERE id = $1",
+              [customer.id]
+            );
+            customer.regEmailWarning = true;
+            customer.regEmailWarningRemainingHours = 12;
+            customer.regEmailWarningExpiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+            customer.regEmailWarningMessage = "Không thể gửi email thông báo đăng ký. Vui lòng kiểm tra hoặc cập nhật lại email trong vòng 12 giờ.";
+          } catch (_) {}
+        }
+      }
+
+      if (isInvalidPhone) {
+        customer.phoneWarning = true;
+        customer.phoneWarningRemainingHours = 12;
+        customer.phoneWarningExpiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+        customer.phoneWarningMessage = "Số điện thoại chưa đúng định dạng di động Việt Nam. Vui lòng cập nhật trong vòng 12 giờ.";
+      }
+
+      startCustomerSession(req, res, next, customer, accountSecurity);
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Email này đã có tài khoản. Hãy đăng nhập hoặc khôi phục mật khẩu." });
       next(error);
@@ -98,7 +137,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       const isEmail = parsed.data.identifier.includes('@');
       const result = await pool.query(
-        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt", phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt"
+        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt", phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt", reg_email_failed_at AS "regEmailFailedAt", google_id AS "googleId", reg_email_failed_at AS "regEmailFailedAt", google_id AS "googleId"
          FROM customers WHERE ${isEmail ? 'email = $1' : 'phone = ANY($1::text[])'} LIMIT 2`,
         [isEmail ? parsed.data.identifier.toLowerCase() : loginPhoneCandidates(parsed.data.identifier)]
       );
@@ -113,6 +152,9 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         }
         if (customer.lockReason === 'invalid_phone_timeout') {
           return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
+        }
+        if (customer.lockReason === 'reg_email_failed_timeout') {
+          return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do không thể gửi email thông báo đăng ký trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
         }
         return res.status(403).json({ error: "Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ." });
       }
@@ -138,6 +180,28 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         customer.phoneWarningRemainingHours = phoneStatus.remainingHours;
         customer.phoneWarningExpiresAt = phoneStatus.warningExpiresAt;
         customer.phoneWarningMessage = phoneStatus.warningMessage;
+      }
+
+      const regEmailStatus = checkCustomerRegEmailStatus({
+        google_id: customer.googleId,
+        reg_email_failed_at: customer.regEmailFailedAt
+      });
+
+      if (regEmailStatus.isExpired) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'reg_email_failed_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
+            [customer.id]
+          );
+        } catch (_) {}
+        return res.status(403).json({ error: "Tài khoản đã bị tự động khóa do không thể gửi email thông báo đăng ký trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa." });
+      }
+
+      if (regEmailStatus.isWarning) {
+        customer.regEmailWarning = true;
+        customer.regEmailWarningRemainingHours = regEmailStatus.remainingHours;
+        customer.regEmailWarningExpiresAt = regEmailStatus.warningExpiresAt;
+        customer.regEmailWarningMessage = regEmailStatus.warningMessage;
       }
 
       if(accountSecurity&&await accountSecurity.beginLogin(req,res,"customer:"+customer.id,parsed.data.password))return;
@@ -192,9 +256,39 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         currentCustomer.phoneWarningExpiresAt = phoneStatus.warningExpiresAt;
         currentCustomer.phoneWarningMessage = phoneStatus.warningMessage;
       }
+
+      const regEmailStatus = checkCustomerRegEmailStatus({
+        google_id: currentCustomer.googleId,
+        reg_email_failed_at: currentCustomer.regEmailFailedAt
+      });
+
+      if (regEmailStatus.isExpired) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'reg_email_failed_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
+            [currentCustomer.id]
+          );
+        } catch (_) {}
+        delete req.session.customer;
+        return res.json({
+          authenticated: false,
+          customer: null,
+          error: "Tài khoản đã bị tự động khóa do không thể gửi email thông báo đăng ký trong vòng 12 giờ."
+        });
+      }
+
+      if (regEmailStatus.isWarning) {
+        currentCustomer.regEmailWarning = true;
+        currentCustomer.regEmailWarningRemainingHours = regEmailStatus.remainingHours;
+        currentCustomer.regEmailWarningExpiresAt = regEmailStatus.warningExpiresAt;
+        currentCustomer.regEmailWarningMessage = regEmailStatus.warningMessage;
+      }
+
       delete currentCustomer.phoneInvalidAt;
       delete currentCustomer.lockReason;
       delete currentCustomer.createdAt;
+      delete currentCustomer.regEmailFailedAt;
+      delete currentCustomer.googleId;
 
       req.session.customer = currentCustomer;
       res.json({ authenticated: true, customer: currentCustomer });
@@ -427,7 +521,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         if (!verificationToken) return null;
 
         const updated = await client.query(
-          `UPDATE customers SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now()
+          `UPDATE customers SET email_verified_at = COALESCE(email_verified_at, now()), reg_email_failed_at = NULL, lock_reason = (CASE WHEN lock_reason = 'reg_email_failed_timeout' THEN NULL ELSE lock_reason END), updated_at = now()
            WHERE id = $1
            RETURNING id, full_name AS "fullName", email, phone,
                      email_verified_at IS NOT NULL AS "emailVerified"`,
@@ -478,6 +572,12 @@ function startCustomerSession(req, res, next, customer, accountSecurity, { redir
       sessionCustomer.phoneWarningRemainingHours = customer.phoneWarningRemainingHours || null;
       sessionCustomer.phoneWarningExpiresAt = customer.phoneWarningExpiresAt || null;
       sessionCustomer.phoneWarningMessage = customer.phoneWarningMessage || null;
+    }
+    if (customer.regEmailWarning) {
+      sessionCustomer.regEmailWarning = true;
+      sessionCustomer.regEmailWarningRemainingHours = customer.regEmailWarningRemainingHours || null;
+      sessionCustomer.regEmailWarningExpiresAt = customer.regEmailWarningExpiresAt || null;
+      sessionCustomer.regEmailWarningMessage = customer.regEmailWarningMessage || null;
     }
     req.session.customer = sessionCustomer;
     if(accountSecurity){try{await accountSecurity.stamp(req,"customer:"+customer.id);}catch(e){return next(e);}}

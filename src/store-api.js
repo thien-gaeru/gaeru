@@ -10,7 +10,7 @@ const { requirePermission } = require("./staff-access");
 const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
 const { decoratePublicProductImages } = require("./lib/public-image-urls");
-const { checkCustomerPhoneStatus } = require("./customer-lifecycle");
+const { checkCustomerPhoneStatus, checkCustomerRegEmailStatus } = require("./customer-lifecycle");
 
 const orderSchema = z.object({
   customer: z.object({
@@ -554,7 +554,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const result = await pool.query(
         `SELECT c.id, c.full_name AS "fullName", c.email, c.phone, c.active,c.deleted_at AS "deletedAt",c.deletion_recoverable AS "deletionRecoverable",(c.deleted_at>now()-interval '1 year') AS "canRestore",
                 c.email_verified_at IS NOT NULL AS "emailVerified", c.created_at AS "createdAt",
-                c.phone_invalid_at AS "phoneInvalidAt", c.lock_reason AS "lockReason", c.locked_at AS "lockedAt",
+                c.phone_invalid_at AS "phoneInvalidAt", c.lock_reason AS "lockReason", c.locked_at AS "lockedAt", c.reg_email_failed_at AS "regEmailFailedAt", c.google_id AS "googleId",
                 COUNT(o.id)::int AS "orderCount", MAX(o.created_at) AS "lastOrderAt"
          FROM customers c
          LEFT JOIN orders o ON o.customer_id=c.id OR (o.customer_id IS NULL AND lower(o.email)=lower(c.email))
