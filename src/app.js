@@ -47,7 +47,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
       if (!/^\/api(?:\/|$)/.test(req.path) || (/^\/api\/gaeru_ceo(?:\/|$)/i.test(req.path) && !/^\/api\/gaeru_ceo(?:\/|$)/.test(req.path))) return res.sendStatus(404);
     }
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
-    res.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
+    res.set('Permissions-Policy', /^\/gaeru_ceo(?:\/|$)/i.test(req.path) ? 'camera=(self), microphone=(), geolocation=()' : 'camera=(), microphone=(), geolocation=()');
     next();
   });
   app.use(helmet({
@@ -123,6 +123,12 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     });
   });
 
+  const realtimeHub = require('./realtime-sse').createRealtimeHub({ pool, config });
+  app.use('/api', realtimeHub.router);
+  app.use('/api/cart', require('./abandoned-cart').createAbandonedCartRouter(pool, config, customerMailer));
+  app.use('/api/customer', require('./loyalty-api').createLoyaltyCustomerApi(pool));
+  app.use('/api', require('./omnichannel-sync').createOmnichannelRouter(pool, config));
+
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer", createCustomerExperience(pool));
   app.use("/api/customer/care", createCareCustomerApi(pool));
@@ -178,6 +184,12 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createNewsAdminApi(pool));
   app.use("/api", createNewsPublicApi(pool));
   app.use("/api/gaeru_ceo",require("./admin-configuration").createAdminConfiguration(pool,config));
+  app.use('/api/gaeru_ceo', require('./abandoned-cart').createAbandonedCartAdmin(pool));
+  app.use('/api/gaeru_ceo', require('./loyalty-api').createLoyaltyAdminApi(pool));
+  app.use('/api/gaeru_ceo', require('./chat-semantic-knowledge').createKnowledgeAdminRouter(pool));
+  app.use('/api/gaeru_ceo', require('./barcode-api').createBarcodeApi(pool, { notifyOrderUpdate: realtimeHub.notifyOrderUpdate }));
+  app.use('/api/gaeru_ceo', require('./omnichannel-sync').createOmnichannelAdmin(pool));
+  app.use('/api/gaeru_ceo', require('./system-alerts').createSystemAlertsAdmin(pool, config));
   app.use('/api/gaeru_ceo',require('./tiktok-ads').createTikTokAdsAdmin(pool,config));
   const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config);
   app.use("/api/gaeru_ceo",emailMarketing.admin);
@@ -220,7 +232,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     next();
   });
 
-  const managementAssets=new Set(['file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
+  const managementAssets=new Set(['file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js','barcode-scanner.js']);
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile('notification-worker.js',{root:adminRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'public, max-age=3600'}).sendFile('manifest.webmanifest',{root:adminRoot}));
