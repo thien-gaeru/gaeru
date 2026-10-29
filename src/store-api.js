@@ -1,6 +1,22 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+
+function allocateOptimalCarrier(city, enabledCarriers = ['ghn', 'ghtk', 'viettel', 'spx', 'jt']) {
+  const normCity = String(city || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const isMajorUrban = /ha noi|ho chi minh|sai gon|da nang/.test(normCity);
+  if (isMajorUrban) {
+    if (enabledCarriers.includes('spx')) return { id: 'spx', name: 'Shopee Express (SPX)' };
+    if (enabledCarriers.includes('ghn')) return { id: 'ghn', name: 'Giao Hàng Nhanh (GHN)' };
+  } else {
+    if (enabledCarriers.includes('viettel')) return { id: 'viettel', name: 'Viettel Post' };
+    if (enabledCarriers.includes('ghtk')) return { id: 'ghtk', name: 'Giao Hàng Tiết Kiệm (GHTK)' };
+  }
+  const fallback = enabledCarriers.find(c => ['ghn','ghtk','viettel','spx','jt'].includes(c)) || 'ghn';
+  const nameMap = { ghn: 'Giao Hàng Nhanh (GHN)', ghtk: 'Giao Hàng Tiết Kiệm (GHTK)', viettel: 'Viettel Post', spx: 'Shopee Express (SPX)', jt: 'J&T Express' };
+  return { id: fallback, name: nameMap[fallback] || 'Giao Hàng Nhanh (GHN)' };
+}
+
 const multer = require("multer");
 const { Router } = require("express");
 const { rateLimit } = require("express-rate-limit");
@@ -331,7 +347,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         for (const [variantId, quantity] of [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b))) {
           const result = await client.query(
             `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd",
-              v.stock_quantity AS "stockQuantity", p.name AS "productName"
+              v.stock_quantity AS "stockQuantity", p.name AS "productName", p.slug AS "productSlug"
              FROM product_variants v JOIN products p ON p.id = v.product_id
              WHERE v.id = $1 AND v.active = true AND p.active = true
              FOR UPDATE OF v`,
@@ -371,7 +387,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const shippingFee = require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city);
         const shippingSelection=shippingChoices?await require('./shipping-choice').validateSelection(client,parsed.data.shippingCarrierId):null;
         if(parsed.data.expectedShippingFeeVnd!==undefined&&parsed.data.expectedShippingFeeVnd!==shippingFee)throw Object.assign(Error('Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng.'),{status:409});
-        const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true):null;
+        const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true,{productSlugs:prepared.map(p=>p.productSlug).filter(Boolean)}):null;
         const total = subtotal + shippingFee - (promotion?.discountVnd||0);
         if (!Number.isSafeInteger(total) || total > 2_000_000_000) {
           const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
@@ -399,7 +415,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
-        if(shippingSelection){await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);createdOrder.shippingCarrierName=shippingSelection.name;}
+        if(shippingSelection){
+          await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);
+          createdOrder.shippingCarrierName=shippingSelection.name;
+        } else {
+          try {
+            const optimal = allocateOptimalCarrier(parsed.data.customer.city);
+            await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,1) ON CONFLICT (order_id) DO NOTHING',[createdOrder.id,optimal.id,optimal.name,shippingFee]);
+            createdOrder.shippingCarrierName=optimal.name;
+          } catch(e){}
+        }
         if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
@@ -934,6 +959,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         o.email, o.phone, o.address, o.city, o.note, o.payment_method AS "paymentMethod",
         o.payment_status AS "paymentStatus", o.status, o.discount_vnd AS "discountVnd",o.voucher_code AS "voucherCode",o.subtotal_vnd AS "subtotalVnd",
         o.shipping_fee_vnd AS "shippingFeeVnd", o.total_vnd AS "totalVnd", o.created_at AS "createdAt",o.management_version AS version,o.return_completed_at AS "returnedAt",
+        (SELECT s.carrier_name FROM order_shipping_selection s WHERE s.order_id=o.id LIMIT 1) AS "shippingCarrierName",
+        (SELECT s.carrier_id FROM order_shipping_selection s WHERE s.order_id=o.id LIMIT 1) AS "shippingCarrierId",
         CASE WHEN o.return_completed_at IS NOT NULL THEN 'returned' WHEN EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return' AND a.status NOT IN ('resolved','rejected')) THEN 'open' ELSE NULL END AS "returnStatus",
         p.provider AS "paymentProvider", p.status AS "paymentAttemptStatus", p.expires_at AS "paymentAttemptExpiresAt",
         ${checkoutAccounts ? '(SELECT r.reason FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL ORDER BY r.created_at DESC LIMIT 1) AS "reviewReason",' : 'NULL AS "reviewReason",'}

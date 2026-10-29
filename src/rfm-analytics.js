@@ -151,6 +151,23 @@ async function getRfmCustomerSegmentation(pool) {
 function createRfmAdminRouter(pool) {
   const router = Router();
 
+  router.get('/customers/rfm/sync-marketing', async (_req, res, next) => {
+    try {
+      const data = await getRfmCustomerSegmentation(pool);
+      const atRiskCount = data.summary?.find(s => s.key === 'at_risk')?.customerCount || 0;
+      const lostCount = data.summary?.find(s => s.key === 'lost')?.customerCount || 0;
+      const championsCount = data.summary?.find(s => s.key === 'champions')?.customerCount || 0;
+      res.json({
+        success: true,
+        segments: {
+          atRisk: { count: atRiskCount, suggestedSource: 'rfm_at_risk', campaignSuggestion: 'Ưu đãi tri ân giảm 10% kích hoạt lại' },
+          lost: { count: lostCount, suggestedSource: 'rfm_lost', campaignSuggestion: 'Khảo sát dịch vụ và ra mắt sản phẩm công nghệ mới' },
+          champions: { count: championsCount, suggestedSource: 'rfm_champions', campaignSuggestion: 'Tri ân VIP Kim Cương & Bạc độc quyền' }
+        }
+      });
+    } catch (err) { next(err); }
+  });
+
   router.get('/customers/rfm', async (_req, res, next) => {
     try {
       const data = await getRfmCustomerSegmentation(pool);

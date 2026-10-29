@@ -1,4 +1,5 @@
 const { getExternalWebKnowledge } = require('./chat-external-knowledge');
+const { searchKnowledge } = require('./chat-semantic-knowledge');
 const fs = require('node:fs');
 const path = require('node:path');
 

@@ -30,6 +30,41 @@ const INITIAL_KNOWLEDGE = [
     title: 'Chính sách bảo hành điện tử và đổi trả 1-1 GAERU',
     content: 'Tất cả sản phẩm GAERU chính hãng được bảo hành điện tử 12 tháng tại Việt Nam. Khách hàng được đổi mới 1-1 trong 30 ngày đầu tiên nếu phát sinh lỗi từ nhà sản xuất. Khách có thể kích hoạt hoặc tra cứu bảo hành trực tuyến tại trang dang-ky-bao-hanh bằng số điện thoại hoặc mã đơn hàng.',
     keywords: ['bao hanh', 'doi tra', 'chinh sach', '12 thang', '1 doi 1', 'kich hoat']
+  },
+  {
+    category: 'compatibility',
+    product_slug: null,
+    title: 'Tương thích kết nối Micro GAERU với iPhone, iPad, MacBook (Type-C & Lightning)',
+    content: 'iPhone 15, 15 Plus, 15 Pro, 15 Pro Max và toàn bộ iPhone 16 series dùng cổng Type-C: Cắm đầu thu Type-C trực tiếp vào đáy máy nhận mic ngay không cần đầu chuyển. Dòng iPhone 14 trở xuống (14, 13, 12, 11, X) sử dụng cổng Lightning, chọn phân loại chân Lightning hoặc dùng cáp chuyển OTG chuẩn Apple. iPad Type-C và máy tính MacBook cắm đầu thu Type-C tự nhận làm microphone mặc định.',
+    keywords: ['iphone', 'apple', 'ios', 'lightning', 'type-c', 'ipad', 'macbook', 'dau chuyen']
+  },
+  {
+    category: 'compatibility',
+    product_slug: null,
+    title: 'Hướng dẫn kích hoạt kết nối OTG trên điện thoại Android (Oppo, Realme, Vivo, Xiaomi, Samsung)',
+    content: 'Samsung Galaxy và Google Pixel cắm đầu thu Type-C tự động nhận diện mic ngay. Với Oppo, Realme, Vivo, OnePlus: cổng Type-C có thể bị khóa OTG tiết kiệm pin, người dùng cần vào Cài đặt (Settings) -> tìm "OTG" -> Bật "Kết nối OTG" trước khi cắm đầu thu. Xiaomi, Redmi, POCO đa phần tự nhận; nếu camera mặc định chưa nhận tiếng, vào Cài đặt Camera -> Bật nguồn âm thanh micro ngoài.',
+    keywords: ['android', 'samsung', 'oppo', 'xiaomi', 'redmi', 'vivo', 'realme', 'otg', 'chua nhan', 'khong sang den']
+  },
+  {
+    category: 'compatibility',
+    product_slug: null,
+    title: 'Tương thích ứng dụng quay video, phát trực tiếp và họp trực tuyến (TikTok, CapCut, Open Camera, Zoom)',
+    content: 'Micro GAERU tương thích 100% với các ứng dụng phổ biến: TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Instagram Reels, Zoom, Google Meet. Nếu camera mặc định của một số máy Android cũ không thu tiếng từ mic rời, người dùng có thể quay trực tiếp trong app TikTok/CapCut hoặc tải ứng dụng miễn phí "Open Camera" (Vào Cài đặt video -> Cài đặt âm thanh -> Nguồn âm thanh -> Chọn "Microphone ngoài nếu có").',
+    keywords: ['camera', 'quay video', 'tiktok', 'capcut', 'livestream', 'facebook', 'youtube', 'zoom', 'open camera', 'app']
+  },
+  {
+    category: 'tech',
+    product_slug: null,
+    title: 'Công nghệ lọc tiếng ồn thông minh Smart DSP và sóng không dây 2.4GHz',
+    content: 'Công nghệ lọc tiếng ồn thông minh Smart DSP tự động tách giọng nói khỏi tạp âm xung quanh (tiếng gió, còi xe, tiếng quạt, tiếng ồn quán cafe). Sóng không dây 2.4GHz kỹ thuật số cho kết nối ổn định, độ trễ siêu thấp dưới 20ms, âm thanh không bị lệch hình khi quay video hay phát trực tiếp. Phạm vi hoạt động hiệu quả lên đến 15-25m trong môi trường mở.',
+    keywords: ['loc am', 'loc tieng on', 'on', 'gio', 'tap am', 'dsp', 'khoang cach', 'pin', 'song', '2.4ghz']
+  },
+  {
+    category: 'compatibility',
+    product_slug: null,
+    title: 'Sử dụng Micro không dây GAERU trên Máy tính, Laptop Windows và Mac (OBS, CapCut PC)',
+    content: 'Sử dụng trên Máy tính / Laptop (Windows 10/11 & Mac): Cắm đầu thu Type-C (hoặc dùng đầu chuyển USB-A sang Type-C nếu máy không có cổng C). Vào Settings -> Sound -> Chọn Input / Microphone là Wireless Microphone. Hoạt động mượt mà trên OBS Studio, Audacity, Premiere Pro, Camtasia, CapCut PC.',
+    keywords: ['may tinh', 'laptop', 'pc', 'windows', 'mac', 'obs', 'capcut pc', 'thu am']
   }
 ];
 
@@ -135,6 +170,7 @@ function createKnowledgeAdminRouter(pool) {
 }
 
 module.exports = {
+  INITIAL_KNOWLEDGE,
   seedInitialKnowledge,
   searchKnowledge,
   createKnowledgeAdminRouter

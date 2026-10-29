@@ -156,7 +156,28 @@ function createOperationsApi(pool) {
         p.id AS "productId",p.edit_version AS "productVersion",p.name AS "productName",v.name AS "variantName",COALESCE(NULLIF(v.image_url,''),p.image_url) AS "imageUrl",s.quantity ${from}
        ORDER BY w.code,v.sku LIMIT $3 OFFSET $4`, [...values, pageSize, (paging.page - 1) * pageSize]
     );
-    res.json({ stock: result.rows, pagination: paging, warehouses: await listWarehouses(pool) });
+    let forecastMap = new Map();
+    try {
+      const { getInventoryForecast } = require('./inventory-forecast');
+      const forecastData = await getInventoryForecast(pool);
+      for (const item of forecastData.forecast || []) {
+        forecastMap.set(item.sku, item);
+      }
+    } catch (e) {}
+
+    const enrichedStock = result.rows.map(row => {
+      const fc = forecastMap.get(row.sku);
+      return {
+        ...row,
+        reorderPoint: fc?.reorderPoint ?? 10,
+        dailyVelocity: fc?.dailyVelocity ?? 0,
+        daysRemaining: fc?.daysRemaining ?? (row.quantity > 0 ? 999 : 0),
+        urgency: fc?.urgency ?? (row.quantity <= 5 ? 'critical' : 'healthy'),
+        suggestedReorderQty: fc?.suggestedReorderQty ?? (row.quantity <= 10 ? 20 : 0)
+      };
+    });
+
+    res.json({ stock: enrichedStock, pagination: paging, warehouses: await listWarehouses(pool) });
   }));
   router.get("/inventory/movements", requirePermission("inventory.read"), handler(async (req, res) => {
     const { page, pageSize, q } = listFilter(req);
