@@ -711,6 +711,63 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   require('./product-trash').attachProductTrash(router,pool);
 
+  const handleProductVisibility = async (req, res, next) => {
+    try {
+      const parsed = z.object({ active: z.boolean().optional() }).strict().safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Trạng thái hiển thị sản phẩm không hợp lệ." });
+      }
+      const product = await withTransaction(pool, async (client) => {
+        const current = (await client.query(
+          "SELECT id, name, slug, active FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+          [req.params.id]
+        )).rows[0];
+        if (!current) return null;
+
+        const targetActive = parsed.data.active !== undefined ? parsed.data.active : !current.active;
+
+        if (targetActive) {
+          const variants = await client.query(
+            "SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND active = true",
+            [req.params.id]
+          );
+          if (!variants.rows[0]?.count) {
+            const error = new Error("Cần ít nhất một phiên bản đang bán trước khi hiển thị sản phẩm trên cửa hàng.");
+            error.status = 409;
+            throw error;
+          }
+        }
+
+        const result = await client.query(
+          "UPDATE products SET active = $2, updated_at = now() WHERE id = $1 RETURNING id, name, slug, active",
+          [req.params.id, targetActive]
+        );
+        await audit(client, {
+          actor: req.admin,
+          action: targetActive ? "catalog.product.publish" : "catalog.product.hide",
+          entityType: "product",
+          entityId: req.params.id,
+          before: { active: current.active },
+          after: { active: targetActive }
+        });
+        return result.rows[0];
+      });
+
+      if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      res.json({
+        message: product.active ? "Đã hiển thị sản phẩm trên cửa hàng." : "Đã ẩn sản phẩm khỏi cửa hàng.",
+        id: product.id,
+        active: product.active
+      });
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      next(error);
+    }
+  };
+
+  router.post("/gaeru_ceo/products/:id/visibility", requireUuidParam("id"), requirePermission("catalog.write"), requireCsrf, handleProductVisibility);
+  router.patch("/gaeru_ceo/products/:id/visibility", requireUuidParam("id"), requirePermission("catalog.write"), requireCsrf, handleProductVisibility);
+
   router.put("/gaeru_ceo/products/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = productSchema.safeParse(req.body);
