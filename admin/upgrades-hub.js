@@ -47,14 +47,47 @@
     return Number(amount || 0).toLocaleString('vi-VN') + 'đ';
   }
 
+  let cachedCsrfToken = '';
+
+  async function getCsrfToken() {
+    if (window.GAERUAdmin && window.GAERUAdmin.csrfToken) {
+      return window.GAERUAdmin.csrfToken;
+    }
+    if (cachedCsrfToken) return cachedCsrfToken;
+    try {
+      const res = await fetch('/api/csrf', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await res.json();
+      if (data && data.csrfToken) {
+        cachedCsrfToken = data.csrfToken;
+        if (window.GAERUAdmin && typeof window.GAERUAdmin.setCsrf === 'function') {
+          window.GAERUAdmin.setCsrf(data.csrfToken);
+        }
+        return data.csrfToken;
+      }
+    } catch (e) {
+      console.warn('Không thể nạp CSRF token:', e);
+    }
+    return '';
+  }
+
   async function requestApi(url, options = {}) {
-    const opts = { ...options, credentials: 'same-origin' };
-    if (!opts.headers) opts.headers = {};
+    const method = String(options.method || 'GET').toUpperCase();
+    const opts = { ...options, method, credentials: 'same-origin' };
+    const headers = new Headers(opts.headers || {});
+
+    if (method !== 'GET') {
+      const csrf = await getCsrfToken();
+      if (csrf) headers.set('X-CSRF-Token', csrf);
+    }
+
     if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof FormData)) {
-      opts.headers['Content-Type'] = 'application/json';
+      headers.set('Content-Type', 'application/json');
       opts.body = JSON.stringify(opts.body);
     }
+    opts.headers = headers;
+
     const res = await fetch(url, opts);
+    if (res.status === 204) return null;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(data.error || `HTTP ${res.status}: Không thể hoàn tất yêu cầu.`);
@@ -198,21 +231,52 @@
   async function saveRmaConfig(e) {
     e.preventDefault();
     const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
     const statusEl = document.getElementById('rma-config-status');
+    const origBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt RMA';
     const formData = new FormData(form);
+
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Đang kiểm tra...'; }
+    if (statusEl) {
+      statusEl.className = 'feature-config-feedback';
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 1/3]</span> Đang kiểm tra tham số bảo hành...';
+    }
+
+    const returnDays = Number(formData.get('returnDays'));
+    if (isNaN(returnDays) || returnDays < 7 || returnDays > 90) {
+      if (statusEl) { statusEl.className = 'feature-config-feedback is-error'; statusEl.innerHTML = '✕ Thời hạn đổi mới phải từ 7 đến 90 ngày.'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
+      return;
+    }
+
     const body = {
-      returnDays: Number(formData.get('returnDays')) || 30,
+      returnDays,
       supportHotline: String(formData.get('supportHotline') || '').trim(),
       warehouseAddress: String(formData.get('warehouseAddress') || '').trim()
     };
 
-    if (statusEl) { statusEl.textContent = 'Đang lưu...'; statusEl.className = 'feature-config-feedback'; }
+    if (btn) btn.innerHTML = '⏳ Đang lưu máy chủ...';
+    if (statusEl) {
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 2/3]</span> Đang ghi dữ liệu vào cơ sở dữ liệu...';
+    }
+
     try {
       await requestApi('/api/gaeru_ceo/rma/config', { method: 'POST', body });
-      if (statusEl) { statusEl.textContent = '✓ Đã lưu cài đặt RMA thành công!'; statusEl.className = 'feature-config-feedback is-success'; }
-      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      const nowStr = new Date().toLocaleTimeString('vi-VN');
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-success';
+        statusEl.innerHTML = `✓ <strong>[Thao tác 3/3 Hoàn tất]</strong> Đã lưu và kích hoạt lúc ${nowStr}!`;
+      }
+      if (btn) { btn.innerHTML = '✓ Đã Lưu'; btn.style.backgroundColor = '#107c41'; }
+      setTimeout(() => {
+        if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; btn.style.backgroundColor = ''; }
+      }, 2500);
     } catch (err) {
-      if (statusEl) { statusEl.textContent = 'Lỗi: ' + err.message; statusEl.className = 'feature-config-feedback is-error'; }
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-error';
+        statusEl.innerHTML = '✕ <strong>Lỗi:</strong> ' + escapeHtml(err.message);
+      }
+      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
     }
   }
 
@@ -311,22 +375,54 @@
   async function saveBnplConfig(e) {
     e.preventDefault();
     const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
     const statusEl = document.getElementById('bnpl-config-status');
+    const origBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt BNPL';
     const formData = new FormData(form);
+
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Đang kiểm tra...'; }
+    if (statusEl) {
+      statusEl.className = 'feature-config-feedback';
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 1/3]</span> Đang kiểm tra hạn mức trả góp...';
+    }
+
+    const minAmountVnd = Number(formData.get('minAmountVnd')) || 300000;
+    const maxAmountVnd = Number(formData.get('maxAmountVnd')) || 30000000;
+    if (minAmountVnd >= maxAmountVnd) {
+      if (statusEl) { statusEl.className = 'feature-config-feedback is-error'; statusEl.innerHTML = '✕ Hạn mức tối thiểu phải nhỏ hơn hạn mức tối đa.'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
+      return;
+    }
+
     const body = {
       fundiinEnabled: formData.get('fundiinEnabled') === 'true',
       kredivoEnabled: formData.get('kredivoEnabled') === 'true',
-      minAmountVnd: Number(formData.get('minAmountVnd')) || 300000,
-      maxAmountVnd: Number(formData.get('maxAmountVnd')) || 30000000
+      minAmountVnd,
+      maxAmountVnd
     };
 
-    if (statusEl) { statusEl.textContent = 'Đang lưu...'; statusEl.className = 'feature-config-feedback'; }
+    if (btn) btn.innerHTML = '⏳ Đang lưu máy chủ...';
+    if (statusEl) {
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 2/3]</span> Đang lưu cổng Fundiin & Kredivo vào hệ thống...';
+    }
+
     try {
       await requestApi('/api/gaeru_ceo/bnpl/config', { method: 'POST', body });
-      if (statusEl) { statusEl.textContent = '✓ Đã lưu cài đặt BNPL thành công!'; statusEl.className = 'feature-config-feedback is-success'; }
-      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      const nowStr = new Date().toLocaleTimeString('vi-VN');
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-success';
+        statusEl.innerHTML = `✓ <strong>[Thao tác 3/3 Hoàn tất]</strong> Đã lưu và kích hoạt lúc ${nowStr}!`;
+      }
+      if (btn) { btn.innerHTML = '✓ Đã Lưu'; btn.style.backgroundColor = '#107c41'; }
+      setTimeout(() => {
+        if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; btn.style.backgroundColor = ''; }
+      }, 2500);
     } catch (err) {
-      if (statusEl) { statusEl.textContent = 'Lỗi: ' + err.message; statusEl.className = 'feature-config-feedback is-error'; }
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-error';
+        statusEl.innerHTML = '✕ <strong>Lỗi:</strong> ' + escapeHtml(err.message);
+      }
+      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
     }
   }
 
@@ -422,8 +518,17 @@
   async function saveCapiConfig(e) {
     e.preventDefault();
     const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
     const statusEl = document.getElementById('capi-config-status');
+    const origBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt CAPI';
     const formData = new FormData(form);
+
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Đang kiểm tra...'; }
+    if (statusEl) {
+      statusEl.className = 'feature-config-feedback';
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 1/3]</span> Đang kiểm tra mã định danh Pixel...';
+    }
+
     const body = {
       metaPixelId: String(formData.get('metaPixelId') || '').trim(),
       tikTokPixelId: String(formData.get('tikTokPixelId') || '').trim(),
@@ -431,13 +536,28 @@
       mode: formData.get('mode') || 'simulation'
     };
 
-    if (statusEl) { statusEl.textContent = 'Đang lưu...'; statusEl.className = 'feature-config-feedback'; }
+    if (btn) btn.innerHTML = '⏳ Đang lưu máy chủ...';
+    if (statusEl) {
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 2/3]</span> Đang cập nhật khóa Pixel vào máy chủ bảo mật...';
+    }
+
     try {
       await requestApi('/api/gaeru_ceo/capi/config', { method: 'POST', body });
-      if (statusEl) { statusEl.textContent = '✓ Đã lưu cài đặt CAPI thành công!'; statusEl.className = 'feature-config-feedback is-success'; }
-      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+      const nowStr = new Date().toLocaleTimeString('vi-VN');
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-success';
+        statusEl.innerHTML = `✓ <strong>[Thao tác 3/3 Hoàn tất]</strong> Đã lưu và kích hoạt lúc ${nowStr}!`;
+      }
+      if (btn) { btn.innerHTML = '✓ Đã Lưu'; btn.style.backgroundColor = '#107c41'; }
+      setTimeout(() => {
+        if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; btn.style.backgroundColor = ''; }
+      }, 2500);
     } catch (err) {
-      if (statusEl) { statusEl.textContent = 'Lỗi: ' + err.message; statusEl.className = 'feature-config-feedback is-error'; }
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-error';
+        statusEl.innerHTML = '✕ <strong>Lỗi:</strong> ' + escapeHtml(err.message);
+      }
+      if (btn) { btn.disabled = false; btn.innerHTML = origBtnText; }
     }
   }
 
@@ -532,52 +652,58 @@
 
     try {
       const { settings } = await requestApi('/api/gaeru_ceo/upgrades/settings');
+      const shipCfg = settings.shipping || {
+        defaultCarrier: 'flexible',
+        autoSelectCheapest: true,
+        enabledCarriers: ['ghn', 'ghtk', 'viettel', 'spx', 'jt']
+      };
 
       container.innerHTML = `
         <!-- 1. RMA Settings -->
-        <div class="feature-config-card">
+        <div class="feature-config-card" id="card-cfg-rma">
           <div class="feature-config-header">
             <h3>🛡️ Cài Đặt Bảo Hành 1 Đổi 1 & Gửi Phiếu RMA</h3>
-            <span class="up-badge up-badge-success">Chính hãng</span>
+            <span class="up-badge up-badge-success">Chính hãng 1-1</span>
           </div>
           <div class="feature-config-grid">
             <div class="feature-config-field">
-              <label>Thời hạn đổi mới:</label>
+              <label>Thời hạn đổi mới 1-1 (ngày):</label>
               <input type="number" id="cfg-rma-days" class="feature-config-input" value="${settings.rma?.returnDays || 30}" min="7" max="90">
-              <p class="feature-config-note">Số ngày áp dụng đổi mới 1-1 cho lỗi kỹ thuật.</p>
+              <p class="feature-config-note">Số ngày áp dụng đổi mới 1-1 cho lỗi kỹ thuật từ lúc nhận.</p>
             </div>
             <div class="feature-config-field">
-              <label>Hotline Kỹ thuật:</label>
-              <input type="text" id="cfg-rma-phone" class="feature-config-input" value="${escapeHtml(settings.rma?.supportHotline || '0901234567')}">
+              <label>Hotline Kỹ thuật hỗ trợ:</label>
+              <input type="text" id="cfg-rma-phone" class="feature-config-input" value="${escapeHtml(settings.rma?.supportHotline || '0829191080')}">
               <p class="feature-config-note">Số tiếp nhận và tư vấn kỹ thuật trực tiếp.</p>
             </div>
             <div class="feature-config-field" style="grid-column:1 / -1;">
               <label>Địa chỉ kho nhận bưu phẩm hoàn:</label>
               <input type="text" id="cfg-rma-addr" class="feature-config-input" value="${escapeHtml(settings.rma?.warehouseAddress || '')}">
-              <p class="feature-config-note">Địa chỉ bưu tá Shopee Express gửi máy về kho.</p>
+              <p class="feature-config-note">Địa chỉ bưu tá (GHN, GHTK, Viettel, SPX) chuyển máy về thẩm định.</p>
             </div>
           </div>
           <div class="feature-config-actions">
-            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('rma')">Lưu Cài Đặt RMA</button>
+            <span id="status-setting-rma" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-rma" onclick="window.GAERUUpgradesHub.saveSettingModule('rma')">Lưu Cài Đặt RMA</button>
           </div>
         </div>
 
         <!-- 2. BNPL Settings -->
-        <div class="feature-config-card">
+        <div class="feature-config-card" id="card-cfg-bnpl">
           <div class="feature-config-header">
             <h3>💳 Cài Đặt Mua Trước Trả Sau BNPL (Fundiin & Kredivo)</h3>
             <span class="up-badge up-badge-info">0% Lãi Suất</span>
           </div>
           <div class="feature-config-grid">
             <div class="feature-config-field">
-              <label>Cổng Fundiin:</label>
+              <label>Cổng Fundiin (3 - 4 kỳ):</label>
               <select id="cfg-bnpl-fundiin" class="feature-config-select">
                 <option value="true" ${settings.bnpl?.fundiinEnabled ? 'selected' : ''}>Kích hoạt (Bật)</option>
                 <option value="false" ${!settings.bnpl?.fundiinEnabled ? 'selected' : ''}>Tạm tắt</option>
               </select>
             </div>
             <div class="feature-config-field">
-              <label>Cổng Kredivo:</label>
+              <label>Cổng Kredivo (3 - 6 - 12 tháng):</label>
               <select id="cfg-bnpl-kredivo" class="feature-config-select">
                 <option value="true" ${settings.bnpl?.kredivoEnabled ? 'selected' : ''}>Kích hoạt (Bật)</option>
                 <option value="false" ${!settings.bnpl?.kredivoEnabled ? 'selected' : ''}>Tạm tắt</option>
@@ -593,31 +719,32 @@
             </div>
           </div>
           <div class="feature-config-actions">
-            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('bnpl')">Lưu Cài Đặt BNPL</button>
+            <span id="status-setting-bnpl" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-bnpl" onclick="window.GAERUUpgradesHub.saveSettingModule('bnpl')">Lưu Cài Đặt BNPL</button>
           </div>
         </div>
 
         <!-- 3. Server CAPI Settings -->
-        <div class="feature-config-card">
+        <div class="feature-config-card" id="card-cfg-capi">
           <div class="feature-config-header">
             <h3>🎯 Cài Đặt Server-Side Conversion API (Meta & TikTok)</h3>
             <span class="up-badge up-badge-success">Chống AdBlock</span>
           </div>
           <div class="feature-config-grid">
             <div class="feature-config-field">
-              <label>Meta Pixel ID:</label>
-              <input type="text" id="cfg-capi-meta" class="feature-config-input" value="${escapeHtml(settings.capi?.metaPixelId || '')}">
+              <label>Meta Pixel ID (Facebook):</label>
+              <input type="text" id="cfg-capi-meta" class="feature-config-input" value="${escapeHtml(settings.capi?.metaPixelId || '')}" placeholder="123456789012345">
             </div>
             <div class="feature-config-field">
               <label>TikTok Pixel ID:</label>
-              <input type="text" id="cfg-capi-tiktok" class="feature-config-input" value="${escapeHtml(settings.capi?.tikTokPixelId || '')}">
+              <input type="text" id="cfg-capi-tiktok" class="feature-config-input" value="${escapeHtml(settings.capi?.tikTokPixelId || '')}" placeholder="C1234567890ABCDEF">
             </div>
             <div class="feature-config-field">
               <label>Test Event Code:</label>
-              <input type="text" id="cfg-capi-test" class="feature-config-input" value="${escapeHtml(settings.capi?.testEventCode || '')}">
+              <input type="text" id="cfg-capi-test" class="feature-config-input" value="${escapeHtml(settings.capi?.testEventCode || '')}" placeholder="TEST12345">
             </div>
             <div class="feature-config-field">
-              <label>Chế độ vận hành:</label>
+              <label>Chế độ vận hành CAPI:</label>
               <select id="cfg-capi-mode" class="feature-config-select">
                 <option value="simulation" ${settings.capi?.mode === 'simulation' ? 'selected' : ''}>Mô phỏng (Simulation Sandbox)</option>
                 <option value="live" ${settings.capi?.mode === 'live' ? 'selected' : ''}>Trực tiếp (Live Production)</option>
@@ -625,20 +752,21 @@
             </div>
           </div>
           <div class="feature-config-actions">
-            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('capi')">Lưu Cài Đặt CAPI</button>
+            <span id="status-setting-capi" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-capi" onclick="window.GAERUUpgradesHub.saveSettingModule('capi')">Lưu Cài Đặt CAPI</button>
           </div>
         </div>
 
         <!-- 4. Loyalty VIP Settings -->
-        <div class="feature-config-card">
+        <div class="feature-config-card" id="card-cfg-loyalty">
           <div class="feature-config-header">
             <h3>✦ Cài Đặt Điểm Thưởng Khách Hàng Thân Thiết (Loyalty VIP)</h3>
-            <span class="up-badge up-badge-warning">4 Hạng Thẻ</span>
+            <span class="up-badge up-badge-warning">4 Hạng Thẻ VIP</span>
           </div>
           <div class="feature-config-grid">
             <div class="feature-config-field">
               <label>Tỷ lệ tích điểm đơn hàng (%):</label>
-              <input type="number" id="cfg-loyalty-rate" class="feature-config-input" value="${settings.loyalty?.earnRatePercent || 1.0}" step="0.1">
+              <input type="number" id="cfg-loyalty-rate" class="feature-config-input" value="${settings.loyalty?.earnRatePercent || 1.0}" step="0.1" min="0" max="20">
             </div>
             <div class="feature-config-field">
               <label>Ngưỡng thăng Hạng Bạc (Điểm):</label>
@@ -654,19 +782,20 @@
             </div>
           </div>
           <div class="feature-config-actions">
-            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('loyalty')">Lưu Cài Đặt Loyalty</button>
+            <span id="status-setting-loyalty" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-loyalty" onclick="window.GAERUUpgradesHub.saveSettingModule('loyalty')">Lưu Cài Đặt Loyalty</button>
           </div>
         </div>
 
         <!-- 5. Affiliate CTV KOC Settings -->
-        <div class="feature-config-card">
+        <div class="feature-config-card" id="card-cfg-affiliate">
           <div class="feature-config-header">
             <h3>🤝 Cài Đặt Tiếp Thị Liên Kết KOC (Affiliate CTV)</h3>
-            <span class="up-badge up-badge-info">Hoa Hồng 8%</span>
+            <span class="up-badge up-badge-info">Hoa Hồng Đối Tác</span>
           </div>
           <div class="feature-config-grid">
             <div class="feature-config-field">
-              <label>Tỷ lệ hoa hồng (%):</label>
+              <label>Tỷ lệ hoa hồng mặc định (%):</label>
               <input type="number" id="cfg-aff-comm" class="feature-config-input" value="${settings.affiliate?.commissionPercent || 8}" min="1" max="50">
             </div>
             <div class="feature-config-field">
@@ -683,41 +812,86 @@
             </div>
           </div>
           <div class="feature-config-actions">
-            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('affiliate')">Lưu Cài Đặt Tiếp Thị</button>
+            <span id="status-setting-affiliate" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-affiliate" onclick="window.GAERUUpgradesHub.saveSettingModule('affiliate')">Lưu Cài Đặt Tiếp Thị</button>
           </div>
         </div>
 
         <!-- 6. Web Push Settings -->
-        <div class="feature-config-card">
+        <div class="feature-config-card" id="card-cfg-webPush">
           <div class="feature-config-header">
             <h3>🔔 Cài Đặt Thông Báo Đẩy Web Push Trình Duyệt</h3>
-            <span class="up-badge up-badge-success">Tức thì</span>
+            <span class="up-badge up-badge-success">Thời gian thực</span>
           </div>
           <div class="feature-config-grid">
             <div class="feature-config-field">
               <label>Thông báo khi có đơn hàng mới:</label>
               <select id="cfg-push-order" class="feature-config-select">
-                <option value="true" ${settings.webPush?.autoNotifyNewOrder ? 'selected' : ''}>Bật</option>
+                <option value="true" ${settings.webPush?.autoNotifyNewOrder ? 'selected' : ''}>Bật (Tự động)</option>
                 <option value="false" ${!settings.webPush?.autoNotifyNewOrder ? 'selected' : ''}>Tắt</option>
               </select>
             </div>
             <div class="feature-config-field">
-              <label>Thông báo khi xuất kho đơn vị vận chuyển:</label>
+              <label>Thông báo khi xuất kho bưu tá:</label>
               <select id="cfg-push-ship" class="feature-config-select">
-                <option value="true" ${settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Bật</option>
+                <option value="true" ${settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Bật (Tự động)</option>
                 <option value="false" ${!settings.webPush?.autoNotifyShipping ? 'selected' : ''}>Tắt</option>
               </select>
             </div>
             <div class="feature-config-field">
               <label>Thông báo chiến dịch Flash Sale:</label>
               <select id="cfg-push-sale" class="feature-config-select">
-                <option value="true" ${settings.webPush?.autoNotifyFlashSale ? 'selected' : ''}>Bật</option>
+                <option value="true" ${settings.webPush?.autoNotifyFlashSale ? 'selected' : ''}>Bật (Tự động)</option>
                 <option value="false" ${!settings.webPush?.autoNotifyFlashSale ? 'selected' : ''}>Tắt</option>
               </select>
             </div>
           </div>
           <div class="feature-config-actions">
-            <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.saveSettingModule('webPush')">Lưu Cài Đặt Web Push</button>
+            <span id="status-setting-webPush" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-webPush" onclick="window.GAERUUpgradesHub.saveSettingModule('webPush')">Lưu Cài Đặt Web Push</button>
+          </div>
+        </div>
+
+        <!-- 7. Multi-Carrier Shipping Settings -->
+        <div class="feature-config-card" id="card-cfg-shipping">
+          <div class="feature-config-header">
+            <h3>🚚 Cài Đặt Vận Chuyển Đa Kênh (GHN, GHTK, Viettel, SPX, J&T)</h3>
+            <span class="up-badge up-badge-info">Đa Đối Tác</span>
+          </div>
+          <div class="feature-config-grid">
+            <div class="feature-config-field">
+              <label>Chính sách phân bổ đơn vị giao hàng:</label>
+              <select id="cfg-ship-default" class="feature-config-select">
+                <option value="flexible" ${shipCfg.defaultCarrier === 'flexible' ? 'selected' : ''}>Linh hoạt đa kênh (Theo khách chọn & tối ưu tuyến)</option>
+                <option value="ghn" ${shipCfg.defaultCarrier === 'ghn' ? 'selected' : ''}>Ưu tiên Giao Hàng Nhanh (GHN)</option>
+                <option value="ghtk" ${shipCfg.defaultCarrier === 'ghtk' ? 'selected' : ''}>Ưu tiên Giao Hàng Tiết Kiệm (GHTK)</option>
+                <option value="viettel" ${shipCfg.defaultCarrier === 'viettel' ? 'selected' : ''}>Ưu tiên Viettel Post</option>
+                <option value="spx" ${shipCfg.defaultCarrier === 'spx' ? 'selected' : ''}>Ưu tiên Shopee Express (SPX)</option>
+                <option value="jt" ${shipCfg.defaultCarrier === 'jt' ? 'selected' : ''}>Ưu tiên J&T Express</option>
+              </select>
+              <p class="feature-config-note">Không cố định đơn vị độc quyền, cho phép tối ưu cước phí và thời gian giao.</p>
+            </div>
+            <div class="feature-config-field">
+              <label>Tự động đề xuất đơn vị cước phí rẻ nhất:</label>
+              <select id="cfg-ship-cheapest" class="feature-config-select">
+                <option value="true" ${shipCfg.autoSelectCheapest ? 'selected' : ''}>Bật (Tự động chọn tuyến rẻ & nhanh)</option>
+                <option value="false" ${!shipCfg.autoSelectCheapest ? 'selected' : ''}>Tắt</option>
+              </select>
+            </div>
+            <div class="feature-config-field" style="grid-column:1 / -1;">
+              <label>Các hãng vận chuyển kích hoạt phục vụ:</label>
+              <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;">
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="cfg-carrier-ghn" ${shipCfg.enabledCarriers?.includes('ghn') ? 'checked' : ''}> Giao Hàng Nhanh (GHN)</label>
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="cfg-carrier-ghtk" ${shipCfg.enabledCarriers?.includes('ghtk') ? 'checked' : ''}> Giao Hàng Tiết Kiệm (GHTK)</label>
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="cfg-carrier-viettel" ${shipCfg.enabledCarriers?.includes('viettel') ? 'checked' : ''}> Viettel Post</label>
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="cfg-carrier-spx" ${shipCfg.enabledCarriers?.includes('spx') ? 'checked' : ''}> Shopee Express (SPX)</label>
+                <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="cfg-carrier-jt" ${shipCfg.enabledCarriers?.includes('jt') ? 'checked' : ''}> J&T Express</label>
+              </div>
+            </div>
+          </div>
+          <div class="feature-config-actions">
+            <span id="status-setting-shipping" class="feature-config-feedback"></span>
+            <button type="button" class="primary-button" id="btn-save-shipping" onclick="window.GAERUUpgradesHub.saveSettingModule('shipping')">Lưu Cài Đặt Vận Chuyển</button>
           </div>
         </div>
       `;
@@ -727,61 +901,130 @@
   }
 
   async function saveSettingModule(moduleName) {
-    let settings = {};
-    if (moduleName === 'rma') {
-      settings = {
-        returnDays: Number(document.getElementById('cfg-rma-days')?.value) || 30,
-        supportHotline: String(document.getElementById('cfg-rma-phone')?.value || '').trim(),
-        warehouseAddress: String(document.getElementById('cfg-rma-addr')?.value || '').trim()
-      };
-    } else if (moduleName === 'bnpl') {
-      settings = {
-        fundiinEnabled: document.getElementById('cfg-bnpl-fundiin')?.value === 'true',
-        kredivoEnabled: document.getElementById('cfg-bnpl-kredivo')?.value === 'true',
-        minAmountVnd: Number(document.getElementById('cfg-bnpl-min')?.value) || 300000,
-        maxAmountVnd: Number(document.getElementById('cfg-bnpl-max')?.value) || 30000000
-      };
-    } else if (moduleName === 'capi') {
-      settings = {
-        metaPixelId: String(document.getElementById('cfg-capi-meta')?.value || '').trim(),
-        tikTokPixelId: String(document.getElementById('cfg-capi-tiktok')?.value || '').trim(),
-        testEventCode: String(document.getElementById('cfg-capi-test')?.value || '').trim(),
-        mode: document.getElementById('cfg-capi-mode')?.value || 'simulation'
-      };
-    } else if (moduleName === 'loyalty') {
-      settings = {
-        earnRatePercent: Number(document.getElementById('cfg-loyalty-rate')?.value) || 1.0,
-        silverPointsThreshold: Number(document.getElementById('cfg-loyalty-silver')?.value) || 1000,
-        goldPointsThreshold: Number(document.getElementById('cfg-loyalty-gold')?.value) || 5000,
-        diamondPointsThreshold: Number(document.getElementById('cfg-loyalty-diamond')?.value) || 10000
-      };
-    } else if (moduleName === 'affiliate') {
-      settings = {
-        commissionPercent: Number(document.getElementById('cfg-aff-comm')?.value) || 8,
-        cookieDays: Number(document.getElementById('cfg-aff-cookie')?.value) || 30,
-        minPayoutVnd: Number(document.getElementById('cfg-aff-payout')?.value) || 200000,
-        payoutDayOfMonth: Number(document.getElementById('cfg-aff-day')?.value) || 15
-      };
-    } else if (moduleName === 'webPush') {
-      settings = {
-        autoNotifyNewOrder: document.getElementById('cfg-push-order')?.value === 'true',
-        autoNotifyShipping: document.getElementById('cfg-push-ship')?.value === 'true',
-        autoNotifyFlashSale: document.getElementById('cfg-push-sale')?.value === 'true'
-      };
+    const btn = document.getElementById(`btn-save-${moduleName}`) || document.querySelector(`button[onclick*="'${moduleName}'"]`);
+    const statusEl = document.getElementById(`status-setting-${moduleName}`) || btn?.parentElement?.querySelector('.feature-config-feedback');
+    const originalBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt';
+
+    // Thao tác 1/3: Thu thập và kiểm tra dữ liệu đầu vào (Client Validation)
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = 'Đang kiểm tra...';
+    }
+    if (statusEl) {
+      statusEl.className = 'feature-config-feedback';
+      statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 1/3]</span> Đang kiểm tra tính hợp lệ dữ liệu...';
     }
 
+    let settings = {};
     try {
+      if (moduleName === 'rma') {
+        const days = Number(document.getElementById('cfg-rma-days')?.value);
+        if (isNaN(days) || days < 7 || days > 90) throw new Error('Thời hạn đổi mới phải từ 7 đến 90 ngày.');
+        const hotline = String(document.getElementById('cfg-rma-phone')?.value || '').trim();
+        if (!hotline) throw new Error('Hotline kỹ thuật không được để trống.');
+        const addr = String(document.getElementById('cfg-rma-addr')?.value || '').trim();
+        if (!addr) throw new Error('Địa chỉ kho nhận không được để trống.');
+        settings = { returnDays: days, supportHotline: hotline, warehouseAddress: addr };
+      } else if (moduleName === 'bnpl') {
+        const minVal = Number(document.getElementById('cfg-bnpl-min')?.value) || 300000;
+        const maxVal = Number(document.getElementById('cfg-bnpl-max')?.value) || 30000000;
+        if (minVal >= maxVal) throw new Error('Hạn mức tối thiểu phải nhỏ hơn hạn mức tối đa.');
+        settings = {
+          fundiinEnabled: document.getElementById('cfg-bnpl-fundiin')?.value === 'true',
+          kredivoEnabled: document.getElementById('cfg-bnpl-kredivo')?.value === 'true',
+          minAmountVnd: minVal,
+          maxAmountVnd: maxVal
+        };
+      } else if (moduleName === 'capi') {
+        settings = {
+          metaPixelId: String(document.getElementById('cfg-capi-meta')?.value || '').trim(),
+          tikTokPixelId: String(document.getElementById('cfg-capi-tiktok')?.value || '').trim(),
+          testEventCode: String(document.getElementById('cfg-capi-test')?.value || '').trim(),
+          mode: document.getElementById('cfg-capi-mode')?.value || 'simulation'
+        };
+      } else if (moduleName === 'loyalty') {
+        const rate = Number(document.getElementById('cfg-loyalty-rate')?.value);
+        if (isNaN(rate) || rate < 0 || rate > 20) throw new Error('Tỷ lệ tích điểm phải từ 0% đến 20%.');
+        settings = {
+          earnRatePercent: rate,
+          silverPointsThreshold: Number(document.getElementById('cfg-loyalty-silver')?.value) || 1000,
+          goldPointsThreshold: Number(document.getElementById('cfg-loyalty-gold')?.value) || 5000,
+          diamondPointsThreshold: Number(document.getElementById('cfg-loyalty-diamond')?.value) || 10000
+        };
+      } else if (moduleName === 'affiliate') {
+        const comm = Number(document.getElementById('cfg-aff-comm')?.value);
+        if (isNaN(comm) || comm < 1 || comm > 50) throw new Error('Hoa hồng tiếp thị phải từ 1% đến 50%.');
+        settings = {
+          commissionPercent: comm,
+          cookieDays: Number(document.getElementById('cfg-aff-cookie')?.value) || 30,
+          minPayoutVnd: Number(document.getElementById('cfg-aff-payout')?.value) || 200000,
+          payoutDayOfMonth: Number(document.getElementById('cfg-aff-day')?.value) || 15
+        };
+      } else if (moduleName === 'webPush') {
+        settings = {
+          autoNotifyNewOrder: document.getElementById('cfg-push-order')?.value === 'true',
+          autoNotifyShipping: document.getElementById('cfg-push-ship')?.value === 'true',
+          autoNotifyFlashSale: document.getElementById('cfg-push-sale')?.value === 'true'
+        };
+      } else if (moduleName === 'shipping') {
+        const defaultCarrier = document.getElementById('cfg-ship-default')?.value || 'flexible';
+        const autoCheapest = document.getElementById('cfg-ship-cheapest')?.value === 'true';
+        const enabledCarriers = [];
+        ['ghn', 'ghtk', 'viettel', 'spx', 'jt'].forEach(c => {
+          const chk = document.getElementById(`cfg-carrier-${c}`);
+          if (!chk || chk.checked) enabledCarriers.push(c);
+        });
+        settings = {
+          defaultCarrier,
+          autoSelectCheapest: autoCheapest,
+          enabledCarriers
+        };
+      }
+
+      // Thao tác 2/3: Truyền tải dữ liệu lên máy chủ và lưu trữ DB
+      if (btn) btn.innerHTML = '⏳ Đang lưu máy chủ...';
+      if (statusEl) {
+        statusEl.innerHTML = '<span style="color:#0071e3;">[Thao tác 2/3]</span> Đang mã hóa và ghi dữ liệu vào máy chủ...';
+      }
+
       await requestApi('/api/gaeru_ceo/upgrades/settings', {
         method: 'POST',
         body: { module: moduleName, settings }
       });
-      alert(`✓ Đã lưu cài đặt ${moduleName.toUpperCase()} thành công!`);
+
+      // Thao tác 3/3: Xác nhận thành công và hiển thị thời gian lưu
+      const nowStr = new Date().toLocaleTimeString('vi-VN');
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-success';
+        statusEl.innerHTML = `✓ <strong>[Thao tác 3/3 Hoàn tất]</strong> Đã lưu & kích hoạt lúc ${nowStr}!`;
+      }
+      if (btn) {
+        btn.innerHTML = '✓ Đã Lưu';
+        btn.style.backgroundColor = '#107c41';
+        btn.style.borderColor = '#107c41';
+      }
+
+      setTimeout(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalBtnText;
+          btn.style.backgroundColor = '';
+          btn.style.borderColor = '';
+        }
+      }, 2500);
+
     } catch (err) {
-      alert(`Lỗi lưu cài đặt: ${err.message}`);
+      if (statusEl) {
+        statusEl.className = 'feature-config-feedback is-error';
+        statusEl.innerHTML = `✕ <strong>Lỗi:</strong> ${escapeHtml(err.message)}`;
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalBtnText;
+      }
     }
   }
 
-  // =========================================================================
   // TAB SWITCHING & HELPERS
   // =========================================================================
   function switchUpgradeTab(tabId) {

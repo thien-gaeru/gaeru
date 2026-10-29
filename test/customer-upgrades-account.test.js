@@ -20,31 +20,33 @@ test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) 
     assert.ok(publicFiles.has('customer-upgrades.css'), 'publicFiles should include customer-upgrades.css');
   });
 
-  await t.test('customer-upgrades.css defines Apple-style styling for VIP Card and Services Grid', () => {
+  await t.test('customer-upgrades.css defines Apple-style styling for VIP Card, Quick Actions and RMA Section', () => {
     const css = fs.readFileSync(path.join(__dirname, '..', 'customer-upgrades.css'), 'utf8');
     assert.match(css, /\.gaeru-vip-card/, 'CSS should define .gaeru-vip-card');
     assert.match(css, /\.tier-diamond/, 'CSS should define diamond tier styling');
     assert.match(css, /\.tier-gold/, 'CSS should define gold tier styling');
-    assert.match(css, /\.gaeru-services-grid/, 'CSS should define .gaeru-services-grid');
-    assert.match(css, /\.gaeru-service-tile/, 'CSS should define .gaeru-service-tile');
+    assert.match(css, /\.gaeru-account-quick-actions/, 'CSS should define .gaeru-account-quick-actions');
+    assert.match(css, /\.gaeru-action-pill/, 'CSS should define .gaeru-action-pill');
     assert.match(css, /\.gaeru-rma-section/, 'CSS should define .gaeru-rma-section');
     assert.match(css, /\.gaeru-dialog/, 'CSS should define .gaeru-dialog modal');
   });
 
-  await t.test('customer-upgrades-ui.js implements all 8 upgraded customer services', () => {
+  await t.test('customer-upgrades-ui.js displays only clean, context-specific account features', () => {
     const script = fs.readFileSync(path.join(__dirname, '..', 'customer-upgrades-ui.js'), 'utf8');
+    // Essential customer account features
     assert.match(script, /fetchCustomerLoyalty/, 'Script should fetch loyalty profile');
-    assert.match(script, /fetchCustomerRma/, 'Script should lookup RMA tickets');
-    assert.match(script, /data-service-tile="tracking"/, 'Script should have SPX tracking action');
+    assert.match(script, /renderVipCard/, 'Script should render VIP Loyalty Card');
+    assert.match(script, /fetchCustomerRma/, 'Script should lookup personal RMA tickets');
+    assert.match(script, /renderRmaSection/, 'Script should render personal RMA warranty section');
+    assert.match(script, /renderAccountQuickActions/, 'Script should render compact account quick actions');
+    assert.match(script, /data-service-tile="tracking"/, 'Script should have order tracking action');
     assert.match(script, /data-service-tile="rma"/, 'Script should have RMA 1-1 action');
-    assert.match(script, /data-service-tile="bnpl"/, 'Script should have BNPL 0% action');
-    assert.match(script, /data-service-tile="quiz"/, 'Script should have AI quiz action');
     assert.match(script, /data-service-tile="affiliate"/, 'Script should have KOC affiliate action');
-    assert.match(script, /data-service-tile="compare"/, 'Script should have compare action');
-    assert.match(script, /data-service-tile="care"/, 'Script should have GAERU Care+ action');
     assert.match(script, /data-service-tile="push"/, 'Script should have Web Push action');
-    assert.match(script, /openBnplCalculatorModal/, 'Script should support interactive BNPL calculator');
-    assert.match(script, /openAffiliateModal/, 'Script should support affiliate link sharing');
-    assert.match(script, /enhanceCustomerOrders/, 'Script should enhance customer orders with SPX & RMA links');
+    assert.match(script, /enhanceCustomerOrders/, 'Script should enhance customer orders with tracking & RMA links');
+
+    // Cluttered catalog features must NOT be rendered in account hub
+    assert.doesNotMatch(script, /AI Creator Setup Finder<\/h4>/, 'Account page must NOT display marketing AI quiz');
+    assert.doesNotMatch(script, /So sánh thông số thiết bị<\/h4>/, 'Account page must NOT display catalog specs comparison');
   });
 });
