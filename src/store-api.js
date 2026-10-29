@@ -642,7 +642,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       pool.query(`SELECT COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
         COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled'))::int AS "needsAction",
-        COUNT(*) FILTER (WHERE payment_status = 'pending' AND status <> 'cancelled')::int AS "paymentPending"
+        COUNT(*) FILTER (WHERE payment_status = 'pending' AND status <> 'cancelled' AND return_completed_at IS NULL)::int AS "paymentPending"
         FROM orders`),
       getSettings(pool, ["shipping_rates"]),
       getTrafficSummary(pool)
@@ -823,7 +823,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.get("/gaeru_ceo/orders", async (req, res) => {
     const status = String(req.query.status || "");
-    if (status && !Object.hasOwn(transitions, status) && !['ready_to_ship','cancelled_or_returned'].includes(status)) {
+    if (status && !Object.hasOwn(transitions, status) && !['ready_to_ship','cancelled_or_returned','payment_pending'].includes(status)) {
       return res.status(400).json({ error: "Bộ lọc trạng thái đơn hàng không hợp lệ." });
     }
     const paymentStatus = String(req.query.paymentStatus || "");
@@ -846,11 +846,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const filterValues = [status, search, paymentStatus, paymentMethod];
     const where = `${checkoutAccounts ? "NOT EXISTS (SELECT 1 FROM order_reviews r WHERE r.order_id=o.id AND r.resolved_at IS NULL) AND " : ""}($1::text = '' OR o.status = $1
       OR ($1='ready_to_ship' AND o.status IN ('confirmed','processing') AND o.return_completed_at IS NULL)
+      OR ($1='payment_pending' AND o.payment_status = 'pending' AND o.status <> 'cancelled' AND o.return_completed_at IS NULL)
       OR ($1='cancelled_or_returned' AND (o.status='cancelled' OR EXISTS(SELECT 1 FROM order_after_sales a WHERE a.order_id=o.id AND a.kind='return'))))
       AND ($2::text = '' OR o.order_number ILIKE '%' || $2 || '%'
         OR o.customer_name ILIKE '%' || $2 || '%'
         OR o.email ILIKE '%' || $2 || '%' OR o.phone ILIKE '%' || $2 || '%')
-      AND ($3::text = '' OR o.payment_status = $3)
+      AND ($3::text = '' OR (o.payment_status = $3 AND ($3 <> 'pending' OR (o.status <> 'cancelled' AND o.return_completed_at IS NULL) OR $1 IN ('cancelled','cancelled_or_returned'))))
       AND ($4::text = '' OR o.payment_method = $4)
       AND ($1 NOT IN ('completed','shipped') OR o.return_completed_at IS NULL)`;
     const countResult = await pool.query(

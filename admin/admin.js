@@ -160,7 +160,12 @@ async function loadSummary() {
   document.querySelector("#product-count").textContent = summary.products.total;
   document.querySelector("#pending-order-count").textContent = summary.orders.needsAction;
   document.querySelector("#order-count").textContent = summary.orders.total;
+  state.paymentPending = summary.orders.paymentPending;
   document.querySelector("#unpaid-order-count").textContent = summary.orders.paymentPending;
+  const unpaidOrdersBadge = document.querySelector("#unpaid-orders-count");
+  if (unpaidOrdersBadge) unpaidOrdersBadge.textContent = summary.orders.paymentPending;
+  const unpaidTabSpan = document.querySelector('[data-order-tab="payment_pending"] span');
+  if (unpaidTabSpan) unpaidTabSpan.textContent = summary.orders.paymentPending;
   document.querySelector("#low-stock-count").textContent = summary.products.lowStock;
   document.querySelector("#orders-gate-notice").hidden = summary.ordersEnabled;
   document.querySelector("#shipping-rates-notice").hidden = summary.shippingRatesConfigured;
@@ -666,7 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
     delay: 15000,
     active: () => Boolean(state.session) && !document.querySelector('#admin-app').hidden && can('orders.read')
       && (!document.querySelector('#orders-view').hidden || !document.querySelector('#overview-view').hidden),
-    run: () => document.querySelector('#orders-view').hidden ? loadSummary() : loadOrders(state.orderPage, { background: true }),
+    run: () => document.querySelector('#orders-view').hidden ? loadSummary() : Promise.all([loadOrders(state.orderPage, { background: true }), loadSummary()]),
     status: message => { if (message.includes('Phiên')) document.querySelector('#order-live-status').textContent = message; }
   });
   window.addEventListener('focus', poll.refresh);
@@ -1044,7 +1049,7 @@ async function activateView(view, { updateHistory = true } = {}) {
   document.querySelector(".sidebar-toggle").setAttribute("aria-expanded", "false");
   try {
     if (button.dataset.view === "products") { await loadProducts(document.querySelector("#product-search").value.trim()); checkProductAddedNotice(); }
-    if (button.dataset.view === "orders") await loadOrders();
+    if (button.dataset.view === "orders") await Promise.all([loadOrders(), loadSummary()]);
     if (view === "payments") await window.GAERUConfiguration.mountPayments();
     if (view === "oauth" && window.GAERUConfiguration) await window.GAERUConfiguration.mountOAuth();
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
@@ -1078,15 +1083,30 @@ document.querySelectorAll("[data-view]").forEach((button) => button.addEventList
 document.querySelectorAll("[data-shortcut]").forEach((button) => button.addEventListener("click", () => {
   if (button.dataset.shortcut === "stock") {
     activateView("inventory");
+  } else if (button.dataset.shortcut === "unpaid") {
+    document.querySelector("#order-search").value = "";
+    document.querySelector("#order-filter").value = "payment_pending";
+    document.querySelector("#order-payment-filter").value = "";
+    document.querySelector("#order-method-filter").value = "";
+    state.orderPage = 1;
+    activateView("orders");
   } else {
     document.querySelector("#order-search").value = "";
     document.querySelector("#order-filter").value = button.dataset.shortcut === "pending" ? "pending" : "";
-    document.querySelector("#order-payment-filter").value = button.dataset.shortcut === "unpaid" ? "pending" : "";
+    document.querySelector("#order-payment-filter").value = "";
     document.querySelector("#order-method-filter").value = "";
     state.orderPage = 1;
     activateView("orders");
   }
 }));
+document.querySelector("#card-unpaid-orders")?.addEventListener("click", () => {
+  document.querySelector("#order-search").value = "";
+  document.querySelector("#order-filter").value = "payment_pending";
+  document.querySelector("#order-payment-filter").value = "";
+  document.querySelector("#order-method-filter").value = "";
+  state.orderPage = 1;
+  activateView("orders");
+});
 
 document.querySelector("#product-search").addEventListener("input", async (event) => {
   window.clearTimeout(state.productSearchTimer);
@@ -1356,11 +1376,20 @@ document.querySelector('#customer-list').addEventListener('submit',async e=>{if(
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-delete]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');if(!form.reportValidity())return;button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerDelete+'/delete',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value,confirmed:form.elements.confirmed.checked})});await loadCustomers();showGlobal('Đã gửi email xác nhận xóa; tài khoản vẫn hoạt động đến khi khách xác nhận.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
 
 function renderOrderOverview(counts) {
-  const tabs = [['','Tất cả'],['pending','Chờ xác nhận'],['ready_to_ship','chờ gửi hàng'],['shipped','Đã giao hàng'],['completed','Hoàn Tất'],['cancelled_or_returned','Hủy & Hoàn trả']];
+  const tabs = [['','Tất cả'],['payment_pending','Đơn chờ thanh toán'],['pending','Chờ xác nhận'],['ready_to_ship','chờ gửi hàng'],['shipped','Đã giao hàng'],['completed','Hoàn Tất'],['cancelled_or_returned','Hủy & Hoàn trả']];
   const total = ['pending','confirmed','processing','shipped','completed','cancelled','returned'].reduce((sum,key)=>sum+Number(counts[key]||0),0);
-  const values={...counts,ready_to_ship:Number(counts.confirmed||0)+Number(counts.processing||0)};
+  const values={...counts,ready_to_ship:Number(counts.confirmed||0)+Number(counts.processing||0),payment_pending:Number(counts.payment_pending??counts.paymentPending??0)};
   const afterSalesOpen = !document.querySelector('#after-sales-panel').hidden;
-  document.querySelector('#order-tabs').innerHTML = tabs.map(([key,title])=>`<button type="button" data-order-tab="${key}" ${key==='shipped'?'title="Đơn đã bàn giao cho hãng vận chuyển"':''} aria-pressed="${!afterSalesOpen && document.querySelector('#order-filter').value===key}">${title} <span>${key ? Number(values[key]||0) : total}</span></button>`).join('');
+  const currentFilter = document.querySelector('#order-filter').value;
+  document.querySelector('#order-tabs').innerHTML = tabs.map(([key,title])=>`<button type="button" data-order-tab="${key}" ${key==='shipped'?'title="Đơn đã bàn giao cho hãng vận chuyển"':''} aria-pressed="${!afterSalesOpen && currentFilter===key}">${title} <span>${key ? Number(values[key]||0) : total}</span></button>`).join('');
+  const unpaidBtn = document.querySelector('#btn-unpaid-orders');
+  if (unpaidBtn) {
+    unpaidBtn.setAttribute('aria-pressed', String(!afterSalesOpen && currentFilter === 'payment_pending'));
+    const countSpan = document.querySelector('#unpaid-orders-count');
+    if (countSpan) countSpan.textContent = values.payment_pending;
+  }
+  const unpaidStat = document.querySelector('#unpaid-order-count');
+  if (unpaidStat && values.payment_pending !== undefined) unpaidStat.textContent = values.payment_pending;
 }
 document.addEventListener('gaeru:after-sales-updated',()=>{loadOrders(state.orderPage).catch(error=>showGlobal(error.message,true));});
 document.querySelector('#order-list').addEventListener('click',event=>{const button=event.target.closest('[data-restore-order]');if(button&&!button.disabled)openOrderRestoration(button.dataset.restoreOrder);});
@@ -1368,6 +1397,7 @@ document.querySelector('#orders-view').addEventListener('click',event=>{
   const tab=event.target.closest('[data-order-tab]'); if(!tab)return;
   window.GAERUAfterSales?.close();
   document.querySelector('#order-filter').value=tab.dataset.orderTab;
+  if(tab.dataset.orderTab==='payment_pending')document.querySelector('#order-payment-filter').value='';
   loadOrders(1).catch(error=>showGlobal(error.message,true));
 });
 function updateOrderSelection() {
