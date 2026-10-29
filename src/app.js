@@ -216,6 +216,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use('/api/gaeru_ceo', require('./rfm-analytics').createRfmAdminRouter(pool));
   app.use('/api/gaeru_ceo', require('./order-activity').createOrderActivityAdminRouter(pool));
   app.use('/api/gaeru_ceo',require('./tiktok-ads').createTikTokAdsAdmin(pool,config));
+  app.use('/api/gaeru_ceo', require('./upgrades-settings').createUpgradesSettingsRouter(pool));
   const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config);
   app.use("/api/gaeru_ceo",emailMarketing.admin);
   app.use("/api/marketing-email",emailMarketing.publicApi);

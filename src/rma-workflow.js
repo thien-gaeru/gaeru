@@ -198,6 +198,24 @@ function createRmaPublicRouter(pool) {
 function createRmaAdminRouter(pool) {
   const router = Router();
 
+  router.get('/rma/config', async (_req, res, next) => {
+    try {
+      const { getUpgradesSettings } = require('./upgrades-settings');
+      const settings = await getUpgradesSettings(pool);
+      res.json({ success: true, config: settings.rma });
+    } catch (err) { next(err); }
+  });
+
+  router.post('/rma/config', async (req, res, next) => {
+    try {
+      const { saveUpgradesSettings, getUpgradesSettings } = require('./upgrades-settings');
+      const current = await getUpgradesSettings(pool);
+      current.rma = { ...current.rma, ...req.body };
+      await saveUpgradesSettings(pool, current);
+      res.json({ success: true, config: current.rma });
+    } catch (err) { next(err); }
+  });
+
   router.get('/rma/tickets', async (req, res, next) => {
     try {
       const status = req.query.status;

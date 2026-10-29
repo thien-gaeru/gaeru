@@ -159,6 +159,7 @@
                 <button type="button" class="upgrades-tab-btn" data-tab="rop">📦 Dự báo Tồn kho &amp; ROP</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="rfm">👥 Phân khúc Khách hàng RFM</button>
                 <button type="button" class="upgrades-tab-btn" data-tab="capi">🎯 Server-Side CAPI</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="settings">⚙️ Cài Đặt Tính Năng</button>
               </nav>
 
               <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-matrix">
@@ -200,6 +201,7 @@
                     <tbody id="upgrades-rma-tbody"></tbody>
                   </table>
                 </div>
+                <div id="rma-settings-container"></div>
               </div>
 
               <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-bnpl" hidden>
@@ -225,6 +227,7 @@
                     <tbody id="upgrades-bnpl-tbody"></tbody>
                   </table>
                 </div>
+                <div id="bnpl-settings-container"></div>
               </div>
 
               <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-rop" hidden>
@@ -305,6 +308,17 @@
                     <tbody id="upgrades-capi-tbody"></tbody>
                   </table>
                 </div>
+                <div id="capi-settings-container"></div>
+              </div>
+              <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-settings" hidden>
+                <div class="upgrades-panel-header">
+                  <div>
+                    <h2>Trung Tâm Cài Đặt Cấu Hình Các Tính Năng Nâng Cấp</h2>
+                    <p>Tùy chỉnh thông số vận hành của RMA 1-1, Trả góp BNPL, Server CAPI, Điểm thưởng Loyalty, Tiếp thị liên kết KOC, Web Push và Dự báo tồn kho.</p>
+                  </div>
+                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadAllSettings()">🔄 Tải lại cấu hình</button>
+                </div>
+                <div id="all-upgrades-settings-container"></div>
               </div>
             </div>
           </section>
