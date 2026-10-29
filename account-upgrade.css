@@ -592,3 +592,13 @@
 .account-overview-addresses .account-form {
   margin-top: 16px !important;
 }
+
+
+/* Triệt tiêu hoàn toàn bất kỳ thẻ sổ địa chỉ nào thừa nằm bên ngoài account-overview-card */
+.customer-workspace #account-addresses,
+.customer-workspace [data-address-list],
+.customer-workspace .account-address-editor,
+.customer-workspace .account-overview-addresses,
+.account-workspace > #account-addresses {
+  display: none !important;
+}
