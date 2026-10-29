@@ -130,12 +130,23 @@ if (footerRoot) {
           <div class="footer-links" data-footer-products><a href="/cua-hang">Cửa hàng</a></div>
         </details>
         <details class="footer-column" open>
+          <summary>Dịch vụ &amp; Tiện ích</summary>
+          <div class="footer-links">
+            <a href="/tra-cuu-don-hang">Tra cứu đơn hàng SPX</a>
+            <a href="rma.html">Bảo hành Đổi mới 1-1 (RMA)</a>
+            <a href="/dang-ky-bao-hanh">Kích hoạt bảo hành điện tử</a>
+            <a href="quiz.html">AI Creator Setup Finder (30s)</a>
+            <a href="news.html">Tin tức &amp; Cẩm nang</a>
+          </div>
+        </details>
+        <details class="footer-column" open>
           <summary>Hỗ trợ &amp; tài khoản</summary>
           <div class="footer-links">
             <a href="care.html">GAERU Care+</a>
-            <a href="support.html#guide">Hướng dẫn</a>
+            <a href="support.html#guide">Hướng dẫn sử dụng</a>
             <a href="support.html">Trung tâm hỗ trợ</a>
-            <a href="account.html">Tài khoản</a>
+            <a href="account.html">Tài khoản &amp; Điểm VIP</a>
+            <a href="account.html#affiliate">Tiếp thị liên kết CTV (8%)</a>
           </div>
         </details>
         <details class="footer-column" open>
