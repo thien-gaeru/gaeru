@@ -1,0 +1,209 @@
+.tracking-main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+}
+.tracking-hero {
+  text-align: center;
+  margin-bottom: 40px;
+}
+.tracking-hero h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #111;
+}
+.tracking-hero p {
+  color: #666;
+  max-width: 580px;
+  margin: 0 auto 24px;
+  line-height: 1.5;
+}
+.tracking-search-bar {
+  display: flex;
+  gap: 10px;
+  max-width: 540px;
+  margin: 0 auto;
+}
+.tracking-search-bar input {
+  flex: 1;
+  padding: 14px 18px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  font-size: 1rem;
+  outline: none;
+  background: #fff;
+  transition: border-color 0.2s;
+}
+.tracking-search-bar input:focus {
+  border-color: #0055ff;
+  box-shadow: 0 0 0 3px rgba(0,85,255,0.15);
+}
+.tracking-card {
+  background: #fff;
+  border: 1px solid #eaeaea;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+}
+.tracking-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+.tracking-order-badge {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #111;
+}
+.tracking-date {
+  font-size: 0.85rem;
+  color: #888;
+  margin-top: 4px;
+}
+.order-total-badge {
+  text-align: right;
+}
+.order-total-badge strong {
+  display: block;
+  font-size: 1.2rem;
+  color: #0055ff;
+}
+.order-total-badge small {
+  color: #666;
+}
+.spx-tracking-badge {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff5eb;
+  border: 1px solid #fed7aa;
+  padding: 12px 18px;
+  border-radius: 10px;
+  margin-bottom: 24px;
+  color: #c2410c;
+  font-size: 0.95rem;
+}
+.spx-tracking-badge.pending {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #64748b;
+}
+.spx-link {
+  color: #ea580c;
+  font-weight: 600;
+  text-decoration: underline;
+}
+.tracking-timeline-flow {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  margin: 32px 0;
+  padding: 0 10px;
+}
+.tracking-timeline-flow::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  left: 40px;
+  right: 40px;
+  height: 3px;
+  background: #e2e8f0;
+  z-index: 1;
+}
+.timeline-step {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.step-dot {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  border: 2px solid #cbd5e1;
+  margin-bottom: 10px;
+  transition: all 0.3s;
+}
+.timeline-step.completed .step-dot {
+  background: #0055ff;
+  color: #fff;
+  border-color: #0055ff;
+}
+.timeline-step.current .step-dot {
+  background: #fff;
+  color: #0055ff;
+  border-color: #0055ff;
+  box-shadow: 0 0 0 4px rgba(0,85,255,0.2);
+}
+.step-content strong {
+  display: block;
+  font-size: 0.9rem;
+  color: #1e293b;
+  margin-bottom: 2px;
+}
+.step-content small {
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.3;
+  display: block;
+}
+.tracking-card-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  background: #f8fafc;
+  padding: 18px 20px;
+  border-radius: 12px;
+  margin-top: 20px;
+}
+.tracking-card-footer h4 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+.order-item-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.9rem;
+  color: #334155;
+}
+@media (max-width: 640px) {
+  .tracking-timeline-flow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    padding-left: 20px;
+  }
+  .tracking-timeline-flow::before {
+    top: 20px;
+    bottom: 20px;
+    left: 38px;
+    width: 3px;
+    height: auto;
+  }
+  .timeline-step {
+    flex-direction: row;
+    gap: 16px;
+    text-align: left;
+  }
+  .tracking-card-footer {
+    grid-template-columns: 1fr;
+  }
+}

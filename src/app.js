@@ -128,6 +128,13 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use('/api/cart', require('./abandoned-cart').createAbandonedCartRouter(pool, config, customerMailer));
   app.use('/api/customer', require('./loyalty-api').createLoyaltyCustomerApi(pool));
   app.use('/api', require('./omnichannel-sync').createOmnichannelRouter(pool, config));
+  app.use('/api', require('./product-reviews').createReviewsPublicRouter(pool));
+  app.use('/api', require('./tracking-api').createTrackingRouter(pool));
+  app.use('/api', require('./product-bundles').createBundlesPublicRouter(pool));
+  app.use('/api', require('./flash-sale').createFlashSalePublicRouter(pool));
+  app.use('/api', require('./affiliate-system').createAffiliatePublicRouter(pool));
+  app.use('/api', require('./instant-search').createSearchRouter(pool));
+  app.use('/api', require('./web-push').createPushPublicRouter(pool));
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer", createCustomerExperience(pool));
@@ -190,6 +197,13 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use('/api/gaeru_ceo', require('./barcode-api').createBarcodeApi(pool, { notifyOrderUpdate: realtimeHub.notifyOrderUpdate }));
   app.use('/api/gaeru_ceo', require('./omnichannel-sync').createOmnichannelAdmin(pool));
   app.use('/api/gaeru_ceo', require('./system-alerts').createSystemAlertsAdmin(pool, config));
+  app.use('/api/gaeru_ceo', require('./product-reviews').createReviewsAdminRouter(pool));
+  app.use('/api/gaeru_ceo', require('./product-bundles').createBundlesAdminRouter(pool));
+  app.use('/api/gaeru_ceo', require('./flash-sale').createFlashSaleAdminRouter(pool));
+  app.use('/api/gaeru_ceo', require('./affiliate-system').createAffiliateAdminRouter(pool));
+  app.use('/api/gaeru_ceo', require('./zalo-zns').createZaloZnsAdmin(config));
+  app.use('/api/gaeru_ceo', require('./cod-reconciliation').createCodReconciliationAdmin(pool));
+  app.use('/api/gaeru_ceo', require('./web-push').createPushAdminRouter(pool));
   app.use('/api/gaeru_ceo',require('./tiktok-ads').createTikTokAdsAdmin(pool,config));
   const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config);
   app.use("/api/gaeru_ceo",emailMarketing.admin);
@@ -250,6 +264,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(require('./site-pages').pageMetadata(pool));
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});
+  app.get(['/tra-cuu-don-hang','/tra-cuu-don-hang/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('tracking.html',{root:projectRoot});});
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
   app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));
