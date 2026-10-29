@@ -190,6 +190,28 @@
                   <p class="account-feedback" data-email-verification-feedback role="status" aria-live="polite"></p>
                 </div>
               </div>
+              <div class="account-overview-addresses" id="account-addresses">
+                <div class="account-section-heading">
+                  <div>
+                    <p class="eyebrow">SỔ ĐỊA CHỈ</p>
+                    <h3>Giao đến nơi bạn muốn.</h3>
+                  </div>
+                </div>
+                <div data-address-list></div>
+                <details class="account-address-editor">
+                  <summary>Thêm địa chỉ giao hàng</summary>
+                  <form class="account-form" data-address-form>
+                    <label>Tên địa chỉ<input name="label" placeholder="Nhà riêng, văn phòng…" maxlength="60" required></label>
+                    <label>Người nhận<input name="fullName" autocomplete="name" maxlength="120" required minlength="2"></label>
+                    <label>Điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
+                    <label>Địa chỉ chi tiết<input name="address" autocomplete="street-address" maxlength="250" minlength="5" required></label>
+                    <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" maxlength="120" required minlength="2"></label>
+                    <label class="account-consent"><input type="checkbox" name="isDefault"> Đặt làm địa chỉ mặc định</label>
+                    <button class="button button-blue">Lưu địa chỉ</button>
+                  </form>
+                </details>
+                <p role="status" data-address-status></p>
+              </div>
               <div class="account-profile-footer"><p>Thông tin của bạn được dùng để liên hệ và giao hàng.</p><button class="secondary-button" type="button" data-account-logout>Đăng xuất</button></div>
               </div>
             </div>
