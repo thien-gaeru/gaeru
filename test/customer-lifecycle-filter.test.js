@@ -9,6 +9,7 @@ const {
   isValidVietnamMobile,
   isDisposableEmail,
   checkCustomerPhoneStatus,
+  checkCustomerRegEmailStatus,
   autoLockAccount,
   softDeleteCustomer,
   permanentDeleteCustomer,
@@ -49,6 +50,29 @@ test('unit: phone validation and disposable email detection', () => {
   assert.equal(statusExpired.isValid, false);
   assert.equal(statusExpired.isWarning, false);
   assert.equal(statusExpired.isExpired, true);
+
+  // Accounts without phone: NO warning, NO lock
+  assert.equal(checkCustomerPhoneStatus({ phone: '' }).isWarning, false);
+  assert.equal(checkCustomerPhoneStatus({ phone: null }).isWarning, false);
+  assert.equal(checkCustomerPhoneStatus({ phone: '   ' }).isWarning, false);
+  assert.equal(checkCustomerPhoneStatus({ phone: '' }).hasPhone, false);
+
+  // Registration email status checks:
+  // 1. Google account excluded
+  const googleStatus = checkCustomerRegEmailStatus({ google_id: 'sub-google-123', reg_email_failed_at: thirteenHoursAgo }, now);
+  assert.equal(googleStatus.isWarning, false);
+  assert.equal(googleStatus.isExpired, false);
+
+  // 2. Normal account with failed email within 12h
+  const regEmailWarn = checkCustomerRegEmailStatus({ reg_email_failed_at: twoHoursAgo }, now);
+  assert.equal(regEmailWarn.isWarning, true);
+  assert.equal(regEmailWarn.isExpired, false);
+  assert.equal(regEmailWarn.remainingHours, 10);
+
+  // 3. Normal account with failed email past 12h
+  const regEmailExp = checkCustomerRegEmailStatus({ reg_email_failed_at: thirteenHoursAgo }, now);
+  assert.equal(regEmailExp.isWarning, false);
+  assert.equal(regEmailExp.isExpired, true);
 });
 
 test('lifecycle: disposable email auto-lock, 12h invalid phone warning & auto-lock, admin filter, soft-delete and permanent delete', { timeout: 60000 }, async (t) => {
@@ -169,16 +193,27 @@ test('lifecycle: disposable email auto-lock, 12h invalid phone warning & auto-lo
   assert.equal(spamLogin.status, 403);
   assert.match(spamLogin.data.error, /email rác/);
 
-  // 3. Permanent sendMail delivery failure (550) also auto-locks account
+  // 3. Registration email delivery failure: 12h countdown & auto-lock
+  emailDeliveryFailure = true;
   const bounceBuyer = client();
   await bounceBuyer.ok('/api/csrf');
-  await bounceBuyer.ok('/api/customer-auth/register', 'POST', {
+  const regBounce = await bounceBuyer.ok('/api/customer-auth/register', 'POST', {
     fullName: 'Bounce User',
     email: 'nonexistent.user.test@example.com',
     phone: '0901234567',
     password
   });
-  emailDeliveryFailure = true;
+  assert.equal(regBounce.customer.regEmailWarning, true);
+  assert.equal(regBounce.customer.regEmailWarningRemainingHours, 12);
+
+  // Logging in within 12h returns regEmailWarning
+  const bounceLoginWarn = await bounceBuyer.ok('/api/customer-auth/login', 'POST', {
+    identifier: 'nonexistent.user.test@example.com',
+    password
+  });
+  assert.equal(bounceLoginWarn.customer.regEmailWarning, true);
+
+  // Permanent sendMail delivery failure (550) on verification request also auto-locks account
   const bounceVerify = await bounceBuyer.request('/api/customer-auth/email-verification/request', 'POST');
   assert.equal(bounceVerify.status, 403);
   assert.match(bounceVerify.data.error, /không thể nhận thư xác thực/);
@@ -289,8 +324,34 @@ test('lifecycle: disposable email auto-lock, 12h invalid phone warning & auto-lo
     password
   });
 
-  // 9. Admin Permanent-Delete
+  // 9. Registration email delivery timeout (>12h) auto-locks on login
+  await pool.query("UPDATE customers SET reg_email_failed_at = now() - interval '13 hours', active = true, lock_reason = NULL WHERE id = $1", [regBounce.customer.id]);
+  const loginExpiredRes = await bounceBuyer.request('/api/customer-auth/login', 'POST', {
+    identifier: 'nonexistent.user.test@example.com',
+    password
+  });
+  assert.equal(loginExpiredRes.status, 403);
+  assert.match(loginExpiredRes.data.error, /không thể gửi email thông báo đăng ký trong vòng 12 giờ/);
+
+  // 10. Admin Permanent-Delete requires admin password and admin authentication
+  // Missing password -> 400
+  const noPassRes = await admin.request(`/api/gaeru_ceo/customers/${normalId}/permanent-delete`, 'POST', {
+    reason: 'Khách yêu cầu xóa vĩnh viễn'
+  });
+  assert.equal(noPassRes.status, 400);
+  assert.match(noPassRes.data.error, /nhập mật khẩu quản trị viên/);
+
+  // Wrong password -> 403
+  const wrongPassRes = await admin.request(`/api/gaeru_ceo/customers/${normalId}/permanent-delete`, 'POST', {
+    password: 'wrong-admin-password',
+    reason: 'Khách yêu cầu xóa vĩnh viễn'
+  });
+  assert.equal(wrongPassRes.status, 403);
+  assert.match(wrongPassRes.data.error, /không chính xác/);
+
+  // Correct password -> 200 and permanently deletes
   const permDelRes = await admin.ok(`/api/gaeru_ceo/customers/${normalId}/permanent-delete`, 'POST', {
+    password,
     reason: 'Khách yêu cầu xóa vĩnh viễn'
   });
   assert.equal(permDelRes.id, normalId);

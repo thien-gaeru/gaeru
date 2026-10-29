@@ -17,11 +17,12 @@ function createCustomerExperience(pool) {
   if(!parsed.success)return res.status(400).json({error:'Thông tin hồ sơ chưa hợp lệ.'});
   try {
     const result=await withTransaction(pool,async client=>{
-      const current=(await client.query('SELECT email,phone,phone_invalid_at FROM customers WHERE id=$1 AND active=true FOR UPDATE',[req.customerId])).rows[0];
+      const current=(await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at FROM customers WHERE id=$1 AND active=true FOR UPDATE',[req.customerId])).rows[0];
       if(!current)return {status:401,error:'Tài khoản không còn hoạt động.'};
       const a=parsed.data;
-      const { isValidVietnamMobile, normalizeVietnamPhone } = require('./customer-lifecycle');
+      const { isValidVietnamMobile, normalizeVietnamPhone, isDisposableEmail } = require('./customer-lifecycle');
       let phoneUpdated = false;
+      let emailUpdated = false;
       if (a.phone !== undefined && a.phone !== current.phone) {
         if (!isValidVietnamMobile(current.phone) && isValidVietnamMobile(a.phone)) {
           phoneUpdated = true;
@@ -30,13 +31,27 @@ function createCustomerExperience(pool) {
         }
       }
       if (a.email !== undefined && a.email !== current.email) {
-        return {status:409,error:'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.'};
+        if (current.reg_email_failed_at && !isDisposableEmail(a.email)) {
+          emailUpdated = true;
+        } else {
+          return {status:409,error:'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.'};
+        }
       }
-      const updateSql = phoneUpdated
-        ? 'UPDATE customers SET full_name=$2,phone=$3,phone_invalid_at=NULL,lock_reason=NULL,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,email_verified_at IS NOT NULL AS "emailVerified"'
-        : 'UPDATE customers SET full_name=$2,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,email_verified_at IS NOT NULL AS "emailVerified"';
-      const updateParams = phoneUpdated ? [req.customerId, a.fullName, normalizeVietnamPhone(a.phone)] : [req.customerId, a.fullName];
-      const customer=(await client.query(updateSql, updateParams)).rows[0];
+      const newPhone = phoneUpdated ? normalizeVietnamPhone(a.phone) : current.phone;
+      const newEmail = emailUpdated ? a.email.toLowerCase().trim() : current.email;
+      const customer = (await client.query(
+        `UPDATE customers
+         SET full_name = $2,
+             phone = $3,
+             email = $4,
+             phone_invalid_at = CASE WHEN $5::boolean THEN NULL ELSE phone_invalid_at END,
+             reg_email_failed_at = CASE WHEN $6::boolean THEN NULL ELSE reg_email_failed_at END,
+             lock_reason = CASE WHEN $5::boolean OR $6::boolean THEN NULL ELSE lock_reason END,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
+        [req.customerId, a.fullName, newPhone, newEmail, phoneUpdated, emailUpdated]
+      )).rows[0];
       return {status:200,customer};
     });
     if(result.customer)req.session.customer=result.customer;

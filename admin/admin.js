@@ -896,7 +896,7 @@ function renderCustomers() {
     <article class="customer-card">
       <div class="customer-card-header">
         <div><h3>${escapeHtml(customer.fullName)}</h3><p>${escapeHtml(customer.email)} · ${escapeHtml(customer.phone)}</p></div>
-        <span class="status-pill ${customer.deletedAt ? "status-cancelled" : customer.active ? (customer.phoneWarning ? "status-warning" : "status-active") : "status-cancelled"}">${customer.deletedAt ? (customer.deletionRecoverable ? "Thùng rác (Chờ xóa)" : "Đã xóa vĩnh viễn") : !customer.active ? (customer.lockReason === 'spam_email' ? "Khóa: Email rác" : customer.lockReason === 'invalid_phone_timeout' ? "Khóa: SĐT quá 12h" : "Đã khóa") : customer.phoneWarning ? `⚠️ Cảnh báo SĐT (còn ${customer.phoneWarningRemainingHours || 12}h)` : "Đang hoạt động"}</span>
+        <span class="status-pill ${customer.deletedAt ? "status-cancelled" : customer.active ? (customer.phoneWarning || customer.regEmailWarning ? "status-warning" : "status-active") : "status-cancelled"}">${customer.deletedAt ? (customer.deletionRecoverable ? "Thùng rác (Chờ xóa)" : "Đã xóa vĩnh viễn") : !customer.active ? (customer.lockReason === 'spam_email' ? "Khóa: Email rác" : customer.lockReason === 'invalid_phone_timeout' ? "Khóa: SĐT quá 12h" : customer.lockReason === 'reg_email_failed_timeout' ? "Khóa: Email ĐK lỗi (>12h)" : "Đã khóa") : customer.phoneWarning ? `⚠️ Cảnh báo SĐT (còn ${customer.phoneWarningRemainingHours || customer.phoneWarningHours || 12}h)` : customer.regEmailWarning ? `⚠️ Cảnh báo Email ĐK (còn ${customer.regEmailWarningRemainingHours || customer.regEmailWarningHours || 12}h)` : "Đang hoạt động"}</span>
       </div>
       <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh" : "Chưa xác minh"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
       <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") && !customer.deletedAt ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}${can("customers.write") && !customer.deletedAt ? `<button class="plain-button" type="button" data-customer-soft-delete="${escapeHtml(customer.id)}">Xóa tạm thời</button>` : ""}${can("customers.write") && customer.deletedAt ? `<button class="primary-button" type="button" data-customer-restore-direct="${escapeHtml(customer.id)}">Khôi phục</button>` : ""}${can("customers.write") ? `<button class="danger-button" type="button" data-customer-permanent-delete="${escapeHtml(customer.id)}">Xóa vĩnh viễn</button>` : ""}</div>
@@ -1271,11 +1271,11 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     const permDeleteBtn = event.target.closest("[data-customer-permanent-delete]");
     if (permDeleteBtn) {
-      const confirmed = window.confirm("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!");
-      if (!confirmed) return;
+      const password = window.prompt("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:");
+      if (!password || !password.trim()) return;
       await request(`/api/gaeru_ceo/customers/${encodeURIComponent(permDeleteBtn.dataset.customerPermanentDelete)}/permanent-delete`, {
         method: "POST",
-        body: JSON.stringify({ reason: "Quản trị viên xóa vĩnh viễn" })
+        body: JSON.stringify({ password: password.trim(), reason: "Quản trị viên xác thực xóa vĩnh viễn" })
       });
       await loadCustomers();
       showGlobal("Đã xóa vĩnh viễn tài khoản khách hàng.");

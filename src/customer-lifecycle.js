@@ -116,11 +116,12 @@ function isValidVietnamMobile(phone) {
 const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 
 function checkCustomerPhoneStatus(customer, now = new Date()) {
-  const phone = customer.phone || '';
-  const valid = isValidVietnamMobile(phone);
-  if (valid) {
+  const phone = typeof customer.phone === 'string' ? customer.phone.trim() : '';
+  // Các tài khoản chưa nhập số điện thoại chỉ xử lý cảnh báo khi đã nhập số điện thoại và nhập sai
+  if (!phone) {
     return {
       isValid: true,
+      hasPhone: false,
       isWarning: false,
       isExpired: false,
       remainingMs: 0,
@@ -130,15 +131,30 @@ function checkCustomerPhoneStatus(customer, now = new Date()) {
     };
   }
 
-  const invalidAtTime = customer.phone_invalid_at
-    ? new Date(customer.phone_invalid_at).getTime()
-    : (customer.created_at ? new Date(customer.created_at).getTime() : now.getTime());
+  const valid = isValidVietnamMobile(phone);
+  if (valid) {
+    return {
+      isValid: true,
+      hasPhone: true,
+      isWarning: false,
+      isExpired: false,
+      remainingMs: 0,
+      remainingHours: 0,
+      warningExpiresAt: null,
+      warningMessage: ''
+    };
+  }
+
+  const invalidAtTime = customer.phone_invalid_at || customer.phoneInvalidAt
+    ? new Date(customer.phone_invalid_at || customer.phoneInvalidAt).getTime()
+    : (customer.created_at || customer.createdAt ? new Date(customer.created_at || customer.createdAt).getTime() : now.getTime());
   const expiresAtMs = invalidAtTime + TWELVE_HOURS_MS;
   const remainingMs = expiresAtMs - now.getTime();
 
   if (remainingMs <= 0) {
     return {
       isValid: false,
+      hasPhone: true,
       isWarning: false,
       isExpired: true,
       remainingMs: 0,
@@ -153,13 +169,88 @@ function checkCustomerPhoneStatus(customer, now = new Date()) {
 
   return {
     isValid: false,
+    hasPhone: true,
     isWarning: true,
     isExpired: false,
     remainingMs,
     remainingHours,
     warningExpiresAt: expiresAtIso,
-    warningMessage: `Số điện thoại của bạn không đúng định dạng. Vui lòng cập nhật lại số điện thoại trong vòng ${remainingHours} giờ tới trước khi tài khoản bị khóa tự động.`
+    warningMessage: `Số điện thoại không đúng định dạng di động Việt Nam. Vui lòng cập nhật trong vòng ${remainingHours} giờ.`
   };
+}
+
+function checkCustomerRegEmailStatus(customer, now = new Date()) {
+  // Không bao gồm các tài khoản đăng nhập thông qua google
+  if (customer.google_id || customer.googleId) {
+    return {
+      isWarning: false,
+      isExpired: false,
+      remainingMs: 0,
+      remainingHours: 0,
+      warningExpiresAt: null,
+      warningMessage: ''
+    };
+  }
+
+  const failedAt = customer.reg_email_failed_at || customer.regEmailFailedAt;
+  if (!failedAt) {
+    return {
+      isWarning: false,
+      isExpired: false,
+      remainingMs: 0,
+      remainingHours: 0,
+      warningExpiresAt: null,
+      warningMessage: ''
+    };
+  }
+
+  const failedAtMs = new Date(failedAt).getTime();
+  const expiresAtMs = failedAtMs + TWELVE_HOURS_MS;
+  const remainingMs = expiresAtMs - now.getTime();
+
+  if (remainingMs <= 0) {
+    return {
+      isWarning: false,
+      isExpired: true,
+      remainingMs: 0,
+      remainingHours: 0,
+      warningExpiresAt: new Date(expiresAtMs).toISOString(),
+      warningMessage: 'Không thể gửi email thông báo đăng ký đến tài khoản này đã quá thời hạn 12 giờ.'
+    };
+  }
+
+  const remainingHours = Math.max(1, Math.ceil(remainingMs / (60 * 60 * 1000)));
+  return {
+    isWarning: true,
+    isExpired: false,
+    remainingMs,
+    remainingHours,
+    warningExpiresAt: new Date(expiresAtMs).toISOString(),
+    warningMessage: `Không thể gửi email thông báo đăng ký. Vui lòng kiểm tra hoặc cập nhật lại email trong vòng ${remainingHours} giờ.`
+  };
+}
+
+async function sendRegistrationNotificationEmail({ mailer, smtpConfig, to, fullName }) {
+  if (!mailer || !smtpConfig?.from || !smtpConfig?.publicBaseUrl) {
+    return false;
+  }
+  if (isDisposableEmail(to)) {
+    return false;
+  }
+  const accountUrl = new URL('/tai-khoan', smtpConfig.publicBaseUrl).toString();
+  const safeName = String(fullName || 'Khách hàng').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  try {
+    await mailer.sendMail({
+      from: `GAERU Support <${smtpConfig.from}>`,
+      to,
+      subject: 'Thông báo đăng ký tài khoản GAERU thành công',
+      text: `Xin chào ${fullName},\n\nChúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: ${to}.\n\nBạn có thể đăng nhập và theo dõi đơn hàng, ưu đãi tại: ${accountUrl}\n\nTrân trọng,\nĐội ngũ GAERU`,
+      html: `<p>Xin chào <strong>${safeName}</strong>,</p><p>Chúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: <strong>${to}</strong>.</p><p>Bạn có thể theo dõi đơn hàng và ưu đãi tại <a href="${accountUrl}">Tài khoản GAERU</a>.</p><p>Trân trọng,<br>Đội ngũ GAERU</p>`
+    });
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
 async function autoLockAccount(pool, customerId, reason, actor = { username: 'system', source: 'auto_lock' }) {
@@ -297,6 +388,8 @@ module.exports = {
   normalizeVietnamPhone,
   isValidVietnamMobile,
   checkCustomerPhoneStatus,
+  checkCustomerRegEmailStatus,
+  sendRegistrationNotificationEmail,
   autoLockAccount,
   softDeleteCustomer,
   restoreCustomerFromTrash,
