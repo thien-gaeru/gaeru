@@ -12,7 +12,7 @@ async function initQuiz() {
     renderCurrentStep();
   } catch (err) {
     document.getElementById('quiz-question-container').innerHTML =
-      '<p style="color:#f85149;">Không tải được bộ câu hỏi. Vui lòng tải lại trang.</p>';
+      '<p style="color:#d70015;text-align:center;padding:24px;">Không tải được bộ câu hỏi tư vấn. Vui lòng tải lại trang hoặc kiểm tra kết nối mạng.</p>';
   }
 }
 
@@ -33,7 +33,7 @@ function renderCurrentStep() {
     <p class="quiz-desc">${escapeHtml(q.description)}</p>
     <div class="quiz-options-grid">
       ${q.options.map(opt => `
-        <div class="quiz-option-card" onclick="selectQuizOption('${q.id}', '${opt.id}')">
+        <div class="quiz-option-card" onclick="selectQuizOption('${q.id}', '${opt.id}')" role="button" tabindex="0">
           <span class="quiz-option-icon">${opt.icon}</span>
           <span class="quiz-option-label">${escapeHtml(opt.label)}</span>
         </div>
@@ -54,7 +54,7 @@ async function submitQuiz() {
   qContainer.style.display = 'none';
   rContainer.style.display = 'block';
 
-  rContainer.innerHTML = '<p style="text-align:center;color:#8b949e;padding:40px;">AI đang phân tích và tìm kiếm combo tối ưu nhất cho bạn...</p>';
+  rContainer.innerHTML = '<p style="text-align:center;color:#6e6e73;padding:48px;font-size:1.05rem;">AI đang phân tích và tìm kiếm combo thiết bị tối ưu nhất cho bạn...</p>';
 
   try {
     const res = await fetch('/api/quiz/recommend', {
@@ -70,57 +70,56 @@ async function submitQuiz() {
       <h2 class="quiz-title">${escapeHtml(rec.bundleTitle)}</h2>
       <p class="quiz-desc">${escapeHtml(rec.tagline)}</p>
 
-      <div style="font-size:14px;background:rgba(88,166,255,0.1);border-left:3px solid #58a6ff;padding:10px 14px;border-radius:4px;margin-bottom:18px;">
-        💡 <strong>Tư vấn kết nối:</strong> ${escapeHtml(data.connectorAdvice)}
+      <div style="font-size:14px;background:#eef7ff;border-left:3px solid #0071e3;padding:12px 16px;border-radius:8px;margin-bottom:20px;color:#1d1d1f;">
+        💡 <strong>Tư vấn kết nối GAERU:</strong> ${escapeHtml(data.connectorAdvice)}
       </div>
 
       <div class="quiz-recommend-box">
-        <h4 style="margin:0 0 12px 0;font-size:16px;">Các thiết bị trong bộ combo:</h4>
-        <ul style="padding-left:20px;color:#c9d1d9;margin:0 0 16px 0;line-height:1.8;">
-          <li><strong>${escapeHtml(rec.primaryProduct.name)}</strong> (Giá gốc: ${rec.primaryProduct.priceVnd.toLocaleString('vi-VN')}đ)</li>
-          <li><strong>${escapeHtml(rec.secondaryProduct.name)}</strong> (Giá gốc: ${rec.secondaryProduct.priceVnd.toLocaleString('vi-VN')}đ)</li>
+        <h4 style="margin:0 0 12px 0;font-size:16px;color:#1d1d1f;font-weight:700;">Các thiết bị trong bộ combo:</h4>
+        <ul style="padding-left:20px;color:#333;margin:0 0 18px 0;line-height:1.8;">
+          <li><strong>${escapeHtml(rec.primaryProduct.name)}</strong> (Giá niêm yết: ${rec.primaryProduct.priceVnd.toLocaleString('vi-VN')}đ)</li>
+          <li><strong>${escapeHtml(rec.secondaryProduct.name)}</strong> (Giá niêm yết: ${rec.secondaryProduct.priceVnd.toLocaleString('vi-VN')}đ)</li>
           <li><strong>${escapeHtml(rec.accessory.name)}</strong> (Quà tặng kèm: ${rec.accessory.priceVnd.toLocaleString('vi-VN')}đ)</li>
         </ul>
 
-        <div style="border-top:1px solid #21262d;padding-top:16px;">
+        <div style="border-top:1px solid #e5e5ea;padding-top:18px;">
           <div>
             <span class="quiz-price-tag">${rec.comboPriceVnd.toLocaleString('vi-VN')}đ</span>
             <span class="quiz-original-price">${rec.originalTotalVnd.toLocaleString('vi-VN')}đ</span>
             <span class="quiz-savings-badge">Tiết kiệm ${rec.savingsPercent}% (-${rec.savingsVnd.toLocaleString('vi-VN')}đ)</span>
           </div>
 
-          <div style="margin-top:10px;font-size:13px;color:#8b949e;">
-            Mã voucher kích hoạt combo: <strong style="color:#58a6ff;background:#161b22;padding:2px 6px;border-radius:4px;">${rec.discountCode}</strong>
+          <div style="margin-top:12px;font-size:14px;color:#6e6e73;">
+            Mã voucher kích hoạt combo: <strong style="color:#0071e3;background:#eef2ff;padding:3px 8px;border-radius:6px;border:1px solid #c7d2fe;">${rec.discountCode}</strong>
           </div>
 
-          <button class="quiz-btn-buy" onclick="addComboToCart('${rec.primaryProduct.slug}', '${rec.secondaryProduct.slug}', '${rec.discountCode}')">
+          <button class="quiz-btn-buy" id="btn-add-combo" onclick="addComboToCart('${rec.primaryProduct.slug}', '${rec.secondaryProduct.slug}', '${rec.discountCode}')">
             🛒 Thêm Trọn Bộ Vào Giỏ Hàng Ngay
           </button>
         </div>
       </div>
 
-      <h4 style="margin:20px 0 10px 0;font-size:15px;">Tại sao combo này phù hợp với bạn?</h4>
-      <ul style="padding-left:20px;color:#8b949e;line-height:1.7;">
+      <h4 style="margin:24px 0 12px 0;font-size:15px;color:#1d1d1f;font-weight:700;">Tại sao combo này phù hợp với bạn?</h4>
+      <ul style="padding-left:20px;color:#48484a;line-height:1.75;">
         ${(rec.reasons || []).map(r => `<li>${escapeHtml(r)}</li>`).join('')}
       </ul>
 
-      <div style="margin-top:24px;text-align:center;">
-        <button onclick="restartQuiz()" style="background:transparent;border:1px solid #30363d;color:#8b949e;padding:8px 16px;border-radius:6px;cursor:pointer;">
+      <div style="margin-top:28px;text-align:center;">
+        <button class="quiz-restart-btn" id="btn-restart-quiz" onclick="restartQuiz()">
           🔄 Làm lại trắc nghiệm
         </button>
       </div>
     `;
   } catch (err) {
-    rContainer.innerHTML = '<p style="color:#f85149;">Lỗi khi tải kết quả đề xuất. Vui lòng thử lại.</p>';
+    rContainer.innerHTML = '<p style="color:#d70015;text-align:center;padding:24px;">Lỗi khi tải kết quả đề xuất. Vui lòng thử lại.</p>';
   }
 }
 
 function addComboToCart(slug1, slug2, code) {
-  // Save discount code to localStorage for checkout
   try {
     localStorage.setItem('gaeru_applied_voucher', code);
   } catch (e) {}
-  alert(`Đã thêm combo và áp dụng mã ${code} giảm 15%!\nĐang chuyển sang giỏ hàng...`);
+  alert(`Đã kích hoạt ưu đãi combo và lưu mã voucher ${code}!\nĐang chuyển sang giỏ hàng...`);
   window.location.href = '/cart.html';
 }
 

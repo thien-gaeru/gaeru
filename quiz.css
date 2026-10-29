@@ -1,189 +1,224 @@
+/* GAERU AI Setup Finder Styles — Harmonized with GAERU Design System */
 .quiz-page {
-  background-color: #0d1117;
-  color: #e6edf3;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f5f5f7;
+  color: #1d1d1f;
   margin: 0;
   padding: 0;
 }
 
-.quiz-header {
-  border-bottom: 1px solid #30363d;
-  background: #161b22;
-  padding: 16px 24px;
-}
-
-.quiz-header-inner {
-  max-width: 800px;
+.quiz-container {
+  max-width: 780px;
   margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  padding: 40px 20px 80px;
 }
 
-.quiz-logo {
-  font-size: 22px;
-  font-weight: 800;
-  color: #58a6ff;
-  text-decoration: none;
+.quiz-hero {
+  text-align: center;
+  margin-bottom: 32px;
 }
 
 .quiz-badge {
-  background: rgba(163, 113, 247, 0.15);
-  color: #d2a8ff;
-  border: 1px solid rgba(163, 113, 247, 0.3);
-  padding: 4px 12px;
-  border-radius: 20px;
+  display: inline-block;
+  background: #eef2ff;
+  color: #4f46e5;
+  border: 1px solid #c7d2fe;
+  padding: 5px 14px;
+  border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
+  margin-bottom: 12px;
 }
 
-.quiz-container {
-  max-width: 800px;
-  margin: 40px auto;
-  padding: 0 20px;
+.quiz-hero h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #1d1d1f;
+  margin: 0 0 10px;
+  letter-spacing: -0.02em;
+}
+
+.quiz-hero p {
+  color: #6e6e73;
+  font-size: 1.02rem;
+  max-width: 620px;
+  margin: 0 auto;
+  line-height: 1.55;
 }
 
 .quiz-progress-bar {
-  background: #21262d;
+  background: #e5e5ea;
   height: 8px;
-  border-radius: 4px;
+  border-radius: 999px;
   overflow: hidden;
-  margin-bottom: 30px;
+  margin-bottom: 28px;
 }
 
 .quiz-progress-fill {
-  background: linear-gradient(90deg, #58a6ff, #bc8cff);
+  background: linear-gradient(90deg, #0071e3, #5ac8fa);
   height: 100%;
-  transition: width 0.3s ease;
+  transition: width 0.35s ease;
 }
 
 .quiz-card {
-  background: #161b22;
-  border: 1px solid #30363d;
-  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e5ea;
+  border-radius: 18px;
   padding: 32px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
 }
 
 .quiz-step-tag {
-  color: #58a6ff;
+  color: #0071e3;
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.8px;
   margin-bottom: 8px;
 }
 
 .quiz-title {
-  font-size: 24px;
-  margin: 0 0 12px 0;
-  color: #f0f6fc;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 10px 0;
+  color: #1d1d1f;
+  line-height: 1.35;
 }
 
 .quiz-desc {
-  color: #8b949e;
-  font-size: 15px;
-  margin-bottom: 28px;
+  color: #6e6e73;
+  font-size: 0.98rem;
+  margin-bottom: 24px;
+  line-height: 1.5;
 }
 
 .quiz-options-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  gap: 12px;
 }
 
 .quiz-option-card {
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 10px;
+  background: #fbfbfd;
+  border: 1.5px solid #e5e5ea;
+  border-radius: 14px;
   padding: 16px 20px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 16px;
   transition: all 0.2s ease;
+  user-select: none;
 }
 
 .quiz-option-card:hover {
-  border-color: #58a6ff;
-  background: rgba(56, 139, 253, 0.08);
+  border-color: #0071e3;
+  background: #f0f7ff;
   transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 113, 227, 0.1);
 }
 
 .quiz-option-icon {
-  font-size: 28px;
+  font-size: 26px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .quiz-option-label {
-  font-size: 16px;
+  font-size: 1.02rem;
   font-weight: 600;
-  color: #e6edf3;
+  color: #1d1d1f;
 }
 
 .quiz-recommend-box {
-  background: #0d1117;
-  border: 1px solid rgba(88, 166, 255, 0.4);
-  border-radius: 10px;
-  padding: 24px;
+  background: #fbfbfd;
+  border: 1px solid #e5e5ea;
+  border-radius: 14px;
+  padding: 22px;
   margin: 20px 0;
 }
 
-.quiz-combo-title {
-  font-size: 22px;
-  color: #58a6ff;
-  margin: 0 0 6px 0;
-}
-
-.quiz-combo-tagline {
-  color: #8b949e;
-  font-size: 14px;
-  margin-bottom: 16px;
-}
-
 .quiz-price-tag {
-  font-size: 24px;
+  font-size: 1.8rem;
   font-weight: 800;
-  color: #2ea043;
+  color: #0071e3;
+  margin-right: 12px;
+  vertical-align: middle;
 }
 
 .quiz-original-price {
-  font-size: 16px;
-  color: #8b949e;
+  font-size: 1.05rem;
+  color: #86868b;
   text-decoration: line-through;
-  margin-left: 8px;
+  margin-right: 12px;
+  vertical-align: middle;
 }
 
 .quiz-savings-badge {
-  background: rgba(46, 160, 67, 0.15);
-  color: #3fb950;
-  padding: 3px 8px;
-  border-radius: 6px;
+  display: inline-block;
+  background: #e6f9ed;
+  color: #1e7e34;
+  border: 1px solid #a3e9b9;
+  padding: 4px 10px;
+  border-radius: 20px;
   font-size: 13px;
-  font-weight: 600;
-  margin-left: 8px;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .quiz-btn-buy {
-  display: inline-block;
-  background: #238636;
+  width: 100%;
+  margin-top: 18px;
+  padding: 14px 20px;
+  background: #0071e3;
   color: #ffffff;
-  padding: 14px 28px;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 700;
-  text-decoration: none;
   border: none;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  font-weight: 600;
   cursor: pointer;
-  margin-top: 16px;
-  transition: background 0.2s;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .quiz-btn-buy:hover {
-  background: #2ea043;
+  background: #0077ed;
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.25);
 }
 
-.quiz-footer {
-  text-align: center;
-  padding: 30px;
-  color: #8b949e;
-  font-size: 13px;
+.quiz-btn-buy:active {
+  transform: scale(0.98);
+}
+
+.quiz-restart-btn {
+  background: #ffffff;
+  border: 1px solid #d2d2d7;
+  color: #1d1d1f;
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.quiz-restart-btn:hover {
+  background: #f5f5f7;
+  border-color: #86868b;
+}
+
+@media (max-width: 640px) {
+  .quiz-hero h1 {
+    font-size: 1.8rem;
+  }
+  .quiz-card {
+    padding: 22px 18px;
+  }
+  .quiz-price-tag {
+    font-size: 1.5rem;
+    display: block;
+    margin-bottom: 6px;
+  }
 }
