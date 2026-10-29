@@ -14,6 +14,8 @@ test('shopping chat isolates guest sessions, preserves messages, enforces permis
  await pool.query("INSERT INTO marketing_campaigns(title,body,starts_at,ends_at,active) VALUES('Active campaign','Campaign fixture details',now()-interval '1 day',now()+interval '1 day',true),('Draft campaign','Hidden draft details',now()-interval '1 day',now()+interval '1 day',false)");
  const offers=(await owner.call(adminPath+'/offers?kind=vouchers')).data;assert.equal(offers.items.length,1);assert.match(offers.items[0].text,/CHATPUBLIC/);assert.match(offers.items[0].text,/10%/);assert.match(offers.items[0].text,/100.000/);
  const campaigns=(await owner.call(adminPath+'/offers?kind=campaigns')).data;assert.equal(campaigns.items.length,1);assert.match(campaigns.items[0].text,/Campaign fixture details/);
+ await pool.query("INSERT INTO orders(order_number,customer_name,phone,email,address,city,status,payment_method,payment_status,subtotal_vnd,shipping_fee_vnd,total_vnd) VALUES('GR-CHAT-01','Khách chat','0988776655','chat@example.invalid','123 Hang Bai','Hà Nội','pending','cod','pending',150000,0,150000)");
+ const orderOffers=(await owner.call(adminPath+'/offers?kind=orders')).data;assert.ok(orderOffers.items.length>=1);assert.match(orderOffers.items[0].title,/GR-CHAT-01/);assert.match(orderOffers.items[0].text,/123 Hang Bai/);
  assert.equal((await owner.call(adminPath+'/offers?kind=bad')).status,400);
  assert.equal((await other.call(adminPath+'/offers?kind=vouchers')).status,401);
  const current=(await owner.call(adminPath+'/messages')).data.thread;

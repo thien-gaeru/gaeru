@@ -1412,7 +1412,7 @@ document.querySelector("#btn-refresh-health")?.addEventListener("click", async (
   }
 });
 
-window.GAERUAdmin = Object.freeze({ loadSystemHealth, request, confirmProductAction, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
@@ -1506,18 +1506,90 @@ document.addEventListener("click", (event) => {
   }
 });
 
+function confirmOrderPermanentDeletion(order) {
+  return new Promise(resolve => {
+    const previous = document.activeElement;
+    const dialog = document.createElement('dialog');
+    dialog.className = 'enterprise-confirm-dialog';
+    dialog.setAttribute('aria-labelledby', 'order-delete-title');
+    const orderNumber = String(order?.orderNumber || order?.id || '').trim();
+    const customer = order?.customerName ? (order.customerName + (order.phone ? ' (' + order.phone + ')' : '')) : '';
+    const total = order?.totalVnd != null ? formatPrice(order.totalVnd) : '';
+
+    dialog.innerHTML = '<h2 id="order-delete-title" style="color:#b42318;margin-top:0">Xác nhận xóa vĩnh viễn đơn hàng</h2>' +
+      '<div style="background:#fef3f2;border:1px solid #fecdca;border-radius:10px;padding:12px;margin:12px 0;font-size:13px;color:#b42318;line-height:1.5">' +
+        '<strong>⚠️ CẢNH BÁO QUAN TRỌNG:</strong><br>' +
+        'Đơn hàng sẽ bị xóa hoàn toàn khỏi hệ thống, giải phóng tồn kho (nếu đơn chưa hủy), và các khoản thu liên quan sẽ <strong>tự động loại khỏi dữ liệu doanh số và lịch sử đơn hàng</strong>.<br>' +
+        'Thao tác này <strong>KHÔNG THỂ hoàn tác</strong>.' +
+      '</div>' +
+      '<div style="margin:12px 0;font-size:13px;line-height:1.6">' +
+        '<div><strong>Mã đơn hàng:</strong> <code style="font-weight:700;color:#0055b8">' + escapeHtml(orderNumber) + '</code></div>' +
+        (customer ? '<div><strong>Khách hàng:</strong> ' + escapeHtml(customer) + '</div>' : '') +
+        (total ? '<div><strong>Tổng tiền:</strong> ' + escapeHtml(total) + '</div>' : '') +
+      '</div>' +
+      '<label style="display:block;margin:14px 0 6px;font-size:13px;font-weight:600">' +
+        'Nhập chính xác mã đơn <span style="color:#b42318">' + escapeHtml(orderNumber) + '</span> để xác nhận:' +
+        '<input type="text" data-order-delete-input autocomplete="off" placeholder="' + escapeHtml(orderNumber) + '" style="margin-top:6px;width:100%;box-sizing:border-box">' +
+      '</label>' +
+      '<div class="enterprise-confirm-actions" style="margin-top:20px;display:flex;justify-content:flex-end;gap:10px">' +
+        '<button type="button" data-order-delete-cancel autofocus>Quay lại</button>' +
+        '<button type="button" class="danger-button" data-order-delete-accept disabled style="background:#d92d20;color:#fff;border-color:#d92d20">Xác nhận xóa vĩnh viễn</button>' +
+      '</div>';
+
+    let done = false;
+    function finish(value) {
+      if (done) return;
+      done = true;
+      if (typeof dialog.close === 'function') dialog.close();
+      dialog.remove();
+      previous?.focus();
+      resolve(value);
+    }
+
+    const input = dialog.querySelector('[data-order-delete-input]');
+    const acceptBtn = dialog.querySelector('[data-order-delete-accept]');
+    const cancelBtn = dialog.querySelector('[data-order-delete-cancel]');
+
+    if (input && acceptBtn) {
+      input.addEventListener('input', () => {
+        const typed = input.value.trim().toUpperCase();
+        const expected = orderNumber.toUpperCase();
+        acceptBtn.disabled = Boolean(!typed || typed !== expected);
+      });
+      acceptBtn.onclick = () => {
+        if (!acceptBtn.disabled) finish(true);
+      };
+    }
+    if (cancelBtn) cancelBtn.onclick = () => finish(false);
+    dialog.addEventListener('cancel', event => {
+      event.preventDefault();
+      finish(false);
+    });
+    dialog.addEventListener('close', () => finish(false));
+
+    document.body.append(dialog);
+    if (typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      const confirmed = window.prompt(
+        'XÁC NHẬN CỦA QUẢN TRỊ: Xóa vĩnh viễn đơn ' + orderNumber + '?\n\nNhập chính xác "' + orderNumber + '" để xác nhận:'
+      );
+      finish(Boolean(confirmed && confirmed.trim().toUpperCase() === orderNumber.toUpperCase()));
+    }
+  });
+}
+
 async function handleOrderPermanentDeleteUI(orderId) {
   if (!can('orders.write')) return;
-  const order = state.orders.find(o => o.id === orderId);
-  const label = order ? ('đơn ' + order.orderNumber) : 'đơn hàng này';
-  if (!window.confirm('CẢNH BÁO: Xóa vĩnh viễn ' + label + '?\n\nĐơn hàng sẽ bị xóa hoàn toàn khỏi hệ thống, giải phóng tồn kho (nếu đơn chưa hủy), và các khoản thu liên quan sẽ tự động loại khỏi dữ liệu doanh số và lịch sử đơn hàng. Thao tác này KHÔNG THỂ khôi phục!\n\nBạn có chắc chắn muốn xóa vĩnh viễn không?')) {
-    return;
-  }
+  const order = state.orders.find(o => o.id === orderId) || { id: orderId, orderNumber: orderId };
+  const confirmed = await confirmOrderPermanentDeletion(order);
+  if (!confirmed) return;
   try {
     const csrf = await request('/api/csrf');
     state.csrfToken = csrf.csrfToken;
     const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/permanent-delete', {
-      method: 'POST'
+      method: 'POST',
+      body: JSON.stringify({ reason: 'Quản trị viên xác nhận xóa vĩnh viễn đơn ' + (order.orderNumber || orderId) })
     });
     await Promise.all([loadOrders(state.orderPage), loadSummary()]);
     showGlobal(res.message || 'Đã xóa vĩnh viễn đơn hàng và loại khỏi dữ liệu doanh số.');
