@@ -223,6 +223,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const managementAssets=new Set(['file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile('notification-worker.js',{root:adminRoot}));
+  app.get('/sw.js',(_req,res)=>res.set({'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate','Service-Worker-Allowed':'/'}).sendFile('sw.js',{root:projectRoot}));
+  app.get(['/manifest.webmanifest','/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'public, max-age=3600'}).sendFile('manifest.webmanifest',{root:projectRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'public, max-age=3600'}).sendFile('manifest.webmanifest',{root:adminRoot}));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
