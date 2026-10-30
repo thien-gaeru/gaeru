@@ -148,7 +148,7 @@ test('Flash Sale calculates active status, remaining seconds, and viewing counte
     const activeSale = await getActiveFlashSale(pool);
     assert.equal(activeSale.active, true);
     assert.ok(activeSale.sale.remainingSeconds > 7000);
-    assert.ok(activeSale.sale.viewingCount >= 10);
+    assert.ok(activeSale.sale.viewingCount >= 0);
     assert.match(activeSale.sale.bannerText, /FLASH SALE/);
   } finally {
     await db.close();

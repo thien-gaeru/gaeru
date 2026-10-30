@@ -386,4 +386,31 @@ test('Phase C - 12.2, 12.3, 12.5, 12.6, 12.7, 12.8: Webhook trùng/lệch, Combo
     })
   );
   assert.equal(restoredAcc.active, true);
+
+  // --- 12.9: Minh bạch Social Proof (verifiedPurchase), che số tiền/vận đơn khi tra cứu không kèm SĐT & Cache Security Config ---
+  const { getRecentSocialProof } = require('../src/social-proof');
+  const { lookupOrderTracking } = require('../src/tracking-api');
+  const { readRecord } = require('../src/admin-configuration');
+
+  const socialItems = await getRecentSocialProof(pool);
+  const paidItem = socialItems.find(i => i.customerName === 'Khách C.');
+  const pendingItem = socialItems.find(i => i.customerName === 'Hoàn C.');
+  assert.equal(paidItem?.verifiedPurchase, true, 'Đơn đã thanh toán (paid) mới được gắn cờ verifiedPurchase = true');
+  assert.equal(pendingItem?.verifiedPurchase, false, 'Đơn mới tạo chưa thanh toán gắn cờ verifiedPurchase = false');
+
+  const unverifiedLookup = await lookupOrderTracking(pool, codOrder.order_number);
+  assert.equal(unverifiedLookup.orders[0].isPhoneVerified, false);
+  assert.equal(unverifiedLookup.orders[0].totalVnd, null, 'Tra cứu chỉ bằng mã đơn không được lộ tổng tiền đơn hàng');
+  assert.equal(unverifiedLookup.orders[0].paymentMethod, null, 'Tra cứu chỉ bằng mã đơn không được lộ phương thức thanh toán');
+  assert.equal(unverifiedLookup.orders[0].trackingCode, null, 'Tra cứu chỉ bằng mã đơn không được lộ mã vận đơn');
+
+  const testCfg = { SESSION_SECRET: '0123456789abcdef0123456789abcdef0123456789abcdef' };
+  const sec0 = await readRecord(pool, testCfg, 'security');
+  assert.equal(sec0.version, 0);
+  await withTransaction(pool, c =>
+    writeRecord(c, testCfg, 'security', { idleMinutes: 15, absoluteHours: 4 }, 0, { username: 'owner', role: 'owner' })
+  );
+  const sec1 = await readRecord(pool, testCfg, 'security');
+  assert.equal(sec1.version, 1, 'Cache cấu hình security phải được vô hiệu hóa tức thì ngay khi writeRecord cập nhật');
+  assert.equal(sec1.data.idleMinutes, 15);
 });

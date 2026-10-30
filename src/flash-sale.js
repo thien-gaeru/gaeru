@@ -31,12 +31,12 @@ async function getActiveFlashSale(pool) {
   const ends = new Date(row.endsAt).getTime();
   const remainingSeconds = Math.max(0, Math.floor((ends - now) / 1000));
 
-  // Đo lường số người xem thực tế từ bảng traffic thời gian thực
-  let viewingCount = 10;
+  // Đo lường số người xem thực tế từ bảng traffic thời gian thực (không áp sàn giả định)
+  let viewingCount = 0;
   try {
     const activeRes = await pool.query(`SELECT COUNT(*)::int AS active FROM site_traffic_realtime WHERE last_seen_at >= now() - INTERVAL '30 minutes'`);
     const count = Number(activeRes.rows[0]?.active) || 0;
-    viewingCount = Math.max(10, count);
+    viewingCount = Math.max(0, count);
   } catch {}
 
   return {

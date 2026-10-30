@@ -41,6 +41,27 @@
     let stream = null;
     let animId = null;
     let detector = null;
+    const desiredFormats = ['qr_code', 'code_128', 'ean_13', 'ean_8'];
+    async function ensureDetector() {
+      if (detector) return detector;
+      try {
+        if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+          let formats = desiredFormats;
+          if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+            const supported = await window.BarcodeDetector.getSupportedFormats();
+            if (Array.isArray(supported) && supported.length > 0) {
+              const filtered = desiredFormats.filter(f => supported.includes(f));
+              if (!filtered.length) return null;
+              formats = filtered;
+            }
+          }
+          detector = new window.BarcodeDetector({ formats });
+        }
+      } catch (_) {
+        detector = null;
+      }
+      return detector;
+    }
     try {
       if ('BarcodeDetector' in window) {
         detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8'] });
@@ -113,6 +134,7 @@
     }
 
     async function startCamera() {
+      await ensureDetector();
       if (!('BarcodeDetector' in window) || !detector) {
         alert('Trình duyệt hiện tại chưa hỗ trợ BarcodeDetector để quét camera trực tiếp. Vui lòng sử dụng máy quét mã vạch (súng bắn mã vạch), nhập mã đơn thủ công vào ô tìm kiếm, hoặc dùng Google Chrome.');
         return;

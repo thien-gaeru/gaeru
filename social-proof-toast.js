@@ -41,6 +41,7 @@
     const el = createToastContainer();
 
     const isSimulated = Boolean(item.isSimulated);
+    const verifiedPurchase = Boolean(item.verifiedPurchase);
     const icon = isSimulated ? '💡' : '⚡';
     const headerTitle = isSimulated
       ? 'Gợi ý sản phẩm nổi bật'
@@ -50,7 +51,7 @@
       : `Vừa mua: <strong style="color:#58a6ff;">${escapeHtml(item.productName)}</strong>`;
     const footerMeta = isSimulated
       ? 'Đề xuất mua sắm • Minh họa'
-      : `${escapeHtml(item.relativeTime)} • Đã xác thực`;
+      : `${escapeHtml(item.relativeTime)} • ${verifiedPurchase ? 'Đã xác thực' : 'Có đơn hàng mới'}`;
 
     el.innerHTML = `
       <div style="font-size:24px;line-height:1;">${icon}</div>
