@@ -23,6 +23,7 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
     './db': { createPool: () => pool, inspectDatabaseTls: async () => ({}) },
     './app': { createApp: () => ({ listen(port, host, ready) { calls.listening++; queueMicrotask(ready); return server; } }) },
     './migrate': { migrateDatabase: async () => { await migration; if (migrationError) throw migrationError; } },
+    './workers': require('../src/workers'),
     './lib/filesystem-media': { probe: async () => mediaCheck },
     './persistent-assets': { syncAssets: async () => { calls.copiedAssets++; return {}; } },
     './media-storage-audit': {

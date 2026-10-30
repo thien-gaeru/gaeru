@@ -24,27 +24,42 @@ async function processOmnichannelEvent(pool, { channel, eventType, sku, external
   }
 
   return await withTransaction(pool, async (client) => {
+    const requestHash = crypto.createHash('sha256')
+      .update(JSON.stringify({ channel: normChannel, eventId, sku: cleanSku, delta }))
+      .digest('hex');
+    const enrichedPayload = { ...(payload || {}), _requestHash: requestHash };
+
     // 1. Claim (channel, event_id) nguyên tử trước bất kỳ biến động tồn kho nào
     const claimRes = await client.query(
       `INSERT INTO omnichannel_events (channel, event_type, external_sku, quantity_delta, payload, event_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending')
        ON CONFLICT (channel, event_id) DO NOTHING
        RETURNING id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"`,
-      [normChannel, eventType || 'inventory_sync', cleanSku, delta, JSON.stringify(payload), eventId]
+      [normChannel, eventType || 'inventory_sync', cleanSku, delta, JSON.stringify(enrichedPayload), eventId]
     );
 
     // Nếu không chèn được dòng mới nghĩa là event đã tồn tại hoặc đang được xử lý (trùng lặp)
     if (!claimRes.rows.length) {
       const existing = await client.query(
-        `SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"
+        `SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", payload, created_at AS "createdAt"
          FROM omnichannel_events
          WHERE channel = $1 AND (event_id = $2 OR payload->>'eventId' = $2 OR payload->>'event_id' = $2)
          LIMIT 1`,
         [normChannel, eventId]
       );
+      const matched = existing.rows[0] || null;
+      if (matched) {
+        const storedHash = matched.payload?._requestHash;
+        if ((storedHash && storedHash !== requestHash) || matched.externalSku !== cleanSku || Number(matched.quantityDelta) !== delta) {
+          throw Object.assign(
+            new Error(`Xung đột Idempotency: eventId "${eventId}" trên kênh "${normChannel}" đã được sử dụng với dữ liệu SKU/delta khác.`),
+            { status: 409 }
+          );
+        }
+      }
       return {
         ok: true,
-        event: existing.rows[0] || null,
+        event: matched,
         duplicate: true
       };
     }
@@ -77,7 +92,8 @@ async function processOmnichannelEvent(pool, { channel, eventType, sku, external
         delta,
         actor: { username: `webhook:${normChannel}` },
         reason: `Đồng bộ tồn kho từ ${normChannel} (Event: ${eventId})`,
-        allowNegative: false
+        allowNegative: false,
+        metadata: { channel: normChannel }
       });
     }
 

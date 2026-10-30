@@ -87,7 +87,7 @@ async function loadProducts(pool, { includeDrafts = false, deleted = false, sear
     p.cardSummary = normalizeBrandText(p.cardSummary);
     p.imageAlt = normalizeBrandText(p.imageAlt);
   }
-  if(!includeDrafts){const priced=await require("./product-promotions").applyPromotions(pool,result.rows.flatMap(p=>p.variants));const byId=new Map(priced.map(v=>[v.id,v]));for(const p of result.rows)p.variants=p.variants.map(v=>byId.get(v.id));}
+  if(!includeDrafts){const priced=await require("./product-promotions").quoteCatalogPrices(pool,result.rows.flatMap(p=>p.variants));const byId=new Map(priced.map(v=>[v.id,v]));for(const p of result.rows)p.variants=p.variants.map(v=>byId.get(v.id));}
   const needle = search.trim().toLocaleLowerCase("vi");
   if (!needle) return result.rows;
   return result.rows.filter((product) =>
@@ -314,7 +314,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const outcome=await withTransaction(pool,async client=>{
         const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE transaction_ref=$1 AND provider=$2',[verified.orderNumber,provider])).rows[0];
         if(!row)return {code:'01',matched:false,message:'Order not found'};
-        if(row.provider_request_id&&row.provider_request_id!==(provider==='momo'?verified.requestId:verified.providerOrderId))return {code:'97',matched:false,message:'Provider request mismatch'};
+        const reqId=provider==='momo'?verified.requestId:verified.providerOrderId;
+        if(row.provider_request_id&&row.provider_request_id!==reqId)return {code:'97',matched:false,message:'Provider request mismatch'};
+        if(!row.provider_request_id&&reqId){
+          await client.query('UPDATE payment_attempts SET provider_request_id=COALESCE(provider_request_id,$3) WHERE transaction_ref=$1 AND provider=$2',[verified.orderNumber,provider,reqId]);
+        }
         const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,finance,audit});
         if(outcome.matched&&req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,provider,req.paymentChannels.versions[provider],{enabled:req.paymentChannels.methods.includes(provider)});
         return outcome;
@@ -388,8 +392,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           prepared.push({ ...variant, quantity });
         }
 
-        prepared=await require("./product-promotions").applyPromotions(client,prepared);
-        const subtotal = prepared.reduce((sum, item) => sum + item.priceVnd * item.quantity, 0);
+        const cartQuote = await require("./product-promotions").quoteCartPrices(client, prepared);
+        prepared = cartQuote.items;
+        const subtotal = cartQuote.subtotalVnd;
         if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) {
           const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
           error.status = 400;
@@ -482,7 +487,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
-              item.priceVnd, item.quantity, item.priceVnd * item.quantity,item.originalPriceVnd,item.promotion]
+              item.priceVnd, item.quantity, item.lineTotalVnd !== undefined ? item.lineTotalVnd : item.priceVnd * item.quantity,item.originalPriceVnd,item.promotion]
           );
           if (inventory) await inventory.reserveStock(client, { variantId: item.id, quantity: item.quantity, orderId: createdOrder.id, actor: { username: "customer", source: "customer" } });
           else await client.query(
@@ -492,6 +497,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         let paymentUrl = null;
         let bankTransfer = null;
+        let gatewayCall = null;
         if (["9pay", "momo", "zalopay"].includes(parsed.data.paymentMethod)) {
           const channelConfig = req.paymentChannels?.configs?.[parsed.data.paymentMethod];
           if (!channelConfig) throw Object.assign(new Error("Kênh thanh toán vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
@@ -500,12 +506,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
              VALUES ($1, $2, $3, $4, now() + interval '15 minutes')`,
             [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd]
           );
-          const gateway=await require('./payment-provider-clients').createGatewayPayment(parsed.data.paymentMethod,channelConfig,{
-            amountVnd:createdOrder.totalVnd,txnRef:createdOrder.orderNumber,baseUrl:publicBaseUrl,fetcher:paymentFetcher
-          });
-          paymentUrl=gateway.paymentUrl;
-          await client.query('UPDATE payment_attempts SET provider_request_id=$3,provider_transaction_id=$4 WHERE order_id=$1 AND provider=$2',[createdOrder.id,parsed.data.paymentMethod,gateway.requestId,gateway.providerTransactionId]);
-          if(req.paymentChannels.versions)await require('./payment-channels').recordGatewayEvidence(client,parsed.data.paymentMethod,req.paymentChannels.versions[parsed.data.paymentMethod],{method:'provider_order_create',scope:'api_credentials',enabled:true});
+          gatewayCall = {
+            provider: parsed.data.paymentMethod,
+            channelConfig,
+            version: req.paymentChannels?.versions?.[parsed.data.paymentMethod]
+          };
         } else if (parsed.data.paymentMethod === "bank_transfer") {
           const channelConfig = req.paymentChannels?.configs?.bank_transfer;
           if (!channelConfig) throw Object.assign(new Error("Chuyển khoản ngân hàng vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
@@ -535,9 +540,47 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return {
           order: { ...createdOrder, items: prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({ productName, variantName, sku, priceVnd, quantity })) },
           paymentUrl,
-          ...(bankTransfer ? { bankTransfer } : {})
+          ...(bankTransfer ? { bankTransfer } : {}),
+          gatewayCall
         };
       });
+
+      if (order.gatewayCall) {
+        const { provider, channelConfig, version } = order.gatewayCall;
+        try {
+          const gateway = await require('./payment-provider-clients').createGatewayPayment(provider, channelConfig, {
+            amountVnd: order.order.totalVnd,
+            txnRef: order.order.orderNumber,
+            baseUrl: publicBaseUrl,
+            fetcher: paymentFetcher
+          });
+          order.paymentUrl = gateway.paymentUrl;
+          await withTransaction(pool, async (client) => {
+            await client.query(
+              'UPDATE payment_attempts SET provider_request_id=$3,provider_transaction_id=$4 WHERE order_id=$1 AND provider=$2',
+              [order.order.id, provider, gateway.requestId, gateway.providerTransactionId]
+            );
+            if (version) {
+              await require('./payment-channels').recordGatewayEvidence(client, provider, version, { method: 'provider_order_create', scope: 'api_credentials', enabled: true });
+            }
+          });
+        } catch (gwError) {
+          // Compensation rollback: Release held stock and remove created pending order/attempt via deleteOrderPermanently
+          await withTransaction(pool, async (client) => {
+            const ordRow = (await client.query('SELECT customer_id FROM orders WHERE id=$1', [order.order.id])).rows[0];
+            const { deleteOrderPermanently } = require('./order-deletion');
+            await deleteOrderPermanently(client, order.order.id, {
+              actor: { username: "customer", source: "gateway_rejection" },
+              inventory
+            });
+            if (ordRow?.customer_id) {
+              await client.query('DELETE FROM customer_addresses WHERE customer_id=$1', [ordRow.customer_id]);
+              await client.query('DELETE FROM customers WHERE id=$1 AND checkout_pending=true AND NOT EXISTS (SELECT 1 FROM orders WHERE customer_id=$1)', [ordRow.customer_id]);
+            }
+          });
+          throw gwError;
+        }
+      }
 
       res.status(201).json({
         order: order.order,
@@ -772,44 +815,18 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   const handleProductVisibility = async (req, res, next) => {
     try {
-      const parsed = z.object({ active: z.boolean().optional() }).strict().safeParse(req.body || {});
+      const parsed = z.object({ active: z.boolean().optional(), version: z.number().int().positive().optional() }).strict().safeParse(req.body || {});
       if (!parsed.success) {
         return res.status(400).json({ error: "Trạng thái hiển thị sản phẩm không hợp lệ." });
       }
       const product = await withTransaction(pool, async (client) => {
-        const current = (await client.query(
-          "SELECT id, name, slug, active FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
-          [req.params.id]
-        )).rows[0];
-        if (!current) return null;
-
-        const targetActive = parsed.data.active !== undefined ? parsed.data.active : !current.active;
-
-        if (targetActive) {
-          const variants = await client.query(
-            "SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND active = true",
-            [req.params.id]
-          );
-          if (!variants.rows[0]?.count) {
-            const error = new Error("Cần ít nhất một phiên bản đang bán trước khi hiển thị sản phẩm trên cửa hàng.");
-            error.status = 409;
-            throw error;
-          }
-        }
-
-        const result = await client.query(
-          "UPDATE products SET active = $2, updated_at = now() WHERE id = $1 RETURNING id, name, slug, active",
-          [req.params.id, targetActive]
-        );
-        await audit(client, {
+        return await CatalogService.setProductVisibility(client, {
+          productId: req.params.id,
+          active: parsed.data.active,
+          expectedVersion: parsed.data.version,
           actor: req.admin,
-          action: targetActive ? "catalog.product.publish" : "catalog.product.hide",
-          entityType: "product",
-          entityId: req.params.id,
-          before: { active: current.active },
-          after: { active: targetActive }
+          auditFn: audit
         });
-        return result.rows[0];
       });
 
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
@@ -831,26 +848,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     try {
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
-      const p = parsed.data;
+      const expectedVersion = Number.isInteger(req.body?.version) && req.body.version > 0 ? req.body.version : undefined;
       const product = await withTransaction(pool, async (client) => {
-        const current = await client.query("SELECT id FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE", [req.params.id]);
-        if (!current.rows[0]) return null;
-        if (p.active) {
-          const variants = await client.query("SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND active = true", [req.params.id]);
-          if (!variants.rows[0]?.count) {
-            const error = new Error("Thêm ít nhất một phiên bản đang bán trước khi xuất bản sản phẩm.");
-            error.status = 409;
-            throw error;
-          }
-        }
-        const result = await client.query(
-          `UPDATE products SET slug=$2, name=$3, category=$4, descriptor=$5, description=$6,
-            image_url=$7, image_alt=$8, active=$9, sort_order=$10, updated_at=now()
-           WHERE id=$1 RETURNING id`,
-          [req.params.id, p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.active, p.sortOrder]
-        );
-        await audit(client, { actor: req.admin, action: "catalog.product.update", entityType: "product", entityId: req.params.id, after: p });
-        return result.rows[0];
+        return await CatalogService.updateProduct(client, {
+          productId: req.params.id,
+          data: parsed.data,
+          expectedVersion,
+          actor: req.admin,
+          auditFn: audit
+        });
       });
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
       res.json({ id: product.id });

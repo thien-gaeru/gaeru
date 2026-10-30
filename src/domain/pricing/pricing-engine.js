@@ -23,7 +23,7 @@ class PricingEngine {
   /**
    * Áp dụng khuyến mại biến thể và flash sale lên danh sách biến thể được chuẩn bị
    */
-  static async applyPromotions(client, variants) {
+  static async applyPromotions(client, variants, options = {}) {
     if (!variants || !variants.length) return variants || [];
 
     const variantIds = variants.map(v => v.id).filter(Boolean);
@@ -69,7 +69,7 @@ class PricingEngine {
 
     const slugByVariantId = new Map();
     const needSlugs = variants.filter(v => !v.productSlug && v.id).map(v => v.id);
-    if (needSlugs.length && flashRows.length) {
+    if (needSlugs.length && (flashRows.length || bundleRows.length)) {
       try {
         const psRes = await client.query(
           `SELECT v.id AS variant_id, p.slug 
@@ -86,6 +86,7 @@ class PricingEngine {
 
     return variants.map(v => {
       let best = v.priceVnd;
+      let bestLineTotalVnd = undefined;
       let promotion = null;
 
       for (const p of promoRows) {
@@ -105,24 +106,48 @@ class PricingEngine {
       const vSlug = v.productSlug || slugByVariantId.get(v.id);
 
       // Ưu đãi gói Combo (product_bundles) khi giỏ hàng có cả sản phẩm chính và phụ kiện
-      if (bundleRows.length && vSlug) {
-        const allCartSlugs = new Set(variants.map(item => item.productSlug || slugByVariantId.get(item.id)).filter(Boolean));
+      // CHỈ áp dụng trong ngữ cảnh giỏ hàng / checkout (options.context !== 'catalog')
+      if (bundleRows.length && vSlug && options.context !== 'catalog') {
+        const quantityBySlug = new Map();
+        for (const item of variants) {
+          const s = item.productSlug || slugByVariantId.get(item.id);
+          if (s) {
+            const q = Number(item.quantity) || 1;
+            quantityBySlug.set(s, (quantityBySlug.get(s) || 0) + q);
+          }
+        }
+
         for (const b of bundleRows) {
           const mainSlug = b.mainProductSlug || b.main_product_slug;
           const bundleSlug = b.bundleProductSlug || b.bundle_product_slug;
           const discountPct = Number(b.discountPercent ?? b.discount_percent ?? 0);
           const bundleTitle = b.bundleTitle || b.bundle_title;
 
-          if (bundleSlug === vSlug && allCartSlugs.has(mainSlug)) {
-            const bundlePrice = Math.max(0, Math.floor(v.priceVnd * (100 - discountPct) / 100));
-            if (bundlePrice < best) {
-              best = bundlePrice;
-              promotion = {
-                id: b.id,
-                title: bundleTitle,
-                type: 'bundle',
-                discountPercent: discountPct
-              };
+          if (bundleSlug === vSlug && quantityBySlug.has(mainSlug)) {
+            const mainQty = quantityBySlug.get(mainSlug) || 0;
+            const accessoryQty = Number(v.quantity) || 1;
+            // Số lượng phụ kiện được hưởng ưu đãi combo tối đa là min(mainQty, accessoryQty)
+            const eligibleUnits = Math.min(mainQty, accessoryQty);
+
+            if (eligibleUnits > 0) {
+              const discountedUnit = Math.max(0, Math.floor(v.priceVnd * (100 - discountPct) / 100));
+              const remainingUnits = accessoryQty - eligibleUnits;
+              const totalLineVnd = (eligibleUnits * discountedUnit) + (remainingUnits * v.priceVnd);
+              const effectivePrice = Math.round(totalLineVnd / accessoryQty);
+
+              if (effectivePrice < best) {
+                best = effectivePrice;
+                bestLineTotalVnd = totalLineVnd;
+                promotion = {
+                  id: b.id,
+                  title: bundleTitle,
+                  type: 'bundle',
+                  discountPercent: discountPct,
+                  eligibleUnits,
+                  regularUnits: remainingUnits,
+                  bundleUnitPrice: discountedUnit
+                };
+              }
             }
           }
         }
@@ -140,6 +165,7 @@ class PricingEngine {
           const fsPrice = Math.max(0, Math.floor(v.priceVnd * (100 - fs.discount_percent) / 100));
           if (fsPrice < best) {
             best = fsPrice;
+            bestLineTotalVnd = v.quantity !== undefined ? fsPrice * (Number(v.quantity) || 1) : undefined;
             promotion = {
               id: fs.id,
               title: fs.title,
@@ -154,6 +180,7 @@ class PricingEngine {
       return {
         ...v,
         priceVnd: best,
+        ...(bestLineTotalVnd !== undefined ? { lineTotalVnd: bestLineTotalVnd } : {}),
         originalPriceVnd: v.originalPriceVnd || v.priceVnd,
         promotion
       };
@@ -161,18 +188,49 @@ class PricingEngine {
   }
 
   /**
-   * Tính toán toàn diện giá trị đơn hàng, giảm giá voucher, phí ship và tổng tiền
+   * Báo giá danh mục sản phẩm công khai (context = 'catalog'):
+   * Chỉ áp dụng các chương trình giảm giá độc lập (Promotion, Flash Sale),
+   * KHÔNG tự ý áp giá gói Combo khi khách hàng chưa thêm sản phẩm chính vào giỏ.
    */
-  static async calculateOrderPricing(client, { items, voucherCode, customerId, city, shippingRates }) {
-    const prepared = await PricingEngine.applyPromotions(client, items);
-    const subtotalVnd = prepared.reduce((sum, item) => sum + item.priceVnd * item.quantity, 0);
+  static async quoteCatalogPrices(client, variants) {
+    return PricingEngine.applyPromotions(client, variants, { context: 'catalog' });
+  }
+
+  /**
+   * Báo giá giỏ hàng (context = 'cart'):
+   * Áp dụng Promotion, Flash Sale và Combo giới hạn theo số lượng cặp hợp lệ min(mainQty, accessoryQty).
+   */
+  static async quoteCartPrices(client, items) {
+    const prepared = await PricingEngine.applyPromotions(client, items, { context: 'cart' });
+    const subtotalVnd = prepared.reduce(
+      (sum, item) => sum + (item.lineTotalVnd !== undefined ? item.lineTotalVnd : item.priceVnd * (Number(item.quantity) || 1)),
+      0
+    );
+    const productSlugs = prepared.map(p => p.productSlug).filter(Boolean);
+    return {
+      items: prepared,
+      subtotalVnd,
+      productSlugs
+    };
+  }
+
+  /**
+   * Tính toán toàn diện giá trị đơn hàng (dùng chung cho cả Voucher Quote API và Checkout):
+   * - Tính giá từng dòng theo ngữ cảnh 'cart'
+   * - Kiểm tra tính hợp lệ và mức giảm của Voucher (kèm chặn chồng lấn Flash Sale)
+   * - Tính phí vận chuyển và tổng tiền thanh toán
+   */
+  static async quoteOrder(client, { items, voucherCode, customerId, lockVoucher = false, city, shippingRates }) {
+    const { items: prepared, subtotalVnd, productSlugs } = await PricingEngine.quoteCartPrices(client, items);
+    if (!Number.isSafeInteger(subtotalVnd) || subtotalVnd > 2_000_000_000) {
+      throw Object.assign(new Error('Giá trị đơn quá lớn.'), { status: 400 });
+    }
 
     let discountVnd = 0;
     let voucher = null;
     if (voucherCode) {
       const marketing = require('../../marketing');
-      const productSlugs = prepared.map(p => p.productSlug).filter(Boolean);
-      voucher = await marketing.eligible(client, voucherCode, customerId, subtotalVnd, true, { productSlugs });
+      voucher = await marketing.eligible(client, voucherCode, customerId, subtotalVnd, lockVoucher, { productSlugs });
       discountVnd = voucher?.discountVnd || 0;
     }
 
@@ -191,14 +249,23 @@ class PricingEngine {
       shippingFeeVnd,
       totalVnd,
       voucher,
+      productSlugs,
       promotionSnapshots: prepared.map(item => ({
         variantId: item.id,
         originalPriceVnd: item.originalPriceVnd,
         finalPriceVnd: item.priceVnd,
+        lineTotalVnd: item.lineTotalVnd !== undefined ? item.lineTotalVnd : item.priceVnd * (Number(item.quantity) || 1),
         quantity: item.quantity,
         promotion: item.promotion
       }))
     };
+  }
+
+  /**
+   * Alias tương thích ngược cho quoteOrder
+   */
+  static async calculateOrderPricing(client, options) {
+    return PricingEngine.quoteOrder(client, { ...options, lockVoucher: options?.lockVoucher ?? true });
   }
 }
 
