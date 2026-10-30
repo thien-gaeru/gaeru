@@ -162,3 +162,126 @@ test('Audit v6 Item 7: account.js validates safe returnUrl and invokes handleLog
   assert.ok(script.includes('function handleLoginRedirect'), 'Must define handleLoginRedirect');
   assert.ok(script.includes('if (!handleLoginRedirect())'), 'Login and register flows must invoke handleLoginRedirect()');
 });
+
+test('Audit P2-04: app.js scopes req.rawBody only to webhook routes', () => {
+  const appSource = fs.readFileSync(path.join(ROOT_DIR, 'src', 'app.js'), 'utf8');
+  assert.ok(
+    appSource.includes("url.includes('/webhooks/')") || appSource.includes("url.includes('/webhook')"),
+    'app.js must scope req.rawBody capture only to webhook endpoints'
+  );
+});
+
+test('Audit P2-05: job-queue recovers stranded processing jobs older than lease timeout', async () => {
+  const { createJobQueue } = require('../src/job-queue');
+  let queriedSql = '';
+  const fakePool = {
+    query: async (sql, params) => {
+      queriedSql += sql + '\n';
+      if (sql.includes('UPDATE system_jobs') && sql.includes("status = 'processing'")) {
+        return {
+          rows: [{
+            id: 'stranded-job-1',
+            queue: 'default',
+            name: 'test_task',
+            payload: '{}',
+            status: 'processing',
+            attempts: 1,
+            max_attempts: 5
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const queue = createJobQueue({ pool: fakePool });
+  let jobHandled = false;
+  queue.registerWorker('test_task', async () => {
+    jobHandled = true;
+  });
+
+  queue.start();
+  await queue.processOne();
+  queue.stop();
+
+  assert.ok(
+    queriedSql.includes("status = 'processing' AND updated_at < now() - interval '5 minutes'"),
+    'claimNextJob query must select stranded processing jobs older than 5 minutes'
+  );
+  assert.equal(jobHandled, true, 'Stranded job must be recovered and processed');
+});
+
+test('Audit P1-04: marketing eligible() checks across all active flash sales deterministically', async () => {
+  const { eligible } = require('../src/marketing');
+  let queriedSql = '';
+  const fakePool = {
+    query: async (sql, params) => {
+      queriedSql += sql + '\n';
+      if (sql.includes('FROM flash_sales')) {
+        return {
+          rows: [
+            { id: 'fs-1', product_slugs: ['gaeru-k9'] },
+            { id: 'fs-2', product_slugs: ['gaeru-g1-ultra'] }
+          ]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  await assert.rejects(
+    () => eligible(fakePool, 'TEST10', 'cust-1', 350000, false, { productSlugs: ['g1-ultra'] }),
+    /Flash Sale/
+  );
+  assert.ok(!queriedSql.includes('LIMIT 1'), 'Must not restrict flash sales query to LIMIT 1');
+});
+
+test('Audit P1-05: flash-sale.js createFlashSale is transactional and validates non-empty productSlugs', async () => {
+  const { createFlashSale } = require('../src/flash-sale');
+  const flashSaleSource = fs.readFileSync(path.join(ROOT_DIR, 'src', 'flash-sale.js'), 'utf8');
+  assert.ok(flashSaleSource.includes('withTransaction'), 'createFlashSale must use withTransaction');
+
+  await assert.rejects(
+    () => createFlashSale({}, { title: 'Test', productSlugs: [] }),
+    /Chiến dịch Flash Sale cần ít nhất một sản phẩm/
+  );
+});
+
+test('Audit P1-06: PricingEngine applies bundle discount when main product and bundle items match', async () => {
+  const { PricingEngine } = require('../src/domain/pricing/pricing-engine');
+  const fakeClient = {
+    query: async (sql, params) => {
+      if (sql.includes('FROM product_promotions')) {
+        return { rows: [] };
+      }
+      if (sql.includes('FROM flash_sales')) {
+        return { rows: [] };
+      }
+      if (sql.includes('FROM product_bundles')) {
+        return {
+          rows: [{
+            id: 'bundle-1',
+            bundleTitle: 'Combo K9 + Keycap',
+            mainProductSlug: 'gaeru-k9',
+            bundleProductSlug: 'keycap-pbt',
+            discountPercent: 20,
+            active: true
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const lineItems = [
+    { id: 'v1', productId: 'prod-k9', productName: 'Bàn phím cơ K9', productSlug: 'gaeru-k9', priceVnd: 500000, quantity: 1 },
+    { id: 'v2', productId: 'prod-keycap', productName: 'Bộ Keycap PBT', productSlug: 'keycap-pbt', priceVnd: 200000, quantity: 1 }
+  ];
+
+  const evaluated = await PricingEngine.applyPromotions(fakeClient, lineItems);
+  // The bundle product (keycap) receives a 20% discount (200000 * 0.8 = 160000)
+  assert.equal(evaluated[0].priceVnd, 500000, 'Main product retains price');
+  assert.equal(evaluated[1].priceVnd, 160000, 'Bundle product receives 20% discount');
+  assert.equal(evaluated[1].promotion.type, 'bundle');
+  assert.equal(evaluated[1].promotion.discountPercent, 20);
+});

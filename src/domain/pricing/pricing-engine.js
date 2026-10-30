@@ -57,6 +57,16 @@ class PricingEngine {
       flashRows = fsRes.rows || [];
     } catch {}
 
+    let bundleRows = [];
+    try {
+      const bRes = await client.query(
+        `SELECT id, main_product_slug AS "mainProductSlug", bundle_product_slug AS "bundleProductSlug", 
+                bundle_title AS "bundleTitle", discount_percent AS "discountPercent"
+         FROM product_bundles WHERE active = true`
+      );
+      bundleRows = bRes.rows || [];
+    } catch {}
+
     const slugByVariantId = new Map();
     const needSlugs = variants.filter(v => !v.productSlug && v.id).map(v => v.id);
     if (needSlugs.length && flashRows.length) {
@@ -93,6 +103,30 @@ class PricingEngine {
       }
 
       const vSlug = v.productSlug || slugByVariantId.get(v.id);
+
+      // Ưu đãi gói Combo (product_bundles) khi giỏ hàng có cả sản phẩm chính và phụ kiện
+      if (bundleRows.length && vSlug) {
+        const allCartSlugs = new Set(variants.map(item => item.productSlug || slugByVariantId.get(item.id)).filter(Boolean));
+        for (const b of bundleRows) {
+          const mainSlug = b.mainProductSlug || b.main_product_slug;
+          const bundleSlug = b.bundleProductSlug || b.bundle_product_slug;
+          const discountPct = Number(b.discountPercent ?? b.discount_percent ?? 0);
+          const bundleTitle = b.bundleTitle || b.bundle_title;
+
+          if (bundleSlug === vSlug && allCartSlugs.has(mainSlug)) {
+            const bundlePrice = Math.max(0, Math.floor(v.priceVnd * (100 - discountPct) / 100));
+            if (bundlePrice < best) {
+              best = bundlePrice;
+              promotion = {
+                id: b.id,
+                title: bundleTitle,
+                type: 'bundle',
+                discountPercent: discountPct
+              };
+            }
+          }
+        }
+      }
       for (const fs of flashRows) {
         const slugs = Array.isArray(fs.product_slugs)
           ? fs.product_slugs

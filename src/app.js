@@ -87,7 +87,10 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use(express.json({
     limit: "32kb",
     verify: (req, res, buf) => {
-      req.rawBody = buf ? buf.toString('utf8') : '';
+      const url = req.originalUrl || req.url || '';
+      if (url.includes('/webhooks/') || url.includes('/webhook')) {
+        req.rawBody = buf ? buf.toString('utf8') : '';
+      }
     }
   }));
   app.use(createHoneypotShield());

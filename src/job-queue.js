@@ -31,7 +31,8 @@ function createJobQueue({ pool, intervalMs = 2500, concurrency = 1 } = {}) {
          SET status = 'processing', attempts = attempts + 1, updated_at = now()
          WHERE id = (
            SELECT id FROM system_jobs
-           WHERE status = 'pending' AND run_at <= now()
+           WHERE (status = 'pending' AND run_at <= now())
+              OR (status = 'processing' AND updated_at < now() - interval '5 minutes')
            ORDER BY run_at ASC, created_at ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED
@@ -44,7 +45,8 @@ function createJobQueue({ pool, intervalMs = 2500, concurrency = 1 } = {}) {
       try {
         const candidate = await pool.query(
           `SELECT id FROM system_jobs
-           WHERE status = 'pending' AND run_at <= now()
+           WHERE (status = 'pending' AND run_at <= now())
+              OR (status = 'processing' AND updated_at < now() - interval '5 minutes')
            ORDER BY run_at ASC, created_at ASC
            LIMIT 1`
         );
@@ -53,7 +55,7 @@ function createJobQueue({ pool, intervalMs = 2500, concurrency = 1 } = {}) {
         const updated = await pool.query(
           `UPDATE system_jobs
            SET status = 'processing', attempts = attempts + 1, updated_at = now()
-           WHERE id = $1 AND status = 'pending'
+           WHERE id = $1 AND (status = 'pending' OR (status = 'processing' AND updated_at < now() - interval '5 minutes'))
            RETURNING *`,
           [row.id]
         );
