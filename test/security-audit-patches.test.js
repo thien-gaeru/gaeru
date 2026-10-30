@@ -170,3 +170,102 @@ test('P2: Social proof marks fallback data with transparent isSimulated flag whe
     await db.close();
   }
 });
+
+test('P1: Admin Helmet CSP compliance: All admin markup and dynamic templates have zero inline onclick / onsubmit', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const adminIndex = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
+  const upgradesHub = fs.readFileSync(path.join(__dirname, '..', 'admin', 'upgrades-hub.js'), 'utf8');
+
+  // Verify no inline event handler attributes exist in admin/index.html or generated templates in upgrades-hub.js
+  assert.doesNotMatch(adminIndex, /\bonclick\s*=/i, 'admin/index.html must not contain inline onclick attributes');
+  assert.doesNotMatch(adminIndex, /\bonsubmit\s*=/i, 'admin/index.html must not contain inline onsubmit attributes');
+  assert.doesNotMatch(upgradesHub, /<[^>]*\bonclick\s*=/i, 'admin/upgrades-hub.js templates must not contain inline onclick');
+  assert.doesNotMatch(upgradesHub, /<[^>]*\bonsubmit\s*=/i, 'admin/upgrades-hub.js templates must not contain inline onsubmit');
+});
+
+test('P1: Marketing eligible rejects vouchers when product is in active Flash Sale', async () => {
+  const { db, pool } = await setupTestDb();
+  try {
+    const { eligible } = require('../src/marketing');
+    // Create customer and voucher
+    const custId = '33333333-4444-5555-6666-777777777777';
+    await pool.query(
+      `INSERT INTO customers (id, email, password_hash, full_name, active) VALUES ($1, 'test@cust.com', 'hash', 'Test Cust', true)`,
+      [custId]
+    );
+    const vId = '44444444-5555-6666-7777-888888888888';
+    await pool.query(
+      `INSERT INTO marketing_vouchers (id, code, title, kind, amount, min_spend_vnd, starts_at, ends_at, total_limit, per_customer_limit, public_claim, active)
+       VALUES ($1, 'DISCOUNT10', 'Giảm 10%', 'percent', 10, 100000, now() - interval '1 hour', now() + interval '1 day', 100, 5, true, true)`,
+      [vId]
+    );
+    await pool.query(
+      `INSERT INTO customer_vouchers (customer_id, voucher_id, source) VALUES ($1, $2, 'saved')`,
+      [custId, vId]
+    );
+
+    // Active flash sale with product slug 'flash-item'
+    await createFlashSale(pool, {
+      title: 'Flash Test',
+      startsAt: new Date(Date.now() - 3600000),
+      endsAt: new Date(Date.now() + 7200000),
+      discountPercent: 15,
+      productSlugs: ['flash-item']
+    });
+
+    // 1. Should reject when cart has 'flash-item'
+    await assert.rejects(
+      async () => {
+        await eligible(pool, 'DISCOUNT10', custId, 500000, false, { productSlugs: ['flash-item', 'regular-item'] });
+      },
+      (err) => {
+        assert.equal(err.status, 409);
+        assert.match(err.message, /Flash Sale giờ vàng không áp dụng đồng thời/);
+        return true;
+      }
+    );
+
+    // 2. Should succeed when cart only has 'regular-item'
+    const okResult = await eligible(pool, 'DISCOUNT10', custId, 500000, false, { productSlugs: ['regular-item'] });
+    assert.equal(okResult.voucher.code, 'DISCOUNT10');
+    assert.ok(okResult.discountVnd > 0);
+  } finally {
+    await db.close();
+  }
+});
+
+test('P2: Phone normalization in order tracking handles local 0..., E.164 +84..., and raw 84... formats', async () => {
+  const { db, pool } = await setupTestDb();
+  try {
+    const { normalizeVietnamPhone } = require('../src/tracking-api');
+    assert.equal(normalizeVietnamPhone('+84901234567'), '0901234567');
+    assert.equal(normalizeVietnamPhone('+84 901 234 567'), '0901234567');
+    assert.equal(normalizeVietnamPhone('84901234567'), '0901234567');
+    assert.equal(normalizeVietnamPhone('090-123-4567'), '0901234567');
+
+    // Insert order stored with local '0901234567'
+    await pool.query(
+      `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, subtotal_vnd, total_vnd, status, payment_method, payment_status)
+       VALUES ('55555555-6666-7777-8888-999999999999', 'GAERU-PHONE-01', 'Lê Thị Mai', 'mai@example.com', '0901234567', '456 Phố Huế, Hai Bà Trưng, Hà Nội', 'Hà Nội', 450000, 450000, 'processing', 'bank_transfer', 'pending')`
+    );
+
+    // 1. Lookup with E.164 format: '+84 901 234 567'
+    const resE164 = await lookupOrderTracking(pool, '+84 901 234 567');
+    assert.equal(resE164.found, true);
+    assert.equal(resE164.orders[0].orderCode, 'GAERU-PHONE-01');
+
+    // 2. Lookup with 84 format: '84901234567'
+    const res84 = await lookupOrderTracking(pool, '84901234567');
+    assert.equal(res84.found, true);
+    assert.equal(res84.orders[0].orderCode, 'GAERU-PHONE-01');
+
+    // 3. Lookup with hyphenated local format: '090-123-4567'
+    const resHyphen = await lookupOrderTracking(pool, '090-123-4567');
+    assert.equal(resHyphen.found, true);
+    assert.equal(resHyphen.orders[0].orderCode, 'GAERU-PHONE-01');
+  } finally {
+    await db.close();
+  }
+});
+

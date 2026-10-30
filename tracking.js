@@ -1,4 +1,4 @@
-(function() {
+﻿(function() {
   'use strict';
 
   const form = document.getElementById('tracking-form');
@@ -106,7 +106,7 @@
             </div>
             <div class="order-total-badge">
               <strong>${new Intl.NumberFormat('vi-VN').format(order.totalVnd)} ₫</strong>
-              <small>${escapeHtml(order.paymentMethod === 'cod' ? 'Thanh toán COD' : 'Đã thanh toán')}</small>
+              <small>${escapeHtml(formatPaymentBadge(order.paymentMethod, order.paymentStatus))}</small>
             </div>
           </div>
 
@@ -130,6 +130,18 @@
         </div>
       `;
     }).join('');
+  }
+
+  function formatPaymentBadge(method, status) {
+    const s = String(status || '').toLowerCase();
+    const m = String(method || '').toLowerCase();
+    if (s === 'paid') return 'Đã thanh toán';
+    if (s === 'failed') return 'Thanh toán thất bại';
+    if (s === 'cancelled') return 'Thanh toán đã hủy';
+    if (s === 'refunded') return 'Đã hoàn tiền';
+    if (m === 'cod') return 'Thanh toán COD';
+    if (m === 'bank_transfer') return 'Chờ chuyển khoản';
+    return 'Chờ thanh toán';
   }
 
   function escapeHtml(s) {

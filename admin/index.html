@@ -153,11 +153,11 @@
               </div>
 
               <nav class="upgrades-nav-tabs" aria-label="Danh mục nâng cấp">
-                <button type="button" class="upgrades-tab-btn is-active" data-tab="matrix" onclick="window.GAERUUpgradesHub.switchUpgradeTab('matrix')">🚀 Ma trận 30 Nâng cấp</button>
-                <button type="button" class="upgrades-tab-btn" data-tab="rop" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rop')">📦 Dự báo Tồn kho &amp; ROP</button>
-                <button type="button" class="upgrades-tab-btn" data-tab="rfm" onclick="window.GAERUUpgradesHub.switchUpgradeTab('rfm')">👥 Phân khúc Khách hàng RFM</button>
-                <button type="button" class="upgrades-tab-btn" data-tab="capi" onclick="window.GAERUUpgradesHub.switchUpgradeTab('capi')">🎯 Server-Side CAPI</button>
-                <button type="button" class="upgrades-tab-btn" data-tab="settings" onclick="window.GAERUUpgradesHub.switchUpgradeTab('settings')">⚙️ Cài Đặt Tính Năng</button>
+                <button type="button" class="upgrades-tab-btn is-active" data-tab="matrix" >🚀 Ma trận 30 Nâng cấp</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="rop" >📦 Dự báo Tồn kho &amp; ROP</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="rfm" >👥 Phân khúc Khách hàng RFM</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="capi" >🎯 Server-Side CAPI</button>
+                <button type="button" class="upgrades-tab-btn" data-tab="settings" >⚙️ Cài Đặt Tính Năng</button>
               </nav>
 
               <div class="upgrades-panel upgrades-tab-panel" id="tab-panel-matrix">
@@ -167,10 +167,10 @@
                     <p>Toàn bộ các module công nghệ nâng cao đang vận hành đồng bộ trên máy chủ.</p>
                   </div>
                   <div style="display:flex;gap:8px;">
-                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('all')">Tất cả (30)</button>
-                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('phase1')">Phase 1 (10)</button>
-                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('phase2')">Phase 2 (10)</button>
-                    <button type="button" class="up-btn-sm" onclick="window.GAERUUpgradesHub.renderMatrix('phase3')">Phase 3 (10)</button>
+                    <button type="button" class="up-btn-sm" data-matrix-filter="all">Tất cả (30)</button>
+                    <button type="button" class="up-btn-sm" data-matrix-filter="phase1">Phase 1 (10)</button>
+                    <button type="button" class="up-btn-sm" data-matrix-filter="phase2">Phase 2 (10)</button>
+                    <button type="button" class="up-btn-sm" data-matrix-filter="phase3">Phase 3 (10)</button>
                   </div>
                 </div>
                 <div class="upgrades-matrix-grid" id="upgrades-matrix-container"></div>
@@ -182,7 +182,7 @@
                     <h2>Dự Báo Tồn Kho &amp; Điểm Đặt Hàng Lại An Toàn (Smart ROP)</h2>
                     <p>Thuật toán tự động tính tốc độ bán 30 ngày để dự báo ngày hết hàng và đề xuất số lượng nhập kho.</p>
                   </div>
-                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadInventoryForecast()">🔄 Tính toán lại</button>
+                  <button type="button" class="primary-button" data-action="load-rop">🔄 Tính toán lại</button>
                 </div>
                 <div class="enterprise-table-wrap">
                   <table class="upgrades-table">
@@ -208,7 +208,7 @@
                     <h2>Phân Khúc Khách Hàng Tự Động Theo Mô Hình RFM</h2>
                     <p>Phân loại khách hàng theo Recency (Đơn gần nhất), Frequency (Tần suất) và Monetary (Chi tiêu).</p>
                   </div>
-                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadRfmSegmentation()">🔄 Cập nhật phân khúc</button>
+                  <button type="button" class="primary-button" data-action="load-rfm">🔄 Cập nhật phân khúc</button>
                 </div>
                 <div class="rfm-cards-grid" id="upgrades-rfm-cards"></div>
                 <h3 style="margin:16px 0 8px 0;font-size:15px;">Danh Sách Khách Hàng Tiêu Biểu Theo Phân Khúc</h3>
@@ -236,8 +236,8 @@
                     <p>Theo dõi dữ liệu chuyển đổi Purchase được gửi trực tiếp từ máy chủ Node.js với mã băm SHA-256.</p>
                   </div>
                   <div style="display:flex;gap:8px;">
-                    <button type="button" class="secondary-button" onclick="window.GAERUUpgradesHub.triggerTestCapi()">⚡ Bắn Test Event</button>
-                    <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadCapiLogs()">🔄 Làm mới nhật ký</button>
+                    <button type="button" class="secondary-button" data-action="test-capi">⚡ Bắn Test Event</button>
+                    <button type="button" class="primary-button" data-action="load-capi-logs">🔄 Làm mới nhật ký</button>
                   </div>
                 </div>
                 <div class="enterprise-table-wrap">
@@ -262,7 +262,7 @@
                     <h2>Trung Tâm Cài Đặt Cấu Hình Các Tính Năng Nâng Cấp</h2>
                     <p>Tùy chỉnh thông số vận hành của Server CAPI, Điểm thưởng Loyalty, Tiếp thị liên kết KOC, Web Push và Dự báo tồn kho.</p>
                   </div>
-                  <button type="button" class="primary-button" onclick="window.GAERUUpgradesHub.loadAllSettings()">🔄 Tải lại cấu hình</button>
+                  <button type="button" class="primary-button" data-action="load-settings">🔄 Tải lại cấu hình</button>
                 </div>
                 <div id="all-upgrades-settings-container"></div>
               </div>
