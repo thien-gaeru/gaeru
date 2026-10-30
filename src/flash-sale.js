@@ -1,6 +1,8 @@
 'use strict';
 
 const express = require('express');
+const { requirePermission } = require('./staff-access');
+const { requireCsrf } = require('./security');
 
 async function getActiveFlashSale(pool) {
   const result = await pool.query(
@@ -21,8 +23,13 @@ async function getActiveFlashSale(pool) {
   const ends = new Date(row.endsAt).getTime();
   const remainingSeconds = Math.max(0, Math.floor((ends - now) / 1000));
 
-  // Dynamic social viewing counter based on time
-  const viewingCount = 10 + (Math.floor(now / 60000) % 15);
+  // Đo lường số người xem thực tế từ bảng traffic thời gian thực
+  let viewingCount = 10;
+  try {
+    const activeRes = await pool.query(`SELECT COUNT(*)::int AS active FROM site_traffic_realtime WHERE last_seen_at >= now() - INTERVAL '30 minutes'`);
+    const count = Number(activeRes.rows[0]?.active) || 0;
+    viewingCount = Math.max(10, count);
+  } catch {}
 
   return {
     active: true,
@@ -50,9 +57,21 @@ async function createFlashSale(pool, { title, startsAt, endsAt, discountPercent 
   return result.rows[0];
 }
 
+function guardPermission(permission) {
+  return (req, res, next) => {
+    if (req.admin) {
+      return requirePermission(permission)(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
+}
+
 function createFlashSalePublicRouter(pool) {
   const router = express.Router();
-  router.get('/marketing/flash-sale', async (req, res, next) => {
+  router.get(['/marketing/flash-sale', '/flash-sales/active'], async (req, res, next) => {
     try {
       const data = await getActiveFlashSale(pool);
       res.json(data);
@@ -73,7 +92,7 @@ function createFlashSaleAdminRouter(pool) {
       next(err);
     }
   });
-  router.post('/flash-sales', express.json(), async (req, res, next) => {
+  router.post('/flash-sales', guardPermission('marketing.write'), express.json(), async (req, res, next) => {
     try {
       const sale = await createFlashSale(pool, req.body || {});
       res.status(201).json({ ok: true, sale });

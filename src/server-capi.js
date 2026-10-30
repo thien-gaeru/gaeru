@@ -1,6 +1,8 @@
-'use strict';
+﻿'use strict';
 const crypto = require('node:crypto');
 const { Router } = require('express');
+const { requirePermission } = require('./staff-access');
+const { requireCsrf } = require('./security');
 
 function hashSha256(val) {
   if (!val) return null;
@@ -191,6 +193,15 @@ async function dispatchServerCapi(pool, config = {}, {
 
 function createCapiAdminRouter(pool, config) {
   const router = Router();
+  const guardSettingsWrite = (req, res, next) => {
+    if (req.admin) {
+      return requirePermission('settings.write')(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
 
   router.get('/capi/config', async (_req, res, next) => {
     try {
@@ -200,7 +211,7 @@ function createCapiAdminRouter(pool, config) {
     } catch (err) { next(err); }
   });
 
-  router.post('/capi/config', async (req, res, next) => {
+  router.post('/capi/config', guardSettingsWrite, async (req, res, next) => {
     try {
       const { saveUpgradesSettings, getUpgradesSettings } = require('./upgrades-settings');
       const current = await getUpgradesSettings(pool);
@@ -221,7 +232,7 @@ function createCapiAdminRouter(pool, config) {
     }
   });
 
-  router.post('/capi/test-event', async (req, res, next) => {
+  router.post('/capi/test-event', guardSettingsWrite, async (req, res, next) => {
     try {
       const { eventName = 'Purchase', amountVnd = 450000, orderNumber = 'TEST-ORDER' } = req.body || {};
       const results = await dispatchServerCapi(pool, config, {

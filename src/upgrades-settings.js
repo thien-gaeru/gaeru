@@ -1,6 +1,8 @@
 'use strict';
 
 const { Router } = require('express');
+const { requirePermission } = require('./staff-access');
+const { requireCsrf } = require('./security');
 
 const DEFAULT_SETTINGS = {
   capi: {
@@ -88,6 +90,15 @@ async function saveUpgradesSettings(pool, newSettings) {
 
 function createUpgradesSettingsRouter(pool) {
   const router = Router();
+  const guardSettingsWrite = (req, res, next) => {
+    if (req.admin) {
+      return requirePermission('settings.write')(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
 
   router.get('/upgrades/settings', async (_req, res, next) => {
     try {
@@ -98,7 +109,7 @@ function createUpgradesSettingsRouter(pool) {
     }
   });
 
-  router.post('/upgrades/settings', async (req, res, next) => {
+  router.post('/upgrades/settings', guardSettingsWrite, async (req, res, next) => {
     try {
       const body = req.body || {};
       const { module: modName, settings } = body;
@@ -127,7 +138,7 @@ function createUpgradesSettingsRouter(pool) {
     } catch (err) { next(err); }
   });
 
-  router.post('/shipping/config', async (req, res, next) => {
+  router.post('/shipping/config', guardSettingsWrite, async (req, res, next) => {
     try {
       const current = await getUpgradesSettings(pool);
       current.shipping = { ...(current.shipping || {}), ...(req.body || {}) };

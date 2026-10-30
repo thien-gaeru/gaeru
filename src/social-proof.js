@@ -23,12 +23,15 @@ function formatRelativeTime(date) {
 }
 
 const FALLBACK_SALES = [
-  { customerName: 'Hoàng M.', location: 'Hà Nội', productName: 'Micro Thu Âm Không Dây K9', relativeTime: '5 phút trước' },
-  { customerName: 'Minh T.', location: 'TP. Hồ Chí Minh', productName: 'Gimbal Chống Rung GAERU G1 Ultra', relativeTime: '12 phút trước' },
-  { customerName: 'Thu H.', location: 'Đà Nẵng', productName: 'Gậy Chụp Hình Gimbal P01 AI', relativeTime: '25 phút trước' },
-  { customerName: 'Văn D.', location: 'Cần Thơ', productName: 'Chân Tripod Để Bàn GAERU M3', relativeTime: '40 phút trước' }
+  { customerName: 'Hoàng M.', location: 'Hà Nội', productName: 'Micro Thu Âm Không Dây K9', relativeTime: '5 phút trước', isSimulated: true, note: 'Dữ liệu mẫu minh họa' },
+  { customerName: 'Minh T.', location: 'TP. Hồ Chí Minh', productName: 'Gimbal Chống Rung GAERU G1 Ultra', relativeTime: '12 phút trước', isSimulated: true, note: 'Dữ liệu mẫu minh họa' },
+  { customerName: 'Thu H.', location: 'Đà Nẵng', productName: 'Gậy Chụp Hình Gimbal P01 AI', relativeTime: '25 phút trước', isSimulated: true, note: 'Dữ liệu mẫu minh họa' },
+  { customerName: 'Văn D.', location: 'Cần Thơ', productName: 'Chân Tripod Để Bàn GAERU M3', relativeTime: '40 phút trước', isSimulated: true, note: 'Dữ liệu mẫu minh họa' }
 ];
 
+// ─── P2 FIX: Minh bạch dữ liệu social proof ──────────────────────────────────
+// Nếu có đơn hàng thật trong 72h: trả đơn thật với isSimulated: false.
+// Nếu chưa có đơn hoặc DB rỗng: trả mẫu minh họa kèm cờ isSimulated: true và nhãn minh bạch.
 async function getRecentSocialProof(pool) {
   try {
     const { rows } = await pool.query(
@@ -41,6 +44,7 @@ async function getRecentSocialProof(pool) {
               ) AS "productName"
        FROM orders o
        WHERE o.status NOT IN ('cancelled')
+         AND o.created_at > now() - INTERVAL '72 hours'
        ORDER BY o.created_at DESC
        LIMIT 10`
     );
@@ -53,9 +57,10 @@ async function getRecentSocialProof(pool) {
       customerName: maskCustomerName(r.customerName),
       location: r.location,
       productName: r.productName,
-      relativeTime: formatRelativeTime(r.createdAt)
+      relativeTime: formatRelativeTime(r.createdAt),
+      isSimulated: false
     }));
-  } catch (err) {
+  } catch {
     return FALLBACK_SALES;
   }
 }

@@ -1,6 +1,8 @@
 'use strict';
 
 const express = require('express');
+const { requirePermission } = require('./staff-access');
+const { requireCsrf } = require('./security');
 
 async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId = null, userAgent = null }) {
   const ep = String(endpoint || '').trim();
@@ -68,8 +70,17 @@ function createPushPublicRouter(pool) {
 
 function createPushAdminRouter(pool) {
   const router = express.Router();
+  const guardMarketingWrite = (req, res, next) => {
+    if (req.admin) {
+      return requirePermission('marketing.write')(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
 
-  router.post('/push/broadcast', express.json(), async (req, res, next) => {
+  router.post('/push/broadcast', guardMarketingWrite, express.json(), async (req, res, next) => {
     try {
       const { title = 'GAERU Flash Sale', body = 'Ưu đãi micro thu âm chính hãng đã bắt đầu!', url = '/' } = req.body || {};
       const result = await broadcastPushNotification(pool, { title, body, url });
