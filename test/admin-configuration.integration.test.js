@@ -1,37 +1,17 @@
+const { createTestDb } = require('./helpers/pglite-db');
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomBytes, randomUUID } = require("node:crypto");
-const { PGlite } = require("@electric-sql/pglite");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const { createApp } = require("../src/app");
-const { migrateDatabase } = require("../src/migrate");
 
 // Runs real PostgreSQL statements in one embedded connection. Multi-connection
 // locking and production integrations still require a separate staging run.
-async function database() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise((resolve) => { release = resolve; });
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const result = !values && sql.includes(";") ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...result, rows: result?.rows || [], rowCount: result?.affectedRows ?? result?.rows?.length ?? 0 };
-  }
-  return {
-    async query(sql, values) { const release = await lock(); try { return await query(sql, values); } finally { release(); } },
-    async connect() { const release = await lock(); return { query, release }; },
-    end: () => db.close()
-  };
-}
 
 test('private configuration is owner-only, encrypted, versioned, reauthenticated and applied to payments', {timeout:60000},async t=>{
- const pool=await database();await migrateDatabase(pool);const secret=randomBytes(48).toString('hex');const app=createApp({config:{NODE_ENV:'test',SESSION_SECRET:secret,ADMIN_USERNAME:'settings-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Owner-settings-password',4),PUBLIC_BASE_URL:'https://example.invalid',STORE_ORDERS_ENABLED:true},pool,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await pool.end();});const base='http://127.0.0.1:'+server.address().port;let cookie='',csrf='';
+ const { pool, close: closeDb } = await createTestDb();
+  const secret=randomBytes(48).toString('hex');const app=createApp({config:{NODE_ENV:'test',SESSION_SECRET:secret,ADMIN_USERNAME:'settings-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Owner-settings-password',4),PUBLIC_BASE_URL:'https://example.invalid',STORE_ORDERS_ENABLED:true},pool,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await closeDb();});const base='http://127.0.0.1:'+server.address().port;let cookie='',csrf='';
  async function api(path,method='GET',body,token=true){const r=await fetch(base+path,{method,headers:{Cookie:cookie,...(token?{'X-CSRF-Token':csrf}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.status===204?null:await r.json();if(data?.csrfToken)csrf=data.csrfToken;return {status:r.status,data};}
  assert.equal((await api('/api/gaeru_ceo/owner/configuration')).status,401);await api('/api/csrf');assert.equal((await api('/api/auth/login','POST',{username:'settings-owner',password:'Owner-settings-password'})).status,200);
  let r=await api('/api/gaeru_ceo/owner/configuration');assert.equal(r.status,200);assert.equal(r.data.records.profile.version,0);

@@ -1,6 +1,6 @@
 const {z}=require('zod');
-const {requirePermission}=require('./staff-access');
-const {requireCsrf}=require('./security');
+const {requireAdminAction}=require('./admin-action');
+const guardCatalogWrite=requireAdminAction('catalog.write');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
 const fail=(message,status=409)=>Object.assign(Error(message),{status});
@@ -15,7 +15,7 @@ function attachProductTrash(router,pool){
     const variants=(await client.query('SELECT id,sku,active,stock_quantity FROM product_variants WHERE product_id=$1 ORDER BY id FOR UPDATE',[id])).rows;
     return {product,variants};
   }
-  router.post('/gaeru_ceo/products/:id/restore',requirePermission('catalog.write'),requireCsrf,wrap(async(req,res)=>{
+  router.post('/gaeru_ceo/products/:id/restore',guardCatalogWrite,wrap(async(req,res)=>{
     const data=z.object({version,activate:z.boolean().default(false)}).strict().parse(req.body);
     await withTransaction(pool,async client=>{
       const {product,variants}=await locked(client,req.params.id,data.version);
@@ -28,7 +28,7 @@ function attachProductTrash(router,pool){
     });
     res.json({message:data.activate?'Đã khôi phục và kích hoạt sản phẩm.':'Đã khôi phục sản phẩm về bản nháp.'});
   }));
-  router.delete('/gaeru_ceo/products/:id/permanent',requirePermission('catalog.write'),requireCsrf,wrap(async(req,res)=>{
+  router.delete('/gaeru_ceo/products/:id/permanent',guardCatalogWrite,wrap(async(req,res)=>{
     if(!['owner','admin'].includes(req.admin?.role))throw fail('Chỉ chủ doanh nghiệp hoặc quản trị viên được xóa vĩnh viễn.',403);
     const data=z.object({version,confirmation:z.string().min(1).max(120)}).strict().parse(req.body);
     await withTransaction(pool,async client=>{

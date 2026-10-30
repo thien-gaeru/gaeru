@@ -1,7 +1,7 @@
+const { createTestDb } = require('./helpers/pglite-db');
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomBytes, randomUUID } = require("node:crypto");
-const { PGlite } = require("@electric-sql/pglite");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const { createApp } = require("../src/app");
@@ -9,37 +9,16 @@ const { migrateDatabase } = require("../src/migrate");
 
 // Runs real PostgreSQL statements in one embedded connection. Multi-connection
 // locking and production integrations still require a separate staging run.
-async function database() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise((resolve) => { release = resolve; });
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const result = !values && sql.includes(";") ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...result, rows: result?.rows || [], rowCount: result?.affectedRows ?? result?.rows?.length ?? 0 };
-  }
-  return {
-    async query(sql, values) { const release = await lock(); try { return await query(sql, values); } finally { release(); } },
-    async connect() { const release = await lock(); return { query, release }; },
-    end: () => db.close()
-  };
-}
 
 test("enterprise workflows integrate authentication, approvals, warehouse stock, collections and immutable audit", { timeout: 60000 }, async (context) => {
-  const pool = await database();
-  await migrateDatabase(pool);
+  const { pool, close: closeDb } = await createTestDb();
   const app = createApp({ config: {
     NODE_ENV: "test", SESSION_SECRET: randomBytes(48).toString("hex"),
     ADMIN_USERNAME: "enterprise-owner", ADMIN_PASSWORD_HASH: bcrypt.hashSync("Owner-test-password-2026", 4), STORE_ORDERS_ENABLED: true
   }, pool, sessionStore: new session.MemoryStore() });
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
-  context.after(async () => { await new Promise((resolve) => server.close(resolve)); await pool.end(); });
+  context.after(async () => { await new Promise((resolve) => server.close(resolve)); await closeDb(); });
   const base = `http://127.0.0.1:${server.address().port}`;
   function client() {
     let cookie = "", csrf = "";

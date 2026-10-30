@@ -1,4 +1,4 @@
-const { isOnlineGateway } = require('./domain/payments/payment-policy');
+const { isOnlineGateway, transitionPaymentStatus } = require('./domain/payments/payment-policy');
 const { Router } = require("express");
 const { z } = require("zod");
 const { createHash, randomUUID } = require("node:crypto");
@@ -114,7 +114,9 @@ function createFinanceApi(pool) {
       const received = await receiptTotal(client, order.id);
       if (data.amountVnd > order.total_vnd - received) throw fail(409, "Số tiền thu vượt số tiền còn phải thu.");
       const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, data.amountVnd, data.method, data.reference, data.note, data.requestKey, digest(data), req.admin.username]);
-      if (received + data.amountVnd === order.total_vnd) await client.query("UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' THEN 'completed' ELSE status END,updated_at=now() WHERE id=$1", [order.id]);
+      if (received + data.amountVnd === order.total_vnd) {
+        await transitionPaymentStatus(client, { orderId: order.id, targetStatus: 'paid', autoOrderComplete: true });
+      }
       await appendAudit(client, { actor: req.admin, action: "finance.receipt.post", entityType: "sales_receipt", entityId: inserted.rows[0].id, metadata: { orderId: order.id, amountVnd: data.amountVnd, method: data.method } });
       return { id: inserted.rows[0].id, replayed: false };
     });
