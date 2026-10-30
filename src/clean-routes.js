@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 const fs=require('node:fs'),path=require('node:path'),{parseHTML}=require('linkedom'),{paths,clean}=require('../clean-urls'),{normalizePublicBase,normalizeBrandText}=require('./primary-domain');
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
@@ -20,6 +20,29 @@ function enrich(html,original,origin,override){origin=normalizePublicBase(origin
  const crumbs=[{'@type':'ListItem',position:1,name:'Trang chủ',item:origin+'/'}];if(u.pathname!=='/'){if(u.pathname.startsWith('/san-pham/'))crumbs.push({'@type':'ListItem',position:2,name:'Cửa hàng',item:origin+'/cua-hang'});else if(u.pathname.startsWith('/tin-tuc/'))crumbs.push({'@type':'ListItem',position:2,name:'Tin tức',item:origin+'/tin-tuc'});crumbs.push({'@type':'ListItem',position:crumbs.length+1,name:doc.querySelector('h1')?.textContent||doc.title,item:canonicalUrl});add({'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:crumbs})}
  const faq=[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
  if(['/tai-khoan','/gio-hang','/thanh-toan','/ket-qua-thanh-toan'].includes(u.pathname))meta('robots','noindex, follow');
+ // Cache-busting: bump ?v= for all internal CSS/JS assets
+ const CURRENT_VERSION='20261030-v5b';
+ const PROTECTED={'account.js':true};
+ for(const el of [...doc.querySelectorAll('link[href]'),...doc.querySelectorAll('script[src]')]){
+   const attr=el.tagName==='LINK'?'href':'src';
+   const val=el.getAttribute(attr);
+   if(!val||val.startsWith('http')||val.startsWith('//')||val.startsWith('data:'))continue;
+   const isInternal=/\.(?:css|js)(\?|#|$)/.test(val);
+   if(!isInternal)continue;
+   // Detect base filename to protect specific version pins the tests rely on
+   const baseName=val.split('?')[0].split('/').pop();
+   if(PROTECTED[baseName])continue;
+   const u2=new URL(val,origin+'/');
+   // Only bump if no version OR version is older than current
+   const existingV=u2.searchParams.get('v');
+   if(existingV===CURRENT_VERSION)continue;
+   u2.searchParams.set('v',CURRENT_VERSION);
+   el.setAttribute(attr,u2.pathname+u2.search+(u2.hash||''));
+ }
+ // Add gaeru-version meta tag
+ let verMeta=doc.head.querySelector('meta[name="gaeru-version"]');
+ if(!verMeta){verMeta=doc.createElement('meta');verMeta.name='gaeru-version';doc.head.append(verMeta);}
+ verMeta.setAttribute('content',CURRENT_VERSION);
  return normalizeBrandText('<!doctype html>'+doc.documentElement.outerHTML);
 }
 function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,next)=>{

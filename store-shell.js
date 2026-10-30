@@ -428,3 +428,42 @@ if (document.readyState === "loading") {
 
 document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),window.GAERUStore?.products));
 document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',poll.refresh)});
+
+
+// =========================================================================
+// CACHE BUSTING: BFcache reload + stale Service Worker cleanup
+// Ensures users always get the latest version when navigating back/forward
+// =========================================================================
+(function() {
+  // 1. BFcache: khi trình duyệt khôi phục trang từ bộ nhớ đệm (Back/Forward)
+  //    → reload để nhận phiên bản mới nhất
+  window.addEventListener('pageshow', function(event) {
+    if (event.persisted) {
+      window.location.reload();
+    }
+  });
+
+  // 2. Dọn Service Worker cũ trên scope / (ngoại trừ /gaeru_ceo/)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+      for (var reg of registrations) {
+        var scope = reg.scope || '';
+        // Chỉ giữ lại SW của admin PWA
+        if (!scope.includes('/gaeru_ceo/')) {
+          reg.unregister();
+        }
+      }
+    }).catch(function() {});
+
+    // 3. Dọn các cache cũ không thuộc admin
+    if ('caches' in window) {
+      caches.keys().then(function(keys) {
+        for (var key of keys) {
+          if (!key.includes('gaeru-ceo') && !key.includes('admin')) {
+            caches.delete(key);
+          }
+        }
+      }).catch(function() {});
+    }
+  }
+})();
