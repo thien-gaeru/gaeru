@@ -370,8 +370,10 @@ document.querySelector('[data-account-form="login"]')?.addEventListener("submit"
     if(result.mfaRequired)result=await window.GAERUSecurity.loginChallenge(result);
     accountCsrfToken = result.csrfToken;
     showCustomerProfile(result.customer);
-    if (['#login', '#register'].includes(window.location.hash)) {
-      history.replaceState(null, '', window.location.pathname + '#customer-account');
+    if (!handleLoginRedirect()) {
+      if (['#login', '#register'].includes(window.location.hash)) {
+        history.replaceState(null, '', window.location.pathname + '#customer-account');
+      }
     }
     await confirmContactChangeFromUrl();
   } catch (error) {
@@ -397,8 +399,10 @@ document.querySelector('[data-account-form="register"]')?.addEventListener("subm
     accountCsrfToken = result.csrfToken;
     form.reset();
     showCustomerProfile(result.customer);
-    if (['#login', '#register'].includes(window.location.hash)) {
-      history.replaceState(null, '', window.location.pathname + '#customer-account');
+    if (!handleLoginRedirect()) {
+      if (['#login', '#register'].includes(window.location.hash)) {
+        history.replaceState(null, '', window.location.pathname + '#customer-account');
+      }
     }
   } catch (error) {
     setAccountFeedback(error.message, true);

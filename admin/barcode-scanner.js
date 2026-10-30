@@ -113,7 +113,7 @@
     }
 
     async function startCamera() {
-      if (!('BarcodeDetector' in window)) {
+      if (!('BarcodeDetector' in window) || !detector) {
         alert('Trình duyệt hiện tại chưa hỗ trợ BarcodeDetector để quét camera trực tiếp. Vui lòng sử dụng máy quét mã vạch (súng bắn mã vạch), nhập mã đơn thủ công vào ô tìm kiếm, hoặc dùng Google Chrome.');
         return;
       }
