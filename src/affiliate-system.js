@@ -95,15 +95,8 @@ function createAffiliateAdminRouter(pool) {
   const { requirePermission } = require('./staff-access');
   const { requireCsrf } = require('./security');
 
-  const guardPermission = (permission) => (req, res, next) => {
-    if (req.admin) {
-      return requirePermission(permission)(req, res, () => {
-        if (req.session) return requireCsrf(req, res, next);
-        next();
-      });
-    }
-    next();
-  };
+  const { requireAdminAction } = require('./admin-action');
+  const guardPermission = (permission) => requireAdminAction(permission);
 
   router.get('/affiliates', async (req, res, next) => {
     try {

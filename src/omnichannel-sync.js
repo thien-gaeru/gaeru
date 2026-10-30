@@ -42,14 +42,8 @@ async function processOmnichannelEvent(pool, { channel, eventType, externalSku, 
 
     let updatedVariant = null;
     if (delta !== 0) {
-      const updated = await client.query(
-        `UPDATE product_variants
-         SET stock_quantity = GREATEST(0, stock_quantity + $1), updated_at = now()
-         WHERE sku = $2
-         RETURNING id, sku, name, stock_quantity AS "stockQuantity"`,
-        [delta, sku]
-      );
-      updatedVariant = updated.rows[0] || null;
+      const { InventoryService } = require('./domain/inventory/inventory-service');
+      updatedVariant = await InventoryService.adjustStock(client, { sku, delta, reason: 'omnichannel_sync' });
     }
 
     try {

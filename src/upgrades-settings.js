@@ -90,15 +90,8 @@ async function saveUpgradesSettings(pool, newSettings) {
 
 function createUpgradesSettingsRouter(pool) {
   const router = Router();
-  const guardSettingsWrite = (req, res, next) => {
-    if (req.admin) {
-      return requirePermission('settings.write')(req, res, () => {
-        if (req.session) return requireCsrf(req, res, next);
-        next();
-      });
-    }
-    next();
-  };
+  const { requireAdminAction } = require('./admin-action');
+  const guardSettingsWrite = requireAdminAction('settings.write');
 
   router.get('/upgrades/settings', async (_req, res, next) => {
     try {
