@@ -13,19 +13,23 @@ function discount(v,subtotal,options={}){
   return Math.min(subtotal, Math.max(0, capped));
 }
 async function eligible(client,code,customerId,subtotal,lock=false,options={}){
-  if(options && options.productSlugs && options.productSlugs.length){
-    try {
-      const activeFlash = await client.query(
-        "SELECT product_slugs FROM flash_sales WHERE active = true AND starts_at <= now() AND ends_at > now() LIMIT 1"
-      );
-      if(activeFlash.rows[0] && activeFlash.rows[0].product_slugs && activeFlash.rows[0].product_slugs.length){
-        const flashSet = new Set(activeFlash.rows[0].product_slugs);
-        if(options.productSlugs.some(slug => flashSet.has(slug))){
-          throw fail('Đơn hàng chứa sản phẩm Flash Sale giờ vàng không áp dụng đồng thời mã voucher.', 409);
+    if(options && options.productSlugs && options.productSlugs.length){
+    const activeFlash = await client.query(
+      "SELECT product_slugs FROM flash_sales WHERE active = true AND starts_at <= now() AND ends_at > now() ORDER BY ends_at ASC"
+    );
+    const flashSet = new Set();
+    for (const r of (activeFlash.rows || [])) {
+      const slugs = Array.isArray(r.product_slugs) ? r.product_slugs : (typeof r.product_slugs === 'string' ? JSON.parse(r.product_slugs || '[]') : []);
+      for (const s of slugs) {
+        if (s) {
+          flashSet.add(s);
+          flashSet.add(s.replace(/^gaeru-/, ''));
+          flashSet.add('gaeru-' + s);
         }
       }
-    } catch(err) {
-      if(err.status === 409) throw err;
+    }
+    if(options.productSlugs.some(slug => flashSet.has(slug) || flashSet.has(slug.replace(/^gaeru-/, '')))){
+      throw fail('Đơn hàng chứa sản phẩm Flash Sale giờ vàng không áp dụng đồng thời mã voucher.', 409);
     }
   }if(!customerId)throw fail('Đăng nhập để sử dụng voucher.',401);const active=(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true',[customerId])).rows[0];if(!active)throw fail('Tài khoản không còn hoạt động.',401);const voucher=(await client.query('SELECT * FROM marketing_vouchers WHERE code=$1'+(lock?' FOR UPDATE':''),[String(code).trim().toUpperCase()])).rows[0];if(!voucher||!voucher.active||new Date(voucher.starts_at)>new Date()||new Date(voucher.ends_at)<=new Date())throw fail('Voucher không tồn tại, chưa bắt đầu hoặc đã hết hạn.',409);if(!(await client.query('SELECT 1 FROM customer_vouchers WHERE customer_id=$1 AND voucher_id=$2',[customerId,voucher.id])).rows.length)throw fail('Lưu hoặc nhận voucher vào tài khoản trước khi sử dụng.',409);if(subtotal<voucher.min_spend_vnd)throw fail('Giá trị sản phẩm chưa đạt mức tối thiểu của voucher.',409);const usage=(await client.query('SELECT count(*)::int AS total,count(*) FILTER(WHERE customer_id=$2)::int AS personal FROM voucher_redemptions WHERE voucher_id=$1 AND released=false',[voucher.id,customerId])).rows[0];if(usage.total>=voucher.total_limit||usage.personal>=voucher.per_customer_limit)throw fail('Voucher đã hết lượt hoặc bạn đã dùng đủ số lần.',409);const value=discount(voucher,subtotal);if(value<1)throw fail('Đơn hàng chưa đủ điều kiện giảm giá.',409);return {voucher,discountVnd:value};}
 async function redeem(client,selection,customerId,orderId){await client.query('INSERT INTO voucher_redemptions(order_id,voucher_id,customer_id,discount_vnd) VALUES($1,$2,$3,$4)',[orderId,selection.voucher.id,customerId,selection.discountVnd]);await client.query('UPDATE orders SET discount_vnd=$2,voucher_code=$3 WHERE id=$1',[orderId,selection.discountVnd,selection.voucher.code]);}

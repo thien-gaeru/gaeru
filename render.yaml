@@ -12,7 +12,7 @@ services:
       - key: MEDIA_ROOT
         sync: false
       - key: NODE_VERSION
-        value: 24.22.1
+        value: 24.22.2
       - key: NODE_ENV
         value: production
       - key: PGSSL

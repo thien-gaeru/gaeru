@@ -19,6 +19,14 @@ async function getActiveFlashSale(pool) {
   }
 
   const row = result.rows[0];
+  const slugs = Array.isArray(row.productSlugs)
+    ? row.productSlugs
+    : (typeof row.productSlugs === 'string' ? JSON.parse(row.productSlugs || '[]') : []);
+
+  if (!slugs.length) {
+    return { active: false, sale: null };
+  }
+
   const now = Date.now();
   const ends = new Date(row.endsAt).getTime();
   const remainingSeconds = Math.max(0, Math.floor((ends - now) / 1000));
@@ -47,49 +55,48 @@ async function createFlashSale(pool, { title, startsAt, endsAt, discountPercent 
   const start = startsAt ? new Date(startsAt) : new Date();
   const end = endsAt ? new Date(endsAt) : new Date(Date.now() + 24 * 3600000);
   const discount = Math.max(1, Math.min(90, Number.parseInt(discountPercent, 10) || 15));
-  const slugs = Array.isArray(productSlugs) ? productSlugs : [];
+  const slugs = Array.isArray(productSlugs) ? productSlugs.filter(Boolean) : [];
 
-  const result = await pool.query(
-    `INSERT INTO flash_sales (title, starts_at, ends_at, discount_percent, product_slugs, active)
-     VALUES ($1, $2, $3, $4, $5, true)
-     RETURNING *`,
-    [t, start, end, discount, slugs]
-  );
-
-  // Đồng bộ sang bảng product_promotions để checkout và marketing engine luôn nhận diện
-  if (slugs.length > 0) {
-    try {
-      const varRes = await pool.query(
-        `SELECT v.id FROM product_variants v
-         JOIN products p ON p.id = v.product_id
-         WHERE p.slug = ANY($1::text[])`,
-        [slugs]
-      );
-      if (varRes.rows.length > 0) {
-        const promoRes = await pool.query(
-          `INSERT INTO product_promotions (title, type, kind, amount, starts_at, ends_at, active)
-           VALUES ($1, 'flash', 'percent', $2, $3, $4, true)
-           RETURNING id`,
-          [t, discount, start, end]
-        );
-        const promoId = promoRes.rows[0]?.id;
-        if (promoId) {
-          for (const v of varRes.rows) {
-            await pool.query(
-              `INSERT INTO product_promotion_variants (promotion_id, variant_id)
-               VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-              [promoId, v.id]
-            );
-          }
-        }
-      }
-    } catch (syncErr) {
-      // Non-blocking sync fallback
-      console.warn('Flash sale promotion sync notice:', syncErr.message);
-    }
+  if (!slugs.length) {
+    throw Object.assign(new Error('Chiến dịch Flash Sale cần ít nhất một sản phẩm áp dụng.'), { status: 400 });
   }
 
-  return result.rows[0];
+  const { withTransaction } = require('./db');
+  return await withTransaction(pool, async (client) => {
+    const result = await client.query(
+      `INSERT INTO flash_sales (title, starts_at, ends_at, discount_percent, product_slugs, active)
+       VALUES ($1, $2, $3, $4, $5, true)
+       RETURNING *`,
+      [t, start, end, discount, slugs]
+    );
+
+    const varRes = await client.query(
+      `SELECT v.id FROM product_variants v
+       JOIN products p ON p.id = v.product_id
+       WHERE p.slug = ANY($1::text[])`,
+      [slugs]
+    );
+    if (varRes.rows.length > 0) {
+      const promoRes = await client.query(
+        `INSERT INTO product_promotions (title, type, kind, amount, starts_at, ends_at, active)
+         VALUES ($1, 'flash', 'percent', $2, $3, $4, true)
+         RETURNING id`,
+        [t, discount, start, end]
+      );
+      const promoId = promoRes.rows[0]?.id;
+      if (promoId) {
+        for (const v of varRes.rows) {
+          await client.query(
+            `INSERT INTO product_promotion_variants (promotion_id, variant_id)
+             VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [promoId, v.id]
+          );
+        }
+      }
+    }
+
+    return result.rows[0];
+  });
 }
 
 const { requireAdminAction } = require('./admin-action');

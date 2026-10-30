@@ -4,79 +4,94 @@ const express = require('express');
 const crypto = require('crypto');
 const { withTransaction } = require('./db');
 
-async function processOmnichannelEvent(pool, { channel, eventType, externalSku, quantityDelta = 0, payload = {} }) {
-  const normChannel = String(channel || 'other').toLowerCase();
-  const allowedChannels = ['shopee', 'tiktok_shop', 'lazada', 'other'];
-  if (!allowedChannels.includes(normChannel)) {
-    throw Object.assign(new Error(`Kênh bán hàng không hợp lệ: ${channel}`), { status: 400 });
-  }
+async function processOmnichannelEvent(pool, { channel, eventType, sku, externalSku, quantityDelta, payload = {} }) {
+  const normChannel = String(channel || 'shopee').trim().toLowerCase();
+  const cleanSku = String(externalSku || sku || payload?.externalSku || payload?.sku || '').trim();
+  const delta = Number.parseInt(quantityDelta ?? payload?.quantityDelta ?? payload?.delta ?? 0, 10);
 
-  const sku = String(externalSku || '').trim();
-  const delta = Number.parseInt(quantityDelta, 10) || 0;
-
-  if (!sku) {
+  if (!cleanSku) {
     throw Object.assign(new Error('externalSku là bắt buộc.'), { status: 400 });
   }
+  if (!Number.isInteger(delta)) {
+    throw Object.assign(new Error('quantityDelta phải là số nguyên hợp lệ.'), { status: 400 });
+  }
 
-  // Idempotency: kiểm tra chống duplicate event nếu payload có eventId
-  const rawEventId = payload?.eventId || payload?.event_id || payload?.id;
-  const eventId = rawEventId ? String(rawEventId).trim() : null;
+  // Idempotency: eventId là bắt buộc và không được để trống
+  const rawEventId = payload?.eventId || payload?.event_id || payload?.id || payload?.shopeeOrderId || payload?.orderId || payload?.externalEventId;
+  const eventId = rawEventId ? String(rawEventId).trim() : (delta === 0 ? `probe:${normChannel}:${cleanSku}:${Date.now()}` : null);
+  if (!eventId) {
+    throw Object.assign(new Error('eventId là bắt buộc để đảm bảo tính bất biến (idempotency).'), { status: 400 });
+  }
 
   return await withTransaction(pool, async (client) => {
-    if (eventId) {
+    // 1. Claim (channel, event_id) nguyên tử trước bất kỳ biến động tồn kho nào
+    const claimRes = await client.query(
+      `INSERT INTO omnichannel_events (channel, event_type, external_sku, quantity_delta, payload, event_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+       ON CONFLICT (channel, event_id) DO NOTHING
+       RETURNING id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"`,
+      [normChannel, eventType || 'inventory_sync', cleanSku, delta, JSON.stringify(payload), eventId]
+    );
+
+    // Nếu không chèn được dòng mới nghĩa là event đã tồn tại hoặc đang được xử lý (trùng lặp)
+    if (!claimRes.rows.length) {
       const existing = await client.query(
         `SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"
          FROM omnichannel_events
-         WHERE (channel = $1 AND event_id = $2) OR payload->>'eventId' = $2 OR payload->>'event_id' = $2
+         WHERE channel = $1 AND (event_id = $2 OR payload->>'eventId' = $2 OR payload->>'event_id' = $2)
          LIMIT 1`,
         [normChannel, eventId]
       );
-      if (existing.rows.length) {
-        return {
-          ok: true,
-          event: existing.rows[0],
-          duplicate: true
-        };
+      return {
+        ok: true,
+        event: existing.rows[0] || null,
+        duplicate: true
+      };
+    }
+
+    const claimEvent = claimRes.rows[0];
+
+    // 2. Kiểm tra SKU có tồn tại không. Từ chối nếu SKU không tồn tại trong hệ thống
+    if (delta !== 0) {
+      const variantCheck = await client.query(
+        `SELECT id FROM product_variants WHERE sku = $1`,
+        [cleanSku]
+      );
+      if (!variantCheck.rows.length) {
+        await client.query(
+          `UPDATE omnichannel_events SET status = 'failed', processed_at = now() WHERE id = $1`,
+          [claimEvent.id]
+        );
+        throw Object.assign(new Error(`Không tìm thấy sản phẩm với SKU: "${cleanSku}".`), { status: 404 });
       }
     }
 
+    // 3. Thực hiện ghi sổ biến động tồn kho qua authoritative InventoryService.applyMovement
     let updatedVariant = null;
     if (delta !== 0) {
       const { InventoryService } = require('./domain/inventory/inventory-service');
-      updatedVariant = await InventoryService.adjustStock(client, { sku, delta, reason: 'omnichannel_sync' });
+      updatedVariant = await InventoryService.applyMovement(client, {
+        source: `omnichannel:${normChannel}`,
+        eventId,
+        sku: cleanSku,
+        delta,
+        actor: { username: `webhook:${normChannel}` },
+        reason: `Đồng bộ tồn kho từ ${normChannel} (Event: ${eventId})`,
+        allowNegative: false
+      });
     }
 
-    try {
-      const eventRes = await client.query(
-        `INSERT INTO omnichannel_events (channel, event_type, external_sku, quantity_delta, payload, event_id, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'processed')
-         RETURNING id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"`,
-        [normChannel, eventType || 'inventory_sync', sku, delta, JSON.stringify(payload), eventId]
-      );
+    // 4. Cập nhật trạng thái sự kiện thành 'processed'
+    await client.query(
+      `UPDATE omnichannel_events SET status = 'processed', processed_at = now() WHERE id = $1`,
+      [claimEvent.id]
+    );
 
-      return {
-        ok: true,
-        event: eventRes.rows[0],
-        variant: updatedVariant
-      };
-    } catch (err) {
-      // 23505: unique_violation trên (channel, event_id) do race condition tại database
-      if (err.code === '23505') {
-        const existing = await client.query(
-          `SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"
-           FROM omnichannel_events
-           WHERE channel = $1 AND event_id = $2
-           LIMIT 1`,
-          [normChannel, eventId]
-        );
-        return {
-          ok: true,
-          event: existing.rows[0] || null,
-          duplicate: true
-        };
-      }
-      throw err;
-    }
+    return {
+      ok: true,
+      event: claimEvent,
+      variant: updatedVariant
+    };
   });
 }
 

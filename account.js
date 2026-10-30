@@ -757,14 +757,11 @@ async function initGoogleOAuth(interactive = false) {
             });
             accountCsrfToken = result.csrfToken;
             showCustomerProfile(result.customer);
-    if (['#login', '#register'].includes(window.location.hash)) {
-      history.replaceState(null, '', window.location.pathname + '#customer-account');
-    }
-            history.replaceState(null, '', window.location.pathname + '#customer-account');
             setAccountFeedback('Đăng nhập Google thành công!');
-            const returnUrl = new URLSearchParams(window.location.search).get('returnUrl') || new URLSearchParams(window.location.search).get('redirect');
-            if (returnUrl && returnUrl.startsWith('/')) {
-              setTimeout(() => { window.location.href = returnUrl; }, 600);
+            if (!handleLoginRedirect()) {
+              if (['#login', '#register'].includes(window.location.hash)) {
+                history.replaceState(null, '', window.location.pathname + '#customer-account');
+              }
             }
           } catch (err) {
             setAccountFeedback(err.message || 'Không thể đăng nhập Google lúc này.', true);
