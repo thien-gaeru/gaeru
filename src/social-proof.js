@@ -38,6 +38,8 @@ async function getRecentSocialProof(pool) {
       `SELECT o.customer_name AS "customerName",
               COALESCE(NULLIF(o.city, ''), 'Việt Nam') AS "location",
               o.created_at AS "createdAt",
+              o.status,
+              o.payment_status AS "paymentStatus",
               COALESCE(
                 (SELECT oi.product_name FROM order_items oi WHERE oi.order_id = o.id LIMIT 1),
                 'Thiết bị Creator GAERU'
@@ -53,13 +55,17 @@ async function getRecentSocialProof(pool) {
       return FALLBACK_SALES;
     }
 
-    return rows.map(r => ({
-      customerName: maskCustomerName(r.customerName),
-      location: r.location,
-      productName: r.productName,
-      relativeTime: formatRelativeTime(r.createdAt),
-      isSimulated: false
-    }));
+    return rows.map(r => {
+      const verifiedPurchase = r.paymentStatus === 'paid' || r.status === 'completed';
+      return {
+        customerName: maskCustomerName(r.customerName),
+        location: r.location,
+        productName: r.productName,
+        relativeTime: formatRelativeTime(r.createdAt),
+        isSimulated: false,
+        verifiedPurchase
+      };
+    });
   } catch {
     return FALLBACK_SALES;
   }
