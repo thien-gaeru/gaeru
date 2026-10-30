@@ -22,11 +22,33 @@ function sanitizeSku(raw) {
 
 class CatalogService {
   /**
+   * Tạo mới sản phẩm ở trạng thái nháp (active = false)
+   */
+  static async createProduct(client, { data, actor }) {
+    const slug = sanitizeSlug(data.slug);
+    const result = await client.query(
+      `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
+       RETURNING id, slug, name, category, active, sort_order`,
+      [slug, data.name, data.category, data.descriptor, data.description, data.imageUrl, data.imageAlt, data.sortOrder || 0]
+    );
+    const created = result.rows[0];
+    await appendAudit(client, {
+      actor,
+      action: 'catalog.product.create',
+      entityType: 'product',
+      entityId: created.id,
+      after: { ...data, slug, active: false }
+    });
+    return created;
+  }
+
+  /**
    * Xóa mềm sản phẩm (chuyển vào thùng rác và lưu lại trạng thái các biến thể)
    */
-  static async softDeleteProduct(client, { productId, actor }) {
+  static async softDeleteProduct(client, { productId, expectedVersion, actor }) {
     const productRes = await client.query(
-      `SELECT id, name, slug, category, active FROM products WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      `SELECT id, name, slug, category, active, edit_version FROM products WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [productId]
     );
     const product = productRes.rows[0];
@@ -35,6 +57,16 @@ class CatalogService {
       err.status = 404;
       throw err;
     }
+    if (expectedVersion != null && product.edit_version !== expectedVersion) {
+      const err = new Error('Sản phẩm vừa thay đổi. Tải lại trước khi xóa.');
+      err.status = 409;
+      throw err;
+    }
+
+    await client.query(
+      `SELECT id FROM product_variants WHERE product_id = $1 ORDER BY id FOR UPDATE`,
+      [productId]
+    );
 
     await client.query(
       `UPDATE products 

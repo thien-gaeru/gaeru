@@ -92,11 +92,7 @@ function createAffiliatePublicRouter(pool) {
 
 function createAffiliateAdminRouter(pool) {
   const router = express.Router();
-  const { requirePermission } = require('./staff-access');
-  const { requireCsrf } = require('./security');
-
   const { requireAdminAction } = require('./admin-action');
-  const guardPermission = (permission) => requireAdminAction(permission);
 
   router.get('/affiliates', async (req, res, next) => {
     try {
@@ -113,7 +109,7 @@ function createAffiliateAdminRouter(pool) {
     }
   });
 
-  router.post('/affiliates', guardPermission('marketing.write'), express.json(), async (req, res, next) => {
+  router.post('/affiliates', requireAdminAction('marketing.write'), express.json(), async (req, res, next) => {
     try {
       const partner = await registerPartner(pool, req.body || {});
       res.status(201).json({ ok: true, partner });
@@ -137,7 +133,7 @@ function createAffiliateAdminRouter(pool) {
     }
   });
 
-  router.put('/affiliates/commissions/:id/status', guardPermission('finance.write'), express.json(), async (req, res, next) => {
+  router.put('/affiliates/commissions/:id/status', requireAdminAction('finance.write'), express.json(), async (req, res, next) => {
     try {
       const { status } = req.body || {};
       if (!['pending', 'approved', 'paid', 'cancelled'].includes(status)) {

@@ -187,11 +187,7 @@ function createReviewsPublicRouter(pool) {
 
 function createReviewsAdminRouter(pool) {
   const router = express.Router();
-  const { requirePermission } = require('./staff-access');
-  const { requireCsrf } = require('./security');
-
   const { requireAdminAction } = require('./admin-action');
-  const guardCatalogWrite = requireAdminAction('catalog.write');
 
   router.get('/reviews', async (req, res, next) => {
     try {
@@ -208,7 +204,7 @@ function createReviewsAdminRouter(pool) {
     }
   });
 
-  router.put('/reviews/:id/status', guardCatalogWrite, express.json(), async (req, res, next) => {
+  router.put('/reviews/:id/status', requireAdminAction('catalog.write'), express.json(), async (req, res, next) => {
     try {
       const { status } = req.body || {};
       if (!['approved', 'pending', 'rejected'].includes(status)) {
