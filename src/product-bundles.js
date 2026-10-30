@@ -65,15 +65,8 @@ function createBundlesAdminRouter(pool) {
   const { requirePermission } = require('./staff-access');
   const { requireCsrf } = require('./security');
 
-  const guardCatalogWrite = (req, res, next) => {
-    if (req.admin) {
-      return requirePermission('catalog.write')(req, res, () => {
-        if (req.session) return requireCsrf(req, res, next);
-        next();
-      });
-    }
-    next();
-  };
+  const { requireAdminAction } = require('./admin-action');
+  const guardCatalogWrite = requireAdminAction('catalog.write');
 
   router.get('/bundles', async (req, res, next) => {
     try {

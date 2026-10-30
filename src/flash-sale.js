@@ -92,17 +92,8 @@ async function createFlashSale(pool, { title, startsAt, endsAt, discountPercent 
   return result.rows[0];
 }
 
-function guardPermission(permission) {
-  return (req, res, next) => {
-    if (req.admin) {
-      return requirePermission(permission)(req, res, () => {
-        if (req.session) return requireCsrf(req, res, next);
-        next();
-      });
-    }
-    next();
-  };
-}
+const { requireAdminAction } = require('./admin-action');
+function guardPermission(permission) { return requireAdminAction(permission); }
 
 function createFlashSalePublicRouter(pool) {
   const router = express.Router();

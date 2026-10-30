@@ -1,3 +1,4 @@
+const { isOnlineGateway, ONLINE_GATEWAYS } = require('./domain/payments/payment-policy');
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -1085,7 +1086,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        if (paymentStatusChanged && ["vnpay", "9pay", "momo", "zalopay"].includes(current.payment_method)) {
+        if (paymentStatusChanged && isOnlineGateway(current.payment_method)) {
           const error = new Error("Trạng thái thanh toán trực tuyến được cập nhật từ cổng thanh toán, không thể sửa thủ công.");
           error.status = 409;
           throw error;
@@ -1105,7 +1106,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        if (shippingFeeChanged && ["vnpay", "9pay", "momo", "zalopay"].includes(current.payment_method)) {
+        if (shippingFeeChanged && isOnlineGateway(current.payment_method)) {
           const paymentAttempt = await client.query(
             "SELECT EXISTS (SELECT 1 FROM payment_attempts WHERE order_id = $1) AS active",
             [current.id]
@@ -1116,7 +1117,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             throw error;
           }
         }
-        if (update.status === "cancelled" && current.status !== "cancelled" && ["vnpay", "9pay", "momo", "zalopay"].includes(current.payment_method)) {
+        if (update.status === "cancelled" && current.status !== "cancelled" && isOnlineGateway(current.payment_method)) {
           const activeAttempt = await client.query(
             `SELECT EXISTS (
                SELECT 1 FROM payment_attempts
