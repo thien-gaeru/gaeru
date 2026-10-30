@@ -1,16 +1,42 @@
 'use strict';
 
-async function enqueueJob(pool, { queue = 'default', name, payload = {}, runAt = new Date(), maxAttempts = 5 }) {
+async function enqueueJob(pool, { queue = 'default', name, payload = {}, idempotencyKey = null, runAt = null, maxAttempts = 5 }) {
   if (!name || typeof name !== 'string') {
     throw new Error('Tên công việc (name) là bắt buộc.');
   }
+
+  const effectiveKey = idempotencyKey || payload?._idempotencyKey || payload?.idempotencyKey || null;
+  const enrichedPayload = effectiveKey
+    ? { ...(payload || {}), _idempotencyKey: String(effectiveKey) }
+    : (payload || {});
+
+  if (effectiveKey) {
+    try {
+      const existing = await pool.query(
+        `SELECT id, queue, name, status, run_at, created_at
+         FROM system_jobs
+         WHERE name = $1
+           AND payload->>'_idempotencyKey' = $2
+           AND status IN ('pending', 'processing', 'completed')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [name, String(effectiveKey)]
+      );
+      if (existing.rows[0]) {
+        return { ...existing.rows[0], duplicate: true };
+      }
+    } catch {
+      // Fallback if JSONB operator is unsupported by a lightweight mock adapter
+    }
+  }
+
   const result = await pool.query(
     `INSERT INTO system_jobs (queue, name, payload, status, run_at, max_attempts)
-     VALUES ($1, $2, $3, 'pending', $4, $5)
+     VALUES ($1, $2, $3, 'pending', COALESCE($4::timestamptz, now()), $5)
      RETURNING id, queue, name, status, run_at, created_at`,
-    [queue, name, JSON.stringify(payload), runAt, maxAttempts]
+    [queue, name, JSON.stringify(enrichedPayload), runAt, maxAttempts]
   );
-  return result.rows[0];
+  return { ...result.rows[0], duplicate: false };
 }
 
 function createJobQueue({ pool, intervalMs = 2500, concurrency = 1 } = {}) {
@@ -22,6 +48,14 @@ function createJobQueue({ pool, intervalMs = 2500, concurrency = 1 } = {}) {
   function registerWorker(name, handler) {
     if (typeof handler !== 'function') throw new Error('Worker handler phải là một hàm.');
     workers.set(name, handler);
+  }
+
+  function hasWorker(name) {
+    return workers.has(name);
+  }
+
+  function getRegisteredWorkers() {
+    return [...workers.keys()];
   }
 
   async function claimNextJob() {
@@ -148,6 +182,8 @@ function createJobQueue({ pool, intervalMs = 2500, concurrency = 1 } = {}) {
 
   return {
     registerWorker,
+    hasWorker,
+    getRegisteredWorkers,
     enqueue: (jobData) => enqueueJob(pool, jobData),
     processOne,
     start,
