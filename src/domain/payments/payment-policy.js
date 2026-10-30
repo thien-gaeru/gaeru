@@ -62,7 +62,7 @@ function canManuallyCollect(order) {
  * @param {boolean} [options.autoOrderComplete=false] Tự động chuyển đơn sang completed nếu COD và shipped
  * @returns {Promise<{ order: Object, changed: boolean }>}
  */
-async function transitionPaymentStatus(client, { orderId, targetStatus, autoOrderComplete = false }) {
+async function transitionPaymentStatus(client, { orderId, targetStatus, autoOrderComplete = false, allowRevert = false }) {
   if (!orderId || !targetStatus) throw new Error("orderId và targetStatus là bắt buộc.");
   const orderRes = await client.query(
     "SELECT id, payment_method AS \"paymentMethod\", payment_status AS \"paymentStatus\", status FROM orders WHERE id = $1 FOR UPDATE",
@@ -73,6 +73,13 @@ async function transitionPaymentStatus(client, { orderId, targetStatus, autoOrde
 
   if (order.paymentStatus === targetStatus) {
     return { order, changed: false };
+  }
+
+  if (order.paymentStatus === 'paid' && targetStatus === 'pending' && !allowRevert) {
+    throw Object.assign(
+      new Error("Không thể hạ trạng thái thanh toán từ đã thu tiền (paid) về chưa thanh toán (pending)."),
+      { status: 409 }
+    );
   }
 
   const shouldComplete = autoOrderComplete && order.paymentMethod === 'cod' && order.status === 'shipped';

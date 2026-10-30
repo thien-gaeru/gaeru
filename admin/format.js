@@ -1,5 +1,18 @@
-// admin/format.js — Shared browser formatting & sanitization utilities
-(function () {
+// admin/format.js — Unified UMD (Browser + Node.js) formatting & sanitization utilities
+(function (root, factory) {
+  'use strict';
+  var shared = factory();
+  if (typeof module === 'object' && module.exports) {
+    module.exports = shared;
+  }
+  if (root && typeof root === 'object') {
+    root.GAERUAdminShared = Object.assign(root.GAERUAdminShared || {}, shared);
+    if (!root.escapeHtml) root.escapeHtml = shared.escapeHtml;
+    if (!root.escapeAttr) root.escapeAttr = shared.escapeAttr;
+    if (!root.formatMoney) root.formatMoney = shared.formatMoney;
+    if (!root.normalizePhone) root.normalizePhone = shared.normalizePhone;
+  }
+})(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
 
   function escapeHtml(value) {
@@ -34,17 +47,10 @@
     return cleaned;
   }
 
-  var shared = {
+  return {
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
     formatMoney: formatMoney,
     normalizePhone: normalizePhone
   };
-
-  window.GAERUAdminShared = Object.assign(window.GAERUAdminShared || {}, shared);
-
-  if (!window.escapeHtml) window.escapeHtml = escapeHtml;
-  if (!window.escapeAttr) window.escapeAttr = escapeAttr;
-  if (!window.formatMoney) window.formatMoney = formatMoney;
-  if (!window.normalizePhone) window.normalizePhone = normalizePhone;
-})();
+});
