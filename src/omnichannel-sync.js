@@ -118,7 +118,7 @@ function webhookAuthMiddleware(config) {
       return res.status(401).json({ error: 'Timestamp webhook không hợp lệ hoặc đã hết hạn.' });
     }
 
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+    const rawBody = req.rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
     const expected = crypto
       .createHmac('sha256', secret)
       .update(`${ts}.${rawBody}`)

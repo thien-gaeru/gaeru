@@ -40,9 +40,14 @@
 
     let stream = null;
     let animId = null;
-    const detector = ('BarcodeDetector' in window)
-      ? new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8'] })
-      : null;
+    let detector = null;
+    try {
+      if ('BarcodeDetector' in window) {
+        detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8'] });
+      }
+    } catch (_) {
+      detector = null;
+    }
 
     async function lookup(code) {
       const trimmed = String(code || '').trim();

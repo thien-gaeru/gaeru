@@ -107,7 +107,7 @@ function createFinanceApi(pool) {
       if (previous) return { id: previous.id, replayed: true };
       const order = (await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [data.orderId])).rows[0];
       if (!order) throw fail(404, "Không tìm thấy đơn hàng.");
-      if (["vnpay", "9pay"].includes(order.payment_method)) throw fail(409, "Thanh toán trực tuyến được đối soát qua cổng thanh toán.");
+      if (["vnpay", "9pay", "momo", "zalopay"].includes(order.payment_method)) throw fail(409, "Thanh toán trực tuyến được đối soát qua cổng thanh toán.");
       if (order.status === "cancelled" || order.payment_status === "paid" || order.total_vnd === null) throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
       if (order.payment_method === "cod" && !["shipped", "completed"].includes(order.status)) throw fail(409, "Chỉ ghi nhận tiền COD sau khi giao hàng.");
       const received = await receiptTotal(client, order.id);
