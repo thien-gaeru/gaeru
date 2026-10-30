@@ -376,7 +376,48 @@ async function renderCheckout() {
         </div>
       </div>
       </details>
-      ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label><p class="prototype-note">Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU.</p></section>`:''}
+      ${shippingCarriers.length ? `
+      <section class="form-section checkout-carrier">
+        <div class="checkout-carrier-title-row">
+          <h2>Đơn vị vận chuyển</h2>
+          <span class="carrier-pill-badge">Khách tự chọn hãng (Phương Án 5B)</span>
+        </div>
+        <p class="carrier-help-text">Chọn hãng giao hàng bạn yêu thích hoặc thuận tiện nhất tại khu vực nhận hàng:</p>
+        <div class="checkout-carrier-grid" role="radiogroup" aria-label="Đơn vị vận chuyển">
+          ${shippingCarriers.map((carrier, index) => {
+            const icons = {
+              ghn: '⚡',
+              ghtk: '📦',
+              viettel: '🛡️',
+              spx: '🚀',
+              jt: '🚚'
+            };
+            const subs = {
+              ghn: 'Chuyên tuyến nhanh đô thị, phát trong 24h - 48h',
+              ghtk: 'Phí ship tiết kiệm, dịch vụ bưu tá thân thiện',
+              viettel: 'Bưu cục phủ rộng 63 tỉnh thành & vùng xa',
+              spx: 'Shopee Express · Giao hàng siêu tốc & minh bạch',
+              jt: 'Mạng lưới chuyển phát nhanh toàn quốc'
+            };
+            const isChecked = index === 0 ? 'checked' : '';
+            return `
+              <label class="checkout-carrier-card ${index === 0 ? 'is-selected' : ''}" data-carrier-id="${escapeHtml(carrier.id)}">
+                <input type="radio" name="shippingCarrierId" value="${escapeHtml(carrier.id)}" ${isChecked} required>
+                <div class="carrier-card-body">
+                  <div class="carrier-card-name-row">
+                    <span class="carrier-icon">${icons[carrier.id] || '🚚'}</span>
+                    <strong class="carrier-name">${escapeHtml(carrier.name)}</strong>
+                  </div>
+                  <p class="carrier-desc">${escapeHtml(subs[carrier.id] || 'Giao hàng an toàn, bảo đảm nguyên vẹn')}</p>
+                </div>
+                <span class="carrier-radio-check" aria-hidden="true">✓</span>
+              </label>
+            `;
+          }).join('')}
+        </div>
+        <p class="prototype-note">Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU.</p>
+      </section>
+      ` : ''}
       <aside class="checkout-summary cart-summary">
       <h2>Đơn hàng</h2>
       ${rows.map(({ quantity, product, variant }) => `
