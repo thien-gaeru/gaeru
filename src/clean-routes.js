@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 const fs=require('node:fs'),path=require('node:path'),{parseHTML}=require('linkedom'),{paths,clean}=require('../clean-urls'),{normalizePublicBase,normalizeBrandText}=require('./primary-domain');
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
@@ -52,4 +52,7 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
 function staticHtml(req,res,next){if(!['GET','HEAD'].includes(req.method))return next();const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(fs.readFileSync(path.join(__dirname,'..',file),'utf8'))}
-module.exports={legacy,enrich,cleanRoutes,staticHtml};
+const SHARED_HEAD_PREFIX='<script src="/bot-protection.js?v=20261024" defer></script><script src="/action-feedback.js?v=20261028-validation" defer></script><link rel="stylesheet" href="/action-feedback.css?v=20261028-validation"><link rel="stylesheet" href="/bot-protection.css?v=20261024">';
+const CORE_SCRIPTS='<script src="customer-session.js?v=20261030-v5b" defer></script><script src="/footer-products.js?v=20261027-all-products" defer></script><script src="store-shell.js?v=20261030-v5b" defer></script>';
+function verifyPageIntegrity(pageName,rootDir=path.join(__dirname,'..')){const filePath=path.join(rootDir,pageName);if(!fs.existsSync(filePath))return{pageName,status:'missing'};const content=fs.readFileSync(filePath,'utf8');const hasSharedHead=content.includes('bot-protection.js')&&content.includes('action-feedback.js');const hasMeta=content.includes('charset="utf-8"')&&content.includes('name="viewport"');return{pageName,status:(hasSharedHead&&hasMeta)?'valid':'inconsistent'};}
+module.exports={legacy,enrich,cleanRoutes,staticHtml,SHARED_HEAD_PREFIX,CORE_SCRIPTS,verifyPageIntegrity};

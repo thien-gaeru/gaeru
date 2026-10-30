@@ -252,6 +252,9 @@ class InventoryService {
   static async reserveOrderStock(client, { items, orderId, actor }) {
     if (!items || !items.length) return;
     const inv = require('../../inventory');
+    const normalizedActor = typeof actor === 'string'
+      ? { username: actor, source: 'system' }
+      : (actor || { username: 'customer', source: 'customer' });
 
     for (const item of items) {
       const variantId = item.id || item.variantId;
@@ -271,7 +274,7 @@ class InventoryService {
           variantId,
           quantity: item.quantity,
           orderId,
-          actor: actor || { username: 'customer', source: 'customer' }
+          actor: normalizedActor
         });
       } else {
         await InventoryService.applyMovement(client, {
@@ -280,7 +283,7 @@ class InventoryService {
           sku: item.sku,
           delta: -item.quantity,
           eventId: `reserve:${orderId}:${variantId}`,
-          actor: actor || { username: 'customer', source: 'customer' },
+          actor: normalizedActor,
           reason: `Đặt hàng ${orderId}`
         });
       }
@@ -288,7 +291,7 @@ class InventoryService {
 
     if (actor && orderId) {
       await appendAudit(client, {
-        actor,
+        actor: normalizedActor,
         action: 'inventory.stock.reserve_order',
         entityType: 'order',
         entityId: orderId,
@@ -309,8 +312,11 @@ class InventoryService {
     return require('../../inventory').reserveStock(client, params);
   }
 
-  static async releaseOrderStock(client, params) {
-    return require('../../inventory').releaseOrderStock(client, params);
+  static async releaseOrderStock(client, params = {}) {
+    const normalizedActor = typeof params.actor === 'string'
+      ? { username: params.actor, source: 'system' }
+      : (params.actor || { username: 'system', source: 'system' });
+    return require('../../inventory').releaseOrderStock(client, { ...params, actor: normalizedActor });
   }
 
   static async adjustWarehouseStock(client, params) {
