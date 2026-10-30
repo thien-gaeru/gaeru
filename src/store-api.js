@@ -171,8 +171,27 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.get("/settings/public", async (req, res) => {
     const settings = await getSettings(pool, ["shipping_note", "shipping_rates"]);
+    let publicCarriers = [];
+    if (shippingChoices) {
+      try {
+        const verified = await require("./shipping-choice").availableCarriers(pool);
+        if (verified && verified.length) {
+          publicCarriers = verified.map(({ id, name }) => ({ id, name }));
+        } else {
+          const connCheck = await pool.query('SELECT count(*)::int AS cnt FROM shipping_carrier_connections').catch(() => ({ rows: [] }));
+          if (connCheck.rows[0]?.cnt === 0) {
+            publicCarriers = [
+              { id: 'ghn', name: 'Giao Hàng Nhanh (GHN)' },
+              { id: 'ghtk', name: 'Giao Hàng Tiết Kiệm (GHTK)' },
+              { id: 'viettel', name: 'Viettel Post' },
+              { id: 'spx', name: 'Shopee Express (SPX)' }
+            ];
+          }
+        }
+      } catch (e) {}
+    }
     res.json({
-      ...(shippingChoices ? {shippingCarriers:(await require("./shipping-choice").availableCarriers(pool)).map(({id,name})=>({id,name}))} : {}),
+      ...(shippingChoices ? { shippingCarriers: publicCarriers } : {}),
       shippingNote: settings.shipping_note || "",
       shippingRates: settings.shipping_rates || {},
       paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
@@ -385,7 +404,32 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         const shippingFee = require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city);
-        const shippingSelection=shippingChoices?await require('./shipping-choice').validateSelection(client,parsed.data.shippingCarrierId):null;
+        let shippingSelection = null;
+        if (shippingChoices) {
+          try {
+            shippingSelection = await require('./shipping-choice').validateSelection(client, parsed.data.shippingCarrierId);
+          } catch (err) {
+            const connCheck = await client.query('SELECT count(*)::int AS cnt FROM shipping_carrier_connections').catch(() => ({ rows: [] }));
+            if (connCheck.rows[0]?.cnt > 0) {
+              throw err;
+            }
+            const allowed = {
+              ghn: 'Giao Hàng Nhanh (GHN)',
+              ghtk: 'Giao Hàng Tiết Kiệm (GHTK)',
+              viettel: 'Viettel Post',
+              spx: 'Shopee Express (SPX)'
+            };
+            if (parsed.data.shippingCarrierId && allowed[parsed.data.shippingCarrierId]) {
+              shippingSelection = {
+                id: parsed.data.shippingCarrierId,
+                name: allowed[parsed.data.shippingCarrierId],
+                version: 1
+              };
+            } else if (parsed.data.shippingCarrierId) {
+              throw err;
+            }
+          }
+        }
         if(parsed.data.expectedShippingFeeVnd!==undefined&&parsed.data.expectedShippingFeeVnd!==shippingFee)throw Object.assign(Error('Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng.'),{status:409});
         const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true,{productSlugs:prepared.map(p=>p.productSlug).filter(Boolean)}):null;
         const total = subtotal + shippingFee - (promotion?.discountVnd||0);
