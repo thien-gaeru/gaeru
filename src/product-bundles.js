@@ -62,6 +62,19 @@ function createBundlesPublicRouter(pool) {
 
 function createBundlesAdminRouter(pool) {
   const router = express.Router();
+  const { requirePermission } = require('./staff-access');
+  const { requireCsrf } = require('./security');
+
+  const guardCatalogWrite = (req, res, next) => {
+    if (req.admin) {
+      return requirePermission('catalog.write')(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
+
   router.get('/bundles', async (req, res, next) => {
     try {
       const result = await pool.query(`SELECT * FROM product_bundles ORDER BY created_at DESC`);
@@ -70,7 +83,7 @@ function createBundlesAdminRouter(pool) {
       next(err);
     }
   });
-  router.post('/bundles', express.json(), async (req, res, next) => {
+  router.post('/bundles', guardCatalogWrite, express.json(), async (req, res, next) => {
     try {
       const bundle = await createProductBundle(pool, req.body || {});
       res.status(201).json({ ok: true, bundle });

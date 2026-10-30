@@ -1,6 +1,16 @@
 'use strict';
 
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
+
+// Rate limit: tối đa 10 tra cứu / phút / IP — chống brute-force mã đơn
+const trackingLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Bạn tra cứu quá nhiều lần. Vui lòng thử lại sau 1 phút.' }
+});
 
 const STATUS_STEPS = [
   { key: 'placed', label: 'Đã đặt hàng', desc: 'Đơn hàng đã được ghi nhận trên hệ thống.' },
@@ -25,13 +35,17 @@ function calculateTimeline(status) {
   }));
 }
 
+// ─── P1 FIX: Bảo vệ dữ liệu cá nhân khi tra cứu đơn hàng ────────────────────
+// - Cho phép tra cứu theo mã đơn hàng hoặc số điện thoại
+// - Toàn bộ thông tin nhạy cảm (Họ tên, SĐT, Địa chỉ chi tiết) BẮT BUỘC bị che giấu (mask)
+// - Chỉ trả về tối đa 1 đơn hàng mới nhất và có rate-limit chặt chẽ
 async function lookupOrderTracking(pool, queryText) {
   const q = String(queryText || '').trim();
   if (!q || q.length < 3) {
-    throw Object.assign(new Error('Vui lòng nhập số điện thoại hoặc mã đơn hàng.'), { status: 400 });
+    throw Object.assign(new Error('Vui lòng nhập mã đơn hàng hoặc số điện thoại để tra cứu.'), { status: 400 });
   }
 
-  // Look up by order_number, id, or phone - join shipping carrier selection
+  // Tìm theo order_number, id (UUID) hoặc phone
   const result = await pool.query(
     `SELECT o.id, o.order_number AS "orderCode", o.customer_name AS "customerName", o.phone AS "customerPhone",
             o.address AS "shippingAddress", o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
@@ -46,13 +60,14 @@ async function lookupOrderTracking(pool, queryText) {
      LEFT JOIN order_shipping_selection s ON s.order_id = o.id
      WHERE o.order_number = $1 OR o.id::text = $1 OR o.phone = $1
      ORDER BY o.created_at DESC
-     LIMIT 5`,
+     LIMIT 1`,
     [q]
   );
 
   if (!result.rows.length) {
     return { found: false, orders: [] };
   }
+  // Giới hạn 1 đơn duy nhất theo mã — không trả danh sách nhiều đơn
 
   const CARRIER_NAMES = {
     ghn: 'Giao Hàng Nhanh (GHN)',
@@ -107,9 +122,11 @@ async function lookupOrderTracking(pool, queryText) {
     return {
       id: o.id,
       orderCode: o.orderCode,
-      customerName: o.customerName,
+      // Che tên: chỉ hiển thị tên đệm + chữ cái đầu họ
+      customerName: maskName(o.customerName),
       customerPhoneMasked: phoneMasked,
-      shippingAddress: o.shippingAddress,
+      // Che địa chỉ: chỉ giữ tỉnh/thành cuối, ẩn số nhà/đường
+      shippingAddress: maskAddress(o.shippingAddress),
       paymentMethod: o.paymentMethod,
       paymentStatus: o.paymentStatus,
       status: o.status,
@@ -132,10 +149,28 @@ async function lookupOrderTracking(pool, queryText) {
   return { found: true, orders };
 }
 
+// Che tên: "Nguyễn Văn An" → "Văn A."
+function maskName(fullName) {
+  if (!fullName) return 'Khách hàng';
+  const parts = String(fullName).trim().split(/\s+/);
+  if (parts.length <= 1) return parts[0].charAt(0) + '***';
+  const middle = parts[parts.length - 2] || parts[0];
+  const lastInit = (parts[parts.length - 1] || '').charAt(0).toUpperCase();
+  return `${middle} ${lastInit}.`;
+}
+
+// Che địa chỉ: "123 Đường Lý Thường Kiệt, Quận 10, TP.HCM" → "TP.HCM"
+function maskAddress(address) {
+  if (!address) return '';
+  const parts = String(address).split(',').map(s => s.trim());
+  // Chỉ giữ phần cuối (tỉnh/thành)
+  return parts[parts.length - 1] || '';
+}
+
 function createTrackingRouter(pool) {
   const router = express.Router();
 
-  router.get('/tracking/lookup', async (req, res, next) => {
+  router.get('/tracking/lookup', trackingLimiter, async (req, res, next) => {
     try {
       const data = await lookupOrderTracking(pool, req.query.query || req.query.code || req.query.phone);
       if (!data.found) {

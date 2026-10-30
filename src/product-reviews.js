@@ -1,6 +1,16 @@
 'use strict';
 
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
+
+// Rate limit: tối đa 3 đánh giá / 10 phút / IP — chống spam review
+const reviewLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  limit: 3,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Bạn đã gửi đánh giá quá nhiều lần. Vui lòng thử lại sau.' }
+});
 
 async function getProductReviews(pool, productSlug, { page = 1, limit = 10, rating = null } = {}) {
   const slug = String(productSlug || '').trim();
@@ -67,7 +77,7 @@ async function getProductReviews(pool, productSlug, { page = 1, limit = 10, rati
   };
 }
 
-async function createProductReview(pool, { productSlug, customerId = null, orderId = null, authorName, rating, title, comment, mediaUrls = [] }) {
+async function createProductReview(pool, { productSlug, customerId = null, orderId = null, authorName, rating, title, comment, mediaUrls = [], status = 'approved' }) {
   const slug = String(productSlug || '').trim();
   const numRating = Number.parseInt(rating, 10);
   if (!slug || !numRating || numRating < 1 || numRating > 5) {
@@ -80,23 +90,28 @@ async function createProductReview(pool, { productSlug, customerId = null, order
     throw Object.assign(new Error('Vui lòng nhập nội dung đánh giá.'), { status: 400 });
   }
 
-  // Check verified buyer if customerId or orderId provided
+  // ─── P1 FIX: Verified buyer phải có đơn hàng chứa đúng sản phẩm ──────────
   let isVerified = false;
   if (customerId) {
     const buyerCheck = await pool.query(
-      `SELECT id FROM orders
-       WHERE customer_id = $1 AND (status = 'completed' OR status = 'shipped')
+      `SELECT o.id FROM orders o
+       JOIN order_items oi ON oi.order_id = o.id
+       WHERE o.customer_id = $1
+         AND (o.status = 'completed' OR o.status = 'shipped')
+         AND oi.product_name ILIKE $2
        LIMIT 1`,
-      [customerId]
+      [customerId, `%${slug.replace(/gaeru-?/i, '').replace(/-/g, '%')}%`]
     );
     if (buyerCheck.rows.length) isVerified = true;
   }
 
+  const reviewStatus = ['approved', 'pending', 'rejected'].includes(status) ? status : 'pending';
+
   const result = await pool.query(
     `INSERT INTO product_reviews (product_slug, customer_id, order_id, author_name, rating, title, comment, media_urls, is_verified_buyer, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'approved')
-     RETURNING id, product_slug AS "productSlug", author_name AS "authorName", rating, title, comment, is_verified_buyer AS "isVerifiedBuyer", created_at AS "createdAt"`,
-    [slug, customerId, orderId, name, numRating, revTitle, revComment, JSON.stringify(mediaUrls), isVerified]
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id, product_slug AS "productSlug", author_name AS "authorName", rating, title, comment, is_verified_buyer AS "isVerifiedBuyer", status, created_at AS "createdAt"`,
+    [slug, customerId, orderId, name, numRating, revTitle, revComment, JSON.stringify(mediaUrls), isVerified, reviewStatus]
   );
 
   return result.rows[0];
@@ -131,10 +146,13 @@ function createReviewsPublicRouter(pool) {
     }
   });
 
-  router.post('/products/:slug/reviews', express.json(), async (req, res, next) => {
+  router.post('/products/:slug/reviews', reviewLimiter, express.json(), async (req, res, next) => {
     try {
       const customerId = req.session?.customer?.id || null;
       const { authorName, rating, title, comment, mediaUrls } = req.body || {};
+      
+      // Khách vãng lai chưa xác minh đơn hàng → duyệt qua hàng đợi moderation ('pending')
+      // Chỉ tự động 'approved' nếu là khách có đơn hàng hợp lệ
       const review = await createProductReview(pool, {
         productSlug: req.params.slug,
         customerId,
@@ -142,7 +160,8 @@ function createReviewsPublicRouter(pool) {
         rating,
         title,
         comment,
-        mediaUrls
+        mediaUrls,
+        status: customerId ? 'approved' : 'pending'
       });
       res.status(201).json({ ok: true, review });
     } catch (err) {
@@ -155,6 +174,18 @@ function createReviewsPublicRouter(pool) {
 
 function createReviewsAdminRouter(pool) {
   const router = express.Router();
+  const { requirePermission } = require('./staff-access');
+  const { requireCsrf } = require('./security');
+
+  const guardCatalogWrite = (req, res, next) => {
+    if (req.admin) {
+      return requirePermission('catalog.write')(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
 
   router.get('/reviews', async (req, res, next) => {
     try {
@@ -171,7 +202,7 @@ function createReviewsAdminRouter(pool) {
     }
   });
 
-  router.put('/reviews/:id/status', express.json(), async (req, res, next) => {
+  router.put('/reviews/:id/status', guardCatalogWrite, express.json(), async (req, res, next) => {
     try {
       const { status } = req.body || {};
       if (!['approved', 'pending', 'rejected'].includes(status)) {

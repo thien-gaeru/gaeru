@@ -71,8 +71,20 @@ function createAffiliatePublicRouter(pool) {
         sameSite: 'lax'
       });
     }
-    const redirectUrl = req.query.redirect || '/';
-    res.redirect(redirectUrl);
+    // ─── P2 FIX: Chặn open redirect ──────────────────────────────────────────
+    // Chỉ chấp nhận relative path bắt đầu bằng một dấu / và không có //
+    // để tránh redirect sang domain khác qua //evil.com, backslash, scheme...
+    const rawRedirect = String(req.query.redirect || '/');
+    let safeRedirect = '/';
+    // Chuẩn hóa: loại encode bậc cao, kiểm tra không có scheme/host
+    try {
+      const decoded = decodeURIComponent(rawRedirect).replace(/\\/g, '/');
+      // Hợp lệ: bắt đầu bằng / và KHÔNG phải // (chặn //evil.com)
+      if (/^\/(?!\/)/.test(decoded) && !/^\/[A-Za-z]+:/.test(decoded)) {
+        safeRedirect = decoded;
+      }
+    } catch { /* giữ '/' */ }
+    res.redirect(safeRedirect);
   });
 
   return router;
@@ -80,6 +92,18 @@ function createAffiliatePublicRouter(pool) {
 
 function createAffiliateAdminRouter(pool) {
   const router = express.Router();
+  const { requirePermission } = require('./staff-access');
+  const { requireCsrf } = require('./security');
+
+  const guardPermission = (permission) => (req, res, next) => {
+    if (req.admin) {
+      return requirePermission(permission)(req, res, () => {
+        if (req.session) return requireCsrf(req, res, next);
+        next();
+      });
+    }
+    next();
+  };
 
   router.get('/affiliates', async (req, res, next) => {
     try {
@@ -96,7 +120,7 @@ function createAffiliateAdminRouter(pool) {
     }
   });
 
-  router.post('/affiliates', express.json(), async (req, res, next) => {
+  router.post('/affiliates', guardPermission('marketing.write'), express.json(), async (req, res, next) => {
     try {
       const partner = await registerPartner(pool, req.body || {});
       res.status(201).json({ ok: true, partner });
@@ -120,7 +144,7 @@ function createAffiliateAdminRouter(pool) {
     }
   });
 
-  router.put('/affiliates/commissions/:id/status', express.json(), async (req, res, next) => {
+  router.put('/affiliates/commissions/:id/status', guardPermission('finance.write'), express.json(), async (req, res, next) => {
     try {
       const { status } = req.body || {};
       if (!['pending', 'approved', 'paid', 'cancelled'].includes(status)) {
