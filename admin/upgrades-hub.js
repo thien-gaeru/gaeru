@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 (() => {
   const ALL_UPGRADES = [
@@ -168,7 +168,7 @@
               <h3>⚙️ Cài Đặt Server-Side Conversion API (Meta & TikTok)</h3>
               <span class="up-badge ${cfg.mode === 'live' ? 'up-badge-success' : 'up-badge-info'}">Chế độ: ${cfg.mode.toUpperCase()}</span>
             </div>
-            <form id="form-capi-config" onsubmit="window.GAERUUpgradesHub.saveCapiConfig(event)">
+            <form id="form-capi-config">
               <div class="feature-config-grid">
                 <div class="feature-config-field">
                   <label>Meta Pixel ID (Facebook):</label>
@@ -381,7 +381,7 @@
           </div>
           <div class="feature-config-actions">
             <span id="status-setting-capi" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-capi" onclick="window.GAERUUpgradesHub.saveSettingModule('capi')">Lưu Cài Đặt CAPI</button>
+            <button type="button" class="primary-button" id="btn-save-capi" data-save-module="capi">Lưu Cài Đặt CAPI</button>
           </div>
         </div>
 
@@ -411,7 +411,7 @@
           </div>
           <div class="feature-config-actions">
             <span id="status-setting-loyalty" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-loyalty" onclick="window.GAERUUpgradesHub.saveSettingModule('loyalty')">Lưu Cài Đặt Loyalty</button>
+            <button type="button" class="primary-button" id="btn-save-loyalty" data-save-module="loyalty">Lưu Cài Đặt Loyalty</button>
           </div>
         </div>
 
@@ -441,7 +441,7 @@
           </div>
           <div class="feature-config-actions">
             <span id="status-setting-affiliate" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-affiliate" onclick="window.GAERUUpgradesHub.saveSettingModule('affiliate')">Lưu Cài Đặt Tiếp Thị</button>
+            <button type="button" class="primary-button" id="btn-save-affiliate" data-save-module="affiliate">Lưu Cài Đặt Tiếp Thị</button>
           </div>
         </div>
 
@@ -476,7 +476,7 @@
           </div>
           <div class="feature-config-actions">
             <span id="status-setting-webPush" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-webPush" onclick="window.GAERUUpgradesHub.saveSettingModule('webPush')">Lưu Cài Đặt Web Push</button>
+            <button type="button" class="primary-button" id="btn-save-webPush" data-save-module="webPush">Lưu Cài Đặt Web Push</button>
           </div>
         </div>
 
@@ -519,7 +519,7 @@
           </div>
           <div class="feature-config-actions">
             <span id="status-setting-shipping" class="feature-config-feedback"></span>
-            <button type="button" class="primary-button" id="btn-save-shipping" onclick="window.GAERUUpgradesHub.saveSettingModule('shipping')">Lưu Cài Đặt Vận Chuyển</button>
+            <button type="button" class="primary-button" id="btn-save-shipping" data-save-module="shipping">Lưu Cài Đặt Vận Chuyển</button>
           </div>
         </div>
       `;
@@ -529,7 +529,7 @@
   }
 
   async function saveSettingModule(moduleName) {
-    const btn = document.getElementById(`btn-save-${moduleName}`) || document.querySelector(`button[onclick*="'${moduleName}'"]`);
+    const btn = document.getElementById(`btn-save-${moduleName}`) || document.querySelector(`[data-save-module="${moduleName}"]`);
     const statusEl = document.getElementById(`status-setting-${moduleName}`) || btn?.parentElement?.querySelector('.feature-config-feedback');
     const originalBtnText = btn ? btn.innerHTML : 'Lưu Cài Đặt';
 
@@ -717,6 +717,27 @@
       e.preventDefault();
       saveSettingModule(saveBtn.dataset.saveModule);
       return;
+    }
+
+    // 4. Action buttons
+    const actionBtn = e.target.closest('[data-action]');
+    if (actionBtn) {
+      e.preventDefault();
+      const act = actionBtn.dataset.action;
+      if (act === 'load-rop') loadInventoryForecast();
+      else if (act === 'load-rfm') loadRfmSegmentation();
+      else if (act === 'test-capi') triggerTestCapi();
+      else if (act === 'load-capi-logs') loadCapiLogs();
+      else if (act === 'load-settings') loadAllSettings();
+      return;
+    }
+  });
+
+  // Global delegated submit listener for CSP compliance
+  document.addEventListener('submit', (e) => {
+    if (e.target && e.target.id === 'form-capi-config') {
+      e.preventDefault();
+      saveCapiConfig(e);
     }
   });
 

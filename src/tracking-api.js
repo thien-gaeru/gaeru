@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
@@ -19,6 +19,20 @@ const STATUS_STEPS = [
   { key: 'shipped', label: 'Đang vận chuyển', desc: 'Đơn vị vận chuyển (GHN, GHTK, Viettel Post, SPX...) đang phát hàng.' },
   { key: 'completed', label: 'Giao thành công', desc: 'Đơn hàng đã được giao tận tay khách hàng.' }
 ];
+
+// Chuẩn hóa số điện thoại Việt Nam (0..., +84..., 84...)
+function normalizeVietnamPhone(raw) {
+  if (!raw) return '';
+  let digits = String(raw).trim().replace(/[^\d+]/g, '');
+  if (digits.startsWith('+84')) {
+    digits = '0' + digits.slice(3);
+  } else if (digits.startsWith('84') && digits.length >= 11) {
+    digits = '0' + digits.slice(2);
+  } else if (digits.startsWith('+')) {
+    digits = digits.slice(1);
+  }
+  return digits;
+}
 
 function calculateTimeline(status) {
   let activeIndex = 0;
@@ -45,6 +59,11 @@ async function lookupOrderTracking(pool, queryText) {
     throw Object.assign(new Error('Vui lòng nhập mã đơn hàng hoặc số điện thoại để tra cứu.'), { status: 400 });
   }
 
+  // Chuẩn hóa số điện thoại tra cứu theo định dạng chuẩn Việt Nam
+  const normPhone = normalizeVietnamPhone(q);
+  const e164Phone = normPhone.startsWith('0') ? '+84' + normPhone.slice(1) : normPhone;
+  const noPlus84Phone = normPhone.startsWith('0') ? '84' + normPhone.slice(1) : normPhone;
+
   // Tìm theo order_number, id (UUID) hoặc phone
   const result = await pool.query(
     `SELECT o.id, o.order_number AS "orderCode", o.customer_name AS "customerName", o.phone AS "customerPhone",
@@ -58,10 +77,13 @@ async function lookupOrderTracking(pool, queryText) {
             ), '[]'::jsonb) AS items
      FROM orders o
      LEFT JOIN order_shipping_selection s ON s.order_id = o.id
-     WHERE o.order_number = $1 OR o.id::text = $1 OR o.phone = $1
+     WHERE o.order_number = $1
+        OR o.id::text = $1
+        OR o.phone IN ($1, $2, $3, $4)
+        OR regexp_replace(o.phone, '[^\d]', '', 'g') IN ($2, $4)
      ORDER BY o.created_at DESC
      LIMIT 1`,
-    [q]
+    [q, normPhone, e164Phone, noPlus84Phone]
   );
 
   if (!result.rows.length) {
@@ -188,5 +210,6 @@ function createTrackingRouter(pool) {
 module.exports = {
   lookupOrderTracking,
   calculateTimeline,
+  normalizeVietnamPhone,
   createTrackingRouter
 };

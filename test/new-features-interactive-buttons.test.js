@@ -12,17 +12,32 @@ test('Comprehensive Verification of All Interactive Buttons & Actions Across New
   const trackingHtml = fs.readFileSync(path.join(__dirname, '..', 'tracking.html'), 'utf8');
   const trackingJs = fs.readFileSync(path.join(__dirname, '..', 'tracking.js'), 'utf8');
 
-  // 1. Admin Upgrades Hub buttons & tabs
-  await t.test('1. Admin Upgrades Hub tabs, filters and actions respond reliably', () => {
-    // Check all 6 tabs have onclick attribute
+  // 1. Admin Upgrades Hub buttons & tabs (CSP Strict Compliant without inline handlers)
+  await t.test('1. Admin Upgrades Hub tabs, filters and actions respond reliably with CSP compliance', () => {
+    // Check all tabs have data-tab and NO inline onclick (Helmet CSP protection)
     const expectedTabs = ['matrix', 'rop', 'rfm', 'capi', 'settings'];
     for (const tab of expectedTabs) {
       assert.match(
         adminIndex,
-        new RegExp(`data-tab="${tab}"[^>]*onclick="window\\.GAERUUpgradesHub\\.switchUpgradeTab\\('${tab}'\\)"`),
-        `Admin tab ${tab} must have explicit onclick calling window.GAERUUpgradesHub.switchUpgradeTab('${tab}')`
+        new RegExp(`data-tab="${tab}"`),
+        `Admin tab ${tab} must have data-tab="${tab}"`
       );
     }
+    assert.doesNotMatch(
+      adminIndex,
+      /onclick="window\.GAERUUpgradesHub/,
+      'Admin index.html must not use inline onclick handlers violating Helmet CSP'
+    );
+    assert.doesNotMatch(
+      upgradesHubJs,
+      /onclick="window\.GAERUUpgradesHub/,
+      'Upgrades Hub JS must not use inline onclick templates violating Helmet CSP'
+    );
+    assert.doesNotMatch(
+      upgradesHubJs,
+      /onsubmit="window\.GAERUUpgradesHub/,
+      'Upgrades Hub JS must not use inline onsubmit templates violating Helmet CSP'
+    );
 
     // Check window.GAERUUpgradesHub is assigned immediately
     assert.match(upgradesHubJs, /window\.GAERUUpgradesHub\s*=\s*UpgradesHubApi/, 'Hub API must be assigned directly to window');
@@ -32,21 +47,25 @@ test('Comprehensive Verification of All Interactive Buttons & Actions Across New
     assert.match(upgradesHubJs, /loadAllSettings,/, 'loadAllSettings must be in Hub API');
     assert.match(upgradesHubJs, /saveSettingModule/, 'saveSettingModule must be in Hub API');
 
-    // Check global delegated event listener
+    // Check global delegated event listeners
     assert.match(upgradesHubJs, /document\.addEventListener\('click'/, 'Admin Hub must attach document-level click listener');
     assert.match(upgradesHubJs, /e\.target\.closest\('\.upgrades-tab-btn'\)/, 'Delegated click must handle tab switching');
     assert.match(upgradesHubJs, /e\.target\.closest\('\[data-matrix-filter\]'\)/, 'Delegated click must handle matrix filtering');
+    assert.match(upgradesHubJs, /e\.target\.closest\('\[data-save-module\]'\)/, 'Delegated click must handle saving modules');
+    assert.match(upgradesHubJs, /e\.target\.closest\('\[data-action\]'\)/, 'Delegated click must handle action triggers');
+    assert.match(upgradesHubJs, /document\.addEventListener\('submit'/, 'Admin Hub must attach form submit listener');
   });
-  // 3. Customer Upgrades UI actions
-  await t.test('3. Customer Account upgrades action pills and modals respond reliably', () => {
+
+  // 2. Customer Upgrades UI actions
+  await t.test('2. Customer Account upgrades action pills and modals respond reliably', () => {
     // Window assignment
     assert.match(customerUpgradesJs, /window\.GAERUCustomerUpgrades\s*=/, 'GAERUCustomerUpgrades must be on window');
     assert.match(customerUpgradesJs, /openAffiliateModal/, 'openAffiliateModal must be exported');
     assert.match(customerUpgradesJs, /openLoyaltyHistoryModal/, 'openLoyaltyHistoryModal must be exported');
 
-    // Markup has onclick triggers
-    assert.match(customerUpgradesJs, /onclick="window\.GAERUCustomerUpgrades\?\.openLoyaltyHistoryModal\(\)"/, 'Loyalty history button must have onclick');
-    assert.match(customerUpgradesJs, /onclick="window\.GAERUCustomerUpgrades\?\.openAffiliateModal\(\)"/, 'Affiliate button must have onclick');
+    // Markup has triggers
+    assert.match(customerUpgradesJs, /openLoyaltyHistoryModal\(\)/, 'Loyalty history button must invoke openLoyaltyHistoryModal');
+    assert.match(customerUpgradesJs, /openAffiliateModal\(\)/, 'Affiliate button must invoke openAffiliateModal');
 
     // Global click delegation
     assert.match(customerUpgradesJs, /e\.target\.closest\('\[data-open-loyalty-history\]'\)/, 'Delegated click handles loyalty history');
@@ -57,11 +76,11 @@ test('Comprehensive Verification of All Interactive Buttons & Actions Across New
     assert.match(customerUpgradesJs, /if \(typeof dialog\.showModal !== 'function'\)/, 'ensureDialog must polyfill showModal if unavailable');
   });
 
-  // 5. Order Tracking buttons
-  await t.test('5. Order Tracking query button and form respond reliably', () => {
+  // 3. Order Tracking buttons & Payment Status Logic
+  await t.test('3. Order Tracking query button and formatPaymentBadge logic', () => {
     assert.match(trackingJs, /window\.doTrackingLookup\s*=\s*doLookup/, 'doTrackingLookup must be on window');
     assert.match(trackingJs, /form\.addEventListener\('submit'/, 'tracking form must handle submit');
     assert.match(trackingJs, /trackBtn\.addEventListener\('click'/, 'tracking button must handle direct click');
-    assert.match(trackingHtml, /onclick="window\.doTrackingLookup/, 'tracking button in HTML must have onclick fallback');
+    assert.match(trackingJs, /formatPaymentBadge/, 'tracking.js must have formatPaymentBadge function to distinguish paid vs pending');
   });
 });
