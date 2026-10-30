@@ -68,7 +68,7 @@
  }
  document.addEventListener('submit',async event=>{const form=event.target.closest('[data-business-new],[data-business-action],[data-business-period]');if(!form)return;event.preventDefault();const kind=form.closest('.view-panel').id.replace('-view',''),state=states[kind],button=form.querySelector('button'),feedback=form.querySelector('[role=status]');button.disabled=true;try{const values=Object.fromEntries(new FormData(form));if(form.dataset.businessPeriod){state.period=values.period;state.page=1;await load(kind);return;}if(form.dataset.businessAction){const row=state.rows.find(r=>r.id===form.dataset.businessAction);const body={version:row.version};if(values.reason)body.reason=values.reason;if(values.paymentReference)body.paymentReference=values.paymentReference;await admin.request(`/api/gaeru_ceo/business/${kind}/${row.id}/${values.action}`,{method:'POST',body:JSON.stringify(body)});}else{let body={...values,period:state.period};const numberNames=kind==='payroll'?[...Object.keys(payrollMoney),'plannedDays','workedDays']:kind==='tax'?['netVnd','vatVnd','deductibleVatVnd']:kind==='marketplace'?['netRevenueVnd','refundVnd',...Object.keys(costs)]:[];for(const name of numberNames)body[name]=kind==='marketplace'&&Object.hasOwn(costs,name)&&values[name]===''?null:Number(values[name]);if(kind==='payroll'){body.workedMinutes=Math.round(Number(values.workedHours)*60);delete body.workedHours;}if(kind==='marketplace'){body.reconciled=values.reconciled==='true';if(body.costMode==='warehouse'){body.cogsVnd=null;body.items=[...form.querySelectorAll('[data-stock-line]')].map(row=>({variantId:row.dataset.stockLine,quantity:Number(row.querySelector('input').value)}));}}const serialized=JSON.stringify(body);if(form.dataset.businessPayload!==serialized){form.dataset.businessPayload=serialized;form.dataset.businessKey=crypto.randomUUID();}await admin.request('/api/gaeru_ceo/business/'+kind,{method:'POST',body:JSON.stringify({...body,requestKey:form.dataset.businessKey})});}await load(kind);admin.showGlobal('Đã lưu chứng từ.');}catch(error){if(feedback)feedback.textContent=error.message;else admin.showGlobal(error.message,true);}finally{button.disabled=false;}});
  document.addEventListener('click',async event=>{const button=event.target.closest('[data-business-page]');if(!button)return;const kind=button.closest('.view-panel').id.replace('-view',''),previous=states[kind].page;button.disabled=true;try{states[kind].page+=Number(button.dataset.businessPage);await load(kind);}catch(error){states[kind].page=previous;admin.showGlobal(error.message,true);button.disabled=false;}});
- async function invoiceOrders(){const root=document.querySelector('#invoice-view'),form=root.querySelector('[data-business-new="invoice"]');if(!form)return;const result=await admin.request('/api/gaeru_ceo/orders?status=completed&paymentStatus=paid&page='+states.invoice.orderPage);for(const order of result.orders){const option=document.createElement('option');option.value=order.id;option.textContent=order.orderNumber;form.elements.orderId.append(option);}root.querySelector('[data-business-order-more]').hidden=!result.pagination||states.invoice.orderPage>=result.pagination.pageCount;}
+ async function invoiceOrders(){const root=document.querySelector('#invoice-view'),form=root.querySelector('[data-business-new="invoice"]');if(!form)return;const result=await admin.request('/api/gaeru_ceo/orders?status=completed&paymentStatus=paid&page='+states.invoice.orderPage);for(const order of result.orders){if(form.elements.orderId.querySelector('option[value="' + CSS.escape(order.id) + '"]'))continue;const option=document.createElement('option');option.value=order.id;option.textContent=order.orderNumber;form.elements.orderId.append(option);}root.querySelector('[data-business-order-more]').hidden=!result.pagination||states.invoice.orderPage>=result.pagination.pageCount;}
  document.addEventListener('click',async event=>{const button=event.target.closest('[data-business-order-more]');if(!button)return;button.disabled=true;try{states.invoice.orderPage++;await invoiceOrders();}catch(error){states.invoice.orderPage--;admin.showGlobal(error.message,true);}finally{button.disabled=false;}});
  document.addEventListener('change',event=>{if(event.target.name!=='mode'||!event.target.closest('[data-business-new="payroll"]'))return;const form=event.target.form;if(event.target.value==='hourly'){form.elements.baseSalaryVnd.value=0;form.elements.workedDays.value=0;}else if(event.target.value==='monthly'){form.elements.hourlyRateVnd.value=0;form.elements.workedHours.value=0;}});
 
@@ -84,3 +84,17 @@
  });
  window.GAERUBusiness={load};
 })();
+
+document.addEventListener('click', (event) => {
+  const btn = event.target.closest('[data-open-config-popup]');
+  if (!btn) return;
+  const provider = btn.dataset.openConfigPopup;
+  if (window.GAERUConfiguration?.openPopup) {
+    window.GAERUConfiguration.openPopup(provider);
+  } else {
+    location.hash = '#settings';
+    setTimeout(() => {
+      window.GAERUConfiguration?.openPopup?.(provider);
+    }, 150);
+  }
+});

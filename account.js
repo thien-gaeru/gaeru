@@ -1,3 +1,23 @@
+
+function getValidReturnUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get('returnUrl') || params.get('redirect');
+    if (target && target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\')) {
+      return target;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function handleLoginRedirect() {
+  const returnUrl = getValidReturnUrl();
+  if (returnUrl) {
+    setTimeout(() => { window.location.href = returnUrl; }, 500);
+    return true;
+  }
+  return false;
+}
 const accountFeedback = document.querySelector("[data-account-feedback]");
 const accountPanels = [...document.querySelectorAll("[data-account-panel]")];
 accountPanels.forEach((panel) => { if (panel.hidden) panel.style?.setProperty?.('display', 'none', 'important'); });
@@ -121,9 +141,14 @@ function setAccountPresentation(customer) {
 }
 
 function finishAccountLoading() {
-  const loading=document.querySelector("[data-account-loading]");
-  if(loading) loading.hidden=true;
-  document.querySelector("[data-account-card]")?.setAttribute("aria-busy","false");
+  accountLoading = false;
+  const loading = document.querySelector("[data-account-loading]");
+  if (loading) {
+    loading.hidden = true;
+    const spinner = loading.querySelector('.account-spinner');
+    if (spinner) spinner.hidden = false;
+  }
+  document.querySelector("[data-account-card]")?.setAttribute("aria-busy", "false");
 }
 
 function activateAccountPanel(panelName) {
@@ -147,22 +172,41 @@ async function accountRequest(url, body) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-  const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store',signal:controller.signal});
-  if (!freshCsrf.ok) throw new Error('Không thể khởi tạo phiên. Hãy thử lại.');
-  accountCsrfToken = (await freshCsrf.json()).csrfToken;
-  const response = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    signal: controller.signal,
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": accountCsrfToken
-    },
-    body: JSON.stringify(body)
-  });
-  const result = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(result?.error || "Không thể hoàn tất yêu cầu. Vui lòng thử lại.");
-  return result;
+    if (!accountCsrfToken) {
+      const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store',signal:controller.signal});
+      if (!freshCsrf.ok) throw new Error('Không thể khởi tạo phiên. Hãy thử lại.');
+      accountCsrfToken = (await freshCsrf.json()).csrfToken;
+    }
+    let response = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": accountCsrfToken
+      },
+      body: JSON.stringify(body)
+    });
+    if (response.status === 403) {
+      const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store',signal:controller.signal});
+      if (freshCsrf.ok) {
+        accountCsrfToken = (await freshCsrf.json()).csrfToken;
+        response = await fetch(url, {
+          method: "POST",
+          credentials: "same-origin",
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": accountCsrfToken
+          },
+          body: JSON.stringify(body)
+        });
+      }
+    }
+    const result = response.status === 204 ? null : await response.json().catch(() => null);
+    if (result?.csrfToken) accountCsrfToken = result.csrfToken;
+    if (!response.ok) throw new Error(result?.error || "Không thể hoàn tất yêu cầu. Vui lòng thử lại.");
+    return result;
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('Máy chủ phản hồi quá lâu. Chưa xác nhận được kết quả; hãy kiểm tra hộp thư trước khi thử lại.');
     throw error;
@@ -174,7 +218,9 @@ async function accountRequest(url, body) {
 function showCustomerProfile(customer, publish = true) {
   finishAccountLoading();
   document.querySelector('[data-address-book]')?.remove();
-  document.querySelector('[data-security-panel]')?.remove();
+  if (currentCustomer && currentCustomer.id !== customer?.id) {
+    document.querySelector('[data-security-panel]')?.remove();
+  }
   currentCustomer = customer;
   setAccountPresentation(customer);
   accountPanels.forEach((panel) => {
@@ -251,9 +297,11 @@ async function initializeCustomerAccount() {
       showCustomerProfile(currentCustomer,false);
       setAccountFeedback('Chưa thể làm mới phiên tài khoản. Vui lòng thử lại.',true);
     } else {
-      const message=document.querySelector('[data-account-loading-message]');
-      if(message) message.textContent='Chưa thể tải tài khoản. Vui lòng kiểm tra kết nối và thử lại.';
-      const retry=document.querySelector('[data-account-retry]');
+      const spinner = document.querySelector('[data-account-loading] .account-spinner');
+      if (spinner) spinner.hidden = true;
+      const message = document.querySelector('[data-account-loading-message]');
+      if (message) message.textContent = 'Chưa thể tải tài khoản. Vui lòng kiểm tra kết nối và thử lại.';
+      const retry = document.querySelector('[data-account-retry]');
       if(retry) retry.hidden=false;
       document.querySelector('[data-account-card]')?.setAttribute('aria-busy','false');
     }
@@ -530,6 +578,10 @@ async function loadOAuthConfig() {
 }
 
 function showOAuthConfigModal(provider, cfg) {
+  if (!cfg?.isDev) {
+    setAccountFeedback('Tính năng đăng nhập bằng Google đang được bảo trì. Vui lòng đăng nhập bằng Email/Số điện thoại.', true);
+    return;
+  }
   let modal = document.querySelector('[data-oauth-setup-dialog]');
   if (!modal) {
     modal = document.createElement('dialog');
@@ -617,8 +669,21 @@ function redirectToGoogleOAuth(cfg) {
   if (!cfg?.google?.clientId) return;
   const origin = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : '';
   const redirectUri = origin + '/api/customer-auth/oauth/google-callback';
-  const state = Math.random().toString(36).substring(2) + Date.now().toString(36);
-  const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const cryptoObj = window.crypto || window.msCrypto;
+  let state = '';
+  let nonce = '';
+  if (cryptoObj?.randomUUID) {
+    state = cryptoObj.randomUUID();
+    nonce = cryptoObj.randomUUID();
+  } else {
+    state = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
+  }
+  try {
+    sessionStorage.setItem('gaeru_oauth_state', state);
+    sessionStorage.setItem('gaeru_oauth_nonce', nonce);
+    document.cookie = 'gaeru_oauth_state=' + encodeURIComponent(state) + '; Path=/; SameSite=Lax; Max-Age=900';
+  } catch (_) {}
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   authUrl.searchParams.set('client_id', cfg.google.clientId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
