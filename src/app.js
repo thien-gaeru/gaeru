@@ -1,4 +1,4 @@
-const {createAdminNotifications}=require('./admin-notifications');
+﻿const {createAdminNotifications}=require('./admin-notifications');
 const {createNewsAI}=require("./news-ai");
 const {createCatalogVideos}=require('./catalog-videos');
 const {createProductWorkspace}=require("./product-workspace");
@@ -292,16 +292,23 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     dotfiles: "deny",
     index: "index.html",
     setHeaders(res, file) {
-      if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)&&/^[a-zA-Z0-9._-]{6,80}$/.test(String(res.req.query.v||'')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
+      const hasVersion = /^[a-zA-Z0-9._-]{6,80}$/.test(String(res.req.query.v||''));
+      if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file) && hasVersion) {
+        res.setHeader('Cache-Control','public, max-age=31536000, immutable');
+      } else if (/\.(?:js|css)$/i.test(file) && !hasVersion && path.basename(file) !== 'account.js') {
+        res.setHeader('Cache-Control','no-cache, must-revalidate');
+      }
       if (/\/assets\/.*-[0-9a-f]{12}\.webp$/i.test(file.replace(/\\/g,'/')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
       }
       if (['account.html', 'account.js'].includes(path.basename(file))) {
         res.setHeader('Cache-Control', 'no-store');
       }
     },
-    maxAge: config.NODE_ENV === "production" ? "1h" : 0
+        maxAge: config.NODE_ENV === "production" ? "1h" : 0
   }));
 
   app.use((error, _req, res, _next) => {
