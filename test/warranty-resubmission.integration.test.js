@@ -1,39 +1,19 @@
+const { createTestDb } = require('./helpers/pglite-db');
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomBytes, randomUUID } = require("node:crypto");
-const { PGlite } = require("@electric-sql/pglite");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const { createApp } = require("../src/app");
-const { migrateDatabase } = require("../src/migrate");
 
 // Runs real PostgreSQL statements in one embedded connection. Multi-connection
 // locking and production integrations still require a separate staging run.
-async function database() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise((resolve) => { release = resolve; });
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const result = !values && sql.includes(";") ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...result, rows: result?.rows || [], rowCount: result?.affectedRows ?? result?.rows?.length ?? 0 };
-  }
-  return {
-    async query(sql, values) { const release = await lock(); try { return await query(sql, values); } finally { release(); } },
-    async connect() { const release = await lock(); return { query, release }; },
-    end: () => db.close()
-  };
-}
 
 
 const {processWarrantyEmail}=require('../src/warranty-email');
 test('warranty corrections, withdrawal, ownership and activation email outbox',{timeout:60000},async t=>{
- const pool=await database();await migrateDatabase(pool);const messages=[],mailer={async sendMail(m){messages.push(m);return {accepted:[m.to],rejected:[]};}};const config={NODE_ENV:'test',SESSION_SECRET:randomBytes(48).toString('hex'),ADMIN_USERNAME:'warranty-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Warranty-owner-password',4),PUBLIC_BASE_URL:'https://example.test',smtp:{from:'store@example.test',publicBaseUrl:'https://example.test'}};const app=createApp({pool,config,customerMailer:mailer,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await pool.end();});const base='http://127.0.0.1:'+server.address().port;
+ const { pool, close: closeDb } = await createTestDb();
+  const messages=[],mailer={async sendMail(m){messages.push(m);return {accepted:[m.to],rejected:[]};}};const config={NODE_ENV:'test',SESSION_SECRET:randomBytes(48).toString('hex'),ADMIN_USERNAME:'warranty-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Warranty-owner-password',4),PUBLIC_BASE_URL:'https://example.test',smtp:{from:'store@example.test',publicBaseUrl:'https://example.test'}};const app=createApp({pool,config,customerMailer:mailer,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await closeDb();});const base='http://127.0.0.1:'+server.address().port;
  function client(){let cookie='',csrf='';return {async api(url,method='GET',body,extra={},sendCsrf=true){const r=await fetch(base+url,{method,headers:{Cookie:cookie,...(sendCsrf?{'X-CSRF-Token':csrf}:{}),...extra,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.status===204?{}:await r.json();if(data.csrfToken)csrf=data.csrfToken;return {status:r.status,data};},async ok(url,method='GET',body,expected=200,extra={}){const r=await this.api(url,method,body,extra);assert.equal(r.status,expected,url+': '+JSON.stringify(r.data));return r.data;}};}
  const owner=client(),guest=client(),intruder=client();for(const c of [owner,guest,intruder])await c.ok('/api/csrf');await owner.ok('/api/auth/login','POST',{username:'warranty-owner',password:'Warranty-owner-password'});
  const payload={channel:'shopee',externalOrderNumber:'WRONG-ORDER',productName:'GAERU Fixture',serial:'WRONG-SERIAL',purchaseDate:'2026-01-01',contact:{fullName:'Buyer Fixture',phone:'0900000000',address:'Fixture Street 123',city:'Hà Nội',email:'guest@example.test'},requestKey:randomUUID()};

@@ -2,6 +2,7 @@
 
 const express = require('express');
 const crypto = require('node:crypto');
+const { transitionPaymentStatus } = require('./domain/payments/payment-policy');
 
 async function processCodReconciliation(pool, { carrier = 'spx', fileName = 'bang-ke.csv', items = [] }) {
   if (!Array.isArray(items) || !items.length) {
@@ -63,10 +64,7 @@ async function processCodReconciliation(pool, { carrier = 'spx', fileName = 'ban
       } else {
         // Automatically mark order as paid if COD was pending!
         if (orderRow.payment_status === 'pending') {
-          await pool.query(
-            `UPDATE orders SET payment_status = 'paid', updated_at = now() WHERE id = $1`,
-            [orderRow.id]
-          );
+          await transitionPaymentStatus(pool, { orderId: orderRow.id, targetStatus: 'paid' });
         }
       }
     }

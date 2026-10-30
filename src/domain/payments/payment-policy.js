@@ -53,6 +53,42 @@ function canManuallyCollect(order) {
   return true;
 }
 
+/**
+ * Chuyển trạng thái thanh toán đơn hàng có kiểm tra tính hợp lệ và tự động hoàn thành đơn COD
+ * @param {Object} client Database client/pool
+ * @param {Object} options
+ * @param {string} options.orderId ID đơn hàng
+ * @param {string} options.targetStatus Trạng thái thanh toán đích ('paid', 'pending', etc.)
+ * @param {boolean} [options.autoOrderComplete=false] Tự động chuyển đơn sang completed nếu COD và shipped
+ * @returns {Promise<{ order: Object, changed: boolean }>}
+ */
+async function transitionPaymentStatus(client, { orderId, targetStatus, autoOrderComplete = false }) {
+  if (!orderId || !targetStatus) throw new Error("orderId và targetStatus là bắt buộc.");
+  const orderRes = await client.query(
+    "SELECT id, payment_method AS \"paymentMethod\", payment_status AS \"paymentStatus\", status FROM orders WHERE id = $1 FOR UPDATE",
+    [orderId]
+  );
+  const order = orderRes.rows[0];
+  if (!order) throw Object.assign(new Error("Không tìm thấy đơn hàng."), { status: 404 });
+
+  if (order.paymentStatus === targetStatus) {
+    return { order, changed: false };
+  }
+
+  const shouldComplete = autoOrderComplete && order.paymentMethod === 'cod' && order.status === 'shipped';
+  const updated = (await client.query(
+    `UPDATE orders
+     SET payment_status = $2,
+         status = CASE WHEN $3 = true THEN 'completed' ELSE status END,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING id, status, payment_status AS "paymentStatus"`,
+    [orderId, targetStatus, shouldComplete]
+  )).rows[0];
+
+  return { order: updated, changed: true };
+}
+
 module.exports = {
   ONLINE_GATEWAYS,
   MANUAL_METHODS,
@@ -60,5 +96,6 @@ module.exports = {
   isOnlineGateway,
   isManualPayment,
   canManuallyUpdatePayment,
-  canManuallyCollect
+  canManuallyCollect,
+  transitionPaymentStatus
 };

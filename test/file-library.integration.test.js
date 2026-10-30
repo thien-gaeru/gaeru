@@ -1,42 +1,21 @@
+const { createTestDb } = require('./helpers/pglite-db');
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomBytes, randomUUID } = require("node:crypto");
-const { PGlite } = require("@electric-sql/pglite");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const { createApp } = require("../src/app");
-const { migrateDatabase } = require("../src/migrate");
 
 // Runs real PostgreSQL statements in one embedded connection. Multi-connection
 // locking and production integrations still require a separate staging run.
-async function database() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise((resolve) => { release = resolve; });
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const result = !values && sql.includes(";") ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...result, rows: result?.rows || [], rowCount: result?.affectedRows ?? result?.rows?.length ?? 0 };
-  }
-  return {
-    async query(sql, values) { const release = await lock(); try { return await query(sql, values); } finally { release(); } },
-    async connect() { const release = await lock(); return { query, release }; },
-    end: () => db.close()
-  };
-}
 
 test('owner file library manages real files, protects references and preserves private access', {timeout:60000}, async t => {
  const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),sharp=require('sharp');
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'gaeru-library-')),prior=process.env.MEDIA_ROOT;process.env.MEDIA_ROOT=root;
- const pool=await database();await migrateDatabase(pool);
- const app=createApp({config:{NODE_ENV:'test',SESSION_SECRET:randomBytes(48).toString('hex'),ADMIN_USERNAME:'library-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Owner-library-password',4),PUBLIC_BASE_URL:'https://example.invalid',STORE_ORDERS_ENABLED:false},pool,sessionStore:new session.MemoryStore()});
+ const { pool, close: closeDb } = await createTestDb();
+  const app=createApp({config:{NODE_ENV:'test',SESSION_SECRET:randomBytes(48).toString('hex'),ADMIN_USERNAME:'library-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Owner-library-password',4),PUBLIC_BASE_URL:'https://example.invalid',STORE_ORDERS_ENABLED:false},pool,sessionStore:new session.MemoryStore()});
  const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));
- t.after(async()=>{await new Promise(r=>server.close(r));await pool.end();if(prior===undefined)delete process.env.MEDIA_ROOT;else process.env.MEDIA_ROOT=prior;assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep));await fs.rm(root,{recursive:true,force:true});});
+ t.after(async()=>{await new Promise(r=>server.close(r));await closeDb();if(prior===undefined)delete process.env.MEDIA_ROOT;else process.env.MEDIA_ROOT=prior;assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep));await fs.rm(root,{recursive:true,force:true});});
  const base='http://127.0.0.1:'+server.address().port;let cookie='',csrf='';
  async function request(url,method='GET',body,token=true){const multipart=body instanceof FormData,r=await fetch(base+url,{method,headers:{Cookie:cookie,...(token?{'X-CSRF-Token':csrf}:{}),...(body&&!multipart?{'Content-Type':'application/json'}:{})},body:body?(multipart?body:JSON.stringify(body)):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const isJson=r.headers.get('content-type')?.includes('application/json'),data=isJson?await r.json():Buffer.from(await r.arrayBuffer());if(data.csrfToken)csrf=data.csrfToken;return {status:r.status,data,headers:r.headers};}
  const endpoint='/api/gaeru_ceo/file-library';

@@ -1,41 +1,21 @@
+const { createTestDb } = require('./helpers/pglite-db');
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { randomBytes, randomUUID } = require("node:crypto");
-const { PGlite } = require("@electric-sql/pglite");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const { createApp } = require("../src/app");
-const { migrateDatabase } = require("../src/migrate");
 
 // Runs real PostgreSQL statements in one embedded connection. Multi-connection
 // locking and production integrations still require a separate staging run.
-async function database() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise((resolve) => { release = resolve; });
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const result = !values && sql.includes(";") ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...result, rows: result?.rows || [], rowCount: result?.affectedRows ?? result?.rows?.length ?? 0 };
-  }
-  return {
-    async query(sql, values) { const release = await lock(); try { return await query(sql, values); } finally { release(); } },
-    async connect() { const release = await lock(); return { query, release }; },
-    end: () => db.close()
-  };
-}
 
 
 const {processEmailQueue,audience}=require('../src/email-marketing');
 test('scheduled marketing mail deduplicates sources, requires confirmation and respects cancellation and opt-out',{timeout:60000},async t=>{
- const pool=await database();await migrateDatabase(pool);const messages=[];const mailer={sendMail:async message=>{messages.push(message);return {accepted:[message.to],rejected:[]};}};
+ const { pool, close: closeDb } = await createTestDb();
+  const messages=[];const mailer={sendMail:async message=>{messages.push(message);return {accepted:[message.to],rejected:[]};}};
  const config={NODE_ENV:'test',SESSION_SECRET:randomBytes(48).toString('hex'),ADMIN_USERNAME:'email-owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('Email-owner-password',4),PUBLIC_BASE_URL:'https://example.test',smtp:{host:'smtp.invalid',port:465,secure:true,user:'test',password:'not-real',from:'store@example.test',publicBaseUrl:'https://example.test'}};
- const app=createApp({config,pool,customerMailer:mailer,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await pool.end();});const base='http://127.0.0.1:'+server.address().port;let cookie='',csrf='';
+ const app=createApp({config,pool,customerMailer:mailer,sessionStore:new session.MemoryStore()});const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await closeDb();});const base='http://127.0.0.1:'+server.address().port;let cookie='',csrf='';
  async function api(path,method='GET',body,withCsrf=true){const r=await fetch(base+path,{method,headers:{Cookie:cookie,...(withCsrf?{'X-CSRF-Token':csrf}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const set=r.headers.get('set-cookie');if(set)cookie=set.split(';')[0];const data=r.status===204?{}:await r.json();if(data.csrfToken)csrf=data.csrfToken;return {status:r.status,data};}
  assert.equal((await api('/api/gaeru_ceo/marketing/emails')).status,401);await api('/api/csrf');assert.equal((await api('/api/auth/login','POST',{username:'email-owner',password:'Email-owner-password'})).status,200);
  const passwordHash=bcrypt.hashSync('Fixture-password',4);await pool.query('INSERT INTO customers(full_name,email,phone,password_hash) VALUES($1,$2,$3,$4)',['Buyer','Buyer@example.test','0900000000',passwordHash]);await pool.query('INSERT INTO customers(full_name,email,phone,password_hash,active) VALUES($1,$2,$3,$4,false)',['Blocked','blocked@example.test','0900000001',passwordHash]);

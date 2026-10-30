@@ -1,3 +1,4 @@
+const { createTestDb } = require('./helpers/pglite-db');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -5,46 +6,11 @@ const path = require('node:path');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { randomBytes } = require('crypto');
-const { PGlite } = require('@electric-sql/pglite');
 const { createApp } = require('../src/app');
-const { migrateDatabase } = require('../src/migrate');
 
-async function database() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const before = queue;
-    let release;
-    queue = new Promise((resolve) => (release = resolve));
-    await before;
-    return release;
-  }
-  async function query(sql, values) {
-    const r = !values && sql.includes(';') ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...r, rows: r?.rows || [], rowCount: r?.affectedRows ?? r?.rows?.length ?? 0 };
-  }
-  return {
-    async query(sql, values) {
-      const release = await lock();
-      try {
-        return await query(sql, values);
-      } finally {
-        release();
-      }
-    },
-    async connect() {
-      const release = await lock();
-      return { query, release };
-    },
-    async end() {
-      await db.close();
-    }
-  };
-}
 
 test('Security Shield WAF & Anti-Hack / Anti-Spam protection', async (t) => {
-  const pool = await database();
-  await migrateDatabase(pool);
+  const { pool, close: closeDb } = await createTestDb();
   const app = createApp({
     config: {
       NODE_ENV: 'test',
@@ -62,7 +28,7 @@ test('Security Shield WAF & Anti-Hack / Anti-Spam protection', async (t) => {
   await new Promise((resolve) => server.once('listening', resolve));
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
-    await pool.end();
+    await closeDb();
   });
 
   const base = 'http://127.0.0.1:' + server.address().port;

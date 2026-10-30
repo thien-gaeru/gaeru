@@ -1,9 +1,6 @@
 'use strict';
 
 const { Router } = require('express');
-const { requirePermission } = require('./staff-access');
-const { requireCsrf } = require('./security');
-
 const DEFAULT_SETTINGS = {
   capi: {
     metaPixelId: process.env.META_PIXEL_ID || '',
