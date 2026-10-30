@@ -40,25 +40,46 @@
     if (!item) return;
     const el = createToastContainer();
 
+    const isSimulated = Boolean(item.isSimulated);
+    const icon = isSimulated ? '💡' : '⚡';
+    const headerTitle = isSimulated
+      ? 'Gợi ý sản phẩm nổi bật'
+      : `${escapeHtml(item.customerName)} (${escapeHtml(item.location)})`;
+    const actionText = isSimulated
+      ? `Đang được quan tâm: <strong style="color:#58a6ff;">${escapeHtml(item.productName)}</strong>`
+      : `Vừa mua: <strong style="color:#58a6ff;">${escapeHtml(item.productName)}</strong>`;
+    const footerMeta = isSimulated
+      ? 'Đề xuất mua sắm • Minh họa'
+      : `${escapeHtml(item.relativeTime)} • Đã xác thực`;
+
     el.innerHTML = `
-      <div style="font-size:24px;line-height:1;">⚡</div>
+      <div style="font-size:24px;line-height:1;">${icon}</div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:13px;font-weight:600;color:#f0f6fc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-          ${escapeHtml(item.customerName)} (${escapeHtml(item.location)})
+          ${headerTitle}
         </div>
         <div style="font-size:12px;color:#8b949e;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-          Vừa mua: <strong style="color:#58a6ff;">${escapeHtml(item.productName)}</strong>
+          ${actionText}
         </div>
         <div style="font-size:11px;color:#6e7681;margin-top:2px;">
-          ${escapeHtml(item.relativeTime)} • Đã xác thực
+          ${footerMeta}
         </div>
       </div>
-      <button style="background:none;border:none;color:#6e7681;cursor:pointer;font-size:16px;padding:0 4px;" onclick="event.stopPropagation(); this.parentElement.style.opacity='0';">&times;</button>
+      <button type="button" class="toast-close-btn" style="background:none;border:none;color:#6e7681;cursor:pointer;font-size:16px;padding:0 4px;" aria-label="Đóng">&times;</button>
     `;
 
     // Slide in
     el.style.transform = 'translateY(0)';
     el.style.opacity = '1';
+
+    // Event listeners compliant with strict CSP (no inline onclick)
+    const closeBtn = el.querySelector('.toast-close-btn');
+    if (closeBtn) {
+      closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        el.style.opacity = '0';
+      };
+    }
 
     // Click redirect to catalog or product
     el.onclick = () => {

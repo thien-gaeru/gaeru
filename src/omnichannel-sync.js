@@ -19,16 +19,17 @@ async function processOmnichannelEvent(pool, { channel, eventType, externalSku, 
   }
 
   // Idempotency: kiểm tra chống duplicate event nếu payload có eventId
-  const eventId = payload?.eventId || payload?.event_id || payload?.id;
+  const rawEventId = payload?.eventId || payload?.event_id || payload?.id;
+  const eventId = rawEventId ? String(rawEventId).trim() : null;
 
   return await withTransaction(pool, async (client) => {
     if (eventId) {
       const existing = await client.query(
         `SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"
          FROM omnichannel_events
-         WHERE payload->>'eventId' = $1 OR payload->>'event_id' = $1
+         WHERE (channel = $1 AND event_id = $2) OR payload->>'eventId' = $2 OR payload->>'event_id' = $2
          LIMIT 1`,
-        [String(eventId)]
+        [normChannel, eventId]
       );
       if (existing.rows.length) {
         return {
@@ -51,18 +52,37 @@ async function processOmnichannelEvent(pool, { channel, eventType, externalSku, 
       updatedVariant = updated.rows[0] || null;
     }
 
-    const eventRes = await client.query(
-      `INSERT INTO omnichannel_events (channel, event_type, external_sku, quantity_delta, payload, status)
-       VALUES ($1, $2, $3, $4, $5, 'processed')
-       RETURNING id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"`,
-      [normChannel, eventType || 'inventory_sync', sku, delta, JSON.stringify(payload)]
-    );
+    try {
+      const eventRes = await client.query(
+        `INSERT INTO omnichannel_events (channel, event_type, external_sku, quantity_delta, payload, event_id, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'processed')
+         RETURNING id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"`,
+        [normChannel, eventType || 'inventory_sync', sku, delta, JSON.stringify(payload), eventId]
+      );
 
-    return {
-      ok: true,
-      event: eventRes.rows[0],
-      variant: updatedVariant
-    };
+      return {
+        ok: true,
+        event: eventRes.rows[0],
+        variant: updatedVariant
+      };
+    } catch (err) {
+      // 23505: unique_violation trên (channel, event_id) do race condition tại database
+      if (err.code === '23505') {
+        const existing = await client.query(
+          `SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku", quantity_delta AS "quantityDelta", created_at AS "createdAt"
+           FROM omnichannel_events
+           WHERE channel = $1 AND event_id = $2
+           LIMIT 1`,
+          [normChannel, eventId]
+        );
+        return {
+          ok: true,
+          event: existing.rows[0] || null,
+          duplicate: true
+        };
+      }
+      throw err;
+    }
   });
 }
 
@@ -81,42 +101,39 @@ function webhookAuthMiddleware(config) {
 
     const secret = config?.OMNICHANNEL_WEBHOOK_SECRET || process.env.OMNICHANNEL_WEBHOOK_SECRET;
 
-    // Trong môi trường production: BẮT BUỘC phải có secret an toàn (>= 32 ký tự)
-    if (process.env.NODE_ENV === 'production' && (!secret || secret.length < 32)) {
-      return res.status(503).json({ error: 'Webhook inventory sync chưa được cấu hình khóa bảo mật an toàn trên production.' });
+    // BẮT BUỘC phải có khóa bí mật an toàn (>= 32 ký tự) trong MỌI môi trường
+    if (!secret || secret.length < 32) {
+      return res.status(503).json({ error: 'Webhook inventory sync chưa được cấu hình khóa bí mật bảo mật an toàn (tối thiểu 32 ký tự).' });
     }
 
-    // Nếu có secret được cấu hình: BẮT BUỘC xác thực chữ ký
-    if (secret && secret.length >= 16) {
-      const tsHeader = req.headers['x-webhook-timestamp'];
-      const sigHeader = req.headers['x-webhook-signature'];
+    const tsHeader = req.headers['x-webhook-timestamp'];
+    const sigHeader = req.headers['x-webhook-signature'];
 
-      if (!tsHeader || !sigHeader) {
-        return res.status(401).json({ error: 'Yêu cầu thiếu tiêu đề xác thực webhook (X-Webhook-Timestamp, X-Webhook-Signature).' });
-      }
+    if (!tsHeader || !sigHeader) {
+      return res.status(401).json({ error: 'Yêu cầu thiếu tiêu đề xác thực webhook (X-Webhook-Timestamp, X-Webhook-Signature).' });
+    }
 
-      const ts = Number(tsHeader);
-      if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) {
-        return res.status(401).json({ error: 'Timestamp webhook không hợp lệ hoặc đã hết hạn.' });
-      }
+    const ts = Number(tsHeader);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) {
+      return res.status(401).json({ error: 'Timestamp webhook không hợp lệ hoặc đã hết hạn.' });
+    }
 
-      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
-      const expected = crypto
-        .createHmac('sha256', secret)
-        .update(`${ts}.${rawBody}`)
-        .digest('hex');
+    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(`${ts}.${rawBody}`)
+      .digest('hex');
 
-      let match = false;
-      try {
-        match = crypto.timingSafeEqual(
-          Buffer.from(sigHeader, 'hex'),
-          Buffer.from(expected, 'hex')
-        );
-      } catch {}
+    let match = false;
+    try {
+      match = crypto.timingSafeEqual(
+        Buffer.from(sigHeader, 'hex'),
+        Buffer.from(expected, 'hex')
+      );
+    } catch {}
 
-      if (!match) {
-        return res.status(401).json({ error: 'Chữ ký webhook không hợp lệ.' });
-      }
+    if (!match) {
+      return res.status(401).json({ error: 'Chữ ký webhook không hợp lệ.' });
     }
 
     next();

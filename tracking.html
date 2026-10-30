@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8">
@@ -19,9 +19,10 @@
     <div class="tracking-hero">
       <h1>Tra cứu hành trình đơn hàng</h1>
       <p>Nhập số điện thoại đặt hàng hoặc mã đơn GAERU để kiểm tra trạng thái đóng gói và lộ trình giao hàng đa đối tác vận chuyển (GHN, GHTK, Viettel Post, SPX, J&T Express).</p>
-      <form id="tracking-form" class="tracking-search-bar">
-        <input type="text" id="tracking-query" name="query" placeholder="Nhập số điện thoại (VD: 0901234567) hoặc mã đơn…" required autocomplete="off" />
-        <button type="submit" class="primary-button" id="btn-track" onclick="window.doTrackingLookup?.(document.getElementById('tracking-query')?.value)">Tra cứu ngay</button>
+      <form id="tracking-form" class="tracking-search-bar" style="display:flex;gap:8px;flex-wrap:wrap;max-width:580px;margin:0 auto;">
+        <input type="text" id="tracking-query" name="query" placeholder="Mã đơn hàng (VD: GR-20261030-…)" required autocomplete="off" style="flex:1;min-width:180px;" />
+        <input type="text" id="tracking-phone" name="phone" placeholder="Số điện thoại đặt hàng (đối soát)" autocomplete="off" style="flex:1;min-width:180px;" />
+        <button type="submit" class="primary-button" id="btn-track" style="min-width:130px;">Tra cứu ngay</button>
       </form>
     </div>
 
