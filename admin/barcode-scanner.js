@@ -40,6 +40,9 @@
 
     let stream = null;
     let animId = null;
+    const detector = ('BarcodeDetector' in window)
+      ? new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8'] })
+      : null;
 
     async function lookup(code) {
       const trimmed = String(code || '').trim();
@@ -49,7 +52,7 @@
 
       try {
         const res = await request('/api/gaeru_ceo/barcode/lookup?code=' + encodeURIComponent(trimmed));
-        if (!res.ok) throw new Error(res.error || 'Không tìm thấy đơn hàng.');
+        if (!res || !res.order) throw new Error(res?.error || 'Không tìm thấy đơn hàng.');
         renderOrder(res.order);
       } catch (err) {
         resultBox.innerHTML = `<div class="scanner-alert error">${escapeHtml(err.message)}</div>`;
@@ -105,6 +108,10 @@
     }
 
     async function startCamera() {
+      if (!('BarcodeDetector' in window)) {
+        alert('Trình duyệt hiện tại chưa hỗ trợ BarcodeDetector để quét camera trực tiếp. Vui lòng sử dụng máy quét mã vạch (súng bắn mã vạch), nhập mã đơn thủ công vào ô tìm kiếm, hoặc dùng Google Chrome.');
+        return;
+      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment' }
@@ -138,8 +145,7 @@
         return;
       }
       // If BarcodeDetector is available natively in Chrome/Safari:
-      if ('BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'ean_8'] });
+      if (detector) {
         detector.detect(video).then(barcodes => {
           if (barcodes && barcodes.length > 0) {
             const rawVal = barcodes[0].rawValue;
@@ -152,7 +158,7 @@
           animId = requestAnimationFrame(scanFrame);
         });
       } else {
-        animId = requestAnimationFrame(scanFrame);
+        stopCamera();
       }
     }
 

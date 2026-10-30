@@ -770,7 +770,7 @@ function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
  document.getElementById('order-bulk-dialog')?.remove();const dialog=document.createElement('dialog');dialog.id='order-bulk-dialog';dialog.className='order-processing-dialog';
  dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="confirm">Xác nhận đơn → Đã xác nhận</option><option value="prepare">Chuẩn bị hàng → Cần gửi</option><option value="ship">Xác nhận bàn giao → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ số tiền còn lại của các đơn COD đã giao.</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
- const form=dialog.querySelector('form'),hint=dialog.querySelector('[data-bulk-hint]');const refresh=()=>{const target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[form.elements.action.value];const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=='confirmed'||o.shippingFeeVnd!=null)&&(target!=='cancelled'||o.paymentStatus!=='paid'&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=='completed'||o.paymentStatus==='paid'||can('payments.write')&&!['vnpay','9pay'].includes(o.paymentMethod)));hint.textContent=eligible.length+'/'+orders.length+' đơn đủ điều kiện cho bước đã chọn.';dialog.querySelector('[data-bulk-money]').hidden=target!=='completed';form.elements.confirmReceived.required=target==='completed'&&orders.some(o=>o.paymentStatus!=='paid');form.elements.confirmReceived.checked=false;form.querySelector('[type=submit]').disabled=eligible.length!==orders.length;};
+ const form=dialog.querySelector('form'),hint=dialog.querySelector('[data-bulk-hint]');const refresh=()=>{const target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[form.elements.action.value];const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=='confirmed'||o.shippingFeeVnd!=null)&&(target!=='cancelled'||o.paymentStatus!=='paid'&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=='completed'||o.paymentStatus==='paid'||can('payments.write')&&!['vnpay','9pay','momo','zalopay'].includes(o.paymentMethod)));hint.textContent=eligible.length+'/'+orders.length+' đơn đủ điều kiện cho bước đã chọn.';dialog.querySelector('[data-bulk-money]').hidden=target!=='completed';form.elements.confirmReceived.required=target==='completed'&&orders.some(o=>o.paymentStatus!=='paid');form.elements.confirmReceived.checked=false;form.querySelector('[type=submit]').disabled=eligible.length!==orders.length;};
  const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:'confirm',confirmed:'prepare',processing:'ship',shipped:'complete'}[common];if(next)form.elements.action.value=next;form.elements.action.addEventListener('change',refresh);dialog.querySelector('[data-close-bulk]').addEventListener('click',()=>{if(typeof dialog.close==='function')dialog.close();dialog.remove();});dialog.addEventListener('close',()=>dialog.remove());
  form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');if(button.disabled)return;button.disabled=true;feedback.textContent='Đang kiểm tra và xử lý…';let saved=false;try{const result=await request('/api/gaeru_ceo/orders/bulk',{method:'POST',body:JSON.stringify({action:form.elements.action.value,confirmReceived:form.elements.confirmReceived.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==='function')dialog.close();dialog.remove();document.querySelector('#order-filter').value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal('Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;button.disabled=false;}});
  document.body.append(dialog);refresh();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
@@ -1158,7 +1158,7 @@ document.querySelector("#new-product-button").addEventListener("click", () => { 
 document.querySelectorAll(".product-filters select").forEach((select) => select.addEventListener("change", renderProducts));
 document.querySelector("#reset-product-filters").addEventListener("click", () => {
   document.querySelector("#product-search").value = "";
-  document.querySelectorAll(".product-filters select").forEach((select) => { select.value = select.id === "order-sort" ? "newest" : select.id === "order-page-size" ? "25" : ""; });
+  document.querySelectorAll(".product-filters select").forEach((select) => { select.value = ""; });
   loadProducts().catch((error) => showGlobal(error.message, true));
 });
 document.querySelectorAll('[data-product-scope]').forEach(button=>button.addEventListener('click',async()=>{
@@ -1378,25 +1378,28 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
 });
 document.querySelector("#settings-form").addEventListener("submit", saveSettings);
 document.querySelector("#add-shipping-rate").addEventListener("click", () => {
-  const rates = Object.fromEntries([...document.querySelectorAll(".shipping-rate-row")].map((row, index) => [
-    row.querySelector("[data-shipping-province]").value || `Tỉnh/thành ${index + 1}`,
-    Number(row.querySelector("[data-shipping-fee]").value) || 0
-  ]));
-  rates[`Tỉnh/thành ${Object.keys(rates).length + 1}`] = 0;
-  renderShippingRates(rates);
-  const inputs = document.querySelectorAll("[data-shipping-province]");
-  inputs[inputs.length - 1].focus();
+  const root = document.querySelector("#shipping-rate-list");
+  const emptyNote = root.querySelector(".shipping-rate-empty");
+  if (emptyNote) emptyNote.remove();
+  const nextNum = root.querySelectorAll(".shipping-rate-row").length + 1;
+  const newRowHtml = `
+    <div class="shipping-rate-row">
+      <label>Tỉnh/thành phố<input data-shipping-province required maxlength="120" value="" placeholder="Ví dụ: Tỉnh/thành ${nextNum}"></label>
+      <label>Phí giao hàng (₫)<input data-shipping-fee type="number" required min="0" max="1000000000" step="1" value="0"></label>
+      <button class="plain-button" type="button" data-remove-shipping-rate>Xóa tỉnh/thành</button>
+    </div>`;
+  root.insertAdjacentHTML('beforeend', newRowHtml);
+  const newRow = root.lastElementChild;
+  newRow?.querySelector("[data-shipping-province]")?.focus();
 });
 document.querySelector("#shipping-rate-list").addEventListener("click", (event) => {
   if (!event.target.closest("[data-remove-shipping-rate]")) return;
   const row = event.target.closest(".shipping-rate-row");
-  const rates = Object.fromEntries([...document.querySelectorAll(".shipping-rate-row")]
-    .filter((item) => item !== row)
-    .map((item) => [
-      item.querySelector("[data-shipping-province]").value,
-      Number(item.querySelector("[data-shipping-fee]").value) || 0
-    ]));
-  renderShippingRates(rates);
+  row?.remove();
+  const root = document.querySelector("#shipping-rate-list");
+  if (!root.querySelectorAll(".shipping-rate-row").length) {
+    root.innerHTML = '<p class="shipping-rate-empty">Chưa có bảng phí. Thêm các tỉnh/thành phố GAERU đang giao hàng.</p>';
+  }
 });
 
 document.querySelector(".sidebar-toggle").addEventListener("click", (event) => {
