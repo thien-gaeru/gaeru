@@ -36,7 +36,7 @@ async function applyPromotions(client,variants){
     const vSlug = v.productSlug || slugByVariantId.get(v.id);
     for (const fs of flashRows) {
       const slugs = Array.isArray(fs.product_slugs) ? fs.product_slugs : (typeof fs.product_slugs === 'string' ? JSON.parse(fs.product_slugs || '[]') : []);
-      if (!slugs.length || (vSlug && (slugs.includes(vSlug) || slugs.includes(vSlug.replace(/^gaeru-/, '')) || slugs.includes('gaeru-' + vSlug)))) {
+      if (slugs.length > 0 && vSlug && (slugs.includes(vSlug) || slugs.includes(vSlug.replace(/^gaeru-/, '')) || slugs.includes('gaeru-' + vSlug))) {
         const fsPrice = Math.max(0, Math.floor(v.priceVnd * (100 - fs.discount_percent) / 100));
         if (fsPrice < best) {
           best = fsPrice;

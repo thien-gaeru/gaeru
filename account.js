@@ -1,19 +1,26 @@
 
+let initialSafeReturnUrl = null;
 function getValidReturnUrl() {
   try {
     const params = new URLSearchParams(window.location.search);
     const target = params.get('returnUrl') || params.get('redirect');
-    if (target && target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\')) {
-      return target;
+    if (!target) return null;
+    const origin = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : '';
+    const parsed = new URL(target, origin || 'http://localhost');
+    if (parsed.origin === origin && !target.startsWith('//') && !target.startsWith('/\\') && !target.includes('\\')) {
+      return parsed.pathname + parsed.search + parsed.hash;
     }
   } catch (_) {}
   return null;
 }
+if (typeof window !== 'undefined') {
+  initialSafeReturnUrl = getValidReturnUrl();
+}
 
-function handleLoginRedirect() {
-  const returnUrl = getValidReturnUrl();
+function handleLoginRedirect(overrideUrl) {
+  const returnUrl = overrideUrl || initialSafeReturnUrl || getValidReturnUrl();
   if (returnUrl) {
-    setTimeout(() => { window.location.href = returnUrl; }, 500);
+    setTimeout(() => { window.location.href = returnUrl; }, 400);
     return true;
   }
   return false;

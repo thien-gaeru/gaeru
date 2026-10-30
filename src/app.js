@@ -84,7 +84,12 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/pages", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/marketing/emails",express.json({limit:"64kb"}));
-  app.use(express.json({ limit: "32kb" }));
+  app.use(express.json({
+    limit: "32kb",
+    verify: (req, res, buf) => {
+      req.rawBody = buf ? buf.toString('utf8') : '';
+    }
+  }));
   app.use(createHoneypotShield());
   app.use(session({
     name: "gaeru.sid",
