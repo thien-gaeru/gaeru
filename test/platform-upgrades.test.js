@@ -343,6 +343,7 @@ test('HTTP routes for upgraded platform features mount and respond correctly', a
         NODE_ENV: 'test',
         PUBLIC_BASE_URL: 'https://gaeru.example',
         SESSION_SECRET: 'test-session-secret-32-chars-long-12345',
+        OMNICHANNEL_WEBHOOK_SECRET: 'test-webhook-secret-at-least-32-chars-long',
         ADMIN_USERNAME: 'owner',
         ADMIN_PASSWORD_HASH: bcrypt.hashSync('Owner-test-123', 4)
       }
@@ -374,15 +375,24 @@ test('HTTP routes for upgraded platform features mount and respond correctly', a
       const recoverData = await recoverRes.json();
       assert.equal(recoverData.cart.email, 'cart-test@example.com');
 
-      // 3. Omnichannel webhook
+      // 3. Omnichannel webhook with HMAC signature
+      const webhookPayload = JSON.stringify({
+        eventType: 'inventory_sync',
+        sku: 'UNKNOWN-SKU',
+        quantityDelta: 0
+      });
+      const webhookSecret = 'test-webhook-secret-at-least-32-chars-long';
+      const webhookTs = Math.floor(Date.now() / 1000);
+      const webhookSig = require('crypto').createHmac('sha256', webhookSecret).update(`${webhookTs}.${webhookPayload}`).digest('hex');
+
       const webhookRes = await fetch(`${base}/api/webhooks/omnichannel/tiktok_shop`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventType: 'inventory_sync',
-          sku: 'UNKNOWN-SKU',
-          quantityDelta: 0
-        })
+        headers: {
+          'Content-Type': 'application/json',
+          'x-webhook-timestamp': String(webhookTs),
+          'x-webhook-signature': webhookSig
+        },
+        body: webhookPayload
       });
       assert.equal(webhookRes.status, 200);
 

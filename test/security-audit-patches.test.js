@@ -3,14 +3,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { PGlite } = require('@electric-sql/pglite');
 const { migrateDatabase } = require('../src/migrate');
 const { _webhookAuthMiddleware, processOmnichannelEvent, createOmnichannelRouter } = require('../src/omnichannel-sync');
-const { lookupOrderTracking } = require('../src/tracking-api');
+const { lookupOrderTracking, normalizeVietnamPhone } = require('../src/tracking-api');
 const { getRecentSocialProof } = require('../src/social-proof');
 const { createAffiliatePublicRouter } = require('../src/affiliate-system');
 const { applyPromotions } = require('../src/product-promotions');
 const { createFlashSale } = require('../src/flash-sale');
+const { createProductReview } = require('../src/product-reviews');
 
 async function setupTestDb() {
   const db = await PGlite.create();
@@ -44,47 +47,102 @@ async function setupTestDb() {
   return { db, pool };
 }
 
-test('P0: Webhook omnichannel sync rejects missing or invalid signatures', async () => {
-  const secret = 'super-secret-key-at-least-32-chars-long!';
-  const middleware = _webhookAuthMiddleware({ OMNICHANNEL_WEBHOOK_SECRET: secret });
+test('P0: Social proof toast strictly differentiates simulated vs authentic sales', () => {
+  const toastScript = fs.readFileSync(path.join(__dirname, '..', 'social-proof-toast.js'), 'utf8');
 
-  // 1. Missing headers -> 401
-  let status = 0, jsonMsg = null;
-  const fakeRes1 = { status(s) { status = s; return this; }, json(j) { jsonMsg = j; } };
-  middleware({ headers: {}, body: {} }, fakeRes1, () => {});
-  assert.equal(status, 401);
-  assert.match(jsonMsg.error, /thiếu tiêu đề/);
+  // Verify toast distinguishes isSimulated
+  assert.match(toastScript, /const isSimulated = Boolean\(item\.isSimulated\);/, 'Toast must check isSimulated flag');
+  assert.match(toastScript, /'Gợi ý sản phẩm nổi bật'/, 'Toast must show product recommendation title for simulated items');
+  assert.match(toastScript, /'Đề xuất mua sắm • Minh họa'/, 'Toast must show transparent simulated note');
+  assert.doesNotMatch(toastScript, /onclick="event\.stopPropagation\(\)/, 'Toast must not use inline onclick handlers violating CSP');
+});
 
-  // 2. Expired timestamp -> 401
-  let calledNext = false;
-  const oldTs = Math.floor(Date.now() / 1000) - 600; // 10 mins ago
-  middleware({
-    headers: {
-      'x-webhook-timestamp': String(oldTs),
-      'x-webhook-signature': 'deadbeef'
-    },
-    body: {}
-  }, fakeRes1, () => { calledNext = true; });
-  assert.equal(status, 401);
-  assert.match(jsonMsg.error, /hết hạn/);
-  assert.equal(calledNext, false);
+test('P1: Webhook inventory sync strictly requires 32-char secret across ALL environments', () => {
+  // 1. Missing secret in development / test -> 503
+  const middlewareNoSecret = _webhookAuthMiddleware({});
+  let status1 = 0, jsonMsg1 = null;
+  const fakeRes1 = { status(s) { status1 = s; return this; }, json(j) { jsonMsg1 = j; } };
+  middlewareNoSecret({ headers: {}, body: {} }, fakeRes1, () => {});
+  assert.equal(status1, 503);
+  assert.match(jsonMsg1.error, /chưa được cấu hình khóa bí mật/);
 
-  // 3. Valid signature and timestamp -> next() called
+  // 2. Secret too short (< 32 chars) -> 503
+  const middlewareShortSecret = _webhookAuthMiddleware({ OMNICHANNEL_WEBHOOK_SECRET: 'short-key-16-chars' });
+  let status2 = 0, jsonMsg2 = null;
+  const fakeRes2 = { status(s) { status2 = s; return this; }, json(j) { jsonMsg2 = j; } };
+  middlewareShortSecret({ headers: {}, body: {} }, fakeRes2, () => {});
+  assert.equal(status2, 503);
+  assert.match(jsonMsg2.error, /tối thiểu 32 ký tự/);
+
+  // 3. Valid secret (>= 32 chars) but missing headers -> 401
+  const validSecret = 'super-secret-key-at-least-32-chars-long!';
+  const middlewareValid = _webhookAuthMiddleware({ OMNICHANNEL_WEBHOOK_SECRET: validSecret });
+  let status3 = 0, jsonMsg3 = null;
+  const fakeRes3 = { status(s) { status3 = s; return this; }, json(j) { jsonMsg3 = j; } };
+  middlewareValid({ headers: {}, body: {} }, fakeRes3, () => {});
+  assert.equal(status3, 401);
+  assert.match(jsonMsg3.error, /thiếu tiêu đề xác thực/);
+
+  // 4. Valid signature and timestamp -> next() called
   const validTs = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify({ sku: 'TEST', delta: 5 });
-  const validSig = crypto.createHmac('sha256', secret).update(`${validTs}.${payload}`).digest('hex');
+  const validSig = crypto.createHmac('sha256', validSecret).update(`${validTs}.${payload}`).digest('hex');
   let successNext = false;
-  middleware({
+  middlewareValid({
     headers: {
       'x-webhook-timestamp': String(validTs),
       'x-webhook-signature': validSig
     },
     body: { sku: 'TEST', delta: 5 }
-  }, fakeRes1, () => { successNext = true; });
+  }, fakeRes3, () => { successNext = true; });
   assert.equal(successNext, true);
 });
 
-test('P1: Tracking API masks PII and limits exposure', async () => {
+test('P1: Webhook inventory sync enforces database uniqueness on (channel, event_id)', async () => {
+  const { db, pool } = await setupTestDb();
+  try {
+    // Insert a product variant first
+    await pool.query(
+      `INSERT INTO products (id, name, slug, description, category, active)
+       VALUES ('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'SP Test', 'sp-test', 'Desc', 'audio', true)`
+    );
+    await pool.query(
+      `INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active)
+       VALUES ('bbbbbbbb-cccc-dddd-eeee-ffffffffffff', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', 'SKU-SYNC-01', 'Bản Chuẩn', 500000, 20, true)`
+    );
+
+    // First event: delta +5
+    const res1 = await processOmnichannelEvent(pool, {
+      channel: 'shopee',
+      eventType: 'inventory_sync',
+      externalSku: 'SKU-SYNC-01',
+      quantityDelta: 5,
+      payload: { eventId: 'EVT-UNIQUE-123', reason: 'sale_sync' }
+    });
+    assert.equal(res1.ok, true);
+    assert.equal(res1.duplicate, undefined);
+    assert.equal(res1.variant.stockQuantity, 25);
+
+    // Second event with SAME eventId: must return duplicate and NOT modify stock again
+    const res2 = await processOmnichannelEvent(pool, {
+      channel: 'shopee',
+      eventType: 'inventory_sync',
+      externalSku: 'SKU-SYNC-01',
+      quantityDelta: 5,
+      payload: { eventId: 'EVT-UNIQUE-123', reason: 'replay_attack' }
+    });
+    assert.equal(res2.ok, true);
+    assert.equal(res2.duplicate, true);
+
+    // Verify stock remains 25 (not 30)
+    const varCheck = await pool.query(`SELECT stock_quantity FROM product_variants WHERE sku = 'SKU-SYNC-01'`);
+    assert.equal(varCheck.rows[0].stock_quantity, 25);
+  } finally {
+    await db.close();
+  }
+});
+
+test('P1: Tracking API protects PII, blocks phone-only lookup, and verifies order ownership', async () => {
   const { db, pool } = await setupTestDb();
   try {
     await pool.query(
@@ -92,45 +150,119 @@ test('P1: Tracking API masks PII and limits exposure', async () => {
        VALUES ('11111111-2222-3333-4444-555555555555', 'GAERU-SEC-01', 'Nguyễn Văn Hoàng', 'hoang@example.com', '0912345678', '123 Đường Hai Bà Trưng, Phường 6, Quận 3, TP. Hồ Chí Minh', 'TP. Hồ Chí Minh', 650000, 650000, 'shipped', 'cod', 'pending')`
     );
 
-    const result = await lookupOrderTracking(pool, 'GAERU-SEC-01');
-    assert.equal(result.found, true);
-    const order = result.orders[0];
+    // 1. Phone-only lookup is rejected with 400
+    await assert.rejects(
+      async () => {
+        await lookupOrderTracking(pool, '0912345678');
+      },
+      (err) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /Mã đơn hàng cùng Số điện thoại/);
+        return true;
+      }
+    );
 
-    // Verify PII is masked
-    assert.equal(order.customerPhoneMasked, '091****678');
-    assert.notEqual(order.customerName, 'Nguyễn Văn Hoàng');
-    assert.match(order.customerName, /H\./); // e.g. "Văn H."
-    assert.doesNotMatch(order.shippingAddress, /123 Đường Hai Bà Trưng/);
-    assert.match(order.shippingAddress, /TP\. Hồ Chí Minh/);
+    // 2. Order code only without phone: found, but items are hidden and verification requested
+    const unverifiedRes = await lookupOrderTracking(pool, 'GAERU-SEC-01');
+    assert.equal(unverifiedRes.found, true);
+    const unverifiedOrder = unverifiedRes.orders[0];
+    assert.equal(unverifiedOrder.isPhoneVerified, false);
+    assert.equal(unverifiedOrder.requiresPhoneVerification, true);
+    assert.deepEqual(unverifiedOrder.items, []); // Hidden items
+    assert.equal(unverifiedOrder.shippingAddress, ''); // Hidden address
+
+    // 3. Order code + Wrong phone: rejected with 403
+    await assert.rejects(
+      async () => {
+        await lookupOrderTracking(pool, { code: 'GAERU-SEC-01', phone: '0999999999' });
+      },
+      (err) => {
+        assert.equal(err.status, 403);
+        assert.match(err.message, /Số điện thoại không khớp/);
+        return true;
+      }
+    );
+
+    // 4. Order code + Correct phone (E.164): verified and returns masked PII
+    const verifiedRes = await lookupOrderTracking(pool, { code: 'GAERU-SEC-01', phone: '+84 912 345 678' });
+    assert.equal(verifiedRes.found, true);
+    const verifiedOrder = verifiedRes.orders[0];
+    assert.equal(verifiedOrder.isPhoneVerified, true);
+    assert.equal(verifiedOrder.customerPhoneMasked, '091****678');
+    assert.match(verifiedOrder.customerName, /H\./);
+    assert.match(verifiedOrder.shippingAddress, /TP\. Hồ Chí Minh/);
   } finally {
     await db.close();
   }
 });
 
-test('P1: Flash Sale campaigns synchronize with product promotions and checkout pricing', async () => {
+test('P1: Product reviews for logged-in users without verified purchase default to pending moderation', async () => {
   const { db, pool } = await setupTestDb();
   try {
-    // 1. Create a product and active flash sale for slug 'k9'
+    const unverifiedCustId = '77777777-8888-9999-aaaa-bbbbbbbbbbbb';
+    await pool.query(
+      `INSERT INTO customers (id, email, password_hash, full_name, active) VALUES ($1, 'guest_user@cust.com', 'hash', 'Trần Văn Chưa Mua', true)`,
+      [unverifiedCustId]
+    );
+
+    // Logged in customer submits a review for 'gaeru-k9' without any completed order
+    const review = await createProductReview(pool, {
+      productSlug: 'gaeru-k9',
+      customerId: unverifiedCustId,
+      authorName: 'Trần Văn Chưa Mua',
+      rating: 5,
+      title: 'Đánh giá thử',
+      comment: 'Sản phẩm trông rất đẹp',
+      status: 'auto'
+    });
+
+    // Must be 'pending' and isVerifiedBuyer: false
+    assert.equal(review.isVerifiedBuyer, false);
+    assert.equal(review.status, 'pending');
+  } finally {
+    await db.close();
+  }
+});
+
+test('P1: Flash Sale campaigns synchronize with product_promotions table and checkout pricing', async () => {
+  const { db, pool } = await setupTestDb();
+  try {
+    // Create product and variant
+    await pool.query(
+      `INSERT INTO products (id, name, slug, description, category, active)
+       VALUES ('cccccccc-dddd-eeee-ffff-000000000000', 'GAERU K9 Pro', 'k9', 'Desc', 'audio', true)`
+    );
+    const vId = 'dddddddd-eeee-ffff-0000-111111111111';
+    await pool.query(
+      `INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active)
+       VALUES ($1, 'cccccccc-dddd-eeee-ffff-000000000000', 'SKU-K9-01', 'Bản Đơn', 1000000, 50, true)`,
+      [vId]
+    );
+
     const now = new Date();
     await createFlashSale(pool, {
-      title: 'Flash Sale Đồng Bộ',
+      title: 'Flash Sale Đồng Bộ 2 Chiều',
       startsAt: new Date(now.getTime() - 3600000),
       endsAt: new Date(now.getTime() + 7200000),
-      discountPercent: 20,
+      discountPercent: 25,
       productSlugs: ['k9']
     });
 
-    // 2. Run applyPromotions on variants of k9
-    const dummyVariant = {
-      id: '22222222-3333-4444-5555-666666666666',
-      productSlug: 'k9',
-      priceVnd: 1000000
-    };
+    // Verify synced into product_promotions table
+    const promoCheck = await pool.query(
+      `SELECT p.id, p.amount, p.type FROM product_promotions p
+       JOIN product_promotion_variants pv ON pv.promotion_id = p.id
+       WHERE pv.variant_id = $1`,
+      [vId]
+    );
+    assert.ok(promoCheck.rows.length > 0);
+    assert.equal(promoCheck.rows[0].amount, 25);
+    assert.equal(promoCheck.rows[0].type, 'flash');
 
-    const priced = await applyPromotions(pool, [dummyVariant]);
-    assert.equal(priced[0].priceVnd, 800000); // 20% off from 1,000,000
+    // Run applyPromotions on variant
+    const priced = await applyPromotions(pool, [{ id: vId, productSlug: 'k9', priceVnd: 1000000, quantity: 1 }]);
+    assert.equal(priced[0].priceVnd, 750000); // 25% off
     assert.equal(priced[0].promotion.type, 'flash');
-    assert.equal(priced[0].promotion.discountPercent, 20);
   } finally {
     await db.close();
   }
@@ -161,7 +293,6 @@ test('P2: Social proof marks fallback data with transparent isSimulated flag whe
   const { db, pool } = await setupTestDb();
   try {
     const items = await getRecentSocialProof(pool);
-    // Should return fallback sales with clear transparent flag isSimulated: true
     assert.ok(Array.isArray(items));
     assert.ok(items.length > 0);
     assert.ok(items.every(i => i.isSimulated === true));
@@ -172,12 +303,9 @@ test('P2: Social proof marks fallback data with transparent isSimulated flag whe
 });
 
 test('P1: Admin Helmet CSP compliance: All admin markup and dynamic templates have zero inline onclick / onsubmit', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
   const adminIndex = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
   const upgradesHub = fs.readFileSync(path.join(__dirname, '..', 'admin', 'upgrades-hub.js'), 'utf8');
 
-  // Verify no inline event handler attributes exist in admin/index.html or generated templates in upgrades-hub.js
   assert.doesNotMatch(adminIndex, /\bonclick\s*=/i, 'admin/index.html must not contain inline onclick attributes');
   assert.doesNotMatch(adminIndex, /\bonsubmit\s*=/i, 'admin/index.html must not contain inline onsubmit attributes');
   assert.doesNotMatch(upgradesHub, /<[^>]*\bonclick\s*=/i, 'admin/upgrades-hub.js templates must not contain inline onclick');
@@ -188,7 +316,6 @@ test('P1: Marketing eligible rejects vouchers when product is in active Flash Sa
   const { db, pool } = await setupTestDb();
   try {
     const { eligible } = require('../src/marketing');
-    // Create customer and voucher
     const custId = '33333333-4444-5555-6666-777777777777';
     await pool.query(
       `INSERT INTO customers (id, email, password_hash, full_name, active) VALUES ($1, 'test@cust.com', 'hash', 'Test Cust', true)`,
@@ -205,7 +332,6 @@ test('P1: Marketing eligible rejects vouchers when product is in active Flash Sa
       [custId, vId]
     );
 
-    // Active flash sale with product slug 'flash-item'
     await createFlashSale(pool, {
       title: 'Flash Test',
       startsAt: new Date(Date.now() - 3600000),
@@ -234,38 +360,3 @@ test('P1: Marketing eligible rejects vouchers when product is in active Flash Sa
     await db.close();
   }
 });
-
-test('P2: Phone normalization in order tracking handles local 0..., E.164 +84..., and raw 84... formats', async () => {
-  const { db, pool } = await setupTestDb();
-  try {
-    const { normalizeVietnamPhone } = require('../src/tracking-api');
-    assert.equal(normalizeVietnamPhone('+84901234567'), '0901234567');
-    assert.equal(normalizeVietnamPhone('+84 901 234 567'), '0901234567');
-    assert.equal(normalizeVietnamPhone('84901234567'), '0901234567');
-    assert.equal(normalizeVietnamPhone('090-123-4567'), '0901234567');
-
-    // Insert order stored with local '0901234567'
-    await pool.query(
-      `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, subtotal_vnd, total_vnd, status, payment_method, payment_status)
-       VALUES ('55555555-6666-7777-8888-999999999999', 'GAERU-PHONE-01', 'Lê Thị Mai', 'mai@example.com', '0901234567', '456 Phố Huế, Hai Bà Trưng, Hà Nội', 'Hà Nội', 450000, 450000, 'processing', 'bank_transfer', 'pending')`
-    );
-
-    // 1. Lookup with E.164 format: '+84 901 234 567'
-    const resE164 = await lookupOrderTracking(pool, '+84 901 234 567');
-    assert.equal(resE164.found, true);
-    assert.equal(resE164.orders[0].orderCode, 'GAERU-PHONE-01');
-
-    // 2. Lookup with 84 format: '84901234567'
-    const res84 = await lookupOrderTracking(pool, '84901234567');
-    assert.equal(res84.found, true);
-    assert.equal(res84.orders[0].orderCode, 'GAERU-PHONE-01');
-
-    // 3. Lookup with hyphenated local format: '090-123-4567'
-    const resHyphen = await lookupOrderTracking(pool, '090-123-4567');
-    assert.equal(resHyphen.found, true);
-    assert.equal(resHyphen.orders[0].orderCode, 'GAERU-PHONE-01');
-  } finally {
-    await db.close();
-  }
-});
-

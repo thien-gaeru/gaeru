@@ -1,8 +1,9 @@
-﻿(function() {
+(function() {
   'use strict';
 
   const form = document.getElementById('tracking-form');
   const input = document.getElementById('tracking-query');
+  const phoneInput = document.getElementById('tracking-phone');
   const resultContainer = document.getElementById('tracking-result');
   const trackBtn = document.getElementById('btn-track');
 
@@ -10,10 +11,12 @@
 
   // Auto-search if query param ?q= or ?code= present in URL
   const params = new URLSearchParams(window.location.search);
-  const initialQuery = params.get('q') || params.get('code') || params.get('phone');
-  if (initialQuery) {
-    input.value = initialQuery;
-    void doLookup(initialQuery);
+  const initialCode = params.get('q') || params.get('code');
+  const initialPhone = params.get('phone');
+  if (initialCode) {
+    input.value = initialCode;
+    if (initialPhone && phoneInput) phoneInput.value = initialPhone;
+    void doLookup(initialCode, initialPhone);
   }
 
   // Expose globally
@@ -21,21 +24,22 @@
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    void doLookup(input.value);
+    void doLookup(input.value, phoneInput ? phoneInput.value : '');
   });
 
   if (trackBtn) {
     trackBtn.addEventListener('click', (e) => {
       if (input && input.value) {
         e.preventDefault();
-        void doLookup(input.value);
+        void doLookup(input.value, phoneInput ? phoneInput.value : '');
       }
     });
   }
 
-  async function doLookup(query) {
-    const trimmed = String(query || '').trim();
-    if (!trimmed) return;
+  async function doLookup(codeQuery, phoneQuery) {
+    const code = String(codeQuery || input?.value || '').trim();
+    const phone = String(phoneQuery || phoneInput?.value || '').trim();
+    if (!code && !phone) return;
 
     trackBtn.disabled = true;
     trackBtn.textContent = 'Đang tra cứu…';
@@ -43,7 +47,10 @@
     resultContainer.innerHTML = '<div class="tracking-loading"><p>Đang tìm kiếm thông tin đơn hàng từ hệ thống GAERU & các đối tác vận chuyển…</p></div>';
 
     try {
-      const res = await fetch('/api/tracking/lookup?query=' + encodeURIComponent(trimmed));
+      let url = '/api/tracking/lookup?code=' + encodeURIComponent(code);
+      if (phone) url += '&phone=' + encodeURIComponent(phone);
+
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Không tìm thấy đơn hàng.');
       renderOrders(data.orders);
@@ -52,7 +59,7 @@
         <div class="tracking-card error-card">
           <h3>Không tìm thấy kết quả</h3>
           <p>${escapeHtml(err.message)}</p>
-          <small>Vui lòng kiểm tra lại số điện thoại hoặc mã đơn hàng đã nhập.</small>
+          <small>Vui lòng kiểm tra lại mã đơn hàng hoặc số điện thoại đã nhập.</small>
         </div>
       `;
     } finally {
@@ -116,17 +123,23 @@
             ${timelineHtml}
           </div>
 
-          <div class="tracking-card-footer">
-            <div class="order-info-column">
-              <h4>Địa chỉ nhận hàng:</h4>
-              <p>${escapeHtml(order.customerName)} (${escapeHtml(order.customerPhoneMasked)})</p>
-              <p class="addr-text">${escapeHtml(order.shippingAddress)}</p>
+          ${order.requiresPhoneVerification ? `
+            <div class="tracking-verification-notice" style="background:rgba(217,119,6,0.1);border:1px solid rgba(217,119,6,0.3);border-radius:8px;padding:12px 16px;margin-top:16px;">
+              <p style="margin:0;font-size:13px;color:#f59e0b;">🔒 <strong>Bảo vệ dữ liệu khách hàng:</strong> Nhập số điện thoại đặt hàng vào ô tra cứu để xem chi tiết danh sách sản phẩm và địa chỉ nhận hàng.</p>
             </div>
-            <div class="order-items-column">
-              <h4>Chi tiết sản phẩm:</h4>
-              <ul>${itemsHtml}</ul>
+          ` : `
+            <div class="tracking-card-footer">
+              <div class="order-info-column">
+                <h4>Địa chỉ nhận hàng:</h4>
+                <p>${escapeHtml(order.customerName)} (${escapeHtml(order.customerPhoneMasked)})</p>
+                <p class="addr-text">${escapeHtml(order.shippingAddress)}</p>
+              </div>
+              <div class="order-items-column">
+                <h4>Chi tiết sản phẩm:</h4>
+                <ul>${itemsHtml}</ul>
+              </div>
             </div>
-          </div>
+          `}
         </div>
       `;
     }).join('');

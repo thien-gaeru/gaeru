@@ -102,10 +102,17 @@ test('Public Order Tracking generates 5-step timeline and Shopee Express trackin
       [orderRes.rows[0].id]
     );
 
-    // Lookup by phone
-    const byPhone = await lookupOrderTracking(pool, '0987654321');
+    // Security: Phone-only lookup is blocked for privacy
+    await assert.rejects(
+      async () => { await lookupOrderTracking(pool, '0987654321'); },
+      (err) => { assert.equal(err.status, 400); return true; }
+    );
+
+    // Lookup by order code + verified phone
+    const byPhone = await lookupOrderTracking(pool, { code: 'GAERU-998877', phone: '0987654321' });
     assert.equal(byPhone.found, true);
     assert.equal(byPhone.orders[0].orderCode, 'GAERU-998877');
+    assert.equal(byPhone.orders[0].isPhoneVerified, true);
     assert.equal(byPhone.orders[0].spxTrackingCode, 'SPX123456789VN');
     assert.match(byPhone.orders[0].spxTrackingUrl, /SPX123456789VN/);
 

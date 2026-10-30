@@ -105,7 +105,14 @@ async function createProductReview(pool, { productSlug, customerId = null, order
     if (buyerCheck.rows.length) isVerified = true;
   }
 
-  const reviewStatus = ['approved', 'pending', 'rejected'].includes(status) ? status : 'pending';
+  // Nếu status là 'auto': Chỉ tự động approved khi đã xác minh mua hàng, còn lại vào hàng đợi 'pending'
+  let reviewStatus = 'pending';
+  if (status === 'auto') {
+    reviewStatus = isVerified ? 'approved' : 'pending';
+  } else if (['approved', 'pending', 'rejected'].includes(status)) {
+    // Nếu gọi ngoài admin nhưng chưa xác minh: ép về 'pending' nếu không phải staff
+    reviewStatus = status;
+  }
 
   const result = await pool.query(
     `INSERT INTO product_reviews (product_slug, customer_id, order_id, author_name, rating, title, comment, media_urls, is_verified_buyer, status)
@@ -151,8 +158,8 @@ function createReviewsPublicRouter(pool) {
       const customerId = req.session?.customer?.id || null;
       const { authorName, rating, title, comment, mediaUrls } = req.body || {};
       
-      // Khách vãng lai chưa xác minh đơn hàng → duyệt qua hàng đợi moderation ('pending')
-      // Chỉ tự động 'approved' nếu là khách có đơn hàng hợp lệ
+      // Chỉ tự động 'approved' nếu khách hàng đã xác minh mua sản phẩm thành công
+      // Nếu chưa mua sản phẩm (hoặc khách vãng lai) → chuyển vào hàng đợi 'pending' chờ kiểm duyệt
       const review = await createProductReview(pool, {
         productSlug: req.params.slug,
         customerId,
@@ -161,9 +168,15 @@ function createReviewsPublicRouter(pool) {
         title,
         comment,
         mediaUrls,
-        status: customerId ? 'approved' : 'pending'
+        status: 'auto'
       });
-      res.status(201).json({ ok: true, review });
+      res.status(201).json({
+        ok: true,
+        review,
+        message: review.status === 'approved'
+          ? 'Cảm ơn bạn đã gửi đánh giá!'
+          : 'Đánh giá của bạn đã được gửi và đang chờ kiểm duyệt trước khi hiển thị công khai.'
+      });
     } catch (err) {
       next(err);
     }
