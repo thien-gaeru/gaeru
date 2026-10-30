@@ -23,28 +23,8 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
 
   // 2. If order holds active inventory (not cancelled and not completed), release stock
   if (order.status !== 'cancelled' && order.status !== 'completed') {
-    let inv = inventory;
-    if (!inv) {
-      try { inv = require('./inventory'); } catch (_) {}
-    }
-    if (inv && typeof inv.releaseOrderStock === 'function') {
-      try {
-        await inv.releaseOrderStock(client, { orderId: order.id, actor });
-      } catch (_) {
-        // Fallback direct inventory restoration if inventory release throws
-        await client.query(
-          `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-           FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-          [order.id]
-        );
-      }
-    } else {
-      await client.query(
-        `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-         FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-        [order.id]
-      );
-    }
+    const { InventoryService } = require('./domain/inventory/inventory-service');
+    await InventoryService.restoreOrderStock(client, { orderId: order.id, actor, reason: 'order_deletion' });
   }
 
   // 3. Delete dependent records in strict dependency order:
