@@ -1,4 +1,5 @@
 const { isOnlineGateway, ONLINE_GATEWAYS } = require('./domain/payments/payment-policy');
+const { CatalogService } = require('./domain/catalog/catalog-service');
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -742,16 +743,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     try {
       const parsed = productSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin sản phẩm chưa hợp lệ.", details: parsed.error.issues });
-      const p = parsed.data;
       const product = await withTransaction(pool, async (client) => {
-      const result = await client.query(
-        `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
-         RETURNING id`,
-        [p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.sortOrder]
-      );
-      await audit(client, { actor: req.admin, action: "catalog.product.create", entityType: "product", entityId: result.rows[0].id, after: { ...p, active: false } });
-      return result.rows[0];
+        return await CatalogService.createProduct(client, { data: parsed.data, actor: req.admin });
       });
       res.status(201).json({ id: product.id });
     } catch (error) {
@@ -764,17 +757,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const parsed=z.object({version:z.number().int().positive(),confirmation:z.literal('DELETE_PRODUCT')}).strict().safeParse(req.body);
     if(!parsed.success)return res.status(400).json({error:'Xác nhận sản phẩm cần xóa và tải lại dữ liệu mới nhất.'});
     try{
-      const removed=await withTransaction(pool,async client=>{
-        const product=(await client.query('SELECT id,name,active,edit_version FROM products WHERE id=$1 AND deleted_at IS NULL FOR UPDATE',[req.params.id])).rows[0];
-        if(!product)return false;
-        if(product.edit_version!==parsed.data.version){const error=new Error('Sản phẩm vừa thay đổi. Tải lại trước khi xóa.');error.status=409;throw error;}
-        await client.query('SELECT id FROM product_variants WHERE product_id=$1 ORDER BY id FOR UPDATE',[product.id]);
-        await client.query("UPDATE products SET active=false,deleted_at=now(),deleted_variant_state=(SELECT COALESCE(jsonb_agg(jsonb_build_object('id',id,'active',active)),'[]'::jsonb) FROM product_variants WHERE product_id=$1),updated_at=now() WHERE id=$1",[product.id]);
-        await client.query('UPDATE product_variants SET active=false,updated_at=now() WHERE product_id=$1',[product.id]);
-        await audit(client,{actor:req.admin,action:'catalog.product.delete',entityType:'product',entityId:product.id,before:product,after:{deleted:true},metadata:{historyPreserved:true}});
-        return true;
+      await withTransaction(pool,async client=>{
+        await CatalogService.softDeleteProduct(client, {
+          productId: req.params.id,
+          expectedVersion: parsed.data.version,
+          actor: req.admin
+        });
       });
-      if(!removed)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});
       res.status(204).end();
     }catch(error){if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });

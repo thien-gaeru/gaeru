@@ -16,38 +16,7 @@ const { normalizeZaloPhone, sendZaloZns } = require('../src/zalo-zns');
 const { processCodReconciliation } = require('../src/cod-reconciliation');
 const { searchAutocomplete } = require('../src/instant-search');
 const { savePushSubscription, broadcastPushNotification } = require('../src/web-push');
-
-async function setupTestDb() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise(r => release = r);
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const r = !values && sql.includes(';') ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...r, rows: r?.rows || [], rowCount: r?.affectedRows ?? r?.rows?.length ?? 0 };
-  }
-  const pool = {
-    async query(sql, values) {
-      const release = await lock();
-      try {
-        return await query(sql, values);
-      } finally {
-        release();
-      }
-    },
-    async connect() {
-      const release = await lock();
-      return { query, release };
-    }
-  };
-  await migrateDatabase(pool);
-  return { db, pool };
-}
+const { createTestDb: setupTestDb } = require('./helpers/pglite-db');
 
 test('Product Reviews calculates 5-star ratings, aggregate statistics and Schema.org JSON-LD', async () => {
   const { db, pool } = await setupTestDb();

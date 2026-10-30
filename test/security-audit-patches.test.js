@@ -5,8 +5,6 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { PGlite } = require('@electric-sql/pglite');
-const { migrateDatabase } = require('../src/migrate');
 const { _webhookAuthMiddleware, processOmnichannelEvent, createOmnichannelRouter } = require('../src/omnichannel-sync');
 const { lookupOrderTracking, normalizeVietnamPhone } = require('../src/tracking-api');
 const { getRecentSocialProof } = require('../src/social-proof');
@@ -14,38 +12,7 @@ const { createAffiliatePublicRouter } = require('../src/affiliate-system');
 const { applyPromotions } = require('../src/product-promotions');
 const { createFlashSale } = require('../src/flash-sale');
 const { createProductReview } = require('../src/product-reviews');
-
-async function setupTestDb() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise(r => release = r);
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const r = !values && sql.includes(';') ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...r, rows: r?.rows || [], rowCount: r?.affectedRows ?? r?.rows?.length ?? 0 };
-  }
-  const pool = {
-    async query(sql, values) {
-      const release = await lock();
-      try {
-        return await query(sql, values);
-      } finally {
-        release();
-      }
-    },
-    async connect() {
-      const release = await lock();
-      return { query, release };
-    }
-  };
-  await migrateDatabase(pool);
-  return { db, pool };
-}
+const { createTestDb: setupTestDb } = require('./helpers/pglite-db');
 
 test('P0: Social proof toast strictly differentiates simulated vs authentic sales', () => {
   const toastScript = fs.readFileSync(path.join(__dirname, '..', 'social-proof-toast.js'), 'utf8');

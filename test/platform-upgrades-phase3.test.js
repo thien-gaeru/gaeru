@@ -9,38 +9,7 @@ const { getRfmCustomerSegmentation, scoreRecency, scoreFrequency, scoreMonetary,
 const { maskCustomerName, formatRelativeTime, getRecentSocialProof } = require('../src/social-proof');
 const { canServeAvif } = require('../src/lib/avif-optimizer');
 const { logOrderActivity, getOrderActivities } = require('../src/order-activity');
-
-async function setupTestDb() {
-  const db = await PGlite.create();
-  let queue = Promise.resolve();
-  async function lock() {
-    const previous = queue;
-    let release;
-    queue = new Promise(r => (release = r));
-    await previous;
-    return release;
-  }
-  async function query(sql, values) {
-    const r = !values && sql.includes(';') ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
-    return { ...r, rows: r?.rows || [], rowCount: r?.affectedRows ?? r?.rows?.length ?? 0 };
-  }
-  const pool = {
-    async query(sql, values) {
-      const release = await lock();
-      try {
-        return await query(sql, values);
-      } finally {
-        release();
-      }
-    },
-    async connect() {
-      const release = await lock();
-      return { query, release };
-    }
-  };
-  await migrateDatabase(pool);
-  return { db, pool };
-}
+const { createTestDb: setupTestDb } = require('./helpers/pglite-db');
 
 test('5. Server-Side CAPI: hashes PII fields and formats events for Meta & TikTok', async () => {
   const { pool } = await setupTestDb();

@@ -100,7 +100,6 @@ async function createFlashSale(pool, { title, startsAt, endsAt, discountPercent 
 }
 
 const { requireAdminAction } = require('./admin-action');
-function guardPermission(permission) { return requireAdminAction(permission); }
 
 function createFlashSalePublicRouter(pool) {
   const router = express.Router();
@@ -125,7 +124,7 @@ function createFlashSaleAdminRouter(pool) {
       next(err);
     }
   });
-  router.post('/flash-sales', guardPermission('marketing.write'), express.json(), async (req, res, next) => {
+  router.post('/flash-sales', requireAdminAction('marketing.write'), express.json(), async (req, res, next) => {
     try {
       const sale = await createFlashSale(pool, req.body || {});
       res.status(201).json({ ok: true, sale });
