@@ -11,6 +11,7 @@
     if (!root.escapeAttr) root.escapeAttr = shared.escapeAttr;
     if (!root.formatMoney) root.formatMoney = shared.formatMoney;
     if (!root.normalizePhone) root.normalizePhone = shared.normalizePhone;
+    if (!root.fallbackEscapeHtml) root.fallbackEscapeHtml = shared.fallbackEscapeHtml;
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
