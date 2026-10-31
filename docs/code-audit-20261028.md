@@ -85,7 +85,7 @@ Xác thực API không tuyên bố callback Key 2 của ZaloPay đã được th
 | Runtime error handling logging | Thử HTTP, lỗi JSON/DB, upload ngắt, startup/listener lỗi, shutdown sớm và làm sạch log. Test local không chứng minh máy chủ production không có lỗi hoặc hết tài nguyên dưới tải. |
 | Performance | Test có compression, cache public/versioned assets, no-store dữ liệu riêng và bộ nhớ upload. Đọc toàn buffer khi phục vụ media/range vẫn là cơ hội tối ưu; chưa có số đo tải production hay LCP/CLS/INP trên điện thoại thật. |
 | Dead code | Kiểm tra liên kết/import, phạm vi script storefront, các module dùng chung và handler mới; chưa có bằng chứng đủ để xóa nhánh mã an toàn. Không xóa code chỉ vì tìm kiếm tĩnh không thấy nơi gọi. |
-| Environment và deployment | `.node-version`, `.nvmrc`, README, CI và Render cùng ghim 24.22.1. Production bắt buộc TLS trong `poolOptions`, kể cả Render khai báo `PGSSL=disable`; cần xác minh CA/kết nối thật theo nhà cung cấp. Các workflow Pages chỉ chạy thủ công; `static.yml` còn đóng gói toàn repo và không thể thay runtime API Node. Không chạy/deploy các workflow này. |
+| Environment và deployment | `.node-version`, `.nvmrc`, README, CI và Render cùng ghim 24.22.2. Production bắt buộc TLS trong `poolOptions`, kể cả Render khai báo `PGSSL=disable`; cần xác minh CA/kết nối thật theo nhà cung cấp. Các workflow Pages chỉ chạy thủ công; `static.yml` còn đóng gói toàn repo và không thể thay runtime API Node. Không chạy/deploy các workflow này. |
 
 ## Đối chiếu lần kiểm tra trước
 
