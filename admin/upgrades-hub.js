@@ -5,7 +5,6 @@
     // Phase 1 (10 upgrades)
     { id: 'sse', phase: 1, name: 'Server-Sent Events (SSE) Realtime', desc: 'Thay thế Polling 3s, cập nhật đơn hàng & chat trực tiếp hai chiều.', endpoint: '/api/realtime/stream', status: 'live' },
     { id: 'queue', phase: 1, name: 'Hàng Đợi Tác Vụ Nền Bền Bỉ (Durable Queue)', desc: 'Xử lý gửi email, đồng bộ sàn, phân tích dữ liệu bất đồng bộ không nghẽn server.', endpoint: 'system_jobs', status: 'live' },
-    { id: 'cache', phase: 1, name: 'Bộ Nhớ Đệm Phân Tán (In-Memory LRU Cache)', desc: 'Tăng tốc tải danh mục sản phẩm, cấu hình cửa hàng lên gấp 5 lần.', endpoint: 'cache-manager', status: 'live' },
     { id: 'abandoned-cart', phase: 1, name: 'Thu Hồi Giỏ Hàng Bỏ Quên', desc: 'Tự động nhắc nhở khách để quên hàng qua email sau 1h & 24h kèm voucher.', endpoint: '/api/gaeru_ceo/abandoned-carts', status: 'live' },
     { id: 'loyalty', phase: 1, name: 'Khách Hàng Thân Thiết (Loyalty VIP 4 Hạng)', desc: 'Đồng, Bạc, Vàng, Kim Cương — Tích điểm và tự động chiết khấu theo hạng.', endpoint: '/api/gaeru_ceo/loyalty/tiers', status: 'live' },
     { id: 'ai-rag', phase: 1, name: 'Cơ Sở Tri Thức Ngữ Nghĩa AI (Semantic RAG)', desc: 'Trợ lý AI trả lời thông số kỹ thuật chuẩn xác theo cẩm nang sản phẩm.', endpoint: '/api/gaeru_ceo/chat-knowledge', status: 'live' },

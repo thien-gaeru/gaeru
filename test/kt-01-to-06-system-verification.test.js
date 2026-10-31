@@ -21,7 +21,6 @@ const { verifyVnpayQuery, buildVnpayPaymentUrl } = require('../src/vnpay');
 
 // Advanced Upgrades 30 Modules (Phase 1, 2, 3)
 const { createRealtimeHub } = require('../src/realtime-sse');
-const { createCacheManager } = require('../src/lib/cache-manager');
 const { recordCartContact, getCartByToken } = require('../src/abandoned-cart');
 const { calculateTier, TIERS } = require('../src/loyalty-api');
 const { seedInitialKnowledge, searchKnowledge } = require('../src/chat-semantic-knowledge');
@@ -774,12 +773,6 @@ test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
   assert.ok(jobQueue);
   auditReport.push({ id: 'queue', name: 'Hàng Đợi Tác Vụ Nền Bền Bỉ (Durable Queue)', mode: 'CHẠY THẬT (Live Engine - PostgreSQL)' });
 
-  // 3. In-Memory LRU Cache
-  const cache = createCacheManager({ maxItems: 100, defaultTtlMs: 60000 });
-  cache.set('test_key', { data: 123 });
-  assert.equal(cache.get('test_key')?.data, 123);
-  auditReport.push({ id: 'cache', name: 'Bộ Nhớ Đệm Phân Tán (In-Memory LRU Cache)', mode: 'CHẠY THẬT (Live Engine)' });
-
   // 4. Abandoned Cart Recovery
   const cartToken = crypto.randomUUID();
   await pool.query(`
@@ -1011,9 +1004,9 @@ test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
   assert.match(appJs, /contentSecurityPolicy/);
   auditReport.push({ id: 'security-csp', name: 'Bảo Vệ CSP & Chống Can Thiệp Mã Trái Phép', mode: 'CHẠY THẬT (Live Engine - Helmet CSP & RateLimit)' });
 
-  // Khẳng định đủ 30 chức năng nâng cao
-  assert.equal(auditReport.length, 30, 'Toàn bộ 30 chức năng nâng cao phải được kiểm thử đầy đủ');
-  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 30/30 CHỨC NĂNG NÂNG CAO:');
+  // Khẳng định đủ 29 chức năng nâng cao
+  assert.equal(auditReport.length, 29, 'Toàn bộ 29 chức năng nâng cao phải được kiểm thử đầy đủ');
+  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 29/29 CHỨC NĂNG NÂNG CAO:');
   for (const item of auditReport) {
     console.log(`   - [${item.id}] ${item.name} -> ${item.mode}`);
   }

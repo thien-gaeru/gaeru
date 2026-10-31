@@ -9,7 +9,6 @@ const { createApp } = require('../src/app');
 const { migrateDatabase } = require('../src/migrate');
 const { createRealtimeHub } = require('../src/realtime-sse');
 const { createJobQueue, enqueueJob } = require('../src/job-queue');
-const { createCacheManager } = require('../src/lib/cache-manager');
 const { recordCartContact, markCartRecovered, getCartByToken, processAbandonedCartReminders } = require('../src/abandoned-cart');
 const { calculateTier, getLoyaltyProfile, addLoyaltyPoints, redeemLoyaltyPoints, TIERS } = require('../src/loyalty-api');
 const { seedInitialKnowledge, searchKnowledge } = require('../src/chat-semantic-knowledge');
@@ -103,36 +102,6 @@ test('Durable Job Queue enqueues, processes, retries, and records dead-letter fa
   } finally {
     await db.close();
   }
-});
-
-test('Cache Manager supports TTL, LRU eviction, pattern deletion, and cache-aside wrap', async () => {
-  const cache = createCacheManager({ maxEntries: 3, defaultTtlSeconds: 60 });
-  cache.set('a', 1);
-  cache.set('b', 2);
-  cache.set('c', 3);
-  assert.equal(cache.get('a'), 1);
-
-  // Exceed max entries -> evict oldest (b)
-  cache.set('d', 4);
-  assert.equal(cache.get('b'), null);
-  assert.equal(cache.get('d'), 4);
-
-  // Pattern delete
-  cache.set('catalog:k9', { name: 'K9' });
-  cache.set('catalog:p01', { name: 'P01' });
-  cache.set('user:1', { name: 'Alice' });
-  const deleted = cache.delPattern('catalog:*');
-  assert.equal(deleted, 2);
-  assert.equal(cache.get('catalog:k9'), null);
-  assert.equal(cache.get('user:1').name, 'Alice');
-
-  // Cache-aside wrap
-  let computeCalls = 0;
-  const val1 = await cache.wrap('stats', 60, async () => { computeCalls++; return 42; });
-  const val2 = await cache.wrap('stats', 60, async () => { computeCalls++; return 42; });
-  assert.equal(val1, 42);
-  assert.equal(val2, 42);
-  assert.equal(computeCalls, 1);
 });
 
 test('Abandoned Cart Records Contact, Recovers by Token, and Sends Automated Reminders', async () => {
