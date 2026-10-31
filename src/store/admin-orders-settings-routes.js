@@ -169,6 +169,16 @@ function attachAdminOrderAndSettingsRoutes(router, pool, {
          shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
       [current.id, (autoApproveToProcessing ? 'processing' : update.status) || null, update.paymentStatus || null, shippingFee, total]
     );
+
+    const isCompletedNow = updated.rows[0]?.status === 'completed' && current.status !== 'completed';
+    if (isCompletedNow) {
+      try {
+        const { processOrderCompletionLoyalty } = require('../loyalty-api');
+        await processOrderCompletionLoyalty(client, current.id);
+      } catch (loyaltyErr) {
+        console.error('[Loyalty] Lỗi tích điểm khi hoàn tất đơn hàng ' + current.id + ':', loyaltyErr.message);
+      }
+    }
     await audit(client, {
       actor,
       action: 'order.update',
