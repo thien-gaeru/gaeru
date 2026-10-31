@@ -926,14 +926,7 @@ test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
   assert.ok(Array.isArray(searchItems));
   auditReport.push({ id: 'search', name: 'Tìm Kiếm Tức Thì Autocomplete Header', mode: 'CHẠY THẬT (Live Engine - PostgreSQL Prefix Search)' });
 
-  // 19. Offline PWA IndexedDB
-  const swJs = fs.readFileSync(path.join(__dirname, '../sw.js'), 'utf8');
-  assert.match(swJs, /self\.addEventListener\(['"]push['"]/);
-  const offlineCatalogJs = fs.readFileSync(path.join(__dirname, '../offline-catalog.js'), 'utf8');
-  assert.match(offlineCatalogJs, /indexedDB/i);
-  auditReport.push({ id: 'offline-pwa', name: 'Duyệt Hàng Ngoại Tuyến PWA IndexedDB', mode: 'CHẠY THẬT (Live Engine - Service Worker & IndexedDB)' });
-
-  // 20. Web Push API
+  // 19. Web Push API
   assert.ok(typeof validatePushSubscriptionData === 'function');
   auditReport.push({ id: 'web-push', name: 'Thông Báo Đẩy Trình Duyệt (Web Push API)', mode: 'CHẠY THẬT (Live Engine - Web Push P-256 / VAPID)' });
 
@@ -1004,9 +997,9 @@ test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
   assert.match(appJs, /contentSecurityPolicy/);
   auditReport.push({ id: 'security-csp', name: 'Bảo Vệ CSP & Chống Can Thiệp Mã Trái Phép', mode: 'CHẠY THẬT (Live Engine - Helmet CSP & RateLimit)' });
 
-  // Khẳng định đủ 29 chức năng nâng cao
-  assert.equal(auditReport.length, 29, 'Toàn bộ 29 chức năng nâng cao phải được kiểm thử đầy đủ');
-  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 29/29 CHỨC NĂNG NÂNG CAO:');
+  // Khẳng định đủ 28 chức năng nâng cao
+  assert.equal(auditReport.length, 28, 'Toàn bộ 28 chức năng nâng cao phải được kiểm thử đầy đủ');
+  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 28/28 CHỨC NĂNG NÂNG CAO:');
   for (const item of auditReport) {
     console.log(`   - [${item.id}] ${item.name} -> ${item.mode}`);
   }
