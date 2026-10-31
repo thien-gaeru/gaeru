@@ -6,17 +6,53 @@ const voucherSchema=z.object({code:z.string().trim().toUpperCase().regex(/^[A-Z0
 const campaignSchema=z.object({title:z.string().trim().min(3).max(160),body:z.string().trim().min(5).max(3000),voucherId:uuid.nullable(),bannerId:uuid.nullable().default(null),startsAt:stamp,endsAt:stamp,active:z.boolean()}).strict().refine(v=>new Date(v.endsAt)>new Date(v.startsAt));
 const fail=(m,status=400)=>Object.assign(Error(m),{status});
 const MAX_DISCOUNT_PERCENT = 40;
+
 /**
- * Tính mức giảm giá của voucher trên tạm tính đơn hàng
- * Có trần bảo vệ biên lợi nhuận (margin protection ceiling): mặc định tối đa 40% giá trị đơn hàng,
- * có thể cấu hình rõ ràng qua options.maxDiscountPercent.
+ * Chuẩn hóa và ràng buộc tỷ lệ giảm giá trần (maxDiscountPercent) trong đoạn [0, 100].
+ * - Nếu không truyền (undefined/null): fallback về MAX_DISCOUNT_PERCENT (40%).
+ * - Nếu không phải số hữu hạn hợp lệ (NaN, Infinity, -Infinity, non-numeric): fallback về MAX_DISCOUNT_PERCENT
+ *   để ngăn chặn code nội bộ truyền nhầm cấu hình gây hư hại báo giá hoặc mở trần vượt quyền kiểm soát.
+ * - Nếu số âm: chặn dưới tại 0 (0% giảm giá).
+ * - Nếu vượt quá 100: chặn trên tại 100 (tối đa 100% giá trị tạm tính).
  */
-function discount(v,subtotal,options={}){
-  const maxPercent = options?.maxDiscountPercent !== undefined ? Number(options.maxDiscountPercent) : MAX_DISCOUNT_PERCENT;
-  const rawDiscount = v.kind==='percent'?Math.floor(subtotal*v.amount/100):v.amount;
-  const maxCap = Math.max(1, Math.floor(subtotal * (maxPercent / 100)));
-  const capped = Math.min(rawDiscount, maxCap, v.max_discount_vnd ?? 2000000000);
-  return Math.min(subtotal, Math.max(0, capped));
+function sanitizeMaxDiscountPercent(val, fallback = MAX_DISCOUNT_PERCENT) {
+  if (val === undefined || val === null || val === '') return fallback;
+  const num = typeof val === 'number' ? val : Number(val);
+  if (Number.isNaN(num) || !Number.isFinite(num)) return fallback;
+  if (num < 0) return 0;
+  if (num > 100) return 100;
+  return num;
+}
+
+/**
+ * Tính mức giảm giá của voucher trên tạm tính đơn hàng.
+ * - Có trần bảo vệ biên lợi nhuận (margin protection ceiling): mặc định tối đa 40% giá trị đơn hàng,
+ *   có thể cấu hình rõ ràng qua options.maxDiscountPercent trong đoạn [0, 100].
+ * - Kết quả đảm bảo là số nguyên không âm, không vượt quá tạm tính (0 <= discountVnd <= subtotal).
+ */
+function discount(v, subtotal, options = {}) {
+  const sub = Math.max(0, Math.floor(Number(subtotal) || 0));
+  if (sub <= 0 || !v) return 0;
+
+  const maxPercent = sanitizeMaxDiscountPercent(options?.maxDiscountPercent, MAX_DISCOUNT_PERCENT);
+  const vAmount = Number(v.amount) || 0;
+
+  let rawDiscount = 0;
+  if (v.kind === 'percent') {
+    const validAmount = Math.max(0, Math.min(100, vAmount));
+    rawDiscount = Math.floor(sub * (validAmount / 100));
+  } else {
+    rawDiscount = Math.max(0, Math.floor(vAmount));
+  }
+
+  const maxCap = Math.floor(sub * (maxPercent / 100));
+  const rawMaxVnd = v.max_discount_vnd !== undefined && v.max_discount_vnd !== null
+    ? Number(v.max_discount_vnd)
+    : 2000000000;
+  const maxDiscountVnd = Number.isFinite(rawMaxVnd) ? Math.max(0, Math.floor(rawMaxVnd)) : 2000000000;
+
+  const capped = Math.min(rawDiscount, maxCap, maxDiscountVnd);
+  return Math.min(sub, Math.max(0, Math.floor(capped)));
 }
 async function eligible(client,code,customerId,subtotal,lock=false,options={}){
     if(options && options.productSlugs && options.productSlugs.length){
@@ -37,7 +73,7 @@ async function eligible(client,code,customerId,subtotal,lock=false,options={}){
     if(options.productSlugs.some(slug => flashSet.has(slug) || flashSet.has(slug.replace(/^gaeru-/, '')))){
       throw fail('Đơn hàng chứa sản phẩm Flash Sale giờ vàng không áp dụng đồng thời mã voucher.', 409);
     }
-  }if(!customerId)throw fail('Đăng nhập để sử dụng voucher.',401);const active=(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true',[customerId])).rows[0];if(!active)throw fail('Tài khoản không còn hoạt động.',401);const voucher=(await client.query('SELECT * FROM marketing_vouchers WHERE code=$1'+(lock?' FOR UPDATE':''),[String(code).trim().toUpperCase()])).rows[0];if(!voucher||!voucher.active||new Date(voucher.starts_at)>new Date()||new Date(voucher.ends_at)<=new Date())throw fail('Voucher không tồn tại, chưa bắt đầu hoặc đã hết hạn.',409);if(!(await client.query('SELECT 1 FROM customer_vouchers WHERE customer_id=$1 AND voucher_id=$2',[customerId,voucher.id])).rows.length)throw fail('Lưu hoặc nhận voucher vào tài khoản trước khi sử dụng.',409);if(subtotal<voucher.min_spend_vnd)throw fail('Giá trị sản phẩm chưa đạt mức tối thiểu của voucher.',409);const usage=(await client.query('SELECT count(*)::int AS total,count(*) FILTER(WHERE customer_id=$2)::int AS personal FROM voucher_redemptions WHERE voucher_id=$1 AND released=false',[voucher.id,customerId])).rows[0];if(usage.total>=voucher.total_limit||usage.personal>=voucher.per_customer_limit)throw fail('Voucher đã hết lượt hoặc bạn đã dùng đủ số lần.',409);const value=discount(voucher,subtotal);if(value<1)throw fail('Đơn hàng chưa đủ điều kiện giảm giá.',409);return {voucher,discountVnd:value};}
+  }if(!customerId)throw fail('Đăng nhập để sử dụng voucher.',401);const active=(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true',[customerId])).rows[0];if(!active)throw fail('Tài khoản không còn hoạt động.',401);const voucher=(await client.query('SELECT * FROM marketing_vouchers WHERE code=$1'+(lock?' FOR UPDATE':''),[String(code).trim().toUpperCase()])).rows[0];if(!voucher||!voucher.active||new Date(voucher.starts_at)>new Date()||new Date(voucher.ends_at)<=new Date())throw fail('Voucher không tồn tại, chưa bắt đầu hoặc đã hết hạn.',409);if(!(await client.query('SELECT 1 FROM customer_vouchers WHERE customer_id=$1 AND voucher_id=$2',[customerId,voucher.id])).rows.length)throw fail('Lưu hoặc nhận voucher vào tài khoản trước khi sử dụng.',409);if(subtotal<voucher.min_spend_vnd)throw fail('Giá trị sản phẩm chưa đạt mức tối thiểu của voucher.',409);const usage=(await client.query('SELECT count(*)::int AS total,count(*) FILTER(WHERE customer_id=$2)::int AS personal FROM voucher_redemptions WHERE voucher_id=$1 AND released=false',[voucher.id,customerId])).rows[0];if(usage.total>=voucher.total_limit||usage.personal>=voucher.per_customer_limit)throw fail('Voucher đã hết lượt hoặc bạn đã dùng đủ số lần.',409);const value=discount(voucher,subtotal,options);if(value<1)throw fail('Đơn hàng chưa đủ điều kiện giảm giá.',409);return {voucher,discountVnd:value};}
 async function redeem(client,selection,customerId,orderId){await client.query('INSERT INTO voucher_redemptions(order_id,voucher_id,customer_id,discount_vnd) VALUES($1,$2,$3,$4)',[orderId,selection.voucher.id,customerId,selection.discountVnd]);await client.query('UPDATE orders SET discount_vnd=$2,voucher_code=$3 WHERE id=$1',[orderId,selection.discountVnd,selection.voucher.code]);}
 const wrap=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){if(e instanceof z.ZodError)return res.status(400).json({error:'Kiểm tra lại thông tin, thời gian và giới hạn chương trình.'});if(e.code==='23503')return res.status(400).json({error:'Voucher hoặc tài khoản liên kết không tồn tại.'});if(e.code==='23505')return res.status(409).json({error:'Mã voucher đã tồn tại.'});next(e);}};
 const page=q=>{const p=Number(q.page||1);if(!Number.isInteger(p)||p<1||p>10000)throw fail('Trang không hợp lệ.');return p;};
@@ -55,4 +91,4 @@ customer.post('/claim',requireCsrf,wrap(async(req,res)=>{const code=z.string().t
 customer.post('/campaigns/:id/read',requireCsrf,wrap(async(req,res)=>{const id=uuid.parse(req.params.id),version=z.number().int().positive().parse(req.body.version);const changed=await pool.query('INSERT INTO customer_campaign_reads(customer_id,campaign_id,read_version) SELECT $1,id,version FROM marketing_campaigns WHERE id=$2 AND version=$3 AND active=true AND now() BETWEEN starts_at AND ends_at ON CONFLICT(customer_id,campaign_id) DO UPDATE SET read_version=EXCLUDED.read_version',[req.customerId,id,version]);if(!changed.rowCount)throw fail('Chương trình đã thay đổi. Tải lại để xem nội dung mới.',409);res.json({message:'Đã đọc chương trình.'});}));
 customer.post('/quote',rateLimit({windowMs:900000,limit:60,standardHeaders:'draft-8',legacyHeaders:false}),requireCsrf,wrap(async(req,res)=>{const d=z.object({code:z.string().trim().min(3).max(40),city:z.string().trim().min(2).max(120).optional(),items:z.array(z.object({variantId:uuid,quantity:z.number().int().min(1).max(99)})).min(1).max(30)}).parse(req.body);const ids=new Set(),pricedItems=[];for(const item of d.items){if(ids.has(item.variantId))throw fail('Sản phẩm bị trùng.');ids.add(item.variantId);const v=(await pool.query('SELECT v.id,v.sku,v.price_vnd AS "priceVnd",p.slug AS "productSlug" FROM product_variants v JOIN products p ON p.id=v.product_id WHERE v.id=$1 AND v.active=true AND p.active=true',[item.variantId])).rows[0];if(!v)throw fail('Sản phẩm không còn được bán.',409);pricedItems.push({...v,quantity:item.quantity});}const quote=await require('./domain/pricing/pricing-engine').PricingEngine.quoteOrder(pool,{items:pricedItems,voucherCode:d.code,customerId:req.customerId,mode:'quote',lockVoucher:false,city:d.city,loadShippingFromDb:Boolean(d.city)});res.json({code:quote.voucher?.voucher?.code||quote.voucher?.code||d.code.toUpperCase(),subtotalVnd:quote.subtotalVnd,discountVnd:quote.discountVnd,shippingFeeVnd:quote.shippingFeeVnd,totalVnd:quote.totalVnd,quoteHash:quote.quoteHash,pricingVersion:quote.pricingVersion,message:'Giảm trên tiền sản phẩm; điều kiện và lượt dùng được kiểm tra lại khi đặt hàng.'});}));
 return {admin,customer};}
-module.exports={createMarketing,eligible,redeem,discount,voucherSchema,campaignSchema,MAX_DISCOUNT_PERCENT};
+module.exports={createMarketing,eligible,redeem,discount,sanitizeMaxDiscountPercent,voucherSchema,campaignSchema,MAX_DISCOUNT_PERCENT};
