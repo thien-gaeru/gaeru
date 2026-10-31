@@ -206,7 +206,7 @@ class WorkerManager {
             clearInterval(this.leaderRetryTimer);
             this.leaderRetryTimer = null;
           }
-          this._startLeaderWorkloads();
+          void this._startLeaderWorkloads();
         }
       } catch (err) {
         this.lastLeaderError = err;
@@ -378,7 +378,7 @@ class WorkerManager {
     });
   }
 
-  _startLeaderWorkloads() {
+  async _startLeaderWorkloads() {
     if (this._workloadsStarted || !this.isLeader || !this._runtimeContext) return;
     const { pool, config, requireFn, startJobQueue, jobQueueOptions } = this._runtimeContext;
     this._workloadsStarted = true;
@@ -393,6 +393,27 @@ class WorkerManager {
         });
         this.registerDefaultHandlers(pool, config, { requireFn });
         this.jobQueue.start();
+
+        // P2-04: Luồng chủ đạo Leader + JobQueue/Cron cho chức năng quét đơn hết hạn:
+        // Đảm bảo chỉ một job đang quét, có quan sát (system_jobs) và cơ chế retry có kiểm soát.
+        const cronIntervalMs = Math.max(
+          10000,
+          Number(config?.ORDER_EXPIRY_CRON_INTERVAL_MS || config?.ORDER_EXPIRY_INTERVAL_MS || jobQueueOptions?.orderExpiryIntervalMs || 5 * 60 * 1000)
+        );
+
+        const isImmediate = Boolean(jobQueueOptions?.immediateOrderExpiry || config?.ORDER_EXPIRY_IMMEDIATE);
+        await this.enqueueOrderExpirationJob(pool, config, { immediate: isImmediate, runAt: isImmediate ? null : new Date(Date.now() + cronIntervalMs) });
+
+        const cronTimer = setInterval(() => {
+          if (this.isLeader && !this._stopped) {
+            void this.enqueueOrderExpirationJob(pool, config, { immediate: false });
+          }
+        }, cronIntervalMs);
+        if (cronTimer.unref) cronTimer.unref();
+
+        this.workers.set('orderExpirationScheduler', () => {
+          clearInterval(cronTimer);
+        });
       } catch {
         // job-queue fallback
       }
@@ -429,17 +450,95 @@ class WorkerManager {
         ? mod.startPaymentReconciliationWorker(pool, config)
         : undefined;
     });
-    safeStart('orderExpiration', () => {
-      let mod = null;
-      try {
-        mod = requireFn('./domain/orders/order-expiration-service');
-      } catch {
-        return undefined;
+
+    // P2-04: Loại bỏ việc chạy song song startOrderExpirationWorker khi JobQueue đã được kích hoạt.
+    // Chỉ fallback sang startOrderExpirationWorker nếu JobQueue không được bật.
+    if (!this.jobQueue) {
+      safeStart('orderExpiration', () => {
+        let mod = null;
+        try {
+          mod = requireFn('./domain/orders/order-expiration-service');
+        } catch {
+          return undefined;
+        }
+        return typeof mod?.startOrderExpirationWorker === 'function'
+          ? mod.startOrderExpirationWorker(pool, config)
+          : undefined;
+      });
+    }
+  }
+
+  /**
+   * P2-04: Enqueue tác vụ định kỳ orders.cancel_expired vào JobQueue
+   * Đảm bảo chỉ một job đang quét (pending hoặc processing), có quan sát và retry.
+   */
+  async enqueueOrderExpirationJob(pool = null, config = null, {
+    immediate = false,
+    olderThanHours = null,
+    runAt = null
+  } = {}) {
+    const targetPool = pool || this._runtimeContext?.pool;
+    const targetConfig = config || this._runtimeContext?.config || {};
+    if (!targetPool || typeof targetPool.query !== 'function') return null;
+
+    try {
+      // 1. Đảm bảo chỉ một job đang quét: Kiểm tra xem đã có job nào đang pending hoặc processing chưa
+      const activeCheck = await targetPool.query(
+        `SELECT id, status, run_at FROM system_jobs
+         WHERE name = 'orders.cancel_expired'
+           AND status IN ('pending', 'processing')
+         ORDER BY run_at ASC, id ASC
+         LIMIT 1`
+      ).catch(() => ({ rows: [] }));
+
+      if (activeCheck?.rows?.length > 0) {
+        const activeJob = activeCheck.rows[0];
+        if (immediate && activeJob.status === 'pending' && new Date(activeJob.run_at) > new Date()) {
+          await targetPool.query(
+            `UPDATE system_jobs SET run_at = now(), updated_at = now() WHERE id = $1`,
+            [activeJob.id]
+          ).catch(() => {});
+          return { queued: false, updated: true, activeJobId: activeJob.id, status: 'pending' };
+        }
+        return {
+          queued: false,
+          reason: 'already_active',
+          activeJobId: activeJob.id,
+          status: activeJob.status
+        };
       }
-      return typeof mod?.startOrderExpirationWorker === 'function'
-        ? mod.startOrderExpirationWorker(pool, config)
-        : undefined;
-    });
+
+      // 2. Tính toán thời điểm thực thi run_at
+      const cronIntervalMs = Math.max(
+        10000,
+        Number(targetConfig?.ORDER_EXPIRY_CRON_INTERVAL_MS || targetConfig?.ORDER_EXPIRY_INTERVAL_MS || 5 * 60 * 1000)
+      );
+      const targetRunAt = immediate
+        ? null
+        : (runAt || new Date(Date.now() + cronIntervalMs));
+
+      const slot = Math.floor((targetRunAt ? new Date(targetRunAt).getTime() : Date.now()) / 60000);
+      const idempotencyKey = `orders.cancel_expired:${slot}`;
+
+      // 3. Đẩy vào JobQueue với độ bền bỉ, quan sát được và kiểm soát retry
+      const { enqueueJob } = require('./job-queue');
+      const job = await enqueueJob(targetPool, {
+        queue: 'maintenance',
+        name: 'orders.cancel_expired',
+        payload: {
+          olderThanHours: Number(olderThanHours ?? targetConfig?.ORDER_EXPIRY_DEFAULT_HOURS ?? 24),
+          scheduledAt: new Date().toISOString()
+        },
+        idempotencyKey,
+        runAt: targetRunAt,
+        maxAttempts: 3
+      });
+
+      return { queued: true, job };
+    } catch (err) {
+      console.error('WorkerManager: Lỗi khi enqueue định kỳ orders.cancel_expired:', err?.message || err);
+      return null;
+    }
   }
 
   /**
@@ -461,7 +560,7 @@ class WorkerManager {
       clearInterval(this.leaderRetryTimer);
       this.leaderRetryTimer = null;
     }
-    this._startLeaderWorkloads();
+    await this._startLeaderWorkloads();
     return true;
   }
 
