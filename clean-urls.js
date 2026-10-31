@@ -11,7 +11,7 @@
   if(file==='product.html'&&u.searchParams.get('id')){target='/san-pham/'+encodeURIComponent(u.searchParams.get('id'));u.searchParams.delete('id');}
   if(file==='news-article.html'&&u.searchParams.get('slug')){target='/tin-tuc/'+encodeURIComponent(u.searchParams.get('slug'));u.searchParams.delete('slug');}
   if(!target&&u.pathname.endsWith('/')){const p=u.pathname.slice(0,-1);if(Object.values(paths).includes(p)||/^\/(?:san-pham|tin-tuc|trang)\/[a-z0-9-]+$/.test(p))target=p;}
-  return target?target+(u.searchParams.size?'?'+u.searchParams.toString():'')+u.hash:owned?u.pathname+u.search+u.hash:value;
+  return target?target+(u.searchParams.toString()?'?'+u.searchParams.toString():'')+u.hash:owned?u.pathname+u.search+u.hash:value;
  }
  const api={paths,clean,normalizeText};if(typeof module==='object'&&module.exports)module.exports=api;else{
   scope.GAERUUrls=api;
