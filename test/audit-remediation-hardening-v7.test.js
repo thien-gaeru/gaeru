@@ -410,7 +410,7 @@ test('P0-01 Part 1: OrderExpirationService guards against premature cancellation
   const order3Id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
-     VALUES ($1, 'GR-EXPIRED-PA', 'Expired Buyer', 'pa-expired@gaeru.com', '0912345680', 'District 5', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 500000, 500000, 0, now() - interval '30 hours')`,
+     VALUES ($1, 'GR-EXPIRED-PA', 'Expired Buyer', 'pa-expired@gaeru.com', '0912345680', 'District 5', 'TP. Hồ Chí Minh', 'bank_transfer', 'pending', 'pending', 500000, 500000, 0, now() - interval '30 hours')`,
     [order3Id]
   );
   await pool.query(
@@ -420,7 +420,7 @@ test('P0-01 Part 1: OrderExpirationService guards against premature cancellation
   );
   await pool.query(
     `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
-     VALUES (gen_random_uuid(), $1, 'momo', 'GR-EXPIRED-PA', 500000, 'pending', now() - interval '1 hour')`,
+     VALUES (gen_random_uuid(), $1, 'bank_transfer', 'GR-EXPIRED-PA', 500000, 'pending', now() - interval '1 hour')`,
     [order3Id]
   );
 
@@ -884,8 +884,35 @@ test('P1-01: Channel TTL policy, guards against cancelling awaiting/active attem
     [orderDId]
   );
 
+  // Cấu hình kênh MoMo hợp lệ để kiểm tra đối soát cổng khi hết hạn
+  const { writeRecord } = require('../src/admin-configuration');
+  const appConfig = { SESSION_SECRET: 'test-secret-32-chars-minimum-length-ok!' };
+  await writeRecord(pool, appConfig, 'payment_momo', {
+    partnerCode: 'MOMOP1',
+    accessKey: 'ACCESS_P1',
+    secretKey: 'SECRET_P1',
+    environment: 'sandbox',
+    enabled: true
+  }, 0, { username: 'admin' });
+
+  const mockFetcher = async (url, init) => {
+    const bodyStr = typeof init?.body === 'string' ? init.body : '';
+    if (bodyStr.includes('GR-P1-MOMO-EXP-AMBIG')) {
+      // Case B: Cổng phản hồi giao dịch đang xử lý / chưa phân định (still_pending)
+      return new Response(JSON.stringify({ resultCode: 9000, message: 'Transaction is processing' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    // Case D: Cổng phản hồi không tìm thấy giao dịch (1001) -> xác minh 100% chưa thanh toán
+    return new Response(JSON.stringify({ resultCode: 1001, message: 'Transaction not found' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+
   // Run OrderExpirationService
-  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool);
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { config: appConfig, fetcher: mockFetcher });
   const cancelledIds = cancelled.map(c => c.orderId);
 
   // 1. Case A (MoMo awaiting_reconciliation with 10 mins remaining): TUYỆT ĐỐI KHÔNG BỊ HỦY!
@@ -1774,5 +1801,171 @@ test('Consolidation & Deduplication: 6 core priority items verified', async () =
   assert.equal(typeof invFacade.receiveStock, 'function');
   assert.equal(typeof invFacade.operationError, 'function');
   assert.equal(typeof invFacade.MAX_STOCK, 'number');
+});
+
+test('Defect 1: Overdue MoMo order without gateway configuration is NOT cancelled and stock is NOT released (held in expiry_awaiting_verification)', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-DEFECT1-UNCONFIG';
+
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Tai Nghe Defect 1', 'tai-nghe-defect-1', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-DEFECT-1', 'Xám', 700000, 10, true)",
+    [vId, pId]
+  );
+
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 10) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+
+  // Đơn MoMo tạo 2 giờ trước (quá TTL 1h)
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, $2, 'Unconfigured Momo Buyer', 'buyer@gaeru.com', '0912345688', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 700000, 700000, 0, now() - interval '2 hours')`,
+    [orderId, orderNumber]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Tai Nghe Defect 1', 'Xám', 'SKU-DEFECT-1', 2, 350000, 700000)`,
+    [orderId, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', $2, 700000, 'pending', now() - interval '30 minutes')`,
+    [orderId, orderNumber]
+  );
+
+  // Đảm bảo không có cấu hình kết nối cổng MoMo trong DB (chưa cài đặt hoặc không lấy được)
+  await pool.query("DELETE FROM store_settings WHERE setting_key = 'private_admin:payment_momo'");
+
+  // Chạy OrderExpirationService
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool);
+  const cancelledIds = cancelled.map(c => c.orderId);
+
+  // 1. Đơn hàng TUYỆT ĐỐI KHÔNG BỊ HỦY vì chưa có xác thực từ cổng
+  assert.ok(!cancelledIds.includes(orderId), 'Đơn MoMo khi chưa có cấu hình kết nối cổng không được phép tự hủy');
+  const o = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(o.status, 'pending', 'Đơn hàng phải giữ nguyên trạng thái pending');
+  assert.equal(o.payment_status, 'pending');
+
+  // 2. Phiên thanh toán phải chuyển sang expiry_awaiting_verification với mã lỗi GATEWAY_CHANNEL_UNCONFIGURED
+  const att = (await pool.query('SELECT status, last_error_code FROM payment_attempts WHERE order_id = $1', [orderId])).rows[0];
+  assert.equal(att.status, 'expiry_awaiting_verification', 'Phiên phải chuyển sang expiry_awaiting_verification');
+  assert.equal(att.last_error_code, 'GATEWAY_CHANNEL_UNCONFIGURED', 'Mã lỗi phải ghi nhận cổng chưa cấu hình');
+
+  // 3. Tồn kho KHÔNG ĐƯỢC hoàn trả (fail-closed bảo vệ kho)
+  const variant = (await pool.query('SELECT stock_quantity FROM product_variants WHERE id = $1', [vId])).rows[0];
+  assert.equal(variant.stock_quantity, 10, 'Tồn kho không được hoàn trả khi chưa có kết quả xác minh từ cổng');
+
+  // 4. Phải ghi nhận order_activity và audit log cảnh báo thiếu cấu hình cổng
+  const act = (await pool.query("SELECT * FROM order_activities WHERE order_id = $1 AND action = 'expiry_awaiting_verification'", [orderId])).rows[0];
+  assert.ok(act, 'Phải có order_activities expiry_awaiting_verification');
+  assert.ok(act.details?.reason?.includes('không lấy được cấu hình'), 'Nội dung activity phải cảnh báo thiếu cấu hình');
+
+  const auditEntry = (await pool.query("SELECT * FROM audit_events WHERE entity_id = $1 AND action = 'order.expiry_awaiting_verification'", [orderId])).rows[0];
+  assert.ok(auditEntry, 'Phải có bản ghi audit event expiry_awaiting_verification');
+  assert.equal(auditEntry.metadata?.reason, 'gateway_channel_unconfigured');
+});
+
+test('Defect 2: Gateway verified_unpaid definitive decision cancels order and releases stock even when attempt was in awaiting_reconciliation', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-DEFECT2-AWAIT-CANCEL';
+
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Tai Nghe Defect 2', 'tai-nghe-defect-2', 'audio', true)",
+    [pId]
+  );
+  // Khởi tạo biến thể với tồn kho 5
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-DEFECT-2', 'Đen', 500000, 5, true)",
+    [vId, pId]
+  );
+
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 5) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+
+  // Đơn MoMo tạo 2 giờ trước (quá TTL 1h)
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, $2, 'Awaiting Momo Buyer', 'awaiting@gaeru.com', '0912345689', 'District 3', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 500000, 500000, 0, now() - interval '2 hours')`,
+    [orderId, orderNumber]
+  );
+  // Đơn gồm 2 sản phẩm (khi hủy sẽ được hoàn kho từ 5 lên 7)
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Tai Nghe Defect 2', 'Đen', 'SKU-DEFECT-2', 2, 250000, 500000)`,
+    [orderId, vId]
+  );
+
+  // Phiên thanh toán đang ở trạng thái awaiting_reconciliation và đã hết hạn (-10 phút)
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', $2, 500000, 'awaiting_reconciliation', now() - interval '10 minutes')`,
+    [orderId, orderNumber]
+  );
+
+  // Cấu hình cổng MoMo hợp lệ
+  const { writeRecord } = require('../src/admin-configuration');
+  const appConfig = { SESSION_SECRET: 'test-secret-32-chars-minimum-length-ok!' };
+  await writeRecord(pool, appConfig, 'payment_momo', {
+    partnerCode: 'MOMODEFECT2',
+    accessKey: 'ACCESS_D2',
+    secretKey: 'SECRET_D2',
+    environment: 'sandbox',
+    enabled: true
+  }, 0, { username: 'admin' });
+
+  // Mock fetcher giả lập cổng MoMo phản hồi chắc chắn: không tìm thấy giao dịch (1001) -> verified_unpaid
+  const verifiedUnpaidFetcher = async () => new Response(
+    JSON.stringify({ resultCode: 1001, message: 'Transaction not found' }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } }
+  );
+
+  // Chạy OrderExpirationService
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { config: appConfig, fetcher: verifiedUnpaidFetcher });
+  const cancelledIds = cancelled.map(c => c.orderId);
+
+  // 1. Đơn hàng PHẢI ĐƯỢC TỰ ĐỘNG HỦY sau khi cổng xác minh verified_unpaid dù trước đó phiên ở awaiting_reconciliation
+  assert.ok(cancelledIds.includes(orderId), 'Đơn hàng phải được hủy khi cổng xác minh chắc chắn chưa thanh toán');
+  const o = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(o.status, 'cancelled', 'Trạng thái đơn hàng phải đổi sang cancelled');
+  assert.equal(o.payment_status, 'pending');
+
+  // 2. Phiên thanh toán phải được chuyển sang cancelled
+  const att = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [orderId])).rows[0];
+  assert.equal(att.status, 'cancelled', 'Phiên thanh toán phải chuyển sang cancelled');
+
+  // 3. Tồn kho PHẢI ĐƯỢC GIẢI PHÓNG và hoàn trả về kho (5 + 2 = 7)
+  const variant = (await pool.query('SELECT stock_quantity FROM product_variants WHERE id = $1', [vId])).rows[0];
+  assert.equal(variant.stock_quantity, 7, 'Tồn kho phải được hoàn trả 2 đơn vị từ 5 lên 7');
+
+  // 4. Phải ghi nhận order_activity và audit event hủy đơn
+  const act = (await pool.query("SELECT * FROM order_activities WHERE order_id = $1 AND action = 'status_changed'", [orderId])).rows[0];
+  assert.ok(act, 'Phải có order_activities status_changed');
+  assert.equal(act.details?.to, 'cancelled');
+
+  const auditEntry = (await pool.query("SELECT * FROM audit_events WHERE entity_id = $1 AND action = 'order.cancel_expired_unpaid'", [orderId])).rows[0];
+  assert.ok(auditEntry, 'Phải có audit_events order.cancel_expired_unpaid');
 });
 
