@@ -56,8 +56,18 @@ function vietnamDate(time) {
 function reference(provider, txnRef, time, requestId) {
   if (!validText(txnRef, 1, 50) || !/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(txnRef)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
   const id = requestId ?? (provider === 'zalopay' ? vietnamDate(time) + '_' + txnRef : txnRef);
-  if (!validText(id, 1, provider === 'zalopay' ? 40 : 50) || !/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(id)
-    || (provider === 'zalopay' && (!/^\d{6}_/.test(id) || id.slice(7) !== txnRef))) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  const maxLen = provider === 'zalopay' ? 40 : 50;
+  if (!validText(id, 1, maxLen) || !/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(id)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  if (provider === 'zalopay') {
+    if (!/^\d{6}_/.test(id)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+    const payloadPart = id.slice(7);
+    const maxTxnLen = 40 - 7 - 9;
+    const baseTxn = txnRef.length > maxTxnLen ? txnRef.slice(0, maxTxnLen) : txnRef;
+    const matchesTxn = payloadPart === txnRef ||
+      payloadPart.startsWith(txnRef + '_') ||
+      payloadPart.startsWith(baseTxn + '_');
+    if (!matchesTxn) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
   return id;
 }
 function publicOrigin(provider, value) {
@@ -140,7 +150,30 @@ function safeTransactionId(value) {
 }
 
 function buildGatewayRequestId(provider, txnRef, now) {
-  return reference(provider, txnRef, timestamp(now));
+  const time = timestamp(now);
+  if (!validText(txnRef, 1, 50) || !/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(txnRef)) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
+
+  if (provider === 'zalopay') {
+    const datePrefix = vietnamDate(time) + '_';
+    const dayMs = String(((time % 86400000) + 7 * 3600000) % 86400000).padStart(8, '0');
+    const suffix = '_' + dayMs;
+    const maxTxnLen = 40 - datePrefix.length - suffix.length;
+    const baseTxn = txnRef.length > maxTxnLen ? txnRef.slice(0, maxTxnLen) : txnRef;
+    const id = datePrefix + baseTxn + suffix;
+    return reference(provider, txnRef, time, id);
+  }
+
+  if (provider === 'momo') {
+    const suffix = '_' + String(time);
+    const maxTxnLen = 50 - suffix.length;
+    const baseTxn = txnRef.length > maxTxnLen ? txnRef.slice(0, maxTxnLen) : txnRef;
+    const id = baseTxn + suffix;
+    return reference(provider, txnRef, time, id);
+  }
+
+  return reference(provider, txnRef, time);
 }
 
 function validateGatewayInitiationRequest(provider, settings, options = {}) {

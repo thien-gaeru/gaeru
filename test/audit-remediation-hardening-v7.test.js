@@ -981,4 +981,84 @@ test('P1-02: Atomically re-verifies order status predicate under FOR UPDATE SKIP
   assert.equal(checkVariant.stock_quantity, 5, 'Tồn kho không được hoàn trả khi đơn đang vận chuyển/xử lý');
 });
 
+test('P1-03: Generates unique gateway request IDs across attempts for MoMo and ZaloPay conforming to official provider format rules', async (t) => {
+  const { buildGatewayRequestId, createGatewayPayment, reference } = require('../src/payment-provider-clients');
+  
+  const txnRef = 'GR-20261031-TEST001';
+  const baseTime = Date.parse('2026-10-31T08:00:00.000Z'); // 15:00 Vietnam time (GMT+7)
+  const timeAttempt1 = baseTime;
+  const timeAttempt2 = baseTime + 15000; // 15 seconds later (same day)
+  const timeAttempt3 = baseTime + 3600000; // 1 hour later (same day)
+
+  // 1. MoMo uniqueness per attempt
+  const momoReqId1 = buildGatewayRequestId('momo', txnRef, timeAttempt1);
+  const momoReqId2 = buildGatewayRequestId('momo', txnRef, timeAttempt2);
+  const momoReqId3 = buildGatewayRequestId('momo', txnRef, timeAttempt3);
+
+  assert.notEqual(momoReqId1, momoReqId2, 'MoMo attempt 1 and attempt 2 must have distinct request IDs');
+  assert.notEqual(momoReqId2, momoReqId3, 'MoMo attempt 2 and attempt 3 must have distinct request IDs');
+  assert.ok(momoReqId1.length <= 50, 'MoMo requestId must not exceed 50 characters');
+  assert.ok(/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(momoReqId1), 'MoMo requestId must match valid charset');
+  assert.ok(momoReqId1.startsWith(txnRef + '_'), 'MoMo requestId should incorporate transaction reference');
+
+  // 2. ZaloPay uniqueness per attempt on the same day
+  const zaloReqId1 = buildGatewayRequestId('zalopay', txnRef, timeAttempt1);
+  const zaloReqId2 = buildGatewayRequestId('zalopay', txnRef, timeAttempt2);
+  const zaloReqId3 = buildGatewayRequestId('zalopay', txnRef, timeAttempt3);
+
+  assert.notEqual(zaloReqId1, zaloReqId2, 'ZaloPay attempt 1 and attempt 2 on the same day must have distinct app_trans_ids');
+  assert.notEqual(zaloReqId2, zaloReqId3, 'ZaloPay attempt 2 and attempt 3 on the same day must have distinct app_trans_ids');
+  assert.ok(zaloReqId1.length <= 40, 'ZaloPay app_trans_id must not exceed 40 characters');
+  assert.ok(/^\d{6}_/.test(zaloReqId1), 'ZaloPay app_trans_id must start with yyMMdd_ format');
+  assert.ok(/^\d{6}_[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(zaloReqId1), 'ZaloPay app_trans_id must match valid charset');
+
+  // 3. Handling long txnRef (boundary test for max length constraints)
+  const longTxnRef = 'GR-20261031-VERY-LONG-ORDER-NUMBER-ABCDEFGHIJKLM-99999'.slice(0, 50);
+  const momoLong = buildGatewayRequestId('momo', longTxnRef, timeAttempt1);
+  const zaloLong = buildGatewayRequestId('zalopay', longTxnRef, timeAttempt1);
+
+  assert.ok(momoLong.length <= 50, `MoMo long requestId length (${momoLong.length}) must be <= 50`);
+  assert.ok(zaloLong.length <= 40, `ZaloPay long app_trans_id length (${zaloLong.length}) must be <= 40`);
+
+  // 4. createGatewayPayment executes and records distinct requestId
+  const calls = [];
+  const momoConfig = { environment: 'sandbox', partnerCode: 'MOMO_TEST', accessKey: 'MOMO_ACCESS', secretKey: 'fixture-momo-secret' };
+  const mockFetcher = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, body });
+    return new Response(JSON.stringify({
+      partnerCode: body.partnerCode,
+      requestId: body.requestId,
+      orderId: body.orderId,
+      amount: body.amount,
+      resultCode: 0,
+      responseTime: Date.now(),
+      message: 'Success',
+      payUrl: 'https://test-payment.momo.vn/v2/gateway/pay?t=test-token'
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+
+  const res1 = await createGatewayPayment('momo', momoConfig, {
+    txnRef,
+    amountVnd: 500000,
+    requestId: momoReqId1,
+    now: timeAttempt1,
+    baseUrl: 'https://gaeru.com',
+    fetcher: mockFetcher
+  });
+  const res2 = await createGatewayPayment('momo', momoConfig, {
+    txnRef,
+    amountVnd: 500000,
+    requestId: momoReqId2,
+    now: timeAttempt2,
+    baseUrl: 'https://gaeru.com',
+    fetcher: mockFetcher
+  });
+
+  assert.equal(res1.requestId, momoReqId1);
+  assert.equal(res2.requestId, momoReqId2);
+  assert.notEqual(res1.requestId, res2.requestId);
+  assert.equal(calls[0].body.requestId, momoReqId1);
+  assert.equal(calls[1].body.requestId, momoReqId2);
+});
 
