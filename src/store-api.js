@@ -1,5 +1,6 @@
 const { isOnlineGateway, ONLINE_GATEWAYS } = require('./domain/payments/payment-policy');
 const { CatalogService } = require('./domain/catalog/catalog-service');
+const { PricingEngine } = require('./domain/pricing/pricing-engine');
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -42,6 +43,7 @@ const orderSchema = z.object({
   shippingCarrierId:z.enum(['ghn','ghtk','viettel','jt','spx']).optional(),
   expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
+  expectedQuoteHash:z.string().trim().min(16).max(128).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
   idempotencyKey: z.string().trim().min(4).max(120).regex(/^[A-Za-z0-9_.:-]+$/).optional(),
   retryOrderNumber: z.string().trim().min(5).max(80).optional(),
@@ -459,67 +461,29 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           prepared.push({ ...variant, quantity });
         }
 
-        const cartQuote = await require("./product-promotions").quoteCartPrices(client, prepared);
-        prepared = cartQuote.items;
-        const subtotal = cartQuote.subtotalVnd;
-        if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) {
-          const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
-          error.status = 400;
-          throw error;
-        }
-        if(parsed.data.expectedSubtotalVnd!==undefined&&parsed.data.expectedSubtotalVnd!==subtotal)throw Object.assign(Error("Giá hoặc chương trình đã thay đổi. Tải lại trang để xác nhận giá mới trước khi đặt hàng."),{status:409});
-        const shippingResult = await client.query(
-          "SELECT setting_value FROM store_settings WHERE setting_key = 'shipping_rates' FOR SHARE"
-        );
-        const shippingRates = shippingResult.rows[0]?.setting_value || {};
-        if (require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city) === undefined) {
-          const error = new Error("Tỉnh/thành phố giao hàng hiện chưa được hỗ trợ hoặc chưa có phí vận chuyển.");
-          error.status = 409;
-          throw error;
-        }
-        const shippingFee = require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city);
-        let shippingSelection = null;
-        if (shippingChoices) {
-          try {
-            shippingSelection = await require('./shipping-choice').validateSelection(client, parsed.data.shippingCarrierId);
-          } catch (err) {
-            const connCheck = await client.query('SELECT count(*)::int AS cnt FROM shipping_carrier_connections').catch(() => ({ rows: [] }));
-            if (connCheck.rows[0]?.cnt > 0) {
-              throw err;
-            }
-            const allowed = {
-              ghn: 'Giao Hàng Nhanh (GHN)',
-              ghtk: 'Giao Hàng Tiết Kiệm (GHTK)',
-              viettel: 'Viettel Post',
-              spx: 'Shopee Express (SPX)'
-            };
-            if (parsed.data.shippingCarrierId && allowed[parsed.data.shippingCarrierId]) {
-              shippingSelection = {
-                id: parsed.data.shippingCarrierId,
-                name: allowed[parsed.data.shippingCarrierId],
-                version: 1
-              };
-            } else if (parsed.data.shippingCarrierId) {
-              throw err;
-            }
-          }
-        }
-        if(parsed.data.expectedShippingFeeVnd!==undefined&&parsed.data.expectedShippingFeeVnd!==shippingFee)throw Object.assign(Error('Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng.'),{status:409});
-        const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true,{productSlugs:prepared.map(p=>p.productSlug).filter(Boolean)}):null;
-        const total = subtotal + shippingFee - (promotion?.discountVnd||0);
-        if (!Number.isSafeInteger(total) || total > 2_000_000_000) {
-          const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
-          error.status = 400;
-          throw error;
-        }
-        if (parsed.data.paymentMethod !== "cod" && total < 1) {
-          const error = new Error("Cổng thanh toán trực tuyến không hỗ trợ đơn hàng có tổng tiền bằng 0.");
-          error.status = 400;
-          throw error;
-        }
-        if (parsed.data.paymentMethod === "cod" && req.paymentChannels?.cod?.maxAmountVnd && total > req.paymentChannels.cod.maxAmountVnd) {
-          throw Object.assign(new Error(`Đơn hàng vượt hạn mức thu hộ COD (${new Intl.NumberFormat("vi-VN").format(req.paymentChannels.cod.maxAmountVnd)} ₫). Vui lòng chọn phương thức thanh toán trước.`), { status: 400 });
-        }
+        const orderQuote = await PricingEngine.quoteOrder(client, {
+          items: prepared,
+          voucherCode: parsed.data.voucherCode,
+          customerId: req.session?.customer?.id,
+          mode: "commit",
+          lockVoucher: true,
+          city: parsed.data.customer.city,
+          loadShippingFromDb: true,
+          requireSupportedCity: true,
+          shippingChoices,
+          shippingCarrierId: parsed.data.shippingCarrierId,
+          paymentMethod: parsed.data.paymentMethod,
+          codMaxAmountVnd: req.paymentChannels?.cod?.maxAmountVnd,
+          expectedSubtotalVnd: parsed.data.expectedSubtotalVnd,
+          expectedShippingFeeVnd: parsed.data.expectedShippingFeeVnd,
+          expectedQuoteHash: parsed.data.expectedQuoteHash
+        });
+        prepared = orderQuote.items;
+        const subtotal = orderQuote.subtotalVnd;
+        const shippingFee = orderQuote.shippingFeeVnd;
+        const shippingSelection = orderQuote.shippingSelection;
+        const promotion = orderQuote.voucher;
+        const total = orderQuote.totalVnd;
         const orderNumber = `GR-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
         const inserted = await client.query(
           `INSERT INTO orders (order_number, customer_name, email, phone, address, city, note,
@@ -533,6 +497,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
+        await client.query(
+          "UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3 WHERE id = $1",
+          [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash]
+        );
+        createdOrder.quoteHash = orderQuote.quoteHash;
+        createdOrder.pricingVersion = orderQuote.pricingVersion;
         if (clientReference) {
           await client.query('UPDATE orders SET client_reference = $2 WHERE id = $1', [createdOrder.id, clientReference]);
         }
@@ -552,13 +522,26 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         if(checkoutAccounts)await require("./checkout-account").enroll(client,createdOrder,parsed.data.customer,req.session?.customer?.id);
         for (const item of prepared) {
-          await client.query(
+          const resolvedLineTotal = item.lineTotalVnd !== undefined ? item.lineTotalVnd : item.priceVnd * item.quantity;
+          const resolvedEffectiveUnit = item.effectiveUnitPriceVnd !== undefined ? item.effectiveUnitPriceVnd : item.priceVnd;
+          const insertedItem = await client.query(
             `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
-              unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot, effective_unit_price_vnd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             RETURNING id`,
             [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
-              item.priceVnd, item.quantity, item.lineTotalVnd !== undefined ? item.lineTotalVnd : item.priceVnd * item.quantity,item.originalPriceVnd,item.promotion]
+              item.priceVnd, item.quantity, resolvedLineTotal, item.originalPriceVnd, item.promotion, resolvedEffectiveUnit]
           );
+          const orderItemId = insertedItem?.rows?.[0]?.id;
+          if (orderItemId && Array.isArray(item.priceAllocations) && item.priceAllocations.length > 0) {
+            for (const alloc of item.priceAllocations) {
+              await client.query(
+                `INSERT INTO order_item_allocations (order_item_id, tier_kind, quantity, unit_price_vnd, line_total_vnd, discount_percent)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [orderItemId, alloc.tierKind, alloc.quantity, alloc.unitPriceVnd, alloc.lineTotalVnd, alloc.discountPercent || 0]
+              );
+            }
+          }
           if (inventory) await inventory.reserveStock(client, { variantId: item.id, quantity: item.quantity, orderId: createdOrder.id, actor: { username: "customer", source: "customer" } });
           else await client.query(
             "UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1",
@@ -1104,6 +1087,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
       res.status(201).json({ id: product.id });
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
       if (error.code === "23505") return res.status(409).json({ error: "Slug sản phẩm đã được sử dụng." });
       next(error);
     }
@@ -1185,22 +1169,20 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
       const v = parsed.data;
-      if (req.admin && v.stockQuantity > 0 && !req.admin.permissions.includes("inventory.approve")) return res.status(403).json({ error: "Cần quyền duyệt kho để khai báo tồn đầu kỳ." });
       const variant = await withTransaction(pool, async (client) => {
-      const result = await client.query(
-        `INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active)
-         SELECT id, $2, $3, $4, $5, $6, $7 FROM products WHERE id=$1 AND deleted_at IS NULL
-         RETURNING id`,
-        [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
-      );
-      if (!result.rowCount) return null;
-      if (inventory) await inventory.initializeVariantStock(client, { variantId: result.rows[0].id, quantity: v.stockQuantity, actor: req.admin });
-      await audit(client, { actor: req.admin, action: "catalog.variant.create", entityType: "variant", entityId: result.rows[0].id, after: v });
-      return result.rows[0];
+        return await CatalogService.createVariant(client, {
+          productId: req.params.id,
+          data: v,
+          actor: req.admin,
+          inventoryService: inventory,
+          allowLegacyMockWithoutInventory: !inventory,
+          auditFn: audit
+        });
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
       res.status(201).json({ id: variant.id });
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
       if (error.code === "23505") return res.status(409).json({ error: "SKU đã được sử dụng." });
       next(error);
     }
@@ -1211,21 +1193,24 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
       const v = parsed.data;
+      const expectedVersion = Number.isInteger(req.body?.version) && req.body.version > 0 ? req.body.version : undefined;
       const variant = await withTransaction(pool, async (client) => {
-        const current = await lockVariantWithProduct(client, req.params.id);
-        if (!current) return null;
-        if (req.admin && v.stockQuantity !== current.variant.stockQuantity && !req.admin.permissions.includes("inventory.approve")) {
-          const error = new Error("Cần quyền duyệt kho để thay đổi số lượng tồn."); error.status = 403; throw error;
-        }
-        if (!v.active) await requireAnotherActiveVariant(client, current.product, current.variant);
-        if (inventory) await inventory.setVariantStock(client, { variantId: req.params.id, quantity: v.stockQuantity, actor: req.admin, reason: "Điều chỉnh từ trang phiên bản sản phẩm" });
-        const result = await client.query(
-          `UPDATE product_variants SET sku=$2, name=$3, options=$4, price_vnd=$5,
-            stock_quantity=$6, active=$7, updated_at=now() WHERE id=$1 RETURNING id`,
-          [req.params.id, v.sku, v.name, v.options, v.priceVnd, v.stockQuantity, v.active]
-        );
-        await audit(client, { actor: req.admin, action: "catalog.variant.update", entityType: "variant", entityId: req.params.id, after: v });
-        return result.rows[0];
+        return await CatalogService.updateVariant(client, {
+          variantId: req.params.id,
+          sku: v.sku,
+          name: v.name,
+          options: v.options,
+          priceVnd: v.priceVnd,
+          stockQuantity: v.stockQuantity,
+          active: v.active,
+          expectedVersion,
+          actor: req.admin,
+          inventoryService: inventory,
+          allowLegacyMockWithoutInventory: !inventory,
+          stockReason: "Điều chỉnh từ trang phiên bản sản phẩm",
+          auditFn: audit,
+          auditPayload: v
+        });
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
       res.json({ id: variant.id });
@@ -1239,21 +1224,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.delete("/gaeru_ceo/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const result = await withTransaction(pool, async (client) => {
-        const current = await lockVariantWithProduct(client, req.params.id);
-        if (!current) return { missing: true };
-        const references = await client.query(
-          "SELECT EXISTS (SELECT 1 FROM order_items WHERE variant_id=$1) AS referenced",
-          [req.params.id]
-        );
-        if (references.rows[0].referenced) return { inUse: true };
-        if (inventory) {
-          const history = await client.query("SELECT EXISTS (SELECT 1 FROM inventory_movements WHERE variant_id=$1) AS referenced", [req.params.id]);
-          if (history.rows[0].referenced) return { inUse: true };
-        }
-        await requireAnotherActiveVariant(client, current.product, current.variant);
-        await client.query("DELETE FROM product_variants WHERE id=$1", [req.params.id]);
-        await audit(client, { actor: req.admin, action: "catalog.variant.delete", entityType: "variant", entityId: req.params.id });
-        return { deleted: true };
+        return await CatalogService.deleteVariant(client, {
+          variantId: req.params.id,
+          actor: req.admin,
+          inventoryService: inventory,
+          allowLegacyMockWithoutInventory: !inventory,
+          auditFn: audit
+        });
       });
       if (result.missing) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
       if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng hoặc kho. Hãy sửa và tạm ẩn thay vì xóa." });
