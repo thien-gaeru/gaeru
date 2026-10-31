@@ -22,7 +22,6 @@
     { id: 'zalo-zns', phase: 2, name: 'Thông Báo Trạng Thái Đơn Qua Zalo (ZNS)', desc: 'Gửi tin nhắn Zalo tích vàng tự động khi đơn hàng đã bàn giao vận chuyển.', endpoint: '/api/gaeru_ceo/zalo-zns', status: 'live' },
     { id: 'cod-recon', phase: 2, name: 'Đối Soát Tiền Hàng COD Đa Vận Chuyển', desc: 'Tự động đối chiếu chéo số tiền bưu tá thu hộ (GHN, GHTK, Viettel Post, SPX, J&T) và ngân hàng chuyển khoản.', endpoint: '/api/gaeru_ceo/cod-reconciliation', status: 'live' },
     { id: 'search', phase: 2, name: 'Tìm Kiếm Tức Thì Autocomplete Header', desc: 'Gõ từ khóa hiển thị ngay ảnh đại diện và giá bán sau 150ms.', endpoint: '/api/search/autocomplete', status: 'live' },
-    { id: 'offline-pwa', phase: 2, name: 'Duyệt Hàng Ngoại Tuyến PWA IndexedDB', desc: 'Xem danh mục và giỏ hàng mượt mà ngay cả khi mất sóng mạng 4G.', endpoint: '/offline-catalog.js', status: 'live' },
     { id: 'web-push', phase: 2, name: 'Thông Báo Đẩy Trình Duyệt (Web Push API)', desc: 'Gửi tin thông báo flash sale và đơn hàng trực tiếp lên màn hình điện thoại.', endpoint: '/api/gaeru_ceo/push/broadcast', status: 'live' },
 
     // Phase 3 (10 upgrades)
