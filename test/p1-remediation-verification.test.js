@@ -169,9 +169,9 @@ test('P1-05: precheckAndQuarantineDuplicates prevents duplicate quarantine write
   await db.close();
 });
 
-test('P1-06: validatePushSubscriptionData enforces Base64/Base64url character integrity', () => {
+test('P1-06: validatePushSubscriptionData enforces Base64/Base64url character integrity, SSRF protection, and P-256 key format', () => {
   const sampleEp = 'https://fcm.googleapis.com/fcm/send/device-valid-1';
-  const sampleKey = Buffer.alloc(65, 5).toString('base64');
+  const sampleKey = Buffer.concat([Buffer.from([0x04]), Buffer.alloc(64, 5)]).toString('base64');
   const sampleAuth = Buffer.alloc(16, 8).toString('base64');
 
   // Valid Base64 & Base64url accepted
@@ -181,7 +181,7 @@ test('P1-06: validatePushSubscriptionData enforces Base64/Base64url character in
     auth: sampleAuth.replace(/\+/g, '-').replace(/\//g, '_')
   }));
 
-  // Rejects invalid characters (e.g. non-base64 characters, emojis, script tags)
+  // Rejects invalid characters (e.g. non-base64 characters, emojis, script tags, dots)
   assert.throws(() => validatePushSubscriptionData({
     endpoint: sampleEp,
     p256dh: sampleKey + '<script>',
@@ -193,6 +193,56 @@ test('P1-06: validatePushSubscriptionData enforces Base64/Base64url character in
     p256dh: sampleKey,
     auth: sampleAuth + ' @invalid'
   }), /Base64/);
+
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: sampleEp,
+    p256dh: 'BNcRdreAL...',
+    auth: sampleAuth
+  }), /Base64/);
+
+  // SSRF Protection: rejects loopback, private networks, cloud metadata, and embedded credentials
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: 'https://127.0.0.1/push',
+    p256dh: sampleKey,
+    auth: sampleAuth
+  }), /nội bộ|loopback/);
+
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: 'https://10.0.0.1/push',
+    p256dh: sampleKey,
+    auth: sampleAuth
+  }), /nội bộ|loopback/);
+
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: 'https://metadata.google.internal/computeMetadata/v1/',
+    p256dh: sampleKey,
+    auth: sampleAuth
+  }), /nội bộ|loopback/);
+
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: 'https://admin:secret@fcm.googleapis.com/push',
+    p256dh: sampleKey,
+    auth: sampleAuth
+  }), /xác thực đăng nhập/);
+
+  // Key length & format: requires uncompressed 65-byte P-256 (0x04) and 16-byte auth
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: sampleEp,
+    p256dh: Buffer.concat([Buffer.from([0x05]), Buffer.alloc(64, 1)]).toString('base64'),
+    auth: sampleAuth
+  }), /P-256/);
+
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: sampleEp,
+    p256dh: Buffer.alloc(32, 4).toString('base64'),
+    auth: sampleAuth
+  }), /P-256/);
+
+  assert.throws(() => validatePushSubscriptionData({
+    endpoint: sampleEp,
+    p256dh: sampleKey,
+    auth: Buffer.alloc(8, 1).toString('base64')
+  }), /16 bytes/);
 });
 
 test('P1-07: Push Admin API provides accurate statistics and guards broadcast against invalid payloads', async () => {
@@ -233,12 +283,22 @@ test('P1-07: Push Admin API provides accurate statistics and guards broadcast ag
     assert.equal(stats.active, 2);
     assert.equal(stats.inactive, 1);
 
-    const emptyRes = await fetch(`http://127.0.0.1:${port}/push/push/broadcast`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '   ', body: '' })
-    });
-    assert.equal(emptyRes.status, 400);
+    // Test invalid payload returns 400 even if VAPID keys are not configured
+    const prevPub = process.env.VAPID_PUBLIC_KEY;
+    const prevPriv = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PUBLIC_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    try {
+      const emptyRes = await fetch(`http://127.0.0.1:${port}/push/push/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: '   ', body: '' })
+      });
+      assert.equal(emptyRes.status, 400, 'Empty title/body must return 400 before checking VAPID keys');
+    } finally {
+      if (prevPub) process.env.VAPID_PUBLIC_KEY = prevPub;
+      if (prevPriv) process.env.VAPID_PRIVATE_KEY = prevPriv;
+    }
   } finally {
     await new Promise(resolve => server.close(resolve));
     await db.close();
@@ -259,8 +319,6 @@ test('P1-08: Web Push Broadcast distinguishes total failure from success and set
     -- customer_id column included
     ALTER TABLE web_push_subscriptions ADD COLUMN IF NOT EXISTS customer_id uuid;
     ALTER TABLE web_push_subscriptions ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
-    INSERT INTO web_push_subscriptions (endpoint, p256dh, auth)
-    VALUES ('https://fcm.googleapis.com/fcm/send/device-fail-only', 'key', 'auth');
   `);
 
   const webpush = require('web-push');
@@ -279,6 +337,17 @@ test('P1-08: Web Push Broadcast distinguishes total failure from success and set
   };
 
   try {
+    // 0 recipients returns status: 'no_recipients'
+    const emptyResult = await broadcastPushNotification(db, { title: 'Test', body: 'Empty' }, { webpushClient: failingClient });
+    assert.equal(emptyResult.ok, true);
+    assert.equal(emptyResult.status, 'no_recipients');
+    assert.equal(emptyResult.recipientCount, 0);
+
+    // Insert 1 subscription and test failure
+    await db.exec(`
+      INSERT INTO web_push_subscriptions (endpoint, p256dh, auth)
+      VALUES ('https://fcm.googleapis.com/fcm/send/device-fail-only', 'key', 'auth');
+    `);
     const result = await broadcastPushNotification(db, { title: 'Test', body: 'Fail' }, { webpushClient: failingClient });
     // When 0 sent out of 1, ok must be false and status must be 'failed'
     assert.equal(result.ok, false, 'Outcome ok must be false when 0 notifications were sent');
@@ -330,8 +399,11 @@ test('P1-09: /api/push/subscribe validates CSRF token when session has csrfSecre
   process.env.VAPID_PUBLIC_KEY = vapid.publicKey;
   process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
 
+  const validKey = Buffer.concat([Buffer.from([0x04]), Buffer.alloc(64, 1)]).toString('base64');
+  const validAuth = Buffer.alloc(16, 2).toString('base64');
+
   try {
-    // Send invalid CSRF token
+    // 1. Send invalid CSRF token
     const res = await fetch(`http://127.0.0.1:${port}/api/push/subscribe`, {
       method: 'POST',
       headers: {
@@ -340,12 +412,25 @@ test('P1-09: /api/push/subscribe validates CSRF token when session has csrfSecre
       },
       body: JSON.stringify({
         endpoint: 'https://fcm.googleapis.com/fcm/send/device-csrf-test',
-        keys: { p256dh: Buffer.alloc(65, 1).toString('base64'), auth: Buffer.alloc(16, 2).toString('base64') }
+        keys: { p256dh: validKey, auth: validAuth }
       })
     });
     assert.equal(res.status, 403, 'Must reject invalid CSRF token with 403');
     const data = await res.json();
     assert.match(data.error, /CSRF/);
+
+    // 2. Send request without any CSRF token
+    const missingRes = await fetch(`http://127.0.0.1:${port}/api/push/subscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        endpoint: 'https://fcm.googleapis.com/fcm/send/device-csrf-test-missing',
+        keys: { p256dh: validKey, auth: validAuth }
+      })
+    });
+    assert.equal(missingRes.status, 403, 'Must reject missing CSRF token with 403');
   } finally {
     if (prevPub) process.env.VAPID_PUBLIC_KEY = prevPub;
     else delete process.env.VAPID_PUBLIC_KEY;

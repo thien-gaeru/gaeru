@@ -265,10 +265,12 @@ test('Web Push Subscriptions registers browser endpoints and broadcasts notifica
   process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
 
   try {
+    const validP256dh = Buffer.concat([Buffer.from([0x04]), Buffer.alloc(64, 7)]).toString('base64');
+    const validAuth = Buffer.alloc(16, 3).toString('base64');
     const sub = await savePushSubscription(pool, {
       endpoint: 'https://fcm.googleapis.com/fcm/send/fake-endpoint-token-123',
-      p256dh: 'BNcRdreAL...',
-      auth: 'tBHIt8w...'
+      p256dh: validP256dh,
+      auth: validAuth
     });
     assert.equal(sub.endpoint, 'https://fcm.googleapis.com/fcm/send/fake-endpoint-token-123');
 

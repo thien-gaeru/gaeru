@@ -560,8 +560,8 @@ test('KT-06 — Vận hành: Email SMTP outbox, Web Push thật, retry job, PWA,
   const realSub = {
     endpoint: 'https://fcm.googleapis.com/fcm/send/sample-token-123',
     keys: {
-      p256dh: 'BNcRdreALRFXTkOOUHK1dLK2o735unkvHQxOI4GsMoZzlLeUVjp9cMHpUhloDat13n4qUCh-qO-5AA-gE_sample',
-      auth: '5A5hM9_sampleKey123'
+      p256dh: Buffer.concat([Buffer.from([0x04]), Buffer.alloc(64, 1)]).toString('base64url'),
+      auth: Buffer.alloc(16, 2).toString('base64url')
     }
   };
   assert.doesNotThrow(() => validatePushSubscriptionData(realSub), 'Chấp nhận subscription trình duyệt hợp lệ');

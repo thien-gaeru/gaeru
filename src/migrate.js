@@ -241,6 +241,24 @@ async function verifySchemaHealth(client) {
       );
     }
   }
+
+  // Hậu kiểm các bảng cốt lõi (orders, products, web_push_subscriptions, user_sessions)
+  const coreTables = ['orders', 'products', 'web_push_subscriptions', 'user_sessions'];
+  for (const table of coreTables) {
+    const regCheck = await client.query("SELECT to_regclass($1) AS tbl", [table]);
+    if (regCheck?.rows?.[0]?.tbl) {
+      const pkCheck = await client.query(`
+        SELECT c.conname 
+        FROM pg_constraint c
+        JOIN pg_class t ON c.conrelid = t.oid
+        WHERE t.relname = $1 AND c.contype = 'p'
+      `, [table]);
+      if (!pkCheck?.rows?.length && table !== 'user_sessions') {
+        throw new Error(`SCHEMA_HEALTH_FAILED: Bảng ${table} thiếu Primary Key.`);
+      }
+    }
+  }
+
   return { ok: true };
 }
 
