@@ -246,12 +246,13 @@
           await navigator.clipboard.writeText(affiliateUrl);
           feedback.hidden = false;
           copyBtn.textContent = 'Đã chép!';
+          window.GAERUNotify?.('Đã sao chép liên kết giới thiệu CTV vào bộ nhớ tạm!');
           setTimeout(() => {
             copyBtn.textContent = 'Sao chép';
             feedback.hidden = true;
           }, 3000);
         } catch {
-          alert('Hãy copy liên kết: ' + affiliateUrl);
+          (window.GAERUNotify || alert)('Hãy copy liên kết: ' + affiliateUrl);
         }
       };
     }
