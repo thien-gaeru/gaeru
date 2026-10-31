@@ -247,11 +247,22 @@ class WorkerManager {
       return { ok: true };
     });
 
+    const getMailer = () => {
+      if (!config?.smtp) return null;
+      try {
+        return require('nodemailer').createTransport(require('./smtp-security').smtpOptions(config.smtp));
+      } catch {
+        return null;
+      }
+    };
+
     this.jobQueue.registerWorker('email.order', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const orderEmail = requireFn('./order-email');
-      if (typeof orderEmail.processOrderEmailOutbox === 'function') {
-        return await orderEmail.processOrderEmailOutbox(pool, config, payload);
+      const mailer = getMailer();
+      const fn = orderEmail.processOrderEmailOutbox || orderEmail.processOrderEmail;
+      if (typeof fn === 'function') {
+        return await fn(pool, config, mailer);
       }
       return { ok: true };
     });
@@ -259,8 +270,10 @@ class WorkerManager {
     this.jobQueue.registerWorker('email.warranty', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const warrantyEmail = requireFn('./warranty-email');
-      if (typeof warrantyEmail.processWarrantyEmailOutbox === 'function') {
-        return await warrantyEmail.processWarrantyEmailOutbox(pool, config, payload);
+      const mailer = getMailer();
+      const fn = warrantyEmail.processWarrantyEmailOutbox || warrantyEmail.processWarrantyEmail;
+      if (typeof fn === 'function') {
+        return await fn(pool, config, mailer);
       }
       return { ok: true };
     });
@@ -268,8 +281,10 @@ class WorkerManager {
     this.jobQueue.registerWorker('email.marketing', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const emailMarketing = requireFn('./email-marketing');
-      if (typeof emailMarketing.processMarketingEmails === 'function') {
-        return await emailMarketing.processMarketingEmails(pool, config, payload);
+      const mailer = getMailer();
+      const fn = emailMarketing.processMarketingEmails || emailMarketing.processEmailQueue;
+      if (typeof fn === 'function') {
+        return await fn(pool, config, mailer);
       }
       return { ok: true };
     });
@@ -286,8 +301,31 @@ class WorkerManager {
           actor: { username: 'job-queue', source: 'system' }
         });
       }
+      try {
+        const { PaymentService } = requireFn('./domain/payments/payment-service');
+        if (typeof PaymentService?.scanOverdueUnknownAttempts === 'function') {
+          return await PaymentService.scanOverdueUnknownAttempts(pool, config);
+        }
+      } catch (err) {
+        console.warn('PaymentService.scanOverdueUnknownAttempts warning:', err?.message || err);
+      }
       if (typeof paymentChannels?.reconcileUnknownGatewayAttempts === 'function') {
         return await paymentChannels.reconcileUnknownGatewayAttempts(pool, config);
+      }
+      return { ok: true };
+    });
+
+    this.jobQueue.registerWorker('orders.cancel_expired', async (payload, _job, leaseContext) => {
+      leaseContext?.assertLeaseActive?.();
+      try {
+        const { OrderExpirationService } = requireFn('./domain/orders/order-expiration-service');
+        if (typeof OrderExpirationService?.cancelExpiredUnpaidOrders === 'function') {
+          return await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+            olderThanHours: payload?.olderThanHours || 24
+          });
+        }
+      } catch (err) {
+        console.error('orders.cancel_expired error:', err.message);
       }
       return { ok: true };
     });
@@ -347,6 +385,17 @@ class WorkerManager {
       }
       return typeof mod?.startPaymentReconciliationWorker === 'function'
         ? mod.startPaymentReconciliationWorker(pool, config)
+        : undefined;
+    });
+    safeStart('orderExpiration', () => {
+      let mod = null;
+      try {
+        mod = requireFn('./domain/orders/order-expiration-service');
+      } catch {
+        return undefined;
+      }
+      return typeof mod?.startOrderExpirationWorker === 'function'
+        ? mod.startOrderExpirationWorker(pool, config)
         : undefined;
     });
   }

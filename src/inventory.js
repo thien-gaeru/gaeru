@@ -303,5 +303,10 @@ async function receiveStock(client, { warehouseId, variantId, quantity, receiptI
   await updateAggregate(client, variantId, variant.stockQuantity + quantity);
 }
 
-module.exports = { initializeVariantStock, setVariantStock, reserveStock, releaseOrderStock,restoreOrderStock,
+async function reserveOrderStock(client, { items, orderId, actor }) {
+  const { InventoryService } = require('./domain/inventory/inventory-service');
+  return InventoryService.reserveOrderStock(client, { items, orderId, actor });
+}
+
+module.exports = { initializeVariantStock, setVariantStock, reserveStock, reserveOrderStock, releaseOrderStock, restoreOrderStock,
   adjustWarehouseStock, transferStock, receiveStock, operationError, MAX_STOCK };

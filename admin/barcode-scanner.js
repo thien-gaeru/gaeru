@@ -207,7 +207,7 @@
   }
 
   const sharedFormat = (root && root.GAERUAdminShared) || (typeof require === 'function' ? require('./format') : null);
-  const escapeHtml = sharedFormat ? sharedFormat.escapeHtml : ((root && root.escapeHtml) || ((v) => String(v ?? '')));
+  const escapeHtml = sharedFormat ? sharedFormat.escapeHtml : ((root && root.escapeHtml) || ((v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])));
 
   return { init };
 });
