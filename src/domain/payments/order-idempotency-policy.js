@@ -171,7 +171,8 @@ function assertOrderOwnership(order, proof, options = {}) {
   const actor = options.actor || proof?.actor;
   if (actor && (
     ['admin', 'owner'].includes(actor.role) ||
-    ['system', 'order_expiration_worker', 'reconciliation-worker'].includes(actor.source)
+    ['system', 'order_expiration_worker', 'reconciliation-worker', 'gateway_callback'].includes(actor.source) ||
+    proof?.gatewaySignatureVerified === true
   )) {
     return true;
   }
@@ -667,6 +668,74 @@ class PaymentAttemptStateMachine {
       );
     }
     return true;
+  }
+
+  /**
+   * Thực hiện chuyển trạng thái phiên thanh toán có rào chắn (Fenced State Transition)
+   * Kiểm tra transition matrix trước khi ghi DB, chống ghi đè phiên đã paid (fail-closed)
+   */
+  static async transitionAttempt(client, {
+    attemptId,
+    fromStatus = null,
+    toStatus,
+    providerTransactionId = null,
+    providerRequestId = null,
+    responseCode = null,
+    lastErrorCode = null,
+    reconciliationAttempts = null,
+    expiresAt = null,
+    updatedAt = new Date()
+  }) {
+    if (!attemptId) {
+      throw Object.assign(new Error('Thiếu ID phiên thanh toán để cập nhật trạng thái.'), { status: 400, code: 'MISSING_ATTEMPT_ID' });
+    }
+
+    if (fromStatus) {
+      this.assertValidTransition(fromStatus, toStatus);
+    }
+
+    const sql = `
+      UPDATE payment_attempts
+      SET status = $2,
+          provider_transaction_id = COALESCE($3, provider_transaction_id),
+          provider_request_id = COALESCE($4, provider_request_id),
+          response_code = COALESCE($5, response_code),
+          last_error_code = $6,
+          reconciliation_attempts = CASE WHEN $7::int IS NOT NULL THEN reconciliation_attempts + $7::int ELSE reconciliation_attempts END,
+          expires_at = COALESCE($8, expires_at),
+          updated_at = $9
+      WHERE id = $1
+        AND (status != 'paid' OR $2 = 'paid')
+        ${fromStatus ? 'AND status = $10' : ''}
+      RETURNING *
+    `;
+
+    const params = [
+      attemptId,
+      toStatus,
+      providerTransactionId,
+      providerRequestId,
+      responseCode !== null && responseCode !== undefined ? String(responseCode) : null,
+      lastErrorCode,
+      reconciliationAttempts !== null ? Number(reconciliationAttempts) : null,
+      expiresAt,
+      updatedAt
+    ];
+    if (fromStatus) {
+      params.push(fromStatus);
+    }
+
+    const res = await client.query(sql, params);
+    if (!res.rows[0]) {
+      const check = (await client.query('SELECT status FROM payment_attempts WHERE id = $1', [attemptId])).rows[0];
+      if (check && check.status === 'paid' && toStatus !== 'paid') {
+        throw Object.assign(
+          new Error(`Phiên thanh toán đã hoàn tất (paid) bất biến; không thể chuyển sang "${toStatus}".`),
+          { status: 409, code: 'PAYMENT_ATTEMPT_ALREADY_PAID' }
+        );
+      }
+    }
+    return res.rows[0] || null;
   }
 }
 

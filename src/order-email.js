@@ -1,5 +1,6 @@
 const { withTransaction } = require('./db');
 const { randomBytes, createHash } = require('node:crypto');
+const { EmailOutboxDispatcher } = require('./domain/email/email-outbox-dispatcher');
 
 const escape = s => String(s).replace(/[&<>"']/g, c => ({
   '&': '&amp;',
@@ -10,123 +11,93 @@ const escape = s => String(s).replace(/[&<>"']/g, c => ({
 }[c]));
 
 async function processOrderEmail(pool, config, mailer, { structured = false } = {}) {
-  if (!mailer || !config?.smtp?.from) {
-    if (structured) {
-      const pending = await pool.query("SELECT 1 FROM order_email_outbox WHERE status = 'pending' LIMIT 1").catch(() => ({ rows: [] }));
-      if (pending?.rows?.length > 0) {
-        return { status: 'unsendable', reason: 'smtp_not_configured' };
-      }
-      return { status: 'no_work' };
-    }
-    return false;
-  }
+  return EmailOutboxDispatcher.dispatchNext(pool, config, mailer, {
+    tableName: 'order_email_outbox',
+    domain: 'order',
+    allowRetry: true,
+    maxAttempts: 3,
+    structured,
+    claimJob: async (client, row) => {
+      const order = (await client.query(
+        'SELECT o.*, (SELECT s.carrier_name FROM order_shipping_selection s WHERE s.order_id=o.id LIMIT 1) AS "shippingCarrierName" FROM orders o WHERE o.id=$1',
+        [row.order_id]
+      )).rows[0];
 
-  await pool.query("UPDATE order_email_outbox SET status='unknown',finished_at=now(),result='Tiến trình gián đoạn; kiểm tra trước khi gửi lại' WHERE status='sending' AND attempted_at<now()-interval '2 minutes'");
-
-  const job = await withTransaction(pool, async c => {
-    const row = (await c.query("SELECT * FROM order_email_outbox WHERE status='pending' AND next_attempt_at<=now() ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
-    if (!row) return null;
-    const order = (await c.query('SELECT o.*, (SELECT s.carrier_name FROM order_shipping_selection s WHERE s.order_id=o.id LIMIT 1) AS "shippingCarrierName" FROM orders o WHERE o.id=$1', [row.order_id])).rows[0];
-    if (!order) {
-      await c.query("UPDATE order_email_outbox SET status='skipped',finished_at=now() WHERE id=$1", [row.id]);
-      return { skipped: true, id: row.id, reason: 'order_not_found' };
-    }
-    let token = null;
-    if (row.kind === 'welcome') {
-      const customer = (await c.query('SELECT id,email,active,deleted_at,checkout_pending FROM customers WHERE id=$1 FOR UPDATE', [row.customer_id])).rows[0];
-      if (!customer || !customer.active || customer.deleted_at || !customer.checkout_pending || order.customer_id !== customer.id) {
-        await c.query("UPDATE order_email_outbox SET status='skipped',finished_at=now() WHERE id=$1", [row.id]);
-        return { skipped: true, id: row.id, reason: 'customer_invalid' };
+      if (!order) {
+        await client.query("UPDATE order_email_outbox SET status='skipped',finished_at=now() WHERE id=$1", [row.id]);
+        return { skipped: true, id: row.id, reason: 'order_not_found' };
       }
-      token = randomBytes(32).toString('hex');
-      await c.query('UPDATE customer_account_setup_tokens SET used_at=now() WHERE customer_id=$1 AND used_at IS NULL', [customer.id]);
-      await c.query("INSERT INTO customer_account_setup_tokens(customer_id,token_hash,expires_at) VALUES($1,$2,now()+interval '24 hours')", [customer.id, createHash('sha256').update(token).digest('hex')]);
-      order.email = customer.email;
+
+      let token = null;
+      if (row.kind === 'welcome') {
+        const customer = (await client.query(
+          'SELECT id,email,active,deleted_at,checkout_pending FROM customers WHERE id=$1 FOR UPDATE',
+          [row.customer_id]
+        )).rows[0];
+
+        if (!customer || !customer.active || customer.deleted_at || !customer.checkout_pending || order.customer_id !== customer.id) {
+          await client.query("UPDATE order_email_outbox SET status='skipped',finished_at=now() WHERE id=$1", [row.id]);
+          return { skipped: true, id: row.id, reason: 'customer_invalid' };
+        }
+
+        token = randomBytes(32).toString('hex');
+        await client.query('UPDATE customer_account_setup_tokens SET used_at=now() WHERE customer_id=$1 AND used_at IS NULL', [customer.id]);
+        await client.query(
+          "INSERT INTO customer_account_setup_tokens(customer_id,token_hash,expires_at) VALUES($1,$2,now()+interval '24 hours')",
+          [customer.id, createHash('sha256').update(token).digest('hex')]
+        );
+        order.email = customer.email;
+      }
+
+      const items = (await client.query(
+        'SELECT product_name,variant_name,quantity,unit_price_vnd FROM order_items WHERE order_id=$1 ORDER BY id',
+        [order.id]
+      )).rows;
+
+      return { order, items, token };
+    },
+    buildMessage: async (job, cfg) => {
+      const base = new URL(require('./primary-domain').normalizePublicBase(cfg.PUBLIC_BASE_URL || cfg.smtp?.publicBaseUrl || 'https://gaeru.com')).origin;
+      const o = job.order;
+      const setup = base + '/tai-khoan?token=' + job.token + '&setup=1#password-reset';
+      const status = { pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', processing: 'Đang chuẩn bị', shipped: 'Đang giao', completed: 'Hoàn tất', cancelled: 'Đã hủy' };
+      const amount = v => new Intl.NumberFormat('vi-VN').format(v) + ' ₫';
+      const text = job.kind === 'welcome'
+        ? 'GAERU đã tạo tài khoản theo email bạn cung cấp khi đặt đơn ' + o.order_number + '.\n\nĐặt mật khẩu và xác minh email bằng liên kết dùng một lần, có hiệu lực 24 giờ:\n' + setup + '\n\nNếu bạn không thực hiện đặt hàng, không mở liên kết và liên hệ business@gaeru.com. Không có mật khẩu nào được gửi trong email này.'
+        : 'GAERU đã tiếp nhận đơn ' + o.order_number + '.\n\n' + job.items.map(i => i.product_name + ' · ' + i.variant_name + ' × ' + i.quantity + ' · ' + amount(i.unit_price_vnd * i.quantity)).join('\n') + '\n\nTạm tính: ' + amount(o.subtotal_vnd) + '\nGiảm giá: ' + amount(o.discount_vnd || 0) + '\nGiao hàng: ' + amount(o.shipping_fee_vnd) + (o.shippingCarrierName ? ' (' + o.shippingCarrierName + ')' : '') + '\nTổng cộng: ' + amount(o.total_vnd) + '\nThanh toán: ' + (o.payment_method === 'cod' ? 'COD — thanh toán khi nhận hàng.' : 'VNPAY — trạng thái hiện tại: ' + o.payment_status) + '.\nTrạng thái: ' + (status[o.status] || 'Đang xử lý') + '. Email này không phải xác nhận đã thanh toán.\n\nGiao tới: ' + o.customer_name + ' · ' + o.address + ', ' + o.city + '\nTài khoản: ' + base + '/tai-khoan\nHỗ trợ: business@gaeru.com · 082 919 1080';
+
+      return {
+        to: o.email,
+        subject: job.kind === 'welcome' ? 'GAERU · Đặt mật khẩu tài khoản mới' : 'GAERU · Đã tiếp nhận đơn ' + o.order_number,
+        text,
+        html: '<html lang="vi"><meta charset="utf-8"><body><h1>' + escape(job.kind === 'welcome' ? 'Chào mừng đến GAERU' : 'Thông tin đơn hàng') + '</h1><div style="white-space:pre-wrap">' + escape(text) + '</div>' + (job.kind === 'welcome' ? '<p><a href="' + escape(setup) + '">Đặt mật khẩu tài khoản</a></p>' : '') + '</body></html>',
+        messageId: '<order-' + job.id + '@gaeru.com>'
+      };
     }
-    const items = (await c.query('SELECT product_name,variant_name,quantity,unit_price_vnd FROM order_items WHERE order_id=$1 ORDER BY id', [order.id])).rows;
-    await c.query("UPDATE order_email_outbox SET status='sending',attempts=attempts+1,attempted_at=now() WHERE id=$1", [row.id]);
-    return { ...row, order, items, token, attempts: row.attempts + 1 };
   });
-
-  if (!job) return structured ? { status: 'no_work' } : false;
-  if (job.skipped) return structured ? { status: 'unsendable', outboxId: job.id, reason: job.reason } : true;
-
-  const base = new URL(require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp?.publicBaseUrl || 'https://gaeru.com')).origin;
-  const o = job.order;
-  const setup = base + '/tai-khoan?token=' + job.token + '&setup=1#password-reset';
-  const status = { pending: 'Chờ xác nhận', confirmed: 'Đã xác nhận', processing: 'Đang chuẩn bị', shipped: 'Đang giao', completed: 'Hoàn tất', cancelled: 'Đã hủy' };
-  const amount = v => new Intl.NumberFormat('vi-VN').format(v) + ' ₫';
-  const text = job.kind === 'welcome'
-    ? 'GAERU đã tạo tài khoản theo email bạn cung cấp khi đặt đơn ' + o.order_number + '.\n\nĐặt mật khẩu và xác minh email bằng liên kết dùng một lần, có hiệu lực 24 giờ:\n' + setup + '\n\nNếu bạn không thực hiện đặt hàng, không mở liên kết và liên hệ business@gaeru.com. Không có mật khẩu nào được gửi trong email này.'
-    : 'GAERU đã tiếp nhận đơn ' + o.order_number + '.\n\n' + job.items.map(i => i.product_name + ' · ' + i.variant_name + ' × ' + i.quantity + ' · ' + amount(i.unit_price_vnd * i.quantity)).join('\n') + '\n\nTạm tính: ' + amount(o.subtotal_vnd) + '\nGiảm giá: ' + amount(o.discount_vnd || 0) + '\nGiao hàng: ' + amount(o.shipping_fee_vnd) + (o.shippingCarrierName ? ' (' + o.shippingCarrierName + ')' : '') + '\nTổng cộng: ' + amount(o.total_vnd) + '\nThanh toán: ' + (o.payment_method === 'cod' ? 'COD — thanh toán khi nhận hàng.' : 'VNPAY — trạng thái hiện tại: ' + o.payment_status) + '.\nTrạng thái: ' + (status[o.status] || 'Đang xử lý') + '. Email này không phải xác nhận đã thanh toán.\n\nGiao tới: ' + o.customer_name + ' · ' + o.address + ', ' + o.city + '\nTài khoản: ' + base + '/tai-khoan\nHỗ trợ: business@gaeru.com · 082 919 1080';
-
-  let outcomeStatus = 'sent';
-  let outcomeError = null;
-
-  try {
-    const result = await mailer.sendMail({
-      from: config.smtp.from,
-      to: o.email,
-      subject: job.kind === 'welcome' ? 'GAERU · Đặt mật khẩu tài khoản mới' : 'GAERU · Đã tiếp nhận đơn ' + o.order_number,
-      text,
-      html: '<html lang="vi"><meta charset="utf-8"><body><h1>' + escape(job.kind === 'welcome' ? 'Chào mừng đến GAERU' : 'Thông tin đơn hàng') + '</h1><div style="white-space:pre-wrap">' + escape(text) + '</div>' + (job.kind === 'welcome' ? '<p><a href="' + escape(setup) + '">Đặt mật khẩu tài khoản</a></p>' : '') + '</body></html>',
-      messageId: '<order-' + job.id + '@gaeru.com>'
-    });
-    const accepted = result?.accepted?.some(x => String(x.address || x).toLowerCase() === o.email.toLowerCase());
-    const finalStatus = accepted ? 'sent' : result?.rejected?.length ? 'failed' : 'unknown';
-    await pool.query("UPDATE order_email_outbox SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'", [
-      job.id,
-      finalStatus,
-      accepted ? 'SMTP đã tiếp nhận' : result?.rejected?.length ? 'SMTP từ chối' : 'Chưa xác định kết quả SMTP'
-    ]);
-    outcomeStatus = accepted ? 'sent' : result?.rejected?.length ? 'unsendable' : 'unknown';
-  } catch (e) {
-    const safeRetry = (Number(e.responseCode) >= 400 && Number(e.responseCode) < 500) || (!e.responseCode && ['CONN', 'EHLO', 'STARTTLS', 'AUTH', 'MAIL FROM', 'RCPT TO'].includes(e.command));
-    const retry = safeRetry && job.attempts < 3;
-    const finalStatus = retry ? 'pending' : Number(e.responseCode) >= 400 ? 'failed' : 'unknown';
-    await pool.query("UPDATE order_email_outbox SET status=$2,next_attempt_at=now()+interval '5 minutes',finished_at=CASE WHEN $2='pending' THEN NULL ELSE now() END,result=$3 WHERE id=$1 AND status='sending'", [
-      job.id,
-      finalStatus,
-      retry ? 'Chờ thử lại kết nối SMTP' : 'Kiểm tra kết quả trước khi gửi lại'
-    ]);
-    outcomeStatus = retry ? 'retry' : Number(e.responseCode) >= 400 ? 'unsendable' : 'unknown';
-    outcomeError = e.message;
-  }
-
-  if (structured) {
-    return {
-      status: outcomeStatus,
-      outboxId: job.id,
-      orderId: job.order_id,
-      attempts: job.attempts,
-      error: outcomeError
-    };
-  }
-  return true;
 }
 
-function startOrderEmailWorker(pool, config, { mailer = config?.smtp ? require('nodemailer').createTransport(require('./smtp-security').smtpOptions(config.smtp)) : null, intervalMs = 15000 } = {}) {
-  let stopped = false, running = false;
-  const run = async () => {
-    if (stopped || running) return;
+function startOrderEmailWorker(pool, config, mailer) {
+  let timer = null;
+  let running = false;
+
+  const tick = async () => {
+    if (running) return;
     running = true;
     try {
-      await require('./order-review').screenNextEmail(pool);
-      await processOrderEmail(pool, config, mailer);
-      await require('./order-review').classify(pool);
-      await require('./order-review').notifyAdmin(pool, config, mailer);
-    } catch {
-      console.error('Order email queue temporarily unavailable');
+      while (await processOrderEmail(pool, config, mailer)) {}
+    } catch (e) {
+      console.error('Order email worker loop error:', e);
     } finally {
       running = false;
     }
   };
-  const timer = setInterval(run, intervalMs);
-  timer.unref?.();
-  void run();
+
+  timer = setInterval(tick, 10000);
+  void tick();
+
   return () => {
-    stopped = true;
-    clearInterval(timer);
+    if (timer) clearInterval(timer);
   };
 }
 

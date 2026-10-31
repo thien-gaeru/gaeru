@@ -160,55 +160,16 @@ function attachPublicAndCheckoutRoutes(router, pool, {
 
   router.get('/payments/order-status', async (req, res, next) => {
     try {
-      const orderNumber = require('../payment-channels').extractOrderNumber(req.query.order);
+      const orderNumber = req.query.order;
       if (!orderNumber) return res.status(400).json({ error: 'Thiếu mã đơn hàng.' });
-      const row = (await pool.query(
-        `SELECT o.id, o.order_number AS "orderNumber", o.status, o.payment_method AS "paymentMethod",
-                o.payment_status AS "paymentStatus", o.total_vnd AS "totalVnd", o.updated_at AS "updatedAt",
-                o.email, o.phone, o.customer_id AS "customerId",
-                (SELECT p.status FROM payment_attempts p WHERE p.order_id = o.id ORDER BY p.created_at DESC LIMIT 1) AS "paymentAttemptStatus"
-         FROM orders o WHERE o.order_number = $1`,
-        [orderNumber]
-      )).rows[0];
-      if (!row) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
 
-      const token = req.headers['x-order-token'] ||
-                    (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null) ||
-                    req.query.token;
+      const { PaymentService } = require('../domain/payments/payment-service');
+      const identityProof = PaymentService.extractIdentityProofFromRequest(req);
       const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
-      const { checkOrderOwnership } = require('../domain/payments/order-idempotency-policy');
-      const isOwner = checkOrderOwnership(row, {
-        orderAccessToken: token,
-        sessionCustomerId: req.session?.customer?.id,
-        sessionCustomerEmail: req.session?.customer?.email,
-        sessionCreatedOrders: req.session?.createdOrders
-      }, { secret, actor: req.actor });
 
-      if (isOwner) {
-        return res.json({
-          order: {
-            orderNumber: row.orderNumber,
-            status: row.status,
-            paymentMethod: row.paymentMethod,
-            paymentStatus: row.paymentStatus,
-            totalVnd: row.totalVnd,
-            updatedAt: row.updatedAt,
-            paymentAttemptStatus: row.paymentAttemptStatus
-          },
-          verified: true
-        });
-      }
-
-      // Giới hạn phạm vi công khai: TUYỆT ĐỐI KHÔNG để lộ totalVnd, phương thức thanh toán hay dữ liệu nhạy cảm
-      return res.json({
-        order: {
-          orderNumber: row.orderNumber,
-          status: row.status,
-          paymentStatus: row.paymentStatus,
-          paymentAttemptStatus: row.paymentAttemptStatus
-        },
-        verified: false
-      });
+      const result = await PaymentService.getOrderPaymentStatus(pool, orderNumber, identityProof, { secret });
+      if (!result) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+      return res.json(result);
     } catch (error) {
       next(error);
     }

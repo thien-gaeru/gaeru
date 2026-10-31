@@ -454,6 +454,89 @@ class PaymentService {
   }
 
   /**
+   * Trích xuất bằng chứng định danh (identity proof) từ HTTP Request
+   * @param {Object} req Express request
+   * @returns {Object} Canonical identity proof
+   */
+  static extractIdentityProofFromRequest(req) {
+    if (!req) return {};
+    const token = req.headers?.['x-order-token'] ||
+                  (req.headers?.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null) ||
+                  req.body?.orderAccessToken ||
+                  req.body?.token ||
+                  req.query?.token;
+
+    return {
+      orderAccessToken: token || null,
+      sessionCustomerId: req.session?.customer?.id || null,
+      sessionCustomerEmail: req.session?.customer?.email || null,
+      sessionCustomerPhone: req.session?.customer?.phone || null,
+      sessionCreatedOrders: Array.isArray(req.session?.createdOrders) ? req.session.createdOrders : [],
+      actor: req.actor || (req.session?.customer?.id ? { id: req.session.customer.id, username: req.session.customer.email, role: 'customer' } : null)
+    };
+  }
+
+  /**
+   * Tra cứu trạng thái đơn hàng & thanh toán (Fail-Closed, tự động thu gọn phạm vi công khai)
+   * Router chỉ chuyển identity proof; dịch vụ miền kiểm tra quyền sở hữu và bảo vệ dữ liệu nhạy cảm.
+   * @param {Object} pool Connection pool
+   * @param {string} orderIdentifier Mã đơn hàng (orderNumber)
+   * @param {Object} identityProof Bằng chứng định danh
+   * @param {Object} [options]
+   * @returns {Promise<Object|null>}
+   */
+  static async getOrderPaymentStatus(pool, orderIdentifier, identityProof = {}, options = {}) {
+    const cleanOrderNumber = require('../../payment-channels').extractOrderNumber(orderIdentifier);
+    if (!cleanOrderNumber) {
+      throw Object.assign(new Error('Thiếu mã đơn hàng hợp lệ.'), { status: 400, code: 'INVALID_ORDER_NUMBER' });
+    }
+
+    const row = (await pool.query(
+      `SELECT o.id, o.order_number AS "orderNumber", o.status, o.payment_method AS "paymentMethod",
+              o.payment_status AS "paymentStatus", o.total_vnd AS "totalVnd", o.updated_at AS "updatedAt",
+              o.email, o.phone, o.customer_id AS "customerId",
+              (SELECT p.status FROM payment_attempts p WHERE p.order_id = o.id ORDER BY p.created_at DESC LIMIT 1) AS "paymentAttemptStatus"
+       FROM orders o WHERE o.order_number = $1`,
+      [cleanOrderNumber]
+    )).rows[0];
+
+    if (!row) return null;
+
+    const { checkOrderOwnership } = require('./order-idempotency-policy');
+    const secret = options.secret || process.env.SESSION_SECRET;
+    const isOwner = checkOrderOwnership(row, identityProof, {
+      secret,
+      actor: identityProof.actor || options.actor
+    });
+
+    if (isOwner) {
+      return {
+        order: {
+          orderNumber: row.orderNumber,
+          status: row.status,
+          paymentMethod: row.paymentMethod,
+          paymentStatus: row.paymentStatus,
+          totalVnd: row.totalVnd,
+          updatedAt: row.updatedAt,
+          paymentAttemptStatus: row.paymentAttemptStatus
+        },
+        verified: true
+      };
+    }
+
+    // Phạm vi công khai: Ẩn tuyệt đối tổng tiền, địa chỉ, phương thức thanh toán
+    return {
+      order: {
+        orderNumber: row.orderNumber,
+        status: row.status,
+        paymentStatus: row.paymentStatus,
+        paymentAttemptStatus: row.paymentAttemptStatus
+      },
+      verified: false
+    };
+  }
+
+  /**
    * Đối soát trạng thái đơn hàng trực tiếp với cổng thanh toán dưới khóa giao dịch
    */
   static async reconcileOrder(pool, options) {
