@@ -2892,3 +2892,106 @@ test('P3-02 Fix: resolveOrderAccessToken alerts system and returns diagnostic wa
   assert.ok(alerts.rows.length >= 1, 'Hệ thống phải tự động ghi nhận cảnh báo bảo mật khi thiếu secret');
   assert.equal(alerts.rows[0].severity, 'critical');
 });
+
+test('Audit Fix: Customer session /me query includes regEmailFailedAt and googleId, activating lifecycle warnings and timeout auto-lock', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const express = require('express');
+  const { createCustomerAuthRouter } = require('../src/customer-auth');
+
+  // Customer 1: reg_email_failed_at is 1 hour ago -> should trigger warning
+  const c1Id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO customers (id, full_name, email, phone, password_hash, reg_email_failed_at)
+     VALUES ($1, 'Customer Warn', 'warn@gaeru.com', '0912345671', 'hash123', now() - interval '1 hour')`,
+    [c1Id]
+  );
+
+  // Customer 2: reg_email_failed_at is 13 hours ago -> should auto-lock
+  const c2Id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO customers (id, full_name, email, phone, password_hash, reg_email_failed_at)
+     VALUES ($1, 'Customer Expire', 'expire@gaeru.com', '0912345672', 'hash123', now() - interval '13 hours')`,
+    [c2Id]
+  );
+
+  const app = express();
+  app.use(express.json());
+  let currentSessionCustomer = null;
+  app.use((req, res, next) => {
+    req.session = { customer: currentSessionCustomer, csrfToken: 'test-csrf' };
+    next();
+  });
+  app.use('/auth', createCustomerAuthRouter(pool, { smtpConfig: null, isTest: true }));
+
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(r => server.once('listening', r));
+  if (t && typeof t.after === 'function') t.after(() => new Promise(r => server.close(r)));
+  const port = server.address().port;
+
+  // Case 1: Session of Customer 1 -> must return warning
+  currentSessionCustomer = { id: c1Id };
+  const res1 = await fetch(`http://127.0.0.1:${port}/auth/me`);
+  const data1 = await res1.json();
+  assert.equal(data1.authenticated, true);
+  assert.equal(data1.customer.regEmailWarning, true, 'GET /me phải trả về regEmailWarning khi reg_email_failed_at được chọn');
+  assert.equal(data1.customer.regEmailWarningRemainingHours, 11);
+  assert.ok(data1.customer.regEmailWarningMessage.includes('11 giờ'));
+
+  // Case 2: Session of Customer 2 -> must auto-lock and de-authenticate
+  currentSessionCustomer = { id: c2Id };
+  const res2 = await fetch(`http://127.0.0.1:${port}/auth/me`);
+  const data2 = await res2.json();
+  assert.equal(data2.authenticated, false);
+  assert.ok(data2.error.includes('tự động khóa'));
+
+  // Kiểm tra cờ active trong database đã chuyển sang false
+  const dbC2 = (await pool.query('SELECT active, lock_reason FROM customers WHERE id = $1', [c2Id])).rows[0];
+  assert.equal(dbC2.active, false);
+  assert.equal(dbC2.lock_reason, 'reg_email_failed_timeout');
+});
+
+test('Audit Fix: OrderExpirationService records system alert when individual order cancellation throws error', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query("INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính Alert Exp', 'kinh-alert-exp', 'audio', true)", [pId]);
+  await pool.query("INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-ALERT-01', 'Đen', 300000, 10, true)", [vId, pId]);
+
+  const orderId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-FAIL-STOCK-01', 'Fail Stock Buyer', 'failstock@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'bank_transfer', 'pending', 'pending', 300000, 300000, 0, now() - interval '30 hours')`,
+    [orderId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính Alert Exp', 'Đen', 'SKU-ALERT-01', 1, 300000, 300000)`,
+    [orderId, vId]
+  );
+
+  // Mock inventory ném lỗi để kiểm tra hệ thống ghi nhận alert
+  const mockFailingInventory = {
+    releaseOrderStock: async () => {
+      throw new Error('MOCK_INVENTORY_LEDGER_LOCKED: Kho bị khóa không thể hoàn tồn.');
+    }
+  };
+
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 24,
+    inventory: mockFailingInventory
+  });
+
+  assert.equal(cancelled.length, 0);
+  assert.equal(cancelled.failedCount, 1);
+  assert.ok(cancelled.errors[0].error.includes('MOCK_INVENTORY_LEDGER_LOCKED'));
+
+  // Kiểm tra bảng system_alerts có ghi nhận sự cố cảnh báo
+  const alerts = await pool.query("SELECT * FROM system_alerts WHERE source = 'order_expiration_cancellation_failed'");
+  assert.ok(alerts.rows.length >= 1, 'Hệ thống phải tự động cảnh báo system_alerts khi đơn quá hạn bị lỗi hủy');
+  assert.equal(alerts.rows[0].severity, 'warning');
+  assert.ok(alerts.rows[0].message.includes('GR-FAIL-STOCK-01'));
+});
