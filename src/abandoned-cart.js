@@ -2,6 +2,8 @@
 
 const crypto = require('node:crypto');
 const express = require('express');
+const { escapeHtml } = require('./shared/format');
+const { AdminAction } = require('./admin-action');
 
 async function recordCartContact(pool, { email, phone, customerName, items = [], subtotalVnd = 0 }) {
   const normEmail = String(email || '').trim().toLowerCase() || null;
@@ -131,9 +133,6 @@ async function processAbandonedCartReminders(pool, mailer, config) {
   return sent;
 }
 
-function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
 
 function createAbandonedCartRouter(pool, config, mailer) {
   const router = express.Router();
@@ -163,7 +162,7 @@ function createAbandonedCartRouter(pool, config, mailer) {
 
 function createAbandonedCartAdmin(pool) {
   const router = express.Router();
-  router.get('/abandoned-carts', async (req, res, next) => {
+  router.get('/abandoned-carts', AdminAction('marketing.read'), async (req, res, next) => {
     try {
       const statsRes = await pool.query(`
         SELECT

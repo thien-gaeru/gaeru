@@ -30,7 +30,7 @@ async function fixture({ result={verified:false,reachable:true,method:'gateway_r
     return result;
   }};
   const context={window:{GAERUAdmin:admin},document,setTimeout:fn=>fn()};
-  vm.runInNewContext(fs.readFileSync(require.resolve('../admin/configuration.js'),'utf8'),context);
+  const { readAdminBundle } = require('./helpers/admin-sources'); vm.runInNewContext(readAdminBundle(['format.js', 'configuration-channels.js', 'configuration-ai-ops.js', 'configuration.js']), context);
   await context.window.GAERUConfiguration.mountPayments();
   const modal=document.createElement('div');
   modal.className='config-modal-dialog';

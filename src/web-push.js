@@ -70,17 +70,9 @@ function createPushPublicRouter(pool) {
 
 function createPushAdminRouter(pool) {
   const router = express.Router();
-  const guardMarketingWrite = (req, res, next) => {
-    if (req.admin) {
-      return requirePermission('marketing.write')(req, res, () => {
-        if (req.session) return requireCsrf(req, res, next);
-        next();
-      });
-    }
-    next();
-  };
+  const { AdminAction } = require('./admin-action');
 
-  router.post('/push/broadcast', guardMarketingWrite, express.json(), async (req, res, next) => {
+  router.post('/push/broadcast', AdminAction('marketing.write'), express.json(), async (req, res, next) => {
     try {
       const { title = 'GAERU Flash Sale', body = 'Ưu đãi micro thu âm chính hãng đã bắt đầu!', url = '/' } = req.body || {};
       const result = await broadcastPushNotification(pool, { title, body, url });

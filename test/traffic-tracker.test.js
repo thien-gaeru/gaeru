@@ -105,7 +105,7 @@ test('Trang tong quan contains traffic section, metrics and live indicators', ()
   assert.ok(html.includes('id="metric-active-count"'), 'Must have #metric-active-count');
   assert.ok(html.includes('id="btn-refresh-traffic"'), 'Must have #btn-refresh-traffic');
 
-  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin-overview.js'), 'utf8');
   assert.ok(adminJs.includes('renderTrafficMetrics'), 'Must define renderTrafficMetrics in admin.js');
   assert.ok(adminJs.includes('loadTrafficSummary'), 'Must define loadTrafficSummary in admin.js');
   assert.ok(adminJs.includes('btn-refresh-traffic'), 'Must bind btn-refresh-traffic event listener');

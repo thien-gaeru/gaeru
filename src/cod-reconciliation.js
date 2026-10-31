@@ -2,7 +2,8 @@
 
 const express = require('express');
 const crypto = require('node:crypto');
-const { transitionPaymentStatus } = require('./domain/payments/payment-policy');
+const { isOnlineGateway, transitionPaymentStatus } = require('./domain/payments/payment-policy');
+const { AdminAction } = require('./admin-action');
 
 async function processCodReconciliation(pool, { carrier = 'spx', fileName = 'bang-ke.csv', items = [] }) {
   if (!Array.isArray(items) || !items.length) {
@@ -35,13 +36,13 @@ async function processCodReconciliation(pool, { carrier = 'spx', fileName = 'ban
     let orderRow = null;
     if (orderCode) {
       orderRow = (await pool.query(
-        `SELECT id, order_number, total_vnd, payment_status, status FROM orders WHERE order_number = $1`,
+        `SELECT id, order_number, total_vnd, payment_method, payment_status, status FROM orders WHERE order_number = $1`,
         [orderCode]
       )).rows[0];
     }
     if (!orderRow && trackingCode) {
       orderRow = (await pool.query(
-        `SELECT id, order_number, total_vnd, payment_status, status FROM orders WHERE note LIKE $1 LIMIT 1`,
+        `SELECT id, order_number, total_vnd, payment_method, payment_status, status FROM orders WHERE note LIKE $1 LIMIT 1`,
         [`%${trackingCode}%`]
       )).rows[0];
     }
@@ -62,9 +63,9 @@ async function processCodReconciliation(pool, { carrier = 'spx', fileName = 'ban
         status = 'mismatch';
         hasDiscrepancy = true;
       } else {
-        // Automatically mark order as paid if COD was pending!
-        if (orderRow.payment_status === 'pending') {
-          await transitionPaymentStatus(pool, { orderId: orderRow.id, targetStatus: 'paid' });
+        // Automatically mark manual COD/bank order as paid if pending; never override online gateways via COD CSV
+        if (orderRow.payment_status === 'pending' && !isOnlineGateway(orderRow.payment_method)) {
+          await transitionPaymentStatus(pool, { orderId: orderRow.id, targetStatus: 'paid', autoOrderComplete: true });
         }
       }
     }
@@ -101,7 +102,7 @@ async function processCodReconciliation(pool, { carrier = 'spx', fileName = 'ban
 function createCodReconciliationAdmin(pool) {
   const router = express.Router();
 
-  router.post('/cod/reconcile', express.json(), async (req, res, next) => {
+  router.post('/cod/reconcile', AdminAction('payments.write'), express.json(), async (req, res, next) => {
     try {
       const { carrier, fileName, items } = req.body || {};
       const result = await processCodReconciliation(pool, { carrier, fileName, items });
@@ -111,7 +112,7 @@ function createCodReconciliationAdmin(pool) {
     }
   });
 
-  router.get('/cod/batches', async (req, res, next) => {
+  router.get('/cod/batches', AdminAction('finance.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, batch_code AS "batchCode", carrier, total_orders AS "totalOrders",
@@ -128,7 +129,7 @@ function createCodReconciliationAdmin(pool) {
     }
   });
 
-  router.get('/cod/batches/:id', async (req, res, next) => {
+  router.get('/cod/batches/:id', AdminAction('finance.read'), async (req, res, next) => {
     try {
       const batchRes = await pool.query(
         `SELECT id, batch_code AS "batchCode", carrier, total_orders AS "totalOrders",

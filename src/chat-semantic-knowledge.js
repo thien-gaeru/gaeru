@@ -125,9 +125,10 @@ async function searchKnowledge(pool, queryText, { limit = 3, productSlug = null 
 }
 
 function createKnowledgeAdminRouter(pool) {
+  const { AdminAction } = require('./admin-action');
   const router = express.Router();
 
-  router.get('/knowledge', async (req, res, next) => {
+  router.get('/knowledge', AdminAction('settings.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, category, product_slug AS "productSlug", title, content, keywords, active, updated_at AS "updatedAt"
@@ -140,7 +141,7 @@ function createKnowledgeAdminRouter(pool) {
     }
   });
 
-  router.post('/knowledge', express.json(), async (req, res, next) => {
+  router.post('/knowledge', AdminAction('settings.write'), express.json(), async (req, res, next) => {
     try {
       const { category = 'general', productSlug = null, title, content, keywords = [] } = req.body || {};
       if (!title || !content) return res.status(400).json({ error: 'Tiêu đề và nội dung là bắt buộc.' });
@@ -157,7 +158,7 @@ function createKnowledgeAdminRouter(pool) {
     }
   });
 
-  router.delete('/knowledge/:id', async (req, res, next) => {
+  router.delete('/knowledge/:id', AdminAction('settings.write'), async (req, res, next) => {
     try {
       await pool.query(`DELETE FROM chat_knowledge_documents WHERE id = $1`, [req.params.id]);
       res.json({ ok: true });

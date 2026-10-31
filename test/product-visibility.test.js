@@ -171,7 +171,7 @@ test('Product visibility toggle API hides and reveals products with variant vali
 });
 
 test('Admin UI renders "Ẩn sản phẩm" and "Hiện sản phẩm" buttons in product row actions', () => {
-  const adminJsContent = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
+  const adminJsContent = fs.readFileSync(path.join(__dirname, '../admin/admin-catalog.js'), 'utf8');
 
   // Verify button markup is in renderProducts
   assert.match(adminJsContent, /data-toggle-visibility/);

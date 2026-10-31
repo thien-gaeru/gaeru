@@ -92,7 +92,7 @@ test('product editor highlights invalid fields with red borders and specific err
     }
   };
 
-  const scriptSource = fs.readFileSync(require.resolve('../admin/product-editor.js'), 'utf8');
+  const { readAdminBundle } = require('./helpers/admin-sources'); const scriptSource = readAdminBundle(['format.js', 'product-editor-media.js', 'product-editor-variants.js', 'product-editor.js']);
   vm.createContext(context);
   vm.runInContext(scriptSource, context);
 

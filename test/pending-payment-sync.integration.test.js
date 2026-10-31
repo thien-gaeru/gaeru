@@ -80,7 +80,7 @@ test('admin orders workspace correctly syncs and filters pending-payment orders'
   // Check 4: UI integration - tab and button exist and click handlers work
   const markup = fs.readFileSync(require.resolve('../admin/index.html'), 'utf8');
   const { document, window } = parseHTML(markup);
-  const source = fs.readFileSync(require.resolve('../admin/admin.js'), 'utf8');
+  const { readAdminBundle } = require('./helpers/admin-sources'); const source = readAdminBundle(['admin.js', 'admin-orders.js']);
 
   // Verify markup has the unpaid filter button and clickable stat card
   assert.ok(document.querySelector('#btn-unpaid-orders'), 'Nút Đơn chờ thanh toán exists in orders filter bar');
@@ -182,7 +182,8 @@ test('unpaid order in review queue is visible and actionable when filtering by p
   // 5. Test UI status warning pill and review callout
   const markup = fs.readFileSync(require.resolve('../admin/index.html'), 'utf8');
   const { document, window } = parseHTML(markup);
-  const source = fs.readFileSync(require.resolve('../admin/admin.js'), 'utf8');
+  const { readAdminBundle } = require('./helpers/admin-sources');
+  const source = readAdminBundle(['admin.js', 'admin-orders.js']);
 
   const state = {
     orders: unpaidData.orders,

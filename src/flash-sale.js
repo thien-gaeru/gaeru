@@ -1,8 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { requirePermission } = require('./staff-access');
-const { requireCsrf } = require('./security');
+const { AdminAction } = require('./admin-action');
 
 async function getActiveFlashSale(pool) {
   const result = await pool.query(
@@ -116,7 +115,7 @@ function createFlashSalePublicRouter(pool) {
 
 function createFlashSaleAdminRouter(pool) {
   const router = express.Router();
-  router.get('/flash-sales', async (req, res, next) => {
+  router.get('/flash-sales', requireAdminAction('marketing.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`SELECT * FROM flash_sales ORDER BY created_at DESC`);
       res.json({ sales: result.rows });

@@ -117,7 +117,7 @@ test('Trang tong quan contains system health UI elements and scripts', () => {
   assert.ok(indexHtml.includes('id="health-waf-status"'), 'Must have #health-waf-status');
   assert.ok(indexHtml.includes('id="btn-refresh-health"'), 'Must have #btn-refresh-health');
 
-  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin-overview.js'), 'utf8');
   assert.ok(adminJs.includes('loadSystemHealth'), 'Must define loadSystemHealth in admin/admin.js');
   assert.ok(adminJs.includes('/api/gaeru_ceo/system-health'), 'Must request /api/gaeru_ceo/system-health');
   assert.ok(adminJs.includes('btn-refresh-health'), 'Must bind btn-refresh-health in admin/admin.js');

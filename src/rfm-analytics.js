@@ -1,5 +1,6 @@
 'use strict';
 const { Router } = require('express');
+const { AdminAction } = require('./admin-action');
 
 const RFM_SEGMENTS = {
   champions: {
@@ -168,7 +169,7 @@ function createRfmAdminRouter(pool) {
     } catch (err) { next(err); }
   });
 
-  router.get('/customers/rfm', async (_req, res, next) => {
+  router.get('/customers/rfm', AdminAction('customers.read'), async (_req, res, next) => {
     try {
       const data = await getRfmCustomerSegmentation(pool);
       res.json(data);

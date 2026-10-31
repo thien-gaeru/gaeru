@@ -1,10 +1,10 @@
-const { isOnlineGateway, transitionPaymentStatus } = require('./domain/payments/payment-policy');
+const { PaymentService } = require('./domain/payments/payment-service');
+const { isOnlineGateway } = require('./domain/payments/payment-policy');
+const { AdminAction } = require('./admin-action');
 const { Router } = require("express");
 const { z } = require("zod");
 const { createHash, randomUUID } = require("node:crypto");
 const { withTransaction } = require("./db");
-const { requireCsrf } = require("./security");
-const { requirePermission } = require("./staff-access");
 const { appendAudit } = require("./audit");
 
 const amount = z.number().int().positive().max(1_000_000_000_000);
@@ -74,7 +74,7 @@ function range(query, now = new Date()) {
 function createFinanceApi(pool) {
   const router = Router();
   const route = (handler) => async (req, res, next) => { try { await handler(req, res); } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); next(error); } };
-  router.get("/finance/summary", requirePermission("finance.read"), route(async (_req, res) => {
+  router.get("/finance/summary", AdminAction("finance.read"), route(async (_req, res) => {
     const result = await pool.query(`SELECT
       (SELECT COALESCE(SUM(CASE WHEN o.status='cancelled' OR o.return_completed_at IS NOT NULL THEN 0 WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE(r.received,0) END),0) FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id) AS "salesPaidVnd",
       (SELECT COALESCE(SUM(GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0)),0) FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE o.payment_status<>'paid' AND o.status<>'cancelled' AND o.return_completed_at IS NULL) AS "salesOutstandingVnd",
@@ -85,21 +85,21 @@ function createFinanceApi(pool) {
     summary.supplierOutstandingVnd = summary.purchasesReceivedVnd - summary.supplierPaidVnd;
     res.json({ summary });
   }));
-  router.get("/finance/receivables", requirePermission("finance.read"), route(async (req, res) => {
+  router.get("/finance/receivables", AdminAction("finance.read"), route(async (req, res) => {
     const { search } = pageQuery(req.query);
     const where = `o.payment_status<>'paid' AND o.status<>'cancelled' AND o.return_completed_at IS NULL AND ($1::text='' OR o.order_number ILIKE '%'||$1||'%' OR o.customer_name ILIKE '%'||$1||'%' OR o.phone ILIKE '%'||$1||'%')`;
     const result = await paged(pool, req.query, `SELECT o.id,o.order_number AS "orderNumber",o.customer_name AS "customerName",o.email,o.phone,o.total_vnd AS "totalVnd",COALESCE(r.received,0) AS "receivedVnd",GREATEST(COALESCE(o.total_vnd,0)-COALESCE(r.received,0),0) AS "outstandingVnd",o.status,o.payment_method AS "paymentMethod",o.created_at AS "createdAt" FROM orders o LEFT JOIN (SELECT order_id,SUM(amount_vnd) received FROM sales_receipts GROUP BY order_id) r ON r.order_id=o.id WHERE ${where} ORDER BY o.created_at DESC`, `SELECT COUNT(*)::int total FROM orders o WHERE ${where}`, [search]);
     res.json({ receivables: result.rows, pagination: result.pagination });
   }));
-  router.get("/finance/payables", requirePermission("finance.read"), route(async (_req, res) => {
+  router.get("/finance/payables", AdminAction("finance.read"), route(async (_req, res) => {
     const result = await pool.query(`SELECT s.id AS "supplierId",s.name AS "supplierName",COALESCE(r.received,0) AS "receivedVnd",COALESCE(p.paid,0) AS "paidVnd",COALESCE(r.received,0)-COALESCE(p.paid,0) AS "outstandingVnd" FROM suppliers s LEFT JOIN (SELECT p.supplier_id,SUM(i.line_total_vnd) received FROM goods_receipt_items i JOIN goods_receipts g ON g.id=i.goods_receipt_id JOIN purchase_orders p ON p.id=g.purchase_order_id GROUP BY p.supplier_id) r ON r.supplier_id=s.id LEFT JOIN (SELECT supplier_id,SUM(amount_vnd) paid FROM supplier_payments WHERE status='posted' GROUP BY supplier_id) p ON p.supplier_id=s.id ORDER BY s.name LIMIT 1000`);
     res.json({ payables: result.rows.map(numeric) });
   }));
-  router.get("/finance/customer-payments", requirePermission("finance.read"), route(async (req, res) => {
+  router.get("/finance/customer-payments", AdminAction("finance.read"), route(async (req, res) => {
     const result = await paged(pool, req.query, `SELECT r.id,r.order_id AS "orderId",o.order_number AS "orderNumber",r.amount_vnd AS "amountVnd",r.method,r.reference,r.note,r.created_by AS "createdBy",r.created_at AS "createdAt" FROM sales_receipts r JOIN orders o ON o.id=r.order_id ORDER BY r.created_at DESC`, "SELECT COUNT(*)::int total FROM sales_receipts");
     res.json({ payments: result.rows, pagination: result.pagination });
   }));
-  router.post("/finance/customer-payments", requirePermission("payments.write"), requireCsrf, route(async (req, res) => {
+  router.post("/finance/customer-payments", AdminAction("payments.write"), route(async (req, res) => {
     const parsed = receiptSchema.safeParse(req.body);
     if (!parsed.success) throw fail(400, "Thông tin phiếu thu chưa hợp lệ.");
     const data = parsed.data;
@@ -107,30 +107,26 @@ function createFinanceApi(pool) {
       const previous = await idempotent(client, "sales_receipts", data);
       if (previous) return { id: previous.id, replayed: true };
       const order = (await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [data.orderId])).rows[0];
-      if (!order) throw fail(404, "Không tìm thấy đơn hàng.");
-      if (isOnlineGateway(order.payment_method)) throw fail(409, "Thanh toán trực tuyến được đối soát qua cổng thanh toán.");
-      if (order.status === "cancelled" || order.payment_status === "paid" || order.total_vnd === null) throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
-      if (order.payment_method === "cod" && !["shipped", "completed"].includes(order.status)) throw fail(409, "Chỉ ghi nhận tiền COD sau khi giao hàng.");
-      const received = await receiptTotal(client, order.id);
-      if (data.amountVnd > order.total_vnd - received) throw fail(409, "Số tiền thu vượt số tiền còn phải thu.");
-      const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, data.amountVnd, data.method, data.reference, data.note, data.requestKey, digest(data), req.admin.username]);
-      if (received + data.amountVnd === order.total_vnd) {
-        await transitionPaymentStatus(client, { orderId: order.id, targetStatus: 'paid', autoOrderComplete: true });
-      }
-      await appendAudit(client, { actor: req.admin, action: "finance.receipt.post", entityType: "sales_receipt", entityId: inserted.rows[0].id, metadata: { orderId: order.id, amountVnd: data.amountVnd, method: data.method } });
-      return { id: inserted.rows[0].id, replayed: false };
+      return await PaymentService.collectManualReceipt(client, {
+        order,
+        data,
+        requestHash: digest(data),
+        actor: req.admin,
+        receiptTotalFn: receiptTotal,
+        auditFn: appendAudit
+      });
     });
     res.status(result.replayed ? 200 : 201).json(result);
   }));
   for (const definition of [{ path: "supplier-payments", table: "supplier_payments", schema: supplierPaymentSchema, listKey: "payments" }, { path: "expenses", table: "expense_requests", schema: expenseSchema, listKey: "expenses" }]) {
     const { table } = definition;
-    router.get(`/finance/${definition.path}`, requirePermission("finance.read"), route(async (req, res) => {
+    router.get(`/finance/${definition.path}`, AdminAction("finance.read"), route(async (req, res) => {
       const fields = table === "supplier_payments" ? 't.supplier_id AS "supplierId",s.name AS "supplierName",' : "t.category,t.payee,";
       const join = table === "supplier_payments" ? "LEFT JOIN suppliers s ON s.id=t.supplier_id" : "";
       const result = await paged(pool, req.query, `SELECT t.id,${fields}t.amount_vnd AS "amountVnd",t.method,t.reference,t.note,t.status,t.created_by AS "createdBy",t.approved_by AS "approvedBy",t.created_at AS "createdAt",t.posted_at AS "postedAt" FROM ${table} t ${join} ORDER BY t.created_at DESC`, `SELECT COUNT(*)::int total FROM ${table}`);
       res.json({ [definition.listKey]: result.rows, pagination: result.pagination });
     }));
-    router.post(`/finance/${definition.path}`, requirePermission("finance.write"), requireCsrf, route(async (req, res) => {
+    router.post(`/finance/${definition.path}`, AdminAction("finance.write"), route(async (req, res) => {
       const parsed = definition.schema.safeParse(req.body);
       if (!parsed.success) throw fail(400, "Thông tin đề nghị chi chưa hợp lệ.");
       const data = parsed.data;
@@ -152,7 +148,7 @@ function createFinanceApi(pool) {
       });
       res.status(result.replayed ? 200 : 201).json(result);
     }));
-    router.post(`/finance/${definition.path}/:id/:action`, requirePermission("finance.approve"), requireCsrf, route(async (req, res) => {
+    router.post(`/finance/${definition.path}/:id/:action`, AdminAction("finance.approve"), route(async (req, res) => {
       if (!z.string().uuid().safeParse(req.params.id).success || !["approve", "cancel"].includes(req.params.action)) throw fail(400, "Thao tác không hợp lệ.");
       const result = await withTransaction(pool, async (client) => {
         const document = (await client.query(`SELECT * FROM ${table} WHERE id=$1 FOR UPDATE`, [req.params.id])).rows[0];
@@ -173,7 +169,7 @@ function createFinanceApi(pool) {
       res.json(result);
     }));
   }
-  router.get("/reports/overview", requirePermission("reports.read"), route(async (req, res) => {
+  router.get("/reports/overview", AdminAction("reports.read"), route(async (req, res) => {
     const dates = range(req.query);
     const where = "(o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date BETWEEN $1::date AND $2::date";
     const [summary, daily, top, inventory, purchases, payments, expenses] = await Promise.all([

@@ -20,8 +20,8 @@ function adminPolicy(req, res, next) {
   else if (/^\/orders(\/|$)/.test(path)) permission = "orders.read";
   else if (/^\/customers(\/|$)/.test(path)) permission = read ? "customers.read" : "customers.write";
   else if (path === "/settings") permission = read ? "settings.read" : "settings.write";
-  // New domain routers enforce their own operation-specific permissions.
-  else if (/^\/(staff|departments|audit-logs|warehouses|inventory|suppliers|purchase-orders|goods-receipts|finance|reports|shipping|capi|abandoned-carts|loyalty|chat-knowledge|barcode|omnichannel|system-alerts|reviews|bundles|flash-sales|affiliates|zalo-zns|cod-reconciliation|push|tiktok-ads|upgrades)(\/|$)/.test(path)) return next();
+  // New domain routers enforce their own operation-specific permissions via AdminAction.
+  else if (/^\/(staff|departments|audit-logs|warehouses|inventory|suppliers|purchase-orders|goods-receipts|finance|reports|shipping|capi|abandoned-carts|loyalty|chat-knowledge|knowledge|barcode|omnichannel|system-alerts|reviews|bundles|flash-sales|affiliates|zalo-zns|zns|cod-reconciliation|cod|push|tiktok-ads|upgrades)(\/|$)/.test(path)) return next();
   else return res.status(404).json({ error: "Không tìm thấy chức năng quản trị." });
   return requirePermission(permission)(req, res, next);
 }

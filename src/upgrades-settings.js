@@ -87,10 +87,9 @@ async function saveUpgradesSettings(pool, newSettings) {
 
 function createUpgradesSettingsRouter(pool) {
   const router = Router();
-  const { requireAdminAction } = require('./admin-action');
-  const guardSettingsWrite = requireAdminAction('settings.write');
+  const { AdminAction } = require('./admin-action');
 
-  router.get('/upgrades/settings', async (_req, res, next) => {
+  router.get('/upgrades/settings', AdminAction('settings.read'), async (_req, res, next) => {
     try {
       const settings = await getUpgradesSettings(pool);
       res.json({ success: true, settings });
@@ -99,7 +98,7 @@ function createUpgradesSettingsRouter(pool) {
     }
   });
 
-  router.post('/upgrades/settings', guardSettingsWrite, async (req, res, next) => {
+  router.post('/upgrades/settings', AdminAction('settings.write'), async (req, res, next) => {
     try {
       const body = req.body || {};
       const { module: modName, settings } = body;
@@ -121,14 +120,14 @@ function createUpgradesSettingsRouter(pool) {
     }
   });
 
-  router.get('/shipping/config', async (_req, res, next) => {
+  router.get('/shipping/config', AdminAction('settings.read'), async (_req, res, next) => {
     try {
       const s = await getUpgradesSettings(pool);
       res.json({ success: true, config: s.shipping });
     } catch (err) { next(err); }
   });
 
-  router.post('/shipping/config', guardSettingsWrite, async (req, res, next) => {
+  router.post('/shipping/config', AdminAction('settings.write'), async (req, res, next) => {
     try {
       const current = await getUpgradesSettings(pool);
       current.shipping = { ...(current.shipping || {}), ...(req.body || {}) };

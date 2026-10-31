@@ -208,7 +208,7 @@ test('admin payment workspace renders all six channels and dispatches connection
   }
  };
  const context={window:{GAERUAdmin:admin},document:{addEventListener:(t,fn)=>(listeners[t]||=[]).push(fn),querySelector:s=>s==='#payment-configuration'?root:null,getElementById:()=>null}};
- vm.runInNewContext(fs.readFileSync(require.resolve('../admin/configuration.js'),'utf8'),context);
+ const { readAdminBundle } = require('./helpers/admin-sources'); vm.runInNewContext(readAdminBundle(['format.js', 'configuration-channels.js', 'configuration-ai-ops.js', 'configuration.js']), context);
  await context.window.GAERUConfiguration.mountPayments();
  for(const id of ['cod','bank_transfer','vnpay','9pay','momo','zalopay']){
   assert.match(root.innerHTML,new RegExp(`data-payment-test="${id}"`));

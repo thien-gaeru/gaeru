@@ -3,9 +3,10 @@
 const express = require('express');
 
 function createBarcodeApi(pool, { notifyOrderUpdate } = {}) {
+  const { AdminAction } = require('./admin-action');
   const router = express.Router();
 
-  router.get('/barcode/lookup', async (req, res, next) => {
+  router.get('/barcode/lookup', AdminAction('orders.read'), async (req, res, next) => {
     try {
       const code = String(req.query.code || '').trim();
       if (!code) return res.status(400).json({ error: 'Cần cung cấp mã đơn hàng hoặc mã vận đơn.' });
@@ -43,7 +44,7 @@ function createBarcodeApi(pool, { notifyOrderUpdate } = {}) {
     }
   });
 
-  router.post('/barcode/confirm-pack', express.json(), async (req, res, next) => {
+  router.post('/barcode/confirm-pack', AdminAction('orders.write'), express.json(), async (req, res, next) => {
     try {
       const { orderId, trackingCode } = req.body || {};
       if (!orderId) return res.status(400).json({ error: 'orderId là bắt buộc.' });
