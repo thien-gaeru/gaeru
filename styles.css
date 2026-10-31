@@ -35,6 +35,12 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+@supports (overflow-x: clip) {
+  html, body {
+    overflow-x: clip;
+  }
+}
+
 /* Universal mobile layout containment & element-level overflow prevention */
 .store-main,
 #main,
@@ -1440,6 +1446,9 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
   flex-direction: row !important;
   align-items: center !important;
   justify-content: space-between !important;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 14px 16px !important;
   background: #ffffff !important;
   border: 1.5px solid #e5e5e8 !important;
