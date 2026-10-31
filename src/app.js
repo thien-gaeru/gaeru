@@ -42,7 +42,7 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
       } catch (err) {
         return res.status(503).json({
           error: 'Hệ thống đang khởi động hoặc chưa sẵn sàng kết nối CSDL.',
-          message: err?.message || 'Database unavailable'
+          code: 'SERVICE_UNAVAILABLE'
         });
       }
     });

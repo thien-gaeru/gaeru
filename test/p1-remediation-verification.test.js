@@ -7,7 +7,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { createApp } = require('../src/app');
 const publicFiles = require('../src/public-files');
 const { precheckAndQuarantineDuplicates } = require('../src/migrate');
-const { validatePushSubscriptionData } = require('../src/web-push');
+const { validatePushSubscriptionData, broadcastPushNotification, createPushPublicRouter } = require('../src/web-push');
 
 test('P1-01: customer-experience.js compiles without SyntaxError', () => {
   const code = fs.readFileSync(path.join(__dirname, '..', 'customer-experience.js'), 'utf8');
@@ -72,6 +72,7 @@ test('P1-03: Health endpoint returns 503 when readiness fails (no false positive
     assert.equal(healthApiRes.status, 503);
     const healthApiData = await healthApiRes.json();
     assert.equal(healthApiData.error, 'Hệ thống đang khởi động hoặc chưa sẵn sàng kết nối CSDL.');
+    assert.equal(healthApiData.code, 'SERVICE_UNAVAILABLE');
 
     // 2. /health must also return 503
     const healthRes = await fetch(`http://127.0.0.1:${port}/health`);
@@ -85,7 +86,7 @@ test('P1-03: Health endpoint returns 503 when readiness fails (no false positive
   }
 });
 
-test('P1-04: In-flight HTTP requests unblock and receive 503 when startup fails (no infinite hang)', async () => {
+test('P1-04: In-flight HTTP requests unblock and receive 503 when startup fails (no infinite hang, no sensitive leak)', async () => {
   let resolveStartup, rejectStartup;
   const startupPromise = new Promise((resolve, reject) => {
     resolveStartup = resolve;
@@ -110,21 +111,23 @@ test('P1-04: In-flight HTTP requests unblock and receive 503 when startup fails 
     // Fire request while startup is still in progress
     const reqPromise = fetch(`http://127.0.0.1:${port}/api/customer-auth/me`);
 
-    // Simulate startup failure after 50ms
+    // Simulate startup failure with sensitive DSN
     setTimeout(() => {
-      rejectStartup(new Error('MIGRATION_FAILED_SIMULATED'));
+      rejectStartup(new Error('postgres://user:private-password@example.test/db'));
     }, 50);
 
-    // Request MUST resolve with 503 within reasonable time (e.g. < 500ms), NOT hang infinitely
     const res = await Promise.race([
       reqPromise,
       new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT_HANG')), 2000))
     ]);
 
     assert.equal(res.status, 503);
-    const data = await res.json();
+    const rawBody = await res.text();
+    const data = JSON.parse(rawBody);
     assert.equal(data.error, 'Hệ thống đang khởi động hoặc chưa sẵn sàng kết nối CSDL.');
-    assert.match(data.message, /MIGRATION_FAILED_SIMULATED/);
+    assert.equal(data.code, 'SERVICE_UNAVAILABLE');
+    // Ensure NO private-password or internal DSN is ever leaked in the HTTP response
+    assert.doesNotMatch(rawBody, /private-password|example\.test|postgres:\/\//);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
@@ -142,7 +145,6 @@ test('P1-05: precheckAndQuarantineDuplicates prevents duplicate quarantine write
       amount_vnd bigint,
       status text
     );
-    -- Insert 2 duplicates with the same (provider, provider_request_id)
     INSERT INTO payment_attempts (provider, provider_request_id, amount_vnd, status)
     VALUES 
       ('momo', 'MM-REQ-DUP-1', 500000, 'pending'),
@@ -213,7 +215,6 @@ test('P1-07: Push Admin API provides accurate statistics and guards broadcast ag
   const { createPushAdminRouter } = require('../src/web-push');
   const express = require('express');
   const routerApp = express();
-  // Mock staff session with marketing.read & marketing.write permissions
   routerApp.use((req, res, next) => {
     req.admin = { id: 'admin-1', role: 'admin', permissions: ['marketing.read', 'marketing.write'] };
     next();
@@ -225,7 +226,6 @@ test('P1-07: Push Admin API provides accurate statistics and guards broadcast ag
   const port = server.address().port;
 
   try {
-    // 1. Stats endpoint returns accurate counts
     const statsRes = await fetch(`http://127.0.0.1:${port}/push/push/stats`);
     assert.equal(statsRes.status, 200);
     const stats = await statsRes.json();
@@ -233,7 +233,6 @@ test('P1-07: Push Admin API provides accurate statistics and guards broadcast ag
     assert.equal(stats.active, 2);
     assert.equal(stats.inactive, 1);
 
-    // 2. Broadcast guards against empty title/body
     const emptyRes = await fetch(`http://127.0.0.1:${port}/push/push/broadcast`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -241,6 +240,117 @@ test('P1-07: Push Admin API provides accurate statistics and guards broadcast ag
     });
     assert.equal(emptyRes.status, 400);
   } finally {
+    await new Promise(resolve => server.close(resolve));
+    await db.close();
+  }
+});
+
+test('P1-08: Web Push Broadcast distinguishes total failure from success and sets ok: false when 0 sent', async () => {
+  const db = new PGlite();
+  await db.exec(`
+    CREATE TABLE web_push_subscriptions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      endpoint text UNIQUE NOT NULL,
+      p256dh text NOT NULL,
+      auth text NOT NULL,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    -- customer_id column included
+    ALTER TABLE web_push_subscriptions ADD COLUMN IF NOT EXISTS customer_id uuid;
+    ALTER TABLE web_push_subscriptions ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+    INSERT INTO web_push_subscriptions (endpoint, p256dh, auth)
+    VALUES ('https://fcm.googleapis.com/fcm/send/device-fail-only', 'key', 'auth');
+  `);
+
+  const webpush = require('web-push');
+  const vapid = webpush.generateVAPIDKeys();
+  const prevPub = process.env.VAPID_PUBLIC_KEY;
+  const prevPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = vapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
+
+  const failingClient = {
+    sendNotification: async () => {
+      const err = new Error('Gateway rejected subscription');
+      err.statusCode = 404;
+      throw err;
+    }
+  };
+
+  try {
+    const result = await broadcastPushNotification(db, { title: 'Test', body: 'Fail' }, { webpushClient: failingClient });
+    // When 0 sent out of 1, ok must be false and status must be 'failed'
+    assert.equal(result.ok, false, 'Outcome ok must be false when 0 notifications were sent');
+    assert.equal(result.status, 'failed');
+    assert.equal(result.sentCount, 0);
+    assert.equal(result.expiredCount, 1);
+  } finally {
+    if (prevPub) process.env.VAPID_PUBLIC_KEY = prevPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (prevPriv) process.env.VAPID_PRIVATE_KEY = prevPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
+    await db.close();
+  }
+});
+
+test('P1-09: /api/push/subscribe validates CSRF token when session has csrfSecret and rejects tampered tokens with 403', async () => {
+  const db = new PGlite();
+  await db.exec(`
+    CREATE TABLE web_push_subscriptions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      endpoint text UNIQUE NOT NULL,
+      p256dh text NOT NULL,
+      auth text NOT NULL,
+      customer_id uuid,
+      user_agent text,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+
+  const express = require('express');
+  const app = express();
+  // Mock session with csrfSecret
+  app.use((req, res, next) => {
+    req.session = { csrfToken: 'real-session-token-12345678901234567890123456789012' };
+    next();
+  });
+  app.use('/api', createPushPublicRouter(db));
+
+  const server = http.createServer(app);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  const webpush = require('web-push');
+  const vapid = webpush.generateVAPIDKeys();
+  const prevPub = process.env.VAPID_PUBLIC_KEY;
+  const prevPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = vapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
+
+  try {
+    // Send invalid CSRF token
+    const res = await fetch(`http://127.0.0.1:${port}/api/push/subscribe`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': 'forged-invalid-csrf-token'
+      },
+      body: JSON.stringify({
+        endpoint: 'https://fcm.googleapis.com/fcm/send/device-csrf-test',
+        keys: { p256dh: Buffer.alloc(65, 1).toString('base64'), auth: Buffer.alloc(16, 2).toString('base64') }
+      })
+    });
+    assert.equal(res.status, 403, 'Must reject invalid CSRF token with 403');
+    const data = await res.json();
+    assert.match(data.error, /CSRF/);
+  } finally {
+    if (prevPub) process.env.VAPID_PUBLIC_KEY = prevPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (prevPriv) process.env.VAPID_PRIVATE_KEY = prevPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
     await new Promise(resolve => server.close(resolve));
     await db.close();
   }
