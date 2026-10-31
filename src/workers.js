@@ -140,6 +140,23 @@ class WorkerManager {
       return { ok: true };
     });
 
+    this.jobQueue.registerWorker('payment.reconcile', async (payload) => {
+      const paymentChannels = requireFn('./payment-channels');
+      if (typeof paymentChannels?.reconcileGatewayOrder === 'function' && (payload?.orderId || payload?.orderNumber)) {
+        return await paymentChannels.reconcileGatewayOrder(pool, {
+          orderId: payload.orderId || null,
+          orderNumber: payload.orderNumber || null,
+          provider: payload.provider || null,
+          config,
+          actor: { username: 'job-queue', source: 'system' }
+        });
+      }
+      if (typeof paymentChannels?.reconcileUnknownGatewayAttempts === 'function') {
+        return await paymentChannels.reconcileUnknownGatewayAttempts(pool, config);
+      }
+      return { ok: true };
+    });
+
     this.jobQueue.registerWorker('health.check', async (payload) => {
       return { ok: true, checkedAt: new Date().toISOString(), payload: payload || {} };
     });
@@ -186,6 +203,12 @@ class WorkerManager {
     safeStart('warrantyEmail', () => requireFn('./warranty-email').startWarrantyEmailWorker(pool, config));
     safeStart('emailMarketing', () => requireFn('./email-marketing').startEmailWorker(pool, config));
     safeStart('accountRetention', () => requireFn('./account-retention').startRetentionWorker(pool));
+    safeStart('paymentReconciliation', () => {
+      const mod = requireFn('./payment-channels');
+      return typeof mod?.startPaymentReconciliationWorker === 'function'
+        ? mod.startPaymentReconciliationWorker(pool, config)
+        : undefined;
+    });
   }
 
   /**

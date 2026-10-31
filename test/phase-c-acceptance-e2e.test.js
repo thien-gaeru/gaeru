@@ -88,8 +88,14 @@ test('Phase C - 12.1 & 12.4: Song song 2 khách cùng đặt SKU cuối cùng (c
     [mainWh.id, lastVariant.id]
   );
 
-  // Giả lập MoMo bị Timeout khi gọi tạo phiên thanh toán
-  const timeoutFetcher = async () => {
+  // Giả lập MoMo: bước create bị Timeout (504), bước query xác nhận không có giao dịch (resultCode: 1001)
+  const timeoutFetcher = async (url) => {
+    if (String(url).includes('/v2/gateway/api/query')) {
+      return new Response(
+        JSON.stringify({ resultCode: 1001, message: 'Transaction not found' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     const err = new Error('Gateway request timed out after 10000ms');
     err.status = 504;
     throw err;
@@ -117,7 +123,7 @@ test('Phase C - 12.1 & 12.4: Song song 2 khách cùng đặt SKU cuối cùng (c
     return { cookie, csrfToken };
   }
 
-  // --- Kịch bản 12.4: Khách đặt qua MoMo nhưng MoMo bị Timeout (504) -> Phải tự động Rollback bù, trả lại đúng 1 sản phẩm vào kho! ---
+  // --- Kịch bản 12.4: Khách đặt qua MoMo nhưng MoMo bị Timeout (504) -> Giữ nguyên đơn ở payment_initiation_unknown (KHÔNG xóa đơn), sau đó đối soát xác minh chưa thu tiền mới hủy đơn & hoàn kho! ---
   const momoBuyer = await createBuyerSession();
   const momoRes = await fetch(`${baseUrl}/api/orders`, {
     method: 'POST',
@@ -140,11 +146,29 @@ test('Phase C - 12.1 & 12.4: Song song 2 khách cùng đặt SKU cuối cùng (c
     })
   });
   assert.equal(momoRes.status, 502, 'Khi MoMo timeout, API phải trả mã lỗi cổng thanh toán (502)');
+  const momoErrBody = await momoRes.json();
+  assert.equal(momoErrBody.reconciliationStatus, 'payment_initiation_unknown', 'Trạng thái phải là payment_initiation_unknown, không xóa đơn');
+  assert.equal(
+    (await pool.query(`SELECT stock_quantity FROM product_variants WHERE id = $1`, [lastVariant.id])).rows[0].stock_quantity,
+    0,
+    'Khi trạng thái thanh toán chưa xác định, tồn kho phải tiếp tục được giữ cho đến khi đối soát xong'
+  );
+
+  // Đối soát với cổng MoMo: xác minh chắc chắn found=false (không có tiền) -> khóa transaction hủy đơn & hoàn kho
+  const recOutcome = await require('../src/payment-channels').reconcileGatewayOrder(pool, {
+    orderId: momoErrBody.orderId,
+    provider: 'momo',
+    settings: momoConfig,
+    fetcher: timeoutFetcher
+  });
+  assert.equal(recOutcome.action, 'cancelled_unpaid');
 
   const stockAfterTimeout = (await pool.query(`SELECT stock_quantity FROM product_variants WHERE id = $1`, [lastVariant.id])).rows[0].stock_quantity;
   const whStockAfterTimeout = (await pool.query(`SELECT quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2`, [mainWh.id, lastVariant.id])).rows[0].quantity;
-  assert.equal(stockAfterTimeout, 1, 'Sau khi MoMo timeout, giao dịch bù phải hoàn trả tồn kho về đúng 1');
+  assert.equal(stockAfterTimeout, 1, 'Sau khi đối soát xác minh không thu tiền, tồn kho phải được hoàn trả về đúng 1');
   assert.equal(whStockAfterTimeout, 1, 'Tồn kho tại kho MAIN phải được hoàn trả về đúng 1');
+  const keptTimeoutOrder = (await pool.query(`SELECT status FROM orders WHERE id = $1`, [momoErrBody.orderId])).rows[0];
+  assert.equal(keptTimeoutOrder.status, 'cancelled', 'Bản ghi đơn hàng vẫn được lưu giữ ở trạng thái cancelled để phục vụ kiểm toán');
 
   // --- Kịch bản 12.1: 2 khách hàng cùng lúc bấm đặt mua 1 chiếc SKU cuối cùng (Promise.all) ---
   const [buyerA, buyerB] = await Promise.all([createBuyerSession(), createBuyerSession()]);

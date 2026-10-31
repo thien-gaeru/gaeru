@@ -28,7 +28,7 @@ async function guardContact(client,customer){
  const phone=customer.phone.replace(/\D/g,'');
  // A stable lock serializes simultaneous submissions for the same contact.
  for(const key of ['email:'+customer.email.toLowerCase(),'phone:'+phone].sort())await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['order-limit:'+key]);
- const {rows}=await client.query("SELECT count(*)::int AS n FROM orders WHERE created_at>now()-interval '15 minutes' AND (lower(email)=$1 OR regexp_replace(phone,'[^0-9]','','g')=$2)",[customer.email.toLowerCase(),phone]);
+ const {rows}=await client.query("SELECT count(*)::int AS n FROM orders WHERE status<>'cancelled' AND created_at>now()-interval '15 minutes' AND (lower(email)=$1 OR regexp_replace(phone,'[^0-9]','','g')=$2)",[customer.email.toLowerCase(),phone]);
  if(rows[0].n>3)throw Object.assign(Error('Thông tin liên hệ này đã đặt nhiều đơn liên tiếp. Vui lòng chờ 15 phút hoặc gọi GAERU để xác nhận.'),{status:429});
 }
 function reviewRouter(pool,config){

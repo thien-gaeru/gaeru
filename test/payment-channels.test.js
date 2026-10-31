@@ -110,10 +110,20 @@ test('official wallet creation, callback integrity, disabled pending channels an
  const beforeUnsupported=await snapshot();assert.equal((await api('/api/orders','POST',orderBody('9pay'))).status,503);assert.deepEqual(await snapshot(),beforeUnsupported);
  assert.equal((await api('/api/payments/9pay/ipn','POST',{invoice_no:'fixture',status:'PAID'})).status,503);
 
- // A definite provider rejection must roll back all local side effects.
+ // A definite provider rejection cancels the unpaid order and releases stock under lock while keeping audit records.
  const beforeFailure=await snapshot();rejectCreate=true;
  const failed=await api('/api/orders','POST',orderBody('momo',{...customer,email:'failed.payment.fixture@example.com'}));
- assert.equal(failed.status,502,JSON.stringify(failed.data));assert.deepEqual(await snapshot(),beforeFailure);rejectCreate=false;
+ assert.equal(failed.status,502,JSON.stringify(failed.data));
+ assert.equal(failed.data.reconciliationStatus,'cancelled_unpaid');
+ const afterFailure=await snapshot();
+ assert.equal(afterFailure.stock,beforeFailure.stock);
+ assert.equal(afterFailure.orders,beforeFailure.orders+1);
+ assert.equal(afterFailure.attempts,beforeFailure.attempts+1);
+ const rejectedOrder=(await pool.query('SELECT status,payment_status FROM orders WHERE id=$1',[failed.data.orderId])).rows[0];
+ assert.deepEqual(rejectedOrder,{status:'cancelled',payment_status:'pending'});
+ const rejectedAttempt=(await pool.query('SELECT status,provider_request_id FROM payment_attempts WHERE order_id=$1',[failed.data.orderId])).rows[0];
+ assert.equal(rejectedAttempt.status,'failed');assert.ok(rejectedAttempt.provider_request_id);
+ rejectCreate=false;
 
  const createdMomo=await api('/api/orders','POST',orderBody('momo'));assert.equal(createdMomo.status,201,JSON.stringify(createdMomo.data));
  assert.equal(createdMomo.data.paymentUrl,'https://test-payment.momo.vn/v2/gateway/pay?token=provider-issued-momo-session');

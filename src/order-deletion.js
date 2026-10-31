@@ -1,10 +1,13 @@
 const { appendAudit } = require('./audit');
 
 /**
- * Permanently deletes an order and all of its associated records across all tables,
- * releasing inventory allocations if the order was not already cancelled or completed,
- * removing voucher redemptions, care requests, reviews, warranties, and sales receipts
- * so that it is completely excluded from sales reports, revenue figures, and order history.
+ * Permanently deletes an UNPAID order that has no financial documents or unresolved
+ * payment gateway attempts, releasing held inventory allocations if not already cancelled.
+ *
+ * Financial safety invariants:
+ * - Never deletes an order with payment_status = 'paid' or status = 'paid' in payment_attempts.
+ * - Never deletes an order with sales_receipts or misa_einvoices (financial documents are immutable).
+ * - Never deletes an order with payment_attempts in 'payment_initiation_unknown' or 'awaiting_reconciliation'.
  *
  * @param {import('pg').PoolClient} client - An active PostgreSQL transaction client
  * @param {string} orderId - The UUID of the order to delete
@@ -16,12 +19,48 @@ const { appendAudit } = require('./audit');
 async function deleteOrderPermanently(client, orderId, { actor = { username: 'system', source: 'order_deletion' }, inventory } = {}) {
   if (!orderId) return null;
 
-  // 1. Lock and fetch order
+  // 1. Lock and fetch order + payment attempts
   const orderRes = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
   if (!orderRes.rows.length) return null;
   const order = orderRes.rows[0];
 
-  // 2. If order holds active inventory (not cancelled and not completed), release stock
+  const attemptsRes = await client.query(
+    'SELECT id, status, provider FROM payment_attempts WHERE order_id = $1 FOR UPDATE',
+    [order.id]
+  );
+  const attempts = attemptsRes.rows;
+
+  // 2. Block deletion if gateway payment state is ambiguous / awaiting reconciliation
+  if (attempts.some((a) => a.status === 'payment_initiation_unknown' || a.status === 'awaiting_reconciliation')) {
+    const err = new Error('Không thể xóa đơn hàng đang chờ đối soát trạng thái giao dịch với cổng thanh toán.');
+    err.status = 409;
+    err.code = 'ORDER_AWAITING_RECONCILIATION';
+    throw err;
+  }
+
+  // 3. Block deletion if paid or if any financial voucher / e-invoice exists
+  const financialDocsRes = await client.query(
+    `SELECT
+       EXISTS (SELECT 1 FROM sales_receipts WHERE order_id = $1) AS "hasReceipt",
+       EXISTS (SELECT 1 FROM misa_einvoices WHERE order_id = $1) AS "hasInvoice"`,
+    [order.id]
+  );
+  const { hasReceipt, hasInvoice } = financialDocsRes.rows[0] || {};
+  if (
+    order.payment_status === 'paid' ||
+    attempts.some((a) => a.status === 'paid') ||
+    hasReceipt ||
+    hasInvoice
+  ) {
+    const err = new Error(
+      'Không thể xóa vĩnh viễn đơn hàng đã thanh toán hoặc đã phát sinh chứng từ tài chính. Cần đối soát hoặc hoàn tiền theo quy trình kế toán.'
+    );
+    err.status = 409;
+    err.code = 'PAID_ORDER_DELETION_FORBIDDEN';
+    throw err;
+  }
+
+  // 4. If order holds active inventory (not cancelled and not completed), release stock
   if (order.status !== 'cancelled' && order.status !== 'completed') {
     const inv = inventory || require('./inventory');
     if (inv && typeof inv.releaseOrderStock === 'function') {
@@ -32,7 +71,7 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
     }
   }
 
-  // 3. Delete dependent records in strict dependency order:
+  // 5. Delete non-financial dependent records in strict dependency order:
   // A. Customer care messages & requests
   await client.query(
     'DELETE FROM care_messages WHERE care_id IN (SELECT id FROM care_requests WHERE order_id = $1)',
@@ -69,34 +108,26 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   // F. Shipping selections
   await client.query('DELETE FROM order_shipping_selection WHERE order_id = $1', [order.id]);
 
-  // G. Sales receipts (removes completely from sales reports, revenue figures)
-  await client.query('INSERT INTO order_deletion_sessions(order_id) VALUES ($1) ON CONFLICT DO NOTHING', [order.id]);
-  await client.query('DELETE FROM sales_receipts WHERE order_id = $1', [order.id]);
-
-  // H. Voucher redemptions
+  // G. Voucher redemptions
   await client.query('DELETE FROM voucher_redemptions WHERE order_id = $1', [order.id]);
 
-  // I. MISA e-invoices
-  await client.query('DELETE FROM misa_einvoices WHERE order_id = $1', [order.id]);
-
-  // J. Order reviews
+  // H. Order reviews
   await client.query('DELETE FROM order_reviews WHERE order_id = $1', [order.id]);
 
-  // K. Email outboxes
+  // I. Email outboxes
   await client.query('DELETE FROM order_email_outbox WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_admin_email_outbox WHERE order_id = $1', [order.id]);
 
-  // L. Payment attempts
+  // J. Unpaid/terminal payment attempts
   await client.query('DELETE FROM payment_attempts WHERE order_id = $1', [order.id]);
 
-  // M. Order items
+  // K. Order items
   await client.query('DELETE FROM order_items WHERE order_id = $1', [order.id]);
 
-  // N. Finally delete the order itself
+  // L. Finally delete the unpaid order itself
   await client.query('DELETE FROM orders WHERE id = $1', [order.id]);
-  await client.query('DELETE FROM order_deletion_sessions WHERE order_id = $1', [order.id]);
 
-  // 4. Audit trail
+  // 6. Audit trail
   await appendAudit(client, {
     actor,
     action: 'order.permanently_deleted',
@@ -115,37 +146,86 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
 }
 
 /**
- * Permanently deletes all orders associated with a customer (by customer_id or guest email),
- * ensuring they and their revenue records are removed from sales reports and order history.
+ * Handles customer orders when a customer account is permanently deleted (GDPR / retention):
+ * - Unpaid orders with no financial documents and no unresolved gateway attempts are permanently deleted.
+ * - Paid orders, orders with financial vouchers (sales_receipts / misa_einvoices), or orders awaiting
+ *   gateway reconciliation are NEVER deleted; instead, customer_id is detached and PII is anonymized
+ *   so financial ledgers and reconciliation records remain intact.
  *
  * @param {import('pg').PoolClient} client
  * @param {string} customerId
  * @param {string} [customerEmail]
  * @param {object} [options]
- * @returns {Promise<number>} Count of deleted orders
+ * @returns {Promise<number>} Count of deleted unpaid orders
  */
-async function deleteCustomerOrdersPermanently(client, customerId, customerEmail, { actor, inventory } = {}) {
-  let orderIds = [];
+async function deleteCustomerOrdersPermanently(client, customerId, customerEmail, { actor = { username: 'system', source: 'account_deletion' }, inventory } = {}) {
+  let rows = [];
   if (customerEmail && typeof customerEmail === 'string' && customerEmail.trim()) {
-    const rows = (await client.query(
-      `SELECT id FROM orders WHERE customer_id = $1 OR (customer_id IS NULL AND lower(email) = lower($2)) FOR UPDATE`,
+    rows = (await client.query(
+      `SELECT id, order_number, payment_status FROM orders
+       WHERE customer_id = $1 OR (customer_id IS NULL AND lower(email) = lower($2))
+       ORDER BY id
+       FOR UPDATE`,
       [customerId, customerEmail.trim()]
     )).rows;
-    orderIds = rows.map(r => r.id);
   } else {
-    const rows = (await client.query(
-      `SELECT id FROM orders WHERE customer_id = $1 FOR UPDATE`,
+    rows = (await client.query(
+      `SELECT id, order_number, payment_status FROM orders
+       WHERE customer_id = $1
+       ORDER BY id
+       FOR UPDATE`,
       [customerId]
     )).rows;
-    orderIds = rows.map(r => r.id);
   }
 
-  let count = 0;
-  for (const id of orderIds) {
-    const deleted = await deleteOrderPermanently(client, id, { actor, inventory });
-    if (deleted) count++;
+  let deletedCount = 0;
+  for (const row of rows) {
+    const check = (await client.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM sales_receipts WHERE order_id = $1) AS "hasReceipt",
+         EXISTS (SELECT 1 FROM misa_einvoices WHERE order_id = $1) AS "hasInvoice",
+         EXISTS (
+           SELECT 1 FROM payment_attempts
+           WHERE order_id = $1 AND status IN ('paid', 'payment_initiation_unknown', 'awaiting_reconciliation')
+         ) AS "hasProtectedAttempt"`,
+      [row.id]
+    )).rows[0];
+
+    if (row.payment_status === 'paid' || check?.hasReceipt || check?.hasInvoice || check?.hasProtectedAttempt) {
+      await client.query(
+        'DELETE FROM care_messages WHERE care_id IN (SELECT id FROM care_requests WHERE order_id = $1)',
+        [row.id]
+      );
+      await client.query('DELETE FROM care_requests WHERE order_id = $1', [row.id]);
+      await client.query(
+        `UPDATE orders
+         SET customer_id = NULL,
+             customer_name = '[Đã ẩn danh]',
+             email = 'anonymized-' || id::text || '@deleted.invalid',
+             phone = '0000000000',
+             address = '[Đã xóa theo lưu trữ tài khoản]',
+             note = '',
+             updated_at = now()
+         WHERE id = $1`,
+        [row.id]
+      );
+      await appendAudit(client, {
+        actor,
+        action: 'order.customer_anonymized',
+        entityType: 'order',
+        entityId: row.id,
+        metadata: {
+          orderNumber: row.order_number,
+          formerCustomerId: customerId,
+          preservedForFinancialReconciliation: true
+        }
+      });
+    } else {
+      const deleted = await deleteOrderPermanently(client, row.id, { actor, inventory });
+      if (deleted) deletedCount++;
+    }
   }
-  return count;
+  return deletedCount;
 }
 
 module.exports = {
