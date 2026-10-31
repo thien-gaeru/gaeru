@@ -9,6 +9,7 @@ const { buildVnpayPaymentUrl, verifyVnpayQuery } = require('../vnpay');
 const { decoratePublicProductImages } = require('../lib/public-image-urls');
 const { PricingEngine } = require('../domain/pricing/pricing-engine');
 const { PaymentService } = require('../domain/payments/payment-service');
+const { buildScopedClientReference } = require('../domain/payments/order-idempotency-policy');
 const { orderSchema } = require('./store-schemas');
 const { allocateOptimalCarrier, loadProducts, getSettings } = require('./carrier-and-catalog-loader');
 
@@ -343,8 +344,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
         const headerIdempotencyKey = String(req.get?.('X-Idempotency-Key') || '').trim();
         const rawClientReference = parsed.data.idempotencyKey ||
           (headerIdempotencyKey && /^[A-Za-z0-9_.:-]{4,120}$/.test(headerIdempotencyKey) ? headerIdempotencyKey : null);
-        const customerScope = createHash('sha256').update(`${customerEmail}:${customerPhone}`).digest('hex').slice(0, 16);
-        const scopedClientReference = rawClientReference ? `idem:${customerScope}:${rawClientReference}` : null;
+        const scopedClientReference = buildScopedClientReference(rawClientReference, { email: customerEmail, phone: customerPhone });
         const retryOrderNumber = parsed.data.retryOrderNumber || null;
 
         if (scopedClientReference || retryOrderNumber) {
@@ -395,17 +395,21 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             }
           }
 
+          const sortedVariantIds = [...uniqueItems.keys()].sort();
+          const result = await client.query(
+            `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd",
+                    v.stock_quantity AS "stockQuantity", p.name AS "productName", p.slug AS "productSlug"
+             FROM product_variants v JOIN products p ON p.id = v.product_id
+             WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true
+             ORDER BY v.id
+             FOR UPDATE OF v`,
+            [sortedVariantIds]
+          );
+          const variantMap = new Map(result.rows.map((v) => [v.id, v]));
           let prepared = [];
-          for (const [variantId, quantity] of [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-            const result = await client.query(
-              `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd",
-                      v.stock_quantity AS "stockQuantity", p.name AS "productName", p.slug AS "productSlug"
-               FROM product_variants v JOIN products p ON p.id = v.product_id
-               WHERE v.id = $1 AND v.active = true AND p.active = true
-               FOR UPDATE OF v`,
-              [variantId]
-            );
-            const variant = result.rows[0];
+          for (const variantId of sortedVariantIds) {
+            const variant = variantMap.get(variantId);
+            const quantity = uniqueItems.get(variantId);
             if (!variant) {
               throw Object.assign(new Error('Một phiên bản trong giỏ hàng không còn được bán.'), { status: 409 });
             }

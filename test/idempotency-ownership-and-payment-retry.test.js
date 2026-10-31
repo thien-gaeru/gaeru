@@ -6,7 +6,7 @@ const session = require('express-session');
 const { createTestDb } = require('./helpers/pglite-db');
 const { withTransaction } = require('../src/db');
 const { createApp } = require('../src/app');
-const { retryGatewayOrderPayment } = require('../src/payment-channels');
+const { retryGatewayOrderPayment, PaymentRetryCoordinator } = require('../src/payment-channels');
 const { enqueueJob, createJobQueue } = require('../src/job-queue');
 const { PaymentService } = require('../src/domain/payments/payment-service');
 
@@ -315,4 +315,90 @@ test('P2 — PaymentService enqueueReconciliationOutbox logs warning and scanOve
   // Verify scanOverdueUnknownAttempts runs cleanly
   const overdue = await PaymentService.scanOverdueUnknownAttempts(pool);
   assert.ok(Array.isArray(overdue));
+});
+
+test('P1/P2 — PaymentRetryCoordinator: concurrent IPN and retry race condition yields to paid status', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const orderRes = await pool.query(
+    `INSERT INTO orders (order_number, customer_name, email, phone, address, city, subtotal_vnd, total_vnd, payment_method, payment_status, status)
+     VALUES ('GR-RACE-IPN-002', 'Concurrent Customer', 'concurrent@test.com', '0912345678', '456 Race Ave', 'Hà Nội', 750000, 750000, 'momo', 'pending', 'pending')
+     RETURNING id`
+  );
+  const orderId = orderRes.rows[0].id;
+
+  const attemptRes = await pool.query(
+    `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, provider_request_id, status, expires_at)
+     VALUES ($1, 'momo', 'GR-RACE-IPN-002', 750000, 'req-orig-ipn', 'pending', now() + interval '15 minutes')
+     RETURNING id`,
+    [orderId]
+  );
+  const attemptId = attemptRes.rows[0].id;
+
+  const momoSettings = {
+    partnerCode: 'MOMOGAERU',
+    accessKey: 'MOMOACC01',
+    secretKey: 'momo-super-secret-key-2026',
+    environment: 'sandbox',
+    enabled: true
+  };
+
+  const jsonResponse = (body, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+  // Mock gateway fetcher that handles both query (unpaid) and create (delayed payment URL)
+  const delayedFetcher = async (url, options = {}) => {
+    const body = JSON.parse(options.body || '{}');
+    if (String(url).includes('/query')) {
+      return jsonResponse({
+        resultCode: 49, // Transaction absent/expired at gateway -> verified_unpaid -> proceed to re-initiate
+        amount: 750000,
+        partnerCode: 'MOMOGAERU',
+        orderId: body.orderId,
+        requestId: body.requestId
+      });
+    }
+    await new Promise(r => setTimeout(r, 40));
+    return jsonResponse({
+      resultCode: 0,
+      payUrl: 'https://test-payment.momo.vn/pay/concurrent-test',
+      orderId: 'GR-RACE-IPN-002',
+      requestId: 'req-new-concurrent'
+    });
+  };
+
+  // Launch retry and concurrent IPN simultaneously
+  const retryPromise = PaymentRetryCoordinator.coordinateRetry(pool, {
+    orderNumber: 'GR-RACE-IPN-002',
+    expectedCustomer: { email: 'concurrent@test.com', phone: '0912345678' },
+    settings: momoSettings,
+    fetcher: delayedFetcher
+  });
+
+  const ipnPromise = (async () => {
+    await new Promise(r => setTimeout(r, 10)); // IPN arrives while gateway request is in-flight
+    await withTransaction(pool, async (client) => {
+      await client.query("UPDATE orders SET payment_status = 'paid', status = 'processing' WHERE id = $1", [orderId]);
+      await client.query("UPDATE payment_attempts SET status = 'paid' WHERE id = $1", [attemptId]);
+      await client.query(
+        `INSERT INTO sales_receipts (order_id, amount_vnd, method, request_key, request_hash, created_by)
+         VALUES ($1, 750000, 'bank_transfer', 'REC-CONC-001', 'hash-001', 'system')`,
+        [orderId]
+      );
+    });
+  })();
+
+  const [retryResult] = await Promise.all([retryPromise, ipnPromise]);
+
+  // Retry MUST detect that IPN settled the order and return alreadyPaid: true
+  assert.equal(retryResult.alreadyPaid, true);
+  assert.equal(retryResult.paymentStatus, 'paid');
+
+  // Verify DB state: order and attempt are strictly paid, not pending or failed
+  const finalOrder = (await pool.query('SELECT payment_status, status FROM orders WHERE id = $1', [orderId])).rows[0];
+  const finalAttempt = (await pool.query('SELECT status FROM payment_attempts WHERE id = $1', [attemptId])).rows[0];
+
+  assert.equal(finalOrder.payment_status, 'paid');
+  assert.equal(finalAttempt.status, 'paid');
 });

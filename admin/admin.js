@@ -308,10 +308,14 @@ window.GAERUAdmin = Object.freeze({
   handleOrderPermanentDeleteUI,
   async refreshSession() { await showAdmin(await request("/api/auth/me")); },
   setCsrf(value) { state.csrfToken = value; },
+  get csrfToken() { return state.csrfToken; },
   can,
   showGlobal,
   showProductAddedPopup,
   activateView,
-  get user() { return state.session; }
+  get user() { return state.session; },
+  escapeHtml: typeof window !== 'undefined' && window.escapeHtml ? window.escapeHtml : (v => String(v ?? '')),
+  formatMoney: typeof window !== 'undefined' && window.formatMoney ? window.formatMoney : (v => v + ' ₫'),
+  normalizePhone: typeof window !== 'undefined' && window.normalizePhone ? window.normalizePhone : (v => v)
 });
 initialize();

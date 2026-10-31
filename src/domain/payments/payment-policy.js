@@ -111,5 +111,6 @@ module.exports = {
   isManualPayment,
   canManuallyUpdatePayment,
   canManuallyCollect,
-  transitionPaymentStatus
+  transitionPaymentStatus,
+  ...require('./order-idempotency-policy')
 };
