@@ -2368,19 +2368,21 @@ test('P2-05 Fix: Admin HTML escape properly escapes XSS payloads even if sharedF
   assert.ok(escaped.includes('&#39;'));
   assert.ok(escaped.includes('&#x2F;'));
 
-  const adminJs = fs.readFileSync('admin/admin.js', 'utf8');
+  const path = require('node:path');
+  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
   assert.ok(adminJs.includes('fallbackEscapeHtml'));
   assert.ok(!adminJs.includes("sharedFormat ? sharedFormat.escapeHtml(value) : String(value ?? '')"));
 
-  const scannerJs = fs.readFileSync('admin/barcode-scanner.js', 'utf8');
+  const scannerJs = fs.readFileSync(path.join(__dirname, '../admin/barcode-scanner.js'), 'utf8');
   assert.ok(scannerJs.includes('fallbackEscapeHtml'));
 
-  const hubJs = fs.readFileSync('admin/upgrades-hub.js', 'utf8');
+  const hubJs = fs.readFileSync(path.join(__dirname, '../admin/upgrades-hub.js'), 'utf8');
   assert.ok(hubJs.includes('fallbackEscapeHtml'));
 });
 
 test('P1-01 Fix: True UNIQUE index, duplicate isolation into quarantine, and fail-closed on duplicates', async (t) => {
   const fs = require('fs');
+  const path = require('node:path');
   const { pool, close } = await createTestDb();
   if (t && typeof t.after === 'function') t.after(() => close?.());
 
@@ -2399,14 +2401,14 @@ test('P1-01 Fix: True UNIQUE index, duplicate isolation into quarantine, and fai
   `, [orderId]);
 
   // 1. Chạy SQL tiền kiểm: Tự động cách ly các bản ghi trùng lặp vào quarantine table để đối soát
-  const precheckSql = fs.readFileSync('db/precheck-checkout-lifecycle.sql', 'utf8');
+  const precheckSql = fs.readFileSync(path.join(__dirname, '../db/precheck-checkout-lifecycle.sql'), 'utf8');
   await pool.query(precheckSql);
 
   const quarantined = await pool.query('SELECT * FROM payment_attempts_quarantine_duplicates');
   assert.equal(quarantined.rows.length, 2);
   assert.equal(quarantined.rows[0].provider_request_id, 'SAME_REQ_ID');
 
-  const migrationV2Sql = fs.readFileSync('db/checkout-lifecycle-hardening-v2.sql', 'utf8');
+  const migrationV2Sql = fs.readFileSync(path.join(__dirname, '../db/checkout-lifecycle-hardening-v2.sql'), 'utf8');
   
   // 2. Migration v2 PHẢI fail-closed khi phát hiện trùng lặp, không âm thầm tạo index thường
   await assert.rejects(
@@ -2739,7 +2741,8 @@ test('P2-03 Fix: OrderReviewService & Job Queue order.review handler fails close
 
 test('P2-04 Fix: Client commerce.js handles HTTP 202 (PAYMENT_INITIATION_IN_PROGRESS) with polling and prevents COD fallback', async () => {
   const fs = require('fs');
-  const commerceCode = fs.readFileSync('commerce.js', 'utf8');
+  const path = require('node:path');
+  const commerceCode = fs.readFileSync(path.join(__dirname, '../commerce.js'), 'utf8');
 
   // 1. Kiểm tra commerce.js có nhánh xử lý PAYMENT_INITIATION_IN_PROGRESS
   assert.ok(commerceCode.includes("result.code === 'PAYMENT_INITIATION_IN_PROGRESS'"));
@@ -2760,6 +2763,7 @@ test('P2-04 Fix: Client commerce.js handles HTTP 202 (PAYMENT_INITIATION_IN_PROG
 
 test('Admin HTML Escape Consolidation: format.js shared source of truth, loading order, and safe fallback without raw pass-through', async () => {
   const fs = require('node:fs');
+  const path = require('node:path');
   // 1. format.js export verification
   const format = require('../admin/format');
   assert.equal(typeof format.escapeHtml, 'function');
@@ -2785,18 +2789,18 @@ test('Admin HTML Escape Consolidation: format.js shared source of truth, loading
   assert.equal(mockWindowWithFormat.GAERUAdminShared.escapeHtml(xssPayload), escaped);
 
   // Kịch bản B: format.js chưa tải (hoặc lỗi tải) -> fallback an toàn phải tự kích hoạt, tuyệt đối KHÔNG trả raw String
-  const adminJsContent = fs.readFileSync('admin/admin.js', 'utf8');
+  const adminJsContent = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
   assert.ok(adminJsContent.includes('fallbackEscapeHtml'));
   assert.ok(!adminJsContent.includes('return String(value)')); // Không được trả raw String(value)
 
-  const barcodeContent = fs.readFileSync('admin/barcode-scanner.js', 'utf8');
+  const barcodeContent = fs.readFileSync(path.join(__dirname, '../admin/barcode-scanner.js'), 'utf8');
   assert.ok(barcodeContent.includes('fallbackEscapeHtml'));
 
-  const upgradesContent = fs.readFileSync('admin/upgrades-hub.js', 'utf8');
+  const upgradesContent = fs.readFileSync(path.join(__dirname, '../admin/upgrades-hub.js'), 'utf8');
   assert.ok(upgradesContent.includes('fallbackEscapeHtml'));
 
   // Kiểm tra mã nguồn index.html bảo đảm format.js được nạp trước admin.js và upgrades-hub.js
-  const indexHtml = fs.readFileSync('admin/index.html', 'utf8');
+  const indexHtml = fs.readFileSync(path.join(__dirname, '../admin/index.html'), 'utf8');
   const formatPos = indexHtml.indexOf('format.js');
   const adminPos = indexHtml.indexOf('admin.js');
   const hubPos = indexHtml.indexOf('upgrades-hub.js');
@@ -3143,4 +3147,87 @@ test('Audit Hardening: OrderReviewService null-safety and SLA breach throttling'
   // Second check should be throttled
   const breaches2 = await OrderReviewService.checkSlaBreaches(pool, { slaHours: 24 });
   assert.equal(breaches2.length, 0, 'SLA breach alert phải được throttle trong 6 giờ');
+});
+
+
+test('Audit Hardening: createGatewayPayment handles VNPAY cleanly without ZaloPay fallthrough', async () => {
+  const { createGatewayPayment } = require('../src/payment-provider-clients');
+  const res = await createGatewayPayment('vnpay', {
+    environment: 'sandbox',
+    tmnCode: 'GAERUDEMO',
+    hashSecret: '1234567812345678'
+  }, {
+    amountVnd: 500000,
+    txnRef: 'GR-VNPAY-DIRECT-01',
+    baseUrl: 'https://gaeru.com'
+  });
+
+  assert.ok(res.paymentUrl.includes('sandbox.vnpayment.vn'));
+  assert.ok(res.paymentUrl.includes('vnp_SecureHash='));
+  assert.equal(res.verificationScope, 'api_credentials');
+  assert.equal(res.callbackVerified, false);
+});
+
+test('Audit Hardening: PaymentService fails closed without raw SQL stock fallback when inventory service missing', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query("INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính Gate Rej', 'kinh-gate-rej', 'audio', true)", [pId]);
+  await pool.query("INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-REJ-01', 'Đen', 300000, 10, true)", [vId, pId]);
+  const mainWh = (await pool.query("SELECT id FROM warehouses WHERE code='MAIN'")).rows[0]?.id;
+  if (mainWh) {
+    await pool.query("INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 10) ON CONFLICT (warehouse_id, variant_id) DO UPDATE SET quantity = 10", [mainWh, vId]);
+  }
+
+  const orderId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-REJ-TEST-01', 'Rej Buyer', 'rej@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 300000, 300000, 0, now())`,
+    [orderId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính Gate Rej', 'Đen', 'SKU-REJ-01', 1, 300000, 300000)`,
+    [orderId, vId]
+  );
+
+  const attemptId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, provider_request_id, amount_vnd, status, expires_at)
+     VALUES ($1, $2, 'momo', 'GR-REJ-TEST-01', 'req-rej-01', 300000, 'pending', now() + interval '15 minutes')`,
+    [attemptId, orderId]
+  );
+
+  // Gọi initiateOrderGatewayPayment với mock gateway ném lỗi dứt khoát không mơ hồ (ambiguous: false)
+  const fakeFetcher = async () => {
+    const payload = JSON.stringify({
+      resultCode: 9000, // Denied
+      message: 'Giao dịch bị từ chối từ phía người dùng'
+    });
+    return {
+      status: 200,
+      text: async () => payload,
+      json: async () => JSON.parse(payload)
+    };
+  };
+
+  const outcome = await PaymentService.initiateOrderGatewayPayment(pool, {
+    order: { id: orderId, orderNumber: 'GR-REJ-TEST-01', totalVnd: 300000 },
+    gatewayCall: {
+      provider: 'momo',
+      channelConfig: { partnerCode: 'MOMO', accessKey: 'ACC', secretKey: 'SEC88888888', environment: 'sandbox' },
+      providerRequestId: 'req-rej-01',
+      gatewayNow: Date.now()
+    },
+    publicBaseUrl: 'https://gaeru.com',
+    paymentFetcher: fakeFetcher
+  });
+
+  assert.equal(outcome.ok, false);
+  const orderDb = (await pool.query('SELECT status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(orderDb.status, 'cancelled');
+  const attemptDb = (await pool.query('SELECT status FROM payment_attempts WHERE id = $1', [attemptId])).rows[0];
+  assert.equal(attemptDb.status, 'failed');
 });

@@ -203,6 +203,28 @@ function validateGatewayInitiationRequest(provider, settings, options = {}) {
 
 async function createGatewayPayment(provider, settings, options = {}) {
   const { time, requestId, amount, baseUrl } = validateGatewayInitiationRequest(provider, settings, options);
+  if (provider === 'vnpay') {
+    const { buildVnpayPaymentUrl } = require('./vnpay');
+    const vnpConfig = {
+      tmnCode: settings.tmnCode,
+      hashSecret: settings.hashSecret,
+      paymentUrl: settings.paymentUrl || (settings.environment === 'production' ? 'https://pay.vnpay.vn/vpcpay.html' : 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'),
+      returnUrl: settings.returnUrl || (baseUrl + '/api/payments/vnpay/return')
+    };
+    const paymentUrlStr = buildVnpayPaymentUrl(vnpConfig, {
+      amountVnd: amount,
+      txnRef: options.txnRef,
+      ipAddress: options.ipAddress || '127.0.0.1',
+      now: new Date(time)
+    });
+    return {
+      paymentUrl: paymentUrl(provider, settings.environment, paymentUrlStr),
+      requestId,
+      providerTransactionId: null,
+      verificationScope: 'api_credentials',
+      callbackVerified: false
+    };
+  }
   let body;
   if (provider === 'momo') {
     body = { partnerCode: settings.partnerCode, requestId, orderId: options.txnRef, amount,
