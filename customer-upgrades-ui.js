@@ -104,7 +104,7 @@
           </div>
           <div class="gaeru-vip-actions-row">
             <span>${tier === 'diamond' ? 'Bạn đang hưởng đặc quyền cao nhất của GAERU VIP!' : `Tích lũy thêm ${(Math.max(0, targetPoints - lifetime)).toLocaleString('vi-VN')} điểm để đạt Hạng ${escapeHtml(nextTierName)}`}</span>
-            <button type="button" class="gaeru-vip-history-btn" data-open-loyalty-history onclick="window.GAERUCustomerUpgrades?.openLoyaltyHistoryModal()">
+            <button type="button" class="gaeru-vip-history-btn" data-action="loyalty-history" data-open-loyalty-history>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
               Lịch sử tích điểm
             </button>
@@ -126,7 +126,7 @@
             <span class="gaeru-action-pill-icon">📦</span>
             <span class="gaeru-action-pill-text">Tra cứu vận đơn</span>
           </a>
-          <button type="button" class="gaeru-action-pill" data-service-tile="affiliate" onclick="window.GAERUCustomerUpgrades?.openAffiliateModal()" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
+          <button type="button" class="gaeru-action-pill" data-action="open-affiliate" data-service-tile="affiliate" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
             <span class="gaeru-action-pill-icon">🤝</span>
             <span class="gaeru-action-pill-text">Mã giới thiệu CTV (8%)</span>
           </button>
@@ -203,14 +203,14 @@
       </div>
     `;
 
-    dialog.querySelectorAll('[data-dialog-close]').forEach(b => b.onclick = () => dialog.close());
     dialog.showModal();
   }
 
   // 3. Modal Tiếp Thị Liên Kết KOC (Affiliate CTV)
   function openAffiliateModal(customer) {
+    const cust = customer || currentCustomerData || window.GAERUCustomerSession?.customer || { id: 'VIP' };
     const dialog = ensureDialog('gaeru-affiliate-modal');
-    const refCode = customer.phone || (customer.id ? customer.id.slice(0, 8) : 'VIP');
+    const refCode = cust.phone || (cust.id ? cust.id.slice(0, 8) : 'VIP');
     const affiliateUrl = `${window.location.origin}/?ref=${encodeURIComponent(refCode)}`;
 
     dialog.innerHTML = `
@@ -231,17 +231,17 @@
         <p style="margin:16px 0 6px;font-weight:600;color:#1d1d1f;">Đường link giới thiệu độc quyền của bạn:</p>
         <div class="affiliate-link-box">
           <span class="affiliate-link-text">${escapeHtml(affiliateUrl)}</span>
-          <button type="button" class="affiliate-copy-btn" data-copy-affiliate>Sao chép</button>
+          <button type="button" class="affiliate-copy-btn" data-action="copy-affiliate" data-copy-affiliate>Sao chép</button>
         </div>
         <p id="affiliate-copy-feedback" style="font-size:12.5px;color:#176b3d;margin:4px 0 0;" hidden>✓ Đã sao chép liên kết vào clipboard!</p>
       </div>
     `;
 
-    dialog.querySelectorAll('[data-dialog-close]').forEach(b => b.onclick = () => dialog.close());
     const copyBtn = dialog.querySelector('[data-copy-affiliate]');
     const feedback = dialog.querySelector('#affiliate-copy-feedback');
-    if (copyBtn) {
-      copyBtn.onclick = async () => {
+    if (copyBtn && !copyBtn.dataset.listenerBound) {
+      copyBtn.dataset.listenerBound = 'true';
+      copyBtn.addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(affiliateUrl);
           feedback.hidden = false;
@@ -254,7 +254,7 @@
         } catch {
           (window.GAERUNotify || alert)('Hãy copy liên kết: ' + affiliateUrl);
         }
-      };
+      });
     }
 
     dialog.showModal();
@@ -441,7 +441,7 @@
   // Ủy quyền sự kiện click toàn tài liệu (Global Event Delegation)
   document.addEventListener('click', (e) => {
     // 1. Mở modal lịch sử điểm
-    const loyaltyBtn = e.target.closest('[data-open-loyalty-history]');
+    const loyaltyBtn = e.target.closest('[data-open-loyalty-history]') || e.target.closest('[data-action="loyalty-history"]');
     if (loyaltyBtn) {
       e.preventDefault();
       openLoyaltyHistoryModal();
@@ -449,15 +449,15 @@
     }
 
     // 2. Mở modal Tiếp thị liên kết KOC (Affiliate CTV)
-    const affBtn = e.target.closest('[data-service-tile="affiliate"]');
+    const affBtn = e.target.closest('[data-service-tile="affiliate"]') || e.target.closest('[data-action="open-affiliate"]');
     if (affBtn) {
       e.preventDefault();
-      openAffiliateModal(currentCustomerData || window.GAERUCustomerSession?.customer || { id: 'VIP' });
+      openAffiliateModal();
       return;
     }
 
     // 3. Nút đóng modal
-    const closeBtn = e.target.closest('[data-dialog-close]');
+    const closeBtn = e.target.closest('[data-dialog-close]') || e.target.closest('[data-action="dialog-close"]');
     if (closeBtn) {
       e.preventDefault();
       const dlg = closeBtn.closest('dialog');

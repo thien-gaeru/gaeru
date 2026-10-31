@@ -39,15 +39,13 @@
     || (typeof globalThis !== 'undefined' && globalThis.GAERUAdminShared)
     || (typeof require === 'function' ? (function () { try { return require('./format'); } catch (e) { return null; } })() : null);
 
-  const escapeHtml = (sharedFmt && typeof sharedFmt.escapeHtml === 'function')
-    ? sharedFmt.escapeHtml
-    : ((typeof window !== 'undefined' && typeof window.escapeHtml === 'function')
-        ? window.escapeHtml
-        : function fallbackEscapeHtml(value) {
-            return String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
-              '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;'
-            }[c]));
-          });
+  const escapeHtml = sharedFmt?.escapeHtml
+    || (typeof window !== 'undefined' && window.escapeHtml)
+    || function fallbackEscapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+      };
   const formatMoney = (amount) => sharedFmt ? sharedFmt.formatMoney(amount, { suffix: 'đ' }) : (Number(amount || 0).toLocaleString('vi-VN') + 'đ');
 
   let cachedCsrfToken = '';

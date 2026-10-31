@@ -66,15 +66,13 @@ const sharedFormat = (typeof window !== 'undefined' && window.GAERUAdminShared)
 const formatPrice = (value) =>
   value == null ? "Chưa xác định" : (sharedFormat ? sharedFormat.formatMoney(value) : (Number(value || 0).toLocaleString('vi-VN') + ' ₫'));
 
-const escapeHtml = (sharedFormat && typeof sharedFormat.escapeHtml === 'function')
-  ? sharedFormat.escapeHtml
-  : ((typeof window !== 'undefined' && typeof window.escapeHtml === 'function')
-      ? window.escapeHtml
-      : function fallbackEscapeHtml(value) {
-          return String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;'
-          }[c]));
-        });
+const escapeHtml = sharedFormat?.escapeHtml
+  || (typeof window !== 'undefined' && window.escapeHtml)
+  || function fallbackEscapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    };
 if (typeof window !== 'undefined' && !window.escapeHtml) {
   window.escapeHtml = escapeHtml;
 }
