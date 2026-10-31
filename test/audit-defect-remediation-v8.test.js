@@ -246,3 +246,25 @@ test('WAF Malformed URI Handling: createWafShield handles invalid percent-encodi
     server.close();
   }
 });
+
+test('Email Domain Inspection: inspectDomain classifies email without @ as missing without querying DNS', async () => {
+  const { inspectDomain } = require('../src/order-review');
+
+  let resolverCalls = 0;
+  const failingResolver = {
+    resolveMx: async () => { resolverCalls++; const err = new Error('DNS failure'); err.code = 'ETIMEOUT'; throw err; },
+    lookup: async () => { resolverCalls++; const err = new Error('DNS failure'); err.code = 'ETIMEOUT'; throw err; }
+  };
+
+  // 1. Email without @ sign must be classified as 'missing' without calling resolver
+  assert.equal(await inspectDomain('invalid-no-at-sign', failingResolver), 'missing');
+  assert.equal(resolverCalls, 0, 'Resolver must not be called when @ is missing');
+
+  // 2. Null, undefined, empty, or missing domain must also return 'missing'
+  assert.equal(await inspectDomain(null, failingResolver), 'missing');
+  assert.equal(await inspectDomain(undefined, failingResolver), 'missing');
+  assert.equal(await inspectDomain('', failingResolver), 'missing');
+  assert.equal(await inspectDomain('user@', failingResolver), 'missing');
+  assert.equal(await inspectDomain('user@nodot', failingResolver), 'missing');
+  assert.equal(resolverCalls, 0, 'Resolver must never be called for malformed or missing domains');
+});
