@@ -533,6 +533,25 @@ document.querySelector("#order-search").addEventListener("input", (event) => {
   }, 200);
 });
 document.querySelector("#refresh-orders").addEventListener("click", () => loadOrders().catch((error) => showGlobal(error.message, true)));
+document.querySelector("#open-barcode-scanner")?.addEventListener("click", () => {
+  const dialog = document.querySelector("#barcode-scanner-dialog");
+  if (!dialog) return;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  const mount = dialog.querySelector("#barcode-widget-mount");
+  if (mount && window.GAERUBarcodeScanner && typeof window.GAERUBarcodeScanner.init === "function") {
+    window.GAERUBarcodeScanner.init({
+      container: mount,
+      request: window.request,
+      onOrderFound: () => {
+        loadOrders(state.orderPage, { background: true }).catch(() => {});
+      }
+    });
+  }
+});
+document.querySelector('[data-action="close-scanner"]')?.addEventListener("click", () => {
+  const dialog = document.querySelector("#barcode-scanner-dialog");
+  if (dialog && typeof dialog.close === "function") dialog.close();
+});
 document.querySelector("#previous-orders").addEventListener("click", () => {
   if (state.orderPage > 1) loadOrders(state.orderPage - 1).catch((error) => showGlobal(error.message, true));
 });
