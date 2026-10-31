@@ -77,15 +77,82 @@ async function processOrderEmail(pool, config, mailer, { structured = false } = 
   });
 }
 
-function startOrderEmailWorker(pool, config, mailer) {
+function makeMailer(config) {
+  if (!config?.smtp) return null;
+  const s = config.smtp;
+  try {
+    return require('nodemailer').createTransport(require('./smtp-security').smtpOptions(s));
+  } catch {
+    return null;
+  }
+}
+
+function startOrderEmailWorker(pool, config, mailerOrOptions = {}) {
+  let mailer = null;
+  let intervalMs = 10000;
+  let resolver = undefined;
+
+  if (mailerOrOptions && typeof mailerOrOptions.sendMail === 'function') {
+    mailer = mailerOrOptions;
+  } else if (typeof mailerOrOptions === 'object' && mailerOrOptions !== null) {
+    mailer = mailerOrOptions.mailer;
+    if (mailerOrOptions.intervalMs) intervalMs = mailerOrOptions.intervalMs;
+    if (mailerOrOptions.resolver) resolver = mailerOrOptions.resolver;
+  }
+
+  // Tái sử dụng transporter có kiểm tra cấu hình SMTP (fail-safe nếu caller không cấp mailer)
+  if (!mailer) {
+    mailer = makeMailer(config);
+  }
+
   let timer = null;
   let running = false;
+  let stopped = false;
 
   const tick = async () => {
-    if (running) return;
+    if (running || stopped) return;
     running = true;
     try {
-      while (await processOrderEmail(pool, config, mailer)) {}
+      // 1. P1-02: Sàng lọc tên miền email đáng ngờ trước khi gửi
+      let orderReview = null;
+      try {
+        orderReview = require('./order-review');
+      } catch {}
+
+      if (typeof orderReview?.screenNextEmail === 'function') {
+        try {
+          await orderReview.screenNextEmail(pool, { resolver });
+        } catch (e) {
+          console.warn('Order email screening error:', e?.message || e);
+        }
+      }
+
+      // 2. P1-01: Gửi email xác nhận đơn và email tạo mật khẩu khách hàng
+      let sentCount = 0;
+      while (!stopped && sentCount < 20) {
+        const sent = await processOrderEmail(pool, config, mailer);
+        if (!sent) break;
+        sentCount++;
+      }
+
+      // 3. P1-02: Phân loại các đơn có email lỗi/chậm để đưa vào order_reviews
+      if (typeof orderReview?.classify === 'function') {
+        try {
+          await orderReview.classify(pool);
+        } catch (e) {
+          console.warn('Order review classify error:', e?.message || e);
+        }
+      }
+
+      // 4. P1-02: Gửi email cảnh báo đơn mới và đơn cần xem xét tới quản trị viên
+      if (typeof orderReview?.notifyAdmin === 'function') {
+        let adminSentCount = 0;
+        while (!stopped && adminSentCount < 10) {
+          const sent = await orderReview.notifyAdmin(pool, config, mailer);
+          if (!sent) break;
+          adminSentCount++;
+        }
+      }
     } catch (e) {
       console.error('Order email worker loop error:', e);
     } finally {
@@ -93,10 +160,12 @@ function startOrderEmailWorker(pool, config, mailer) {
     }
   };
 
-  timer = setInterval(tick, 10000);
+  timer = setInterval(tick, intervalMs);
+  if (timer.unref) timer.unref();
   void tick();
 
   return () => {
+    stopped = true;
     if (timer) clearInterval(timer);
   };
 }
