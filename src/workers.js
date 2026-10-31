@@ -247,46 +247,74 @@ class WorkerManager {
       return { ok: true };
     });
 
-    const getMailer = () => {
+    let cachedMailer = null;
+    let cachedSmtpOptionsKey = null;
+
+    const getOrCreateMailer = () => {
       if (!config?.smtp) return null;
       try {
-        return require('nodemailer').createTransport(require('./smtp-security').smtpOptions(config.smtp));
-      } catch {
-        return null;
+        const smtpSecurity = requireFn('./smtp-security');
+        const opts = smtpSecurity.smtpOptions(config.smtp);
+        const key = JSON.stringify(opts);
+        if (cachedMailer && cachedSmtpOptionsKey === key) {
+          return cachedMailer;
+        }
+        const nodemailer = requireFn('nodemailer');
+        cachedMailer = nodemailer.createTransport(opts);
+        cachedSmtpOptionsKey = key;
+        return cachedMailer;
+      } catch (err) {
+        throw Object.assign(
+          new Error(`Lỗi cấu hình hoặc khởi tạo SMTP transport: ${err?.message || err}`),
+          { code: 'SMTP_CONFIG_INVALID', cause: err }
+        );
       }
+    };
+
+    const normalizeEmailWorkerResult = (res) => {
+      if (typeof res === 'object' && res !== null && res.status) {
+        return res;
+      }
+      if (res === true) {
+        return { status: 'sent' };
+      }
+      return { status: 'no_work' };
     };
 
     this.jobQueue.registerWorker('email.order', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const orderEmail = requireFn('./order-email');
-      const mailer = getMailer();
+      const mailer = getOrCreateMailer();
       const fn = orderEmail.processOrderEmailOutbox || orderEmail.processOrderEmail;
       if (typeof fn === 'function') {
-        return await fn(pool, config, mailer);
+        const res = await fn(pool, config, mailer, { structured: true });
+        return normalizeEmailWorkerResult(res);
       }
-      return { ok: true };
+      return { status: 'no_work' };
     });
 
     this.jobQueue.registerWorker('email.warranty', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const warrantyEmail = requireFn('./warranty-email');
-      const mailer = getMailer();
+      const mailer = getOrCreateMailer();
       const fn = warrantyEmail.processWarrantyEmailOutbox || warrantyEmail.processWarrantyEmail;
       if (typeof fn === 'function') {
-        return await fn(pool, config, mailer);
+        const res = await fn(pool, config, mailer, { structured: true });
+        return normalizeEmailWorkerResult(res);
       }
-      return { ok: true };
+      return { status: 'no_work' };
     });
 
     this.jobQueue.registerWorker('email.marketing', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const emailMarketing = requireFn('./email-marketing');
-      const mailer = getMailer();
+      const mailer = getOrCreateMailer();
       const fn = emailMarketing.processMarketingEmails || emailMarketing.processEmailQueue;
       if (typeof fn === 'function') {
-        return await fn(pool, config, mailer);
+        const res = await fn(pool, config, mailer, { structured: true });
+        return normalizeEmailWorkerResult(res);
       }
-      return { ok: true };
+      return { status: 'no_work' };
     });
 
     this.jobQueue.registerWorker('payment.reconcile', async (payload, _job, leaseContext) => {
@@ -317,17 +345,31 @@ class WorkerManager {
 
     this.jobQueue.registerWorker('orders.cancel_expired', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
-      try {
-        const { OrderExpirationService } = requireFn('./domain/orders/order-expiration-service');
-        if (typeof OrderExpirationService?.cancelExpiredUnpaidOrders === 'function') {
-          return await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
-            olderThanHours: payload?.olderThanHours || 24
-          });
+      const { OrderExpirationService } = requireFn('./domain/orders/order-expiration-service');
+      if (typeof OrderExpirationService?.cancelExpiredUnpaidOrders === 'function') {
+        const result = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+          olderThanHours: payload?.olderThanHours || 24,
+          channelTtlHours: payload?.channelTtlHours || null,
+          config
+        });
+        if (result?.failedCount > 0 && (!result?.cancelledCount || result?.cancelledCount === 0)) {
+          const firstErr = result?.errors?.[0];
+          throw Object.assign(
+            new Error(`orders.cancel_expired thất bại cho toàn bộ ${result.failedCount} đơn quá hạn: ${firstErr?.error || 'Lỗi không xác định'}`),
+            { code: 'CANCEL_EXPIRED_ALL_FAILED', errors: result.errors }
+          );
         }
-      } catch (err) {
-        console.error('orders.cancel_expired error:', err.message);
+        return {
+          status: result?.failedCount > 0
+            ? 'partial_failure'
+            : (result?.cancelledCount > 0 || (Array.isArray(result) && result.length > 0) ? 'processed' : 'no_work'),
+          cancelledCount: result?.cancelledCount ?? (Array.isArray(result) ? result.length : 0),
+          failedCount: result?.failedCount || 0,
+          errors: result?.errors || [],
+          cancelled: result?.cancelled || (Array.isArray(result) ? result : [])
+        };
       }
-      return { ok: true };
+      return { status: 'no_work', cancelledCount: 0 };
     });
 
     this.jobQueue.registerWorker('health.check', async (payload, _job, leaseContext) => {

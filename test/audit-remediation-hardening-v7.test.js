@@ -1291,3 +1291,195 @@ test('P2-02: Supplementary migration runs automatically on existing production d
   }, 'Subsequent migrateDatabase calls must be strictly idempotent');
 });
 
+test('P2-03: Worker error handling, mailer caching, structured outbox outcomes, and anti-duplicate delivery', async () => {
+  const { pool } = await createTestDb();
+
+  // 1. orders.cancel_expired error propagation (does NOT swallow DB errors into { ok: true })
+  const mockPoolWithError = {
+    async query() {
+      throw new Error('Fatal database connection error during cancel');
+    }
+  };
+  const { WorkerManager } = require('../src/workers');
+  const { createJobQueue } = require('../src/job-queue');
+
+  const q1 = createJobQueue({ pool, intervalMs: 50, concurrency: 1 });
+  const wm1 = new WorkerManager();
+  wm1.jobQueue = q1;
+  wm1.registerDefaultHandlers(mockPoolWithError, {});
+
+  const cancelHandler = q1.getWorker('orders.cancel_expired');
+  assert.equal(typeof cancelHandler, 'function');
+
+  // Verify that calling cancelHandler with failing DB throws, does NOT return { ok: true }
+  await assert.rejects(async () => {
+    await cancelHandler({}, { id: 'job-cancel-test' }, { assertLeaseActive: () => {} });
+  }, /Fatal database connection error during cancel/);
+
+  // 2. Structured result for OrderExpirationService.cancelExpiredUnpaidOrders
+  const emptyRes = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours: 24 });
+  assert.equal(Array.isArray(emptyRes), true);
+  assert.equal(emptyRes.length, 0);
+  assert.equal(emptyRes.success, true);
+  assert.equal(emptyRes.cancelledCount, 0);
+  assert.equal(emptyRes.failedCount, 0);
+  assert.deepEqual(emptyRes.errors, []);
+
+  // 3. Mailer transport caching and reuse in WorkerManager
+  let transportCreateCount = 0;
+  const mockNodemailer = {
+    createTransport(opts) {
+      transportCreateCount++;
+      return {
+        _opts: opts,
+        sendMail: async () => ({ accepted: ['test@example.com'] })
+      };
+    }
+  };
+
+  const customRequireFn = (mod) => {
+    if (mod === 'nodemailer') return mockNodemailer;
+    if (mod.startsWith('./')) return require('../src/' + mod.slice(2));
+    return require(mod);
+  };
+
+  const q2 = createJobQueue({ pool, intervalMs: 50, concurrency: 1 });
+  const wm2 = new WorkerManager();
+  wm2.jobQueue = q2;
+  const smtpConfig = {
+    host: 'smtp.example.com',
+    port: 587,
+    user: 'store@example.com',
+    pass: 'secret',
+    from: 'store@example.com'
+  };
+  wm2.registerDefaultHandlers(pool, { smtp: smtpConfig }, { requireFn: customRequireFn });
+
+  const emailOrderHandler = q2.getWorker('email.order');
+  const emailWarrantyHandler = q2.getWorker('email.warranty');
+  const emailMarketingHandler = q2.getWorker('email.marketing');
+
+  // Run all 3 email handlers (outbox empty -> no_work)
+  const resOrder = await emailOrderHandler({}, { id: 'j1' }, { assertLeaseActive: () => {} });
+  const resWarranty = await emailWarrantyHandler({}, { id: 'j2' }, { assertLeaseActive: () => {} });
+  const resMarketing = await emailMarketingHandler({}, { id: 'j3' }, { assertLeaseActive: () => {} });
+
+  assert.equal(resOrder.status, 'no_work');
+  assert.equal(resWarranty.status, 'no_work');
+  assert.equal(resMarketing.status, 'no_work');
+
+  // Transport should have been created ONLY ONCE and reused across all jobs
+  assert.equal(transportCreateCount, 1, 'Mailer transport must be cached and reused across worker executions');
+
+  // 4. Structured email processing: 'sent', 'retry', 'unknown', 'unsendable'
+  const { processOrderEmail, processOrderEmailOutbox } = require('../src/order-email');
+
+  // Insert test product, variant and order
+  const prodId = crypto.randomUUID();
+  const varId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Product P203', 'product-p203', 'audio', true)`,
+    [prodId]
+  );
+  await pool.query(
+    `INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active)
+     VALUES ($1, $2, 'SKU-P203', 'Standard', 100000, 10, true)`,
+    [varId, prodId]
+  );
+
+  const createOrder = async (orderNum) => {
+    const oId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd)
+       VALUES ($1, $2, 'Test Buyer', 'buyer@example.com', '0901234567', '123 Pho', 'Hanoi', 'cod', 'pending', 'pending', 100000, 100000)`,
+      [oId, orderNum]
+    );
+    await pool.query(
+      `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+       VALUES (gen_random_uuid(), $1, $2, 'Product 1', 'Standard', 'SKU-P203', 1, 100000, 100000)`,
+      [oId, varId]
+    );
+    return oId;
+  };
+
+  // A. Successful send: returns 'sent'
+  const oA = await createOrder('GR-MAIL-001');
+  const outbox1 = (await pool.query(
+    `INSERT INTO order_email_outbox (order_id, kind, status) VALUES ($1, 'receipt', 'pending') RETURNING id`,
+    [oA]
+  )).rows[0];
+
+  const fakeSuccessMailer = {
+    sendMail: async (m) => ({ accepted: [m.to], messageId: '<test-msg-1@gaeru.com>' })
+  };
+  const sendRes = await processOrderEmailOutbox(pool, { smtp: smtpConfig }, fakeSuccessMailer);
+  assert.equal(sendRes.status, 'sent');
+  assert.equal(sendRes.outboxId, outbox1.id);
+
+  // Check outbox row is 'sent'
+  const row1 = (await pool.query('SELECT status, result FROM order_email_outbox WHERE id = $1', [outbox1.id])).rows[0];
+  assert.equal(row1.status, 'sent');
+
+  // B. Safe transient failure: returns 'retry', marks status 'pending' with 5m delay
+  const oB = await createOrder('GR-MAIL-002');
+  const outbox2 = (await pool.query(
+    `INSERT INTO order_email_outbox (order_id, kind, status) VALUES ($1, 'receipt', 'pending') RETURNING id`,
+    [oB]
+  )).rows[0];
+
+  const fakeRetryMailer = {
+    sendMail: async () => {
+      const err = new Error('Connection refused by SMTP relay');
+      err.command = 'CONN';
+      throw err;
+    }
+  };
+  const retryRes = await processOrderEmailOutbox(pool, { smtp: smtpConfig }, fakeRetryMailer);
+  assert.equal(retryRes.status, 'retry');
+  assert.equal(retryRes.outboxId, outbox2.id);
+
+  const row2 = (await pool.query('SELECT status, result, next_attempt_at FROM order_email_outbox WHERE id = $1', [outbox2.id])).rows[0];
+  assert.equal(row2.status, 'pending');
+  assert.ok(row2.next_attempt_at);
+
+  // C. Ambiguous delivery failure: returns 'unknown', marks status 'unknown', NEVER retries automatically
+  const oC = await createOrder('GR-MAIL-003');
+  const outbox3 = (await pool.query(
+    `INSERT INTO order_email_outbox (order_id, kind, status) VALUES ($1, 'receipt', 'pending') RETURNING id`,
+    [oC]
+  )).rows[0];
+
+  const fakeAmbiguousMailer = {
+    sendMail: async () => {
+      const err = new Error('Socket timeout waiting for 250 OK after DATA stream');
+      err.command = 'DATA';
+      throw err;
+    }
+  };
+  const ambigRes = await processOrderEmailOutbox(pool, { smtp: smtpConfig }, fakeAmbiguousMailer);
+  assert.equal(ambigRes.status, 'unknown');
+  assert.equal(ambigRes.outboxId, outbox3.id);
+
+  const row3 = (await pool.query('SELECT status, result, next_attempt_at, finished_at FROM order_email_outbox WHERE id = $1', [outbox3.id])).rows[0];
+  assert.equal(row3.status, 'unknown');
+  assert.ok(row3.finished_at);
+
+  // Calling worker again: since status is 'unknown' (not 'pending'), it must NOT be picked up!
+  const nextAttempt = await processOrderEmailOutbox(pool, { smtp: smtpConfig }, fakeSuccessMailer);
+  assert.equal(nextAttempt.status, 'no_work', 'Ambiguous outbox records must never be automatically retried');
+
+  // D. Backward compatibility: processOrderEmail without options returns boolean
+  const oD = await createOrder('GR-MAIL-004');
+  const outbox4 = (await pool.query(
+    `INSERT INTO order_email_outbox (order_id, kind, status) VALUES ($1, 'receipt', 'pending') RETURNING id`,
+    [oD]
+  )).rows[0];
+  const boolRes = await processOrderEmail(pool, { smtp: smtpConfig }, fakeSuccessMailer);
+  assert.equal(boolRes, true, 'Legacy processOrderEmail must return boolean true on processed mail');
+
+  // E. When queue is empty: returns boolean false for legacy callers
+  const boolEmpty = await processOrderEmail(pool, { smtp: smtpConfig }, fakeSuccessMailer);
+  assert.equal(boolEmpty, false, 'Legacy processOrderEmail must return boolean false when queue is empty');
+});
+
+
