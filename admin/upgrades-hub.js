@@ -37,20 +37,17 @@
 
   const sharedFmt = (typeof window !== 'undefined' && window.GAERUAdminShared)
     || (typeof globalThis !== 'undefined' && globalThis.GAERUAdminShared)
-    || (typeof require === 'function' ? require('./format') : null);
-  const fallbackEscapeHtml = (value) =>
-    String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-      '/': '&#x2F;'
-    }[c]));
-  const escapeHtml = (value) =>
-    (sharedFmt && typeof sharedFmt.escapeHtml === 'function')
-      ? sharedFmt.escapeHtml(value)
-      : fallbackEscapeHtml(value);
+    || (typeof require === 'function' ? (function () { try { return require('./format'); } catch (e) { return null; } })() : null);
+
+  const escapeHtml = (sharedFmt && typeof sharedFmt.escapeHtml === 'function')
+    ? sharedFmt.escapeHtml
+    : ((typeof window !== 'undefined' && typeof window.escapeHtml === 'function')
+        ? window.escapeHtml
+        : function fallbackEscapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
+              '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;'
+            }[c]));
+          });
   const formatMoney = (amount) => sharedFmt ? sharedFmt.formatMoney(amount, { suffix: 'đ' }) : (Number(amount || 0).toLocaleString('vi-VN') + 'đ');
 
   let cachedCsrfToken = '';
