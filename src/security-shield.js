@@ -65,9 +65,20 @@ function createWafShield() {
     // 3. Block SQLi and XSS Injection Probes in Query String
     const queryString = rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '';
     if (queryString) {
-      const decodedQuery = decodeURIComponent(queryString).replace(/\+/g, ' ');
+      let decodedQuery = queryString;
+      try {
+        decodedQuery = decodeURIComponent(queryString).replace(/\+/g, ' ');
+      } catch {
+        decodedQuery = queryString.replace(/%(?:[0-9a-fA-F]{2})?/g, (match) => {
+          try {
+            return decodeURIComponent(match);
+          } catch {
+            return match;
+          }
+        }).replace(/\+/g, ' ');
+      }
       for (const pattern of MALICIOUS_QUERY_PATTERNS) {
-        if (pattern.test(decodedQuery)) {
+        if (pattern.test(decodedQuery) || pattern.test(queryString)) {
           securityMetrics.threatsBlocked++;
           securityMetrics.lastIncident = { type: 'injection_blocked', target: req.path, time: new Date().toISOString() };
           return res.status(403).json({
