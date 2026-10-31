@@ -92,7 +92,25 @@ function parseScopedClientReference(scopedRef) {
   return { isScoped: false, scope: null, rawKey: scopedRef };
 }
 
-const DEFAULT_ORDER_TOKEN_SECRET = 'gaeru-order-token-default-secret-key-32b';
+/**
+ * Giải quyết secret dùng để ký và xác thực order access token.
+ * Ưu tiên: secret truyền vào -> ORDER_ACCESS_TOKEN_SECRET -> SESSION_SECRET.
+ * Bắt buộc độ dài tối thiểu 32 ký tự.
+ * @param {string} [secret]
+ * @returns {string|null}
+ */
+function resolveOrderTokenSecret(secret = null) {
+  const candidate = (secret && typeof secret === 'string' && secret.trim())
+    ? secret.trim()
+    : ((process.env.ORDER_ACCESS_TOKEN_SECRET && process.env.ORDER_ACCESS_TOKEN_SECRET.trim())
+      || (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim())
+      || null);
+
+  if (!candidate || candidate.length < 32) {
+    return null;
+  }
+  return candidate;
+}
 
 /**
  * Tạo token truy cập đơn hàng có chữ ký số HMAC-SHA256 và thời hạn sử dụng
@@ -102,7 +120,13 @@ const DEFAULT_ORDER_TOKEN_SECRET = 'gaeru-order-token-default-secret-key-32b';
  * @returns {string} Token dạng base64url(payload).hmac_signature
  */
 function generateOrderAccessToken(payload = {}, secret = null, options = {}) {
-  const sec = secret || process.env.SESSION_SECRET || DEFAULT_ORDER_TOKEN_SECRET;
+  const sec = resolveOrderTokenSecret(secret);
+  if (!sec) {
+    const err = new Error('Không thể tạo token truy cập đơn hàng: thiếu secret hợp lệ (yêu cầu tối thiểu 32 ký tự).');
+    err.code = 'MISSING_ORDER_TOKEN_SECRET';
+    err.statusCode = 500;
+    throw err;
+  }
   const expiresInSeconds = options.expiresInSeconds || (72 * 3600); // 72 giờ
   const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
   const body = {
@@ -125,17 +149,19 @@ function generateOrderAccessToken(payload = {}, secret = null, options = {}) {
  */
 function verifyOrderAccessToken(token, secret = null, expectedOrderIdentifier = null) {
   if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const sec = resolveOrderTokenSecret(secret);
+  if (!sec) return null;
+
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [bodyStr, sig] = parts;
-  const sec = secret || process.env.SESSION_SECRET || DEFAULT_ORDER_TOKEN_SECRET;
-
-  const expectedSig = createHmac('sha256', sec).update(bodyStr, 'utf8').digest('hex');
-  if (sig.length !== expectedSig.length) return null;
-  const sigValid = timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expectedSig, 'utf8'));
-  if (!sigValid) return null;
 
   try {
+    const expectedSig = createHmac('sha256', sec).update(bodyStr, 'utf8').digest('hex');
+    if (sig.length !== expectedSig.length) return null;
+    const sigValid = timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expectedSig, 'utf8'));
+    if (!sigValid) return null;
+
     const payload = JSON.parse(Buffer.from(bodyStr, 'base64url').toString('utf8'));
     if (!payload || typeof payload !== 'object') return null;
 
@@ -742,7 +768,7 @@ class PaymentAttemptStateMachine {
 module.exports = {
   ATTEMPT_STATES,
   TERMINAL_ATTEMPT_STATES,
-  DEFAULT_ORDER_TOKEN_SECRET,
+  resolveOrderTokenSecret,
   normalizePhone,
   normalizeEmail,
   computeCustomerScope,

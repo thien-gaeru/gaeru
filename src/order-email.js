@@ -10,6 +10,21 @@ const escape = s => String(s).replace(/[&<>"']/g, c => ({
   "'": '&#39;'
 }[c]));
 
+const PAYMENT_METHOD_LABELS = Object.freeze({
+  cod: 'COD',
+  bank_transfer: 'Chuyển khoản ngân hàng',
+  vnpay: 'VNPAY',
+  '9pay': '9Pay',
+  momo: 'Ví MoMo',
+  zalopay: 'Ví ZaloPay'
+});
+
+function getPaymentMethodLabel(method) {
+  if (!method) return 'Chưa xác định';
+  return PAYMENT_METHOD_LABELS[method] || String(method).toUpperCase();
+}
+
+
 async function processOrderEmail(pool, config, mailer, { structured = false } = {}) {
   return EmailOutboxDispatcher.dispatchNext(pool, config, mailer, {
     tableName: 'order_email_outbox',
@@ -64,7 +79,7 @@ async function processOrderEmail(pool, config, mailer, { structured = false } = 
       const amount = v => new Intl.NumberFormat('vi-VN').format(v) + ' ₫';
       const text = job.kind === 'welcome'
         ? 'GAERU đã tạo tài khoản theo email bạn cung cấp khi đặt đơn ' + o.order_number + '.\n\nĐặt mật khẩu và xác minh email bằng liên kết dùng một lần, có hiệu lực 24 giờ:\n' + setup + '\n\nNếu bạn không thực hiện đặt hàng, không mở liên kết và liên hệ business@gaeru.com. Không có mật khẩu nào được gửi trong email này.'
-        : 'GAERU đã tiếp nhận đơn ' + o.order_number + '.\n\n' + job.items.map(i => i.product_name + ' · ' + i.variant_name + ' × ' + i.quantity + ' · ' + amount(i.unit_price_vnd * i.quantity)).join('\n') + '\n\nTạm tính: ' + amount(o.subtotal_vnd) + '\nGiảm giá: ' + amount(o.discount_vnd || 0) + '\nGiao hàng: ' + amount(o.shipping_fee_vnd) + (o.shippingCarrierName ? ' (' + o.shippingCarrierName + ')' : '') + '\nTổng cộng: ' + amount(o.total_vnd) + '\nThanh toán: ' + (o.payment_method === 'cod' ? 'COD — thanh toán khi nhận hàng.' : 'VNPAY — trạng thái hiện tại: ' + o.payment_status) + '.\nTrạng thái: ' + (status[o.status] || 'Đang xử lý') + '. Email này không phải xác nhận đã thanh toán.\n\nGiao tới: ' + o.customer_name + ' · ' + o.address + ', ' + o.city + '\nTài khoản: ' + base + '/tai-khoan\nHỗ trợ: business@gaeru.com · 082 919 1080';
+        : 'GAERU đã tiếp nhận đơn ' + o.order_number + '.\n\n' + job.items.map(i => i.product_name + ' · ' + i.variant_name + ' × ' + i.quantity + ' · ' + amount(i.unit_price_vnd * i.quantity)).join('\n') + '\n\nTạm tính: ' + amount(o.subtotal_vnd) + '\nGiảm giá: ' + amount(o.discount_vnd || 0) + '\nGiao hàng: ' + amount(o.shipping_fee_vnd) + (o.shippingCarrierName ? ' (' + o.shippingCarrierName + ')' : '') + '\nTổng cộng: ' + amount(o.total_vnd) + '\nThanh toán: ' + (o.payment_method === 'cod' ? 'COD — thanh toán khi nhận hàng.' : (getPaymentMethodLabel(o.payment_method) + ' — trạng thái hiện tại: ' + (o.payment_status || 'Chờ thanh toán'))) + '.\nTrạng thái: ' + (status[o.status] || 'Đang xử lý') + '. Email này không phải xác nhận đã thanh toán.\n\nGiao tới: ' + o.customer_name + ' · ' + o.address + ', ' + o.city + '\nTài khoản: ' + base + '/tai-khoan\nHỗ trợ: business@gaeru.com · 082 919 1080';
 
       return {
         to: o.email,
@@ -171,6 +186,8 @@ function startOrderEmailWorker(pool, config, mailerOrOptions = {}) {
 }
 
 module.exports = {
+  PAYMENT_METHOD_LABELS,
+  getPaymentMethodLabel,
   processOrderEmail,
   processOrderEmailOutbox: (pool, config, mailer, opts = {}) => processOrderEmail(pool, config, mailer, { structured: true, ...opts }),
   startOrderEmailWorker

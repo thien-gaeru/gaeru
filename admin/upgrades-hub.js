@@ -38,7 +38,19 @@
   const sharedFmt = (typeof window !== 'undefined' && window.GAERUAdminShared)
     || (typeof globalThis !== 'undefined' && globalThis.GAERUAdminShared)
     || (typeof require === 'function' ? require('./format') : null);
-  const escapeHtml = (value) => sharedFmt ? sharedFmt.escapeHtml(value) : String(value ?? '');
+  const fallbackEscapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+      '/': '&#x2F;'
+    }[c]));
+  const escapeHtml = (value) =>
+    (sharedFmt && typeof sharedFmt.escapeHtml === 'function')
+      ? sharedFmt.escapeHtml(value)
+      : fallbackEscapeHtml(value);
   const formatMoney = (amount) => sharedFmt ? sharedFmt.formatMoney(amount, { suffix: 'đ' }) : (Number(amount || 0).toLocaleString('vi-VN') + 'đ');
 
   let cachedCsrfToken = '';

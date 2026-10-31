@@ -361,6 +361,7 @@ class PaymentRetryCoordinator {
     // Nếu phát hiện yêu cầu khác đang khởi tạo cổng song song, đợi kết quả thay vì gọi gateway lần 2
     if (claimDecision.awaitInFlight) {
       const pollStart = Date.now();
+      let lastCheck = null;
       while (Date.now() - pollStart < 15000) {
         await new Promise(r => setTimeout(r, 80));
         const check = (await pool.query(
@@ -374,6 +375,7 @@ class PaymentRetryCoordinator {
         )).rows[0];
 
         if (!check) break;
+        lastCheck = check;
         if (check.paymentStatus === 'paid' || check.status === 'paid' || check.hasReceipt) {
           return {
             status: 200,
@@ -401,6 +403,26 @@ class PaymentRetryCoordinator {
           break;
         }
       }
+
+      // Nếu yêu cầu song song thất bại với lỗi cụ thể khác INITIATING_GATEWAY_SESSION
+      if (lastCheck && lastCheck.lastErrorCode && lastCheck.lastErrorCode !== 'INITIATING_GATEWAY_SESSION') {
+        const err = new Error(lastCheck.lastErrorCode || 'Khởi tạo phiên thanh toán tại cổng không thành công.');
+        err.status = 502;
+        err.code = lastCheck.lastErrorCode || 'GATEWAY_INITIATION_FAILED';
+        throw err;
+      }
+
+      // Quá 15s mà phiên vẫn đang được khởi tạo tại cổng -> trả 202 Accepted kèm Retry-After thay vì 404
+      return {
+        status: 202,
+        code: 'PAYMENT_INITIATION_IN_PROGRESS',
+        retryAfterSeconds: 3,
+        order: formatOrder({ status: lookup.orderStatus, paymentStatus: lookup.paymentStatus }),
+        orderNumber: lookup.orderNumber,
+        providerRequestId: lookup.providerRequestId,
+        reconciliationStatus: 'in_progress',
+        message: 'Giao dịch thanh toán đang được khởi tạo tại cổng. Vui lòng thử lại sau giây lát.'
+      };
     }
 
     if (!claimDecision.shouldInitiate) {
