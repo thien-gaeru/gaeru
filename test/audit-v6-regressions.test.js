@@ -9,14 +9,14 @@ const express = require('express');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 
-test('Audit v6 Item 1: Node version configuration is synchronized to 24.22.2 and engines >=24 <25', () => {
+test('Audit v6 Item 1: Node version configuration is synchronized to 22.14.0 and engines >=22 <25', () => {
   const nodeVersion = fs.readFileSync(path.join(ROOT_DIR, '.node-version'), 'utf8').trim();
   const nvmrc = fs.readFileSync(path.join(ROOT_DIR, '.nvmrc'), 'utf8').trim();
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
 
-  assert.equal(nodeVersion, '24.22.2', '.node-version must specify 24.22.2');
-  assert.equal(nvmrc, '24.22.2', '.nvmrc must specify 24.22.2');
-  assert.match(pkg.engines?.node || '', />=\s*24/, 'package.json engine must require Node >= 24');
+  assert.equal(nodeVersion, '22.14.0', '.node-version must specify 22.14.0');
+  assert.equal(nvmrc, '22.14.0', '.nvmrc must specify 22.14.0');
+  assert.match(pkg.engines?.node || '', />=\s*22/, 'package.json engine must require Node >= 22');
 });
 
 test('Audit v6 Item 2: finance-api & payment-policy block manual receipts for momo, zalopay, vnpay and 9pay', () => {

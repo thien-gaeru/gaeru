@@ -46,32 +46,10 @@ function errorSummary(error) {
 let server;
 
 async function start() {
-  await migrateDatabase(pool);
-  if (shuttingDown) return;
-  const mediaCheck = await require('./lib/filesystem-media').probe();
-  console.log('Media storage:', JSON.stringify(mediaCheck));
-  const mediaAudit = require('./media-storage-audit');
-  if (mediaCheck.verified) {
-    console.log('Static media:', JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
-    if (shuttingDown) return;
-  } else {
-    const checkedMedia = await mediaAudit.auditMediaStorage(pool, { probeStatus: mediaCheck });
-    console.log('Local media checks:', JSON.stringify({ state: checkedMedia.state, failedChecks: checkedMedia.failedChecks, legacyReferences: checkedMedia.legacyReferences }));
-  }
-  if (shuttingDown) return;
-  await workerManager.startAll(pool, config, { requireFn: require });
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
     console.log(`GAERU standalone store listening on ${host}:${port}`);
-    if (mediaCheck.verified && !shuttingDown) {
-      mediaAuditTask = mediaAudit.runLocalMediaAudit(pool)
-        .then(({ localization, audit }) => {
-          console.log('Local media:', JSON.stringify(localization));
-          console.log('Local media checks:', JSON.stringify({ state: audit.state, failedChecks: audit.failedChecks, legacyReferences: audit.legacyReferences }));
-        })
-        .catch(error => console.error('Local media audit failed:', errorSummary(error)));
-    }
     inspectDatabaseTls(pool, config)
       .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
       .catch(() => console.log("Database TLS active: unavailable"));
@@ -81,6 +59,27 @@ async function start() {
     process.exitCode = 1;
     void shutdown();
   });
+
+  await migrateDatabase(pool);
+  if (shuttingDown) return;
+  const mediaCheck = await require('./lib/filesystem-media').probe();
+  console.log('Media storage:', JSON.stringify(mediaCheck));
+  const mediaAudit = require('./media-storage-audit');
+  if (mediaCheck.verified) {
+    console.log('Static media:', JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
+    if (shuttingDown) return;
+    mediaAuditTask = mediaAudit.runLocalMediaAudit(pool)
+      .then(({ localization, audit }) => {
+        console.log('Local media:', JSON.stringify(localization));
+        console.log('Local media checks:', JSON.stringify({ state: audit.state, failedChecks: audit.failedChecks, legacyReferences: audit.legacyReferences }));
+      })
+      .catch(error => console.error('Local media audit failed:', errorSummary(error)));
+  } else {
+    const checkedMedia = await mediaAudit.auditMediaStorage(pool, { probeStatus: mediaCheck });
+    console.log('Local media checks:', JSON.stringify({ state: checkedMedia.state, failedChecks: checkedMedia.failedChecks, legacyReferences: checkedMedia.legacyReferences }));
+  }
+  if (shuttingDown) return;
+  await workerManager.startAll(pool, config, { requireFn: require });
 }
 
 const startTask = start();

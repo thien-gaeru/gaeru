@@ -51,25 +51,27 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
 }
 const settle = async () => { for (let i=0;i<5;i++) await new Promise(resolve => setImmediate(resolve)); };
 
-test('startup failure closes database/session resources and redacts error details', async () => {
+test('startup failure closes database/session resources and closes early listener redacting error details', async () => {
   const error = Object.assign(new Error('postgres://user:private-password@example.test/db'), { code: 'ECONNREFUSED' });
   const f = fixture({ migrationError: error });
   await settle();
   assert.equal(f.fakeProcess.exitCode, 1);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
-  assert.equal(f.calls.listening, 0);
+  assert.equal(f.calls.listening, 1);
+  assert.equal(f.calls.listenerClosed, 1);
   assert.doesNotMatch(JSON.stringify(f.calls.errors), /private-password/);
 });
 
-test('shutdown before startup completes never opens a listener and releases resources once', async () => {
+test('shutdown during migration closes early listener and releases resources once', async () => {
   const f = fixture({ pendingMigration: true });
   assert.doesNotThrow(() => f.events.emit('SIGTERM'));
   f.resolveMigration();
   await settle();
   f.events.emit('SIGINT');
   await settle();
-  assert.equal(f.calls.listening, 0);
+  assert.equal(f.calls.listening, 1);
+  assert.equal(f.calls.listenerClosed, 1);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
 });

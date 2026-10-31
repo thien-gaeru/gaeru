@@ -14,12 +14,19 @@ function getVapidConfig() {
     return null;
   }
 
+  // Validate the key pair using webpush.setVapidDetails to ensure bad keys don't report enabled
+  try {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+  } catch {
+    return null;
+  }
+
   return { publicKey, privateKey, subject };
 }
 
 function isPrivateOrLoopbackHost(hostname) {
   if (!hostname || typeof hostname !== 'string') return true;
-  const host = hostname.toLowerCase().trim();
+  let host = hostname.toLowerCase().trim().replace(/\.+$/, '');
 
   // Localhost & private domain suffixes
   if (
@@ -36,6 +43,43 @@ function isPrivateOrLoopbackHost(hostname) {
 
   // Non-FQDN without dots or colons
   if (!host.includes('.') && !host.includes(':')) {
+    return true;
+  }
+
+  // Check IPv6 (strip square brackets if present)
+  let cleanIpv6 = host;
+  if (cleanIpv6.startsWith('[') && cleanIpv6.endsWith(']')) {
+    cleanIpv6 = cleanIpv6.slice(1, -1);
+  }
+
+  if (cleanIpv6.includes(':')) {
+    const lower = cleanIpv6.toLowerCase();
+    if (lower === '::1' || lower === '::' || lower === '0:0:0:0:0:0:0:1') return true;
+    // IPv6 link-local fe80::/10, unique local fc00::/7
+    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') || lower.startsWith('fc') || lower.startsWith('fd')) {
+      return true;
+    }
+    // IPv4-mapped IPv6 e.g. ::ffff:127.0.0.1 or 0:0:0:0:0:ffff:127.0.0.1 or ::ffff:7f00:1
+    const ffffIdx = lower.lastIndexOf('ffff:');
+    if (ffffIdx !== -1) {
+      const rest = lower.slice(ffffIdx + 5);
+      if (rest.includes('.')) {
+        return isPrivateOrLoopbackHost(rest);
+      }
+      const hexParts = rest.split(':');
+      if (hexParts.length === 2) {
+        const p1 = parseInt(hexParts[0], 16);
+        const p2 = parseInt(hexParts[1], 16);
+        if (!isNaN(p1) && !isNaN(p2)) {
+          const octet1 = (p1 >> 8) & 0xff;
+          const octet2 = p1 & 0xff;
+          const octet3 = (p2 >> 8) & 0xff;
+          const octet4 = p2 & 0xff;
+          return isPrivateOrLoopbackHost(`${octet1}.${octet2}.${octet3}.${octet4}`);
+        }
+      }
+    }
+    // All other raw IPv6 addresses should be blocked for Push subscriptions
     return true;
   }
 
@@ -60,26 +104,13 @@ function isPrivateOrLoopbackHost(hostname) {
     if (o1 === 169 && o2 === 254) return true;
     // 100.64.0.0/10 (Carrier-grade NAT)
     if (o1 === 100 && o2 >= 64 && o2 <= 127) return true;
+    // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NET)
+    if (o1 === 192 && o2 === 0 && o3 === 2) return true;
+    if (o1 === 198 && o2 === 51 && o3 === 100) return true;
+    if (o1 === 203 && o2 === 0 && o3 === 113) return true;
+    // 224.0.0.0/4 Multicast / Reserved
+    if (o1 >= 224) return true;
     return false;
-  }
-
-  // Check IPv6
-  let cleanIpv6 = host;
-  if (cleanIpv6.startsWith('[') && cleanIpv6.endsWith(']')) {
-    cleanIpv6 = cleanIpv6.slice(1, -1);
-  }
-  if (cleanIpv6.includes(':')) {
-    const lower = cleanIpv6.toLowerCase();
-    if (lower === '::1' || lower === '::' || lower === '0:0:0:0:0:0:0:1') return true;
-    // IPv6 link-local fe80::/10, unique local fc00::/7
-    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') || lower.startsWith('fc') || lower.startsWith('fd')) {
-      return true;
-    }
-    // IPv4-mapped IPv6 ::ffff:127.0.0.1
-    if (lower.startsWith('::ffff:')) {
-      const mappedIpv4 = lower.slice(7);
-      return isPrivateOrLoopbackHost(mappedIpv4);
-    }
   }
 
   return false;
@@ -104,6 +135,11 @@ function validatePushSubscriptionData(payload = {}) {
 
   if (url.protocol !== 'https:') {
     throw Object.assign(new Error('Endpoint phải sử dụng giao thức HTTPS.'), { status: 400 });
+  }
+
+  // Chặn cổng không chuẩn để chống SSRF probing
+  if (url.port && url.port !== '443' && url.port !== '') {
+    throw Object.assign(new Error('Endpoint Push Subscription chỉ được sử dụng cổng chuẩn HTTPS (443).'), { status: 400 });
   }
 
   // Chặn SSRF: thông tin tài khoản hoặc trỏ mạng riêng / loopback / metadata
@@ -230,6 +266,16 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   const sent = [];
   const failed = [];
   const expired = [];
+  const timedOut = [];
+
+  // Deduplicate subscriptions by endpoint
+  const uniqueSubs = [];
+  const seenEndpoints = new Set();
+  for (const sub of subscriptions) {
+    if (!sub.endpoint || seenEndpoints.has(sub.endpoint)) continue;
+    seenEndpoints.add(sub.endpoint);
+    uniqueSubs.push(sub);
+  }
 
   async function sendWithTimeout(sub) {
     const pushSubscription = {
@@ -241,14 +287,17 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     };
 
     let timer;
+    const abortController = new AbortController();
     try {
       const response = await Promise.race([
         client.sendNotification(pushSubscription, payloadString, {
           TTL: 86400,
-          urgency: 'high'
+          urgency: 'high',
+          signal: abortController.signal
         }),
         new Promise((_, reject) => {
           timer = setTimeout(() => {
+            abortController.abort();
             const err = new Error('Quá thời gian gửi thông báo (timeout 5000ms).');
             err.code = 'ETIMEDOUT';
             reject(err);
@@ -262,6 +311,16 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
         statusCode: response?.statusCode || 201
       });
     } catch (err) {
+      if (err.code === 'ETIMEDOUT' || err.name === 'AbortError' || abortController.signal.aborted) {
+        timedOut.push({
+          id: sub.id,
+          endpoint: sub.endpoint,
+          status: 'timed_out',
+          error: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms).'
+        });
+        return;
+      }
+
       const statusCode = err.statusCode || (err.response && err.response.statusCode);
       if (statusCode === 404 || statusCode === 410) {
         expired.push({
@@ -292,28 +351,31 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   }
 
   const BATCH_SIZE = 25;
-  for (let i = 0; i < subscriptions.length; i += BATCH_SIZE) {
-    const chunk = subscriptions.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < uniqueSubs.length; i += BATCH_SIZE) {
+    const chunk = uniqueSubs.slice(i, i + BATCH_SIZE);
     await Promise.all(chunk.map(sub => sendWithTimeout(sub)));
   }
 
-  const unsentCount = Math.max(0, subscriptions.length - (sent.length + failed.length + expired.length));
-  const isAllFailed = sent.length === 0 && subscriptions.length > 0;
-  const isPartial = sent.length > 0 && (failed.length > 0 || expired.length > 0);
-  const status = isAllFailed ? 'failed' : (isPartial ? 'partial' : 'success');
+  const unsentCount = Math.max(0, uniqueSubs.length - (sent.length + failed.length + expired.length + timedOut.length));
+  const isAllTimedOut = sent.length === 0 && uniqueSubs.length > 0 && timedOut.length > 0 && failed.length === 0 && expired.length === 0;
+  const isAllFailed = sent.length === 0 && uniqueSubs.length > 0 && (failed.length > 0 || expired.length > 0);
+  const isPartial = sent.length > 0 && (failed.length > 0 || expired.length > 0 || timedOut.length > 0);
+  const status = isAllFailed ? 'failed' : (isAllTimedOut ? 'timed_out' : (isPartial ? 'partial' : 'success'));
   return {
-    ok: !isAllFailed,
+    ok: sent.length > 0,
     status,
     enabled: true,
-    recipientCount: subscriptions.length,
+    recipientCount: uniqueSubs.length,
     sentCount: sent.length,
     failedCount: failed.length,
     expiredCount: expired.length,
+    timedOutCount: timedOut.length,
     unsentCount,
     results: {
       sent,
       failed,
-      expired
+      expired,
+      timedOut
     },
     payload: { title, body, url, icon, tag }
   };
@@ -340,16 +402,14 @@ function createPushPublicRouter(pool) {
   router.post('/push/subscribe', express.json({ limit: '16kb' }), (req, res, next) => {
     const sessionToken = req.session?.csrfToken;
     const clientToken = req.headers['x-csrf-token'] || req.body?._csrf;
-    if (sessionToken) {
-      if (!clientToken || typeof clientToken !== 'string') {
-        return res.status(403).json({ error: 'CSRF token không hợp lệ hoặc đã hết hạn.' });
-      }
-      const crypto = require('crypto');
-      const bSession = Buffer.from(sessionToken);
-      const bClient = Buffer.from(clientToken);
-      if (bSession.length !== bClient.length || !crypto.timingSafeEqual(bSession, bClient)) {
-        return res.status(403).json({ error: 'CSRF token không hợp lệ hoặc đã hết hạn.' });
-      }
+    if (!sessionToken || !clientToken || typeof clientToken !== 'string') {
+      return res.status(403).json({ error: 'CSRF token không hợp lệ hoặc đã hết hạn.' });
+    }
+    const crypto = require('crypto');
+    const bSession = Buffer.from(sessionToken);
+    const bClient = Buffer.from(clientToken);
+    if (bSession.length !== bClient.length || !crypto.timingSafeEqual(bSession, bClient)) {
+      return res.status(403).json({ error: 'CSRF token không hợp lệ hoặc đã hết hạn.' });
     }
     next();
   }, async (req, res, next) => {

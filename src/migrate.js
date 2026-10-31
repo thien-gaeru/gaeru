@@ -242,20 +242,21 @@ async function verifySchemaHealth(client) {
     }
   }
 
-  // Hậu kiểm các bảng cốt lõi (orders, products, web_push_subscriptions, user_sessions)
-  const coreTables = ['orders', 'products', 'web_push_subscriptions', 'user_sessions'];
+  // Hậu kiểm các bảng cốt lõi (orders, products, payment_attempts, web_push_subscriptions)
+  const coreTables = ['orders', 'products', 'payment_attempts', 'web_push_subscriptions'];
   for (const table of coreTables) {
     const regCheck = await client.query("SELECT to_regclass($1) AS tbl", [table]);
-    if (regCheck?.rows?.[0]?.tbl) {
-      const pkCheck = await client.query(`
-        SELECT c.conname 
-        FROM pg_constraint c
-        JOIN pg_class t ON c.conrelid = t.oid
-        WHERE t.relname = $1 AND c.contype = 'p'
-      `, [table]);
-      if (!pkCheck?.rows?.length && table !== 'user_sessions') {
-        throw new Error(`SCHEMA_HEALTH_FAILED: Bảng ${table} thiếu Primary Key.`);
-      }
+    if (!regCheck?.rows?.[0]?.tbl) {
+      throw new Error(`SCHEMA_HEALTH_FAILED: Bảng bắt buộc '${table}' không tồn tại trong cơ sở dữ liệu.`);
+    }
+    const pkCheck = await client.query(`
+      SELECT c.conname 
+      FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      WHERE t.relname = $1 AND c.contype = 'p'
+    `, [table]);
+    if (!pkCheck?.rows?.length) {
+      throw new Error(`SCHEMA_HEALTH_FAILED: Bảng '${table}' thiếu Primary Key.`);
     }
   }
 

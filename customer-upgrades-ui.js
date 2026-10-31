@@ -118,7 +118,21 @@
   // THANH TIỆN ÍCH TÀI KHOẢN TINH GỌN (COMPACT ACCOUNT QUICK ACTIONS)
   // Chỉ hiển thị các chức năng trực tiếp gắn liền với quyền lợi & đơn hàng của tài khoản
   // =========================================================================
+  function getPushNotificationStatus() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return { supported: false, label: 'Không hỗ trợ thông báo', icon: '🔔' };
+    }
+    if (Notification.permission === 'granted') {
+      return { supported: true, label: 'Đã bật thông báo', icon: '🔔' };
+    }
+    if (Notification.permission === 'denied') {
+      return { supported: true, label: 'Thông báo bị chặn', icon: '🔕' };
+    }
+    return { supported: true, label: 'Bật thông báo đẩy', icon: '🔔' };
+  }
+
   function renderAccountQuickActions(customer) {
+    const pushStatus = getPushNotificationStatus();
     return `
       <div class="gaeru-account-quick-actions" data-account-quick-actions>
         <div class="gaeru-quick-actions-bar">
@@ -129,6 +143,10 @@
           <button type="button" class="gaeru-action-pill" data-action="open-affiliate" data-service-tile="affiliate" title="Lấy mã giới thiệu bạn bè nhận hoa hồng 8%">
             <span class="gaeru-action-pill-icon">🤝</span>
             <span class="gaeru-action-pill-text">Mã giới thiệu CTV (8%)</span>
+          </button>
+          <button type="button" class="gaeru-action-pill" data-action="subscribe-web-push" data-service-tile="web-push" title="${pushStatus.label}">
+            <span class="gaeru-action-pill-icon" data-push-status-icon>${pushStatus.icon}</span>
+            <span class="gaeru-action-pill-text" data-push-status-label>${pushStatus.label}</span>
           </button>
         </div>
       </div>
@@ -309,7 +327,7 @@
       const csrfRes = await fetch('/api/csrf', { credentials: 'same-origin', cache: 'no-store' });
       const csrf = csrfRes.ok ? await csrfRes.json() : null;
 
-      await fetch('/api/push/subscribe', {
+      const subRes = await fetch('/api/push/subscribe', {
         method: 'POST',
         credentials: 'same-origin',
         headers: {
@@ -324,8 +342,46 @@
           }
         })
       });
+
+      const pushLabelEl = document.querySelector('[data-push-status-label]');
+      const pushIconEl = document.querySelector('[data-push-status-icon]');
+
+      if (!subRes.ok) {
+        let errorMsg = 'Không thể đăng ký nhận thông báo đẩy.';
+        try {
+          const errData = await subRes.json();
+          if (errData?.error) errorMsg = errData.error;
+          else if (errData?.message) errorMsg = errData.message;
+        } catch {}
+
+        if (subRes.status === 403) {
+          errorMsg = 'Phiên làm việc hết hạn CSRF. Vui lòng tải lại trang.';
+        } else if (subRes.status === 503) {
+          errorMsg = 'Dịch vụ thông báo đẩy tạm thời chưa sẵn sàng.';
+        } else if (subRes.status === 400) {
+          errorMsg = errorMsg || 'Dữ liệu đăng ký trình duyệt không hợp lệ.';
+        }
+
+        if (pushLabelEl) pushLabelEl.textContent = 'Lỗi thông báo';
+        if (typeof window.GAERUNotify === 'function') {
+          window.GAERUNotify(errorMsg);
+        } else {
+          console.warn('[GAERU WebPush]', errorMsg);
+        }
+        return { ok: false, status: subRes.status, error: errorMsg };
+      }
+
+      if (pushLabelEl) pushLabelEl.textContent = 'Đã bật thông báo';
+      if (pushIconEl) pushIconEl.textContent = '🔔';
+      if (typeof window.GAERUNotify === 'function') {
+        window.GAERUNotify('Đã kích hoạt thông báo đẩy thành công!');
+      }
+      return { ok: true, status: subRes.status };
     } catch (err) {
       console.warn('[GAERU WebPush] Không thể đăng ký subscription:', err.message);
+      const pushLabelEl = document.querySelector('[data-push-status-label]');
+      if (pushLabelEl) pushLabelEl.textContent = 'Lỗi thông báo';
+      return { ok: false, error: err.message };
     }
   }
 
@@ -344,12 +400,23 @@
 
   async function promptAndSubscribePush() {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      if (typeof window.GAERUNotify === 'function') {
+        window.GAERUNotify('Trình duyệt hiện tại chưa hỗ trợ Web Push Notification.');
+      }
       return;
     }
     try {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
-        await registerRealPushSubscription();
+        return await registerRealPushSubscription();
+      } else if (permission === 'denied') {
+        const pushLabelEl = document.querySelector('[data-push-status-label]');
+        const pushIconEl = document.querySelector('[data-push-status-icon]');
+        if (pushLabelEl) pushLabelEl.textContent = 'Thông báo bị chặn';
+        if (pushIconEl) pushIconEl.textContent = '🔕';
+        if (typeof window.GAERUNotify === 'function') {
+          window.GAERUNotify('Bạn đã từ chối nhận thông báo. Hãy cho phép trong Cài đặt trang web để bật lại.');
+        }
       }
     } catch (err) {
       console.warn('[GAERU WebPush] Lỗi kích hoạt thông báo:', err.message);
