@@ -1210,3 +1210,84 @@ test('P2-01: Idempotency binds full immutable checkout payload fingerprint (chec
   }, (err) => err.status === 409 && err.code === 'IDEMPOTENCY_QUOTE_MISMATCH');
 });
 
+test('P2-02: Supplementary migration runs automatically on existing production databases where audit-hardening.sql is already marked applied', async (t) => {
+  const fs = require('node:fs');
+  const { createTestDb } = require('./helpers/pglite-db');
+  const { migrateDatabase, MIGRATION_FILES } = require('../src/migrate');
+
+  // Khởi tạo một cơ sở dữ liệu mô phỏng production
+  const { pool, close } = await createTestDb({ migrate: false });
+  t.after(() => close());
+
+  // 1. Giả lập cơ sở dữ liệu production đã chạy tất cả migrations cũ (bao gồm cả audit-hardening.sql)
+  // và đã ghi nhận đầy đủ vào schema_migrations
+  await pool.query('CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())');
+
+  // Chạy các file trước checkout-lifecycle-hardening.sql
+  const priorFiles = MIGRATION_FILES.filter(f => f !== 'checkout-lifecycle-hardening.sql');
+  for (const file of priorFiles) {
+    const sql = fs.readFileSync(require('path').join(__dirname, '..', 'db', file), 'utf8');
+    await pool.query(sql);
+    await pool.query('INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING', [file]);
+  }
+
+  // Xác nhận tại thời điểm này: audit-hardening.sql đã được ghi nhận trong schema_migrations
+  const hasAuditHardening = (await pool.query("SELECT 1 FROM schema_migrations WHERE name = 'audit-hardening.sql'")).rows.length;
+  assert.equal(hasAuditHardening, 1, 'audit-hardening.sql must be marked as applied');
+
+  // Xác nhận checkout-lifecycle-hardening.sql chưa được ghi nhận
+  const hasNewMigBefore = (await pool.query("SELECT 1 FROM schema_migrations WHERE name = 'checkout-lifecycle-hardening.sql'")).rows.length;
+  assert.equal(hasNewMigBefore, 0, 'checkout-lifecycle-hardening.sql must not be in schema_migrations yet');
+
+  // 2. Chạy migrateDatabase(pool) - mô phỏng quá trình deploy bản cập nhật lên production
+  await migrateDatabase(pool);
+
+  // 3. Xác minh migration mới đã được chạy và ghi nhận vào schema_migrations
+  const hasNewMigAfter = (await pool.query("SELECT 1 FROM schema_migrations WHERE name = 'checkout-lifecycle-hardening.sql'")).rows.length;
+  assert.equal(hasNewMigAfter, 1, 'checkout-lifecycle-hardening.sql must now be marked as applied');
+
+  // 4. Xác minh các cột, chỉ mục và ràng buộc mới đã xuất hiện đầy đủ trên database:
+  // - Cột checkout_payload_hash trên orders
+  const colCheck = await pool.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'checkout_payload_hash'"
+  );
+  assert.equal(colCheck.rows.length, 1, 'orders table must have checkout_payload_hash column');
+
+  // - Chỉ mục idx_orders_checkout_payload_hash
+  const idxCheck = await pool.query(
+    "SELECT indexname FROM pg_indexes WHERE tablename = 'orders' AND indexname = 'idx_orders_checkout_payload_hash'"
+  );
+  assert.equal(idxCheck.rows.length, 1, 'idx_orders_checkout_payload_hash index must exist');
+
+  // - Constraint payment_attempts_status_check chấp nhận expiry_awaiting_verification
+  const paId = crypto.randomUUID();
+  const oId = crypto.randomUUID();
+  await pool.query(
+    "INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd) VALUES ($1, 'GR-TEST-P202', 'Test', 't@t.com', '091', 'Addr', 'City', 'momo', 'pending', 'pending', 100, 100)",
+    [oId]
+  );
+  await assert.doesNotReject(async () => {
+    await pool.query(
+      "INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at) VALUES ($1, $2, 'momo', 'GR-TEST-P202', 100, 'expiry_awaiting_verification', now() + interval '15 minutes')",
+      [paId, oId]
+    );
+  }, 'payment_attempts must accept expiry_awaiting_verification status');
+
+  // - Chỉ mục idx_payment_attempts_provider_request_id
+  const paIdxCheck = await pool.query(
+    "SELECT indexname FROM pg_indexes WHERE tablename = 'payment_attempts' AND indexname = 'idx_payment_attempts_provider_request_id'"
+  );
+  assert.equal(paIdxCheck.rows.length, 1, 'idx_payment_attempts_provider_request_id must exist');
+
+  // - Ràng buộc kiểm tra tồn kho không âm (warehouse_stock quantity >= 0)
+  const whCheck = await pool.query(
+    "SELECT conname FROM pg_constraint WHERE conrelid = 'warehouse_stock'::regclass AND (conname = 'warehouse_stock_quantity_nonnegative_chk' OR (contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity >= 0%'))"
+  );
+  assert.equal(whCheck.rows.length >= 1, true, 'warehouse_stock quantity non-negative check constraint must exist');
+
+  // 5. Chạy lại migrateDatabase(pool) lần thứ 2: Bảo đảm tính idempotent 100% không phát sinh lỗi
+  await assert.doesNotReject(async () => {
+    await migrateDatabase(pool);
+  }, 'Subsequent migrateDatabase calls must be strictly idempotent');
+});
+
