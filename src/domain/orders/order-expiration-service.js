@@ -92,6 +92,7 @@ class OrderExpirationService {
     )).rows;
 
     const cancelledOrders = [];
+    const errors = [];
     const inv = inventory || require('../../inventory');
 
     for (const cand of candidates) {
@@ -312,8 +313,20 @@ class OrderExpirationService {
         if (cancelled) cancelledOrders.push(cancelled);
       } catch (err) {
         console.error(`Lỗi khi tự động hủy đơn quá hạn ${cand.orderNumber}:`, err.message);
+        errors.push({
+          orderId: cand.id,
+          orderNumber: cand.orderNumber,
+          error: err.message,
+          code: err.code || null
+        });
       }
     }
+
+    cancelledOrders.success = errors.length === 0;
+    cancelledOrders.cancelledCount = cancelledOrders.length;
+    cancelledOrders.failedCount = errors.length;
+    cancelledOrders.errors = errors;
+    cancelledOrders.cancelled = cancelledOrders;
 
     return cancelledOrders;
   }
@@ -335,7 +348,10 @@ function startOrderExpirationWorker(pool, config = {}, {
     if (running || stopped) return;
     running = true;
     try {
-      await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours, channelTtlHours, config });
+      const result = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours, channelTtlHours, config });
+      if (result?.failedCount > 0 && typeof onError === 'function') {
+        onError(new Error(`Order expiration worker: ${result.failedCount} đơn hủy thất bại: ${result.errors?.[0]?.error || 'Lỗi không xác định'}`));
+      }
     } catch (err) {
       onError(err);
     } finally {

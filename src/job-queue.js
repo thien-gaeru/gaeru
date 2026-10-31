@@ -429,6 +429,7 @@ function createJobQueue({
     registerWorker,
     hasWorker,
     getRegisteredWorkers,
+    getWorker: (name) => workers.get(name),
     enqueue: (jobData) => enqueueJob(pool, jobData),
     claimNextJob,
     renewJobLease,
