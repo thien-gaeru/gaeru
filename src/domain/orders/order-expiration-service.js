@@ -111,11 +111,26 @@ class OrderExpirationService {
                   config,
                   fetcher,
                   cancelOnUnpaid: false
-                }).catch((err) => ({ action: 'awaiting_reconciliation', error: err }));
+                }).catch((err) => ({ action: 'awaiting_reconciliation', error: err, verified: false }));
+              } else {
+                // Fail-Closed: Không lấy được cấu hình cổng hoặc cổng chưa sẵn sàng đối soát -> KHÔNG THỂ XÁC MINH CHƯA THU TIỀN
+                reconciliationOutcome = {
+                  action: 'awaiting_reconciliation',
+                  reason: 'gateway_channel_unconfigured',
+                  verified: false,
+                  message: `Không thể đối soát đơn ${cand.orderNumber} qua cổng ${cand.paymentMethod.toUpperCase()} do chưa có cấu hình kết nối cổng.`
+                };
               }
+            } else {
+              reconciliationOutcome = {
+                action: 'awaiting_reconciliation',
+                reason: 'gateway_channel_unconfigured',
+                verified: false,
+                message: `Module đối soát cổng ${cand.paymentMethod.toUpperCase()} không khả dụng.`
+              };
             }
           } catch (err) {
-            reconciliationOutcome = { action: 'awaiting_reconciliation', error: err };
+            reconciliationOutcome = { action: 'awaiting_reconciliation', error: err, verified: false };
           }
         }
 
@@ -182,33 +197,59 @@ class OrderExpirationService {
             return null;
           }
 
-          // Kiểm tra xem giao dịch có nằm trong trạng thái chưa phân định (ambiguous / unknown)
-          const isAmbiguousReconciliation = reconciliationOutcome &&
-            ['awaiting_reconciliation', 'still_pending'].includes(reconciliationOutcome.action);
+          const isOnlineGateway = ['momo', 'zalopay', 'vnpay', '9pay'].includes(order.payment_method);
 
+          // Cổng đã xác minh dứt khoát 100% chưa thanh toán (hoặc đã hủy không thu tiền tại cổng)
+          const isDefinitivelyUnpaid = Boolean(
+            reconciliationOutcome &&
+            reconciliationOutcome.verified === true &&
+            ['verified_unpaid', 'cancelled_unpaid', 'retry_allowed'].includes(reconciliationOutcome.action)
+          );
+
+          // Kết quả đối soát chưa thể kết luận chắc chắn (chờ đối soát, timeout, đang xử lý, hoặc sai lệch tiền)
+          const isAmbiguousReconciliation = reconciliationOutcome &&
+            ['awaiting_reconciliation', 'still_pending', 'amount_mismatch'].includes(reconciliationOutcome.action);
+
+          // Phiên thanh toán trước đó đang ở trạng thái chưa phân định
           const hasAmbiguousAttempt = attempts.some(a =>
             ['payment_initiation_unknown', 'awaiting_reconciliation', 'expiry_awaiting_verification'].includes(a.status)
           );
 
-          // Nếu kết quả đối soát chưa kết luận chắc chắn hoặc attempt đang ở trạng thái chưa phân định:
-          // KHÔNG TỰ HỦY! KHÔNG HOÀN KHO! KHÔNG NHẢ VOUCHER!
-          // Chuyển sang expiry_awaiting_verification để đối soát xác thực tiếp
-          if (isAmbiguousReconciliation || (hasAmbiguousAttempt && reconciliationOutcome?.action !== 'retry_allowed')) {
+          // Điều kiện tạm dừng hủy đơn để chờ xác minh (Fail-Closed):
+          // 1. Nếu cổng ĐÃ xác minh dứt khoát chưa thu tiền (isDefinitivelyUnpaid === true) -> KHÔNG GIỮ NỮA!
+          //    Mọi trạng thái nghi vấn trước đó (kể cả awaiting_reconciliation) đã được cổng phân định rõ ràng.
+          // 2. Nếu CHƯA xác minh dứt khoát (!isDefinitivelyUnpaid):
+          //    - Giữ lại nếu đối soát chưa xong hoặc lỗi kết nối (isAmbiguousReconciliation)
+          //    - Giữ lại nếu có attempt chưa phân định (hasAmbiguousAttempt)
+          //    - Giữ lại nếu là cổng thanh toán trực tuyến mà chưa có kết quả đối soát hợp lệ (isOnlineGateway && !reconciliationOutcome)
+          const shouldHoldForVerification = !isDefinitivelyUnpaid && (
+            isAmbiguousReconciliation ||
+            hasAmbiguousAttempt ||
+            (isOnlineGateway && !reconciliationOutcome)
+          );
+
+          if (shouldHoldForVerification) {
+            const isUnconfigured = reconciliationOutcome?.reason === 'gateway_channel_unconfigured';
+            const errorCode = isUnconfigured ? 'GATEWAY_CHANNEL_UNCONFIGURED' : 'EXPIRY_AWAITING_VERIFICATION';
+
             for (const att of attempts) {
               if (!['paid', 'cancelled'].includes(att.status)) {
                 try {
-                  PaymentAttemptStateMachine.assertValidTransition(att.status, 'expiry_awaiting_verification');
-                  await client.query(
-                    `UPDATE payment_attempts
-                     SET status = 'expiry_awaiting_verification', last_error_code = 'EXPIRY_AWAITING_VERIFICATION', updated_at = now()
-                     WHERE id = $1`,
-                    [att.id]
-                  );
+                  await PaymentAttemptStateMachine.transitionAttempt(client, {
+                    attemptId: att.id,
+                    fromStatus: att.status,
+                    toStatus: 'expiry_awaiting_verification',
+                    lastErrorCode: errorCode
+                  });
                 } catch {}
               }
             }
 
             if (typeof logOrderActivity === 'function') {
+              const reasonText = isUnconfigured
+                ? `Đơn hàng ${order.payment_method.toUpperCase()} quá hạn nhưng máy chủ không lấy được cấu hình cổng để đối soát. Tạm dừng hủy đơn, chuyển sang chờ đối soát xác thực để bảo vệ hàng tồn kho và quyền lợi khách hàng.`
+                : `Đơn hàng ${order.payment_method.toUpperCase()} quá hạn nhưng phiên thanh toán chưa được phân định chắc chắn tại cổng. Chuyển sang chờ đối soát xác thực, tạm giữ kho và voucher.`;
+
               await logOrderActivity(client, {
                 orderId: order.id,
                 orderNumber: order.order_number,
@@ -217,7 +258,9 @@ class OrderExpirationService {
                 action: 'expiry_awaiting_verification',
                 details: {
                   from: order.status,
-                  reason: `Đơn hàng ${order.payment_method.toUpperCase()} quá hạn nhưng phiên thanh toán chưa được phân định chắc chắn tại cổng. Chuyển sang chờ đối soát xác thực, tạm giữ kho và voucher.`
+                  reason: reasonText,
+                  reconciliationAction: reconciliationOutcome?.action || null,
+                  reconciliationReason: reconciliationOutcome?.reason || null
                 }
               });
             }
@@ -229,6 +272,7 @@ class OrderExpirationService {
               entityId: order.id,
               metadata: {
                 paymentMethod: order.payment_method,
+                reason: reconciliationOutcome?.reason || reconciliationOutcome?.action || 'unverified_gateway_state',
                 olderThanHours,
                 totalVnd: order.total_vnd
               }
@@ -272,11 +316,11 @@ class OrderExpirationService {
           for (const att of attempts) {
             if (att.status !== 'paid' && att.status !== 'cancelled') {
               try {
-                PaymentAttemptStateMachine.assertValidTransition(att.status, 'cancelled');
-                await client.query(
-                  `UPDATE payment_attempts SET status = 'cancelled', updated_at = now() WHERE id = $1`,
-                  [att.id]
-                );
+                await PaymentAttemptStateMachine.transitionAttempt(client, {
+                  attemptId: att.id,
+                  fromStatus: att.status,
+                  toStatus: 'cancelled'
+                });
               } catch {}
             }
           }
