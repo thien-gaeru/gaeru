@@ -681,3 +681,116 @@ test('P0-02: Fail-Closed Order Ownership, HMAC Access Token, and Public Scope Re
   assert.equal(verifiedData.order.totalVnd, 250000, 'Truy vấn đã xác minh quyền sở hữu phải có totalVnd');
   assert.equal(verifiedData.order.paymentMethod, 'momo');
 });
+
+test('P0-03: Two concurrent retry requests execute gateway call once and prevent divergent URL/request-id', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const orderNumber = 'GR-P03-CONCURRENT-001';
+  const orderRes = await pool.query(
+    `INSERT INTO orders (order_number, customer_name, email, phone, address, city, subtotal_vnd, total_vnd, payment_method, payment_status, status)
+     VALUES ($1, 'Concurrent User', 'concurrent@gaeru.com', '0912345678', '123 Le Loi', 'TP. Hồ Chí Minh', 300000, 300000, 'momo', 'pending', 'pending')
+     RETURNING id`,
+    [orderNumber]
+  );
+  const orderId = orderRes.rows[0].id;
+
+  // Insert payment attempt whose previous session has expired (so retry needs to initiate a new session)
+  await pool.query(
+    `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, provider_request_id, status, payment_url, expires_at, updated_at)
+     VALUES ($1, 'momo', $2, 300000, 'old-req-id', 'pending', 'https://old.url', now() - interval '10 minutes', now() - interval '10 minutes')`,
+    [orderId, orderNumber]
+  );
+
+  let createCalls = 0;
+  const mockFetcher = async (url, opts) => {
+    const body = opts && opts.body ? JSON.parse(opts.body) : {};
+    if (url.includes('/query')) {
+      // Return unpaid/not found status so reconcileGatewayOrder allows retry
+      return {
+        status: 200,
+        ok: true,
+        text: async () => JSON.stringify({
+          resultCode: 49,
+          message: 'Không tìm thấy giao dịch',
+          orderId: body.orderId,
+          requestId: body.requestId
+        })
+      };
+    }
+
+    createCalls++;
+    // Simulate network delay to gateway
+    await new Promise(r => setTimeout(r, 120));
+    return {
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({
+        resultCode: 0,
+        partnerCode: body.partnerCode,
+        orderId: body.orderId,
+        requestId: body.requestId,
+        amount: body.amount,
+        payUrl: `https://test-payment.momo.vn/v2/gateway/pay/${body.requestId || 'mock-id'}`
+      })
+    };
+  };
+
+  const { retryGatewayOrderPayment } = require('../src/payment-channels');
+
+  const momoSettings = {
+    partnerCode: 'MOMO',
+    accessKey: 'ACCESS_KEY_MOCK',
+    secretKey: 'SECRET_KEY_MOCK_123',
+    environment: 'sandbox'
+  };
+
+  // Launch two concurrent retry requests simultaneously
+  const p1 = retryGatewayOrderPayment(pool, {
+    orderNumber,
+    expectedCustomer: { email: 'concurrent@gaeru.com', phone: '0912345678' },
+    settings: momoSettings,
+    fetcher: mockFetcher
+  });
+
+  const p2 = retryGatewayOrderPayment(pool, {
+    orderNumber,
+    expectedCustomer: { email: 'concurrent@gaeru.com', phone: '0912345678' },
+    settings: momoSettings,
+    fetcher: mockFetcher
+  });
+
+  const [res1, res2] = await Promise.all([p1, p2]);
+
+  // 1. Gateway must only be invoked ONCE!
+  assert.equal(createCalls, 1, 'Cổng thanh toán chỉ được gọi đúng 1 lần duy nhất nhờ cơ chế in-flight lease!');
+
+  // 2. Both promises must succeed with 200
+  assert.equal(res1.status, 200);
+  assert.equal(res2.status, 200);
+
+  // 3. Both responses must share the exact same paymentUrl and providerRequestId
+  assert.ok(res1.paymentUrl, 'res1 phải có paymentUrl');
+  assert.ok(res2.paymentUrl, 'res2 phải có paymentUrl');
+  assert.equal(res1.paymentUrl, res2.paymentUrl, 'Hai yêu cầu đồng thời phải nhận cùng 1 paymentUrl');
+  assert.equal(res1.providerRequestId, res2.providerRequestId, 'Hai yêu cầu đồng thời phải nhận cùng 1 providerRequestId');
+
+  // 4. One was freshly initiated and the concurrent one reused the in-flight session
+  assert.ok(res1.retried);
+  assert.ok(res2.retried);
+
+  // 5. Verify database consistency: provider_request_id and payment_url must be strictly in sync
+  const dbRow = (await pool.query(
+    `SELECT provider_request_id AS "providerRequestId", payment_url AS "paymentUrl", status, last_error_code AS "lastErrorCode"
+     FROM payment_attempts
+     WHERE order_id = $1`,
+    [orderId]
+  )).rows[0];
+
+  assert.equal(dbRow.status, 'pending');
+  assert.equal(dbRow.lastErrorCode, null);
+  assert.equal(dbRow.providerRequestId, res1.providerRequestId);
+  assert.equal(dbRow.paymentUrl, res1.paymentUrl);
+  assert.ok(dbRow.paymentUrl.includes(dbRow.providerRequestId), 'payment_url phải chứa đúng provider_request_id tương ứng, tuyệt đối không bị lệch!');
+});
+

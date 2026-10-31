@@ -69,7 +69,8 @@ class PaymentRetryCoordinator {
               o.customer_id AS "customerId",
               o.email AS "customerEmail", o.phone AS "customerPhone",
               p.id AS "attemptId", p.provider, p.status AS "attemptStatus",
-              p.provider_request_id AS "providerRequestId", p.payment_url AS "paymentUrl", p.expires_at AS "expiresAt",
+              p.provider_request_id AS "providerRequestId", p.payment_url AS "paymentUrl",
+              p.last_error_code AS "lastErrorCode", p.expires_at AS "expiresAt",
               EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
        FROM orders o
        LEFT JOIN payment_attempts p ON p.order_id = o.id
@@ -158,8 +159,8 @@ class PaymentRetryCoordinator {
       };
     }
 
-    // 7. Sử dụng lại phiên còn hiệu lực nếu còn mới
-    if (lookup.attemptStatus === 'pending' && lookup.paymentUrl && lookup.expiresAt && new Date(lookup.expiresAt).getTime() > Date.now()) {
+    // 7. Sử dụng lại phiên còn hiệu lực nếu còn mới và không trong trạng thái đang khởi tạo
+    if (lookup.attemptStatus === 'pending' && lookup.paymentUrl && lookup.lastErrorCode !== 'INITIATING_GATEWAY_SESSION' && lookup.expiresAt && new Date(lookup.expiresAt).getTime() > Date.now()) {
       return {
         status: 200,
         order: formatOrder(),
@@ -229,6 +230,7 @@ class PaymentRetryCoordinator {
     const claimDecision = await withTransaction(pool, async (client) => {
       const locked = (await client.query(
         `SELECT p.id, p.status, p.payment_url AS "paymentUrl", p.provider_request_id AS "providerRequestId",
+                p.last_error_code AS "lastErrorCode", p.reconciliation_attempts AS "reconciliationAttempts",
                 p.updated_at AS "updatedAt", p.expires_at AS "expiresAt",
                 o.status AS "orderStatus", o.payment_status AS "paymentStatus",
                 EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
@@ -250,7 +252,7 @@ class PaymentRetryCoordinator {
         throw Object.assign(retryError('Đơn hàng đã bị hủy.', 409, 'ORDER_ALREADY_CANCELLED'));
       }
 
-      // Nếu phiên gần đây (< 3 phút) đang hoạt động, dùng lại URL cũ
+      // Nếu phiên gần đây (< 3 phút) đang hoạt động và đã có URL thanh toán, dùng lại URL cũ
       const isRecentActive = locked.status === 'pending' && locked.paymentUrl && locked.expiresAt &&
         new Date(locked.expiresAt) > new Date() && locked.updatedAt &&
         (Date.now() - new Date(locked.updatedAt).getTime() < 180000);
@@ -264,18 +266,35 @@ class PaymentRetryCoordinator {
         };
       }
 
-      // CAS: Chuyển attempt sang pending và claim request ID mới
+      // KIỂM TRA LEASE INITIATING: Nếu đang có yêu cầu khác trong quá trình khởi tạo (< 30 giây), yêu cầu này phải đợi
+      const isInitiatingInProgress = locked.lastErrorCode === 'INITIATING_GATEWAY_SESSION' && locked.updatedAt &&
+        (Date.now() - new Date(locked.updatedAt).getTime() < 30000);
+
+      if (isInitiatingInProgress) {
+        return {
+          shouldInitiate: false,
+          awaitInFlight: true,
+          inFlightRequestId: locked.providerRequestId,
+          orderStatus: locked.orderStatus
+        };
+      }
+
+      // CAS & ACQUIRE INITIATING LEASE: Chuyển attempt sang pending và claim request ID kèm fencing token
       PaymentAttemptStateMachine.assertValidTransition(locked.status, 'pending');
+
+      const nextFencingToken = (locked.reconciliationAttempts || 0) + 1;
 
       await client.query(
         `UPDATE payment_attempts
          SET provider_request_id = $2,
+             payment_url = NULL,
              status = 'pending',
+             last_error_code = 'INITIATING_GATEWAY_SESSION',
              expires_at = now() + interval '15 minutes',
-             reconciliation_attempts = reconciliation_attempts + 1,
+             reconciliation_attempts = $3,
              updated_at = now()
          WHERE id = $1 AND status != 'paid'`,
-        [lookup.attemptId, nextRequestId]
+        [lookup.attemptId, nextRequestId, nextFencingToken]
       );
 
       await audit(client, {
@@ -283,10 +302,15 @@ class PaymentRetryCoordinator {
         action: 'payment.retry.initiated',
         entityType: 'order',
         entityId: lookup.id,
-        metadata: { provider: lookup.paymentMethod, orderNumber: lookup.orderNumber, providerRequestId: nextRequestId }
+        metadata: { provider: lookup.paymentMethod, orderNumber: lookup.orderNumber, providerRequestId: nextRequestId, fencingToken: nextFencingToken }
       });
 
-      return { shouldInitiate: true, nextRequestId, orderStatus: locked.orderStatus };
+      return {
+        shouldInitiate: true,
+        nextRequestId,
+        fencingToken: nextFencingToken,
+        orderStatus: locked.orderStatus
+      };
     });
 
     if (claimDecision.alreadyPaid) {
@@ -313,6 +337,51 @@ class PaymentRetryCoordinator {
       };
     }
 
+    // Nếu phát hiện yêu cầu khác đang khởi tạo cổng song song, đợi kết quả thay vì gọi gateway lần 2
+    if (claimDecision.awaitInFlight) {
+      const pollStart = Date.now();
+      while (Date.now() - pollStart < 15000) {
+        await new Promise(r => setTimeout(r, 80));
+        const check = (await pool.query(
+          `SELECT p.id, p.status, p.payment_url AS "paymentUrl", p.provider_request_id AS "providerRequestId",
+                  p.last_error_code AS "lastErrorCode", p.updated_at AS "updatedAt",
+                  o.status AS "orderStatus", o.payment_status AS "paymentStatus",
+                  EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
+           FROM payment_attempts p JOIN orders o ON o.id = p.order_id
+           WHERE p.id = $1`,
+          [lookup.attemptId]
+        )).rows[0];
+
+        if (!check) break;
+        if (check.paymentStatus === 'paid' || check.status === 'paid' || check.hasReceipt) {
+          return {
+            status: 200,
+            order: formatOrder({ status: check.orderStatus, paymentStatus: 'paid' }),
+            paymentUrl: null,
+            alreadyPaid: true,
+            paymentStatus: 'paid',
+            reconciliationStatus: 'paid',
+            message: 'Đơn hàng đã được xác nhận thanh toán thành công.'
+          };
+        }
+        if (check.paymentUrl && check.lastErrorCode !== 'INITIATING_GATEWAY_SESSION') {
+          return {
+            status: 200,
+            order: formatOrder({ status: check.orderStatus }),
+            paymentUrl: check.paymentUrl,
+            providerRequestId: check.providerRequestId,
+            reconciliationStatus: 'pending',
+            reusedSession: true,
+            retried: true,
+            message: 'Sử dụng lại phiên thanh toán vừa được khởi tạo thành công.'
+          };
+        }
+        if (check.lastErrorCode && check.lastErrorCode !== 'INITIATING_GATEWAY_SESSION') {
+          break;
+        }
+      }
+    }
+
     if (!claimDecision.shouldInitiate) {
       return null;
     }
@@ -328,10 +397,11 @@ class PaymentRetryCoordinator {
         fetcher: fetcher || config?.paymentFetcher || fetch
       });
 
-      // 12. LƯU KẾT QUẢ VÀ BẢO ĐẢM KHÔNG GHI ĐÈ TRẠNG THÁI PAID (NẾU IPN VỪA CẬP NHẬT TRONG LÚC GỌI CỔNG)
+      // 12. LƯU KẾT QUẢ VÀ BẢO ĐẢM KHÔNG GHI ĐÈ TRẠNG THÁI PAID HOẶC PHIÊN MỚI HƠN
       const persisted = await withTransaction(pool, async (client) => {
         const locked = (await client.query(
-          `SELECT p.id, p.status, o.status AS "orderStatus", o.payment_status AS "paymentStatus"
+          `SELECT p.id, p.status, p.provider_request_id AS "providerRequestId",
+                  p.payment_url AS "paymentUrl", o.status AS "orderStatus", o.payment_status AS "paymentStatus"
            FROM payment_attempts p
            JOIN orders o ON o.id = p.order_id
            WHERE p.id = $1
@@ -341,27 +411,45 @@ class PaymentRetryCoordinator {
 
         const alreadyPaid = locked?.paymentStatus === 'paid' || locked?.status === 'paid';
 
-        await client.query(
+        // FENCING & REQUEST_ID MATCH: Chỉ cập nhật nếu provider_request_id và reconciliation_attempts KHỚP
+        const updateRes = await client.query(
           `UPDATE payment_attempts
-           SET provider_request_id = COALESCE(provider_request_id, $2),
-               provider_transaction_id = COALESCE(provider_transaction_id, $3),
+           SET provider_transaction_id = COALESCE($3, provider_transaction_id),
                payment_url = $4,
                status = CASE WHEN status = 'paid' THEN 'paid' ELSE 'pending' END,
                last_error_code = NULL,
                updated_at = now()
-           WHERE id = $1`,
-          [lookup.attemptId, gw.requestId, gw.providerTransactionId, gw.paymentUrl]
+           WHERE id = $1 AND provider_request_id = $2 AND reconciliation_attempts = $5`,
+          [lookup.attemptId, gw.requestId, gw.providerTransactionId, gw.paymentUrl, claimDecision.fencingToken]
         );
 
-        await audit(client, {
-          actor: actor || { username: 'customer', source: 'payment_retry' },
-          action: 'payment.retry.succeeded',
-          entityType: 'order',
-          entityId: lookup.id,
-          metadata: { provider: lookup.paymentMethod, orderNumber: lookup.orderNumber, providerRequestId: gw.requestId }
-        });
+        let finalPaymentUrl = gw.paymentUrl;
+        let finalRequestId = gw.requestId;
+        if (updateRes.rowCount === 0) {
+          const fresh = (await client.query(
+            `SELECT payment_url AS "paymentUrl", provider_request_id AS "providerRequestId" FROM payment_attempts WHERE id = $1`,
+            [lookup.attemptId]
+          )).rows[0];
+          if (fresh?.paymentUrl) {
+            finalPaymentUrl = fresh.paymentUrl;
+            finalRequestId = fresh.providerRequestId;
+          }
+        } else {
+          await audit(client, {
+            actor: actor || { username: 'customer', source: 'payment_retry' },
+            action: 'payment.retry.succeeded',
+            entityType: 'order',
+            entityId: lookup.id,
+            metadata: { provider: lookup.paymentMethod, orderNumber: lookup.orderNumber, providerRequestId: gw.requestId }
+          });
+        }
 
-        return { alreadyPaid, orderStatus: locked?.orderStatus || lookup.status };
+        return {
+          alreadyPaid,
+          orderStatus: locked?.orderStatus || lookup.status,
+          paymentUrl: finalPaymentUrl,
+          providerRequestId: finalRequestId
+        };
       });
 
       if (persisted.alreadyPaid) {
@@ -378,9 +466,9 @@ class PaymentRetryCoordinator {
       return {
         status: 200,
         order: formatOrder({ status: persisted.orderStatus }),
-        paymentUrl: gw.paymentUrl,
+        paymentUrl: persisted.paymentUrl,
         retried: true,
-        providerRequestId: gw.requestId,
+        providerRequestId: persisted.providerRequestId,
         reconciliationStatus: 'pending',
         message: 'Đã khởi tạo lại phiên thanh toán an toàn cho đơn hàng.'
       };
@@ -404,8 +492,8 @@ class PaymentRetryCoordinator {
         await client.query(
           `UPDATE payment_attempts
            SET status = 'payment_initiation_unknown', last_error_code = $2, updated_at = now()
-           WHERE id = $1 AND status != 'paid'`,
-          [lookup.attemptId, retryErr?.code || 'PAYMENT_RETRY_UNKNOWN']
+           WHERE id = $1 AND status != 'paid' AND provider_request_id = $3 AND reconciliation_attempts = $4`,
+          [lookup.attemptId, retryErr?.code || 'PAYMENT_RETRY_UNKNOWN', nextRequestId, claimDecision.fencingToken]
         );
 
         await audit(client, {
