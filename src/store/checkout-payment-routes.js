@@ -551,16 +551,26 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           const { computeCheckoutPayloadHash } = require('../domain/payments/order-idempotency-policy');
           const checkoutPayloadHash = computeCheckoutPayloadHash(parsed.data);
 
+          await client.query('SAVEPOINT sp_checkout_payload_hash');
           try {
             await client.query(
               'UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3, checkout_payload_hash = $4 WHERE id = $1',
               [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash, checkoutPayloadHash]
             );
-          } catch {
-            await client.query(
-              'UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3 WHERE id = $1',
-              [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash]
-            );
+            await client.query('RELEASE SAVEPOINT sp_checkout_payload_hash');
+          } catch (err) {
+            await client.query('ROLLBACK TO SAVEPOINT sp_checkout_payload_hash');
+            // Chỉ bắt lỗi thiếu cột checkout_payload_hash cụ thể trong schema cũ (42703 undefined_column)
+            const isUndefinedColumn = err.code === '42703' && /checkout_payload_hash/i.test(err.message || '');
+            if (isUndefinedColumn) {
+              await client.query(
+                'UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3 WHERE id = $1',
+                [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash]
+              );
+            } else {
+              // Tái ném mọi lỗi SQL khác để transaction rollback an toàn toàn bộ
+              throw err;
+            }
           }
           createdOrder.quoteHash = orderQuote.quoteHash;
           createdOrder.pricingVersion = orderQuote.pricingVersion;
@@ -577,14 +587,24 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             );
             createdOrder.shippingCarrierName = shippingSelection.name;
           } else {
-            try {
-              const optimal = allocateOptimalCarrier(parsed.data.customer.city);
-              await client.query(
-                'INSERT INTO order_shipping_selection(order_id, carrier_id, carrier_name, fee_vnd, config_version) VALUES($1, $2, $3, $4, 1) ON CONFLICT (order_id) DO NOTHING',
-                [createdOrder.id, optimal.id, optimal.name, shippingFee]
-              );
-              createdOrder.shippingCarrierName = optimal.name;
-            } catch {}
+            const optimal = allocateOptimalCarrier(parsed.data.customer.city);
+            if (optimal) {
+              await client.query('SAVEPOINT sp_order_shipping_selection');
+              try {
+                await client.query(
+                  'INSERT INTO order_shipping_selection(order_id, carrier_id, carrier_name, fee_vnd, config_version) VALUES($1, $2, $3, $4, 1) ON CONFLICT (order_id) DO NOTHING',
+                  [createdOrder.id, optimal.id, optimal.name, shippingFee]
+                );
+                await client.query('RELEASE SAVEPOINT sp_order_shipping_selection');
+                createdOrder.shippingCarrierName = optimal.name;
+              } catch (err) {
+                await client.query('ROLLBACK TO SAVEPOINT sp_order_shipping_selection');
+                // Chỉ bỏ qua nếu bảng order_shipping_selection chưa tồn tại trong môi trường test tối giản (42P01)
+                if (err.code !== '42P01') {
+                  throw err;
+                }
+              }
+            }
           }
 
           if (promotion) {
