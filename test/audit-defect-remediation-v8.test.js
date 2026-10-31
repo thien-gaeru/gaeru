@@ -206,3 +206,38 @@ test('Lỗi 6 (Client Push Auto-Sync Optimization): customer-upgrades-ui.js avoi
   assert.match(uiSource, /isAutoSync:\s*true/, 'autoPromptWebPush must specify isAutoSync: true');
   assert.match(uiSource, /!isAutoSync && typeof window\.GAERUNotify === 'function'/, 'Must not show popup toasts on auto-sync');
 });
+
+test('WAF Malformed URI Handling: createWafShield handles invalid percent-encoding without HTTP 500 or URIError', async () => {
+  const express = require('express');
+  const { createWafShield } = require('../src/security-shield');
+
+  const app = express();
+  app.use(createWafShield());
+  app.get('/test-waf', (req, res) => res.status(200).json({ ok: true, query: req.query }));
+
+  const server = app.listen(0);
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    // 1. Normal query must respond with HTTP 200
+    const normalRes = await fetch(`${baseUrl}/test-waf?q=gaeru-audio`);
+    assert.equal(normalRes.status, 200);
+
+    // 2. Malformed percent-encoded query must NOT throw URIError or return HTTP 500
+    const malformedRes = await fetch(`${baseUrl}/test-waf?q=%E0%A4%A`);
+    assert.equal(malformedRes.status, 200, 'Malformed percent-encoding must not crash server with 500');
+
+    // 3. Single dangling percent sign must NOT crash server
+    const danglingPercentRes = await fetch(`${baseUrl}/test-waf?discount=50%&tag=sale`);
+    assert.equal(danglingPercentRes.status, 200);
+
+    // 4. Malformed query containing malicious SQLi or XSS injection must still be blocked with 403
+    const attackRes = await fetch(`${baseUrl}/test-waf?q=%E0%A4%A<script>alert(1)</script>`);
+    assert.equal(attackRes.status, 403, 'Malicious probe in malformed query must be blocked by WAF with 403');
+    const attackData = await attackRes.json();
+    assert.equal(attackData.code, 'WAF_INJECTION_BLOCKED');
+  } finally {
+    server.close();
+  }
+});
