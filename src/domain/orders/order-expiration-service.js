@@ -45,7 +45,8 @@ class OrderExpirationService {
     inventory = null,
     config = {},
     fetcher = null,
-    actor = { username: 'system', source: 'order_expiration_worker' }
+    actor = { username: 'system', source: 'order_expiration_worker' },
+    onCandidate = null
   } = {}) {
     if (!pool || typeof pool.query !== 'function') return [];
 
@@ -126,18 +127,36 @@ class OrderExpirationService {
           continue;
         }
 
+        if (typeof onCandidate === 'function') {
+          await onCandidate(cand);
+        }
+
         const cancelled = await withTransaction(pool, async (client) => {
           const order = (await client.query(
-            `SELECT id, order_number, payment_method, status, payment_status, voucher_code, total_vnd
+            `SELECT id, order_number, payment_method, status, payment_status, voucher_code, total_vnd, created_at
              FROM orders
              WHERE id = $1
-             FOR UPDATE`,
+             FOR UPDATE SKIP LOCKED`,
             [cand.id]
           )).rows[0];
 
           if (!order) return null;
-          // Nếu đơn đã được thanh toán hoặc đã hủy, bỏ qua
-          if (order.status === 'cancelled' || order.status === 'completed' || order.payment_status === 'paid') {
+
+          // TÁI KIỂM TRA TOÀN BỘ PREDICATE NGUYÊN TỬ SAU KHI KHÓA FOR UPDATE SKIP LOCKED:
+          // 1. Trạng thái đơn PHẢI là 'pending' hoặc 'confirmed' (chống race condition đơn đã đổi sang processing/shipped/completed/cancelled)
+          if (!['pending', 'confirmed'].includes(order.status)) {
+            return null;
+          }
+
+          // 2. Trạng thái thanh toán PHẢI là 'pending' (chưa trả tiền)
+          if (order.payment_status !== 'pending') {
+            return null;
+          }
+
+          // 3. Tái kiểm tra thời gian quá hạn TTL theo kênh (đơn hàng phải thực sự vẫn quá hạn)
+          const channelTtlHoursVal = ttlByChannel[order.payment_method] || 24;
+          const orderAgeMs = Date.now() - new Date(order.created_at).getTime();
+          if (orderAgeMs < channelTtlHoursVal * 3600 * 1000) {
             return null;
           }
 
