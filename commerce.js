@@ -533,6 +533,46 @@ async function renderCheckout() {
         location.assign(result.paymentUrl);
         return;
       }
+      // P2-04: Xử lý rõ ràng khi API trả PAYMENT_INITIATION_IN_PROGRESS (HTTP 202)
+      if (result.code === 'PAYMENT_INITIATION_IN_PROGRESS') {
+        const orderNum = result.orderNumber || result.order?.orderNumber;
+        const token = result.orderAccessToken;
+        let attempts = 0;
+        const maxAttempts = 10;
+        const retryDelaySec = Math.max(1, Number(result.retryAfterSeconds) || 3);
+        feedback.innerHTML = `Đang kết nối cổng thanh toán cho đơn <strong>${escapeHtml(orderNum)}</strong>… Vui lòng chờ trong giây lát.`;
+
+        const pollPaymentUrl = async () => {
+          attempts++;
+          try {
+            const retryRes = await apiRequest(`/api/orders/${encodeURIComponent(orderNum)}/retry-payment`, {
+              method: 'POST',
+              headers: token ? { 'X-Order-Token': token } : {},
+              body: JSON.stringify({ orderAccessToken: token })
+            });
+            if (retryRes?.paymentUrl) {
+              feedback.textContent = 'Đang chuyển hướng tới cổng thanh toán…';
+              location.assign(retryRes.paymentUrl);
+              return;
+            }
+            if (retryRes?.code === 'PAYMENT_INITIATION_IN_PROGRESS' && attempts < maxAttempts) {
+              const nextDelay = (Number(retryRes.retryAfterSeconds) || retryDelaySec) * 1000;
+              setTimeout(pollPaymentUrl, nextDelay);
+              return;
+            }
+          } catch (pollErr) {
+            console.warn('Retry payment polling error:', pollErr);
+          }
+          if (attempts >= maxAttempts) {
+            feedback.innerHTML = `Chưa nhận được phản hồi từ cổng thanh toán. Mã đơn của bạn là <strong>${escapeHtml(orderNum)}</strong>. Vui lòng kiểm tra email xác nhận hoặc thử lại sau ít phút.`;
+            button.disabled = false;
+            sending = false;
+          }
+        };
+
+        setTimeout(pollPaymentUrl, retryDelaySec * 1000);
+        return;
+      }
       const bt = result.bankTransfer;
       root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="checkout-notice"><strong>Thông tin chuyển khoản ngân hàng</strong><p>Ngân hàng: <strong>${escapeHtml(bt.bankName)}</strong>${bt.branch?` (${escapeHtml(bt.branch)})`:""}<br>Số tài khoản: <strong>${escapeHtml(bt.accountNumber)}</strong><br>Chủ tài khoản: <strong>${escapeHtml(bt.accountHolder)}</strong><br>Số tiền: <strong>${formatPrice(bt.amountVnd ?? result.order.totalVnd)}</strong><br>Nội dung chuyển khoản: <strong>${escapeHtml(bt.transferContent)}</strong></p><p data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
       if (bt) {
