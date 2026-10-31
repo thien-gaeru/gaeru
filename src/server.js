@@ -16,10 +16,46 @@ const sessionStore = new PgSessionStore({
   createTableIfMissing: true,
   pruneSessionInterval: 15 * 60
 });
-const app = createApp({ config, pool, sessionStore });
+
+let startupReady = false;
+let startupError = null;
+let resolveReady;
+const readyPromise = new Promise((resolve) => { resolveReady = resolve; });
+
+async function readinessChecker() {
+  if (startupReady) return true;
+  if (startupError) throw startupError;
+  return readyPromise;
+}
+
+const app = createApp({ config, pool, sessionStore, readinessChecker });
 const workerManager = new WorkerManager();
-let server;
 let mediaAuditTask = Promise.resolve();
+let shuttingDown = false;
+
+function errorSummary(error) {
+  const safe = value => /^[A-Za-z0-9_]{1,50}$/.test(String(value || '')) ? String(value) : 'unavailable';
+  return {
+    name: safe(error?.name),
+    code: safe(error?.code),
+    message: error?.message || 'unavailable'
+  };
+}
+
+// Hostinger / Phusion Passenger requirement:
+// app.listen() must be invoked immediately during script execution (within 3 seconds)
+const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
+const host = "0.0.0.0";
+
+const server = app.listen(port, host, () => {
+  console.log(`GAERU standalone store listening on ${host}:${port}`);
+});
+
+server.on('error', (error) => {
+  console.error('GAERU listener failed:', errorSummary(error));
+  process.exitCode = 1;
+  void shutdown();
+});
 
 async function start() {
   await migrateDatabase(pool);
@@ -36,49 +72,39 @@ async function start() {
   }
   if (shuttingDown) return;
   await workerManager.startAll(pool, config, { requireFn: require });
-  const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
-  const host = "0.0.0.0";
-  server = app.listen(port, host, () => {
-    console.log(`GAERU standalone store listening on ${host}:${port}`);
-    if (mediaCheck.verified && !shuttingDown) {
-      mediaAuditTask = mediaAudit.runLocalMediaAudit(pool)
-        .then(({ localization, audit }) => {
-          console.log('Local media:', JSON.stringify(localization));
-          console.log('Local media checks:', JSON.stringify({ state: audit.state, failedChecks: audit.failedChecks, legacyReferences: audit.legacyReferences }));
-        })
-        .catch(error => console.error('Local media audit failed:', errorSummary(error)));
-    }
-    inspectDatabaseTls(pool, config)
-      .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
-      .catch(() => console.log("Database TLS active: unavailable"));
-  });
-  server.on('error', (error) => {
-    console.error('GAERU listener failed:', errorSummary(error));
-    process.exitCode = 1;
-    void shutdown();
-  });
+
+  if (mediaCheck.verified && !shuttingDown) {
+    mediaAuditTask = mediaAudit.runLocalMediaAudit(pool)
+      .then(({ localization, audit }) => {
+        console.log('Local media:', JSON.stringify(localization));
+        console.log('Local media checks:', JSON.stringify({ state: audit.state, failedChecks: audit.failedChecks, legacyReferences: audit.legacyReferences }));
+      })
+      .catch(error => console.error('Local media audit failed:', errorSummary(error)));
+  }
+  inspectDatabaseTls(pool, config)
+    .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
+    .catch(() => console.log("Database TLS active: unavailable"));
 }
 
-let shuttingDown = false;
-function errorSummary(error) {
-  const safe = value => /^[A-Za-z0-9_]{1,50}$/.test(String(value || '')) ? String(value) : 'unavailable';
-  return { name: safe(error?.name), code: safe(error?.code) };
-}
 const startTask = start();
-startTask.catch(async (error) => {
-  console.error('GAERU startup failed:', errorSummary(error));
-  process.exitCode = 1;
-  await shutdown();
-});
+startTask
+  .then(() => {
+    startupReady = true;
+    if (typeof resolveReady === 'function') resolveReady(true);
+    console.log('GAERU system startup completed successfully. Database and workers are ready.');
+  })
+  .catch(async (error) => {
+    startupError = error;
+    console.error('GAERU startup failed:', error?.message || error);
+    if (error?.stack) console.error(error.stack);
+  });
 
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  // Let any in-flight startup work settle before closing the pool it is using.
   await startTask.catch(() => {});
   await workerManager.stopAll();
   if (server) await new Promise(resolve => server.close(resolve));
-  // Background conversion and verification must finish before releasing its database.
   await mediaAuditTask;
   try {
     await sessionStore.close();

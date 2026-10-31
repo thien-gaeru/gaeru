@@ -28,9 +28,25 @@ const { createWarrantyCustomerApi, createWarrantyAdminApi } = require("./warrant
 const { createWarrantyPublicApi } = require("./warranty-public-api");
 const { createBusinessApi } = require("./business-api");
 
-function createApp({ config, pool, sessionStore, customerMailer }) {
+function createApp({ config, pool, sessionStore, customerMailer, readinessChecker }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
+  if (typeof readinessChecker === 'function') {
+    app.use(async (req, res, next) => {
+      if (req.path === '/health' || req.path === '/api/health') {
+        return res.status(200).json({ status: 'ok', uptime: process.uptime() });
+      }
+      try {
+        await readinessChecker();
+        next();
+      } catch (err) {
+        res.status(503).json({
+          error: 'Hệ thống đang khởi động hoặc chưa sẵn sàng kết nối CSDL.',
+          message: err.message || 'Database unavailable'
+        });
+      }
+    });
+  }
   app.use(require('./lib/public-compression').publicCompression());
   const normalizePublicBase=require('./primary-domain').normalizePublicBase;
   config={...config,PUBLIC_BASE_URL:normalizePublicBase(config.PUBLIC_BASE_URL),...(config.smtp?{smtp:{...config.smtp,publicBaseUrl:normalizePublicBase(config.smtp.publicBaseUrl||config.PUBLIC_BASE_URL)}}:{})};
