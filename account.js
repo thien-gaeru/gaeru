@@ -30,8 +30,10 @@ const accountPanels = [...document.querySelectorAll("[data-account-panel]")];
 accountPanels.forEach((panel) => { if (panel.hidden) panel.style?.setProperty?.('display', 'none', 'important'); });
 let accountCsrfToken = "";
 let currentCustomer = null;
+let accountLoading = false;
 
 function setAccountFeedback(message, isError = false) {
+  if (!accountFeedback) return;
   accountFeedback.textContent = message;
   accountFeedback.classList.toggle("is-error", isError);
   accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
@@ -364,6 +366,9 @@ document.querySelector("[data-account-show-login]")?.addEventListener("click", (
 document.querySelector('[data-account-form="login"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('button');
+  if (submitBtn?.disabled) return;
+  if (submitBtn) submitBtn.disabled = true;
   const values = Object.fromEntries(new FormData(form));
   try {
     let result = await accountRequest("/api/customer-auth/login", values);
@@ -378,17 +383,22 @@ document.querySelector('[data-account-form="login"]')?.addEventListener("submit"
     await confirmContactChangeFromUrl();
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
 document.querySelector('[data-account-form="register"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('button');
+  if (submitBtn?.disabled) return;
   const values = Object.fromEntries(new FormData(form));
   if (values.password !== values.passwordConfirm) {
     setAccountFeedback("Mật khẩu nhập lại chưa khớp.", true);
     return;
   }
+  if (submitBtn) submitBtn.disabled = true;
   try {
     const result = await accountRequest("/api/customer-auth/register", {
       fullName: values.fullName,
@@ -406,17 +416,25 @@ document.querySelector('[data-account-form="register"]')?.addEventListener("subm
     }
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
 document.querySelector('[data-account-form="password-reset-request"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const values = Object.fromEntries(new FormData(event.currentTarget));
+  const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]') || form.querySelector('button');
+  if (submitBtn?.disabled) return;
+  if (submitBtn) submitBtn.disabled = true;
+  const values = Object.fromEntries(new FormData(form));
   try {
     const result = await accountRequest("/api/customer-auth/password-reset/request", values);
     setAccountFeedback(result.message);
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 

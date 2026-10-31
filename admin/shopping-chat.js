@@ -64,9 +64,11 @@
         return;
       }
       if(status){
+        if(!client)throw Error('Hãy chọn hội thoại trước.');
+        if(!admin.can('customers.write'))throw Error('Bạn không có quyền cập nhật trạng thái hội thoại.');
         await client.refresh();
         if(!client.thread)throw Error('Hãy tải hội thoại trước.');
-        await admin.request('/api/gaeru_ceo/shopping-chat/'+selected+'/status',{method:'PUT',body:JSON.stringify({status:status.dataset.chatStatus,version:client.thread.version})});
+        await admin.request('/api/gaeru_ceo/shopping-chat/'+encodeURIComponent(selected)+'/status',{method:'PUT',body:JSON.stringify({status:status.dataset.chatStatus,version:client.thread.version})});
         await client.refresh();
         await load();
       }
