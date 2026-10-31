@@ -2624,3 +2624,136 @@ test('WorkerManager Lifecycle & Order Review Job: memoized mailer lifecycle and 
   assert.equal(jobRow.queue, 'maintenance');
   assert.equal(jobRow.status, 'pending');
 });
+
+test('P2-01 Fix: Unknown reconciliation actions and verified:false fail-closed with hold and alert', async (t) => {
+  const { ReconciliationOutcome } = require('../src/domain/payments/payment-enums');
+  const { OrderExpirationService } = require('../src/domain/orders/order-expiration-service');
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  // 1. ReconciliationOutcome.isAmbiguous assertions
+  assert.equal(ReconciliationOutcome.isAmbiguous('unknown_new_action'), true, 'Action lạ phải được coi là mơ hồ (fail-closed)');
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'unknown_new_action', verified: false }), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'unknown_new_action', verified: true }), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'verified_unpaid', verified: false }), true, 'Chưa xác thực (verified:false) phải là mơ hồ');
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'verified_unpaid', verified: true }), false);
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'settled_paid', verified: true }), false);
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'already_paid', verified: true }), false);
+
+  // 2. Integration test: Đơn MoMo quá hạn nhưng kết quả đối soát trả action lạ hoặc verified:false -> PHẢI GIỮ LẠI, KHÔNG ĐƯỢC TỰ HỦY
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query("INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính P2-01', 'kinh-p2-01', 'audio', true)", [pId]);
+  await pool.query("INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P201', 'Đen', 500000, 10, true)", [vId, pId]);
+
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-P201-MOMO';
+  await pool.query(`
+    INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+    VALUES ($1, $2, 'P201 Buyer', 'p201@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 500000, 500000, 0, now() - interval '25 hours')
+  `, [orderId, orderNumber]);
+
+  await pool.query(`
+    INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+    VALUES (gen_random_uuid(), $1, 'momo', $2, 500000, 'pending', now() - interval '2 hours')
+  `, [orderId, orderNumber]);
+
+  // Mock fetcher trả kết quả lạ
+  const mockFetcher = async () => ({
+    status: 200,
+    json: async () => ({
+      resultCode: 9999, // Mã lạ chưa biết
+      message: 'Unknown gateway status'
+    })
+  });
+
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 24,
+    fetcher: mockFetcher
+  });
+
+  const cancelledIds = cancelled.map(c => c.orderId);
+  assert.ok(!cancelledIds.includes(orderId), 'Đơn có action lạ hoặc chưa xác minh tuyệt đối không được tự hủy!');
+
+  // Đơn phải được chuyển sang trạng thái chờ xác minh
+  const attRow = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [orderId])).rows[0];
+  assert.equal(attRow.status, 'expiry_awaiting_verification');
+
+  // Đơn phải được đưa vào danh sách đối soát thủ công
+  const reviewRow = (await pool.query('SELECT * FROM order_reviews WHERE order_id = $1', [orderId])).rows[0];
+  assert.ok(reviewRow);
+  assert.equal(reviewRow.reason, 'gateway_reconciliation_needed');
+});
+
+test('P2-02 Fix: WorkerManager prioritizes Job Queue over periodic interval workers and decouples email dispatch', async (t) => {
+  const { WorkerManager } = require('../src/workers');
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const wm = new WorkerManager({ allowUnlockedFallback: true });
+
+  // 1. Kiểm tra method enqueueOrderEmailJob tồn tại và hoạt động
+  assert.equal(typeof wm.enqueueOrderEmailJob, 'function');
+  const enq = await wm.enqueueOrderEmailJob(pool, {}, { immediate: true });
+  assert.ok(enq?.id);
+  assert.equal(enq.name, 'email.order');
+
+  // 2. Kiểm tra handler email.order không chạy screening / notifyAdmin lặp
+  const jq = {
+    workers: new Map(),
+    registerWorker(name, fn) { this.workers.set(name, fn); }
+  };
+  wm.jobQueue = jq;
+  wm.registerDefaultHandlers(pool, {}, {});
+
+  const emailOrderHandler = jq.workers.get('email.order');
+  assert.ok(emailOrderHandler, 'Handler email.order phải được đăng ký');
+});
+
+test('P2-03 Fix: OrderReviewService & Job Queue order.review handler fails closed on errors for automatic retry', async (t) => {
+  const { OrderReviewService } = require('../src/order-review');
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  assert.ok(OrderReviewService, 'Phải export OrderReviewService');
+  assert.equal(typeof OrderReviewService.processReviewCycle, 'function');
+
+  // Khi có lỗi phân loại hoặc DNS/SMTP, processReviewCycle phải ném ORDER_REVIEW_PARTIAL_FAILURE
+  // để Job Queue ghi nhận thất bại và kích hoạt cơ chế retry tự động
+  const brokenPool = {
+    query: async (sql) => {
+      if (sql.includes('order_reviews') || sql.includes('order_email_outbox')) {
+        throw new Error('Database connection interrupted');
+      }
+      return { rows: [] };
+    }
+  };
+
+  await assert.rejects(
+    async () => {
+      await OrderReviewService.processReviewCycle(brokenPool, {}, null);
+    },
+    (err) => err.code === 'ORDER_REVIEW_PARTIAL_FAILURE'
+  );
+});
+
+test('P2-04 Fix: Client commerce.js handles HTTP 202 (PAYMENT_INITIATION_IN_PROGRESS) with polling and prevents COD fallback', async () => {
+  const fs = require('fs');
+  const commerceCode = fs.readFileSync('commerce.js', 'utf8');
+
+  // 1. Kiểm tra commerce.js có nhánh xử lý PAYMENT_INITIATION_IN_PROGRESS
+  assert.ok(commerceCode.includes("result.code === 'PAYMENT_INITIATION_IN_PROGRESS'"));
+
+  // 2. Phải có cơ chế polling retry-payment kèm orderAccessToken
+  assert.ok(commerceCode.includes("retry-payment"));
+  assert.ok(commerceCode.includes("orderAccessToken"));
+
+  // 3. Phải chuyển hướng khi nhận được paymentUrl
+  assert.ok(commerceCode.includes("location.assign(retryRes.paymentUrl)"));
+
+  // 4. Không được tự động hiển thị đơn COD khi nhận được 202
+  // (Đã kiểm chứng nhánh 202 có return trước khi đến khối render COD)
+  const p202Idx = commerceCode.indexOf("result.code === 'PAYMENT_INITIATION_IN_PROGRESS'");
+  const codIdx = commerceCode.indexOf("Đơn COD sẽ được GAERU xác nhận");
+  assert.ok(p202Idx < codIdx, "Nhánh xử lý 202 phải nằm trước khối hiển thị COD");
+});

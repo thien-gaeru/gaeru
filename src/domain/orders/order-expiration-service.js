@@ -250,27 +250,23 @@ class OrderExpirationService {
           // Cổng đã xác minh dứt khoát 100% chưa thanh toán (ReconciliationOutcome.DEFINITIVELY_UNPAID)
           const isDefinitivelyUnpaid = ReconciliationOutcome.isDefinitivelyUnpaid(reconciliationOutcome);
 
-          // Kết quả đối soát chưa thể kết luận chắc chắn (chờ đối soát, timeout, đang xử lý, hoặc sai lệch tiền)
-          const isAmbiguousReconciliation = reconciliationOutcome &&
-            ReconciliationOutcome.isAmbiguous(reconciliationOutcome.action);
+          // P2-01: Truyền toàn bộ đối tượng reconciliationOutcome thay vì chỉ action để giữ tín hiệu verified:false
+          const isAmbiguousReconciliation = Boolean(reconciliationOutcome && ReconciliationOutcome.isAmbiguous(reconciliationOutcome));
 
           // Phiên thanh toán trước đó đang ở trạng thái chưa phân định
           const hasAmbiguousAttempt = attempts.some(a =>
             ['payment_initiation_unknown', 'awaiting_reconciliation', 'expiry_awaiting_verification'].includes(a.status)
           );
 
-          // Điều kiện tạm dừng hủy đơn để chờ xác minh (Fail-Closed):
-          // 1. Nếu cổng ĐÃ xác minh dứt khoát chưa thu tiền (isDefinitivelyUnpaid === true) -> KHÔNG GIỮ NỮA!
-          //    Mọi trạng thái nghi vấn trước đó (kể cả awaiting_reconciliation) đã được cổng phân định rõ ràng.
-          // 2. Nếu CHƯA xác minh dứt khoát (!isDefinitivelyUnpaid):
-          //    - Giữ lại nếu đối soát chưa xong hoặc lỗi kết nối (isAmbiguousReconciliation)
-          //    - Giữ lại nếu có attempt chưa phân định (hasAmbiguousAttempt)
-          //    - Giữ lại nếu là cổng thanh toán trực tuyến mà chưa có kết quả đối soát hợp lệ (isOnlineGateway && !reconciliationOutcome)
-          const shouldHoldForVerification = !isDefinitivelyUnpaid && (
-            isAmbiguousReconciliation ||
-            hasAmbiguousAttempt ||
-            (isOnlineGateway && !reconciliationOutcome)
-          );
+          // P2-01: Nguyên tắc Fail-Closed tuyệt đối:
+          // Đối với cổng trực tuyến (momo, zalopay, vnpay, 9pay):
+          // CHỈ cho phép hủy đơn khi kết quả đối soát ĐÃ được xác thực và thuộc nhóm DEFINITIVELY_UNPAID (isDefinitivelyUnpaid === true).
+          // Mọi trường hợp khác (action lạ, verified: false, timeout, lỗi cấu hình, hoặc thiếu kết quả đối soát)
+          // ĐỀU BẮT BUỘC giữ lại (shouldHoldForVerification = true) để bảo vệ quyền lợi khách hàng và tồn kho.
+          // Đối với đơn không qua cổng online (bank_transfer): giữ lại nếu đang có nghi vấn hoặc attempt chưa phân định.
+          const shouldHoldForVerification = isOnlineGateway
+            ? !isDefinitivelyUnpaid
+            : (isAmbiguousReconciliation || hasAmbiguousAttempt);
 
           if (shouldHoldForVerification) {
             const isUnconfigured = reconciliationOutcome?.reason === 'gateway_channel_unconfigured';

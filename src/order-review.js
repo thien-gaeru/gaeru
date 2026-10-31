@@ -54,4 +54,90 @@ async function notifyAdmin(pool,config,mailer){
  catch(e){const safeRetry=(Number(e.responseCode)>=400&&Number(e.responseCode)<500)||(!e.responseCode&&['CONN','EHLO','STARTTLS','AUTH','MAIL FROM','RCPT TO'].includes(e.command));const retry=safeRetry&&job.attempts<2;await pool.query("UPDATE order_admin_email_outbox SET status=$2,next_attempt_at=now()+interval '5 minutes',finished_at=CASE WHEN $2='pending' THEN NULL ELSE now() END,result=$3 WHERE id=$1 AND status='sending'",[job.id,retry?'pending':Number(e.responseCode)>=400?'failed':'unknown',retry?'Chờ thử lại kết nối SMTP':'Kiểm tra kết quả trước khi gửi lại']);}
  return true;
 }
-module.exports={inspectDomain,screenNextEmail,classify,guardContact,reviewRouter,notifyAdmin};
+
+// P2-02 & P2-03: OrderReviewService hợp nhất toàn bộ sàng lọc, phân loại, thông báo admin và theo dõi SLA
+class OrderReviewService {
+  static get reasons() { return reasons; }
+  static inspectDomain(email, resolver) { return inspectDomain(email, resolver); }
+  static screenNextEmail(pool, options) { return screenNextEmail(pool, options); }
+  static classify(pool) { return classify(pool); }
+  static notifyAdmin(pool, config, mailer) { return notifyAdmin(pool, config, mailer); }
+  static async checkSlaBreaches(pool, { slaHours = 24 } = {}) {
+    const overdue = await pool.query(
+      `SELECT r.order_id, o.order_number, o.payment_method, r.created_at
+       FROM order_reviews r
+       JOIN orders o ON o.id = r.order_id
+       WHERE r.reason = 'gateway_reconciliation_needed'
+         AND r.resolved_at IS NULL
+         AND r.created_at < now() - ($1::text || ' hours')::interval`,
+      [String(slaHours)]
+    );
+    return overdue.rows;
+  }
+  static async processReviewCycle(pool, config, mailer, options = {}) {
+    const results = { screened: false, classified: false, notified: false, slaBreaches: 0, errors: [] };
+
+    // 1. Sàng lọc tên miền email
+    try {
+      await screenNextEmail(pool, { resolver: options.resolver });
+      results.screened = true;
+    } catch (err) {
+      results.errors.push({ step: 'screenNextEmail', error: err });
+    }
+
+    // 2. Phân loại đơn nghi vấn / chậm trễ
+    try {
+      await classify(pool);
+      results.classified = true;
+    } catch (err) {
+      results.errors.push({ step: 'classify', error: err });
+    }
+
+    // 3. Gửi email cảnh báo tới quản trị viên
+    try {
+      results.notified = await notifyAdmin(pool, config, mailer);
+    } catch (err) {
+      results.errors.push({ step: 'notifyAdmin', error: err });
+    }
+
+    // 4. Giám sát vi phạm SLA đối soát cổng thanh toán (24h)
+    try {
+      const breaches = await OrderReviewService.checkSlaBreaches(pool, { slaHours: 24 });
+      results.slaBreaches = breaches.length;
+      if (breaches.length > 0) {
+        const { alertSystem } = require('./system-alerts');
+        for (const breach of breaches) {
+          await alertSystem(pool, {
+            severity: 'error',
+            source: 'order_review_sla_monitor',
+            message: `[SLA BREACH] Đơn ${breach.order_number} (${breach.payment_method?.toUpperCase()}) đã chờ đối soát thủ công quá 24h chưa được xử lý!`,
+            metadata: {
+              orderId: breach.order_id,
+              orderNumber: breach.order_number,
+              paymentMethod: breach.payment_method,
+              createdAt: breach.created_at
+            },
+            config
+          });
+        }
+      }
+    } catch (err) {
+      results.errors.push({ step: 'checkSlaBreaches', error: err });
+    }
+
+    // P2-03: Nếu có bất kỳ bước nào lỗi (DB, SMTP, DNS), không được nuốt lỗi mà phải ném lỗi để JobQueue retry
+    if (results.errors.length > 0) {
+      const msg = results.errors.map(e => `${e.step}: ${e.error?.message || e.error}`).join('; ');
+      const err = new Error(`Order review execution encountered partial failure: ${msg}`);
+      err.code = 'ORDER_REVIEW_PARTIAL_FAILURE';
+      err.errors = results.errors;
+      err.partialResults = results;
+      throw err;
+    }
+
+    return results;
+  }
+}
+
+module.exports={inspectDomain,screenNextEmail,classify,guardContact,reviewRouter,notifyAdmin,OrderReviewService,reasons};
+

@@ -294,33 +294,14 @@ class WorkerManager {
     this.jobQueue.registerWorker('email.order', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const orderEmail = requireFn('./order-email');
-      let orderReview = null;
-      try {
-        orderReview = requireFn('./order-review');
-      } catch {}
       const mailer = getOrCreateMailer();
 
-      // Sàng lọc email trước khi gửi nếu có outbox pending
-      if (typeof orderReview?.screenNextEmail === 'function') {
-        try {
-          await orderReview.screenNextEmail(pool, { resolver: payload?.resolver });
-        } catch (err) {
-          console.warn('email.order screening error:', err?.message || err);
-        }
-      }
-
+      // P2-02: Tách biệt hoàn toàn: email.order chỉ tập trung gửi email đơn hàng cho khách qua outbox
+      // Mọi bước sàng lọc, phân loại và cảnh báo quản trị được giao cho handler order.review chuyên trách
       const fn = orderEmail.processOrderEmailOutbox || orderEmail.processOrderEmail;
       let res = null;
       if (typeof fn === 'function') {
         res = await fn(pool, config, mailer, { structured: true });
-      }
-
-      // Phân loại và thông báo quản trị sau khi gửi
-      if (typeof orderReview?.classify === 'function') {
-        try { await orderReview.classify(pool); } catch {}
-      }
-      if (typeof orderReview?.notifyAdmin === 'function') {
-        try { await orderReview.notifyAdmin(pool, config, mailer); } catch {}
       }
 
       return normalizeEmailWorkerResult(res);
@@ -333,6 +314,15 @@ class WorkerManager {
         orderReview = requireFn('./order-review');
       } catch {}
       const mailer = getOrCreateMailer();
+
+      // P2-02 & P2-03: Dùng OrderReviewService tập trung cho toàn bộ quy trình kiểm duyệt
+      if (orderReview?.OrderReviewService?.processReviewCycle) {
+        const cycleResult = await orderReview.OrderReviewService.processReviewCycle(pool, config, mailer, payload);
+        return { ok: true, ...cycleResult };
+      }
+
+      // Fallback thủ công nếu thiếu OrderReviewService
+      const errors = [];
       let screened = false;
       if (typeof orderReview?.screenNextEmail === 'function') {
         try {
@@ -340,6 +330,7 @@ class WorkerManager {
           screened = true;
         } catch (e) {
           console.warn('order.review screenNextEmail error:', e?.message || e);
+          errors.push({ step: 'screenNextEmail', error: e });
         }
       }
       let classified = false;
@@ -349,6 +340,7 @@ class WorkerManager {
           classified = true;
         } catch (e) {
           console.warn('order.review classify error:', e?.message || e);
+          errors.push({ step: 'classify', error: e });
         }
       }
       let notified = false;
@@ -357,40 +349,19 @@ class WorkerManager {
           notified = await orderReview.notifyAdmin(pool, config, mailer);
         } catch (e) {
           console.warn('order.review notifyAdmin error:', e?.message || e);
+          errors.push({ step: 'notifyAdmin', error: e });
         }
       }
 
-      // P1-03: Kiểm tra SLA đối soát thủ công cổng thanh toán (24h)
-      let slaBreaches = 0;
-      try {
-        const overdueReviews = await pool.query(
-          `SELECT r.order_id, o.order_number, o.payment_method, r.created_at
-           FROM order_reviews r
-           JOIN orders o ON o.id = r.order_id
-           WHERE r.reason = 'gateway_reconciliation_needed'
-             AND r.resolved_at IS NULL
-             AND r.created_at < now() - interval '24 hours'
-           LIMIT 10`
-        ).catch(() => ({ rows: [] }));
-
-        if (overdueReviews?.rows?.length > 0) {
-          slaBreaches = overdueReviews.rows.length;
-          const { alertSystem } = requireFn('./system-alerts');
-          for (const row of overdueReviews.rows) {
-            await alertSystem(pool, {
-              severity: 'error',
-              source: 'order_review_sla',
-              message: `[SLA BREACH] Đơn ${row.order_number} (${row.payment_method?.toUpperCase()}) chờ đối soát thủ công đã quá hạn SLA 24h mà chưa được xử lý! Tồn kho vẫn đang bị giữ.`,
-              metadata: { orderId: row.order_id, orderNumber: row.order_number, paymentMethod: row.payment_method, hoursOverdue: 24 },
-              config
-            }).catch(() => {});
-          }
-        }
-      } catch (e) {
-        console.warn('order.review sla check error:', e?.message || e);
+      if (errors.length > 0) {
+        const msg = errors.map(e => `${e.step}: ${e.error?.message || e.error}`).join('; ');
+        const err = new Error(`Order review execution encountered partial failure: ${msg}`);
+        err.code = 'ORDER_REVIEW_PARTIAL_FAILURE';
+        err.errors = errors;
+        throw err;
       }
 
-      return { ok: true, screened, classified, notified, slaBreaches };
+      return { ok: true, screened, classified, notified, slaBreaches: 0 };
     });
 
     this.jobQueue.registerWorker('email.warranty', async (payload, _job, leaseContext) => {
@@ -536,6 +507,22 @@ class WorkerManager {
         this.workers.set('orderReviewScheduler', () => {
           clearInterval(reviewCronTimer);
         });
+
+        // P2-02: Đưa email.order vào lịch trình JobQueue định kỳ của leader
+        const emailIntervalMs = Math.max(
+          5000,
+          Number(config?.ORDER_EMAIL_CRON_INTERVAL_MS || config?.ORDER_EMAIL_INTERVAL_MS || jobQueueOptions?.orderEmailIntervalMs || 10 * 1000)
+        );
+        const emailTimer = setInterval(() => {
+          if (this.isLeader && !this._stopped) {
+            void this.enqueueOrderEmailJob(pool, config, { immediate: false });
+          }
+        }, emailIntervalMs);
+        if (emailTimer.unref) emailTimer.unref();
+
+        this.workers.set('orderEmailScheduler', () => {
+          clearInterval(emailTimer);
+        });
       } catch {
         // job-queue fallback
       }
@@ -557,13 +544,16 @@ class WorkerManager {
     safeStart('aiChat', () => requireFn('./shopping-chat-ai-first').startAIChatWorker(pool, config));
     safeStart('chatCompression', () => requireFn('./shopping-chat-compression').startChatCompressionWorker(pool));
     safeStart('chatEmail', () => requireFn('./shopping-chat-email').startChatEmailWorker(pool, config));
-    safeStart('orderEmail', () => {
-      let mailer = null;
-      try {
-        mailer = this.getOrCreateMailer(config, { requireFn });
-      } catch {}
-      return requireFn('./order-email').startOrderEmailWorker(pool, config, { mailer });
-    });
+    // P2-02: Worker định kỳ chỉ làm fallback khi JobQueue không được bật
+    if (!this.jobQueue) {
+      safeStart('orderEmail', () => {
+        let mailer = null;
+        try {
+          mailer = this.getOrCreateMailer(config, { requireFn });
+        } catch {}
+        return requireFn('./order-email').startOrderEmailWorker(pool, config, { mailer });
+      });
+    }
     safeStart('warrantyEmail', () => {
       let mailer = null;
       try {
@@ -685,6 +675,33 @@ class WorkerManager {
    * PR A: Enqueue tác vụ định kỳ order.review vào JobQueue
    * Sàng lọc domain email, phân loại đơn có email bất thường và gửi thông báo cho quản trị viên.
    */
+
+  async enqueueOrderEmailJob(pool = null, config = null, {
+    immediate = false,
+    runAt = null
+  } = {}) {
+    const targetPool = pool || this._runtimeContext?.pool;
+    if (!targetPool || typeof targetPool.query !== 'function') return null;
+
+    const { enqueueJob } = require('./job-queue');
+    const nowMs = Date.now();
+    const effectiveRunAt = immediate ? new Date(nowMs) : (runAt || new Date(nowMs + 10000));
+    const idempotencyBucket = Math.floor(effectiveRunAt.getTime() / 10000);
+    const idempotencyKey = `email.order:${idempotencyBucket}`;
+
+    return enqueueJob(targetPool, {
+      queue: 'default',
+      name: 'email.order',
+      payload: {},
+      idempotencyKey,
+      runAt: effectiveRunAt,
+      maxAttempts: 3
+    }).catch(err => {
+      console.warn('enqueueOrderEmailJob warning:', err?.message || err);
+      return null;
+    });
+  }
+
   async enqueueOrderReviewJob(pool = null, config = null, {
     immediate = false,
     runAt = null

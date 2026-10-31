@@ -148,10 +148,20 @@ class ReconciliationOutcome {
 
   static isAmbiguous(actionOrOutcome) {
     if (!actionOrOutcome) return true;
-    const action = typeof actionOrOutcome === 'object' ? actionOrOutcome.action : actionOrOutcome;
-    if (!action) return true;
-    if (typeof actionOrOutcome === 'object' && actionOrOutcome.verified === false) return true;
-    return RECONCILIATION_GROUPS.AMBIGUOUS.includes(action);
+    if (typeof actionOrOutcome === 'object') {
+      // 1. Bất kỳ kết quả nào chưa được cổng xác thực (verified === false) đều mơ hồ
+      if (actionOrOutcome.verified === false) return true;
+      // 2. Nếu đã dứt khoát xác thực là PAID hoặc DEFINITIVELY_UNPAID thì không mơ hồ
+      if (this.isPaid(actionOrOutcome)) return false;
+      if (this.isDefinitivelyUnpaid(actionOrOutcome)) return false;
+      // 3. Mọi trường hợp còn lại (kể cả action lạ, chưa được phân loại) đều coi là mơ hồ (Fail-Closed)
+      return true;
+    }
+    // Trường hợp truyền action dạng chuỗi:
+    if (RECONCILIATION_GROUPS.PAID.includes(actionOrOutcome)) return false;
+    if (RECONCILIATION_GROUPS.DEFINITIVELY_UNPAID.includes(actionOrOutcome)) return false;
+    // Bất kỳ chuỗi action lạ nào (vd: 'unknown_new_action') đều coi là mơ hồ
+    return true;
   }
 }
 
