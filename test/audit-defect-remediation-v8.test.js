@@ -189,14 +189,19 @@ test('Lỗi 4 (Push Rate Limiting & Customer Quota): Router sets rate limiting a
   await db.close();
 });
 
-test('Lỗi 5 (Migration Lock Deadlines & Startup Watchdog): migrateDatabase sets lock and statement timeouts', () => {
+test('Lỗi 5 (Migration Lock Deadlines & Startup/Shutdown Watchdog): src/server.js and migrate.js have full startup and shutdown deadlines', () => {
   const migrateSource = fs.readFileSync(path.join(__dirname, '../src/migrate.js'), 'utf8');
   assert.match(migrateSource, /SET LOCAL lock_timeout\s*=\s*'15s'/);
   assert.match(migrateSource, /SET LOCAL statement_timeout\s*=\s*'60s'/);
 
   const serverSource = fs.readFileSync(path.join(__dirname, '../src/server.js'), 'utf8');
   assert.match(serverSource, /STARTUP_TIMEOUT_MS/);
+  assert.match(serverSource, /SHUTDOWN_TIMEOUT_MS/);
   assert.match(serverSource, /watchdogTimer/);
+  assert.match(serverSource, /shutdownTimer/);
+  assert.match(serverSource, /withTimeout\s*\(\s*migrateDatabase/);
+  assert.match(serverSource, /withTimeout\s*\(\s*workerManager\.startAll/);
+  assert.match(serverSource, /closeIdleConnections/);
 });
 
 test('Lỗi 6 (Client Push Auto-Sync Optimization): customer-upgrades-ui.js avoids duplicate sync and suppresses toasts in auto-sync', () => {
