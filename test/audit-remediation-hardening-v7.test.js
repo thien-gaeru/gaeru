@@ -1482,4 +1482,94 @@ test('P2-03: Worker error handling, mailer caching, structured outbox outcomes, 
   assert.equal(boolEmpty, false, 'Legacy processOrderEmail must return boolean false when queue is empty');
 });
 
+test('P2-04: Leader + JobQueue/Cron as single primary runner for order expiration with deduplication and observability', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const { WorkerManager } = require('../src/workers');
+  const manager = new WorkerManager();
+  t.after(() => manager.stopAll());
+
+  // Mock requireFn so background crons don't start heavy services
+  const mockRequireFn = (mod) => {
+    if (mod === './domain/orders/order-expiration-service') return require('../src/domain/orders/order-expiration-service');
+    if (mod.startsWith('./')) return require('../src/' + mod.slice(2));
+    return require(mod);
+  };
+
+  // 1. Khởi chạy WorkerManager ở chế độ Leader với JobQueue
+  await manager.startAll(pool, {}, {
+    requireFn: mockRequireFn,
+    startJobQueue: true,
+    jobQueueOptions: { orderExpiryIntervalMs: 60000 }
+  });
+
+  assert.equal(manager.isLeader, true, 'WorkerManager phải là Leader');
+  assert.ok(manager.jobQueue, 'JobQueue phải được khởi tạo');
+
+  // Xác nhận orders.cancel_expired đã được đăng ký trên JobQueue
+  assert.equal(manager.jobQueue.hasWorker('orders.cancel_expired'), true);
+
+  // Xác nhận worker song song startOrderExpirationWorker KHÔNG được chạy (không có trong manager.workers)
+  assert.equal(manager.workers.has('orderExpiration'), false, 'Không được chạy startOrderExpirationWorker song song khi JobQueue bật');
+
+  // Xác nhận cron scheduler đã được đăng ký trong workers để giải phóng khi stop
+  assert.equal(manager.workers.has('orderExpirationScheduler'), true, 'Leader phải đăng ký orderExpirationScheduler');
+
+  // 2. Kiểm tra snapshot: Job đã được enqueue vào bảng system_jobs
+  const snapshotRes = await pool.query(
+    `SELECT id, name, queue, status, run_at, max_attempts FROM system_jobs WHERE name = 'orders.cancel_expired'`
+  );
+  assert.equal(snapshotRes.rows.length, 1, 'Job orders.cancel_expired phải được enqueue vào system_jobs (observable in snapshot)');
+  const initialJob = snapshotRes.rows[0];
+  assert.equal(initialJob.status, 'pending');
+  assert.equal(initialJob.queue, 'maintenance');
+
+  // 3. Đảm bảo chỉ 1 job đang quét: Thử enqueue lần thứ 2 khi job đầu tiên vẫn đang pending
+  const secondEnqueue = await manager.enqueueOrderExpirationJob(pool, {}, { immediate: false });
+  assert.equal(secondEnqueue.queued, false, 'Không được enqueue job trùng khi đang có job pending');
+  assert.equal(secondEnqueue.reason, 'already_active');
+  assert.equal(secondEnqueue.activeJobId, initialJob.id);
+
+  // Xác nhận bảng system_jobs vẫn chỉ có 1 job duy nhất
+  const countRes = await pool.query(`SELECT count(*)::int AS count FROM system_jobs WHERE name = 'orders.cancel_expired'`);
+  assert.equal(countRes.rows[0].count, 1, 'Chỉ duy nhất 1 job orders.cancel_expired tồn tại trong hàng đợi');
+
+  // 4. Thực thi job qua JobQueue (quan sát trạng thái & hoàn tất)
+  // Kéo run_at về now() để claimNextJob có thể nhận
+  await pool.query(`UPDATE system_jobs SET run_at = now() WHERE id = $1`, [initialJob.id]);
+  const processRes = await manager.jobQueue.processOne();
+  assert.equal(processRes.id, initialJob.id);
+  assert.equal(processRes.status, 'completed');
+
+  const afterJob = (await pool.query(`SELECT status, attempts, last_error FROM system_jobs WHERE id = $1`, [initialJob.id])).rows[0];
+  assert.equal(afterJob.status, 'completed', 'Job phải hoàn tất thành công trong system_jobs');
+  assert.equal(afterJob.attempts, 1);
+
+  // 5. Sau khi job hoàn tất, lần enqueue tiếp theo sẽ được tạo mới
+  const nextEnqueue = await manager.enqueueOrderExpirationJob(pool, {}, { immediate: true });
+  assert.equal(nextEnqueue.queued, true, 'Sau khi job trước completed, job mới có thể được enqueue');
+  assert.ok(nextEnqueue.job.id !== initialJob.id, 'Job mới phải có ID mới');
+
+  // 6. Fallback test: Khi JobQueue bị tắt, safeStart fallback sang startOrderExpirationWorker
+  const fallbackManager = new WorkerManager();
+  t.after(() => fallbackManager.stopAll());
+  let fallbackWorkerStarted = false;
+  await fallbackManager.startAll(pool, {}, {
+    startJobQueue: false,
+    requireFn: (mod) => {
+      if (mod === './domain/orders/order-expiration-service') {
+        return {
+          startOrderExpirationWorker: () => {
+            fallbackWorkerStarted = true;
+            return () => {};
+          }
+        };
+      }
+      return {};
+    }
+  });
+  assert.equal(fallbackWorkerStarted, true, 'Khi JobQueue tắt, phải fallback sang startOrderExpirationWorker');
+});
+
 
