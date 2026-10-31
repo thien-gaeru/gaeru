@@ -43,11 +43,21 @@ function validatePushSubscriptionData(payload = {}) {
     throw Object.assign(new Error('Thông tin khóa subscription được tạo giả, không được chấp nhận.'), { status: 400 });
   }
 
+  // Khóa p256dh và auth phải chứa định dạng ký tự Base64 / Base64URL chuẩn (cho phép dấu chấm rút gọn)
+  const base64Pattern = /^[A-Za-z0-9+/_.=-]+$/;
+  if (!base64Pattern.test(key)) {
+    throw Object.assign(new Error('Khóa p256dh không phải Base64/Base64URL hợp lệ.'), { status: 400 });
+  }
+  if (!base64Pattern.test(a)) {
+    throw Object.assign(new Error('Khóa auth secret không phải Base64/Base64URL hợp lệ.'), { status: 400 });
+  }
+
   // Khóa p256dh phải là chuỗi hợp lệ
   try {
-    const keyBuf = Buffer.from(key, 'base64');
-    if (keyBuf.length < 6) {
-      throw new Error('Độ dài khóa p256dh quá ngắn.');
+    const normalizedKey = key.replace(/-/g, '+').replace(/_/g, '/');
+    const keyBuf = Buffer.from(normalizedKey, 'base64');
+    if (keyBuf.length < 6 || keyBuf.length > 256) {
+      throw new Error('Độ dài khóa p256dh không hợp lệ.');
     }
   } catch {
     throw Object.assign(new Error('Khóa p256dh không phải Base64 hợp lệ.'), { status: 400 });
@@ -55,9 +65,10 @@ function validatePushSubscriptionData(payload = {}) {
 
   // Auth secret chuẩn tối thiểu 4 bytes
   try {
-    const authBuf = Buffer.from(a, 'base64');
-    if (authBuf.length < 4) {
-      throw new Error('Độ dài auth secret quá ngắn.');
+    const normalizedAuth = a.replace(/-/g, '+').replace(/_/g, '/');
+    const authBuf = Buffer.from(normalizedAuth, 'base64');
+    if (authBuf.length < 4 || authBuf.length > 128) {
+      throw new Error('Độ dài auth secret không hợp lệ.');
     }
   } catch {
     throw Object.assign(new Error('Khóa auth secret không phải Base64 hợp lệ.'), { status: 400 });
@@ -187,6 +198,7 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     }
   }
 
+  const unsentCount = Math.max(0, subscriptions.length - (sent.length + failed.length + expired.length));
   return {
     ok: true,
     enabled: true,
@@ -194,7 +206,7 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     sentCount: sent.length,
     failedCount: failed.length,
     expiredCount: expired.length,
-    unsentCount: 0,
+    unsentCount,
     results: {
       sent,
       failed,
@@ -222,7 +234,7 @@ function createPushPublicRouter(pool) {
     });
   });
 
-  router.post('/push/subscribe', express.json(), async (req, res, next) => {
+  router.post('/push/subscribe', express.json({ limit: '16kb' }), async (req, res, next) => {
     try {
       const vapid = getVapidConfig();
       if (!vapid) {
@@ -254,7 +266,29 @@ function createPushAdminRouter(pool) {
   const router = express.Router();
   const { AdminAction } = require('./admin-action');
 
-  router.post('/push/broadcast', AdminAction('marketing.write'), express.json(), async (req, res, next) => {
+  // Thống kê chính xác số lượng đăng ký Web Push phục vụ bảng điều khiển quản trị
+  router.get('/push/stats', requirePermission('marketing.read'), async (req, res, next) => {
+    try {
+      const stats = await pool.query(`
+        SELECT 
+          count(*) AS total,
+          count(*) FILTER (WHERE active = true) AS active,
+          count(*) FILTER (WHERE active = false) AS inactive
+        FROM web_push_subscriptions
+      `);
+      const row = stats.rows[0] || {};
+      res.json({
+        total: Number(row.total || 0),
+        active: Number(row.active || 0),
+        inactive: Number(row.inactive || 0)
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Bảo vệ API gửi thông báo đẩy: kiểm tra quyền marketing.write, CSRF và xác thực nội dung
+  router.post('/push/broadcast', AdminAction('marketing.write'), express.json({ limit: '64kb' }), async (req, res, next) => {
     try {
       const vapid = getVapidConfig();
       if (!vapid) {
@@ -266,7 +300,14 @@ function createPushAdminRouter(pool) {
       }
 
       const { title = 'GAERU Flash Sale', body = 'Ưu đãi micro thu âm chính hãng đã bắt đầu!', url = '/' } = req.body || {};
-      const result = await broadcastPushNotification(pool, { title, body, url });
+      if (typeof title !== 'string' || title.trim().length === 0 || title.length > 200) {
+        return res.status(400).json({ error: 'Tiêu đề thông báo không được để trống và tối đa 200 ký tự.' });
+      }
+      if (typeof body !== 'string' || body.trim().length === 0 || body.length > 500) {
+        return res.status(400).json({ error: 'Nội dung thông báo không được để trống và tối đa 500 ký tự.' });
+      }
+
+      const result = await broadcastPushNotification(pool, { title: title.trim(), body: body.trim(), url });
       res.json(result);
     } catch (err) {
       next(err);
