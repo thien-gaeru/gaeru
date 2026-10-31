@@ -172,7 +172,6 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
   app.use('/api', require('./affiliate-system').createAffiliatePublicRouter(pool));
   app.use('/api', require('./instant-search').createSearchRouter(pool));
   app.use('/api', require('./web-push').createPushPublicRouter(pool));
-  app.use('/api', require('./social-proof').createSocialProofRouter(pool));
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer", createCustomerExperience(pool));

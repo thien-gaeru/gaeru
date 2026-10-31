@@ -6,7 +6,6 @@ const { migrateDatabase } = require('../src/migrate');
 const { hashSha256, normalizePhoneE164, dispatchServerCapi } = require('../src/server-capi');
 const { getInventoryForecast } = require('../src/inventory-forecast');
 const { getRfmCustomerSegmentation, scoreRecency, scoreFrequency, scoreMonetary, determineSegment } = require('../src/rfm-analytics');
-const { maskCustomerName, formatRelativeTime, getRecentSocialProof } = require('../src/social-proof');
 const { canServeAvif } = require('../src/lib/avif-optimizer');
 const { logOrderActivity, getOrderActivities } = require('../src/order-activity');
 const { createTestDb: setupTestDb } = require('./helpers/pglite-db');
@@ -65,21 +64,6 @@ test('7. RFM Analytics: scores Recency, Frequency, Monetary and assigns segments
   assert.equal(rfm.summary.length, 5);
 });
 
-test('8. Social Proof Toast: masks customer names and formats relative times', async () => {
-  const { pool } = await setupTestDb();
-
-  assert.equal(maskCustomerName('Nguyễn Hoàng Nam'), 'Hoàng N.');
-  assert.equal(maskCustomerName('Trần Văn Bình'), 'Văn B.');
-  assert.equal(maskCustomerName('Thảo'), 'Thảo');
-
-  assert.equal(formatRelativeTime(new Date()), 'Vừa xong');
-
-  const recent = await getRecentSocialProof(pool);
-  assert.ok(Array.isArray(recent));
-  assert.ok(recent.length > 0);
-  assert.ok(recent[0].customerName);
-  assert.ok(recent[0].productName);
-});
 
 test('9. AVIF Image Optimizer: detects client Accept header for AVIF support', () => {
   assert.equal(canServeAvif('image/avif,image/webp,*/*'), true);

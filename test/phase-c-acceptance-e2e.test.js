@@ -412,15 +412,8 @@ test('Phase C - 12.2, 12.3, 12.5, 12.6, 12.7, 12.8: Webhook trùng/lệch, Combo
   assert.equal(restoredAcc.active, true);
 
   // --- 12.9: Minh bạch Social Proof (verifiedPurchase), che số tiền/vận đơn khi tra cứu không kèm SĐT & Cache Security Config ---
-  const { getRecentSocialProof } = require('../src/social-proof');
   const { lookupOrderTracking } = require('../src/tracking-api');
   const { readRecord } = require('../src/admin-configuration');
-
-  const socialItems = await getRecentSocialProof(pool);
-  const paidItem = socialItems.find(i => i.customerName === 'Khách C.');
-  const pendingItem = socialItems.find(i => i.customerName === 'Hoàn C.');
-  assert.equal(paidItem?.verifiedPurchase, true, 'Đơn đã thanh toán (paid) mới được gắn cờ verifiedPurchase = true');
-  assert.equal(pendingItem?.verifiedPurchase, false, 'Đơn mới tạo chưa thanh toán gắn cờ verifiedPurchase = false');
 
   const unverifiedLookup = await lookupOrderTracking(pool, codOrder.order_number);
   assert.equal(unverifiedLookup.orders[0].isPhoneVerified, false);
