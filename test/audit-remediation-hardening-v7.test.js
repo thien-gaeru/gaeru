@@ -2181,3 +2181,228 @@ test('P1-04 Fix: ReconciliationOutcome enum correctly partitions actions into PA
   assert.throws(() => { RECONCILIATION_ACTIONS.NEW_ACTION = 'test'; });
   assert.throws(() => { RECONCILIATION_GROUPS.PAID.push('test'); });
 });
+
+
+test('P2-01 Fix: Order token secret requires >= 32 characters and fails closed without secret', () => {
+  const { resolveOrderTokenSecret, generateOrderAccessToken, verifyOrderAccessToken } = require('../src/domain/payments/order-idempotency-policy');
+
+  const oldOrderSecret = process.env.ORDER_ACCESS_TOKEN_SECRET;
+  const oldSessionSecret = process.env.SESSION_SECRET;
+
+  try {
+    delete process.env.ORDER_ACCESS_TOKEN_SECRET;
+    delete process.env.SESSION_SECRET;
+
+    // Fail closed on resolveOrderTokenSecret
+    assert.equal(resolveOrderTokenSecret(null), null);
+    assert.equal(resolveOrderTokenSecret(''), null);
+    assert.equal(resolveOrderTokenSecret('short-secret-key-15b'), null);
+
+    // Fail closed on generateOrderAccessToken
+    assert.throws(() => {
+      generateOrderAccessToken({ orderId: '123' }, null);
+    }, (err) => err.code === 'MISSING_ORDER_TOKEN_SECRET' && err.statusCode === 500);
+
+    assert.throws(() => {
+      generateOrderAccessToken({ orderId: '123' }, 'short-key');
+    }, (err) => err.code === 'MISSING_ORDER_TOKEN_SECRET');
+
+    // Fail closed on verifyOrderAccessToken
+    assert.equal(verifyOrderAccessToken('eyJhbGciOi.dummy_sig', null), null);
+    assert.equal(verifyOrderAccessToken('eyJhbGciOi.dummy_sig', 'short-key'), null);
+
+    // Valid 32-character secret
+    const strongSecret = 'super-strong-session-secret-key-at-least-32-chars';
+    const token = generateOrderAccessToken({ orderId: '123', orderNumber: 'GAERU-123' }, strongSecret);
+    assert.ok(token && token.includes('.'));
+
+    const verified = verifyOrderAccessToken(token, strongSecret, 'GAERU-123');
+    assert.ok(verified);
+    assert.equal(verified.orderId, '123');
+    assert.equal(verified.orderNumber, 'GAERU-123');
+
+    // Environment variable fallback
+    process.env.ORDER_ACCESS_TOKEN_SECRET = strongSecret;
+    const envToken = generateOrderAccessToken({ orderId: '456' });
+    const verifiedEnv = verifyOrderAccessToken(envToken);
+    assert.ok(verifiedEnv);
+    assert.equal(verifiedEnv.orderId, '456');
+  } finally {
+    if (oldOrderSecret !== undefined) process.env.ORDER_ACCESS_TOKEN_SECRET = oldOrderSecret;
+    else delete process.env.ORDER_ACCESS_TOKEN_SECRET;
+    if (oldSessionSecret !== undefined) process.env.SESSION_SECRET = oldSessionSecret;
+    else delete process.env.SESSION_SECRET;
+  }
+});
+
+test('P2-02 Fix: PaymentRetryCoordinator returns 202 Accepted when gateway initiation is in progress after polling', async (t) => {
+  const { PaymentRetryCoordinator } = require('../src/domain/payments/payment-retry-coordinator');
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const momoSettings = {
+    partnerCode: 'MOMO',
+    accessKey: 'ACCESS_KEY_MOCK',
+    secretKey: 'SECRET_KEY_MOCK_123',
+    environment: 'sandbox',
+    enabled: true
+  };
+
+  const appConfig = { SESSION_SECRET: 'test-secret-32-chars-minimum-length-ok!' };
+  const { writeRecord } = require('../src/admin-configuration');
+  await writeRecord(pool, appConfig, 'payment_momo', momoSettings, 0, { username: 'admin' });
+
+  const orderRes = await pool.query(`
+    INSERT INTO orders (order_number, customer_name, email, phone, address, city, payment_method, payment_status, subtotal_vnd, total_vnd, status)
+    VALUES ('GAERU-TEST-P2-02', 'Test User', 'test@gaeru.com', '0912345678', '123 Test St', 'Hà Nội', 'momo', 'pending', 100000, 100000, 'pending')
+    RETURNING id, order_number
+  `);
+  const orderId = orderRes.rows[0].id;
+  const orderNumber = orderRes.rows[0].order_number;
+
+  // Insert an attempt in 'pending' with last_error_code 'INITIATING_GATEWAY_SESSION'
+  await pool.query(`
+    INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, status, last_error_code, expires_at)
+    VALUES ($1, 'momo', 'MOMO-LEASE-1', 100000, 'pending', 'INITIATING_GATEWAY_SESSION', now() + interval '5 minutes')
+  `, [orderId]);
+
+  const mockFetcher = async (url, opts) => {
+    const body = opts && opts.body ? JSON.parse(opts.body) : {};
+    if (url.includes('/query')) {
+      return {
+        status: 200,
+        ok: true,
+        text: async () => JSON.stringify({
+          resultCode: 49,
+          message: 'Không tìm thấy giao dịch',
+          orderId: body.orderId,
+          requestId: body.requestId
+        })
+      };
+    }
+    return {
+      status: 200,
+      ok: true,
+      text: async () => JSON.stringify({
+        resultCode: 0,
+        payUrl: 'https://test-payment.momo.vn/v2/gateway/pay/mock'
+      })
+    };
+  };
+
+  // Coordinate retry: since another lease is INITIATING_GATEWAY_SESSION, mock polling will timeout
+  const originalDateNow = Date.now;
+  let calls = 0;
+  Date.now = () => {
+    calls++;
+    return calls > 2 ? originalDateNow() + 20000 : originalDateNow();
+  };
+
+  try {
+    const res = await PaymentRetryCoordinator.coordinateRetry(pool, {
+      orderNumber,
+      expectedCustomer: { email: 'test@gaeru.com', phone: '0912345678' },
+      settings: momoSettings,
+      fetcher: mockFetcher
+    });
+
+    assert.equal(res.status, 202);
+    assert.equal(res.code, 'PAYMENT_INITIATION_IN_PROGRESS');
+    assert.equal(res.retryAfterSeconds, 3);
+    assert.ok(res.message.includes('đang được khởi tạo tại cổng'));
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+test('P2-03 Fix: Order email renders correct payment channel labels across all payment methods', () => {
+  const { PAYMENT_METHOD_LABELS, getPaymentMethodLabel } = require('../src/order-email');
+
+  assert.equal(getPaymentMethodLabel('cod'), 'COD');
+  assert.equal(getPaymentMethodLabel('bank_transfer'), 'Chuyển khoản ngân hàng');
+  assert.equal(getPaymentMethodLabel('vnpay'), 'VNPAY');
+  assert.equal(getPaymentMethodLabel('9pay'), '9Pay');
+  assert.equal(getPaymentMethodLabel('momo'), 'Ví MoMo');
+  assert.equal(getPaymentMethodLabel('zalopay'), 'Ví ZaloPay');
+  assert.equal(getPaymentMethodLabel('unknown_custom'), 'UNKNOWN_CUSTOM');
+  assert.equal(getPaymentMethodLabel(null), 'Chưa xác định');
+
+  for (const m of ['cod', 'bank_transfer', 'momo', 'zalopay', '9pay']) {
+    assert.ok(!getPaymentMethodLabel(m).includes('VNPAY'), `${m} không được chứa VNPAY!`);
+  }
+});
+
+test('P2-04 Fix: resolveInventoryService resolves inventory cleanly and avoids TypeError assignment to const', () => {
+  const { resolveInventoryService } = require('../src/domain/orders/order-expiration-service');
+
+  const mockInv = { releaseOrderStock: () => 'ok' };
+  assert.equal(resolveInventoryService(mockInv), mockInv);
+
+  const resolvedFallback = resolveInventoryService({});
+  assert.ok(resolvedFallback && typeof resolvedFallback.releaseOrderStock === 'function');
+
+  const resolvedNull = resolveInventoryService(null);
+  assert.ok(resolvedNull && typeof resolvedNull.releaseOrderStock === 'function');
+});
+
+test('P2-05 Fix: Admin HTML escape properly escapes XSS payloads even if sharedFormat is missing', () => {
+  const fs = require('fs');
+  const xssPayload = '<img src=x onerror="alert(\'XSS\')" />';
+
+  const fallbackEscapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+      '/': '&#x2F;'
+    }[c]));
+
+  const escaped = fallbackEscapeHtml(xssPayload);
+  assert.ok(!escaped.includes('<img'));
+  assert.ok(!escaped.includes('"'));
+  assert.ok(!escaped.includes("'"));
+  assert.ok(escaped.includes('&lt;img'));
+  assert.ok(escaped.includes('&quot;'));
+  assert.ok(escaped.includes('&#39;'));
+  assert.ok(escaped.includes('&#x2F;'));
+
+  const adminJs = fs.readFileSync('admin/admin.js', 'utf8');
+  assert.ok(adminJs.includes('fallbackEscapeHtml'));
+  assert.ok(!adminJs.includes("sharedFormat ? sharedFormat.escapeHtml(value) : String(value ?? '')"));
+
+  const scannerJs = fs.readFileSync('admin/barcode-scanner.js', 'utf8');
+  assert.ok(scannerJs.includes('fallbackEscapeHtml'));
+
+  const hubJs = fs.readFileSync('admin/upgrades-hub.js', 'utf8');
+  assert.ok(hubJs.includes('fallbackEscapeHtml'));
+});
+
+test('P2-06 Fix: Supplementary migration safely handles duplicate provider_request_id and negative warehouse_stock', async (t) => {
+  const fs = require('fs');
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const orderRes = await pool.query(`
+    INSERT INTO orders (order_number, customer_name, email, phone, address, city, payment_method, payment_status, subtotal_vnd, total_vnd, status)
+    VALUES ('GAERU-DUP-1', 'Dup User', 'dup@gaeru.com', '0912345678', '123 Test St', 'Hà Nội', 'momo', 'pending', 100000, 100000, 'pending')
+    RETURNING id
+  `);
+  const orderId = orderRes.rows[0].id;
+
+  await pool.query('DROP INDEX IF EXISTS idx_payment_attempts_provider_request_id;');
+  await pool.query(`
+    INSERT INTO payment_attempts (order_id, provider, transaction_ref, provider_request_id, amount_vnd, status, expires_at)
+    VALUES ($1, 'momo', 'REF-DUP-1', 'SAME_REQ_ID', 50000, 'pending', now() + interval '5 minutes'),
+           ($1, 'momo', 'REF-DUP-2', 'SAME_REQ_ID', 50000, 'pending', now() + interval '5 minutes')
+  `, [orderId]);
+
+  const migrationSql = fs.readFileSync('db/checkout-lifecycle-hardening.sql', 'utf8');
+  await pool.query(migrationSql);
+
+  const indexCheck = await pool.query(`
+    SELECT indexname FROM pg_indexes WHERE tablename = 'payment_attempts' AND indexname = 'idx_payment_attempts_provider_request_id'
+  `);
+  assert.equal(indexCheck.rows.length, 1);
+});

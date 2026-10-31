@@ -65,8 +65,20 @@ const sharedFormat = (typeof window !== 'undefined' && window.GAERUAdminShared)
 
 const formatPrice = (value) =>
   value == null ? "Chưa xác định" : (sharedFormat ? sharedFormat.formatMoney(value) : (Number(value || 0).toLocaleString('vi-VN') + ' ₫'));
+const fallbackEscapeHtml = (value) =>
+  String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+    '/': '&#x2F;'
+  }[c]));
+
 const escapeHtml = (value) =>
-  sharedFormat ? sharedFormat.escapeHtml(value) : String(value ?? '');
+  (sharedFormat && typeof sharedFormat.escapeHtml === 'function')
+    ? sharedFormat.escapeHtml(value)
+    : fallbackEscapeHtml(value);
 const can = (permission) =>
   !state.session?.mfaEnrollmentRequired
   && Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));

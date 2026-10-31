@@ -209,7 +209,19 @@
   const sharedFormat = (root && root.GAERUAdminShared)
     || (typeof globalThis !== 'undefined' && globalThis.GAERUAdminShared)
     || (typeof require === 'function' ? require('./format') : null);
-  const escapeHtml = (value) => sharedFormat ? sharedFormat.escapeHtml(value) : String(value ?? '');
+  const fallbackEscapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+      '/': '&#x2F;'
+    }[c]));
+  const escapeHtml = (value) =>
+    (sharedFormat && typeof sharedFormat.escapeHtml === 'function')
+      ? sharedFormat.escapeHtml(value)
+      : fallbackEscapeHtml(value);
 
   return { init };
 });

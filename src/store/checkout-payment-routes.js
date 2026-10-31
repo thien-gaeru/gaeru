@@ -211,6 +211,9 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           actor: { username: req.session?.customer?.email || 'customer', source: 'payment_retry' }
         });
         if (!retried) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+        if (retried.status === 202) {
+          res.setHeader('Retry-After', String(retried.retryAfterSeconds || 3));
+        }
         const { status = 200, ...payload } = retried;
         return res.status(status).json(payload);
       } catch (error) {
@@ -412,10 +415,18 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               }
               const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
               const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
-              const orderAccessToken = generateOrderAccessToken(
-                { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
-                secret
-              );
+              let orderAccessToken = null;
+              try {
+                orderAccessToken = generateOrderAccessToken(
+                  { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
+                  secret
+                );
+              } catch (tokenErr) {
+                if (tokenErr.code !== 'MISSING_ORDER_TOKEN_SECRET') throw tokenErr;
+              }
+              if (resumed.status === 202) {
+                res.setHeader('Retry-After', String(resumed.retryAfterSeconds || 3));
+              }
               const { status = 200, ...payload } = resumed;
               return res.status(status).json({ ...payload, orderAccessToken });
             }
@@ -705,10 +716,15 @@ function attachPublicAndCheckoutRoutes(router, pool, {
 
         const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
         const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
-        const orderAccessToken = generateOrderAccessToken(
-          { orderId: order.order.id, orderNumber: order.order.orderNumber, customerId: req.session?.customer?.id },
-          secret
-        );
+        let orderAccessToken = null;
+        try {
+          orderAccessToken = generateOrderAccessToken(
+            { orderId: order.order.id, orderNumber: order.order.orderNumber, customerId: req.session?.customer?.id },
+            secret
+          );
+        } catch (tokenErr) {
+          if (tokenErr.code !== 'MISSING_ORDER_TOKEN_SECRET') throw tokenErr;
+        }
         if (req.session && order.order?.orderNumber) {
           req.session.createdOrders = req.session.createdOrders || [];
           if (!req.session.createdOrders.includes(order.order.orderNumber)) {
@@ -795,10 +811,18 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               }
               const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
               const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
-              const orderAccessToken = generateOrderAccessToken(
-                { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
-                secret
-              );
+              let orderAccessToken = null;
+              try {
+                orderAccessToken = generateOrderAccessToken(
+                  { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
+                  secret
+                );
+              } catch (tokenErr) {
+                if (tokenErr.code !== 'MISSING_ORDER_TOKEN_SECRET') throw tokenErr;
+              }
+              if (resumed.status === 202) {
+                res.setHeader('Retry-After', String(resumed.retryAfterSeconds || 3));
+              }
               const { status = 200, ...payload } = resumed;
               return res.status(status).json({ ...payload, orderAccessToken });
             }

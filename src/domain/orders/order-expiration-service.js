@@ -1,5 +1,29 @@
 'use strict';
 
+/**
+ * Trích xuất và giải quyết dịch vụ quản lý kho (Fail-Closed: cần hàm releaseOrderStock)
+ * @param {Object} [injectedInventory]
+ * @returns {Object|null}
+ */
+function resolveInventoryService(injectedInventory = null) {
+  if (injectedInventory && typeof injectedInventory.releaseOrderStock === 'function') {
+    return injectedInventory;
+  }
+  try {
+    const { InventoryService } = require('../inventory/inventory-service');
+    if (InventoryService && typeof InventoryService.releaseOrderStock === 'function') {
+      return InventoryService;
+    }
+  } catch {}
+  try {
+    const legacyInv = require('../../inventory');
+    if (legacyInv && typeof legacyInv.releaseOrderStock === 'function') {
+      return legacyInv;
+    }
+  } catch {}
+  return null;
+}
+
 const { withTransaction } = require('../../db');
 const { appendAudit } = require('../../audit');
 const { logOrderActivity } = require('../../order-activity');
@@ -94,7 +118,7 @@ class OrderExpirationService {
 
     const cancelledOrders = [];
     const errors = [];
-    const inv = inventory || require('../../inventory');
+    let inv = resolveInventoryService(inventory);
 
     for (const cand of candidates) {
       try {
@@ -284,20 +308,7 @@ class OrderExpirationService {
           // QUYẾT ĐỊNH CUỐI CÙNG (Final Definitive Decision) - Xác nhận 100% chưa thanh toán:
           // 1. Hoàn trả tồn kho kho hàng (Fail-Closed: Bắt buộc thông qua InventoryService, TUYỆT ĐỐI không fallback cộng kho trực tiếp)
           if (!inv || typeof inv.releaseOrderStock !== 'function') {
-            try {
-              const { InventoryService } = require('../inventory/inventory-service');
-              if (InventoryService && typeof InventoryService.releaseOrderStock === 'function') {
-                inv = InventoryService;
-              }
-            } catch {}
-            if (!inv || typeof inv.releaseOrderStock !== 'function') {
-              try {
-                const legacyInv = require('../../inventory');
-                if (legacyInv && typeof legacyInv.releaseOrderStock === 'function') {
-                  inv = legacyInv;
-                }
-              } catch {}
-            }
+            inv = resolveInventoryService(inventory);
           }
           if (!inv || typeof inv.releaseOrderStock !== 'function') {
             throw new Error(`INVENTORY_SERVICE_REQUIRED: Thiếu dịch vụ quản lý kho (InventoryService.releaseOrderStock) để hoàn trả tồn kho cho đơn ${order.order_number}. Quá trình hủy đơn bị đình chỉ (fail-closed) để ngăn ngừa sai lệch số dư kho hàng.`);
@@ -423,6 +434,7 @@ function startOrderExpirationWorker(pool, config = {}, {
 }
 
 module.exports = {
+  resolveInventoryService,
   DEFAULT_CHANNEL_TTL_HOURS,
   OrderExpirationService,
   startOrderExpirationWorker
