@@ -257,6 +257,13 @@ test('Instant Search Autocomplete finds products by prefix and keyword', async (
 
 test('Web Push Subscriptions registers browser endpoints and broadcasts notifications', async () => {
   const { db, pool } = await setupTestDb();
+  const webpush = require('web-push');
+  const testVapid = webpush.generateVAPIDKeys();
+  const prevPub = process.env.VAPID_PUBLIC_KEY;
+  const prevPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = testVapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
+
   try {
     const sub = await savePushSubscription(pool, {
       endpoint: 'https://fcm.googleapis.com/fcm/send/fake-endpoint-token-123',
@@ -265,13 +272,20 @@ test('Web Push Subscriptions registers browser endpoints and broadcasts notifica
     });
     assert.equal(sub.endpoint, 'https://fcm.googleapis.com/fcm/send/fake-endpoint-token-123');
 
+    const mockClient = {
+      sendNotification: async () => ({ statusCode: 201 })
+    };
     const broadcast = await broadcastPushNotification(pool, {
       title: 'GAERU Giờ Vàng',
       body: 'Giảm giá 20% hôm nay!'
-    });
+    }, { webpushClient: mockClient });
     assert.equal(broadcast.ok, true);
     assert.equal(broadcast.recipientCount, 1);
   } finally {
+    if (prevPub) process.env.VAPID_PUBLIC_KEY = prevPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (prevPriv) process.env.VAPID_PRIVATE_KEY = prevPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
     await db.close();
   }
 });
