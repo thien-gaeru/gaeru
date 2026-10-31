@@ -24,6 +24,8 @@ class OrderExpirationService {
     olderThanHours = 24,
     batchSize = 50,
     inventory = null,
+    config = {},
+    fetcher = null,
     actor = { username: 'system', source: 'order_expiration_worker' }
   } = {}) {
     if (!pool || typeof pool.query !== 'function') return [];
@@ -35,6 +37,14 @@ class OrderExpirationService {
          AND payment_status = 'pending'
          AND payment_method IN ('bank_transfer', 'vnpay', '9pay', 'momo', 'zalopay')
          AND created_at < now() - ($1::text || ' hours')::interval
+         AND NOT EXISTS (
+           SELECT 1 FROM payment_attempts pa
+           WHERE pa.order_id = orders.id
+             AND (
+               (pa.status = 'pending' AND (pa.expires_at IS NULL OR pa.expires_at > now()))
+               OR pa.status IN ('payment_initiation_unknown', 'awaiting_reconciliation')
+             )
+         )
        ORDER BY created_at ASC
        LIMIT $2`,
       [String(Math.max(1, Number(olderThanHours) || 24)), Math.min(200, Math.max(1, Number(batchSize) || 50))]
@@ -45,6 +55,30 @@ class OrderExpirationService {
 
     for (const cand of candidates) {
       try {
+        // Đối với cổng trực tuyến, thử đối soát trước khi hủy để xác nhận chưa thu tiền
+        if (['momo', 'zalopay'].includes(cand.paymentMethod)) {
+          try {
+            const { readChannelRecord, isChannelConfigured, reconcileGatewayOrder } = require('../../payment-channels');
+            if (typeof readChannelRecord === 'function' && typeof reconcileGatewayOrder === 'function') {
+              const chRecord = await readChannelRecord(pool, config, cand.paymentMethod).catch(() => null);
+              if (chRecord && isChannelConfigured(cand.paymentMethod, chRecord)) {
+                const rec = await reconcileGatewayOrder(pool, {
+                  orderId: cand.id,
+                  config,
+                  fetcher,
+                  cancelOnUnpaid: false
+                }).catch(() => null);
+                if (rec?.paymentStatus === 'paid' || rec?.action === 'already_paid') {
+                  continue;
+                }
+                if (rec?.attemptStatus === 'awaiting_reconciliation') {
+                  continue;
+                }
+              }
+            }
+          } catch {}
+        }
+
         const cancelled = await withTransaction(pool, async (client) => {
           const order = (await client.query(
             `SELECT id, order_number, payment_method, status, payment_status, voucher_code, total_vnd
@@ -57,6 +91,36 @@ class OrderExpirationService {
           if (!order) return null;
           // Nếu đơn đã được thanh toán hoặc đã hủy, bỏ qua
           if (order.status === 'cancelled' || order.status === 'completed' || order.payment_status === 'paid') {
+            return null;
+          }
+
+          // 0. Khóa và kiểm tra toàn bộ các phiên thanh toán của đơn
+          const attempts = (await client.query(
+            `SELECT id, status, expires_at AS "expiresAt" FROM payment_attempts WHERE order_id = $1 FOR UPDATE`,
+            [order.id]
+          )).rows;
+
+          // Nếu có bất kỳ phiên nào đã paid, không được hủy đơn!
+          if (attempts.some(a => a.status === 'paid')) {
+            await client.query("UPDATE orders SET payment_status = 'paid', updated_at = now() WHERE id = $1", [order.id]);
+            return null;
+          }
+
+          // Chặn tự hủy nếu đang có phiên pending còn hạn (khách đang trong phiên checkout)
+          const hasActivePendingAttempt = attempts.some(a => {
+            if (a.status !== 'pending') return false;
+            const exp = a.expiresAt ? new Date(a.expiresAt) : null;
+            return exp ? exp > new Date() : false;
+          });
+          if (hasActivePendingAttempt) {
+            return null;
+          }
+
+          // Chặn tự hủy nếu đang có phiên ở trạng thái chưa phân định (unknown / awaiting_reconciliation)
+          const hasAmbiguousAttempt = attempts.some(a =>
+            ['payment_initiation_unknown', 'awaiting_reconciliation'].includes(a.status)
+          );
+          if (hasAmbiguousAttempt) {
             return null;
           }
 
@@ -80,10 +144,6 @@ class OrderExpirationService {
           }
 
           // 3. Cập nhật các phiên thanh toán chưa hoàn tất sang cancelled
-          const attempts = (await client.query(
-            `SELECT id, status FROM payment_attempts WHERE order_id = $1 FOR UPDATE`,
-            [order.id]
-          )).rows;
           for (const att of attempts) {
             if (att.status !== 'paid' && att.status !== 'cancelled') {
               try {
