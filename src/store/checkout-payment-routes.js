@@ -625,6 +625,14 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             await require('../checkout-account').enroll(client, createdOrder, parsed.data.customer, req.session?.customer?.id);
           }
 
+          try {
+            const { markCartRecovered } = require('../abandoned-cart');
+            await markCartRecovered(client, {
+              email: parsed.data.customer.email,
+              phone: parsed.data.customer.phone
+            });
+          } catch {}
+
           for (const item of prepared) {
             const resolvedLineTotal = item.lineTotalVnd !== undefined ? item.lineTotalVnd : item.priceVnd * item.quantity;
             const resolvedEffectiveUnit = item.effectiveUnitPriceVnd !== undefined ? item.effectiveUnitPriceVnd : item.priceVnd;
