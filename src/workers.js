@@ -34,6 +34,32 @@ class WorkerManager {
     this._stopped = false;
     this._runtimeContext = null;
     this._workloadsStarted = false;
+    this._cachedMailer = null;
+    this._cachedSmtpOptionsKey = null;
+  }
+
+  /**
+   * Khởi tạo hoặc lấy transporter SMTP được tái sử dụng (memoized), có kiểm tra tính hợp lệ cấu hình
+   */
+  getOrCreateMailer(config, { requireFn = require } = {}) {
+    if (!config?.smtp) return null;
+    try {
+      const smtpSecurity = requireFn('./smtp-security');
+      const opts = smtpSecurity.smtpOptions(config.smtp);
+      const key = JSON.stringify(opts);
+      if (this._cachedMailer && this._cachedSmtpOptionsKey === key) {
+        return this._cachedMailer;
+      }
+      const nodemailer = requireFn('nodemailer');
+      this._cachedMailer = nodemailer.createTransport(opts);
+      this._cachedSmtpOptionsKey = key;
+      return this._cachedMailer;
+    } catch (err) {
+      throw Object.assign(
+        new Error(`Lỗi cấu hình hoặc khởi tạo SMTP transport: ${err?.message || err}`),
+        { code: 'SMTP_CONFIG_INVALID', cause: err }
+      );
+    }
   }
 
   /**
@@ -247,29 +273,7 @@ class WorkerManager {
       return { ok: true };
     });
 
-    let cachedMailer = null;
-    let cachedSmtpOptionsKey = null;
-
-    const getOrCreateMailer = () => {
-      if (!config?.smtp) return null;
-      try {
-        const smtpSecurity = requireFn('./smtp-security');
-        const opts = smtpSecurity.smtpOptions(config.smtp);
-        const key = JSON.stringify(opts);
-        if (cachedMailer && cachedSmtpOptionsKey === key) {
-          return cachedMailer;
-        }
-        const nodemailer = requireFn('nodemailer');
-        cachedMailer = nodemailer.createTransport(opts);
-        cachedSmtpOptionsKey = key;
-        return cachedMailer;
-      } catch (err) {
-        throw Object.assign(
-          new Error(`Lỗi cấu hình hoặc khởi tạo SMTP transport: ${err?.message || err}`),
-          { code: 'SMTP_CONFIG_INVALID', cause: err }
-        );
-      }
-    };
+    const getOrCreateMailer = () => this.getOrCreateMailer(config, { requireFn });
 
     const normalizeEmailWorkerResult = (res) => {
       if (typeof res === 'object' && res !== null && res.status) {
@@ -435,7 +439,13 @@ class WorkerManager {
     safeStart('aiChat', () => requireFn('./shopping-chat-ai-first').startAIChatWorker(pool, config));
     safeStart('chatCompression', () => requireFn('./shopping-chat-compression').startChatCompressionWorker(pool));
     safeStart('chatEmail', () => requireFn('./shopping-chat-email').startChatEmailWorker(pool, config));
-    safeStart('orderEmail', () => requireFn('./order-email').startOrderEmailWorker(pool, config));
+    safeStart('orderEmail', () => {
+      let mailer = null;
+      try {
+        mailer = this.getOrCreateMailer(config, { requireFn });
+      } catch {}
+      return requireFn('./order-email').startOrderEmailWorker(pool, config, { mailer });
+    });
     safeStart('warrantyEmail', () => requireFn('./warranty-email').startWarrantyEmailWorker(pool, config));
     safeStart('emailMarketing', () => requireFn('./email-marketing').startEmailWorker(pool, config));
     safeStart('accountRetention', () => requireFn('./account-retention').startRetentionWorker(pool));

@@ -4,6 +4,7 @@ const { withTransaction } = require('../../db');
 const { appendAudit } = require('../../audit');
 const { logOrderActivity } = require('../../order-activity');
 const { PaymentAttemptStateMachine } = require('../payments/order-idempotency-policy');
+const { ReconciliationOutcome } = require('../payments/reconciliation-outcome');
 
 /**
  * Chính sách thời gian hết hạn (TTL) mặc định phân bổ theo đặc thù từng kênh thanh toán
@@ -135,11 +136,7 @@ class OrderExpirationService {
         }
 
         // Nếu đã xác nhận thanh toán thành công qua cổng, không hủy đơn!
-        if (
-          reconciliationOutcome?.paymentStatus === 'paid' ||
-          reconciliationOutcome?.action === 'already_paid' ||
-          reconciliationOutcome?.action === 'settled_paid'
-        ) {
+        if (ReconciliationOutcome.isPaid(reconciliationOutcome)) {
           continue;
         }
 
@@ -188,6 +185,13 @@ class OrderExpirationService {
             return null;
           }
 
+          // Kiểm tra chứng từ thu tiền thực tế (sales_receipts / sao kê đã ghi nhận tiền) - bảo vệ quy trình xác minh sao kê riêng
+          const hasReceipt = (await client.query('SELECT 1 FROM sales_receipts WHERE order_id = $1', [order.id])).rows.length > 0;
+          if (hasReceipt) {
+            await client.query("UPDATE orders SET payment_status = 'paid', updated_at = now() WHERE id = $1", [order.id]);
+            return null;
+          }
+
           // Chặn tự hủy nếu đang có phiên còn hạn hiệu lực (khách đang trong phiên checkout / QR chưa hết hạn)
           const hasActiveAttempt = attempts.some(a => {
             const exp = a.expiresAt ? new Date(a.expiresAt) : null;
@@ -199,16 +203,12 @@ class OrderExpirationService {
 
           const isOnlineGateway = ['momo', 'zalopay', 'vnpay', '9pay'].includes(order.payment_method);
 
-          // Cổng đã xác minh dứt khoát 100% chưa thanh toán (hoặc đã hủy không thu tiền tại cổng)
-          const isDefinitivelyUnpaid = Boolean(
-            reconciliationOutcome &&
-            reconciliationOutcome.verified === true &&
-            ['verified_unpaid', 'cancelled_unpaid', 'retry_allowed'].includes(reconciliationOutcome.action)
-          );
+          // Cổng đã xác minh dứt khoát 100% chưa thanh toán (ReconciliationOutcome.DEFINITIVELY_UNPAID)
+          const isDefinitivelyUnpaid = ReconciliationOutcome.isDefinitivelyUnpaid(reconciliationOutcome);
 
           // Kết quả đối soát chưa thể kết luận chắc chắn (chờ đối soát, timeout, đang xử lý, hoặc sai lệch tiền)
           const isAmbiguousReconciliation = reconciliationOutcome &&
-            ['awaiting_reconciliation', 'still_pending', 'amount_mismatch'].includes(reconciliationOutcome.action);
+            ReconciliationOutcome.isAmbiguous(reconciliationOutcome.action);
 
           // Phiên thanh toán trước đó đang ở trạng thái chưa phân định
           const hasAmbiguousAttempt = attempts.some(a =>

@@ -866,7 +866,16 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
  return router;
 }
 
+const {
+  RECONCILIATION_ACTIONS,
+  RECONCILIATION_GROUPS,
+  ReconciliationOutcome
+} = require('./domain/payments/reconciliation-outcome');
+
 module.exports={
+  RECONCILIATION_ACTIONS,
+  RECONCILIATION_GROUPS,
+  ReconciliationOutcome,
  channels,
  channelIds,
  prepaidChannelIds,

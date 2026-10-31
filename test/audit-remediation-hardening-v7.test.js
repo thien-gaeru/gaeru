@@ -1969,3 +1969,215 @@ test('Defect 2: Gateway verified_unpaid definitive decision cancels order and re
   assert.ok(auditEntry, 'Phải có audit_events order.cancel_expired_unpaid');
 });
 
+
+test('P1-01 Fix: Order email worker correctly receives or initializes mailer, delivers valid order email, and updates outbox to sent without dropping jobs', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-P1-01-MAILER';
+
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính P1-01', 'kinh-p1-01', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P1-01-M', 'Xanh', 350000, 10, true)",
+    [vId, pId]
+  );
+
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd)
+     VALUES ($1, $2, 'Mailer Buyer', 'valid-buyer@gaeru.com', '0912345688', 'District 1', 'TP. Hồ Chí Minh', 'cod', 'pending', 'pending', 350000, 350000, 0)`,
+    [orderId, orderNumber]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính P1-01', 'Xanh', 'SKU-P1-01-M', 1, 350000, 350000)`,
+    [orderId, vId]
+  );
+
+  const outboxId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO order_email_outbox (id, order_id, kind, status, attempts, next_attempt_at)
+     VALUES ($1, $2, 'receipt', 'pending', 0, now())`,
+    [outboxId, orderId]
+  );
+
+  const config = {
+    smtp: { from: 'store@gaeru.com', host: 'smtp.gaeru.com', port: 587 },
+    PUBLIC_BASE_URL: 'https://gaeru.com'
+  };
+
+  const sentMails = [];
+  const mockMailer = {
+    sendMail: async (opts) => {
+      sentMails.push(opts);
+      return { accepted: [opts.to] };
+    }
+  };
+
+  const { startOrderEmailWorker } = require('../src/order-email');
+  const stopWorker = startOrderEmailWorker(pool, config, { mailer: mockMailer, intervalMs: 20 });
+  t.after(() => stopWorker());
+
+  // Wait for worker tick to process the outbox item
+  let outboxRow = null;
+  for (let i = 0; i < 50; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    outboxRow = (await pool.query('SELECT status, result FROM order_email_outbox WHERE id = $1', [outboxId])).rows[0];
+    if (outboxRow && outboxRow.status === 'sent') break;
+  }
+
+  assert.ok(outboxRow, 'Phải tìm thấy dòng outbox');
+  assert.equal(outboxRow.status, 'sent', 'Trạng thái outbox phải chuyển sang sent');
+  assert.equal(outboxRow.result, 'SMTP đã tiếp nhận');
+  assert.equal(sentMails.length, 1, 'Mock mailer phải ghi nhận đã gửi 1 email');
+  assert.equal(sentMails[0].to, 'valid-buyer@gaeru.com');
+  assert.ok(sentMails[0].subject.includes(orderNumber));
+});
+
+test('P1-02 Fix: Order email worker runs full screening loop (screenNextEmail -> process -> classify -> notifyAdmin), catches missing domain and alerts admin', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-P1-02-REVIEW';
+
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính P1-02', 'kinh-p1-02', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P1-02-R', 'Đỏ', 400000, 10, true)",
+    [vId, pId]
+  );
+
+  // Đơn hàng với email có domain không tồn tại
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd)
+     VALUES ($1, $2, 'Suspicious Buyer', 'fake@non-existent-domain-xyz999.com', '0912345699', 'District 1', 'TP. Hồ Chí Minh', 'cod', 'pending', 'pending', 400000, 400000, 0)`,
+    [orderId, orderNumber]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính P1-02', 'Đỏ', 'SKU-P1-02-R', 1, 400000, 400000)`,
+    [orderId, vId]
+  );
+
+  const outboxId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO order_email_outbox (id, order_id, kind, status, attempts, next_attempt_at)
+     VALUES ($1, $2, 'receipt', 'pending', 0, now())`,
+    [outboxId, orderId]
+  );
+
+  // Tạo tài khoản owner có email đã xác thực
+  await pool.query(
+    `INSERT INTO account_security (account_key, email, contacts_verified_at)
+     VALUES ('owner', 'admin-owner@gaeru.com', now())
+     ON CONFLICT (account_key) DO UPDATE SET email = EXCLUDED.email, contacts_verified_at = EXCLUDED.contacts_verified_at`
+  );
+
+  // Thêm thông báo admin outbox (hoặc cập nhật nếu trigger đã tạo)
+  const adminOutboxId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO order_admin_email_outbox (id, order_id, status, attempts, next_attempt_at)
+     VALUES ($1, $2, 'pending', 0, now())
+     ON CONFLICT (order_id) DO UPDATE SET status = 'pending', attempts = 0, next_attempt_at = now()`,
+    [adminOutboxId, orderId]
+  );
+
+  const config = {
+    smtp: { from: 'store@gaeru.com', host: 'smtp.gaeru.com', port: 587 },
+    PUBLIC_BASE_URL: 'https://gaeru.com'
+  };
+
+  // Mock DNS resolver giả lập domain không tồn tại (ENOTFOUND)
+  const mockResolver = {
+    resolveMx: async () => {
+      const err = new Error('getaddrinfo ENOTFOUND non-existent-domain-xyz999.com');
+      err.code = 'ENOTFOUND';
+      throw err;
+    },
+    lookup: async () => {
+      const err = new Error('getaddrinfo ENOTFOUND non-existent-domain-xyz999.com');
+      err.code = 'ENOTFOUND';
+      throw err;
+    }
+  };
+
+  const sentAdminMails = [];
+  const mockMailer = {
+    sendMail: async (opts) => {
+      sentAdminMails.push(opts);
+      return { accepted: [opts.to] };
+    }
+  };
+
+  const { startOrderEmailWorker } = require('../src/order-email');
+  const stopWorker = startOrderEmailWorker(pool, config, { mailer: mockMailer, resolver: mockResolver, intervalMs: 20 });
+  t.after(() => stopWorker());
+
+  // Wait for worker tick to screen -> classify -> notifyAdmin
+  let reviewRow = null;
+  let adminOutboxRow = null;
+  for (let i = 0; i < 50; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    reviewRow = (await pool.query('SELECT * FROM order_reviews WHERE order_id = $1', [orderId])).rows[0];
+    adminOutboxRow = (await pool.query('SELECT status, recipient FROM order_admin_email_outbox WHERE order_id = $1', [orderId])).rows[0];
+    if (reviewRow && adminOutboxRow?.status === 'sent') break;
+  }
+
+  // 1. screenNextEmail: outbox của email người mua phải chuyển failed do tên miền không tồn tại
+  const outboxCheck = (await pool.query('SELECT status, result FROM order_email_outbox WHERE id = $1', [outboxId])).rows[0];
+  assert.equal(outboxCheck.status, 'failed');
+  assert.equal(outboxCheck.result, 'Tên miền email không tồn tại');
+
+  // 2. classify: order_reviews phải tự động được ghi nhận với reason = domain_missing
+  assert.ok(reviewRow, 'Phải tự động tạo bản ghi trong order_reviews');
+  assert.equal(reviewRow.reason, 'domain_missing');
+
+  // 3. notifyAdmin: email thông báo tới chủ shop phải được gửi thành công
+  assert.ok(adminOutboxRow, 'Phải có order_admin_email_outbox');
+  assert.equal(adminOutboxRow.status, 'sent');
+  assert.equal(adminOutboxRow.recipient, 'admin-owner@gaeru.com');
+  assert.ok(sentAdminMails.some(m => m.to === 'admin-owner@gaeru.com'));
+});
+
+test('P1-04 Fix: ReconciliationOutcome enum correctly partitions actions into PAID, DEFINITIVELY_UNPAID, AMBIGUOUS across all consumers', () => {
+  const { ReconciliationOutcome, RECONCILIATION_ACTIONS, RECONCILIATION_GROUPS } = require('../src/domain/payments/reconciliation-outcome');
+
+  // Nhóm PAID
+  assert.equal(ReconciliationOutcome.isPaid('already_paid'), true);
+  assert.equal(ReconciliationOutcome.isPaid('settled_paid'), true);
+  assert.equal(ReconciliationOutcome.isPaid({ paymentStatus: 'paid' }), true);
+  assert.equal(ReconciliationOutcome.isPaid({ action: 'settled_paid' }), true);
+  assert.equal(ReconciliationOutcome.isPaid('verified_unpaid'), false);
+
+  // Nhóm DEFINITIVELY_UNPAID
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid({ verified: true, action: 'verified_unpaid' }), true);
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid({ verified: true, action: 'cancelled_unpaid' }), true);
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid({ verified: true, action: 'retry_allowed' }), true);
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid({ verified: false, action: 'verified_unpaid' }), false);
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid({ verified: true, action: 'awaiting_reconciliation' }), false);
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid(null), false);
+
+  // Nhóm AMBIGUOUS
+  assert.equal(ReconciliationOutcome.isAmbiguous('awaiting_reconciliation'), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous('still_pending'), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous('amount_mismatch'), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous('gateway_channel_unconfigured'), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous('query_failed'), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous(null), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous('verified_unpaid'), false);
+  assert.equal(ReconciliationOutcome.isAmbiguous('settled_paid'), false);
+
+  // Enum tính bất biến
+  assert.throws(() => { RECONCILIATION_ACTIONS.NEW_ACTION = 'test'; });
+  assert.throws(() => { RECONCILIATION_GROUPS.PAID.push('test'); });
+});
