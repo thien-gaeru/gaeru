@@ -413,6 +413,78 @@ async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId =
   });
 }
 
+const initializedPools = new WeakSet();
+
+async function ensurePushAttemptsTable(pool) {
+  if (!pool || typeof pool.query !== 'function') return;
+  if (initializedPools.has(pool)) return;
+  const ddl1 = `
+    CREATE TABLE IF NOT EXISTS web_push_delivery_attempts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      subscription_id uuid,
+      endpoint text NOT NULL,
+      campaign_id text NOT NULL,
+      attempt_number int NOT NULL DEFAULT 1,
+      status text NOT NULL,
+      indeterminate boolean NOT NULL DEFAULT false,
+      retry_allowed boolean NOT NULL DEFAULT true,
+      status_code int,
+      error_message text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  const ddl2 = `CREATE INDEX IF NOT EXISTS idx_push_attempts_endpoint ON web_push_delivery_attempts (endpoint)`;
+  const ddl3 = `CREATE INDEX IF NOT EXISTS idx_push_attempts_campaign ON web_push_delivery_attempts (campaign_id)`;
+
+  try {
+    if (typeof pool.exec === 'function') {
+      await pool.exec(`${ddl1}; ${ddl2}; ${ddl3};`);
+    } else {
+      await pool.query(ddl1);
+      await pool.query(ddl2);
+      await pool.query(ddl3);
+    }
+    initializedPools.add(pool);
+  } catch (err) {}
+}
+
+async function recordDeliveryAttempt(pool, { subscriptionId, endpoint, campaignId, status, indeterminate, retryAllowed, statusCode, errorMessage }) {
+  try {
+    await ensurePushAttemptsTable(pool);
+    await pool.query(
+      `INSERT INTO web_push_delivery_attempts 
+       (subscription_id, endpoint, campaign_id, attempt_number, status, indeterminate, retry_allowed, status_code, error_message)
+       VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8)`,
+      [subscriptionId || null, endpoint, campaignId, status, Boolean(indeterminate), Boolean(retryAllowed), statusCode || null, errorMessage || null]
+    );
+  } catch {}
+}
+
+async function retryPushDelivery(pool, { endpoint, campaignId }) {
+  await ensurePushAttemptsTable(pool);
+  const res = await pool.query(
+    `SELECT * FROM web_push_delivery_attempts 
+     WHERE endpoint = $1 ${campaignId ? 'AND campaign_id = $2' : ''} 
+     ORDER BY created_at DESC LIMIT 1`,
+    campaignId ? [endpoint, campaignId] : [endpoint]
+  );
+  const attempt = res.rows[0];
+  if (!attempt) {
+    throw Object.assign(new Error('Không tìm thấy dấu vết lượt gửi trước đó cho endpoint này.'), { status: 404 });
+  }
+
+  // Cấm retry mù: Không cho phép tự động gửi lại khi trạng thái là indeterminate / timed_out
+  if (attempt.indeterminate || attempt.retry_allowed === false || attempt.status === 'timed_out') {
+    throw Object.assign(
+      new Error('Không được phép tự động gửi lại (retry) lượt gửi ở trạng thái giao vận bất định (indeterminate) để tránh gửi trùng lặp thông báo.'),
+      { status: 400, code: 'BLIND_RETRY_FORBIDDEN', indeterminate: true }
+    );
+  }
+
+  return { ok: true, retryAllowed: true, message: 'Dấu vết hợp lệ, cho phép gửi lại cho lỗi xác định.' };
+}
+
 async function broadcastPushNotification(pool, { title, body, url = '/', icon = '/assets/brand/gaeru-logo.webp', tag = 'gaeru-broadcast' }, options = {}) {
   const vapid = getVapidConfig();
   if (!vapid) {
@@ -434,6 +506,33 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     client.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
   }
 
+  const crypto = require('crypto');
+  const campaignId = String(
+    options.campaignId ||
+    options.idempotencyKey ||
+    crypto.createHash('sha256').update(`${title}:${body}:${url}:${tag}`).digest('hex').slice(0, 32)
+  );
+
+  await ensurePushAttemptsTable(pool);
+
+  // Idempotency check: Bỏ qua các endpoint đã gửi thành công hoặc đang bất định cho cùng chiến dịch
+  const alreadyProcessedEndpoints = new Set();
+  if (options.checkIdempotency !== false) {
+    try {
+      const existingAttempts = await pool.query(
+        `SELECT endpoint, status, indeterminate, retry_allowed 
+         FROM web_push_delivery_attempts 
+         WHERE campaign_id = $1`,
+        [campaignId]
+      );
+      for (const row of existingAttempts.rows) {
+        if (row.status === 'sent' || row.status === 'expired' || row.indeterminate || row.retry_allowed === false) {
+          alreadyProcessedEndpoints.add(row.endpoint);
+        }
+      }
+    } catch {}
+  }
+
   const result = await pool.query(
     `SELECT id, endpoint, p256dh, auth, customer_id 
      FROM web_push_subscriptions 
@@ -447,6 +546,7 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
       ok: true,
       status: 'no_recipients',
       enabled: true,
+      campaignId,
       recipientCount: 0,
       sentCount: 0,
       failedCount: 0,
@@ -472,13 +572,33 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   const expired = [];
   const timedOut = [];
 
-  // Deduplicate subscriptions by endpoint
+  // Deduplicate subscriptions by endpoint and skip already delivered/indeterminate for same campaign
   const uniqueSubs = [];
   const seenEndpoints = new Set();
   for (const sub of subscriptions) {
     if (!sub.endpoint || seenEndpoints.has(sub.endpoint)) continue;
     seenEndpoints.add(sub.endpoint);
-    uniqueSubs.push(sub);
+    if (!alreadyProcessedEndpoints.has(sub.endpoint)) {
+      uniqueSubs.push(sub);
+    }
+  }
+
+  if (!uniqueSubs.length && alreadyProcessedEndpoints.size > 0) {
+    return {
+      ok: true,
+      status: 'idempotent_skipped',
+      enabled: true,
+      campaignId,
+      message: 'Chiến dịch này đã được gửi trước đó; các thuê bao hợp lệ hoặc bất định đã được giữ nguyên để chống gửi lặp.',
+      recipientCount: alreadyProcessedEndpoints.size,
+      sentCount: 0,
+      failedCount: 0,
+      expiredCount: 0,
+      timedOutCount: 0,
+      unsentCount: 0,
+      results: { sent: [], failed: [], expired: [], timedOut: [] },
+      payload: { title, body, url, icon, tag }
+    };
   }
 
   async function sendWithTimeout(sub) {
@@ -490,6 +610,16 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
         endpoint: sub.endpoint,
         statusCode: 400,
         error: dnsErr.message
+      });
+      await recordDeliveryAttempt(pool, {
+        subscriptionId: sub.id,
+        endpoint: sub.endpoint,
+        campaignId,
+        status: 'failed',
+        indeterminate: false,
+        retryAllowed: false,
+        statusCode: 400,
+        errorMessage: dnsErr.message
       });
       return;
     }
@@ -503,17 +633,52 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     };
 
     let timer;
+    let isTimedOut = false;
     const abortController = new AbortController();
+
+    // Khởi tạo lời gọi gửi thực tế tới client / push gateway
+    const sendPromise = client.sendNotification(pushSubscription, payloadString, {
+      TTL: 86400,
+      urgency: 'high',
+      timeout: 5000,
+      signal: abortController.signal
+    });
+
+    // Lắng nghe phản hồi trễ (late completion) nếu gateway hoàn tất sau timeout (evidence: push_timeout_late_node24.log)
+    if (sendPromise && typeof sendPromise.then === 'function') {
+      sendPromise
+        .then(async (lateRes) => {
+          if (isTimedOut) {
+            try {
+              await pool.query(
+                `UPDATE web_push_delivery_attempts
+                 SET status = 'delivered_late', indeterminate = false, status_code = $1, updated_at = now()
+                 WHERE endpoint = $2 AND campaign_id = $3`,
+                [lateRes?.statusCode || 201, sub.endpoint, campaignId]
+              );
+            } catch {}
+          }
+        })
+        .catch(async (lateErr) => {
+          if (isTimedOut) {
+            try {
+              await pool.query(
+                `UPDATE web_push_delivery_attempts
+                 SET status = 'failed_late', indeterminate = false, status_code = $1, error_message = $2, updated_at = now()
+                 WHERE endpoint = $3 AND campaign_id = $4`,
+                [lateErr?.statusCode || 500, lateErr.message, sub.endpoint, campaignId]
+              );
+            } catch {}
+          }
+        });
+    }
+
     try {
       const response = await Promise.race([
-        client.sendNotification(pushSubscription, payloadString, {
-          TTL: 86400,
-          urgency: 'high',
-          timeout: 5000,
-          signal: abortController.signal
-        }),
+        sendPromise,
         new Promise((_, reject) => {
           timer = setTimeout(() => {
+            isTimedOut = true;
             abortController.abort();
             const err = new Error('Quá thời gian gửi thông báo (timeout 5000ms).');
             err.code = 'ETIMEDOUT';
@@ -527,15 +692,34 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
         endpoint: sub.endpoint,
         statusCode: response?.statusCode || 201
       });
+      await recordDeliveryAttempt(pool, {
+        subscriptionId: sub.id,
+        endpoint: sub.endpoint,
+        campaignId,
+        status: 'sent',
+        indeterminate: false,
+        retryAllowed: false,
+        statusCode: response?.statusCode || 201
+      });
     } catch (err) {
-      if (err.code === 'ETIMEDOUT' || err.name === 'AbortError' || abortController.signal.aborted) {
+      if (err.code === 'ETIMEDOUT' || err.name === 'AbortError' || abortController.signal.aborted || isTimedOut) {
         timedOut.push({
           id: sub.id,
           endpoint: sub.endpoint,
           status: 'timed_out',
           indeterminate: true,
           retryAllowed: false,
-          error: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms); trạng thái gửi chưa xác nhận (unconfirmed) để tránh trùng lặp.'
+          error: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms); trạng thái giao vận bất định (unconfirmed) để tránh trùng lặp.'
+        });
+        await recordDeliveryAttempt(pool, {
+          subscriptionId: sub.id,
+          endpoint: sub.endpoint,
+          campaignId,
+          status: 'timed_out',
+          indeterminate: true,
+          retryAllowed: false,
+          statusCode: 408,
+          errorMessage: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms); trạng thái giao vận bất định.'
         });
         return;
       }
@@ -547,6 +731,16 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           endpoint: sub.endpoint,
           statusCode,
           error: 'Endpoint đã hết hạn hoặc người dùng đã hủy đăng ký.'
+        });
+        await recordDeliveryAttempt(pool, {
+          subscriptionId: sub.id,
+          endpoint: sub.endpoint,
+          campaignId,
+          status: 'expired',
+          indeterminate: false,
+          retryAllowed: false,
+          statusCode,
+          errorMessage: 'Endpoint đã hết hạn hoặc người dùng đã hủy đăng ký.'
         });
         try {
           await pool.query(
@@ -563,6 +757,16 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           statusCode: statusCode || 500,
           error: err.message || 'Lỗi gửi push notification'
         });
+        await recordDeliveryAttempt(pool, {
+          subscriptionId: sub.id,
+          endpoint: sub.endpoint,
+          campaignId,
+          status: 'failed',
+          indeterminate: false,
+          retryAllowed: true,
+          statusCode: statusCode || 500,
+          errorMessage: err.message || 'Lỗi gửi push notification'
+        });
       }
     } finally {
       if (timer) clearTimeout(timer);
@@ -576,14 +780,26 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   }
 
   const unsentCount = Math.max(0, uniqueSubs.length - (sent.length + failed.length + expired.length + timedOut.length));
+  const hasTimedOut = timedOut.length > 0;
   const isAllTimedOut = sent.length === 0 && uniqueSubs.length > 0 && timedOut.length > 0 && failed.length === 0 && expired.length === 0;
-  const isAllFailed = sent.length === 0 && uniqueSubs.length > 0 && (failed.length > 0 || expired.length > 0);
+  const isAllFailed = sent.length === 0 && uniqueSubs.length > 0 && failed.length > 0 && expired.length === 0 && !hasTimedOut;
   const isPartial = sent.length > 0 && (failed.length > 0 || expired.length > 0 || timedOut.length > 0);
-  const status = isAllFailed ? 'failed' : (isAllTimedOut ? 'timed_out' : (isPartial ? 'partial' : 'success'));
+  const isIndeterminate = hasTimedOut && sent.length === 0;
+
+  let status = 'success';
+  if (isAllFailed) status = 'failed';
+  else if (isAllTimedOut || isIndeterminate) status = 'timed_out';
+  else if (isPartial) status = 'partial';
+
   return {
     ok: sent.length > 0,
     status,
     enabled: true,
+    campaignId,
+    indeterminate: hasTimedOut,
+    message: hasTimedOut
+      ? 'Có thuê bao ở trạng thái giao vận bất định (timed out / chưa xác nhận phản hồi từ Push Gateway). Không coi là gửi thất bại chắc chắn và cấm tự động gửi lại.'
+      : (status === 'success' ? 'Gửi thông báo đẩy thành công.' : 'Hoàn tất gửi thông báo đẩy.'),
     recipientCount: uniqueSubs.length,
     sentCount: sent.length,
     failedCount: failed.length,
@@ -730,6 +946,8 @@ module.exports = {
   validatePushSubscriptionData,
   savePushSubscription,
   broadcastPushNotification,
+  retryPushDelivery,
+  ensurePushAttemptsTable,
   createPushPublicRouter,
   createPushAdminRouter
 };
