@@ -287,40 +287,130 @@ function validatePushSubscriptionData(payload = {}) {
   return { endpoint: ep, p256dh: key, auth: a };
 }
 
+const customerSubscriptionLocks = new Map();
+
+async function withCustomerSubscriptionLock(customerId, fn) {
+  if (!customerId) return fn();
+  const key = String(customerId);
+  while (customerSubscriptionLocks.has(key)) {
+    try {
+      await customerSubscriptionLocks.get(key);
+    } catch {}
+  }
+  let resolveLock;
+  const lockPromise = new Promise(resolve => {
+    resolveLock = resolve;
+  });
+  customerSubscriptionLocks.set(key, lockPromise);
+  try {
+    return await fn();
+  } finally {
+    customerSubscriptionLocks.delete(key);
+    resolveLock();
+  }
+}
+
+async function executeDbTx(pool, fn) {
+  if (typeof pool.connect === 'function') {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await fn(client);
+      await client.query('COMMIT');
+      return res;
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw err;
+    } finally {
+      client.release();
+    }
+  } else if (typeof pool.transaction === 'function') {
+    return pool.transaction(async (tx) => {
+      return fn(tx);
+    });
+  } else {
+    try {
+      await pool.query('BEGIN');
+      const res = await fn(pool);
+      await pool.query('COMMIT');
+      return res;
+    } catch (err) {
+      try { await pool.query('ROLLBACK'); } catch {}
+      throw err;
+    }
+  }
+}
+
 async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId = null, userAgent = null }, options = {}) {
   const valid = validatePushSubscriptionData({ endpoint, p256dh, auth });
   await verifyPushEndpointDns(valid.endpoint, options);
 
-  // Quota: Giới hạn tối đa 10 subscription hoạt động cho mỗi tài khoản để chống lạm dụng
-  if (customerId) {
-    try {
-      const countRes = await pool.query(
-        'SELECT count(*) AS cnt FROM web_push_subscriptions WHERE customer_id = $1 AND active = true',
-        [customerId]
+  return withCustomerSubscriptionLock(customerId, async () => {
+    return executeDbTx(pool, async (tx) => {
+      // 1. Kiểm tra endpoint đã tồn tại và xác thực quyền sở hữu của customer
+      const existingRes = await tx.query(
+        'SELECT id, customer_id, active, created_at FROM web_push_subscriptions WHERE endpoint = $1',
+        [valid.endpoint]
       );
-      if (parseInt(countRes.rows[0]?.cnt || '0', 10) >= 10) {
-        await pool.query(
-          `UPDATE web_push_subscriptions SET active = false WHERE id IN (
-            SELECT id FROM web_push_subscriptions WHERE customer_id = $1 AND active = true ORDER BY created_at ASC LIMIT 1
-          )`,
-          [customerId]
+      const existing = existingRes.rows[0];
+
+      if (existing && existing.customer_id && customerId && String(existing.customer_id) !== String(customerId)) {
+        throw Object.assign(
+          new Error('Endpoint Push Subscription này đã thuộc quyền sở hữu của một tài khoản khách hàng khác.'),
+          { status: 403 }
         );
       }
-    } catch {}
-  }
 
-  const result = await pool.query(
-    `INSERT INTO web_push_subscriptions (endpoint, p256dh, auth, customer_id, user_agent, active)
-     VALUES ($1, $2, $3, $4, $5, true)
-     ON CONFLICT (endpoint) DO UPDATE
-     SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, customer_id = COALESCE(EXCLUDED.customer_id, web_push_subscriptions.customer_id),
-         user_agent = COALESCE(EXCLUDED.user_agent, web_push_subscriptions.user_agent),
-         active = true, updated_at = now()
-     RETURNING id, endpoint, active, created_at AS "createdAt"`,
-    [valid.endpoint, valid.p256dh, valid.auth, customerId, userAgent]
-  );
+      // Xác định endpoint đã tồn tại và đang hoạt động cho tài khoản này hay chưa
+      const isAlreadyActive = Boolean(
+        existing &&
+        existing.active === true &&
+        (!customerId || String(existing.customer_id) === String(customerId))
+      );
 
-  return result.rows[0];
+      // 2. Quota: Giới hạn tối đa 10 subscription hoạt động cho mỗi tài khoản để chống lạm dụng.
+      // CHỈ thực hiện thu hồi (evict) thiết bị cũ khi đây là endpoint MỚI hoặc tái kích hoạt endpoint đã tắt.
+      // Không evict thiết bị khác khi chỉ đăng ký lại / cập nhật khóa cho endpoint đang hoạt động.
+      if (customerId && !isAlreadyActive) {
+        const countRes = await tx.query(
+          'SELECT count(*) AS cnt FROM web_push_subscriptions WHERE customer_id = $1 AND active = true AND endpoint != $2',
+          [customerId, valid.endpoint]
+        );
+        const currentActive = parseInt(countRes.rows[0]?.cnt || '0', 10);
+        if (currentActive >= 10) {
+          const toEvict = currentActive - 10 + 1;
+          await tx.query(
+            `UPDATE web_push_subscriptions
+             SET active = false, updated_at = now()
+             WHERE id IN (
+               SELECT id FROM web_push_subscriptions
+               WHERE customer_id = $1 AND active = true AND endpoint != $2
+               ORDER BY created_at ASC
+               LIMIT $3
+             )`,
+            [customerId, valid.endpoint, toEvict]
+          );
+        }
+      }
+
+      // 3. UPSERT lưu / cập nhật thông tin subscription
+      const result = await tx.query(
+        `INSERT INTO web_push_subscriptions (endpoint, p256dh, auth, customer_id, user_agent, active)
+         VALUES ($1, $2, $3, $4, $5, true)
+         ON CONFLICT (endpoint) DO UPDATE
+         SET p256dh = EXCLUDED.p256dh,
+             auth = EXCLUDED.auth,
+             customer_id = COALESCE(EXCLUDED.customer_id, web_push_subscriptions.customer_id),
+             user_agent = COALESCE(EXCLUDED.user_agent, web_push_subscriptions.user_agent),
+             active = true,
+             updated_at = now()
+         RETURNING id, endpoint, active, customer_id, created_at AS "createdAt"`,
+        [valid.endpoint, valid.p256dh, valid.auth, customerId, userAgent]
+      );
+
+      return result.rows[0];
+    });
+  });
 }
 
 async function broadcastPushNotification(pool, { title, body, url = '/', icon = '/assets/brand/gaeru-logo.webp', tag = 'gaeru-broadcast' }, options = {}) {
