@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { createHash } = crypto;
 const { rateLimit } = require('express-rate-limit');
 const { requireCsrf } = require('../security');
 const { withTransaction } = require('../db');
@@ -337,29 +338,43 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           return res.status(400).json({ error: 'Mỗi phiên bản chỉ được đặt tối đa 99 sản phẩm.' });
         }
 
+        const customerEmail = parsed.data.customer.email.toLowerCase().trim();
+        const customerPhone = parsed.data.customer.phone.replace(/\D/g, '');
         const headerIdempotencyKey = String(req.get?.('X-Idempotency-Key') || '').trim();
-        const clientReference = parsed.data.idempotencyKey ||
+        const rawClientReference = parsed.data.idempotencyKey ||
           (headerIdempotencyKey && /^[A-Za-z0-9_.:-]{4,120}$/.test(headerIdempotencyKey) ? headerIdempotencyKey : null);
+        const customerScope = createHash('sha256').update(`${customerEmail}:${customerPhone}`).digest('hex').slice(0, 16);
+        const scopedClientReference = rawClientReference ? `idem:${customerScope}:${rawClientReference}` : null;
         const retryOrderNumber = parsed.data.retryOrderNumber || null;
 
-        if (clientReference || retryOrderNumber) {
-          const resumed = await require('../payment-channels').retryGatewayOrderPayment(pool, {
-            orderNumber: retryOrderNumber,
-            clientReference,
-            config: config || {},
-            settings: req.paymentChannels?.configs?.[parsed.data.paymentMethod] || null,
-            baseUrl: publicBaseUrl,
-            fetcher: paymentFetcher,
-            inventory,
-            finance,
-            audit,
-            actor: { username: 'customer', source: 'payment_retry' }
-          });
-          if (resumed) {
-            const { status = 200, ...payload } = resumed;
-            return res.status(status).json(payload);
+        if (scopedClientReference || retryOrderNumber) {
+          try {
+            const resumed = await require('../payment-channels').retryGatewayOrderPayment(pool, {
+              orderNumber: retryOrderNumber,
+              clientReference: scopedClientReference,
+              expectedCustomer: { email: customerEmail, phone: customerPhone },
+              expectedPaymentMethod: parsed.data.paymentMethod,
+              expectedItems: parsed.data.items,
+              config: config || {},
+              settings: req.paymentChannels?.configs?.[parsed.data.paymentMethod] || null,
+              baseUrl: publicBaseUrl,
+              fetcher: paymentFetcher,
+              inventory,
+              finance,
+              audit,
+              actor: { username: 'customer', source: 'payment_retry' }
+            });
+            if (resumed) {
+              const { status = 200, ...payload } = resumed;
+              return res.status(status).json(payload);
+            }
+          } catch (retryErr) {
+            if (retryErr.status === 403 || retryErr.status === 409) {
+              return res.status(retryErr.status).json({ error: retryErr.message, code: retryErr.code });
+            }
+            throw retryErr;
           }
-          if (retryOrderNumber && !clientReference) {
+          if (retryOrderNumber && !scopedClientReference) {
             return res.status(404).json({ error: 'Không tìm thấy đơn hàng cần thử lại thanh toán.' });
           }
         }
@@ -451,8 +466,8 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           createdOrder.quoteHash = orderQuote.quoteHash;
           createdOrder.pricingVersion = orderQuote.pricingVersion;
 
-          if (clientReference) {
-            await client.query('UPDATE orders SET client_reference = $2 WHERE id = $1', [createdOrder.id, clientReference]);
+          if (scopedClientReference) {
+            await client.query('UPDATE orders SET client_reference = $2 WHERE id = $1', [createdOrder.id, scopedClientReference]);
           }
 
           if (shippingSelection) {
@@ -641,6 +656,32 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
         });
       } catch (error) {
+        if (typeof scopedClientReference !== 'undefined' && scopedClientReference && (error.code === '23505' || String(error.message || '').includes('orders_client_reference_uidx'))) {
+          try {
+            const resumed = await require('../payment-channels').retryGatewayOrderPayment(pool, {
+              clientReference: scopedClientReference,
+              expectedCustomer: { email: customerEmail, phone: customerPhone },
+              expectedPaymentMethod: parsed.data.paymentMethod,
+              expectedItems: parsed.data.items,
+              config: config || {},
+              settings: req.paymentChannels?.configs?.[parsed.data.paymentMethod] || null,
+              baseUrl: publicBaseUrl,
+              fetcher: paymentFetcher,
+              inventory,
+              finance,
+              audit,
+              actor: { username: 'customer', source: 'concurrent_idempotency_retry' }
+            });
+            if (resumed) {
+              const { status = 200, ...payload } = resumed;
+              return res.status(status).json(payload);
+            }
+          } catch (retryErr) {
+            if (retryErr.status === 403 || retryErr.status === 409) {
+              return res.status(retryErr.status).json({ error: retryErr.message, code: retryErr.code });
+            }
+          }
+        }
         if (error.status) return res.status(error.status).json({ error: error.message });
         next(error);
       }

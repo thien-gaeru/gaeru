@@ -109,6 +109,30 @@ async function enqueueJob(pool, {
     if (retryInsert.rows && retryInsert.rows[0]) {
       return { ...retryInsert.rows[0], duplicate: false };
     }
+
+    const finalCheck = await pool.query(
+      `SELECT id, queue, name, payload_hash, status, idempotency_key, run_at, created_at
+       FROM system_jobs
+       WHERE name = $1 AND idempotency_key = $2
+       ORDER BY id DESC
+       LIMIT 1`,
+      [name, effectiveKey]
+    );
+    if (finalCheck.rows && finalCheck.rows[0]) {
+      const existing = finalCheck.rows[0];
+      if (existing.payload_hash && existing.payload_hash !== payloadHash) {
+        throw Object.assign(
+          new Error(`Xung đột khóa idempotency "${effectiveKey}" cho tác vụ "${name}" nhưng nội dung payload khác nhau.`),
+          { status: 409, code: 'JOB_IDEMPOTENCY_CONFLICT' }
+        );
+      }
+      return { ...existing, duplicate: true };
+    }
+
+    throw Object.assign(
+      new Error(`Không thể thiết lập khóa idempotency "${effectiveKey}" cho tác vụ "${name}". Vui lòng thử lại.`),
+      { status: 409, code: 'JOB_IDEMPOTENCY_RETRY' }
+    );
   }
 
   const result = await pool.query(
@@ -242,17 +266,26 @@ function createJobQueue({
     let leaseLost = false;
     let heartbeatStopped = false;
     let inFlightRenewal = null;
+    let leaseExpiresAtMs = Date.now() + effectiveLeaseMs;
 
     const triggerRenewal = async () => {
       if (heartbeatStopped || leaseLost) return false;
       try {
         const ok = await renewJobLease(job.id, activeLeaseToken);
-        if (!ok) {
+        if (ok) {
+          leaseExpiresAtMs = Date.now() + effectiveLeaseMs;
+          return true;
+        } else {
           leaseLost = true;
           stopHeartbeat();
+          return false;
         }
-        return ok;
-      } catch {
+      } catch (err) {
+        if (Date.now() >= leaseExpiresAtMs) {
+          leaseLost = true;
+          stopHeartbeat();
+          console.warn(`[JobQueue] Mất quyền xử lý (lease lost) cho job "${job.id}" do lỗi gia hạn và đã hết hạn lease:`, err?.message);
+        }
         return false;
       }
     };
@@ -278,9 +311,11 @@ function createJobQueue({
       leaseDurationMs: effectiveLeaseMs,
       renewLease: triggerRenewal,
       stopHeartbeat,
-      isLeaseLost: () => leaseLost,
+      isLeaseLost: () => leaseLost || Date.now() >= leaseExpiresAtMs,
       assertLeaseActive: () => {
-        if (leaseLost) {
+        if (leaseLost || Date.now() >= leaseExpiresAtMs) {
+          leaseLost = true;
+          stopHeartbeat();
           throw Object.assign(
             new Error(`Lease của công việc "${job.id}" đã hết hạn hoặc bị thu hồi bởi worker khác.`),
             { code: 'JOB_LEASE_LOST' }

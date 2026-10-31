@@ -30,4 +30,7 @@ BEGIN
   RAISE EXCEPTION 'Sales receipts are append-only';
 END $$;
 
+-- Kế hoạch dữ liệu: Bảng order_deletion_sessions vốn là cơ chế bypass tạm thời của quy trình xóa đơn cũ (db/order-permanent-deletion.sql).
+-- Kiến trúc mới đã bảo vệ tính bất biến vĩnh viễn của sales_receipts (append-only) và không cho phép xóa đơn để đối soát.
+-- Thao tác DROP an toàn trên DB mới; với DB production có dữ liệu, cần đảm bảo backup trước khi thực thi.
 DROP TABLE IF EXISTS order_deletion_sessions;

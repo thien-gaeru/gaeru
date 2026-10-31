@@ -27,7 +27,14 @@ class PaymentService {
    */
   static async enqueueReconciliationOutbox(client, { orderId, orderNumber, provider, providerRequestId, delayMs = 15000 }) {
     const idemKey = `payment-reconcile:${orderId}:${providerRequestId || provider}`;
-    await client.query('SAVEPOINT sp_payment_reconcile_outbox');
+    let hasSavepoint = false;
+    try {
+      await client.query('SAVEPOINT sp_payment_reconcile_outbox');
+      hasSavepoint = true;
+    } catch {
+      // client is not in an active transaction block (e.g. called directly on pool)
+      hasSavepoint = false;
+    }
     try {
       const { enqueueJob } = require('../../job-queue');
       const job = await enqueueJob(client, {
@@ -36,12 +43,32 @@ class PaymentService {
         payload: { orderId, orderNumber, provider },
         runAt: new Date(Date.now() + Math.max(0, Number(delayMs) || 0))
       });
-      await client.query('RELEASE SAVEPOINT sp_payment_reconcile_outbox');
+      if (hasSavepoint) {
+        await client.query('RELEASE SAVEPOINT sp_payment_reconcile_outbox');
+      }
       return job;
-    } catch {
-      await client.query('ROLLBACK TO SAVEPOINT sp_payment_reconcile_outbox').catch(() => {});
+    } catch (error) {
+      if (hasSavepoint) {
+        await client.query('ROLLBACK TO SAVEPOINT sp_payment_reconcile_outbox').catch(() => {});
+      }
+      console.error(`[PaymentService] CẢNH BÁO: Không thể ghi outbox job payment.reconcile cho đơn ${orderNumber || orderId}:`, error?.message || error);
       return null;
     }
+  }
+
+  /**
+   * Quét và đối soát định kỳ các payment attempts ở trạng thái unknown/awaiting quá hạn
+   */
+  static async scanOverdueUnknownAttempts(pool, config = {}, { limit = 20 } = {}) {
+    try {
+      const { reconcileUnknownGatewayAttempts } = require('../../payment-channels');
+      if (typeof reconcileUnknownGatewayAttempts === 'function') {
+        return await reconcileUnknownGatewayAttempts(pool, config, { limit });
+      }
+    } catch (err) {
+      console.error('[PaymentService] Quét đối soát quá hạn thất bại:', err?.message || err);
+    }
+    return [];
   }
 
   /**
