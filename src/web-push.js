@@ -787,9 +787,15 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   const isIndeterminate = hasTimedOut && sent.length === 0;
 
   let status = 'success';
-  if (isAllFailed) status = 'failed';
-  else if (isAllTimedOut || isIndeterminate) status = 'timed_out';
-  else if (isPartial) status = 'partial';
+  if (sent.length === 0 && uniqueSubs.length > 0) {
+    if (isAllTimedOut || isIndeterminate) {
+      status = 'timed_out';
+    } else {
+      status = 'failed';
+    }
+  } else if (isPartial) {
+    status = 'partial';
+  }
 
   return {
     ok: sent.length > 0,
