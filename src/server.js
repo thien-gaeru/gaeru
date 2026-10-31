@@ -45,6 +45,28 @@ function errorSummary(error) {
 
 let server;
 
+const STARTUP_TIMEOUT_MS = Number.parseInt(process.env.STARTUP_TIMEOUT_MS, 10) || 60000;
+const SHUTDOWN_TIMEOUT_MS = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 15000;
+const timerFn = typeof setTimeout === 'function' ? setTimeout : (typeof globalThis !== 'undefined' ? globalThis.setTimeout : null);
+const clearFn = typeof clearTimeout === 'function' ? clearTimeout : (typeof globalThis !== 'undefined' ? globalThis.clearTimeout : null);
+
+function withTimeout(promise, ms, name) {
+  if (!timerFn) return promise;
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = timerFn(() => {
+        const err = Object.assign(new Error(`${name} deadline exceeded (${ms}ms)`), { code: 'ETIMEDOUT' });
+        reject(err);
+      }, ms);
+      if (typeof timer?.unref === 'function') timer.unref();
+    })
+  ]).finally(() => {
+    if (timer && clearFn) clearFn(timer);
+  });
+}
+
 async function start() {
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
   const host = "0.0.0.0";
@@ -60,9 +82,10 @@ async function start() {
     void shutdown();
   });
 
-  await migrateDatabase(pool);
   if (shuttingDown) return;
-  const mediaCheck = await require('./lib/filesystem-media').probe();
+  await withTimeout(migrateDatabase(pool), 30000, 'Database migration');
+  if (shuttingDown) return;
+  const mediaCheck = await withTimeout(require('./lib/filesystem-media').probe(), 15000, 'Media probe');
   console.log('Media storage:', JSON.stringify(mediaCheck));
   const mediaAudit = require('./media-storage-audit');
   if (mediaCheck.verified) {
@@ -79,12 +102,8 @@ async function start() {
     console.log('Local media checks:', JSON.stringify({ state: checkedMedia.state, failedChecks: checkedMedia.failedChecks, legacyReferences: checkedMedia.legacyReferences }));
   }
   if (shuttingDown) return;
-  await workerManager.startAll(pool, config, { requireFn: require });
+  await withTimeout(workerManager.startAll(pool, config, { requireFn: require }), 20000, 'Worker startup');
 }
-
-const STARTUP_TIMEOUT_MS = Number.parseInt(process.env.STARTUP_TIMEOUT_MS, 10) || 60000;
-const timerFn = typeof setTimeout === 'function' ? setTimeout : (typeof globalThis !== 'undefined' ? globalThis.setTimeout : null);
-const clearFn = typeof clearTimeout === 'function' ? clearTimeout : (typeof globalThis !== 'undefined' ? globalThis.clearTimeout : null);
 
 let watchdogTimer = timerFn ? timerFn(() => {
   if (!startupReady && !startupError && !shuttingDown) {
@@ -119,21 +138,57 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   if (watchdogTimer && clearFn) clearFn(watchdogTimer);
-  await startTask.catch(() => {});
-  await workerManager.stopAll();
-  if (server) await new Promise(resolve => server.close(resolve));
-  await mediaAuditTask;
+
+  let shutdownTimer = timerFn ? timerFn(() => {
+    console.error(`GAERU shutdown exceeded deadline (${SHUTDOWN_TIMEOUT_MS}ms). Forcing exit.`);
+    if (typeof process.exit === 'function') process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS) : null;
+  if (shutdownTimer && typeof shutdownTimer.unref === 'function') shutdownTimer.unref();
+
   try {
-    await sessionStore.close();
-  } catch (error) {
-    console.error("Session store shutdown failed:", errorSummary(error));
-    process.exitCode = 1;
-  }
-  try {
-    await pool.end();
-  } catch (error) {
-    console.error("Database shutdown failed:", errorSummary(error));
-    process.exitCode = 1;
+    if (timerFn) {
+      await Promise.race([
+        startTask.catch(() => {}),
+        new Promise(resolve => timerFn(resolve, 5000))
+      ]);
+      await Promise.race([
+        workerManager.stopAll(),
+        new Promise(resolve => timerFn(resolve, 5000))
+      ]);
+      if (server) {
+        if (typeof server.closeIdleConnections === 'function') {
+          server.closeIdleConnections();
+        }
+        await Promise.race([
+          new Promise(resolve => server.close(resolve)),
+          new Promise(resolve => timerFn(resolve, 3000))
+        ]);
+      }
+      await Promise.race([
+        mediaAuditTask,
+        new Promise(resolve => timerFn(resolve, 3000))
+      ]);
+    } else {
+      await startTask.catch(() => {});
+      await workerManager.stopAll();
+      if (server) await new Promise(resolve => server.close(resolve));
+      await mediaAuditTask;
+    }
+
+    try {
+      await sessionStore.close();
+    } catch (error) {
+      console.error("Session store shutdown failed:", errorSummary(error));
+      process.exitCode = 1;
+    }
+    try {
+      await pool.end();
+    } catch (error) {
+      console.error("Database shutdown failed:", errorSummary(error));
+      process.exitCode = 1;
+    }
+  } finally {
+    if (shutdownTimer && clearFn) clearFn(shutdownTimer);
   }
 }
 
