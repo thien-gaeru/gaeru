@@ -12,8 +12,88 @@
  * - Đồng bộ tồn kho đa kênh (omnichannel sync)
  */
 
-const { randomUUID } = require('node:crypto');
+const { randomUUID, createHash } = require('node:crypto');
 const { appendAudit } = require('../../audit');
+
+const TRANSIENT_METADATA_KEYS = new Set([
+  'receivedAt',
+  'timestamp',
+  'retryCount',
+  'attempt',
+  'traceId',
+  'spanId'
+]);
+
+function canonicalizeValue(value) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.map(canonicalizeValue);
+  if (typeof value === 'object') {
+    const sorted = {};
+    for (const key of Object.keys(value).sort()) {
+      if (value[key] !== undefined) {
+        sorted[key] = canonicalizeValue(value[key]);
+      }
+    }
+    return sorted;
+  }
+  return value;
+}
+
+function extractStableMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const filtered = {};
+  for (const key of Object.keys(metadata).sort()) {
+    if (TRANSIENT_METADATA_KEYS.has(key) || metadata[key] === undefined) continue;
+    filtered[key] = canonicalizeValue(metadata[key]);
+  }
+  return Object.keys(filtered).length > 0 ? filtered : null;
+}
+
+function computeMovementPayloadHash({
+  variantId,
+  requestedWarehouseId,
+  movementType,
+  delta,
+  referenceType,
+  referenceId,
+  metadata
+}) {
+  const canonical = canonicalizeValue({
+    variantId: String(variantId),
+    requestedWarehouseId: requestedWarehouseId ? String(requestedWarehouseId) : null,
+    movementType: String(movementType),
+    delta: Number(delta),
+    referenceType: String(referenceType),
+    referenceId: String(referenceId),
+    metadata: extractStableMetadata(metadata)
+  });
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+function assertMovementMatchesExisting(eventKey, prev, expected) {
+  const conflict =
+    (prev.variantId && String(prev.variantId) !== String(expected.variantId)) ||
+    Number(prev.delta) !== Number(expected.delta) ||
+    (expected.requestedWarehouseId && prev.warehouseId && String(prev.warehouseId) !== String(expected.requestedWarehouseId)) ||
+    (prev.movementType && prev.movementType !== expected.movementType) ||
+    (prev.referenceType && prev.referenceType !== expected.referenceType) ||
+    (expected.hasExplicitReference && prev.referenceId && String(prev.referenceId) !== String(expected.referenceId)) ||
+    (prev.payloadHash && prev.payloadHash !== expected.payloadHash);
+
+  if (conflict) {
+    throw Object.assign(
+      new Error(`Mã sự kiện tồn kho "${eventKey}" đã tồn tại nhưng thông tin điều chỉnh hoặc payload không khớp bản ghi gốc.`),
+      { status: 409, code: 'INVENTORY_EVENT_CONFLICT' }
+    );
+  }
+}
+
+async function recordMovementAudit(client, payload, allowLegacyFallback = false) {
+  if (allowLegacyFallback) {
+    return appendAudit(client, payload).catch(() => {});
+  }
+  return appendAudit(client, payload);
+}
 
 function normalizeActor(actor, fallbackUsername = 'system', fallbackSource = 'system') {
   if (!actor) return { username: fallbackUsername, source: fallbackSource };
@@ -68,6 +148,7 @@ class InventoryService {
     referenceType,
     referenceId,
     allowNegative = false,
+    allowLegacyFallback = false,
     metadata = {}
   }) {
     if (!sku && !variantId) {
@@ -113,27 +194,66 @@ class InventoryService {
     const deterministicKey = explicitEventKey
       ? String(explicitEventKey)
       : (hasEventId ? `${source}:${channelPrefix}${eventId}:${variant.id}` : null);
+    const movementType = resolveMovementType(source);
+    const resolvedReferenceType = referenceType || source;
+    const hasExplicitReference = referenceId !== undefined && referenceId !== null;
+    const resolvedReferenceIdForHash = String(referenceId ?? eventId ?? deterministicKey ?? '');
+    const payloadHash = computeMovementPayloadHash({
+      variantId: variant.id,
+      requestedWarehouseId: warehouseId || null,
+      movementType,
+      delta,
+      referenceType: resolvedReferenceType,
+      referenceId: resolvedReferenceIdForHash,
+      metadata
+    });
 
-    // Bước 1: Kiểm tra sớm tính bất biến sự kiện trong sổ biến động TRƯỚC KHI chạm vào bất kỳ bảng tồn kho nào
+    const expectedEventSpec = {
+      variantId: variant.id,
+      requestedWarehouseId: warehouseId || null,
+      movementType,
+      delta,
+      referenceType: resolvedReferenceType,
+      referenceId: resolvedReferenceIdForHash,
+      hasExplicitReference,
+      payloadHash
+    };
+
+    // Chế độ tương thích chỉ bật khi được yêu cầu tường minh (allowLegacyFallback === true);
+    // mặc định production luôn fail-closed nếu lược đồ kho lỗi hoặc chưa migration.
+    let existingMov;
     if (deterministicKey) {
-      const existingMov = await client.query(
-        `SELECT id, warehouse_id AS "warehouseId", variant_id AS "variantId", delta, quantity_after AS "quantityAfter"
-         FROM inventory_movements
-         WHERE event_key = $1`,
-        [deterministicKey]
-      );
+      try {
+        existingMov = await client.query(
+          `SELECT id, warehouse_id AS "warehouseId", variant_id AS "variantId", delta, quantity_after AS "quantityAfter",
+                  movement_type AS "movementType", reference_type AS "referenceType", reference_id AS "referenceId",
+                  payload_hash AS "payloadHash"
+           FROM inventory_movements
+           WHERE event_key = $1`,
+          [deterministicKey]
+        );
+      } catch (err) {
+        if (!allowLegacyFallback) throw err;
+        const nextLegacyStock = Number(variant.stockQuantity) + delta;
+        if (!allowNegative && nextLegacyStock < 0) {
+          throw Object.assign(new Error('Tồn kho không đủ để trừ.'), { status: 409 });
+        }
+        await client.query(
+          `UPDATE product_variants SET stock_quantity = $2, updated_at = now() WHERE id = $1`,
+          [variant.id, nextLegacyStock]
+        );
+        return {
+          id: variant.id,
+          sku: variant.sku,
+          name: variant.variantName,
+          stockQuantity: nextLegacyStock,
+          duplicate: false,
+          legacyFallback: true
+        };
+      }
       if (existingMov.rows.length > 0) {
         const prev = existingMov.rows[0];
-        if (
-          (prev.variantId && String(prev.variantId) !== String(variant.id)) ||
-          Number(prev.delta) !== Number(delta) ||
-          (warehouseId && prev.warehouseId && String(prev.warehouseId) !== String(warehouseId))
-        ) {
-          throw Object.assign(
-            new Error(`Mã sự kiện tồn kho "${deterministicKey}" đã tồn tại nhưng thông tin điều chỉnh không khớp bản ghi gốc.`),
-            { status: 409 }
-          );
-        }
+        assertMovementMatchesExisting(deterministicKey, prev, expectedEventSpec);
         return {
           id: variant.id,
           sku: variant.sku,
@@ -251,17 +371,28 @@ class InventoryService {
       );
     }
 
-    // Bước 5 (BẤT BIẾN P0): Ghi nhận khóa sự kiện vào inventory_movements TRƯỚC KHI cập nhật warehouse_stock!
+    // Bước 5 (BẤT BIẾN P0/P1): Ghi nhận khóa sự kiện + payload_hash vào inventory_movements TRƯỚC KHI cập nhật warehouse_stock!
     // Nếu ON CONFLICT (event_key) DO NOTHING không chèn được dòng mới -> Dừng ngay lập tức, KHÔNG SỬA TỒN KHO!
     const eventKey = deterministicKey || `${source}:${variant.id}:${targetWarehouseId}:${randomUUID()}`;
-    const movementType = resolveMovementType(source);
     const normalizedActor = actor ? normalizeActor(actor) : null;
+    const finalReferenceId = String(referenceId ?? eventId ?? eventKey);
+    const finalPayloadHash = deterministicKey
+      ? payloadHash
+      : computeMovementPayloadHash({
+          variantId: variant.id,
+          requestedWarehouseId: warehouseId || null,
+          movementType,
+          delta,
+          referenceType: resolvedReferenceType,
+          referenceId: finalReferenceId,
+          metadata
+        });
 
     const movInsert = await client.query(
       `INSERT INTO inventory_movements (
          event_key, warehouse_id, variant_id, sku, product_name, variant_name,
-         movement_type, delta, quantity_before, quantity_after, reference_type, reference_id, reason, actor_id, actor_username
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         movement_type, delta, quantity_before, quantity_after, reference_type, reference_id, reason, actor_id, actor_username, payload_hash
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        ON CONFLICT (event_key) DO NOTHING
        RETURNING id`,
       [
@@ -275,11 +406,12 @@ class InventoryService {
         delta,
         currentBalance,
         newBalance,
-        referenceType || source,
-        String(referenceId ?? eventId ?? eventKey),
+        resolvedReferenceType,
+        finalReferenceId,
         reason,
         normalizedActor?.id || null,
-        normalizedActor?.username || 'system'
+        normalizedActor?.username || 'system',
+        finalPayloadHash
       ]
     );
 
@@ -288,22 +420,18 @@ class InventoryService {
 
     if (!claimed) {
       const conflictRes = await client.query(
-        `SELECT id, warehouse_id AS "warehouseId", variant_id AS "variantId", delta
+        `SELECT id, warehouse_id AS "warehouseId", variant_id AS "variantId", delta,
+                movement_type AS "movementType", reference_type AS "referenceType", reference_id AS "referenceId",
+                payload_hash AS "payloadHash"
          FROM inventory_movements WHERE event_key = $1`,
         [eventKey]
       );
       if (conflictRes.rows.length > 0) {
-        const prev = conflictRes.rows[0];
-        if (
-          (prev.variantId && String(prev.variantId) !== String(variant.id)) ||
-          Number(prev.delta) !== Number(delta) ||
-          (warehouseId && prev.warehouseId && String(prev.warehouseId) !== String(warehouseId))
-        ) {
-          throw Object.assign(
-            new Error(`Mã sự kiện tồn kho "${eventKey}" đã tồn tại nhưng thông tin điều chỉnh không khớp bản ghi gốc.`),
-            { status: 409 }
-          );
-        }
+        assertMovementMatchesExisting(eventKey, conflictRes.rows[0], {
+          ...expectedEventSpec,
+          referenceId: finalReferenceId,
+          payloadHash: finalPayloadHash
+        });
       }
       return {
         id: variant.id,
@@ -333,13 +461,13 @@ class InventoryService {
     );
 
     if (normalizedActor) {
-      await appendAudit(client, {
+      await recordMovementAudit(client, {
         actor: normalizedActor,
         action: 'inventory.stock.movement',
         entityType: 'product_variant',
         entityId: variant.id,
-        metadata: { sku: variant.sku, delta, finalStock, source, eventId, eventKey, reason, ...metadata }
-      }).catch(() => {});
+        metadata: { sku: variant.sku, delta, finalStock, source, eventId, eventKey, payloadHash: finalPayloadHash, reason, ...metadata }
+      }, allowLegacyFallback);
     }
 
     return {
@@ -468,13 +596,13 @@ class InventoryService {
     }
 
     if (actor && orderId) {
-      await appendAudit(client, {
+      await recordMovementAudit(client, {
         actor: normalizedActor,
         action: 'inventory.stock.reserve_order',
         entityType: 'order',
         entityId: orderId,
         metadata: { itemCount: items.length }
-      }).catch(() => {});
+      }, false);
     }
   }
 
@@ -642,7 +770,7 @@ class InventoryService {
       }
 
       if ((restored.length > 0 || skippedDeletedVariantLines > 0) && actor) {
-        await appendAudit(client, {
+        await recordMovementAudit(client, {
           actor: normalizedActor,
           action: 'inventory.stock.restore_order',
           entityType: 'order',
@@ -653,20 +781,20 @@ class InventoryService {
             policy: 'legacy_order_release_to_main',
             reason
           }
-        }).catch(() => {});
+        }, false);
       }
 
       return restored;
     }
 
     if (actor && restored.length > 0) {
-      await appendAudit(client, {
+      await recordMovementAudit(client, {
         actor: normalizedActor,
         action: 'inventory.stock.restore_order',
         entityType: 'order',
         entityId: orderId,
         metadata: { restoredCount: restored.length, reason }
-      }).catch(() => {});
+      }, false);
     }
 
     return restored;
@@ -674,5 +802,6 @@ class InventoryService {
 }
 
 module.exports = {
-  InventoryService
+  InventoryService,
+  computeMovementPayloadHash
 };

@@ -69,15 +69,15 @@ async function move(client, { variant, warehouseId, before, delta, type, eventKe
   validateQuantity(after);
   if (!delta) return;
   await client.query(
-    "UPDATE warehouse_stock SET quantity=$3,updated_at=now() WHERE warehouse_id=$1 AND variant_id=$2",
-    [warehouseId, variant.id, after]
-  );
-  await client.query(
     `INSERT INTO inventory_movements (event_key,warehouse_id,variant_id,sku,product_name,variant_name,
       movement_type,delta,quantity_before,quantity_after,reference_type,reference_id,reason,actor_id,actor_username)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [eventKey, warehouseId, variant.id, variant.sku, variant.productName, variant.variantName,
       type, delta, before, after, referenceType, String(referenceId), reason, actor?.id || null, actorName(actor)]
+  );
+  await client.query(
+    "UPDATE warehouse_stock SET quantity=$3,updated_at=now() WHERE warehouse_id=$1 AND variant_id=$2",
+    [warehouseId, variant.id, after]
   );
 }
 

@@ -1,8 +1,9 @@
 const { rateLimit } = require('express-rate-limit');
 const { createHash } = require('node:crypto');
 const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
-const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
-const inventory=require('./inventory');
+const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db');
+const {CatalogService}=require('./domain/catalog/catalog-service');
+const {InventoryService}=require('./domain/inventory/inventory-service');
 const { readStoredImage } = require('./lib/stored-images');
 // Only images attached to published products reach this function.
 // Storage objects use immutable keys; a format migration changes the pointer and MIME.
@@ -89,7 +90,6 @@ admin.post(['/catalog-images','/uploads/image'],
       });
     }
 
-
     try {
       const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype);
       const content=optimized.content;
@@ -114,13 +114,8 @@ admin.post(['/catalog-images','/uploads/image'],
  if(a.groups.length){const seen=new Set();for(const v of a.variants){if(Object.keys(v.options).length!==a.groups.length||a.groups.some(g=>!g.values.includes(v.options[g.name])))throw fail('Mỗi biến thể cần lựa chọn hợp lệ trong từng nhóm.',400);const key=signature(v.options);if(seen.has(key))throw fail('Một tổ hợp lựa chọn chỉ có một biến thể.',400);seen.add(key);}}
  if(a.product.active&&!a.variants.some(v=>v.active))throw fail('Cần ít nhất một biến thể đang bán trước khi xuất bản.',400);
  if(!a.gallery.includes(a.product.imageUrl))throw fail('Ảnh chính cần nằm trong bộ ảnh sản phẩm.',400);
- const id=await withTransaction(pool,async client=>{let id=a.id;let current=[];if(id){const row=(await client.query('SELECT id,updated_at,edit_version FROM products WHERE id=$1 AND (deleted_at IS NOT NULL)=$2 FOR UPDATE',[id,a.inTrash===true])).rows[0];if(!row)throw fail('Không tìm thấy sản phẩm.',404);if(row.edit_version!==a.version)throw fail('Sản phẩm vừa được chỉnh sửa. Tải lại để tránh ghi đè.');current=(await client.query('SELECT id,stock_quantity,updated_at,edit_version FROM product_variants WHERE product_id=$1 ORDER BY id FOR UPDATE',[id])).rows;if(current.some(v=>!a.variants.some(n=>n.id===v.id)))throw fail('Hãy tạm ẩn biến thể đã lưu thay vì bỏ khỏi danh sách.');}
- for(const v of a.variants){if(v.id){const old=current.find(r=>r.id===v.id);if(!old)throw fail('Biến thể không thuộc sản phẩm này.',400);if(old.edit_version!==v.version)throw fail('Biến thể hoặc tồn kho vừa thay đổi. Tải lại trước khi lưu.');if(v.stockQuantity!==old.stock_quantity&&!req.admin.permissions.includes('inventory.approve'))throw fail('Bạn không có quyền điều chỉnh tồn kho.',403);}else if(v.stockQuantity&&!req.admin.permissions.includes('inventory.approve'))throw fail('Bạn không có quyền khai báo tồn đầu kỳ.',403);}
- for(const m of a.descriptionMedia.filter(m=>m.type==="video"))if(!(await client.query("SELECT id FROM catalog_videos WHERE id=$1",[m.url.split("/").at(-1)])).rows.length)throw fail("Video không tồn tại.",400);
- const images=new Set([...a.descriptionMedia.filter(m=>m.type==="image").map(m=>m.url),...a.gallery,...a.variants.map(v=>v.imageUrl).filter(Boolean)]);for(const url of images)if(url.startsWith('/api/catalog-images/')){if(!(await client.query('SELECT id FROM catalog_images WHERE id=$1',[url.split('/').at(-1)])).rows.length)throw fail('Ảnh đã chọn không tồn tại.',400);}
- const p=a.product,values=[p.slug,p.name,p.category,p.descriptor,p.description,p.imageUrl,p.imageAlt,p.active,p.sortOrder,p.cardTitle,p.cardSummary];if(id)await client.query('UPDATE products SET slug=$2,name=$3,category=$4,descriptor=$5,description=$6,image_url=$7,image_alt=$8,active=$9,sort_order=$10,card_title=$11,card_summary=$12,updated_at=now() WHERE id=$1',[id,...values]);else id=(await client.query('INSERT INTO products(slug,name,category,descriptor,description,image_url,image_alt,active,sort_order,card_title,card_summary) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id',values)).rows[0].id;
- for(const v of a.variants){if(v.id){await inventory.setVariantStock(client,{variantId:v.id,quantity:v.stockQuantity,actor:req.admin});await client.query('UPDATE product_variants SET sku=$2,name=$3,options=$4,price_vnd=$5,active=$6,image_url=$7,updated_at=now() WHERE id=$1',[v.id,v.sku,v.name,v.options,v.priceVnd,a.inTrash?false:v.active,v.imageUrl]);}else{const row=(await client.query('INSERT INTO product_variants(product_id,sku,name,options,price_vnd,stock_quantity,active,image_url) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[id,v.sku,v.name,v.options,v.priceVnd,v.stockQuantity,a.inTrash?false:v.active,v.imageUrl])).rows[0];await inventory.initializeVariantStock(client,{variantId:row.id,quantity:v.stockQuantity,actor:req.admin});v.id=row.id;}}
- if(a.inTrash)await client.query('UPDATE products SET deleted_variant_state=$2 WHERE id=$1',[id,JSON.stringify(a.variants.map(v=>({id:v.id,active:v.active})))]);await client.query('INSERT INTO product_presentations(product_id,gallery,option_groups,description_media) VALUES($1,$2,$3,$4) ON CONFLICT(product_id) DO UPDATE SET gallery=$2,option_groups=$3,description_media=$4',[id,JSON.stringify(a.gallery),JSON.stringify(a.groups),JSON.stringify(a.descriptionMedia)]);await appendAudit(client,{actor:req.admin,action:a.id?'catalog.workspace.update':'catalog.workspace.create',entityType:'product',entityId:id,metadata:{variants:a.variants.length,images:a.gallery.length,published:p.active}});return id;});res.status(a.id?200:201).json(await read(pool,id,a.inTrash===true));
+ const id=await withTransaction(pool,async client=>CatalogService.saveWorkspace(client,{data:a,actor:req.admin,inventoryService:InventoryService}));
+ res.status(a.id?200:201).json(await read(pool,id,a.inTrash===true));
  }catch(e){if(e.status)return res.status(e.status).json({error:e.message});if(e.code==='23505'){const isSlug=String(e.constraint||'').includes('slug')||String(e.detail||'').includes('slug');const isSku=String(e.constraint||'').includes('sku')||String(e.detail||'').includes('sku');if(isSlug)return res.status(409).json({error:'Đường dẫn sản phẩm (slug) đã tồn tại. Vui lòng đổi đường dẫn khác.',field:'product.slug'});if(isSku)return res.status(409).json({error:'Mã SKU đã tồn tại trên hệ thống. Vui lòng đổi mã SKU.',field:'sku'});return res.status(409).json({error:'SKU hoặc đường dẫn sản phẩm đã tồn tại. Kiểm tra lại trước khi lưu.'});}next(e);}});
  return {admin,publicApi,publicMedia};
 }

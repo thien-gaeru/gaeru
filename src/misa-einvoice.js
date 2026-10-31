@@ -10,6 +10,109 @@ function getMisaApiUrl(misaConfig = {}) {
     : "https://testeshopapi.misa.vn";
 }
 
+function expandItemToExactInvoiceLines(item) {
+  const fullName = item.product_name
+    ? `${item.product_name}${item.variant_name ? " - " + item.variant_name : ""}`
+    : (item.productName || "Sản phẩm");
+  const sku = item.sku || "SKU";
+  const qty = Math.max(1, Number(item.quantity) || 1);
+  const unitPrice = Number(item.unit_price_vnd ?? item.unitPriceVnd ?? 0);
+  const lineTotal = Number(item.line_total_vnd ?? item.lineTotalVnd ?? (qty * unitPrice));
+
+  const rawAllocations = Array.isArray(item.allocations) && item.allocations.length > 0
+    ? item.allocations
+    : (Array.isArray(item.promotion_snapshot?.priceAllocations) ? item.promotion_snapshot.priceAllocations : null);
+
+  if (rawAllocations && rawAllocations.length > 1) {
+    const normalized = rawAllocations.map((alloc) => {
+      const aQty = Math.max(1, Number(alloc.quantity) || 1);
+      const aUnit = Number(alloc.unit_price_vnd ?? alloc.unitPriceVnd ?? 0);
+      const aTotal = Number(alloc.line_total_vnd ?? alloc.lineTotalVnd ?? (aQty * aUnit));
+      const tierKind = alloc.tier_kind || alloc.tierKind || "regular";
+      const discountPct = Number(alloc.discount_percent ?? alloc.discountPercent ?? 0);
+      return { aQty, aUnit, aTotal, tierKind, discountPct };
+    });
+
+    const sumAllocTotal = normalized.reduce((s, a) => s + a.aTotal, 0);
+    const allExact = normalized.every((a) => a.aQty * a.aUnit === a.aTotal);
+    if (sumAllocTotal === lineTotal && allExact) {
+      return normalized.map((a) => ({
+        ItemName: a.tierKind === "bundle_discounted" && a.discountPct > 0
+          ? `${fullName} (Ưu đãi Combo -${a.discountPct}%)`
+          : fullName,
+        ItemCode: sku,
+        UnitName: "Cái",
+        Quantity: a.aQty,
+        UnitPrice: a.aUnit,
+        Amount: a.aTotal,
+        VATRate: 0,
+        VATAmount: 0
+      }));
+    }
+  }
+
+  // Nếu đơn giá nguyên × số lượng khớp tuyệt đối thành tiền dòng hàng -> giữ nguyên 1 dòng
+  if (qty * unitPrice === lineTotal) {
+    return [
+      {
+        ItemName: fullName,
+        ItemCode: sku,
+        UnitName: "Cái",
+        Quantity: qty,
+        UnitPrice: unitPrice,
+        Amount: lineTotal,
+        VATRate: 0,
+        VATAmount: 0
+      }
+    ];
+  }
+
+  // Công thức phân bổ phần dư xác định cho trường hợp dòng gộp cũ chưa có bảng con:
+  // (qty - remainder) đơn vị ở mức floor(lineTotal / qty) và remainder đơn vị ở mức floor(lineTotal / qty) + 1
+  const baseUnit = Math.floor(lineTotal / qty);
+  const remainder = lineTotal - (baseUnit * qty);
+  if (remainder === 0) {
+    return [
+      {
+        ItemName: fullName,
+        ItemCode: sku,
+        UnitName: "Cái",
+        Quantity: qty,
+        UnitPrice: baseUnit,
+        Amount: lineTotal,
+        VATRate: 0,
+        VATAmount: 0
+      }
+    ];
+  }
+
+  const lines = [];
+  const baseUnitsCount = qty - remainder;
+  if (baseUnitsCount > 0) {
+    lines.push({
+      ItemName: fullName,
+      ItemCode: sku,
+      UnitName: "Cái",
+      Quantity: baseUnitsCount,
+      UnitPrice: baseUnit,
+      Amount: baseUnitsCount * baseUnit,
+      VATRate: 0,
+      VATAmount: 0
+    });
+  }
+  lines.push({
+    ItemName: `${fullName} (Phân bổ chênh lệch làm tròn)`,
+    ItemCode: sku,
+    UnitName: "Cái",
+    Quantity: remainder,
+    UnitPrice: baseUnit + 1,
+    Amount: remainder * (baseUnit + 1),
+    VATRate: 0,
+    VATAmount: 0
+  });
+  return lines;
+}
+
 function buildInvoicePayload(order, items = [], misaConfig = {}) {
   const orderId = order.id;
   const orderNumber = order.order_number || order.orderNumber || "ORDER";
@@ -26,24 +129,7 @@ function buildInvoicePayload(order, items = [], misaConfig = {}) {
   if (pm === "bank_transfer") paymentMethod = "CK";
   else if (pm === "cod") paymentMethod = "TM";
 
-  const invoiceItems = items.map((item) => {
-    const fullName = item.product_name
-      ? `${item.product_name}${item.variant_name ? " - " + item.variant_name : ""}`
-      : (item.productName || "Sản phẩm");
-    const qty = Number(item.quantity) || 1;
-    const unitPrice = Number(item.unit_price_vnd ?? item.unitPriceVnd ?? 0);
-    const lineTotal = Number(item.line_total_vnd ?? item.lineTotalVnd ?? (qty * unitPrice));
-    return {
-      ItemName: fullName,
-      ItemCode: item.sku || "SKU",
-      UnitName: "Cái",
-      Quantity: qty,
-      UnitPrice: unitPrice,
-      Amount: lineTotal,
-      VATRate: 0,
-      VATAmount: 0
-    };
-  });
+  const invoiceItems = items.flatMap((item) => expandItemToExactInvoiceLines(item));
 
   const shippingFee = Number(order.shipping_fee_vnd ?? order.shippingFeeVnd ?? 0);
   if (shippingFee > 0) {
@@ -192,11 +278,35 @@ async function autoIssueForOrder(pool, config, orderId, { fetcher = fetch } = {}
   }
 
   const itemsRes = await pool.query(
-    `SELECT product_name, variant_name, sku, unit_price_vnd, quantity, line_total_vnd
+    `SELECT id, product_name, variant_name, sku, unit_price_vnd, effective_unit_price_vnd, quantity, line_total_vnd, promotion_snapshot
      FROM order_items WHERE order_id=$1 ORDER BY id`,
     [orderId]
   );
   const items = itemsRes.rows;
+
+  if (items.length > 0) {
+    const itemIds = items.map((i) => i.id).filter(Boolean);
+    if (itemIds.length > 0) {
+      const allocRes = await pool.query(
+        `SELECT order_item_id, tier_kind, quantity, unit_price_vnd, line_total_vnd, discount_percent
+         FROM order_item_allocations
+         WHERE order_item_id = ANY($1::uuid[])
+         ORDER BY id`,
+        [itemIds]
+      ).catch(() => ({ rows: [] }));
+      const byItemId = new Map();
+      for (const a of (allocRes.rows || [])) {
+        const list = byItemId.get(a.order_item_id) || [];
+        list.push(a);
+        byItemId.set(a.order_item_id, list);
+      }
+      for (const item of items) {
+        if (byItemId.has(item.id)) {
+          item.allocations = byItemId.get(item.id);
+        }
+      }
+    }
+  }
 
   const docRes = await pool.query(
     `SELECT id, payload FROM business_documents WHERE kind='invoice' AND reference=$1 LIMIT 1`,
@@ -265,7 +375,7 @@ async function autoIssueForOrder(pool, config, orderId, { fetcher = fetch } = {}
   return { success: true, einvoice: row };
 }
 
-async function issueInvoiceForDocument(pool, config, documentId, misaConfig, { fetcher = fetch, actor = { username: "system" } } = {}) {
+async function issueInvoiceForDocument(pool, config, documentId, misaConfig, { fetcher = fetch } = {}) {
   const docRes = await pool.query(
     "SELECT id, kind, period, reference, payload, status FROM business_documents WHERE id=$1 AND kind='invoice'",
     [documentId]
@@ -291,6 +401,7 @@ async function issueInvoiceForDocument(pool, config, documentId, misaConfig, { f
 module.exports = {
   getMisaApiUrl,
   buildInvoicePayload,
+  expandItemToExactInvoiceLines,
   probeConnection,
   issueInvoice,
   autoIssueForOrder,
