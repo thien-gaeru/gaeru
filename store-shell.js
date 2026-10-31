@@ -443,13 +443,16 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
     }
   });
 
-  // 2. Dọn Service Worker cũ trên scope / (ngoại trừ /gaeru_ceo/)
+  // 2. Dọn Service Worker cũ trên scope / (ngoại trừ /gaeru_ceo/ và /sw.js)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(registrations) {
       for (var reg of registrations) {
         var scope = reg.scope || '';
-        // Chỉ giữ lại SW của admin PWA
-        if (!scope.includes('/gaeru_ceo/')) {
+        var isPushWorker = (reg.active && reg.active.scriptURL && reg.active.scriptURL.endsWith('/sw.js')) ||
+                           (reg.installing && reg.installing.scriptURL && reg.installing.scriptURL.endsWith('/sw.js')) ||
+                           (reg.waiting && reg.waiting.scriptURL && reg.waiting.scriptURL.endsWith('/sw.js'));
+        // Chỉ giữ lại SW của admin PWA và customer Web Push
+        if (!scope.includes('/gaeru_ceo/') && !isPushWorker) {
           reg.unregister();
         }
       }

@@ -32,7 +32,10 @@ const schema = z.object({
   SMTP_FROM: z.string().email().optional(),
   GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
   GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
-  APPLE_CLIENT_ID: z.string().trim().min(1).optional()
+  APPLE_CLIENT_ID: z.string().trim().min(1).optional(),
+  VAPID_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  VAPID_PRIVATE_KEY: z.string().trim().min(1).optional(),
+  VAPID_SUBJECT: z.string().trim().min(1).optional()
 }).superRefine((values, context) => {
   if((values.TURNSTILE_SITE_KEY||values.TURNSTILE_SECRET_KEY)&&(!values.TURNSTILE_SITE_KEY||!values.TURNSTILE_SECRET_KEY||!values.PUBLIC_BASE_URL))context.addIssue({code:'custom',message:'TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY và PUBLIC_BASE_URL phải được cấu hình cùng nhau.'});
   const vnpayConfigured = Boolean(values.VNPAY_TMN_CODE || values.VNPAY_HASH_SECRET || values.VNPAY_PAYMENT_URL);
@@ -69,6 +72,11 @@ function loadConfig(env = process.env) {
       password: config.SMTP_PASSWORD,
       from: config.SMTP_FROM,
       publicBaseUrl: config.PUBLIC_BASE_URL
+    } : null,
+    vapid: (config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY) ? {
+      publicKey: config.VAPID_PUBLIC_KEY,
+      privateKey: config.VAPID_PRIVATE_KEY,
+      subject: config.VAPID_SUBJECT || 'mailto:hotro@gaeru.com'
     } : null
   };
 }

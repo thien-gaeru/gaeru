@@ -260,35 +260,92 @@
     dialog.showModal();
   }
 
-  // 3. Tự động kích hoạt hỏi quyền thông báo đẩy trên các trình duyệt hỗ trợ
+  // 3. Đăng ký Service Worker và PushManager thật cho Web Push
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  async function registerRealPushSubscription() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return;
+    }
+
+    try {
+      const keyRes = await fetch('/api/push/public-key', { cache: 'no-store' });
+      if (!keyRes.ok) return;
+      const keyData = await keyRes.json();
+      if (!keyData.enabled || !keyData.publicKey) {
+        // VAPID keys chưa cấu hình hoặc tính năng Web Push đang tắt
+        return;
+      }
+
+      // Đăng ký Service Worker thật trên scope /
+      const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      await navigator.serviceWorker.ready;
+
+      // Kiểm tra hoặc tạo subscription thật qua PushManager
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+      }
+
+      const subJson = subscription.toJSON();
+      if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) {
+        return;
+      }
+
+      // Lấy CSRF token và gửi subscription thật lên backend
+      const csrfRes = await fetch('/api/csrf', { credentials: 'same-origin', cache: 'no-store' });
+      const csrf = csrfRes.ok ? await csrfRes.json() : null;
+
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrf?.csrfToken ? { 'X-CSRF-Token': csrf.csrfToken } : {})
+        },
+        body: JSON.stringify({
+          endpoint: subJson.endpoint,
+          keys: {
+            p256dh: subJson.keys.p256dh,
+            auth: subJson.keys.auth
+          }
+        })
+      });
+    } catch (err) {
+      console.warn('[GAERU WebPush] Không thể đăng ký subscription:', err.message);
+    }
+  }
+
   function autoPromptWebPush() {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return;
+    }
+
+    // Nếu đã được cấp quyền từ trước, tự động đồng bộ subscription thật với máy chủ
+    if (Notification.permission === 'granted') {
+      registerRealPushSubscription().catch(() => {});
+      return;
+    }
+
+    // Nếu chưa cấp quyền (default), kích hoạt hỏi quyền khi người dùng tương tác
     if (Notification.permission === 'default') {
       try {
-        Notification.requestPermission().then(async (permission) => {
+        Notification.requestPermission().then((permission) => {
           if (permission === 'granted') {
-            try {
-              const keyRes = await fetch('/api/push/public-key');
-              if (keyRes.ok) {
-                const { publicKey } = await keyRes.json();
-                if (publicKey) {
-                  const csrfRes = await fetch('/api/csrf', { credentials: 'same-origin', cache: 'no-store' });
-                  const csrf = csrfRes.ok ? await csrfRes.json() : null;
-                  await fetch('/api/push/subscribe', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      ...(csrf?.csrfToken ? { 'X-CSRF-Token': csrf.csrfToken } : {})
-                    },
-                    body: JSON.stringify({
-                      endpoint: 'https://fcm.googleapis.com/fcm/send/auto-' + Math.random().toString(36).slice(2),
-                      keys: { p256dh: 'auto-p256dh-key', auth: 'auto-auth-key' }
-                    })
-                  });
-                }
-              }
-            } catch (err) {}
+            registerRealPushSubscription().catch(() => {});
           }
         }).catch(() => {});
       } catch (err) {}
