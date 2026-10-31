@@ -34,7 +34,20 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
   if (typeof readinessChecker === 'function') {
     app.use(async (req, res, next) => {
       try {
-        await readinessChecker();
+        let timeoutHandle;
+        const deadline = new Promise((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            const err = new Error('Hệ thống khởi động quá thời gian chờ (startup timeout).');
+            err.code = 'STARTUP_TIMEOUT';
+            reject(err);
+          }, 5000);
+          if (typeof timeoutHandle.unref === 'function') timeoutHandle.unref();
+        });
+        try {
+          await Promise.race([readinessChecker(), deadline]);
+        } finally {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
         if (req.path === '/health') {
           return res.status(200).json({ status: 'ok', uptime: process.uptime() });
         }

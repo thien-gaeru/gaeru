@@ -339,16 +339,20 @@
       registerRealPushSubscription().catch(() => {});
       return;
     }
+    // Không tự ý gọi Notification.requestPermission() khi permission === 'default' để tuân thủ chính sách trình duyệt
+  }
 
-    // Nếu chưa cấp quyền (default), kích hoạt hỏi quyền khi người dùng tương tác
-    if (Notification.permission === 'default') {
-      try {
-        Notification.requestPermission().then((permission) => {
-          if (permission === 'granted') {
-            registerRealPushSubscription().catch(() => {});
-          }
-        }).catch(() => {});
-      } catch (err) {}
+  async function promptAndSubscribePush() {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        await registerRealPushSubscription();
+      }
+    } catch (err) {
+      console.warn('[GAERU WebPush] Lỗi kích hoạt thông báo:', err.message);
     }
   }
 
@@ -435,6 +439,7 @@
     openAffiliateModal: (cust) => openAffiliateModal(cust || currentCustomerData || window.GAERUCustomerSession?.customer || { id: 'VIP' }),
     openLoyaltyHistoryModal,
     autoPromptWebPush,
+    promptAndSubscribePush,
     initCustomerUpgrades
   };
 
@@ -456,7 +461,15 @@
       return;
     }
 
-    // 3. Nút đóng modal
+    // 3. Đăng ký thông báo đẩy từ tương tác người dùng
+    const pushBtn = e.target.closest('[data-action="subscribe-web-push"]') || e.target.closest('[data-action="enable-web-push"]');
+    if (pushBtn) {
+      e.preventDefault();
+      promptAndSubscribePush();
+      return;
+    }
+
+    // 4. Nút đóng modal
     const closeBtn = e.target.closest('[data-dialog-close]') || e.target.closest('[data-action="dialog-close"]');
     if (closeBtn) {
       e.preventDefault();
