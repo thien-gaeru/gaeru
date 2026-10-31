@@ -916,4 +916,69 @@ test('P1-01: Channel TTL policy, guards against cancelling awaiting/active attem
   assert.equal(attD.status, 'cancelled');
 });
 
+test('P1-02: Atomically re-verifies order status predicate under FOR UPDATE SKIP LOCKED and prevents cancelling shipped/processing orders', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Bàn Phím Cơ P1-02', 'ban-phim-co-p102', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P1-02', 'Xám', 1200000, 5, true)",
+    [vId, pId]
+  );
+
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 5) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+
+  // 1. Tạo đơn hàng MoMo quá hạn 2 giờ (thỏa mãn candidate selection lúc ban đầu)
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-P1-02-RACE-SHIPPED';
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, $2, 'Shipped Customer', 'shipped@gaeru.com', '0912345688', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 1200000, 1200000, 0, now() - interval '2 hours')`,
+    [orderId, orderNumber]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Bàn Phím Cơ P1-02', 'Xám', 'SKU-P1-02', 1, 1200000, 1200000)`,
+    [orderId, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', $2, 1200000, 'pending', now() - interval '45 minutes')`,
+    [orderId, orderNumber]
+  );
+
+  // 2. Chạy cancelExpiredUnpaidOrders kèm onCandidate: đổi trạng thái sang 'shipped' ngay trước khi withTransaction khóa hàng
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    onCandidate: async (cand) => {
+      if (cand.id === orderId) {
+        await pool.query("UPDATE orders SET status = 'shipped', updated_at = now() WHERE id = $1", [orderId]);
+      }
+    }
+  });
+
+  const cancelledIds = cancelled.map(c => c.orderId);
+
+  // 3. Xác minh: Đơn hàng đã chuyển sang 'shipped' TUYỆT ĐỐI KHÔNG BỊ HỦY!
+  assert.ok(!cancelledIds.includes(orderId), 'Đơn hàng đã chuyển sang shipped không được phép bị hủy');
+
+  const checkOrder = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(checkOrder.status, 'shipped', 'Trạng thái đơn hàng phải được giữ nguyên là shipped');
+  assert.equal(checkOrder.payment_status, 'pending');
+
+  // 5. Xác minh: Tồn kho KHÔNG bị hoàn trả (vẫn giữ nguyên 5, không bị cộng thêm thành 6)
+  const checkVariant = (await pool.query('SELECT stock_quantity FROM product_variants WHERE id = $1', [vId])).rows[0];
+  assert.equal(checkVariant.stock_quantity, 5, 'Tồn kho không được hoàn trả khi đơn đang vận chuyển/xử lý');
+});
+
 
