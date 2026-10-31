@@ -163,14 +163,52 @@ function attachPublicAndCheckoutRoutes(router, pool, {
       const orderNumber = require('../payment-channels').extractOrderNumber(req.query.order);
       if (!orderNumber) return res.status(400).json({ error: 'Thiếu mã đơn hàng.' });
       const row = (await pool.query(
-        `SELECT o.order_number AS "orderNumber", o.status, o.payment_method AS "paymentMethod",
+        `SELECT o.id, o.order_number AS "orderNumber", o.status, o.payment_method AS "paymentMethod",
                 o.payment_status AS "paymentStatus", o.total_vnd AS "totalVnd", o.updated_at AS "updatedAt",
+                o.email, o.phone, o.customer_id AS "customerId",
                 (SELECT p.status FROM payment_attempts p WHERE p.order_id = o.id ORDER BY p.created_at DESC LIMIT 1) AS "paymentAttemptStatus"
          FROM orders o WHERE o.order_number = $1`,
         [orderNumber]
       )).rows[0];
       if (!row) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
-      res.json({ order: row });
+
+      const token = req.headers['x-order-token'] ||
+                    (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null) ||
+                    req.query.token;
+      const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
+      const { checkOrderOwnership } = require('../domain/payments/order-idempotency-policy');
+      const isOwner = checkOrderOwnership(row, {
+        orderAccessToken: token,
+        sessionCustomerId: req.session?.customer?.id,
+        sessionCustomerEmail: req.session?.customer?.email,
+        sessionCreatedOrders: req.session?.createdOrders
+      }, { secret, actor: req.actor });
+
+      if (isOwner) {
+        return res.json({
+          order: {
+            orderNumber: row.orderNumber,
+            status: row.status,
+            paymentMethod: row.paymentMethod,
+            paymentStatus: row.paymentStatus,
+            totalVnd: row.totalVnd,
+            updatedAt: row.updatedAt,
+            paymentAttemptStatus: row.paymentAttemptStatus
+          },
+          verified: true
+        });
+      }
+
+      // Giới hạn phạm vi công khai: TUYỆT ĐỐI KHÔNG để lộ totalVnd, phương thức thanh toán hay dữ liệu nhạy cảm
+      return res.json({
+        order: {
+          orderNumber: row.orderNumber,
+          status: row.status,
+          paymentStatus: row.paymentStatus,
+          paymentAttemptStatus: row.paymentAttemptStatus
+        },
+        verified: false
+      });
     } catch (error) {
       next(error);
     }
@@ -188,8 +226,20 @@ function attachPublicAndCheckoutRoutes(router, pool, {
       try {
         const orderNumber = require('../payment-channels').extractOrderNumber(req.params.orderNumber);
         if (!orderNumber) return res.status(400).json({ error: 'Mã đơn hàng không hợp lệ.' });
+
+        const token = req.headers['x-order-token'] ||
+                      (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null) ||
+                      req.body?.orderAccessToken ||
+                      req.body?.token ||
+                      req.query?.token;
+
         const retried = await require('../payment-channels').retryGatewayOrderPayment(pool, {
           orderNumber,
+          orderAccessToken: token,
+          sessionCustomerId: req.session?.customer?.id,
+          sessionCustomerEmail: req.session?.customer?.email,
+          sessionCustomerPhone: req.session?.customer?.phone,
+          sessionCreatedOrders: req.session?.createdOrders,
           config: config || {},
           settings: null,
           baseUrl: publicBaseUrl,
@@ -197,7 +247,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           inventory,
           finance,
           audit,
-          actor: { username: 'customer', source: 'payment_retry' }
+          actor: { username: req.session?.customer?.email || 'customer', source: 'payment_retry' }
         });
         if (!retried) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
         const { status = 200, ...payload } = retried;
@@ -370,8 +420,20 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               actor: { username: 'customer', source: 'payment_retry' }
             });
             if (resumed) {
+              if (req.session && resumed.order?.orderNumber) {
+                req.session.createdOrders = req.session.createdOrders || [];
+                if (!req.session.createdOrders.includes(resumed.order.orderNumber)) {
+                  req.session.createdOrders.push(resumed.order.orderNumber);
+                }
+              }
+              const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
+              const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
+              const orderAccessToken = generateOrderAccessToken(
+                { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
+                secret
+              );
               const { status = 200, ...payload } = resumed;
-              return res.status(status).json(payload);
+              return res.status(status).json({ ...payload, orderAccessToken });
             }
           } catch (retryErr) {
             if (retryErr.status === 403 || retryErr.status === 409) {
@@ -646,6 +708,19 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           };
         });
 
+        const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
+        const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
+        const orderAccessToken = generateOrderAccessToken(
+          { orderId: order.order.id, orderNumber: order.order.orderNumber, customerId: req.session?.customer?.id },
+          secret
+        );
+        if (req.session && order.order?.orderNumber) {
+          req.session.createdOrders = req.session.createdOrders || [];
+          if (!req.session.createdOrders.includes(order.order.orderNumber)) {
+            req.session.createdOrders.push(order.order.orderNumber);
+          }
+        }
+
         if (order.gatewayCall) {
           const outcome = await PaymentService.initiateOrderGatewayPayment(pool, {
             order: order.order,
@@ -656,6 +731,9 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             audit
           });
           if (!outcome.ok || outcome.body) {
+            if (outcome.body && typeof outcome.body === 'object') {
+              outcome.body.orderAccessToken = orderAccessToken;
+            }
             return res.status(outcome.httpStatus).json(outcome.body);
           }
           order.order = outcome.order;
@@ -664,6 +742,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
 
         res.status(201).json({
           order: order.order,
+          orderAccessToken,
           paymentUrl: order.paymentUrl,
           ...(order.bankTransfer ? { bankTransfer: order.bankTransfer } : {}),
           message: parsed.data.paymentMethod === 'cod'
@@ -690,8 +769,20 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               actor: { username: 'customer', source: 'concurrent_idempotency_retry' }
             });
             if (resumed) {
+              if (req.session && resumed.order?.orderNumber) {
+                req.session.createdOrders = req.session.createdOrders || [];
+                if (!req.session.createdOrders.includes(resumed.order.orderNumber)) {
+                  req.session.createdOrders.push(resumed.order.orderNumber);
+                }
+              }
+              const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
+              const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
+              const orderAccessToken = generateOrderAccessToken(
+                { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
+                secret
+              );
               const { status = 200, ...payload } = resumed;
-              return res.status(status).json(payload);
+              return res.status(status).json({ ...payload, orderAccessToken });
             }
           } catch (retryErr) {
             if (retryErr.status === 403 || retryErr.status === 409) {
