@@ -2379,7 +2379,7 @@ test('P2-05 Fix: Admin HTML escape properly escapes XSS payloads even if sharedF
   assert.ok(hubJs.includes('fallbackEscapeHtml'));
 });
 
-test('P2-06 Fix: Supplementary migration safely handles duplicate provider_request_id and negative warehouse_stock', async (t) => {
+test('P1-01 Fix: True UNIQUE index, duplicate isolation into quarantine, and fail-closed on duplicates', async (t) => {
   const fs = require('fs');
   const { pool, close } = await createTestDb();
   if (t && typeof t.after === 'function') t.after(() => close?.());
@@ -2398,13 +2398,143 @@ test('P2-06 Fix: Supplementary migration safely handles duplicate provider_reque
            ($1, 'momo', 'REF-DUP-2', 'SAME_REQ_ID', 50000, 'pending', now() + interval '5 minutes')
   `, [orderId]);
 
-  const migrationSql = fs.readFileSync('db/checkout-lifecycle-hardening.sql', 'utf8');
-  await pool.query(migrationSql);
+  // 1. Chạy SQL tiền kiểm: Tự động cách ly các bản ghi trùng lặp vào quarantine table để đối soát
+  const precheckSql = fs.readFileSync('db/precheck-checkout-lifecycle.sql', 'utf8');
+  await pool.query(precheckSql);
 
+  const quarantined = await pool.query('SELECT * FROM payment_attempts_quarantine_duplicates');
+  assert.equal(quarantined.rows.length, 2);
+  assert.equal(quarantined.rows[0].provider_request_id, 'SAME_REQ_ID');
+
+  const migrationV2Sql = fs.readFileSync('db/checkout-lifecycle-hardening-v2.sql', 'utf8');
+  
+  // 2. Migration v2 PHẢI fail-closed khi phát hiện trùng lặp, không âm thầm tạo index thường
+  await assert.rejects(
+    async () => { await pool.query(migrationV2Sql); },
+    /MIGRATION_BLOCKED/
+  );
+
+  // 3. Sau khi giải quyết trùng lặp (ví dụ sửa mã 1 bản ghi), migration chạy lại thành công
+  await pool.query("UPDATE payment_attempts SET provider_request_id = 'SAME_REQ_ID_RESOLVED' WHERE transaction_ref = 'REF-DUP-2'");
+  await pool.query(migrationV2Sql);
+
+  // 4. Xác nhận chỉ mục đạt chuẩn TRUE UNIQUE INDEX (indisunique = true)
   const indexCheck = await pool.query(`
-    SELECT indexname FROM pg_indexes WHERE tablename = 'payment_attempts' AND indexname = 'idx_payment_attempts_provider_request_id'
+    SELECT c.relname, i.indisunique
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname = 'idx_payment_attempts_provider_request_id'
   `);
   assert.equal(indexCheck.rows.length, 1);
+  assert.equal(indexCheck.rows[0].indisunique, true, 'idx_payment_attempts_provider_request_id PHẢI là TRUE UNIQUE INDEX');
+});
+
+test('P1-02 Fix: Migration immutability, SHA-256 checksum tracking, and v2 registration', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const { migrateDatabase, MIGRATION_FILES } = require('../src/migrate');
+
+  // 1. MIGRATION_FILES phải chứa checkout-lifecycle-hardening-v2.sql
+  assert.ok(MIGRATION_FILES.includes('checkout-lifecycle-hardening-v2.sql'));
+  assert.ok(MIGRATION_FILES.includes('checkout-lifecycle-hardening.sql'));
+
+  // 2. Chạy migration đầy đủ
+  await migrateDatabase(pool);
+
+  // 3. Bảng schema_migrations phải có cột checksum với định dạng SHA-256 (64 hex characters)
+  const rows = (await pool.query("SELECT name, checksum FROM schema_migrations WHERE name = 'checkout-lifecycle-hardening-v2.sql'")).rows;
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].checksum, /^[a-f0-9]{64}$/);
+});
+
+test('P1-03 Fix: VNPAY automated query, manual review queue, and anti-starvation SLA', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const { OrderExpirationService } = require('../src/domain/orders/order-expiration-service');
+
+  // 1. Tạo đơn hàng VNPAY quá hạn 3 giờ
+  const orderRes = await pool.query(`
+    INSERT INTO orders (order_number, customer_name, email, phone, address, city, payment_method, payment_status, subtotal_vnd, total_vnd, status, created_at)
+    VALUES ('GAERU-VNPAY-EXP', 'VNPAY User', 'vnpay@gaeru.com', '0912345678', '123 VNPAY Rd', 'TP Hồ Chí Minh', 'vnpay', 'pending', 200000, 200000, 'pending', now() - interval '3 hours')
+    RETURNING id, order_number
+  `);
+  const order = orderRes.rows[0];
+
+  await pool.query(`
+    INSERT INTO payment_attempts (order_id, provider, transaction_ref, provider_request_id, amount_vnd, status, expires_at, created_at)
+    VALUES ($1, 'vnpay', $2, $2, 200000, 'pending', now() - interval '2 hours', now() - interval '3 hours')
+  `, [order.id, order.order_number]);
+
+  // Case A: VNPAY chưa cấu hình query -> Fail-closed: Không hủy, đưa vào order_reviews & system_alerts có SLA 24h
+  const resultUnconf = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 1,
+    config: { ORDER_EXPIRY_VNPAY_HOURS: 1 }
+  });
+
+  assert.equal(resultUnconf.cancelledCount, 0, 'Tuyệt đối không hủy đơn khi chưa xác minh được trạng thái cổng');
+
+  // Đơn phải được gắn nhãn chờ đối soát trong order_reviews
+  const reviewRow = (await pool.query('SELECT * FROM order_reviews WHERE order_id = $1', [order.id])).rows[0];
+  assert.ok(reviewRow, 'Đơn VNPAY chưa xác minh phải được đưa vào hàng đợi order_reviews');
+  assert.equal(reviewRow.reason, 'gateway_reconciliation_needed');
+
+  // Phiên thanh toán phải chuyển sang expiry_awaiting_verification
+  const attemptRow = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [order.id])).rows[0];
+  assert.equal(attemptRow.status, 'expiry_awaiting_verification');
+
+  // Case B: Anti-starvation: Lần quét tiếp theo KHÔNG chọn lại đơn đang chờ đối soát để tránh nghẽn hàng đợi
+  const resultSecondTick = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 1,
+    config: { ORDER_EXPIRY_VNPAY_HOURS: 1 }
+  });
+  assert.equal(resultSecondTick.cancelledCount, 0);
+
+  // Case C: VNPAY query client hỗ trợ truy vấn tự động nếu cổng có querydr (mock verified_unpaid)
+  const mockFetcher = async () => ({
+    status: 200,
+    headers: new Map([['content-type', 'application/json']]),
+    text: async () => JSON.stringify({
+      vnp_ResponseCode: '00',
+      vnp_TransactionStatus: '02', // 02: Giao dịch không thành công (verified_unpaid)
+      vnp_Amount: '20000000',
+      vnp_TxnRef: 'GAERU-VNPAY-EXP2'
+    })
+  });
+
+  const orderRes2 = await pool.query(`
+    INSERT INTO orders (order_number, customer_name, email, phone, address, city, payment_method, payment_status, subtotal_vnd, total_vnd, status, created_at)
+    VALUES ('GAERU-VNPAY-EXP2', 'VNPAY User 2', 'vnpay2@gaeru.com', '0912345679', '456 VNPAY Rd', 'TP Hồ Chí Minh', 'vnpay', 'pending', 200000, 200000, 'pending', now() - interval '3 hours')
+    RETURNING id, order_number
+  `);
+  const order2 = orderRes2.rows[0];
+
+  await pool.query(`
+    INSERT INTO payment_attempts (order_id, provider, transaction_ref, provider_request_id, amount_vnd, status, expires_at, created_at)
+    VALUES ($1, 'vnpay', $2, $2, 200000, 'pending', now() - interval '2 hours', now() - interval '3 hours')
+  `, [order2.id, order2.order_number]);
+
+  // Cấu hình VNPAY có đầy đủ secret
+  const appConfig = {
+    ORDER_EXPIRY_VNPAY_HOURS: 1,
+    vnpay: {
+      tmnCode: 'TESTTMN1',
+      hashSecret: 'TESTSECRET1234567890',
+      paymentUrl: 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
+      environment: 'sandbox'
+    }
+  };
+
+  const resultVerifiedUnpaid = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 1,
+    config: appConfig,
+    fetcher: mockFetcher
+  });
+
+  assert.equal(resultVerifiedUnpaid.cancelledCount, 1, 'Đơn VNPAY có kết quả verified_unpaid dứt khoát phải được hủy và giải phóng tồn kho');
+  const cancelledOrder2 = (await pool.query('SELECT status FROM orders WHERE id = $1', [order2.id])).rows[0];
+  assert.equal(cancelledOrder2.status, 'cancelled');
 });
 
 test('Domain Unification & Enums: Single Source of Truth consistency across all modules', async () => {

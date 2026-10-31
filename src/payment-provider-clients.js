@@ -17,6 +17,13 @@ const PROVIDERS = Object.freeze({
     production: 'https://openapi.zalopay.vn',
     create: '/v2/create', query: '/v2/query',
     paymentHosts: { sandbox: ['qcgateway.zalopay.vn', 'sbgateway.zalopay.vn'], production: ['gateway.zalopay.vn'] }
+  },
+  vnpay: {
+    name: 'VNPAY',
+    sandbox: 'https://sandbox.vnpayment.vn',
+    production: 'https://pay.vnpay.vn',
+    query: '/merchant_webapi/api/transaction',
+    paymentHosts: { sandbox: ['sandbox.vnpayment.vn'], production: ['pay.vnpay.vn'] }
   }
 });
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -34,14 +41,20 @@ function validText(value, min, max) {
 }
 function credentials(provider, settings) {
   const meta = PROVIDERS[provider];
-  if (!['momo', 'zalopay'].includes(provider) || !meta || !settings || !['sandbox', 'production'].includes(settings.environment)) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
+  if (!['momo', 'zalopay', 'vnpay'].includes(provider) || !meta || !settings || !['sandbox', 'production'].includes(settings.environment)) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
   if (provider === 'momo') {
     if (!validText(settings.partnerCode, 2, 160) || !/^[A-Za-z0-9_-]+$/.test(settings.partnerCode)
       || !validText(settings.accessKey, 2, 160) || !/^[A-Za-z0-9_-]+$/.test(settings.accessKey)
       || !validText(settings.secretKey, 8, 500)) throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
-  } else if (!/^[1-9]\d{0,9}$/.test(String(settings.appId || '')) || Number(settings.appId) > 2147483647
-    || !validText(settings.key1, 8, 500) || !validText(settings.key2, 8, 500)) {
-    throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
+  } else if (provider === 'zalopay') {
+    if (!/^[1-9]\d{0,9}$/.test(String(settings.appId || '')) || Number(settings.appId) > 2147483647
+      || !validText(settings.key1, 8, 500) || !validText(settings.key2, 8, 500)) {
+      throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
+    }
+  } else if (provider === 'vnpay') {
+    if (!validText(settings.tmnCode, 2, 32) || !validText(settings.hashSecret, 8, 500)) {
+      throw fail(provider, 'PAYMENT_CONFIGURATION_INVALID', { status: 400 });
+    }
   }
   return meta;
 }
@@ -232,11 +245,53 @@ async function queryGatewayPayment(provider, settings, options = {}) {
     body = { partnerCode: settings.partnerCode, orderId: options.txnRef, requestId: options.queryRequestId || randomUUID(), lang: 'vi' };
     if (!validText(body.requestId, 1, 50) || !/^[A-Za-z0-9_-]+$/.test(body.requestId)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
     body.signature = hmac(settings.secretKey, `accessKey=${settings.accessKey}&orderId=${body.orderId}&partnerCode=${body.partnerCode}&requestId=${body.requestId}`);
-  } else {
+  } else if (provider === 'zalopay') {
     body = { app_id: Number(settings.appId), app_trans_id: requestId };
     body.mac = hmac(settings.key1, `${body.app_id}|${requestId}|${settings.key1}`);
+  } else if (provider === 'vnpay') {
+    const vnpDateStr = new Date(time + 7 * 60 * 60 * 1000).toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+    const transDateStr = options.transactionDate
+      ? new Date(new Date(options.transactionDate).getTime() + 7 * 60 * 60 * 1000).toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)
+      : vnpDateStr;
+    const reqId = options.queryRequestId || randomUUID();
+    const orderInfo = `Truy van don ${options.txnRef}`;
+    const ipAddr = options.ipAddress || '127.0.0.1';
+    const rawData = `${reqId}|2.1.0|querydr|${settings.tmnCode}|${options.txnRef}|${transDateStr}|${vnpDateStr}|${ipAddr}|${orderInfo}`;
+    body = {
+      vnp_RequestId: reqId,
+      vnp_Version: '2.1.0',
+      vnp_Command: 'querydr',
+      vnp_TmnCode: settings.tmnCode,
+      vnp_TxnRef: options.txnRef,
+      vnp_OrderInfo: orderInfo,
+      vnp_TransactionDate: transDateStr,
+      vnp_CreateDate: vnpDateStr,
+      vnp_IpAddr: ipAddr,
+      vnp_SecureHash: createHmac('sha512', settings.hashSecret).update(rawData, 'utf8').digest('hex')
+    };
   }
   const data = await post(provider, settings, 'query', body, options);
+  if (provider === 'vnpay') {
+    const respCode = String(data.vnp_ResponseCode ?? '');
+    const transStatus = String(data.vnp_TransactionStatus ?? '');
+    const successful = respCode === '00' && transStatus === '00';
+    const notFound = respCode === '91' || transStatus === '02';
+    const found = successful || (respCode === '00' && transStatus === '01');
+    const amount = Number(data.vnp_Amount) ? Math.round(Number(data.vnp_Amount) / 100) : null;
+    return {
+      provider,
+      requestId,
+      transactionRef: options.txnRef,
+      reachable: true,
+      found,
+      amountVnd: amount,
+      successful,
+      providerTransactionId: safeTransactionId(data.vnp_TransactionNo),
+      resultCode: Number(respCode) || 0,
+      transactionStatus: transStatus,
+      notFound
+    };
+  }
   const resultCode = provider === 'momo' ? data.resultCode : data.return_code;
   if (!Number.isInteger(resultCode)) throw fail(provider, 'PAYMENT_RESPONSE_INVALID');
   const found = provider === 'momo' ? [0, 1000, 9000].includes(resultCode) : [1, 3].includes(resultCode) && (data.sub_return_code === undefined || (Number.isInteger(data.sub_return_code) && data.sub_return_code >= 0));

@@ -476,11 +476,16 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
  if(initial.orderStatus==='cancelled'&&['failed','cancelled'].includes(initial.attemptStatus)){
   return {matched:true,verified:true,action:'already_cancelled',orderId:initial.orderId,orderNumber:initial.orderNumber,orderStatus:'cancelled',paymentStatus:initial.paymentStatus,attemptStatus:initial.attemptStatus};
  }
- if(!['momo','zalopay'].includes(initial.provider)){
-  throw fail('Kênh thanh toán này không hỗ trợ truy vấn tự động qua API ví.',400);
+ if(initial.provider==='vnpay'){
+  const vnpayConfig=await getVnpay(pool,config);
+  if(!vnpayConfig||!vnpayConfig.hashSecret||!vnpayConfig.tmnCode){
+   return {matched:false,verified:false,action:'awaiting_reconciliation',reason:'gateway_channel_unconfigured',requiresManualReview:true,orderId:initial.orderId,orderNumber:initial.orderNumber,provider:initial.provider,message:'Kênh VNPAY chưa cấu hình kết nối đối soát.'};
+  }
+ }else if(!['momo','zalopay'].includes(initial.provider)){
+  return {matched:false,verified:false,action:'awaiting_reconciliation',reason:'automated_query_unsupported',requiresManualReview:true,orderId:initial.orderId,orderNumber:initial.orderNumber,provider:initial.provider,message:'Kênh thanh toán ' + initial.provider.toUpperCase() + ' không hỗ trợ truy vấn tự động qua API ví. Cần đối soát thủ công trên portal cổng trước khi hủy.'};
  }
 
- const channelSettings=settings||(await readChannelRecord(pool,config,initial.provider)).data;
+ const channelSettings=settings||(initial.provider==='vnpay'?await getVnpay(pool,config):(await readChannelRecord(pool,config,initial.provider)).data);
  const {queryGatewayPayment}=require('./payment-provider-clients');
  let queryResult;
  try{
@@ -899,5 +904,6 @@ module.exports={
  verifyPaymentChannel,
  verifyAndRecordPayment,
  listPaymentChannels,
- createPaymentAdmin
+ createPaymentAdmin,
+ getVnpay
 };

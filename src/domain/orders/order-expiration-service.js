@@ -104,6 +104,18 @@ class OrderExpirationService {
              AND pa.expires_at IS NOT NULL
              AND pa.expires_at > now()
          )
+         -- P1-03: Tránh nghẽn hàng đợi: Không chọn lại đơn đã chuyển sang diện chờ đối soát thủ công có SLA
+         AND NOT EXISTS (
+           SELECT 1 FROM payment_attempts pa
+           WHERE pa.order_id = o.id
+             AND pa.status = 'expiry_awaiting_verification'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM order_reviews r
+           WHERE r.order_id = o.id
+             AND r.resolved_at IS NULL
+             AND r.reason = 'gateway_reconciliation_needed'
+         )
        ORDER BY o.created_at ASC
        LIMIT $6`,
       [
@@ -127,10 +139,18 @@ class OrderExpirationService {
         // Đối với cổng trực tuyến, thử đối soát trước khi hủy để xác nhận chưa thu tiền
         if (['momo', 'zalopay', 'vnpay', '9pay'].includes(cand.paymentMethod)) {
           try {
-            const { readChannelRecord, isChannelConfigured, reconcileGatewayOrder } = require('../../payment-channels');
-            if (typeof readChannelRecord === 'function' && typeof reconcileGatewayOrder === 'function') {
-              const chRecord = await readChannelRecord(pool, config, cand.paymentMethod).catch(() => null);
-              if (chRecord && isChannelConfigured(cand.paymentMethod, chRecord)) {
+            const { readChannelRecord, isChannelConfigured, reconcileGatewayOrder, getVnpay } = require('../../payment-channels');
+            if (typeof reconcileGatewayOrder === 'function') {
+              let isConfigured = false;
+              if (cand.paymentMethod === 'vnpay') {
+                const vnpayConfig = typeof getVnpay === 'function' ? await getVnpay(pool, config).catch(() => null) : config?.vnpay || null;
+                isConfigured = Boolean(vnpayConfig?.hashSecret && vnpayConfig?.tmnCode);
+              } else if (typeof readChannelRecord === 'function') {
+                const chRecord = await readChannelRecord(pool, config, cand.paymentMethod).catch(() => null);
+                isConfigured = Boolean(chRecord && isChannelConfigured(cand.paymentMethod, chRecord));
+              }
+
+              if (isConfigured) {
                 reconciliationOutcome = await reconcileGatewayOrder(pool, {
                   orderId: cand.id,
                   config,
@@ -268,6 +288,33 @@ class OrderExpirationService {
                 } catch {}
               }
             }
+
+            // P1-03: Đưa đơn vào danh sách chờ đối soát thủ công (order_reviews) và cảnh báo hệ thống có SLA 24h
+            try {
+              await client.query(
+                `INSERT INTO order_reviews (order_id, reason)
+                 VALUES ($1, 'gateway_reconciliation_needed')
+                 ON CONFLICT (order_id) DO NOTHING`,
+                [order.id]
+              );
+            } catch {}
+
+            try {
+              const { alertSystem } = require('../../system-alerts');
+              await alertSystem(client, {
+                severity: 'warning',
+                source: 'order_expiration',
+                message: `[SLA ĐỐI SOÁT] Đơn ${order.order_number} qua cổng ${order.payment_method?.toUpperCase()} quá hạn nhưng chưa thể xác minh tự động. Đã đưa vào danh sách đối soát thủ công với SLA 24h.`,
+                metadata: {
+                  orderId: order.id,
+                  orderNumber: order.order_number,
+                  paymentMethod: order.payment_method,
+                  reason: reconciliationOutcome?.reason || 'unverified_gateway_status',
+                  slaHours: 24
+                },
+                config
+              }, fetcher);
+            } catch {}
 
             if (typeof logOrderActivity === 'function') {
               const reasonText = isUnconfigured
