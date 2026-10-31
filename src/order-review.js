@@ -16,7 +16,8 @@ const reasons={
   gateway_reconciliation_needed:'Cần đối soát trạng thái giao dịch cổng thanh toán trước khi hủy/xử lý (SLA 24h)'
 };
 async function inspectDomain(email,resolver=domainResolver){
- const domain=email.split('@').at(-1);
+ const domain=email?.split('@')?.at(-1);
+ if(!domain)return 'missing';
  try{const mx=await resolver.resolveMx(domain);if(mx.some(r=>r.exchange&&r.exchange!=='.'))return 'valid';if(mx.length)return 'missing';}
  catch(e){if(e.code==='ENOTFOUND')return 'missing';if(e.code!=='ENODATA')return 'unknown';}
  try{await resolver.lookup(domain);return 'valid';}catch(e){return e.code==='ENOTFOUND'?'missing':'unknown';}
@@ -32,10 +33,12 @@ async function classify(pool){
  ON CONFLICT(order_id) DO NOTHING`);
 }
 async function guardContact(client,customer){
- const phone=customer.phone.replace(/\D/g,'');
+ const phone=String(customer?.phone||'').replace(/\D/g,'');
+ const email=String(customer?.email||'').trim().toLowerCase();
+ if(!email&&!phone)return;
  // A stable lock serializes simultaneous submissions for the same contact.
- for(const key of ['email:'+customer.email.toLowerCase(),'phone:'+phone].sort())await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['order-limit:'+key]);
- const {rows}=await client.query("SELECT count(*)::int AS n FROM orders WHERE status<>'cancelled' AND created_at>now()-interval '15 minutes' AND (lower(email)=$1 OR regexp_replace(phone,'[^0-9]','','g')=$2)",[customer.email.toLowerCase(),phone]);
+ for(const key of ['email:'+email,'phone:'+phone].sort())await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['order-limit:'+key]);
+ const {rows}=await client.query("SELECT count(*)::int AS n FROM orders WHERE status<>'cancelled' AND created_at>now()-interval '15 minutes' AND (lower(email)=$1 OR regexp_replace(phone,'[^0-9]','','g')=$2)",[email,phone]);
  if(rows[0].n>3)throw Object.assign(Error('Thông tin liên hệ này đã đặt nhiều đơn liên tiếp. Vui lòng chờ 15 phút hoặc gọi GAERU để xác nhận.'),{status:429});
 }
 function reviewRouter(pool,config){
@@ -69,7 +72,13 @@ class OrderReviewService {
        JOIN orders o ON o.id = r.order_id
        WHERE r.reason = 'gateway_reconciliation_needed'
          AND r.resolved_at IS NULL
-         AND r.created_at < now() - ($1::text || ' hours')::interval`,
+         AND r.created_at < now() - ($1::text || ' hours')::interval
+         AND NOT EXISTS (
+           SELECT 1 FROM system_alerts a
+           WHERE a.source = 'order_review_sla_monitor'
+             AND (a.metadata->>'orderId' = r.order_id::text OR a.metadata->>'orderNumber' = o.order_number)
+             AND a.created_at > now() - interval '6 hours'
+         )`,
       [String(slaHours)]
     );
     return overdue.rows;

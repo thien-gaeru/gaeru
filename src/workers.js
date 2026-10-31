@@ -523,8 +523,20 @@ class WorkerManager {
         this.workers.set('orderEmailScheduler', () => {
           clearInterval(emailTimer);
         });
-      } catch {
-        // job-queue fallback
+      } catch (jqErr) {
+        // job-queue fallback: clean up partial instances
+        try {
+          if (this.jobQueue) {
+            this.jobQueue.stop();
+            this.jobQueue = null;
+          }
+          const expSched = this.workers.get('orderExpirationScheduler');
+          if (expSched) { expSched(); this.workers.delete('orderExpirationScheduler'); }
+          const revSched = this.workers.get('orderReviewScheduler');
+          if (revSched) { revSched(); this.workers.delete('orderReviewScheduler'); }
+          const emlSched = this.workers.get('orderEmailScheduler');
+          if (emlSched) { emlSched(); this.workers.delete('orderEmailScheduler'); }
+        } catch {}
       }
     }
 
@@ -683,23 +695,50 @@ class WorkerManager {
     const targetPool = pool || this._runtimeContext?.pool;
     if (!targetPool || typeof targetPool.query !== 'function') return null;
 
-    const { enqueueJob } = require('./job-queue');
-    const nowMs = Date.now();
-    const effectiveRunAt = immediate ? new Date(nowMs) : (runAt || new Date(nowMs + 10000));
-    const idempotencyBucket = Math.floor(effectiveRunAt.getTime() / 10000);
-    const idempotencyKey = `email.order:${idempotencyBucket}`;
+    try {
+      const activeCheck = await targetPool.query(
+        `SELECT id, status, run_at FROM system_jobs
+         WHERE name = 'email.order'
+           AND status IN ('pending', 'processing')
+         ORDER BY run_at ASC, id ASC
+         LIMIT 1`
+      ).catch(() => ({ rows: [] }));
 
-    return enqueueJob(targetPool, {
-      queue: 'default',
-      name: 'email.order',
-      payload: {},
-      idempotencyKey,
-      runAt: effectiveRunAt,
-      maxAttempts: 3
-    }).catch(err => {
+      if (activeCheck?.rows?.length > 0) {
+        const activeJob = activeCheck.rows[0];
+        if (immediate && activeJob.status === 'pending' && new Date(activeJob.run_at) > new Date()) {
+          await targetPool.query(
+            `UPDATE system_jobs SET run_at = now(), updated_at = now() WHERE id = $1`,
+            [activeJob.id]
+          ).catch(() => {});
+          return { queued: false, updated: true, activeJobId: activeJob.id, status: 'pending' };
+        }
+        return {
+          queued: false,
+          reason: 'already_active',
+          activeJobId: activeJob.id,
+          status: activeJob.status
+        };
+      }
+
+      const { enqueueJob } = require('./job-queue');
+      const nowMs = Date.now();
+      const effectiveRunAt = immediate ? new Date(nowMs) : (runAt || new Date(nowMs + 10000));
+      const idempotencyBucket = Math.floor(effectiveRunAt.getTime() / 10000);
+      const idempotencyKey = `email.order:${idempotencyBucket}`;
+
+      return await enqueueJob(targetPool, {
+        queue: 'default',
+        name: 'email.order',
+        payload: {},
+        idempotencyKey,
+        runAt: effectiveRunAt,
+        maxAttempts: 3
+      });
+    } catch (err) {
       console.warn('enqueueOrderEmailJob warning:', err?.message || err);
       return null;
-    });
+    }
   }
 
   async enqueueOrderReviewJob(pool = null, config = null, {

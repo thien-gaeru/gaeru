@@ -114,7 +114,6 @@ class OrderExpirationService {
            SELECT 1 FROM order_reviews r
            WHERE r.order_id = o.id
              AND r.resolved_at IS NULL
-             AND r.reason = 'gateway_reconciliation_needed'
          )
        ORDER BY o.created_at ASC
        LIMIT $6`,
@@ -290,7 +289,8 @@ class OrderExpirationService {
               await client.query(
                 `INSERT INTO order_reviews (order_id, reason)
                  VALUES ($1, 'gateway_reconciliation_needed')
-                 ON CONFLICT (order_id) DO NOTHING`,
+                 ON CONFLICT (order_id) DO UPDATE
+                 SET reason = 'gateway_reconciliation_needed', resolved_at = NULL, updated_at = now()`,
                 [order.id]
               );
             } catch {}
