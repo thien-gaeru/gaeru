@@ -59,10 +59,14 @@ const paymentAttemptLabels = {
   failed: "Giao dịch VNPAY chưa thành công; khách có thể cần đặt lại đơn."
 };
 
+const sharedFormat = (typeof window !== 'undefined' && window.GAERUAdminShared)
+  || (typeof globalThis !== 'undefined' && globalThis.GAERUAdminShared)
+  || (typeof require === 'function' ? require('./format') : null);
+
 const formatPrice = (value) =>
-  value == null ? "Chưa xác định" : window.GAERUAdminShared.formatMoney(value);
+  value == null ? "Chưa xác định" : (sharedFormat ? sharedFormat.formatMoney(value) : (Number(value || 0).toLocaleString('vi-VN') + ' ₫'));
 const escapeHtml = (value) =>
-  window.GAERUAdminShared.escapeHtml(value);
+  sharedFormat ? sharedFormat.escapeHtml(value) : String(value ?? '');
 const can = (permission) =>
   !state.session?.mfaEnrollmentRequired
   && Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));

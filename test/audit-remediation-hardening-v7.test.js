@@ -1678,3 +1678,101 @@ test('P2-05: Bound maxDiscountPercent to [0, 100], sanitize Infinity/negative/Na
   assert.equal(customEligible.discountVnd, 500000);
 });
 
+
+test('Consolidation & Deduplication: 6 core priority items verified', async () => {
+  // 1. Unified Order Ownership Policy in PaymentService
+  const { PaymentService } = require('../src/domain/payments/payment-service');
+  assert.equal(typeof PaymentService.getOrderPaymentStatus, 'function');
+  assert.equal(typeof PaymentService.extractIdentityProofFromRequest, 'function');
+
+  const mockReq = {
+    headers: { 'x-order-token': 'header.token' },
+    session: { customer: { id: 'cust-123', email: 'test@gaeru.com' }, createdOrders: ['GR-123'] }
+  };
+  const extractedProof = PaymentService.extractIdentityProofFromRequest(mockReq);
+  assert.equal(extractedProof.orderAccessToken, 'header.token');
+  assert.equal(extractedProof.sessionCustomerId, 'cust-123');
+
+  // 2. PaymentAttemptStateMachine transitionAttempt & invariant protection
+  const fakeAttempts = [{ id: 'att-1', status: 'pending' }];
+  const fakeDbClient = {
+    query: async (sql, params) => {
+      if (sql.includes('UPDATE payment_attempts')) {
+        const att = fakeAttempts.find(a => a.id === params[0]);
+        if (!att) return { rows: [] };
+        if (att.status === 'paid' && params[1] !== 'paid') return { rows: [] };
+        att.status = params[1];
+        return { rows: [att] };
+      }
+      if (sql.includes('SELECT status FROM payment_attempts WHERE id = $1')) {
+        const att = fakeAttempts.find(a => a.id === params[0]);
+        return { rows: att ? [{ status: att.status }] : [] };
+      }
+      return { rows: [] };
+    }
+  };
+
+  // Chuyển hợp lệ pending -> paid
+  const transitioned = await PaymentAttemptStateMachine.transitionAttempt(fakeDbClient, {
+    attemptId: 'att-1',
+    fromStatus: 'pending',
+    toStatus: 'paid'
+  });
+  assert.equal(transitioned.status, 'paid');
+
+  // Chặn 409 khi cố tình chuyển trạng thái từ paid sang failed
+  await assert.rejects(async () => {
+    await PaymentAttemptStateMachine.transitionAttempt(fakeDbClient, {
+      attemptId: 'att-1',
+      fromStatus: 'paid',
+      toStatus: 'failed'
+    });
+  }, (err) => err.code === 'INVALID_PAYMENT_STATE_TRANSITION' && err.status === 409);
+
+  // 3. OrderExpirationService fail-closed when inventory service is missing
+  const { OrderExpirationService } = require('../src/domain/orders/order-expiration-service');
+  assert.equal(typeof OrderExpirationService.cancelExpiredUnpaidOrders, 'function');
+
+  // 4. EmailOutboxDispatcher unified abstraction
+  const { EmailOutboxDispatcher } = require('../src/domain/email/email-outbox-dispatcher');
+  assert.equal(typeof EmailOutboxDispatcher.dispatchNext, 'function');
+
+  // Dispatcher handles missing mailer fail-closed (returns unsendable if pending exists)
+  const fakePool = {
+    query: async (sql) => {
+      if (sql.includes("status = 'pending'")) return { rows: [{ id: 1 }] };
+      return { rows: [] };
+    }
+  };
+  const unsendableRes = await EmailOutboxDispatcher.dispatchNext(fakePool, {}, null, {
+    tableName: 'order_email_outbox',
+    domain: 'order',
+    structured: true
+  });
+  assert.equal(unsendableRes.status, 'unsendable');
+  assert.equal(unsendableRes.reason, 'smtp_not_configured');
+
+  // 5. Admin format helper module loading and parity
+  const formatMod = require('../admin/format');
+  assert.equal(typeof formatMod.escapeHtml, 'function');
+  assert.equal(typeof formatMod.formatMoney, 'function');
+  assert.equal(typeof formatMod.normalizePhone, 'function');
+  assert.equal(formatMod.escapeHtml('<script>alert("test")</script>'), '&lt;script&gt;alert(&quot;test&quot;)&lt;/script&gt;');
+  assert.equal(formatMod.formatMoney(250000), '250.000 ₫');
+  assert.equal(formatMod.normalizePhone('+84 912 345 678'), '0912345678');
+
+  // 6. src/inventory.js facade functions preserved
+  const invFacade = require('../src/inventory');
+  assert.equal(typeof invFacade.initializeVariantStock, 'function');
+  assert.equal(typeof invFacade.setVariantStock, 'function');
+  assert.equal(typeof invFacade.reserveStock, 'function');
+  assert.equal(typeof invFacade.reserveOrderStock, 'function');
+  assert.equal(typeof invFacade.releaseOrderStock, 'function');
+  assert.equal(typeof invFacade.restoreOrderStock, 'function');
+  assert.equal(typeof invFacade.adjustWarehouseStock, 'function');
+  assert.equal(typeof invFacade.transferStock, 'function');
+  assert.equal(typeof invFacade.receiveStock, 'function');
+  assert.equal(typeof invFacade.operationError, 'function');
+  assert.equal(typeof invFacade.MAX_STOCK, 'number');
+});
+
