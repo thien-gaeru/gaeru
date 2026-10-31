@@ -139,13 +139,24 @@ function safeTransactionId(value) {
   return /^[A-Za-z0-9_.:-]{1,100}$/.test(String(value ?? '')) ? String(value) : null;
 }
 
-async function createGatewayPayment(provider, settings, options = {}) {
+function buildGatewayRequestId(provider, txnRef, now) {
+  return reference(provider, txnRef, timestamp(now));
+}
+
+function validateGatewayInitiationRequest(provider, settings, options = {}) {
   credentials(provider, settings);
   const time = timestamp(options.now);
   const requestId = reference(provider, options.txnRef, time, options.requestId);
   const amount = options.amountVnd;
-  if (!Number.isSafeInteger(amount) || amount < 1 || amount > (provider === 'momo' ? 50000000 : 2000000000)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > (provider === 'momo' ? 50000000 : 2000000000)) {
+    throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  }
   const baseUrl = publicOrigin(provider, options.baseUrl);
+  return { time, requestId, amount, baseUrl };
+}
+
+async function createGatewayPayment(provider, settings, options = {}) {
+  const { time, requestId, amount, baseUrl } = validateGatewayInitiationRequest(provider, settings, options);
   let body;
   if (provider === 'momo') {
     body = { partnerCode: settings.partnerCode, requestId, orderId: options.txnRef, amount,
@@ -221,4 +232,10 @@ async function verifyGatewayAccount(provider, settings, options = {}) {
       message: 'Chưa xác minh được thông tin merchant ' + PROVIDERS[provider].name + '. Kiểm tra cấu hình và thử lại sau.' };
   }
 }
-module.exports = { createGatewayPayment, queryGatewayPayment, verifyGatewayAccount };
+module.exports = {
+  buildGatewayRequestId,
+  validateGatewayInitiationRequest,
+  createGatewayPayment,
+  queryGatewayPayment,
+  verifyGatewayAccount
+};

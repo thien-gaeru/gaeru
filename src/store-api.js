@@ -43,6 +43,8 @@ const orderSchema = z.object({
   expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
+  idempotencyKey: z.string().trim().min(4).max(120).regex(/^[A-Za-z0-9_.:-]+$/).optional(),
+  retryOrderNumber: z.string().trim().min(5).max(80).optional(),
   paymentMethod: z.enum(["cod", "bank_transfer", "vnpay", "9pay", "momo", "zalopay"]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
@@ -277,14 +279,54 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const orderNumber = require("./payment-channels").extractOrderNumber(req.query.order);
       if (!orderNumber) return res.status(400).json({ error: "Thiếu mã đơn hàng." });
       const row = (await pool.query(
-        `SELECT order_number AS "orderNumber", status, payment_method AS "paymentMethod",
-          payment_status AS "paymentStatus", total_vnd AS "totalVnd", updated_at AS "updatedAt"
-         FROM orders WHERE order_number = $1`,
+        `SELECT o.order_number AS "orderNumber", o.status, o.payment_method AS "paymentMethod",
+          o.payment_status AS "paymentStatus", o.total_vnd AS "totalVnd", o.updated_at AS "updatedAt",
+          (SELECT p.status FROM payment_attempts p WHERE p.order_id = o.id ORDER BY p.created_at DESC LIMIT 1) AS "paymentAttemptStatus"
+         FROM orders o WHERE o.order_number = $1`,
         [orderNumber]
       )).rows[0];
       if (!row) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
       res.json({ order: row });
     } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/orders/:orderNumber/retry-payment", (req, res, next) => {
+    if (!req.ordersEnabled) {
+      return res.status(503).json({ error: "GAERU đang tạm dừng tiếp nhận đơn hàng trực tuyến." });
+    }
+    next();
+  }, orderLimit, requireCsrf, async (req, res, next) => {
+    try {
+      const orderNumber = require("./payment-channels").extractOrderNumber(req.params.orderNumber);
+      if (!orderNumber) return res.status(400).json({ error: "Mã đơn hàng không hợp lệ." });
+      const retried = await require("./payment-channels").retryGatewayOrderPayment(pool, {
+        orderNumber,
+        config: config || {},
+        settings: null,
+        baseUrl: publicBaseUrl,
+        fetcher: paymentFetcher,
+        inventory,
+        finance,
+        audit,
+        actor: { username: "customer", source: "payment_retry" }
+      });
+      if (!retried) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
+      const { status = 200, ...payload } = retried;
+      return res.status(status).json(payload);
+    } catch (error) {
+      if (error.status) {
+        return res.status(error.status).json({
+          error: error.message,
+          ...(error.code ? { code: error.code } : {}),
+          ...(error.ambiguous !== undefined ? { ambiguous: error.ambiguous } : {}),
+          ...(error.orderId ? { orderId: error.orderId } : {}),
+          ...(error.orderNumber ? { orderNumber: error.orderNumber } : {}),
+          ...(error.providerRequestId ? { providerRequestId: error.providerRequestId } : {}),
+          ...(error.reconciliationStatus ? { reconciliationStatus: error.reconciliationStatus } : {})
+        });
+      }
       next(error);
     }
   });
@@ -355,6 +397,31 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       }
       if ([...uniqueItems.values()].some((quantity) => quantity > 99)) {
         return res.status(400).json({ error: "Mỗi phiên bản chỉ được đặt tối đa 99 sản phẩm." });
+      }
+
+      const headerIdempotencyKey = String(req.get?.("X-Idempotency-Key") || "").trim();
+      const clientReference = parsed.data.idempotencyKey || (headerIdempotencyKey && /^[A-Za-z0-9_.:-]{4,120}$/.test(headerIdempotencyKey) ? headerIdempotencyKey : null);
+      const retryOrderNumber = parsed.data.retryOrderNumber || null;
+      if (clientReference || retryOrderNumber) {
+        const resumed = await require("./payment-channels").retryGatewayOrderPayment(pool, {
+          orderNumber: retryOrderNumber,
+          clientReference,
+          config: config || {},
+          settings: req.paymentChannels?.configs?.[parsed.data.paymentMethod] || null,
+          baseUrl: publicBaseUrl,
+          fetcher: paymentFetcher,
+          inventory,
+          finance,
+          audit,
+          actor: { username: "customer", source: "payment_retry" }
+        });
+        if (resumed) {
+          const { status = 200, ...payload } = resumed;
+          return res.status(status).json(payload);
+        }
+        if (retryOrderNumber && !clientReference) {
+          return res.status(404).json({ error: "Không tìm thấy đơn hàng cần thử lại thanh toán." });
+        }
       }
 
       const order = await withTransaction(pool, async (client) => {
@@ -466,6 +533,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             parsed.data.paymentMethod, subtotal, shippingFee, total]
         );
         const createdOrder = inserted.rows[0];
+        if (clientReference) {
+          await client.query('UPDATE orders SET client_reference = $2 WHERE id = $1', [createdOrder.id, clientReference]);
+        }
         if(shippingSelection){
           await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);
           createdOrder.shippingCarrierName=shippingSelection.name;
@@ -501,15 +571,25 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if (["9pay", "momo", "zalopay"].includes(parsed.data.paymentMethod)) {
           const channelConfig = req.paymentChannels?.configs?.[parsed.data.paymentMethod];
           if (!channelConfig) throw Object.assign(new Error("Kênh thanh toán vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
+          const gatewayNow = Date.now();
+          const { validateGatewayInitiationRequest } = require("./payment-provider-clients");
+          const validatedGateway = validateGatewayInitiationRequest(parsed.data.paymentMethod, channelConfig, {
+            amountVnd: createdOrder.totalVnd,
+            txnRef: createdOrder.orderNumber,
+            now: gatewayNow,
+            baseUrl: publicBaseUrl
+          });
           await client.query(
-            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
-             VALUES ($1, $2, $3, $4, now() + interval '15 minutes')`,
-            [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd]
+            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, provider_request_id, expires_at)
+             VALUES ($1, $2, $3, $4, $5, now() + interval '15 minutes')`,
+            [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd, validatedGateway.requestId]
           );
           gatewayCall = {
             provider: parsed.data.paymentMethod,
             channelConfig,
-            version: req.paymentChannels?.versions?.[parsed.data.paymentMethod]
+            version: req.paymentChannels?.versions?.[parsed.data.paymentMethod],
+            providerRequestId: validatedGateway.requestId,
+            gatewayNow
           };
         } else if (parsed.data.paymentMethod === "bank_transfer") {
           const channelConfig = req.paymentChannels?.configs?.bank_transfer;
@@ -546,39 +626,272 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
 
       if (order.gatewayCall) {
-        const { provider, channelConfig, version } = order.gatewayCall;
+        const { provider, channelConfig, version, providerRequestId, gatewayNow } = order.gatewayCall;
+        let gateway = null;
         try {
-          const gateway = await require('./payment-provider-clients').createGatewayPayment(provider, channelConfig, {
+          gateway = await require('./payment-provider-clients').createGatewayPayment(provider, channelConfig, {
             amountVnd: order.order.totalVnd,
             txnRef: order.order.orderNumber,
+            requestId: providerRequestId,
+            now: gatewayNow,
             baseUrl: publicBaseUrl,
             fetcher: paymentFetcher
           });
-          order.paymentUrl = gateway.paymentUrl;
-          await withTransaction(pool, async (client) => {
+        } catch (gwError) {
+          // Safe gateway failure handling: NEVER permanently delete the order or financial vouchers.
+          const recovery = await withTransaction(pool, async (client) => {
+            const lockedOrder = (await client.query(
+              `SELECT id, order_number AS "orderNumber", status AS "orderStatus",
+                 payment_status AS "paymentStatus", voucher_code AS "voucherCode",
+                 EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = orders.id) AS "hasReceipt"
+               FROM orders
+               WHERE id = $1
+               FOR UPDATE`,
+              [order.order.id]
+            )).rows[0];
+            const lockedAttempt = (await client.query(
+              `SELECT id AS "attemptId", status AS "attemptStatus", provider_request_id AS "providerRequestId"
+               FROM payment_attempts
+               WHERE order_id = $1 AND provider = $2
+               FOR UPDATE`,
+              [order.order.id, provider]
+            )).rows[0];
+            const locked = lockedOrder ? { ...lockedOrder, ...(lockedAttempt || {}) } : null;
+
+            if (locked && (locked.paymentStatus === 'paid' || locked.attemptStatus === 'paid' || locked.hasReceipt)) {
+              await audit(client, {
+                actor: { username: provider, source: 'payment_gateway' },
+                action: 'payment.initiation.settled_during_timeout',
+                entityType: 'order',
+                entityId: order.order.id,
+                before: { attemptStatus: locked.attemptStatus, orderStatus: locked.orderStatus, paymentStatus: locked.paymentStatus },
+                after: { attemptStatus: 'paid', orderStatus: locked.orderStatus, paymentStatus: 'paid' },
+                metadata: {
+                  provider,
+                  orderNumber: order.order.orderNumber,
+                  providerRequestId: locked.providerRequestId || providerRequestId,
+                  errorCode: gwError.code || 'PAYMENT_TIMEOUT'
+                }
+              });
+              return { settledByIpn: true, orderStatus: locked.orderStatus };
+            }
+
+            if (gwError.ambiguous === false) {
+              // Definite non-ambiguous rejection from provider (verified no order created & unpaid under lock)
+              if (locked?.attemptId) {
+                await client.query(
+                  `UPDATE payment_attempts
+                   SET status = 'failed', response_code = $2, last_error_code = $3, updated_at = now()
+                   WHERE id = $1`,
+                  [locked.attemptId, gwError.gatewayResultCode !== undefined ? String(gwError.gatewayResultCode) : null, gwError.code || 'PAYMENT_PROVIDER_REJECTED']
+                );
+              }
+              if (locked && locked.orderStatus !== 'cancelled' && locked.orderStatus !== 'completed') {
+                if (locked.voucherCode) {
+                  await client.query('UPDATE voucher_redemptions SET released = true WHERE order_id = $1 AND released = false', [order.order.id]);
+                }
+                if (inventory) {
+                  await inventory.releaseOrderStock(client, { orderId: order.order.id, actor: { username: 'system', source: 'gateway_rejection' } });
+                } else {
+                  await client.query(
+                    `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
+                     FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
+                    [order.order.id]
+                  );
+                }
+                await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [order.order.id]);
+                await client.query("UPDATE order_email_outbox SET status = 'skipped', finished_at = now(), result = 'Đơn hủy do cổng thanh toán từ chối' WHERE order_id = $1 AND status = 'pending'", [order.order.id]);
+              }
+              await audit(client, {
+                actor: { username: 'system', source: 'gateway_rejection' },
+                action: 'payment.initiation.rejected',
+                entityType: 'order',
+                entityId: order.order.id,
+                before: { attemptStatus: locked?.attemptStatus || 'pending', orderStatus: locked?.orderStatus || 'pending', paymentStatus: locked?.paymentStatus || 'pending' },
+                after: { attemptStatus: 'failed', orderStatus: 'cancelled', paymentStatus: locked?.paymentStatus || 'pending' },
+                metadata: {
+                  provider,
+                  orderNumber: order.order.orderNumber,
+                  providerRequestId: locked?.providerRequestId || providerRequestId,
+                  errorCode: gwError.code || 'PAYMENT_PROVIDER_REJECTED',
+                  gatewayResultCode: gwError.gatewayResultCode ?? null
+                }
+              });
+              return { settledByIpn: false, reconciliationStatus: 'cancelled_unpaid' };
+            }
+
+            // Ambiguous outcome (timeout, network error, HTTP 5xx, invalid/mismatched response, duplicate code):
+            // Keep order & attempt & reserved stock intact until gateway query verifies no money was taken!
+            if (locked?.attemptId) {
+              await client.query(
+                `UPDATE payment_attempts
+                 SET status = 'payment_initiation_unknown', last_error_code = $2, updated_at = now()
+                 WHERE id = $1`,
+                [locked.attemptId, gwError.code || 'PAYMENT_INITIATION_UNKNOWN']
+              );
+            }
+            await audit(client, {
+              actor: { username: 'system', source: 'payment_gateway' },
+              action: 'payment.initiation.unknown',
+              entityType: 'order',
+              entityId: order.order.id,
+              before: { attemptStatus: locked?.attemptStatus || 'pending', orderStatus: locked?.orderStatus || 'pending', paymentStatus: locked?.paymentStatus || 'pending' },
+              after: { attemptStatus: 'payment_initiation_unknown', orderStatus: locked?.orderStatus || 'pending', paymentStatus: locked?.paymentStatus || 'pending' },
+              metadata: {
+                provider,
+                orderNumber: order.order.orderNumber,
+                providerRequestId: locked?.providerRequestId || providerRequestId,
+                errorCode: gwError.code || 'PAYMENT_INITIATION_UNKNOWN'
+              }
+            });
+            await client.query('SAVEPOINT sp_enqueue_reconcile');
+            try {
+              const { enqueueJob } = require('./job-queue');
+              await enqueueJob(client, {
+                name: 'payment.reconcile',
+                idempotencyKey: `payment-reconcile:${order.order.id}:${locked?.providerRequestId || providerRequestId}`,
+                payload: { orderId: order.order.id, orderNumber: order.order.orderNumber, provider },
+                runAt: new Date(Date.now() + 15000)
+              });
+              await client.query('RELEASE SAVEPOINT sp_enqueue_reconcile');
+            } catch {
+              await client.query('ROLLBACK TO SAVEPOINT sp_enqueue_reconcile').catch(() => {});
+            }
+            return { settledByIpn: false, reconciliationStatus: 'payment_initiation_unknown' };
+          });
+
+          if (recovery.settledByIpn) {
+            order.order.status = recovery.orderStatus;
+            order.order.paymentStatus = 'paid';
+            return res.status(201).json({
+              order: order.order,
+              paymentUrl: null,
+              paymentSettled: true,
+              reconciliationStatus: 'paid',
+              message: 'Giao dịch đã được xác nhận thanh toán thành công từ cổng thanh toán.'
+            });
+          }
+
+          return res.status(gwError.status || 502).json({
+            error: gwError.message,
+            code: gwError.code || 'PAYMENT_GATEWAY_ERROR',
+            ambiguous: gwError.ambiguous !== false,
+            orderId: order.order.id,
+            orderNumber: order.order.orderNumber,
+            providerRequestId,
+            reconciliationStatus: recovery.reconciliationStatus
+          });
+        }
+
+        order.paymentUrl = gateway.paymentUrl;
+        try {
+          const postSave = await withTransaction(pool, async (client) => {
+            const lockedOrder = (await client.query(
+              `SELECT status AS "orderStatus", payment_status AS "paymentStatus"
+               FROM orders WHERE id = $1 FOR UPDATE`,
+              [order.order.id]
+            )).rows[0];
+            const lockedAttempt = (await client.query(
+              `SELECT id AS "attemptId", status AS "attemptStatus"
+               FROM payment_attempts WHERE order_id = $1 AND provider = $2 FOR UPDATE`,
+              [order.order.id, provider]
+            )).rows[0];
+            const locked = lockedOrder ? { ...lockedOrder, ...(lockedAttempt || {}) } : null;
             await client.query(
-              'UPDATE payment_attempts SET provider_request_id=$3,provider_transaction_id=$4 WHERE order_id=$1 AND provider=$2',
-              [order.order.id, provider, gateway.requestId, gateway.providerTransactionId]
+              `UPDATE payment_attempts
+               SET provider_request_id = COALESCE(provider_request_id, $3),
+                   provider_transaction_id = COALESCE(provider_transaction_id, $4),
+                   payment_url = $5,
+                   status = CASE
+                     WHEN status IN ('payment_initiation_unknown', 'awaiting_reconciliation') THEN 'pending'
+                     ELSE status
+                   END,
+                   last_error_code = NULL,
+                   updated_at = now()
+               WHERE order_id = $1 AND provider = $2`,
+              [order.order.id, provider, gateway.requestId, gateway.providerTransactionId, gateway.paymentUrl]
             );
             if (version) {
               await require('./payment-channels').recordGatewayEvidence(client, provider, version, { method: 'provider_order_create', scope: 'api_credentials', enabled: true });
             }
+            return locked;
           });
-        } catch (gwError) {
-          // Compensation rollback: Release held stock and remove created pending order/attempt via deleteOrderPermanently
-          await withTransaction(pool, async (client) => {
-            const ordRow = (await client.query('SELECT customer_id FROM orders WHERE id=$1', [order.order.id])).rows[0];
-            const { deleteOrderPermanently } = require('./order-deletion');
-            await deleteOrderPermanently(client, order.order.id, {
-              actor: { username: "customer", source: "gateway_rejection" },
-              inventory
+          if (postSave?.paymentStatus === 'paid' || postSave?.attemptStatus === 'paid') {
+            order.order.status = postSave.orderStatus;
+            order.order.paymentStatus = 'paid';
+          }
+        } catch (persistError) {
+          let settled = false;
+          let currentOrderStatus = order.order.status;
+          try {
+            await withTransaction(pool, async (client) => {
+              const lockedOrder = (await client.query(
+                `SELECT status AS "orderStatus", payment_status AS "paymentStatus",
+                   EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = orders.id) AS "hasReceipt"
+                 FROM orders WHERE id = $1 FOR UPDATE`,
+                [order.order.id]
+              )).rows[0];
+              const lockedAttempt = (await client.query(
+                `SELECT id AS "attemptId", status AS "attemptStatus"
+                 FROM payment_attempts WHERE order_id = $1 AND provider = $2 FOR UPDATE`,
+                [order.order.id, provider]
+              )).rows[0];
+              const locked = lockedOrder ? { ...lockedOrder, ...(lockedAttempt || {}) } : null;
+              if (locked && (locked.paymentStatus === 'paid' || locked.attemptStatus === 'paid' || locked.hasReceipt)) {
+                settled = true;
+                currentOrderStatus = locked.orderStatus;
+                return;
+              }
+              if (locked?.attemptId) {
+                await client.query(
+                  `UPDATE payment_attempts
+                   SET status = 'awaiting_reconciliation',
+                       last_error_code = 'PAYMENT_RESPONSE_PERSIST_FAILED',
+                       updated_at = now()
+                   WHERE id = $1`,
+                  [locked.attemptId]
+                );
+              }
+              await audit(client, {
+                actor: { username: 'system', source: 'payment_gateway' },
+                action: 'payment.initiation.awaiting_reconciliation',
+                entityType: 'order',
+                entityId: order.order.id,
+                before: { attemptStatus: locked?.attemptStatus || 'pending', orderStatus: locked?.orderStatus || 'pending', paymentStatus: locked?.paymentStatus || 'pending' },
+                after: { attemptStatus: 'awaiting_reconciliation', orderStatus: locked?.orderStatus || 'pending', paymentStatus: locked?.paymentStatus || 'pending' },
+                metadata: {
+                  provider,
+                  orderNumber: order.order.orderNumber,
+                  providerRequestId: gateway.requestId || providerRequestId,
+                  errorCode: 'PAYMENT_RESPONSE_PERSIST_FAILED',
+                  reason: persistError?.message || 'DB persist failed'
+                }
+              });
             });
-            if (ordRow?.customer_id) {
-              await client.query('DELETE FROM customer_addresses WHERE customer_id=$1', [ordRow.customer_id]);
-              await client.query('DELETE FROM customers WHERE id=$1 AND checkout_pending=true AND NOT EXISTS (SELECT 1 FROM orders WHERE customer_id=$1)', [ordRow.customer_id]);
-            }
+          } catch {
+            // Order & payment_attempts with provider_request_id remain safely committed from Transaction 1
+          }
+          if (settled) {
+            order.order.status = currentOrderStatus;
+            order.order.paymentStatus = 'paid';
+            return res.status(201).json({
+              order: order.order,
+              paymentUrl: gateway.paymentUrl,
+              paymentSettled: true,
+              reconciliationStatus: 'paid',
+              message: 'Giao dịch đã được xác nhận thanh toán thành công.'
+            });
+          }
+          return res.status(502).json({
+            error: 'Đã khởi tạo giao dịch tại cổng thanh toán nhưng chưa lưu được phản hồi cục bộ. Đơn hàng được giữ nguyên để đối soát tự động.',
+            code: 'PAYMENT_RESPONSE_PERSIST_FAILED',
+            ambiguous: true,
+            orderId: order.order.id,
+            orderNumber: order.order.orderNumber,
+            providerRequestId: gateway.requestId || providerRequestId,
+            paymentUrl: gateway.paymentUrl,
+            reconciliationStatus: 'awaiting_reconciliation'
           });
-          throw gwError;
         }
       }
 
@@ -1114,12 +1427,22 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         if (update.status === "cancelled" && current.status !== "cancelled" && isOnlineGateway(current.payment_method)) {
           const activeAttempt = await client.query(
-            `SELECT EXISTS (
-               SELECT 1 FROM payment_attempts
-               WHERE order_id = $1 AND status = 'pending' AND expires_at > now()
-             ) AS active`,
+            `SELECT
+               EXISTS (
+                 SELECT 1 FROM payment_attempts
+                 WHERE order_id = $1 AND status IN ('payment_initiation_unknown', 'awaiting_reconciliation')
+               ) AS unresolved,
+               EXISTS (
+                 SELECT 1 FROM payment_attempts
+                 WHERE order_id = $1 AND status = 'pending' AND expires_at > now()
+               ) AS active`,
             [current.id]
           );
+          if (activeAttempt.rows[0]?.unresolved) {
+            const error = new Error("Đơn đang chờ đối soát trạng thái giao dịch với cổng thanh toán; cần xác minh chưa thu tiền trước khi hủy đơn.");
+            error.status = 409;
+            throw error;
+          }
           if (activeAttempt.rows[0]?.active) {
             const error = new Error("Chờ hết hạn phiên thanh toán VNPAY trước khi hủy đơn.");
             error.status = 409;
@@ -1224,6 +1547,24 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const order=await withTransaction(pool,client=>restoreOrder(client,{id:req.params.id,data,actor:req.admin,inventory:inventory||require('./inventory'),audit}));
       res.json({order,message:order.alreadyRestored?'Yêu cầu đã được xử lý trước đó.':'Đã khôi phục đơn về Chờ xác nhận và giữ lại tồn kho. Chưa ghi nhận thanh toán hoặc gửi hàng.'});
     }catch(error){if(error instanceof z.ZodError)return res.status(400).json({error:'Nhập lý do, phiên bản và xác nhận đã đối chiếu chưa nhận tiền trước khi khôi phục.'});if(error.code==='23505')return res.status(409).json({error:'Mã yêu cầu khôi phục đã được dùng. Tải lại để kiểm tra trạng thái.'});if(error.status)return res.status(error.status).json({error:error.message});next(error);}
+  });
+
+  router.post('/gaeru_ceo/orders/:id/reconcile-payment', requirePermission('orders.write'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res, next) => {
+    try {
+      const outcome = await require('./payment-channels').reconcileGatewayOrder(pool, {
+        orderId: req.params.id,
+        config: config || {},
+        fetcher: paymentFetcher,
+        inventory: inventory || require('./inventory'),
+        finance,
+        audit,
+        actor: req.admin
+      });
+      res.json(outcome);
+    } catch (error) {
+      if (error.status) return res.status(error.status).json({ error: error.message });
+      next(error);
+    }
   });
 
     const handleOrderPermanentDelete = async (req, res, next) => {

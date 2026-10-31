@@ -205,14 +205,17 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    };
   }
   await client.query(
-   `UPDATE payment_attempts SET status=$2, provider_transaction_id=$3, response_code=$4, updated_at=now()
+   `UPDATE payment_attempts
+    SET status=$2, provider_transaction_id=COALESCE($3, provider_transaction_id), response_code=$4,
+        last_error_code=CASE WHEN $5 THEN NULL ELSE last_error_code END, updated_at=now()
     WHERE id=$1`,
-   [attempt.id,successful?'paid':'failed',providerTransactionId||null,responseCode||null]
+   [attempt.id,successful?'paid':'failed',providerTransactionId||null,responseCode||null,Boolean(successful)]
   );
   let nextOrderStatus=attempt.orderStatus||'pending';
   if(successful){
-   if(finance?.recordFullOrderPayment){
-    await finance.recordFullOrderPayment(client,{
+   const ledger=finance||require('./finance-api');
+   if(ledger?.recordFullOrderPayment){
+    await ledger.recordFullOrderPayment(client,{
      order:{id:attempt.orderId,order_number:attempt.orderNumber||orderNumber,payment_method:provider,total_vnd:attempt.totalVnd},
      actor:actor||{username:provider,source:'payment_gateway'}
     });
@@ -228,10 +231,14 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    action:`payment.${provider}.callback`,
    entityType:'order',
    entityId:attempt.orderId,
+   before:{attemptStatus:attempt.attemptStatus,orderStatus:attempt.orderStatus,paymentStatus:attempt.paymentStatus},
+   after:{attemptStatus:successful?'paid':'failed',orderStatus:nextOrderStatus,paymentStatus:successful?'paid':attempt.paymentStatus},
    metadata:{
     successful,
     amountVnd:attempt.amountVnd,
     responseCode:responseCode||null,
+    previousAttemptStatus:attempt.attemptStatus||null,
+    lateSettlementOnCancelledOrder:Boolean(successful&&attempt.orderStatus==='cancelled'),
     autoApprovedToProcessing:Boolean(successful&&['pending','confirmed'].includes(attempt.orderStatus))
    }
   });
@@ -254,7 +261,7 @@ async function assertPaymentConfigurationChange(client,id,before,after){
  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[id==='vnpay'?'gaeru:vnpay-config':'gaeru:payment-config:'+id]);
  const fields={vnpay:['tmnCode','hashSecret','environment'],'9pay':['merchantKey','secretKey','checksumKey','environment'],momo:['partnerCode','accessKey','secretKey','environment'],zalopay:['appId','key1','key2','environment']}[id];
  if(fields.every(k=>before[k]===after[k]))return;
- const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts WHERE provider=$1 AND status='pending'",[id])).rows[0]?.count||0;
+ const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts WHERE provider=$1 AND status IN ('pending','payment_initiation_unknown','awaiting_reconciliation')",[id])).rows[0]?.count||0;
  if(count)throw fail('Có giao dịch đang chờ. Đối soát hoặc hủy đơn trước khi đổi tài khoản, khóa hoặc môi trường thanh toán.',409);
 }
 function authenticatedProof(method,scope){
@@ -386,6 +393,462 @@ async function listPaymentChannels(pool,config){
  };
 }
 
+async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provider=null,settings=null,config={},fetcher=null,inventory=null,finance=null,audit=appendAudit,actor=null,cancelOnUnpaid=true}={}){
+ const cleanOrderNumber=orderNumber?extractOrderNumber(orderNumber):null;
+ if(!orderId&&!cleanOrderNumber)throw fail('Thiếu mã đơn hàng cần đối soát.',400);
+ const initialQuery=await pool.query(
+  `SELECT p.id AS "attemptId", p.provider, p.transaction_ref AS "transactionRef",
+     p.provider_request_id AS "providerRequestId", p.amount_vnd AS "amountVnd",
+     p.status AS "attemptStatus", p.expires_at AS "expiresAt",
+     o.id AS "orderId", o.order_number AS "orderNumber", o.status AS "orderStatus",
+     o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
+     o.total_vnd AS "totalVnd", o.voucher_code AS "voucherCode",
+     EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
+   FROM orders o
+   LEFT JOIN payment_attempts p ON p.order_id = o.id AND ($3::text IS NULL OR p.provider = $3)
+   WHERE ($1::uuid IS NOT NULL AND o.id = $1) OR ($2::text IS NOT NULL AND o.order_number = $2)
+   ORDER BY p.created_at DESC NULLS LAST
+   LIMIT 1`,
+  [orderId,cleanOrderNumber,provider]
+ );
+ const initial=initialQuery.rows[0];
+ if(!initial||!initial.attemptId)throw fail('Không tìm thấy phiên giao dịch cần đối soát.',404);
+ if(initial.paymentStatus==='paid'||initial.attemptStatus==='paid'||initial.hasReceipt){
+  return {matched:true,verified:true,action:'already_paid',orderId:initial.orderId,orderNumber:initial.orderNumber,orderStatus:initial.orderStatus,paymentStatus:'paid',attemptStatus:'paid'};
+ }
+ if(initial.orderStatus==='cancelled'&&['failed','cancelled'].includes(initial.attemptStatus)){
+  return {matched:true,verified:true,action:'already_cancelled',orderId:initial.orderId,orderNumber:initial.orderNumber,orderStatus:'cancelled',paymentStatus:initial.paymentStatus,attemptStatus:initial.attemptStatus};
+ }
+ if(!['momo','zalopay'].includes(initial.provider)){
+  throw fail('Kênh thanh toán này không hỗ trợ truy vấn tự động qua API ví.',400);
+ }
+
+ const channelSettings=settings||(await readChannelRecord(pool,config,initial.provider)).data;
+ const {queryGatewayPayment}=require('./payment-provider-clients');
+ let queryResult;
+ try{
+  queryResult=await queryGatewayPayment(initial.provider,channelSettings,{
+   txnRef:initial.transactionRef,
+   requestId:initial.providerRequestId||undefined,
+   fetcher:fetcher||config?.paymentFetcher||fetch
+  });
+ }catch(queryErr){
+  return withTransaction(pool,async client=>{
+   const locked=(await client.query(
+    `SELECT p.id AS "attemptId", p.status AS "attemptStatus", p.provider,
+       o.id AS "orderId", o.order_number AS "orderNumber", o.status AS "orderStatus", o.payment_status AS "paymentStatus",
+       EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
+     FROM payment_attempts p JOIN orders o ON o.id = p.order_id
+     WHERE p.id = $1
+     FOR UPDATE OF p, o`,
+    [initial.attemptId]
+   )).rows[0];
+   if(!locked)throw fail('Không tìm thấy phiên giao dịch.',404);
+   if(locked.paymentStatus==='paid'||locked.attemptStatus==='paid'||locked.hasReceipt){
+    return {matched:true,verified:true,action:'already_paid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:'paid',attemptStatus:'paid'};
+   }
+   const errCode=queryErr?.code||'PAYMENT_QUERY_FAILED';
+   await client.query(
+    `UPDATE payment_attempts
+     SET status='awaiting_reconciliation', last_error_code=$2, last_reconciled_at=now(),
+         reconciliation_attempts=reconciliation_attempts+1, updated_at=now()
+     WHERE id=$1`,
+    [locked.attemptId,errCode]
+   );
+   await audit(client,{
+    actor:actor||{username:'system',source:'gateway_reconciliation'},
+    action:'payment.reconciliation.query_failed',
+    entityType:'order',
+    entityId:locked.orderId,
+    before:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    after:{attemptStatus:'awaiting_reconciliation',orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    metadata:{provider:locked.provider,orderNumber:locked.orderNumber,errorCode:errCode}
+   });
+   return {
+    matched:true,
+    verified:false,
+    action:'awaiting_reconciliation',
+    orderId:locked.orderId,
+    orderNumber:locked.orderNumber,
+    orderStatus:locked.orderStatus,
+    paymentStatus:locked.paymentStatus,
+    attemptStatus:'awaiting_reconciliation',
+    errorCode:errCode
+   };
+  });
+ }
+
+ return withTransaction(pool,async client=>{
+  const locked=(await client.query(
+   `SELECT p.id AS "attemptId", p.provider, p.transaction_ref AS "transactionRef",
+      p.provider_request_id AS "providerRequestId", p.amount_vnd AS "amountVnd", p.status AS "attemptStatus",
+      o.id AS "orderId", o.order_number AS "orderNumber", o.status AS "orderStatus",
+      o.payment_status AS "paymentStatus", o.total_vnd AS "totalVnd", o.voucher_code AS "voucherCode",
+      EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
+    FROM payment_attempts p JOIN orders o ON o.id = p.order_id
+    WHERE p.id = $1
+    FOR UPDATE OF p, o`,
+   [initial.attemptId]
+  )).rows[0];
+  if(!locked)throw fail('Không tìm thấy phiên giao dịch.',404);
+  if(locked.paymentStatus==='paid'||locked.attemptStatus==='paid'||locked.hasReceipt){
+   return {matched:true,verified:true,action:'already_paid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:'paid',attemptStatus:'paid'};
+  }
+
+  if(queryResult.found&&queryResult.successful){
+   if(queryResult.amountVnd!==locked.amountVnd||locked.totalVnd!==locked.amountVnd){
+    await client.query(
+     `UPDATE payment_attempts
+      SET status='awaiting_reconciliation', last_error_code='PAYMENT_AMOUNT_MISMATCH',
+          response_code=$2, last_reconciled_at=now(), reconciliation_attempts=reconciliation_attempts+1, updated_at=now()
+      WHERE id=$1`,
+     [locked.attemptId,String(queryResult.resultCode??'')]
+    );
+    await audit(client,{
+     actor:actor||{username:locked.provider,source:'gateway_reconciliation'},
+     action:'payment.reconciliation.amount_mismatch',
+     entityType:'order',
+     entityId:locked.orderId,
+     before:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+     after:{attemptStatus:'awaiting_reconciliation',orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+     metadata:{provider:locked.provider,orderNumber:locked.orderNumber,expectedAmountVnd:locked.amountVnd,gatewayAmountVnd:queryResult.amountVnd}
+    });
+    return {matched:false,verified:true,code:'04',action:'amount_mismatch',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus,attemptStatus:'awaiting_reconciliation'};
+   }
+   const settled=await reconcilePrepaidOrder(client,{
+    provider:locked.provider,
+    orderNumber:locked.orderNumber,
+    amountVnd:queryResult.amountVnd,
+    successful:true,
+    providerTransactionId:queryResult.providerTransactionId,
+    responseCode:String(queryResult.resultCode),
+    finance:finance||require('./finance-api'),
+    audit,
+    actor:actor||{username:locked.provider,source:'gateway_reconciliation'}
+   });
+   await client.query(
+    `UPDATE payment_attempts
+     SET last_error_code=NULL, last_reconciled_at=now(), reconciliation_attempts=reconciliation_attempts+1
+     WHERE id=$1`,
+    [locked.attemptId]
+   );
+   await audit(client,{
+    actor:actor||{username:locked.provider,source:'gateway_reconciliation'},
+    action:'payment.reconciliation.settled_paid',
+    entityType:'order',
+    entityId:locked.orderId,
+    before:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    after:{attemptStatus:'paid',orderStatus:settled.orderStatus,paymentStatus:'paid'},
+    metadata:{provider:locked.provider,orderNumber:locked.orderNumber,providerRequestId:locked.providerRequestId,providerTransactionId:queryResult.providerTransactionId}
+   });
+   return {matched:true,verified:true,action:'settled_paid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:settled.orderStatus,paymentStatus:'paid',attemptStatus:'paid'};
+  }
+
+  if(queryResult.found&&!queryResult.successful){
+   await client.query(
+    `UPDATE payment_attempts
+     SET status='awaiting_reconciliation', response_code=$2, last_reconciled_at=now(),
+         reconciliation_attempts=reconciliation_attempts+1, updated_at=now()
+     WHERE id=$1`,
+    [locked.attemptId,String(queryResult.resultCode??'')]
+   );
+   await audit(client,{
+    actor:actor||{username:locked.provider,source:'gateway_reconciliation'},
+    action:'payment.reconciliation.still_pending',
+    entityType:'order',
+    entityId:locked.orderId,
+    before:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    after:{attemptStatus:'awaiting_reconciliation',orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    metadata:{provider:locked.provider,orderNumber:locked.orderNumber,gatewayResultCode:queryResult.resultCode}
+   });
+   return {matched:true,verified:true,action:'still_pending',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus,attemptStatus:'awaiting_reconciliation',resultCode:queryResult.resultCode};
+  }
+
+  // queryResult.reachable === true && queryResult.found === false -> Verified 100% unpaid at gateway
+  if(!cancelOnUnpaid){
+   await client.query(
+    `UPDATE payment_attempts
+     SET response_code=$2, last_reconciled_at=now(), reconciliation_attempts=reconciliation_attempts+1, updated_at=now()
+     WHERE id=$1`,
+    [locked.attemptId,String(queryResult.resultCode??'')]
+   );
+   await audit(client,{
+    actor:actor||{username:'system',source:'gateway_reconciliation'},
+    action:'payment.reconciliation.verified_unpaid_for_retry',
+    entityType:'order',
+    entityId:locked.orderId,
+    before:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    after:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+    metadata:{provider:locked.provider,orderNumber:locked.orderNumber,providerRequestId:locked.providerRequestId,gatewayResultCode:queryResult.resultCode}
+   });
+   return {matched:true,verified:true,action:'verified_unpaid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus,attemptStatus:locked.attemptStatus,resultCode:queryResult.resultCode};
+  }
+
+  await client.query(
+   `UPDATE payment_attempts
+    SET status='failed', response_code=$2, last_error_code=NULL, last_reconciled_at=now(),
+        reconciliation_attempts=reconciliation_attempts+1, updated_at=now()
+    WHERE id=$1`,
+   [locked.attemptId,String(queryResult.resultCode??'')]
+  );
+  let nextStatus=locked.orderStatus;
+  if(locked.orderStatus!=='cancelled'&&locked.orderStatus!=='completed'){
+   if(locked.voucherCode){
+    await client.query('UPDATE voucher_redemptions SET released=true WHERE order_id=$1 AND released=false',[locked.orderId]);
+   }
+   const inv=inventory||require('./inventory');
+   await inv.releaseOrderStock(client,{orderId:locked.orderId,actor:actor||{username:'system',source:'gateway_reconciliation'}});
+   await client.query("UPDATE orders SET status='cancelled', updated_at=now() WHERE id=$1",[locked.orderId]);
+   await client.query("UPDATE order_email_outbox SET status='skipped', finished_at=now(), result='Đơn hủy sau khi xác minh chưa thanh toán' WHERE order_id=$1 AND status='pending'",[locked.orderId]);
+   nextStatus='cancelled';
+  }
+  await audit(client,{
+   actor:actor||{username:'system',source:'gateway_reconciliation'},
+   action:'payment.reconciliation.cancelled_unpaid',
+   entityType:'order',
+   entityId:locked.orderId,
+   before:{attemptStatus:locked.attemptStatus,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus},
+   after:{attemptStatus:'failed',orderStatus:nextStatus,paymentStatus:locked.paymentStatus},
+   metadata:{provider:locked.provider,orderNumber:locked.orderNumber,providerRequestId:locked.providerRequestId,gatewayResultCode:queryResult.resultCode}
+  });
+  return {matched:true,verified:true,action:'cancelled_unpaid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:nextStatus,paymentStatus:locked.paymentStatus,attemptStatus:'failed',resultCode:queryResult.resultCode};
+ });
+}
+
+async function retryGatewayOrderPayment(pool,{orderNumber=null,clientReference=null,config={},settings=null,baseUrl='https://gaeru.com',fetcher=null,inventory=null,finance=null,audit=appendAudit,actor=null}={}){
+ const cleanOrderNumber=orderNumber?extractOrderNumber(orderNumber):null;
+ const cleanRef=clientReference?String(clientReference).trim():null;
+ if(!cleanOrderNumber&&!cleanRef)throw fail('Thiếu mã đơn hàng hoặc mã tham chiếu thanh toán.',400);
+
+ const lookup=(await pool.query(
+  `SELECT o.id, o.order_number AS "orderNumber", o.subtotal_vnd AS "subtotalVnd",
+     o.shipping_fee_vnd AS "shippingFeeVnd", o.discount_vnd AS "discountVnd", o.voucher_code AS "voucherCode",
+     o.total_vnd AS "totalVnd", o.status, o.payment_method AS "paymentMethod",
+     o.payment_status AS "paymentStatus", o.created_at AS "createdAt",
+     p.id AS "attemptId", p.provider, p.status AS "attemptStatus",
+     p.provider_request_id AS "providerRequestId", p.payment_url AS "paymentUrl", p.expires_at AS "expiresAt",
+     EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
+   FROM orders o
+   LEFT JOIN payment_attempts p ON p.order_id = o.id
+   WHERE ($1::text IS NOT NULL AND o.order_number = $1)
+      OR ($2::text IS NOT NULL AND o.client_reference = $2)
+   ORDER BY p.created_at DESC NULLS LAST
+   LIMIT 1`,
+  [cleanOrderNumber,cleanRef]
+ )).rows[0];
+ if(!lookup)return null;
+
+ const items=(await pool.query(
+  `SELECT product_name AS "productName", variant_name AS "variantName", sku, unit_price_vnd AS "priceVnd", quantity
+   FROM order_items WHERE order_id = $1`,
+  [lookup.id]
+ )).rows;
+ const formatOrder=overrides=>({
+  id:lookup.id,
+  orderNumber:lookup.orderNumber,
+  subtotalVnd:lookup.subtotalVnd,
+  shippingFeeVnd:lookup.shippingFeeVnd,
+  ...(lookup.discountVnd?{discountVnd:lookup.discountVnd}:{}),
+  ...(lookup.voucherCode?{voucherCode:lookup.voucherCode}:{}),
+  totalVnd:lookup.totalVnd,
+  status:lookup.status,
+  paymentMethod:lookup.paymentMethod,
+  paymentStatus:lookup.paymentStatus,
+  createdAt:lookup.createdAt,
+  items,
+  ...overrides
+ });
+
+ if(lookup.paymentStatus==='paid'||lookup.attemptStatus==='paid'||lookup.hasReceipt){
+  return {status:200,order:formatOrder({paymentStatus:'paid'}),paymentUrl:null,alreadyPaid:true,paymentStatus:'paid',reconciliationStatus:'paid',message:'Đơn hàng đã được xác nhận thanh toán thành công.'};
+ }
+ if(lookup.status==='cancelled'){
+  throw Object.assign(fail('Đơn hàng đã bị hủy sau khi xác minh chưa thanh toán. Vui lòng tạo đơn hàng mới.',409),{code:'ORDER_ALREADY_CANCELLED',orderNumber:lookup.orderNumber});
+ }
+ if(!['momo','zalopay'].includes(lookup.paymentMethod)){
+  return {status:200,order:formatOrder(),paymentUrl:lookup.paymentUrl||null,reusedSession:true,reconciliationStatus:lookup.attemptStatus||'pending',message:'Đơn hàng đã được tiếp nhận trước đó.'};
+ }
+ if(lookup.attemptStatus==='pending'&&lookup.paymentUrl&&lookup.expiresAt&&new Date(lookup.expiresAt).getTime()>Date.now()){
+  return {status:200,order:formatOrder(),paymentUrl:lookup.paymentUrl,reusedSession:true,providerRequestId:lookup.providerRequestId,reconciliationStatus:'pending',message:'Sử dụng lại phiên thanh toán hiện có của đơn hàng.'};
+ }
+
+ const rec=await reconcileGatewayOrder(pool,{
+  orderId:lookup.id,
+  provider:lookup.paymentMethod,
+  settings,
+  config,
+  fetcher,
+  inventory,
+  finance,
+  audit,
+  actor:actor||{username:'customer',source:'payment_retry'},
+  cancelOnUnpaid:false
+ });
+ if(rec.action==='already_paid'||rec.action==='settled_paid'){
+  return {status:200,order:formatOrder({status:rec.orderStatus,paymentStatus:'paid'}),paymentUrl:null,alreadyPaid:true,paymentStatus:'paid',reconciliationStatus:'paid',message:'Đơn hàng đã được đối soát thanh toán thành công.'};
+ }
+ if(rec.action==='still_pending'){
+  throw Object.assign(fail('Giao dịch đang chờ xử lý tại cổng thanh toán. Vui lòng hoàn tất trên ứng dụng ví hoặc chờ đối soát.',409),{code:'PAYMENT_PENDING_AT_GATEWAY',orderId:lookup.id,orderNumber:lookup.orderNumber,providerRequestId:lookup.providerRequestId,reconciliationStatus:'awaiting_reconciliation'});
+ }
+ if(rec.action==='amount_mismatch'){
+  throw Object.assign(fail('Số tiền giao dịch tại cổng thanh toán không khớp tổng tiền đơn hàng; đang chờ đối soát.',409),{code:'PAYMENT_AMOUNT_MISMATCH',orderId:lookup.id,orderNumber:lookup.orderNumber,reconciliationStatus:'awaiting_reconciliation'});
+ }
+ if(rec.action==='awaiting_reconciliation'){
+  throw Object.assign(fail('Chưa kiểm tra được trạng thái giao dịch tại cổng thanh toán. Đơn hàng được giữ nguyên để đối soát an toàn.',502),{code:rec.errorCode||'PAYMENT_QUERY_FAILED',ambiguous:true,orderId:lookup.id,orderNumber:lookup.orderNumber,providerRequestId:lookup.providerRequestId,reconciliationStatus:'awaiting_reconciliation'});
+ }
+
+ // rec.action === 'verified_unpaid': previous initiation confirmed absent at gateway -> safe to re-issue on same order
+ const channelSettings=settings||(await readChannelRecord(pool,config,lookup.paymentMethod)).data;
+ const {buildGatewayRequestId,createGatewayPayment}=require('./payment-provider-clients');
+ const nowMs=Date.now();
+ const nextRequestId=buildGatewayRequestId(lookup.paymentMethod,lookup.orderNumber,nowMs);
+
+ await withTransaction(pool,async client=>{
+  const locked=(await client.query(
+   `SELECT p.id, p.status, o.status AS "orderStatus", o.payment_status AS "paymentStatus"
+    FROM payment_attempts p JOIN orders o ON o.id = p.order_id
+    WHERE p.id = $1 FOR UPDATE OF p, o`,
+   [lookup.attemptId]
+  )).rows[0];
+  if(!locked||locked.paymentStatus==='paid'||locked.status==='paid')return;
+  if(locked.orderStatus==='cancelled')throw Object.assign(fail('Đơn hàng đã bị hủy.',409),{code:'ORDER_ALREADY_CANCELLED'});
+  await client.query(
+   `UPDATE payment_attempts
+    SET provider_request_id=$2, expires_at=now()+interval '15 minutes', updated_at=now()
+    WHERE id=$1`,
+   [lookup.attemptId,nextRequestId]
+  );
+  await audit(client,{
+   actor:actor||{username:'customer',source:'payment_retry'},
+   action:'payment.retry.initiated',
+   entityType:'order',
+   entityId:lookup.id,
+   metadata:{provider:lookup.paymentMethod,orderNumber:lookup.orderNumber,providerRequestId:nextRequestId}
+  });
+ });
+
+ try{
+  const gw=await createGatewayPayment(lookup.paymentMethod,channelSettings,{
+   amountVnd:lookup.totalVnd,
+   txnRef:lookup.orderNumber,
+   requestId:nextRequestId,
+   now:nowMs,
+   baseUrl,
+   fetcher:fetcher||config?.paymentFetcher||fetch
+  });
+  const persisted=await withTransaction(pool,async client=>{
+   const locked=(await client.query(
+    `SELECT p.id, p.status, o.status AS "orderStatus", o.payment_status AS "paymentStatus"
+     FROM payment_attempts p JOIN orders o ON o.id = p.order_id
+     WHERE p.id = $1 FOR UPDATE OF p, o`,
+    [lookup.attemptId]
+   )).rows[0];
+   const alreadyPaid=locked?.paymentStatus==='paid'||locked?.status==='paid';
+   await client.query(
+    `UPDATE payment_attempts
+     SET provider_request_id=COALESCE(provider_request_id,$2),
+         provider_transaction_id=COALESCE(provider_transaction_id,$3),
+         payment_url=$4,
+         status=CASE WHEN status='paid' THEN 'paid' ELSE 'pending' END,
+         last_error_code=NULL,
+         updated_at=now()
+     WHERE id=$1`,
+    [lookup.attemptId,gw.requestId,gw.providerTransactionId,gw.paymentUrl]
+   );
+   await audit(client,{
+    actor:actor||{username:'customer',source:'payment_retry'},
+    action:'payment.retry.succeeded',
+    entityType:'order',
+    entityId:lookup.id,
+    metadata:{provider:lookup.paymentMethod,orderNumber:lookup.orderNumber,providerRequestId:gw.requestId}
+   });
+   return {alreadyPaid,orderStatus:locked?.orderStatus||lookup.status};
+  });
+  if(persisted.alreadyPaid){
+   return {status:200,order:formatOrder({status:persisted.orderStatus,paymentStatus:'paid'}),paymentUrl:null,alreadyPaid:true,paymentStatus:'paid',reconciliationStatus:'paid'};
+  }
+  return {status:200,order:formatOrder({status:persisted.orderStatus}),paymentUrl:gw.paymentUrl,retried:true,providerRequestId:gw.requestId,reconciliationStatus:'pending',message:'Đã khởi tạo lại phiên thanh toán an toàn cho đơn hàng.'};
+ }catch(retryErr){
+  const handled=await withTransaction(pool,async client=>{
+   const locked=(await client.query(
+    `SELECT p.id, p.status AS "attemptStatus", o.status AS "orderStatus", o.payment_status AS "paymentStatus",
+       EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
+     FROM payment_attempts p JOIN orders o ON o.id = p.order_id
+     WHERE p.id = $1 FOR UPDATE OF p, o`,
+    [lookup.attemptId]
+   )).rows[0];
+   if(locked&&(locked.paymentStatus==='paid'||locked.attemptStatus==='paid'||locked.hasReceipt)){
+    return {settled:true,orderStatus:locked.orderStatus};
+   }
+   await client.query(
+    `UPDATE payment_attempts
+     SET status='payment_initiation_unknown', last_error_code=$2, updated_at=now()
+     WHERE id=$1`,
+    [lookup.attemptId,retryErr?.code||'PAYMENT_RETRY_UNKNOWN']
+   );
+   await audit(client,{
+    actor:actor||{username:'customer',source:'payment_retry'},
+    action:'payment.retry.unknown',
+    entityType:'order',
+    entityId:lookup.id,
+    before:{attemptStatus:locked?.attemptStatus},
+    after:{attemptStatus:'payment_initiation_unknown'},
+    metadata:{provider:lookup.paymentMethod,orderNumber:lookup.orderNumber,providerRequestId:nextRequestId,errorCode:retryErr?.code||'PAYMENT_RETRY_UNKNOWN'}
+   });
+   return {settled:false};
+  });
+  if(handled.settled){
+   return {status:200,order:formatOrder({status:handled.orderStatus,paymentStatus:'paid'}),paymentUrl:null,alreadyPaid:true,paymentStatus:'paid',reconciliationStatus:'paid'};
+  }
+  throw Object.assign(retryErr,{orderId:lookup.id,orderNumber:lookup.orderNumber,providerRequestId:nextRequestId,reconciliationStatus:'payment_initiation_unknown'});
+ }
+}
+
+async function reconcileUnknownGatewayAttempts(pool,config={},{limit=20,fetcher=null,inventory=null,finance=null,audit=appendAudit}={}){
+ const candidates=(await pool.query(
+  `SELECT order_id AS "orderId", provider
+   FROM payment_attempts
+   WHERE provider IN ('momo','zalopay')
+     AND status IN ('payment_initiation_unknown','awaiting_reconciliation')
+   ORDER BY updated_at ASC
+   LIMIT $1`,
+  [limit]
+ )).rows;
+ const results=[];
+ for(const row of candidates){
+  try{
+   const res=await reconcileGatewayOrder(pool,{
+    orderId:row.orderId,
+    provider:row.provider,
+    config,
+    fetcher,
+    inventory,
+    finance,
+    audit,
+    actor:{username:'reconciliation-worker',source:'system'}
+   });
+   results.push(res);
+  }catch(err){
+   results.push({orderId:row.orderId,error:err.message});
+  }
+ }
+ return results;
+}
+
+function startPaymentReconciliationWorker(pool,config={},{intervalMs=60*1000,onError=e=>console.error('Payment reconciliation worker error:',e.message)}={}){
+ let running=false,stopped=false;
+ async function run(){
+  if(running||stopped)return;
+  running=true;
+  try{await reconcileUnknownGatewayAttempts(pool,config);}
+  catch(e){onError(e);}
+  finally{running=false;}
+ }
+ const timer=setInterval(run,intervalMs);
+ timer.unref?.();
+ return ()=>{stopped=true;clearInterval(timer);};
+}
+
 function createPaymentAdmin(pool,config,{fetcher,finance}={}){
  const router=Router();
  const channelEnum=z.enum(['cod','bank_transfer','vnpay','9pay','momo','zalopay']);
@@ -483,6 +946,34 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    next(e);
   }
  });
+ router.post('/owner/payments/query-reconcile',requireCsrf,rateLimit({windowMs:900000,limit:30,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+  try{
+   const parsed=z.object({
+    orderNumber:z.string().trim().min(5).max(80),
+    provider:z.enum(['momo','zalopay']).optional(),
+    cancelOnUnpaid:z.boolean().optional()
+   }).parse({
+    ...req.body,
+    orderNumber:extractOrderNumber(req.body?.orderNumber)
+   });
+   if(config?.accountSecurity){
+    await config.accountSecurity.authorize(req,async()=>true);
+   }
+   const outcome=await reconcileGatewayOrder(pool,{
+    orderNumber:parsed.orderNumber,
+    provider:parsed.provider||null,
+    config,
+    fetcher:fetcher||config?.paymentFetcher,
+    finance,
+    actor:req.admin,
+    cancelOnUnpaid:parsed.cancelOnUnpaid!==false
+   });
+   res.json(outcome);
+  }catch(e){
+   if(e instanceof z.ZodError)return res.status(400).json({error:'Nhập đúng mã đơn hàng cần truy vấn đối soát cổng thanh toán.'});
+   next(e);
+  }
+ });
  return router;
 }
 
@@ -502,6 +993,10 @@ module.exports={
  extractOrderNumber,
  verifyGatewayPayload,
  reconcilePrepaidOrder,
+ reconcileGatewayOrder,
+ retryGatewayOrderPayment,
+ reconcileUnknownGatewayAttempts,
+ startPaymentReconciliationWorker,
  verifyPaymentChannel,
  verifyAndRecordPayment,
  listPaymentChannels,
