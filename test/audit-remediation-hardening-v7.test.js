@@ -2995,3 +2995,152 @@ test('Audit Fix: OrderExpirationService records system alert when individual ord
   assert.equal(alerts.rows[0].severity, 'warning');
   assert.ok(alerts.rows[0].message.includes('GR-FAIL-STOCK-01'));
 });
+
+
+test('Audit Hardening: reconcileGatewayOrder returns verified_unpaid when order has no payment attempts created', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const orderId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-NO-ATTEMPT-01', 'Dropoff Buyer', 'dropoff@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 500000, 500000, 0, now() - interval '2 hours')`,
+    [orderId]
+  );
+
+  const { reconcileGatewayOrder } = require('../src/payment-channels');
+  const res = await reconcileGatewayOrder(pool, { orderId, provider: 'momo' });
+
+  assert.equal(res.matched, true);
+  assert.equal(res.verified, true);
+  assert.equal(res.action, 'verified_unpaid');
+  assert.equal(res.reason, 'no_payment_attempts_created');
+  assert.ok(res.message.includes('chưa từng tạo phiên'));
+});
+
+test('Audit Hardening: ReconciliationOutcome enums support ALREADY_CANCELLED and PaymentAttemptStateMachine FAILED->AWAITING', async () => {
+  const { ReconciliationOutcome, RECONCILIATION_ACTIONS } = require('../src/domain/payments/payment-enums');
+  const { PaymentAttemptStateMachine, ATTEMPT_STATES } = require('../src/domain/payments/order-idempotency-policy');
+
+  assert.equal(RECONCILIATION_ACTIONS.ALREADY_CANCELLED, 'already_cancelled');
+  assert.equal(ReconciliationOutcome.isDefinitivelyUnpaid({ action: 'already_cancelled', verified: true }), true);
+  assert.equal(ReconciliationOutcome.isAmbiguous({ action: 'already_cancelled', verified: true }), false);
+
+  // PaymentAttemptStateMachine valid transition from FAILED to AWAITING_RECONCILIATION
+  assert.equal(PaymentAttemptStateMachine.isValidTransition(ATTEMPT_STATES.FAILED, ATTEMPT_STATES.AWAITING_RECONCILIATION), true);
+  assert.doesNotThrow(() => {
+    PaymentAttemptStateMachine.assertValidTransition(ATTEMPT_STATES.FAILED, ATTEMPT_STATES.AWAITING_RECONCILIATION);
+  });
+});
+
+test('Audit Hardening: PaymentRetryCoordinator regex accepts 20 chars and does not treat online gateway as manual', async () => {
+  const { isManualPayment } = require('../src/domain/payments/payment-enums');
+
+  assert.equal(isManualPayment('vnpay'), false);
+  assert.equal(isManualPayment('momo'), false);
+  assert.equal(isManualPayment('zalopay'), false);
+  assert.equal(isManualPayment('cod'), true);
+  assert.equal(isManualPayment('bank_transfer'), true);
+});
+
+test('Audit Hardening: OrderExpirationService excludes active order reviews and reopens resolved reviews on conflict', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query("INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính Active Rev', 'kinh-active-rev', 'audio', true)", [pId]);
+  await pool.query("INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-REV-01', 'Đen', 300000, 10, true)", [vId, pId]);
+
+  const orderId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-ACTIVE-REV-01', 'Rev Buyer', 'rev@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'bank_transfer', 'pending', 'pending', 300000, 300000, 0, now() - interval '30 hours')`,
+    [orderId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính Active Rev', 'Đen', 'SKU-REV-01', 1, 300000, 300000)`,
+    [orderId, vId]
+  );
+
+  // Đơn đang có review lý do khác (vd: suspected_fraud) chưa resolved -> không được hủy
+  await pool.query(
+    `INSERT INTO order_reviews (order_id, reason, created_at) VALUES ($1, 'suspected_fraud', now() - interval '5 hours')`,
+    [orderId]
+  );
+
+  const mockInv = {
+    releaseOrderStock: async () => ({ released: true })
+  };
+
+  const cancelled1 = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 24,
+    inventory: mockInv
+  });
+
+  assert.equal(cancelled1.length, 0, 'Đơn đang có bất kỳ review nào chưa resolved không được hủy');
+
+  // Đánh dấu đã resolved
+  await pool.query(`UPDATE order_reviews SET resolved_at = now() WHERE order_id = $1`, [orderId]);
+
+  // Giờ hủy bình thường
+  const cancelled2 = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, {
+    olderThanHours: 24,
+    inventory: mockInv
+  });
+  assert.equal(cancelled2.length, 1);
+  assert.equal(cancelled2[0].orderNumber, 'GR-ACTIVE-REV-01');
+});
+
+test('Audit Hardening: OrderReviewService null-safety and SLA breach throttling', async (t) => {
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const { inspectDomain, guardContact, OrderReviewService } = require('../src/order-review');
+
+  // Null-safety
+  const d1 = await inspectDomain(null);
+  assert.equal(d1, 'missing');
+  const d2 = await inspectDomain('invalid-no-at-sign');
+  assert.equal(d2, 'missing');
+
+  await pool.connect().then(async client => {
+    try {
+      await assert.doesNotReject(async () => {
+        await guardContact(client, null);
+        await guardContact(client, {});
+        await guardContact(client, { phone: null, email: null });
+      });
+    } finally {
+      client.release();
+    }
+  });
+
+  // SLA breach test
+  const orderId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-SLA-TEST-01', 'SLA Buyer', 'sla@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'vnpay', 'pending', 'pending', 300000, 300000, 0, now() - interval '30 hours')`,
+    [orderId]
+  );
+  await pool.query(
+    `INSERT INTO order_reviews (order_id, reason, created_at) VALUES ($1, 'gateway_reconciliation_needed', now() - interval '25 hours')`,
+    [orderId]
+  );
+
+  const breaches1 = await OrderReviewService.checkSlaBreaches(pool, { slaHours: 24 });
+  assert.equal(breaches1.length, 1);
+  assert.equal(breaches1[0].order_number, 'GR-SLA-TEST-01');
+
+  // Insert mock alert within 6 hours
+  await pool.query(
+    `INSERT INTO system_alerts (source, severity, message, metadata, created_at)
+     VALUES ('order_review_sla_monitor', 'error', 'mock alert', $1::jsonb, now() - interval '1 hour')`,
+    [JSON.stringify({ orderId, orderNumber: 'GR-SLA-TEST-01' })]
+  );
+
+  // Second check should be throttled
+  const breaches2 = await OrderReviewService.checkSlaBreaches(pool, { slaHours: 24 });
+  assert.equal(breaches2.length, 0, 'SLA breach alert phải được throttle trong 6 giờ');
+});

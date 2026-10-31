@@ -271,7 +271,7 @@ class InventoryService {
        FROM warehouse_stock s
        JOIN warehouses w ON w.id = s.warehouse_id
        WHERE s.variant_id = $1
-       ORDER BY CASE WHEN w.code = 'MAIN' THEN 0 ELSE 1 END, s.quantity DESC
+       ORDER BY s.warehouse_id ASC
        FOR UPDATE OF s`,
       [variant.id]
     );
@@ -364,7 +364,7 @@ class InventoryService {
     const currentBalance = Number(balRes.rows[0]?.quantity) || 0;
     const newBalance = currentBalance + delta;
 
-    if ((!allowNegative && newBalance < 0) || newBalance < 0) {
+    if (!allowNegative && newBalance < 0) {
       throw Object.assign(
         new Error(`Tồn kho không đủ để trừ (tồn hiện tại: ${currentBalance}, yêu cầu giảm: ${Math.abs(delta)}).`),
         { status: 409 }
@@ -537,7 +537,10 @@ class InventoryService {
       }
     }
 
-    for (const item of groupedMap.values()) {
+    const sortedGroupedItems = [...groupedMap.values()].sort((a, b) =>
+      String(a.variantId).localeCompare(String(b.variantId))
+    );
+    for (const item of sortedGroupedItems) {
       const variantId = item.variantId;
       let hasWarehouseStock = false;
       if (orderId && variantId) {

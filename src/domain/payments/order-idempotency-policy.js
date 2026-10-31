@@ -639,6 +639,7 @@ class PaymentAttemptStateMachine {
       case ATTEMPT_STATES.AWAITING_RECONCILIATION:
         return [
           ATTEMPT_STATES.PENDING,
+          ATTEMPT_STATES.FAILED,
           ATTEMPT_STATES.UNKNOWN,
           ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION
         ].includes(from);

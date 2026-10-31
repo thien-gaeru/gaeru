@@ -91,6 +91,7 @@ const RECONCILIATION_ACTIONS = Object.freeze({
   // Nhóm 2: Chắc chắn 100% chưa thanh toán (DEFINITIVELY_UNPAID)
   VERIFIED_UNPAID: 'verified_unpaid',
   CANCELLED_UNPAID: 'cancelled_unpaid',
+  ALREADY_CANCELLED: 'already_cancelled',
   RETRY_ALLOWED: 'retry_allowed',
 
   // Nhóm 3: Chưa xác định / Cần chờ đối soát (AMBIGUOUS / AWAITING_VERIFICATION)
@@ -109,6 +110,7 @@ const RECONCILIATION_GROUPS = Object.freeze({
   DEFINITIVELY_UNPAID: Object.freeze([
     RECONCILIATION_ACTIONS.VERIFIED_UNPAID,
     RECONCILIATION_ACTIONS.CANCELLED_UNPAID,
+    RECONCILIATION_ACTIONS.ALREADY_CANCELLED,
     RECONCILIATION_ACTIONS.RETRY_ALLOWED
   ]),
   AMBIGUOUS: Object.freeze([

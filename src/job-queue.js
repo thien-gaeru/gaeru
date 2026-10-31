@@ -250,10 +250,8 @@ function createJobQueue({
        RETURNING id, lease_expires_at`,
       [jobId, leaseToken, String(effectiveLeaseMs)]
     );
-    if (typeof res?.rowCount === 'number' && res.rowCount === 0) {
-      return false;
-    }
-    return true;
+    const updatedCount = typeof res?.rowCount === 'number' ? res.rowCount : (Array.isArray(res?.rows) ? res.rows.length : 0);
+    return updatedCount > 0;
   }
 
   async function processOne() {

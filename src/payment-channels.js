@@ -136,7 +136,7 @@ function verifyGatewayPayload(provider,payload,settings){
   try{parsedData=JSON.parse(payload.data);}catch{return {valid:false,reason:'Malformed ZaloPay data'};}
   if(!parsedData||typeof parsedData!=='object'||Array.isArray(parsedData)||!positiveId(parsedData.app_id)
    ||String(parsedData.app_id)!==String(settings.appId))return {valid:false,reason:'Mismatched ZaloPay app_id'};
-  const matched=typeof parsedData.app_trans_id==='string'&&parsedData.app_trans_id.match(/^\d{6}_(GR-\d{8}-[A-Z0-9]{4,20})$/);
+  const matched=typeof parsedData.app_trans_id==='string'&&parsedData.app_trans_id.match(/^\d{6}_(GR-\d{8}-[A-Z0-9]{4,20})(?:_\d+)?$/);
   if(!matched||!amount(parsedData.amount)||!positiveId(parsedData.zp_trans_id))return {valid:false,reason:'Invalid ZaloPay transaction parameters'};
   return {
    valid:true,
@@ -457,6 +457,7 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
   `SELECT p.id AS "attemptId", p.provider, p.transaction_ref AS "transactionRef",
      p.provider_request_id AS "providerRequestId", p.amount_vnd AS "amountVnd",
      p.status AS "attemptStatus", p.expires_at AS "expiresAt",
+     p.created_at AS "attemptCreatedAt", o.created_at AS "orderCreatedAt",
      o.id AS "orderId", o.order_number AS "orderNumber", o.status AS "orderStatus",
      o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
      o.total_vnd AS "totalVnd", o.voucher_code AS "voucherCode",
@@ -469,7 +470,20 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
   [orderId,cleanOrderNumber,provider]
  );
  const initial=initialQuery.rows[0];
- if(!initial||!initial.attemptId)throw fail('Không tìm thấy phiên giao dịch cần đối soát.',404);
+ if(!initial)throw fail('Không tìm thấy phiên giao dịch cần đối soát.',404);
+ if(!initial.attemptId){
+  return {
+   matched:true,
+   verified:true,
+   action:'verified_unpaid',
+   reason:'no_payment_attempts_created',
+   orderId:initial.orderId,
+   orderNumber:initial.orderNumber,
+   orderStatus:initial.orderStatus,
+   paymentStatus:initial.paymentStatus,
+   message:'Đơn hàng chưa từng tạo phiên thanh toán qua cổng.'
+  };
+ }
  if(initial.paymentStatus==='paid'||initial.attemptStatus==='paid'||initial.hasReceipt){
   return {matched:true,verified:true,action:'already_paid',orderId:initial.orderId,orderNumber:initial.orderNumber,orderStatus:initial.orderStatus,paymentStatus:'paid',attemptStatus:'paid'};
  }
@@ -485,13 +499,26 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
   return {matched:false,verified:false,action:'awaiting_reconciliation',reason:'automated_query_unsupported',requiresManualReview:true,orderId:initial.orderId,orderNumber:initial.orderNumber,provider:initial.provider,message:'Kênh thanh toán ' + initial.provider.toUpperCase() + ' không hỗ trợ truy vấn tự động qua API ví. Cần đối soát thủ công trên portal cổng trước khi hủy.'};
  }
 
- const channelSettings=settings||(initial.provider==='vnpay'?await getVnpay(pool,config):(await readChannelRecord(pool,config,initial.provider)).data);
+ let channelSettings = settings;
+ if (!channelSettings) {
+  if (initial.provider === 'vnpay') {
+   const vnpRec = await readChannelRecord(pool, config, 'vnpay').catch(() => null);
+   const vnpDirect = await getVnpay(pool, config);
+   channelSettings = {
+    ...vnpDirect,
+    environment: vnpRec?.data?.environment || (String(vnpDirect?.paymentUrl || '').includes('sandbox.') ? 'sandbox' : 'production')
+   };
+  } else {
+   channelSettings = (await readChannelRecord(pool, config, initial.provider)).data;
+  }
+ }
  const {queryGatewayPayment}=require('./payment-provider-clients');
  let queryResult;
  try{
   queryResult=await queryGatewayPayment(initial.provider,channelSettings,{
    txnRef:initial.transactionRef,
    requestId:initial.providerRequestId||undefined,
+   transactionDate:initial.attemptCreatedAt||initial.orderCreatedAt||undefined,
    fetcher:fetcher||config?.paymentFetcher||fetch
   });
  }catch(queryErr){
@@ -695,7 +722,7 @@ async function reconcileUnknownGatewayAttempts(pool,config={},{limit=20,fetcher=
  const candidates=(await pool.query(
   `SELECT order_id AS "orderId", provider
    FROM payment_attempts
-   WHERE provider IN ('momo','zalopay')
+   WHERE provider IN ('vnpay','momo','zalopay')
      AND status IN ('payment_initiation_unknown','awaiting_reconciliation')
    ORDER BY updated_at ASC
    LIMIT $1`,
@@ -844,7 +871,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
   try{
    const parsed=z.object({
     orderNumber:z.string().trim().min(5).max(80),
-    provider:z.enum(['momo','zalopay']).optional(),
+    provider:z.enum(['vnpay','momo','zalopay']).optional(),
     cancelOnUnpaid:z.boolean().optional()
    }).parse({
     ...req.body,

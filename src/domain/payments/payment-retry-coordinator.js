@@ -18,6 +18,7 @@ const {
   assertOrderPayloadMatch,
   PaymentAttemptStateMachine
 } = require('./order-idempotency-policy');
+const { isManualPayment } = require('./payment-enums');
 
 function retryError(message, status = 400, code = 'PAYMENT_RETRY_ERROR') {
   return Object.assign(new Error(message), { status, code });
@@ -25,7 +26,7 @@ function retryError(message, status = 400, code = 'PAYMENT_RETRY_ERROR') {
 
 function extractOrderNumber(input) {
   if (!input) return null;
-  const match = String(input).toUpperCase().match(/GR-\d{8}-[A-F0-9]{4,16}/);
+  const match = String(input).toUpperCase().match(/GR-\d{8}-[A-Z0-9]{4,20}/);
   return match ? match[0] : String(input).trim();
 }
 
@@ -169,7 +170,7 @@ class PaymentRetryCoordinator {
     }
 
     // 6. Phương thức thủ công (COD, Chuyển khoản) không tạo phiên ví điện tử mới
-    if (!['momo', 'zalopay'].includes(lookup.paymentMethod)) {
+    if (isManualPayment(lookup.paymentMethod)) {
       return {
         status: 200,
         order: formatOrder(),
