@@ -468,5 +468,13 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
         }
       }).catch(function() {});
     }
+
+    // 4. Ngăn chặn triệt để hiện tượng trượt lệch ngang (horizontal drift / overflow) trên trình duyệt di động
+    window.addEventListener("scroll", function() {
+      if (window.scrollX > 0) window.scrollTo(0, window.scrollY);
+    }, { passive: true });
+    window.addEventListener("resize", function() {
+      if (window.scrollX > 0) window.scrollTo(0, window.scrollY);
+    }, { passive: true });
   }
 })();
