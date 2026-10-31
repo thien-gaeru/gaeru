@@ -43,14 +43,14 @@ async function sendZaloZns({ phone, templateId, templateData = {}, config = {} }
   }
 }
 
-function createZaloZnsAdmin(config) {
+function createZaloZnsAdmin(config, fetcher = (typeof fetch !== 'undefined' ? fetch : null)) {
   const { AdminAction } = require('./admin-action');
   const router = express.Router();
 
   router.post('/zns/test', AdminAction('marketing.write'), express.json(), async (req, res, next) => {
     try {
       const { phone = '0901234567', templateId = '12345', templateData = { order_code: 'GAERU-TEST', customer_name: 'Khách hàng' } } = req.body || {};
-      const result = await sendZaloZns({ phone, templateId, templateData, config });
+      const result = await sendZaloZns({ phone, templateId, templateData, config }, fetcher);
       res.json(result);
     } catch (err) {
       next(err);
