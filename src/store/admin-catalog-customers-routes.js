@@ -13,7 +13,7 @@ function attachAdminCatalogAndCustomerRoutes(router, pool, { inventory, audit })
   const parseImageUpload = createImageUploadParser();
   const { getTrafficSummary } = require('../traffic-tracker');
 
-  router.post('/gaeru_ceo/uploads', requireCsrf, parseImageUpload, async (req, res, next) => {
+  router.post('/gaeru_ceo/uploads', AdminAction('catalog.write'), parseImageUpload, async (req, res, next) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'Chọn một tệp ảnh để tải lên.' });
       const signatures = [
@@ -170,7 +170,7 @@ function attachAdminCatalogAndCustomerRoutes(router, pool, { inventory, audit })
     }
   });
 
-  router.patch('/gaeru_ceo/customers/:id', requireUuidParam('id'), requireCsrf, async (req, res, next) => {
+  router.patch('/gaeru_ceo/customers/:id', requireUuidParam('id'), AdminAction('customers.write'), async (req, res, next) => {
     try {
       const parsed = z.object({ active: z.boolean() }).safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: 'Trạng thái khách hàng chưa hợp lệ.' });

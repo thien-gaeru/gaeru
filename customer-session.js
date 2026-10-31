@@ -14,6 +14,6 @@
 })(typeof window==='undefined'?null:window,function createCustomerSession({fetch,notify=()=>{},broadcast=()=>{}}){
   let customer=null,revision=0,requestId=0;
   function set(value,{announce=true}={}){revision++;const next=value?{id:value.id,fullName:String(value.fullName||''),email:String(value.email||''),phone:String(value.phone||''),emailVerified:Boolean(value.emailVerified)}:null;const changed=JSON.stringify(next)!==JSON.stringify(customer);customer=next;if(changed)notify();if(announce)broadcast();}
-  async function refresh(){const start=revision,id=++requestId;try{const response=await fetch('/api/customer-auth/me',{credentials:'same-origin',cache:'no-store'});if(!response.ok)return;const data=await response.json();if(start!==revision||id!==requestId)return;set(data.authenticated?data.customer:null,{announce:false});}catch{}}
+  async function refresh(){const start=revision,id=++requestId;try{const response=await fetch('/api/customer-auth/me',{credentials:'same-origin',cache:'no-store'});if(response.status===401||response.status===403){if(start===revision&&id===requestId)set(null,{announce:false});return;}if(!response.ok)return;const data=await response.json();if(start!==revision||id!==requestId)return;set(data.authenticated?data.customer:null,{announce:false});}catch{}}
   return Object.freeze({get customer(){return customer?{...customer}:null;},set,refresh});
 });
