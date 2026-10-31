@@ -6,22 +6,41 @@ const { logOrderActivity } = require('../../order-activity');
 const { PaymentAttemptStateMachine } = require('../payments/order-idempotency-policy');
 
 /**
+ * Chính sách thời gian hết hạn (TTL) mặc định phân bổ theo đặc thù từng kênh thanh toán
+ */
+const DEFAULT_CHANNEL_TTL_HOURS = Object.freeze({
+  bank_transfer: 24, // Chuyển khoản ngân hàng thủ công: 24 giờ chờ duyệt sao kê
+  momo: 1,           // Ví MoMo: 1 giờ (phiên chuẩn 15 phút, dự phòng độ trễ mạng)
+  zalopay: 1,        // Ví ZaloPay: 1 giờ
+  vnpay: 1,          // Cổng VNPAY: 1 giờ
+  '9pay': 1          // Cổng 9Pay: 1 giờ
+});
+
+/**
  * Dịch vụ tự động hủy và hoàn trả tồn kho cho các đơn hàng quá hạn thanh toán
  * (Chuyển khoản hoặc Cổng trực tuyến chưa hoàn tất sau thời gian chờ tối đa).
  */
 class OrderExpirationService {
+  static get DEFAULT_CHANNEL_TTL_HOURS() {
+    return DEFAULT_CHANNEL_TTL_HOURS;
+  }
+
   /**
    * Quét và hủy các đơn hàng quá hạn chưa thanh toán, tự động giải phóng tồn kho và voucher
    * @param {Object} pool Connection pool
    * @param {Object} options
-   * @param {number} [options.olderThanHours=24] Số giờ tối đa chờ thanh toán (mặc định 24h)
+   * @param {number} [options.olderThanHours=24] Số giờ tối đa chờ thanh toán mặc định
+   * @param {Object} [options.channelTtlHours] Số giờ chờ cấu hình riêng theo từng kênh
    * @param {number} [options.batchSize=50] Số lượng đơn quét mỗi đợt
    * @param {Object} [options.inventory=null] Service tồn kho
+   * @param {Object} [options.config={}] Cấu hình ứng dụng
+   * @param {Function} [options.fetcher=null] Custom fetcher cho cổng thanh toán
    * @param {Object} [options.actor] Tác nhân thực hiện
    * @returns {Promise<Array<Object>>} Danh sách đơn đã hủy
    */
   static async cancelExpiredUnpaidOrders(pool, {
     olderThanHours = 24,
+    channelTtlHours = null,
     batchSize = 50,
     inventory = null,
     config = {},
@@ -30,24 +49,45 @@ class OrderExpirationService {
   } = {}) {
     if (!pool || typeof pool.query !== 'function') return [];
 
+    const ttlByChannel = {
+      bank_transfer: Number(config?.ORDER_EXPIRY_BANK_TRANSFER_HOURS ?? channelTtlHours?.bank_transfer ?? olderThanHours ?? DEFAULT_CHANNEL_TTL_HOURS.bank_transfer),
+      momo: Number(config?.ORDER_EXPIRY_MOMO_HOURS ?? channelTtlHours?.momo ?? (olderThanHours !== 24 ? olderThanHours : DEFAULT_CHANNEL_TTL_HOURS.momo)),
+      zalopay: Number(config?.ORDER_EXPIRY_ZALOPAY_HOURS ?? channelTtlHours?.zalopay ?? (olderThanHours !== 24 ? olderThanHours : DEFAULT_CHANNEL_TTL_HOURS.zalopay)),
+      vnpay: Number(config?.ORDER_EXPIRY_VNPAY_HOURS ?? channelTtlHours?.vnpay ?? (olderThanHours !== 24 ? olderThanHours : DEFAULT_CHANNEL_TTL_HOURS.vnpay)),
+      '9pay': Number(config?.ORDER_EXPIRY_9PAY_HOURS ?? channelTtlHours?.['9pay'] ?? (olderThanHours !== 24 ? olderThanHours : DEFAULT_CHANNEL_TTL_HOURS['9pay']))
+    };
+
     const candidates = (await pool.query(
-      `SELECT id, order_number AS "orderNumber", payment_method AS "paymentMethod", status, payment_status AS "paymentStatus"
-       FROM orders
-       WHERE status IN ('pending', 'confirmed')
-         AND payment_status = 'pending'
-         AND payment_method IN ('bank_transfer', 'vnpay', '9pay', 'momo', 'zalopay')
-         AND created_at < now() - ($1::text || ' hours')::interval
+      `SELECT o.id, o.order_number AS "orderNumber", o.payment_method AS "paymentMethod",
+              o.status, o.payment_status AS "paymentStatus"
+       FROM orders o
+       WHERE o.status IN ('pending', 'confirmed')
+         AND o.payment_status = 'pending'
+         AND o.payment_method IN ('bank_transfer', 'vnpay', '9pay', 'momo', 'zalopay')
+         AND (
+           (o.payment_method = 'bank_transfer' AND o.created_at < now() - ($1::text || ' hours')::interval)
+           OR (o.payment_method = 'momo' AND o.created_at < now() - ($2::text || ' hours')::interval)
+           OR (o.payment_method = 'zalopay' AND o.created_at < now() - ($3::text || ' hours')::interval)
+           OR (o.payment_method = 'vnpay' AND o.created_at < now() - ($4::text || ' hours')::interval)
+           OR (o.payment_method = '9pay' AND o.created_at < now() - ($5::text || ' hours')::interval)
+         )
+         -- Chặn ngay từ đầu: Không chọn đơn nếu còn phiên thanh toán đang trong hạn hiệu lực
          AND NOT EXISTS (
            SELECT 1 FROM payment_attempts pa
-           WHERE pa.order_id = orders.id
-             AND (
-               (pa.status = 'pending' AND (pa.expires_at IS NULL OR pa.expires_at > now()))
-               OR pa.status IN ('payment_initiation_unknown', 'awaiting_reconciliation')
-             )
+           WHERE pa.order_id = o.id
+             AND pa.expires_at IS NOT NULL
+             AND pa.expires_at > now()
          )
-       ORDER BY created_at ASC
-       LIMIT $2`,
-      [String(Math.max(1, Number(olderThanHours) || 24)), Math.min(200, Math.max(1, Number(batchSize) || 50))]
+       ORDER BY o.created_at ASC
+       LIMIT $6`,
+      [
+        String(Math.max(0.01, ttlByChannel.bank_transfer)),
+        String(Math.max(0.01, ttlByChannel.momo)),
+        String(Math.max(0.01, ttlByChannel.zalopay)),
+        String(Math.max(0.01, ttlByChannel.vnpay)),
+        String(Math.max(0.01, ttlByChannel['9pay'])),
+        Math.min(200, Math.max(1, Number(batchSize) || 50))
+      ]
     )).rows;
 
     const cancelledOrders = [];
@@ -55,28 +95,35 @@ class OrderExpirationService {
 
     for (const cand of candidates) {
       try {
+        let reconciliationOutcome = null;
+
         // Đối với cổng trực tuyến, thử đối soát trước khi hủy để xác nhận chưa thu tiền
-        if (['momo', 'zalopay'].includes(cand.paymentMethod)) {
+        if (['momo', 'zalopay', 'vnpay', '9pay'].includes(cand.paymentMethod)) {
           try {
             const { readChannelRecord, isChannelConfigured, reconcileGatewayOrder } = require('../../payment-channels');
             if (typeof readChannelRecord === 'function' && typeof reconcileGatewayOrder === 'function') {
               const chRecord = await readChannelRecord(pool, config, cand.paymentMethod).catch(() => null);
               if (chRecord && isChannelConfigured(cand.paymentMethod, chRecord)) {
-                const rec = await reconcileGatewayOrder(pool, {
+                reconciliationOutcome = await reconcileGatewayOrder(pool, {
                   orderId: cand.id,
                   config,
                   fetcher,
                   cancelOnUnpaid: false
-                }).catch(() => null);
-                if (rec?.paymentStatus === 'paid' || rec?.action === 'already_paid') {
-                  continue;
-                }
-                if (rec?.attemptStatus === 'awaiting_reconciliation') {
-                  continue;
-                }
+                }).catch((err) => ({ action: 'awaiting_reconciliation', error: err }));
               }
             }
-          } catch {}
+          } catch (err) {
+            reconciliationOutcome = { action: 'awaiting_reconciliation', error: err };
+          }
+        }
+
+        // Nếu đã xác nhận thanh toán thành công qua cổng, không hủy đơn!
+        if (
+          reconciliationOutcome?.paymentStatus === 'paid' ||
+          reconciliationOutcome?.action === 'already_paid' ||
+          reconciliationOutcome?.action === 'settled_paid'
+        ) {
+          continue;
         }
 
         const cancelled = await withTransaction(pool, async (client) => {
@@ -106,24 +153,71 @@ class OrderExpirationService {
             return null;
           }
 
-          // Chặn tự hủy nếu đang có phiên pending còn hạn (khách đang trong phiên checkout)
-          const hasActivePendingAttempt = attempts.some(a => {
-            if (a.status !== 'pending') return false;
+          // Chặn tự hủy nếu đang có phiên còn hạn hiệu lực (khách đang trong phiên checkout / QR chưa hết hạn)
+          const hasActiveAttempt = attempts.some(a => {
             const exp = a.expiresAt ? new Date(a.expiresAt) : null;
             return exp ? exp > new Date() : false;
           });
-          if (hasActivePendingAttempt) {
+          if (hasActiveAttempt) {
             return null;
           }
 
-          // Chặn tự hủy nếu đang có phiên ở trạng thái chưa phân định (unknown / awaiting_reconciliation)
+          // Kiểm tra xem giao dịch có nằm trong trạng thái chưa phân định (ambiguous / unknown)
+          const isAmbiguousReconciliation = reconciliationOutcome &&
+            ['awaiting_reconciliation', 'still_pending'].includes(reconciliationOutcome.action);
+
           const hasAmbiguousAttempt = attempts.some(a =>
-            ['payment_initiation_unknown', 'awaiting_reconciliation'].includes(a.status)
+            ['payment_initiation_unknown', 'awaiting_reconciliation', 'expiry_awaiting_verification'].includes(a.status)
           );
-          if (hasAmbiguousAttempt) {
+
+          // Nếu kết quả đối soát chưa kết luận chắc chắn hoặc attempt đang ở trạng thái chưa phân định:
+          // KHÔNG TỰ HỦY! KHÔNG HOÀN KHO! KHÔNG NHẢ VOUCHER!
+          // Chuyển sang expiry_awaiting_verification để đối soát xác thực tiếp
+          if (isAmbiguousReconciliation || (hasAmbiguousAttempt && reconciliationOutcome?.action !== 'retry_allowed')) {
+            for (const att of attempts) {
+              if (!['paid', 'cancelled'].includes(att.status)) {
+                try {
+                  PaymentAttemptStateMachine.assertValidTransition(att.status, 'expiry_awaiting_verification');
+                  await client.query(
+                    `UPDATE payment_attempts
+                     SET status = 'expiry_awaiting_verification', last_error_code = 'EXPIRY_AWAITING_VERIFICATION', updated_at = now()
+                     WHERE id = $1`,
+                    [att.id]
+                  );
+                } catch {}
+              }
+            }
+
+            if (typeof logOrderActivity === 'function') {
+              await logOrderActivity(client, {
+                orderId: order.id,
+                orderNumber: order.order_number,
+                actorType: 'system',
+                actorName: 'Tự động kiểm tra hết hạn',
+                action: 'expiry_awaiting_verification',
+                details: {
+                  from: order.status,
+                  reason: `Đơn hàng ${order.payment_method.toUpperCase()} quá hạn nhưng phiên thanh toán chưa được phân định chắc chắn tại cổng. Chuyển sang chờ đối soát xác thực, tạm giữ kho và voucher.`
+                }
+              });
+            }
+
+            await appendAudit(client, {
+              actor,
+              action: 'order.expiry_awaiting_verification',
+              entityType: 'order',
+              entityId: order.id,
+              metadata: {
+                paymentMethod: order.payment_method,
+                olderThanHours,
+                totalVnd: order.total_vnd
+              }
+            });
+
             return null;
           }
 
+          // QUYẾT ĐỊNH CUỐI CÙNG (Final Definitive Decision) - Xác nhận 100% chưa thanh toán:
           // 1. Hoàn trả tồn kho kho hàng
           if (inv && typeof inv.releaseOrderStock === 'function') {
             await inv.releaseOrderStock(client, { orderId: order.id, actor });
@@ -173,7 +267,7 @@ class OrderExpirationService {
               details: {
                 from: order.status,
                 to: 'cancelled',
-                reason: `Đơn hàng ${order.payment_method.toUpperCase()} quá hạn thanh toán (${olderThanHours} giờ), hệ thống tự động hủy và hoàn trả tồn kho.`
+                reason: `Đơn hàng ${order.payment_method.toUpperCase()} quá hạn thanh toán và đã xác nhận chưa thu tiền, hệ thống tự động hủy và hoàn trả tồn kho.`
               }
             });
           }
@@ -212,6 +306,7 @@ class OrderExpirationService {
 function startOrderExpirationWorker(pool, config = {}, {
   intervalMs = 5 * 60 * 1000, // 5 phút quét một lần
   olderThanHours = 24,
+  channelTtlHours = null,
   onError = (err) => console.error('Order expiration worker error:', err.message)
 } = {}) {
   let running = false;
@@ -221,7 +316,7 @@ function startOrderExpirationWorker(pool, config = {}, {
     if (running || stopped) return;
     running = true;
     try {
-      await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours });
+      await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours, channelTtlHours, config });
     } catch (err) {
       onError(err);
     } finally {
@@ -238,6 +333,7 @@ function startOrderExpirationWorker(pool, config = {}, {
 }
 
 module.exports = {
+  DEFAULT_CHANNEL_TTL_HOURS,
   OrderExpirationService,
   startOrderExpirationWorker
 };

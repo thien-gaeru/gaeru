@@ -794,3 +794,126 @@ test('P0-03: Two concurrent retry requests execute gateway call once and prevent
   assert.ok(dbRow.paymentUrl.includes(dbRow.providerRequestId), 'payment_url phải chứa đúng provider_request_id tương ứng, tuyệt đối không bị lệch!');
 });
 
+test('P1-01: Channel TTL policy, guards against cancelling awaiting/active attempts, and transitions to expiry_awaiting_verification', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Loa Bluetooth P1', 'loa-bluetooth-p1', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P1-01', 'Đen', 600000, 10, true)",
+    [vId, pId]
+  );
+
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 10) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+
+  // Case A: Đơn MoMo quá 24 giờ nhưng phiên awaiting_reconciliation, expires_at còn 10 phút
+  const orderAId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-P1-MOMO-ACTIVE-REC', 'Buyer A', 'a@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 600000, 600000, 0, now() - interval '25 hours')`,
+    [orderAId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Loa Bluetooth P1', 'Đen', 'SKU-P1-01', 1, 600000, 600000)`,
+    [orderAId, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', 'GR-P1-MOMO-ACTIVE-REC', 600000, 'awaiting_reconciliation', now() + interval '10 minutes')`,
+    [orderAId]
+  );
+
+  // Case B: Đơn MoMo quá 24 giờ, phiên awaiting_reconciliation đã hết hạn (-5 phút), nhưng đối soát chưa thể kết luận (khoản thu chưa rõ)
+  const orderBId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-P1-MOMO-EXP-AMBIG', 'Buyer B', 'b@gaeru.com', '0912345679', 'District 3', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 600000, 600000, 0, now() - interval '25 hours')`,
+    [orderBId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Loa Bluetooth P1', 'Đen', 'SKU-P1-01', 1, 600000, 600000)`,
+    [orderBId, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', 'GR-P1-MOMO-EXP-AMBIG', 600000, 'awaiting_reconciliation', now() - interval '5 minutes')`,
+    [orderBId]
+  );
+
+  // Case C: Đơn Bank Transfer tạo 2 giờ trước (chưa tới 24h)
+  const orderCId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-P1-BANK-2H', 'Buyer C', 'c@gaeru.com', '0912345680', 'District 5', 'TP. Hồ Chí Minh', 'bank_transfer', 'pending', 'pending', 600000, 600000, 0, now() - interval '2 hours')`,
+    [orderCId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Loa Bluetooth P1', 'Đen', 'SKU-P1-01', 1, 600000, 600000)`,
+    [orderCId, vId]
+  );
+
+  // Case D: Đơn MoMo tạo 2 giờ trước (đã quá TTL 1h của MoMo) và không có phiên còn hạn
+  const orderDId = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-P1-MOMO-EXPIRED-2H', 'Buyer D', 'd@gaeru.com', '0912345681', 'District 7', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 600000, 600000, 0, now() - interval '2 hours')`,
+    [orderDId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Loa Bluetooth P1', 'Đen', 'SKU-P1-01', 1, 600000, 600000)`,
+    [orderDId, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', 'GR-P1-MOMO-EXPIRED-2H', 600000, 'pending', now() - interval '45 minutes')`,
+    [orderDId]
+  );
+
+  // Run OrderExpirationService
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool);
+  const cancelledIds = cancelled.map(c => c.orderId);
+
+  // 1. Case A (MoMo awaiting_reconciliation with 10 mins remaining): TUYỆT ĐỐI KHÔNG BỊ HỦY!
+  assert.ok(!cancelledIds.includes(orderAId), 'Đơn Case A có phiên awaiting còn hạn 10 phút không được hủy');
+  const oA = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderAId])).rows[0];
+  assert.equal(oA.status, 'pending');
+  assert.equal(oA.payment_status, 'pending');
+  const attA = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [orderAId])).rows[0];
+  assert.equal(attA.status, 'awaiting_reconciliation');
+
+  // 2. Case B (MoMo awaiting_reconciliation expired but ambiguous): KHÔNG bị hủy, chuyển sang expiry_awaiting_verification!
+  assert.ok(!cancelledIds.includes(orderBId), 'Đơn Case B chưa phân định không được hủy, không hoàn kho');
+  const oB = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderBId])).rows[0];
+  assert.equal(oB.status, 'pending');
+  const attB = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [orderBId])).rows[0];
+  assert.equal(attB.status, 'expiry_awaiting_verification');
+
+  // 3. Case C (Bank Transfer 2 hours old): Chưa quá TTL 24h của kênh bank_transfer nên KHÔNG bị hủy!
+  assert.ok(!cancelledIds.includes(orderCId), 'Đơn Bank Transfer 2h chưa tới TTL 24h không bị hủy');
+  const oC = (await pool.query('SELECT status FROM orders WHERE id = $1', [orderCId])).rows[0];
+  assert.equal(oC.status, 'pending');
+
+  // 4. Case D (MoMo 2 hours old, attempt expired): Đã quá TTL 1h của MoMo nên ĐƯỢC tự động hủy và hoàn kho!
+  assert.ok(cancelledIds.includes(orderDId), 'Đơn MoMo 2h đã quá TTL 1h phải được hủy');
+  const oD = (await pool.query('SELECT status FROM orders WHERE id = $1', [orderDId])).rows[0];
+  assert.equal(oD.status, 'cancelled');
+  const attD = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [orderDId])).rows[0];
+  assert.equal(attD.status, 'cancelled');
+});
+
+

@@ -7,7 +7,11 @@
 const ONLINE_GATEWAYS = Object.freeze(['vnpay', '9pay', 'momo', 'zalopay']);
 const MANUAL_METHODS = Object.freeze(['cod', 'bank_transfer']);
 const ALL_METHODS = Object.freeze([...MANUAL_METHODS, ...ONLINE_GATEWAYS]);
-const UNKNOWN_ATTEMPT_STATES = Object.freeze(['payment_initiation_unknown', 'awaiting_reconciliation']);
+const UNKNOWN_ATTEMPT_STATES = Object.freeze([
+  'payment_initiation_unknown',
+  'awaiting_reconciliation',
+  'expiry_awaiting_verification'
+]);
 
 function isUnknownAttemptState(status) {
   return UNKNOWN_ATTEMPT_STATES.includes(String(status || '').toLowerCase());
