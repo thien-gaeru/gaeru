@@ -7,6 +7,16 @@
   const statusSelector = '[role="status"],.feedback,.security-feedback,.workspace-status,[data-global-feedback]';
   const text = node => (node.textContent || '').trim();
 
+  function updateRegionState() {
+    if (!region) return;
+    const hasNotices = region.children && region.children.length > 0;
+    if (hasNotices) {
+      region.classList?.add?.('is-active');
+    } else {
+      region.classList?.remove?.('is-active');
+    }
+  }
+
   function notify(message, error = false) {
     if (!message) return;
     const host = [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
@@ -15,6 +25,11 @@
       region.className = 'gaeru-action-notices';
       region.setAttribute('aria-live', 'polite');
       region.setAttribute('aria-label', 'Thông báo thao tác');
+      add.call(region, 'click', (e) => {
+        if (e.target === region && region.lastElementChild) {
+          region.lastElementChild.remove();
+        }
+      });
       host.append(region);
     }
     if (region.parentElement !== host) host.append(region);
@@ -24,11 +39,29 @@
     messageNode.textContent = String(message).slice(0, 600);
     const close = document.createElement('button');
     close.type = 'button';
+    close.className = 'gaeru-notice-close';
     close.textContent = '×';
     close.setAttribute('aria-label', 'Đóng thông báo');
     add.call(close, 'click', () => item.remove());
-    item.append(messageNode, close);
+
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.className = 'gaeru-notice-action-btn';
+    actionBtn.textContent = 'Đã hiểu';
+    add.call(actionBtn, 'click', () => item.remove());
+
+    item.append(messageNode, close, actionBtn);
+
+    const origRemove = typeof item.remove === 'function' ? item.remove.bind(item) : null;
+    if (origRemove) {
+      item.remove = () => {
+        origRemove();
+        updateRegionState();
+      };
+    }
+
     region.append(item);
+    updateRegionState();
     while (region.children.length > 3) region.firstElementChild.remove();
     setTimeout(() => item.remove(), error ? 10000 : 6500);
   }
@@ -410,6 +443,8 @@
   }, true);
 
   if (typeof window !== 'undefined') {
+    window.GAERUNotify = notify;
+    window.GAERUFeedback = Object.assign(window.GAERUFeedback || {}, { notify });
     window.GAERUValidation = Object.freeze({
       validatePhone: validatePhoneNumber,
       validateEmail: validateEmailAddress,
