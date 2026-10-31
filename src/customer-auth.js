@@ -137,7 +137,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
       const isEmail = parsed.data.identifier.includes('@');
       const result = await pool.query(
-        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash,deleted_at AS "deletedAt", phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt", reg_email_failed_at AS "regEmailFailedAt", google_id AS "googleId", reg_email_failed_at AS "regEmailFailedAt", google_id AS "googleId"
+        `SELECT id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified", active, password_hash, deleted_at AS "deletedAt", phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt", reg_email_failed_at AS "regEmailFailedAt", google_id AS "googleId"
          FROM customers WHERE ${isEmail ? 'email = $1' : 'phone = ANY($1::text[])'} LIMIT 2`,
         [isEmail ? parsed.data.identifier.toLowerCase() : loginPhoneCandidates(parsed.data.identifier)]
       );
@@ -219,7 +219,8 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       const result = await pool.query(
         `SELECT id, full_name AS "fullName", email, phone,
                 email_verified_at IS NOT NULL AS "emailVerified", active,
-                phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt"
+                phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt",
+                reg_email_failed_at AS "regEmailFailedAt", google_id AS "googleId"
          FROM customers WHERE id = $1`,
         [customer.id]
       );

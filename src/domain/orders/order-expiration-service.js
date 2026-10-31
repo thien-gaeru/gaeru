@@ -422,6 +422,21 @@ class OrderExpirationService {
         if (cancelled) cancelledOrders.push(cancelled);
       } catch (err) {
         console.error(`Lỗi khi tự động hủy đơn quá hạn ${cand.orderNumber}:`, err.message);
+        try {
+          const { alertSystem } = require('../../system-alerts');
+          await alertSystem(pool, {
+            severity: 'warning',
+            source: 'order_expiration_cancellation_failed',
+            message: `[LỖI HỦY ĐƠN TỰ ĐỘNG] Không thể hủy đơn quá hạn ${cand.orderNumber}: ${err.message}`,
+            metadata: {
+              orderId: cand.id,
+              orderNumber: cand.orderNumber,
+              error: err.message,
+              code: err.code || null
+            },
+            config
+          }, fetcher);
+        } catch {}
         errors.push({
           orderId: cand.id,
           orderNumber: cand.orderNumber,

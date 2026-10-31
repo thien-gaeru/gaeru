@@ -846,6 +846,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             if (retryErr.status === 403 || retryErr.status === 409) {
               return res.status(retryErr.status).json({ error: retryErr.message, code: retryErr.code });
             }
+            throw retryErr;
           }
         }
         if (error.status) return res.status(error.status).json({ error: error.message });
