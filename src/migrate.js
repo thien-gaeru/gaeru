@@ -140,6 +140,19 @@ async function precheckAndQuarantineDuplicates(pool) {
       )
     `);
 
+    // Dọn dẹp các bản ghi trùng cũ (nếu có) trước khi tạo UNIQUE INDEX để không chặn migration
+    await client.query(`
+      DELETE FROM payment_attempts_quarantine_duplicates a
+      USING payment_attempts_quarantine_duplicates b
+      WHERE a.ctid < b.ctid AND a.attempt_id = b.attempt_id
+    `).catch(() => {});
+
+    // Tạo UNIQUE INDEX trên attempt_id để chống ghi cách ly trùng tuyệt đối
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_quarantine_attempt_id
+      ON payment_attempts_quarantine_duplicates (attempt_id)
+    `);
+
     // Kiểm tra trùng lặp trên cặp (provider, provider_request_id)
     const dupGroups = await client.query(`
       SELECT provider, provider_request_id, count(*) AS cnt
@@ -170,7 +183,7 @@ async function precheckAndQuarantineDuplicates(pool) {
         GROUP BY provider, provider_request_id
         HAVING count(*) > 1
       )
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (attempt_id) DO NOTHING
     `);
 
     // COMMIT transaction riêng để dữ liệu cách ly được lưu vĩnh viễn dù migration sau đó bị chặn
