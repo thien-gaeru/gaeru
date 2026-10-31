@@ -87,3 +87,16 @@ CREATE INDEX IF NOT EXISTS idx_payment_attempts_order_provider_status
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_provider_request_id
   ON payment_attempts (provider_request_id)
   WHERE provider_request_id IS NOT NULL;
+
+ALTER TABLE payment_attempts DROP CONSTRAINT IF EXISTS payment_attempts_status_check;
+ALTER TABLE payment_attempts ADD CONSTRAINT payment_attempts_status_check
+  CHECK (status IN (
+    'pending',
+    'payment_initiation_unknown',
+    'awaiting_reconciliation',
+    'expiry_awaiting_verification',
+    'paid',
+    'failed',
+    'cancelled'
+  ));
+

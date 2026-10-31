@@ -18,7 +18,8 @@ const ATTEMPT_STATES = Object.freeze({
   FAILED: 'failed',
   CANCELLED: 'cancelled',
   UNKNOWN: 'payment_initiation_unknown',
-  AWAITING_RECONCILIATION: 'awaiting_reconciliation'
+  AWAITING_RECONCILIATION: 'awaiting_reconciliation',
+  EXPIRY_AWAITING_VERIFICATION: 'expiry_awaiting_verification'
 });
 
 const TERMINAL_ATTEMPT_STATES = Object.freeze([
@@ -379,6 +380,7 @@ class PaymentAttemptStateMachine {
           ATTEMPT_STATES.FAILED,
           ATTEMPT_STATES.UNKNOWN,
           ATTEMPT_STATES.AWAITING_RECONCILIATION,
+          ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION,
           ATTEMPT_STATES.CANCELLED
         ].includes(from);
 
@@ -387,7 +389,8 @@ class PaymentAttemptStateMachine {
         return [
           ATTEMPT_STATES.FAILED,
           ATTEMPT_STATES.UNKNOWN,
-          ATTEMPT_STATES.AWAITING_RECONCILIATION
+          ATTEMPT_STATES.AWAITING_RECONCILIATION,
+          ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION
         ].includes(from);
 
       case ATTEMPT_STATES.UNKNOWN:
@@ -397,14 +400,23 @@ class PaymentAttemptStateMachine {
       case ATTEMPT_STATES.AWAITING_RECONCILIATION:
         return [
           ATTEMPT_STATES.PENDING,
-          ATTEMPT_STATES.UNKNOWN
+          ATTEMPT_STATES.UNKNOWN,
+          ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION
+        ].includes(from);
+
+      case ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION:
+        return [
+          ATTEMPT_STATES.PENDING,
+          ATTEMPT_STATES.UNKNOWN,
+          ATTEMPT_STATES.AWAITING_RECONCILIATION
         ].includes(from);
 
       case ATTEMPT_STATES.FAILED:
         return [
           ATTEMPT_STATES.PENDING,
           ATTEMPT_STATES.UNKNOWN,
-          ATTEMPT_STATES.AWAITING_RECONCILIATION
+          ATTEMPT_STATES.AWAITING_RECONCILIATION,
+          ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION
         ].includes(from);
 
       case ATTEMPT_STATES.CANCELLED:
@@ -412,7 +424,8 @@ class PaymentAttemptStateMachine {
           ATTEMPT_STATES.PENDING,
           ATTEMPT_STATES.FAILED,
           ATTEMPT_STATES.UNKNOWN,
-          ATTEMPT_STATES.AWAITING_RECONCILIATION
+          ATTEMPT_STATES.AWAITING_RECONCILIATION,
+          ATTEMPT_STATES.EXPIRY_AWAITING_VERIFICATION
         ].includes(from);
 
       default:
