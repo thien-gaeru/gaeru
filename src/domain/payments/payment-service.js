@@ -16,6 +16,7 @@ const {
   transitionPaymentStatus,
   UNKNOWN_ATTEMPT_STATES
 } = require('./payment-policy');
+const { PaymentAttemptStateMachine } = require('./order-idempotency-policy');
 
 function paymentError(message, status = 409, code = 'PAYMENT_ERROR') {
   return Object.assign(new Error(message), { status, code });
@@ -137,6 +138,9 @@ class PaymentService {
 
         if (gwError.ambiguous === false) {
           if (locked?.attemptId) {
+            if (locked.attemptStatus) {
+              PaymentAttemptStateMachine.assertValidTransition(locked.attemptStatus, 'failed');
+            }
             await client.query(
               `UPDATE payment_attempts
                SET status = 'failed', response_code = $2, last_error_code = $3, updated_at = now()
@@ -193,6 +197,9 @@ class PaymentService {
 
         // Trạng thái không xác định (timeout / lỗi mạng / HTTP 5xx): giữ nguyên đơn + attempt, ghi payment_initiation_unknown & đẩy vào outbox đối soát
         if (locked?.attemptId) {
+          if (locked.attemptStatus) {
+            PaymentAttemptStateMachine.assertValidTransition(locked.attemptStatus, 'payment_initiation_unknown');
+          }
           await client.query(
             `UPDATE payment_attempts
              SET status = 'payment_initiation_unknown', last_error_code = $2, updated_at = now()
@@ -270,6 +277,10 @@ class PaymentService {
         )).rows[0];
         const locked = lockedOrder ? { ...lockedOrder, ...(lockedAttempt || {}) } : null;
 
+        if (lockedAttempt?.attemptStatus && UNKNOWN_ATTEMPT_STATES.includes(lockedAttempt.attemptStatus)) {
+          PaymentAttemptStateMachine.assertValidTransition(lockedAttempt.attemptStatus, 'pending');
+        }
+
         await client.query(
           `UPDATE payment_attempts
            SET provider_request_id = COALESCE(provider_request_id, $3),
@@ -329,6 +340,9 @@ class PaymentService {
             return;
           }
           if (locked?.attemptId) {
+            if (locked.attemptStatus) {
+              PaymentAttemptStateMachine.assertValidTransition(locked.attemptStatus, 'awaiting_reconciliation');
+            }
             await client.query(
               `UPDATE payment_attempts
                SET status = 'awaiting_reconciliation',

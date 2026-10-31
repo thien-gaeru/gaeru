@@ -19,8 +19,8 @@ function attachPublicAndCheckoutRoutes(router, pool, {
   paymentFetcher,
   publicBaseUrl,
   inventory,
-  finance,
-  audit,
+  finance = require('../finance-api'),
+  audit = require('../audit').appendAudit,
   shippingChoices,
   checkoutAccounts,
   config
@@ -313,8 +313,13 @@ function attachPublicAndCheckoutRoutes(router, pool, {
     orderLimit,
     requireCsrf,
     async (req, res, next) => {
+      let parsed = null;
+      let customerEmail = '';
+      let customerPhone = '';
+      let rawClientReference = null;
+      let scopedClientReference = null;
       try {
-        const parsed = orderSchema.safeParse(req.body);
+        parsed = orderSchema.safeParse(req.body);
         if (!parsed.success) {
           return res.status(400).json({ error: 'Thông tin đặt hàng chưa hợp lệ.', details: parsed.error.issues });
         }
@@ -339,12 +344,12 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           return res.status(400).json({ error: 'Mỗi phiên bản chỉ được đặt tối đa 99 sản phẩm.' });
         }
 
-        const customerEmail = parsed.data.customer.email.toLowerCase().trim();
-        const customerPhone = parsed.data.customer.phone.replace(/\D/g, '');
+        customerEmail = parsed.data.customer.email.toLowerCase().trim();
+        customerPhone = parsed.data.customer.phone.replace(/\D/g, '');
         const headerIdempotencyKey = String(req.get?.('X-Idempotency-Key') || '').trim();
-        const rawClientReference = parsed.data.idempotencyKey ||
+        rawClientReference = parsed.data.idempotencyKey ||
           (headerIdempotencyKey && /^[A-Za-z0-9_.:-]{4,120}$/.test(headerIdempotencyKey) ? headerIdempotencyKey : null);
-        const scopedClientReference = buildScopedClientReference(rawClientReference, { email: customerEmail, phone: customerPhone });
+        scopedClientReference = buildScopedClientReference(rawClientReference, { email: customerEmail, phone: customerPhone });
         const retryOrderNumber = parsed.data.retryOrderNumber || null;
 
         if (scopedClientReference || retryOrderNumber) {
@@ -534,12 +539,20 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               }
             }
             if (inventory) {
-              await inventory.reserveStock(client, {
-                variantId: item.id,
-                quantity: item.quantity,
-                orderId: createdOrder.id,
-                actor: { username: 'customer', source: 'customer' }
-              });
+              if (typeof inventory.reserveStock === 'function') {
+                await inventory.reserveStock(client, {
+                  variantId: item.id,
+                  quantity: item.quantity,
+                  orderId: createdOrder.id,
+                  actor: { username: 'customer', source: 'customer' }
+                });
+              } else if (typeof inventory.reserveOrderStock === 'function') {
+                await inventory.reserveOrderStock(client, {
+                  items: [{ variantId: item.id, quantity: item.quantity }],
+                  orderId: createdOrder.id,
+                  actor: { username: 'customer', source: 'customer' }
+                });
+              }
             } else {
               await client.query(
                 'UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1',
@@ -660,15 +673,15 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
         });
       } catch (error) {
-        if (typeof scopedClientReference !== 'undefined' && scopedClientReference && (error.code === '23505' || String(error.message || '').includes('orders_client_reference_uidx'))) {
+        if (scopedClientReference && (error.code === '23505' || String(error.message || '').includes('orders_client_reference_uidx'))) {
           try {
             const resumed = await require('../payment-channels').retryGatewayOrderPayment(pool, {
               clientReference: scopedClientReference,
               expectedCustomer: { email: customerEmail, phone: customerPhone },
-              expectedPaymentMethod: parsed.data.paymentMethod,
-              expectedItems: parsed.data.items,
+              expectedPaymentMethod: parsed?.data?.paymentMethod,
+              expectedItems: parsed?.data?.items,
               config: config || {},
-              settings: req.paymentChannels?.configs?.[parsed.data.paymentMethod] || null,
+              settings: req.paymentChannels?.configs?.[parsed?.data?.paymentMethod] || null,
               baseUrl: publicBaseUrl,
               fetcher: paymentFetcher,
               inventory,

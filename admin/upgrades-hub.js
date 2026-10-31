@@ -36,7 +36,7 @@
   ];
 
   const sharedFmt = (typeof window !== 'undefined' && window.GAERUAdminShared) || (typeof require === 'function' ? require('./format') : {});
-  const escapeHtml = sharedFmt.escapeHtml || ((typeof window !== 'undefined' && window.escapeHtml) || ((str) => String(str ?? '')));
+  const escapeHtml = sharedFmt.escapeHtml || ((typeof window !== 'undefined' && window.escapeHtml) || ((str) => String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])));
   const formatMoney = (amount) => sharedFmt.formatMoney ? sharedFmt.formatMoney(amount, { suffix: 'đ' }) : (Number(amount || 0).toLocaleString('vi-VN') + 'đ');
 
   let cachedCsrfToken = '';

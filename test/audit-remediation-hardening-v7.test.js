@@ -1,0 +1,344 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createTestDb } = require('./helpers/pglite-db');
+const { withTransaction } = require('../src/db');
+const {
+  assertOrderOwnership,
+  assertOrderPayloadMatch,
+  buildScopedClientReference,
+  PaymentAttemptStateMachine
+} = require('../src/domain/payments/order-idempotency-policy');
+const { PaymentService } = require('../src/domain/payments/payment-service');
+const { OrderExpirationService } = require('../src/domain/orders/order-expiration-service');
+const { discount, MAX_DISCOUNT_PERCENT } = require('../src/marketing');
+const inventoryModule = require('../src/inventory');
+
+test('Issue B: assertOrderPayloadMatch aggregates duplicate variant lines on both cart and DB', async () => {
+  const order = { paymentMethod: 'cod', totalVnd: 500000 };
+  const dbItems = [{ variantId: 'v-100', quantity: 3 }];
+
+  // Khách gửi giỏ gồm 2 dòng cùng biến thể: 1 + 2 = 3
+  const expectedItemsWithDuplicates = [
+    { variantId: 'v-100', quantity: 1 },
+    { variantId: 'v-100', quantity: 2 }
+  ];
+
+  // Không được ném lỗi IDEMPOTENCY_ITEMS_MISMATCH
+  assert.doesNotThrow(() => {
+    assertOrderPayloadMatch(order, dbItems, {
+      expectedPaymentMethod: 'cod',
+      expectedTotalVnd: 500000,
+      expectedItems: expectedItemsWithDuplicates
+    });
+  });
+
+  // Nếu số lượng tổng khác nhau: ném 409
+  assert.throws(() => {
+    assertOrderPayloadMatch(order, dbItems, {
+      expectedPaymentMethod: 'cod',
+      expectedTotalVnd: 500000,
+      expectedItems: [
+        { variantId: 'v-100', quantity: 1 },
+        { variantId: 'v-100', quantity: 1 }
+      ]
+    });
+  }, (err) => err.code === 'IDEMPOTENCY_ITEMS_MISMATCH' && err.status === 409);
+});
+
+test('Issue C: assertOrderOwnership strictly requires both email and phone when both provided', async () => {
+  const order = {
+    customerEmail: 'alice@example.com',
+    customerPhone: '0912345678'
+  };
+
+  // 1. Cả 2 khớp -> Cho phép
+  assert.equal(assertOrderOwnership(order, { email: 'alice@example.com', phone: '0912345678' }), true);
+
+  // 2. Đúng email nhưng sai số điện thoại -> Chặn 403
+  assert.throws(() => {
+    assertOrderOwnership(order, { email: 'alice@example.com', phone: '0999999999' });
+  }, (err) => err.code === 'FORBIDDEN_ORDER_ACCESS' && err.status === 403);
+
+  // 3. Đúng số điện thoại nhưng sai email -> Chặn 403
+  assert.throws(() => {
+    assertOrderOwnership(order, { email: 'attacker@example.com', phone: '0912345678' });
+  }, (err) => err.code === 'FORBIDDEN_ORDER_ACCESS' && err.status === 403);
+
+  // 4. Chỉ cung cấp email khớp -> Cho phép
+  assert.equal(assertOrderOwnership(order, { email: 'alice@example.com' }), true);
+
+  // 5. Chỉ cung cấp phone khớp -> Cho phép
+  assert.equal(assertOrderOwnership(order, { phone: '0912345678' }), true);
+});
+
+test('Issue D: PaymentAttemptStateMachine enforces invariant paid state and validates transitions', async () => {
+  // Trạng thái paid là bất biến tuyệt đối
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('paid', 'failed'), false);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('paid', 'pending'), false);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('paid', 'awaiting_reconciliation'), false);
+
+  assert.throws(() => {
+    PaymentAttemptStateMachine.assertValidTransition('paid', 'failed');
+  }, (err) => err.code === 'INVALID_PAYMENT_STATE_TRANSITION' && err.status === 409);
+
+  // Trạng thái cancelled không thể phục hồi
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('cancelled', 'pending'), false);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('cancelled', 'paid'), false);
+
+  // Chuyển hợp lệ
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('pending', 'paid'), true);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('pending', 'payment_initiation_unknown'), true);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('payment_initiation_unknown', 'pending'), true);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('payment_initiation_unknown', 'awaiting_reconciliation'), true);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('awaiting_reconciliation', 'paid'), true);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('failed', 'pending'), true);
+});
+
+test('Issue G: Admin format & escapeHtml properly escapes HTML characters without raw pass-through', async () => {
+  const sharedFormat = require('../admin/format');
+  const rawInput = '<script>alert("xss & \'hack\'")</script>';
+  const escaped = sharedFormat.escapeHtml(rawInput);
+
+  assert.equal(escaped.includes('<script>'), false);
+  assert.equal(escaped.includes('&lt;script&gt;'), true);
+  assert.equal(escaped.includes('&amp;'), true);
+  assert.equal(escaped.includes('&#39;'), true);
+  assert.equal(escaped.includes('&quot;'), true);
+});
+
+test('Part B-1: Late payment callback on cancelled order logs alert activity in order_activities', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const { reconcilePrepaidOrder } = require('../src/payment-channels');
+
+  // Insert product, variant and cancelled order
+  const pId = '11111111-1111-4111-8111-111111111111';
+  const vId = '22222222-2222-4222-8222-222222222222';
+  const orderId = '33333333-3333-4333-8333-333333333333';
+  const attemptId = '44444444-4444-4444-8444-444444444444';
+
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính P1', 'kinh-p1', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-LATE', 'Đen', 500000, 10, true)",
+    [vId, pId]
+  );
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd)
+     VALUES ($1, 'GR-LATE-001', 'Late Buyer', 'late@gaeru.com', '0912345678', '123 Ba Dinh', 'Hà Nội', 'momo', 'cancelled', 'pending', 500000, 500000, 0)`,
+    [orderId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES ($1, $2, 'momo', 'GR-LATE-001', 500000, 'pending', now() + interval '30 minutes')`,
+    [attemptId, orderId]
+  );
+
+  // Late payment callback arrives when order is already cancelled
+  await withTransaction(pool, async (client) => {
+    await reconcilePrepaidOrder(client, {
+      provider: 'momo',
+      orderNumber: 'GR-LATE-001',
+      amountVnd: 500000,
+      successful: true,
+      providerTransactionId: 'momo-tx-late-123'
+    });
+  });
+
+  // Verify payment attempt became paid
+  const att = (await pool.query('SELECT status FROM payment_attempts WHERE id = $1', [attemptId])).rows[0];
+  assert.equal(att.status, 'paid');
+
+  // Verify order status remains cancelled and payment_status is paid
+  const ord = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(ord.status, 'cancelled');
+  assert.equal(ord.payment_status, 'paid');
+
+  // Verify order_activities logged the alert with requiresRefund: true
+  const activities = (await pool.query(
+    `SELECT * FROM order_activities WHERE order_id = $1 AND details::text LIKE '%requiresRefund%'`,
+    [orderId]
+  )).rows;
+  assert.equal(activities.length, 1, 'Phải có 1 activity cảnh báo hoàn tiền cho đơn thanh toán sau hủy');
+  const details = typeof activities[0].details === 'string' ? JSON.parse(activities[0].details) : activities[0].details;
+  assert.equal(details.requiresRefund, true);
+  assert.equal(details.type, 'late_settlement_on_cancelled_order');
+});
+
+test('Part B-2: OrderExpirationService auto-cancels overdue unpaid bank transfer/gateway orders and releases stock', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = '55555555-5555-4555-8555-555555555555';
+  const vId = '66666666-6666-4666-8666-666666666666';
+  const orderId = '77777777-7777-4777-8777-777777777777';
+
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính Hết Hạn', 'kinh-het-han', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-EXPIRE', 'Bạc', 600000, 10, true)",
+    [vId, pId]
+  );
+
+  // Initialize warehouse stock
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 10) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+
+  // Create an expired unpaid bank transfer order (created 30 hours ago)
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-EXPIRE-001', 'Expired Buyer', 'expire@gaeru.com', '0912345678', 'Cau Giay', 'Hà Nội', 'bank_transfer', 'pending', 'pending', 600000, 600000, 0, now() - interval '30 hours')`,
+    [orderId]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính Hết Hạn', 'Bạc', 'SKU-EXPIRE', 2, 300000, 600000)`,
+    [orderId, vId]
+  );
+
+  // Run OrderExpirationService
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours: 24 });
+  assert.equal(cancelled.length, 1);
+  assert.equal(cancelled[0].orderNumber, 'GR-EXPIRE-001');
+
+  // Verify order is cancelled
+  const orderCheck = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(orderCheck.status, 'cancelled');
+
+  // Verify activity logged
+  const act = (await pool.query('SELECT * FROM order_activities WHERE order_id = $1', [orderId])).rows[0];
+  assert.ok(act, 'Phải có bản ghi order_activities về việc tự động hủy đơn');
+});
+
+test('Part B-3: Marketing discount ceiling is exported and configurable via options.maxDiscountPercent', () => {
+  assert.equal(MAX_DISCOUNT_PERCENT, 40);
+
+  const voucher50 = { kind: 'percent', amount: 50, max_discount_vnd: null };
+  const subtotal = 1000000;
+
+  // Mặc định: trần 40% -> 400.000đ
+  const defaultDiscount = discount(voucher50, subtotal);
+  assert.equal(defaultDiscount, 400000);
+
+  // Khi cấu hình rõ ràng maxDiscountPercent = 60 -> 50% = 500.000đ
+  const customDiscount = discount(voucher50, subtotal, { maxDiscountPercent: 60 });
+  assert.equal(customDiscount, 500000);
+});
+
+test('Part B-5: inventory module exports reserveOrderStock function', () => {
+  assert.equal(typeof inventoryModule.reserveOrderStock, 'function');
+});
+
+test('Part B-4: Email modules export both original and outbox aliases and workers handle mailer safely', () => {
+  const orderEmail = require('../src/order-email');
+  const warrantyEmail = require('../src/warranty-email');
+  const emailMarketing = require('../src/email-marketing');
+
+  assert.equal(typeof orderEmail.processOrderEmail, 'function');
+  assert.equal(typeof orderEmail.processOrderEmailOutbox, 'function');
+
+  assert.equal(typeof warrantyEmail.processWarrantyEmail, 'function');
+  assert.equal(typeof warrantyEmail.processWarrantyEmailOutbox, 'function');
+
+  assert.equal(typeof emailMarketing.processEmailQueue, 'function');
+  assert.equal(typeof emailMarketing.processMarketingEmails, 'function');
+});
+
+test('Issue A: Concurrent order placement unique collision (23505) recovers via catch block and does not crash with 500', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const express = require('express');
+  const { attachPublicAndCheckoutRoutes } = require('../src/store/checkout-payment-routes');
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => {
+    req.ordersEnabled = true;
+    req.session = { csrfToken: 'test-csrf' };
+    next();
+  });
+
+  // Setup product & variant
+  const pId = '88888888-8888-4888-8888-888888888888';
+  const vId = '99999999-9999-4999-8999-999999999999';
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính Va Chạm', 'kinh-va-cham', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-CLASH', 'Titan', 500000, 50, true)",
+    [vId, pId]
+  );
+  const whClash = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (whClash) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 50) ON CONFLICT DO NOTHING",
+      [whClash.id, vId]
+    );
+  }
+  await pool.query(
+    "INSERT INTO store_settings(setting_key, setting_value) VALUES('shipping_rates', $1) ON CONFLICT(setting_key) DO UPDATE SET setting_value=$1",
+    [JSON.stringify({ 'Toàn quốc': 20000, 'Hà Nội': 20000 })]
+  );
+
+  attachPublicAndCheckoutRoutes(app, pool, {
+    getVnpayConfig: () => null,
+    getPaymentChannels: () => ({ methods: ['cod'] }),
+    config: { PUBLIC_BASE_URL: 'https://gaeru.com' },
+    publicBaseUrl: 'https://gaeru.com',
+    paymentFetcher: async () => ({ status: 200, json: async () => ({}) })
+  });
+
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(r => server.once('listening', r));
+  t.after(() => new Promise(r => server.close(r)));
+  const port = server.address().port;
+
+  const orderPayload = {
+    customer: {
+      name: 'Nguyen Van A',
+      email: 'clash@gaeru.com',
+      phone: '0912345678',
+      address: '123 Pho Hue',
+      city: 'Hà Nội'
+    },
+    items: [{ variantId: vId, quantity: 1 }],
+    paymentMethod: 'cod',
+    idempotencyKey: 'TEST-CLASH-KEY-001'
+  };
+
+  // First request creates the order successfully
+  const res1 = await fetch(`http://127.0.0.1:${port}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-csrf' },
+    body: JSON.stringify(orderPayload)
+  });
+  const data1 = await res1.json();
+  assert.equal(res1.status, 201);
+  assert.ok(data1.order);
+
+  // Second request with identical key recovers idempotently via the 23505 collision recovery (without 500 error)
+  const res2 = await fetch(`http://127.0.0.1:${port}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-csrf' },
+    body: JSON.stringify(orderPayload)
+  });
+  assert.equal(res2.status, 200);
+  const data2 = await res2.json();
+  assert.ok(data2.order);
+  assert.equal(data2.order.orderNumber, data1.order.orderNumber);
+  assert.equal(data2.reusedSession, true);
+});

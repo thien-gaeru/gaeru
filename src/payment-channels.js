@@ -204,6 +204,8 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     paymentStatus:attempt.paymentStatus
    };
   }
+  const { PaymentAttemptStateMachine } = require('./domain/payments/order-idempotency-policy');
+  PaymentAttemptStateMachine.assertValidTransition(attempt.attemptStatus, successful ? 'paid' : 'failed');
   await client.query(
    `UPDATE payment_attempts
     SET status=$2, provider_transaction_id=COALESCE($3, provider_transaction_id), response_code=$4,
@@ -225,6 +227,27 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     [attempt.orderId]
    );
    if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus))nextOrderStatus='processing';
+   if(attempt.orderStatus==='cancelled'){
+    try{
+     const { logOrderActivity } = require('./order-activity');
+     if (typeof logOrderActivity === 'function') {
+      await logOrderActivity(client, {
+       orderId: attempt.orderId,
+       orderNumber: attempt.orderNumber || orderNumber,
+       actorType: 'gateway',
+       actorName: provider.toUpperCase(),
+       action: 'note_added',
+       details: {
+        type: 'late_settlement_on_cancelled_order',
+        message: `CẢNH BÁO: Cổng ${provider.toUpperCase()} báo thanh toán thành công ${attempt.amountVnd || attempt.totalVnd}đ sau khi đơn hàng đã bị hủy. Cần liên hệ khách để hoàn tiền.`,
+        requiresRefund: true,
+        amountVnd: attempt.amountVnd || attempt.totalVnd,
+        providerTransactionId: providerTransactionId || null
+       }
+      });
+     }
+    }catch(e){console.error('Lỗi ghi order_activity cho thanh toán sau hủy:', e.message);}
+   }
   }
   await audit(client,{
    actor:actor||{username:provider,source:'payment_gateway'},
@@ -448,6 +471,8 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
     return {matched:true,verified:true,action:'already_paid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:'paid',attemptStatus:'paid'};
    }
    const errCode=queryErr?.code||'PAYMENT_QUERY_FAILED';
+   const { PaymentAttemptStateMachine: sm } = require('./domain/payments/order-idempotency-policy');
+   sm.assertValidTransition(locked.attemptStatus, 'awaiting_reconciliation');
    await client.query(
     `UPDATE payment_attempts
      SET status='awaiting_reconciliation', last_error_code=$2, last_reconciled_at=now(),
@@ -497,6 +522,8 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
 
   if(queryResult.found&&queryResult.successful){
    if(queryResult.amountVnd!==locked.amountVnd||locked.totalVnd!==locked.amountVnd){
+    const { PaymentAttemptStateMachine: sm } = require('./domain/payments/order-idempotency-policy');
+    sm.assertValidTransition(locked.attemptStatus, 'awaiting_reconciliation');
     await client.query(
      `UPDATE payment_attempts
       SET status='awaiting_reconciliation', last_error_code='PAYMENT_AMOUNT_MISMATCH',
@@ -545,6 +572,8 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
   }
 
   if(queryResult.found&&!queryResult.successful){
+   const { PaymentAttemptStateMachine: sm } = require('./domain/payments/order-idempotency-policy');
+   sm.assertValidTransition(locked.attemptStatus, 'awaiting_reconciliation');
    await client.query(
     `UPDATE payment_attempts
      SET status='awaiting_reconciliation', response_code=$2, last_reconciled_at=now(),
@@ -584,6 +613,8 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
    return {matched:true,verified:true,action:'verified_unpaid',orderId:locked.orderId,orderNumber:locked.orderNumber,orderStatus:locked.orderStatus,paymentStatus:locked.paymentStatus,attemptStatus:locked.attemptStatus,resultCode:queryResult.resultCode};
   }
 
+  const { PaymentAttemptStateMachine: sm2 } = require('./domain/payments/order-idempotency-policy');
+  sm2.assertValidTransition(locked.attemptStatus, 'failed');
   await client.query(
    `UPDATE payment_attempts
     SET status='failed', response_code=$2, last_error_code=NULL, last_reconciled_at=now(),
@@ -657,7 +688,14 @@ function startPaymentReconciliationWorker(pool,config={},{intervalMs=60*1000,onE
  async function run(){
   if(running||stopped)return;
   running=true;
-  try{await reconcileUnknownGatewayAttempts(pool,config);}
+  try{
+   const { PaymentService } = require('./domain/payments/payment-service');
+   if (typeof PaymentService?.scanOverdueUnknownAttempts === 'function') {
+    await PaymentService.scanOverdueUnknownAttempts(pool, config);
+   } else {
+    await reconcileUnknownGatewayAttempts(pool,config);
+   }
+  }
   catch(e){onError(e);}
   finally{running=false;}
  }

@@ -314,8 +314,8 @@ window.GAERUAdmin = Object.freeze({
   showProductAddedPopup,
   activateView,
   get user() { return state.session; },
-  escapeHtml: typeof window !== 'undefined' && window.escapeHtml ? window.escapeHtml : (v => String(v ?? '')),
-  formatMoney: typeof window !== 'undefined' && window.formatMoney ? window.formatMoney : (v => v + ' ₫'),
-  normalizePhone: typeof window !== 'undefined' && window.normalizePhone ? window.normalizePhone : (v => v)
+  escapeHtml: (typeof window !== 'undefined' && (window.GAERUAdminShared?.escapeHtml || window.escapeHtml)) || ((v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])),
+  formatMoney: (typeof window !== 'undefined' && (window.GAERUAdminShared?.formatMoney || window.formatMoney)) || ((v) => new Intl.NumberFormat('vi-VN').format(Math.round(Number(v) || 0)) + ' ₫'),
+  normalizePhone: (typeof window !== 'undefined' && (window.GAERUAdminShared?.normalizePhone || window.normalizePhone)) || ((v) => String(v || '').replace(/\D/g, ''))
 });
 initialize();

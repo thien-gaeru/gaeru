@@ -107,14 +107,38 @@ function assertOrderOwnership(order, expectedCustomer) {
   const expectedEmail = normalizeEmail(expectedCustomer.email);
   const expectedPhone = normalizePhone(expectedCustomer.phone);
 
-  const emailMatches = expectedEmail && orderEmail && expectedEmail === orderEmail;
-  const phoneMatches = expectedPhone && orderPhone && expectedPhone === orderPhone;
+  // Khi người mua cung cấp cả email và số điện thoại, bắt buộc CẢ HAI phải khớp với đơn hàng
+  if (expectedEmail && expectedPhone) {
+    const emailOk = orderEmail && expectedEmail === orderEmail;
+    const phoneOk = orderPhone && expectedPhone === orderPhone;
+    if (!emailOk || !phoneOk) {
+      throw Object.assign(
+        new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (email hoặc số điện thoại không khớp).'),
+        { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+      );
+    }
+    return true;
+  }
 
-  if (!emailMatches && !phoneMatches) {
-    throw Object.assign(
-      new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại.'),
-      { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
-    );
+  // Khi chỉ cung cấp một trong hai thông tin, thông tin đó bắt buộc phải khớp
+  if (expectedEmail) {
+    if (!orderEmail || expectedEmail !== orderEmail) {
+      throw Object.assign(
+        new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (email không khớp).'),
+        { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+      );
+    }
+    return true;
+  }
+
+  if (expectedPhone) {
+    if (!orderPhone || expectedPhone !== orderPhone) {
+      throw Object.assign(
+        new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (số điện thoại không khớp).'),
+        { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+      );
+    }
+    return true;
   }
 
   return true;
@@ -148,19 +172,36 @@ function assertOrderPayloadMatch(order, dbItems = [], { expectedPaymentMethod, e
     }
   }
 
-  // 3. Danh sách sản phẩm
+  // 3. Danh sách sản phẩm: gộp theo variantId ở cả hai phía trước khi so khớp
   if (expectedItems && Array.isArray(expectedItems) && expectedItems.length > 0) {
     const itemsList = Array.isArray(dbItems) ? dbItems : [];
-    const countMismatch = expectedItems.length !== itemsList.length;
-    const itemsMismatch = !expectedItems.every(exp =>
-      itemsList.some(dbItem => {
-        const dbVarId = dbItem.variantId || dbItem.variant_id;
-        const dbQty = dbItem.quantity;
-        return dbVarId === exp.variantId && dbQty === exp.quantity;
-      })
-    );
 
-    if (countMismatch || itemsMismatch) {
+    const aggregateItems = (items) => {
+      const map = new Map();
+      for (const it of items) {
+        if (!it) continue;
+        const vid = String(it.variantId || it.variant_id || '');
+        if (!vid) continue;
+        const qty = Number(it.quantity) || 0;
+        map.set(vid, (map.get(vid) || 0) + qty);
+      }
+      return map;
+    };
+
+    const expectedMap = aggregateItems(expectedItems);
+    const dbMap = aggregateItems(itemsList);
+
+    let itemsMismatch = expectedMap.size !== dbMap.size;
+    if (!itemsMismatch) {
+      for (const [vid, qty] of expectedMap.entries()) {
+        if (dbMap.get(vid) !== qty) {
+          itemsMismatch = true;
+          break;
+        }
+      }
+    }
+
+    if (itemsMismatch) {
       throw Object.assign(
         new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có danh sách sản phẩm khác.'),
         { status: 409, code: 'IDEMPOTENCY_ITEMS_MISMATCH' }

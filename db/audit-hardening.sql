@@ -8,14 +8,15 @@ ALTER TABLE inventory_movements
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'warehouse_stock'::regclass
-      AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%quantity >= 0%'
-  ) THEN
-    ALTER TABLE warehouse_stock
-      ADD CONSTRAINT warehouse_stock_quantity_nonnegative_chk CHECK (quantity >= 0);
+  IF to_regclass('warehouse_stock') IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'warehouse_stock'::regclass
+        AND (conname = 'warehouse_stock_quantity_nonnegative_chk' OR (contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity >= 0%'))
+    ) THEN
+      ALTER TABLE warehouse_stock
+        ADD CONSTRAINT warehouse_stock_quantity_nonnegative_chk CHECK (quantity >= 0);
+    END IF;
   END IF;
 END $$;
 
