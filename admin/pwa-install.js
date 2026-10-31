@@ -89,7 +89,7 @@
       '<div style="max-height:calc(85vh - 120px);overflow-y:auto;padding-right:4px">' +
         platformHtml +
         '<div style="border-top:1px solid #e2e8f0;padding-top:14px;margin-top:14px">' +
-          '<div style="font-size:13px;font-weight:600;color:#0f172a;margin-bottom:8px">📱 Quét mã QR bằng Camera điện thoại để mở &amp; cài đặt:</div>' +
+          '<div style="font-size:13px;font-weight:600;color:#0f172a;margin-bottom:8px">📱 Cài đặt trực tiếp &amp; liên kết truy cập hệ thống:</div>' +
           '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
             '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;min-width:140px;min-height:140px;text-align:center">' +
               '<span style="font-size:36px;margin-bottom:6px">🛡️</span>' +
