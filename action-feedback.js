@@ -30,6 +30,11 @@
           region.lastElementChild.remove();
         }
       });
+      add.call(document, 'keydown', (e) => {
+        if (e.key === 'Escape' && region?.lastElementChild) {
+          region.lastElementChild.remove();
+        }
+      });
       host.append(region);
     }
     if (region.parentElement !== host) host.append(region);

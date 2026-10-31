@@ -33,6 +33,12 @@ body {
   position: relative;
 }
 
+@supports (overflow-x: clip) {
+  html, body {
+    overflow-x: clip;
+  }
+}
+
 /* Universal mobile layout containment & element-level overflow prevention */
 .store-main,
 #main,
@@ -63,6 +69,13 @@ a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 img { display: block; max-width: 100%; }
+dialog {
+  margin: auto;
+  max-width: calc(100vw - 32px);
+  max-height: min(85dvh, 85vh);
+  overscroll-behavior: contain;
+  box-sizing: border-box;
+}
 :focus-visible { outline: 2px solid var(--teal); outline-offset: 4px; }
 [hidden] { display: none !important; }
 
@@ -236,7 +249,7 @@ img { display: block; max-width: 100%; }
 }
 @media (max-width: 760px) {
   html { scroll-padding-top: 54px; }
-  .nav-wrap { width: calc(100% - 32px); height: 50px; gap: 10px; }
+  .nav-wrap { width: calc(100% - 32px); max-width: 100%; min-width: 0; margin: 0 auto; height: 50px; gap: 10px; box-sizing: border-box; }
   .menu-toggle { display: inline-flex; order: 3; width: 34px; }
   .nav-actions { margin-left: auto; gap: 6px; }
   .primary-nav { display: none; position: absolute; top: 50px; left: 0; right: 0; padding: 12px 24px 22px; background: #fafafc; border-bottom: 1px solid var(--line); }
