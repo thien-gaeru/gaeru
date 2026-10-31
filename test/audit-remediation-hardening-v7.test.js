@@ -15,7 +15,7 @@ const {
 } = require('../src/domain/payments/order-idempotency-policy');
 const { PaymentService } = require('../src/domain/payments/payment-service');
 const { OrderExpirationService } = require('../src/domain/orders/order-expiration-service');
-const { discount, MAX_DISCOUNT_PERCENT } = require('../src/marketing');
+const { discount, sanitizeMaxDiscountPercent, MAX_DISCOUNT_PERCENT, eligible } = require('../src/marketing');
 const inventoryModule = require('../src/inventory');
 
 test('Issue B: assertOrderPayloadMatch aggregates duplicate variant lines on both cart and DB', async () => {
@@ -1572,4 +1572,109 @@ test('P2-04: Leader + JobQueue/Cron as single primary runner for order expiratio
   assert.equal(fallbackWorkerStarted, true, 'Khi JobQueue tắt, phải fallback sang startOrderExpirationWorker');
 });
 
+
+test('P2-05: Bound maxDiscountPercent to [0, 100], sanitize Infinity/negative/NaN configs, and pass options to eligible', async () => {
+  // 1. Kiểm tra sanitizeMaxDiscountPercent
+  assert.equal(sanitizeMaxDiscountPercent(undefined), 40);
+  assert.equal(sanitizeMaxDiscountPercent(null), 40);
+  assert.equal(sanitizeMaxDiscountPercent(''), 40);
+  assert.equal(sanitizeMaxDiscountPercent(NaN), 40);
+  assert.equal(sanitizeMaxDiscountPercent(Infinity), 40);
+  assert.equal(sanitizeMaxDiscountPercent(-Infinity), 40);
+  assert.equal(sanitizeMaxDiscountPercent('not-a-number'), 40);
+
+  // Ràng buộc cận dưới 0 và cận trên 100
+  assert.equal(sanitizeMaxDiscountPercent(-10), 0);
+  assert.equal(sanitizeMaxDiscountPercent(-0.01), 0);
+  assert.equal(sanitizeMaxDiscountPercent(0), 0);
+  assert.equal(sanitizeMaxDiscountPercent(25), 25);
+  assert.equal(sanitizeMaxDiscountPercent(40), 40);
+  assert.equal(sanitizeMaxDiscountPercent(50), 50);
+  assert.equal(sanitizeMaxDiscountPercent(100), 100);
+  assert.equal(sanitizeMaxDiscountPercent(150), 100);
+  assert.equal(sanitizeMaxDiscountPercent(9999), 100);
+
+  // Chuỗi số hợp lệ
+  assert.equal(sanitizeMaxDiscountPercent('50'), 50);
+  assert.equal(sanitizeMaxDiscountPercent('0'), 0);
+  assert.equal(sanitizeMaxDiscountPercent('100'), 100);
+
+  // Fallback tùy biến
+  assert.equal(sanitizeMaxDiscountPercent(NaN, 50), 50);
+
+  // 2. Kiểm tra discount() với các cấu hình sai / bất thường
+  const voucher50 = { kind: 'percent', amount: 50, max_discount_vnd: null };
+  const subtotal = 1000000;
+
+  // Cấu hình NaN -> an toàn fallback về 40%, không sinh ra NaN
+  const discountWithNaN = discount(voucher50, subtotal, { maxDiscountPercent: NaN });
+  assert.equal(discountWithNaN, 400000);
+  assert.ok(Number.isFinite(discountWithNaN));
+
+  // Cấu hình Infinity -> an toàn fallback về 40%, không sinh ra Infinity hay mở toang trần
+  const discountWithInf = discount(voucher50, subtotal, { maxDiscountPercent: Infinity });
+  assert.equal(discountWithInf, 400000);
+  assert.ok(Number.isFinite(discountWithInf));
+
+  // Cấu hình -Infinity -> an toàn fallback về 40%
+  const discountWithNegInf = discount(voucher50, subtotal, { maxDiscountPercent: -Infinity });
+  assert.equal(discountWithNegInf, 400000);
+  assert.ok(Number.isFinite(discountWithNegInf));
+
+  // Cấu hình số âm -> chặn dưới tại 0%, mức giảm là 0đ, không âm và không NaN
+  const discountWithNeg = discount(voucher50, subtotal, { maxDiscountPercent: -20 });
+  assert.equal(discountWithNeg, 0);
+
+  // Cấu hình 0% -> mức giảm là 0đ
+  const discountWithZero = discount(voucher50, subtotal, { maxDiscountPercent: 0 });
+  assert.equal(discountWithZero, 0);
+
+  // Cấu hình > 100% -> chặn trên tại 100%, không vượt quá tạm tính
+  const voucher120 = { kind: 'percent', amount: 120, max_discount_vnd: null };
+  const discountWithOverflow = discount(voucher120, subtotal, { maxDiscountPercent: 150 });
+  assert.equal(discountWithOverflow, 1000000);
+
+  // Tạm tính 0 hoặc âm -> mức giảm luôn là 0
+  assert.equal(discount(voucher50, 0), 0);
+  assert.equal(discount(voucher50, -50000), 0);
+  assert.equal(discount(voucher50, NaN), 0);
+
+  // Voucher cố định vượt trần 40% mặc định
+  const fixedVoucher = { kind: 'fixed', amount: 500000, max_discount_vnd: null };
+  assert.equal(discount(fixedVoucher, subtotal), 400000, 'Fixed voucher bị áp trần 40% mặc định');
+  assert.equal(discount(fixedVoucher, subtotal, { maxDiscountPercent: 100 }), 500000, 'Fixed voucher được giảm đủ khi mở trần');
+
+  // 3. Kiểm tra eligible() truyền options tới discount()
+  const fakeVoucherRow = {
+    id: 'v-1',
+    code: 'TEST50',
+    active: true,
+    starts_at: new Date(Date.now() - 3600000).toISOString(),
+    ends_at: new Date(Date.now() + 3600000).toISOString(),
+    min_spend_vnd: 100000,
+    total_limit: 100,
+    per_customer_limit: 5,
+    kind: 'percent',
+    amount: 50,
+    max_discount_vnd: null
+  };
+
+  const fakeClient = {
+    query: async (sql, params) => {
+      if (sql.includes('FROM customers WHERE id=')) return { rows: [{ id: 'cust-1' }] };
+      if (sql.includes('FROM marketing_vouchers WHERE code=')) return { rows: [fakeVoucherRow] };
+      if (sql.includes('FROM customer_vouchers WHERE customer_id=')) return { rows: [{}] };
+      if (sql.includes('FROM voucher_redemptions WHERE voucher_id=')) return { rows: [{ total: 0, personal: 0 }] };
+      return { rows: [] };
+    }
+  };
+
+  // eligible mặc định -> trần 40% -> 400.000đ
+  const defaultEligible = await eligible(fakeClient, 'TEST50', 'cust-1', 1000000);
+  assert.equal(defaultEligible.discountVnd, 400000);
+
+  // eligible với options.maxDiscountPercent = 60 -> tính đủ 50% = 500.000đ
+  const customEligible = await eligible(fakeClient, 'TEST50', 'cust-1', 1000000, false, { maxDiscountPercent: 60 });
+  assert.equal(customEligible.discountVnd, 500000);
+});
 
