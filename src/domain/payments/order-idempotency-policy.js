@@ -241,23 +241,19 @@ class PaymentAttemptStateMachine {
       return false;
     }
 
-    // Đã hủy không được phép kích hoạt lại
-    if (from === ATTEMPT_STATES.CANCELLED) {
-      return false;
-    }
-
     switch (to) {
       case ATTEMPT_STATES.PAID:
-        // Có thể hoàn tất từ bất kỳ trạng thái nào chưa paid
+        // Có thể hoàn tất từ bất kỳ trạng thái nào chưa paid, kể cả cancelled (late settlement từ cổng thanh toán)
         return [
           ATTEMPT_STATES.PENDING,
           ATTEMPT_STATES.FAILED,
           ATTEMPT_STATES.UNKNOWN,
-          ATTEMPT_STATES.AWAITING_RECONCILIATION
+          ATTEMPT_STATES.AWAITING_RECONCILIATION,
+          ATTEMPT_STATES.CANCELLED
         ].includes(from);
 
       case ATTEMPT_STATES.PENDING:
-        // Chuyển lại pending khi retry phiên thất bại hoặc đối soát cho phép
+        // Chuyển lại pending khi retry phiên thất bại hoặc đối soát cho phép (không thể từ cancelled)
         return [
           ATTEMPT_STATES.FAILED,
           ATTEMPT_STATES.UNKNOWN,

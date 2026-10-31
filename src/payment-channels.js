@@ -204,6 +204,19 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     paymentStatus:attempt.paymentStatus
    };
   }
+  if(attempt.attemptStatus==='cancelled'&&!successful){
+   return {
+    code:'00',
+    matched:true,
+    alreadyCancelled:true,
+    successful:false,
+    message:'Order already cancelled and unpaid',
+    orderId:attempt.orderId,
+    orderNumber:attempt.orderNumber||orderNumber,
+    orderStatus:attempt.orderStatus,
+    paymentStatus:attempt.paymentStatus
+   };
+  }
   const { PaymentAttemptStateMachine } = require('./domain/payments/order-idempotency-policy');
   PaymentAttemptStateMachine.assertValidTransition(attempt.attemptStatus, successful ? 'paid' : 'failed');
   await client.query(
@@ -214,6 +227,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    [attempt.id,successful?'paid':'failed',providerTransactionId||null,responseCode||null,Boolean(successful)]
   );
   let nextOrderStatus=attempt.orderStatus||'pending';
+  const isLateSettlement=Boolean(successful&&(attempt.orderStatus==='cancelled'||attempt.attemptStatus==='cancelled'));
   if(successful){
    const ledger=finance||require('./finance-api');
    if(ledger?.recordFullOrderPayment){
@@ -227,7 +241,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     [attempt.orderId]
    );
    if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus))nextOrderStatus='processing';
-   if(attempt.orderStatus==='cancelled'){
+   if(isLateSettlement){
     try{
      const { logOrderActivity } = require('./order-activity');
      if (typeof logOrderActivity === 'function') {
@@ -247,6 +261,23 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
       });
      }
     }catch(e){console.error('Lỗi ghi order_activity cho thanh toán sau hủy:', e.message);}
+    try{
+     await client.query(
+      `INSERT INTO system_alerts (severity, source, message, metadata)
+       VALUES ('critical', 'payment_gateway', $1, $2)`,
+      [
+       `Tiền về sau khi đơn ${attempt.orderNumber || orderNumber} đã bị hủy (${attempt.amountVnd || attempt.totalVnd}đ qua ${provider.toUpperCase()}). Cần hoàn tiền khẩn cấp!`,
+       JSON.stringify({
+        orderId: attempt.orderId,
+        orderNumber: attempt.orderNumber || orderNumber,
+        provider,
+        providerTransactionId,
+        amountVnd: attempt.amountVnd || attempt.totalVnd,
+        requiresRefund: true
+       })
+      ]
+     );
+    }catch(e){}
    }
   }
   await audit(client,{
@@ -261,7 +292,8 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     amountVnd:attempt.amountVnd,
     responseCode:responseCode||null,
     previousAttemptStatus:attempt.attemptStatus||null,
-    lateSettlementOnCancelledOrder:Boolean(successful&&attempt.orderStatus==='cancelled'),
+    lateSettlementOnCancelledOrder:isLateSettlement,
+    requiresRefund:isLateSettlement,
     autoApprovedToProcessing:Boolean(successful&&['pending','confirmed'].includes(attempt.orderStatus))
    }
   });
@@ -269,7 +301,9 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    code:'00',
    matched:true,
    successful,
-   message:'Confirm Success',
+   message:isLateSettlement?'Payment confirmed on cancelled order (refund required)':'Confirm Success',
+   action:isLateSettlement?'late_settlement_refund_needed':'confirmed',
+   requiresRefund:isLateSettlement,
    orderId:attempt.orderId,
    orderNumber:attempt.orderNumber||orderNumber,
    paymentStatus:successful?'paid':'pending',

@@ -83,9 +83,10 @@ test('Issue D: PaymentAttemptStateMachine enforces invariant paid state and vali
     PaymentAttemptStateMachine.assertValidTransition('paid', 'failed');
   }, (err) => err.code === 'INVALID_PAYMENT_STATE_TRANSITION' && err.status === 409);
 
-  // Trạng thái cancelled không thể phục hồi
+  // Trạng thái cancelled không thể phục hồi về pending, nhưng nhận late settlement (paid) từ cổng
   assert.equal(PaymentAttemptStateMachine.isValidTransition('cancelled', 'pending'), false);
-  assert.equal(PaymentAttemptStateMachine.isValidTransition('cancelled', 'paid'), false);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('cancelled', 'failed'), false);
+  assert.equal(PaymentAttemptStateMachine.isValidTransition('cancelled', 'paid'), true);
 
   // Chuyển hợp lệ
   assert.equal(PaymentAttemptStateMachine.isValidTransition('pending', 'paid'), true);
@@ -341,4 +342,202 @@ test('Issue A: Concurrent order placement unique collision (23505) recovers via 
   assert.ok(data2.order);
   assert.equal(data2.order.orderNumber, data1.order.orderNumber);
   assert.equal(data2.reusedSession, true);
+});
+
+test('P0-01 Part 1: OrderExpirationService guards against premature cancellation when attempt is active or ambiguous', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Tai Nghe Active', 'tai-nghe-active', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-ACTIVE-01', 'Trắng', 500000, 10, true)",
+    [vId, pId]
+  );
+
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 10) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+
+  // Case 1: Order created 30 hours ago, but has an active pending attempt with 10 minutes remaining
+  const order1Id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-ACTIVE-MOMO', 'Active Momo Buyer', 'momo-active@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 500000, 500000, 0, now() - interval '30 hours')`,
+    [order1Id]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Tai Nghe Active', 'Trắng', 'SKU-ACTIVE-01', 1, 500000, 500000)`,
+    [order1Id, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', 'GR-ACTIVE-MOMO', 500000, 'pending', now() + interval '10 minutes')`,
+    [order1Id]
+  );
+
+  // Case 2: Order created 30 hours ago, but has an attempt in awaiting_reconciliation
+  const order2Id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-AMBIGUOUS-ZALO', 'Ambiguous Buyer', 'zalo-ambig@gaeru.com', '0912345679', 'District 3', 'TP. Hồ Chí Minh', 'zalopay', 'pending', 'pending', 500000, 500000, 0, now() - interval '30 hours')`,
+    [order2Id]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Tai Nghe Active', 'Trắng', 'SKU-ACTIVE-01', 1, 500000, 500000)`,
+    [order2Id, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'zalopay', 'GR-AMBIGUOUS-ZALO', 500000, 'awaiting_reconciliation', now() - interval '1 hour')`,
+    [order2Id]
+  );
+
+  // Case 3: Order created 30 hours ago with an expired attempt (expires_at = -1 hour)
+  const order3Id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, 'GR-EXPIRED-PA', 'Expired Buyer', 'pa-expired@gaeru.com', '0912345680', 'District 5', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 500000, 500000, 0, now() - interval '30 hours')`,
+    [order3Id]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Tai Nghe Active', 'Trắng', 'SKU-ACTIVE-01', 1, 500000, 500000)`,
+    [order3Id, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', 'GR-EXPIRED-PA', 500000, 'pending', now() - interval '1 hour')`,
+    [order3Id]
+  );
+
+  // Run OrderExpirationService
+  const cancelled = await OrderExpirationService.cancelExpiredUnpaidOrders(pool, { olderThanHours: 24 });
+  const cancelledIds = cancelled.map(c => c.orderId);
+
+  // Order 1 (active pending with 10 mins left) must NOT be cancelled
+  assert.ok(!cancelledIds.includes(order1Id), 'Đơn có phiên pending còn hạn không được tự hủy');
+  const o1 = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [order1Id])).rows[0];
+  assert.equal(o1.status, 'pending');
+
+  // Order 2 (awaiting_reconciliation) must NOT be cancelled
+  assert.ok(!cancelledIds.includes(order2Id), 'Đơn đang đối soát chưa phân định không được tự hủy');
+  const o2 = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [order2Id])).rows[0];
+  assert.equal(o2.status, 'pending');
+
+  // Order 3 (truly expired attempt) MUST be cancelled
+  assert.ok(cancelledIds.includes(order3Id), 'Đơn có phiên đã hết hạn phải được tự hủy');
+  const o3 = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [order3Id])).rows[0];
+  assert.equal(o3.status, 'cancelled');
+  const att3 = (await pool.query('SELECT status FROM payment_attempts WHERE order_id = $1', [order3Id])).rows[0];
+  assert.equal(att3.status, 'cancelled');
+});
+
+test('P0-01 Part 2: Late payment callback on cancelled order records payment and creates refund task without 409 error', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query(
+    "INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính P0 Test', 'kinh-p0-test', 'audio', true)",
+    [pId]
+  );
+  await pool.query(
+    "INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P0-01', 'Đen', 750000, 10, true)",
+    [vId, pId]
+  );
+
+  // Step 1: Create an order that was cancelled, with attempt cancelled
+  const orderId = crypto.randomUUID();
+  const orderNumber = 'GR-P0-MOMO-001';
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd, created_at)
+     VALUES ($1, $2, 'Late Momo Buyer', 'late@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'cancelled', 'pending', 750000, 750000, 0, now() - interval '25 hours')`,
+    [orderId, orderNumber]
+  );
+  await pool.query(
+    `INSERT INTO order_items (id, order_id, variant_id, product_name, variant_name, sku, quantity, unit_price_vnd, line_total_vnd)
+     VALUES (gen_random_uuid(), $1, $2, 'Kính P0 Test', 'Đen', 'SKU-P0-01', 1, 750000, 750000)`,
+    [orderId, vId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', $2, 750000, 'cancelled', now() - interval '2 hours')`,
+    [orderId, orderNumber]
+  );
+
+  // Step 2: Simulate gateway callback with successful = true
+  const { reconcilePrepaidOrder } = require('../src/payment-channels');
+  const res = await reconcilePrepaidOrder(pool, {
+    provider: 'momo',
+    orderNumber,
+    amountVnd: 750000,
+    successful: true,
+    providerTransactionId: 'MOMO-TRANS-999',
+    responseCode: '0'
+  });
+
+  // Verify response
+  assert.equal(res.code, '00');
+  assert.equal(res.matched, true);
+  assert.equal(res.successful, true);
+  assert.equal(res.requiresRefund, true);
+  assert.equal(res.action, 'late_settlement_refund_needed');
+  assert.equal(res.paymentStatus, 'paid');
+  assert.equal(res.orderStatus, 'cancelled');
+
+  // Verify DB state
+  const attemptRow = (await pool.query('SELECT status, provider_transaction_id FROM payment_attempts WHERE transaction_ref = $1', [orderNumber])).rows[0];
+  assert.equal(attemptRow.status, 'paid');
+  assert.equal(attemptRow.provider_transaction_id, 'MOMO-TRANS-999');
+
+  const orderRow = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
+  assert.equal(orderRow.payment_status, 'paid');
+  assert.equal(orderRow.status, 'cancelled');
+
+  // Verify sales receipt recorded
+  const receipt = (await pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [orderId])).rows[0];
+  assert.ok(receipt, 'Phải có chứng từ thanh toán sales_receipts');
+  assert.equal(Number(receipt.amount_vnd), 750000);
+
+  // Verify order activity logged with requiresRefund = true
+  const activities = (await pool.query('SELECT * FROM order_activities WHERE order_id = $1 AND details->>\'requiresRefund\' = \'true\'', [orderId])).rows;
+  assert.ok(activities.length >= 1, 'Phải có order_activity cảnh báo hoàn tiền');
+  assert.equal(activities[0].details.type, 'late_settlement_on_cancelled_order');
+
+  // Step 3: Verify failed callback on already cancelled attempt returns safe response
+  const orderIdFailed = crypto.randomUUID();
+  const orderNumberFailed = 'GR-P0-FAILED-001';
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd)
+     VALUES ($1, $2, 'Failed Buyer', 'fail@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'cancelled', 'pending', 750000, 750000, 0)`,
+    [orderIdFailed, orderNumberFailed]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', $2, 750000, 'cancelled', now() - interval '2 hours')`,
+    [orderIdFailed, orderNumberFailed]
+  );
+
+  const resFail = await reconcilePrepaidOrder(pool, {
+    provider: 'momo',
+    orderNumber: orderNumberFailed,
+    amountVnd: 750000,
+    successful: false,
+    responseCode: '49'
+  });
+  assert.equal(resFail.code, '00');
+  assert.equal(resFail.alreadyCancelled, true);
+  assert.equal(resFail.successful, false);
 });
