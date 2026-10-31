@@ -15,13 +15,50 @@ const reasons={
   delivery_delayed:'Email chưa gửi sau 15 phút',
   gateway_reconciliation_needed:'Cần đối soát trạng thái giao dịch cổng thanh toán trước khi hủy/xử lý (SLA 24h)'
 };
-async function inspectDomain(email,resolver=domainResolver){
- if(!email||typeof email!=='string'||!email.includes('@'))return 'missing';
- const domain=email.split('@').at(-1)?.trim();
- if(!domain||!domain.includes('.'))return 'missing';
- try{const mx=await resolver.resolveMx(domain);if(mx.some(r=>r.exchange&&r.exchange!=='.'))return 'valid';if(mx.length)return 'missing';}
- catch(e){if(e.code==='ENOTFOUND')return 'missing';if(e.code!=='ENODATA')return 'unknown';}
- try{await resolver.lookup(domain);return 'valid';}catch(e){return e.code==='ENOTFOUND'?'missing':'unknown';}
+function extractValidEmailDomain(email) {
+  if (!email || typeof email !== 'string') return null;
+  const trimmed = email.trim();
+  if (!trimmed || trimmed.length > 254) return null;
+  if (!z.string().email().max(254).safeParse(trimmed).success) return null;
+
+  const atIndex = trimmed.indexOf('@');
+  if (atIndex <= 0 || atIndex !== trimmed.lastIndexOf('@')) return null;
+
+  const localPart = trimmed.slice(0, atIndex);
+  const domain = trimmed.slice(atIndex + 1).toLowerCase().trim();
+  if (!localPart || localPart.length > 64 || !domain) return null;
+
+  if (domain.startsWith('.') || domain.endsWith('.') || domain.includes('..') || !domain.includes('.')) return null;
+
+  const labels = domain.split('.');
+  if (labels.some(l => !l || l.length > 63 || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i.test(l))) return null;
+
+  const tld = labels.at(-1);
+  if (!tld || tld.length < 2 || !/^[a-z]{2,}$/i.test(tld)) return null;
+
+  return domain;
+}
+
+async function inspectDomain(email, resolver = domainResolver) {
+  const domain = extractValidEmailDomain(email);
+  if (!domain) return 'missing';
+
+  try {
+    const mx = await resolver.resolveMx(domain);
+    if (mx && mx.some(r => r.exchange && r.exchange !== '.')) return 'valid';
+    if (mx && mx.length) return 'missing';
+  } catch (e) {
+    if (e.code === 'ENOTFOUND') return 'missing';
+    if (e.code !== 'ENODATA') return 'unknown';
+  }
+
+  try {
+    const lookupFn = typeof resolver.lookup === 'function' ? resolver.lookup.bind(resolver) : dns.lookup;
+    await lookupFn(domain);
+    return 'valid';
+  } catch (e) {
+    return e.code === 'ENOTFOUND' ? 'missing' : 'unknown';
+  }
 }
 async function screenNextEmail(pool,{resolver=dns}={}){
  const row=(await pool.query("SELECT j.id,o.email FROM order_email_outbox j JOIN orders o ON o.id=j.order_id WHERE j.kind='receipt' AND j.status='pending' AND j.next_attempt_at<=now() ORDER BY j.created_at,j.id LIMIT 1")).rows[0];
@@ -149,5 +186,5 @@ class OrderReviewService {
   }
 }
 
-module.exports={inspectDomain,screenNextEmail,classify,guardContact,reviewRouter,notifyAdmin,OrderReviewService,reasons};
+module.exports={extractValidEmailDomain,inspectDomain,screenNextEmail,classify,guardContact,reviewRouter,notifyAdmin,OrderReviewService,reasons};
 
