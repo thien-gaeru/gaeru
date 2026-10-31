@@ -199,8 +199,12 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   }
 
   const unsentCount = Math.max(0, subscriptions.length - (sent.length + failed.length + expired.length));
+  const isAllFailed = sent.length === 0 && subscriptions.length > 0;
+  const isPartial = sent.length > 0 && (failed.length > 0 || expired.length > 0);
+  const status = isAllFailed ? 'failed' : (isPartial ? 'partial' : 'success');
   return {
-    ok: true,
+    ok: !isAllFailed,
+    status,
     enabled: true,
     recipientCount: subscriptions.length,
     sentCount: sent.length,
@@ -234,7 +238,19 @@ function createPushPublicRouter(pool) {
     });
   });
 
-  router.post('/push/subscribe', express.json({ limit: '16kb' }), async (req, res, next) => {
+  router.post('/push/subscribe', express.json({ limit: '16kb' }), (req, res, next) => {
+    const sessionToken = req.session?.csrfToken;
+    const clientToken = req.headers['x-csrf-token'] || req.body?._csrf;
+    if (sessionToken && clientToken) {
+      const crypto = require('crypto');
+      const bSession = Buffer.from(sessionToken);
+      const bClient = Buffer.from(clientToken);
+      if (bSession.length !== bClient.length || !crypto.timingSafeEqual(bSession, bClient)) {
+        return res.status(403).json({ error: 'CSRF token không hợp lệ hoặc đã hết hạn.' });
+      }
+    }
+    next();
+  }, async (req, res, next) => {
     try {
       const vapid = getVapidConfig();
       if (!vapid) {

@@ -52,7 +52,10 @@ async function loadSystemHealth() {
         overallBadge.innerHTML = '<span class="status-indicator"></span> Đang hoạt động tối ưu &amp; An toàn';
       } else {
         overallBadge.className = "health-overall-badge tag-warning";
-        overallBadge.innerHTML = '<span class="status-indicator"></span> Cảnh báo: ' + (window.escapeHtml || window.GAERUAdminShared?.escapeHtml || String)(health.status || "Chậm");
+        overallBadge.textContent = "";
+        const indicator = document.createElement("span");
+        indicator.className = "status-indicator";
+        overallBadge.append(indicator, document.createTextNode(" Cảnh báo: " + (health.status || "Chậm")));
       }
     }
     const dbStatus = document.querySelector("#health-db-status");
