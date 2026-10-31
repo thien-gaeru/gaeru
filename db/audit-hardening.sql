@@ -83,3 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_order_item_allocations_item
 
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_order_provider_status
   ON payment_attempts (order_id, provider, status);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_provider_request_id
+  ON payment_attempts (provider_request_id)
+  WHERE provider_request_id IS NOT NULL;
