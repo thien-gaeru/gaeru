@@ -4,36 +4,15 @@
  * Payment Policy - Single Source of Truth cho các quy tắc xử lý thanh toán GAERU
  */
 
-const ONLINE_GATEWAYS = Object.freeze(['vnpay', '9pay', 'momo', 'zalopay']);
-const MANUAL_METHODS = Object.freeze(['cod', 'bank_transfer']);
-const ALL_METHODS = Object.freeze([...MANUAL_METHODS, ...ONLINE_GATEWAYS]);
-const UNKNOWN_ATTEMPT_STATES = Object.freeze([
-  'payment_initiation_unknown',
-  'awaiting_reconciliation',
-  'expiry_awaiting_verification'
-]);
-
-function isUnknownAttemptState(status) {
-  return UNKNOWN_ATTEMPT_STATES.includes(String(status || '').toLowerCase());
-}
-
-/**
- * Kiểm tra xem phương thức có phải là cổng thanh toán trực tuyến tự động không
- * @param {string} method
- * @returns {boolean}
- */
-function isOnlineGateway(method) {
-  return ONLINE_GATEWAYS.includes(String(method || '').toLowerCase());
-}
-
-/**
- * Kiểm tra xem phương thức có phải là thanh toán thủ công (COD, Chuyển khoản) không
- * @param {string} method
- * @returns {boolean}
- */
-function isManualPayment(method) {
-  return MANUAL_METHODS.includes(String(method || '').toLowerCase());
-}
+const {
+  ONLINE_GATEWAYS,
+  MANUAL_METHODS,
+  ALL_METHODS,
+  UNKNOWN_ATTEMPT_STATES,
+  isUnknownAttemptState,
+  isOnlineGateway,
+  isManualPayment
+} = require('./payment-enums');
 
 /**
  * Kiểm tra xem đơn hàng có cho phép sửa trạng thái thanh toán thủ công không

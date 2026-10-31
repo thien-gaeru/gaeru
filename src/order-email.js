@@ -10,19 +10,10 @@ const escape = s => String(s).replace(/[&<>"']/g, c => ({
   "'": '&#39;'
 }[c]));
 
-const PAYMENT_METHOD_LABELS = Object.freeze({
-  cod: 'COD',
-  bank_transfer: 'Chuyển khoản ngân hàng',
-  vnpay: 'VNPAY',
-  '9pay': '9Pay',
-  momo: 'Ví MoMo',
-  zalopay: 'Ví ZaloPay'
-});
-
-function getPaymentMethodLabel(method) {
-  if (!method) return 'Chưa xác định';
-  return PAYMENT_METHOD_LABELS[method] || String(method).toUpperCase();
-}
+const {
+  PAYMENT_METHOD_LABELS,
+  getPaymentMethodLabel
+} = require('./domain/payments/payment-enums');
 
 
 async function processOrderEmail(pool, config, mailer, { structured = false } = {}) {
