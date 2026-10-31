@@ -48,7 +48,7 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
         }
-        if (req.path === '/health') {
+        if (req.path === '/health' || req.path === '/api/health') {
           return res.status(200).json({ status: 'ok', uptime: process.uptime() });
         }
         next();

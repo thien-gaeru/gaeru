@@ -290,18 +290,19 @@
     return outputArray;
   }
 
-  async function registerRealPushSubscription() {
+  async function registerRealPushSubscription(options = {}) {
+    const isAutoSync = Boolean(options && options.isAutoSync);
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-      return;
+      return { ok: false };
     }
 
     try {
       const keyRes = await fetch('/api/push/public-key', { cache: 'no-store' });
-      if (!keyRes.ok) return;
+      if (!keyRes.ok) return { ok: false };
       const keyData = await keyRes.json();
       if (!keyData.enabled || !keyData.publicKey) {
         // VAPID keys chưa cấu hình hoặc tính năng Web Push đang tắt
-        return;
+        return { ok: false };
       }
 
       // Đăng ký Service Worker thật trên scope /
@@ -311,6 +312,7 @@
       // Kiểm tra hoặc tạo subscription thật qua PushManager
       let subscription = await registration.pushManager.getSubscription();
       if (!subscription) {
+        if (isAutoSync) return { ok: false };
         const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
@@ -320,7 +322,24 @@
 
       const subJson = subscription.toJSON();
       if (!subJson.endpoint || !subJson.keys?.p256dh || !subJson.keys?.auth) {
-        return;
+        return { ok: false };
+      }
+
+      // Cache và debounce: tránh đồng bộ lặp lại mỗi lần tải trang nếu subscription đã đồng bộ gần đây
+      let isRecentlySynced = false;
+      try {
+        const lastSyncedEndpoint = localStorage.getItem('gaeru_push_synced_endpoint');
+        const lastSyncedTime = Number(localStorage.getItem('gaeru_push_synced_at') || '0');
+        isRecentlySynced = lastSyncedEndpoint === subJson.endpoint && (Date.now() - lastSyncedTime < 24 * 3600 * 1000);
+      } catch {}
+
+      const pushLabelEl = document.querySelector('[data-push-status-label]');
+      const pushIconEl = document.querySelector('[data-push-status-icon]');
+
+      if (isAutoSync && isRecentlySynced) {
+        if (pushLabelEl) pushLabelEl.textContent = 'Đã bật thông báo';
+        if (pushIconEl) pushIconEl.textContent = '🔔';
+        return { ok: true, cached: true };
       }
 
       // Lấy CSRF token và gửi subscription thật lên backend
@@ -343,9 +362,6 @@
         })
       });
 
-      const pushLabelEl = document.querySelector('[data-push-status-label]');
-      const pushIconEl = document.querySelector('[data-push-status-icon]');
-
       if (!subRes.ok) {
         let errorMsg = 'Không thể đăng ký nhận thông báo đẩy.';
         try {
@@ -363,7 +379,8 @@
         }
 
         if (pushLabelEl) pushLabelEl.textContent = 'Lỗi thông báo';
-        if (typeof window.GAERUNotify === 'function') {
+        // Chỉ hiển thị toast thông báo khi người dùng chủ động kích hoạt
+        if (!isAutoSync && typeof window.GAERUNotify === 'function') {
           window.GAERUNotify(errorMsg);
         } else {
           console.warn('[GAERU WebPush]', errorMsg);
@@ -371,9 +388,14 @@
         return { ok: false, status: subRes.status, error: errorMsg };
       }
 
+      try {
+        localStorage.setItem('gaeru_push_synced_endpoint', subJson.endpoint);
+        localStorage.setItem('gaeru_push_synced_at', String(Date.now()));
+      } catch {}
+
       if (pushLabelEl) pushLabelEl.textContent = 'Đã bật thông báo';
       if (pushIconEl) pushIconEl.textContent = '🔔';
-      if (typeof window.GAERUNotify === 'function') {
+      if (!isAutoSync && typeof window.GAERUNotify === 'function') {
         window.GAERUNotify('Đã kích hoạt thông báo đẩy thành công!');
       }
       return { ok: true, status: subRes.status };
@@ -390,9 +412,9 @@
       return;
     }
 
-    // Nếu đã được cấp quyền từ trước, tự động đồng bộ subscription thật với máy chủ
+    // Nếu đã được cấp quyền từ trước, tự động đồng bộ subscription êm với máy chủ
     if (Notification.permission === 'granted') {
-      registerRealPushSubscription().catch(() => {});
+      registerRealPushSubscription({ isAutoSync: true }).catch(() => {});
       return;
     }
     // Không tự ý gọi Notification.requestPermission() khi permission === 'default' để tuân thủ chính sách trình duyệt
@@ -408,7 +430,7 @@
     try {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
-        return await registerRealPushSubscription();
+        return await registerRealPushSubscription({ isAutoSync: false });
       } else if (permission === 'denied') {
         const pushLabelEl = document.querySelector('[data-push-status-label]');
         const pushIconEl = document.querySelector('[data-push-status-icon]');
