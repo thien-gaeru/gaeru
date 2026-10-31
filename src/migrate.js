@@ -200,7 +200,7 @@ async function verifySchemaHealth(client) {
         idx.relname AS index_name,
         i.indisunique AS is_unique,
         ARRAY(
-          SELECT a.attname 
+          SELECT a.attname::text 
           FROM pg_attribute a 
           WHERE a.attrelid = tbl.oid AND a.attnum = ANY(i.indkey)
           ORDER BY array_position(i.indkey, a.attnum)
@@ -215,12 +215,15 @@ async function verifySchemaHealth(client) {
       throw new Error('SCHEMA_HEALTH_FAILED: Không tìm thấy chỉ mục idx_payment_attempts_provider_request_id trên bảng payment_attempts.');
     }
     const row = idxCheck.rows[0];
-    const hasExactCols = Array.isArray(row.columns) && row.columns.length === 2 && row.columns[0] === 'provider' && row.columns[1] === 'provider_request_id';
+    const rawCols = Array.isArray(row.columns)
+      ? row.columns
+      : String(row.columns || '').replace(/^\{|\}$/g, '').split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const hasExactCols = Array.isArray(rawCols) && rawCols.length === 2 && rawCols[0] === 'provider' && rawCols[1] === 'provider_request_id';
     const hasPredicate = typeof row.predicate === 'string' && row.predicate.includes('provider_request_id IS NOT NULL');
     if (!row.is_unique || !hasExactCols || !hasPredicate) {
       throw new Error(
         `SCHEMA_HEALTH_FAILED: idx_payment_attempts_provider_request_id không thỏa mãn catalog chuẩn: ` +
-        `table=${row.table_name}, unique=${row.is_unique}, columns=${JSON.stringify(row.columns)}, predicate=${row.predicate}. ` +
+        `table=${row.table_name}, unique=${row.is_unique}, columns=${JSON.stringify(rawCols)}, predicate=${row.predicate}. ` +
         `Yêu cầu: TRUE UNIQUE INDEX trên bảng payment_attempts với cặp cột (provider, provider_request_id) và điều kiện provider_request_id IS NOT NULL.`
       );
     }

@@ -112,7 +112,7 @@ test('Task 2: Hậu kiểm UNIQUE INDEX thanh toán theo catalog PostgreSQL, cho
       idx.relname AS index_name,
       i.indisunique AS is_unique,
       ARRAY(
-        SELECT a.attname 
+        SELECT a.attname::text 
         FROM pg_attribute a 
         WHERE a.attrelid = tbl.oid AND a.attnum = ANY(i.indkey)
         ORDER BY array_position(i.indkey, a.attnum)
@@ -128,7 +128,10 @@ test('Task 2: Hậu kiểm UNIQUE INDEX thanh toán theo catalog PostgreSQL, cho
   const row = catalogCheck.rows[0];
   assert.equal(row.table_name, 'payment_attempts');
   assert.equal(row.is_unique, true, 'Phải là TRUE UNIQUE INDEX');
-  assert.deepEqual(row.columns, ['provider', 'provider_request_id'], 'Chỉ mục phải bao gồm chính xác cặp cột (provider, provider_request_id)');
+  const cols = Array.isArray(row.columns)
+    ? row.columns
+    : String(row.columns || '').replace(/^\{|\}$/g, '').split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+  assert.deepEqual(cols, ['provider', 'provider_request_id'], 'Chỉ mục phải bao gồm chính xác cặp cột (provider, provider_request_id)');
   assert.match(row.predicate, /provider_request_id IS NOT NULL/, 'Chỉ mục phải có điều kiện lọc provider_request_id IS NOT NULL');
 
   // 3. Tạo 2 đơn hàng mẫu
