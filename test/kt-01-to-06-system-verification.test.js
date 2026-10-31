@@ -37,7 +37,6 @@ const { searchAutocomplete } = require('../src/instant-search');
 const { hashSha256, normalizePhoneE164, dispatchServerCapi } = require('../src/server-capi');
 const { getInventoryForecast } = require('../src/inventory-forecast');
 const { getRfmCustomerSegmentation, scoreRecency, scoreFrequency, scoreMonetary, determineSegment } = require('../src/rfm-analytics');
-const { maskCustomerName, formatRelativeTime } = require('../src/social-proof');
 const { canServeAvif } = require('../src/lib/avif-optimizer');
 const { logOrderActivity, getOrderActivities } = require('../src/order-activity');
 const { requirePermission } = require('../src/staff-access');
@@ -958,11 +957,6 @@ test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
   assert.equal(rfm.summary.length, 5);
   auditReport.push({ id: 'rfm', name: 'Phân Khúc Khách Hàng RFM Analytics', mode: 'CHẠY THẬT (Live Engine - RFM Clustering)' });
 
-  // 24. Social Proof Toast
-  assert.equal(maskCustomerName('Nguyễn Văn An'), 'Văn A.');
-  assert.equal(formatRelativeTime(new Date(Date.now() - 300000)), '5 phút trước');
-  auditReport.push({ id: 'social-proof', name: 'Bằng Chứng Xã Hội Tức Thì (Recent Sales Toast)', mode: 'CHẠY THẬT (Live Engine - Anti-Fraud Transparency)' });
-
   // 25. AVIF Multi-Tier Delivery
   assert.equal(canServeAvif('image/avif,image/webp,*/*'), true);
   assert.equal(canServeAvif('image/webp,image/png'), false);
@@ -997,9 +991,9 @@ test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
   assert.match(appJs, /contentSecurityPolicy/);
   auditReport.push({ id: 'security-csp', name: 'Bảo Vệ CSP & Chống Can Thiệp Mã Trái Phép', mode: 'CHẠY THẬT (Live Engine - Helmet CSP & RateLimit)' });
 
-  // Khẳng định đủ 28 chức năng nâng cao
-  assert.equal(auditReport.length, 28, 'Toàn bộ 28 chức năng nâng cao phải được kiểm thử đầy đủ');
-  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 28/28 CHỨC NĂNG NÂNG CAO:');
+  // Khẳng định đủ 27 chức năng nâng cao
+  assert.equal(auditReport.length, 27, 'Toàn bộ 27 chức năng nâng cao phải được kiểm thử đầy đủ');
+  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 27/27 CHỨC NĂNG NÂNG CAO:');
   for (const item of auditReport) {
     console.log(`   - [${item.id}] ${item.name} -> ${item.mode}`);
   }

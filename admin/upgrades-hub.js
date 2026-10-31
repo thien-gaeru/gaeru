@@ -28,7 +28,6 @@
     { id: 'capi', phase: 3, name: 'Server-Side Conversion API (Meta & TikTok)', desc: 'Bắn trực tiếp sự kiện Purchase từ Node.js Backend chống thất thoát dữ liệu do AdBlock.', endpoint: '/api/gaeru_ceo/capi/logs', status: 'live' },
     { id: 'rop-forecast', phase: 3, name: 'Dự Báo Tồn Kho & Điểm Nhập Hàng (Smart ROP)', desc: 'Tính tốc độ bán hàng ngày và ROP an toàn, tự sinh phiếu đề xuất nhập kho.', endpoint: '/api/gaeru_ceo/inventory/forecast', status: 'live' },
     { id: 'rfm', phase: 3, name: 'Phân Khúc Khách Hàng RFM Analytics', desc: 'Phân loại 5 nhóm: Champions (VIP), Loyal, Promising, At-Risk, Lost kèm gợi ý chăm sóc.', endpoint: '/api/gaeru_ceo/customers/rfm', status: 'live' },
-    { id: 'social-proof', phase: 3, name: 'Bằng Chứng Xã Hội Tức Thì (Recent Sales Toast)', desc: 'Pop-up thông báo khách vừa mua đơn thực tế góc màn hình kích thích chốt đơn.', endpoint: '/api/social-proof/recent-sales', status: 'live' },
     { id: 'avif', phase: 3, name: 'Tối Ưu Phân Phát Ảnh Đa Tầng AVIF', desc: 'Tự động nhận diện header Accept để phục vụ ảnh AVIF nhẹ hơn WebP 25-30%.', endpoint: '/lib/avif-optimizer', status: 'live' },
     { id: 'order-timeline', phase: 3, name: 'Nhật Ký Lịch Sử Đơn Hàng & Vết Kiểm Toán', desc: 'Timeline chi tiết ghi nhận từng thao tác của CSKH, Kho, Cổng thanh toán.', endpoint: '/api/gaeru_ceo/orders/:id/activities', status: 'live' }
   ];

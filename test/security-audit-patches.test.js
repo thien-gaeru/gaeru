@@ -7,22 +7,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { _webhookAuthMiddleware, processOmnichannelEvent, createOmnichannelRouter } = require('../src/omnichannel-sync');
 const { lookupOrderTracking, normalizeVietnamPhone } = require('../src/tracking-api');
-const { getRecentSocialProof } = require('../src/social-proof');
 const { createAffiliatePublicRouter } = require('../src/affiliate-system');
 const { applyPromotions } = require('../src/product-promotions');
 const { createFlashSale } = require('../src/flash-sale');
 const { createProductReview } = require('../src/product-reviews');
 const { createTestDb: setupTestDb } = require('./helpers/pglite-db');
 
-test('P0: Social proof toast strictly differentiates simulated vs authentic sales', () => {
-  const toastScript = fs.readFileSync(path.join(__dirname, '..', 'social-proof-toast.js'), 'utf8');
-
-  // Verify toast distinguishes isSimulated
-  assert.match(toastScript, /const isSimulated = Boolean\(item\.isSimulated\);/, 'Toast must check isSimulated flag');
-  assert.match(toastScript, /'Gợi ý sản phẩm nổi bật'/, 'Toast must show product recommendation title for simulated items');
-  assert.match(toastScript, /'Đề xuất mua sắm • Minh họa'/, 'Toast must show transparent simulated note');
-  assert.doesNotMatch(toastScript, /onclick="event\.stopPropagation\(\)/, 'Toast must not use inline onclick handlers violating CSP');
-});
 
 test('P1: Webhook inventory sync strictly requires 32-char secret across ALL environments', () => {
   // 1. Missing secret in development / test -> 503
@@ -256,18 +246,6 @@ test('P2: Affiliate tracking blocks open redirect attacks', () => {
   assert.equal(redirectedTo, '/san-pham/gaeru-k9');
 });
 
-test('P2: Social proof marks fallback data with transparent isSimulated flag when DB has no recent sales', async () => {
-  const { db, pool } = await setupTestDb();
-  try {
-    const items = await getRecentSocialProof(pool);
-    assert.ok(Array.isArray(items));
-    assert.ok(items.length > 0);
-    assert.ok(items.every(i => i.isSimulated === true));
-    assert.ok(items.every(i => typeof i.note === 'string'));
-  } finally {
-    await db.close();
-  }
-});
 
 test('P1: Admin Helmet CSP compliance: All admin markup and dynamic templates have zero inline onclick / onsubmit', () => {
   const adminIndex = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
