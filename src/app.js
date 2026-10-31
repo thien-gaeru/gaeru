@@ -33,16 +33,16 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
   const app = express();
   if (typeof readinessChecker === 'function') {
     app.use(async (req, res, next) => {
-      if (req.path === '/health' || req.path === '/api/health') {
-        return res.status(200).json({ status: 'ok', uptime: process.uptime() });
-      }
       try {
         await readinessChecker();
+        if (req.path === '/health') {
+          return res.status(200).json({ status: 'ok', uptime: process.uptime() });
+        }
         next();
       } catch (err) {
-        res.status(503).json({
+        return res.status(503).json({
           error: 'Hệ thống đang khởi động hoặc chưa sẵn sàng kết nối CSDL.',
-          message: err.message || 'Database unavailable'
+          message: err?.message || 'Database unavailable'
         });
       }
     });
@@ -297,6 +297,14 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
   app.get(['/tra-cuu-don-hang','/tra-cuu-don-hang/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('tracking.html',{root:projectRoot});});
   app.use(require('./lib/avif-optimizer').avifNegotiationMiddleware({ rootDirs: [path.join(projectRoot, 'assets'), projectRoot] }));
   app.use(require("./site-pages").createPagesPublic(pool));
+  app.get('/sw.js', (req, res) => {
+    res.set({
+      'Content-Type': 'application/javascript; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Service-Worker-Allowed': '/'
+    });
+    res.sendFile('sw.js', { root: projectRoot });
+  });
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
   app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));
   app.use((req,res,next)=>{

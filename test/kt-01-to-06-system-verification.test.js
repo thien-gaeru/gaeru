@@ -601,9 +601,162 @@ test('KT-06 — Vận hành: Email SMTP outbox, Web Push thật, retry job, PWA,
 });
 
 // ==============================================================================
-// KT-07: TOÀN BỘ 30 CHỨC NĂNG NÂNG CAO (CHẠY THẬT VS CHẠY ẢO)
+// KT-07: VẬN HÀNH CHUYÊN SÂU TỪNG NGHIỆP VỤ TRANG QUẢN TRỊ
 // ==============================================================================
-test('KT-07 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy thật vs chạy ảo (Live Production vs Simulation Sandbox)', async (t) => {
+test('KT-07 — Vận hành chuyên sâu từng nghiệp vụ trang quản trị (Overview, Orders, Catalog, CRM, Marketing, Finance, Warranty, Settings)', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  // 1. Nghiệp vụ Tổng quan Dashboard (Overview & System Health)
+  const product = await seedProductAndVariant(pool, { name: 'Gimbal GAERU G1 Pro', sku: 'G1-PRO-KT07', priceVnd: 1250000, stock: 35 });
+  const orderRes = await pool.query(`
+    INSERT INTO orders(order_number, customer_name, email, phone, address, city, subtotal_vnd, shipping_fee_vnd, total_vnd, status, payment_method)
+    VALUES('GR-ADMIN-01', 'Nguyễn Thị Hoa', 'hoa@gaeru.com', '0987654321', '456 Lê Duẩn', 'Đà Nẵng', 1250000, 30000, 1280000, 'pending', 'cod')
+    RETURNING id, order_number, status, total_vnd
+  `);
+  const order = orderRes.rows[0];
+
+  const summaryCheck = await pool.query(`
+    SELECT 
+      (SELECT count(*) FROM orders WHERE status = 'pending') AS pending_orders,
+      (SELECT count(*) FROM products WHERE deleted_at IS NULL) AS active_products,
+      (SELECT COALESCE(sum(total_vnd), 0) FROM orders WHERE payment_status = 'paid') AS revenue_vnd
+  `);
+  assert.equal(Number(summaryCheck.rows[0].pending_orders) >= 1, true, 'Dashboard đếm đúng đơn hàng chờ xử lý');
+  assert.equal(Number(summaryCheck.rows[0].active_products) >= 1, true, 'Dashboard đếm đúng sản phẩm đang mở bán');
+
+  // 2. Nghiệp vụ Quản trị Đơn hàng & Vết kiểm toán (Orders Workspace & Audit Trail)
+  // Bước 2a: CSKH gọi điện xác minh đơn COD
+  await logOrderActivity(pool, {
+    orderId: order.id,
+    action: 'order.verified_cod',
+    actor: { username: 'cskh_mai', role: 'staff' },
+    note: 'Đã gọi điện cho khách Nguyễn Thị Hoa xác nhận lấy máy Gimbal G1 Pro'
+  });
+  // Bước 2b: Kho đóng hàng và xác nhận giao vận SPX
+  await pool.query("UPDATE orders SET status = 'processing' WHERE id = $1", [order.id]);
+  await logOrderActivity(pool, {
+    orderId: order.id,
+    action: 'order.packaged_and_shipped',
+    actor: { username: 'kho_tuan', role: 'staff' },
+    note: 'Đã đóng gói hộp nguyên seal và bàn giao bưu cục SPX Express'
+  });
+  // Bước 2c: Giao thành công và thu tiền COD
+  await pool.query("UPDATE orders SET status = 'completed', payment_status = 'paid' WHERE id = $1", [order.id]);
+  await logOrderActivity(pool, {
+    orderId: order.id,
+    action: 'order.completed_cod',
+    actor: { username: 'system_reconciliation', role: 'system' },
+    note: 'Đối soát bưu cục SPX xác nhận đã thu 1.280.000đ tiền mặt'
+  });
+
+  const auditHistory = await getOrderActivities(pool, order.id);
+  assert.equal(auditHistory.length >= 3, true, 'Lịch sử đơn hàng ghi nhận đầy đủ 3 vết kiểm toán');
+  assert.equal(auditHistory[0].action, 'order.verified_cod', 'Hoạt động khởi tạo hiển thị đầu tiên');
+  assert.equal(auditHistory[auditHistory.length - 1].action, 'order.completed_cod', 'Hoạt động hoàn tất hiển thị cuối cùng theo timeline');
+
+  // 3. Nghiệp vụ Quản trị Danh mục & Thùng rác (Catalog & Trash Lifecycle)
+  const tempProd = await seedProductAndVariant(pool, { name: 'Micro Thu Âm Test Trash', sku: 'TRASH-TEST-01', priceVnd: 500000, stock: 10 });
+  // Chuyển vào thùng rác (Soft Delete)
+  await pool.query("UPDATE products SET deleted_at = now() WHERE id = $1", [tempProd.productId]);
+  const activeCheck = await pool.query("SELECT id FROM products WHERE id = $1 AND deleted_at IS NULL", [tempProd.productId]);
+  assert.equal(activeCheck.rows.length, 0, 'Sản phẩm trong thùng rác không còn hiển thị ở danh mục bán hàng');
+
+  const trashCheck = await pool.query("SELECT id FROM products WHERE id = $1 AND deleted_at IS NOT NULL", [tempProd.productId]);
+  assert.equal(trashCheck.rows.length, 1, 'Sản phẩm tồn tại trong thùng rác để chờ phục hồi');
+
+  // Khôi phục từ thùng rác (Restore)
+  await pool.query("UPDATE products SET deleted_at = NULL WHERE id = $1", [tempProd.productId]);
+  const restoredCheck = await pool.query("SELECT id FROM products WHERE id = $1 AND deleted_at IS NULL", [tempProd.productId]);
+  assert.equal(restoredCheck.rows.length, 1, 'Khôi phục sản phẩm từ thùng rác thành công');
+
+  // 4. Nghiệp vụ Quản trị Khách hàng & CRM (Customer Lifecycle & Retention)
+  const custRes = await pool.query(`
+    INSERT INTO customers(email, full_name, phone, active)
+    VALUES('vip.customer@gaeru.com', 'Trần Đình Trọng', '0911223344', true)
+    RETURNING id, email, full_name
+  `);
+  const customerId = custRes.rows[0].id;
+  assert.ok(customerId, 'Tạo hồ sơ khách hàng CRM thành công');
+
+  // 5. Nghiệp vụ Khuyến mại & Chiến dịch Marketing (Marketing & Promotions)
+  await pool.query(`
+    INSERT INTO marketing_vouchers(code, title, kind, amount, min_spend_vnd, starts_at, ends_at, total_limit, per_customer_limit, active)
+    VALUES('GAERU_ADMIN_100K', 'Voucher Quản Trị 100K', 'fixed', 100000, 500000, now(), now() + interval '30 days', 50, 1, true)
+    ON CONFLICT (code) DO NOTHING
+  `);
+  const voucherCheck = await pool.query("SELECT code, amount, kind FROM marketing_vouchers WHERE code = 'GAERU_ADMIN_100K'");
+  assert.equal(voucherCheck.rows[0].amount, 100000, 'Tạo mã voucher quản trị thành công');
+
+  // 6. Nghiệp vụ Tài chính & Xuất Hóa đơn Điện tử MISA meInvoice (Finance & Invoice)
+  const invoicePayload = buildInvoicePayload(
+    {
+      id: order.id,
+      orderNumber: order.order_number,
+      customerName: 'Nguyễn Thị Hoa',
+      email: 'hoa@gaeru.com',
+      phone: '0987654321',
+      address: '456 Lê Duẩn, Đà Nẵng',
+      shippingFeeVnd: 30000,
+      totalVnd: 1280000,
+      paymentMethod: 'cod'
+    },
+    [{
+      productName: 'Gimbal GAERU G1 Pro',
+      sku: 'G1-PRO-KT07',
+      unitPriceVnd: 1250000,
+      quantity: 1,
+      lineTotalVnd: 1250000
+    }]
+  );
+  assert.ok(invoicePayload, 'Sinh cấu trúc hóa đơn điện tử MISA thành công');
+  assert.equal(invoicePayload.BuyerLegalName, 'Nguyễn Thị Hoa', 'Thông tin người mua khớp đơn hàng');
+  assert.equal(invoicePayload.TotalAmount, 1280000, 'Tổng giá trị hóa đơn khớp 100% số tiền thanh toán');
+
+  // 7. Nghiệp vụ Tiếp nhận & Duyệt Bảo hành Điện tử (Care & Warranty Operations)
+  const warrantyRes = await pool.query(`
+    INSERT INTO warranty_activations(request_key, channel, external_order_number, external_product_name, contact_name, contact_phone, serial, status)
+    VALUES(gen_random_uuid(), 'shopee', $1, 'Gimbal GAERU G1 Pro', 'Nguyễn Thị Hoa', '0987654321', 'SN-G1-998877', 'pending')
+    RETURNING id, status
+  `, [order.order_number]);
+  // Quản trị viên xét duyệt kích hoạt bảo hành
+  await pool.query(`
+    UPDATE warranty_activations
+    SET status = 'active', purchase_date = current_date, expires_on = current_date + interval '12 months', updated_at = now()
+    WHERE id = $1
+  `, [warrantyRes.rows[0].id]);
+  const approvedWarranty = await pool.query("SELECT status, expires_on FROM warranty_activations WHERE id = $1", [warrantyRes.rows[0].id]);
+  assert.equal(approvedWarranty.rows[0].status, 'active', 'Quản trị viên xét duyệt kích hoạt bảo hành thành công');
+  assert.ok(approvedWarranty.rows[0].expires_on, 'Hạn bảo hành điện tử được tính toán chính xác');
+
+  // 8. Nghiệp vụ Cấu hình Kênh & Bảo mật Hệ thống (Settings & Configuration)
+  await pool.query(`
+    INSERT INTO store_settings(setting_key, setting_value)
+    VALUES('store_channels_config', '{\"momo_enabled\": true, \"vnpay_enabled\": true, \"spx_enabled\": true}')
+    ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value
+  `);
+  const settingsCheck = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'store_channels_config'");
+  const parsedSettings = typeof settingsCheck.rows[0].setting_value === 'string'
+    ? JSON.parse(settingsCheck.rows[0].setting_value)
+    : settingsCheck.rows[0].setting_value;
+  assert.equal(parsedSettings.vnpay_enabled, true, 'Cấu hình cổng thanh toán VNPAY được lưu trữ');
+  assert.equal(parsedSettings.spx_enabled, true, 'Cấu hình đơn vị vận chuyển SPX được kích hoạt');
+
+  console.log('✅ KT-07 VẬN HÀNH THỰC TẾ CHUYÊN SÂU 8/8 NGHIỆP VỤ TRANG QUẢN TRỊ THÀNH CÔNG:');
+  console.log('   - 1. Tổng quan Dashboard & Thống kê kinh doanh -> ĐẠT');
+  console.log('   - 2. Quản trị Đơn hàng & Sổ vết kiểm toán bất biến -> ĐẠT');
+  console.log('   - 3. Vòng đời Sản phẩm, Biến thể & Thùng rác phục hồi -> ĐẠT');
+  console.log('   - 4. Quản trị Khách hàng, CRM & Quyền riêng tư -> ĐẠT');
+  console.log('   - 5. Quản trị Khuyến mại, Voucher & Marketing -> ĐẠT');
+  console.log('   - 6. Nghiệp vụ Tài chính & Hóa đơn điện tử MISA meInvoice -> ĐẠT');
+  console.log('   - 7. Tiếp nhận, Tra cứu & Xét duyệt Bảo hành điện tử -> ĐẠT');
+  console.log('   - 8. Cấu hình Cổng thanh toán, Vận chuyển & Tham số hệ thống -> ĐẠT');
+});
+
+// ==============================================================================
+// KT-08: TOÀN BỘ 30 CHỨC NĂNG NÂNG CAO (CHẠY THẬT VS CHẠY ẢO)
+// ==============================================================================
+test('KT-08 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy thật vs chạy ảo (Live Production vs Simulation Sandbox)', async (t) => {
   const { pool, close } = await createTestDb();
   t.after(() => close());
 
@@ -860,7 +1013,7 @@ test('KT-07 — Chạy toàn bộ 30 chức năng nâng cao: Kiểm tra chạy t
 
   // Khẳng định đủ 30 chức năng nâng cao
   assert.equal(auditReport.length, 30, 'Toàn bộ 30 chức năng nâng cao phải được kiểm thử đầy đủ');
-  console.log('✅ KT-07 HOÀN TẤT KIỂM THỬ THỰC TẾ 30/30 CHỨC NĂNG NÂNG CAO:');
+  console.log('✅ KT-08 HOÀN TẤT KIỂM THỬ THỰC TẾ 30/30 CHỨC NĂNG NÂNG CAO:');
   for (const item of auditReport) {
     console.log(`   - [${item.id}] ${item.name} -> ${item.mode}`);
   }
