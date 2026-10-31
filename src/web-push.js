@@ -144,11 +144,14 @@ function isKnownPushProvider(hostname) {
   return KNOWN_PUSH_PROVIDERS.some(p => host === p || host.endsWith('.' + p));
 }
 
-async function verifyPushEndpointDns(endpointUrl) {
-  if (!endpointUrl) return;
+async function verifyPushEndpointDns(endpointUrl, options = {}) {
+  const dnsLookup = options.dnsLookup || dns?.promises?.lookup;
+  if (!endpointUrl || typeof endpointUrl !== 'string') {
+    throw Object.assign(new Error('Endpoint Push không được để trống.'), { status: 400 });
+  }
   let parsed;
   try {
-    parsed = new URL(endpointUrl);
+    parsed = new URL(endpointUrl.trim());
   } catch {
     throw Object.assign(new Error('Endpoint Push không phải URL hợp lệ.'), { status: 400 });
   }
@@ -158,26 +161,50 @@ async function verifyPushEndpointDns(endpointUrl) {
     throw Object.assign(new Error('Endpoint không được trỏ đến địa chỉ nội bộ, loopback hoặc mạng riêng.'), { status: 400 });
   }
 
-  // Phân giải DNS kiểm soát địa chỉ IP đích để ngăn chặn SSRF và DNS rebinding
   const isDirectIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
-  if (!isDirectIp && typeof dns?.promises?.lookup === 'function') {
-    try {
-      const addresses = await dns.promises.lookup(host, { all: true });
-      for (const addr of addresses) {
-        if (isPrivateOrLoopbackHost(addr.address)) {
-          throw Object.assign(new Error(`Endpoint phân giải về địa chỉ mạng riêng không được phép (${addr.address}).`), { status: 400 });
-        }
-      }
-    } catch (err) {
-      if (err.status === 400) throw err;
-      if (process.env.NODE_ENV === 'test' && isKnownPushProvider(host)) {
-        return;
-      }
-      if (err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN') {
-        throw Object.assign(new Error('Không thể phân giải tên miền Push gateway (DNS lookup failed).'), { status: 400 });
-      }
+  if (isDirectIp) {
+    throw Object.assign(new Error('Endpoint Push không được sử dụng trực tiếp địa chỉ IP.'), { status: 400 });
+  }
+
+  if (!isKnownPushProvider(host)) {
+    throw Object.assign(new Error('Endpoint Push không thuộc danh sách nhà cung cấp Push gateway đáng tin cậy.'), { status: 400 });
+  }
+
+  if (typeof dnsLookup !== 'function') {
+    throw Object.assign(new Error('Hệ thống không tìm thấy trình phân giải DNS khả dụng.'), { status: 500 });
+  }
+
+  // Phân giải DNS kiểm soát địa chỉ IP đích để ngăn chặn SSRF và DNS rebinding (fail-closed)
+  let addresses;
+  try {
+    addresses = await dnsLookup(host, { all: true });
+  } catch (err) {
+    if (err.status === 400) throw err;
+    const errCode = err.code || err.errno || 'DNS_LOOKUP_FAILED';
+    throw Object.assign(
+      new Error(`Không thể phân giải tên miền Push gateway (DNS lookup failed: ${errCode}).`),
+      { status: 400, code: errCode }
+    );
+  }
+
+  if (!addresses || !Array.isArray(addresses) || addresses.length === 0) {
+    throw Object.assign(
+      new Error('Không thể phân giải tên miền Push gateway (DNS trả về kết quả rỗng).'),
+      { status: 400 }
+    );
+  }
+
+  for (const addr of addresses) {
+    const ip = typeof addr === 'string' ? addr : addr?.address;
+    if (!ip || isPrivateOrLoopbackHost(ip)) {
+      throw Object.assign(
+        new Error(`Endpoint phân giải về địa chỉ mạng riêng không được phép (${ip || 'unknown'}).`),
+        { status: 400 }
+      );
     }
   }
+
+  return addresses;
 }
 
 function validatePushSubscriptionData(payload = {}) {
@@ -220,6 +247,10 @@ function validatePushSubscriptionData(payload = {}) {
     throw Object.assign(new Error('Thông tin khóa subscription được tạo giả, không được chấp nhận.'), { status: 400 });
   }
 
+  if (!isKnownPushProvider(url.hostname)) {
+    throw Object.assign(new Error('Endpoint Push không thuộc danh sách nhà cung cấp Push gateway đáng tin cậy.'), { status: 400 });
+  }
+
   // Khóa p256dh và auth phải chứa định dạng ký tự Base64 / Base64URL chuẩn (không cho phép dấu chấm hoặc ký tự đặc biệt)
   const base64Pattern = /^[A-Za-z0-9+/_-]+=*$/;
   if (!base64Pattern.test(key)) {
@@ -256,9 +287,9 @@ function validatePushSubscriptionData(payload = {}) {
   return { endpoint: ep, p256dh: key, auth: a };
 }
 
-async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId = null, userAgent = null }) {
+async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId = null, userAgent = null }, options = {}) {
   const valid = validatePushSubscriptionData({ endpoint, p256dh, auth });
-  await verifyPushEndpointDns(valid.endpoint);
+  await verifyPushEndpointDns(valid.endpoint, options);
 
   // Quota: Giới hạn tối đa 10 subscription hoạt động cho mỗi tài khoản để chống lạm dụng
   if (customerId) {
@@ -362,7 +393,7 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
 
   async function sendWithTimeout(sub) {
     try {
-      await verifyPushEndpointDns(sub.endpoint);
+      await verifyPushEndpointDns(sub.endpoint, options);
     } catch (dnsErr) {
       failed.push({
         id: sub.id,
@@ -603,6 +634,9 @@ function createPushAdminRouter(pool) {
 
 module.exports = {
   getVapidConfig,
+  isKnownPushProvider,
+  isPrivateOrLoopbackHost,
+  verifyPushEndpointDns,
   validatePushSubscriptionData,
   savePushSubscription,
   broadcastPushNotification,
