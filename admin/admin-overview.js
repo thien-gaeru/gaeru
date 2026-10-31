@@ -1,5 +1,16 @@
 // admin/admin-overview.js — Trang tổng quan: thống kê nhanh, lưu lượng truy cập & sức khỏe hệ thống
 
+const sharedFormat = typeof window !== 'undefined' ? (window.GAERUAdminShared || window.GAERUFormat) : null;
+const escapeHtml = (sharedFormat && typeof sharedFormat.escapeHtml === 'function')
+  ? sharedFormat.escapeHtml
+  : ((typeof window !== 'undefined' && typeof window.escapeHtml === 'function')
+      ? window.escapeHtml
+      : function fallbackEscapeHtml(value) {
+          return String(value ?? '').replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        });
+
 async function loadSummary() {
   if (!can("dashboard.read")) return;
   const summary = await request("/api/gaeru_ceo/summary");

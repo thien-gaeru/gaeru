@@ -75,6 +75,9 @@ const escapeHtml = (sharedFormat && typeof sharedFormat.escapeHtml === 'function
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;'
           }[c]));
         });
+if (typeof window !== 'undefined' && !window.escapeHtml) {
+  window.escapeHtml = escapeHtml;
+}
 const can = (permission) =>
   !state.session?.mfaEnrollmentRequired
   && Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));

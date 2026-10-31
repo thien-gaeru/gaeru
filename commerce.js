@@ -459,7 +459,7 @@ async function renderCheckout() {
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chọn tỉnh/thành" : formatPrice(fee);
     root.querySelector("[data-checkout-total]").textContent =
-      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(total + fee - voucherDiscount);
+      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(Math.max(0, total + fee - voucherDiscount));
   };
   const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
   const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
@@ -555,13 +555,29 @@ async function renderCheckout() {
               location.assign(retryRes.paymentUrl);
               return;
             }
+            if (retryRes?.alreadyPaid || retryRes?.order?.paymentStatus === 'paid') {
+              feedback.innerHTML = `Đơn hàng <strong>${escapeHtml(orderNum)}</strong> đã được thanh toán thành công!`;
+              writeCart([]);
+              setTimeout(() => location.assign(`/payment-result.html?result=processing&order=${encodeURIComponent(orderNum)}`), 1200);
+              return;
+            }
             if (retryRes?.code === 'PAYMENT_INITIATION_IN_PROGRESS' && attempts < maxAttempts) {
               const nextDelay = (Number(retryRes.retryAfterSeconds) || retryDelaySec) * 1000;
               setTimeout(pollPaymentUrl, nextDelay);
               return;
             }
+            if (retryRes?.error) {
+              feedback.textContent = retryRes.error;
+              button.disabled = false;
+              sending = false;
+              return;
+            }
           } catch (pollErr) {
             console.warn('Retry payment polling error:', pollErr);
+            if (attempts < maxAttempts) {
+              setTimeout(pollPaymentUrl, retryDelaySec * 1000);
+              return;
+            }
           }
           if (attempts >= maxAttempts) {
             feedback.innerHTML = `Chưa nhận được phản hồi từ cổng thanh toán. Mã đơn của bạn là <strong>${escapeHtml(orderNum)}</strong>. Vui lòng kiểm tra email xác nhận hoặc thử lại sau ít phút.`;

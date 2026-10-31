@@ -512,7 +512,7 @@ function attachAdminOrderAndSettingsRoutes(router, pool, {
     });
   });
 
-  router.put('/gaeru_ceo/settings', requireCsrf, async (req, res) => {
+  router.put('/gaeru_ceo/settings', AdminAction('settings.write'), async (req, res) => {
     const parsed = settingsSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Cài đặt chưa hợp lệ.', details: parsed.error.issues });
     const settings = {

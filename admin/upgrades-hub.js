@@ -317,7 +317,7 @@
 
       grid.innerHTML = summary.map(s => `
         <div class="rfm-card-item">
-          <div style="font-size:16px;">${s.badge}</div>
+          <div style="font-size:16px;">${escapeHtml(s.badge)}</div>
           <strong>${s.customerCount} <small style="font-size:13px;color:#86868b;">(${s.percentage}%)</small></strong>
           <span>${escapeHtml(s.name)}</span>
           <small>${formatMoney(s.totalRevenueVnd)}</small>
@@ -690,14 +690,6 @@
 
   function init() {
     renderMatrix('all');
-
-    // Bind tab clicks directly
-    document.querySelectorAll('.upgrades-tab-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        switchUpgradeTab(btn.dataset.tab);
-      });
-    });
   }
 
   // Global delegated click listener for tabs, filters, and actions

@@ -292,7 +292,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
       if (!verified.valid) return res.status(400).json({ code: '97', return_code: -1, resultCode: 97, message: 'Invalid callback' });
       const outcome = await withTransaction(pool, async (client) => {
         const row = (await client.query(
-          'SELECT provider_request_id FROM payment_attempts WHERE transaction_ref = $1 AND provider = $2',
+          'SELECT provider_request_id FROM payment_attempts WHERE transaction_ref = $1 AND provider = $2 ORDER BY created_at DESC LIMIT 1 FOR UPDATE',
           [verified.orderNumber, provider]
         )).rows[0];
         if (!row) return { code: '01', matched: false, message: 'Order not found' };
@@ -588,7 +588,8 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           }
 
           if (promotion) {
-            await require('../marketing').redeem(client, promotion, req.session.customer.id, createdOrder.id);
+            const customerId = req.session?.customer?.id || createdOrder.customerId || null;
+            await require('../marketing').redeem(client, promotion, customerId, createdOrder.id);
             createdOrder.discountVnd = promotion.discountVnd;
             createdOrder.voucherCode = promotion.voucher.code;
           }
