@@ -16,8 +16,9 @@ const reasons={
   gateway_reconciliation_needed:'Cần đối soát trạng thái giao dịch cổng thanh toán trước khi hủy/xử lý (SLA 24h)'
 };
 async function inspectDomain(email,resolver=domainResolver){
- const domain=email?.split('@')?.at(-1);
- if(!domain)return 'missing';
+ if(!email||typeof email!=='string'||!email.includes('@'))return 'missing';
+ const domain=email.split('@').at(-1)?.trim();
+ if(!domain||!domain.includes('.'))return 'missing';
  try{const mx=await resolver.resolveMx(domain);if(mx.some(r=>r.exchange&&r.exchange!=='.'))return 'valid';if(mx.length)return 'missing';}
  catch(e){if(e.code==='ENOTFOUND')return 'missing';if(e.code!=='ENODATA')return 'unknown';}
  try{await resolver.lookup(domain);return 'valid';}catch(e){return e.code==='ENOTFOUND'?'missing':'unknown';}
