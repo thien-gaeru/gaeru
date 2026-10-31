@@ -79,3 +79,6 @@ CREATE TABLE IF NOT EXISTS order_item_allocations (
 
 CREATE INDEX IF NOT EXISTS idx_order_item_allocations_item
   ON order_item_allocations (order_item_id);
+
+CREATE INDEX IF NOT EXISTS idx_payment_attempts_order_provider_status
+  ON payment_attempts (order_id, provider, status);
