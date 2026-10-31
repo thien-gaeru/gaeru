@@ -45,6 +45,12 @@ class PaymentRetryCoordinator {
     expectedPaymentMethod = null,
     expectedItems = null,
     expectedTotalVnd = null,
+    expectedShippingCarrierId = null,
+    expectedShippingFeeVnd = null,
+    expectedVoucherCode = null,
+    expectedQuoteHash = null,
+    checkoutPayload = null,
+    checkoutPayloadHash = null,
     config = {},
     settings = null,
     baseUrl = 'https://gaeru.com',
@@ -67,6 +73,8 @@ class PaymentRetryCoordinator {
               o.total_vnd AS "totalVnd", o.status, o.payment_method AS "paymentMethod",
               o.payment_status AS "paymentStatus", o.created_at AS "createdAt",
               o.customer_id AS "customerId",
+              o.customer_name AS "customerName", o.address, o.city, o.note,
+              o.quote_hash AS "quoteHash", o.checkout_payload_hash AS "checkoutPayloadHash",
               o.email AS "customerEmail", o.phone AS "customerPhone",
               p.id AS "attemptId", p.provider, p.status AS "attemptStatus",
               p.provider_request_id AS "providerRequestId", p.payment_url AS "paymentUrl",
@@ -82,6 +90,12 @@ class PaymentRetryCoordinator {
     )).rows[0];
 
     if (!lookup) return null;
+    try {
+      const sc = await pool.query('SELECT carrier_id AS "carrierId" FROM order_shipping_selection WHERE order_id = $1 LIMIT 1', [lookup.id]);
+      lookup.shippingCarrierId = sc.rows[0]?.carrierId || null;
+    } catch {
+      lookup.shippingCarrierId = null;
+    }
 
     // 2. Kiểm tra quyền sở hữu bằng OrderOwnership Policy thống nhất (Fail-Closed)
     assertOrderOwnership(lookup, {
@@ -108,7 +122,14 @@ class PaymentRetryCoordinator {
     assertOrderPayloadMatch(lookup, items, {
       expectedPaymentMethod,
       expectedTotalVnd,
-      expectedItems
+      expectedItems,
+      expectedCustomer,
+      expectedShippingCarrierId,
+      expectedShippingFeeVnd,
+      expectedVoucherCode,
+      expectedQuoteHash,
+      checkoutPayload,
+      checkoutPayloadHash
     });
 
     const formatOrder = (overrides = {}) => ({

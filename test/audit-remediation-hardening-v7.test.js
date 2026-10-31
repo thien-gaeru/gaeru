@@ -1062,3 +1062,151 @@ test('P1-03: Generates unique gateway request IDs across attempts for MoMo and Z
   assert.equal(calls[1].body.requestId, momoReqId2);
 });
 
+test('P2-01: Idempotency binds full immutable checkout payload fingerprint (checkout_payload_hash) including address, shipping, voucher, buyer info, quote version', async (t) => {
+  const { computeCheckoutPayloadHash, normalizeCheckoutPayload, assertOrderPayloadMatch } = require('../src/domain/payments/order-idempotency-policy');
+
+  const basePayload = {
+    customer: {
+      name: 'Nguyễn Văn A',
+      email: 'nguyenvana@example.com',
+      phone: '0912345678',
+      address: '123 Đường Lê Lợi, Phường Bến Nghé',
+      city: 'TP. Hồ Chí Minh',
+      note: 'Giao giờ hành chính'
+    },
+    items: [
+      { variantId: '11111111-1111-1111-1111-111111111111', quantity: 2 },
+      { variantId: '22222222-2222-2222-2222-222222222222', quantity: 1 }
+    ],
+    paymentMethod: 'momo',
+    shippingCarrierId: 'ghn',
+    expectedShippingFeeVnd: 30000,
+    expectedSubtotalVnd: 500000,
+    expectedQuoteHash: 'quote-hash-v1-abcdef0123456789',
+    voucherCode: 'GAERU10'
+  };
+
+  const baseHash = computeCheckoutPayloadHash(basePayload);
+  assert.ok(baseHash && baseHash.length === 64, 'Hash must be a valid 64-char SHA256 hex string');
+
+  // 1. Invariance under item ordering and duplicate variant aggregation
+  const reorderedPayload = {
+    ...basePayload,
+    items: [
+      { variantId: '22222222-2222-2222-2222-222222222222', quantity: 1 },
+      { variantId: '11111111-1111-1111-1111-111111111111', quantity: 1 },
+      { variantId: '11111111-1111-1111-1111-111111111111', quantity: 1 }
+    ]
+  };
+  const reorderedHash = computeCheckoutPayloadHash(reorderedPayload);
+  assert.equal(baseHash, reorderedHash, 'Hash must remain invariant when cart items are reordered or split across duplicate lines');
+
+  // 2. Hash sensitivity to critical order fields
+  const differentAddressHash = computeCheckoutPayloadHash({
+    ...basePayload,
+    customer: { ...basePayload.customer, address: '456 Đường Nguyễn Huệ' }
+  });
+  assert.notEqual(baseHash, differentAddressHash, 'Address change must change hash');
+
+  const differentCityHash = computeCheckoutPayloadHash({
+    ...basePayload,
+    customer: { ...basePayload.customer, city: 'Hà Nội' }
+  });
+  assert.notEqual(baseHash, differentCityHash, 'City change must change hash');
+
+  const differentCarrierHash = computeCheckoutPayloadHash({
+    ...basePayload,
+    shippingCarrierId: 'ghtk'
+  });
+  assert.notEqual(baseHash, differentCarrierHash, 'Shipping carrier change must change hash');
+
+  const differentVoucherHash = computeCheckoutPayloadHash({
+    ...basePayload,
+    voucherCode: 'GAERU20'
+  });
+  assert.notEqual(baseHash, differentVoucherHash, 'Voucher change must change hash');
+
+  const differentQuoteHash = computeCheckoutPayloadHash({
+    ...basePayload,
+    expectedQuoteHash: 'quote-hash-v2-different'
+  });
+  assert.notEqual(baseHash, differentQuoteHash, 'Quote version/hash change must change hash');
+
+  const differentCustomerHash = computeCheckoutPayloadHash({
+    ...basePayload,
+    customer: { ...basePayload.customer, name: 'Trần Văn B' }
+  });
+  assert.notEqual(baseHash, differentCustomerHash, 'Customer name change must change hash');
+
+  // 3. assertOrderPayloadMatch detects and throws specific 409 codes
+  const mockOrderInDb = {
+    id: '33333333-3333-3333-3333-333333333333',
+    orderNumber: 'GR-P201-ORDER-001',
+    customerName: 'Nguyễn Văn A',
+    address: '123 Đường Lê Lợi, Phường Bến Nghé',
+    city: 'tp. hồ chí minh',
+    email: 'nguyenvana@example.com',
+    phone: '0912345678',
+    paymentMethod: 'momo',
+    shippingCarrierId: 'ghn',
+    shippingFeeVnd: 30000,
+    voucherCode: 'GAERU10',
+    quoteHash: 'quote-hash-v1-abcdef0123456789',
+    totalVnd: 530000,
+    checkoutPayloadHash: baseHash
+  };
+
+  const dbItems = [
+    { variantId: '11111111-1111-1111-1111-111111111111', quantity: 2 },
+    { variantId: '22222222-2222-2222-2222-222222222222', quantity: 1 }
+  ];
+
+  // Identical payload matches 100% via checkoutPayloadHash
+  assert.doesNotThrow(() => {
+    assertOrderPayloadMatch(mockOrderInDb, dbItems, {
+      checkoutPayload: basePayload,
+      checkoutPayloadHash: baseHash
+    });
+  });
+
+  // Reusing key with different address -> 409 IDEMPOTENCY_ADDRESS_MISMATCH
+  assert.throws(() => {
+    assertOrderPayloadMatch(mockOrderInDb, dbItems, {
+      checkoutPayload: {
+        ...basePayload,
+        customer: { ...basePayload.customer, address: '999 Đường Khác' }
+      }
+    });
+  }, (err) => err.status === 409 && err.code === 'IDEMPOTENCY_ADDRESS_MISMATCH');
+
+  // Reusing key with different voucher -> 409 IDEMPOTENCY_VOUCHER_MISMATCH
+  assert.throws(() => {
+    assertOrderPayloadMatch(mockOrderInDb, dbItems, {
+      checkoutPayload: {
+        ...basePayload,
+        voucherCode: 'DIFFERENT_VOUCHER'
+      }
+    });
+  }, (err) => err.status === 409 && err.code === 'IDEMPOTENCY_VOUCHER_MISMATCH');
+
+  // Reusing key with different carrier -> 409 IDEMPOTENCY_SHIPPING_MISMATCH
+  assert.throws(() => {
+    assertOrderPayloadMatch(mockOrderInDb, dbItems, {
+      checkoutPayload: {
+        ...basePayload,
+        shippingCarrierId: 'ghtk'
+      }
+    });
+  }, (err) => err.status === 409 && err.code === 'IDEMPOTENCY_SHIPPING_MISMATCH');
+
+  // Reusing key with different quote version -> 409 IDEMPOTENCY_QUOTE_MISMATCH
+  assert.throws(() => {
+    assertOrderPayloadMatch(mockOrderInDb, dbItems, {
+      checkoutPayload: {
+        ...basePayload,
+        expectedQuoteHash: 'quote-hash-expired-or-changed'
+      }
+    });
+  }, (err) => err.status === 409 && err.code === 'IDEMPOTENCY_QUOTE_MISMATCH');
+});
+
