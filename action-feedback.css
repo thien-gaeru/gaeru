@@ -23,6 +23,9 @@
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 100vw;
+  box-sizing: border-box;
+  overflow: hidden;
   font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -40,7 +43,8 @@
   align-items: center;
   text-align: center;
   width: min(440px, calc(100vw - 36px));
-  max-width: 440px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   padding: 32px 28px 24px;
   background: #ffffff;
   color: #1d1d1f;
