@@ -186,6 +186,12 @@ class WorkerManager {
       try { this.leaderClient.release?.(true); } catch {}
       this.leaderClient = null;
     }
+
+    if (this._cachedMailer && typeof this._cachedMailer.close === 'function') {
+      try { this._cachedMailer.close(); } catch {}
+      this._cachedMailer = null;
+      this._cachedSmtpOptionsKey = null;
+    }
   }
 
   /**
@@ -288,13 +294,72 @@ class WorkerManager {
     this.jobQueue.registerWorker('email.order', async (payload, _job, leaseContext) => {
       leaseContext?.assertLeaseActive?.();
       const orderEmail = requireFn('./order-email');
+      let orderReview = null;
+      try {
+        orderReview = requireFn('./order-review');
+      } catch {}
       const mailer = getOrCreateMailer();
-      const fn = orderEmail.processOrderEmailOutbox || orderEmail.processOrderEmail;
-      if (typeof fn === 'function') {
-        const res = await fn(pool, config, mailer, { structured: true });
-        return normalizeEmailWorkerResult(res);
+
+      // Sàng lọc email trước khi gửi nếu có outbox pending
+      if (typeof orderReview?.screenNextEmail === 'function') {
+        try {
+          await orderReview.screenNextEmail(pool, { resolver: payload?.resolver });
+        } catch (err) {
+          console.warn('email.order screening error:', err?.message || err);
+        }
       }
-      return { status: 'no_work' };
+
+      const fn = orderEmail.processOrderEmailOutbox || orderEmail.processOrderEmail;
+      let res = null;
+      if (typeof fn === 'function') {
+        res = await fn(pool, config, mailer, { structured: true });
+      }
+
+      // Phân loại và thông báo quản trị sau khi gửi
+      if (typeof orderReview?.classify === 'function') {
+        try { await orderReview.classify(pool); } catch {}
+      }
+      if (typeof orderReview?.notifyAdmin === 'function') {
+        try { await orderReview.notifyAdmin(pool, config, mailer); } catch {}
+      }
+
+      return normalizeEmailWorkerResult(res);
+    });
+
+    this.jobQueue.registerWorker('order.review', async (payload, _job, leaseContext) => {
+      leaseContext?.assertLeaseActive?.();
+      let orderReview = null;
+      try {
+        orderReview = requireFn('./order-review');
+      } catch {}
+      const mailer = getOrCreateMailer();
+      let screened = false;
+      if (typeof orderReview?.screenNextEmail === 'function') {
+        try {
+          await orderReview.screenNextEmail(pool, { resolver: payload?.resolver });
+          screened = true;
+        } catch (e) {
+          console.warn('order.review screenNextEmail error:', e?.message || e);
+        }
+      }
+      let classified = false;
+      if (typeof orderReview?.classify === 'function') {
+        try {
+          await orderReview.classify(pool);
+          classified = true;
+        } catch (e) {
+          console.warn('order.review classify error:', e?.message || e);
+        }
+      }
+      let notified = false;
+      if (typeof orderReview?.notifyAdmin === 'function') {
+        try {
+          notified = await orderReview.notifyAdmin(pool, config, mailer);
+        } catch (e) {
+          console.warn('order.review notifyAdmin error:', e?.message || e);
+        }
+      }
+      return { ok: true, screened, classified, notified };
     });
 
     this.jobQueue.registerWorker('email.warranty', async (payload, _job, leaseContext) => {
@@ -418,6 +483,28 @@ class WorkerManager {
         this.workers.set('orderExpirationScheduler', () => {
           clearInterval(cronTimer);
         });
+
+        // PR A: Đưa order.review vào lịch trình định kỳ của JobQueue
+        const reviewIntervalMs = Math.max(
+          10000,
+          Number(config?.ORDER_REVIEW_CRON_INTERVAL_MS || config?.ORDER_REVIEW_INTERVAL_MS || jobQueueOptions?.orderReviewIntervalMs || 60 * 1000)
+        );
+        const isImmediateReview = Boolean(jobQueueOptions?.immediateOrderReview || config?.ORDER_REVIEW_IMMEDIATE);
+        await this.enqueueOrderReviewJob(pool, config, {
+          immediate: isImmediateReview,
+          runAt: isImmediateReview ? null : new Date(Date.now() + reviewIntervalMs)
+        });
+
+        const reviewCronTimer = setInterval(() => {
+          if (this.isLeader && !this._stopped) {
+            void this.enqueueOrderReviewJob(pool, config, { immediate: false });
+          }
+        }, reviewIntervalMs);
+        if (reviewCronTimer.unref) reviewCronTimer.unref();
+
+        this.workers.set('orderReviewScheduler', () => {
+          clearInterval(reviewCronTimer);
+        });
       } catch {
         // job-queue fallback
       }
@@ -446,8 +533,20 @@ class WorkerManager {
       } catch {}
       return requireFn('./order-email').startOrderEmailWorker(pool, config, { mailer });
     });
-    safeStart('warrantyEmail', () => requireFn('./warranty-email').startWarrantyEmailWorker(pool, config));
-    safeStart('emailMarketing', () => requireFn('./email-marketing').startEmailWorker(pool, config));
+    safeStart('warrantyEmail', () => {
+      let mailer = null;
+      try {
+        mailer = this.getOrCreateMailer(config, { requireFn });
+      } catch {}
+      return requireFn('./warranty-email').startWarrantyEmailWorker(pool, config, { mailer });
+    });
+    safeStart('emailMarketing', () => {
+      let mailer = null;
+      try {
+        mailer = this.getOrCreateMailer(config, { requireFn });
+      } catch {}
+      return requireFn('./email-marketing').startEmailWorker(pool, config, { mailer });
+    });
     safeStart('accountRetention', () => requireFn('./account-retention').startRetentionWorker(pool));
     safeStart('paymentReconciliation', () => {
       let mod = null;
@@ -552,6 +651,74 @@ class WorkerManager {
   }
 
   /**
+   * PR A: Enqueue tác vụ định kỳ order.review vào JobQueue
+   * Sàng lọc domain email, phân loại đơn có email bất thường và gửi thông báo cho quản trị viên.
+   */
+  async enqueueOrderReviewJob(pool = null, config = null, {
+    immediate = false,
+    runAt = null
+  } = {}) {
+    const targetPool = pool || this._runtimeContext?.pool;
+    const targetConfig = config || this._runtimeContext?.config || {};
+    if (!targetPool || typeof targetPool.query !== 'function') return null;
+
+    try {
+      const activeCheck = await targetPool.query(
+        `SELECT id, status, run_at FROM system_jobs
+         WHERE name = 'order.review'
+           AND status IN ('pending', 'processing')
+         ORDER BY run_at ASC, id ASC
+         LIMIT 1`
+      ).catch(() => ({ rows: [] }));
+
+      if (activeCheck?.rows?.length > 0) {
+        const activeJob = activeCheck.rows[0];
+        if (immediate && activeJob.status === 'pending' && new Date(activeJob.run_at) > new Date()) {
+          await targetPool.query(
+            `UPDATE system_jobs SET run_at = now(), updated_at = now() WHERE id = $1`,
+            [activeJob.id]
+          ).catch(() => {});
+          return { queued: false, updated: true, activeJobId: activeJob.id, status: 'pending' };
+        }
+        return {
+          queued: false,
+          reason: 'already_active',
+          activeJobId: activeJob.id,
+          status: activeJob.status
+        };
+      }
+
+      const reviewIntervalMs = Math.max(
+        10000,
+        Number(targetConfig?.ORDER_REVIEW_CRON_INTERVAL_MS || targetConfig?.ORDER_REVIEW_INTERVAL_MS || 60 * 1000)
+      );
+      const targetRunAt = immediate
+        ? null
+        : (runAt || new Date(Date.now() + reviewIntervalMs));
+
+      const slot = Math.floor((targetRunAt ? new Date(targetRunAt).getTime() : Date.now()) / 60000);
+      const idempotencyKey = `order.review:${slot}`;
+
+      const { enqueueJob } = require('./job-queue');
+      const job = await enqueueJob(targetPool, {
+        queue: 'maintenance',
+        name: 'order.review',
+        payload: {
+          scheduledAt: new Date().toISOString()
+        },
+        idempotencyKey,
+        runAt: targetRunAt,
+        maxAttempts: 3
+      });
+
+      return { queued: true, job };
+    } catch (err) {
+      console.error('WorkerManager: Lỗi khi enqueue định kỳ order.review:', err?.message || err);
+      return null;
+    }
+  }
+
+  /**
    * Khởi chạy JobQueue + đăng ký handlers + khởi chạy toàn bộ worker định kỳ (nếu là Leader);
    * nếu chưa lấy được khóa (Follower hoặc DB tạm gián đoạn), giữ chế độ Fail-Closed và bật Leader Retry Loop.
    */
@@ -605,6 +772,12 @@ class WorkerManager {
     }
     this.workers.clear();
     this._workloadsStarted = false;
+
+    if (this._cachedMailer && typeof this._cachedMailer.close === 'function') {
+      try { this._cachedMailer.close(); } catch {}
+      this._cachedMailer = null;
+      this._cachedSmtpOptionsKey = null;
+    }
 
     const clientToUnlock = this.leaderClient;
     this.leaderClient = null;

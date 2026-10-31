@@ -2,6 +2,12 @@
 
 const multer = require('multer');
 const { z } = require('zod');
+const {
+  ORDER_TRANSITIONS,
+  ALL_PAYMENT_METHODS
+} = require('../domain/payments/payment-enums');
+
+const transitions = ORDER_TRANSITIONS;
 
 const orderSchema = z.object({
   customer: z.object({
@@ -19,20 +25,11 @@ const orderSchema = z.object({
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
   idempotencyKey: z.string().trim().min(4).max(120).regex(/^[A-Za-z0-9_.:-]+$/).optional(),
   retryOrderNumber: z.string().trim().min(5).max(80).optional(),
-  paymentMethod: z.enum(['cod', 'bank_transfer', 'vnpay', '9pay', 'momo', 'zalopay']),
+  paymentMethod: z.enum([...ALL_PAYMENT_METHODS]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
     quantity: z.number().int().min(1).max(99)
   })).min(1).max(30)
-});
-
-const transitions = Object.freeze({
-  pending: ['confirmed', 'cancelled'],
-  confirmed: ['processing', 'cancelled'],
-  processing: ['shipped', 'cancelled'],
-  shipped: ['completed'],
-  completed: [],
-  cancelled: []
 });
 
 const productSchema = z.object({
@@ -111,6 +108,7 @@ function createImageUploadParser() {
 module.exports = {
   orderSchema,
   transitions,
+  ORDER_TRANSITIONS,
   productSchema,
   variantSchema,
   orderUpdateSchema,

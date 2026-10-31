@@ -2406,3 +2406,91 @@ test('P2-06 Fix: Supplementary migration safely handles duplicate provider_reque
   `);
   assert.equal(indexCheck.rows.length, 1);
 });
+
+test('Domain Unification & Enums: Single Source of Truth consistency across all modules', async () => {
+  const paymentEnums = require('../src/domain/payments/payment-enums');
+  const reconciliationOutcomeMod = require('../src/domain/payments/reconciliation-outcome');
+  const paymentPolicy = require('../src/domain/payments/payment-policy');
+  const orderIdempotencyPolicy = require('../src/domain/payments/order-idempotency-policy');
+  const storeSchemas = require('../src/store/store-schemas');
+  const orderEmail = require('../src/order-email');
+
+  // 1. payment-enums SSOT checks
+  assert.equal(paymentEnums.PAYMENT_METHODS.COD, 'cod');
+  assert.equal(paymentEnums.PAYMENT_METHODS.MOMO, 'momo');
+  assert.equal(paymentEnums.PAYMENT_METHODS.ZALOPAY, 'zalopay');
+  assert.deepEqual(paymentEnums.ONLINE_GATEWAYS, ['vnpay', '9pay', 'momo', 'zalopay']);
+  assert.deepEqual(paymentEnums.MANUAL_METHODS, ['cod', 'bank_transfer']);
+  assert.equal(paymentEnums.getPaymentMethodLabel('cod'), 'COD');
+  assert.equal(paymentEnums.getPaymentMethodLabel('momo'), 'Ví MoMo');
+  assert.equal(paymentEnums.getPaymentMethodLabel('zalopay'), 'Ví ZaloPay');
+  assert.equal(paymentEnums.getPaymentMethodLabel('bank_transfer'), 'Chuyển khoản ngân hàng');
+  assert.equal(paymentEnums.isOnlineGateway('momo'), true);
+  assert.equal(paymentEnums.isOnlineGateway('cod'), false);
+  assert.equal(paymentEnums.isManualPayment('cod'), true);
+  assert.equal(paymentEnums.isManualPayment('zalopay'), false);
+  assert.equal(paymentEnums.isUnknownAttemptState('payment_initiation_unknown'), true);
+  assert.equal(paymentEnums.isUnknownAttemptState('paid'), false);
+
+  // 2. ReconciliationOutcome re-export parity
+  assert.equal(reconciliationOutcomeMod.ReconciliationOutcome, paymentEnums.ReconciliationOutcome);
+  assert.equal(reconciliationOutcomeMod.RECONCILIATION_ACTIONS, paymentEnums.RECONCILIATION_ACTIONS);
+
+  // 3. PaymentPolicy enums consistency
+  assert.deepEqual(paymentPolicy.ONLINE_GATEWAYS, paymentEnums.ONLINE_GATEWAYS);
+  assert.deepEqual(paymentPolicy.MANUAL_METHODS, paymentEnums.MANUAL_METHODS);
+  assert.equal(paymentPolicy.isOnlineGateway('momo'), true);
+  assert.equal(paymentPolicy.isManualPayment('bank_transfer'), true);
+
+  // 4. OrderIdempotencyPolicy states consistency
+  assert.deepEqual(orderIdempotencyPolicy.ATTEMPT_STATES, paymentEnums.ATTEMPT_STATES);
+  assert.deepEqual(orderIdempotencyPolicy.TERMINAL_ATTEMPT_STATES, paymentEnums.TERMINAL_ATTEMPT_STATES);
+
+  // 5. StoreSchemas order transitions
+  assert.deepEqual(storeSchemas.ORDER_TRANSITIONS, paymentEnums.ORDER_TRANSITIONS);
+  assert.deepEqual(storeSchemas.transitions, paymentEnums.ORDER_TRANSITIONS);
+});
+
+test('WorkerManager Lifecycle & Order Review Job: memoized mailer lifecycle and scheduled order.review job', async (t) => {
+  const { WorkerManager } = require('../src/workers');
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') t.after(() => close?.());
+
+  const wm = new WorkerManager({ allowUnlockedFallback: true });
+
+  // 1. Mailer memoization and cleanup lifecycle
+  let closed = false;
+  const dummyMailer = {
+    sendMail: async () => ({ accepted: ['test@example.com'] }),
+    close: () => { closed = true; }
+  };
+  wm._cachedMailer = dummyMailer;
+  wm._cachedSmtpOptionsKey = 'dummy-key';
+
+  // StopAll should call mailer.close()
+  await wm.stopAll();
+  assert.equal(closed, true);
+  assert.equal(wm._cachedMailer, null);
+  assert.equal(wm._cachedSmtpOptionsKey, null);
+
+  // 2. Order Review Job enqueuer
+  const appConfig = {
+    ORDER_REVIEW_CRON_INTERVAL_MS: 30000,
+    smtp: { from: 'GAERU <test@gaeru.com>' }
+  };
+
+  const enqResult1 = await wm.enqueueOrderReviewJob(pool, appConfig, { immediate: true });
+  assert.equal(enqResult1.queued, true);
+  assert.ok(enqResult1.job?.id);
+
+  // Second immediate enqueue should detect already active job
+  const enqResult2 = await wm.enqueueOrderReviewJob(pool, appConfig, { immediate: false });
+  assert.equal(enqResult2.queued, false);
+  assert.equal(enqResult2.reason, 'already_active');
+
+  // Verify job in database
+  const jobRow = (await pool.query("SELECT * FROM system_jobs WHERE name = 'order.review'")).rows[0];
+  assert.ok(jobRow);
+  assert.equal(jobRow.queue, 'maintenance');
+  assert.equal(jobRow.status, 'pending');
+});

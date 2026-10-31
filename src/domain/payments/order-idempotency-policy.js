@@ -11,21 +11,10 @@
  */
 
 const { createHash, createHmac, timingSafeEqual } = require('node:crypto');
-
-const ATTEMPT_STATES = Object.freeze({
-  PENDING: 'pending',
-  PAID: 'paid',
-  FAILED: 'failed',
-  CANCELLED: 'cancelled',
-  UNKNOWN: 'payment_initiation_unknown',
-  AWAITING_RECONCILIATION: 'awaiting_reconciliation',
-  EXPIRY_AWAITING_VERIFICATION: 'expiry_awaiting_verification'
-});
-
-const TERMINAL_ATTEMPT_STATES = Object.freeze([
-  ATTEMPT_STATES.PAID,
-  ATTEMPT_STATES.CANCELLED
-]);
+const {
+  ATTEMPT_STATES,
+  TERMINAL_ATTEMPT_STATES
+} = require('./payment-enums');
 
 /**
  * Chuẩn hóa số điện thoại Việt Nam về định dạng chữ số thuần túy
