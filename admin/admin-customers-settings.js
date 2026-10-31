@@ -111,7 +111,7 @@ function renderShippingRates(rates) {
     ? entries.map(([province, fee]) => `
     <div class="shipping-rate-row">
       <label>Tỉnh/thành phố<input data-shipping-province required maxlength="120" value="${escapeHtml(province)}"></label>
-      <label>Phí giao hàng (₫)<input data-shipping-fee type="number" required min="0" max="1000000000" step="1" value="${fee}"></label>
+      <label>Phí giao hàng (₫)<input data-shipping-fee type="number" required min="0" max="1000000000" step="1" value="${escapeHtml(fee)}"></label>
       <button class="plain-button" type="button" data-remove-shipping-rate>Xóa tỉnh/thành</button>
     </div>`).join("")
     : '<p class="shipping-rate-empty">Chưa có bảng phí. Thêm các tỉnh/thành phố GAERU đang giao hàng.</p>';
@@ -182,6 +182,7 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
       await showCustomerDetail(detailButton.dataset.customerDetail, panel);
     }
     if (toggleButton) {
+      if (!can("customers.write")) return;
       const active = toggleButton.dataset.active === "true";
       if (active && !window.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập.")) return;
       await toggleCustomer(toggleButton.dataset.customerToggle, active);
@@ -189,6 +190,7 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     const softDeleteBtn = event.target.closest("[data-customer-soft-delete]");
     if (softDeleteBtn) {
+      if (!can("customers.write")) return;
       if (!window.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập.")) return;
       await request(`/api/gaeru_ceo/customers/${encodeURIComponent(softDeleteBtn.dataset.customerSoftDelete)}/soft-delete`, {
         method: "POST",
@@ -200,6 +202,7 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     const restoreDirectBtn = event.target.closest("[data-customer-restore-direct]");
     if (restoreDirectBtn) {
+      if (!can("customers.write")) return;
       await request(`/api/gaeru_ceo/customers/${encodeURIComponent(restoreDirectBtn.dataset.customerRestoreDirect)}/restore`, {
         method: "POST",
         body: JSON.stringify({ reason: "Quản trị viên khôi phục tài khoản từ thùng rác" })
@@ -210,6 +213,7 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     const permDeleteBtn = event.target.closest("[data-customer-permanent-delete]");
     if (permDeleteBtn) {
+      if (!can("customers.write")) return;
       const password = window.prompt(
         "CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:"
       );
@@ -229,11 +233,12 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
 document.querySelector("#customer-list").addEventListener("submit", async (e) => {
   if (!e.target.matches("[data-customer-restore]")) return;
   e.preventDefault();
+  if (!can("customers.write")) return;
   const form = e.target;
   const button = form.querySelector("button");
   button.disabled = true;
   try {
-    await request("/api/gaeru_ceo/customers/" + form.dataset.customerRestore + "/restore", {
+    await request("/api/gaeru_ceo/customers/" + encodeURIComponent(form.dataset.customerRestore) + "/restore", {
       method: "POST",
       body: JSON.stringify({ reason: form.elements.reason.value })
     });
@@ -247,12 +252,13 @@ document.querySelector("#customer-list").addEventListener("submit", async (e) =>
 document.querySelector("#customer-list").addEventListener("submit", async (e) => {
   if (!e.target.matches("[data-customer-delete]")) return;
   e.preventDefault();
+  if (!can("customers.write")) return;
   const form = e.target;
   const button = form.querySelector("button");
   if (!form.reportValidity()) return;
   button.disabled = true;
   try {
-    await request("/api/gaeru_ceo/customers/" + form.dataset.customerDelete + "/delete", {
+    await request("/api/gaeru_ceo/customers/" + encodeURIComponent(form.dataset.customerDelete) + "/delete", {
       method: "POST",
       body: JSON.stringify({ reason: form.elements.reason.value, confirmed: form.elements.confirmed.checked })
     });
@@ -266,6 +272,7 @@ document.querySelector("#customer-list").addEventListener("submit", async (e) =>
 
 document.querySelector("#settings-form").addEventListener("submit", saveSettings);
 document.querySelector("#add-shipping-rate").addEventListener("click", () => {
+  if (!can("settings.write")) return;
   const root = document.querySelector("#shipping-rate-list");
   const emptyNote = root.querySelector(".shipping-rate-empty");
   if (emptyNote) emptyNote.remove();
@@ -281,6 +288,7 @@ document.querySelector("#add-shipping-rate").addEventListener("click", () => {
   newRow?.querySelector("[data-shipping-province]")?.focus();
 });
 document.querySelector("#shipping-rate-list").addEventListener("click", (event) => {
+  if (!can("settings.write")) return;
   if (!event.target.closest("[data-remove-shipping-rate]")) return;
   const row = event.target.closest(".shipping-rate-row");
   row?.remove();

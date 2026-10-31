@@ -36,7 +36,11 @@
     });
   }
 
+  let isLookingUp = false;
+
   async function doLookup(codeQuery, phoneQuery) {
+    if (isLookingUp) return;
+    isLookingUp = true;
     const code = String(codeQuery || input?.value || '').trim();
     const phone = String(phoneQuery || phoneInput?.value || '').trim();
     if (!code && !phone) return;
@@ -63,13 +67,23 @@
         </div>
       `;
     } finally {
+      isLookingUp = false;
       trackBtn.disabled = false;
       trackBtn.textContent = 'Tra cứu ngay';
     }
   }
 
   function renderOrders(orders) {
-    if (!orders || !orders.length) return;
+    if (!orders || !orders.length) {
+      resultContainer.innerHTML = `
+        <div class="tracking-card error-card">
+          <h3>Không tìm thấy đơn hàng</h3>
+          <p>Không có dữ liệu vận chuyển khớp với thông tin đã nhập.</p>
+          <small>Vui lòng kiểm tra lại mã đơn hoặc số điện thoại.</small>
+        </div>
+      `;
+      return;
+    }
 
     resultContainer.innerHTML = orders.map(order => {
       const timelineHtml = (order.timeline || []).map((step, idx) => `
@@ -96,7 +110,7 @@
       const spxBanner = trackingCode ? `
         <div class="spx-tracking-badge carrier-tracking-badge">
           <span>Đơn vị giao: <strong>${escapeHtml(carrierTitle)}</strong> · Mã vận đơn: <strong>${escapeHtml(trackingCode)}</strong></span>
-          ${trackingUrl ? `<a href="${escapeHtml(trackingUrl)}" target="_blank" rel="noopener" class="spx-link carrier-link">Xem định vị bưu tá (${escapeHtml(carrierTitle)}) ↗</a>` : ''}
+          ${(trackingUrl && /^https?:\/\//i.test(trackingUrl)) ? `<a href="${escapeHtml(trackingUrl)}" target="_blank" rel="noopener" class="spx-link carrier-link">Xem định vị bưu tá (${escapeHtml(carrierTitle)}) ↗</a>` : ''}
         </div>
       ` : `
         <div class="spx-tracking-badge pending carrier-tracking-badge">

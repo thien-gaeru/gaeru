@@ -138,7 +138,7 @@
     try {
       const {order}=await api('/api/customer/orders/'+form.elements.orderId.value);
       if(current!==sequence)return;
-      select.innerHTML='<option value="">Chọn sản phẩm đã mua</option>'+order.items.map(i=>`<option value="${i.id}">${escape(i.productName)} · ${escape(i.variantName)} · Số lượng ${i.quantity}</option>`).join('');
+      select.innerHTML='<option value="">Chọn sản phẩm đã mua</option>'+order.items.map(i=>`<option value="${escape(i.id)}">${escape(i.productName)} · ${escape(i.variantName)} · Số lượng ${i.quantity}</option>`).join('');
       select.disabled=false;fillContact(order);
     } catch(error){if(current===sequence)feedback.textContent=error.message;}
   });

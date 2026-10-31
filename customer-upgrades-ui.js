@@ -184,13 +184,16 @@
             </thead>
             <tbody>
               ${history.map(h => {
-                const isPos = h.pointsChange > 0;
+                const isPos = (h.pointsChange || 0) > 0;
+                const changeVal = Number(h.pointsChange || 0);
+                const balVal = Number(h.balanceAfter || 0);
+                const createdDate = h.createdAt ? new Date(h.createdAt).toLocaleDateString('vi-VN') : '—';
                 return `
                   <tr>
-                    <td style="white-space:nowrap;font-size:12px;">${new Date(h.createdAt).toLocaleDateString('vi-VN')}</td>
+                    <td style="white-space:nowrap;font-size:12px;">${createdDate}</td>
                     <td>${escapeHtml(h.reason || 'Tích điểm đơn hàng')}</td>
-                    <td class="${isPos ? 'points-positive' : 'points-negative'}">${isPos ? '+' : ''}${h.pointsChange.toLocaleString('vi-VN')}</td>
-                    <td>${h.balanceAfter.toLocaleString('vi-VN')}</td>
+                    <td class="${isPos ? 'points-positive' : 'points-negative'}">${isPos ? '+' : ''}${changeVal.toLocaleString('vi-VN')}</td>
+                    <td>${balVal.toLocaleString('vi-VN')}</td>
                   </tr>
                 `;
               }).join('')}
@@ -267,14 +270,22 @@
               const keyRes = await fetch('/api/push/public-key');
               if (keyRes.ok) {
                 const { publicKey } = await keyRes.json();
-                await fetch('/api/push/subscribe', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    endpoint: 'https://fcm.googleapis.com/fcm/send/auto-' + Math.random().toString(36).slice(2),
-                    keys: { p256dh: 'auto-p256dh-key', auth: 'auto-auth-key' }
-                  })
-                });
+                if (publicKey) {
+                  const csrfRes = await fetch('/api/csrf', { credentials: 'same-origin', cache: 'no-store' });
+                  const csrf = csrfRes.ok ? await csrfRes.json() : null;
+                  await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(csrf?.csrfToken ? { 'X-CSRF-Token': csrf.csrfToken } : {})
+                    },
+                    body: JSON.stringify({
+                      endpoint: 'https://fcm.googleapis.com/fcm/send/auto-' + Math.random().toString(36).slice(2),
+                      keys: { p256dh: 'auto-p256dh-key', auth: 'auto-auth-key' }
+                    })
+                  });
+                }
               }
             } catch (err) {}
           }
@@ -353,19 +364,6 @@
       ${renderVipCard(customer, loyalty)}
       ${renderAccountQuickActions(customer)}
     `;
-
-    // Gắn sự kiện cho VIP card actions
-    hub.querySelector('[data-open-loyalty-history]')?.addEventListener('click', () => {
-      openLoyaltyHistoryModal();
-    });
-
-    // Gắn sự kiện cho các service tiles
-    hub.querySelector('[data-service-tile="bnpl"]')?.addEventListener('click', () => {
-      openBnplCalculatorModal();
-    });
-    hub.querySelector('[data-service-tile="affiliate"]')?.addEventListener('click', () => {
-      openAffiliateModal(customer);
-    });
 
     // Tự động hỏi quyền thông báo đẩy nếu trình duyệt hỗ trợ
     autoPromptWebPush();

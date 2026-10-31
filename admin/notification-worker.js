@@ -16,7 +16,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const target = String(event.notification.data?.target || 'notifications');
-  const hash = /^[a-z]+$/.test(target) ? target : 'notifications';
+  const hash = /^[a-z0-9_-]+$/.test(target) ? target : 'notifications';
   const url = '/gaeru_ceo#' + hash;
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
