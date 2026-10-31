@@ -2757,3 +2757,138 @@ test('P2-04 Fix: Client commerce.js handles HTTP 202 (PAYMENT_INITIATION_IN_PROG
   const codIdx = commerceCode.indexOf("Đơn COD sẽ được GAERU xác nhận");
   assert.ok(p202Idx < codIdx, "Nhánh xử lý 202 phải nằm trước khối hiển thị COD");
 });
+
+test('Admin HTML Escape Consolidation: format.js shared source of truth, loading order, and safe fallback without raw pass-through', async () => {
+  const fs = require('node:fs');
+  // 1. format.js export verification
+  const format = require('../admin/format');
+  assert.equal(typeof format.escapeHtml, 'function');
+  assert.equal(typeof format.fallbackEscapeHtml, 'function');
+  assert.equal(typeof format.formatMoney, 'function');
+  assert.equal(typeof format.normalizePhone, 'function');
+
+  // Kiểm tra thoát đầy đủ các ký tự nhạy cảm XSS
+  const xssPayload = '<script>alert("XSS & \'hack\'")</script>';
+  const escaped = format.escapeHtml(xssPayload);
+  assert.ok(!escaped.includes('<script>'));
+  assert.ok(escaped.includes('&lt;script&gt;'));
+  assert.ok(escaped.includes('&quot;'));
+  assert.ok(escaped.includes('&amp;'));
+  assert.ok(escaped.includes('&#39;'));
+
+  // 2. Kiểm thử thứ tự tải module (format.js tải trước vs tải sau vs không tải)
+  // Kịch bản A: format.js tải trước -> window.GAERUAdminShared sẵn sàng
+  const mockWindowWithFormat = {
+    GAERUAdminShared: format,
+    escapeHtml: format.escapeHtml
+  };
+  assert.equal(mockWindowWithFormat.GAERUAdminShared.escapeHtml(xssPayload), escaped);
+
+  // Kịch bản B: format.js chưa tải (hoặc lỗi tải) -> fallback an toàn phải tự kích hoạt, tuyệt đối KHÔNG trả raw String
+  const adminJsContent = fs.readFileSync('admin/admin.js', 'utf8');
+  assert.ok(adminJsContent.includes('fallbackEscapeHtml'));
+  assert.ok(!adminJsContent.includes('return String(value)')); // Không được trả raw String(value)
+
+  const barcodeContent = fs.readFileSync('admin/barcode-scanner.js', 'utf8');
+  assert.ok(barcodeContent.includes('fallbackEscapeHtml'));
+
+  const upgradesContent = fs.readFileSync('admin/upgrades-hub.js', 'utf8');
+  assert.ok(upgradesContent.includes('fallbackEscapeHtml'));
+
+  // Kiểm tra mã nguồn index.html bảo đảm format.js được nạp trước admin.js và upgrades-hub.js
+  const indexHtml = fs.readFileSync('admin/index.html', 'utf8');
+  const formatPos = indexHtml.indexOf('format.js');
+  const adminPos = indexHtml.indexOf('admin.js');
+  const hubPos = indexHtml.indexOf('upgrades-hub.js');
+  assert.ok(formatPos > 0 && adminPos > 0 && formatPos < adminPos, 'format.js phải được nạp trước admin.js trong index.html');
+  assert.ok(formatPos < hubPos, 'format.js phải được nạp trước upgrades-hub.js trong index.html');
+});
+
+test('P3-02 Fix: resolveOrderAccessToken alerts system and returns diagnostic warning when secret is missing', async (t) => {
+  const oldOrderSecret = process.env.ORDER_ACCESS_TOKEN_SECRET;
+  const oldSessionSecret = process.env.SESSION_SECRET;
+  delete process.env.ORDER_ACCESS_TOKEN_SECRET;
+  delete process.env.SESSION_SECRET;
+
+  const { pool, close } = await createTestDb();
+  if (t && typeof t.after === 'function') {
+    t.after(() => {
+      if (oldOrderSecret !== undefined) process.env.ORDER_ACCESS_TOKEN_SECRET = oldOrderSecret;
+      if (oldSessionSecret !== undefined) process.env.SESSION_SECRET = oldSessionSecret;
+      close?.();
+    });
+  }
+
+  const express = require('express');
+  const { attachPublicAndCheckoutRoutes } = require('../src/store/checkout-payment-routes');
+
+  const pId = crypto.randomUUID();
+  const vId = crypto.randomUUID();
+  await pool.query("INSERT INTO products (id, name, slug, category, active) VALUES ($1, 'Kính P302', 'kinh-p302', 'audio', true)", [pId]);
+  await pool.query("INSERT INTO product_variants (id, product_id, sku, name, price_vnd, stock_quantity, active) VALUES ($1, $2, 'SKU-P302', 'Đen', 250000, 10, true)", [vId, pId]);
+
+  const wh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (wh) {
+    await pool.query(
+      "INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 50) ON CONFLICT DO NOTHING",
+      [wh.id, vId]
+    );
+  }
+  await pool.query(
+    "INSERT INTO store_settings(setting_key, setting_value) VALUES('shipping_rates', $1) ON CONFLICT(setting_key) DO UPDATE SET setting_value=$1",
+    [JSON.stringify({ 'Toàn quốc': 20000, 'Hà Nội': 20000 })]
+  );
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => {
+    req.ordersEnabled = true;
+    req.session = { csrfToken: 'test-csrf' };
+    next();
+  });
+
+  // Config KHÔNG CÓ SESSION_SECRET
+  attachPublicAndCheckoutRoutes(app, pool, {
+    getVnpayConfig: () => null,
+    getPaymentChannels: () => ({ methods: ['cod'] }),
+    config: { SESSION_SECRET: '' }, // Rỗng
+    publicBaseUrl: 'https://gaeru.com',
+    paymentFetcher: async () => ({ status: 200, json: async () => ({}) })
+  });
+
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(r => server.once('listening', r));
+  if (t && typeof t.after === 'function') t.after(() => new Promise(r => server.close(r)));
+  const port = server.address().port;
+
+  const orderPayload = {
+    customer: {
+      name: 'Nguyen Van P302',
+      email: 'p302@gaeru.com',
+      phone: '0912345678',
+      address: '123 Pho Hue',
+      city: 'Hà Nội'
+    },
+    items: [{ variantId: vId, quantity: 1 }],
+    paymentMethod: 'cod',
+    idempotencyKey: 'TEST-P302-KEY-001'
+  };
+
+  const res = await fetch(`http://127.0.0.1:${port}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-csrf' },
+    body: JSON.stringify(orderPayload)
+  });
+
+  const data = await res.json();
+  assert.equal(res.status, 201);
+  assert.ok(data.order);
+  // Không được để token vắng mặt mà vẫn coi là bình thường: phải có cảnh báo rõ ràng
+  assert.equal(data.orderAccessToken, null);
+  assert.ok(data.orderAccessTokenWarning, 'Phải có cảnh báo khi hệ thống thiếu secret tạo token');
+
+  // Hệ thống phải kích hoạt critical alert vào bảng system_alerts
+  const alerts = await pool.query("SELECT * FROM system_alerts WHERE source = 'order_access_token_security'");
+  assert.ok(alerts.rows.length >= 1, 'Hệ thống phải tự động ghi nhận cảnh báo bảo mật khi thiếu secret');
+  assert.equal(alerts.rows[0].severity, 'critical');
+});

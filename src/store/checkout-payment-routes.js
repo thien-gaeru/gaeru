@@ -1,3 +1,32 @@
+
+async function resolveOrderAccessToken({ orderId, orderNumber, customerId }, config, pool) {
+  const secret = config?.ORDER_ACCESS_TOKEN_SECRET || config?.SESSION_SECRET || process.env.ORDER_ACCESS_TOKEN_SECRET || process.env.SESSION_SECRET;
+  const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
+  try {
+    const token = generateOrderAccessToken({ orderId, orderNumber, customerId }, secret);
+    return { orderAccessToken: token };
+  } catch (tokenErr) {
+    if (tokenErr.code === 'MISSING_ORDER_TOKEN_SECRET') {
+      console.error('[CRITICAL_SECURITY_CONFIG] Thieu SESSION_SECRET / ORDER_ACCESS_TOKEN_SECRET (>= 32 ky tu) khi cap orderAccessToken cho don ' + orderNumber + '. Khach vang lai se khong the truy cap lai don hang!');
+      try {
+        const { alertSystem } = require('../system-alerts');
+        await alertSystem(pool, {
+          severity: 'critical',
+          source: 'order_access_token_security',
+          message: '[CAU HINH THIEU BAO MAT] Don hang ' + orderNumber + ' duoc xu ly nhung he thong thieu SESSION_SECRET / ORDER_ACCESS_TOKEN_SECRET du manh (>= 32 ky tu). Khach vang lai khong duoc cap orderAccessToken!',
+          metadata: { orderNumber, orderId, customerId },
+          config
+        });
+      } catch {}
+      return {
+        orderAccessToken: null,
+        orderAccessTokenWarning: 'Cau hinh bao mat he thong chua hoan tat; khong the tao token truy cap don cho khach vang lai.'
+      };
+    }
+    throw tokenErr;
+  }
+}
+
 'use strict';
 
 const crypto = require('node:crypto');
@@ -413,22 +442,16 @@ function attachPublicAndCheckoutRoutes(router, pool, {
                   req.session.createdOrders.push(resumed.order.orderNumber);
                 }
               }
-              const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
-              const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
-              let orderAccessToken = null;
-              try {
-                orderAccessToken = generateOrderAccessToken(
-                  { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
-                  secret
-                );
-              } catch (tokenErr) {
-                if (tokenErr.code !== 'MISSING_ORDER_TOKEN_SECRET') throw tokenErr;
-              }
+              const tokenResult = await resolveOrderAccessToken(
+                { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
+                config,
+                pool
+              );
               if (resumed.status === 202) {
                 res.setHeader('Retry-After', String(resumed.retryAfterSeconds || 3));
               }
               const { status = 200, ...payload } = resumed;
-              return res.status(status).json({ ...payload, orderAccessToken });
+              return res.status(status).json({ ...payload, ...tokenResult });
             }
           } catch (retryErr) {
             if (retryErr.status === 403 || retryErr.status === 409) {
@@ -714,17 +737,12 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           };
         });
 
-        const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
-        const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
-        let orderAccessToken = null;
-        try {
-          orderAccessToken = generateOrderAccessToken(
-            { orderId: order.order.id, orderNumber: order.order.orderNumber, customerId: req.session?.customer?.id },
-            secret
-          );
-        } catch (tokenErr) {
-          if (tokenErr.code !== 'MISSING_ORDER_TOKEN_SECRET') throw tokenErr;
-        }
+        const tokenResult = await resolveOrderAccessToken(
+          { orderId: order.order.id, orderNumber: order.order.orderNumber, customerId: req.session?.customer?.id },
+          config,
+          pool
+        );
+        const orderAccessToken = tokenResult.orderAccessToken;
         if (req.session && order.order?.orderNumber) {
           req.session.createdOrders = req.session.createdOrders || [];
           if (!req.session.createdOrders.includes(order.order.orderNumber)) {
@@ -744,6 +762,9 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           if (!outcome.ok || outcome.body) {
             if (outcome.body && typeof outcome.body === 'object') {
               outcome.body.orderAccessToken = orderAccessToken;
+              if (tokenResult.orderAccessTokenWarning) {
+                outcome.body.orderAccessTokenWarning = tokenResult.orderAccessTokenWarning;
+              }
             }
             return res.status(outcome.httpStatus).json(outcome.body);
           }
@@ -754,6 +775,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
         res.status(201).json({
           order: order.order,
           orderAccessToken,
+          ...(tokenResult.orderAccessTokenWarning ? { orderAccessTokenWarning: tokenResult.orderAccessTokenWarning } : {}),
           paymentUrl: order.paymentUrl,
           ...(order.bankTransfer ? { bankTransfer: order.bankTransfer } : {}),
           message: parsed.data.paymentMethod === 'cod'
@@ -809,22 +831,16 @@ function attachPublicAndCheckoutRoutes(router, pool, {
                   req.session.createdOrders.push(resumed.order.orderNumber);
                 }
               }
-              const secret = config?.SESSION_SECRET || process.env.SESSION_SECRET;
-              const { generateOrderAccessToken } = require('../domain/payments/order-idempotency-policy');
-              let orderAccessToken = null;
-              try {
-                orderAccessToken = generateOrderAccessToken(
-                  { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
-                  secret
-                );
-              } catch (tokenErr) {
-                if (tokenErr.code !== 'MISSING_ORDER_TOKEN_SECRET') throw tokenErr;
-              }
+              const tokenResult = await resolveOrderAccessToken(
+                { orderId: resumed.order?.id, orderNumber: resumed.order?.orderNumber, customerId: req.session?.customer?.id },
+                config,
+                pool
+              );
               if (resumed.status === 202) {
                 res.setHeader('Retry-After', String(resumed.retryAfterSeconds || 3));
               }
               const { status = 200, ...payload } = resumed;
-              return res.status(status).json({ ...payload, orderAccessToken });
+              return res.status(status).json({ ...payload, ...tokenResult });
             }
           } catch (retryErr) {
             if (retryErr.status === 403 || retryErr.status === 409) {

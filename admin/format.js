@@ -27,6 +27,10 @@
     });
   }
 
+  function fallbackEscapeHtml(value) {
+    return escapeHtml(value);
+  }
+
   function escapeAttr(value) {
     return escapeHtml(value);
   }
@@ -55,6 +59,7 @@
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
     formatMoney: formatMoney,
-    normalizePhone: normalizePhone
+    normalizePhone: normalizePhone,
+    fallbackEscapeHtml: fallbackEscapeHtml
   };
 });

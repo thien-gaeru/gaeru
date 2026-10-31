@@ -61,24 +61,20 @@ const paymentAttemptLabels = {
 
 const sharedFormat = (typeof window !== 'undefined' && window.GAERUAdminShared)
   || (typeof globalThis !== 'undefined' && globalThis.GAERUAdminShared)
-  || (typeof require === 'function' ? require('./format') : null);
+  || (typeof require === 'function' ? (function () { try { return require('./format'); } catch (e) { return null; } })() : null);
 
 const formatPrice = (value) =>
   value == null ? "Chưa xác định" : (sharedFormat ? sharedFormat.formatMoney(value) : (Number(value || 0).toLocaleString('vi-VN') + ' ₫'));
-const fallbackEscapeHtml = (value) =>
-  String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-    '/': '&#x2F;'
-  }[c]));
 
-const escapeHtml = (value) =>
-  (sharedFormat && typeof sharedFormat.escapeHtml === 'function')
-    ? sharedFormat.escapeHtml(value)
-    : fallbackEscapeHtml(value);
+const escapeHtml = (sharedFormat && typeof sharedFormat.escapeHtml === 'function')
+  ? sharedFormat.escapeHtml
+  : ((typeof window !== 'undefined' && typeof window.escapeHtml === 'function')
+      ? window.escapeHtml
+      : function fallbackEscapeHtml(value) {
+          return String(value ?? '').replace(/[&<>"'/]/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;'
+          }[c]));
+        });
 const can = (permission) =>
   !state.session?.mfaEnrollmentRequired
   && Boolean(state.session?.permissions?.includes(permission) || state.session?.permissions?.includes("*"));
