@@ -282,20 +282,150 @@ function checkOrderOwnership(order, proof, options = {}) {
  * @param {Object} expectations { expectedPaymentMethod, expectedTotalVnd, expectedItems }
  * @throws {Error} 409 nếu phát hiện xung đột dữ liệu
  */
-function assertOrderPayloadMatch(order, dbItems = [], { expectedPaymentMethod, expectedTotalVnd, expectedItems } = {}) {
-  // 1. Phương thức thanh toán
+/**
+ * Chuẩn hóa toàn bộ payload đặt hàng / đơn hàng thành một cấu trúc đồng nhất
+ * Dùng để tạo fingerprint bất biến (checkout_payload_hash) và đối soát idempotency
+ * @param {Object} payload 
+ * @returns {Object} Canonical normalized payload
+ */
+function normalizeCheckoutPayload(payload = {}) {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      customer: { name: '', email: '', phone: '', address: '', city: '' },
+      items: [],
+      paymentMethod: '',
+      shipping: { carrierId: null, feeVnd: null },
+      voucherCode: null,
+      quote: { quoteHash: null, pricingVersion: null, subtotalVnd: null, totalVnd: null }
+    };
+  }
+
+  // 1. Thông tin người mua & địa chỉ
+  const customer = payload.customer || {};
+  const normName = String(customer.name || payload.customerName || payload.customer_name || '').trim();
+  const normEmail = normalizeEmail(customer.email || payload.customerEmail || payload.email);
+  const normPhone = normalizePhone(customer.phone || payload.customerPhone || payload.phone);
+  const normAddress = String(customer.address || payload.address || '').trim().replace(/\s+/g, ' ');
+  const normCity = String(customer.city || payload.city || '').trim().toLowerCase();
+
+  // 2. Danh sách sản phẩm (gộp số lượng theo variantId, sắp xếp theo variantId)
+  const itemsMap = new Map();
+  const rawItems = Array.isArray(payload.items) ? payload.items : [];
+  for (const it of rawItems) {
+    if (!it) continue;
+    const vid = String(it.variantId || it.variant_id || '').trim().toLowerCase();
+    if (!vid) continue;
+    const qty = Number(it.quantity) || 0;
+    if (qty > 0) {
+      itemsMap.set(vid, (itemsMap.get(vid) || 0) + qty);
+    }
+  }
+  const sortedItems = [...itemsMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([variantId, quantity]) => ({ variantId, quantity }));
+
+  // 3. Phương thức thanh toán
+  const paymentMethod = String(payload.paymentMethod || payload.payment_method || '').trim().toLowerCase();
+
+  // 4. Cấu hình vận chuyển & phí
+  const carrierId = payload.shippingCarrierId || payload.shipping_carrier_id || payload.shippingCarrierName || payload.carrierId || null;
+  const rawFee = payload.expectedShippingFeeVnd ?? payload.shippingFeeVnd ?? payload.shipping_fee_vnd ?? null;
+  const shippingFeeVnd = rawFee !== null && rawFee !== undefined ? Number(rawFee) : null;
+
+  // 5. Mã giảm giá (Voucher)
+  const rawVoucher = payload.voucherCode || payload.voucher_code || null;
+  const voucherCode = rawVoucher ? String(rawVoucher).trim().toUpperCase() : null;
+
+  // 6. Báo giá & Quote version
+  const quoteHash = payload.expectedQuoteHash || payload.quoteHash || payload.quote_hash || null;
+  const pricingVersion = payload.pricingVersion || payload.pricing_version || null;
+  const rawSubtotal = payload.expectedSubtotalVnd ?? payload.subtotalVnd ?? payload.subtotal_vnd ?? null;
+  const subtotalVnd = rawSubtotal !== null && rawSubtotal !== undefined ? Number(rawSubtotal) : null;
+  const rawTotal = payload.expectedTotalVnd ?? payload.totalVnd ?? payload.total_vnd ?? null;
+  const totalVnd = rawTotal !== null && rawTotal !== undefined ? Number(rawTotal) : null;
+
+  return {
+    customer: {
+      name: normName,
+      email: normEmail,
+      phone: normPhone,
+      address: normAddress,
+      city: normCity
+    },
+    items: sortedItems,
+    paymentMethod,
+    shipping: {
+      carrierId: carrierId ? String(carrierId).trim().toLowerCase() : null,
+      feeVnd: shippingFeeVnd
+    },
+    voucherCode: voucherCode || null,
+    quote: {
+      quoteHash: quoteHash ? String(quoteHash).trim() : null,
+      pricingVersion: pricingVersion !== null ? Number(pricingVersion) : null,
+      subtotalVnd,
+      totalVnd
+    }
+  };
+}
+
+/**
+ * Tính toán mã hash SHA-256 bất biến của checkout payload (checkout_payload_hash)
+ * @param {Object} payload
+ * @returns {string} 64 ký tự hex
+ */
+function computeCheckoutPayloadHash(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const canonical = normalizeCheckoutPayload(payload);
+  const jsonStr = JSON.stringify(canonical);
+  return createHash('sha256').update(jsonStr, 'utf8').digest('hex');
+}
+
+/**
+ * Kiểm tra tính nhất quán toàn diện của đơn hàng khi tái sử dụng khóa idempotency
+ * Đối chiếu: checkout_payload_hash, phương thức thanh toán, tổng tiền, giỏ hàng,
+ * địa chỉ, phí vận chuyển, voucher, cấu hình vận chuyển, thông tin người mua và quote version.
+ * @param {Object} order Đơn hàng đã tìm thấy từ DB
+ * @param {Array<Object>} dbItems Danh sách sản phẩm của đơn trong DB
+ * @param {Object} expectations { expectedPaymentMethod, expectedTotalVnd, expectedItems, expectedCustomer, expectedShippingCarrierId, expectedShippingFeeVnd, expectedVoucherCode, expectedQuoteHash, checkoutPayload, checkoutPayloadHash }
+ * @throws {Error} 409 nếu phát hiện xung đột dữ liệu
+ */
+function assertOrderPayloadMatch(order, dbItems = [], expectations = {}) {
+  const {
+    expectedPaymentMethod,
+    expectedTotalVnd,
+    expectedItems,
+    expectedCustomer,
+    expectedShippingCarrierId,
+    expectedShippingFeeVnd,
+    expectedVoucherCode,
+    expectedQuoteHash,
+    checkoutPayload,
+    checkoutPayloadHash
+  } = expectations;
+
+  // 1. Nếu có checkoutPayload hoặc checkoutPayloadHash, so khớp fingerprint bất biến (checkout_payload_hash)
+  const incomingHash = checkoutPayloadHash || (checkoutPayload ? computeCheckoutPayloadHash(checkoutPayload) : null);
+  const storedHash = order.checkoutPayloadHash || order.checkout_payload_hash || null;
+
+  if (incomingHash && storedHash && incomingHash === storedHash) {
+    return true; // Khớp 100% toàn bộ payload
+  }
+
+  // 2. Phương thức thanh toán
   const currentMethod = order.paymentMethod || order.payment_method;
-  if (expectedPaymentMethod && currentMethod && currentMethod !== expectedPaymentMethod) {
+  const expMethod = expectedPaymentMethod || (checkoutPayload ? checkoutPayload.paymentMethod : null);
+  if (expMethod && currentMethod && currentMethod.toLowerCase() !== expMethod.toLowerCase()) {
     throw Object.assign(
-      new Error(`Phương thức thanh toán (${expectedPaymentMethod}) không khớp với đơn hàng trước đó (${currentMethod}).`),
+      new Error(`Phương thức thanh toán (${expMethod}) không khớp với đơn hàng trước đó (${currentMethod}).`),
       { status: 409, code: 'IDEMPOTENCY_PAYMENT_METHOD_MISMATCH' }
     );
   }
 
-  // 2. Tổng số tiền thanh toán
+  // 3. Tổng số tiền thanh toán
   const currentTotal = order.totalVnd !== undefined ? order.totalVnd : order.total_vnd;
-  if (expectedTotalVnd !== null && expectedTotalVnd !== undefined && currentTotal !== undefined) {
-    if (Math.abs(Number(currentTotal) - Number(expectedTotalVnd)) > 0) {
+  const expTotal = expectedTotalVnd ?? (checkoutPayload ? checkoutPayload.expectedTotalVnd : null);
+  if (expTotal !== null && expTotal !== undefined && currentTotal !== undefined && currentTotal !== null) {
+    if (Math.abs(Number(currentTotal) - Number(expTotal)) > 0) {
       throw Object.assign(
         new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có tổng số tiền khác.'),
         { status: 409, code: 'IDEMPOTENCY_AMOUNT_MISMATCH' }
@@ -303,15 +433,16 @@ function assertOrderPayloadMatch(order, dbItems = [], { expectedPaymentMethod, e
     }
   }
 
-  // 3. Danh sách sản phẩm: gộp theo variantId ở cả hai phía trước khi so khớp
-  if (expectedItems && Array.isArray(expectedItems) && expectedItems.length > 0) {
-    const itemsList = Array.isArray(dbItems) ? dbItems : [];
+  // 4. Danh sách sản phẩm: gộp theo variantId ở cả hai phía trước khi so khớp
+  const expItems = expectedItems || (checkoutPayload ? checkoutPayload.items : null);
+  if (expItems && Array.isArray(expItems) && expItems.length > 0) {
+    const itemsList = Array.isArray(dbItems) && dbItems.length > 0 ? dbItems : (order.items || []);
 
     const aggregateItems = (items) => {
       const map = new Map();
       for (const it of items) {
         if (!it) continue;
-        const vid = String(it.variantId || it.variant_id || '');
+        const vid = String(it.variantId || it.variant_id || '').trim().toLowerCase();
         if (!vid) continue;
         const qty = Number(it.quantity) || 0;
         map.set(vid, (map.get(vid) || 0) + qty);
@@ -319,7 +450,7 @@ function assertOrderPayloadMatch(order, dbItems = [], { expectedPaymentMethod, e
       return map;
     };
 
-    const expectedMap = aggregateItems(expectedItems);
+    const expectedMap = aggregateItems(expItems);
     const dbMap = aggregateItems(itemsList);
 
     let itemsMismatch = expectedMap.size !== dbMap.size;
@@ -340,12 +471,104 @@ function assertOrderPayloadMatch(order, dbItems = [], { expectedPaymentMethod, e
     }
   }
 
+  // 5. Thông tin người nhận & Địa chỉ giao hàng
+  const expCust = expectedCustomer || (checkoutPayload ? checkoutPayload.customer : null);
+  if (expCust && typeof expCust === 'object') {
+    // Địa chỉ (address)
+    if (expCust.address !== undefined && expCust.address !== null) {
+      const normExpAddr = String(expCust.address).trim().replace(/\s+/g, ' ');
+      const normDbAddr = String(order.address || '').trim().replace(/\s+/g, ' ');
+      if (normExpAddr && normDbAddr && normExpAddr !== normDbAddr) {
+        throw Object.assign(
+          new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có địa chỉ giao hàng khác.'),
+          { status: 409, code: 'IDEMPOTENCY_ADDRESS_MISMATCH' }
+        );
+      }
+    }
+
+    // Tỉnh / Thành phố (city)
+    if (expCust.city !== undefined && expCust.city !== null) {
+      const normExpCity = String(expCust.city).trim().toLowerCase();
+      const normDbCity = String(order.city || '').trim().toLowerCase();
+      if (normExpCity && normDbCity && normExpCity !== normDbCity) {
+        throw Object.assign(
+          new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có tỉnh/thành phố giao hàng khác.'),
+          { status: 409, code: 'IDEMPOTENCY_CITY_MISMATCH' }
+        );
+      }
+    }
+
+    // Tên người nhận (name)
+    if (expCust.name !== undefined && expCust.name !== null) {
+      const normExpName = String(expCust.name).trim();
+      const normDbName = String(order.customerName || order.customer_name || '').trim();
+      if (normExpName && normDbName && normExpName !== normDbName) {
+        throw Object.assign(
+          new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có tên người nhận khác.'),
+          { status: 409, code: 'IDEMPOTENCY_CUSTOMER_MISMATCH' }
+        );
+      }
+    }
+  }
+
+  // 6. Cấu hình vận chuyển & phí
+  const expCarrier = expectedShippingCarrierId || (checkoutPayload ? checkoutPayload.shippingCarrierId : null);
+  const dbCarrier = order.shippingCarrierId || order.carrier_id || null;
+  if (expCarrier && dbCarrier && String(expCarrier).trim().toLowerCase() !== String(dbCarrier).trim().toLowerCase()) {
+    throw Object.assign(
+      new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có cấu hình đối tác vận chuyển khác.'),
+      { status: 409, code: 'IDEMPOTENCY_SHIPPING_MISMATCH' }
+    );
+  }
+
+  const expFee = expectedShippingFeeVnd ?? (checkoutPayload ? checkoutPayload.expectedShippingFeeVnd : null);
+  const dbFee = order.shippingFeeVnd !== undefined ? order.shippingFeeVnd : order.shipping_fee_vnd;
+  if (expFee !== null && expFee !== undefined && dbFee !== null && dbFee !== undefined) {
+    if (Math.abs(Number(dbFee) - Number(expFee)) > 0) {
+      throw Object.assign(
+        new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có phí vận chuyển khác.'),
+        { status: 409, code: 'IDEMPOTENCY_SHIPPING_FEE_MISMATCH' }
+      );
+    }
+  }
+
+  // 7. Mã giảm giá (Voucher)
+  const expVoucher = expectedVoucherCode !== undefined ? expectedVoucherCode : (checkoutPayload ? checkoutPayload.voucherCode : undefined);
+  if (expVoucher !== undefined) {
+    const cleanExpVoucher = String(expVoucher || '').trim().toUpperCase();
+    const cleanDbVoucher = String(order.voucherCode || order.voucher_code || '').trim().toUpperCase();
+    if (cleanExpVoucher !== cleanDbVoucher) {
+      throw Object.assign(
+        new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có mã giảm giá (voucher) khác.'),
+        { status: 409, code: 'IDEMPOTENCY_VOUCHER_MISMATCH' }
+      );
+    }
+  }
+
+  // 8. Báo giá & Quote version / Quote hash
+  const expQuote = expectedQuoteHash !== undefined ? expectedQuoteHash : (checkoutPayload ? checkoutPayload.expectedQuoteHash : undefined);
+  if (expQuote) {
+    const cleanExpQuote = String(expQuote).trim();
+    const cleanDbQuote = String(order.quoteHash || order.quote_hash || '').trim();
+    if (cleanDbQuote && cleanExpQuote !== cleanDbQuote) {
+      throw Object.assign(
+        new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có phiên bản báo giá (quote version) khác.'),
+        { status: 409, code: 'IDEMPOTENCY_QUOTE_MISMATCH' }
+      );
+    }
+  }
+
+  // 9. Nếu truyền checkoutPayload nhưng storedHash và incomingHash không khớp nhau
+  if (incomingHash && storedHash && incomingHash !== storedHash) {
+    throw Object.assign(
+      new Error('Khóa chống trùng đã được sử dụng cho một đơn hàng có nội dung (payload) khác biệt.'),
+      { status: 409, code: 'IDEMPOTENCY_PAYLOAD_MISMATCH' }
+    );
+  }
+
   return true;
 }
 
-/**
- * Máy trạng thái phiên thanh toán (PaymentAttemptStateMachine)
- */
 class PaymentAttemptStateMachine {
   static get STATES() {
     return ATTEMPT_STATES;
@@ -460,6 +683,8 @@ module.exports = {
   verifyOrderAccessToken,
   assertOrderOwnership,
   checkOrderOwnership,
+  normalizeCheckoutPayload,
+  computeCheckoutPayloadHash,
   assertOrderPayloadMatch,
   PaymentAttemptStateMachine
 };

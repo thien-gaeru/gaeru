@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS orders (
   subtotal_vnd integer NOT NULL CHECK (subtotal_vnd >= 0),
   shipping_fee_vnd integer CHECK (shipping_fee_vnd IS NULL OR shipping_fee_vnd >= 0),
   total_vnd integer CHECK (total_vnd IS NULL OR total_vnd >= 0),
+  checkout_payload_hash text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

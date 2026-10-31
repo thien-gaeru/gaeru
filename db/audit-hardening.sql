@@ -61,7 +61,12 @@ CREATE INDEX IF NOT EXISTS idx_system_jobs_lease_expiry
 
 ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS pricing_snapshot jsonb,
-  ADD COLUMN IF NOT EXISTS quote_hash text;
+  ADD COLUMN IF NOT EXISTS quote_hash text,
+  ADD COLUMN IF NOT EXISTS checkout_payload_hash text;
+
+CREATE INDEX IF NOT EXISTS idx_orders_checkout_payload_hash
+  ON orders (checkout_payload_hash)
+  WHERE checkout_payload_hash IS NOT NULL;
 
 ALTER TABLE order_items
   ADD COLUMN IF NOT EXISTS effective_unit_price_vnd integer;

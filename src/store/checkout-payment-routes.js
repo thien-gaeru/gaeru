@@ -407,9 +407,32 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             const resumed = await require('../payment-channels').retryGatewayOrderPayment(pool, {
               orderNumber: retryOrderNumber,
               clientReference: scopedClientReference,
-              expectedCustomer: { email: customerEmail, phone: customerPhone },
+              expectedCustomer: {
+                name: parsed.data.customer.name,
+                email: customerEmail,
+                phone: customerPhone,
+                address: parsed.data.customer.address,
+                city: parsed.data.customer.city
+              },
               expectedPaymentMethod: parsed.data.paymentMethod,
               expectedItems: parsed.data.items,
+              expectedShippingCarrierId: parsed.data.shippingCarrierId,
+              expectedShippingFeeVnd: parsed.data.expectedShippingFeeVnd,
+              expectedVoucherCode: parsed.data.voucherCode,
+              expectedQuoteHash: parsed.data.expectedQuoteHash,
+              expectedTotalVnd: parsed.data.expectedSubtotalVnd !== undefined && parsed.data.expectedShippingFeeVnd !== undefined
+                ? parsed.data.expectedSubtotalVnd + parsed.data.expectedShippingFeeVnd
+                : undefined,
+              checkoutPayload: {
+                customer: parsed.data.customer,
+                items: parsed.data.items,
+                paymentMethod: parsed.data.paymentMethod,
+                shippingCarrierId: parsed.data.shippingCarrierId,
+                expectedShippingFeeVnd: parsed.data.expectedShippingFeeVnd,
+                expectedSubtotalVnd: parsed.data.expectedSubtotalVnd,
+                expectedQuoteHash: parsed.data.expectedQuoteHash,
+                voucherCode: parsed.data.voucherCode
+              },
               config: config || {},
               settings: req.paymentChannels?.configs?.[parsed.data.paymentMethod] || null,
               baseUrl: publicBaseUrl,
@@ -530,12 +553,23 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           );
 
           const createdOrder = inserted.rows[0];
-          await client.query(
-            'UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3 WHERE id = $1',
-            [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash]
-          );
+          const { computeCheckoutPayloadHash } = require('../domain/payments/order-idempotency-policy');
+          const checkoutPayloadHash = computeCheckoutPayloadHash(parsed.data);
+
+          try {
+            await client.query(
+              'UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3, checkout_payload_hash = $4 WHERE id = $1',
+              [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash, checkoutPayloadHash]
+            );
+          } catch {
+            await client.query(
+              'UPDATE orders SET pricing_snapshot = $2::jsonb, quote_hash = $3 WHERE id = $1',
+              [createdOrder.id, JSON.stringify(orderQuote.snapshot), orderQuote.quoteHash]
+            );
+          }
           createdOrder.quoteHash = orderQuote.quoteHash;
           createdOrder.pricingVersion = orderQuote.pricingVersion;
+          createdOrder.checkoutPayloadHash = checkoutPayloadHash;
 
           if (scopedClientReference) {
             await client.query('UPDATE orders SET client_reference = $2 WHERE id = $1', [createdOrder.id, scopedClientReference]);
@@ -756,9 +790,32 @@ function attachPublicAndCheckoutRoutes(router, pool, {
           try {
             const resumed = await require('../payment-channels').retryGatewayOrderPayment(pool, {
               clientReference: scopedClientReference,
-              expectedCustomer: { email: customerEmail, phone: customerPhone },
+              expectedCustomer: {
+                name: parsed?.data?.customer?.name,
+                email: customerEmail,
+                phone: customerPhone,
+                address: parsed?.data?.customer?.address,
+                city: parsed?.data?.customer?.city
+              },
               expectedPaymentMethod: parsed?.data?.paymentMethod,
               expectedItems: parsed?.data?.items,
+              expectedShippingCarrierId: parsed?.data?.shippingCarrierId,
+              expectedShippingFeeVnd: parsed?.data?.expectedShippingFeeVnd,
+              expectedVoucherCode: parsed?.data?.voucherCode,
+              expectedQuoteHash: parsed?.data?.expectedQuoteHash,
+              expectedTotalVnd: parsed?.data?.expectedSubtotalVnd !== undefined && parsed?.data?.expectedShippingFeeVnd !== undefined
+                ? parsed?.data?.expectedSubtotalVnd + parsed?.data?.expectedShippingFeeVnd
+                : undefined,
+              checkoutPayload: {
+                customer: parsed?.data?.customer,
+                items: parsed?.data?.items,
+                paymentMethod: parsed?.data?.paymentMethod,
+                shippingCarrierId: parsed?.data?.shippingCarrierId,
+                expectedShippingFeeVnd: parsed?.data?.expectedShippingFeeVnd,
+                expectedSubtotalVnd: parsed?.data?.expectedSubtotalVnd,
+                expectedQuoteHash: parsed?.data?.expectedQuoteHash,
+                voucherCode: parsed?.data?.voucherCode
+              },
               config: config || {},
               settings: req.paymentChannels?.configs?.[parsed?.data?.paymentMethod] || null,
               baseUrl: publicBaseUrl,
