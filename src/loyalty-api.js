@@ -59,6 +59,42 @@ async function getLoyaltyProfile(pool, customerId) {
 }
 
 async function addLoyaltyPoints(pool, { customerId, orderId = null, amountVnd, reason = 'Tích điểm đơn hàng' }) {
+  // If orderId is provided, enforce idempotency against duplicate crediting
+  if (orderId) {
+    const existing = await pool.query(
+      `SELECT id FROM loyalty_transactions WHERE order_id = $1 AND points_change > 0 LIMIT 1`,
+      [orderId]
+    );
+    if (existing?.rows?.length > 0) {
+      return { alreadyAwarded: true, pointsAdded: 0 };
+    }
+  }
+
+  // If customerId is missing but orderId is provided, attempt to resolve customer & amount from orders
+  if (!customerId && orderId) {
+    const orderRes = await pool.query(
+      `SELECT customer_id AS "customerId", email, total_vnd AS "totalVnd" FROM orders WHERE id = $1`,
+      [orderId]
+    );
+    const ord = orderRes.rows[0];
+    if (ord) {
+      if (ord.customerId) {
+        customerId = ord.customerId;
+      } else if (ord.email) {
+        const custRes = await pool.query(
+          `SELECT id FROM customers WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+          [ord.email]
+        );
+        if (custRes.rows[0]?.id) {
+          customerId = custRes.rows[0].id;
+        }
+      }
+      if (amountVnd === undefined && ord.totalVnd !== null) {
+        amountVnd = ord.totalVnd;
+      }
+    }
+  }
+
   if (!customerId) return null;
   const spend = Math.max(0, Number(amountVnd) || 0);
   if (spend <= 0) return null;
@@ -86,6 +122,66 @@ async function addLoyaltyPoints(pool, { customerId, orderId = null, amountVnd, r
   );
 
   return { pointsAdded: pointsToAdd, balance: newPoints, tier: newTier };
+}
+
+async function processOrderCompletionLoyalty(pool, orderId) {
+  if (!orderId) return null;
+
+  // 1. Check idempotency: already awarded points for this order?
+  const existingTx = await pool.query(
+    `SELECT id FROM loyalty_transactions WHERE order_id = $1 AND points_change > 0 LIMIT 1`,
+    [orderId]
+  );
+  if (existingTx?.rows?.length > 0) {
+    return { alreadyAwarded: true, pointsAdded: 0 };
+  }
+
+  // 2. Fetch order details
+  const orderRes = await pool.query(
+    `SELECT id, order_number AS "orderNumber", customer_id AS "customerId", email, total_vnd AS "totalVnd", status, payment_status AS "paymentStatus"
+     FROM orders
+     WHERE id = $1`,
+    [orderId]
+  );
+  const order = orderRes.rows[0];
+  if (!order) return null;
+
+  if (order.status !== 'completed') {
+    return { skipped: true, reason: 'order_not_completed' };
+  }
+
+  // 3. Resolve customer
+  let customerId = order.customerId;
+  if (!customerId && order.email) {
+    const custRes = await pool.query(
+      `SELECT id FROM customers WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+      [order.email]
+    );
+    if (custRes.rows[0]?.id) {
+      customerId = custRes.rows[0].id;
+      await pool.query(
+        `UPDATE orders SET customer_id = $1 WHERE id = $2 AND customer_id IS NULL`,
+        [customerId, orderId]
+      );
+    }
+  }
+
+  if (!customerId) {
+    return { skipped: true, reason: 'no_customer' };
+  }
+
+  const spend = Math.max(0, Number(order.totalVnd) || 0);
+  if (spend <= 0) {
+    return { skipped: true, reason: 'zero_amount' };
+  }
+
+  const reason = `Tích điểm đơn hàng #${order.orderNumber || orderId}`;
+  return await addLoyaltyPoints(pool, {
+    customerId,
+    orderId,
+    amountVnd: spend,
+    reason
+  });
 }
 
 async function redeemLoyaltyPoints(pool, { customerId, pointsToRedeem, orderId = null }) {
@@ -211,6 +307,7 @@ module.exports = {
   calculateTier,
   getLoyaltyProfile,
   addLoyaltyPoints,
+  processOrderCompletionLoyalty,
   redeemLoyaltyPoints,
   createLoyaltyCustomerApi,
   createLoyaltyAdminApi,
