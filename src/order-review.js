@@ -7,7 +7,14 @@ const {appendAudit}=require('./audit');
 const dns=require('node:dns').promises;
 const mxResolver=new dns.Resolver({timeout:3000,tries:1});
 const domainResolver={resolveMx:domain=>mxResolver.resolveMx(domain),lookup:domain=>dns.lookup(domain)};
-const reasons={recipient_rejected:'Email người mua bị máy chủ từ chối',domain_missing:'Tên miền email không tồn tại',delivery_failed:'Gửi email không thành công; cần kiểm tra cấu hình hoặc liên hệ người mua',delivery_unknown:'Chưa xác định kết quả gửi email',delivery_delayed:'Email chưa gửi sau 15 phút'};
+const reasons={
+  recipient_rejected:'Email người mua bị máy chủ từ chối',
+  domain_missing:'Tên miền email không tồn tại',
+  delivery_failed:'Gửi email không thành công; cần kiểm tra cấu hình hoặc liên hệ người mua',
+  delivery_unknown:'Chưa xác định kết quả gửi email',
+  delivery_delayed:'Email chưa gửi sau 15 phút',
+  gateway_reconciliation_needed:'Cần đối soát trạng thái giao dịch cổng thanh toán trước khi hủy/xử lý (SLA 24h)'
+};
 async function inspectDomain(email,resolver=domainResolver){
  const domain=email.split('@').at(-1);
  try{const mx=await resolver.resolveMx(domain);if(mx.some(r=>r.exchange&&r.exchange!=='.'))return 'valid';if(mx.length)return 'missing';}

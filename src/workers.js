@@ -359,7 +359,38 @@ class WorkerManager {
           console.warn('order.review notifyAdmin error:', e?.message || e);
         }
       }
-      return { ok: true, screened, classified, notified };
+
+      // P1-03: Kiểm tra SLA đối soát thủ công cổng thanh toán (24h)
+      let slaBreaches = 0;
+      try {
+        const overdueReviews = await pool.query(
+          `SELECT r.order_id, o.order_number, o.payment_method, r.created_at
+           FROM order_reviews r
+           JOIN orders o ON o.id = r.order_id
+           WHERE r.reason = 'gateway_reconciliation_needed'
+             AND r.resolved_at IS NULL
+             AND r.created_at < now() - interval '24 hours'
+           LIMIT 10`
+        ).catch(() => ({ rows: [] }));
+
+        if (overdueReviews?.rows?.length > 0) {
+          slaBreaches = overdueReviews.rows.length;
+          const { alertSystem } = requireFn('./system-alerts');
+          for (const row of overdueReviews.rows) {
+            await alertSystem(pool, {
+              severity: 'error',
+              source: 'order_review_sla',
+              message: `[SLA BREACH] Đơn ${row.order_number} (${row.payment_method?.toUpperCase()}) chờ đối soát thủ công đã quá hạn SLA 24h mà chưa được xử lý! Tồn kho vẫn đang bị giữ.`,
+              metadata: { orderId: row.order_id, orderNumber: row.order_number, paymentMethod: row.payment_method, hoursOverdue: 24 },
+              config
+            }).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn('order.review sla check error:', e?.message || e);
+      }
+
+      return { ok: true, screened, classified, notified, slaBreaches };
     });
 
     this.jobQueue.registerWorker('email.warranty', async (payload, _job, leaseContext) => {
