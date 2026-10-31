@@ -2,6 +2,7 @@
 
 const express = require('express');
 const { rateLimit } = require('express-rate-limit');
+const { AdminAction } = require('./admin-action');
 
 // Rate limit: tối đa 3 đánh giá / 10 phút / IP — chống spam review
 const reviewLimiter = rateLimit({
@@ -189,7 +190,7 @@ function createReviewsAdminRouter(pool) {
   const router = express.Router();
   const { requireAdminAction } = require('./admin-action');
 
-  router.get('/reviews', async (req, res, next) => {
+  router.get('/reviews', requireAdminAction('catalog.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, product_slug AS "productSlug", author_name AS "authorName", rating, title, comment,

@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { AdminAction } = require('./admin-action');
 
 async function getProductBundles(pool, mainProductSlug) {
   const slug = String(mainProductSlug || '').trim();
@@ -64,7 +65,7 @@ function createBundlesAdminRouter(pool) {
   const router = express.Router();
   const { requireAdminAction } = require('./admin-action');
 
-  router.get('/bundles', async (req, res, next) => {
+  router.get('/bundles', requireAdminAction('catalog.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`SELECT * FROM product_bundles ORDER BY created_at DESC`);
       res.json({ bundles: result.rows });

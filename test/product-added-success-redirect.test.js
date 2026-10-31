@@ -115,7 +115,7 @@ test('product editor shows success popup and redirects to /gaeru_ceo#products af
     }
   };
 
-  const scriptSource = fs.readFileSync(require.resolve('../admin/product-editor.js'), 'utf8');
+  const { readAdminBundle } = require('./helpers/admin-sources'); const scriptSource = readAdminBundle(['format.js', 'product-editor-media.js', 'product-editor-variants.js', 'product-editor.js']);
   vm.createContext(context);
   vm.runInContext(scriptSource, context);
 
@@ -280,7 +280,8 @@ test('product editor shows success popup and redirects to /gaeru_ceo#products af
     }
   };
 
-  const scriptSource = fs.readFileSync(require.resolve('../admin/product-editor.js'), 'utf8');
+  const { readAdminBundle } = require('./helpers/admin-sources');
+  const scriptSource = readAdminBundle(['format.js', 'product-editor-media.js', 'product-editor-variants.js', 'product-editor.js']);
   vm.createContext(context);
   vm.runInContext(scriptSource, context);
 
@@ -299,7 +300,7 @@ test('product editor shows success popup and redirects to /gaeru_ceo#products af
 });
 
 test('admin.js includes showProductAddedPopup and checkProductAddedNotice for product management', () => {
-  const adminJs = fs.readFileSync(require.resolve('../admin/admin.js'), 'utf8');
+  const { readAdminBundle } = require('./helpers/admin-sources'); const adminJs = readAdminBundle(['admin.js', 'admin-catalog.js']);
   assert.ok(adminJs.includes('function showProductAddedPopup'), 'Must define showProductAddedPopup');
   assert.ok(adminJs.includes('function checkProductAddedNotice'), 'Must define checkProductAddedNotice');
   assert.ok(adminJs.includes('checkProductAddedNotice()'), 'Must call checkProductAddedNotice in products view');

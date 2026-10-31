@@ -23,7 +23,7 @@ async function fixture() {
     }
   };
   const context = { window: { GAERUAdmin: admin }, document, setTimeout: fn => fn() };
-  vm.runInNewContext(fs.readFileSync(require.resolve('../admin/configuration.js'), 'utf8'), context);
+  const { readAdminBundle } = require('./helpers/admin-sources'); vm.runInNewContext(readAdminBundle(['format.js', 'configuration-channels.js', 'configuration-ai-ops.js', 'configuration.js']), context);
   await context.window.GAERUConfiguration.load();
   const status = { textContent: '' }, button = { disabled: false };
   const fields = {

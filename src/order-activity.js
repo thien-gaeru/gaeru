@@ -1,5 +1,6 @@
 'use strict';
 const { Router } = require('express');
+const { AdminAction } = require('./admin-action');
 
 const ACTIVITY_LABELS = {
   created: 'Đơn hàng được tạo thành công',
@@ -65,7 +66,7 @@ function createOrderActivityAdminRouter(pool) {
     }
   });
 
-  router.post('/orders/:id/notes', async (req, res, next) => {
+  router.post('/orders/:id/notes', AdminAction('orders.write'), async (req, res, next) => {
     try {
       const note = req.body?.note;
       if (!note || !String(note).trim()) {

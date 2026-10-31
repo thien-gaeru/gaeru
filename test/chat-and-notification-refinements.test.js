@@ -61,7 +61,7 @@ test('Request 3: Admin notifications defaults to desktop: true and sound: true',
 
 test('Request 4: Shopee Express (SPX) is fully integrated into carriers and configurations', () => {
   const shipping = require('../src/shipping-choice');
-  const clientConfig = fs.readFileSync(path.join(__dirname, '../admin/configuration.js'), 'utf8');
+  const clientConfig = fs.readFileSync(path.join(__dirname, '../admin/configuration-channels.js'), 'utf8');
 
   assert.equal(shipping.names.spx, 'Shopee Express');
   assert.ok(clientConfig.includes('shipping_spx'));
@@ -79,7 +79,7 @@ test('Request 5: Admin shopping chat menu includes "Lịch sử đơn hàng" act
 });
 
 test('Request 6: Admin permanent order deletion requires explicit confirmation modal with matching order code', async () => {
-  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin-orders.js'), 'utf8');
   assert.ok(adminJs.includes('confirmOrderPermanentDeletion(order)'));
   assert.ok(adminJs.includes('enterprise-confirm-dialog'));
   assert.ok(adminJs.includes('data-order-delete-input'));

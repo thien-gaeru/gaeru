@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 (() => {
   const ALL_UPGRADES = [
@@ -35,13 +35,9 @@
     { id: 'order-timeline', phase: 3, name: 'Nhật Ký Lịch Sử Đơn Hàng & Vết Kiểm Toán', desc: 'Timeline chi tiết ghi nhận từng thao tác của CSKH, Kho, Cổng thanh toán.', endpoint: '/api/gaeru_ceo/orders/:id/activities', status: 'live' }
   ];
 
-  function escapeHtml(str) {
-    return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
-  function formatMoney(amount) {
-    return Number(amount || 0).toLocaleString('vi-VN') + 'đ';
-  }
+  const sharedFmt = (typeof window !== 'undefined' && window.GAERUAdminShared) || (typeof require === 'function' ? require('./format') : {});
+  const escapeHtml = sharedFmt.escapeHtml || ((typeof window !== 'undefined' && window.escapeHtml) || ((str) => String(str ?? '')));
+  const formatMoney = (amount) => sharedFmt.formatMoney ? sharedFmt.formatMoney(amount, { suffix: 'đ' }) : (Number(amount || 0).toLocaleString('vi-VN') + 'đ');
 
   let cachedCsrfToken = '';
 

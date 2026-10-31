@@ -195,9 +195,10 @@ function createOmnichannelRouter(pool, config) {
 }
 
 function createOmnichannelAdmin(pool) {
+  const { AdminAction } = require('./admin-action');
   const router = express.Router();
 
-  router.get('/omnichannel/events', async (req, res, next) => {
+  router.get('/omnichannel/events', AdminAction('marketplace.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, channel, event_type AS "eventType", external_sku AS "externalSku",

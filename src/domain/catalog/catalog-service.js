@@ -704,6 +704,110 @@ class CatalogService {
 
     return id;
   }
+
+  /**
+   * Kiểm tra toàn vẹn nghiệp vụ cho payload Product Workspace trước khi mở giao dịch lưu
+   */
+  static validateWorkspacePayload(a) {
+    if (a.inTrash && (!a.id || a.product.active)) {
+      throw catalogError('Sản phẩm đã xóa chỉ được lưu trong khu vực đã xóa. Dùng Khôi phục hoặc Kích hoạt lại để đưa ra danh mục.', 400);
+    }
+    const names = a.groups.map(g => g.name.toLocaleLowerCase());
+    if (new Set(names).size !== names.length) {
+      throw catalogError('Tên nhóm phân loại không được trùng.', 400);
+    }
+    for (const g of a.groups) {
+      if (new Set(g.values.map(v => v.toLocaleLowerCase())).size !== g.values.length) {
+        throw catalogError('Lựa chọn trong một nhóm không được trùng.', 400);
+      }
+    }
+    const ids = a.variants.filter(v => v.id).map(v => v.id);
+    if (new Set(ids).size !== ids.length) {
+      throw catalogError('Mỗi biến thể đã lưu chỉ được xuất hiện một lần.', 400);
+    }
+    if (new Set(a.variants.map(v => v.sku)).size !== a.variants.length) {
+      throw catalogError('SKU của mỗi biến thể phải khác nhau.', 400);
+    }
+    if (a.groups.length) {
+      const seen = new Set();
+      const optionSig = o => JSON.stringify(Object.entries(o).sort(([k1], [k2]) => k1.localeCompare(k2)));
+      for (const v of a.variants) {
+        if (Object.keys(v.options).length !== a.groups.length || a.groups.some(g => !g.values.includes(v.options[g.name]))) {
+          throw catalogError('Mỗi biến thể cần lựa chọn hợp lệ trong từng nhóm.', 400);
+        }
+        const key = optionSig(v.options);
+        if (seen.has(key)) {
+          throw catalogError('Một tổ hợp lựa chọn chỉ có một biến thể.', 400);
+        }
+        seen.add(key);
+      }
+    }
+    if (a.product.active && !a.variants.some(v => v.active)) {
+      throw catalogError('Cần ít nhất một biến thể đang bán trước khi xuất bản.', 400);
+    }
+    if (!a.gallery.includes(a.product.imageUrl)) {
+      throw catalogError('Ảnh chính cần nằm trong bộ ảnh sản phẩm.', 400);
+    }
+  }
+
+  /**
+   * Đọc toàn bộ mô hình Product Workspace (sản phẩm + biến thể + trình bày + trạng thái thùng rác)
+   */
+  static async readWorkspace(client, id, inTrash = false) {
+    const product = (
+      await client.query(
+        `SELECT deleted_at, deleted_variant_state, id, name, slug, category, descriptor, description,
+                card_title AS "cardTitle", card_summary AS "cardSummary", image_url AS "imageUrl",
+                image_alt AS "imageAlt", active, sort_order AS "sortOrder",
+                updated_at AS "updatedAt", edit_version AS version
+         FROM products
+         WHERE id = $1 AND (deleted_at IS NOT NULL) = $2`,
+        [id, inTrash]
+      )
+    ).rows[0];
+    if (!product) return null;
+    product.updatedAt = new Date(product.updatedAt).toISOString();
+
+    const variants = (
+      await client.query(
+        `SELECT id, sku, name, options, price_vnd AS "priceVnd", stock_quantity AS "stockQuantity",
+                active, image_url AS "imageUrl", updated_at AS "updatedAt", edit_version AS version
+         FROM product_variants
+         WHERE product_id = $1
+         ORDER BY name, id`,
+        [id]
+      )
+    ).rows.map(v => ({ ...v, updatedAt: new Date(v.updatedAt).toISOString() }));
+
+    if (inTrash && Array.isArray(product.deleted_variant_state)) {
+      const states = new Map(product.deleted_variant_state.map(v => [v.id, v.active]));
+      for (const v of variants) {
+        if (states.has(v.id)) v.active = states.get(v.id) === true;
+      }
+    }
+
+    const meta = (
+      await client.query(
+        `SELECT gallery, option_groups AS groups, description_media AS "descriptionMedia"
+         FROM product_presentations
+         WHERE product_id = $1`,
+        [id]
+      )
+    ).rows[0];
+
+    const { deleted_at, deleted_variant_state, id: _productId, updatedAt: _productDate, version, ...fields } = product;
+    return {
+      ...(inTrash ? { inTrash: true } : {}),
+      id,
+      updatedAt: product.updatedAt,
+      version,
+      product: fields,
+      variants,
+      gallery: meta?.gallery?.length ? meta.gallery : [product.imageUrl],
+      groups: meta?.groups || [],
+      descriptionMedia: meta?.descriptionMedia || []
+    };
+  }
 }
 
 module.exports = {

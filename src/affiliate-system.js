@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { AdminAction } = require('./admin-action');
 
 async function registerPartner(pool, { partnerCode, name, email = null, phone = null, commissionPercent = 8.0, bankName = null, bankAccount = null }) {
   const code = String(partnerCode || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
@@ -94,7 +95,7 @@ function createAffiliateAdminRouter(pool) {
   const router = express.Router();
   const { requireAdminAction } = require('./admin-action');
 
-  router.get('/affiliates', async (req, res, next) => {
+  router.get('/affiliates', requireAdminAction('marketing.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, partner_code AS "partnerCode", name, email, phone, commission_percent AS "commissionPercent",
@@ -118,7 +119,7 @@ function createAffiliateAdminRouter(pool) {
     }
   });
 
-  router.get('/affiliates/commissions', async (req, res, next) => {
+  router.get('/affiliates/commissions', requireAdminAction('finance.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, partner_code AS "partnerCode", order_id AS "orderId", order_code AS "orderCode",

@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const {parseHTML}=require('linkedom');
-const source=fs.readFileSync(require.resolve('../admin/admin.js'),'utf8');
+const source=fs.readFileSync(require.resolve('../admin/admin-orders.js'),'utf8');
 const markup=fs.readFileSync(require.resolve('../admin/index.html'),'utf8');
 function fixture(){
  const {document,window}=parseHTML(markup);

@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
-const source=fs.readFileSync(require.resolve('../admin/admin.js'),'utf8');
+const source=fs.readFileSync(require.resolve('../admin/admin-orders.js'),'utf8');
 function fixture(){
  const nodes=new Map();for(const id of ['order-list','orders-view','order-filter','order-search','order-payment-filter','order-method-filter','order-sort','order-page-size','order-live-status','order-list-status'])nodes.set('#'+id,{value:'',hidden:false,textContent:'',attrs:{},getAttribute(k){return this.attrs[k]},setAttribute(k,v){this.attrs[k]=v}});
  nodes.get('#order-sort').value='newest';nodes.get('#order-page-size').value='25';

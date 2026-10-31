@@ -129,12 +129,16 @@ test('Business Deduplication & Optimization Verification (Recommendations 2, 3, 
       { city: 'Cà Mau', expected: ['viettel', 'ghtk'] }
     ];
 
-    // Read store-api allocateOptimalCarrier directly
+    for (const tc of testCities) {
+      const allocated = storeApi.allocateOptimalCarrier(tc.city);
+      assert.ok(tc.expected.includes(allocated.id), `Expected ${tc.city} -> ${tc.expected.join('/')}, got ${allocated.id}`);
+    }
+
     const fs = require('fs');
-    const storeApiContent = fs.readFileSync(require.resolve('../src/store-api'), 'utf8');
-    assert.match(storeApiContent, /function allocateOptimalCarrier/, 'store-api must include allocateOptimalCarrier');
-    assert.match(storeApiContent, /Shopee Express \(SPX\)/, 'Must allocate SPX for major urban centers');
-    assert.match(storeApiContent, /Viettel Post/, 'Must allocate Viettel Post for regional provinces');
+    const carrierContent = fs.readFileSync(require.resolve('../src/store/carrier-and-catalog-loader'), 'utf8');
+    assert.match(carrierContent, /function allocateOptimalCarrier/, 'carrier-and-catalog-loader must include allocateOptimalCarrier');
+    assert.match(carrierContent, /Shopee Express \(SPX\)/, 'Must allocate SPX for major urban centers');
+    assert.match(carrierContent, /Viettel Post/, 'Must allocate Viettel Post for regional provinces');
   });
 
   // Test 5: Khuyến nghị 6 - Operations Inventory enriches stock with Smart ROP metrics

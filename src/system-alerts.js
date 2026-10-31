@@ -89,9 +89,10 @@ async function alertSystem(pool, { severity = 'warning', source = 'system', mess
 }
 
 function createSystemAlertsAdmin(pool, config) {
+  const { AdminAction } = require('./admin-action');
   const router = express.Router();
 
-  router.get('/system-alerts', async (req, res, next) => {
+  router.get('/system-alerts', AdminAction('dashboard.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT id, severity, source, message, metadata, sent_at AS "sentAt", created_at AS "createdAt"
@@ -105,7 +106,7 @@ function createSystemAlertsAdmin(pool, config) {
     }
   });
 
-  router.post('/system-alerts/test', express.json(), async (req, res, next) => {
+  router.post('/system-alerts/test', AdminAction('settings.write'), express.json(), async (req, res, next) => {
     try {
       const result = await alertSystem(pool, {
         severity: 'info',

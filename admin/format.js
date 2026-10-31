@@ -39,10 +39,14 @@
   }
 
   function normalizePhone(rawPhone) {
-    if (!rawPhone || typeof rawPhone !== 'string') return '';
-    var cleaned = rawPhone.replace(/\D/g, '');
-    if (cleaned.indexOf('84') === 0) {
-      cleaned = '0' + cleaned.slice(2);
+    if (rawPhone === null || rawPhone === undefined) return '';
+    var str = String(rawPhone).trim();
+    if (!str) return '';
+    var cleaned = str.replace(/\D/g, '');
+    if (cleaned.indexOf('0084') === 0 && cleaned.length >= 12) {
+      cleaned = '0' + cleaned.slice(4).replace(/^0+/, '');
+    } else if (cleaned.indexOf('84') === 0 && cleaned.length >= 10) {
+      cleaned = '0' + cleaned.slice(2).replace(/^0+/, '');
     }
     return cleaned;
   }

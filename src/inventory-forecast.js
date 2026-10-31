@@ -1,5 +1,6 @@
 'use strict';
 const { Router } = require('express');
+const { AdminAction } = require('./admin-action');
 
 async function getInventoryForecast(pool) {
   // 1. Fetch 30-day sales velocity from order_items
@@ -109,7 +110,7 @@ async function getInventoryForecast(pool) {
 function createInventoryForecastAdmin(pool) {
   const router = Router();
 
-  router.get('/inventory/forecast', async (_req, res, next) => {
+  router.get('/inventory/forecast', AdminAction('inventory.read'), async (_req, res, next) => {
     try {
       const data = await getInventoryForecast(pool);
       res.json(data);
@@ -118,7 +119,7 @@ function createInventoryForecastAdmin(pool) {
     }
   });
 
-  router.post('/inventory/reorder-settings', async (req, res, next) => {
+  router.post('/inventory/reorder-settings', AdminAction('inventory.write'), async (req, res, next) => {
     try {
       const { sku, productName, leadTimeDays, safetyStockUnits, minOrderQty, manualOverrideRop } = req.body || {};
       if (!sku) return res.status(400).json({ error: 'Thiếu SKU' });

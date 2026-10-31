@@ -23,7 +23,7 @@ test('admin image display mapping matches reviewed public static paths without c
 });
 
 test('admin product list renders WebP display URLs without mutating canonical product DTOs',()=>{
- const source=fs.readFileSync(require.resolve('../admin/admin.js'),'utf8');
+ const source=fs.readFileSync(require.resolve('../admin/admin-catalog.js'),'utf8');
  const render=source.slice(source.indexOf('function productStock('),source.indexOf('function setProductForm('));
  const products=['/assets/products/k9.png',catalog].map((imageUrl,index)=>({id:String(index),name:'Fixture '+index,category:'audio',active:true,imageUrl,variants:[{active:true,stockQuantity:9,priceVnd:100,name:'Standard'}]}));
  const original=JSON.stringify(products),nodes=new Map();
@@ -43,7 +43,7 @@ for(const inTrash of [false,true])test('product editor preserves canonical refer
  const fixture={...(inTrash?{inTrash:true}:{}),id:productId,updatedAt:'2026-10-25T00:00:00.000Z',version:1,product:{name:'Fixture product',slug:'fixture-product',category:'audio',descriptor:'',cardTitle:'',cardSummary:'',description:'',imageUrl:'/assets/products/k9.png',imageAlt:'Fixture product',active:false,sortOrder:0},gallery:['/assets/products/k9.png',catalog],groups:[],descriptionMedia:[],variants:[{id:'33333333-3333-4333-8333-333333333333',updatedAt:'2026-10-25T00:00:00.000Z',version:1,sku:'FIXTURE',name:'Standard',options:{},priceVnd:100,stockQuantity:9,active:true,imageUrl:catalog}]};
  let posted;
  const context={document:{querySelector:node,getElementById:id=>node('#'+id),querySelectorAll:selector=>selector==='[data-save]'?[draft,publish]:[]},window:{GAERUVariantChoices:choices,GAERUAdminUI:ui,addEventListener(){}},location:{pathname:'/gaeru_ceo/products/'+productId+'/edit',search:inTrash?'?trash=1':''},history:{replaceState(){}},FormData:class{},WeakMap,URL:{createObjectURL(){},revokeObjectURL(){}},fetch:async(path,options={})=>({ok:true,json:async()=>{if(path==='/api/auth/me')return {authenticated:true,permissions:['catalog.read','catalog.write','inventory.approve']};if(path==='/api/csrf')return {csrfToken:'fixture'};if(path==='/api/gaeru_ceo/product-workspace'&&options.method==='POST'){posted=JSON.parse(options.body);return structuredClone(fixture);}if(path==='/api/gaeru_ceo/product-workspace/'+productId+(inTrash?'?trash=1':''))return structuredClone(fixture);throw Error('Unexpected request in editor fixture');}})};
- vm.runInNewContext(fs.readFileSync(require.resolve('../admin/product-editor.js'),'utf8'),context);await new Promise(resolve=>setImmediate(resolve));
+ const { readAdminBundle } = require('./helpers/admin-sources'); vm.runInNewContext(readAdminBundle(['format.js', 'product-editor-media.js', 'product-editor-variants.js', 'product-editor.js']), context);await new Promise(resolve=>setImmediate(resolve));
  assert.match(node('#product-preview').innerHTML,/<img src="\/assets\/products\/k9\.webp"/);
  assert.match(node('#gallery').innerHTML,/<img src="\/assets\/products\/k9\.webp"/);assert.ok(node('#gallery').innerHTML.includes('src="'+catalogPreview+'"'));
  assert.ok(node('#variant-rows').innerHTML.includes('<option value="/assets/products/k9.png"'));assert.ok(node('#variant-rows').innerHTML.includes('<option value="'+catalog+'"'));assert.ok(node('#variant-rows').innerHTML.includes('src="'+catalogPreview+'"'));

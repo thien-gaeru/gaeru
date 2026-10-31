@@ -155,9 +155,10 @@ function createLoyaltyCustomerApi(pool) {
 }
 
 function createLoyaltyAdminApi(pool) {
+  const { AdminAction } = require('./admin-action');
   const router = express.Router();
 
-  router.get('/loyalty/members', async (req, res, next) => {
+  router.get('/loyalty/members', AdminAction('customers.read'), async (req, res, next) => {
     try {
       const result = await pool.query(`
         SELECT c.id, c.full_name AS "fullName", c.email, c.phone,
@@ -176,7 +177,7 @@ function createLoyaltyAdminApi(pool) {
     }
   });
 
-  router.post('/loyalty/adjust', express.json(), async (req, res, next) => {
+  router.post('/loyalty/adjust', AdminAction('customers.write'), express.json(), async (req, res, next) => {
     try {
       const { customerId, pointsChange, reason } = req.body || {};
       const delta = Number(pointsChange);

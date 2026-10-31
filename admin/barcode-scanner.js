@@ -206,9 +206,8 @@
     };
   }
 
-  function escapeHtml(s) {
-    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
+  const sharedFormat = (root && root.GAERUAdminShared) || (typeof require === 'function' ? require('./format') : null);
+  const escapeHtml = sharedFormat ? sharedFormat.escapeHtml : ((root && root.escapeHtml) || ((v) => String(v ?? '')));
 
   return { init };
 });
