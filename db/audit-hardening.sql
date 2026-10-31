@@ -8,15 +8,14 @@ ALTER TABLE inventory_movements
 
 DO $$
 BEGIN
-  IF to_regclass('warehouse_stock') IS NOT NULL THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_constraint
-      WHERE conrelid = 'warehouse_stock'::regclass
-        AND (conname = 'warehouse_stock_quantity_nonnegative_chk' OR (contype = 'c' AND pg_get_constraintdef(oid) LIKE '%quantity >= 0%'))
-    ) THEN
-      ALTER TABLE warehouse_stock
-        ADD CONSTRAINT warehouse_stock_quantity_nonnegative_chk CHECK (quantity >= 0);
-    END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'warehouse_stock'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%quantity >= 0%'
+  ) THEN
+    ALTER TABLE warehouse_stock
+      ADD CONSTRAINT warehouse_stock_quantity_nonnegative_chk CHECK (quantity >= 0);
   END IF;
 END $$;
 
@@ -61,12 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_system_jobs_lease_expiry
 
 ALTER TABLE orders
   ADD COLUMN IF NOT EXISTS pricing_snapshot jsonb,
-  ADD COLUMN IF NOT EXISTS quote_hash text,
-  ADD COLUMN IF NOT EXISTS checkout_payload_hash text;
-
-CREATE INDEX IF NOT EXISTS idx_orders_checkout_payload_hash
-  ON orders (checkout_payload_hash)
-  WHERE checkout_payload_hash IS NOT NULL;
+  ADD COLUMN IF NOT EXISTS quote_hash text;
 
 ALTER TABLE order_items
   ADD COLUMN IF NOT EXISTS effective_unit_price_vnd integer;
@@ -88,20 +82,3 @@ CREATE INDEX IF NOT EXISTS idx_order_item_allocations_item
 
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_order_provider_status
   ON payment_attempts (order_id, provider, status);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_provider_request_id
-  ON payment_attempts (provider_request_id)
-  WHERE provider_request_id IS NOT NULL;
-
-ALTER TABLE payment_attempts DROP CONSTRAINT IF EXISTS payment_attempts_status_check;
-ALTER TABLE payment_attempts ADD CONSTRAINT payment_attempts_status_check
-  CHECK (status IN (
-    'pending',
-    'payment_initiation_unknown',
-    'awaiting_reconciliation',
-    'expiry_awaiting_verification',
-    'paid',
-    'failed',
-    'cancelled'
-  ));
-
