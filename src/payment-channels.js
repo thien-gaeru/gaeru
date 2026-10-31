@@ -615,7 +615,22 @@ async function reconcileGatewayOrder(pool,{orderId=null,orderNumber=null,provide
  });
 }
 
-async function retryGatewayOrderPayment(pool,{orderNumber=null,clientReference=null,config={},settings=null,baseUrl='https://gaeru.com',fetcher=null,inventory=null,finance=null,audit=appendAudit,actor=null}={}){
+async function retryGatewayOrderPayment(pool,{
+ orderNumber=null,
+ clientReference=null,
+ expectedCustomer=null,
+ expectedPaymentMethod=null,
+ expectedItems=null,
+ expectedTotalVnd=null,
+ config={},
+ settings=null,
+ baseUrl='https://gaeru.com',
+ fetcher=null,
+ inventory=null,
+ finance=null,
+ audit=appendAudit,
+ actor=null
+}={}){
  const cleanOrderNumber=orderNumber?extractOrderNumber(orderNumber):null;
  const cleanRef=clientReference?String(clientReference).trim():null;
  if(!cleanOrderNumber&&!cleanRef)throw fail('Thiếu mã đơn hàng hoặc mã tham chiếu thanh toán.',400);
@@ -625,6 +640,7 @@ async function retryGatewayOrderPayment(pool,{orderNumber=null,clientReference=n
      o.shipping_fee_vnd AS "shippingFeeVnd", o.discount_vnd AS "discountVnd", o.voucher_code AS "voucherCode",
      o.total_vnd AS "totalVnd", o.status, o.payment_method AS "paymentMethod",
      o.payment_status AS "paymentStatus", o.created_at AS "createdAt",
+     o.email AS "customerEmail", o.phone AS "customerPhone",
      p.id AS "attemptId", p.provider, p.status AS "attemptStatus",
      p.provider_request_id AS "providerRequestId", p.payment_url AS "paymentUrl", p.expires_at AS "expiresAt",
      EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
@@ -638,11 +654,55 @@ async function retryGatewayOrderPayment(pool,{orderNumber=null,clientReference=n
  )).rows[0];
  if(!lookup)return null;
 
+ // Xác minh quyền sở hữu: đối chiếu thông tin người mua (email hoặc số điện thoại)
+ if(expectedCustomer&&(expectedCustomer.email||expectedCustomer.phone)){
+  const emailCleanA=String(lookup.customerEmail||'').toLowerCase().trim();
+  const emailCleanB=String(expectedCustomer.email||'').toLowerCase().trim();
+  const phoneCleanA=String(lookup.customerPhone||'').replace(/\D/g,'');
+  const phoneCleanB=String(expectedCustomer.phone||'').replace(/\D/g,'');
+
+  const emailMatches=emailCleanA&&emailCleanB&&emailCleanA===emailCleanB;
+  const phoneMatches=phoneCleanA&&phoneCleanB&&phoneCleanA===phoneCleanB;
+
+  if(!emailMatches&&!phoneMatches){
+   throw Object.assign(
+    fail('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại.',403),
+    {code:'FORBIDDEN_ORDER_ACCESS'}
+   );
+  }
+ }
+
+ // Xác minh tính nhất quán của giỏ hàng và phương thức thanh toán
+ if(expectedPaymentMethod&&lookup.paymentMethod!==expectedPaymentMethod){
+  throw Object.assign(
+   fail(`Phương thức thanh toán (${expectedPaymentMethod}) không khớp với đơn hàng trước đó (${lookup.paymentMethod}).`,409),
+   {code:'IDEMPOTENCY_PAYMENT_METHOD_MISMATCH'}
+  );
+ }
+
+ if(expectedTotalVnd!==null&&expectedTotalVnd!==undefined){
+  if(Math.abs(Number(lookup.totalVnd)-Number(expectedTotalVnd))>0){
+   throw Object.assign(
+    fail('Khóa chống trùng đã được sử dụng cho một đơn hàng có tổng số tiền khác.',409),
+    {code:'IDEMPOTENCY_AMOUNT_MISMATCH'}
+   );
+  }
+ }
+
  const items=(await pool.query(
-  `SELECT product_name AS "productName", variant_name AS "variantName", sku, unit_price_vnd AS "priceVnd", quantity
+  `SELECT variant_id AS "variantId", product_name AS "productName", variant_name AS "variantName", sku, unit_price_vnd AS "priceVnd", quantity
    FROM order_items WHERE order_id = $1`,
   [lookup.id]
  )).rows;
+
+ if(expectedItems&&Array.isArray(expectedItems)&&expectedItems.length>0){
+  if(expectedItems.length!==items.length||!expectedItems.every(expItem=>items.some(i=>i.variantId===expItem.variantId&&i.quantity===expItem.quantity))){
+   throw Object.assign(
+    fail('Khóa chống trùng đã được sử dụng cho một đơn hàng có danh sách sản phẩm khác.',409),
+    {code:'IDEMPOTENCY_ITEMS_MISMATCH'}
+   );
+  }
+ }
  const formatOrder=overrides=>({
   id:lookup.id,
   orderNumber:lookup.orderNumber,
@@ -703,19 +763,38 @@ async function retryGatewayOrderPayment(pool,{orderNumber=null,clientReference=n
  const nowMs=Date.now();
  const nextRequestId=buildGatewayRequestId(lookup.paymentMethod,lookup.orderNumber,nowMs);
 
- await withTransaction(pool,async client=>{
+ const claimDecision=await withTransaction(pool,async client=>{
   const locked=(await client.query(
-   `SELECT p.id, p.status, o.status AS "orderStatus", o.payment_status AS "paymentStatus"
+   `SELECT p.id, p.status, p.payment_url AS "paymentUrl", p.provider_request_id AS "providerRequestId",
+      p.updated_at AS "updatedAt", p.expires_at AS "expiresAt",
+      o.status AS "orderStatus", o.payment_status AS "paymentStatus",
+      EXISTS (SELECT 1 FROM sales_receipts sr WHERE sr.order_id = o.id) AS "hasReceipt"
     FROM payment_attempts p JOIN orders o ON o.id = p.order_id
     WHERE p.id = $1 FOR UPDATE OF p, o`,
    [lookup.attemptId]
   )).rows[0];
-  if(!locked||locked.paymentStatus==='paid'||locked.status==='paid')return;
-  if(locked.orderStatus==='cancelled')throw Object.assign(fail('Đơn hàng đã bị hủy.',409),{code:'ORDER_ALREADY_CANCELLED'});
+  if(!locked) return {shouldInitiate:false,notFound:true};
+  if(locked.paymentStatus==='paid'||locked.status==='paid'||locked.hasReceipt){
+   return {shouldInitiate:false,alreadyPaid:true,orderStatus:locked.orderStatus};
+  }
+  if(locked.orderStatus==='cancelled'){
+   throw Object.assign(fail('Đơn hàng đã bị hủy.',409),{code:'ORDER_ALREADY_CANCELLED'});
+  }
+
+  // Nếu phiên gần đây (< 3 phút) đang hoạt động và chưa hết hạn, dùng lại thay vì gọi gateway lặp lại
+  const isRecentActive=locked.status==='pending'&&locked.paymentUrl&&locked.expiresAt&&new Date(locked.expiresAt)>new Date()&&locked.updatedAt&&(Date.now()-new Date(locked.updatedAt).getTime()<180000);
+  if(isRecentActive){
+   return {shouldInitiate:false,reusePaymentUrl:locked.paymentUrl,providerRequestId:locked.providerRequestId,orderStatus:locked.orderStatus};
+  }
+
   await client.query(
    `UPDATE payment_attempts
-    SET provider_request_id=$2, expires_at=now()+interval '15 minutes', updated_at=now()
-    WHERE id=$1`,
+    SET provider_request_id=$2,
+        status='pending',
+        expires_at=now()+interval '15 minutes',
+        reconciliation_attempts=reconciliation_attempts+1,
+        updated_at=now()
+    WHERE id=$1 AND status!='paid'`,
    [lookup.attemptId,nextRequestId]
   );
   await audit(client,{
@@ -725,7 +804,19 @@ async function retryGatewayOrderPayment(pool,{orderNumber=null,clientReference=n
    entityId:lookup.id,
    metadata:{provider:lookup.paymentMethod,orderNumber:lookup.orderNumber,providerRequestId:nextRequestId}
   });
+
+  return {shouldInitiate:true,nextRequestId,orderStatus:locked.orderStatus};
  });
+
+ if(claimDecision.alreadyPaid){
+  return {status:200,order:formatOrder({status:claimDecision.orderStatus,paymentStatus:'paid'}),paymentUrl:null,alreadyPaid:true,paymentStatus:'paid',reconciliationStatus:'paid',message:'Đơn hàng đã được xác nhận thanh toán thành công.'};
+ }
+ if(claimDecision.reusePaymentUrl){
+  return {status:200,order:formatOrder({status:claimDecision.orderStatus}),paymentUrl:claimDecision.reusePaymentUrl,providerRequestId:claimDecision.providerRequestId,reconciliationStatus:'pending',retried:true,message:'Sử dụng lại phiên thanh toán hiện có của đơn hàng.'};
+ }
+ if(!claimDecision.shouldInitiate){
+  return null;
+ }
 
  try{
   const gw=await createGatewayPayment(lookup.paymentMethod,channelSettings,{
