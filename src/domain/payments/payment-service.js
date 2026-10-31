@@ -159,17 +159,18 @@ class PaymentService {
                 [order.id]
               );
             }
-            if (inventory) {
-              await inventory.releaseOrderStock(client, {
+            const invService = inventory || require('../../inventory');
+            if (invService && typeof invService.releaseOrderStock === 'function') {
+              await invService.releaseOrderStock(client, {
                 orderId: order.id,
                 actor: { username: 'system', source: 'gateway_rejection' }
               });
             } else {
-              await client.query(
-                `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-                 FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-                [order.id]
-              );
+              const { InventoryService } = require('../inventory/inventory-service');
+              await InventoryService.releaseOrderStock(client, {
+                orderId: order.id,
+                actor: { username: 'system', source: 'gateway_rejection' }
+              });
             }
             await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [order.id]);
             await client.query(
