@@ -17,22 +17,25 @@ function getVapidConfig() {
   return { publicKey, privateKey, subject };
 }
 
-function validatePushSubscriptionData({ endpoint, p256dh, auth }) {
+function validatePushSubscriptionData(payload = {}) {
+  const { endpoint, p256dh, auth, keys } = payload;
   const ep = String(endpoint || '').trim();
-  const key = String(p256dh || '').trim();
-  const a = String(auth || '').trim();
+  const key = String(p256dh || (keys && keys.p256dh) || '').trim();
+  const a = String(auth || (keys && keys.auth) || '').trim();
 
   if (!ep || !key || !a) {
     throw Object.assign(new Error('endpoint, p256dh và auth là bắt buộc để đăng ký thông báo đẩy.'), { status: 400 });
   }
 
+  let url;
   try {
-    const url = new URL(ep);
-    if (url.protocol !== 'https:') {
-      throw new Error('Endpoint phải sử dụng giao thức HTTPS.');
-    }
+    url = new URL(ep);
   } catch {
     throw Object.assign(new Error('Endpoint Push Subscription không phải URL hợp lệ.'), { status: 400 });
+  }
+
+  if (url.protocol !== 'https:') {
+    throw Object.assign(new Error('Endpoint phải sử dụng giao thức HTTPS.'), { status: 400 });
   }
 
   // Chặn dữ liệu subscription giả

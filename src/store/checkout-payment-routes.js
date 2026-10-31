@@ -539,7 +539,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              RETURNING id, order_number AS "orderNumber", subtotal_vnd AS "subtotalVnd",
                        shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd",
-                       status, payment_method AS "paymentMethod", created_at AS "createdAt"`,
+                       status, payment_status AS "paymentStatus", payment_method AS "paymentMethod", created_at AS "createdAt"`,
             [
               orderNumber, parsed.data.customer.name, parsed.data.customer.email, parsed.data.customer.phone,
               parsed.data.customer.address, parsed.data.customer.city, parsed.data.customer.note,
