@@ -82,14 +82,32 @@ async function start() {
   await workerManager.startAll(pool, config, { requireFn: require });
 }
 
+const STARTUP_TIMEOUT_MS = Number.parseInt(process.env.STARTUP_TIMEOUT_MS, 10) || 60000;
+const timerFn = typeof setTimeout === 'function' ? setTimeout : (typeof globalThis !== 'undefined' ? globalThis.setTimeout : null);
+const clearFn = typeof clearTimeout === 'function' ? clearTimeout : (typeof globalThis !== 'undefined' ? globalThis.clearTimeout : null);
+
+let watchdogTimer = timerFn ? timerFn(() => {
+  if (!startupReady && !startupError && !shuttingDown) {
+    const timeoutErr = Object.assign(new Error(`Startup deadline exceeded (${STARTUP_TIMEOUT_MS}ms)`), { code: 'ETIMEDOUT' });
+    startupError = timeoutErr;
+    if (typeof rejectReady === 'function') rejectReady(timeoutErr);
+    console.error('GAERU startup watchdog deadline exceeded:', errorSummary(timeoutErr));
+    process.exitCode = 1;
+    void shutdown();
+  }
+}, STARTUP_TIMEOUT_MS) : null;
+if (watchdogTimer && typeof watchdogTimer.unref === 'function') watchdogTimer.unref();
+
 const startTask = start();
 startTask
   .then(() => {
+    if (watchdogTimer && clearFn) clearFn(watchdogTimer);
     startupReady = true;
     if (typeof resolveReady === 'function') resolveReady(true);
     console.log('GAERU system startup completed successfully. Database and workers are ready.');
   })
   .catch(async (error) => {
+    if (watchdogTimer && clearFn) clearFn(watchdogTimer);
     startupError = error;
     if (typeof rejectReady === 'function') rejectReady(error);
     console.error('GAERU startup failed:', errorSummary(error));
@@ -100,6 +118,7 @@ startTask
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  if (watchdogTimer && clearFn) clearFn(watchdogTimer);
   await startTask.catch(() => {});
   await workerManager.stopAll();
   if (server) await new Promise(resolve => server.close(resolve));

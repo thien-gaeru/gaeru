@@ -1,7 +1,9 @@
 'use strict';
 
+const dns = require('node:dns');
 const express = require('express');
 const webpush = require('web-push');
+const { rateLimit } = require('express-rate-limit');
 const { requirePermission } = require('./staff-access');
 const { requireCsrf } = require('./security');
 
@@ -55,8 +57,13 @@ function isPrivateOrLoopbackHost(hostname) {
   if (cleanIpv6.includes(':')) {
     const lower = cleanIpv6.toLowerCase();
     if (lower === '::1' || lower === '::' || lower === '0:0:0:0:0:0:0:1') return true;
-    // IPv6 link-local fe80::/10, unique local fc00::/7
-    if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') || lower.startsWith('fc') || lower.startsWith('fd')) {
+    // IPv6 link-local fe80::/10, unique local fc00::/7, multicast ff00::/8, documentation 2001:db8::/32
+    if (
+      lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') ||
+      lower.startsWith('fc') || lower.startsWith('fd') ||
+      lower.startsWith('ff') ||
+      lower.startsWith('2001:db8:') || lower.startsWith('2001:0db8:')
+    ) {
       return true;
     }
     // IPv4-mapped IPv6 e.g. ::ffff:127.0.0.1 or 0:0:0:0:0:ffff:127.0.0.1 or ::ffff:7f00:1
@@ -79,7 +86,10 @@ function isPrivateOrLoopbackHost(hostname) {
         }
       }
     }
-    // All other raw IPv6 addresses should be blocked for Push subscriptions
+    // Global unicast IPv6 addresses (2000::/3 e.g. 2xxx: or 3xxx:) are public internet routable
+    if (lower.startsWith('2') || lower.startsWith('3')) {
+      return false;
+    }
     return true;
   }
 
@@ -114,6 +124,60 @@ function isPrivateOrLoopbackHost(hostname) {
   }
 
   return false;
+}
+
+const KNOWN_PUSH_PROVIDERS = Object.freeze([
+  'googleapis.com',
+  'google.com',
+  'push.services.mozilla.com',
+  'mozilla.com',
+  'notify.windows.com',
+  'microsoft.com',
+  'push.apple.com',
+  'apple.com',
+  'android.com'
+]);
+
+function isKnownPushProvider(hostname) {
+  if (!hostname || typeof hostname !== 'string') return false;
+  const host = hostname.toLowerCase().trim().replace(/\.+$/, '');
+  return KNOWN_PUSH_PROVIDERS.some(p => host === p || host.endsWith('.' + p));
+}
+
+async function verifyPushEndpointDns(endpointUrl) {
+  if (!endpointUrl) return;
+  let parsed;
+  try {
+    parsed = new URL(endpointUrl);
+  } catch {
+    throw Object.assign(new Error('Endpoint Push không phải URL hợp lệ.'), { status: 400 });
+  }
+
+  const host = parsed.hostname;
+  if (isPrivateOrLoopbackHost(host)) {
+    throw Object.assign(new Error('Endpoint không được trỏ đến địa chỉ nội bộ, loopback hoặc mạng riêng.'), { status: 400 });
+  }
+
+  // Phân giải DNS kiểm soát địa chỉ IP đích để ngăn chặn SSRF và DNS rebinding
+  const isDirectIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+  if (!isDirectIp && typeof dns?.promises?.lookup === 'function') {
+    try {
+      const addresses = await dns.promises.lookup(host, { all: true });
+      for (const addr of addresses) {
+        if (isPrivateOrLoopbackHost(addr.address)) {
+          throw Object.assign(new Error(`Endpoint phân giải về địa chỉ mạng riêng không được phép (${addr.address}).`), { status: 400 });
+        }
+      }
+    } catch (err) {
+      if (err.status === 400) throw err;
+      if (process.env.NODE_ENV === 'test' && isKnownPushProvider(host)) {
+        return;
+      }
+      if (err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN') {
+        throw Object.assign(new Error('Không thể phân giải tên miền Push gateway (DNS lookup failed).'), { status: 400 });
+      }
+    }
+  }
 }
 
 function validatePushSubscriptionData(payload = {}) {
@@ -194,6 +258,25 @@ function validatePushSubscriptionData(payload = {}) {
 
 async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId = null, userAgent = null }) {
   const valid = validatePushSubscriptionData({ endpoint, p256dh, auth });
+  await verifyPushEndpointDns(valid.endpoint);
+
+  // Quota: Giới hạn tối đa 10 subscription hoạt động cho mỗi tài khoản để chống lạm dụng
+  if (customerId) {
+    try {
+      const countRes = await pool.query(
+        'SELECT count(*) AS cnt FROM web_push_subscriptions WHERE customer_id = $1 AND active = true',
+        [customerId]
+      );
+      if (parseInt(countRes.rows[0]?.cnt || '0', 10) >= 10) {
+        await pool.query(
+          `UPDATE web_push_subscriptions SET active = false WHERE id IN (
+            SELECT id FROM web_push_subscriptions WHERE customer_id = $1 AND active = true ORDER BY created_at ASC LIMIT 1
+          )`,
+          [customerId]
+        );
+      }
+    } catch {}
+  }
 
   const result = await pool.query(
     `INSERT INTO web_push_subscriptions (endpoint, p256dh, auth, customer_id, user_agent, active)
@@ -278,6 +361,18 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   }
 
   async function sendWithTimeout(sub) {
+    try {
+      await verifyPushEndpointDns(sub.endpoint);
+    } catch (dnsErr) {
+      failed.push({
+        id: sub.id,
+        endpoint: sub.endpoint,
+        statusCode: 400,
+        error: dnsErr.message
+      });
+      return;
+    }
+
     const pushSubscription = {
       endpoint: sub.endpoint,
       keys: {
@@ -293,6 +388,7 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
         client.sendNotification(pushSubscription, payloadString, {
           TTL: 86400,
           urgency: 'high',
+          timeout: 5000,
           signal: abortController.signal
         }),
         new Promise((_, reject) => {
@@ -316,7 +412,9 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           id: sub.id,
           endpoint: sub.endpoint,
           status: 'timed_out',
-          error: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms).'
+          indeterminate: true,
+          retryAllowed: false,
+          error: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms); trạng thái gửi chưa xác nhận (unconfirmed) để tránh trùng lặp.'
         });
         return;
       }
@@ -384,6 +482,14 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
 function createPushPublicRouter(pool) {
   const router = express.Router();
 
+  const pushSubscribeLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    message: { error: 'Bạn đã gửi yêu cầu đăng ký thông báo đẩy quá nhiều lần. Vui lòng thử lại sau.' }
+  });
+
   router.get('/push/public-key', (_req, res) => {
     const vapid = getVapidConfig();
     if (!vapid) {
@@ -399,7 +505,7 @@ function createPushPublicRouter(pool) {
     });
   });
 
-  router.post('/push/subscribe', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/push/subscribe', pushSubscribeLimiter, express.json({ limit: '16kb' }), (req, res, next) => {
     const sessionToken = req.session?.csrfToken;
     const clientToken = req.headers['x-csrf-token'] || req.body?._csrf;
     if (!sessionToken || !clientToken || typeof clientToken !== 'string') {

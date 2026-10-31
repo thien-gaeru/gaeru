@@ -277,6 +277,13 @@ async function migrateDatabase(pool) {
   const client = typeof pool?.connect === 'function' ? await pool.connect() : pool;
   try {
     await client.query("BEGIN");
+    // Thiết lập deadline giới hạn cho advisory lock và migration queries để chống treo vô hạn
+    try {
+      await client.query("SET LOCAL lock_timeout = '15s'");
+      await client.query("SET LOCAL statement_timeout = '60s'");
+    } catch {
+      // PGlite hoặc driver mô phỏng không hỗ trợ SET LOCAL lock_timeout thì bỏ qua an toàn
+    }
     await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
     await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now(), checksum text)");
     await client.query("ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum text");
