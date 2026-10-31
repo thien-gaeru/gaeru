@@ -10,7 +10,7 @@
  * 4. Máy trạng thái phiên thanh toán (PaymentAttemptStateMachine) với nguyên tắc bất biến trạng thái paid.
  */
 
-const { createHash } = require('node:crypto');
+const { createHash, createHmac, timingSafeEqual } = require('node:crypto');
 
 const ATTEMPT_STATES = Object.freeze({
   PENDING: 'pending',
@@ -91,57 +91,187 @@ function parseScopedClientReference(scopedRef) {
   return { isScoped: false, scope: null, rawKey: scopedRef };
 }
 
+const DEFAULT_ORDER_TOKEN_SECRET = 'gaeru-order-token-default-secret-key-32b';
+
 /**
- * Xác minh quyền sở hữu đơn hàng dựa trên thông tin người mua
- * @param {Object} order { customerEmail, customerPhone, email, phone }
- * @param {Object} expectedCustomer { email, phone }
- * @throws {Error} 403 FORBIDDEN_ORDER_ACCESS nếu không khớp
+ * Tạo token truy cập đơn hàng có chữ ký số HMAC-SHA256 và thời hạn sử dụng
+ * @param {Object} payload { orderId, orderNumber, customerId }
+ * @param {string} [secret]
+ * @param {Object} [options]
+ * @returns {string} Token dạng base64url(payload).hmac_signature
  */
-function assertOrderOwnership(order, expectedCustomer) {
-  if (!expectedCustomer || (!expectedCustomer.email && !expectedCustomer.phone)) {
-    return true; // Không có yêu cầu đối chiếu danh tính
+function generateOrderAccessToken(payload = {}, secret = null, options = {}) {
+  const sec = secret || process.env.SESSION_SECRET || DEFAULT_ORDER_TOKEN_SECRET;
+  const expiresInSeconds = options.expiresInSeconds || (72 * 3600); // 72 giờ
+  const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+  const body = {
+    orderId: payload.orderId || null,
+    orderNumber: payload.orderNumber || null,
+    customerId: payload.customerId || null,
+    exp
+  };
+  const bodyStr = Buffer.from(JSON.stringify(body), 'utf8').toString('base64url');
+  const sig = createHmac('sha256', sec).update(bodyStr, 'utf8').digest('hex');
+  return `${bodyStr}.${sig}`;
+}
+
+/**
+ * Xác thực token truy cập đơn hàng
+ * @param {string} token
+ * @param {string} [secret]
+ * @param {string} [expectedOrderIdentifier] orderNumber hoặc orderId
+ * @returns {Object|null} Payload nếu hợp lệ, null nếu không hợp lệ hoặc hết hạn
+ */
+function verifyOrderAccessToken(token, secret = null, expectedOrderIdentifier = null) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [bodyStr, sig] = parts;
+  const sec = secret || process.env.SESSION_SECRET || DEFAULT_ORDER_TOKEN_SECRET;
+
+  const expectedSig = createHmac('sha256', sec).update(bodyStr, 'utf8').digest('hex');
+  if (sig.length !== expectedSig.length) return null;
+  const sigValid = timingSafeEqual(Buffer.from(sig, 'utf8'), Buffer.from(expectedSig, 'utf8'));
+  if (!sigValid) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(bodyStr, 'base64url').toString('utf8'));
+    if (!payload || typeof payload !== 'object') return null;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!payload.exp || Number(payload.exp) < nowSec) {
+      return null;
+    }
+
+    if (expectedOrderIdentifier) {
+      const cleanExpected = String(expectedOrderIdentifier).trim().toUpperCase();
+      const numMatch = payload.orderNumber && String(payload.orderNumber).trim().toUpperCase() === cleanExpected;
+      const idMatch = payload.orderId && String(payload.orderId).trim().toLowerCase() === String(expectedOrderIdentifier).trim().toLowerCase();
+      if (!numMatch && !idMatch) {
+        return null;
+      }
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Xác minh quyền sở hữu đơn hàng (Fail-Closed)
+ * @param {Object} order { customerEmail, customerPhone, email, phone, customerId, customer_id, orderNumber, id }
+ * @param {Object|string} proof { orderAccessToken, sessionCustomerId, sessionCustomerEmail, sessionCustomerPhone, sessionCreatedOrders, expectedCustomer }
+ * @param {Object} [options] { secret, actor, requireStrongProof }
+ * @throws {Error} 403 FORBIDDEN_ORDER_ACCESS nếu không xác minh được quyền sở hữu
+ * @returns {boolean}
+ */
+function assertOrderOwnership(order, proof, options = {}) {
+  const actor = options.actor || proof?.actor;
+  if (actor && (
+    ['admin', 'owner'].includes(actor.role) ||
+    ['system', 'order_expiration_worker', 'reconciliation-worker'].includes(actor.source)
+  )) {
+    return true;
   }
 
+  // 1. Kiểm tra mã truy cập đơn hàng (Order Access Token)
+  const token = typeof proof === 'string'
+    ? proof
+    : (proof?.orderAccessToken || proof?.token || null);
+  if (token) {
+    const verified = verifyOrderAccessToken(token, options.secret, order.orderNumber || order.id);
+    if (verified) return true;
+    throw Object.assign(
+      new Error('Mã truy cập đơn hàng (order access token) không hợp lệ hoặc đã hết hạn.'),
+      { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+    );
+  }
+
+  // 2. Kiểm tra tài khoản khách hàng đã đăng nhập (Customer Session)
+  const sessionCustId = proof?.sessionCustomerId || proof?.customerId;
+  const orderCustId = order.customerId || order.customer_id;
+  if (sessionCustId && orderCustId && String(sessionCustId) === String(orderCustId)) {
+    return true;
+  }
+
+  const sessionCustEmail = normalizeEmail(proof?.sessionCustomerEmail);
   const orderEmail = normalizeEmail(order.customerEmail || order.email);
-  const orderPhone = normalizePhone(order.customerPhone || order.phone);
-  const expectedEmail = normalizeEmail(expectedCustomer.email);
-  const expectedPhone = normalizePhone(expectedCustomer.phone);
-
-  // Khi người mua cung cấp cả email và số điện thoại, bắt buộc CẢ HAI phải khớp với đơn hàng
-  if (expectedEmail && expectedPhone) {
-    const emailOk = orderEmail && expectedEmail === orderEmail;
-    const phoneOk = orderPhone && expectedPhone === orderPhone;
-    if (!emailOk || !phoneOk) {
-      throw Object.assign(
-        new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (email hoặc số điện thoại không khớp).'),
-        { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
-      );
-    }
+  if (sessionCustEmail && orderEmail && sessionCustEmail === orderEmail) {
     return true;
   }
 
-  // Khi chỉ cung cấp một trong hai thông tin, thông tin đó bắt buộc phải khớp
-  if (expectedEmail) {
-    if (!orderEmail || expectedEmail !== orderEmail) {
-      throw Object.assign(
-        new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (email không khớp).'),
-        { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
-      );
-    }
+  // 3. Kiểm tra phiên trình duyệt đã tạo đơn hàng này (Session-bound created orders)
+  const createdOrders = proof?.sessionCreatedOrders;
+  if (Array.isArray(createdOrders) && order.orderNumber && createdOrders.includes(order.orderNumber)) {
     return true;
   }
 
-  if (expectedPhone) {
-    if (!orderPhone || expectedPhone !== orderPhone) {
+  // 4. Đối soát thông tin người mua (expectedCustomer / email & phone)
+  const expectedCustomer = proof?.expectedCustomer || (proof && (proof.email || proof.phone) ? proof : null);
+  if (expectedCustomer) {
+    const expectedEmail = normalizeEmail(expectedCustomer.email);
+    const expectedPhone = normalizePhone(expectedCustomer.phone);
+    const orderPhone = normalizePhone(order.customerPhone || order.phone);
+
+    // Khi cung cấp cả email và phone, bắt buộc CẢ HAI phải khớp
+    if (expectedEmail && expectedPhone) {
+      const emailOk = orderEmail && expectedEmail === orderEmail;
+      const phoneOk = orderPhone && expectedPhone === orderPhone;
+      if (!emailOk || !phoneOk) {
+        throw Object.assign(
+          new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (email hoặc số điện thoại không khớp).'),
+          { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+        );
+      }
+      return true;
+    }
+
+    // Nếu trong chế độ yêu cầu bằng chứng mạnh (như retry-payment) mà chỉ gửi 1 trong 2 -> không đủ
+    if (options.requireStrongProof) {
       throw Object.assign(
-        new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (số điện thoại không khớp).'),
+        new Error('Yêu cầu xác minh quyền sở hữu đơn hàng (đăng nhập tài khoản đặt đơn hoặc cung cấp mã truy cập đơn hàng hợp lệ).'),
         { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
       );
     }
-    return true;
+
+    if (expectedEmail) {
+      if (!orderEmail || expectedEmail !== orderEmail) {
+        throw Object.assign(
+          new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (email không khớp).'),
+          { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+        );
+      }
+      return true;
+    }
+
+    if (expectedPhone) {
+      if (!orderPhone || expectedPhone !== orderPhone) {
+        throw Object.assign(
+          new Error('Đơn hàng không thuộc sở hữu của thông tin người mua hiện tại (số điện thoại không khớp).'),
+          { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+        );
+      }
+      return true;
+    }
   }
 
-  return true;
+  // FAIL CLOSED: Không có bằng chứng sở hữu -> Chặn 403
+  throw Object.assign(
+    new Error('Yêu cầu xác minh quyền sở hữu đơn hàng (đăng nhập tài khoản đặt đơn hoặc cung cấp mã truy cập đơn hàng hợp lệ).'),
+    { status: 403, code: 'FORBIDDEN_ORDER_ACCESS' }
+  );
+}
+
+/**
+ * Kiểm tra xem caller có quyền sở hữu đơn hàng không mà không ném lỗi
+ */
+function checkOrderOwnership(order, proof, options = {}) {
+  try {
+    return assertOrderOwnership(order, proof, options);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -307,12 +437,16 @@ class PaymentAttemptStateMachine {
 module.exports = {
   ATTEMPT_STATES,
   TERMINAL_ATTEMPT_STATES,
+  DEFAULT_ORDER_TOKEN_SECRET,
   normalizePhone,
   normalizeEmail,
   computeCustomerScope,
   buildScopedClientReference,
   parseScopedClientReference,
+  generateOrderAccessToken,
+  verifyOrderAccessToken,
   assertOrderOwnership,
+  checkOrderOwnership,
   assertOrderPayloadMatch,
   PaymentAttemptStateMachine
 };

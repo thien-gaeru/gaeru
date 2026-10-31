@@ -6,6 +6,9 @@ const { createTestDb } = require('./helpers/pglite-db');
 const { withTransaction } = require('../src/db');
 const {
   assertOrderOwnership,
+  checkOrderOwnership,
+  generateOrderAccessToken,
+  verifyOrderAccessToken,
   assertOrderPayloadMatch,
   buildScopedClientReference,
   PaymentAttemptStateMachine
@@ -540,4 +543,141 @@ test('P0-01 Part 2: Late payment callback on cancelled order records payment and
   assert.equal(resFail.code, '00');
   assert.equal(resFail.alreadyCancelled, true);
   assert.equal(resFail.successful, false);
+});
+
+test('P0-02: Fail-Closed Order Ownership, HMAC Access Token, and Public Scope Redaction', async (t) => {
+  const { pool, close } = await createTestDb();
+  t.after(() => close());
+
+  const secret = 'test-secret-key-32b-length-must-be-long-enough';
+  const orderId = crypto.randomUUID();
+  const customerId = crypto.randomUUID();
+  const orderNumber = 'GR-P02-TEST-001';
+
+  const order = {
+    id: orderId,
+    orderNumber,
+    customerId,
+    customerEmail: 'alice@gaeru.com',
+    customerPhone: '0912345678',
+    email: 'alice@gaeru.com',
+    phone: '0912345678',
+    totalVnd: 250000,
+    subtotalVnd: 250000,
+    shippingFeeVnd: 0,
+    paymentMethod: 'momo',
+    status: 'pending',
+    paymentStatus: 'pending'
+  };
+
+  // 1. assertOrderOwnership MUST FAIL-CLOSED when proof is missing or empty
+  assert.throws(() => {
+    assertOrderOwnership(order, null);
+  }, (err) => err.status === 403 && err.code === 'FORBIDDEN_ORDER_ACCESS');
+
+  assert.throws(() => {
+    assertOrderOwnership(order, {});
+  }, (err) => err.status === 403 && err.code === 'FORBIDDEN_ORDER_ACCESS');
+
+  // 2. assertOrderOwnership fails with attacker credentials
+  assert.throws(() => {
+    assertOrderOwnership(order, { email: 'hacker@gaeru.com', phone: '0999999999' });
+  }, (err) => err.status === 403 && err.code === 'FORBIDDEN_ORDER_ACCESS');
+
+  // 3. assertOrderOwnership succeeds with valid signed orderAccessToken
+  const validToken = generateOrderAccessToken({ orderId, orderNumber, customerId }, secret);
+  assert.equal(assertOrderOwnership(order, { orderAccessToken: validToken }, { secret }), true);
+
+  // 4. assertOrderOwnership fails with forged / expired token
+  assert.throws(() => {
+    assertOrderOwnership(order, { orderAccessToken: 'forged.token.here' }, { secret });
+  }, (err) => err.status === 403);
+
+  const expiredToken = generateOrderAccessToken({ orderId, orderNumber }, secret, { expiresInSeconds: -10 });
+  assert.throws(() => {
+    assertOrderOwnership(order, { orderAccessToken: expiredToken }, { secret });
+  }, (err) => err.status === 403);
+
+  // 5. assertOrderOwnership succeeds with session proofs
+  assert.equal(assertOrderOwnership(order, { sessionCustomerId: customerId }), true);
+  assert.equal(assertOrderOwnership(order, { sessionCustomerEmail: 'alice@gaeru.com' }), true);
+  assert.equal(assertOrderOwnership(order, { sessionCreatedOrders: [orderNumber] }), true);
+
+  // 6. DB-level verification: Insert order into PGlite
+  await pool.query(
+    `INSERT INTO customers (id, email, full_name, phone, password_hash)
+     VALUES ($1, 'alice@gaeru.com', 'Alice', '0912345678', 'dummy_hash')`,
+    [customerId]
+  );
+  await pool.query(
+    `INSERT INTO orders (id, order_number, customer_id, customer_name, email, phone, address, city, payment_method, status, payment_status, total_vnd, subtotal_vnd, shipping_fee_vnd)
+     VALUES ($1, $2, $3, 'Alice', 'alice@gaeru.com', '0912345678', 'District 1', 'TP. Hồ Chí Minh', 'momo', 'pending', 'pending', 250000, 250000, 0)`,
+    [orderId, orderNumber, customerId]
+  );
+  await pool.query(
+    `INSERT INTO payment_attempts (id, order_id, provider, transaction_ref, amount_vnd, status, payment_url, expires_at)
+     VALUES (gen_random_uuid(), $1, 'momo', $2, 250000, 'pending', 'https://test.momo.vn/pay/123', now() + interval '15 minutes')`,
+    [orderId, orderNumber]
+  );
+
+  const { retryGatewayOrderPayment } = require('../src/payment-channels');
+
+  // 7. Verify P0-02 reproduction: Anonymous retry on PGlite WITHOUT ownership proof MUST FAIL with 403 (cannot return 250.000đ)
+  await assert.rejects(
+    async () => {
+      await retryGatewayOrderPayment(pool, { orderNumber });
+    },
+    (err) => err.status === 403 && err.code === 'FORBIDDEN_ORDER_ACCESS'
+  );
+
+  // 8. Retry with valid orderAccessToken succeeds
+  const retryResult = await retryGatewayOrderPayment(pool, {
+    orderNumber,
+    orderAccessToken: validToken,
+    config: { SESSION_SECRET: secret }
+  });
+  assert.ok(retryResult, 'Retry có orderAccessToken phải thành công');
+  assert.equal(retryResult.order.orderNumber, orderNumber);
+  assert.equal(retryResult.order.totalVnd, 250000);
+
+  // 9. Retry with sessionCreatedOrders succeeds
+  const retrySessionResult = await retryGatewayOrderPayment(pool, {
+    orderNumber,
+    sessionCreatedOrders: [orderNumber]
+  });
+  assert.ok(retrySessionResult, 'Retry có sessionCreatedOrders phải thành công');
+  assert.equal(retrySessionResult.order.orderNumber, orderNumber);
+
+  // 10. Check GET /payments/order-status public scope redaction
+  const { createApp } = require('../src/app');
+  const session = require('express-session');
+  const app = createApp({
+    pool,
+    sessionStore: new session.MemoryStore(),
+    config: { SESSION_SECRET: secret, PUBLIC_BASE_URL: 'https://gaeru.com' }
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(r => server.once('listening', r));
+  t.after(() => new Promise(r => server.close(r)));
+  const port = server.address().port;
+
+  // 10a. Unverified query: totalVnd & paymentMethod MUST be omitted!
+  const publicRes = await fetch(`http://127.0.0.1:${port}/api/payments/order-status?order=${orderNumber}`);
+  assert.equal(publicRes.status, 200);
+  const publicData = await publicRes.json();
+  assert.equal(publicData.verified, false);
+  assert.equal(publicData.order.orderNumber, orderNumber);
+  assert.equal(publicData.order.totalVnd, undefined, 'Truy vấn công khai không được phép để lộ totalVnd!');
+  assert.equal(publicData.order.paymentMethod, undefined, 'Truy vấn công khai không được phép để lộ paymentMethod!');
+
+  // 10b. Verified query with X-Order-Token header: reveals full order status
+  const verifiedRes = await fetch(`http://127.0.0.1:${port}/api/payments/order-status?order=${orderNumber}`, {
+    headers: { 'X-Order-Token': validToken }
+  });
+  assert.equal(verifiedRes.status, 200);
+  const verifiedData = await verifiedRes.json();
+  assert.equal(verifiedData.verified, true);
+  assert.equal(verifiedData.order.orderNumber, orderNumber);
+  assert.equal(verifiedData.order.totalVnd, 250000, 'Truy vấn đã xác minh quyền sở hữu phải có totalVnd');
+  assert.equal(verifiedData.order.paymentMethod, 'momo');
 });

@@ -36,6 +36,11 @@ class PaymentRetryCoordinator {
   static async coordinateRetry(pool, {
     orderNumber = null,
     clientReference = null,
+    orderAccessToken = null,
+    sessionCustomerId = null,
+    sessionCustomerEmail = null,
+    sessionCustomerPhone = null,
+    sessionCreatedOrders = null,
     expectedCustomer = null,
     expectedPaymentMethod = null,
     expectedItems = null,
@@ -61,6 +66,7 @@ class PaymentRetryCoordinator {
               o.shipping_fee_vnd AS "shippingFeeVnd", o.discount_vnd AS "discountVnd", o.voucher_code AS "voucherCode",
               o.total_vnd AS "totalVnd", o.status, o.payment_method AS "paymentMethod",
               o.payment_status AS "paymentStatus", o.created_at AS "createdAt",
+              o.customer_id AS "customerId",
               o.email AS "customerEmail", o.phone AS "customerPhone",
               p.id AS "attemptId", p.provider, p.status AS "attemptStatus",
               p.provider_request_id AS "providerRequestId", p.payment_url AS "paymentUrl", p.expires_at AS "expiresAt",
@@ -76,8 +82,19 @@ class PaymentRetryCoordinator {
 
     if (!lookup) return null;
 
-    // 2. Kiểm tra quyền sở hữu bằng OrderOwnership Policy thống nhất
-    assertOrderOwnership(lookup, expectedCustomer);
+    // 2. Kiểm tra quyền sở hữu bằng OrderOwnership Policy thống nhất (Fail-Closed)
+    assertOrderOwnership(lookup, {
+      orderAccessToken,
+      sessionCustomerId,
+      sessionCustomerEmail,
+      sessionCustomerPhone,
+      sessionCreatedOrders,
+      expectedCustomer
+    }, {
+      secret: config?.SESSION_SECRET || process.env.SESSION_SECRET,
+      actor,
+      requireStrongProof: !clientReference || !expectedItems
+    });
 
     // 3. Tra cứu sản phẩm của đơn để đối chiếu payload
     const items = (await pool.query(
