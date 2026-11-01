@@ -8,7 +8,7 @@ const path = require('node:path');
 test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) => {
   await t.test('account.html correctly includes new upgrades stylesheet and script', () => {
     const html = fs.readFileSync(path.join(__dirname, '..', 'account.html'), 'utf8');
-    assert.match(html, /customer-upgrades\.css/, 'account.html should include customer-upgrades.css');
+    assert.match(html, /customer-upgrades\.css\?v=20261101-account-card/, 'account.html should load the cache-busted customer-upgrades stylesheet');
     assert.match(html, /customer-upgrades-ui\.js/, 'account.html should include customer-upgrades-ui.js');
     assert.match(html, /data-customer-upgrades-hub/, 'account.html should include data-customer-upgrades-hub');
     assert.match(html, /id="customer-upgrades-hub"/, 'account.html should have #customer-upgrades-hub container');
@@ -30,6 +30,8 @@ test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) 
     assert.match(css, /\.gaeru-vip-card/, 'CSS should define .gaeru-vip-card');
     assert.match(css, /\.tier-diamond/, 'CSS should define diamond tier styling');
     assert.match(css, /\.tier-gold/, 'CSS should define gold tier styling');
+    assert.match(css, /\.account-overview-card \.gaeru-vip-card-wrapper,\s*\.account-overview-card \.gaeru-vip-card-wrapper:hover/, 'VIP card should not retain a separate wrapper when inside account overview');
+    assert.match(css, /\.account-overview-card \.gaeru-vip-card,\s*\.account-overview-card \.gaeru-vip-card\.tier-diamond/, 'VIP tiers should render as content in the shared account card');
     assert.match(css, /\.gaeru-account-quick-actions/, 'CSS should define .gaeru-account-quick-actions');
     assert.match(css, /\.gaeru-action-pill/, 'CSS should define .gaeru-action-pill');
     assert.match(css, /\.gaeru-dialog/, 'CSS should define .gaeru-dialog modal');

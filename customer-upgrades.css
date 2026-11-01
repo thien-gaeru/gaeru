@@ -560,3 +560,52 @@
     grid-template-columns: 1fr;
   }
 }
+
+.account-overview-card .customer-upgrades-hub {
+  gap: 20px;
+}
+.account-overview-card .gaeru-vip-card-wrapper,
+.account-overview-card .gaeru-vip-card-wrapper:hover {
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none;
+  transform: none;
+  transition: none;
+}
+.account-overview-card .gaeru-vip-card,
+.account-overview-card .gaeru-vip-card.tier-diamond,
+.account-overview-card .gaeru-vip-card.tier-gold,
+.account-overview-card .gaeru-vip-card.tier-silver {
+  min-height: 0;
+  padding: 0 0 20px;
+  overflow: visible;
+  background: transparent;
+  color: #1d1d1f;
+  border-bottom: 1px solid #e5e5e8;
+}
+.account-overview-card .gaeru-vip-card::before,
+.account-overview-card .gaeru-vip-card::after {
+  content: none;
+}
+.account-overview-card .gaeru-vip-badge,
+.account-overview-card .tier-gold .gaeru-vip-badge,
+.account-overview-card .tier-silver .gaeru-vip-badge {
+  background: #f5f5f7;
+  border-color: #e5e5e8;
+  color: #515154;
+  backdrop-filter: none;
+}
+.account-overview-card .gaeru-vip-card-body {
+  margin: 20px 0 14px;
+}
+.account-overview-card .gaeru-vip-card-footer,
+.account-overview-card .tier-gold .gaeru-vip-card-footer,
+.account-overview-card .tier-silver .gaeru-vip-card-footer {
+  border-top: 0;
+  padding-top: 0;
+}
+.account-overview-card .gaeru-vip-card-extra {
+  padding: 16px 0 0;
+  background: transparent;
+  border-top: 0;
+}
