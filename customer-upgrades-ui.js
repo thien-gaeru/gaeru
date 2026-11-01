@@ -501,7 +501,7 @@
       hub.className = 'customer-upgrades-hub';
       const overviewCard = profile.querySelector('.account-overview-card');
       if (overviewCard) {
-        overviewCard.before(hub);
+        overviewCard.prepend(hub);
       } else {
         profile.prepend(hub);
       }
