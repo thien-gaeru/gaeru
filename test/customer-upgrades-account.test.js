@@ -12,6 +12,11 @@ test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) 
     assert.match(html, /customer-upgrades-ui\.js/, 'account.html should include customer-upgrades-ui.js');
     assert.match(html, /data-customer-upgrades-hub/, 'account.html should include data-customer-upgrades-hub');
     assert.match(html, /id="customer-upgrades-hub"/, 'account.html should have #customer-upgrades-hub container');
+    assert.match(
+      html,
+      /<div class="account-overview-card"[^>]*>\s*<div id="customer-upgrades-hub"[\s\S]*?<div class="account-profile-header"/,
+      'VIP hub should share the customer overview card, above the profile details'
+    );
   });
 
   await t.test('src/public-files.js contains customer upgrades static assets', () => {
