@@ -280,3 +280,98 @@ test('P2-02 Campaign Idempotency: Re-broadcasting same campaign skips indetermin
     await db.close();
   }
 });
+
+test('Push broadcast persists a unique claim before sending and gives identical content distinct campaigns', async () => {
+  const db = await createTestDb();
+  const origPub = process.env.VAPID_PUBLIC_KEY;
+  const origPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = testVapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
+  let sendCalls = 0;
+  const mockClient = {
+    sendNotification() {
+      sendCalls++;
+      return Promise.resolve({ statusCode: 201 });
+    }
+  };
+  const dnsLookup = async () => [{ address: '8.8.8.8' }];
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/atomic-claim-device';
+  await savePushSubscription(db, { endpoint, p256dh: sampleP256dh, auth: sampleAuth }, { dnsLookup });
+
+  try {
+    const message = { title: 'Same title', body: 'Same body', url: '/shop.html' };
+    const first = await broadcastPushNotification(db, message, { webpushClient: mockClient, dnsLookup });
+    const second = await broadcastPushNotification(db, message, { webpushClient: mockClient, dnsLookup });
+    assert.notEqual(first.campaignId, second.campaignId);
+    assert.equal(sendCalls, 2, 'identical content must not implicitly reuse a campaign ID');
+
+    sendCalls = 0;
+    const campaignId = 'same-campaign-concurrent';
+    const concurrent = await Promise.all([
+      broadcastPushNotification(db, message, { webpushClient: mockClient, campaignId, dnsLookup }),
+      broadcastPushNotification(db, message, { webpushClient: mockClient, campaignId, dnsLookup })
+    ]);
+    assert.equal(sendCalls, 1, 'a concurrent duplicate campaign must acquire exactly one endpoint claim');
+    assert.equal(concurrent.reduce((sum, item) => sum + item.sentCount, 0), 1);
+    const claims = await db.query(
+      'SELECT count(*)::int AS count FROM web_push_delivery_claims WHERE campaign_id = $1 AND endpoint = $2',
+      [campaignId, endpoint]
+    );
+    assert.equal(claims.rows[0].count, 1);
+  } finally {
+    if (origPub) process.env.VAPID_PUBLIC_KEY = origPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (origPriv) process.env.VAPID_PRIVATE_KEY = origPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
+    await db.close();
+  }
+});
+
+test('Push broadcast fails closed when persistence setup fails and isolates synchronous send throws', async () => {
+  const origPub = process.env.VAPID_PUBLIC_KEY;
+  const origPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = testVapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
+
+  let calls = 0;
+  try {
+    await assert.rejects(
+      broadcastPushNotification({ query: async () => { throw new Error('delivery table unavailable'); } }, {
+        title: 'Persistence test',
+        body: 'Must not send without recording'
+      }, {
+        webpushClient: { sendNotification() { calls++; } }
+      }),
+      /delivery table unavailable/
+    );
+    assert.equal(calls, 0, 'push gateway must not be called when delivery persistence cannot be set up');
+
+    const db = await createTestDb();
+    try {
+      const dnsLookup = async () => [{ address: '8.8.8.8' }];
+      await Promise.all([
+        savePushSubscription(db, { endpoint: 'https://fcm.googleapis.com/fcm/send/sync-throw-device', p256dh: sampleP256dh, auth: sampleAuth }, { dnsLookup }),
+        savePushSubscription(db, { endpoint: 'https://fcm.googleapis.com/fcm/send/sync-success-device', p256dh: sampleP256dh, auth: sampleAuth }, { dnsLookup })
+      ]);
+      const outcome = await broadcastPushNotification(db, { title: 'Send test', body: 'One gateway throws synchronously' }, {
+        webpushClient: {
+          sendNotification(subscription) {
+            if (subscription.endpoint.includes('sync-throw-device')) throw new Error('synchronous gateway error');
+            return { statusCode: 201 };
+          }
+        },
+        dnsLookup
+      });
+      assert.equal(outcome.sentCount, 1);
+      assert.equal(outcome.failedCount, 1);
+      assert.match(outcome.results.failed[0].error, /synchronous gateway error/);
+    } finally {
+      await db.close();
+    }
+  } finally {
+    if (origPub) process.env.VAPID_PUBLIC_KEY = origPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (origPriv) process.env.VAPID_PRIVATE_KEY = origPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
+  }
+});

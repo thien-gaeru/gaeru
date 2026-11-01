@@ -68,7 +68,11 @@ function createApp({ config, pool, sessionStore, customerMailer, readinessChecke
   app.use(require('./primary-domain').publicAliasRedirect);
   app.disable("x-powered-by");
   app.set('case sensitive routing', true);
-  app.set("trust proxy", 1);
+  const trustProxyHops = config.TRUST_PROXY_HOPS ?? 1;
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 10) {
+    throw new Error('TRUST_PROXY_HOPS must be an integer between 0 and 10.');
+  }
+  app.set("trust proxy", trustProxyHops);
   app.use((req,res,next)=>{
     if (/^\/api(?:\/|$)/i.test(req.path)) {
       res.set({'Cache-Control':'no-store','Pragma':'no-cache','Expires':'0','X-Robots-Tag':'noindex, nofollow, noarchive'});

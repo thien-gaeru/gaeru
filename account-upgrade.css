@@ -71,6 +71,33 @@
 .account-session-loading{min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center}
 .account-page .account-session-loading p{margin:0;font-size:15px;color:#6e6e73}
 .account-session-loading button{padding:12px 22px;border:1px solid #d2d2d7;border-radius:24px;background:#fff;color:#0066cc;cursor:pointer;min-height:44px}
+.account-profile-header{flex-wrap:nowrap}
+.account-profile-identity{flex:1;min-width:0}
+.account-profile-identity .account-vip-tier{display:table;margin-top:9px;padding:5px 10px;border:1px solid #e5e5e8;border-radius:20px;background:#f5f5f7;color:#515154;font-size:11px;font-weight:700;letter-spacing:.04em}
+.account-profile-identity .account-verification-badge{display:table;margin-top:8px}
+.account-profile-vip-summary{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:120px;text-align:right}
+.account-profile-vip-brand{font-size:20px;font-weight:800;letter-spacing:.12em;color:#1d1d1f}
+.account-profile-vip-brand span{color:#8b6a16;font-size:12px;letter-spacing:.16em}
+.account-profile-vip-points{font-size:13px;font-weight:700;color:#515154}
+.account-personal-details{margin-top:24px;border-top:1px solid #e5e5e8;padding-top:14px}
+.account-personal-details>summary{cursor:pointer;font-size:14px;font-weight:700;padding:8px 0}
+.account-personal-details dl{margin:12px 0!important}
+.account-personal-details .account-profile-editor{padding:0 0 8px}
+.account-order-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.account-order-header button{flex:0 0 auto;margin:0!important}
+.account-warranty-item details{padding:0!important;border:0!important;border-radius:0!important;background:transparent!important}
+.account-warranty-item summary{display:flex;align-items:center;justify-content:space-between;gap:12px;list-style:none}
+.account-warranty-item summary::-webkit-details-marker{display:none}
+.account-warranty-order{display:inline-flex;align-items:center;gap:10px;text-align:right;font-size:12px;color:#515154}
+.account-warranty-order [data-warranty-toggle-label]{color:#0066cc;font-weight:700;white-space:nowrap}
+.account-warranty-details{padding-top:8px}
+.account-warranty-details p:last-child{margin-bottom:0}
+@media(max-width:420px){
+ .account-profile-vip-summary{min-width:96px}
+ .account-profile-vip-brand{font-size:17px}
+ .account-warranty-item summary{align-items:flex-start}
+ .account-warranty-order{flex-direction:column;align-items:flex-end;gap:4px}
+}
 
 
 .account-oauth-divider {

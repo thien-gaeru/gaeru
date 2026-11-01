@@ -4,8 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { createTestDb } = require('./helpers/pglite-db');
-const { runBackup, dumpDatabaseToSql, decryptBackup, verifyBackup } = require('../scripts/backup-database');
+const { runBackup, dumpDatabaseToSql, dumpWithPgDump, decryptBackup, verifyBackup } = require('../scripts/backup-database');
 
 test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, integrity verification, and retention rotation', async (t) => {
   const testOutputDir = path.join(__dirname, '..', '.local-data', 'test-suite-backup-' + Date.now());
@@ -47,8 +48,11 @@ test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, 
     const rawSql = await dumpDatabaseToSql(pool);
     assert.match(rawSql, /-- Table: "test_products"/);
     assert.match(rawSql, /-- Table: "test_orders"/);
-    assert.match(rawSql, /INSERT INTO "test_products"/);
-    assert.match(rawSql, /INSERT INTO "test_orders"/);
+    assert.match(rawSql, /INSERT INTO "public"\."test_products"/);
+    assert.match(rawSql, /INSERT INTO "public"\."test_orders"/);
+    assert.match(rawSql, /CREATE TABLE IF NOT EXISTS "public"\."test_products"/);
+    assert.match(rawSql, /ADD CONSTRAINT .*PRIMARY KEY/);
+    assert.match(rawSql, /ADD CONSTRAINT .*UNIQUE/);
     assert.match(rawSql, /SP-01/);
     assert.match(rawSql, /ORD-001/);
   });
@@ -81,6 +85,36 @@ test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, 
     assert.equal(verified.isEncrypted, true);
     assert.equal(verified.tableCount, 2);
     assert.equal(verified.rowCount, 3);
+  });
+
+  await t.test('3a. verifyBackup rejects empty, non-SQL, and incomplete dumps', async () => {
+    const invalidPath = path.join(testOutputDir, 'invalid.sql.gz');
+    await fs.mkdir(testOutputDir, { recursive: true });
+    await fs.writeFile(invalidPath, zlib.gzipSync(Buffer.from('this is not a SQL backup')));
+    await assert.rejects(verifyBackup(invalidPath), /CREATE TABLE schema/);
+
+    await fs.writeFile(invalidPath, zlib.gzipSync(Buffer.from(
+      'BEGIN;\nCREATE TABLE public.partial (id integer);\n-- Data for "partial": 0 rows\n'
+    )));
+    await assert.rejects(verifyBackup(invalidPath), /incomplete|completion marker/);
+  });
+
+  await t.test('3b. pg_dump temporary file and private directory are removed when the command fails', async () => {
+    const tempDir = path.join(__dirname, '..', '.local-data', 'test-pg-dump-' + Date.now());
+    await fs.mkdir(tempDir, { recursive: true });
+    t.after(() => fs.rm(tempDir, { recursive: true, force: true }));
+    await assert.rejects(
+      dumpWithPgDump('postgres://fixture.invalid/database', {
+        tempDir,
+        commandRunner: async (_command, args) => {
+          const outputPath = args[args.indexOf('-f') + 1];
+          await fs.writeFile(outputPath, 'partial dump');
+          throw Object.assign(new Error('simulated pg_dump failure'), { code: 'EFAIL' });
+        }
+      }),
+      /simulated pg_dump failure/
+    );
+    assert.deepEqual(await fs.readdir(tempDir), []);
   });
 
   await t.test('4. Tampered encrypted backup is rejected by AES-256-GCM authentication tag', async () => {

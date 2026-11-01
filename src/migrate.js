@@ -145,7 +145,7 @@ async function precheckAndQuarantineDuplicates(pool) {
       DELETE FROM payment_attempts_quarantine_duplicates a
       USING payment_attempts_quarantine_duplicates b
       WHERE a.ctid < b.ctid AND a.attempt_id = b.attempt_id
-    `).catch(() => {});
+    `);
 
     // Tạo UNIQUE INDEX trên attempt_id để chống ghi cách ly trùng tuyệt đối
     await client.query(`

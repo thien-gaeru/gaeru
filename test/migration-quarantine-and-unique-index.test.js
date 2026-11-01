@@ -66,6 +66,13 @@ test('Task 1: Precheck độc lập phát hiện và cách ly giao dịch trùng
       ($1, 'momo', 'MOMO-DUP-999', 'TX-REF-2', 150000, 'pending', now() + interval '15 minutes')
   `, [orderId]);
 
+  const firstPrecheck = await precheckAndQuarantineDuplicates(pool);
+  const repeatedPrecheck = await precheckAndQuarantineDuplicates(pool);
+  assert.equal(firstPrecheck.hasDuplicates, true);
+  assert.equal(repeatedPrecheck.hasDuplicates, true);
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM payment_attempts_quarantine_duplicates')).rows[0].count, 2,
+    'rerunning the quarantine precheck must not add duplicate attempt rows');
+
   // 5. Chạy migrateDatabase -> Precheck độc lập PHẢI phát hiện trùng lặp và chặn lại với MIGRATION_BLOCKED
   await assert.rejects(
     async () => { await migrateDatabase(pool); },

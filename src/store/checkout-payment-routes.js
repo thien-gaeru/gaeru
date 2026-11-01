@@ -78,22 +78,8 @@ function attachPublicAndCheckoutRoutes(router, pool, {
     const settings = await getSettings(pool, ['shipping_note', 'shipping_rates']);
     let publicCarriers = [];
     if (shippingChoices) {
-      try {
-        const verified = await require('../shipping-choice').availableCarriers(pool);
-        if (verified && verified.length) {
-          publicCarriers = verified.map(({ id, name }) => ({ id, name }));
-        } else {
-          const connCheck = await pool.query('SELECT count(*)::int AS cnt FROM shipping_carrier_connections').catch(() => ({ rows: [] }));
-          if (connCheck.rows[0]?.cnt === 0) {
-            publicCarriers = [
-              { id: 'ghn', name: 'Giao Hàng Nhanh (GHN)' },
-              { id: 'ghtk', name: 'Giao Hàng Tiết Kiệm (GHTK)' },
-              { id: 'viettel', name: 'Viettel Post' },
-              { id: 'spx', name: 'Shopee Express (SPX)' }
-            ];
-          }
-        }
-      } catch {}
+      const verified = await require('../shipping-choice').availableCarriers(pool);
+      publicCarriers = (verified || []).map(({ id, name }) => ({ id, name }));
     }
     res.json({
       ...(shippingChoices ? { shippingCarriers: publicCarriers } : {}),
@@ -507,6 +493,17 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             prepared.push({ ...variant, quantity });
           }
 
+          let shippingCarrierId = parsed.data.shippingCarrierId;
+          if (shippingChoices && !shippingCarrierId) {
+            const available = await require('../shipping-choice').availableCarriers(client, { lock: true });
+            if (available.length) {
+              shippingCarrierId = allocateOptimalCarrier(
+                parsed.data.customer.city,
+                available.map((carrier) => carrier.id)
+              )?.id;
+            }
+          }
+
           const orderQuote = await PricingEngine.quoteOrder(client, {
             items: prepared,
             voucherCode: parsed.data.voucherCode,
@@ -517,7 +514,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             loadShippingFromDb: true,
             requireSupportedCity: true,
             shippingChoices,
-            shippingCarrierId: parsed.data.shippingCarrierId,
+            shippingCarrierId,
             paymentMethod: parsed.data.paymentMethod,
             codMaxAmountVnd: req.paymentChannels?.cod?.maxAmountVnd,
             expectedSubtotalVnd: parsed.data.expectedSubtotalVnd,
@@ -586,7 +583,7 @@ function attachPublicAndCheckoutRoutes(router, pool, {
               [createdOrder.id, shippingSelection.id, shippingSelection.name, shippingFee, shippingSelection.version]
             );
             createdOrder.shippingCarrierName = shippingSelection.name;
-          } else {
+          } else if (!shippingChoices) {
             const optimal = allocateOptimalCarrier(parsed.data.customer.city);
             if (optimal) {
               await client.query('SAVEPOINT sp_order_shipping_selection');

@@ -229,3 +229,35 @@ test('P2-01 Ownership: Rejects hijacking of an endpoint belonging to another cus
 
   await db.close();
 });
+
+test('P2-01 Ownership: A guest cannot replace credentials or ownership on a customer endpoint', async () => {
+  const db = await createTestDb();
+  const customerRes = await db.query("INSERT INTO customers (email) VALUES ('guest-hijack-owner@gaeru.com') RETURNING id");
+  const customerId = customerRes.rows[0].id;
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/guest-cannot-rekey';
+  const originalKey = sampleP256dh;
+  const originalAuth = sampleAuth;
+  const guestKey = Buffer.concat([Buffer.from([4]), Buffer.alloc(64, 7)]).toString('base64');
+  const guestAuth = Buffer.alloc(16, 8).toString('base64');
+  const dnsLookup = async () => [{ address: '8.8.8.8' }];
+
+  await savePushSubscription(db, {
+    endpoint,
+    p256dh: originalKey,
+    auth: originalAuth,
+    customerId
+  }, { dnsLookup });
+
+  await assert.rejects(
+    savePushSubscription(db, { endpoint, p256dh: guestKey, auth: guestAuth }, { dnsLookup }),
+    error => error.status === 403
+  );
+  const stored = await db.query(
+    'SELECT customer_id, p256dh, auth FROM web_push_subscriptions WHERE endpoint = $1',
+    [endpoint]
+  );
+  assert.equal(stored.rows[0].customer_id, customerId);
+  assert.equal(stored.rows[0].p256dh, originalKey);
+  assert.equal(stored.rows[0].auth, originalAuth);
+  await db.close();
+});

@@ -1,5 +1,6 @@
 -- Script tiền kiểm (Pre-check Diagnostic) trước khi chạy db/checkout-lifecycle-hardening.sql
 -- Mục đích: Phát hiện các bất thường dữ liệu trước khi thêm ràng buộc toàn vẹn mà không sửa đổi hoặc xóa dữ liệu.
+BEGIN;
 
 -- 1. Tiền kiểm tồn kho âm trên warehouse_stock
 SELECT 
@@ -39,7 +40,7 @@ WHERE c.relname = 'idx_payment_attempts_provider_request_id';
 -- 2c. Tự động cách ly các bản ghi trùng lặp vào bảng quarantine để đối soát trước khi chạy migration v2
 CREATE TABLE IF NOT EXISTS payment_attempts_quarantine_duplicates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  attempt_id uuid NOT NULL,
+  attempt_id uuid NOT NULL UNIQUE,
   order_id uuid NOT NULL,
   provider text NOT NULL,
   provider_request_id text NOT NULL,
@@ -49,6 +50,14 @@ CREATE TABLE IF NOT EXISTS payment_attempts_quarantine_duplicates (
   quarantined_at timestamptz NOT NULL DEFAULT now(),
   reason text NOT NULL DEFAULT 'duplicate_provider_request_id'
 );
+
+-- Các lần chạy cũ có thể đã ghi lặp; giữ nguyên một bản ghi đại diện cho mỗi attempt.
+DELETE FROM payment_attempts_quarantine_duplicates a
+USING payment_attempts_quarantine_duplicates b
+WHERE a.ctid < b.ctid AND a.attempt_id = b.attempt_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_attempts_quarantine_attempt_id
+  ON payment_attempts_quarantine_duplicates (attempt_id);
 
 INSERT INTO payment_attempts_quarantine_duplicates (
   attempt_id, order_id, provider, provider_request_id, transaction_ref, amount_vnd, status, reason
@@ -63,7 +72,8 @@ WHERE (pa.provider, pa.provider_request_id) IN (
   WHERE provider_request_id IS NOT NULL
   GROUP BY provider, provider_request_id
   HAVING count(*) > 1
-);
+)
+ON CONFLICT (attempt_id) DO NOTHING;
 
 -- 3. Tiền kiểm trạng thái không xác định trên payment_attempts
 SELECT 
@@ -82,3 +92,5 @@ SELECT
   data_type 
 FROM information_schema.columns 
 WHERE table_name = 'orders' AND column_name = 'checkout_payload_hash';
+
+COMMIT;

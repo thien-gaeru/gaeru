@@ -40,8 +40,7 @@
     const tier = loyalty?.tier || 'standard';
     const tierName = loyalty?.tierName || 'Thành viên';
     const perk = loyalty?.tierPerk || 'Tích 1% điểm GAERU Xu mỗi đơn hàng';
-    const points = Number(loyalty?.points) || 0;
-    const lifetime = Number(loyalty?.lifetimePoints) || points;
+    const lifetime = Number(loyalty?.lifetimePoints) || Number(loyalty?.points) || 0;
 
     let nextTierName = 'Bạc';
     let targetPoints = 1000;
@@ -66,23 +65,6 @@
     return `
       <div class="gaeru-vip-card-wrapper" data-gaeru-vip-card>
         <div class="gaeru-vip-card tier-${escapeHtml(tier)}">
-          <div class="gaeru-vip-card-header">
-            <div class="gaeru-vip-brand">
-              <span class="gaeru-vip-logo-text">GAERU</span>
-            </div>
-            <div class="gaeru-vip-badge">
-              <span>✦ HẠNG ${escapeHtml(tierName.toUpperCase())}</span>
-            </div>
-          </div>
-
-          <div class="gaeru-vip-card-body">
-            <div class="gaeru-vip-balance-box">
-              <div class="gaeru-vip-balance-label">Điểm Thưởng GAERU Xu</div>
-              <div class="gaeru-vip-balance-points">${points.toLocaleString('vi-VN')} Xu</div>
-              <div class="gaeru-vip-balance-vnd">Giảm trực tiếp: ${formatVnd(points)}</div>
-            </div>
-          </div>
-
           <div class="gaeru-vip-card-footer">
             <div>
               <span class="gaeru-vip-member-label">Mã hội viên</span>
@@ -512,6 +494,17 @@
 
     // Tải dữ liệu khách hàng
     const loyalty = await fetchCustomerLoyalty();
+    const vipSummary = profile.querySelector('[data-customer-vip-summary]');
+    const vipTier = profile.querySelector('[data-customer-vip-tier]');
+    const vipPoints = Number(loyalty?.points) || 0;
+    if (vipSummary) {
+      vipSummary.hidden = false;
+      profile.querySelector('[data-customer-vip-points]').textContent = `${vipPoints.toLocaleString('vi-VN')} Xu`;
+    }
+    if (vipTier) {
+      vipTier.hidden = false;
+      vipTier.textContent = `✦ HẠNG ${(loyalty?.tierName || 'Thành viên').toUpperCase()}`;
+    }
 
     // Render các chức năng thiết thực gắn liền với tài khoản
     hub.innerHTML = renderVipCard(customer, loyalty);
