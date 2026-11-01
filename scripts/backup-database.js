@@ -217,6 +217,23 @@ function validateSqlBackup(rawSql) {
   const rowMatches = rawSql.match(/\bINSERT\s+INTO\b/gi) || [];
   const copyMatches = rawSql.match(/\bCOPY\b[\s\S]*?\bFROM\s+stdin\s*;/gi) || [];
   const dataSections = rawSql.match(/-- Data for\b/gi) || [];
+function hasNativeDumpCommitEnding(sql) {
+  let end = sql.length;
+
+  while (end > 0) {
+    const previousNewline = sql.lastIndexOf('\n', end - 1);
+    const line = sql.slice(previousNewline + 1, end).trim();
+
+    if (line === '' || line.startsWith('--')) {
+      end = previousNewline >= 0 ? previousNewline : 0;
+      continue;
+    }
+
+    return /^COMMIT[ \t]*;(?:[ \t]*--[^\r\n]*)?$/i.test(line);
+  }
+
+  return false;
+}
   const isNativeDump = /-- Engine: PostgreSQL \/ Node\.js Engine/.test(rawSql);
   const commitTailMatch = /\bCOMMIT\s*;\s*$/m.exec(rawSql);
   const hasOnlyCommentsAndWhitespaceAfterCommit = (() => {
