@@ -6,6 +6,7 @@ const webpush = require('web-push');
 const { rateLimit } = require('express-rate-limit');
 const { requirePermission } = require('./staff-access');
 const { requireCsrf } = require('./security');
+const { randomUUID } = require('node:crypto');
 
 function getVapidConfig() {
   const publicKey = process.env.VAPID_PUBLIC_KEY ? String(process.env.VAPID_PUBLIC_KEY).trim() : '';
@@ -287,29 +288,6 @@ function validatePushSubscriptionData(payload = {}) {
   return { endpoint: ep, p256dh: key, auth: a };
 }
 
-const customerSubscriptionLocks = new Map();
-
-async function withCustomerSubscriptionLock(customerId, fn) {
-  if (!customerId) return fn();
-  const key = String(customerId);
-  while (customerSubscriptionLocks.has(key)) {
-    try {
-      await customerSubscriptionLocks.get(key);
-    } catch {}
-  }
-  let resolveLock;
-  const lockPromise = new Promise(resolve => {
-    resolveLock = resolve;
-  });
-  customerSubscriptionLocks.set(key, lockPromise);
-  try {
-    return await fn();
-  } finally {
-    customerSubscriptionLocks.delete(key);
-    resolveLock();
-  }
-}
-
 async function executeDbTx(pool, fn) {
   if (typeof pool.connect === 'function') {
     const client = await pool.connect();
@@ -345,16 +323,22 @@ async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId =
   const valid = validatePushSubscriptionData({ endpoint, p256dh, auth });
   await verifyPushEndpointDns(valid.endpoint, options);
 
-  return withCustomerSubscriptionLock(customerId, async () => {
-    return executeDbTx(pool, async (tx) => {
+  return executeDbTx(pool, async (tx) => {
+      if (customerId) {
+        const owner = await tx.query('SELECT id FROM customers WHERE id = $1 FOR UPDATE', [customerId]);
+        if (!owner.rows.length) {
+          throw Object.assign(new Error('Không tìm thấy tài khoản khách hàng sở hữu subscription.'), { status: 401 });
+        }
+      }
+
       // 1. Kiểm tra endpoint đã tồn tại và xác thực quyền sở hữu của customer
       const existingRes = await tx.query(
-        'SELECT id, customer_id, active, created_at FROM web_push_subscriptions WHERE endpoint = $1',
+        'SELECT id, customer_id, active, created_at FROM web_push_subscriptions WHERE endpoint = $1 FOR UPDATE',
         [valid.endpoint]
       );
       const existing = existingRes.rows[0];
 
-      if (existing && existing.customer_id && customerId && String(existing.customer_id) !== String(customerId)) {
+      if (existing?.customer_id && (!customerId || String(existing.customer_id) !== String(customerId))) {
         throw Object.assign(
           new Error('Endpoint Push Subscription này đã thuộc quyền sở hữu của một tài khoản khách hàng khác.'),
           { status: 403 }
@@ -404,12 +388,19 @@ async function savePushSubscription(pool, { endpoint, p256dh, auth, customerId =
              user_agent = COALESCE(EXCLUDED.user_agent, web_push_subscriptions.user_agent),
              active = true,
              updated_at = now()
+         WHERE web_push_subscriptions.customer_id IS NULL
+            OR (EXCLUDED.customer_id IS NOT NULL AND web_push_subscriptions.customer_id = EXCLUDED.customer_id)
          RETURNING id, endpoint, active, customer_id, created_at AS "createdAt"`,
         [valid.endpoint, valid.p256dh, valid.auth, customerId, userAgent]
       );
 
+      if (!result.rows[0]) {
+        throw Object.assign(
+          new Error('Endpoint Push Subscription này đã thuộc quyền sở hữu của một tài khoản khách hàng khác.'),
+          { status: 403 }
+        );
+      }
       return result.rows[0];
-    });
   });
 }
 
@@ -436,29 +427,94 @@ async function ensurePushAttemptsTable(pool) {
   `;
   const ddl2 = `CREATE INDEX IF NOT EXISTS idx_push_attempts_endpoint ON web_push_delivery_attempts (endpoint)`;
   const ddl3 = `CREATE INDEX IF NOT EXISTS idx_push_attempts_campaign ON web_push_delivery_attempts (campaign_id)`;
+  const ddl4 = `
+    CREATE TABLE IF NOT EXISTS web_push_delivery_claims (
+      campaign_id text NOT NULL,
+      endpoint text NOT NULL,
+      subscription_id uuid,
+      status text NOT NULL DEFAULT 'dispatching',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (campaign_id, endpoint)
+    )
+  `;
 
-  try {
-    if (typeof pool.exec === 'function') {
-      await pool.exec(`${ddl1}; ${ddl2}; ${ddl3};`);
-    } else {
-      await pool.query(ddl1);
-      await pool.query(ddl2);
-      await pool.query(ddl3);
-    }
-    initializedPools.add(pool);
-  } catch (err) {}
+  if (typeof pool.exec === 'function') {
+    await pool.exec(`${ddl1}; ${ddl2}; ${ddl3}; ${ddl4};`);
+  } else {
+    await pool.query(ddl1);
+    await pool.query(ddl2);
+    await pool.query(ddl3);
+    await pool.query(ddl4);
+  }
+  await pool.query(
+    `INSERT INTO web_push_delivery_claims (campaign_id, endpoint, subscription_id, status)
+     SELECT DISTINCT ON (campaign_id, endpoint)
+       campaign_id, endpoint, subscription_id, status
+     FROM web_push_delivery_attempts
+     WHERE status = 'sent' OR status = 'expired' OR indeterminate = true OR retry_allowed = false
+     ORDER BY campaign_id, endpoint, created_at DESC
+     ON CONFLICT (campaign_id, endpoint) DO NOTHING`
+  );
+  initializedPools.add(pool);
 }
 
-async function recordDeliveryAttempt(pool, { subscriptionId, endpoint, campaignId, status, indeterminate, retryAllowed, statusCode, errorMessage }) {
-  try {
-    await ensurePushAttemptsTable(pool);
-    await pool.query(
-      `INSERT INTO web_push_delivery_attempts 
-       (subscription_id, endpoint, campaign_id, attempt_number, status, indeterminate, retry_allowed, status_code, error_message)
-       VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8)`,
-      [subscriptionId || null, endpoint, campaignId, status, Boolean(indeterminate), Boolean(retryAllowed), statusCode || null, errorMessage || null]
+async function recordDeliveryAttempt(pool, { subscriptionId, attemptId, endpoint, campaignId, status, indeterminate, retryAllowed, statusCode, errorMessage }) {
+  await executeDbTx(pool, async (tx) => {
+    const updated = await tx.query(
+      `UPDATE web_push_delivery_attempts
+       SET status = $4, indeterminate = $5, retry_allowed = $6, status_code = $7,
+           error_message = $8, updated_at = now()
+       WHERE id = COALESCE($1, (
+         SELECT id FROM web_push_delivery_attempts
+         WHERE endpoint = $2 AND campaign_id = $3
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+       ))
+       RETURNING id`,
+      [attemptId || null, endpoint, campaignId, status, Boolean(indeterminate), Boolean(retryAllowed), statusCode || null, errorMessage || null]
     );
-  } catch {}
+    if (!updated.rows.length) {
+      await tx.query(
+        `INSERT INTO web_push_delivery_attempts
+         (subscription_id, endpoint, campaign_id, attempt_number, status, indeterminate, retry_allowed, status_code, error_message)
+         VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8)`,
+        [subscriptionId || null, endpoint, campaignId, status, Boolean(indeterminate), Boolean(retryAllowed), statusCode || null, errorMessage || null]
+      );
+    }
+    await tx.query(
+      'UPDATE web_push_delivery_claims SET status = $3, updated_at = now() WHERE campaign_id = $1 AND endpoint = $2',
+      [campaignId, endpoint, status]
+    );
+  });
+}
+
+async function claimPushDeliveries(pool, subscriptions, campaignId) {
+  return executeDbTx(pool, async (tx) => {
+    const claimed = [];
+    for (const subscription of subscriptions) {
+      const claim = await tx.query(
+        `INSERT INTO web_push_delivery_claims (campaign_id, endpoint, subscription_id, status)
+         VALUES ($1, $2, $3, 'dispatching')
+         ON CONFLICT (campaign_id, endpoint) DO NOTHING
+         RETURNING endpoint`,
+        [campaignId, subscription.endpoint, subscription.id || null]
+      );
+      if (!claim.rows.length) continue;
+      const attempt = await tx.query(
+        `INSERT INTO web_push_delivery_attempts
+         (subscription_id, endpoint, campaign_id, attempt_number, status, indeterminate, retry_allowed)
+         VALUES ($1, $2, $3, 1, 'dispatching', false, false)
+         RETURNING id`,
+        [subscription.id || null, subscription.endpoint, campaignId]
+      );
+      claimed.push({
+        ...subscription,
+        deliveryAttemptId: attempt.rows?.[0]?.id || null
+      });
+    }
+    return claimed;
+  });
 }
 
 async function retryPushDelivery(pool, { endpoint, campaignId }) {
@@ -506,32 +562,13 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     client.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
   }
 
-  const crypto = require('crypto');
   const campaignId = String(
     options.campaignId ||
     options.idempotencyKey ||
-    crypto.createHash('sha256').update(`${title}:${body}:${url}:${tag}`).digest('hex').slice(0, 32)
+    randomUUID()
   );
 
   await ensurePushAttemptsTable(pool);
-
-  // Idempotency check: Bỏ qua các endpoint đã gửi thành công hoặc đang bất định cho cùng chiến dịch
-  const alreadyProcessedEndpoints = new Set();
-  if (options.checkIdempotency !== false) {
-    try {
-      const existingAttempts = await pool.query(
-        `SELECT endpoint, status, indeterminate, retry_allowed 
-         FROM web_push_delivery_attempts 
-         WHERE campaign_id = $1`,
-        [campaignId]
-      );
-      for (const row of existingAttempts.rows) {
-        if (row.status === 'sent' || row.status === 'expired' || row.indeterminate || row.retry_allowed === false) {
-          alreadyProcessedEndpoints.add(row.endpoint);
-        }
-      }
-    } catch {}
-  }
 
   const result = await pool.query(
     `SELECT id, endpoint, p256dh, auth, customer_id 
@@ -572,25 +609,38 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   const expired = [];
   const timedOut = [];
 
-  // Deduplicate subscriptions by endpoint and skip already delivered/indeterminate for same campaign
+  async function persistOutcome(outcome, attemptId) {
+    try {
+      await recordDeliveryAttempt(pool, { ...outcome, attemptId, campaignId });
+      return true;
+    } catch (error) {
+      console.error('[WebPush] Không thể lưu kết quả gửi; giữ claim để tránh gửi trùng:', {
+        campaignId,
+        status: outcome.status,
+        code: error.code || 'DELIVERY_AUDIT_FAILED'
+      });
+      return false;
+    }
+  }
+
+  // Deduplicate subscriptions by endpoint before durably claiming this campaign.
   const uniqueSubs = [];
   const seenEndpoints = new Set();
   for (const sub of subscriptions) {
     if (!sub.endpoint || seenEndpoints.has(sub.endpoint)) continue;
     seenEndpoints.add(sub.endpoint);
-    if (!alreadyProcessedEndpoints.has(sub.endpoint)) {
-      uniqueSubs.push(sub);
-    }
+    uniqueSubs.push(sub);
   }
 
-  if (!uniqueSubs.length && alreadyProcessedEndpoints.size > 0) {
+  const claimedSubs = await claimPushDeliveries(pool, uniqueSubs, campaignId);
+  if (!claimedSubs.length && uniqueSubs.length > 0) {
     return {
       ok: true,
       status: 'idempotent_skipped',
       enabled: true,
       campaignId,
       message: 'Chiến dịch này đã được gửi trước đó; các thuê bao hợp lệ hoặc bất định đã được giữ nguyên để chống gửi lặp.',
-      recipientCount: alreadyProcessedEndpoints.size,
+      recipientCount: uniqueSubs.length,
       sentCount: 0,
       failedCount: 0,
       expiredCount: 0,
@@ -613,6 +663,7 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
       });
       await recordDeliveryAttempt(pool, {
         subscriptionId: sub.id,
+        attemptId: sub.deliveryAttemptId,
         endpoint: sub.endpoint,
         campaignId,
         status: 'failed',
@@ -637,12 +688,12 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     const abortController = new AbortController();
 
     // Khởi tạo lời gọi gửi thực tế tới client / push gateway
-    const sendPromise = client.sendNotification(pushSubscription, payloadString, {
+    const sendPromise = Promise.resolve().then(() => client.sendNotification(pushSubscription, payloadString, {
       TTL: 86400,
       urgency: 'high',
       timeout: 5000,
       signal: abortController.signal
-    });
+    }));
 
     // Lắng nghe phản hồi trễ (late completion) nếu gateway hoàn tất sau timeout (evidence: push_timeout_late_node24.log)
     if (sendPromise && typeof sendPromise.then === 'function') {
@@ -653,22 +704,26 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
               await pool.query(
                 `UPDATE web_push_delivery_attempts
                  SET status = 'delivered_late', indeterminate = false, status_code = $1, updated_at = now()
-                 WHERE endpoint = $2 AND campaign_id = $3`,
-                [lateRes?.statusCode || 201, sub.endpoint, campaignId]
+                 WHERE id = $2`,
+                [lateRes?.statusCode || 201, sub.deliveryAttemptId]
               );
-            } catch {}
+            } catch (error) {
+              console.error('[WebPush] Không thể cập nhật kết quả gateway đến muộn:', error.code || error.message);
+            }
           }
         })
         .catch(async (lateErr) => {
-          if (isTimedOut) {
+          if (isTimedOut && lateErr?.name !== 'AbortError' && lateErr?.code !== 'ABORT_ERR') {
             try {
               await pool.query(
                 `UPDATE web_push_delivery_attempts
                  SET status = 'failed_late', indeterminate = false, status_code = $1, error_message = $2, updated_at = now()
-                 WHERE endpoint = $3 AND campaign_id = $4`,
-                [lateErr?.statusCode || 500, lateErr.message, sub.endpoint, campaignId]
+                 WHERE id = $3`,
+                [lateErr?.statusCode || 500, lateErr.message, sub.deliveryAttemptId]
               );
-            } catch {}
+            } catch (error) {
+              console.error('[WebPush] Không thể cập nhật lỗi gateway đến muộn:', error.code || error.message);
+            }
           }
         });
     }
@@ -687,20 +742,23 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           if (typeof timer.unref === 'function') timer.unref();
         })
       ]);
-      sent.push({
-        id: sub.id,
-        endpoint: sub.endpoint,
-        statusCode: response?.statusCode || 201
-      });
-      await recordDeliveryAttempt(pool, {
+      const statusCode = response?.statusCode || 201;
+      if (await persistOutcome({
         subscriptionId: sub.id,
         endpoint: sub.endpoint,
-        campaignId,
         status: 'sent',
         indeterminate: false,
         retryAllowed: false,
-        statusCode: response?.statusCode || 201
-      });
+        statusCode
+      }, sub.deliveryAttemptId)) {
+        sent.push({ id: sub.id, endpoint: sub.endpoint, statusCode });
+      } else {
+        timedOut.push({
+          id: sub.id, endpoint: sub.endpoint, status: 'indeterminate',
+          indeterminate: true, retryAllowed: false,
+          error: 'Push Gateway phản hồi thành công nhưng không lưu được kết quả; không tự gửi lại.'
+        });
+      }
     } catch (err) {
       if (err.code === 'ETIMEDOUT' || err.name === 'AbortError' || abortController.signal.aborted || isTimedOut) {
         timedOut.push({
@@ -711,16 +769,15 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           retryAllowed: false,
           error: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms); trạng thái giao vận bất định (unconfirmed) để tránh trùng lặp.'
         });
-        await recordDeliveryAttempt(pool, {
+        await persistOutcome({
           subscriptionId: sub.id,
           endpoint: sub.endpoint,
-          campaignId,
           status: 'timed_out',
           indeterminate: true,
           retryAllowed: false,
           statusCode: 408,
           errorMessage: 'Quá thời gian chờ phản hồi từ Push Gateway (timeout 5000ms); trạng thái giao vận bất định.'
-        });
+        }, sub.deliveryAttemptId);
         return;
       }
 
@@ -732,16 +789,15 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           statusCode,
           error: 'Endpoint đã hết hạn hoặc người dùng đã hủy đăng ký.'
         });
-        await recordDeliveryAttempt(pool, {
+        await persistOutcome({
           subscriptionId: sub.id,
           endpoint: sub.endpoint,
-          campaignId,
           status: 'expired',
           indeterminate: false,
           retryAllowed: false,
           statusCode,
           errorMessage: 'Endpoint đã hết hạn hoặc người dùng đã hủy đăng ký.'
-        });
+        }, sub.deliveryAttemptId);
         try {
           await pool.query(
             `UPDATE web_push_subscriptions SET active = false, updated_at = now() WHERE id = $1`,
@@ -757,16 +813,15 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
           statusCode: statusCode || 500,
           error: err.message || 'Lỗi gửi push notification'
         });
-        await recordDeliveryAttempt(pool, {
+        await persistOutcome({
           subscriptionId: sub.id,
           endpoint: sub.endpoint,
-          campaignId,
           status: 'failed',
           indeterminate: false,
           retryAllowed: true,
           statusCode: statusCode || 500,
           errorMessage: err.message || 'Lỗi gửi push notification'
-        });
+        }, sub.deliveryAttemptId);
       }
     } finally {
       if (timer) clearTimeout(timer);
@@ -774,20 +829,20 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
   }
 
   const BATCH_SIZE = 25;
-  for (let i = 0; i < uniqueSubs.length; i += BATCH_SIZE) {
-    const chunk = uniqueSubs.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < claimedSubs.length; i += BATCH_SIZE) {
+    const chunk = claimedSubs.slice(i, i + BATCH_SIZE);
     await Promise.all(chunk.map(sub => sendWithTimeout(sub)));
   }
 
-  const unsentCount = Math.max(0, uniqueSubs.length - (sent.length + failed.length + expired.length + timedOut.length));
+  const unsentCount = Math.max(0, claimedSubs.length - (sent.length + failed.length + expired.length + timedOut.length));
   const hasTimedOut = timedOut.length > 0;
-  const isAllTimedOut = sent.length === 0 && uniqueSubs.length > 0 && timedOut.length > 0 && failed.length === 0 && expired.length === 0;
-  const isAllFailed = sent.length === 0 && uniqueSubs.length > 0 && failed.length > 0 && expired.length === 0 && !hasTimedOut;
+  const isAllTimedOut = sent.length === 0 && claimedSubs.length > 0 && timedOut.length > 0 && failed.length === 0 && expired.length === 0;
+  const isAllFailed = sent.length === 0 && claimedSubs.length > 0 && failed.length > 0 && expired.length === 0 && !hasTimedOut;
   const isPartial = sent.length > 0 && (failed.length > 0 || expired.length > 0 || timedOut.length > 0);
   const isIndeterminate = hasTimedOut && sent.length === 0;
 
   let status = 'success';
-  if (sent.length === 0 && uniqueSubs.length > 0) {
+  if (sent.length === 0 && claimedSubs.length > 0) {
     if (isAllTimedOut || isIndeterminate) {
       status = 'timed_out';
     } else {
@@ -806,7 +861,8 @@ async function broadcastPushNotification(pool, { title, body, url = '/', icon = 
     message: hasTimedOut
       ? 'Có thuê bao ở trạng thái giao vận bất định (timed out / chưa xác nhận phản hồi từ Push Gateway). Không coi là gửi thất bại chắc chắn và cấm tự động gửi lại.'
       : (status === 'success' ? 'Gửi thông báo đẩy thành công.' : 'Hoàn tất gửi thông báo đẩy.'),
-    recipientCount: uniqueSubs.length,
+    recipientCount: claimedSubs.length,
+    skippedCount: uniqueSubs.length - claimedSubs.length,
     sentCount: sent.length,
     failedCount: failed.length,
     expiredCount: expired.length,
@@ -917,12 +973,16 @@ function createPushAdminRouter(pool) {
   // Bảo vệ API gửi thông báo đẩy: kiểm tra quyền marketing.write, CSRF và xác thực nội dung
   router.post('/push/broadcast', AdminAction('marketing.write'), express.json({ limit: '64kb' }), async (req, res, next) => {
     try {
-      const { title = 'GAERU Flash Sale', body = 'Ưu đãi micro thu âm chính hãng đã bắt đầu!', url = '/' } = req.body || {};
+      const { title = 'GAERU Flash Sale', body = 'Ưu đãi micro thu âm chính hãng đã bắt đầu!', url = '/', idempotencyKey } = req.body || {};
       if (typeof title !== 'string' || title.trim().length === 0 || title.length > 200) {
         return res.status(400).json({ error: 'Tiêu đề thông báo không được để trống và tối đa 200 ký tự.' });
       }
       if (typeof body !== 'string' || body.trim().length === 0 || body.length > 500) {
         return res.status(400).json({ error: 'Nội dung thông báo không được để trống và tối đa 500 ký tự.' });
+      }
+      const requestKey = req.get('Idempotency-Key') || idempotencyKey;
+      if (requestKey !== undefined && (typeof requestKey !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey))) {
+        return res.status(400).json({ error: 'Idempotency-Key phải là UUID hợp lệ.' });
       }
 
       const vapid = getVapidConfig();
@@ -934,7 +994,9 @@ function createPushAdminRouter(pool) {
         });
       }
 
-      const result = await broadcastPushNotification(pool, { title: title.trim(), body: body.trim(), url });
+      const result = await broadcastPushNotification(pool, { title: title.trim(), body: body.trim(), url }, {
+        campaignId: requestKey || randomUUID()
+      });
       res.json(result);
     } catch (err) {
       next(err);

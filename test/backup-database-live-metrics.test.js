@@ -4,8 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { createTestDb } = require('./helpers/pglite-db');
-const { runBackup, dumpDatabaseToSql, decryptBackup, verifyBackup } = require('../scripts/backup-database');
+const { runBackup, decryptBackup, verifyBackup } = require('../scripts/backup-database');
+const { backupDumpFixture, writeBackupDumpFixture } = require('./helpers/backup-dump-fixture');
 
 test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, integrity verification, and retention rotation', async (t) => {
   const testOutputDir = path.join(__dirname, '..', '.local-data', 'test-suite-backup-' + Date.now());
@@ -43,19 +45,19 @@ test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, 
     await pool.end().catch(() => {});
   });
 
-  await t.test('1. Native SQL Dump exports schema and row INSERT statements', async () => {
-    const rawSql = await dumpDatabaseToSql(pool);
-    assert.match(rawSql, /-- Table: "test_products"/);
-    assert.match(rawSql, /-- Table: "test_orders"/);
-    assert.match(rawSql, /INSERT INTO "test_products"/);
-    assert.match(rawSql, /INSERT INTO "test_orders"/);
-    assert.match(rawSql, /SP-01/);
-    assert.match(rawSql, /ORD-001/);
+  await t.test('1. Complete pg_dump-format fixture includes schema and row data', async () => {
+    assert.match(backupDumpFixture, /CREATE TABLE public\.test_products/);
+    assert.match(backupDumpFixture, /CREATE TABLE public\.test_orders/);
+    assert.match(backupDumpFixture, /INSERT INTO public\.test_products/);
+    assert.match(backupDumpFixture, /INSERT INTO public\.test_orders/);
+    assert.match(backupDumpFixture, /SP-01/);
+    assert.match(backupDumpFixture, /ORD-001/);
   });
 
-  await t.test('2. runBackup executes Gzip compression and AES-256-GCM encryption', async () => {
+  await t.test('2. runBackup compresses and encrypts the complete pg_dump output', async () => {
     const res = await runBackup({
-      pool,
+      databaseUrl: 'postgres://backup-fixture.invalid/gaeru',
+      dumpDatabase: writeBackupDumpFixture,
       outputDir: testOutputDir,
       encryptionKey,
       retentionDays: 30
@@ -81,6 +83,14 @@ test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, 
     assert.equal(verified.isEncrypted, true);
     assert.equal(verified.tableCount, 2);
     assert.equal(verified.rowCount, 3);
+
+    const encrypted = await fs.readFile(path.join(testOutputDir, backupFile));
+    const rawSql = zlib.gunzipSync(decryptBackup(encrypted, encryptionKey)).toString('utf8');
+    await pool.query(rawSql);
+    const restoredProducts = await pool.query('SELECT count(*)::int AS count FROM test_products');
+    const restoredOrders = await pool.query('SELECT count(*)::int AS count FROM test_orders');
+    assert.equal(restoredProducts.rows[0].count, 2);
+    assert.equal(restoredOrders.rows[0].count, 1);
   });
 
   await t.test('4. Tampered encrypted backup is rejected by AES-256-GCM authentication tag', async () => {
@@ -110,7 +120,8 @@ test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, 
     await fs.utimes(oldFilePath, oldTime, oldTime);
 
     const res = await runBackup({
-      pool,
+      databaseUrl: 'postgres://backup-fixture.invalid/gaeru',
+      dumpDatabase: writeBackupDumpFixture,
       outputDir: testOutputDir,
       encryptionKey,
       retentionDays: 30
@@ -119,5 +130,45 @@ test('Database Backup: Live SQL dump, Gzip compression, AES-256-GCM encryption, 
     assert.ok(res.cleanedCount >= 1);
     const remaining = await fs.readdir(testOutputDir);
     assert.equal(remaining.includes(oldFileName), false);
+  });
+
+  await t.test('6. Invalid SQL-only dumps are rejected and temporary files are removed', async () => {
+    await assert.rejects(
+      runBackup({
+        databaseUrl: 'postgres://backup-fixture.invalid/gaeru',
+        dumpDatabase: async () => '-- Table: "test_products"\nINSERT INTO test_products (sku) VALUES (\'SP-01\');',
+        outputDir: testOutputDir,
+        encryptionKey
+      }),
+      /không tạo được bản sao lưu có schema bảng/
+    );
+    const remaining = await fs.readdir(testOutputDir);
+    assert.equal(remaining.some((file) => file.startsWith('.gaeru-backup-')), false);
+  });
+
+  await t.test('7. verifyBackup rejects a compressed file without database schema', async () => {
+    const invalidPath = path.join(testOutputDir, 'select-only.sql.gz');
+    await fs.writeFile(invalidPath, zlib.gzipSync('-- Table: "test_products"\nINSERT INTO test_products (sku) VALUES (\'SP-01\');'));
+    await assert.rejects(
+      verifyBackup(invalidPath),
+      /không có định nghĩa bảng PostgreSQL/
+    );
+  });
+
+  await t.test('8. Failed dump removes partial plaintext and does not create a backup', async () => {
+    await assert.rejects(
+      runBackup({
+        databaseUrl: 'postgres://backup-fixture.invalid/gaeru',
+        dumpDatabase: async ({ outputPath }) => {
+          await fs.writeFile(outputPath, 'partial SQL');
+          throw new Error('simulated pg_dump failure');
+        },
+        outputDir: testOutputDir,
+        encryptionKey
+      }),
+      /simulated pg_dump failure/
+    );
+    const remaining = await fs.readdir(testOutputDir);
+    assert.equal(remaining.some((file) => file.startsWith('.gaeru-backup-')), false);
   });
 });

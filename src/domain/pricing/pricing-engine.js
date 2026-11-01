@@ -430,29 +430,7 @@ class PricingEngine {
 
     let shippingSelection = null;
     if (shippingChoices) {
-      try {
-        shippingSelection = await require('../../shipping-choice').validateSelection(client, shippingCarrierId);
-      } catch (err) {
-        const connCheck = await client.query('SELECT count(*)::int AS cnt FROM shipping_carrier_connections').catch(() => ({ rows: [] }));
-        if (connCheck.rows[0]?.cnt > 0) {
-          throw err;
-        }
-        const allowed = {
-          ghn: 'Giao Hàng Nhanh (GHN)',
-          ghtk: 'Giao Hàng Tiết Kiệm (GHTK)',
-          viettel: 'Viettel Post',
-          spx: 'Shopee Express (SPX)'
-        };
-        if (shippingCarrierId && allowed[shippingCarrierId]) {
-          shippingSelection = {
-            id: shippingCarrierId,
-            name: allowed[shippingCarrierId],
-            version: 1
-          };
-        } else if (shippingCarrierId) {
-          throw err;
-        }
-      }
+      shippingSelection = await require('../../shipping-choice').validateSelection(client, shippingCarrierId);
     }
 
     if (expectedShippingFeeVnd !== undefined && expectedShippingFeeVnd !== shippingFeeVnd) {

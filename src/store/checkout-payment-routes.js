@@ -78,22 +78,8 @@ function attachPublicAndCheckoutRoutes(router, pool, {
     const settings = await getSettings(pool, ['shipping_note', 'shipping_rates']);
     let publicCarriers = [];
     if (shippingChoices) {
-      try {
-        const verified = await require('../shipping-choice').availableCarriers(pool);
-        if (verified && verified.length) {
-          publicCarriers = verified.map(({ id, name }) => ({ id, name }));
-        } else {
-          const connCheck = await pool.query('SELECT count(*)::int AS cnt FROM shipping_carrier_connections').catch(() => ({ rows: [] }));
-          if (connCheck.rows[0]?.cnt === 0) {
-            publicCarriers = [
-              { id: 'ghn', name: 'Giao Hàng Nhanh (GHN)' },
-              { id: 'ghtk', name: 'Giao Hàng Tiết Kiệm (GHTK)' },
-              { id: 'viettel', name: 'Viettel Post' },
-              { id: 'spx', name: 'Shopee Express (SPX)' }
-            ];
-          }
-        }
-      } catch {}
+      const verified = await require('../shipping-choice').availableCarriers(pool);
+      publicCarriers = verified.map(({ id, name }) => ({ id, name }));
     }
     res.json({
       ...(shippingChoices ? { shippingCarriers: publicCarriers } : {}),
@@ -587,13 +573,19 @@ function attachPublicAndCheckoutRoutes(router, pool, {
             );
             createdOrder.shippingCarrierName = shippingSelection.name;
           } else {
-            const optimal = allocateOptimalCarrier(parsed.data.customer.city);
+            const preferred = allocateOptimalCarrier(parsed.data.customer.city);
+            const available = shippingChoices
+              ? await require('../shipping-choice').availableCarriers(client)
+              : null;
+            const optimal = available
+              ? (available.find((carrier) => carrier.id === preferred?.id) || available[0] || null)
+              : preferred;
             if (optimal) {
               await client.query('SAVEPOINT sp_order_shipping_selection');
               try {
                 await client.query(
-                  'INSERT INTO order_shipping_selection(order_id, carrier_id, carrier_name, fee_vnd, config_version) VALUES($1, $2, $3, $4, 1) ON CONFLICT (order_id) DO NOTHING',
-                  [createdOrder.id, optimal.id, optimal.name, shippingFee]
+                  'INSERT INTO order_shipping_selection(order_id, carrier_id, carrier_name, fee_vnd, config_version) VALUES($1, $2, $3, $4, $5) ON CONFLICT (order_id) DO NOTHING',
+                  [createdOrder.id, optimal.id, optimal.name, shippingFee, optimal.version || 1]
                 );
                 await client.query('RELEASE SAVEPOINT sp_order_shipping_selection');
                 createdOrder.shippingCarrierName = optimal.name;

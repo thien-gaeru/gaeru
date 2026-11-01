@@ -1,5 +1,7 @@
 -- Script tiền kiểm (Pre-check Diagnostic) trước khi chạy db/checkout-lifecycle-hardening.sql
--- Mục đích: Phát hiện các bất thường dữ liệu trước khi thêm ràng buộc toàn vẹn mà không sửa đổi hoặc xóa dữ liệu.
+-- Mục đích: Phát hiện bất thường trước khi thêm ràng buộc toàn vẹn.
+-- LƯU Ý: Script tạo bảng và ghi bản sao các bản ghi trùng vào quarantine.
+-- Chạy trong transaction rồi ROLLBACK nếu chỉ muốn chẩn đoán mà không lưu các thay đổi này.
 
 -- 1. Tiền kiểm tồn kho âm trên warehouse_stock
 SELECT 
@@ -63,6 +65,12 @@ WHERE (pa.provider, pa.provider_request_id) IN (
   WHERE provider_request_id IS NOT NULL
   GROUP BY provider, provider_request_id
   HAVING count(*) > 1
+)
+AND NOT EXISTS (
+  SELECT 1
+  FROM payment_attempts_quarantine_duplicates q
+  WHERE q.attempt_id = pa.id
+    AND q.reason = 'Trùng lặp khóa (provider, provider_request_id) phát hiện trong pre-check'
 );
 
 -- 3. Tiền kiểm trạng thái không xác định trên payment_attempts

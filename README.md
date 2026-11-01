@@ -76,7 +76,7 @@ Các bài kiểm thử tự động không yêu cầu PostgreSQL thật. Trướ
 
 ## Triển khai
 
-Ứng dụng cần một máy chủ có thể chạy Node.js và kết nối PostgreSQL; GitHub Pages chỉ phục vụ tệp tĩnh nên không thể chạy API hoặc quản trị. Thiết lập `NODE_ENV=production`, TLS/HTTPS, `DATABASE_URL`, `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` và `PGSSL` trong phần quản lý secrets của máy chủ. Đặt proxy tin cậy đúng với hạ tầng triển khai trước khi bật `trust proxy` nếu kiến trúc không chỉ có một proxy.
+Ứng dụng cần một máy chủ có thể chạy Node.js và kết nối PostgreSQL; GitHub Pages chỉ phục vụ tệp tĩnh nên không thể chạy API hoặc quản trị. Thiết lập `NODE_ENV=production`, TLS/HTTPS, `DATABASE_URL`, `SESSION_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` và `PGSSL` trong phần quản lý secrets của máy chủ. `TRUST_PROXY_HOPS` mặc định bằng `0`; chỉ cấu hình số hop chính xác khi ứng dụng chỉ nhận traffic qua topology proxy đã biết, nếu không các header chuyển tiếp có thể bị giả mạo.
 
 Chạy `npm ci`, `npm run db:migrate`, rồi `npm start`. Dùng ổ lưu trữ bền vững cho ảnh tải lên và sao lưu PostgreSQL cùng ảnh; lên lịch sao lưu và kiểm thử khôi phục. Blueprint Render đã được chuẩn bị nhưng chưa tạo dịch vụ hoặc triển khai staging/production. Nhánh hiện tại đang cấp GitHub Pages preview; không đẩy mã standalone lên nhánh đó cho đến khi có kế hoạch giữ nguyên preview hoặc staging Render đã được triển khai và xác minh.
 
@@ -129,4 +129,3 @@ Trang tài khoản hỗ trợ cập nhật họ tên/số điện thoại, sửa
 Migration `customer-experience.sql` bổ sung sổ địa chỉ riêng cho từng khách (tối đa 20), địa chỉ mặc định và liên kết đơn mới với tài khoản đang đăng nhập. Chạy `npm run db:migrate` trước khi dùng bản này. Trang tài khoản cho phép thêm/xóa/chọn địa chỉ mặc định và xem đơn mới; checkout tự điền thông tin khách, chọn địa chỉ đã lưu, vẫn cho nhập địa chỉ khác. Đơn khách vãng lai và đơn lịch sử không tự gắn bằng email để tránh lộ dữ liệu. Tỉnh/thành phải khớp vùng giao hàng được cấu hình; địa chỉ ngoài vùng yêu cầu chọn lại tỉnh/thành.
 
 Nhà cung cấp được chọn: VNPAY, J&T Express và Viettel Post. VNPAY đã có ký URL và kiểm tra IPN ở máy chủ; cần cấu hình merchant và nghiệm thu sandbox trước production. Bản này **chưa có adapter tạo vận đơn hoặc đồng bộ trạng thái J&T/Viettel Post**. Cần tài liệu API của hợp đồng GAERU (môi trường thử nghiệm, cách ký/xác thực, tạo/tra cứu/hủy vận đơn, webhook, mã dịch vụ, địa chỉ lấy hàng và thông số kiện hàng) trước khi triển khai. Không nhập khóa bí mật vào Git hoặc chat. Tham khảo cổng chính thức: https://open.jtexpress.vn/ và https://partner2.viettelpost.vn/document/detail-instructions.
-

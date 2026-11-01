@@ -16,6 +16,7 @@ async function availableCarriers(pool,{lock=false}={}) {
 async function validateSelection(pool,carrierId){
  const options=await availableCarriers(pool,{lock:true});
  if(!options.length){if(carrierId)throw fail('Hãng vận chuyển vừa ngừng khả dụng. Tải lại trang để chọn phương án giao hàng.');return null;}
+ if(!carrierId)return null;
  const selected=options.find(o=>o.id===carrierId);if(!selected)throw fail('Chọn một đơn vị vận chuyển đang được kết nối.');return selected;
 }
 async function verifyCarrier(id,settings,{fetcher=fetch}={}){

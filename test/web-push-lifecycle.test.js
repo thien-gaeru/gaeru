@@ -229,6 +229,105 @@ test('Web Push Broadcast: Separates sent, failed, and deactivates expired (410/4
   }
 });
 
+test('NEW-01 Delivery audit failure leaves a durable claim and prevents duplicate delivery', async () => {
+  const db = await createTestDb();
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/audit-write-failure';
+  await savePushSubscription(db, { endpoint, p256dh: sampleP256dh, auth: sampleAuth });
+  let sendCalls = 0;
+  const pool = {
+    exec: (sql) => db.exec(sql),
+    async query(sql, values) {
+      if (sql.includes('UPDATE web_push_delivery_attempts') && values?.[3] === 'sent') {
+        throw new Error('simulated delivery audit write failure');
+      }
+      return db.query(sql, values);
+    }
+  };
+  const originalPub = process.env.VAPID_PUBLIC_KEY;
+  const originalPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = testVapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
+  const mockClient = { async sendNotification() { sendCalls++; return { statusCode: 201 }; } };
+
+  try {
+    const first = await broadcastPushNotification(pool, { title: 'Test', body: 'Audit failure' }, {
+      webpushClient: mockClient,
+      campaignId: 'audit-write-failure-campaign'
+    });
+    assert.equal(first.timedOutCount, 1);
+    assert.equal(sendCalls, 1);
+
+    const retry = await broadcastPushNotification(pool, { title: 'Test', body: 'Audit failure' }, {
+      webpushClient: mockClient,
+      campaignId: 'audit-write-failure-campaign'
+    });
+    assert.equal(retry.status, 'idempotent_skipped');
+    assert.equal(sendCalls, 1);
+  } finally {
+    if (originalPub) process.env.VAPID_PUBLIC_KEY = originalPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (originalPriv) process.env.VAPID_PRIVATE_KEY = originalPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
+    await db.close();
+  }
+});
+
+test('NEW-03 Same message in a new broadcast gets a distinct campaign identity', async () => {
+  const db = await createTestDb();
+  await savePushSubscription(db, {
+    endpoint: 'https://fcm.googleapis.com/fcm/send/new-campaign-identity',
+    p256dh: sampleP256dh,
+    auth: sampleAuth
+  });
+  let sendCalls = 0;
+  const originalPub = process.env.VAPID_PUBLIC_KEY;
+  const originalPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = testVapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
+
+  try {
+    const options = { webpushClient: { async sendNotification() { sendCalls++; return { statusCode: 201 }; } } };
+    const first = await broadcastPushNotification(db, { title: 'Same', body: 'Same' }, options);
+    const second = await broadcastPushNotification(db, { title: 'Same', body: 'Same' }, options);
+    assert.notEqual(first.campaignId, second.campaignId);
+    assert.equal(sendCalls, 2);
+  } finally {
+    if (originalPub) process.env.VAPID_PUBLIC_KEY = originalPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (originalPriv) process.env.VAPID_PRIVATE_KEY = originalPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
+    await db.close();
+  }
+});
+
+test('NEW-04 Synchronous push adapter exceptions become per-recipient failures', async () => {
+  const db = await createTestDb();
+  await savePushSubscription(db, {
+    endpoint: 'https://fcm.googleapis.com/fcm/send/sync-adapter-exception',
+    p256dh: sampleP256dh,
+    auth: sampleAuth
+  });
+  const originalPub = process.env.VAPID_PUBLIC_KEY;
+  const originalPriv = process.env.VAPID_PRIVATE_KEY;
+  process.env.VAPID_PUBLIC_KEY = testVapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = testVapid.privateKey;
+
+  try {
+    const outcome = await broadcastPushNotification(db, { title: 'Test', body: 'Sync throw' }, {
+      webpushClient: { sendNotification() { throw Object.assign(new Error('adapter setup failed'), { statusCode: 503 }); } }
+    });
+    assert.equal(outcome.status, 'failed');
+    assert.equal(outcome.failedCount, 1);
+    assert.match(outcome.results.failed[0].error, /adapter setup failed/);
+  } finally {
+    if (originalPub) process.env.VAPID_PUBLIC_KEY = originalPub;
+    else delete process.env.VAPID_PUBLIC_KEY;
+    if (originalPriv) process.env.VAPID_PRIVATE_KEY = originalPriv;
+    else delete process.env.VAPID_PRIVATE_KEY;
+    await db.close();
+  }
+});
+
 test('Web Push Disabled Fallback: Broadcast turns off gracefully when VAPID is unconfigured', async () => {
   const db = await createTestDb();
 

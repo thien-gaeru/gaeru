@@ -229,3 +229,29 @@ test('P2-01 Ownership: Rejects hijacking of an endpoint belonging to another cus
 
   await db.close();
 });
+
+test('NEW-02 Ownership: A guest cannot take over a customer-owned endpoint', async () => {
+  const db = await createTestDb();
+  const ownerId = (await db.query(
+    "INSERT INTO customers (email) VALUES ('push-owner@gaeru.test') RETURNING id"
+  )).rows[0].id;
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/guest-takeover';
+
+  await savePushSubscription(db, {
+    endpoint,
+    p256dh: sampleP256dh,
+    auth: sampleAuth,
+    customerId: ownerId
+  });
+
+  await assert.rejects(
+    savePushSubscription(db, { endpoint, p256dh: sampleP256dh, auth: sampleAuth }),
+    (error) => error.status === 403
+  );
+  const saved = (await db.query(
+    'SELECT customer_id FROM web_push_subscriptions WHERE endpoint = $1',
+    [endpoint]
+  )).rows[0];
+  assert.equal(saved.customer_id, ownerId);
+  await db.close();
+});

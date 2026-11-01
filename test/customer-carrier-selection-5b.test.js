@@ -9,7 +9,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { migrateDatabase } = require('../src/migrate');
 const { createStoreApi } = require('../src/store-api');
 
-test('Phương Án 5B: Khách hàng tự bấm chọn đích danh hãng vận chuyển (GHN, GHTK, Viettel Post, SPX) tại Checkout', async (t) => {
+test('Checkout exposes and accepts only verified, enabled shipping carriers', async (t) => {
   const db = await PGlite.create();
   const pool = {
     async query(sql, values) {
@@ -47,17 +47,67 @@ test('Phương Án 5B: Khách hàng tự bấm chọn đích danh hãng vận ch
     body: JSON.stringify(body)
   });
 
-  await t.test('1. GET /settings/public returns full list of available carriers for customer selection (Phương Án 5B)', async () => {
-    const res = await fetch(base + '/settings/public');
+  await t.test('1. Unconfigured carriers are hidden and cannot be selected', async () => {
+    let res = await fetch(base + '/settings/public');
+    assert.equal(res.status, 200);
+    assert.deepEqual((await res.json()).shippingCarriers, []);
+
+    res = await postOrder({
+      customer: {
+        name: 'Nguyễn Văn An',
+        email: 'unconfigured@example.test',
+        phone: '0912345678',
+        address: '123 Hoàn Kiếm',
+        city: 'Hà Nội'
+      },
+      paymentMethod: 'cod',
+      shippingCarrierId: 'ghn',
+      expectedShippingFeeVnd: 20000,
+      items: [{ variantId: variant.id, quantity: 1 }]
+    });
+    assert.equal(res.status, 409);
+
+    res = await postOrder({
+      customer: {
+        name: 'Lê Thị Mai',
+        email: 'no-carrier@example.test',
+        phone: '0987654321',
+        address: '456 Quận 1',
+        city: 'Hà Nội'
+      },
+      paymentMethod: 'cod',
+      expectedShippingFeeVnd: 20000,
+      items: [{ variantId: variant.id, quantity: 1 }]
+    });
+    assert.equal(res.status, 201);
+    const unassignedOrder = (await res.json()).order;
+    const selection = await pool.query(
+      'SELECT carrier_id FROM order_shipping_selection WHERE order_id = $1',
+      [unassignedOrder.id]
+    );
+    assert.equal(selection.rows.length, 0);
+
+    const carriers = [
+      ['ghn', 'GHN'],
+      ['ghtk', 'GHTK'],
+      ['viettel', 'Viettel Post'],
+      ['spx', 'Shopee Express']
+    ];
+    for (const [id] of carriers) {
+      await pool.query(
+        'INSERT INTO store_settings (setting_key, setting_value) VALUES ($1, $2::jsonb) ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value',
+        [`private_admin:shipping_${id}`, JSON.stringify({ version: 1 })]
+      );
+      await pool.query(
+        'INSERT INTO shipping_carrier_connections (carrier_id, config_version, verified_at, enabled) VALUES ($1, 1, now(), true)',
+        [id]
+      );
+    }
+
+    res = await fetch(base + '/settings/public');
     assert.equal(res.status, 200);
     const data = await res.json();
-    assert.ok(Array.isArray(data.shippingCarriers));
-    assert.ok(data.shippingCarriers.length >= 3);
-    const ids = data.shippingCarriers.map(c => c.id);
-    assert.ok(ids.includes('ghn'), 'Must include GHN');
-    assert.ok(ids.includes('ghtk'), 'Must include GHTK');
-    assert.ok(ids.includes('viettel'), 'Must include Viettel Post');
-    assert.ok(ids.includes('spx'), 'Must include Shopee Express (SPX)');
+    assert.deepEqual(data.shippingCarriers, carriers.map(([id, name]) => ({ id, name })));
   });
 
   await t.test('2. Khách hàng bấm chọn đích danh Giao Hàng Nhanh (GHN)', async () => {
@@ -76,11 +126,11 @@ test('Phương Án 5B: Khách hàng tự bấm chọn đích danh hãng vận ch
     });
     assert.equal(res.status, 201);
     const json = await res.json();
-    assert.equal(json.order.shippingCarrierName, 'Giao Hàng Nhanh (GHN)');
+    assert.equal(json.order.shippingCarrierName, 'GHN');
 
     const saved = (await pool.query('SELECT * FROM order_shipping_selection WHERE order_id = $1', [json.order.id])).rows[0];
     assert.equal(saved.carrier_id, 'ghn');
-    assert.equal(saved.carrier_name, 'Giao Hàng Nhanh (GHN)');
+    assert.equal(saved.carrier_name, 'GHN');
     assert.equal(saved.fee_vnd, 20000);
   });
 
@@ -100,11 +150,11 @@ test('Phương Án 5B: Khách hàng tự bấm chọn đích danh hãng vận ch
     });
     assert.equal(res.status, 201);
     const json = await res.json();
-    assert.equal(json.order.shippingCarrierName, 'Giao Hàng Tiết Kiệm (GHTK)');
+    assert.equal(json.order.shippingCarrierName, 'GHTK');
 
     const saved = (await pool.query('SELECT * FROM order_shipping_selection WHERE order_id = $1', [json.order.id])).rows[0];
     assert.equal(saved.carrier_id, 'ghtk');
-    assert.equal(saved.carrier_name, 'Giao Hàng Tiết Kiệm (GHTK)');
+    assert.equal(saved.carrier_name, 'GHTK');
     assert.equal(saved.fee_vnd, 25000);
   });
 
@@ -147,11 +197,11 @@ test('Phương Án 5B: Khách hàng tự bấm chọn đích danh hãng vận ch
     });
     assert.equal(res.status, 201);
     const json = await res.json();
-    assert.equal(json.order.shippingCarrierName, 'Shopee Express (SPX)');
+    assert.equal(json.order.shippingCarrierName, 'Shopee Express');
 
     const saved = (await pool.query('SELECT * FROM order_shipping_selection WHERE order_id = $1', [json.order.id])).rows[0];
     assert.equal(saved.carrier_id, 'spx');
-    assert.equal(saved.carrier_name, 'Shopee Express (SPX)');
+    assert.equal(saved.carrier_name, 'Shopee Express');
   });
 
   await t.test('6. Tự động dự phòng: Khi khách không chọn đích danh, hệ thống tự động phân bổ theo tỉnh thành (Phương Án 5A fallback)', async () => {
@@ -170,7 +220,7 @@ test('Phương Án 5B: Khách hàng tự bấm chọn đích danh hãng vận ch
     });
     assert.equal(resHn.status, 201);
     const jsonHn = await resHn.json();
-    assert.ok(jsonHn.order.shippingCarrierName.includes('SPX') || jsonHn.order.shippingCarrierName.includes('GHN'));
+    assert.ok(jsonHn.order.shippingCarrierName.includes('Shopee Express') || jsonHn.order.shippingCarrierName === 'GHN');
 
     // Với Cần Thơ -> Viettel Post / GHTK
     const resCt = await postOrder({
