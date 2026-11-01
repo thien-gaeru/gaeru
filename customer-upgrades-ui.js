@@ -61,7 +61,7 @@
       progressPercent = 100;
     }
 
-    const memberId = 'GAERU-VIP-' + (customer.phone ? customer.phone.slice(-6) : customer.id.slice(0, 6).toUpperCase());
+    const memberId = 'GAERU-VIP-' + customer.id.slice(0, 6).toUpperCase();
 
     return `
       <div class="gaeru-vip-card-wrapper" data-gaeru-vip-card>
@@ -85,7 +85,7 @@
 
           <div class="gaeru-vip-card-footer">
             <div>
-              <p class="gaeru-vip-holder-name">${escapeHtml(customer.fullName || 'QUÝ KHÁCH HÀNG')}</p>
+              <span class="gaeru-vip-member-label">Mã hội viên</span>
               <div class="gaeru-vip-member-id">${escapeHtml(memberId)}</div>
             </div>
             <div class="gaeru-vip-perk-summary">
@@ -134,7 +134,7 @@
   function renderAccountQuickActions(customer) {
     const pushStatus = getPushNotificationStatus();
     return `
-      <div class="gaeru-account-quick-actions" data-account-quick-actions>
+      <div class="gaeru-account-quick-actions account-workspace-card" data-account-quick-actions>
         <div class="gaeru-quick-actions-bar">
           <a href="/tra-cuu-don-hang" class="gaeru-action-pill" data-service-tile="tracking" title="Tra cứu lộ trình vận chuyển đơn hàng">
             <span class="gaeru-action-pill-icon">📦</span>
@@ -494,14 +494,17 @@
     currentCustomerData = customer;
 
     // Tìm hoặc tạo hub container
+    const overviewCard = profile.querySelector('.account-overview-card');
     let hub = profile.querySelector('#customer-upgrades-hub');
     if (!hub) {
       hub = document.createElement('div');
       hub.id = 'customer-upgrades-hub';
       hub.className = 'customer-upgrades-hub';
-      const overviewCard = profile.querySelector('.account-overview-card');
-      if (overviewCard) {
-        overviewCard.prepend(hub);
+      const profileDetails = profile.querySelector('.account-trust-note') || profile.querySelector('dl');
+      if (profileDetails) {
+        profileDetails.after(hub);
+      } else if (overviewCard) {
+        overviewCard.append(hub);
       } else {
         profile.prepend(hub);
       }
@@ -511,10 +514,17 @@
     const loyalty = await fetchCustomerLoyalty();
 
     // Render các chức năng thiết thực gắn liền với tài khoản
-    hub.innerHTML = `
-      ${renderVipCard(customer, loyalty)}
-      ${renderAccountQuickActions(customer)}
-    `;
+    hub.innerHTML = renderVipCard(customer, loyalty);
+
+    profile.querySelector('[data-account-quick-actions]')?.remove();
+    const quickActionsContainer = document.createElement('div');
+    quickActionsContainer.innerHTML = renderAccountQuickActions(customer);
+    const quickActions = quickActionsContainer.firstElementChild;
+    if (overviewCard) {
+      overviewCard.after(quickActions);
+    } else {
+      profile.append(quickActions);
+    }
 
     // Tự động hỏi quyền thông báo đẩy nếu trình duyệt hỗ trợ
     autoPromptWebPush();
