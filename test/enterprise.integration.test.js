@@ -297,6 +297,18 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     const summary=await accountant.ok('/api/gaeru_ceo/business/marketplace-summary?period='+period);assert.equal(summary.channels.find(c=>c.channel==='shopee').profitVnd,500000);assert.equal(summary.channels.find(c=>c.channel==='tiktok').profitVnd,null);
     assert.equal((await pool.query('SELECT count(*) AS total FROM orders')).rows[0].total,orderCount);
     assert.equal((await accountant.ok('/api/gaeru_ceo/business/integrations')).automaticSyncEnabled,false);
+    const originalQuery=pool.query.bind(pool);
+    pool.query=async(sql,values)=>{
+      if(values?.[0]==='private_admin:misa')throw new Error('Simulated settings database failure');
+      return originalQuery(sql,values);
+    };
+    try {
+      const failedStatus=await accountant.request('/api/gaeru_ceo/business/integrations');
+      assert.equal(failedStatus.status,500);
+      assert.equal(failedStatus.data.error,'Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau.');
+    } finally {
+      pool.query=originalQuery;
+    }
   });
   await context.test('marketplace product links snapshot receipt costs and preserve unknown or historical costs',async()=>{
     assert.equal((await sales.request('/api/gaeru_ceo/business/catalog?q=ENTERPRISE')).status,403);

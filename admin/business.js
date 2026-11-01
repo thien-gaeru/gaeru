@@ -20,7 +20,7 @@
  if(kind==='marketplace'){
     const [summary, integrations] = await Promise.all([
       admin.request('/api/gaeru_ceo/business/marketplace-summary?period='+state.period),
-      admin.request('/api/gaeru_ceo/business/integrations').catch(()=>null)
+      admin.request('/api/gaeru_ceo/business/integrations')
     ]);
     const misaProvider = integrations?.providers?.find(p=>p.name==='MISA eShop');
     const shopeeProvider = integrations?.providers?.find(p=>p.name==='Shopee');
