@@ -14,8 +14,8 @@ test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) 
     assert.match(html, /id="customer-upgrades-hub"/, 'account.html should have #customer-upgrades-hub container');
     assert.match(
       html,
-      /<div class="account-overview-card"[^>]*>\s*<div id="customer-upgrades-hub"[\s\S]*?<div class="account-profile-header"/,
-      'VIP hub should share the customer overview card, above the profile details'
+      /<div class="account-overview-card"[^>]*>[\s\S]*?<div class="account-profile-header"[\s\S]*?<dl>[\s\S]*?<div class="account-trust-note"[\s\S]*?<div id="customer-upgrades-hub"[\s\S]*?<div class="account-overview-addresses"/,
+      'customer details should precede VIP data inside the shared overview card'
     );
   });
 
@@ -43,6 +43,9 @@ test('Customer Account Upgrades Hub - Verification and UI integrity', async (t) 
     assert.match(script, /fetchCustomerLoyalty/, 'Script should fetch loyalty profile');
     assert.match(script, /renderVipCard/, 'Script should render VIP Loyalty Card');
     assert.match(script, /renderAccountQuickActions/, 'Script should render compact account quick actions');
+    assert.match(script, /gaeru-vip-member-label/, 'VIP card should not duplicate the customer name');
+    assert.match(script, /overviewCard\.after\(quickActions\)/, 'Quick actions should be placed in a separate card after the overview');
+    assert.match(script, /GAERU-VIP-'\s*\+\s*customer\.id\.slice/, 'Membership ID should not repeat phone digits');
     assert.match(script, /data-service-tile="tracking"/, 'Script should have order tracking action');
     assert.match(script, /data-service-tile="affiliate"/, 'Script should have KOC affiliate action');
     assert.match(script, /autoPromptWebPush/, 'Script should auto-prompt Web Push on supported browsers');

@@ -188,6 +188,13 @@
   letter-spacing: 0.05em;
   margin-top: 2px;
 }
+.gaeru-vip-member-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #6e6e73;
+  font-size: 11px;
+  font-weight: 600;
+}
 .gaeru-vip-perk-summary {
   font-size: 12px;
   text-align: right;
@@ -563,6 +570,7 @@
 
 .account-overview-card .customer-upgrades-hub {
   gap: 20px;
+  margin: 24px 0 0;
 }
 .account-overview-card .gaeru-vip-card-wrapper,
 .account-overview-card .gaeru-vip-card-wrapper:hover {
@@ -608,4 +616,8 @@
   padding: 16px 0 0;
   background: transparent;
   border-top: 0;
+}
+.account-page .account-workspace-card.gaeru-account-quick-actions {
+  margin-top: 0;
+  padding: 18px 22px;
 }
