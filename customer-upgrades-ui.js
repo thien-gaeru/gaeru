@@ -66,23 +66,6 @@
     return `
       <div class="gaeru-vip-card-wrapper" data-gaeru-vip-card>
         <div class="gaeru-vip-card tier-${escapeHtml(tier)}">
-          <div class="gaeru-vip-card-header">
-            <div class="gaeru-vip-brand">
-              <span class="gaeru-vip-logo-text">GAERU</span>
-            </div>
-            <div class="gaeru-vip-badge">
-              <span>✦ HẠNG ${escapeHtml(tierName.toUpperCase())}</span>
-            </div>
-          </div>
-
-          <div class="gaeru-vip-card-body">
-            <div class="gaeru-vip-balance-box">
-              <div class="gaeru-vip-balance-label">Điểm Thưởng GAERU Xu</div>
-              <div class="gaeru-vip-balance-points">${points.toLocaleString('vi-VN')} Xu</div>
-              <div class="gaeru-vip-balance-vnd">Giảm trực tiếp: ${formatVnd(points)}</div>
-            </div>
-          </div>
-
           <div class="gaeru-vip-card-footer">
             <div>
               <span class="gaeru-vip-member-label">Mã hội viên</span>
@@ -512,6 +495,16 @@
 
     // Tải dữ liệu khách hàng
     const loyalty = await fetchCustomerLoyalty();
+
+    const vipTier = profile.querySelector('[data-account-vip-tier]');
+    if (vipTier) {
+      vipTier.innerHTML = `<div class="gaeru-vip-badge account-vip-tier-badge"><span>✦ HẠNG ${escapeHtml((loyalty?.tierName || 'Thành viên').toUpperCase())}</span></div>`;
+    }
+    const vipSummary = profile.querySelector('[data-account-vip-summary]');
+    if (vipSummary) {
+      const points = Number(loyalty?.points) || 0;
+      vipSummary.innerHTML = `<span class="gaeru-vip-logo-text">GAERU</span><strong class="account-vip-points">${points.toLocaleString('vi-VN')} Xu</strong>`;
+    }
 
     // Render các chức năng thiết thực gắn liền với tài khoản
     hub.innerHTML = renderVipCard(customer, loyalty);
