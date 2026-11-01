@@ -218,8 +218,29 @@ function validateSqlBackup(rawSql) {
   const copyMatches = rawSql.match(/\bCOPY\b[\s\S]*?\bFROM\s+stdin\s*;/gi) || [];
   const dataSections = rawSql.match(/-- Data for\b/gi) || [];
   const isNativeDump = /-- Engine: PostgreSQL \/ Node\.js Engine/.test(rawSql);
+  const commitTailMatch = /\bCOMMIT\s*;\s*$/m.exec(rawSql);
+  const hasOnlyCommentsAndWhitespaceAfterCommit = (() => {
+    if (!commitTailMatch) return false;
+    const trailing = rawSql.slice(commitTailMatch.index + commitTailMatch[0].length);
+    let i = 0;
+    while (i < trailing.length) {
+      // Skip whitespace (including newlines)
+      while (i < trailing.length && /\s/.test(trailing[i])) i++;
+      if (i >= trailing.length) return true;
+
+      // Allow SQL line comments: -- ... (until newline or end)
+      if (trailing[i] === '-' && trailing[i + 1] === '-') {
+        i += 2;
+        while (i < trailing.length && trailing[i] !== '\r' && trailing[i] !== '\n') i++;
+        continue;
+      }
+
+      return false;
+    }
+    return true;
+  })();
   const hasCompleteEnding = isNativeDump
-    ? /\bCOMMIT\s*;\s*(?:--[^\r\n]*\s*)*$/.test(rawSql)
+    ? hasOnlyCommentsAndWhitespaceAfterCommit
     : /-- PostgreSQL database dump complete\s*$/i.test(rawSql.trimEnd());
   if (!rawSql.trim() || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(rawSql)) {
     throw new Error('Backup SQL is empty or contains invalid text data.');
