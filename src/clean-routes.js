@@ -21,7 +21,7 @@ function enrich(html,original,origin,override){origin=normalizePublicBase(origin
  const faq=[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
  if(['/tai-khoan','/gio-hang','/thanh-toan','/ket-qua-thanh-toan'].includes(u.pathname))meta('robots','noindex, follow');
  // Cache-busting: bump ?v= for all internal CSS/JS assets
- const CURRENT_VERSION='20261030-v5b';
+ const CURRENT_VERSION='20261101-account-card';
  const PROTECTED={'account.js':true};
  for(const el of [...doc.querySelectorAll('link[href]'),...doc.querySelectorAll('script[src]')]){
    const attr=el.tagName==='LINK'?'href':'src';
