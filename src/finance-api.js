@@ -108,12 +108,25 @@ function createFinanceApi(pool) {
       const order = (await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [data.orderId])).rows[0];
       if (!order) throw fail(404, "Không tìm thấy đơn hàng.");
       if (["vnpay", "momo", "zalopay"].includes(order.payment_method)) throw fail(409, "Thanh toán trực tuyến được đối soát qua cổng thanh toán.");
+      if (order.return_completed_at) throw fail(409, "Đơn hàng đã hoàn trả xong; không thể ghi nhận phiếu thu mới.");
       if (order.status === "cancelled" || order.payment_status === "paid" || order.total_vnd === null) throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
       if (order.payment_method === "cod" && !["shipped", "completed"].includes(order.status)) throw fail(409, "Chỉ ghi nhận tiền COD sau khi giao hàng.");
       const received = await receiptTotal(client, order.id);
       if (data.amountVnd > order.total_vnd - received) throw fail(409, "Số tiền thu vượt số tiền còn phải thu.");
       const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, data.amountVnd, data.method, data.reference, data.note, data.requestKey, digest(data), req.admin.username]);
-      if (received + data.amountVnd === order.total_vnd) await client.query("UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' THEN 'completed' ELSE status END,updated_at=now() WHERE id=$1", [order.id]);
+      if (received + data.amountVnd === order.total_vnd) {
+        const updatedOrd = (await client.query(
+          "UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' THEN 'completed' WHEN payment_method<>'cod' AND status IN ('pending','confirmed') THEN 'processing' ELSE status END,updated_at=now() WHERE id=$1 RETURNING status",
+          [order.id]
+        )).rows[0];
+        await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
+        if (updatedOrd?.status === "completed" && order.customer_id && Number(order.total_vnd) > 0) {
+          try {
+            const { earnPoints } = require("./loyalty-api");
+            await earnPoints(client, { customerId: order.customer_id, orderId: order.id, orderTotalVnd: Number(order.total_vnd), actor: req.admin });
+          } catch {}
+        }
+      }
       await appendAudit(client, { actor: req.admin, action: "finance.receipt.post", entityType: "sales_receipt", entityId: inserted.rows[0].id, metadata: { orderId: order.id, amountVnd: data.amountVnd, method: data.method } });
       return { id: inserted.rows[0].id, replayed: false };
     });

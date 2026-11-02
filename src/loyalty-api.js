@@ -89,12 +89,15 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
   return { success: true, existing: false, earnedPoints: points, balanceAfter: newBalance, tier: newTier, ledgerId: entry.rows[0].id };
 }
 
-async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRedeemRatio = 0.5, orderTotalVnd, reason, actor }) {
+async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRedeemRatio = 0.5, orderTotalVnd, maxPayableVnd, cycleKey = null, reason, actor }) {
   if (!customerId) throw fail('Khách hàng cần đăng nhập để sử dụng GAERU Xu.', 401);
-  const redeemAmount = Number(pointsToRedeem) || 0;
-  if (redeemAmount <= 0) return { success: true, redeemedPoints: 0, discountVnd: 0 };
+  let redeemAmount = Number(pointsToRedeem) || 0;
+  if (!Number.isSafeInteger(redeemAmount) || redeemAmount < 0) {
+    throw fail('Số lượng GAERU Xu sử dụng không hợp lệ.', 400);
+  }
+  if (redeemAmount === 0) return { success: true, redeemedPoints: 0, discountVnd: 0 };
 
-  const eventKey = `redeem:${orderId}`;
+  const eventKey = cycleKey ? `redeem:${orderId}:${cycleKey}` : `redeem:${orderId}`;
   const existing = await client.query(
     `SELECT id, points, balance_after AS "balanceAfter"
      FROM customer_loyalty_ledger WHERE event_key = $1`,
@@ -105,16 +108,24 @@ async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRe
     return { success: true, existing: true, redeemedPoints: pts, discountVnd: pts, balanceAfter: existing.rows[0].balanceAfter };
   }
 
+  if (orderTotalVnd !== undefined && orderTotalVnd !== null) {
+    const maxAllowedByRatio = Math.max(0, Math.floor(Number(orderTotalVnd) * maxRedeemRatio));
+    if (redeemAmount > maxAllowedByRatio) {
+      throw fail(`Số Xu sử dụng vượt quá giới hạn cho phép (${new Intl.NumberFormat('vi-VN').format(maxAllowedByRatio)} Xu cho đơn này).`, 409);
+    }
+  }
+
+  if (maxPayableVnd !== undefined && maxPayableVnd !== null) {
+    const payableCap = Math.max(0, Math.floor(Number(maxPayableVnd)));
+    redeemAmount = Math.min(redeemAmount, payableCap);
+    if (redeemAmount <= 0) {
+      return { success: true, existing: false, redeemedPoints: 0, discountVnd: 0 };
+    }
+  }
+
   const loyalty = await getOrCreateLoyalty(client, customerId);
   if (loyalty.pointsBalance < redeemAmount) {
     throw fail(`Số dư GAERU Xu không đủ (Hiện có: ${loyalty.pointsBalance} Xu, yêu cầu: ${redeemAmount} Xu).`, 409);
-  }
-
-  if (orderTotalVnd) {
-    const maxAllowed = Math.floor(Number(orderTotalVnd) * maxRedeemRatio);
-    if (redeemAmount > maxAllowed) {
-      throw fail(`Số Xu sử dụng vượt quá giới hạn cho phép (${new Intl.NumberFormat('vi-VN').format(maxAllowed)} Xu cho đơn này).`, 409);
-    }
   }
 
   const newBalance = loyalty.pointsBalance - redeemAmount;
@@ -152,18 +163,25 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
 
   let refundedRedeem = 0;
   let revokedEarn = 0;
+  let unrecoveredEarn = 0;
 
-  // 1. Check if order had redeemed points ➔ Refund them
-  const redeemEntry = await client.query(
-    `SELECT points FROM customer_loyalty_ledger
-     WHERE order_id = $1 AND type = 'redeem'`,
+  // 1. Check net unrefunded redeemed points for this order -> Refund them
+  const redeemAgg = (await client.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points) ELSE 0 END), 0)::int AS "totalRedeemed",
+       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points ELSE 0 END), 0)::int AS "totalRefunded",
+       COUNT(*) FILTER (WHERE type = 'refund' AND event_key LIKE 'refund-redeem:%')::int AS "refundCount"
+     FROM customer_loyalty_ledger
+     WHERE order_id = $1`,
     [orderId]
-  );
-  if (redeemEntry.rows.length) {
-    const pointsToRefund = Math.abs(redeemEntry.rows[0].points);
-    const refundEventKey = `refund-redeem:${orderId}`;
+  )).rows[0];
+
+  const pointsToRefund = Math.max(0, (redeemAgg?.totalRedeemed || 0) - (redeemAgg?.totalRefunded || 0));
+  if (pointsToRefund > 0) {
+    const refundCount = redeemAgg?.refundCount || 0;
+    const refundEventKey = refundCount === 0 ? `refund-redeem:${orderId}` : `refund-redeem:${orderId}:${refundCount + 1}`;
     const checkRefund = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [refundEventKey]);
-    if (!checkRefund.rows.length && pointsToRefund > 0) {
+    if (!checkRefund.rows.length) {
       const loyalty = await getOrCreateLoyalty(client, customerId);
       const newBalance = loyalty.pointsBalance + pointsToRefund;
       const newSpent = Math.max(0, loyalty.lifetimeSpent - pointsToRefund);
@@ -184,7 +202,7 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
     }
   }
 
-  // 2. Check if order had earned points ➔ Revoke them
+  // 2. Check if order had earned points -> Revoke up to available balance (preserving ledger invariant)
   const earnEntry = await client.query(
     `SELECT points FROM customer_loyalty_ledger
      WHERE order_id = $1 AND type = 'earn'`,
@@ -196,7 +214,9 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
     const checkRevoke = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [revokeEventKey]);
     if (!checkRevoke.rows.length && pointsToRevoke > 0) {
       const loyalty = await getOrCreateLoyalty(client, customerId);
-      const newBalance = Math.max(0, loyalty.pointsBalance - pointsToRevoke);
+      const actualRevoked = Math.min(loyalty.pointsBalance, pointsToRevoke);
+      unrecoveredEarn = Math.max(0, pointsToRevoke - actualRevoked);
+      const newBalance = loyalty.pointsBalance - actualRevoked;
       const newEarned = Math.max(0, loyalty.lifetimeEarned - pointsToRevoke);
       const newTier = calculateTier(newEarned);
 
@@ -207,26 +227,28 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
         [customerId, newBalance, newEarned, newTier]
       );
 
-      await client.query(
-        `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
-         VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
-        [customerId, orderId, -pointsToRevoke, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}`, revokeEventKey]
-      );
-      revokedEarn = pointsToRevoke;
+      if (actualRevoked > 0) {
+        await client.query(
+          `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
+           VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
+          [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}`, revokeEventKey]
+        );
+      }
+      revokedEarn = actualRevoked;
     }
   }
 
-  if (actor && (refundedRedeem > 0 || revokedEarn > 0)) {
+  if (actor && (refundedRedeem > 0 || revokedEarn > 0 || unrecoveredEarn > 0)) {
     await appendAudit(client, {
       actor,
       action: 'loyalty.refund',
       entityType: 'customer',
       entityId: customerId,
-      metadata: { orderId, refundedRedeem, revokedEarn, reason }
+      metadata: { orderId, refundedRedeem, revokedEarn, unrecoveredEarn, reason }
     });
   }
 
-  return { success: true, refundedRedeem, revokedEarn };
+  return { success: true, refundedRedeem, revokedEarn, unrecoveredEarn };
 }
 
 async function adjustPoints(pool, { customerId, points, reason, actor }) {
@@ -280,6 +302,8 @@ function createLoyaltyApi(pool) {
     try {
       const customerId = req.session?.customer?.id;
       if (!customerId) return res.status(401).json({ error: 'Vui lòng đăng nhập để xem thông tin GAERU Xu.' });
+      const activeCust = (await pool.query('SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL', [customerId])).rows[0];
+      if (!activeCust) return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
 
       const loyaltyRes = await pool.query(
         `SELECT points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
@@ -324,9 +348,13 @@ function createLoyaltyApi(pool) {
       try {
         const customerId = req.session?.customer?.id;
         if (!customerId) return res.status(401).json({ error: 'Vui lòng đăng nhập.' });
+        const activeCust = (await pool.query('SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL', [customerId])).rows[0];
+        if (!activeCust) return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
 
-        const { subtotalVnd, pointsRequested } = z.object({
+        const { subtotalVnd, existingDiscountVnd = 0, payableBeforeLoyaltyVnd, pointsRequested } = z.object({
           subtotalVnd: z.number().int().min(0),
+          existingDiscountVnd: z.number().int().min(0).optional(),
+          payableBeforeLoyaltyVnd: z.number().int().min(0).optional(),
           pointsRequested: z.number().int().min(0).optional()
         }).parse(req.body);
 
@@ -335,16 +363,19 @@ function createLoyaltyApi(pool) {
           [customerId]
         );
         const currentBalance = loyaltyRes.rows[0]?.points_balance || 0;
-        const maxRedeemAllowed = Math.floor(subtotalVnd * 0.5); // Max 50%
+        const remainingProductVnd = payableBeforeLoyaltyVnd !== undefined
+          ? Math.min(subtotalVnd, payableBeforeLoyaltyVnd)
+          : Math.max(0, subtotalVnd - existingDiscountVnd);
+        const maxRedeemAllowed = Math.min(Math.floor(subtotalVnd * 0.5), remainingProductVnd);
         const maxApplicable = Math.min(currentBalance, maxRedeemAllowed);
-        const appliedPoints = pointsRequested ? Math.min(pointsRequested, maxApplicable) : maxApplicable;
+        const appliedPoints = pointsRequested !== undefined ? Math.min(pointsRequested, maxApplicable) : maxApplicable;
 
         res.json({
           currentBalance,
           maxRedeemAllowed,
           appliedPoints,
           discountVnd: appliedPoints,
-          finalSubtotalVnd: subtotalVnd - appliedPoints
+          finalSubtotalVnd: Math.max(0, remainingProductVnd - appliedPoints)
         });
       } catch (e) {
         next(e);

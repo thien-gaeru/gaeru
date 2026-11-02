@@ -262,6 +262,9 @@ async function listAbandonedCarts(pool, { page = 1, pageSize = 25, status = null
  */
 async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = null) {
   if (!mailer || !config?.smtp?.from) return { success: false, reason: 'Chưa cấu hình SMTP.' };
+  if (cart.recovery_consent === false || cart.status === 'opted_out') {
+    return { success: false, reason: 'Khách hàng chưa đồng ý hoặc đã hủy nhận email nhắc giỏ hàng.' };
+  }
 
   const normEmail = cart.email.toLowerCase();
 
@@ -405,6 +408,10 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
     return { success: true, messageId: result?.messageId };
   } catch (err) {
     await pool.query(
+      `UPDATE abandoned_carts SET next_reminder_at = now() + interval '30 minutes', updated_at = now() WHERE id = $1`,
+      [cart.id]
+    ).catch(() => {});
+    await pool.query(
       `INSERT INTO abandoned_cart_reminders (cart_id, stage, email, subject, status, error_message)
        VALUES ($1, $2, $3, $4, 'failed', $5)`,
       [cart.id, stage, normEmail, subject, err.message]
@@ -419,16 +426,25 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
 async function processAbandonedCartReminders(pool, config, mailer) {
   if (!mailer || !config?.smtp?.from) return false;
 
-  const candidate = (await pool.query(
-    `SELECT * FROM abandoned_carts
-     WHERE status = 'abandoned'
-       AND recovery_consent = true
-       AND next_reminder_at IS NOT NULL
-       AND next_reminder_at <= now()
-       AND reminder_count < max_reminders
-     ORDER BY next_reminder_at ASC, id
-     LIMIT 1`
-  )).rows[0];
+  const candidate = await withTransaction(pool, async (client) => {
+    const row = (await client.query(
+      `SELECT * FROM abandoned_carts
+       WHERE status = 'abandoned'
+         AND recovery_consent = true
+         AND next_reminder_at IS NOT NULL
+         AND next_reminder_at <= now()
+         AND reminder_count < max_reminders
+       ORDER BY next_reminder_at ASC, id
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED`
+    )).rows[0];
+    if (!row) return null;
+    await client.query(
+      `UPDATE abandoned_carts SET next_reminder_at = now() + interval '15 minutes', updated_at = now() WHERE id = $1`,
+      [row.id]
+    );
+    return row;
+  });
 
   if (!candidate) return false;
 

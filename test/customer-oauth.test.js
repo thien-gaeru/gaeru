@@ -4,12 +4,14 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { createApp } = require('../src/app');
 const { verifyGoogleToken, parseJwt } = require('../src/customer-oauth');
+const {
+  signTestGoogleIdToken,
+  signAttackerSelfSignedJwt,
+  createTestGoogleOAuthClient
+} = require('./helpers/google-id-token');
 
-function makeJwt(payload, header = { alg: 'RS256', typ: 'JWT' }) {
-  const encHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-  const encPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  return `${encHeader}.${encPayload}.fake_mock_signature`;
-}
+const testOAuthClient = createTestGoogleOAuthClient();
+const makeJwt = (payload, header) => signTestGoogleIdToken(payload, { header });
 
 const baseConfig = {
   NODE_ENV: 'test',
@@ -20,7 +22,7 @@ const baseConfig = {
   GOOGLE_CLIENT_ID: 'test-google-client-id.apps.googleusercontent.com',
 };
 
-async function startApp(context, { pool, config = baseConfig } = {}) {
+async function startApp(context, { pool, config = baseConfig, oauthClient = testOAuthClient } = {}) {
   const adaptedPool = Object.create(pool);
   adaptedPool.query = (sql, ...args) =>
     sql.includes('account_security')
@@ -38,6 +40,7 @@ async function startApp(context, { pool, config = baseConfig } = {}) {
   const app = createApp({
     config,
     pool: adaptedPool,
+    oauthClient,
     sessionStore: new session.MemoryStore()
   });
   const server = app.listen(0, '127.0.0.1');
@@ -76,43 +79,82 @@ test('verifyGoogleToken validates valid token and catches violations', async () 
   };
 
   const validResult = await verifyGoogleToken(makeJwt(validPayload), {
-    googleClientId: 'test-google-client-id.apps.googleusercontent.com'
+    googleClientId: 'test-google-client-id.apps.googleusercontent.com',
+    oauthClient: testOAuthClient
   });
   assert.equal(validResult.sub, 'google-sub-1001');
   assert.equal(validResult.email, 'user@gmail.com');
   assert.equal(validResult.name, 'Google User');
   assert.equal(validResult.picture, 'https://lh3.googleusercontent.com/avatar');
 
+  // Demo token rejected in all environments (GAERU-001)
+  await assert.rejects(
+    () => verifyGoogleToken('mock-google-demo-token', {
+      googleClientId: validPayload.aud,
+      oauthClient: testOAuthClient
+    }),
+    (err) => err.status === 401
+  );
+
+  // Self-signed JWT rejected in all environments (GAERU-002)
+  await assert.rejects(
+    () => verifyGoogleToken(signAttackerSelfSignedJwt(validPayload), {
+      googleClientId: validPayload.aud,
+      oauthClient: testOAuthClient
+    }),
+    (err) => err.status === 401
+  );
+
+  // Missing Client ID rejected safely (GAERU-002)
+  await assert.rejects(
+    () => verifyGoogleToken(makeJwt(validPayload), {
+      googleClientId: '',
+      oauthClient: testOAuthClient
+    }),
+    (err) => err.status === 503
+  );
+
   // Expired
   const expiredPayload = { ...validPayload, exp: Math.floor(Date.now() / 1000) - 400 };
   await assert.rejects(
-    () => verifyGoogleToken(makeJwt(expiredPayload), { googleClientId: validPayload.aud }),
+    () => verifyGoogleToken(makeJwt(expiredPayload), {
+      googleClientId: validPayload.aud,
+      oauthClient: testOAuthClient
+    }),
     /Mã xác thực Google đã hết hạn/
   );
 
   // Invalid issuer
   const invalidIss = { ...validPayload, iss: 'https://attacker.com' };
   await assert.rejects(
-    () => verifyGoogleToken(makeJwt(invalidIss)),
+    () => verifyGoogleToken(makeJwt(invalidIss), {
+      googleClientId: validPayload.aud,
+      oauthClient: testOAuthClient
+    }),
     /Nguồn cấp chứng thực Google không hợp lệ/
   );
 
   // Audience mismatch
   await assert.rejects(
-    () => verifyGoogleToken(makeJwt(validPayload), { googleClientId: 'different-client-id' }),
+    () => verifyGoogleToken(makeJwt(validPayload), {
+      googleClientId: 'different-client-id',
+      oauthClient: testOAuthClient
+    }),
     /Mã ứng dụng Google Client ID không khớp/
   );
 
   // Unverified email
   const unverifiedEmail = { ...validPayload, email_verified: false };
   await assert.rejects(
-    () => verifyGoogleToken(makeJwt(unverifiedEmail)),
+    () => verifyGoogleToken(makeJwt(unverifiedEmail), {
+      googleClientId: validPayload.aud,
+      oauthClient: testOAuthClient
+    }),
     /Email Google chưa được xác minh/
   );
 });
 
-
-test('GET /api/customer-auth/oauth/config returns client configuration', async (context) => {
+test('GET /api/customer-auth/oauth/config returns client configuration and disables when Client ID missing', async (context) => {
   const pool = { query: async () => ({ rows: [] }) };
   const baseUrl = await startApp(context, { pool });
 
@@ -120,7 +162,19 @@ test('GET /api/customer-auth/oauth/config returns client configuration', async (
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.google.enabled, true);
+  assert.equal(data.google.configured, true);
   assert.equal(data.google.clientId, 'test-google-client-id.apps.googleusercontent.com');
+
+  const noClientUrl = await startApp(context, {
+    pool,
+    config: { ...baseConfig, GOOGLE_CLIENT_ID: '' }
+  });
+  const resDisabled = await fetch(`${noClientUrl}/api/customer-auth/oauth/config`);
+  assert.equal(resDisabled.status, 200);
+  const disabledData = await resDisabled.json();
+  assert.equal(disabledData.google.enabled, false);
+  assert.equal(disabledData.google.configured, false);
+  assert.equal(disabledData.google.clientId, '');
 });
 
 test('POST /api/customer-auth/oauth/google creates a new customer and returns session', async (context) => {
@@ -199,7 +253,7 @@ test('POST /api/customer-auth/oauth/google prevents account takeover on existing
   };
 
   const pool = {
-    query: async (sql, values) => {
+    query: async (sql) => {
       if (sql.includes('auth_identities')) return { rows: [] };
       if (sql.includes('customers WHERE google_id = ')) return { rows: [] };
       if (sql.includes('lower(email) = ')) return { rows: [{ ...existingCustomer }] };
@@ -287,6 +341,7 @@ test('POST /api/customer-auth/oauth/google rejects blocked or deleted accounts',
   const data = await res.json();
   assert.match(data.error, /Tài khoản đã bị khóa/);
 });
+
 test('Helmet sets Cross-Origin-Opener-Policy: same-origin-allow-popups for OAuth popups', async (context) => {
   const pool = { query: async () => ({ rows: [] }) };
   const baseUrl = await startApp(context, { pool });
@@ -294,7 +349,7 @@ test('Helmet sets Cross-Origin-Opener-Policy: same-origin-allow-popups for OAuth
   assert.equal(res.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups');
 });
 
-test('POST /account.html redirects to #customer-account when receiving valid Google credential', async (context) => {
+test('POST /account.html redirects to #customer-account when receiving valid Google credential and GIS CSRF', async (context) => {
   let created = false;
   const pool = {
     query: async (sql, values) => {
@@ -329,12 +384,14 @@ test('POST /account.html redirects to #customer-account when receiving valid Goo
     exp: Math.floor(Date.now() / 1000) + 3600
   });
 
+  const gisCsrf = 'gis-csrf-redirect-token-01';
   const res = await fetch(`${baseUrl}/account.html`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: `g_csrf_token=${gisCsrf}`
     },
-    body: new URLSearchParams({ credential: googleJwt }).toString(),
+    body: new URLSearchParams({ credential: googleJwt, g_csrf_token: gisCsrf }).toString(),
     redirect: 'manual'
   });
 
@@ -344,11 +401,11 @@ test('POST /account.html redirects to #customer-account when receiving valid Goo
   assert.ok(res.headers.get('set-cookie')?.includes('gaeru.sid'));
 });
 
-test('POST /account.html redirects to ?oauthError=... on credential verification failure', async (context) => {
+test('POST /account.html rejects missing GIS CSRF with 403 and redirects to ?oauthError=... on invalid token', async (context) => {
   const pool = { query: async () => ({ rows: [] }) };
   const baseUrl = await startApp(context, { pool });
 
-  const res = await fetch(`${baseUrl}/account.html`, {
+  const missingCsrfRes = await fetch(`${baseUrl}/account.html`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
@@ -356,9 +413,20 @@ test('POST /account.html redirects to ?oauthError=... on credential verification
     body: new URLSearchParams({ credential: 'invalid-token' }).toString(),
     redirect: 'manual'
   });
+  assert.equal(missingCsrfRes.status, 403);
+
+  const gisCsrf = 'gis-csrf-redirect-token-02';
+  const res = await fetch(`${baseUrl}/account.html`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Cookie: `g_csrf_token=${gisCsrf}`
+    },
+    body: new URLSearchParams({ credential: 'invalid-token', g_csrf_token: gisCsrf }).toString(),
+    redirect: 'manual'
+  });
 
   assert.equal(res.status, 302);
   const loc = res.headers.get('location');
   assert.ok(loc.startsWith('/account.html?oauthError='));
 });
-

@@ -221,6 +221,7 @@ async function resolveBarcode(pool, rawCode, { actor = null, logScan = true } = 
       verRes = await pool.query(`
         INSERT INTO order_pack_verifications (order_id, status, total_items, scanned_items, items_checklist)
         VALUES ($1, 'packing', $2, 0, $3)
+        ON CONFLICT (order_id) DO UPDATE SET updated_at = order_pack_verifications.updated_at
         RETURNING *
       `, [o.id, totalItems, JSON.stringify(checklist)]);
     }
@@ -384,7 +385,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
     `, [variant.id, newStock]);
 
     // 5. Insert movement record
-    const eventKey = `barcode_inbound:${variant.id}:${targetWhId}:${Date.now()}`;
+    const eventKey = `barcode_inbound:${variant.id}:${targetWhId}:${Date.now()}:${require('node:crypto').randomUUID().slice(0, 8)}`;
     await client.query(`
       INSERT INTO inventory_movements (
         event_key, warehouse_id, variant_id, sku, product_name, variant_name,
@@ -416,6 +417,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
       metadata: { sku: variant.sku, delta: qty, reason }
     });
 
+    try { require('../cache').flushAllCache(); } catch {}
     return {
       ok: true,
       variantId: variant.id,
@@ -496,7 +498,8 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
         WHERE id = $1
       `, [variant.id, newStock]);
 
-      const eventKey = `barcode_cycle_count:${variant.id}:${targetWhId}:${Date.now()}`;
+      const eventKey = `barcode_cycle_count:${variant.id}:${targetWhId}:${Date.now()}:${require('node:crypto').randomUUID().slice(0, 8)}`;
+      try { require('../cache').flushAllCache(); } catch {}
       await client.query(`
         INSERT INTO inventory_movements (
           event_key, warehouse_id, variant_id, sku, product_name, variant_name,
@@ -552,10 +555,19 @@ async function verifyPackItem(pool, { orderId, scannedCode, actor = null }) {
   if (!code) throw fail("Mã vạch món hàng không được để trống", 400);
 
   return await withTransaction(pool, async (client) => {
-    // 1. Lock order
-    const ordRes = await client.query(`SELECT id, order_number, status FROM orders WHERE id = $1 FOR UPDATE`, [normOrderId]);
+    // 1. Lock order & verify fulfillment eligibility
+    const ordRes = await client.query(
+      `SELECT id, order_number, status, payment_method, payment_status, return_completed_at FROM orders WHERE id = $1 FOR UPDATE`,
+      [normOrderId]
+    );
     if (ordRes.rows.length === 0) throw fail("Không tìm thấy đơn hàng", 404);
     const order = ordRes.rows[0];
+    if (order.status === "cancelled" || order.return_completed_at) {
+      throw fail("Không thể đóng gói đơn hàng đã hủy hoặc đã hoàn trả.", 409);
+    }
+    if (order.payment_method !== "cod" && order.payment_status !== "paid") {
+      throw fail("Đơn trả trước chưa hoàn tất thanh toán; không thể đóng gói xuất kho.", 409);
+    }
 
     // 2. Fetch or create verification record
     let verRes = await client.query(`SELECT * FROM order_pack_verifications WHERE order_id = $1 FOR UPDATE`, [normOrderId]);
@@ -663,9 +675,25 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
   if (!normOrderId) throw fail("Mã đơn hàng không được để trống", 400);
 
   return await withTransaction(pool, async (client) => {
-    const ordRes = await client.query(`SELECT id, order_number, status FROM orders WHERE id = $1 FOR UPDATE`, [normOrderId]);
+    const ordRes = await client.query(
+      `SELECT id, order_number, status, payment_method, payment_status, return_completed_at FROM orders WHERE id = $1 FOR UPDATE`,
+      [normOrderId]
+    );
     if (ordRes.rows.length === 0) throw fail("Không tìm thấy đơn hàng", 404);
     const order = ordRes.rows[0];
+    if (order.status === "cancelled" || order.return_completed_at) {
+      throw fail("Không thể xuất kho đơn hàng đã hủy hoặc đã hoàn trả.", 409);
+    }
+    if (order.payment_method !== "cod" && order.payment_status !== "paid") {
+      throw fail("Đơn trả trước chưa thanh toán; không thể xuất kho.", 409);
+    }
+    const openRev = await client.query(
+      "SELECT 1 FROM order_reviews WHERE order_id = $1 AND resolved_at IS NULL LIMIT 1",
+      [normOrderId]
+    );
+    if (openRev.rows.length > 0) {
+      throw fail("Đơn hàng đang chờ xác minh; vui lòng đối chiếu trước khi xuất kho.", 409);
+    }
 
     const verRes = await client.query(`SELECT * FROM order_pack_verifications WHERE order_id = $1 FOR UPDATE`, [normOrderId]);
     if (verRes.rows.length === 0 || verRes.rows[0].status !== "verified") {
@@ -689,7 +717,7 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
       await client.query(`
         UPDATE carrier_shipments
         SET status = 'delivering', updated_at = now()
-        WHERE order_id = $1 AND (tracking_number = $2 OR tracking_number IS NOT NULL)
+        WHERE order_id = $1 AND tracking_number = $2 AND status <> 'cancelled'
       `, [normOrderId, trackingCode]);
     }
 

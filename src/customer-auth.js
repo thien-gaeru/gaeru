@@ -218,13 +218,14 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
     try {
       const result = await pool.query(
         `SELECT id, full_name AS "fullName", email, phone,
-                email_verified_at IS NOT NULL AS "emailVerified", active,
-                phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt"
+                email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt",
+                phone_invalid_at AS "phoneInvalidAt", lock_reason AS "lockReason", created_at AS "createdAt",
+                google_id AS "googleId", reg_email_failed_at AS "regEmailFailedAt"
          FROM customers WHERE id = $1`,
         [customer.id]
       );
       const currentCustomer = result.rows[0];
-      if (!currentCustomer || currentCustomer.active === false) {
+      if (!currentCustomer || currentCustomer.active === false || currentCustomer.deletedAt) {
         delete req.session.customer;
         return res.json({ authenticated: false, customer: null });
       }

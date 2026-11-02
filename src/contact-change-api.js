@@ -7,7 +7,7 @@ const nodemailer=require('nodemailer');
 const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
-const hash=value=>createHash('sha256').update(value).digest('hex');
+const hash=value=>createHash('sha256').update(String(value||'')).digest('hex');
 const schema=z.object({email:z.string().trim().email().max(254).transform(v=>v.toLowerCase()),phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).transform(v=>v.replace(/[().\-\s]/g,'')).refine(v=>/^\+?\d{8,15}$/.test(v)),password:z.string().min(1).max(200)}).strict();
 const fail=(status,message)=>Object.assign(Error(message),{status});
 function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
@@ -20,7 +20,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
   const a=parsed.data;let requestId;
   try{
    const owner=(await pool.query('SELECT id,email,phone,password_hash FROM customers WHERE id=$1 AND active=true',[req.customerId])).rows[0];
-   if(!owner||!require('./audit-fixes/password-rules').withinBcryptLimit(a.password)||!await bcrypt.compare(a.password,owner.password_hash))throw fail(403,'Mật khẩu hiện tại không đúng.');
+   if(!owner||!owner.password_hash||!require('./audit-fixes/password-rules').withinBcryptLimit(a.password)||!await bcrypt.compare(a.password,owner.password_hash))throw fail(403,owner&&!owner.password_hash?'Tài khoản Google chưa thiết lập mật khẩu riêng; vui lòng tạo mật khẩu trước khi đổi liên hệ.':'Mật khẩu hiện tại không đúng.');
    if(owner.email===a.email&&owner.phone===a.phone)return res.json({unchanged:true,message:'Email và số điện thoại không thay đổi.'});
    const oldToken=randomBytes(32).toString('base64url'),newToken=owner.email===a.email?null:randomBytes(32).toString('base64url');
    requestId=await withTransaction(pool,async client=>{
@@ -60,7 +60,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
     const oldConfirmed=row.old_confirmed||old,newConfirmed=row.new_confirmed||!old;
     await client.query('UPDATE customer_contact_changes SET old_confirmed=$2,new_confirmed=$3 WHERE id=$1',[row.id,oldConfirmed,newConfirmed]);
     if(!oldConfirmed||!newConfirmed)return {pending:true,message:'Đã ghi nhận xác nhận. Hãy mở liên kết trong hộp thư còn lại để hoàn tất thay đổi.'};
-    const customer=(await client.query('UPDATE customers SET email=$2,phone=$3,email_verified_at=now(),updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,true AS "emailVerified"',[req.customerId,row.new_email,row.new_phone])).rows[0];
+    const customer=(await client.query('UPDATE customers SET email=$2,phone=$3,email_verified_at=now(),reg_email_failed_at=NULL,phone_invalid_at=NULL,updated_at=now() WHERE id=$1 RETURNING id,full_name AS "fullName",email,phone,true AS "emailVerified"',[req.customerId,row.new_email,row.new_phone])).rows[0];
     await client.query('UPDATE customer_contact_changes SET applied_at=now() WHERE id=$1',[row.id]);
     await client.query('DELETE FROM customer_password_reset_tokens WHERE customer_id=$1',[req.customerId]);
     await client.query('DELETE FROM customer_email_verification_tokens WHERE customer_id=$1',[req.customerId]);

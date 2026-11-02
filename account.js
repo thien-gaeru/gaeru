@@ -570,18 +570,6 @@ function showOAuthConfigModal(provider, cfg) {
       </code>
     </div>
 
-    ${cfg?.isDev ? `
-    <div style="background:#e7f5ee;border:1px solid #187443;border-radius:14px;padding:14px;margin-bottom:20px;font-size:13px;line-height:1.6;color:#187443;">
-      <strong>🧪 Chế độ phát triển (Development / Admin Test):</strong><br>
-      Bạn có thể thử nghiệm ngay luồng đăng nhập mà không cần Client ID thật.
-      <div style="margin-top:10px;">
-        <button type="button" class="button-blue" data-oauth-demo-test style="width:100%;min-height:38px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:600;">
-          Thử nghiệm Đăng nhập Mock Google ngay
-        </button>
-      </div>
-    </div>
-    ` : ''}
-
     <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
       <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;padding:9px 16px;border-radius:20px;font-size:13px;color:#0071e3;">
         Mở trang cấp mã Google ↗
@@ -595,25 +583,6 @@ function showOAuthConfigModal(provider, cfg) {
   modal.querySelectorAll('[data-oauth-dialog-close]').forEach(btn => {
     btn.onclick = () => modal.close();
   });
-
-  const demoBtn = modal.querySelector('[data-oauth-demo-test]');
-  if (demoBtn) {
-    demoBtn.onclick = async () => {
-      modal.close();
-      try {
-        setAccountFeedback('Đang mô phỏng đăng nhập Google…');
-        const result = await accountRequest('/api/customer-auth/oauth/google', { credential: 'mock-google-demo-token' });
-        accountCsrfToken = result.csrfToken;
-        showCustomerProfile(result.customer);
-    if (['#login', '#register'].includes(window.location.hash)) {
-      history.replaceState(null, '', window.location.pathname + '#customer-account');
-    }
-        setAccountFeedback('Đăng nhập thành công tài khoản Google (Demo)!');
-      } catch (err) {
-        setAccountFeedback(err.message, true);
-      }
-    };
-  }
 
   if (typeof modal.showModal === 'function') {
     modal.showModal();
@@ -698,7 +667,7 @@ async function initGoogleOAuth(interactive = false) {
             history.replaceState(null, '', window.location.pathname + '#customer-account');
             setAccountFeedback('Đăng nhập Google thành công!');
             const returnUrl = new URLSearchParams(window.location.search).get('returnUrl') || new URLSearchParams(window.location.search).get('redirect');
-            if (returnUrl && returnUrl.startsWith('/')) {
+            if (returnUrl && /^\/(?!\/|\\)/.test(returnUrl)) {
               setTimeout(() => { window.location.href = returnUrl; }, 600);
             }
           } catch (err) {

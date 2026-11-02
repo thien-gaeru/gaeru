@@ -65,7 +65,10 @@ function createWafShield() {
     // 3. Block SQLi and XSS Injection Probes in Query String
     const queryString = rawUrl.includes('?') ? rawUrl.slice(rawUrl.indexOf('?') + 1) : '';
     if (queryString) {
-      const decodedQuery = decodeURIComponent(queryString).replace(/\+/g, ' ');
+      let decodedQuery = queryString.replace(/\+/g, ' ');
+      try {
+        decodedQuery = decodeURIComponent(queryString).replace(/\+/g, ' ');
+      } catch {}
       for (const pattern of MALICIOUS_QUERY_PATTERNS) {
         if (pattern.test(decodedQuery)) {
           securityMetrics.threatsBlocked++;

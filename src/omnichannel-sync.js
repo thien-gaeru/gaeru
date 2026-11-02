@@ -98,42 +98,104 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
 
   const items = Array.isArray(marketplaceOrder.items) ? marketplaceOrder.items : [];
 
-  // Case A: Order confirmed / processing / shipped ➔ Deduct stock if not yet deducted
+  // Case A: Order confirmed / processing / shipped ➔ Deduct stock atomically across warehouse_stock & product_variants
   if (autoDeductStock && ['confirmed', 'processing', 'shipped', 'completed'].includes(normStatus) && !marketplaceOrder.stock_deducted) {
+    let anyDeducted = false;
+    const enrichedItems = [];
     for (const item of items) {
       const variantId = await resolveVariantForSku(client, channel, shopId, item.externalSku);
-      if (variantId) {
-        const qty = Number(item.quantity) || 1;
+      const requestedQty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      if (!variantId) {
+        enrichedItems.push({ ...item, deductedQuantity: 0 });
+        continue;
+      }
+      const varLock = (await client.query(
+        'SELECT id, stock_quantity FROM product_variants WHERE id = $1 FOR UPDATE',
+        [variantId]
+      )).rows[0];
+      if (!varLock) {
+        enrichedItems.push({ ...item, variantId, deductedQuantity: 0 });
+        continue;
+      }
+
+      const whRows = (await client.query(
+        `SELECT ws.warehouse_id, ws.quantity
+         FROM warehouse_stock ws
+         JOIN warehouses w ON w.id = ws.warehouse_id
+         WHERE ws.variant_id = $1 AND w.active = true
+         ORDER BY (w.code = 'MAIN') DESC, ws.quantity DESC
+         FOR UPDATE OF ws`,
+        [variantId]
+      )).rows;
+
+      let actualDeducted = 0;
+      const warehouseAllocations = [];
+      if (whRows.length > 0) {
+        let remaining = Math.min(requestedQty, Math.max(0, Number(varLock.stock_quantity) || 0));
+        for (const wh of whRows) {
+          if (remaining <= 0) break;
+          const take = Math.min(remaining, Math.max(0, Number(wh.quantity) || 0));
+          if (take <= 0) continue;
+          await client.query(
+            'UPDATE warehouse_stock SET quantity = quantity - $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2',
+            [wh.warehouse_id, variantId, take]
+          );
+          warehouseAllocations.push({ warehouseId: wh.warehouse_id, quantity: take });
+          actualDeducted += take;
+          remaining -= take;
+        }
+      } else {
+        actualDeducted = Math.min(requestedQty, Math.max(0, Number(varLock.stock_quantity) || 0));
+      }
+
+      if (actualDeducted > 0) {
+        anyDeducted = true;
         await client.query(
           `UPDATE product_variants
            SET stock_quantity = GREATEST(0, stock_quantity - $2), updated_at = now()
            WHERE id = $1`,
-          [variantId, qty]
+          [variantId, actualDeducted]
         );
 
-        // Record stock movement into marketplace sync ledger
         const eventKey = `marketplace-sale:${channel}:${shopId}:${order.externalOrderId}:${variantId}`;
         await client.query(
           `INSERT INTO marketplace_sync_events (channel, event_type, external_order_id, event_key, payload, processed)
            VALUES ($1, 'stock_deduction', $2, $3, $4, true)
            ON CONFLICT (event_key) DO NOTHING`,
-          [channel, order.externalOrderId, eventKey, JSON.stringify({ variantId, quantity: qty })]
+          [channel, order.externalOrderId, eventKey, JSON.stringify({ variantId, quantity: actualDeducted, warehouseAllocations })]
         );
       }
+      enrichedItems.push({ ...item, variantId, deductedQuantity: actualDeducted, warehouseAllocations });
     }
-    await client.query(
-      `UPDATE marketplace_orders SET stock_deducted = true, updated_at = now() WHERE id = $1`,
-      [marketplaceOrder.id]
-    );
-    marketplaceOrder.stock_deducted = true;
+    if (anyDeducted || items.length > 0) {
+      await client.query(
+        `UPDATE marketplace_orders SET stock_deducted = true, items = $2::jsonb, updated_at = now() WHERE id = $1`,
+        [marketplaceOrder.id, JSON.stringify(enrichedItems)]
+      );
+      marketplaceOrder.stock_deducted = true;
+      marketplaceOrder.items = enrichedItems;
+      try { require('../cache').flushAllCache(); } catch {}
+    }
   }
 
   // Case B: Order cancelled or returned ➔ REVERSE STOCK LEDGER (HOÀN TỒN ĐƠN SÀN HỦY/TRẢ)
   if (['cancelled', 'returned'].includes(normStatus) && marketplaceOrder.stock_deducted && !marketplaceOrder.stock_reversed) {
-    for (const item of items) {
-      const variantId = await resolveVariantForSku(client, channel, shopId, item.externalSku);
-      if (variantId) {
-        const qty = Number(item.quantity) || 1;
+    const sourceItems = Array.isArray(marketplaceOrder.items) ? marketplaceOrder.items : items;
+    for (const item of sourceItems) {
+      const variantId = item.variantId || await resolveVariantForSku(client, channel, shopId, item.externalSku);
+      const qty = item.deductedQuantity !== undefined
+        ? Math.max(0, Math.floor(Number(item.deductedQuantity) || 0))
+        : Math.max(1, Math.floor(Number(item.quantity) || 1));
+      if (variantId && qty > 0) {
+        if (Array.isArray(item.warehouseAllocations) && item.warehouseAllocations.length > 0) {
+          for (const alloc of item.warehouseAllocations) {
+            if (!alloc?.warehouseId || !(Number(alloc.quantity) > 0)) continue;
+            await client.query(
+              'UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2',
+              [alloc.warehouseId, variantId, Number(alloc.quantity)]
+            );
+          }
+        }
         await client.query(
           `UPDATE product_variants
            SET stock_quantity = stock_quantity + $2, updated_at = now()
@@ -156,6 +218,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
       [marketplaceOrder.id]
     );
     marketplaceOrder.stock_reversed = true;
+    try { require('../cache').flushAllCache(); } catch {}
 
     await appendAudit(client, {
       actor: actor || { username: 'omnichannel_worker', source: 'marketplace' },
@@ -197,7 +260,10 @@ async function handleMarketplaceWebhook(pool, config, channel, payload, { header
     return { success: false, reason: 'Không tìm thấy mã đơn trong webhook payload.' };
   }
 
-  const eventKey = `${channel}:${externalOrderId}:${rawStatus}:${Date.now().toString(36)}`;
+  const rawEventId = String(payload.event_id || payload.eventId || payload.request_id || payload.timestamp || payload.create_time || '').trim();
+  const eventKey = rawEventId
+    ? `${channel}:${externalOrderId}:${rawStatus}:${rawEventId}`
+    : `${channel}:${externalOrderId}:${rawStatus}`;
 
   return withTransaction(pool, async client => {
     // Check if event already processed

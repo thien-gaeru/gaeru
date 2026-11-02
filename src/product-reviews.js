@@ -58,11 +58,14 @@ async function verifyBuyer(pool, { productId, email, orderNumber = null, custome
     JOIN order_items oi ON oi.order_id = o.id
     JOIN product_variants pv ON pv.id = oi.variant_id
     WHERE pv.product_id = $1
+      AND ($3::text IS NULL OR o.order_number = $3)
       AND (
-        (lower(trim(o.email)) = $2 AND ($3::text IS NULL OR o.order_number = $3))
+        lower(trim(o.email)) = $2
         OR (o.customer_id = $4 AND $4::uuid IS NOT NULL)
       )
-      AND o.status NOT IN ('cancelled')
+      AND o.status = 'completed'
+      AND o.return_completed_at IS NULL
+      AND (o.payment_method = 'cod' OR o.payment_status = 'paid')
     ORDER BY o.created_at DESC
     LIMIT 1
   `;
@@ -261,21 +264,25 @@ async function voteReviewHelpful(pool, { reviewId, voterKey }) {
   if (!reviewId || !voterKey) throw fail('Thông tin không hợp lệ.', 400);
 
   return await withTransaction(pool, async client => {
-    // Check if voter already voted
-    const voted = (await client.query(
-      `SELECT 1 FROM product_review_helpful_votes WHERE review_id = $1 AND voter_key = $2`,
-      [reviewId, voterKey]
-    )).rows.length > 0;
-
-    if (voted) {
-      const current = (await client.query(`SELECT helpful_count FROM product_reviews WHERE id = $1`, [reviewId])).rows[0];
-      return { success: false, alreadyVoted: true, helpfulCount: current?.helpful_count || 0 };
+    const reviewRow = (await client.query(
+      `SELECT id, status, helpful_count FROM product_reviews WHERE id = $1 FOR UPDATE`,
+      [reviewId]
+    )).rows[0];
+    if (!reviewRow || reviewRow.status !== 'approved') {
+      throw fail('Không tìm thấy đánh giá hợp lệ để bình chọn.', 404);
     }
 
-    await client.query(
-      `INSERT INTO product_review_helpful_votes (review_id, voter_key) VALUES ($1, $2)`,
+    const voteInsert = await client.query(
+      `INSERT INTO product_review_helpful_votes (review_id, voter_key)
+       VALUES ($1, $2)
+       ON CONFLICT (review_id, voter_key) DO NOTHING
+       RETURNING review_id`,
       [reviewId, voterKey]
     );
+
+    if (voteInsert.rows.length === 0) {
+      return { success: false, alreadyVoted: true, helpfulCount: reviewRow.helpful_count || 0 };
+    }
 
     const updated = (await client.query(
       `UPDATE product_reviews

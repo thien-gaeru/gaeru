@@ -6,6 +6,7 @@ const { randomBytes, randomUUID } = require('node:crypto');
 const { PGlite } = require('@electric-sql/pglite');
 const { createApp } = require('../src/app');
 const { migrateDatabase } = require('../src/migrate');
+const { signTestGoogleIdToken, createTestGoogleOAuthClient } = require('./helpers/google-id-token');
 
 async function createTestDatabase() {
   const db = await PGlite.create();
@@ -60,6 +61,8 @@ test('Comprehensive Deep Audit & Real-World Simulation: Full End-to-End Business
     ADMIN_PASSWORD_HASH: bcrypt.hashSync(adminPassword, 4),
     PUBLIC_BASE_URL: 'https://gaeru.com',
     STORE_ORDERS_ENABLED: true,
+    GOOGLE_CLIENT_ID: 'gaeru-sim-google-client-id.apps.googleusercontent.com',
+    oauthClient: createTestGoogleOAuthClient(),
     smtp: { from: 'business@gaeru.com', publicBaseUrl: 'https://gaeru.com' }
   };
 
@@ -259,7 +262,14 @@ test('Comprehensive Deep Audit & Real-World Simulation: Full End-to-End Business
   const oauthClient = createHttpClient();
   await oauthClient.fetchCsrf();
   const googleLoginRes = await oauthClient.call('/api/customer-auth/oauth/google', 'POST', {
-    credential: 'mock-google-demo-token'
+    credential: signTestGoogleIdToken({
+      iss: 'https://accounts.google.com',
+      aud: 'gaeru-sim-google-client-id.apps.googleusercontent.com',
+      sub: 'google-sim-sub-001',
+      email: 'khachhang.google.demo@gmail.com',
+      email_verified: true,
+      name: 'Khách hàng Google'
+    })
   });
   assert.equal(googleLoginRes.status, 200, 'Đăng nhập Google OAuth thành công');
   assert.equal(googleLoginRes.data.customer.email, 'khachhang.google.demo@gmail.com');

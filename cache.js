@@ -36,6 +36,7 @@ function clearHtmlCacheOnly() {
 
 function flushAllCache() {
   ramCache.clear();
+  stockMap.clear();
   if (edgePurgeService && typeof edgePurgeService.purgeCatalog === 'function') {
     edgePurgeService.purgeCatalog().catch(() => {});
   }
@@ -170,17 +171,23 @@ function smartPageCache(swrMs = 3000) {
   };
 }
 
+function isValidOrderQuantity(qty) {
+  return typeof qty === 'number' && Number.isSafeInteger(qty) && qty >= 1 && qty <= 99;
+}
+
 // 3. Giữ chỗ & trừ tồn kho nguyên tử (Chống bán lố 100%)
 function reserveStock(skuOrId, qty) {
   const current = stockMap.get(skuOrId) ?? 0;
-  const quantity = Number.parseInt(qty, 10);
-  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+  if (!isValidOrderQuantity(qty)) {
     return { ok: false, remaining: current, error: 'INVALID_QUANTITY' };
   }
-  if (current < quantity) {
+  if (!stockMap.has(skuOrId)) {
+    return { ok: false, remaining: 0, error: 'CACHE_MISS' };
+  }
+  if (current < qty) {
     return { ok: false, remaining: current, error: 'INSUFFICIENT_STOCK' };
   }
-  const remaining = current - quantity;
+  const remaining = current - qty;
   stockMap.set(skuOrId, remaining);
   return { ok: true, remaining };
 }
@@ -188,18 +195,22 @@ function reserveStock(skuOrId, qty) {
 // Hoàn kho nguyên tử khi lỗi hoặc hủy đơn
 function releaseStock(skuOrId, qty) {
   const current = stockMap.get(skuOrId) ?? 0;
-  const quantity = Number.parseInt(qty, 10);
-  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
-    return { ok: false, remaining: current };
+  if (!isValidOrderQuantity(qty)) {
+    return { ok: false, remaining: current, error: 'INVALID_QUANTITY' };
   }
-  const remaining = current + quantity;
+  if (!stockMap.has(skuOrId)) {
+    return { ok: false, remaining: 0, error: 'CACHE_MISS' };
+  }
+  const remaining = current + qty;
   stockMap.set(skuOrId, remaining);
   return { ok: true, remaining };
 }
 
 // Seed tồn kho từ DB
 function seedStock(skuOrId, qty) {
-  stockMap.set(skuOrId, Number.parseInt(qty, 10) || 0);
+  const num = typeof qty === 'number' ? qty : Number(qty);
+  if (!Number.isSafeInteger(num) || num < 0) return;
+  stockMap.set(skuOrId, num);
 }
 
 module.exports = {
@@ -209,6 +220,7 @@ module.exports = {
   inflight,
   getFreshData,
   smartPageCache,
+  isValidOrderQuantity,
   reserveStock,
   releaseStock,
   seedStock,

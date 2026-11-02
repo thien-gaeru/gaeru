@@ -48,7 +48,7 @@ function createCustomerCartRouter(pool) {
          FROM customer_cart_items c
          JOIN product_variants pv ON pv.id = c.variant_id
          JOIN products p ON p.id = pv.product_id
-         WHERE c.customer_id = $1 AND pv.active = true AND p.active = true
+         WHERE c.customer_id = $1 AND pv.active = true AND p.active = true AND p.deleted_at IS NULL
          ORDER BY c.updated_at DESC`,
         [req.customerId]
       );
@@ -79,17 +79,21 @@ function createCustomerCartRouter(pool) {
       const current = await withTransaction(pool, async client => {
         await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
         await client.query('DELETE FROM customer_cart_items WHERE customer_id=$1', [req.customerId]);
+        const mergedPut = new Map();
         for (const item of items) {
+          mergedPut.set(item.variantId, Math.min(99, (mergedPut.get(item.variantId) || 0) + item.quantity));
+        }
+        for (const [variantId, quantity] of mergedPut.entries()) {
           const variant = (await client.query(
-            'SELECT id FROM product_variants WHERE id=$1 AND active=true',
-            [item.variantId]
+            'SELECT pv.id FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id=$1 AND pv.active=true AND p.active=true AND p.deleted_at IS NULL',
+            [variantId]
           )).rows[0];
           if (variant) {
             await client.query(
               `INSERT INTO customer_cart_items(customer_id, variant_id, quantity, updated_at)
                VALUES ($1, $2, $3, now())
                ON CONFLICT (customer_id, variant_id) DO UPDATE SET quantity=EXCLUDED.quantity, updated_at=now()`,
-              [req.customerId, item.variantId, item.quantity]
+              [req.customerId, variantId, quantity]
             );
           }
         }
@@ -124,7 +128,7 @@ function createCustomerCartRouter(pool) {
 
         for (const item of localItems) {
           const variant = (await client.query(
-            'SELECT id FROM product_variants WHERE id=$1 AND active=true',
+            'SELECT pv.id FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id=$1 AND pv.active=true AND p.active=true AND p.deleted_at IS NULL',
             [item.variantId]
           )).rows[0];
           if (!variant) continue;

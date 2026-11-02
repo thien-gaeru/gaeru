@@ -77,6 +77,8 @@ function buildInvoicePayload(order, items = [], misaConfig = {}) {
     BuyerPhoneNumber: phone,
     SellerTaxCode: misaConfig.taxCode || "",
     Items: invoiceItems,
+    DiscountAmount: Math.max(0, Number(order.discount_vnd ?? order.discountVnd ?? 0)),
+    ShippingAmount: Math.max(0, Number(order.shipping_fee_vnd ?? order.shippingFeeVnd ?? 0)),
     TotalAmount: totalVnd,
     TotalVATAmount: 0
   };
@@ -164,14 +166,14 @@ async function issueInvoice(misaConfig, payload, { fetcher = fetch } = {}) {
   };
 }
 
-async function autoIssueForOrder(pool, config, orderId, { fetcher = fetch } = {}) {
+async function autoIssueForOrder(pool, config, orderId, { fetcher = fetch, manual = false } = {}) {
   if (!config || (!process.env.AUTH_ENCRYPTION_KEY && !config.SESSION_SECRET)) {
     return { skipped: true, reason: "unconfigured" };
   }
 
   const record = await readRecord(pool, config, "misa");
   const misa = record?.data;
-  if (!record?.version || !misa?.enabled || !misa?.autoIssue || !misa?.secret) {
+  if (!record?.version || !misa?.enabled || (!manual && !misa?.autoIssue) || !misa?.secret) {
     return { skipped: true, reason: "misa_not_enabled" };
   }
 
@@ -203,12 +205,14 @@ async function autoIssueForOrder(pool, config, orderId, { fetcher = fetch } = {}
     [orderId]
   );
   const documentId = docRes.rows[0]?.id || null;
+  const buyerName = docRes.rows[0]?.payload?.buyerName || order.customer_name || "";
   const buyerTaxCode = docRes.rows[0]?.payload?.buyerTaxCode || "";
   const buyerAddress = docRes.rows[0]?.payload?.buyerAddress || (order.address + (order.city ? ", " + order.city : ""));
   const buyerEmail = docRes.rows[0]?.payload?.buyerEmail || order.email || "";
 
   const payload = buildInvoicePayload({
     ...order,
+    buyer_name: buyerName,
     buyer_tax_code: buyerTaxCode,
     buyer_address: buyerAddress,
     buyer_email: buyerEmail
@@ -277,7 +281,7 @@ async function issueInvoiceForDocument(pool, config, documentId, misaConfig, { f
   const orderId = doc.reference || doc.payload?.orderId;
   if (!orderId) throw Object.assign(new Error("Hồ sơ hóa đơn không liên kết với mã đơn hàng hợp lệ."), { status: 400 });
 
-  const result = await autoIssueForOrder(pool, config, orderId, { fetcher });
+  const result = await autoIssueForOrder(pool, config, orderId, { fetcher, manual: true });
   if (!result.success && !result.einvoice) {
     if (result.reason === "already_issued") {
       return { success: true, alreadyIssued: true, einvoice: result.einvoice };

@@ -70,44 +70,56 @@ function calculateBundlePricing(items, bundles = []) {
     const primaryItems = bItems.filter(i => i.is_primary ?? i.isPrimary);
     const secondaryItems = bItems.filter(i => !(i.is_primary ?? i.isPrimary));
 
-    // Check if at least one primary item is in the cart with sufficient quantity
+    // Check if at least one primary item is in the cart with sufficient remaining unallocated quantity
     const matchingPrimary = primaryItems.find(pi => {
       const vId = pi.variant_id ?? pi.variantId;
       const inCart = itemMap.get(vId);
-      return inCart && inCart.quantity >= (pi.min_quantity ?? pi.minQuantity ?? 1);
+      const reqQty = pi.min_quantity ?? pi.minQuantity ?? 1;
+      return inCart && (inCart.quantity - (inCart.usedQuantity || 0)) >= reqQty;
     });
 
     if (!matchingPrimary) continue;
 
-    // Check if at least one secondary/cross-sell item is in the cart with sufficient quantity
+    // Check if at least one secondary/cross-sell item is in the cart with sufficient remaining unallocated quantity
     const matchingSecondaries = secondaryItems.filter(si => {
       const vId = si.variant_id ?? si.variantId;
       const inCart = itemMap.get(vId);
-      return inCart && inCart.quantity >= (si.min_quantity ?? si.minQuantity ?? 1);
+      const reqQty = si.min_quantity ?? si.minQuantity ?? 1;
+      return inCart && (inCart.quantity - (inCart.usedQuantity || 0)) >= reqQty;
     });
 
     if (!matchingSecondaries.length) continue;
 
-    // Calculate bundle discount
+    // Calculate bundle discount & cap against the matched combo items' value
     let discount = 0;
     const discountType = bundle.discount_type ?? bundle.discountType;
     const discountValue = Number(bundle.discount_value ?? bundle.discountValue) || 0;
 
+    const primaryVId = matchingPrimary.variant_id ?? matchingPrimary.variantId;
+    const primaryReqQty = matchingPrimary.min_quantity ?? matchingPrimary.minQuantity ?? 1;
+    const primaryValue = (itemMap.get(primaryVId)?.priceVnd || 0) * primaryReqQty;
+    const secondaryTotal = matchingSecondaries.reduce((sum, si) => {
+      const vId = si.variant_id ?? si.variantId;
+      const inCart = itemMap.get(vId);
+      return sum + ((inCart?.priceVnd || 0) * (si.min_quantity ?? si.minQuantity ?? 1));
+    }, 0);
+    const matchedBundleItemsValue = primaryValue + secondaryTotal;
+
     if (discountType === 'percent') {
-      // Percent discount on the cross-sell items included in the combo
-      const secondaryTotal = matchingSecondaries.reduce((sum, si) => {
-        const vId = si.variant_id ?? si.variantId;
-        const inCart = itemMap.get(vId);
-        return sum + (inCart.priceVnd * (si.min_quantity ?? si.minQuantity ?? 1));
-      }, 0);
       discount = Math.floor(secondaryTotal * discountValue / 100);
     } else {
-      // Fixed discount amount
-      discount = discountValue;
+      discount = Math.min(discountValue, matchedBundleItemsValue);
     }
 
     if (discount > 0) {
-      discount = Math.min(discount, subtotalVnd - totalDiscountVnd);
+      discount = Math.min(discount, matchedBundleItemsValue, subtotalVnd - totalDiscountVnd);
+      if (discount <= 0) continue;
+      const pEntry = itemMap.get(primaryVId);
+      if (pEntry) pEntry.usedQuantity = (pEntry.usedQuantity || 0) + primaryReqQty;
+      for (const si of matchingSecondaries) {
+        const sEntry = itemMap.get(si.variant_id ?? si.variantId);
+        if (sEntry) sEntry.usedQuantity = (sEntry.usedQuantity || 0) + (si.min_quantity ?? si.minQuantity ?? 1);
+      }
       totalDiscountVnd += discount;
       appliedBundles.push({
         bundleId: bundle.id,

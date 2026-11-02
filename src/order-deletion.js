@@ -81,7 +81,23 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   // E. Order restoration requests
   await client.query('DELETE FROM order_restoration_requests WHERE order_id = $1', [order.id]);
 
-  // F. Shipping selections
+  // E2. Refund/reconcile loyalty points before deleting order if customer exists and order was not cancelled
+  if (order.customer_id && order.status !== 'cancelled') {
+    try {
+      const { refundPoints } = require('./loyalty-api');
+      await refundPoints(client, {
+        customerId: order.customer_id,
+        orderId: order.id,
+        cycleKey: 'permanent-delete',
+        reason: 'Xóa vĩnh viễn đơn hàng #' + order.order_number,
+        actor
+      });
+    } catch (_) {}
+  }
+
+  // F. Carrier shipments, barcode pack verifications & shipping selections
+  await client.query('DELETE FROM carrier_shipments WHERE order_id = $1', [order.id]);
+  await client.query('DELETE FROM order_pack_verifications WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_shipping_selection WHERE order_id = $1', [order.id]);
 
   // G. Sales receipts (removes completely from sales reports, revenue figures)

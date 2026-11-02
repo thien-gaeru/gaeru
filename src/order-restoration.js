@@ -12,7 +12,7 @@ async function restoreOrder(client,{id,data,actor,inventory=require('./inventory
  if(previous){if(previous.order_id!==id||previous.request_hash!==hash||previous.actor_username!==actor.username)throw fail('Mã yêu cầu khôi phục đã được sử dụng cho nội dung khác.');return {...previous.result,alreadyRestored:true};}
  if(order.management_version!==data.version)throw fail('Đơn hàng vừa thay đổi. Tải lại trước khi khôi phục.');
  if(order.status!=='cancelled')throw fail('Chỉ khôi phục đơn đang ở trạng thái đã hủy.');
- if(order.return_completed_at||(await client.query("SELECT id FROM order_after_sales WHERE order_id=$1 AND kind='return' AND status='resolved'",[id])).rows.length)throw fail('Đơn đã hoàn trả xong; không thể khôi phục xử lý lại.');
+ if(order.return_completed_at||(await client.query("SELECT id FROM order_after_sales WHERE order_id=$1 AND kind='return' AND (return_type IS NULL OR return_type<>'exchange') AND status='resolved'",[id])).rows.length)throw fail('Đơn đã hoàn trả xong; không thể khôi phục xử lý lại.');
  if((await client.query("SELECT id FROM order_after_sales WHERE order_id=$1 AND status NOT IN ('resolved','rejected')",[id])).rows.length)throw fail('Hoàn tất hồ sơ hủy/hoàn trả đang mở trước khi khôi phục đơn.');
  const received=Number((await client.query('SELECT COALESCE(sum(amount_vnd),0) AS amount FROM sales_receipts WHERE order_id=$1',[id])).rows[0]?.amount||0);
  if(order.payment_status!=='pending'||received>0||(await client.query("SELECT id FROM payment_attempts WHERE order_id=$1 AND status='paid'",[id])).rows.length)throw fail('Đơn đã ghi nhận tiền cần đối soát/hoàn tiền riêng trước; không khôi phục tự động.');
@@ -26,8 +26,30 @@ async function restoreOrder(client,{id,data,actor,inventory=require('./inventory
   const redemption=(await client.query('SELECT * FROM voucher_redemptions WHERE order_id=$1 FOR UPDATE',[id])).rows[0];
   if(!redemption||!redemption.released)throw fail('Voucher của đơn chưa được giải phóng đúng trạng thái. Cần đối soát trước.');
   const selection=await require('./marketing').eligible(client,order.voucher_code,order.customer_id,order.subtotal_vnd,true);
-  if(selection.voucher.id!==redemption.voucher_id||selection.discountVnd!==order.discount_vnd)throw fail('Điều kiện hoặc mức giảm voucher đã thay đổi. Tạo đơn mới để xác nhận giá.');
+  if(selection.voucher.id!==redemption.voucher_id||Number(selection.discountVnd)!==Number(redemption.discount_vnd))throw fail('Điều kiện hoặc mức giảm voucher đã thay đổi. Tạo đơn mới để xác nhận giá.');
   await client.query('UPDATE voucher_redemptions SET released=false WHERE order_id=$1',[id]);
+ }
+ if(order.customer_id){
+  const netLoyalty=(await client.query(
+   `SELECT COALESCE(SUM(CASE WHEN type='redeem' THEN ABS(points) WHEN type='refund' AND points > 0 THEN -points ELSE 0 END),0)::int AS active_redeemed,
+           COALESCE(MAX(CASE WHEN type='redeem' THEN ABS(points) ELSE 0 END),0)::int AS last_redeemed
+    FROM customer_loyalty_ledger
+    WHERE customer_id=$1 AND order_id=$2`,
+   [order.customer_id,id]
+  )).rows[0];
+  if(Number(netLoyalty?.last_redeemed)>0 && Number(netLoyalty?.active_redeemed)===0){
+   const {redeemPoints}=require('./loyalty-api');
+   await redeemPoints(client,{
+    customerId:order.customer_id,
+    orderId:id,
+    pointsToRedeem:Number(netLoyalty.last_redeemed),
+    orderTotalVnd:Number(order.subtotal_vnd)||0,
+    maxRedeemRatio:0.5,
+    cycleKey:'restore:'+data.requestKey,
+    reason:'Khôi phục đơn hàng #'+order.order_number,
+    actor
+   });
+  }
  }
  await inventory.restoreOrderStock(client,{orderId:id,items:raw,requestKey:data.requestKey,actor});
  const restored=(await client.query("UPDATE orders SET status='pending',updated_at=now() WHERE id=$1 RETURNING id,order_number AS \"orderNumber\",status,payment_status AS \"paymentStatus\",management_version AS version",[id])).rows[0];

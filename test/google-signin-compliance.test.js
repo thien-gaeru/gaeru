@@ -3,14 +3,13 @@ const assert = require('node:assert/strict');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { createApp } = require('../src/app');
-const { makeJwt } = (function() {
-  function makeJwt(payload, header = { alg: 'RS256', typ: 'JWT' }) {
-    const encHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const encPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    return `${encHeader}.${encPayload}.fake_mock_signature`;
-  }
-  return { makeJwt };
-})();
+const {
+  signTestGoogleIdToken,
+  createTestGoogleOAuthClient
+} = require('./helpers/google-id-token');
+
+const testOAuthClient = createTestGoogleOAuthClient();
+const makeJwt = (payload, header) => signTestGoogleIdToken(payload, { header });
 
 const baseConfig = {
   NODE_ENV: 'test',
@@ -22,7 +21,7 @@ const baseConfig = {
   GOOGLE_LOGIN_ENABLED: true
 };
 
-async function startApp(context, { pool, config = baseConfig } = {}) {
+async function startApp(context, { pool, config = baseConfig, oauthClient = testOAuthClient } = {}) {
   const adaptedPool = Object.create(pool);
   adaptedPool.query = (sql, ...args) =>
     sql.includes('account_security')
@@ -40,6 +39,7 @@ async function startApp(context, { pool, config = baseConfig } = {}) {
   const app = createApp({
     config,
     pool: adaptedPool,
+    oauthClient,
     sessionStore: new session.MemoryStore()
   });
   const server = app.listen(0, '127.0.0.1');

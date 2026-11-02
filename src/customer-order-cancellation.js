@@ -72,6 +72,32 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
 
   validateCancellationEligibility(order);
 
+  if (order.return_completed_at) {
+    const err = new Error('Đơn hàng đã hoàn trả xong; không thể hủy lại.');
+    err.status = 409;
+    throw err;
+  }
+
+  const activeShipments = await client.query(
+    "SELECT 1 FROM carrier_shipments WHERE order_id = $1 AND status <> 'cancelled' LIMIT 1",
+    [order.id]
+  );
+  if (activeShipments.rows.length > 0) {
+    const err = new Error('Đơn hàng đã được tạo vận đơn vận chuyển; vui lòng liên hệ CSKH để hỗ trợ.');
+    err.status = 409;
+    throw err;
+  }
+
+  const receiptCheck = await client.query(
+    'SELECT COALESCE(SUM(amount_vnd), 0)::bigint AS received FROM sales_receipts WHERE order_id = $1',
+    [order.id]
+  );
+  if (Number(receiptCheck.rows[0]?.received || 0) > 0) {
+    const err = new Error('Đơn hàng đã ghi nhận phiếu thu; vui lòng liên hệ CSKH để hỗ trợ hoàn tiền.');
+    err.status = 409;
+    throw err;
+  }
+
   // 2. Invalidate any active pending online payment attempts
   await client.query(
     "UPDATE payment_attempts SET status = 'failed', expires_at = LEAST(expires_at, now()), updated_at = now() WHERE order_id = $1 AND status = 'pending'",
@@ -96,17 +122,28 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
 
   let stockRestored = false;
   if (inv && typeof inv.releaseOrderStock === 'function') {
-    try {
+    const allocCheck = await client.query(
+      'SELECT COUNT(*)::int AS cnt FROM order_stock_allocations WHERE order_id = $1',
+      [order.id]
+    );
+    const hasAllocations = Number(allocCheck.rows[0]?.cnt || 0) > 0;
+    if (hasAllocations) {
       await inv.releaseOrderStock(client, {
         orderId: order.id,
         actor: actor || { id: customerId, username: 'customer', source: 'customer' }
       });
       stockRestored = true;
-    } catch {
-      // Fallback if allocation table does not have records
+    } else {
       await client.query(
         `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
          FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
+        [order.id]
+      );
+      await client.query(
+        `UPDATE warehouse_stock ws
+         SET quantity = ws.quantity + i.quantity, updated_at = now()
+         FROM order_items i, warehouses w
+         WHERE i.order_id = $1 AND ws.variant_id = i.variant_id AND ws.warehouse_id = w.id AND w.code = 'MAIN'`,
         [order.id]
       );
       stockRestored = true;

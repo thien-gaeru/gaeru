@@ -325,8 +325,29 @@ function afterSalesRouter(pool) {
         if (data.status === 'resolved' && row.kind === 'return' && row.status !== 'received') {
           throw fail('Xác nhận đã nhận hàng trả trước khi đóng yêu cầu.');
         }
-        if (data.status === 'resolved' && row.kind === 'return') {
+        if (data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange') {
           await c.query('UPDATE orders SET return_completed_at = COALESCE(return_completed_at, now()), updated_at = now() WHERE id = $1', [row.order_id]);
+          if (order.customer_id) {
+            try {
+              const { refundPoints } = require('./loyalty-api');
+              await refundPoints(c, {
+                customerId: order.customer_id,
+                orderId: row.order_id,
+                cycleKey: 'return:' + row.id,
+                reason: 'Hoàn trả đơn hàng #' + order.order_number,
+                actor: req.admin
+              });
+            } catch {}
+          }
+          if (row.restock_eligible === true) {
+            try {
+              await require('./inventory').releaseOrderStock(c, {
+                orderId: row.order_id,
+                actor: req.admin
+              });
+              try { require('../cache').flushAllCache(); } catch {}
+            } catch {}
+          }
         }
 
         const changed = (await c.query(

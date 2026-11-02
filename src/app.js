@@ -28,7 +28,7 @@ const { createWarrantyCustomerApi, createWarrantyAdminApi } = require("./warrant
 const { createWarrantyPublicApi } = require("./warranty-public-api");
 const { createBusinessApi } = require("./business-api");
 
-function createApp({ config, pool, sessionStore, customerMailer }) {
+function createApp({ config, pool, sessionStore, customerMailer, oauthClient = null }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   const app = express();
   app.use(require('./lib/public-compression').publicCompression());
@@ -134,6 +134,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const customerOAuthRouter = require("./customer-oauth").createCustomerOAuthRouter(pool, {
     config,
     accountSecurity: config.accountSecurity,
+    oauthClient: oauthClient || config.oauthClient || null,
     startCustomerSession: require("./customer-auth").startCustomerSession
   });
   app.use("/api/customer-auth/oauth", customerOAuthRouter);
@@ -164,11 +165,70 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.post('/auth/logout', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    const origin = req.get('origin');
-    const host = req.get('host');
-    if (origin && host && !origin.includes(host.split(':')[0])) {
+    const secFetchSite = String(req.get('sec-fetch-site') || '').trim().toLowerCase();
+    if (secFetchSite && !['same-origin', 'none'].includes(secFetchSite)) {
       return res.sendStatus(403);
     }
+
+    const trustedOrigins = new Set();
+    const trustedHosts = new Set();
+    const rawHost = String(req.get('host') || '').trim();
+    if (rawHost) {
+      try {
+        const proto = req.protocol === 'https' ? 'https:' : 'http:';
+        const parsedReqHost = new URL(`${proto}//${rawHost}`);
+        trustedHosts.add(parsedReqHost.host.toLowerCase());
+        trustedOrigins.add(`${parsedReqHost.protocol}//${parsedReqHost.host}`.toLowerCase());
+      } catch {
+        return res.sendStatus(403);
+      }
+    }
+    if (config.PUBLIC_BASE_URL) {
+      try {
+        const parsedPublic = new URL(config.PUBLIC_BASE_URL);
+        trustedHosts.add(parsedPublic.host.toLowerCase());
+        trustedOrigins.add(parsedPublic.origin.toLowerCase());
+      } catch {}
+    }
+
+    const matchesTrustedOrigin = (rawUrl) => {
+      try {
+        const parsed = new URL(String(rawUrl));
+        if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+        const normalizedOrigin = parsed.origin.toLowerCase();
+        const normalizedHost = parsed.host.toLowerCase();
+        return trustedOrigins.has(normalizedOrigin) || trustedHosts.has(normalizedHost);
+      } catch {
+        return false;
+      }
+    };
+
+    const origin = req.get('origin');
+    const referer = req.get('referer');
+    if (origin) {
+      if (!matchesTrustedOrigin(origin)) return res.sendStatus(403);
+    } else if (referer) {
+      if (!matchesTrustedOrigin(referer)) return res.sendStatus(403);
+    }
+
+    const providedCsrf = String(req.get('x-csrf-token') || req.body?._csrf || '');
+    const sessionCsrf = String(req.session?.csrfToken || '');
+    const crypto = require('node:crypto');
+    const hasValidCsrf = Boolean(
+      providedCsrf &&
+      sessionCsrf &&
+      Buffer.byteLength(providedCsrf) === Buffer.byteLength(sessionCsrf) &&
+      crypto.timingSafeEqual(Buffer.from(providedCsrf), Buffer.from(sessionCsrf))
+    );
+    const hasLogoutHeader = req.get('x-gaeru-action') === 'logout';
+
+    if (!origin && !referer && !hasValidCsrf && !hasLogoutHeader) {
+      return res.sendStatus(403);
+    }
+    if (providedCsrf && sessionCsrf && !hasValidCsrf) {
+      return res.sendStatus(403);
+    }
+
     req.session.regenerate((err) => {
       if (err) return next(err);
       res.clearCookie('connect.sid');

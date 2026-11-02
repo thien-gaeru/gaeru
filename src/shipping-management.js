@@ -18,7 +18,8 @@ function fail(message, status = 400) {
 
 async function getOrderForFulfillment(client, orderId) {
   const result = await client.query(
-    `SELECT o.id, o.order_number AS "orderNumber", o.customer_name AS "customerName",
+    `SELECT o.id, o.order_number AS "orderNumber", o.customer_id AS "customerId",
+            o.customer_name AS "customerName", o.return_completed_at AS "returnCompletedAt",
             o.phone, o.email, o.address, o.city, o.note, o.status,
             o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
             o.subtotal_vnd AS "subtotalVnd", o.shipping_fee_vnd AS "shippingFeeVnd",
@@ -49,8 +50,21 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     if (order.status === 'cancelled') {
       throw fail('Không thể tạo vận đơn cho đơn hàng đã hủy.', 409);
     }
+    if (order.returnCompletedAt) {
+      throw fail('Đơn hàng đã hoàn trả xong; không thể tạo vận đơn mới.', 409);
+    }
     if (order.status === 'completed') {
       throw fail('Đơn hàng đã hoàn tất giao hàng.', 409);
+    }
+    if (order.paymentMethod !== 'cod' && order.paymentStatus !== 'paid') {
+      throw fail('Đơn trả trước phải hoàn tất thanh toán trước khi tạo vận đơn.', 409);
+    }
+    const openReview = await client.query(
+      'SELECT 1 FROM order_reviews WHERE order_id = $1 AND resolved_at IS NULL LIMIT 1',
+      [orderId]
+    );
+    if (openReview.rows.length > 0) {
+      throw fail('Đơn hàng đang chờ xác minh; vui lòng hoàn tất đối chiếu trước khi tạo vận đơn.', 409);
     }
 
     // Idempotency check: Does an active shipment already exist?
@@ -235,14 +249,18 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
   return withTransaction(pool, async client => {
     let query, params;
     if (orderId) {
-      query = `SELECT s.*, o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
+      query = `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
+                      o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
+                      o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
                FROM carrier_shipments s
                JOIN orders o ON o.id = s.order_id
                WHERE s.order_id = $1 AND s.status != 'cancelled'
                FOR UPDATE OF s, o`;
       params = [orderId];
     } else {
-      query = `SELECT s.*, o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
+      query = `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
+                      o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
+                      o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
                FROM carrier_shipments s
                JOIN orders o ON o.id = s.order_id
                WHERE s.tracking_number = $1
@@ -281,21 +299,47 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
       ]
     );
 
-    // Sync status to orders
+    // Sync status to orders safely (never resurrect cancelled/returned or unpaid non-COD orders)
     let updatedOrderStatus = shipment.orderStatus;
-    if (newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
+    const isTerminalBlocked = shipment.orderStatus === 'cancelled' || Boolean(shipment.orderReturnCompletedAt);
+    const canAutoComplete = !isTerminalBlocked && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid');
+    if (!isTerminalBlocked && newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus) && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid')) {
       updatedOrderStatus = 'shipped';
       await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
-    } else if (newNormalizedStatus === 'delivered' && shipment.orderStatus !== 'completed') {
+    } else if (canAutoComplete && newNormalizedStatus === 'delivered' && shipment.orderStatus !== 'completed') {
       updatedOrderStatus = 'completed';
       await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'completed']);
 
+      const settleActor = actor || { username: 'carrier_sync', source: 'shipping_worker' };
       // Auto settle COD if delivered
       if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
         await client.query('UPDATE orders SET payment_status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'paid']);
         if (finance?.recordFullOrderPayment) {
-          await finance.recordFullOrderPayment(client, shipment.order_id, actor || { username: 'carrier_sync', source: 'shipping_worker' });
+          if (finance.recordFullOrderPayment.length >= 3) {
+            await finance.recordFullOrderPayment(client, shipment.order_id, settleActor);
+          } else {
+            await finance.recordFullOrderPayment(client, {
+              order: {
+                id: shipment.order_id,
+                order_number: shipment.orderNumber,
+                payment_method: 'cod',
+                total_vnd: Number(shipment.orderTotalVnd) || 0
+              },
+              actor: settleActor
+            });
+          }
         }
+      }
+      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+        try {
+          const { earnPoints } = require('./loyalty-api');
+          await earnPoints(client, {
+            customerId: shipment.orderCustomerId,
+            orderId: shipment.order_id,
+            orderTotalVnd: Number(shipment.orderTotalVnd),
+            actor: settleActor
+          });
+        } catch {}
       }
     }
 
@@ -324,6 +368,31 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
 }
 
 async function handleCarrierWebhook(pool, config, carrierId, payload, { headers = {}, finance, actor = { username: 'carrier_webhook', source: 'webhook' } } = {}) {
+  // Optional carrier webhook secret verification when configured in shipping record
+  try {
+    const carrierRecord = await readRecord(pool, config, 'shipping_' + carrierId);
+    const expectedSecret = String(carrierRecord?.data?.webhookSecret || '').trim();
+    if (expectedSecret) {
+      const crypto = require('node:crypto');
+      const authHeader = String(headers['authorization'] || headers['Authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+      const candidate = String(
+        headers['x-webhook-secret'] ||
+        headers['x-carrier-token'] ||
+        headers['token'] ||
+        authHeader ||
+        payload?.webhookSecret ||
+        ''
+      ).trim();
+      const bufA = Buffer.from(candidate, 'utf8');
+      const bufB = Buffer.from(expectedSecret, 'utf8');
+      if (!candidate || bufA.byteLength !== bufB.byteLength || !crypto.timingSafeEqual(bufA, bufB)) {
+        throw fail('Xác thực chữ ký/bí mật Webhook vận chuyển không hợp lệ.', 401);
+      }
+    }
+  } catch (err) {
+    if (err?.status === 401) throw err;
+  }
+
   // Normalize carrier payload
   let trackingNumber = null;
   let rawStatus = null;
@@ -355,7 +424,9 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
 
   return withTransaction(pool, async client => {
     const result = await client.query(
-      `SELECT s.*, o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
+      `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
+              o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
+              o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
        FROM carrier_shipments s
        JOIN orders o ON o.id = s.order_id
        WHERE s.carrier_id = $1 AND (s.tracking_number = $2 OR s.carrier_order_id = $3)
@@ -384,15 +455,40 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       [shipment.id, normalizedStatus, String(rawStatus), payload.desc || '', JSON.stringify(history)]
     );
 
-    if (normalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
+    const isTerminalBlocked = shipment.orderStatus === 'cancelled' || Boolean(shipment.orderReturnCompletedAt);
+    const canAutoComplete = !isTerminalBlocked && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid');
+    if (!isTerminalBlocked && normalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus) && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid')) {
       await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
-    } else if (normalizedStatus === 'delivered' && shipment.orderStatus !== 'completed') {
+    } else if (canAutoComplete && normalizedStatus === 'delivered' && shipment.orderStatus !== 'completed') {
       await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'completed']);
       if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
         await client.query('UPDATE orders SET payment_status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'paid']);
         if (finance?.recordFullOrderPayment) {
-          await finance.recordFullOrderPayment(client, shipment.order_id, actor);
+          if (finance.recordFullOrderPayment.length >= 3) {
+            await finance.recordFullOrderPayment(client, shipment.order_id, actor);
+          } else {
+            await finance.recordFullOrderPayment(client, {
+              order: {
+                id: shipment.order_id,
+                order_number: shipment.orderNumber,
+                payment_method: 'cod',
+                total_vnd: Number(shipment.orderTotalVnd) || 0
+              },
+              actor
+            });
+          }
         }
+      }
+      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+        try {
+          const { earnPoints } = require('./loyalty-api');
+          await earnPoints(client, {
+            customerId: shipment.orderCustomerId,
+            orderId: shipment.order_id,
+            orderTotalVnd: Number(shipment.orderTotalVnd),
+            actor
+          });
+        } catch {}
       }
     }
 

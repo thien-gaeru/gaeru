@@ -265,10 +265,11 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    if(!transactions.length){
     return {valid:false,reason:'No bank transaction found in webhook payload'};
    }
-   let matchedTxn=null,orderNumber='';
+   const matchedTransactions=[];
    for(const txn of transactions){
     if(!txn||typeof txn!=='object')continue;
     if(txn.transferType==='out'||txn.transfer_type==='out')continue;
+    let orderNumber='';
     const searchTexts=[
      txn.description,txn.content,txn.transferContent,txn.transfer_content,
      txn.orderNumber,txn.order_number,txn.orderId,txn.order_id,txn.notes,txn.comment,txn.code
@@ -277,28 +278,39 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
      const extracted=extractOrderNumber(text);
      if(orderPattern.test(extracted)){
       orderNumber=extracted;
-      matchedTxn=txn;
       break;
      }
     }
-    if(matchedTxn)break;
+    if(!orderNumber)continue;
+    const rawAmount=txn.amount??txn.amountVnd??txn.transferAmount??txn.transfer_amount;
+    const numAmount=Number(rawAmount);
+    if(!Number.isSafeInteger(numAmount)||numAmount<=0||numAmount>2000000000){
+     if(transactions.length===1){
+      return {valid:false,reason:'Invalid transaction amount'};
+     }
+     continue;
+    }
+    const txnId=txn.tid||txn.id||txn.reference||txn.reference_number||txn.referenceNumber||txn.transactionId||txn.ref||('BANK_'+Date.now()+'_'+matchedTransactions.length);
+    matchedTransactions.push({
+     orderNumber,
+     amountVnd:numAmount,
+     successful:true,
+     providerTransactionId:String(txnId),
+     responseCode:'00'
+    });
    }
-   if(!matchedTxn||!orderNumber){
+   if(!matchedTransactions.length){
     return {valid:false,reason:'No matching GAERU order number found in transaction content'};
    }
-   const rawAmount=matchedTxn.amount??matchedTxn.amountVnd??matchedTxn.transferAmount??matchedTxn.transfer_amount;
-   const numAmount=Number(rawAmount);
-   if(!Number.isSafeInteger(numAmount)||numAmount<=0||numAmount>2000000000){
-    return {valid:false,reason:'Invalid transaction amount'};
-   }
-   const txnId=matchedTxn.tid||matchedTxn.id||matchedTxn.reference||matchedTxn.reference_number||matchedTxn.referenceNumber||matchedTxn.transactionId||matchedTxn.ref||'BANK_'+Date.now();
+   const primary=matchedTransactions[0];
    return {
     valid:true,
-    orderNumber,
-    amountVnd:numAmount,
+    orderNumber:primary.orderNumber,
+    amountVnd:primary.amountVnd,
     successful:true,
-    providerTransactionId:String(txnId),
-    responseCode:'00'
+    providerTransactionId:primary.providerTransactionId,
+    responseCode:'00',
+    matchedTransactions
    };
   }
  return {valid:false,reason:'Unsupported provider'};
@@ -311,7 +323,8 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
      o.id AS "orderId", o.order_number AS "orderNumber", o.status AS "orderStatus",
      o.payment_method AS "paymentMethod", o.subtotal_vnd AS "subtotalVnd",
      o.shipping_fee_vnd AS "shippingFeeVnd", o.discount_vnd AS "discountVnd",
-     o.total_vnd AS "totalVnd", o.payment_status AS "paymentStatus"
+     o.total_vnd AS "totalVnd", o.payment_status AS "paymentStatus",
+     o.return_completed_at AS "returnCompletedAt"
     FROM payment_attempts p JOIN orders o ON o.id = p.order_id
     WHERE (p.transaction_ref = $1 OR replace(p.transaction_ref, '-', '') = replace($1, '-', '')) AND p.provider = $2
     FOR UPDATE OF p, o`,
@@ -324,12 +337,16 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     `SELECT id AS "orderId", order_number AS "orderNumber", status AS "orderStatus",
       payment_method AS "paymentMethod", subtotal_vnd AS "subtotalVnd",
       shipping_fee_vnd AS "shippingFeeVnd", discount_vnd AS "discountVnd",
-      total_vnd AS "totalVnd", payment_status AS "paymentStatus"
+      total_vnd AS "totalVnd", payment_status AS "paymentStatus",
+      return_completed_at AS "returnCompletedAt"
      FROM orders WHERE (order_number = $1 OR replace(order_number, '-', '') = replace($1, '-', '')) FOR UPDATE`,
     [orderNumber]
    );
    const order=orderQuery.rows[0];
    if(!order||order.paymentMethod!==provider)return {code:'01',matched:false,message:'Order not found'};
+   if(actor?.role==='owner'&&(order.orderStatus==='cancelled'||order.returnCompletedAt)){
+    return {code:'09',matched:false,message:'Không thể đối soát thủ công cho đơn hàng đã hủy hoặc đã hoàn trả.'};
+   }
    const insertedAttempt=await client.query(
     `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
      VALUES ($1, $2, $3, $4, now() + interval '15 minutes')
@@ -338,6 +355,9 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     [order.orderId,provider,orderNumber,order.totalVnd]
    );
    attempt={...order,...insertedAttempt.rows[0]};
+  }
+  if(actor?.role==='owner'&&(attempt.orderStatus==='cancelled'||attempt.returnCompletedAt)){
+   return {code:'09',matched:false,message:'Không thể đối soát thủ công cho đơn hàng đã hủy hoặc đã hoàn trả.'};
   }
   if(!Number.isSafeInteger(amountVnd)||amountVnd!==attempt.amountVnd||attempt.totalVnd!==attempt.amountVnd){
    return {code:'04',matched:false,message:'Invalid amount'};
@@ -371,7 +391,14 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
     "UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, updated_at=now() WHERE id=$1",
     [attempt.orderId]
    );
-   if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus))nextOrderStatus='processing';
+   if(attempt.orderStatus==='cancelled'){
+    await client.query(
+     "INSERT INTO order_reviews (order_id, reason) VALUES ($1, 'late_payment_on_cancelled_order') ON CONFLICT (order_id) DO UPDATE SET reason = 'late_payment_on_cancelled_order', resolved_at = NULL, updated_at = now()",
+     [attempt.orderId]
+    );
+   }else if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus)){
+    nextOrderStatus='processing';
+   }
   }
   await audit(client,{
    actor:actor||{username:provider,source:'payment_gateway'},
@@ -404,7 +431,7 @@ async function assertPaymentConfigurationChange(client,id,before,after){
  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[id==='vnpay'?'gaeru:vnpay-config':'gaeru:payment-config:'+id]);
  const fields={vnpay:['tmnCode','hashSecret','environment'],momo:['partnerCode','accessKey','secretKey','environment'],zalopay:['appId','key1','key2','environment']}[id];
  if(fields.every(k=>before[k]===after[k]))return;
- const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts WHERE provider=$1 AND status='pending'",[id])).rows[0]?.count||0;
+ const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts p JOIN orders o ON o.id=p.order_id WHERE p.provider=$1 AND p.status='pending' AND o.status<>'cancelled' AND o.payment_status<>'paid' AND o.return_completed_at IS NULL",[id])).rows[0]?.count||0;
  if(count)throw fail('Có giao dịch đang chờ. Đối soát hoặc hủy đơn trước khi đổi tài khoản, khóa hoặc môi trường thanh toán.',409);
 }
 function authenticatedProof(method,scope){
@@ -616,7 +643,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
      finance,
      actor:req.admin
     });
-    if(!outcome.matched)throw fail(outcome.code==='04'?'Số tiền giao dịch không khớp với tổng tiền đơn hàng.':'Không tìm thấy đơn hàng chờ thanh toán tương ứng.',409);
+    if(!outcome.matched)throw fail(outcome.code==='09'?outcome.message:outcome.code==='04'?'Số tiền giao dịch không khớp với tổng tiền đơn hàng.':'Không tìm thấy đơn hàng chờ thanh toán tương ứng.',409);
     return outcome;
    });
    res.json({

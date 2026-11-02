@@ -16,7 +16,13 @@ function parseCookies(req) {
       const parts = cookie.split('=');
       const name = parts.shift()?.trim();
       const val = parts.join('=').trim();
-      if (name) list[name] = decodeURIComponent(val);
+      if (name) {
+        try {
+          list[name] = decodeURIComponent(val);
+        } catch {
+          list[name] = val;
+        }
+      }
     });
   }
   return list;
@@ -45,74 +51,76 @@ function parseJwt(token) {
   }
 }
 
-async function verifyGoogleToken(token, { googleClientId, fetcher = fetch, oauthClient = null } = {}) {
-  if (!token || typeof token !== 'string') {
-    throw Object.assign(new Error('Mã xác thực Google không hợp lệ.'), { status: 400 });
+async function verifyGoogleToken(token, { googleClientId, oauthClient = null } = {}) {
+  const clientId = String(googleClientId || '').trim();
+  if (!clientId) {
+    throw Object.assign(new Error('Đăng nhập Google chưa được cấu hình trên máy chủ.'), { status: 503 });
   }
 
-  if (token === 'mock-google-demo-token') {
-    return {
-      sub: 'google-demo-mock-001',
-      email: 'khachhang.google.demo@gmail.com',
-      name: 'Khách hàng Google (Demo)',
-      picture: null,
-      emailVerified: true,
-      issuer: 'https://accounts.google.com'
-    };
+  if (!token || typeof token !== 'string' || !token.trim()) {
+    throw Object.assign(new Error('Mã xác thực Google không hợp lệ.'), { status: 401 });
   }
 
-  const { header, payload } = parseJwt(token);
+  let realPayload;
+  try {
+    const client = oauthClient || new OAuth2Client(clientId);
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: clientId
+    });
+    realPayload = ticket ? ticket.getPayload() : null;
+  } catch (err) {
+    const msg = String(err?.message || '');
+    if (/Token used too late|expired/i.test(msg)) {
+      throw Object.assign(new Error('Mã xác thực Google đã hết hạn. Vui lòng đăng nhập lại.'), { status: 401 });
+    }
+    if (/Wrong recipient|audience/i.test(msg)) {
+      throw Object.assign(new Error('Mã ứng dụng Google Client ID không khớp.'), { status: 400 });
+    }
+    if (/Wrong issuer|invalid issuer/i.test(msg)) {
+      throw Object.assign(new Error('Nguồn cấp chứng thực Google không hợp lệ.'), { status: 400 });
+    }
+    throw Object.assign(new Error('Xác thực chữ ký Google thất bại.'), { status: 401 });
+  }
 
-  // Validate timing
+  if (!realPayload || typeof realPayload !== 'object') {
+    throw Object.assign(new Error('Xác thực chữ ký Google thất bại.'), { status: 401 });
+  }
+
   const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && payload.exp < now - 300) {
+  if (!realPayload.exp || realPayload.exp < now - 300) {
     throw Object.assign(new Error('Mã xác thực Google đã hết hạn. Vui lòng đăng nhập lại.'), { status: 401 });
   }
 
   const validIssuers = ['accounts.google.com', 'https://accounts.google.com'];
-  if (!payload.iss || !validIssuers.includes(payload.iss)) {
+  if (!realPayload.iss || !validIssuers.includes(realPayload.iss)) {
     throw Object.assign(new Error('Nguồn cấp chứng thực Google không hợp lệ.'), { status: 400 });
   }
 
-  if (googleClientId && payload.aud && payload.aud !== googleClientId) {
+  const audMatch = Array.isArray(realPayload.aud)
+    ? realPayload.aud.includes(clientId)
+    : realPayload.aud === clientId;
+  if (!audMatch) {
     throw Object.assign(new Error('Mã ứng dụng Google Client ID không khớp.'), { status: 400 });
   }
 
-  const email = String(payload.email || '').trim().toLowerCase();
+  const email = String(realPayload.email || '').trim().toLowerCase();
   if (!email || !z.string().email().safeParse(email).success) {
     throw Object.assign(new Error('Tài khoản Google không cung cấp email hợp lệ.'), { status: 400 });
   }
 
-  const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+  const emailVerified = realPayload.email_verified === true || realPayload.email_verified === 'true';
   if (!emailVerified) {
     throw Object.assign(new Error('Email Google chưa được xác minh. Vui lòng xác minh email với Google trước khi đăng nhập.'), { status: 400 });
   }
 
-  const sub = String(payload.sub || '').trim();
+  const sub = String(realPayload.sub || '').trim();
   if (!sub) {
-    throw Object.assign(new Error('Mã định danh người dùng Google không hợp lệ.'), { status: 400 });
+    throw Object.assign(new Error('Mã định danh người dùng Google không hợp lệ.'), { status: 401 });
   }
 
-  // In production with real tokens, cryptographically verify signatures via google-auth-library
-  const isTestOrDev = (process.env.NODE_ENV || 'development') === 'test' || !googleClientId || googleClientId.includes('test');
-  if (!isTestOrDev) {
-    try {
-      const client = oauthClient || new OAuth2Client(googleClientId);
-      const ticket = await client.verifyIdToken({
-        idToken: token,
-        audience: googleClientId
-      });
-      const realPayload = ticket.getPayload();
-      if (!realPayload || !realPayload.sub) {
-        throw new Error('Token payload invalid');
-      }
-    } catch (err) {
-      throw Object.assign(new Error('Xác thực chữ ký Google thất bại: ' + err.message), { status: 401 });
-    }
-  }
-
-  const name = String(payload.name || payload.given_name || email.split('@')[0] || 'Khách hàng Google').trim();
-  const picture = typeof payload.picture === 'string' && payload.picture.startsWith('https://') ? payload.picture : null;
+  const name = String(realPayload.name || realPayload.given_name || email.split('@')[0] || 'Khách hàng Google').trim();
+  const picture = typeof realPayload.picture === 'string' && realPayload.picture.startsWith('https://') ? realPayload.picture : null;
 
   return {
     sub,
@@ -220,7 +228,8 @@ async function resolveGoogleIdentity(pool, googleUser) {
   });
 }
 
-function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher = fetch, startCustomerSession } = {}) {
+function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher = fetch, oauthClient = null, startCustomerSession } = {}) {
+  const resolvedOAuthClient = oauthClient || config.oauthClient || null;
   const router = Router();
   const oauthLimit = rateLimit({
     windowMs: 60 * 1000,
@@ -244,8 +253,13 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
 
   const getGoogleClientId = async () => {
     const dbOAuth = await getOAuthSettings();
-    if (dbOAuth.googleClientId) return dbOAuth.googleClientId;
-    return config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
+    if (dbOAuth.googleClientId && String(dbOAuth.googleClientId).trim()) {
+      return String(dbOAuth.googleClientId).trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(config, 'GOOGLE_CLIENT_ID')) {
+      return String(config.GOOGLE_CLIENT_ID || '').trim();
+    }
+    return String(process.env.GOOGLE_CLIENT_ID || '').trim();
   };
 
   const isGoogleLoginEnabled = () => {
@@ -259,14 +273,13 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   router.get('/config', async (_req, res) => {
     try {
       const googleId = await getGoogleClientId();
-      const enabled = isGoogleLoginEnabled();
-      const isDev = (config.NODE_ENV || process.env.NODE_ENV) !== 'production';
+      const configured = Boolean(googleId);
+      const enabled = isGoogleLoginEnabled() && configured;
       res.json({
         google: {
-          enabled: enabled && (Boolean(googleId) || config.NODE_ENV === 'test' || isDev),
-          configured: Boolean(googleId),
-          clientId: googleId,
-          isDev
+          enabled,
+          configured,
+          clientId: enabled ? googleId : ''
         }
       });
     } catch {
@@ -283,14 +296,20 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         return res.status(404).json({ error: 'Tính năng đăng nhập Google hiện đang tạm đóng.' });
       }
 
+      const googleClientId = await getGoogleClientId();
+      if (!googleClientId) {
+        return res.status(503).json({ error: 'Đăng nhập Google chưa được cấu hình trên máy chủ.' });
+      }
+
       const parsed = googleSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: 'Chứng thực Google chưa hợp lệ.' });
       }
 
       const googleUser = await verifyGoogleToken(parsed.data.credential, {
-        googleClientId: await getGoogleClientId(),
-        fetcher
+        googleClientId,
+        fetcher,
+        oauthClient: resolvedOAuthClient
       });
 
       const outcome = await resolveGoogleIdentity(pool, googleUser);
@@ -319,15 +338,18 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         return res.status(404).send('Tính năng đăng nhập Google hiện đang tạm đóng.');
       }
 
-      // GIS Double-submit CSRF Token check (SC02, G045, TC017-TC020)
+      // GIS Double-submit CSRF Token check (Unconditional: missing either or both, or mismatch -> 403)
       const cookies = parseCookies(req);
       const cookieCsrf = cookies.g_csrf_token;
       const bodyCsrf = req.body?.g_csrf_token;
 
-      if (bodyCsrf || cookieCsrf) {
-        if (!verifyGisCsrf(cookieCsrf, bodyCsrf)) {
-          return res.status(403).send('Xác thực CSRF Google không hợp lệ (g_csrf_token missing or mismatch).');
-        }
+      if (!verifyGisCsrf(cookieCsrf, bodyCsrf)) {
+        return res.status(403).send('Xác thực CSRF Google không hợp lệ (g_csrf_token missing or mismatch).');
+      }
+
+      const googleClientId = await getGoogleClientId();
+      if (!googleClientId) {
+        return res.status(503).send('Đăng nhập Google chưa được cấu hình trên máy chủ.');
       }
 
       const credential = req.body?.credential || req.body?.id_token;
@@ -336,8 +358,9 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       }
 
       const googleUser = await verifyGoogleToken(credential, {
-        googleClientId: await getGoogleClientId(),
-        fetcher
+        googleClientId,
+        fetcher,
+        oauthClient: resolvedOAuthClient
       });
 
       const outcome = await resolveGoogleIdentity(pool, googleUser);
@@ -360,7 +383,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     } catch (error) {
       console.warn('Google OAuth Redirect Callback error:', error.message);
       if (req.path === '/auth/google') {
-        const code = error.status && error.status >= 400 && error.status < 500 ? error.status : 401;
+        const code = error.status && error.status >= 400 && error.status < 600 ? error.status : 401;
         return res.status(code).send(error.message || 'Xác thực Google thất bại.');
       }
       res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(error.message || 'Không thể xác thực Google.'));
@@ -372,13 +395,19 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     const customerId = req.session?.customer?.id;
     if (!customerId) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản GAERU để liên kết.' });
 
+    const googleClientId = await getGoogleClientId();
+    if (!googleClientId) {
+      return res.status(503).json({ error: 'Đăng nhập Google chưa được cấu hình trên máy chủ.' });
+    }
+
     const parsed = googleSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Chứng thực Google chưa hợp lệ.' });
 
     try {
       const googleUser = await verifyGoogleToken(parsed.data.credential, {
-        googleClientId: await getGoogleClientId(),
-        fetcher
+        googleClientId,
+        fetcher,
+        oauthClient: resolvedOAuthClient
       });
 
       const outcome = await withTransaction(pool, async (client) => {

@@ -1,6 +1,6 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const multer = require("multer");
 const { Router } = require("express");
 const { rateLimit } = require("express-rate-limit");
@@ -11,7 +11,7 @@ const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
 const { decoratePublicProductImages } = require("./lib/public-image-urls");
 const { checkCustomerPhoneStatus, checkCustomerRegEmailStatus } = require("./customer-lifecycle");
-const { getFreshData, stockMap, reserveStock, releaseStock, flushAllCache } = require("./cache");
+const { getFreshData, stockMap, isValidOrderQuantity, reserveStock, releaseStock, seedStock, flushAllCache } = require("./cache");
 
 const orderSchema = z.object({
   customer: z.object({
@@ -27,6 +27,7 @@ const orderSchema = z.object({
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
   loyaltyPointsToRedeem: z.number().int().min(0).max(2000000000).optional(),
+  idempotencyKey: z.string().trim().min(1).max(128).regex(/^[A-Za-z0-9._:-]+$/).optional(),
   paymentMethod: z.enum(["cod", "bank_transfer", "vnpay", "momo", "zalopay"]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
@@ -216,33 +217,47 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
-  router.get("/stock/:sku", (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const sku = String(req.params.sku || '').trim();
-    const stock = stockMap.get(sku) ?? 0;
-    res.json({ sku, stock, inStock: stock > 0 });
-  });
-
-  router.post("/checkout", async (req, res, next) => {
+  router.get("/stock/:sku", async (req, res, next) => {
     try {
-      const { sku, qty } = req.body || {};
+      res.setHeader('Cache-Control', 'no-store');
+      const sku = String(req.params.sku || '').trim();
       if (!sku) return res.status(400).json({ error: "Thiếu mã SKU." });
-      const quantity = Number(qty || 1);
-      const check = reserveStock(sku, quantity);
-      if (!check.ok) {
-        return res.status(400).json({ error: 'Sản phẩm vừa hết hàng', remaining: check.remaining });
+      if (stockMap.has(sku)) {
+        const stock = stockMap.get(sku);
+        return res.json({ sku, stock, inStock: stock > 0 });
       }
-      try {
-        await pool.query("UPDATE product_variants SET stock_quantity = GREATEST(0, stock_quantity - $2), updated_at = now() WHERE sku = $1", [sku, quantity]);
-        if (check.remaining === 0) flushAllCache();
-        res.json({ success: true, remaining: check.remaining });
-      } catch (err) {
-        releaseStock(sku, quantity);
-        res.status(500).json({ error: 'Lỗi tạo đơn hàng' });
+      if (typeof pool?.query === 'function') {
+        const result = await pool.query(
+          `SELECT v.id, v.sku, v.stock_quantity AS "stockQuantity"
+           FROM product_variants v
+           JOIN products p ON p.id = v.product_id
+           WHERE (v.sku = $1 OR v.id::text = $1)
+             AND v.active = true AND p.active = true AND p.deleted_at IS NULL
+           LIMIT 1`,
+          [sku]
+        );
+        const row = result.rows[0];
+        if (row) {
+          const stock = Math.max(0, Number(row.stockQuantity) || 0);
+          seedStock(row.sku, stock);
+          seedStock(row.id, stock);
+          return res.json({ sku: row.sku, stock, inStock: stock > 0 });
+        }
       }
+      res.json({ sku, stock: 0, inStock: false, found: false });
     } catch (err) {
       next(err);
     }
+  });
+
+  router.post("/checkout", (req, res) => {
+    const { qty } = req.body || {};
+    if (qty !== undefined && !isValidOrderQuantity(qty)) {
+      return res.status(400).json({ error: "Số lượng sản phẩm phải là số nguyên từ 1 đến 99." });
+    }
+    res.status(410).json({
+      error: "Endpoint đặt hàng cũ đã ngừng hoạt động để bảo vệ tồn kho. Vui lòng sử dụng POST /api/orders."
+    });
   });
 
   router.get("/settings/public", async (req, res) => {
@@ -289,7 +304,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const result = await withTransaction(pool, async (client) => {
         const attemptResult = await client.query(
           `SELECT p.id, p.amount_vnd AS "amountVnd", p.status AS "attemptStatus",
-            o.id AS "orderId", o.total_vnd AS "totalVnd", o.payment_status AS "paymentStatus"
+            o.id AS "orderId", o.status AS "orderStatus", o.total_vnd AS "totalVnd", o.payment_status AS "paymentStatus"
            FROM payment_attempts p JOIN orders o ON o.id = p.order_id
            WHERE p.transaction_ref = $1 AND p.provider = 'vnpay'
            FOR UPDATE OF p, o`,
@@ -318,6 +333,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             actor: { username: "vnpay", source: "payment_gateway" }
           });
           await client.query("UPDATE orders SET payment_status='paid', status=CASE WHEN status IN ('pending','confirmed') THEN 'processing' ELSE status END, updated_at=now() WHERE id=$1", [attempt.orderId]);
+          if (attempt.orderStatus === "cancelled") {
+            await client.query(
+              "INSERT INTO order_reviews (order_id, reason) VALUES ($1, 'late_payment_on_cancelled_order') ON CONFLICT (order_id) DO UPDATE SET reason = 'late_payment_on_cancelled_order', resolved_at = NULL, updated_at = now()",
+              [attempt.orderId]
+            );
+          }
         }
         await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
         if(req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,'vnpay',req.paymentChannels.versions.vnpay,{enabled:req.paymentChannels.methods.includes('vnpay')});
@@ -366,6 +387,21 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if(req.method!=='POST')return res.status(405).end();
       const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers,query:req.query});
       if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback',reason:verified.reason});
+      if(provider==='bank_transfer'){
+        const txns=verified.matchedTransactions?.length?verified.matchedTransactions:[verified];
+        const results=await withTransaction(pool,async client=>{
+          const items=[];
+          for(const item of txns){
+            const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider:'bank_transfer',orderNumber:item.orderNumber,amountVnd:item.amountVnd,successful:item.successful,providerTransactionId:item.providerTransactionId,responseCode:item.responseCode,finance,audit});
+            if(outcome.matched&&req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,'bank_transfer',req.paymentChannels.versions.bank_transfer,{enabled:req.paymentChannels.methods.includes('bank_transfer')});
+            items.push(outcome);
+          }
+          return items;
+        });
+        const matchedItems=results.filter(r=>r.matched);
+        const primary=matchedItems[0]||results[0]||{code:'01',matched:false,message:'Order not found'};
+        return res.json({error:matchedItems.length?0:1,success:matchedItems.length>0,code:primary.code,message:primary.message,orderNumber:primary.orderNumber||verified.orderNumber,matchedCount:matchedItems.length,results});
+      }
       const outcome=await withTransaction(pool,async client=>{
         const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE (transaction_ref=$1 OR replace(transaction_ref,\'-\',\'\')=replace($1,\'-\',\'\')) AND provider=$2',[verified.orderNumber,provider])).rows[0];
         if(!row)return {code:'01',matched:false,message:'Order not found'};
@@ -376,7 +412,6 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
       if(provider==='zalopay')return res.json({return_code:outcome.code==='00'||outcome.code==='02'?1:0,return_message:outcome.message,orderStatus:outcome.orderStatus,paymentStatus:outcome.paymentStatus});
       if(provider==='momo')return outcome.matched?res.status(204).end():res.status(409).json({resultCode:Number(outcome.code)||99,message:outcome.message});
-      if(provider==='bank_transfer')return res.json({error:outcome.matched?0:1,success:outcome.matched,code:outcome.code,message:outcome.message,orderNumber:verified.orderNumber});
       return res.json({code:outcome.code,message:outcome.message});
     }catch(error){next(error);}
   };
@@ -384,228 +419,852 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.post('/payments/:provider/ipn',handleGatewayIpn);
   router.post('/payments/bank_transfer/webhook',(req,res,next)=>{req.params.provider='bank_transfer';return handleGatewayIpn(req,res,next);});
 
+  function vietnamYyMmDd(timeMs) {
+    return new Date(timeMs + 7 * 60 * 60 * 1000).toISOString().slice(2, 10).replaceAll("-", "");
+  }
+
+  function validateFinalTotalForPayment(paymentMethod, finalTotal, channels) {
+    if (!Number.isSafeInteger(finalTotal) || finalTotal < 0 || finalTotal > 2_000_000_000) {
+      throw Object.assign(new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép."), { status: 400 });
+    }
+    if (paymentMethod !== "cod" && finalTotal < 1) {
+      throw Object.assign(
+        new Error("Tổng thanh toán sau ưu đãi bằng 0 ₫; cổng thanh toán trực tuyến yêu cầu tối thiểu 1 ₫. Vui lòng chọn COD hoặc giảm số Xu sử dụng."),
+        { status: 400 }
+      );
+    }
+    if (paymentMethod === "cod" && channels?.cod?.maxAmountVnd && finalTotal > channels.cod.maxAmountVnd) {
+      throw Object.assign(
+        new Error(`Đơn hàng vượt hạn mức thu hộ COD (${new Intl.NumberFormat("vi-VN").format(channels.cod.maxAmountVnd)} ₫). Vui lòng chọn phương thức thanh toán trước.`),
+        { status: 400 }
+      );
+    }
+    if (paymentMethod === "momo" && finalTotal > 50_000_000) {
+      throw Object.assign(new Error("MoMo chỉ hỗ trợ tối đa 50.000.000 ₫ cho mỗi giao dịch."), { status: 400 });
+    }
+  }
+
+  async function releaseCheckoutIntent(poolInstance, intentId, nextStatus = "released") {
+    if (!intentId) return;
+    await withTransaction(poolInstance, async (client) => {
+      const intentRes = await client.query(
+        "SELECT id, status FROM checkout_payment_intents WHERE id = $1 FOR UPDATE",
+        [intentId]
+      );
+      const intent = intentRes.rows[0];
+      if (!intent || intent.status !== "pending_provider") return;
+
+      const holdsRes = await client.query(
+        `SELECT id, variant_id AS "variantId", warehouse_id AS "warehouseId", quantity
+         FROM checkout_stock_holds
+         WHERE intent_id = $1 AND released_at IS NULL
+         ORDER BY variant_id, warehouse_id
+         FOR UPDATE`,
+        [intentId]
+      );
+
+      const byVariant = new Map();
+      for (const h of holdsRes.rows) {
+        if (!byVariant.has(h.variantId)) byVariant.set(h.variantId, []);
+        byVariant.get(h.variantId).push(h);
+      }
+
+      for (const [variantId, holds] of [...byVariant.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        await client.query("SELECT id FROM product_variants WHERE id = $1 FOR UPDATE", [variantId]);
+        let totalReleased = 0;
+        for (const h of holds) {
+          if (h.warehouseId) {
+            await client.query(
+              "UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2",
+              [h.warehouseId, variantId, h.quantity]
+            );
+          }
+          await client.query("UPDATE checkout_stock_holds SET released_at = now() WHERE id = $1", [h.id]);
+          totalReleased += h.quantity;
+        }
+        if (totalReleased > 0) {
+          await client.query(
+            "UPDATE product_variants SET stock_quantity = stock_quantity + $2, updated_at = now() WHERE id = $1",
+            [variantId, totalReleased]
+          );
+        }
+      }
+
+      await client.query(
+        "UPDATE checkout_payment_intents SET status = $2, updated_at = now() WHERE id = $1",
+        [intentId, nextStatus]
+      );
+    });
+  }
+
+  async function releaseExpiredCheckoutIntents(poolInstance) {
+    if (typeof poolInstance?.query !== "function") return;
+    try {
+      const expired = await poolInstance.query(
+        "SELECT id FROM checkout_payment_intents WHERE status = 'pending_provider' AND expires_at <= now() LIMIT 20"
+      );
+      for (const row of expired.rows) {
+        await releaseCheckoutIntent(poolInstance, row.id, "expired").catch(() => {});
+      }
+    } catch (_) {}
+  }
+
+  async function prepareCartAndDiscounts(client, { parsedData, sortedEntries, sessionCustomerId, paymentChannelsObj, lockVoucher }) {
+    let activeCustomerId = null;
+    if (sessionCustomerId) {
+      const activeCust = (await client.query(
+        "SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL",
+        [sessionCustomerId]
+      )).rows[0];
+      activeCustomerId = activeCust?.id || null;
+    }
+
+    let prepared = [];
+    for (const [variantId, quantity] of sortedEntries) {
+      if (!isValidOrderQuantity(quantity)) {
+        throw Object.assign(new Error("Số lượng sản phẩm phải là số nguyên từ 1 đến 99."), { status: 400 });
+      }
+      const result = await client.query(
+        `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd",
+          v.stock_quantity AS "stockQuantity", p.name AS "productName"
+         FROM product_variants v JOIN products p ON p.id = v.product_id
+         WHERE v.id = $1 AND v.active = true AND p.active = true AND p.deleted_at IS NULL
+         FOR UPDATE OF v`,
+        [variantId]
+      );
+      const variant = result.rows[0];
+      if (!variant) {
+        throw Object.assign(new Error("Một phiên bản trong giỏ hàng không còn được bán."), { status: 409 });
+      }
+      if (variant.stockQuantity < quantity) {
+        throw Object.assign(
+          new Error(`${variant.productName} (${variant.variantName}) hiện chỉ còn ${variant.stockQuantity} sản phẩm.`),
+          { status: 409 }
+        );
+      }
+      prepared.push({ ...variant, quantity });
+    }
+
+    prepared = await require("./product-promotions").applyPromotions(client, prepared);
+    const subtotal = prepared.reduce((sum, item) => sum + item.priceVnd * item.quantity, 0);
+    if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) {
+      throw Object.assign(new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép."), { status: 400 });
+    }
+    if (parsedData.expectedSubtotalVnd !== undefined && parsedData.expectedSubtotalVnd !== subtotal) {
+      throw Object.assign(
+        new Error("Giá hoặc chương trình đã thay đổi. Tải lại trang để xác nhận giá mới trước khi đặt hàng."),
+        { status: 409 }
+      );
+    }
+
+    const shippingResult = await client.query(
+      "SELECT setting_value FROM store_settings WHERE setting_key = 'shipping_rates' FOR SHARE"
+    );
+    const shippingRates = shippingResult.rows[0]?.setting_value || {};
+    const computedShippingFee = require("../checkout-flow").shippingFee(shippingRates, parsedData.customer.city);
+    if (computedShippingFee === undefined) {
+      throw Object.assign(
+        new Error("Tỉnh/thành phố giao hàng hiện chưa được hỗ trợ hoặc chưa có phí vận chuyển."),
+        { status: 409 }
+      );
+    }
+    const shippingFee = computedShippingFee;
+    const shippingSelection = shippingChoices
+      ? await require("./shipping-choice").validateSelection(client, parsedData.shippingCarrierId)
+      : null;
+    if (parsedData.expectedShippingFeeVnd !== undefined && parsedData.expectedShippingFeeVnd !== shippingFee) {
+      throw Object.assign(new Error("Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng."), { status: 409 });
+    }
+
+    // Sequential discount waterfall (GAERU-006): Combo -> Voucher -> GAERU Xu (capped at remaining payable product subtotal)
+    const bundleCalc = await require("./product-bundles").calculateCartBundleDiscount(client, prepared);
+    const bundleDiscountVnd = Math.min(subtotal, Math.max(0, bundleCalc.bundleDiscountVnd || 0));
+    const remainingAfterBundle = Math.max(0, subtotal - bundleDiscountVnd);
+
+    const rawPromotion = parsedData.voucherCode
+      ? await require("./marketing").eligible(client, parsedData.voucherCode, activeCustomerId, subtotal, lockVoucher)
+      : null;
+    const voucherDiscountVnd = rawPromotion ? Math.min(rawPromotion.discountVnd, remainingAfterBundle) : 0;
+    if (rawPromotion && voucherDiscountVnd < 1) {
+      throw Object.assign(new Error("Đơn hàng đã được giảm tối đa từ combo; không thể áp dụng thêm voucher."), { status: 409 });
+    }
+    const promotion = rawPromotion ? { ...rawPromotion, discountVnd: voucherDiscountVnd } : null;
+    const remainingProductSubtotal = Math.max(0, remainingAfterBundle - voucherDiscountVnd);
+
+    const requestedPoints = parsedData.loyaltyPointsToRedeem || 0;
+    let effectivePointsToRedeem = 0;
+    if (requestedPoints > 0) {
+      if (!activeCustomerId) {
+        throw Object.assign(new Error("Khách hàng cần đăng nhập để sử dụng GAERU Xu."), { status: 401 });
+      }
+      const maxByRatio = Math.max(0, Math.floor(subtotal * 0.5));
+      if (requestedPoints > maxByRatio) {
+        throw Object.assign(
+          new Error(`Số Xu sử dụng vượt quá giới hạn cho phép (${new Intl.NumberFormat("vi-VN").format(maxByRatio)} Xu cho đơn này).`),
+          { status: 409 }
+        );
+      }
+      effectivePointsToRedeem = Math.min(requestedPoints, maxByRatio, remainingProductSubtotal);
+      if (effectivePointsToRedeem > 0) {
+        const { getOrCreateLoyalty } = require("./loyalty-api");
+        const loyalty = await getOrCreateLoyalty(client, activeCustomerId);
+        if (loyalty.pointsBalance < effectivePointsToRedeem) {
+          throw Object.assign(
+            new Error(`Số dư GAERU Xu không đủ (Hiện có: ${loyalty.pointsBalance} Xu, yêu cầu: ${effectivePointsToRedeem} Xu).`),
+            { status: 409 }
+          );
+        }
+      }
+    }
+
+    const totalDiscountVnd = bundleDiscountVnd + voucherDiscountVnd + effectivePointsToRedeem;
+    const finalTotal = subtotal + shippingFee - totalDiscountVnd;
+    validateFinalTotalForPayment(parsedData.paymentMethod, finalTotal, paymentChannelsObj);
+
+    return {
+      activeCustomerId,
+      prepared,
+      subtotal,
+      shippingFee,
+      shippingSelection,
+      bundleDiscountVnd,
+      promotion,
+      voucherDiscountVnd,
+      remainingProductSubtotal,
+      effectivePointsToRedeem,
+      totalDiscountVnd,
+      finalTotal
+    };
+  }
+
   router.post("/orders", (req, res, next) => {
     if (!req.ordersEnabled) {
       return res.status(503).json({ error: "GAERU đang tạm dừng tiếp nhận đơn hàng trực tuyến." });
     }
     next();
   }, orderLimit, requireCsrf, async (req, res, next) => {
+    let idempotencyClaimed = false;
+    let scopeKey = null;
+    let idempotencyKey = null;
     try {
+      if (Array.isArray(req.body?.items) && req.body.items.some((item) => !isValidOrderQuantity(item?.quantity))) {
+        return res.status(400).json({ error: "Số lượng sản phẩm phải là số nguyên từ 1 đến 99." });
+      }
       const parsed = orderSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Thông tin đặt hàng chưa hợp lệ.", details: parsed.error.issues });
       }
-      if (parsed.data.paymentMethod === "vnpay" && !req.vnpayConfig) { return res.status(503).json({ error: "VNPAY chưa được cấu hình trên máy chủ." }); }
-      if (req.paymentChannels && !req.paymentChannels.methods.includes(parsed.data.paymentMethod)) { return res.status(503).json({ error: "Phương thức thanh toán đã chọn hiện chưa khả dụng." }); }
-      if (!req.paymentChannels && ["bank_transfer", "momo", "zalopay"].includes(parsed.data.paymentMethod)) { return res.status(503).json({ error: "Kênh thanh toán chưa được cấu hình trên máy chủ." });
-      // payment method checked above
+      if (parsed.data.paymentMethod === "vnpay" && !req.vnpayConfig) {
+        return res.status(503).json({ error: "VNPAY chưa được cấu hình trên máy chủ." });
       }
+      if (req.paymentChannels && !req.paymentChannels.methods.includes(parsed.data.paymentMethod)) {
+        return res.status(503).json({ error: "Phương thức thanh toán đã chọn hiện chưa khả dụng." });
+      }
+      if (!req.paymentChannels && ["bank_transfer", "momo", "zalopay"].includes(parsed.data.paymentMethod)) {
+        return res.status(503).json({ error: "Kênh thanh toán chưa được cấu hình trên máy chủ." });
+      }
+
       const uniqueItems = new Map();
       for (const item of parsed.data.items) {
+        if (!isValidOrderQuantity(item.quantity)) {
+          return res.status(400).json({ error: "Số lượng sản phẩm phải là số nguyên từ 1 đến 99." });
+        }
         uniqueItems.set(item.variantId, (uniqueItems.get(item.variantId) || 0) + item.quantity);
       }
-      if ([...uniqueItems.values()].some((quantity) => quantity > 99)) {
+      const sortedEntries = [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b));
+      if (sortedEntries.some(([, quantity]) => !isValidOrderQuantity(quantity))) {
         return res.status(400).json({ error: "Mỗi phiên bản chỉ được đặt tối đa 99 sản phẩm." });
       }
 
-      const order = await withTransaction(pool, async (client) => {
-        if(parsed.data.paymentMethod === "vnpay" && getVnpayConfig){
-          await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:vnpay-config'))");
-          req.vnpayConfig=await getVnpayConfig(client);
-          if(!req.vnpayConfig)throw Object.assign(Error("VNPAY vừa ngừng khả dụng. Vui lòng chọn phương thức khác."),{status:409});
+      // GAERU-009: X-Idempotency-Key deduplication scoped to actor/session + cart payload hash
+      const headerIdemKey = req.get("X-Idempotency-Key");
+      const rawIdemKey = headerIdemKey !== undefined ? headerIdemKey : parsed.data.idempotencyKey;
+      if (rawIdemKey !== undefined) {
+        const trimmedKey = typeof rawIdemKey === "string" ? rawIdemKey.trim() : "";
+        if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmedKey)) {
+          return res.status(400).json({ error: "X-Idempotency-Key không hợp lệ (1-128 ký tự ASCII an toàn)." });
         }
-        if(['momo','zalopay'].includes(parsed.data.paymentMethod)){
-          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['gaeru:payment-config:'+parsed.data.paymentMethod]);
-          if(getPaymentChannels)req.paymentChannels=await getPaymentChannels(client);
-          if(!req.paymentChannels?.methods.includes(parsed.data.paymentMethod))throw Object.assign(Error('Kênh thanh toán vừa ngừng khả dụng.'),{status:409});
-        }
-        let prepared = [];
-        for (const [variantId, quantity] of [...uniqueItems.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-          const result = await client.query(
-            `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd",
-              v.stock_quantity AS "stockQuantity", p.name AS "productName"
-             FROM product_variants v JOIN products p ON p.id = v.product_id
-             WHERE v.id = $1 AND v.active = true AND p.active = true
-             FOR UPDATE OF v`,
-            [variantId]
+        idempotencyKey = trimmedKey;
+        scopeKey = req.session?.customer?.id
+          ? `customer:${req.session.customer.id}`
+          : `session:${req.sessionID || "guest"}:${parsed.data.customer.email}`;
+        const requestHash = createHash("sha256").update(JSON.stringify({
+          customer: parsed.data.customer,
+          paymentMethod: parsed.data.paymentMethod,
+          shippingCarrierId: parsed.data.shippingCarrierId || null,
+          voucherCode: parsed.data.voucherCode || null,
+          loyaltyPointsToRedeem: parsed.data.loyaltyPointsToRedeem || 0,
+          items: sortedEntries
+        })).digest("hex");
+
+        const claimOutcome = await withTransaction(pool, async (client) => {
+          await client.query("DELETE FROM order_idempotency_keys WHERE expires_at <= now()");
+          const ins = await client.query(
+            `INSERT INTO order_idempotency_keys (scope_key, idempotency_key, request_hash, status)
+             VALUES ($1, $2, $3, 'in_progress')
+             ON CONFLICT (scope_key, idempotency_key) DO NOTHING
+             RETURNING status`,
+            [scopeKey, idempotencyKey, requestHash]
           );
-          const variant = result.rows[0];
-          if (!variant) {
-            const error = new Error("Một phiên bản trong giỏ hàng không còn được bán.");
-            error.status = 409;
-            throw error;
+          if (ins.rowCount > 0) return { claimed: true };
+          const existing = (await client.query(
+            `SELECT request_hash AS "requestHash", status, response_status AS "responseStatus", response_body AS "responseBody"
+             FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2`,
+            [scopeKey, idempotencyKey]
+          )).rows[0];
+          return { claimed: false, existing };
+        });
+
+        if (!claimOutcome.claimed) {
+          let existing = claimOutcome.existing;
+          if (existing && existing.requestHash !== requestHash) {
+            return res.status(409).json({ error: "X-Idempotency-Key đã được sử dụng cho một nội dung đơn hàng khác." });
           }
-          if (variant.stockQuantity < quantity) {
-            const error = new Error(`${variant.productName} (${variant.variantName}) hiện chỉ còn ${variant.stockQuantity} sản phẩm.`);
-            error.status = 409;
-            throw error;
+          if (existing?.status === "completed" && existing.responseBody) {
+            return res.status(existing.responseStatus || 201).json(existing.responseBody);
           }
-          prepared.push({ ...variant, quantity });
+          // Concurrent duplicate request while first request is in flight: wait for completion
+          const deadline = Date.now() + 31_000;
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 40));
+            const polled = await withTransaction(pool, async (client) => {
+              return (await client.query(
+                `SELECT request_hash AS "requestHash", status, response_status AS "responseStatus", response_body AS "responseBody"
+                 FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2`,
+                [scopeKey, idempotencyKey]
+              )).rows[0];
+            });
+            if (!polled) {
+              return res.status(409).json({ error: "Yêu cầu đặt hàng đồng thời trước đó không thành công. Vui lòng thử lại." });
+            }
+            if (polled.status === "completed" && polled.responseBody) {
+              return res.status(polled.responseStatus || 201).json(polled.responseBody);
+            }
+          }
+          return res.status(409).json({ error: "Yêu cầu đặt hàng với cùng X-Idempotency-Key đang được xử lý." });
+        }
+        idempotencyClaimed = true;
+      }
+
+      let order;
+      if (["momo", "zalopay"].includes(parsed.data.paymentMethod)) {
+        // GAERU-010: 3-Phase Non-Blocking Gateway Checkout
+        await releaseExpiredCheckoutIntents(pool);
+
+        // Phase 1: Validate, temporarily hold stock with TTL, and COMMIT immediately (releasing all row locks!)
+        const phase1 = await withTransaction(pool, async (client) => {
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", ["gaeru:payment-config:" + parsed.data.paymentMethod]);
+          if (getPaymentChannels) req.paymentChannels = await getPaymentChannels(client);
+          if (!req.paymentChannels?.methods.includes(parsed.data.paymentMethod)) {
+            throw Object.assign(new Error("Kênh thanh toán vừa ngừng khả dụng."), { status: 409 });
+          }
+          const channelConfig = req.paymentChannels?.configs?.[parsed.data.paymentMethod];
+          if (!channelConfig) {
+            throw Object.assign(new Error("Kênh thanh toán vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
+          }
+
+          const calc = await prepareCartAndDiscounts(client, {
+            parsedData: parsed.data,
+            sortedEntries,
+            sessionCustomerId: req.session?.customer?.id,
+            paymentChannelsObj: req.paymentChannels,
+            lockVoucher: false
+          });
+
+          const intentNow = Date.now();
+          const orderNumber = `GR-${new Date(intentNow).toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
+          const providerRequestId = parsed.data.paymentMethod === "zalopay"
+            ? `${vietnamYyMmDd(intentNow)}_${orderNumber}`
+            : orderNumber;
+
+          const intentIns = await client.query(
+            `INSERT INTO checkout_payment_intents (order_number, provider, provider_request_id, amount_vnd, status, expires_at)
+             VALUES ($1, $2, $3, $4, 'pending_provider', now() + interval '15 minutes')
+             RETURNING id`,
+            [orderNumber, parsed.data.paymentMethod, providerRequestId, calc.finalTotal]
+          );
+          const intentId = intentIns.rows[0].id;
+          const holds = [];
+
+          for (const item of calc.prepared) {
+            if (inventory) {
+              const balancesRes = await client.query(
+                `SELECT s.warehouse_id AS "warehouseId", s.quantity, w.active
+                 FROM warehouse_stock s
+                 JOIN warehouses w ON w.id = s.warehouse_id
+                 WHERE s.variant_id = $1
+                 ORDER BY s.warehouse_id
+                 FOR UPDATE OF s`,
+                [item.id]
+              );
+              const balances = balancesRes.rows;
+              const sumBalances = balances.reduce((s, r) => s + r.quantity, 0);
+              if (sumBalances !== item.stockQuantity) {
+                throw Object.assign(new Error("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi."), { status: 409 });
+              }
+              const activeAvailable = balances.filter((r) => r.active).reduce((s, r) => s + r.quantity, 0);
+              if (activeAvailable < item.quantity) {
+                throw Object.assign(new Error("Tồn kho khả dụng không đủ để đặt hàng."), { status: 409 });
+              }
+              let remaining = item.quantity;
+              for (const b of balances.filter((r) => r.active)) {
+                const amount = Math.min(remaining, b.quantity);
+                if (amount > 0) {
+                  const after = b.quantity - amount;
+                  await client.query(
+                    "UPDATE warehouse_stock SET quantity = $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2",
+                    [b.warehouseId, item.id, after]
+                  );
+                  await client.query(
+                    `INSERT INTO checkout_stock_holds (intent_id, variant_id, warehouse_id, quantity)
+                     VALUES ($1, $2, $3, $4)`,
+                    [intentId, item.id, b.warehouseId, amount]
+                  );
+                  holds.push({
+                    variantId: item.id,
+                    warehouseId: b.warehouseId,
+                    quantity: amount,
+                    before: b.quantity,
+                    after,
+                    sku: item.sku,
+                    productName: item.productName,
+                    variantName: item.variantName
+                  });
+                  remaining -= amount;
+                }
+                if (!remaining) break;
+              }
+              await client.query(
+                "UPDATE product_variants SET stock_quantity = $2, updated_at = now() WHERE id = $1",
+                [item.id, item.stockQuantity - item.quantity]
+              );
+            } else {
+              await client.query(
+                `INSERT INTO checkout_stock_holds (intent_id, variant_id, warehouse_id, quantity)
+                 VALUES ($1, $2, NULL, $3)`,
+                [intentId, item.id, item.quantity]
+              );
+              await client.query(
+                "UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1",
+                [item.id, item.quantity]
+              );
+              holds.push({
+                variantId: item.id,
+                warehouseId: null,
+                quantity: item.quantity
+              });
+            }
+          }
+
+          return {
+            intentId,
+            intentNow,
+            orderNumber,
+            providerRequestId,
+            channelConfig,
+            channelVersion: req.paymentChannels.versions?.[parsed.data.paymentMethod],
+            holds,
+            ...calc
+          };
+        });
+
+        // Phase 2: External provider HTTP call WITHOUT holding any PostgreSQL connection or row lock!
+        let gateway;
+        try {
+          gateway = await require("./payment-provider-clients").createGatewayPayment(
+            parsed.data.paymentMethod,
+            phase1.channelConfig,
+            {
+              amountVnd: phase1.finalTotal,
+              txnRef: phase1.orderNumber,
+              requestId: phase1.providerRequestId,
+              now: phase1.intentNow,
+              baseUrl: publicBaseUrl,
+              fetcher: paymentFetcher
+            }
+          );
+        } catch (gatewayErr) {
+          await releaseCheckoutIntent(pool, phase1.intentId, "released");
+          throw gatewayErr;
         }
 
-        prepared=await require("./product-promotions").applyPromotions(client,prepared);
-        const subtotal = prepared.reduce((sum, item) => sum + item.priceVnd * item.quantity, 0);
-        if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) {
-          const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
-          error.status = 400;
-          throw error;
-        }
-        if(parsed.data.expectedSubtotalVnd!==undefined&&parsed.data.expectedSubtotalVnd!==subtotal)throw Object.assign(Error("Giá hoặc chương trình đã thay đổi. Tải lại trang để xác nhận giá mới trước khi đặt hàng."),{status:409});
-        const shippingResult = await client.query(
-          "SELECT setting_value FROM store_settings WHERE setting_key = 'shipping_rates' FOR SHARE"
-        );
-        const shippingRates = shippingResult.rows[0]?.setting_value || {};
-        if (require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city) === undefined) {
-          const error = new Error("Tỉnh/thành phố giao hàng hiện chưa được hỗ trợ hoặc chưa có phí vận chuyển.");
-          error.status = 409;
-          throw error;
-        }
-        const shippingFee = require("../checkout-flow").shippingFee(shippingRates,parsed.data.customer.city);
-        const shippingSelection=shippingChoices?await require('./shipping-choice').validateSelection(client,parsed.data.shippingCarrierId):null;
-        if(parsed.data.expectedShippingFeeVnd!==undefined&&parsed.data.expectedShippingFeeVnd!==shippingFee)throw Object.assign(Error('Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng.'),{status:409});
-        const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true):null;
-        const bundleCalc = await require("./product-bundles").calculateCartBundleDiscount(client, prepared);
-        const bundleDiscountVnd = bundleCalc.bundleDiscountVnd;
-        const total = Math.max(0, subtotal + shippingFee - (promotion?.discountVnd||0) - bundleDiscountVnd);
-        if (!Number.isSafeInteger(total) || total > 2_000_000_000) {
-          const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
-          error.status = 400;
-          throw error;
-        }
-        if (parsed.data.paymentMethod !== "cod" && total < 1) {
-          const error = new Error("Cổng thanh toán trực tuyến không hỗ trợ đơn hàng có tổng tiền bằng 0.");
-          error.status = 400;
-          throw error;
-        }
-        if (parsed.data.paymentMethod === "cod" && req.paymentChannels?.cod?.maxAmountVnd && total > req.paymentChannels.cod.maxAmountVnd) {
-          throw Object.assign(new Error(`Đơn hàng vượt hạn mức thu hộ COD (${new Intl.NumberFormat("vi-VN").format(req.paymentChannels.cod.maxAmountVnd)} ₫). Vui lòng chọn phương thức thanh toán trước.`), { status: 400 });
-        }
-        const orderNumber = `GR-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
-        const inserted = await client.query(
-          `INSERT INTO orders (order_number, customer_name, email, phone, address, city, note,
-            payment_method, subtotal_vnd, shipping_fee_vnd, total_vnd)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-           RETURNING id, order_number AS "orderNumber", subtotal_vnd AS "subtotalVnd",
-             shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd",
-             status, payment_method AS "paymentMethod", created_at AS "createdAt"`,
-          [orderNumber, parsed.data.customer.name, parsed.data.customer.email, parsed.data.customer.phone,
-            parsed.data.customer.address, parsed.data.customer.city, parsed.data.customer.note,
-            parsed.data.paymentMethod, subtotal, shippingFee, total]
-        );
-        const createdOrder = inserted.rows[0];
-        if(shippingSelection){await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);createdOrder.shippingCarrierName=shippingSelection.name;}
-        if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
-        if(bundleDiscountVnd>0){await client.query('UPDATE orders SET discount_vnd=COALESCE(discount_vnd,0)+$2 WHERE id=$1',[createdOrder.id,bundleDiscountVnd]);createdOrder.discountVnd=(createdOrder.discountVnd||0)+bundleDiscountVnd;createdOrder.bundleDiscountVnd=bundleDiscountVnd;}
-        try { await require('./abandoned-cart').markCartRecovered(client, { orderId: createdOrder.id, email: parsed.data.customer.email, customerId: req.session?.customer?.id }); } catch (_) {}
-        if (req.session?.customer?.id) {
-          await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
-          if (parsed.data.loyaltyPointsToRedeem) {
+        // Phase 3A: Commit order, convert temporary holds to permanent order allocations & record payment attempt
+        try {
+          order = await withTransaction(pool, async (client) => {
+            const lockedIntent = (await client.query(
+              "SELECT id, status FROM checkout_payment_intents WHERE id = $1 FOR UPDATE",
+              [phase1.intentId]
+            )).rows[0];
+            if (!lockedIntent || lockedIntent.status !== "pending_provider") {
+              throw Object.assign(new Error("Phiên giữ hàng thanh toán đã hết hạn. Vui lòng đặt lại đơn hàng."), { status: 409 });
+            }
+
+            let promotion = null;
+            if (parsed.data.voucherCode) {
+              const verifiedPromo = await require("./marketing").eligible(
+                client,
+                parsed.data.voucherCode,
+                phase1.activeCustomerId,
+                phase1.subtotal,
+                true
+              );
+              const cappedVoucher = Math.min(verifiedPromo.discountVnd, Math.max(0, phase1.subtotal - phase1.bundleDiscountVnd));
+              if (cappedVoucher !== phase1.voucherDiscountVnd) {
+                throw Object.assign(new Error("Điều kiện ưu đãi voucher vừa thay đổi. Vui lòng thử lại."), { status: 409 });
+              }
+              promotion = { ...verifiedPromo, discountVnd: cappedVoucher };
+            }
+
+            const inserted = await client.query(
+              `INSERT INTO orders (order_number, customer_name, email, phone, address, city, note,
+                payment_method, subtotal_vnd, shipping_fee_vnd, total_vnd)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+               RETURNING id, order_number AS "orderNumber", subtotal_vnd AS "subtotalVnd",
+                 shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd",
+                 status, payment_method AS "paymentMethod", created_at AS "createdAt"`,
+              [phase1.orderNumber, parsed.data.customer.name, parsed.data.customer.email, parsed.data.customer.phone,
+                parsed.data.customer.address, parsed.data.customer.city, parsed.data.customer.note,
+                parsed.data.paymentMethod, phase1.subtotal, phase1.shippingFee, phase1.finalTotal]
+            );
+            const createdOrder = inserted.rows[0];
+
+            if (phase1.shippingSelection) {
+              await client.query(
+                "INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)",
+                [createdOrder.id, phase1.shippingSelection.id, phase1.shippingSelection.name, phase1.shippingFee, phase1.shippingSelection.version]
+              );
+              createdOrder.shippingCarrierName = phase1.shippingSelection.name;
+            }
+            if (promotion) {
+              await require("./marketing").redeem(client, promotion, phase1.activeCustomerId, createdOrder.id);
+              createdOrder.discountVnd = promotion.discountVnd;
+              createdOrder.voucherCode = promotion.voucher.code;
+            }
+            if (phase1.bundleDiscountVnd > 0) {
+              await client.query("UPDATE orders SET discount_vnd=COALESCE(discount_vnd,0)+$2 WHERE id=$1", [createdOrder.id, phase1.bundleDiscountVnd]);
+              createdOrder.discountVnd = (createdOrder.discountVnd || 0) + phase1.bundleDiscountVnd;
+              createdOrder.bundleDiscountVnd = phase1.bundleDiscountVnd;
+            }
+            if (phase1.activeCustomerId) {
+              await client.query("UPDATE orders SET customer_id=$2 WHERE id=$1", [createdOrder.id, phase1.activeCustomerId]);
+              if (phase1.effectivePointsToRedeem > 0) {
+                const { redeemPoints } = require("./loyalty-api");
+                const redemption = await redeemPoints(client, {
+                  customerId: phase1.activeCustomerId,
+                  orderId: createdOrder.id,
+                  pointsToRedeem: phase1.effectivePointsToRedeem,
+                  orderTotalVnd: phase1.subtotal,
+                  maxPayableVnd: phase1.remainingProductSubtotal,
+                  reason: `Tiêu GAERU Xu cho đơn hàng #${createdOrder.orderNumber}`
+                });
+                if (redemption.discountVnd !== phase1.effectivePointsToRedeem) {
+                  throw Object.assign(new Error("Số dư GAERU Xu vừa thay đổi. Vui lòng thử lại."), { status: 409 });
+                }
+                await client.query("UPDATE orders SET discount_vnd = COALESCE(discount_vnd, 0) + $2 WHERE id = $1", [createdOrder.id, redemption.discountVnd]);
+                createdOrder.discountVnd = (createdOrder.discountVnd || 0) + redemption.discountVnd;
+                createdOrder.loyaltyDiscountVnd = redemption.discountVnd;
+              }
+            }
             try {
-              const { redeemPoints } = require('./loyalty-api');
-              const redemption = await redeemPoints(client, {
-                customerId: req.session.customer.id,
+              await require("./abandoned-cart").markCartRecovered(client, {
                 orderId: createdOrder.id,
-                pointsToRedeem: parsed.data.loyaltyPointsToRedeem,
-                orderTotalVnd: subtotal,
+                email: parsed.data.customer.email,
+                customerId: phase1.activeCustomerId
+              });
+            } catch (_) {}
+            if (checkoutAccounts) {
+              await require("./checkout-account").enroll(client, createdOrder, parsed.data.customer, phase1.activeCustomerId);
+            }
+
+            for (const item of phase1.prepared) {
+              await client.query(
+                `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
+                  unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
+                  item.priceVnd, item.quantity, item.priceVnd * item.quantity, item.originalPriceVnd, item.promotion]
+              );
+            }
+
+            if (inventory) {
+              const { appendAudit } = require("./audit");
+              for (const hold of phase1.holds) {
+                await client.query(
+                  "INSERT INTO order_stock_allocations (order_id, variant_id, warehouse_id, quantity) VALUES ($1, $2, $3, $4)",
+                  [createdOrder.id, hold.variantId, hold.warehouseId, hold.quantity]
+                );
+                await client.query(
+                  `INSERT INTO inventory_movements (event_key, warehouse_id, variant_id, sku, product_name, variant_name,
+                    movement_type, delta, quantity_before, quantity_after, reference_type, reference_id, reason, actor_id, actor_username)
+                   VALUES ($1, $2, $3, $4, $5, $6, 'sale_reservation', $7, $8, $9, 'order', $10, 'Giữ tồn khả dụng cho đơn hàng', NULL, 'customer')`,
+                  [
+                    `reserve:${createdOrder.id}:${hold.variantId}:${hold.warehouseId}`,
+                    hold.warehouseId,
+                    hold.variantId,
+                    hold.sku,
+                    hold.productName,
+                    hold.variantName,
+                    -hold.quantity,
+                    hold.before,
+                    hold.after,
+                    String(createdOrder.id)
+                  ]
+                );
+              }
+              for (const item of phase1.prepared) {
+                await appendAudit(client, {
+                  actor: { username: "customer", source: "customer" },
+                  action: "inventory.reserve",
+                  entityType: "order",
+                  entityId: createdOrder.id,
+                  metadata: { variantId: item.id, quantity: item.quantity }
+                });
+              }
+            }
+
+            await client.query("UPDATE checkout_stock_holds SET released_at = now() WHERE intent_id = $1 AND released_at IS NULL", [phase1.intentId]);
+            await client.query("UPDATE checkout_payment_intents SET status = 'completed', order_id = $2, updated_at = now() WHERE id = $1", [phase1.intentId, createdOrder.id]);
+
+            await client.query(
+              `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, provider_request_id, provider_transaction_id, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, now() + interval '15 minutes')`,
+              [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd, gateway.requestId, gateway.providerTransactionId]
+            );
+            if (phase1.channelVersion !== undefined) {
+              await require("./payment-channels").recordGatewayEvidence(client, parsed.data.paymentMethod, phase1.channelVersion, {
+                method: "provider_order_create",
+                scope: "api_credentials",
+                enabled: true
+              });
+            }
+            if (phase1.activeCustomerId) {
+              await client.query(
+                "DELETE FROM customer_cart_items WHERE customer_id = $1 AND variant_id = ANY($2::uuid[])",
+                [phase1.activeCustomerId, phase1.prepared.map((i) => i.id)]
+              );
+            }
+            await audit(client, {
+              actor: { username: "customer", source: "customer" },
+              action: "order.create",
+              entityType: "order",
+              entityId: createdOrder.id,
+              metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod }
+            });
+            return {
+              order: {
+                ...createdOrder,
+                items: phase1.prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({
+                  productName,
+                  variantName,
+                  sku,
+                  priceVnd,
+                  quantity
+                }))
+              },
+              paymentUrl: gateway.paymentUrl
+            };
+          });
+        } catch (phase3Err) {
+          await releaseCheckoutIntent(pool, phase1.intentId, "released").catch(() => {});
+          throw phase3Err;
+        }
+      } else {
+        // Local payment methods (COD, bank_transfer, VNPAY URL signing): fast local transaction with sequential discounts (GAERU-006)
+        order = await withTransaction(pool, async (client) => {
+          if (parsed.data.paymentMethod === "vnpay" && getVnpayConfig) {
+            await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:vnpay-config'))");
+            req.vnpayConfig = await getVnpayConfig(client);
+            if (!req.vnpayConfig) {
+              throw Object.assign(new Error("VNPAY vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
+            }
+          }
+
+          const calc = await prepareCartAndDiscounts(client, {
+            parsedData: parsed.data,
+            sortedEntries,
+            sessionCustomerId: req.session?.customer?.id,
+            paymentChannelsObj: req.paymentChannels,
+            lockVoucher: true
+          });
+
+          const orderNumber = `GR-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${require("node:crypto").randomBytes(5).toString("hex").toUpperCase()}`;
+          const inserted = await client.query(
+            `INSERT INTO orders (order_number, customer_name, email, phone, address, city, note,
+              payment_method, subtotal_vnd, shipping_fee_vnd, total_vnd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             RETURNING id, order_number AS "orderNumber", subtotal_vnd AS "subtotalVnd",
+               shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd",
+               status, payment_method AS "paymentMethod", created_at AS "createdAt"`,
+            [orderNumber, parsed.data.customer.name, parsed.data.customer.email, parsed.data.customer.phone,
+              parsed.data.customer.address, parsed.data.customer.city, parsed.data.customer.note,
+              parsed.data.paymentMethod, calc.subtotal, calc.shippingFee, calc.finalTotal]
+          );
+          const createdOrder = inserted.rows[0];
+
+          if (calc.shippingSelection) {
+            await client.query(
+              "INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)",
+              [createdOrder.id, calc.shippingSelection.id, calc.shippingSelection.name, calc.shippingFee, calc.shippingSelection.version]
+            );
+            createdOrder.shippingCarrierName = calc.shippingSelection.name;
+          }
+          if (calc.promotion) {
+            await require("./marketing").redeem(client, calc.promotion, calc.activeCustomerId, createdOrder.id);
+            createdOrder.discountVnd = calc.promotion.discountVnd;
+            createdOrder.voucherCode = calc.promotion.voucher.code;
+          }
+          if (calc.bundleDiscountVnd > 0) {
+            await client.query("UPDATE orders SET discount_vnd=COALESCE(discount_vnd,0)+$2 WHERE id=$1", [createdOrder.id, calc.bundleDiscountVnd]);
+            createdOrder.discountVnd = (createdOrder.discountVnd || 0) + calc.bundleDiscountVnd;
+            createdOrder.bundleDiscountVnd = calc.bundleDiscountVnd;
+          }
+          try {
+            await require("./abandoned-cart").markCartRecovered(client, {
+              orderId: createdOrder.id,
+              email: parsed.data.customer.email,
+              customerId: calc.activeCustomerId
+            });
+          } catch (_) {}
+          if (calc.activeCustomerId) {
+            await client.query("UPDATE orders SET customer_id=$2 WHERE id=$1", [createdOrder.id, calc.activeCustomerId]);
+            if (calc.effectivePointsToRedeem > 0) {
+              const { redeemPoints } = require("./loyalty-api");
+              const redemption = await redeemPoints(client, {
+                customerId: calc.activeCustomerId,
+                orderId: createdOrder.id,
+                pointsToRedeem: calc.effectivePointsToRedeem,
+                orderTotalVnd: calc.subtotal,
+                maxPayableVnd: calc.remainingProductSubtotal,
                 reason: `Tiêu GAERU Xu cho đơn hàng #${createdOrder.orderNumber}`
               });
               if (redemption.discountVnd > 0) {
-                const finalTotal = Math.max(0, total - redemption.discountVnd);
-                await client.query('UPDATE orders SET discount_vnd = COALESCE(discount_vnd, 0) + $2, total_vnd = $3 WHERE id = $1', [createdOrder.id, redemption.discountVnd, finalTotal]);
-                createdOrder.totalVnd = finalTotal;
+                await client.query("UPDATE orders SET discount_vnd = COALESCE(discount_vnd, 0) + $2 WHERE id = $1", [createdOrder.id, redemption.discountVnd]);
+                createdOrder.discountVnd = (createdOrder.discountVnd || 0) + redemption.discountVnd;
                 createdOrder.loyaltyDiscountVnd = redemption.discountVnd;
               }
-            } catch (err) {
-              if (err.status) throw err;
             }
           }
-        }
-        if(checkoutAccounts)await require("./checkout-account").enroll(client,createdOrder,parsed.data.customer,req.session?.customer?.id);
-        for (const item of prepared) {
-          await client.query(
-            `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
-              unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
-              item.priceVnd, item.quantity, item.priceVnd * item.quantity,item.originalPriceVnd,item.promotion]
-          );
-          if (inventory) await inventory.reserveStock(client, { variantId: item.id, quantity: item.quantity, orderId: createdOrder.id, actor: { username: "customer", source: "customer" } });
-          else await client.query(
-            "UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1",
-            [item.id, item.quantity]
-          );
-        }
-        let paymentUrl = null;
-        let bankTransfer = null;
-        if (["momo", "zalopay"].includes(parsed.data.paymentMethod)) {
-          const channelConfig = req.paymentChannels?.configs?.[parsed.data.paymentMethod];
-          if (!channelConfig) throw Object.assign(new Error("Kênh thanh toán vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
-          await client.query(
-            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
-             VALUES ($1, $2, $3, $4, now() + interval '15 minutes')`,
-            [createdOrder.id, parsed.data.paymentMethod, createdOrder.orderNumber, createdOrder.totalVnd]
-          );
-          const gateway=await require('./payment-provider-clients').createGatewayPayment(parsed.data.paymentMethod,channelConfig,{
-            amountVnd:createdOrder.totalVnd,txnRef:createdOrder.orderNumber,baseUrl:publicBaseUrl,fetcher:paymentFetcher
-          });
-          paymentUrl=gateway.paymentUrl;
-          await client.query('UPDATE payment_attempts SET provider_request_id=$3,provider_transaction_id=$4 WHERE order_id=$1 AND provider=$2',[createdOrder.id,parsed.data.paymentMethod,gateway.requestId,gateway.providerTransactionId]);
-          if(req.paymentChannels.versions)await require('./payment-channels').recordGatewayEvidence(client,parsed.data.paymentMethod,req.paymentChannels.versions[parsed.data.paymentMethod],{method:'provider_order_create',scope:'api_credentials',enabled:true});
-        } else if (parsed.data.paymentMethod === "bank_transfer") {
-          const channelConfig = req.paymentChannels?.configs?.bank_transfer;
-          if (!channelConfig) throw Object.assign(new Error("Chuyển khoản ngân hàng vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
-          await client.query(
-            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
-             VALUES ($1, 'bank_transfer', $2, $3, now() + interval '24 hours')`,
-            [createdOrder.id, createdOrder.orderNumber, createdOrder.totalVnd]
-          );
-          bankTransfer = require("./payment-channels").formatBankTransferInstructions(channelConfig, {
-            orderNumber: createdOrder.orderNumber,
-            amountVnd: createdOrder.totalVnd
-          });
-        }
-        if (parsed.data.paymentMethod === "vnpay") {
-          await client.query(
-            `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
-             VALUES ($1, 'vnpay', $2, $3, now() + interval '15 minutes')`,
-            [createdOrder.id, createdOrder.orderNumber, createdOrder.totalVnd]
-          );
-          paymentUrl = buildVnpayPaymentUrl(req.vnpayConfig, {
-            amountVnd: createdOrder.totalVnd,
-            txnRef: createdOrder.orderNumber,
-            ipAddress: req.ip
-          });
-        }
-        await audit(client, { actor: { username: "customer", source: "customer" }, action: "order.create", entityType: "order", entityId: createdOrder.id, metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod } });
-        return {
-          order: { ...createdOrder, items: prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({ productName, variantName, sku, priceVnd, quantity })) },
-          paymentUrl,
-          ...(bankTransfer ? { bankTransfer } : {})
-        };
-      });
+          if (checkoutAccounts) {
+            await require("./checkout-account").enroll(client, createdOrder, parsed.data.customer, calc.activeCustomerId);
+          }
 
-      for (const [variantId, quantity] of uniqueItems.entries()) {
-        reserveStock(variantId, quantity);
-        if ((stockMap.get(variantId) ?? 0) <= 0) {
-          flushAllCache();
-        }
+          for (const item of calc.prepared) {
+            await client.query(
+              `INSERT INTO order_items (order_id, variant_id, product_name, variant_name, sku,
+                unit_price_vnd, quantity, line_total_vnd, original_price_vnd, promotion_snapshot)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+              [createdOrder.id, item.id, item.productName, item.variantName, item.sku,
+                item.priceVnd, item.quantity, item.priceVnd * item.quantity, item.originalPriceVnd, item.promotion]
+            );
+            if (inventory) {
+              await inventory.reserveStock(client, {
+                variantId: item.id,
+                quantity: item.quantity,
+                orderId: createdOrder.id,
+                actor: { username: "customer", source: "customer" }
+              });
+            } else {
+              await client.query(
+                "UPDATE product_variants SET stock_quantity = stock_quantity - $2, updated_at = now() WHERE id = $1",
+                [item.id, item.quantity]
+              );
+            }
+          }
+
+          let paymentUrl = null;
+          let bankTransfer = null;
+          if (parsed.data.paymentMethod === "bank_transfer") {
+            const channelConfig = req.paymentChannels?.configs?.bank_transfer;
+            if (!channelConfig) {
+              throw Object.assign(new Error("Chuyển khoản ngân hàng vừa ngừng khả dụng. Vui lòng chọn phương thức khác."), { status: 409 });
+            }
+            await client.query(
+              `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
+               VALUES ($1, 'bank_transfer', $2, $3, now() + interval '24 hours')`,
+              [createdOrder.id, createdOrder.orderNumber, createdOrder.totalVnd]
+            );
+            bankTransfer = require("./payment-channels").formatBankTransferInstructions(channelConfig, {
+              orderNumber: createdOrder.orderNumber,
+              amountVnd: createdOrder.totalVnd
+            });
+          } else if (parsed.data.paymentMethod === "vnpay") {
+            await client.query(
+              `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
+               VALUES ($1, 'vnpay', $2, $3, now() + interval '15 minutes')`,
+              [createdOrder.id, createdOrder.orderNumber, createdOrder.totalVnd]
+            );
+            paymentUrl = buildVnpayPaymentUrl(req.vnpayConfig, {
+              amountVnd: createdOrder.totalVnd,
+              txnRef: createdOrder.orderNumber,
+              ipAddress: req.ip
+            });
+          }
+
+          if (calc.activeCustomerId) {
+            await client.query(
+              "DELETE FROM customer_cart_items WHERE customer_id = $1 AND variant_id = ANY($2::uuid[])",
+              [calc.activeCustomerId, calc.prepared.map((i) => i.id)]
+            );
+          }
+
+          await audit(client, {
+            actor: { username: "customer", source: "customer" },
+            action: "order.create",
+            entityType: "order",
+            entityId: createdOrder.id,
+            metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod }
+          });
+          return {
+            order: {
+              ...createdOrder,
+              items: calc.prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({
+                productName,
+                variantName,
+                sku,
+                priceVnd,
+                quantity
+              }))
+            },
+            paymentUrl,
+            ...(bankTransfer ? { bankTransfer } : {})
+          };
+        });
       }
 
-      res.status(201).json({
+      flushAllCache();
+
+      const responsePayload = {
         order: order.order,
         paymentUrl: order.paymentUrl,
         ...(order.bankTransfer ? { bankTransfer: order.bankTransfer } : {}),
         message: parsed.data.paymentMethod === "cod"
           ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
-
           : parsed.data.paymentMethod === "bank_transfer"
             ? "Đã tiếp nhận đơn chuyển khoản. Sau khi giao dịch được xác nhận khớp số tiền và mã đơn, đơn hàng sẽ tự động chuyển sang trạng thái Chờ gửi hàng."
             : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
+      };
 
+      if (idempotencyClaimed && scopeKey && idempotencyKey) {
+        await withTransaction(pool, async (client) => {
+          await client.query(
+            `UPDATE order_idempotency_keys
+             SET status = 'completed', order_id = $3, response_status = 201, response_body = $4::jsonb, updated_at = now()
+             WHERE scope_key = $1 AND idempotency_key = $2`,
+            [scopeKey, idempotencyKey, order.order.id, JSON.stringify(responsePayload)]
+          );
+        });
+      }
 
-
-      });
+      res.status(201).json(responsePayload);
     } catch (error) {
+      if (idempotencyClaimed && scopeKey && idempotencyKey) {
+        await withTransaction(pool, async (client) => {
+          await client.query(
+            "DELETE FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2 AND status = 'in_progress'",
+            [scopeKey, idempotencyKey]
+          );
+        }).catch(() => {});
+      }
       if (error.status) return res.status(error.status).json({ error: error.message });
       next(error);
     }
@@ -633,6 +1292,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           audit
         });
       });
+      flushAllCache();
       res.json(result);
     } catch (err) {
       if (err.status) return res.status(err.status).json({ error: err.message });
@@ -1238,6 +1898,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
+        if (current.payment_method !== "cod" && ["processing", "shipped"].includes(targetStatus) && targetPaymentStatus !== "paid") {
+          const error = new Error("Đơn thanh toán trả trước cần xác nhận đã thanh toán trước khi chuẩn bị gửi hoặc giao hàng.");
+          error.status = 409;
+          throw error;
+        }
         if (paymentStatusChanged && update.paymentStatus === "paid" && targetStatus === "cancelled") {
           const error = new Error("Không thể ghi nhận thanh toán cho đơn đã hủy.");
           error.status = 409;
@@ -1254,6 +1919,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         if (update.status === "cancelled" && current.status !== "cancelled") {
+          const activeWaybill = await client.query(
+            "SELECT 1 FROM carrier_shipments WHERE order_id = $1 AND status <> 'cancelled' LIMIT 1",
+            [current.id]
+          );
+          if (activeWaybill.rows.length) {
+            const error = new Error("Đơn hàng đã có vận đơn đang hoạt động. Cần hủy vận đơn trước khi hủy đơn hàng.");
+            error.status = 409;
+            throw error;
+          }
+          await client.query("UPDATE payment_attempts SET status = 'failed', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
           if(current.voucher_code)await client.query('UPDATE voucher_redemptions SET released=true WHERE order_id=$1 AND released=false',[current.id]);
           if (inventory) await inventory.releaseOrderStock(client, { orderId: current.id, actor: actor });
           else await client.query(
@@ -1268,13 +1943,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             } catch {}
           }
         }
-        const total = shippingFee === null ? null : current.subtotal_vnd + shippingFee - (current.discount_vnd||0);
+        const total = shippingFee === null ? null : Math.max(0, current.subtotal_vnd + shippingFee - (current.discount_vnd||0));
         if (total !== null && total > 2_000_000_000) {
           const error = new Error("Tổng đơn hàng vượt giới hạn cho phép.");
           error.status = 400;
           throw error;
         }
-        if (finance && update.paymentStatus === "paid" && current.payment_status !== "paid") await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: actor });
+        if (update.paymentStatus === "paid" && current.payment_status !== "paid") {
+          await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
+          if (finance) await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: actor });
+        }
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
             shipping_fee_vnd=$4, total_vnd=$5, updated_at=now()
@@ -1332,12 +2010,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           console.error('MISA auto-issue error in bulk:', misaErr.message);
         }
       }
+      flushAllCache();
       res.json({orders:result,targetStatus:target,message:'Đã cập nhật '+result.length+' đơn hàng.'});
     }catch(error){next(error);}
   });
   router.post('/gaeru_ceo/orders/:id/restore',requirePermission('orders.write'),requireUuidParam('id'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{const {restoreOrder,restorationSchema}=require('./order-restoration');const data=restorationSchema.parse(req.body);
       const order=await withTransaction(pool,client=>restoreOrder(client,{id:req.params.id,data,actor:req.admin,inventory:inventory||require('./inventory'),audit}));
+      flushAllCache();
       res.json({order,message:order.alreadyRestored?'Yêu cầu đã được xử lý trước đó.':'Đã khôi phục đơn về Chờ xác nhận và giữ lại tồn kho. Chưa ghi nhận thanh toán hoặc gửi hàng.'});
     }catch(error){if(error instanceof z.ZodError)return res.status(400).json({error:'Nhập lý do, phiên bản và xác nhận đã đối chiếu chưa nhận tiền trước khi khôi phục.'});if(error.code==='23505')return res.status(409).json({error:'Mã yêu cầu khôi phục đã được dùng. Tải lại để kiểm tra trạng thái.'});if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });
@@ -1352,6 +2032,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         })
       );
       if (!deleted) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+      flushAllCache();
       res.json({
         id: req.params.id,
         orderNumber: deleted.order_number,
@@ -1374,6 +2055,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return applyOrderUpdate(client,req.params.id,update,req.admin);
       });
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
+      flushAllCache();
       if (result.status === 'completed' && result.paymentStatus === 'paid') {
         try {
           const { autoIssueForOrder } = require('./misa-einvoice');

@@ -452,7 +452,7 @@ async function loadAndRenderProductReviews(product, root) {
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <div>
                   <label style="display:block;font-size:12.5px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Họ và tên *</label>
-                  <input name="customerName" required maxlength="100" value="${escapeHtml(customer?.name || '')}" placeholder="Nguyễn Văn A" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13px;">
+                  <input name="customerName" required maxlength="100" value="${escapeHtml(customer?.fullName || customer?.name || '')}" placeholder="Nguyễn Văn A" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13px;">
                 </div>
                 <div>
                   <label style="display:block;font-size:12.5px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Email *</label>

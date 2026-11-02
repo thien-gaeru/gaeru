@@ -205,6 +205,17 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
     if (!z.string().uuid().safeParse(req.params.id).success) {
       return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
     }
+    const normalizedBody = {
+      ...(req.body && typeof req.body === 'object' ? req.body : {}),
+      reason: req.body?.reason ?? req.body?.details,
+      bankInfo: req.body?.bankInfo || ((req.body?.bankName || req.body?.accountNumber || req.body?.accountHolder)
+        ? {
+            bankName: req.body?.bankName,
+            accountNumber: req.body?.accountNumber,
+            accountHolder: req.body?.accountHolder
+          }
+        : undefined)
+    };
     const returnSchema = z.object({
       returnType: z.enum(['exchange', 'refund']).default('exchange'),
       reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'change_mind', 'other']).default('faulty'),
@@ -217,7 +228,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
       evidenceUrls: z.array(z.string().trim().max(500)).max(5).optional().default([])
     });
 
-    const parsed = returnSchema.safeParse(req.body);
+    const parsed = returnSchema.safeParse(normalizedBody);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Thông tin yêu cầu chưa hợp lệ.' });
     }

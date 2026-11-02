@@ -95,6 +95,8 @@ async function getSalesVelocityMap(pool, days = 30, warehouseId = null) {
       FROM order_stock_allocations osa
       JOIN orders o ON o.id = osa.order_id
       WHERE o.status NOT IN ('cancelled', 'refunded')
+        AND osa.released_at IS NULL
+        AND o.return_completed_at IS NULL
         AND o.created_at >= now() - ($1 || ' days')::interval
         ${whFilterOsa}
       GROUP BY osa.warehouse_id, osa.variant_id
@@ -103,9 +105,15 @@ async function getSalesVelocityMap(pool, days = 30, warehouseId = null) {
       SELECT
         im.warehouse_id,
         im.variant_id,
-        COALESCE(SUM(ABS(im.delta)), 0)::integer AS sold_units
+        GREATEST(0, COALESCE(SUM(
+          CASE
+            WHEN im.movement_type = 'sale_reservation' THEN ABS(im.delta)
+            WHEN im.movement_type IN ('sale_release', 'legacy_sale_release') THEN -ABS(im.delta)
+            ELSE 0
+          END
+        ), 0))::integer AS sold_units
       FROM inventory_movements im
-      WHERE im.movement_type = 'sale_reservation'
+      WHERE im.movement_type IN ('sale_reservation', 'sale_release', 'legacy_sale_release')
         AND im.created_at >= now() - ($1 || ' days')::interval
         ${whFilterIm}
       GROUP BY im.warehouse_id, im.variant_id
@@ -145,7 +153,7 @@ async function getIncomingStockMap(pool, warehouseId = null) {
     SELECT
       po.warehouse_id AS "warehouseId",
       poi.variant_id AS "variantId",
-      COALESCE(SUM(GREATEST(0, poi.ordered_quantity - poi.received_quantity)), 0)::integer AS "incomingUnits"
+      COALESCE(SUM(GREATEST(0, poi.quantity - COALESCE(poi.received_quantity, 0))), 0)::integer AS "incomingUnits"
     FROM purchase_order_items poi
     JOIN purchase_orders po ON po.id = poi.purchase_order_id
     WHERE po.status IN ('submitted', 'approved', 'partially_received')
@@ -620,31 +628,59 @@ async function createPurchaseOrderFromForecast(pool, {
     )).rows[0];
     if (!warehouse) throw Object.assign(new Error('Kho hàng không tồn tại hoặc đã ngừng hoạt động.'), { status: 404 });
 
-    // 3. Generate PO number
+    // 3. Generate collision-safe PO number
     const countResult = (await client.query(`SELECT COUNT(*)::integer AS total FROM purchase_orders`)).rows[0];
-    const seq = (countResult.total + 1).toString().padStart(5, '0');
-    const poNumber = `PO-${new Date().getFullYear()}-${seq}`;
+    let nextNum = (Number(countResult?.total) || 0) + 1;
+    const currentYear = new Date().getFullYear();
+    let poNumber = `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const dup = await client.query('SELECT 1 FROM purchase_orders WHERE number = $1 LIMIT 1', [poNumber]);
+      if (!dup.rows.length) break;
+      nextNum += 1;
+      poNumber = `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
+    }
 
-    // 4. Calculate items & total
+    // 4. Deduplicate items by variantId & calculate total
+    const mergedMap = new Map();
+    for (const rawItem of items) {
+      if (!rawItem?.variantId) continue;
+      const qty = parseInt(rawItem.quantity, 10);
+      if (!Number.isSafeInteger(qty) || qty <= 0) continue;
+      const prev = mergedMap.get(rawItem.variantId);
+      if (prev) {
+        prev.quantity += qty;
+        if (rawItem.unitCostVnd !== undefined && rawItem.unitCostVnd !== null) {
+          prev.unitCostVnd = rawItem.unitCostVnd;
+        }
+      } else {
+        mergedMap.set(rawItem.variantId, {
+          variantId: rawItem.variantId,
+          quantity: qty,
+          unitCostVnd: rawItem.unitCostVnd
+        });
+      }
+    }
+
     let totalVnd = 0;
     const validatedItems = [];
 
-    for (const item of items) {
+    for (const item of mergedMap.values()) {
       const variant = (await client.query(
         `SELECT v.id, v.sku, v.name AS "variantName", v.cost_price_vnd AS "costPriceVnd",
                 v.price_vnd AS "priceVnd", p.name AS "productName"
          FROM product_variants v
          JOIN products p ON p.id = v.product_id
-         WHERE v.id = $1`,
+         WHERE v.id = $1 AND p.deleted_at IS NULL`,
         [item.variantId]
       )).rows[0];
 
       if (!variant) continue;
 
-      const qty = parseInt(item.quantity, 10);
-      if (qty <= 0) continue;
-
-      const unitCost = parseInt(item.unitCostVnd, 10) || Number(variant.costPriceVnd) || Math.round(Number(variant.priceVnd) * 0.6) || 0;
+      const qty = item.quantity;
+      const rawUnitCost = item.unitCostVnd !== undefined && item.unitCostVnd !== null ? parseInt(item.unitCostVnd, 10) : NaN;
+      const unitCost = Number.isSafeInteger(rawUnitCost) && rawUnitCost >= 0
+        ? rawUnitCost
+        : (Number(variant.costPriceVnd) || Math.round(Number(variant.priceVnd) * 0.6) || 0);
       const lineTotal = qty * unitCost;
       totalVnd += lineTotal;
 
@@ -683,7 +719,7 @@ async function createPurchaseOrderFromForecast(pool, {
       await client.query(
         `INSERT INTO purchase_order_items (
            purchase_order_id, variant_id, sku, product_name, variant_name,
-           ordered_quantity, received_quantity, unit_cost_vnd, total_cost_vnd
+           quantity, received_quantity, unit_cost_vnd, line_total_vnd
          )
          VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8)`,
         [po.id, it.variantId, it.sku, it.productName, it.variantName, it.quantity, it.unitCostVnd, it.totalVnd]
