@@ -26,7 +26,9 @@ function enrich(html,original,origin,override){origin=normalizePublicBase(origin
 function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method)||/^\/(?:api|gaeru_ceo)(?:\/|$)/.test(req.path))return next();
  const target=clean(req.originalUrl,origin);if(target!==req.originalUrl)return res.redirect(301,target);
- const send=res.send.bind(res);res.send=body=>send(typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body);
+ const send=res.send.bind(res),prepare=body=>typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body;
+ // Cache the final document, including metadata, rather than the unprocessed template.
+ res.locals.publicHtml={prepare,send};res.send=body=>send(prepare(body));
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
 function staticHtml(req,res,next){if(!['GET','HEAD'].includes(req.method))return next();const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(fs.readFileSync(path.join(__dirname,'..',file),'utf8'))}

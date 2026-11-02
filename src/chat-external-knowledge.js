@@ -103,14 +103,14 @@ async function searchLiveWeb(query, { transport = fetch, timeoutMs = 3500 } = {}
 /**
  * Get relevant external technical knowledge & live search insights
  */
-async function getExternalWebKnowledge({ question = '', selectedProduct = null, transport = fetch } = {}) {
+async function getExternalWebKnowledge({ question = '', selectedProduct = null, transport = fetch, webSearchEnabled = true, curatedEnabled = true } = {}) {
   const text = typeof question === 'string' ? question : question?.current || '';
   const qNorm = normalize(text);
   const prodNorm = selectedProduct ? normalize(`${selectedProduct.name} ${selectedProduct.slug || ''}`) : '';
 
   // 1. Match curated technology ecosystem facts
   const matchedFacts = [];
-  for (const entry of TECH_ECOSYSTEM_KNOWLEDGE) {
+  for (const entry of curatedEnabled ? TECH_ECOSYSTEM_KNOWLEDGE : []) {
     const isTriggered = entry.triggers.some(trigger => {
       const tNorm = normalize(trigger);
       return qNorm.includes(tNorm) || prodNorm.includes(tNorm);
@@ -124,7 +124,7 @@ async function getExternalWebKnowledge({ question = '', selectedProduct = null, 
   const needsWebSearch = /(?:iphone|samsung|oppo|xiaomi|vivo|ipad|laptop|pc|mac|otg|capcut|tiktok|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)/.test(qNorm);
 
   let searchSnippets = [];
-  if (needsWebSearch && transport) {
+  if (webSearchEnabled && needsWebSearch && transport) {
     const cacheKey = createHash('md5').update(qNorm).digest('hex');
     const cached = externalCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {

@@ -131,6 +131,9 @@ function createAuthBruteForceShield(config = {}) {
   return rateLimit({
     windowMs: 900000, // 15 minutes
     limit: isTest ? 5000 : 60, // 60 requests per 15 mins for auth routes
+    // Session/config reads and successful writes are not failed login attempts.
+    skip: req => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || ['/logout', '/activity'].includes(req.path),
+    skipSuccessfulRequests: true,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     validate: { xForwardedForHeader: false, default: true },
@@ -144,7 +147,7 @@ function createAuthBruteForceShield(config = {}) {
 /**
  * Get current system health & security shield status
  */
-async function getSystemHealth(pool, config = {}) {
+async function getSystemHealth(pool, config = {}, request = null) {
   const startDb = Date.now();
   let dbStatus = 'connected';
   let dbLatency = 0;
@@ -152,7 +155,7 @@ async function getSystemHealth(pool, config = {}) {
     await pool.query('SELECT 1');
     dbLatency = Math.max(1, Date.now() - startDb);
   } catch (err) {
-    dbStatus = 'error: ' + (err.message || 'database unavailable');
+    dbStatus = 'unavailable';
   }
 
   const memory = process.memoryUsage();
@@ -160,16 +163,21 @@ async function getSystemHealth(pool, config = {}) {
 
   return {
     status: dbStatus === 'connected' ? 'healthy' : 'degraded',
+    statusScope: 'database_reachability',
+    checks: await require('./operational-health').operationalHealth(pool,config),
     uptimeSeconds,
     database: {
       status: dbStatus,
       latencyMs: dbLatency,
-      pool: 'PostgreSQL Pooler Active'
+      pool: dbStatus==='connected'?'PostgreSQL đang phản hồi':'Chưa kết nối được PostgreSQL',
+      tlsStatus: 'not_measured_here'
     },
     security: {
       status: 'protected',
-      tlsEnforced: true,
-      csrfActive: true,
+      tlsEnforced: request ? Boolean(request.secure) : null,
+      tlsScope: 'current_http_connection',
+      csrfActive: null,
+      csrfStatus: 'middleware_configured',
       antiDdos: {
         status: 'active',
         limit: '600 req/phút/IP',
@@ -200,7 +208,7 @@ async function getSystemHealth(pool, config = {}) {
         'X-Content-Type-Options: nosniff',
         'X-Frame-Options: DENY',
         'Permissions-Policy: camera=(), microphone=(), geolocation=()',
-        'Strict-Transport-Security (HSTS)'
+        'Strict-Transport-Security (HSTS): kiểm tra trên phản hồi HTTPS thực tế'
       ]
     },
     server: {

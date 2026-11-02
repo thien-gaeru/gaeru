@@ -208,7 +208,7 @@ async function loadSystemHealth() {
     if (overallBadge) {
       if (health.status === "healthy") {
         overallBadge.className = "health-overall-badge tag-healthy";
-        overallBadge.innerHTML = '<span class="status-indicator"></span> Đang hoạt động tối ưu &amp; An toàn';
+        overallBadge.innerHTML = '<span class="status-indicator"></span> Cơ sở dữ liệu đang phản hồi';
       } else {
         overallBadge.className = "health-overall-badge tag-warning";
         overallBadge.innerHTML = '<span class="status-indicator"></span> Cảnh báo: ' + (health.status || 'Chậm');
@@ -221,7 +221,7 @@ async function loadSystemHealth() {
     }
     const dbDesc = document.querySelector("#health-db-desc");
     if (dbDesc && health.database) {
-      dbDesc.textContent = health.database.pool || "PostgreSQL Pooler đang phản hồi ổn định";
+      dbDesc.textContent = health.database.pool || "PostgreSQL đang phản hồi";
     }
     const dbLatency = document.querySelector("#health-db-latency");
     if (dbLatency && health.database) {
@@ -913,6 +913,8 @@ async function updateOrder(event) {
 
 async function loadCustomers(page = state.customerPage) {
   if (!can("customers.read")) return;
+  if (can('settings.write')) await loadLoyaltyPolicy().catch(error => showGlobal('Chưa tải được chính sách Xu: ' + error.message, true));
+  else document.querySelector('#customer-loyalty-policy')?.remove();
   const search = document.querySelector("#customer-search").value.trim();
   const params = new URLSearchParams({ page: String(page) });
   if (search) params.set("q", search);
@@ -959,7 +961,7 @@ function renderCustomers() {
         <span class="status-pill ${customer.deletedAt ? "status-cancelled" : customer.active ? (customer.phoneWarning || customer.regEmailWarning ? "status-warning" : "status-active") : "status-cancelled"}">${customer.deletedAt ? (customer.deletionRecoverable ? "Thùng rác (Chờ xóa)" : "Đã xóa vĩnh viễn") : !customer.active ? (customer.lockReason === 'spam_email' ? "Khóa: Email rác" : customer.lockReason === 'invalid_phone_timeout' ? "Khóa: SĐT quá 12h" : customer.lockReason === 'reg_email_failed_timeout' ? "Khóa: Email ĐK lỗi (>12h)" : "Đã khóa") : customer.phoneWarning ? `⚠️ Cảnh báo SĐT (còn ${customer.phoneWarningRemainingHours || customer.phoneWarningHours || 12}h)` : customer.regEmailWarning ? `⚠️ Cảnh báo Email ĐK (còn ${customer.regEmailWarningRemainingHours || customer.regEmailWarningHours || 12}h)` : "Đang hoạt động"}</span>
       </div>
       <div class="customer-meta"><span>${customer.emailVerified ? "Đã xác minh" : "Chưa xác minh"}</span><span>${customer.orderCount} đơn hàng</span><span>Tham gia ${new Date(customer.createdAt).toLocaleDateString("vi-VN")}</span></div>
-      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Xem đơn hàng</button>${can("customers.write") && !customer.deletedAt ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}${can("customers.write") && !customer.deletedAt ? `<button class="plain-button" type="button" data-customer-soft-delete="${escapeHtml(customer.id)}">Xóa tạm thời</button>` : ""}${can("customers.write") && customer.deletedAt ? `<button class="primary-button" type="button" data-customer-restore-direct="${escapeHtml(customer.id)}">Khôi phục</button>` : ""}${can("customers.write") ? `<button class="danger-button" type="button" data-customer-permanent-delete="${escapeHtml(customer.id)}">Xóa vĩnh viễn</button>` : ""}</div>
+      <div class="customer-actions"><button class="secondary-button" type="button" data-customer-detail="${escapeHtml(customer.id)}">Đơn hàng &amp; GAERU Xu</button>${can("customers.write") && !customer.deletedAt ? `<button class="${customer.active ? "plain-button" : "primary-button"}" type="button" data-customer-toggle="${escapeHtml(customer.id)}" data-active="${customer.active}">${customer.active ? "Khóa tài khoản" : "Mở khóa tài khoản"}</button>` : ""}${can("customers.write") && !customer.deletedAt ? `<button class="plain-button" type="button" data-customer-soft-delete="${escapeHtml(customer.id)}">Xóa tạm thời</button>` : ""}${can("customers.write") && customer.deletedAt ? `<button class="primary-button" type="button" data-customer-restore-direct="${escapeHtml(customer.id)}">Khôi phục</button>` : ""}${can("customers.write") ? `<button class="danger-button" type="button" data-customer-permanent-delete="${escapeHtml(customer.id)}">Xóa vĩnh viễn</button>` : ""}</div>
       ${!customer.deletedAt&&can('customers.write')?`<details class="customer-restore"><summary>Xử lý yêu cầu xóa tài khoản</summary><form data-customer-delete="${escapeHtml(customer.id)}"><p>Chỉ thực hiện sau khi khách liên hệ và đã đối chiếu thông tin. Hệ thống gửi email xác nhận; tài khoản chỉ ngừng hoạt động sau khi khách xác nhận.</p><label>Lý do xóa<textarea name="reason" required minlength="10" maxlength="500" rows="2"></textarea></label><label class="deletion-consent"><input type="checkbox" name="confirmed" required> Đã đối chiếu yêu cầu xóa của khách</label><button class="secondary-button">Gửi email xác nhận xóa</button><p role="status"></p></form></details>`:''}
       ${customer.deletedAt&&customer.deletionRecoverable&&customer.canRestore&&can('customers.write')?`<details class="customer-restore"><summary>Khôi phục tài khoản</summary><form data-customer-restore="${escapeHtml(customer.id)}"><p>Ngày xác nhận xóa: ${new Date(customer.deletedAt).toLocaleDateString('vi-VN')}. Khôi phục giữ nguyên mật khẩu và xác thực hai yếu tố.</p><label>Lý do khôi phục<textarea name="reason" required minlength="10" maxlength="500" rows="2"></textarea></label><button class="secondary-button">Xác nhận khôi phục</button><p role="status"></p></form></details>`:''}
       <div class="customer-detail" data-customer-detail-panel="${escapeHtml(customer.id)}" hidden></div>
@@ -970,28 +972,81 @@ function renderCustomers() {
   document.querySelector("#next-customers").disabled = state.customerPage >= state.customerPagination.pageCount;
 }
 
-async function showCustomerDetail(id, panel) {
+function renderCustomerLoyalty(id, data) {
+  if (!data?.loyalty) return '<p class="help-text" role="status">Chưa tải được sổ Xu. Tải lại chi tiết khách hàng để thử lại.</p>';
+  const l = data.loyalty, pages = data.pagination || { page: 1, pageCount: 1, total: data.ledger?.length || 0 };
+  const types = { earn: 'Tích Xu', redeem: 'Dùng Xu', refund: 'Hoàn / thu hồi Xu', adjustment: 'Điều chỉnh' };
+  return `<section class="customer-loyalty-summary" aria-label="Sổ GAERU Xu" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:14px;min-width:0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><div><strong>GAERU Xu:</strong> ${new Intl.NumberFormat('vi-VN').format(l.pointsBalance)} Xu · ${escapeHtml(data.tierBenefits?.[l.tier]?.name || l.tier)}<br><small>Đã tích ${new Intl.NumberFormat('vi-VN').format(l.lifetimeEarned)} · Đã dùng ${new Intl.NumberFormat('vi-VN').format(l.lifetimeSpent)}</small></div>
+    ${can('customers.write') ? `<button type="button" class="secondary-button" data-customer-adjust-xu="${escapeHtml(id)}">Điều chỉnh Xu</button>` : ''}</div>
+    <details><summary>Lịch sử Xu · ${Number(pages.total) || 0} giao dịch</summary>${(data.ledger || []).map(entry => `<article style="padding:10px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere;"><strong>${escapeHtml(types[entry.type] || entry.type)} · ${entry.points > 0 ? '+' : ''}${new Intl.NumberFormat('vi-VN').format(entry.points)} Xu</strong><p>${escapeHtml(entry.reason || '')}</p><small>${escapeHtml(new Date(entry.createdAt).toLocaleString('vi-VN'))} · Số dư ${new Intl.NumberFormat('vi-VN').format(entry.balanceAfter)} Xu</small></article>`).join('') || '<p>Chưa có giao dịch Xu.</p>'}
+    ${pages.pageCount > 1 ? `<div class="pagination"><button type="button" class="secondary-button" data-loyalty-page="${Math.max(1, pages.page - 1)}" data-loyalty-customer="${escapeHtml(id)}" ${pages.page <= 1 ? 'disabled' : ''}>Trước</button><span>Trang ${pages.page}/${pages.pageCount}</span><button type="button" class="secondary-button" data-loyalty-page="${pages.page + 1}" data-loyalty-customer="${escapeHtml(id)}" ${pages.page >= pages.pageCount ? 'disabled' : ''}>Tiếp</button></div>` : ''}</details></section>`;
+}
+
+async function showCustomerDetail(id, panel, ledgerPage = 1) {
   panel.hidden = false;
   panel.textContent = "Đang tải thông tin khách hàng…";
   const [result, loyaltyData] = await Promise.all([
     request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}`),
-    request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}/loyalty`).catch(() => null)
+    request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}/loyalty?ledgerPage=${ledgerPage}`).catch(() => null)
   ]);
-  let loyaltyHtml = '';
-  if (loyaltyData?.loyalty) {
-    const l = loyaltyData.loyalty;
-    loyaltyHtml = `<div class="customer-loyalty-summary" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div><strong>GAERU Xu:</strong> <span style="font-size:16px;font-weight:700;color:#eab308;">${new Intl.NumberFormat('vi-VN').format(l.pointsBalance)} Xu</span> (Hạng: ${l.tier.toUpperCase()})</div>
-        <button type="button" class="secondary-button" data-customer-adjust-xu="${escapeHtml(id)}" style="font-size:11px;padding:4px 8px;">Điều chỉnh Xu ⚙</button>
-      </div>
-    </div>`;
-  }
+  const loyaltyHtml = renderCustomerLoyalty(id, loyaltyData);
   if (!result.orders.length) {
     panel.innerHTML = loyaltyHtml + '<p class="help-text">Khách hàng chưa có đơn hàng.</p>';
+    if (ledgerPage > 1 && panel.querySelector('.customer-loyalty-summary details')) panel.querySelector('.customer-loyalty-summary details').open = true;
     return;
   }
   panel.innerHTML = loyaltyHtml + result.orders.map((order) => `<div class="customer-order-row"><strong>${escapeHtml(order.orderNumber)}</strong><span>${escapeHtml(labels[order.status] || order.status)}</span><span>${formatPrice(order.totalVnd || 0)}</span></div>`).join("");
+  if (ledgerPage > 1 && panel.querySelector('.customer-loyalty-summary details')) panel.querySelector('.customer-loyalty-summary details').open = true;
+}
+
+async function openLoyaltyAdjustment(customerId, trigger) {
+  if (!can('customers.write')) return;
+  const dialog = document.createElement('dialog'); dialog.className = 'enterprise-confirm-dialog';
+  dialog.setAttribute('aria-labelledby', 'loyalty-adjust-title');
+  dialog.innerHTML = '<form data-loyalty-adjust-form><h2 id="loyalty-adjust-title">Điều chỉnh GAERU Xu</h2><p>Nhập số dương để cộng, số âm để trừ. Số dư không được âm; mọi thao tác được ghi vào sổ Xu và nhật ký.</p><label>Số Xu điều chỉnh<input name="points" type="number" step="1" required min="-2000000000" max="2000000000"></label><label>Lý do<textarea name="reason" required minlength="3" maxlength="500" rows="3"></textarea></label><p role="status" aria-live="polite"></p><div class="enterprise-confirm-actions"><button type="button" class="secondary-button" data-loyalty-cancel>Quay lại</button><button type="submit" class="primary-button">Xác nhận điều chỉnh</button></div></form>';
+  const form = dialog.querySelector('form'), status = form.querySelector('[role=status]');
+  let saving = false;
+  const close = () => { if (saving) return; dialog.close(); dialog.remove(); trigger?.focus(); };
+  dialog.querySelector('[data-loyalty-cancel]').onclick = close;
+  dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
+  form.addEventListener('submit', async event => {
+    event.preventDefault(); if (saving || !form.reportValidity()) return;
+    const points = Number(form.elements.points.value), reason = form.elements.reason.value.trim();
+    if (!Number.isSafeInteger(points) || !points || reason.length < 3) { status.textContent = 'Nhập số Xu nguyên khác 0 và lý do ít nhất 3 ký tự.'; return; }
+    const serialized = JSON.stringify({ points, reason });
+    if (form.dataset.payload !== serialized) { form.dataset.payload = serialized; form.dataset.requestKey = crypto.randomUUID(); }
+    saving = true; form.querySelector('button[type=submit]').disabled = true; status.textContent = 'Đang ghi nhận điều chỉnh…';
+    try {
+      await request(`/api/gaeru_ceo/customers/${encodeURIComponent(customerId)}/loyalty/adjust`, { method: 'POST', body: JSON.stringify({ points, reason, requestKey: form.dataset.requestKey }) });
+      saving = false; close();
+      const panel = document.querySelector(`[data-customer-detail-panel="${CSS.escape(customerId)}"]`);
+      if (panel) await showCustomerDetail(customerId, panel);
+      showGlobal('Đã ghi nhận điều chỉnh vào sổ GAERU Xu.');
+    } catch (error) { status.textContent = error.message; }
+    finally { saving = false; form.querySelector('button[type=submit]').disabled = false; }
+  });
+  document.body.append(dialog); dialog.showModal(); form.elements.points.focus();
+}
+
+async function loadLoyaltyPolicy(force = false) {
+  if (!can('settings.write')) return;
+  let root = document.querySelector('#customer-loyalty-policy');
+  if (root?.dataset.loaded === 'true' && !force) return;
+  if (!root) { root = document.createElement('details'); root.id = 'customer-loyalty-policy'; root.className = 'configuration-panel'; document.querySelector('#customer-list').before(root); }
+  const { policy, tierBenefits } = await request('/api/gaeru_ceo/customers/loyalty-policy');
+  root.innerHTML = '<summary>Chính sách GAERU Xu</summary><div><p>Tỷ lệ áp dụng theo hạng trước khi tích Xu cho đơn mới. Thay đổi chỉ áp dụng giao dịch tiếp theo; không sửa sổ Xu đã ghi nhận.</p><form data-loyalty-policy-form data-version="' + policy.version + '">' + policy.tiers.map(tier => '<fieldset><legend>' + escapeHtml(tierBenefits[tier.id].name) + '</legend><div class="form-grid"><label>Ngưỡng Xu tích lũy<input type="number" min="0" max="2000000000" step="1" required data-tier-min="' + tier.id + '" value="' + tier.minPoints + '" ' + (tier.id === 'bronze' ? 'readonly' : '') + '></label><label>Tích Xu (% giá trị đơn)<input type="number" min="0" max="100" step="0.01" required data-tier-rate="' + tier.id + '" value="' + tier.earnBasisPoints / 100 + '"></label></div></fieldset>').join('') + '<div class="configuration-actions"><button type="submit" class="primary-button">Lưu chính sách Xu</button><button type="button" class="secondary-button" data-loyalty-policy-reload>Tải lại</button></div><p role="status" aria-live="polite"></p></form></div>';
+  root.dataset.loaded = 'true';
+  root.querySelector('[data-loyalty-policy-reload]').onclick = () => loadLoyaltyPolicy(true).catch(error => showGlobal(error.message, true));
+  root.querySelector('form').addEventListener('submit', async event => {
+    event.preventDefault(); const form = event.target, button = form.querySelector('[type=submit]'), status = form.querySelector('[role=status]'); if (button.disabled || !form.reportValidity()) return;
+    button.disabled = true; status.textContent = 'Đang lưu chính sách…';
+    try {
+      const tiers = ['bronze', 'silver', 'gold', 'platinum'].map(id => ({ id, minPoints: Number(form.querySelector('[data-tier-min="' + id + '"]').value), earnBasisPoints: Math.round(Number(form.querySelector('[data-tier-rate="' + id + '"]').value) * 100) }));
+      await request('/api/gaeru_ceo/customers/loyalty-policy', { method: 'PUT', body: JSON.stringify({ version: Number(form.dataset.version), tiers }) });
+      await loadLoyaltyPolicy(true); root.open = true; root.querySelector('[role=status]').textContent = 'Đã lưu. Áp dụng cho giao dịch tiếp theo.';
+    } catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
+  });
 }
 
 async function toggleCustomer(id, active) {
@@ -1418,6 +1473,16 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
   const detailButton = event.target.closest("[data-customer-detail]");
   const toggleButton = event.target.closest("[data-customer-toggle]");
   try {
+    const adjustXu = event.target.closest('[data-customer-adjust-xu]');
+    if (adjustXu) { await openLoyaltyAdjustment(adjustXu.dataset.customerAdjustXu, adjustXu); return; }
+    const ledgerButton = event.target.closest('[data-loyalty-page]');
+    if (ledgerButton) {
+      ledgerButton.disabled = true;
+      const id = ledgerButton.dataset.loyaltyCustomer;
+      try { await showCustomerDetail(id, document.querySelector(`[data-customer-detail-panel="${CSS.escape(id)}"]`), Number(ledgerButton.dataset.loyaltyPage)); }
+      finally { ledgerButton.disabled = false; }
+      return;
+    }
     if (detailButton) {
       const panel = document.querySelector(`[data-customer-detail-panel="${CSS.escape(detailButton.dataset.customerDetail)}"]`);
       await showCustomerDetail(detailButton.dataset.customerDetail, panel);

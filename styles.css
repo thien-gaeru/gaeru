@@ -1078,6 +1078,8 @@ svg.points-mark{width:180px;height:180px;right:24px;bottom:-32px;color:rgb(8 127
 
 .checkout-form .checkout-field-title{display:block;color:var(--ink,#1d1d1f);font-weight:600;line-height:1.5}.checkout-field-title small{font-size:inherit;color:var(--muted);font-weight:400}.checkout-contact-details .form-row{align-items:start}.checkout-note{min-width:0}
 .checkout-contact-details input:not([type="hidden"]),.checkout-contact-details select{min-height:48px}
+.checkout-form .checkout-recovery-consent{display:flex!important;align-items:flex-start;gap:10px}
+.checkout-form #checkout-recovery-consent{width:20px!important;height:20px!important;min-width:20px!important;min-height:20px!important;flex:0 0 20px;padding:0;margin:2px 0 0;align-self:flex-start;accent-color:#0071e3}
 
 input.is-invalid,select.is-invalid,textarea.is-invalid,
 input[data-invalid="true"],select[data-invalid="true"],textarea[data-invalid="true"],

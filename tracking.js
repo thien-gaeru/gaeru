@@ -318,7 +318,25 @@
     }
   }
 
+  function initRma(){
+    const root=document.querySelector('main');if(!root||root.querySelector('[data-rma-portal]'))return;
+    const box=document.createElement('section');box.dataset.rmaPortal='';box.style.cssText='max-width:960px;margin:32px auto;padding:22px;border:1px solid #dce2e8;border-radius:20px;background:white;overflow-wrap:anywhere';
+    box.innerHTML='<h2>Theo dõi đổi / trả hàng (RMA)</h2><p>Nhập mã RMA và khóa bảo mật do GAERU cung cấp. Khách đã đăng nhập có thể xem hồ sơ trong Tài khoản → Đơn hàng.</p><form data-rma-lookup><label>Mã RMA<input name="rma" required maxlength="50" autocomplete="off" placeholder="RMA-261103-AB12"></label><label>Khóa bảo mật RMA<input name="token" type="password" required maxlength="128" autocomplete="off"></label><button class="button button-blue" type="submit">Xem hồ sơ RMA</button></form><p data-rma-status role="status"></p><div data-rma-details></div>';
+    box.querySelectorAll('label').forEach(e=>e.style.cssText='display:grid;gap:7px;margin:12px 0');box.querySelectorAll('input').forEach(e=>e.style.cssText='width:100%;box-sizing:border-box;min-height:44px;padding:10px;border:1px solid #c8ced8;border-radius:10px;font:inherit');root.append(box);
+    const status=box.querySelector('[data-rma-status]'),details=box.querySelector('[data-rma-details]');
+    box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,button=f.querySelector('button'),number=f.elements.rma.value.trim().toUpperCase(),token=f.elements.token.value.trim();button.disabled=true;status.textContent='Đang kiểm tra hồ sơ…';details.replaceChildren();
+      try{const res=await fetch('/api/rma/'+encodeURIComponent(number),{credentials:'same-origin',headers:{'X-RMA-Token':token}}),data=await res.json();if(!res.ok)throw Error(data.error||'Chưa xem được hồ sơ.');f.elements.token.value='';const r=data.rma,w=r.inbound.warehouseAddress;
+        details.innerHTML='<h3>'+escapeHtml(r.rmaNumber)+'</h3><p>Trạng thái: '+escapeHtml(r.status)+'</p><p>'+escapeHtml(r.reason)+'</p><p>Gửi về: '+escapeHtml(w.facility)+'<br>'+escapeHtml(w.address)+'<br>'+escapeHtml(w.contactPhone)+'</p><p>Chiều về kho: '+escapeHtml(r.inbound.carrier||'Chưa gửi')+' · '+escapeHtml(r.inbound.trackingNumber||'')+'</p>'+(r.outbound.trackingNumber?'<p>Gửi lại cho bạn: '+escapeHtml(r.outbound.carrier)+' · '+escapeHtml(r.outbound.trackingNumber)+'</p>':'');
+        if(!['resolved','rejected'].includes(r.status)){
+          const inbound=document.createElement('form');inbound.innerHTML='<label>Hãng vận chuyển<input name="carrier" required minlength="2" maxlength="60"></label><label>Mã vận đơn gửi về kho<input name="tracking" required minlength="4" maxlength="60"></label><button type="submit" class="button button-blue">Cập nhật vận đơn gửi về</button><p role="status"></p>';
+          inbound.querySelectorAll('label').forEach(x=>x.style.cssText='display:grid;gap:7px;margin:12px 0');inbound.querySelectorAll('input').forEach(x=>x.style.cssText='width:100%;box-sizing:border-box;min-height:44px;padding:10px;border:1px solid #c8ced8;border-radius:10px;font:inherit');inbound.elements.carrier.value=r.inbound.carrier||'';inbound.elements.tracking.value=r.inbound.trackingNumber||'';
+          inbound.onsubmit=async event=>{event.preventDefault();const send=inbound.querySelector('button');send.disabled=true;try{const response=await fetch('/api/rma/'+encodeURIComponent(number)+'/inbound',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-RMA-Token':token},body:JSON.stringify({inboundCarrier:inbound.elements.carrier.value.trim(),inboundTrackingNumber:inbound.elements.tracking.value.trim()})}),saved=await response.json();if(!response.ok)throw Error(saved.error||'Chưa lưu được vận đơn.');inbound.querySelector('[role=status]').textContent=saved.message;}catch(error){inbound.querySelector('[role=status]').textContent=error.message;}finally{send.disabled=false;}};details.append(inbound);
+        }status.textContent='Đã xác minh hồ sơ. Không chia sẻ khóa RMA cho người khác.';
+      }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
+    };
+  }
   function init() {
+    initRma();
     const form = document.getElementById('tracking-form');
     const orderInput = document.getElementById('orderNumber');
     const challengeInput = document.getElementById('challenge');

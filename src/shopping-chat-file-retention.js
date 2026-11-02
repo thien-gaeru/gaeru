@@ -15,6 +15,8 @@ function storageKey(content){
 async function liveReferences(client,key){
  if((await client.query('SELECT storage_key FROM media_library_files WHERE storage_key=$1',[key])).rows.length)return true;
  if((await client.query('SELECT storage_key FROM site_asset_snapshots WHERE storage_key=$1',[key])).rows.length)return true;
+ const originals=(await client.query('SELECT original_content AS content FROM shopping_chat_files WHERE original_content IS NOT NULL AND deleted_at IS NULL AND octet_length(original_content)<=2048')).rows;
+ for(const row of originals)if(storageKey(row.content)===key)return true;
  for(const table of TABLES){
   const rows=(await client.query('SELECT content FROM '+table+' WHERE content IS NOT NULL AND octet_length(content)<=2048')).rows;
   for(const row of rows)if(storageKey(row.content)===key)return true;
@@ -28,7 +30,8 @@ async function queueCleanup(client,content){
 async function removeAttachment(client,row,reason,actor){
  if(row.deleted_at)return false;
  await queueCleanup(client,row.content);
- await client.query('UPDATE shopping_chat_files SET content=NULL,deleted_at=now(),deletion_reason=$2 WHERE id=$1 AND deleted_at IS NULL',[row.id,reason]);
+ await queueCleanup(client,row.original_content);
+ await client.query('UPDATE shopping_chat_files SET content=NULL,original_content=NULL,original_mime=NULL,original_name=NULL,compression_lease=NULL,compression_lease_until=NULL,deleted_at=now(),deletion_reason=$2 WHERE id=$1 AND deleted_at IS NULL',[row.id,reason]);
  await client.query('UPDATE shopping_chat_threads SET version=version+1,updated_at=now() WHERE id=$1',[row.thread_id]);
  await appendAudit(client,{actor,action:'shopping.chat.file.delete',entityType:'shopping_chat_file',entityId:row.id,metadata:{threadId:row.thread_id,reason}});
  return true;
@@ -79,7 +82,7 @@ async function deleteChatFilesByKey(pool,{key,actor,confirm=false}){
  await withTransaction(pool,async client=>{
   await client.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
   const rows=(await client.query('SELECT * FROM shopping_chat_files WHERE deleted_at IS NULL AND content IS NOT NULL AND octet_length(content)<=2048 FOR UPDATE')).rows;
-  for(const row of rows)if(storageKey(row.content)===key)changed+=Number(await removeAttachment(client,row,'admin',actor));
+  for(const row of rows)if(storageKey(row.content)===key||storageKey(row.original_content)===key)changed+=Number(await removeAttachment(client,row,'admin',actor));
   // Orphaned copies of conversation uploads can also be removed by an admin.
   if(!changed)await appendAudit(client,{actor,action:'shopping.chat.file.delete',entityType:'media_file',entityId:key,metadata:{orphan:true}});
   await client.query('INSERT INTO shopping_chat_file_cleanup(storage_key) VALUES($1) ON CONFLICT(storage_key) DO UPDATE SET next_attempt_at=now()',[key]);

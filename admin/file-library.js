@@ -2,7 +2,7 @@
   'use strict';
   const api = window.GAERUAdmin;
   const root = document.querySelector('#file-library-view');
-  const state = { scope: '', folder: '*', trash: false, q: '', page: 1, data: null, request: 0 };
+  const state = { scope: '', folder: '*', trash: false, originals:false, q: '', page: 1, data: null, request: 0 };
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const size = n => n < 1024 ? n + ' B' : new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 1 }).format(n / (n >= 1048576 ? 1048576 : 1024)) + (n >= 1048576 ? ' MB' : ' KB');
   const fileUrl = (file, preview = false) => '/api/gaeru_ceo/file-library/file?key=' + encodeURIComponent(file.key) + (preview ? '&preview=1' : '');
@@ -13,7 +13,7 @@
       <div class="fl-heading"><div><h2>Thư viện tệp</h2><p data-fl-summary></p></div><div class="fl-actions"><button type="button" class="secondary-button" data-fl-new>Thư mục mới</button><button type="button" class="primary-button" data-fl-upload>Tải tệp lên</button></div></div>
       <details class="fl-location"><summary>Vị trí lưu trữ thực tế</summary><p data-fl-root></p><p>Đây là kho mà ứng dụng đang đọc và ghi. Ảnh trong thư viện mới tải lên chưa tự xuất bản ra website.</p></details>
       <div class="fl-workspace"><nav class="fl-scopes" aria-label="Thư mục lưu trữ"></nav><div class="fl-main">
-      <form class="fl-search"><label>Tìm tệp<input name="q" type="search" placeholder="Nhập tên tệp…" maxlength="160"></label><label>Thư mục con<select name="folder" aria-label="Thư mục con"></select></label><button type="submit" class="secondary-button">Tìm kiếm</button><button type="button" class="secondary-button" data-fl-refresh>Tải lại</button></form>
+      <form class="fl-search"><label>Tìm tệp<input name="q" type="search" placeholder="Nhập tên tệp…" maxlength="160"></label><label>Thư mục con<select name="folder" aria-label="Thư mục con"></select></label><button type="submit" class="secondary-button">Tìm kiếm</button><button type="button" class="secondary-button" data-fl-refresh>Tải lại</button><button type="button" class="secondary-button" data-fl-originals>Ảnh / tệp gốc</button></form>
       <p class="fl-feedback" role="status" aria-live="polite"></p><div class="fl-grid"></div><nav class="fl-pagination" aria-label="Trang tệp"></nav></div></div></div>`;
     root.querySelector('.fl-search').addEventListener('submit', e => { e.preventDefault(); state.q = e.currentTarget.elements.q.value.trim(); state.folder = e.currentTarget.elements.folder.value; state.page = 1; refresh(); });
     root.querySelector('[name=folder]').addEventListener('change', e => { state.folder = e.target.value; state.page = 1; refresh(); });
@@ -22,6 +22,7 @@
       if (b.hasAttribute('data-fl-scope')) { state.scope = b.dataset.flScope; state.folder = '*'; state.trash = false; state.page = 1; refresh(); }
       if (b.hasAttribute('data-fl-trash')) { state.trash = true; state.scope = ''; state.folder = '*'; state.page = 1; refresh(); }
       if (b.hasAttribute('data-fl-refresh')) refresh();
+      if(b.hasAttribute('data-fl-originals')){state.originals=!state.originals;state.page=1;b.setAttribute('aria-pressed',String(state.originals));b.textContent=state.originals?'Xem tệp hiển thị':'Ảnh / tệp gốc';refresh();}
       if (b.hasAttribute('data-fl-new')) folderDialog();
       if (b.hasAttribute('data-fl-upload')) uploadDialog();
       if (b.hasAttribute('data-fl-page')) { state.page = Number(b.dataset.flPage); refresh(); }
@@ -34,7 +35,7 @@
   async function refresh() {
     const request = ++state.request;
     const feedback = root.querySelector('.fl-feedback'); feedback.textContent = 'Đang đọc kho tệp…'; root.setAttribute('aria-busy', 'true');
-    const params = new URLSearchParams({ scope: state.scope, trash: state.trash ? '1' : '0', q: state.q, page: state.page });
+    const params = new URLSearchParams({ originals:state.originals?'1':'0', scope: state.scope, trash: state.trash ? '1' : '0', q: state.q, page: state.page });
     if (state.folder !== '*') params.set('folder', state.folder);
     try {
       const data = await api.request('/api/gaeru_ceo/file-library?' + params);

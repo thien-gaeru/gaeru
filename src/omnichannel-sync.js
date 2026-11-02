@@ -4,7 +4,9 @@ const { rateLimit } = require('express-rate-limit');
 const { withTransaction } = require('./db');
 const { requireCsrf } = require('./security');
 const { requirePermission } = require('./staff-access');
-const { readRecord } = require('./admin-configuration');
+const { readRecord, writeRecord } = require('./admin-configuration');
+const account = require('./marketplace-account');
+const {randomUUID}=require('node:crypto');
 const { appendAudit } = require('./audit');
 const { getConnector, normalizeStatus } = require('./marketplace-connectors');
 
@@ -40,6 +42,7 @@ async function resolveVariantForSku(client, channel, shopId, externalSku) {
 // 2. ORDER INGESTION & IDEMPOTENT STOCK LEDGER REVERSE
 // -----------------------------------------------------------------------------
 async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDeductStock = true, actor }) {
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`marketplace-order:${channel}:${shopId}:${order.externalOrderId}`]);
   const normStatus = normalizeStatus(channel, order.rawStatus || order.status);
 
   // Check if order exists
@@ -310,111 +313,40 @@ async function handleMarketplaceWebhook(pool, config, channel, payload, { header
 // -----------------------------------------------------------------------------
 // 4. SYNC RUNNERS
 // -----------------------------------------------------------------------------
-async function syncMarketplaceOrders(pool, config, channel, { fetcher = fetch, actor } = {}) {
-  const record = await readRecord(pool, config, channel);
-  if (!record.data || !record.data.secretConfigured && !record.data.secret) {
-    throw fail(`Chưa cấu hình tài khoản liên kết cho sàn ${channel}.`, 400);
-  }
-
-  const connector = getConnector(channel);
-  const creds = record.data;
-  let orders = [];
-
-  if (channel === 'shopee') {
-    orders = await connector.fetchOrders({
-      partnerId: creds.partnerId,
-      partnerKey: creds.secret,
-      accessToken: creds.accessToken || 'TEST_ACCESS_TOKEN',
-      shopId: creds.shopId
-    }, { fetcher });
-  } else if (channel === 'tiktok') {
-    orders = await connector.fetchOrders({
-      appKey: creds.appKey,
-      appSecret: creds.secret,
-      accessToken: creds.accessToken || 'TEST_ACCESS_TOKEN',
-      shopCipher: creds.shopId || 'DEFAULT_SHOP'
-    }, { fetcher });
-  } else if (channel === 'lazada') {
-    orders = await connector.fetchOrders({
-      appKey: creds.appKey,
-      appSecret: creds.secret,
-      accessToken: creds.accessToken || 'TEST_ACCESS_TOKEN'
-    }, { fetcher });
-  }
-
-  let syncedCount = 0;
-  for (const order of orders) {
-    await withTransaction(pool, async client => {
-      await ingestMarketplaceOrder(client, {
-        channel,
-        shopId: creds.shopId || creds.sellerId || 'DEFAULT_SHOP',
-        order,
-        autoDeductStock: true,
-        actor
-      });
-      syncedCount++;
-    });
-  }
-
-  return { success: true, channel, syncedCount };
+async function recordSync(pool,channel,type,result,actor) {
+  const summary={syncedCount:result.syncedCount||0,updatedCount:result.updatedCount||0,failedCount:result.failedCount||0,skippedCount:result.skippedCount||0};
+  await pool.query(`INSERT INTO marketplace_sync_events(channel,event_type,event_key,payload,processed,error_message) VALUES($1,$2,$3,$4,$5,$6)`,[channel,type,'manual:'+randomUUID(),JSON.stringify(summary),result.success!==false,result.success===false?'Một hoặc nhiều mục chưa đồng bộ; xem chi tiết kết quả.':null]);
+  await appendAudit(pool,{actor,action:'marketplace.'+type,entityType:'marketplace',entityId:channel,metadata:summary});
 }
-
+async function syncMarketplaceOrders(pool, config, channel, { fetcher = fetch, actor, autoDeductStock=false, days=3 } = {}) {
+  const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
+  const start=Math.floor(Date.now()/1000)-days*86400;const orders=await getConnector(channel).fetchOrders({...account.transportCredentials(channel,creds),timeFrom:start,createTimeFrom:start,createdAfter:new Date(start*1000).toISOString()},{fetcher});
+  let syncedCount=0;
+  for(const order of orders){
+    if(!order.externalOrderId||!Array.isArray(order.items)||!order.items.length)throw fail('Sàn chưa trả đầy đủ chi tiết sản phẩm của đơn. Không ghi đơn thiếu dữ liệu.',502);
+    await withTransaction(pool,client=>ingestMarketplaceOrder(client,{channel,shopId:creds.shopId,order,autoDeductStock,actor}));syncedCount++;
+  }
+  const result={success:true,channel,syncedCount,autoDeductStock,windowDays:days};await recordSync(pool,channel,'sync_orders',result,actor);return result;
+}
 async function syncStockToChannel(pool, config, channel, { variantId, fetcher = fetch, actor } = {}) {
-  const record = await readRecord(pool, config, channel);
-  if (!record.data || !record.data.secretConfigured && !record.data.secret) {
-    throw fail(`Chưa cấu hình API cho sàn ${channel}.`, 400);
-  }
-
-  const connector = getConnector(channel);
-  const creds = record.data;
-
-  const variantsRes = await pool.query(
-    `SELECT v.id, v.sku, v.stock_quantity AS "stockQuantity", m.external_sku AS "externalSku"
-     FROM product_variants v
-     LEFT JOIN marketplace_sku_mappings m ON m.variant_id = v.id AND m.channel = $1
-     WHERE ($2::uuid IS NULL OR v.id = $2) AND v.active = true`,
-    [channel, variantId || null]
-  );
-
-  let updatedCount = 0;
-  for (const variant of variantsRes.rows) {
-    const targetSku = variant.externalSku || variant.sku;
-    try {
-      if (channel === 'shopee') {
-        await connector.updateStock({
-          partnerId: creds.partnerId,
-          partnerKey: creds.secret,
-          accessToken: creds.accessToken || 'TEST_TOKEN',
-          shopId: creds.shopId,
-          itemId: targetSku,
-          stock: variant.stockQuantity
-        }, { fetcher });
-      } else if (channel === 'tiktok') {
-        await connector.updateStock({
-          appKey: creds.appKey,
-          appSecret: creds.secret,
-          accessToken: creds.accessToken || 'TEST_TOKEN',
-          shopCipher: creds.shopId,
-          productId: targetSku,
-          skuId: targetSku,
-          availableStock: variant.stockQuantity
-        }, { fetcher });
-      } else if (channel === 'lazada') {
-        await connector.updateStock({
-          appKey: creds.appKey,
-          appSecret: creds.secret,
-          accessToken: creds.accessToken || 'TEST_TOKEN',
-          sku: targetSku,
-          quantity: variant.stockQuantity
-        }, { fetcher });
-      }
-      updatedCount++;
-    } catch {
-      // Keep syncing remaining products
+  const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
+  if(!account.connection(channel,record).verified)throw fail('Kiểm tra kết nối đọc thành công với cấu hình hiện tại trước khi gửi tồn kho lên sàn.');
+  const connector=getConnector(channel),base=account.transportCredentials(channel,creds);
+  const variants=(await pool.query(`SELECT v.id,v.sku,v.stock_quantity AS "stockQuantity",m.id AS "mappingId",m.external_sku AS "externalSku",m.external_product_id AS "externalProductId",m.external_variant_id AS "externalVariantId"
+   FROM product_variants v JOIN products p ON p.id=v.product_id LEFT JOIN marketplace_sku_mappings m ON m.variant_id=v.id AND m.channel=$1 AND m.shop_id=$3
+   WHERE ($2::uuid IS NULL OR v.id=$2) AND v.active=true AND p.active=true AND p.deleted_at IS NULL ORDER BY v.sku,m.external_sku`,[channel,variantId||null,creds.shopId])).rows;
+  let updatedCount=0,failedCount=0,skippedCount=0;const results=[];
+  for(const v of variants){
+    if(!v.mappingId||(channel!=='lazada'&&!v.externalProductId)||(channel==='tiktok'&&!v.externalVariantId)){
+      skippedCount++;results.push({sku:v.sku,state:'skipped',message:'Chưa có mapping và ID sản phẩm/biến thể sàn đầy đủ.'});continue;
     }
+    try{
+      const r=await connector.updateStock(channel==='shopee'?{...base,itemId:v.externalProductId,modelId:v.externalVariantId||'0',stock:v.stockQuantity}:channel==='tiktok'?{...base,productId:v.externalProductId,skuId:v.externalVariantId,availableStock:v.stockQuantity}:{...base,sku:v.externalSku,quantity:v.stockQuantity},{fetcher});
+      if(r?.success!==true)throw fail('Sàn chưa xác nhận cập nhật tồn kho.',502);
+      updatedCount++;results.push({sku:v.sku,state:'updated',message:'Sàn đã xác nhận cập nhật.'});
+    }catch{failedCount++;results.push({sku:v.sku,state:'failed',message:'Sàn chưa xác nhận cập nhật. Kiểm tra token, quyền và ID mapping rồi thử lại.'});}
   }
-
-  return { success: true, channel, updatedCount };
+  const result={success:failedCount===0&&skippedCount===0,channel,updatedCount,failedCount,skippedCount,results};await recordSync(pool,channel,'sync_stock',result,actor);return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -425,6 +357,21 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
   const publicRouter = Router();
 
   // Admin routes
+  adminRouter.get('/marketplace/connections',requirePermission('marketplace.read'),async(req,res,next)=>{try{const connections=[];for(const channel of account.channels)connections.push(account.connection(channel,await readRecord(pool,config,channel)));res.json({connections});}catch(e){next(e);}});
+  adminRouter.post('/marketplace/:channel/verify',requirePermission('marketplace.write'),requireCsrf,rateLimit({windowMs:900000,limit:12,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+    try{
+      const channel=z.enum(account.channels).parse(req.params.channel);
+      if(req.admin?.role!=='owner'||req.admin?.source!=='bootstrap'||!config.accountSecurity)throw fail('Chỉ chủ doanh nghiệp được xác minh khóa kết nối.',403);
+      const snapshot=await config.accountSecurity.authorize(req,async(_a,c)=>{const record=await readRecord(c,config,channel);account.credentials(channel,record.data);return record;});
+      await getConnector(channel).fetchOrders({...account.transportCredentials(channel,snapshot.data),verifyOnly:true},{fetcher});
+      const saved=await withTransaction(pool,async c=>{const current=await readRecord(c,config,channel);if(current.version!==snapshot.version||account.fingerprint(channel,current.data)!==account.fingerprint(channel,snapshot.data))throw fail('Cấu hình vừa thay đổi. Kiểm tra lại.');return writeRecord(c,config,channel,{...current.data,connectionVerifiedAt:new Date().toISOString(),verificationFingerprint:account.fingerprint(channel,current.data)},current.version,req.admin);});
+      res.json({message:'Sàn đã xác nhận quyền đọc đơn hàng. Chưa tạo hay sửa đơn/tồn kho.',connection:account.connection(channel,saved)});
+    }catch(e){if(e.status&&e.status<500)return next(e);next(fail('Chưa xác minh được quyền đọc tại sàn. Kiểm tra token, gian hàng, quyền API và hạn token.',502));}
+  });
+  adminRouter.get('/marketplace/catalog',requirePermission('marketplace.read'),async(req,res,next)=>{try{const q=z.string().trim().max(100).parse(req.query.q||'');const variants=(await pool.query(`SELECT v.id,v.sku,v.name AS "variantName",p.name AS "productName" FROM product_variants v JOIN products p ON p.id=v.product_id WHERE p.deleted_at IS NULL AND (v.sku ILIKE $1 OR v.name ILIKE $1 OR p.name ILIKE $1) ORDER BY p.name,v.sku LIMIT 50`,['%'+q+'%'])).rows;res.json({variants});}catch(e){next(e);}});
+  adminRouter.get('/marketplace/events',requirePermission('marketplace.read'),async(req,res,next)=>{try{const channel=z.enum(account.channels).parse(req.query.channel||'shopee');const events=(await pool.query(`SELECT id,event_type,processed,error_message,created_at,payload FROM marketplace_sync_events WHERE channel=$1 AND event_type IN ('sync_orders','sync_stock') ORDER BY created_at DESC LIMIT 30`,[channel])).rows;res.json({events});}catch(e){next(e);}});
+  adminRouter.delete('/marketplace/mappings/:id',requirePermission('marketplace.write'),requireCsrf,async(req,res,next)=>{try{const id=z.string().uuid().parse(req.params.id);await withTransaction(pool,async c=>{const old=(await c.query('DELETE FROM marketplace_sku_mappings WHERE id=$1 RETURNING channel,shop_id',[id])).rows[0];if(!old)throw fail('Mapping không còn tồn tại.',404);await appendAudit(c,{actor:req.admin,action:'marketplace.mapping.delete',entityType:'marketplace_mapping',entityId:id,metadata:{channel:old.channel,shopId:old.shop_id}});});res.json({success:true});}catch(e){next(e);}});
+
   adminRouter.post('/marketplace/:channel/sync-orders',
     requirePermission('marketplace.write'),
     requireCsrf,
@@ -432,7 +379,7 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
     async (req, res, next) => {
       try {
         const channel = z.enum(['shopee', 'tiktok', 'lazada']).parse(req.params.channel);
-        const result = await syncMarketplaceOrders(pool, config, channel, { fetcher, actor: req.admin });
+        const result = await syncMarketplaceOrders(pool, config, channel, { fetcher, actor: req.admin, autoDeductStock:z.boolean().default(false).parse(req.body?.autoDeductStock),days:z.number().int().min(1).max(3).default(3).parse(req.body?.days) });
         res.json(result);
       } catch (e) {
         next(e);
@@ -556,18 +503,19 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
           channel: z.enum(['shopee', 'tiktok', 'lazada']),
           shopId: z.string().trim().min(1).max(100),
           externalSku: z.string().trim().min(1).max(100),
-          variantId: z.string().uuid()
-        });
+          variantId: z.string().uuid(),
+          externalProductId:z.string().trim().regex(/^[a-zA-Z0-9_-]{0,100}$/).default(''),
+          externalVariantId:z.string().trim().regex(/^[a-zA-Z0-9_-]{0,100}$/).default('')
+        }).strict();
         const parsed = schema.parse(req.body);
 
-        const inserted = await pool.query(
-          `INSERT INTO marketplace_sku_mappings (channel, shop_id, external_sku, variant_id)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (channel, shop_id, external_sku)
-           DO UPDATE SET variant_id = $4, updated_at = now()
-           RETURNING *`,
-          [parsed.channel, parsed.shopId, parsed.externalSku, parsed.variantId]
-        );
+        if(parsed.channel==='shopee'&&((parsed.externalProductId&&!/^\d+$/.test(parsed.externalProductId))||(parsed.externalVariantId&&!/^\d+$/.test(parsed.externalVariantId))))throw fail('Shopee Item ID và Model ID phải là số.');
+        const inserted=await withTransaction(pool,async client=>{
+          const exists=(await client.query('SELECT v.id FROM product_variants v JOIN products p ON p.id=v.product_id WHERE v.id=$1 AND p.deleted_at IS NULL',[parsed.variantId])).rows[0];if(!exists)throw fail('Không tìm thấy biến thể nội bộ.',404);
+          const result=await client.query(`INSERT INTO marketplace_sku_mappings(channel,shop_id,external_sku,variant_id,external_product_id,external_variant_id) VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT(channel,shop_id,external_sku) DO UPDATE SET variant_id=$4,external_product_id=$5,external_variant_id=$6,updated_at=now() RETURNING *`,[parsed.channel,parsed.shopId,parsed.externalSku,parsed.variantId,parsed.externalProductId,parsed.externalVariantId]);
+          await appendAudit(client,{actor:req.admin,action:'marketplace.mapping.save',entityType:'marketplace_mapping',entityId:result.rows[0].id,metadata:{channel:parsed.channel,shopId:parsed.shopId,variantId:parsed.variantId}});return result;
+        });
         res.json({ success: true, mapping: inserted.rows[0] });
       } catch (e) {
         next(e);

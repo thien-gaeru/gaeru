@@ -91,7 +91,7 @@ admin.post(['/catalog-images','/uploads/image'],
 
 
     try {
-      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype);
+      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype,pool);
       const content=optimized.content;
 
       const row = (await pool.query(

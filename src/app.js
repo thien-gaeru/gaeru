@@ -246,15 +246,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
     next();
   });
-  app.get("/api/gaeru_ceo/system-health", async (_req, res, next) => {
+  app.get("/api/gaeru_ceo/system-health", async (req, res, next) => {
     try {
-      const health = await getSystemHealth(pool, config);
+      const health = await getSystemHealth(pool, config, req);
       res.set("Cache-Control", "no-store").json(health);
     } catch (err) {
       next(err);
     }
   });
   app.use("/api/gaeru_ceo", require("./media-diagnostics").createMediaDiagnostics());
+  app.use('/api/gaeru_ceo', require('./ai-knowledge-admin').createKnowledgeAdmin(pool));
+  app.use('/api/gaeru_ceo', require('./chat-compression-admin').createChatCompressionAdmin(pool));
   app.use("/api/gaeru_ceo", require("./file-library").createFileLibrary(pool));
   app.use("/api/gaeru_ceo", require("./site-pages").createPagesAdmin(pool));
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
@@ -342,7 +344,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     next();
   });
 
-  const managementAssets=new Set(['barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
+  const managementAssets=new Set(['marketplace-sync.js','marketplace-sync.css','ai-knowledge.js','operational-tools.js','chat-compression-jobs.js','barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile('notification-worker.js',{root:adminRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'public, max-age=3600'}).sendFile('manifest.webmanifest',{root:adminRoot}));

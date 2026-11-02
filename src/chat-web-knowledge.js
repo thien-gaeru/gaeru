@@ -179,10 +179,14 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
       excerpt: page.content.slice(0, 1200)
     }));
 
+  const policy=await require('./ai-knowledge-admin').readKnowledgePolicy(pool);
   const [liveFacts, externalKnowledge] = await Promise.all([
     loadLiveSiteFacts(pool),
-    getExternalWebKnowledge({ question, selectedProduct, transport }).catch(() => ({ ecosystemFacts: [], searchSnippets: [] }))
+    getExternalWebKnowledge({ question, selectedProduct, transport, webSearchEnabled:policy.webSearchEnabled,curatedEnabled:policy.curatedEnabled }).catch(() => ({ ecosystemFacts: [], searchSnippets: [] }))
   ]);
+  const approved=(policy.entries||[]).filter(e=>e.enabled&&e.triggers.some(t=>qNorm.includes(normalizeText(t)))).slice(0,6);
+  externalKnowledge.approvedSources=approved.map(e=>({title:e.title,url:e.sourceUrl||null,facts:e.facts}));
+  externalKnowledge.ecosystemFacts=[...approved.flatMap(e=>e.facts),...externalKnowledge.ecosystemFacts].slice(0,12);
   return {
     webPages: topPages,
     externalKnowledge,

@@ -140,6 +140,10 @@
    ========================================================================== */
 .option-type-toggle {
   display: inline-flex;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   gap: 6px;
   background: #e2e8f0;
   padding: 4px;
@@ -147,6 +151,11 @@
   margin: 12px 0;
 }
 .option-toggle-btn {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   padding: 8px 16px;
   border-radius: 9px;
   font-size: 13px;
