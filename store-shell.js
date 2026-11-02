@@ -135,6 +135,7 @@ if (footerRoot) {
             <a href="care.html">GAERU Care+</a>
             <a href="support.html#guide">Hướng dẫn</a>
             <a href="support.html">Trung tâm hỗ trợ</a>
+            <a href="tracking.html">Tra cứu đơn hàng</a>
             <a href="account.html">Tài khoản</a>
           </div>
         </details>

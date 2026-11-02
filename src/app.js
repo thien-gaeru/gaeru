@@ -204,6 +204,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const shippingMgmt = require("./shipping-management").createShippingManagement(pool, config, { finance: { receiptTotal, recordFullOrderPayment } });
   app.use("/api/gaeru_ceo", shippingMgmt.admin);
   app.use("/api", shippingMgmt.publicApi);
+  const trackingApi = require("./tracking-api").createTrackingApi(pool, config);
+  app.use("/api", trackingApi);
   app.use("/api/gaeru_ceo", require("./payment-channels").createPaymentAdmin(pool,config,{finance:{receiptTotal,recordFullOrderPayment}}));
   app.use("/api/gaeru_ceo", createAdminNotifications(pool,config));
   app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool,config,customerMailer));
