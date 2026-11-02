@@ -85,10 +85,29 @@
       detail: 'Tài khoản Ví MoMo của bạn cần được xác thực định danh (KYC) hoặc liên kết ngân hàng trước khi thực hiện giao dịch này.'
     }
   };
+  
+  const zalopayCodeDetails = {
+    '1': {
+      title: 'Đã thanh toán thành công qua ZaloPay.',
+      detail: 'Giao dịch qua Ví điện tử ZaloPay đã được xác nhận thành công.'
+    },
+    '-49': {
+      title: 'Bạn đã hủy giao dịch trên ZaloPay.',
+      detail: 'Giao dịch thanh toán ZaloPay đã được hủy theo yêu cầu. Đơn hàng của bạn vẫn được lưu lại; bạn có thể thanh toán lại hoặc chọn phương thức khác.'
+    },
+    '-68': {
+      title: 'Giao dịch ZaloPay không thành công.',
+      detail: 'Nguồn tiền thanh toán không hợp lệ hoặc tài khoản không đủ số dư. Vui lòng kiểm tra lại số dư Ví ZaloPay hoặc thẻ liên kết.'
+    },
+    '-102': {
+      title: 'Đã hết thời gian chờ thanh toán ZaloPay.',
+      detail: 'Phiên thanh toán trên ZaloPay đã quá hạn thời gian cho phép. Vui lòng tạo lại giao dịch.'
+    }
+  };
   const responseCode = result.get('code');
   const provider = result.get('provider');
   const customFailed = (initialState === 'failed' && responseCode)
-    ? (provider === 'vnpay' ? vnpayCodeDetails[responseCode] : provider === 'momo' ? momoCodeDetails[responseCode] : null)
+    ? (provider === 'vnpay' ? vnpayCodeDetails[responseCode] : provider === 'momo' ? momoCodeDetails[responseCode] : provider === 'zalopay' ? zalopayCodeDetails[responseCode] : null)
     : null;
   const message = ['pending','processing'].includes(initialState) && !canCheck ? messages.invalid : customFailed || (Object.hasOwn(messages,initialState) ? messages[initialState] : messages.invalid);
   const title = document.createElement('h2');
