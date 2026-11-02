@@ -11,6 +11,13 @@ const { getCarrierTrackingUrl } = require('./tracking-api');
 
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
+function safeTokenEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  return bufA.byteLength === bufB.byteLength && crypto.timingSafeEqual(bufA, bufB);
+}
+
 const RETURN_WAREHOUSE_ADDRESS = Object.freeze({
   facility: 'Trung tâm Tiếp nhận Bảo hành & Đổi trả GAERU',
   address: 'Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình',
@@ -64,8 +71,7 @@ async function updateRmaInboundTracking(pool, {
     if (!row) throw fail('Không tìm thấy phiếu RMA.', 404);
 
     // Verify capability token or order ownership (fail closed)
-    const tokenOk = Boolean(token && row.rma_token && token.length === row.rma_token.length
-      && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(row.rma_token)));
+    const tokenOk = safeTokenEqual(token, row.rma_token);
     const ownerOk = Boolean(actor?.id && row.customer_id && actor.id === row.customer_id);
     if (!tokenOk && !ownerOk) {
       throw fail('Mã xác thực RMA (Token) không hợp lệ hoặc bạn không có quyền cập nhật phiếu này.', 403);
@@ -234,8 +240,7 @@ function createRmaApi(pool, _config = {}) {
 
       // Check access permission: valid capability token, matching phone, order owner, or admin
       const { normalizePhone } = require('./tracking-api');
-      const tokenMatches = Boolean(token && item.rma_token && token.length === item.rma_token.length
-        && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(item.rma_token)));
+      const tokenMatches = safeTokenEqual(token, item.rma_token);
       const inputPhone = normalizePhone(phone), orderPhone = normalizePhone(item.phone);
       const phoneMatches = Boolean(inputPhone.length >= 9 && orderPhone.length >= 9 && inputPhone.slice(-9) === orderPhone.slice(-9));
       const ownerMatches = Boolean(req.session?.customer?.id && item.customer_id && req.session.customer.id === item.customer_id);

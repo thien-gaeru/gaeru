@@ -94,7 +94,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
       const page = Math.max(1, Math.min(10000, Number(req.query.page) || 1));
       if (!Number.isInteger(page)) return res.status(400).json({ error: "Trang không hợp lệ." });
       const orders = await pool.query(
-        'SELECT id,order_number AS "orderNumber",status,payment_status AS "paymentStatus",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'resolution\', a.resolution) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE customer_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $2',
+        'SELECT id,order_number AS "orderNumber",status,payment_status AS "paymentStatus",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'resolution\', a.resolution, \'rmaNumber\', a.rma_number) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE customer_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $2',
         [req.customerId, (page - 1) * 20]
       );
       res.json({ orders: orders.rows, page });
@@ -182,7 +182,12 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
         `SELECT id, order_id AS "orderId", kind, status, reason, resolution,
                 requested_by AS "requestedBy", return_type AS "returnType",
                 reason_category AS "reasonCategory", bank_info AS "bankInfo",
-                evidence_urls AS "evidenceUrls", version,
+                evidence_urls AS "evidenceUrls", rma_number AS "rmaNumber",
+                rma_token AS "rmaToken", inbound_carrier AS "inboundCarrier",
+                inbound_tracking_number AS "inboundTrackingNumber",
+                inbound_status AS "inboundStatus", outbound_carrier AS "outboundCarrier",
+                outbound_tracking_number AS "outboundTrackingNumber",
+                outbound_status AS "outboundStatus", version,
                 created_at AS "createdAt", updated_at AS "updatedAt"
          FROM order_after_sales
          WHERE order_id = $1
@@ -321,7 +326,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
     if (!z.string().uuid().safeParse(req.params.id).success) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
     try {
       const order = (await pool.query(
-        'SELECT id,order_number AS "orderNumber",customer_name AS "customerName",phone,address,city,status,payment_method AS "paymentMethod",payment_status AS "paymentStatus",discount_vnd AS "discountVnd",voucher_code AS "voucherCode",subtotal_vnd AS "subtotalVnd",shipping_fee_vnd AS "shippingFeeVnd",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'reason\', a.reason, \'resolution\', a.resolution, \'createdAt\', a.created_at, \'updatedAt\', a.updated_at) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE id=$1 AND customer_id=$2',
+        'SELECT id,order_number AS "orderNumber",customer_name AS "customerName",phone,address,city,status,payment_method AS "paymentMethod",payment_status AS "paymentStatus",discount_vnd AS "discountVnd",voucher_code AS "voucherCode",subtotal_vnd AS "subtotalVnd",shipping_fee_vnd AS "shippingFeeVnd",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'reason\', a.reason, \'resolution\', a.resolution, \'rmaNumber\', a.rma_number, \'inboundStatus\', a.inbound_status, \'outboundStatus\', a.outbound_status, \'createdAt\', a.created_at, \'updatedAt\', a.updated_at) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE id=$1 AND customer_id=$2',
         [req.params.id, req.customerId]
       )).rows[0];
       if (!order) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });

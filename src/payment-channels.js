@@ -318,7 +318,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    [orderNumber,provider]
   );
   let attempt=attemptQuery.rows[0];
-  if(!attempt&&actor?.role!=='owner')return {code:'01',matched:false,message:'Order not found'};
+  if(!attempt&&actor?.role!=='owner'&&provider!=='bank_transfer')return {code:'01',matched:false,message:'Order not found'};
   if(!attempt){
    const orderQuery=await client.query(
     `SELECT id AS "orderId", order_number AS "orderNumber", status AS "orderStatus",

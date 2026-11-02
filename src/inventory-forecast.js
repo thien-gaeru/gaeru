@@ -232,10 +232,15 @@ async function calculateInventoryForecast(pool, {
 
   // 2. Fetch variants and current stock across these warehouses
   const variantParams = [];
+  let whFilter = '';
+  if (warehouseId) {
+    variantParams.push(warehouseId);
+    whFilter = `AND w.id = $${variantParams.length}`;
+  }
   let searchCondition = '';
   if (search && search.trim()) {
     variantParams.push(`%${search.trim().toLowerCase()}%`);
-    searchCondition = `AND (lower(p.name) LIKE $1 OR lower(v.name) LIKE $1 OR lower(v.sku) LIKE $1)`;
+    searchCondition = `AND (lower(p.name) LIKE $${variantParams.length} OR lower(v.name) LIKE $${variantParams.length} OR lower(v.sku) LIKE $${variantParams.length})`;
   }
 
   const stockQuery = `
@@ -258,7 +263,7 @@ async function calculateInventoryForecast(pool, {
     CROSS JOIN warehouses w
     LEFT JOIN warehouse_stock ws ON ws.warehouse_id = w.id AND ws.variant_id = v.id
     WHERE w.active = true AND v.active = true AND p.deleted_at IS NULL
-      ${warehouseId ? `AND w.id = '${warehouseId}'` : ''}
+      ${whFilter}
       ${searchCondition}
     ORDER BY p.name ASC, v.name ASC, w.name ASC
   `;
