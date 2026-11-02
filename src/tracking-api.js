@@ -286,6 +286,19 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
 
   const shipmentRow = shipmentResult.rows[0];
   let shipment = null;
+
+  const activeCase = (await pool.query(
+    "SELECT * FROM order_after_sales WHERE order_id = $1 AND status NOT IN ('resolved', 'rejected') ORDER BY created_at DESC LIMIT 1",
+    [order.id]
+  )).rows[0];
+
+  const completedCase = (await pool.query(
+    "SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' LIMIT 1",
+    [order.id]
+  )).rows[0];
+
+  const { checkReturnEligibility, createCustomerReturnRequest } = require('./order-after-sales');
+  const returnEligibility = checkReturnEligibility(order, activeCase, completedCase, shipmentRow);
   if (shipmentRow) {
     const carrierName = CARRIER_NAMES[shipmentRow.carrier_id] || shipmentRow.carrier_id;
     shipment = {
@@ -341,6 +354,16 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
       shipment,
       timeline,
       cancellationReason: order.cancellation_reason || null,
+      afterSales: activeCase ? {
+        id: activeCase.id,
+        status: activeCase.status,
+        kind: activeCase.kind,
+        returnType: activeCase.return_type || 'exchange',
+        reason: activeCase.reason,
+        resolution: activeCase.resolution || '',
+        createdAt: activeCase.created_at
+      } : null,
+      returnEligibility,
       createdAt: order.created_at,
       updatedAt: order.updated_at
     }
@@ -389,6 +412,61 @@ function createTrackingApi(pool, _config = {}) {
 
   router.post('/tracking/lookup', lookupLimiter, handleLookup);
   router.get('/tracking/lookup', lookupLimiter, handleLookup);
+
+  const returnSchema = z.object({
+    orderNumber: z.string().trim().min(3).max(64),
+    challenge: z.string().trim().min(3).max(255),
+    returnType: z.enum(['exchange', 'refund']).default('exchange'),
+    reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'change_mind', 'other']).default('faulty'),
+    reason: z.string().trim().min(5).max(2000),
+    bankInfo: z.object({
+      bankName: z.string().trim().max(100).optional(),
+      accountNumber: z.string().trim().max(50).optional(),
+      accountHolder: z.string().trim().max(100).optional()
+    }).optional().default({}),
+    evidenceUrls: z.array(z.string().trim().max(500)).max(5).optional().default([])
+  });
+
+  router.post('/tracking/return-request', lookupLimiter, async (req, res, next) => {
+    const parsed = returnSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Thông tin yêu cầu chưa hợp lệ.' });
+    }
+    try {
+      const orderRes = await pool.query(
+        'SELECT * FROM orders WHERE UPPER(TRIM(order_number)) = UPPER(TRIM($1)) LIMIT 1',
+        [parsed.data.orderNumber]
+      );
+      const order = orderRes.rows[0];
+      if (!order || !verifyOrderChallenge(order, parsed.data.challenge)) {
+        return res.status(404).json({ error: 'Không tìm thấy đơn hàng hoặc thông tin xác thực không khớp.' });
+      }
+
+      const { createCustomerReturnRequest } = require('./order-after-sales');
+      const { withTransaction } = require('./db');
+      const result = await withTransaction(pool, async (client) => {
+        return await createCustomerReturnRequest(client, {
+          orderId: order.id,
+          requestedBy: 'guest',
+          returnType: parsed.data.returnType,
+          reasonCategory: parsed.data.reasonCategory,
+          reason: parsed.data.reason,
+          bankInfo: parsed.data.bankInfo,
+          evidenceUrls: parsed.data.evidenceUrls,
+          actor: { username: order.email || 'guest', source: 'guest' }
+        });
+      });
+
+      res.status(201).json({
+        ok: true,
+        case: result,
+        message: 'Đã gửi yêu cầu đổi/trả hàng thành công. Bộ phận CSKH GAERU sẽ liên hệ hỗ trợ trong vòng 24 giờ.'
+      });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
 
   return router;
 }

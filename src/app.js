@@ -199,6 +199,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", require("./site-pages").createPagesAdmin(pool));
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
   app.use("/api/gaeru_ceo", require("./order-after-sales").afterSalesRouter(pool));
+  const rmaApi = require("./rma-tickets").createRmaApi(pool, config);
+  app.use("/api", rmaApi.publicApi);
+  app.use("/api/gaeru_ceo", rmaApi.admin);
   app.use("/api/gaeru_ceo", require("./order-print").createOrderPrint(pool));
   app.use("/api/gaeru_ceo", require("./shipping-choice").createShippingAdmin(pool,config));
   const shippingMgmt = require("./shipping-management").createShippingManagement(pool, config, { finance: { receiptTotal, recordFullOrderPayment } });
