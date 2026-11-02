@@ -13,15 +13,41 @@ CREATE TABLE IF NOT EXISTS auth_identities (
   CONSTRAINT uq_auth_provider_issuer_sub UNIQUE(provider, issuer, provider_subject)
 );
 
+ALTER TABLE auth_identities ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES customers(id) ON DELETE CASCADE;
+ALTER TABLE auth_identities ADD COLUMN IF NOT EXISTS provider VARCHAR(30);
+ALTER TABLE auth_identities ADD COLUMN IF NOT EXISTS issuer VARCHAR(255) DEFAULT 'https://accounts.google.com';
+ALTER TABLE auth_identities ADD COLUMN IF NOT EXISTS provider_subject VARCHAR(255);
+ALTER TABLE auth_identities ADD COLUMN IF NOT EXISTS email_at_link VARCHAR(254);
+ALTER TABLE auth_identities ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'auth_identities'::regclass
+      AND contype = 'u'
+      AND conname = 'uq_auth_provider_issuer_sub'
+  ) THEN
+    ALTER TABLE auth_identities ADD CONSTRAINT uq_auth_provider_issuer_sub UNIQUE(provider, issuer, provider_subject);
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS ix_auth_identities_customer ON auth_identities(customer_id);
 CREATE INDEX IF NOT EXISTS ix_auth_identities_provider_sub ON auth_identities(provider, provider_subject);
 
--- Backfill from legacy customers.google_id column if present
+-- Backfill from legacy customers.google_id column in current schema if present
 DO $$
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM information_schema.columns 
-    WHERE table_name = 'customers' AND column_name = 'google_id'
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'customers'
+      AND column_name = 'google_id'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'customers'
+      AND column_name = 'email'
   ) THEN
     INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
     SELECT id, 'google', 'https://accounts.google.com', google_id, email

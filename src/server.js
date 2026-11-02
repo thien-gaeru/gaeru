@@ -70,7 +70,13 @@ async function start() {
 let shuttingDown = false;
 function errorSummary(error) {
   const safe = value => /^[A-Za-z0-9_]{1,50}$/.test(String(value || '')) ? String(value) : 'unavailable';
-  return { name: safe(error?.name), code: safe(error?.code) };
+  const summary = { name: safe(error?.name), code: safe(error?.code) };
+  if (/^[a-z0-9-]{1,64}\.sql$/.test(String(error?.migrationFile || ''))) summary.migration = String(error.migrationFile);
+  if (/^[A-Za-z0-9_]{1,63}$/.test(String(error?.table || ''))) summary.table = String(error.table);
+  if (/^[A-Za-z0-9_]{1,63}$/.test(String(error?.column || ''))) summary.column = String(error.column);
+  if (/^[A-Za-z0-9_]{1,63}$/.test(String(error?.constraint || ''))) summary.constraint = String(error.constraint);
+  if (/^[A-Za-z0-9_]{1,63}$/.test(String(error?.routine || ''))) summary.routine = String(error.routine);
+  return summary;
 }
 const startTask = start();
 startTask.catch(async (error) => {
