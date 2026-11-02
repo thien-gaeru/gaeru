@@ -282,7 +282,7 @@ async function mountPayments(){
   if(chId==='cod'){
    webhookBox='<div class="payment-integration-box">Thu tiền mặt khi giao hàng. Kiểm tra cấu hình đối chiếu hạn mức COD và bảng phí vận chuyển; không xác thực kết nối với hãng vận chuyển.</div>';
   }else if(chId==='bank_transfer'){
-   webhookBox='<div class="payment-integration-box">Cần đối chiếu thủ công tiền vào tài khoản trước khi xác nhận thanh toán. Kiểm tra cấu hình chỉ kiểm tra định dạng, không xác minh chủ tài khoản.</div>';
+   webhookBox='<div class="payment-integration-box">Cần đối chiếu thủ công tiền vào tài khoản trước khi xác nhận thanh toán hoặc tự động so khớp qua Webhook VietQR (Casso, SeAPay, PayOS). Webhook URL: <code>'+esc(callbacks.bankTransferWebhook||'/api/payments/bank_transfer/webhook')+'</code></div>';
   }else if(chId==='vnpay'){
    webhookBox='<div class="payment-integration-box"><strong>VNPAY URLs:</strong><br>Return URL: <code>'+esc(callbacks.vnpayReturn||'')+'</code><br>IPN URL: <code>'+esc(callbacks.vnpayIpn||'')+'</code></div>';
   }else if(chId==='momo'){

@@ -68,16 +68,80 @@ function isChannelEnabled(id,record,vnpayConfig){
  return Boolean(record?.data?.enabled);
 }
 
+const VIETQR_BANKS = {
+ vcb: { bin: '970436', code: 'VCB', shortName: 'Vietcombank' },
+ vietcombank: { bin: '970436', code: 'VCB', shortName: 'Vietcombank' },
+ mb: { bin: '970422', code: 'MB', shortName: 'MBBank' },
+ mbbank: { bin: '970422', code: 'MB', shortName: 'MBBank' },
+ tcb: { bin: '970407', code: 'TCB', shortName: 'Techcombank' },
+ techcombank: { bin: '970407', code: 'TCB', shortName: 'Techcombank' },
+ ctg: { bin: '970415', code: 'ICB', shortName: 'VietinBank' },
+ icb: { bin: '970415', code: 'ICB', shortName: 'VietinBank' },
+ vietinbank: { bin: '970415', code: 'ICB', shortName: 'VietinBank' },
+ bidv: { bin: '970418', code: 'BIDV', shortName: 'BIDV' },
+ acb: { bin: '970416', code: 'ACB', shortName: 'ACB' },
+ vpb: { bin: '970432', code: 'VPB', shortName: 'VPBank' },
+ vpbank: { bin: '970432', code: 'VPB', shortName: 'VPBank' },
+ tpb: { bin: '970423', code: 'TPB', shortName: 'TPBank' },
+ tpbank: { bin: '970423', code: 'TPB', shortName: 'TPBank' },
+ vba: { bin: '970405', code: 'VBA', shortName: 'Agribank' },
+ agribank: { bin: '970405', code: 'VBA', shortName: 'Agribank' },
+ vib: { bin: '970441', code: 'VIB', shortName: 'VIB' },
+ stb: { bin: '970403', code: 'STB', shortName: 'Sacombank' },
+ sacombank: { bin: '970403', code: 'STB', shortName: 'Sacombank' },
+ hdb: { bin: '970437', code: 'HDB', shortName: 'HDBank' },
+ hdbank: { bin: '970437', code: 'HDB', shortName: 'HDBank' },
+ msb: { bin: '970426', code: 'MSB', shortName: 'MSB' },
+ ocb: { bin: '970448', code: 'OCB', shortName: 'OCB' },
+ shb: { bin: '970443', code: 'SHB', shortName: 'SHB' },
+ seab: { bin: '970440', code: 'SEAB', shortName: 'SeABank' },
+ seabank: { bin: '970440', code: 'SEAB', shortName: 'SeABank' },
+ lpb: { bin: '970449', code: 'LPB', shortName: 'LPBank' },
+ lpbank: { bin: '970449', code: 'LPB', shortName: 'LPBank' }
+};
+
+function resolveVietQrBank(input) {
+ const raw = String(input || '').trim().toLowerCase().replace(/[\s_.-]/g, '');
+ if (!raw) return null;
+ if (VIETQR_BANKS[raw]) return VIETQR_BANKS[raw];
+ for (const [k, v] of Object.entries(VIETQR_BANKS)) {
+  if (raw.includes(k) || k.includes(raw) || raw === v.bin) return v;
+ }
+ if (/^\d{6}$/.test(raw)) return { bin: raw, code: raw, shortName: input };
+ return { bin: input, code: input, shortName: input };
+}
+
 function formatBankTransferInstructions(settings,{orderNumber,amountVnd}={}){
  const syntax=String(settings?.transferSyntax||'GAERU {MA_DON}').trim();
  const transferContent=orderNumber?syntax.replace(/\{MA_DON\}/g,orderNumber):syntax;
+ const bankName=String(settings?.bankName||'').trim();
+ const accountNumber=String(settings?.accountNumber||'').trim();
+ const accountHolder=String(settings?.accountHolder||'').trim();
+ const branch=String(settings?.branch||'').trim();
+ const bankInfo=resolveVietQrBank(settings?.bankId||bankName);
+ const qrBankId=bankInfo?.bin||bankInfo?.code||bankName;
+ const template=String(settings?.qrTemplate||'compact2').trim();
+ 
+ let qrUrl=null;
+ if(qrBankId&&accountNumber){
+  const params=new URLSearchParams();
+  if(amountVnd!==undefined)params.set('amount',String(amountVnd));
+  if(transferContent)params.set('addInfo',transferContent);
+  if(accountHolder)params.set('accountName',accountHolder);
+  qrUrl=`https://img.vietqr.io/image/${encodeURIComponent(qrBankId)}-${encodeURIComponent(accountNumber)}-${template}.png?${params.toString()}`;
+ }
+
  return {
-  bankName:String(settings?.bankName||'').trim(),
-  accountNumber:String(settings?.accountNumber||'').trim(),
-  accountHolder:String(settings?.accountHolder||'').trim(),
-  branch:String(settings?.branch||'').trim(),
+  bankName,
+  bankId:bankInfo?.code||settings?.bankId||null,
+  bankBin:bankInfo?.bin||null,
+  accountNumber,
+  accountHolder,
+  branch,
   transferSyntax:syntax,
   transferContent,
+  qrUrl,
+  autoReconcile:Boolean(settings?.webhookSecret&&String(settings.webhookSecret).trim().length>=8),
   ...(amountVnd!==undefined?{amountVnd:Number(amountVnd)}:{})
  };
 }
@@ -87,9 +151,17 @@ function signMomoMessage(secretKey,raw){return createHmac('sha256',secretKey).up
 function extractOrderNumber(input){
  const text=String(input||'').trim();
  if(!text)return '';
- const matched=text.match(/GR-\d{8}-[A-Z0-9]{4,20}/i);
- if(matched)return matched[0].toUpperCase();
- if(/^\d{6}_GR-/i.test(text))return text.slice(7);
+ const withDashes=text.match(/GR-\d{8}-[A-Z0-9]{4,20}/i);
+ if(withDashes)return withDashes[0].toUpperCase();
+ if(/^\d{6}_GR-/i.test(text))return text.slice(7).toUpperCase();
+ const noDashes=text.match(/GR(\d{8})([A-Z0-9]{4,20})/i);
+ if(noDashes){
+  return `GR-${noDashes[1]}-${noDashes[2]}`.toUpperCase();
+ }
+ const spaceSeparated=text.match(/GR\s*(\d{8})\s*([A-Z0-9]{4,20})/i);
+ if(spaceSeparated){
+  return `GR-${spaceSeparated[1]}-${spaceSeparated[2]}`.toUpperCase();
+ }
  return text;
 }
 
@@ -154,7 +226,12 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
     return {valid:false,reason:'Automatic bank reconciliation is disabled until a verified provider adapter is configured. Use owner-authorized reconciliation.'};
    }
    const headers=options.headers||{};
+   const query=options.query||{};
    const incomingToken=String(
+    query.token||
+    query.secret||
+    headers['x-payos-token']||
+    headers['x-vietqr-token']||
     headers['secure-token']||
     headers['x-api-key']||
     headers['x-casso-token']||
@@ -182,6 +259,7 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    }
    let transactions=[];
    if(Array.isArray(payload.data))transactions=payload.data;
+   else if(payload.data&&typeof payload.data==='object')transactions=[payload.data];
    else if(Array.isArray(payload.transactions))transactions=payload.transactions;
    else if(typeof payload==='object'&&payload!==null)transactions=[payload];
    if(!transactions.length){
@@ -213,7 +291,7 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    if(!Number.isSafeInteger(numAmount)||numAmount<=0||numAmount>2000000000){
     return {valid:false,reason:'Invalid transaction amount'};
    }
-   const txnId=matchedTxn.tid||matchedTxn.id||matchedTxn.reference_number||matchedTxn.referenceNumber||matchedTxn.transactionId||matchedTxn.ref||'BANK_'+Date.now();
+   const txnId=matchedTxn.tid||matchedTxn.id||matchedTxn.reference||matchedTxn.reference_number||matchedTxn.referenceNumber||matchedTxn.transactionId||matchedTxn.ref||'BANK_'+Date.now();
    return {
     valid:true,
     orderNumber,
@@ -235,7 +313,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
      o.shipping_fee_vnd AS "shippingFeeVnd", o.discount_vnd AS "discountVnd",
      o.total_vnd AS "totalVnd", o.payment_status AS "paymentStatus"
     FROM payment_attempts p JOIN orders o ON o.id = p.order_id
-    WHERE p.transaction_ref = $1 AND p.provider = $2
+    WHERE (p.transaction_ref = $1 OR replace(p.transaction_ref, '-', '') = replace($1, '-', '')) AND p.provider = $2
     FOR UPDATE OF p, o`,
    [orderNumber,provider]
   );
@@ -247,7 +325,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
       payment_method AS "paymentMethod", subtotal_vnd AS "subtotalVnd",
       shipping_fee_vnd AS "shippingFeeVnd", discount_vnd AS "discountVnd",
       total_vnd AS "totalVnd", payment_status AS "paymentStatus"
-     FROM orders WHERE order_number = $1 FOR UPDATE`,
+     FROM orders WHERE (order_number = $1 OR replace(order_number, '-', '') = replace($1, '-', '')) FOR UPDATE`,
     [orderNumber]
    );
    const order=orderQuery.rows[0];

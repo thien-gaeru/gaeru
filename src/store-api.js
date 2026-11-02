@@ -364,10 +364,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if(!channelConfig)return res.status(404).json({code:'99',message:'Provider unavailable'});
       // Official wallet notifications are server POST JSON, never query aliases.
       if(req.method!=='POST')return res.status(405).end();
-      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers});
-      if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback'});
+      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers,query:req.query});
+      if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback',reason:verified.reason});
       const outcome=await withTransaction(pool,async client=>{
-        const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE transaction_ref=$1 AND provider=$2',[verified.orderNumber,provider])).rows[0];
+        const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE (transaction_ref=$1 OR replace(transaction_ref,\'-\',\'\')=replace($1,\'-\',\'\')) AND provider=$2',[verified.orderNumber,provider])).rows[0];
         if(!row)return {code:'01',matched:false,message:'Order not found'};
         if(row.provider_request_id&&row.provider_request_id!==(provider==='momo'?verified.requestId:verified.providerOrderId))return {code:'97',matched:false,message:'Provider request mismatch'};
         const outcome=await require('./payment-channels').reconcilePrepaidOrder(client,{provider,orderNumber:verified.orderNumber,amountVnd:verified.amountVnd,successful:verified.successful,providerTransactionId:verified.providerTransactionId,responseCode:verified.responseCode,finance,audit});

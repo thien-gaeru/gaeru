@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { verifyGatewayPayload, reconcilePrepaidOrder } = require('../src/payment-channels');
+const { verifyGatewayPayload, reconcilePrepaidOrder, formatBankTransferInstructions } = require('../src/payment-channels');
 
 test('Bank Transfer Webhook Adapter - Security and Verification', async (t) => {
   const secret = 'super-secret-bank-webhook-token-12345';
@@ -188,5 +188,79 @@ test('Bank Transfer Webhook Adapter - Security and Verification', async (t) => {
     assert.strictEqual(orderUpdated.params[0], 202);
     assert.strictEqual(auditLog.action, 'payment.bank_transfer.callback');
     assert.strictEqual(auditLog.metadata.autoApprovedToProcessing, true);
+  });
+  await t.test('formatBankTransferInstructions generates valid VietQR QuickPay URL', () => {
+    const bt = formatBankTransferInstructions(settings, {
+      orderNumber: 'GR-20261102-1234',
+      amountVnd: 750000
+    });
+
+    assert.strictEqual(bt.bankName, 'MBBank');
+    assert.strictEqual(bt.bankBin, '970422');
+    assert.strictEqual(bt.bankId, 'MB');
+    assert.strictEqual(bt.accountNumber, '0987654321');
+    assert.strictEqual(bt.transferContent, 'GAERU GR-20261102-1234');
+    assert.strictEqual(bt.amountVnd, 750000);
+    assert.strictEqual(bt.autoReconcile, true);
+    assert.ok(bt.qrUrl);
+    assert.ok(bt.qrUrl.includes('https://img.vietqr.io/image/970422-0987654321-compact2.png'));
+    assert.ok(bt.qrUrl.includes('amount=750000'));
+    assert.ok(bt.qrUrl.includes('addInfo=GAERU+GR-20261102-1234'));
+  });
+
+  await t.test('successfully verifies PayOS webhook format with payload.data object', () => {
+    const payosPayload = {
+      code: '00',
+      desc: 'success',
+      data: {
+        orderCode: 987654,
+        amount: 880000,
+        description: 'GAERU GR-20261102-PAYOS1234',
+        accountNumber: '0987654321',
+        reference: 'PAYOS_REF_001',
+        transactionDateTime: '2026-11-02 14:00:00'
+      }
+    };
+    const res = verifyGatewayPayload('bank_transfer', payosPayload, settings, {
+      headers: { 'x-api-key': secret }
+    });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.orderNumber, 'GR-20261102-PAYOS1234');
+    assert.strictEqual(res.amountVnd, 880000);
+    assert.strictEqual(res.providerTransactionId, 'PAYOS_REF_001');
+    assert.strictEqual(res.successful, true);
+  });
+
+  await t.test('successfully extracts order number and reconciles when bank strips dashes', () => {
+    // Bank stripped dashes: GR20261102AABBCC
+    const bankSmsPayload = {
+      data: [{
+        description: 'MBVCB.12345678.GAERU GR20261102AABBCC.CT tu NGUYEN VAN A',
+        amount: 350000,
+        tid: 'MB_RAW_999'
+      }]
+    };
+    const res = verifyGatewayPayload('bank_transfer', bankSmsPayload, settings, {
+      headers: { 'secure-token': secret }
+    });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.orderNumber, 'GR-20261102-AABBCC');
+    assert.strictEqual(res.amountVnd, 350000);
+    assert.strictEqual(res.providerTransactionId, 'MB_RAW_999');
+  });
+
+  await t.test('successfully verifies token passed in query parameter (?token=...) or payload body', () => {
+    const payload = {
+      orderNumber: 'GR-20261102-QUERY123',
+      amount: 199000,
+      tid: 'TID_QUERY'
+    };
+    const res = verifyGatewayPayload('bank_transfer', payload, settings, {
+      headers: {},
+      query: { token: secret }
+    });
+    assert.strictEqual(res.valid, true);
+    assert.strictEqual(res.orderNumber, 'GR-20261102-QUERY123');
+    assert.strictEqual(res.amountVnd, 199000);
   });
 });
