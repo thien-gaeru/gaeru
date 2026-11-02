@@ -19,7 +19,7 @@
           'Hướng dẫn kết nối thiết bị',
           'Chính sách bảo hành Care+'
         ];
-    root.innerHTML = `<div class="chat-state-bar"><p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p>${admin?'':'<div class="chat-session-actions"><a href="tel:0829191080" class="chat-hotline-session" data-chat-hotline data-no-action-feedback>☏ Gọi hotline</a><button type="button" class="chat-end-session" data-chat-end data-no-action-feedback hidden>Kết thúc phiên chat</button><button type="button" class="chat-new-session" data-chat-new data-no-action-feedback hidden>Bắt đầu chat mới</button></div>'}</div>
+    root.innerHTML = `<div class="chat-state-bar"><p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p><span class="chat-live-badge" data-chat-live-badge title="Kết nối thời gian thực 0ms"><span class="chat-live-dot"></span><span data-chat-live-text>Trực tuyến</span></span>${admin?'':'<div class="chat-session-actions"><a href="tel:0829191080" class="chat-hotline-session" data-chat-hotline data-no-action-feedback>☏ Gọi hotline</a><button type="button" class="chat-end-session" data-chat-end data-no-action-feedback hidden>Kết thúc phiên chat</button><button type="button" class="chat-new-session" data-chat-new data-no-action-feedback hidden>Bắt đầu chat mới</button></div>'}</div>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
       <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose>
@@ -559,7 +559,7 @@
           const firstBody=textBody||'Tôi gửi tệp để được tư vấn.';
           if(!id){
             const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:firstBody,requestKey:msgKey})});
-            id=d.thread.id;
+            id=d.thread.id; poll?.setStreamUrl?.(base+'/'+id+'/realtime-sse');
           }else if(textBody){
             await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body:textBody,requestKey:msgKey})});
           }
@@ -643,7 +643,7 @@
       if(admin)return;
       clearFastAiTimers();
       syncAiTypingIndicator(false);
-      id=null;thread=null;
+      id=null;thread=null;poll?.setStreamUrl?.(null);
       messages.innerHTML='';
       root.querySelector('[data-chat-earlier]').hidden=true;
       actions.hidden=true;plus.setAttribute('aria-expanded','false');
@@ -701,7 +701,8 @@
     });
     const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
     if(!admin)void loadCapabilities();
-    const poll=window.GAERUCareLive.poll({delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:()=>{}});
+    const updateLiveStatus=(text)=>{const isRealtime=String(text||'').includes('SSE')||String(text||'').includes('Thời gian thực');const badges=[...root.querySelectorAll('[data-chat-live-badge]'),...(root.closest('dialog')?[...root.closest('dialog').querySelectorAll('[data-chat-live-badge]')]:[])];const labels=[...root.querySelectorAll('[data-chat-live-text]'),...(root.closest('dialog')?[...root.closest('dialog').querySelectorAll('[data-chat-live-text]')]:[])];badges.forEach(b=>{b.classList.toggle('is-fallback',!isRealtime);b.title=isRealtime?'Thời gian thực (SSE 0ms)':(text||'Tự cập nhật');});labels.forEach(l=>{l.textContent=isRealtime?'Trực tuyến':(String(text||'').includes('Mất')?'Mất mạng':'Đang kết nối');});};
+    const poll=window.GAERUCareLive.poll({streamUrl:id?base+'/'+id+'/realtime-sse':null,delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:updateLiveStatus});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
     return {refresh,stop(){stopped=true;clearFastAiTimers();clearPickerTimers();activePicker=null;window.removeEventListener?.('focus',onPickerReturn);document.removeEventListener?.('visibilitychange',onPickerReturn);poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};
   }};

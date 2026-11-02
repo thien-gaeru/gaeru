@@ -8,7 +8,7 @@ async function openChat(slug){
  let dialog=document.querySelector('#shopping-chat-dialog');
  if(!dialog){
   dialog=document.createElement('dialog');dialog.id='shopping-chat-dialog';dialog.className='shopping-chat-dialog';
-  dialog.innerHTML='<header><div class="chat-header-main"><h2>Trợ giúp GAERU</h2></div><button type="button" data-chat-close aria-label="Đóng chat">×</button></header><div data-chat-content></div>';
+  dialog.innerHTML='<header><div class="chat-header-main"><div class="chat-header-title-row"><h2>Trợ giúp GAERU</h2><span class="chat-live-badge" data-chat-live-badge title="Kết nối thời gian thực 0ms"><span class="chat-live-dot"></span><span data-chat-live-text>Trực tuyến</span></span></div></div><button type="button" data-chat-close aria-label="Đóng chat">×</button></header><div data-chat-content></div>';
   document.body.append(dialog);dialog.querySelector('[data-chat-close]').onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>{chatOpenVersion++;chat?.stop();chat=null;document.body.style.overflow=dialog.dataset.previousOverflow||'';});
  }

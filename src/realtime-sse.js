@@ -154,7 +154,11 @@ function publishCareEvent(careId, event, data) {
 
 function publishChatEvent(threadId, event, data) {
   defaultHub.publish('shopping_chat:' + threadId, event, data);
+  defaultHub.publish('admin', 'chat:message', { threadId, ...data });
   defaultHub.publish('admin', 'shopping_chat:message', { threadId, ...data });
+  if (event === 'chat:update') {
+    defaultHub.publish('admin', 'chat:update', { threadId, ...data });
+  }
 }
 
 module.exports = {

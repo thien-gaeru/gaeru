@@ -16,7 +16,7 @@ async function handoff(client,id,reason,answer){
   const row=(await client.query('SELECT handling_mode,status FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[id])).rows[0];
   if(!row||row.status!=='open'||row.handling_mode==='human')return false;
   await client.query("UPDATE shopping_chat_threads SET handling_mode='human',handoff_offered_at=NULL,handoff_started_at=now(),handoff_reason=$2,awaiting_admin=true,version=version+1,updated_at=now() WHERE id=$1",[id,reason]);
-  await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,(answer?answer+'\n\n':'')+'Đã chuyển hội thoại cho nhân viên GAERU. Bạn có thể tiếp tục để lại thông tin tại đây.',randomUUID()]);
+  const body=(answer?answer+'\n\n':'')+'Đã chuyển hội thoại cho nhân viên GAERU. Bạn có thể tiếp tục để lại thông tin tại đây.'; await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,body,randomUUID()]); try{require('./realtime-sse').publishChatEvent(id,'chat:message',{threadId:id,sender:'ai',body});}catch(_){}
   await client.query("INSERT INTO shopping_chat_email_outbox(thread_id,account_key,bucket,kind) SELECT $1,account_key,floor(extract(epoch FROM now())/300)::bigint,'handoff' FROM shopping_chat_email_preferences WHERE enabled=true ON CONFLICT DO NOTHING",[id]);
   return true;
 }
@@ -24,7 +24,7 @@ async function offerHandoff(client,id,reason,answer){
   const row=(await client.query('SELECT handling_mode,status,handoff_offered_at FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[id])).rows[0];
   if(!row||row.status!=='open'||row.handling_mode==='human'||row.handoff_offered_at)return false;
   await client.query('UPDATE shopping_chat_threads SET handoff_offered_at=now(),handoff_reason=$2,awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1',[id,reason]);
-  await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,answer||'AI chưa thể tiếp tục trả lời. Chọn Gặp nhân viên để được hỗ trợ.',randomUUID()]);return true;
+  const body=answer||'AI chưa thể tiếp tục trả lời. Chọn Gặp nhân viên để được hỗ trợ.'; await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,body,randomUUID()]); try{require('./realtime-sse').publishChatEvent(id,'chat:message',{threadId:id,sender:'ai',body});}catch(_){} return true;
 }
 async function resumeAI(client,id,reason='staff_timeout'){
   const row=(await client.query('SELECT handling_mode,status,handoff_started_at FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[id])).rows[0];
@@ -32,7 +32,7 @@ async function resumeAI(client,id,reason='staff_timeout'){
   const staffReplied=(await client.query("SELECT EXISTS(SELECT 1 FROM shopping_chat_messages WHERE thread_id=$1 AND sender='admin' AND created_at>=COALESCE($2::timestamptz,'epoch'::timestamptz)) AS replied",[id,row.handoff_started_at])).rows[0]?.replied;
   if(staffReplied)return false;
   await client.query("UPDATE shopping_chat_threads SET handling_mode='ai',handoff_offered_at=NULL,handoff_started_at=NULL,handoff_reason=$2,awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1",[id,reason]);
-  await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,'Sau 5 phút chưa có nhân viên phản hồi, trợ lý GAERU AI đã tự động kích hoạt lại để tiếp tục hỗ trợ bạn ngay lập tức. Bạn cũng có thể gọi 082.919.1080 nếu cần gặp trực tiếp.',randomUUID()]);
+  const body='Sau 5 phút chưa có nhân viên phản hồi, trợ lý GAERU AI đã tự động kích hoạt lại để tiếp tục hỗ trợ bạn ngay lập tức. Bạn cũng có thể gọi 082.919.1080 nếu cần gặp trực tiếp.'; await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,body,randomUUID()]); try{require('./realtime-sse').publishChatEvent(id,'chat:message',{threadId:id,sender:'ai',body});}catch(_){}
   return true;
 }
 async function resumeTimedOutHumanThreads(pool){
@@ -111,7 +111,7 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
     }
     if(result.handoff){if(reason==='customer_request')await handoff(c,job.thread_id,reason,result.answer.slice(0,2400));else await offerHandoff(c,job.thread_id,reason,result.answer.slice(0,2400));}
     else{
-      await c.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[job.thread_id,result.answer.slice(0,3000),job.id]);
+      const aiBody=result.answer.slice(0,3000); await c.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[job.thread_id,aiBody,job.id]); try{require('./realtime-sse').publishChatEvent(job.thread_id,'chat:message',{threadId:job.thread_id,sender:'ai',body:aiBody});}catch(_){}
       await c.query('UPDATE shopping_chat_threads SET awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1',[job.thread_id]);
     }
     await c.query("UPDATE shopping_chat_ai_jobs SET status='done' WHERE id=$1",[job.id]);

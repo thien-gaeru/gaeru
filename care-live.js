@@ -22,21 +22,26 @@
    }
   }
   function wake(){if(!busy&&!stopped)schedule(0);}
-  if(streamUrl&&typeof environment.EventSource==='function'){
-   try{
-    eventSource=new environment.EventSource(streamUrl);
-    eventSource.onopen=()=>{failures=0;status('Thời gian thực (SSE)');};
-    eventSource.onmessage=()=>wake();
-    for(const ev of ['care:message','chat:message','care:update','order:new','notification:refresh'])eventSource.addEventListener(ev,()=>wake());
-    eventSource.onerror=()=>{/* fallback schedule timer operates normally */};
-   }catch(_){}
+  function connectStream(url){
+   if(eventSource){try{eventSource.close();}catch(_){}eventSource=null;}
+   if(url&&typeof environment.EventSource==='function'){
+    try{
+     eventSource=new environment.EventSource(url);
+     eventSource.onopen=()=>{failures=0;status('Thời gian thực (SSE)');};
+     eventSource.onmessage=()=>wake();
+     for(const ev of ['care:message','chat:message','shopping_chat:message','chat:update','care:update','order:new','notification:refresh'])eventSource.addEventListener(ev,()=>wake());
+     eventSource.onerror=()=>{/* fallback schedule timer operates normally */};
+    }catch(_){}
+   }
   }
+  if(streamUrl)connectStream(streamUrl);
   doc.addEventListener('visibilitychange',wake);
   environment.addEventListener('online',wake);
   environment.addEventListener('offline',wake);
   schedule(delay);
   return{
    refresh:wake,
+   setStreamUrl(url){connectStream(url);wake();},
    stop(){
     stopped=true;
     environment.clearTimeout(timer);
