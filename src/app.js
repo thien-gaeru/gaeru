@@ -125,7 +125,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer/cart", require("./customer-cart").createCustomerCartRouter(pool));
-  app.use("/api/customer", createCustomerExperience(pool));
+  app.use("/api/customer", createCustomerExperience(pool, { inventory, audit: appendAudit }));
   app.use("/api/customer/care", createCareCustomerApi(pool, config));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));

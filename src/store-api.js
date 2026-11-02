@@ -611,6 +611,35 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
+  router.post("/orders/:id/cancel", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+    const customerId = req.session?.customer?.id;
+    if (!customerId) return res.status(401).json({ error: "Vui lòng đăng nhập để hủy đơn hàng." });
+    const { cancelOrderSchema, cancelCustomerOrder } = require("./customer-order-cancellation");
+    const parsed = cancelOrderSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Lý do hủy đơn không hợp lệ." });
+    try {
+      const result = await withTransaction(pool, async (client) => {
+        return await cancelCustomerOrder(client, {
+          orderId: req.params.id,
+          customerId,
+          actor: {
+            id: customerId,
+            username: req.session.customer.email || "customer",
+            fullName: req.session.customer.fullName || "Khách hàng",
+            source: "customer"
+          },
+          reason: parsed.data.reason,
+          inventory,
+          audit
+        });
+      });
+      res.json(result);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
+
   router.use("/gaeru_ceo", requireAdmin);
 
   router.post("/gaeru_ceo/uploads", requireCsrf, parseImageUpload, async (req, res, next) => {
