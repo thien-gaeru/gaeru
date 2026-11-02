@@ -42,3 +42,6 @@
 
 .pwa-install-dialog{width:min(100% - 30px, 520px);padding:22px;border-radius:18px}
 .pwa-install-dialog header button{cursor:pointer}
+
+.forecast-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.forecast-select{min-height:36px;padding:6px 12px;border:1px solid #d2d2d7;border-radius:8px;font-size:12px;background:#fff}

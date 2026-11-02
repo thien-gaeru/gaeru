@@ -209,6 +209,8 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo",require("./account-retention").createRetentionAdmin(pool,config,customerMailer));
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use("/api/gaeru_ceo", createOperationsApi(pool));
+  app.use("/api/gaeru_ceo", require("./inventory-forecast").createInventoryForecastApi(pool));
+  app.use("/api/gaeru_ceo/inventory", require("./inventory-forecast").createInventoryForecastApi(pool));
   app.use("/api/gaeru_ceo", createFinanceApi(pool));
   app.use("/api/gaeru_ceo", createCareAdminApi(pool, config));
   app.use("/api/gaeru_ceo", createOwnerApi(pool, config));

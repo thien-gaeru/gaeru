@@ -175,11 +175,78 @@
 
   async function loadInventory() {
     await lookups({ warehouses: true });
-    mount("inventory", `<div class="enterprise-intro"><p>Tồn kho theo địa điểm, điều chỉnh có lý do và điều chuyển giữa các kho. Mỗi lần ghi nhận được lưu vào lịch sử.</p><div class="enterprise-actions">${can("inventory.approve") ? '<button class="primary-button" data-e-inventory="adjustment">Điều chỉnh tồn</button>' : ""}${can("inventory.write") ? '<button class="secondary-button" data-e-inventory="transfer">Điều chuyển kho</button>' : ""}</div></div>${searchForm("inventory", select("Kho hàng", "warehouseId", '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses)), "Tìm tên sản phẩm hoặc SKU")}<p class="list-status" data-e-status aria-live="polite"></p><div data-e-list></div><div data-e-pagination></div><section class="editor-card" data-e-editor hidden></section><section class="enterprise-section"><div class="section-heading"><h2>Lịch sử biến động</h2><button class="secondary-button" data-e-movements>Tải lịch sử</button></div><div id="movement-list"></div></section>`);
+    mount("inventory", `<div class="enterprise-intro"><p>Tồn kho theo địa điểm, điều chỉnh có lý do và điều chuyển giữa các kho. Mỗi lần ghi nhận được lưu vào lịch sử.</p><div class="enterprise-actions">${can("inventory.approve") ? '<button class="primary-button" data-e-inventory="adjustment">Điều chỉnh tồn</button>' : ""}${can("inventory.write") ? '<button class="secondary-button" data-e-inventory="transfer">Điều chuyển kho</button>' : ""}<button class="secondary-button" data-e-load-forecast>Dự báo & Điểm đặt hàng (ROP)</button></div></div>${searchForm("inventory", select("Kho hàng", "warehouseId", '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses)), "Tìm tên sản phẩm hoặc SKU")}<p class="list-status" data-e-status aria-live="polite"></p><div data-e-list></div><div data-e-pagination></div><section class="editor-card" data-e-editor hidden></section><section class="enterprise-section" id="inventory-forecast-section" hidden><div class="section-heading"><h2>Dự báo nhu cầu & Điểm đặt hàng lại (ROP)</h2><div class="forecast-toolbar"><select name="forecastDays" class="forecast-select"><option value="7">Tốc độ 7 ngày</option><option value="14">Tốc độ 14 ngày</option><option value="30" selected>Tốc độ 30 ngày</option><option value="90">Tốc độ 90 ngày</option></select><select name="forecastStatus" class="forecast-select"><option value="all">Tất cả trạng thái</option><option value="reorder_needed">Cần đặt hàng (ROP)</option><option value="out_of_stock">Hết hàng</option><option value="critical">Khẩn cấp</option><option value="optimal">Tối ưu</option><option value="overstocked">Thừa tồn</option></select><button class="secondary-button" data-e-forecast-refresh>Làm mới số liệu</button></div></div><div id="forecast-content"></div></section><section class="enterprise-section"><div class="section-heading"><h2>Lịch sử biến động</h2><button class="secondary-button" data-e-movements>Tải lịch sử</button></div><div id="movement-list"></div></section>`);
     const result = await loadList("inventory", "/inventory", "stock", (rows) => rows.length ? table(["Sản phẩm", "SKU", "Kho", "Số lượng", ""], rows.map((entry, index) => row([`<div class="inventory-product"><img src="${h(window.GAERUAdminUI.imageUrl(entry.imageUrl?.startsWith('/api/catalog-images/') ? entry.imageUrl.replace('/api/catalog-images/','/api/gaeru_ceo/catalog-images/') : entry.imageUrl || '/assets/brand/gaeru-logo.webp'))}" alt="" width="54" height="54" loading="lazy"><div><strong>${h(entry.productName)}</strong><small>${h(entry.variantName)}</small></div></div>`, `<code>${h(entry.sku)}</code>`, h(entry.warehouseName), `<strong class="${entry.quantity <= 5 ? "stock-alert" : ""}">${number(entry.quantity)}</strong>`, `<div class="inventory-row-actions">${can("inventory.approve") ? `<button class="row-button" data-e-adjust-row="${index}">Điều chỉnh</button>` : ""}${can("catalog.write")?`<button class="row-button product-delete-button" data-e-trash-product="${index}">Xóa sản phẩm</button>`:""}</div>`]))) : empty("Chưa có tồn kho phù hợp. Nhập hàng hoặc điều chỉnh để bổ sung tồn."));
     if (result?.warehouses) e.lookup.warehouses = result.warehouses;
     const warehouseFilter = root("inventory").querySelector('[name="warehouseId"]'), selected = warehouseFilter.value;
     warehouseFilter.innerHTML = '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses, selected);
+  }
+
+  async function loadForecastView(refresh = false) {
+    const section = document.querySelector("#inventory-forecast-section");
+    if (!section) return;
+    section.hidden = false;
+    const target = section.querySelector("#forecast-content");
+    target.textContent = "Đang tính toán dự báo nhu cầu & điểm đặt hàng lại…";
+
+    const days = section.querySelector('[name="forecastDays"]')?.value || "30";
+    const status = section.querySelector('[name="forecastStatus"]')?.value || "all";
+    const whId = root("inventory").querySelector('[name="warehouseId"]')?.value || "";
+
+    try {
+      const result = await api(`/inventory/forecast?days=${days}&warehouseId=${whId}&status=${status}${refresh ? '&refresh=true' : ''}`);
+      e.forecast = result;
+      const m = result.metrics || {};
+
+      const statusMap = {
+        out_of_stock: '<span class="status-pill status-cancelled">Hết hàng</span>',
+        critical: '<span class="status-pill status-cancelled">Khẩn cấp</span>',
+        reorder_needed: '<span class="status-pill status-warning">Cần đặt hàng</span>',
+        low_stock: '<span class="status-pill status-warning">Tồn thấp</span>',
+        optimal: '<span class="status-pill status-active">Tối ưu</span>',
+        overstocked: '<span class="status-pill status-neutral">Thừa tồn</span>'
+      };
+
+      const metricsHtml = metricCards([
+        ["Cần đặt hàng (ROP)", `<strong>${number(m.reorderNeededCount)}</strong>`],
+        ["Hết hàng", `<strong>${number(m.outOfStockCount)}</strong>`],
+        ["Cảnh báo khẩn", `<strong>${number(m.criticalCount)}</strong>`],
+        ["Đề xuất đặt thêm", `${number(m.totalSuggestedUnits)} sp`],
+        ["Giá trị dự tính", money(m.estimatedTotalCostVnd)]
+      ]);
+
+      const tableHtml = result.items?.length
+        ? table(
+            ["Sản phẩm", "Kho", "Tồn / Về", "Tốc độ bán", "Điểm đặt ROP", "Ngày tồn (DOS)", "Gợi ý đặt", "Trạng thái", ""],
+            result.items.map((it, idx) => row([
+              `<strong>${h(it.productName)}</strong><small>${h(it.variantName)} · <code>${h(it.sku)}</code></small>`,
+              h(it.warehouseName),
+              `<strong>${number(it.currentStock)}</strong>${it.incomingStock ? `<small>+${number(it.incomingStock)} đang về</small>` : ""}`,
+              `<strong>${it.salesVelocity}</strong><small>sp/ngày (${it.soldUnits} sp / ${it.periodDays}d)</small>`,
+              `<strong>${number(it.reorderPoint)}</strong><small>An toàn: ${number(it.safetyStock)}</small>`,
+              it.daysOfSupply != null ? `<strong>${it.daysOfSupply}</strong> ngày` : `<small>Chưa phát sinh</small>`,
+              it.suggestedOrderQuantity > 0 ? `<strong style="color:#d9534f;">${number(it.suggestedOrderQuantity)}</strong><small>${money(it.estimatedCostVnd)}</small>` : `<small>Đủ tồn kho</small>`,
+              statusMap[it.status] || it.status,
+              `<div class="inventory-row-actions">${can("inventory.approve") ? `<button class="row-button" data-e-rop-config="${idx}">Cài đặt ROP</button>` : ""}${it.suggestedOrderQuantity > 0 && can("purchases.write") ? `<button class="row-button" data-e-rop-po="${idx}">Đặt mua</button>` : ""}</div>`
+            ]))
+          )
+        : empty("Không có sản phẩm nào phù hợp điều kiện lọc.");
+
+      target.innerHTML = `<div class="enterprise-metrics">${metricsHtml}</div>${tableHtml}`;
+    } catch (err) {
+      target.textContent = "Không thể tải dự báo: " + err.message;
+    }
+  }
+
+  function ropConfigEditor(item) {
+    if (!item || !can("inventory.approve")) return;
+    showEditor("inventory", `<h2>Cấu hình Điểm đặt hàng lại (ROP)</h2><p class="help-text"><strong>${h(item.productName)} · ${h(item.variantName)} (${h(item.sku)})</strong> tại <strong>${h(item.warehouseName)}</strong></p><form class="form-grid" data-e-form="rop-settings"><input type="hidden" name="warehouseId" value="${h(item.warehouseId)}"><input type="hidden" name="variantId" value="${h(item.variantId)}">${field("Thời gian giao hàng Lead Time (ngày)", "leadTimeDays", item.settings.leadTimeDays, 'type="number" min="1" max="365" required')}${field("Tồn kho an toàn theo ngày (Safety Stock Days)", "safetyStockDays", item.settings.safetyStockDays, 'type="number" min="0" max="365" required')}${field("Ghi đè Tồn an toàn cố định (bỏ trống nếu tự động tính)", "manualSafetyStock", item.settings.manualSafetyStock ?? "", 'type="number" min="0"')}${field("Ghi đè Điểm đặt hàng lại ROP (bỏ trống nếu tự động tính)", "manualReorderPoint", item.settings.manualReorderPoint ?? "", 'type="number" min="0"')}${field("Số lượng đặt hàng tối thiểu (MOQ)", "minOrderQuantity", item.settings.minOrderQuantity, 'type="number" min="1" required')}${field("Số ngày dự trữ mục tiêu (Target Stock Days)", "targetStockDays", item.settings.targetStockDays, 'type="number" min="1" max="365" required')}${submit("Lưu cấu hình ROP")}</form>`);
+  }
+
+  async function ropPoEditor(item) {
+    if (!item || !can("purchases.write")) return;
+    await lookups({ suppliers: true });
+    showEditor("inventory", `<h2>Lập đơn mua theo gợi ý ROP</h2><p class="help-text">Tạo nhanh đơn mua hàng cho sản phẩm <strong>${h(item.productName)} · ${h(item.variantName)}</strong> tại kho <strong>${h(item.warehouseName)}</strong></p><form class="form-grid" data-e-form="rop-po"><input type="hidden" name="warehouseId" value="${h(item.warehouseId)}"><input type="hidden" name="variantId" value="${h(item.variantId)}">${select("Nhà cung cấp", "supplierId", '<option value="">Chọn nhà cung cấp</option>' + options(e.lookup.suppliers), "required")}${field("Số lượng đề xuất đặt", "quantity", item.suggestedOrderQuantity, 'type="number" min="1" required')}${field("Đơn giá nhập dự kiến (₫)", "unitCostVnd", item.costPriceVnd, 'type="number" min="0" required')}${field("Số chứng từ / tham chiếu", "reference", "", 'maxlength="120"')}${noteField()}${submit("Xác nhận tạo đơn mua")}</form>`);
   }
   let inventoryEditorRequest=0;
   async function inventoryEditor(type, entry = null) {
@@ -419,6 +486,36 @@
       const path = { "supplier-payment": "supplier-payments", expense: "expenses", collection: "customer-payments" }[action];
       await api(`/finance/${path}`, { method: "POST", body: JSON.stringify(payload) });
       closeEditor(form.closest("[data-e-editor]"), true); await loadFinance();
+    } else if (action === "rop-settings") {
+      if (!can("inventory.approve")) throw new Error("Bạn chưa có quyền cấu hình điểm đặt hàng lại.");
+      const payload = {
+        warehouseId: values.warehouseId,
+        variantId: values.variantId,
+        leadTimeDays: Number(values.leadTimeDays),
+        safetyStockDays: Number(values.safetyStockDays),
+        manualSafetyStock: values.manualSafetyStock ? Number(values.manualSafetyStock) : null,
+        manualReorderPoint: values.manualReorderPoint ? Number(values.manualReorderPoint) : null,
+        minOrderQuantity: Number(values.minOrderQuantity || 1),
+        targetStockDays: Number(values.targetStockDays || 30)
+      };
+      await api("/inventory/forecast/settings", { method: "PUT", body: JSON.stringify(payload) });
+      closeEditor(form.closest("[data-e-editor]"), true);
+      await loadForecastView(true);
+      admin.showGlobal("Đã cập nhật cấu hình ROP thành công.");
+    } else if (action === "rop-po") {
+      if (!can("purchases.write")) throw new Error("Bạn chưa có quyền lập đơn mua.");
+      const payload = {
+        supplierId: values.supplierId,
+        warehouseId: values.warehouseId,
+        reference: values.reference.trim(),
+        note: values.note.trim(),
+        items: [{ variantId: values.variantId, quantity: Number(values.quantity), unitCostVnd: Number(values.unitCostVnd) }]
+      };
+      const result = await api("/inventory/forecast/create-po", { method: "POST", body: JSON.stringify(payload) });
+      closeEditor(form.closest("[data-e-editor]"), true);
+      await loadPurchases();
+      await loadForecastView(true);
+      admin.showGlobal(result.message || "Đã tạo đơn mua thành công.");
     }
     return true;
   }
@@ -469,6 +566,10 @@
         button.disabled=true;try{await api('/products/'+entry.productId,{method:'DELETE',body:JSON.stringify({version:entry.productVersion,confirmation:'DELETE_PRODUCT'})});await loadView("inventory");admin.showGlobal('Đã chuyển sản phẩm vào khu vực đã xóa. Số lượng và lịch sử kho được giữ lại.');}finally{button.disabled=false;}
       }
       else if (button.hasAttribute("data-e-adjust-row")) await inventoryEditor("adjustment", viewState("inventory").rows[Number(button.dataset.eAdjustRow)]);
+      else if (button.hasAttribute("data-e-load-forecast")) await loadForecastView();
+      else if (button.hasAttribute("data-e-forecast-refresh")) await loadForecastView(true);
+      else if (button.hasAttribute("data-e-rop-config")) ropConfigEditor(e.forecast?.items[Number(button.dataset.eRopConfig)]);
+      else if (button.hasAttribute("data-e-rop-po")) await ropPoEditor(e.forecast?.items[Number(button.dataset.eRopPo)]);
       else if (button.hasAttribute("data-e-movements")) await loadMovements();
       else if (button.hasAttribute("data-e-receipts")) await loadReceipts();
       else if (button.dataset.ePurchase) await purchaseDetail(button.dataset.ePurchase);
@@ -492,6 +593,7 @@
   });
   document.addEventListener("change", (event) => {
     if (event.target.matches('.enterprise-view [data-e-form="staff"] [name="role"]')) renderRolePermissions(event.target.closest("form"));
+    if (event.target.matches('#inventory-forecast-section select')) loadForecastView();
   });
   window.addEventListener('hashchange',()=>closeEditor(activeEditor,true));
   window.GAERUEnterprise = Object.freeze({ loadView });
