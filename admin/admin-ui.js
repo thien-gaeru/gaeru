@@ -13,6 +13,7 @@
     news:['Tin tức','Nội dung & sản phẩm','Soạn bài, kiểm tra bản nháp và quản lý nội dung xuất bản.','M3 3h16v17H3z M6 7h10 M6 11h4v5H6z M13 11h3 M13 15h3'],
     products:['Sản phẩm','Nội dung & sản phẩm','Danh mục, biến thể, giá bán và trạng thái hiển thị.','M11 2l9 5v10l-9 5-9-5V7z M2 7l9 5 9-5 M11 12v10'],
     inventory:['Tồn kho & điều chuyển','Kho & mua hàng','Theo dõi tồn thực tế và lịch sử nghiệp vụ kho.','M3 5h16v15H3z M3 10h16 M8 5V2 M14 5V2 M7 14h8'],
+    barcode:['Quét mã vạch (Barcode)','Kho & mua hàng','Tra cứu, nhập/xuất kho, kiểm kê và kiểm tra đóng gói bằng máy quét mã vạch.','M3 4h2v16H3z M7 4h1v16H7z M10 4h3v16h-3z M15 4h1v16h-1z M18 4h3v16h-3z'],
     warehouses:['Kho hàng','Kho & mua hàng','Danh sách kho và thông tin phục vụ nhập, xuất, điều chuyển.','M2 9l9-7 9 7v12H2z M7 21V11h8v10'],
     suppliers:['Nhà cung cấp','Kho & mua hàng','Thông tin đối tác và liên kết đến nghiệp vụ mua hàng.','M3 21V6h9v15 M12 10h7v11 M6 10h3 M6 14h3 M15 14h1'],
     purchases:['Đơn mua & nhập hàng','Kho & mua hàng','Đối chiếu đơn mua, duyệt và ghi nhận từng lần nhập.','M5 3h12v17H5z M8 7h6 M8 11h6 M8 15h4'],
