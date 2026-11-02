@@ -8,6 +8,21 @@
   }
   async function account() {
     const profile=document.querySelector('[data-account-profile]');if(!profile||profile.hidden)return;
+    const loyaltyCard = profile.querySelector('[data-account-loyalty-card]');
+    if (loyaltyCard && loyaltyCard.hidden) {
+      request('/loyalty').then(data => {
+        if (data?.loyalty) {
+          loyaltyCard.hidden = false;
+          const pts = loyaltyCard.querySelector('[data-loyalty-points]');
+          const tier = loyaltyCard.querySelector('[data-loyalty-tier-badge]');
+          if (pts) pts.textContent = new Intl.NumberFormat('vi-VN').format(data.loyalty.pointsBalance);
+          if (tier) {
+            const mapTier = { bronze: 'ĐỒNG', silver: 'BẠC', gold: 'VÀNG', platinum: 'BẠCH KIM' };
+            tier.textContent = mapTier[data.loyalty.tier] || data.loyalty.tier.toUpperCase();
+          }
+        }
+      }).catch(() => {});
+    }
     let section=profile.querySelector('[data-address-book]');if(section)return;
     const overviewCard=profile.querySelector('.account-overview-card');
     const footer=overviewCard?.querySelector('.account-profile-footer');

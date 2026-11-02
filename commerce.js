@@ -384,6 +384,7 @@ async function renderCheckout() {
       <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
       <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chọn tỉnh/thành</strong></p>
       <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã voucher</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã voucher" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
+      <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
       <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>Chọn tỉnh/thành</strong></p>
       <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
     </aside><div class="form-section">
@@ -416,7 +417,7 @@ async function renderCheckout() {
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chọn tỉnh/thành" : formatPrice(fee);
     root.querySelector("[data-checkout-total]").textContent =
-      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(total + fee - voucherDiscount);
+      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(Math.max(0, total + fee - voucherDiscount - (loyaltyDiscount || 0)));
   };
   const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
   const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
@@ -426,6 +427,36 @@ async function renderCheckout() {
   voucherInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(voucherTimer);void validateVoucher();}});
   root.querySelector('[data-voucher-wallet]').addEventListener('click',event=>{window.GAERUVoucherWallet?.open({request:apiRequest,total,opener:event.currentTarget,onSelect:async code=>{voucherRevision++;clearTimeout(voucherTimer);voucherInput.value=code;resetVoucher();voucherFeedback.textContent='';if(!code)return {ok:true};const ok=await validateVoucher();return {ok,message:voucherFeedback.textContent};}});});
   root.querySelector('[data-voucher-apply]').addEventListener('click',()=>{clearTimeout(voucherTimer);void validateVoucher();});
+  let loyaltyPoints = 0, loyaltyDiscount = 0;
+  const loyaltySection = root.querySelector("[data-checkout-loyalty]");
+  const loyaltyCheckbox = root.querySelector("#checkout-use-loyalty");
+  const loyaltyAvailable = root.querySelector("[data-loyalty-available]");
+  const loyaltyText = root.querySelector("[data-loyalty-discount-text]");
+  if (window.GAERUCustomerSession?.customer) {
+    apiRequest("/api/customer/loyalty").then(data => {
+      if (data?.loyalty?.pointsBalance > 0) {
+        loyaltyPoints = data.loyalty.pointsBalance;
+        if (loyaltySection) loyaltySection.hidden = false;
+        if (loyaltyAvailable) loyaltyAvailable.textContent = new Intl.NumberFormat('vi-VN').format(loyaltyPoints);
+      }
+    }).catch(() => {});
+  }
+  const updateLoyaltyDiscount = () => {
+    if (loyaltyCheckbox?.checked && loyaltyPoints > 0) {
+      const maxAllowed = Math.floor(total * 0.5);
+      loyaltyDiscount = Math.min(loyaltyPoints, maxAllowed);
+      if (loyaltyText) loyaltyText.textContent = "−" + formatPrice(loyaltyDiscount);
+    } else {
+      loyaltyDiscount = 0;
+      if (loyaltyText) loyaltyText.textContent = "−0 ₫";
+    }
+  };
+  if (loyaltyCheckbox) {
+    loyaltyCheckbox.addEventListener("change", () => {
+      updateLoyaltyDiscount();
+      updateShippingTotal();
+    });
+  }
   form.elements.city.addEventListener("change", updateShippingTotal);
   form.elements.city.addEventListener("input", updateShippingTotal);
   root.shippingRates=shippingRates;
@@ -479,6 +510,7 @@ async function renderCheckout() {
           shippingCarrierId:form.elements.shippingCarrierId?.value||undefined,
           expectedShippingFeeVnd:window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value),
           voucherCode:appliedVoucher||undefined,
+          loyaltyPointsToRedeem: (loyaltyCheckbox?.checked && loyaltyDiscount > 0) ? loyaltyDiscount : undefined,
           paymentMethod: paymentMethod.value,
           expectedSubtotalVnd:total,
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))

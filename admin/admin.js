@@ -972,13 +972,26 @@ function renderCustomers() {
 
 async function showCustomerDetail(id, panel) {
   panel.hidden = false;
-  panel.textContent = "Đang tải lịch sử đơn hàng…";
-  const result = await request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}`);
+  panel.textContent = "Đang tải thông tin khách hàng…";
+  const [result, loyaltyData] = await Promise.all([
+    request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}`),
+    request(`/api/gaeru_ceo/customers/${encodeURIComponent(id)}/loyalty`).catch(() => null)
+  ]);
+  let loyaltyHtml = '';
+  if (loyaltyData?.loyalty) {
+    const l = loyaltyData.loyalty;
+    loyaltyHtml = `<div class="customer-loyalty-summary" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><strong>GAERU Xu:</strong> <span style="font-size:16px;font-weight:700;color:#eab308;">${new Intl.NumberFormat('vi-VN').format(l.pointsBalance)} Xu</span> (Hạng: ${l.tier.toUpperCase()})</div>
+        <button type="button" class="secondary-button" data-customer-adjust-xu="${escapeHtml(id)}" style="font-size:11px;padding:4px 8px;">Điều chỉnh Xu ⚙</button>
+      </div>
+    </div>`;
+  }
   if (!result.orders.length) {
-    panel.innerHTML = '<p class="help-text">Khách hàng chưa có đơn hàng.</p>';
+    panel.innerHTML = loyaltyHtml + '<p class="help-text">Khách hàng chưa có đơn hàng.</p>';
     return;
   }
-  panel.innerHTML = result.orders.map((order) => `<div class="customer-order-row"><strong>${escapeHtml(order.orderNumber)}</strong><span>${escapeHtml(labels[order.status] || order.status)}</span><span>${formatPrice(order.totalVnd || 0)}</span></div>`).join("");
+  panel.innerHTML = loyaltyHtml + result.orders.map((order) => `<div class="customer-order-row"><strong>${escapeHtml(order.orderNumber)}</strong><span>${escapeHtml(labels[order.status] || order.status)}</span><span>${formatPrice(order.totalVnd || 0)}</span></div>`).join("");
 }
 
 async function toggleCustomer(id, active) {
