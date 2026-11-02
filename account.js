@@ -633,9 +633,6 @@ async function initGoogleOAuth(interactive = false) {
             showCustomerProfile(result.customer);
             history.replaceState(null,'',window.location.pathname+'#customer-account');
             setAccountFeedback('Đăng nhập Google thành công.');
-            const query=new URLSearchParams(window.location.search);
-            const returnUrl=query.get('returnUrl')||query.get('redirect');
-            if (returnUrl && /^\/(?!\/|\\)/.test(returnUrl)) setTimeout(()=>{window.location.href=returnUrl;},600);
           } catch(error) { setAccountFeedback(error.message||'Không thể đăng nhập Google lúc này.',true); }
         }
       });
