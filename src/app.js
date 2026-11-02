@@ -138,8 +138,44 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   });
   app.use("/api/customer-auth/oauth", customerOAuthRouter);
   if (customerOAuthRouter.handleRedirectCallback) {
-    app.post(['/account.html', '/tai-khoan', '/account'], express.urlencoded({ extended: false, limit: '32kb' }), customerOAuthRouter.handleRedirectCallback);
+    app.post(['/auth/google', '/account.html', '/tai-khoan', '/account'], express.urlencoded({ extended: false, limit: '32kb' }), customerOAuthRouter.handleRedirectCallback);
   }
+  app.get('/account/link-required', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const emailParam = req.query.email ? '&email=' + encodeURIComponent(req.query.email) : '';
+    res.redirect(303, '/account.html?linkRequired=1' + emailParam);
+  });
+  app.post('/api/auth/link-google', requireCsrf, customerOAuthRouter.handleLinkGoogle);
+  app.post('/api/auth/unlink-google', requireCsrf, customerOAuthRouter.handleUnlinkGoogle);
+
+  app.get('/api/me', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const customer = req.session?.customer;
+    if (!customer) return res.status(401).json({ error: 'Chưa đăng nhập' });
+    res.json({
+      id: customer.id,
+      displayName: customer.fullName || customer.email,
+      fullName: customer.fullName,
+      email: customer.email,
+      phone: customer.phone,
+      emailVerified: Boolean(customer.emailVerified)
+    });
+  });
+
+  app.post('/auth/logout', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    const origin = req.get('origin');
+    const host = req.get('host');
+    if (origin && host && !origin.includes(host.split(':')[0])) {
+      return res.sendStatus(403);
+    }
+    req.session.regenerate((err) => {
+      if (err) return next(err);
+      res.clearCookie('connect.sid');
+      res.clearCookie('gaeru.sid');
+      res.sendStatus(204);
+    });
+  });
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
     accountSecurity:config.accountSecurity,
     smtpConfig: config.smtp,

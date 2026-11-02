@@ -223,6 +223,17 @@ if (initialOauthError) {
   history.replaceState(null, '', window.location.pathname + (window.location.hash || '#login'));
 }
 
+const linkRequired = new URLSearchParams(window.location.search).get('linkRequired');
+const linkEmail = new URLSearchParams(window.location.search).get('email');
+if (linkRequired) {
+  const emailMsg = linkEmail ? ' (' + decodeURIComponent(linkEmail) + ')' : '';
+  setAccountFeedback('Tài khoản GAERU với email này' + emailMsg + ' đã tồn tại. Vui lòng đăng nhập bằng mật khẩu của tài khoản để liên kết Google an toàn.', true);
+  if (linkEmail && typeof elements !== 'undefined' && elements?.loginIdentifier) {
+    elements.loginIdentifier.value = decodeURIComponent(linkEmail);
+  }
+  history.replaceState(null, '', window.location.pathname + '#login');
+}
+
 async function confirmContactChangeFromUrl() {
   const token=new URLSearchParams(window.location.search).get('contactVerify');
   if(!token)return;

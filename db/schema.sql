@@ -156,3 +156,18 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS payment_attempts_order_id_idx ON payment_attempts(order_id, created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS auth_identities (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id uuid NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  provider VARCHAR(30) NOT NULL,
+  issuer VARCHAR(255) NOT NULL,
+  provider_subject VARCHAR(255) NOT NULL,
+  email_at_link VARCHAR(254),
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_auth_provider_issuer_sub UNIQUE(provider, issuer, provider_subject)
+);
+
+CREATE INDEX IF NOT EXISTS ix_auth_identities_customer ON auth_identities(customer_id);
+CREATE INDEX IF NOT EXISTS ix_auth_identities_provider_sub ON auth_identities(provider, provider_subject);

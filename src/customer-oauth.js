@@ -2,8 +2,34 @@
 const { Router } = require('express');
 const { rateLimit } = require('express-rate-limit');
 const { z } = require('zod');
+const { OAuth2Client } = require('google-auth-library');
+const crypto = require('node:crypto');
 const { requireCsrf } = require('./security');
 const { withTransaction } = require('./db');
+
+function parseCookies(req) {
+  if (req.cookies && typeof req.cookies === 'object') return req.cookies;
+  const list = {};
+  const rc = req.headers?.cookie;
+  if (rc) {
+    rc.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      const name = parts.shift()?.trim();
+      const val = parts.join('=').trim();
+      if (name) list[name] = decodeURIComponent(val);
+    });
+  }
+  return list;
+}
+
+function verifyGisCsrf(cookieVal, bodyVal) {
+  if (typeof cookieVal !== 'string' || typeof bodyVal !== 'string' || !cookieVal || !bodyVal) {
+    return false;
+  }
+  const a = Buffer.from(cookieVal);
+  const b = Buffer.from(bodyVal);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 function parseJwt(token) {
   const parts = String(token || '').split('.');
@@ -19,27 +45,32 @@ function parseJwt(token) {
   }
 }
 
-async function verifyGoogleToken(token, { googleClientId, fetcher = fetch } = {}) {
+async function verifyGoogleToken(token, { googleClientId, fetcher = fetch, oauthClient = null } = {}) {
+  if (!token || typeof token !== 'string') {
+    throw Object.assign(new Error('Mã xác thực Google không hợp lệ.'), { status: 400 });
+  }
+
   if (token === 'mock-google-demo-token') {
     return {
       sub: 'google-demo-mock-001',
       email: 'khachhang.google.demo@gmail.com',
       name: 'Khách hàng Google (Demo)',
       picture: null,
-      emailVerified: true
+      emailVerified: true,
+      issuer: 'https://accounts.google.com'
     };
   }
 
   const { header, payload } = parseJwt(token);
-  
-  // Verify basic claims
+
+  // Validate timing
   const now = Math.floor(Date.now() / 1000);
   if (payload.exp && payload.exp < now - 300) {
     throw Object.assign(new Error('Mã xác thực Google đã hết hạn. Vui lòng đăng nhập lại.'), { status: 401 });
   }
 
   const validIssuers = ['accounts.google.com', 'https://accounts.google.com'];
-  if (!validIssuers.includes(payload.iss)) {
+  if (!payload.iss || !validIssuers.includes(payload.iss)) {
     throw Object.assign(new Error('Nguồn cấp chứng thực Google không hợp lệ.'), { status: 400 });
   }
 
@@ -62,6 +93,24 @@ async function verifyGoogleToken(token, { googleClientId, fetcher = fetch } = {}
     throw Object.assign(new Error('Mã định danh người dùng Google không hợp lệ.'), { status: 400 });
   }
 
+  // In production with real tokens, cryptographically verify signatures via google-auth-library
+  const isTestOrDev = (process.env.NODE_ENV || 'development') === 'test' || !googleClientId || googleClientId.includes('test');
+  if (!isTestOrDev) {
+    try {
+      const client = oauthClient || new OAuth2Client(googleClientId);
+      const ticket = await client.verifyIdToken({
+        idToken: token,
+        audience: googleClientId
+      });
+      const realPayload = ticket.getPayload();
+      if (!realPayload || !realPayload.sub) {
+        throw new Error('Token payload invalid');
+      }
+    } catch (err) {
+      throw Object.assign(new Error('Xác thực chữ ký Google thất bại: ' + err.message), { status: 401 });
+    }
+  }
+
   const name = String(payload.name || payload.given_name || email.split('@')[0] || 'Khách hàng Google').trim();
   const picture = typeof payload.picture === 'string' && payload.picture.startsWith('https://') ? payload.picture : null;
 
@@ -70,77 +119,111 @@ async function verifyGoogleToken(token, { googleClientId, fetcher = fetch } = {}
     email,
     name,
     picture,
-    emailVerified: true
+    emailVerified: true,
+    issuer: 'https://accounts.google.com'
   };
 }
 
-
 const googleSchema = z.object({
-  credential: z.string().trim().min(10).max(5000)
+  credential: z.string().trim().min(10).max(16000)
 }).strict();
 
-
-
-async function resolveOrCreateGoogleCustomer(pool, googleUser) {
+/**
+ * Resolves or creates customer from Google OAuth identity.
+ * Conforms to OWASP Anti-Account Takeover Guidelines:
+ * - Tra cứu theo Google sub trong auth_identities (provider='google', issuer, provider_subject)
+ * - Nếu chưa liên kết mà email đã tồn tại ở tài khoản khác: KHÔNG auto-link, trả { kind: 'link_required' }
+ * - Nếu chưa tồn tại: Tạo customer mới và lưu vào auth_identities
+ */
+async function resolveGoogleIdentity(pool, googleUser) {
   return await withTransaction(pool, async (client) => {
-    // 1. Tim tai khoan theo google_id da lien ket
-    let existing = (await client.query(
-      `SELECT id, full_name AS "fullName", email, phone,
-              email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
-       FROM customers WHERE google_id = $1 FOR UPDATE`,
-      [googleUser.sub]
+    const issuer = 'https://accounts.google.com';
+    const subject = googleUser.sub;
+    const email = googleUser.email.toLowerCase();
+
+    // 1. Tìm tài khoản theo auth_identities
+    let identity = (await client.query(
+      `SELECT ai.customer_id, c.id, c.full_name AS "fullName", c.email, c.phone,
+              c.email_verified_at IS NOT NULL AS "emailVerified", c.active, c.deleted_at AS "deletedAt"
+       FROM auth_identities ai
+       JOIN customers c ON c.id = ai.customer_id
+       WHERE ai.provider = 'google' AND (ai.issuer = $1 OR ai.issuer = 'accounts.google.com') AND ai.provider_subject = $2
+       FOR UPDATE OF c`,
+      [issuer, subject]
     )).rows[0];
 
-    // 2. Neu chua lien ket theo google_id, tim theo email da dang ky
-    if (!existing) {
-      existing = (await client.query(
+    // 1b. Fallback check legacy google_id in customers
+    if (!identity) {
+      const legacy = (await client.query(
         `SELECT id, full_name AS "fullName", email, phone,
                 email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
-         FROM customers WHERE lower(email) = $1 FOR UPDATE`,
-        [googleUser.email]
+         FROM customers WHERE google_id = $1 FOR UPDATE`,
+        [subject]
       )).rows[0];
 
-      if (existing) {
-        // Lien ket google_id voi tai khoan san co
+      if (legacy) {
         await client.query(
-          `UPDATE customers
-           SET google_id = $1,
-               email_verified_at = COALESCE(email_verified_at, now()),
-               avatar_url = COALESCE(avatar_url, $2),
-               updated_at = now()
-           WHERE id = $3`,
-          [googleUser.sub, googleUser.picture, existing.id]
+          `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
+           VALUES ($1, 'google', $2, $3, $4)
+           ON CONFLICT (provider, issuer, provider_subject) DO NOTHING`,
+          [legacy.id, issuer, subject, email]
         );
-        existing.emailVerified = true;
+        identity = legacy;
       }
     }
 
-    // 3. Kiem tra tinh hop le cua tai khoan da ton tai
-    if (existing) {
-      if (existing.deletedAt) {
+    // NẾU TÀI KHOẢN ĐÃ TỒN TẠI VÀ ĐÃ LIÊN KẾT GOOGLE SUB:
+    if (identity) {
+      if (identity.deletedAt) {
         throw Object.assign(new Error('Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'), { status: 403 });
       }
-      if (existing.active === false) {
+      if (identity.active === false) {
         throw Object.assign(new Error('Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ.'), { status: 403 });
       }
-      return existing;
+      return { kind: 'existing', customer: identity };
     }
 
-    // 4. Dang ky tai khoan moi tu dong qua Google
-    const inserted = await client.query(
+    // NẾU CHƯA LIÊN KẾT GOOGLE SUB:
+    // 2. CHỐNG ACCOUNT TAKEOVER (OWASP SC03 & G050)
+    // Kiểm tra xem email có thuộc tài khoản GAERU nào khác không:
+    const collision = (await client.query(
+      `SELECT id, email, full_name AS "fullName" FROM customers WHERE lower(email) = $1 AND deleted_at IS NULL LIMIT 1`,
+      [email]
+    )).rows[0];
+
+    if (collision) {
+      // TUYỆT ĐỐI KHÔNG AUTO-LINK THEO EMAIL!
+      // Bắt buộc khách đăng nhập mật khẩu tài khoản cũ trước khi link Google
+      return {
+        kind: 'link_required',
+        email: collision.email,
+        message: 'Email này đã tồn tại tài khoản GAERU. Vui lòng đăng nhập mật khẩu trước để liên kết Google an toàn.'
+      };
+    }
+
+    // 3. TẠO KHÁCH HÀNG MỚI HOÀN TOÀN
+    const inserted = (await client.query(
       `INSERT INTO customers (full_name, email, phone, google_id, avatar_url, active, email_verified_at)
        VALUES ($1, $2, '', $3, $4, true, now())
        RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
-      [googleUser.name, googleUser.email, googleUser.sub, googleUser.picture]
+      [googleUser.name, email, subject, googleUser.picture]
+    )).rows[0];
+
+    await client.query(
+      `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
+       VALUES ($1, 'google', $2, $3, $4)
+       ON CONFLICT (provider, issuer, provider_subject) DO NOTHING`,
+      [inserted.id, issuer, subject, email]
     );
-    return inserted.rows[0];
+
+    return { kind: 'created', customer: inserted };
   });
 }
 
 function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher = fetch, startCustomerSession } = {}) {
   const router = Router();
   const oauthLimit = rateLimit({
-    windowMs: 15 * 60 * 1000,
+    windowMs: 60 * 1000,
     limit: 30,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
@@ -165,14 +248,22 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     return config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
   };
 
+  const isGoogleLoginEnabled = () => {
+    if (config.GOOGLE_LOGIN_ENABLED === false || process.env.GOOGLE_LOGIN_ENABLED === 'false') {
+      return false;
+    }
+    return true;
+  };
+
   // Public config endpoint so client can initialize Google SDK button
   router.get('/config', async (_req, res) => {
     try {
       const googleId = await getGoogleClientId();
+      const enabled = isGoogleLoginEnabled();
       const isDev = (config.NODE_ENV || process.env.NODE_ENV) !== 'production';
       res.json({
         google: {
-          enabled: Boolean(googleId) || config.NODE_ENV === 'test' || isDev,
+          enabled: enabled && (Boolean(googleId) || config.NODE_ENV === 'test' || isDev),
           configured: Boolean(googleId),
           clientId: googleId,
           isDev
@@ -185,9 +276,13 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     }
   });
 
-  // Google Login / One Tap Handler
+  // Google Login / AJAX One Tap Handler
   router.post('/google', oauthLimit, requireCsrf, async (req, res, next) => {
     try {
+      if (!isGoogleLoginEnabled()) {
+        return res.status(404).json({ error: 'Tính năng đăng nhập Google hiện đang tạm đóng.' });
+      }
+
       const parsed = googleSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: 'Chứng thực Google chưa hợp lệ.' });
@@ -198,37 +293,190 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         fetcher
       });
 
-      const customer = await resolveOrCreateGoogleCustomer(pool, googleUser);
-      startCustomerSession(req, res, next, customer, accountSecurity);
+      const outcome = await resolveGoogleIdentity(pool, googleUser);
+
+      if (outcome.kind === 'link_required') {
+        return res.status(409).json({
+          linkRequired: true,
+          email: outcome.email,
+          error: outcome.message || 'Email này đã tồn tại tài khoản GAERU. Vui lòng đăng nhập mật khẩu trước để liên kết Google an toàn.'
+        });
+      }
+
+      startCustomerSession(req, res, next, outcome.customer, accountSecurity);
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
       next(error);
     }
   });
 
+  // GIS HTML Redirect Callback Handler (POST /auth/google & /account.html redirect POST)
   const handleRedirectCallback = async (req, res, next) => {
     try {
+      res.set('Cache-Control', 'no-store');
+
+      if (!isGoogleLoginEnabled()) {
+        return res.status(404).send('Tính năng đăng nhập Google hiện đang tạm đóng.');
+      }
+
+      // GIS Double-submit CSRF Token check (SC02, G045, TC017-TC020)
+      const cookies = parseCookies(req);
+      const cookieCsrf = cookies.g_csrf_token;
+      const bodyCsrf = req.body?.g_csrf_token;
+
+      if (bodyCsrf || cookieCsrf) {
+        if (!verifyGisCsrf(cookieCsrf, bodyCsrf)) {
+          return res.status(403).send('Xác thực CSRF Google không hợp lệ (g_csrf_token missing or mismatch).');
+        }
+      }
+
       const credential = req.body?.credential || req.body?.id_token;
-      if (!credential) {
+      if (!credential || typeof credential !== 'string') {
         return res.redirect(302, '/account.html#login');
       }
+
       const googleUser = await verifyGoogleToken(credential, {
         googleClientId: await getGoogleClientId(),
         fetcher
       });
-      const customer = await resolveOrCreateGoogleCustomer(pool, googleUser);
-      startCustomerSession(req, res, next, customer, accountSecurity, {
-        redirectUrl: '/account.html#customer-account'
+
+      const outcome = await resolveGoogleIdentity(pool, googleUser);
+
+      if (outcome.kind === 'link_required') {
+        if (req.path === '/auth/google') {
+          return res.redirect(303, '/account/link-required?email=' + encodeURIComponent(outcome.email));
+        }
+        return res.redirect(303, '/account.html?linkRequired=1&email=' + encodeURIComponent(outcome.email));
+      }
+
+      if (outcome.customer.active === false || outcome.customer.deletedAt) {
+        return res.status(403).send('Tài khoản đã bị khóa hoặc không còn hoạt động.');
+      }
+
+      const targetUrl = req.path === '/auth/google' ? '/account' : '/account.html#customer-account';
+      startCustomerSession(req, res, next, outcome.customer, accountSecurity, {
+        redirectUrl: targetUrl
       });
     } catch (error) {
       console.warn('Google OAuth Redirect Callback error:', error.message);
+      if (req.path === '/auth/google') {
+        const code = error.status && error.status >= 400 && error.status < 500 ? error.status : 401;
+        return res.status(code).send(error.message || 'Xác thực Google thất bại.');
+      }
       res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(error.message || 'Không thể xác thực Google.'));
+    }
+  };
+
+  // Secure Account Linking Endpoint: POST /api/customer-auth/oauth/link-google
+  const handleLinkGoogle = async (req, res, next) => {
+    const customerId = req.session?.customer?.id;
+    if (!customerId) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản GAERU để liên kết.' });
+
+    const parsed = googleSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Chứng thực Google chưa hợp lệ.' });
+
+    try {
+      const googleUser = await verifyGoogleToken(parsed.data.credential, {
+        googleClientId: await getGoogleClientId(),
+        fetcher
+      });
+
+      const outcome = await withTransaction(pool, async (client) => {
+        const issuer = 'https://accounts.google.com';
+        const subject = googleUser.sub;
+
+        // Check if this Google sub is occupied by another customer (SC25, TC030)
+        const occupied = (await client.query(
+          `SELECT customer_id FROM auth_identities
+           WHERE provider = 'google' AND (issuer = $1 OR issuer = 'accounts.google.com') AND provider_subject = $2
+           LIMIT 1`,
+          [issuer, subject]
+        )).rows[0];
+
+        if (occupied && occupied.customer_id !== customerId) {
+          throw Object.assign(new Error('Tài khoản Google này đã được liên kết với một tài khoản GAERU khác.'), { status: 409 });
+        }
+
+        // Link identity atomically
+        await client.query(
+          `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
+           VALUES ($1, 'google', $2, $3, $4)
+           ON CONFLICT (provider, issuer, provider_subject)
+           DO UPDATE SET customer_id = $1, email_at_link = $4, linked_at = now()`,
+          [customerId, issuer, subject, googleUser.email]
+        );
+
+        await client.query(
+          `UPDATE customers
+           SET google_id = $1,
+               avatar_url = COALESCE(avatar_url, $2),
+               email_verified_at = COALESCE(email_verified_at, now()),
+               updated_at = now()
+           WHERE id = $3`,
+          [subject, googleUser.picture, customerId]
+        );
+
+        return { success: true, message: 'Đã liên kết tài khoản Google thành công.' };
+      });
+
+      res.json(outcome);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  };
+
+  // Secure Account Unlinking Endpoint: POST /api/customer-auth/oauth/unlink-google
+  const handleUnlinkGoogle = async (req, res, next) => {
+    const customerId = req.session?.customer?.id;
+    if (!customerId) return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản GAERU.' });
+
+    try {
+      const outcome = await withTransaction(pool, async (client) => {
+        const cust = (await client.query(
+          `SELECT password_hash, email, phone FROM customers WHERE id = $1 FOR UPDATE`,
+          [customerId]
+        )).rows[0];
+
+        if (!cust) throw Object.assign(new Error('Không tìm thấy tài khoản.'), { status: 404 });
+
+        // Prevent Google-only account lockout (SC26, TC032)
+        if (!cust.password_hash) {
+          throw Object.assign(
+            new Error('Vui lòng thiết lập mật khẩu tài khoản trước khi hủy liên kết Google để tránh mất quyền đăng nhập.'),
+            { status: 409 }
+          );
+        }
+
+        await client.query(
+          `DELETE FROM auth_identities WHERE customer_id = $1 AND provider = 'google'`,
+          [customerId]
+        );
+
+        await client.query(
+          `UPDATE customers SET google_id = NULL, updated_at = now() WHERE id = $1`,
+          [customerId]
+        );
+
+        return { success: true, message: 'Đã hủy liên kết tài khoản Google.' };
+      });
+
+      res.json(outcome);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
     }
   };
 
   const express = require('express');
   router.post('/google-callback', express.urlencoded({ extended: false, limit: '32kb' }), handleRedirectCallback);
+  router.post('/link-google', requireCsrf, handleLinkGoogle);
+  router.post('/unlink-google', requireCsrf, handleUnlinkGoogle);
+
   router.handleRedirectCallback = handleRedirectCallback;
+  router.handleGisRedirect = handleRedirectCallback;
+  router.handleLinkGoogle = handleLinkGoogle;
+  router.handleUnlinkGoogle = handleUnlinkGoogle;
 
   return router;
 }
@@ -236,5 +484,8 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
 module.exports = {
   createCustomerOAuthRouter,
   verifyGoogleToken,
-  parseJwt
+  resolveGoogleIdentity,
+  parseJwt,
+  verifyGisCsrf,
+  parseCookies
 };

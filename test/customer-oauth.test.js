@@ -186,7 +186,7 @@ test('POST /api/customer-auth/oauth/google creates a new customer and returns se
   assert.ok(data.csrfToken);
 });
 
-test('POST /api/customer-auth/oauth/google links existing email account', async (context) => {
+test('POST /api/customer-auth/oauth/google prevents account takeover on existing email (link_required)', async (context) => {
   let linked = false;
   const existingCustomer = {
     id: '33333333-3333-4333-8333-333333333333',
@@ -200,16 +200,11 @@ test('POST /api/customer-auth/oauth/google links existing email account', async 
 
   const pool = {
     query: async (sql, values) => {
-      if (sql.includes('customers WHERE google_id = $1')) {
-        return { rows: [] };
-      }
-      if (sql.includes('customers WHERE lower(email) = $1')) {
-        return { rows: [{ ...existingCustomer }] };
-      }
+      if (sql.includes('auth_identities')) return { rows: [] };
+      if (sql.includes('customers WHERE google_id = ')) return { rows: [] };
+      if (sql.includes('lower(email) = ')) return { rows: [{ ...existingCustomer }] };
       if (sql.includes('UPDATE customers')) {
         linked = true;
-        assert.equal(values[0], 'google-user-existing');
-        assert.equal(values[2], existingCustomer.id);
         return { rowCount: 1 };
       }
       return { rows: [] };
@@ -239,11 +234,11 @@ test('POST /api/customer-auth/oauth/google links existing email account', async 
     body: JSON.stringify({ credential: googleJwt })
   });
 
-  assert.equal(res.status, 200);
+  assert.equal(res.status, 409);
   const data = await res.json();
-  assert.equal(linked, true);
-  assert.equal(data.customer.email, 'existing@gmail.com');
-  assert.equal(data.customer.emailVerified, true);
+  assert.equal(linked, false);
+  assert.equal(data.linkRequired, true);
+  assert.equal(data.email, 'existing@gmail.com');
 });
 
 test('POST /api/customer-auth/oauth/google rejects blocked or deleted accounts', async (context) => {
