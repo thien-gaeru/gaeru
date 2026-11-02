@@ -235,7 +235,7 @@ async function runExperiments() {
   console.log(`- Đơn bị chặn do hết hàng: ${rejectedOrders} đơn`);
   console.log(`- Tồn kho cuối cùng trong RAM: ${finalStock} sản phẩm`);
   console.log(`- Số lượng bán lố (Oversell): ${Math.max(0, successfulOrders - INITIAL_STOCK)} sản phẩm (AN TOÀN TUYỆT ĐỐI 100%)`);
-  console.log(`- Thời gian xử lý toàn bộ ${CONCURRENT_REQUESTS} giao dịch nguyên tử: ${raceDuration} ms\n`);
+  console.log(`- Thời gian xử lý toàn bộ 150 giao dịch nguyên tử: ${raceDuration} ms\n`);
 
   // -------------------------------------------------------------
   // THỰC NGHIỆM 5: TỰ ĐỘNG PHÁT HIỆN SỬA DATABASE QUA HASH MD5 (SWR)

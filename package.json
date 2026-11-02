@@ -14,7 +14,8 @@
     "db:migrate": "node src/migrate.js",
     "db:seed": "node src/seed.js",
     "admin:hash-password": "node src/hash-password.js",
-    "test": "node --test"
+    "test": "node --test",
+    "benchmark:cache": "node scripts/run-experiments.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
