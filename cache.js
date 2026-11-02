@@ -8,7 +8,7 @@ const { LRUCache } = require('lru-cache');
 const brotli = promisify(zlib.brotliCompress);
 const gzip = promisify(zlib.gzip);
 
-// Đổi mới mỗi khi sửa code và restart server -> Ép trình duyệt bỏ bản cũ ngay lập tức
+// Đổi mới mỗi khi sửa code và restart server -> Ép trình duyệt bỏ bản HTML cũ ngay lập tức
 const BOOT_ID = Date.now().toString(36);
 
 // L1 RAM Cache: Tối đa 500 mục
@@ -92,7 +92,7 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
 }
 
 // 2. Middleware HTML Cache: Luôn đối chiếu ETag (Trả 304 nếu chưa đổi, trả bản mới ngay nếu đã đổi)
-function smartPageCache() {
+function smartPageCache(swrMs = 3000) {
   return (req, res, next) => {
     if (req.method !== 'GET') return next();
 
@@ -110,6 +110,12 @@ function smartPageCache() {
 
     const hit = ramCache.get(key);
     if (hit) {
+      const now = Date.now();
+      // SWR: Nếu bản HTML đã nằm trong RAM quá swrMs (3s), xóa để lượt truy cập tiếp theo tự đối chiếu getFreshData
+      if (now - (hit.time || 0) > swrMs) {
+        ramCache.delete(key);
+      }
+
       if (req.headers['if-none-match'] === hit.etag) {
         return res.status(304).end();
       }
@@ -121,10 +127,12 @@ function smartPageCache() {
       const acceptEncoding = req.headers['accept-encoding'] || '';
       if (acceptEncoding.includes('br') && hit.br) {
         res.setHeader('Content-Encoding', 'br');
+        res.setHeader('Content-Length', hit.br.length);
         return res.end(hit.br);
       }
       if (acceptEncoding.includes('gzip') && hit.gz) {
         res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Content-Length', hit.gz.length);
         return res.end(hit.gz);
       }
       return res.send(hit.raw);
@@ -134,7 +142,10 @@ function smartPageCache() {
     res.send = (body) => {
       if (res.statusCode === 200 && typeof body === 'string') {
         const etag = `"${BOOT_ID}-${crypto.createHash('md5').update(body).digest('hex')}"`;
-        res.setHeader('ETag', etag);
+        if (!res.headersSent) {
+          res.setHeader('ETag', etag);
+          res.setHeader('X-Cache', 'MISS-REBUILT');
+        }
 
         const rawBuffer = Buffer.from(body, 'utf-8');
         Promise.all([
@@ -146,11 +157,12 @@ function smartPageCache() {
           }).catch(() => null),
           gzip(rawBuffer, { level: 6 }).catch(() => null)
         ]).then(([br, gz]) => {
-          ramCache.set(key, { raw: body, br, gz, etag });
+          ramCache.set(key, { raw: body, br, gz, etag, time: Date.now() });
         }).catch(() => {});
+      } else if (!res.headersSent) {
+        res.setHeader('X-Cache', 'MISS-REBUILT');
       }
 
-      res.setHeader('X-Cache', 'MISS-REBUILT');
       return origSend(body);
     };
 
@@ -161,9 +173,12 @@ function smartPageCache() {
 // 3. Giữ chỗ & trừ tồn kho nguyên tử (Chống bán lố 100%)
 function reserveStock(skuOrId, qty) {
   const current = stockMap.get(skuOrId) ?? 0;
-  const quantity = Number.parseInt(qty, 10) || 1;
+  const quantity = Number.parseInt(qty, 10);
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+    return { ok: false, remaining: current, error: 'INVALID_QUANTITY' };
+  }
   if (current < quantity) {
-    return { ok: false, remaining: current };
+    return { ok: false, remaining: current, error: 'INSUFFICIENT_STOCK' };
   }
   const remaining = current - quantity;
   stockMap.set(skuOrId, remaining);
@@ -173,7 +188,10 @@ function reserveStock(skuOrId, qty) {
 // Hoàn kho nguyên tử khi lỗi hoặc hủy đơn
 function releaseStock(skuOrId, qty) {
   const current = stockMap.get(skuOrId) ?? 0;
-  const quantity = Number.parseInt(qty, 10) || 1;
+  const quantity = Number.parseInt(qty, 10);
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+    return { ok: false, remaining: current };
+  }
   const remaining = current + quantity;
   stockMap.set(skuOrId, remaining);
   return { ok: true, remaining };
