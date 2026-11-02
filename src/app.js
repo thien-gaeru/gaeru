@@ -186,6 +186,10 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo",emailMarketing.admin);
   app.use("/api/marketing-email",emailMarketing.publicApi);
   const chat=require("./shopping-chat").createShoppingChat(pool,config);app.use("/api/shopping-chat",chat.publicApi);app.use("/api/gaeru_ceo",chat.admin);
+  const realtime=require("./realtime-sse").createRealtimeRouter({pool,config});
+  app.use("/api/gaeru_ceo",realtime.adminRouter);
+  app.use("/api/shopping-chat",realtime.publicRouter);
+  app.use("/api/customer",realtime.publicRouter);
   const marketing=require("./marketing").createMarketing(pool);
   app.use("/api/gaeru_ceo",marketing.admin);
   app.use("/api/customer/marketing",marketing.customer);

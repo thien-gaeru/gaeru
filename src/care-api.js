@@ -210,6 +210,7 @@ function createCareCustomerApi(pool, config = {}) {
         await appendAudit(client, { actor: { username: req.customerId, source: 'customer' }, action: 'care.reply', entityType: 'care', entityId: row.id });
         return { status: 201 };
       });
+      if (result.status === 201) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', body: parsed.data.body }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi trả lời.' });
     } catch (e) { next(e); }
   });
@@ -247,6 +248,7 @@ function createCareCustomerApi(pool, config = {}) {
         });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };
       });
+      if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', file: result.file }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
     } catch (e) { next(e); }
   });
@@ -359,6 +361,7 @@ function createCareAdminApi(pool, config = {}) {
         await appendAudit(client, { actor: req.admin, action: 'care.update', entityType: 'care', entityId: before.id, before: { status: before.status }, after: request });
         return { status: 200, request };
       });
+      if (result.request) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'staff', body: parsed.data.response }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { request: result.request });
     } catch (e) { next(e); }
   });
@@ -389,6 +392,7 @@ function createCareAdminApi(pool, config = {}) {
         await appendAudit(client, { actor: req.admin, action: 'care.file', entityType: 'care', entityId: before.id, metadata: { fileName: safeName, size: uploaded.byteSize } });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };
       });
+      if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', file: result.file }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
     } catch (e) { next(e); }
   });
