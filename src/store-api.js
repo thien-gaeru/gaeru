@@ -26,6 +26,7 @@ const orderSchema = z.object({
   expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
   voucherCode: z.string().trim().toUpperCase().max(40).optional(),
+  loyaltyPointsToRedeem: z.number().int().min(0).max(2000000000).optional(),
   paymentMethod: z.enum(["cod", "bank_transfer", "vnpay", "momo", "zalopay"]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
@@ -484,6 +485,26 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
+          if (parsed.data.loyaltyPointsToRedeem) {
+            try {
+              const { redeemPoints } = require('./loyalty-api');
+              const redemption = await redeemPoints(client, {
+                customerId: req.session.customer.id,
+                orderId: createdOrder.id,
+                pointsToRedeem: parsed.data.loyaltyPointsToRedeem,
+                orderTotalVnd: subtotal,
+                reason: `Tiêu GAERU Xu cho đơn hàng #${createdOrder.orderNumber}`
+              });
+              if (redemption.discountVnd > 0) {
+                const finalTotal = Math.max(0, total - redemption.discountVnd);
+                await client.query('UPDATE orders SET discount_vnd = COALESCE(discount_vnd, 0) + $2, total_vnd = $3 WHERE id = $1', [createdOrder.id, redemption.discountVnd, finalTotal]);
+                createdOrder.totalVnd = finalTotal;
+                createdOrder.loyaltyDiscountVnd = redemption.discountVnd;
+              }
+            } catch (err) {
+              if (err.status) throw err;
+            }
+          }
         }
         if(checkoutAccounts)await require("./checkout-account").enroll(client,createdOrder,parsed.data.customer,req.session?.customer?.id);
         for (const item of prepared) {
@@ -1197,6 +1218,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
              FROM order_items i WHERE i.order_id=$1 AND i.variant_id=v.id`,
             [current.id]
           );
+          if (current.customer_id) {
+            try {
+              const { refundPoints } = require('./loyalty-api');
+              await refundPoints(client, { customerId: current.customer_id, orderId: current.id, actor });
+            } catch {}
+          }
         }
         const total = shippingFee === null ? null : current.subtotal_vnd + shippingFee - (current.discount_vnd||0);
         if (total !== null && total > 2_000_000_000) {
@@ -1213,6 +1240,19 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           [current.id, (autoApproveToProcessing ? "processing" : update.status) || null, update.paymentStatus || null, shippingFee, total]
         );
         await audit(client, { actor: actor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
+        if ((targetStatus === 'completed' || updated.rows[0].status === 'completed') && (targetPaymentStatus === 'paid' || updated.rows[0].paymentStatus === 'paid')) {
+          if (current.customer_id && updated.rows[0].totalVnd > 0) {
+            try {
+              const { earnPoints } = require('./loyalty-api');
+              await earnPoints(client, {
+                customerId: current.customer_id,
+                orderId: current.id,
+                orderTotalVnd: updated.rows[0].totalVnd,
+                actor
+              });
+            } catch {}
+          }
+        }
         return updated.rows[0];
   }
 

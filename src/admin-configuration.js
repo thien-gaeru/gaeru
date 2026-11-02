@@ -6,8 +6,8 @@ const {seal,open}=require('./totp');
 const {withTransaction}=require('./db');
 const {requireCsrf}=require('./security');
 const {appendAudit}=require('./audit');
-const names=['vnpay','payment_cod','payment_bank_transfer','payment_momo','payment_zalopay','misa','shopee','tiktok','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx','oauth'];
-const secretApps=new Set(['misa','shopee','tiktok','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx']);
+const names=['vnpay','payment_cod','payment_bank_transfer','payment_momo','payment_zalopay','misa','shopee','tiktok','lazada','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx','oauth'];
+const secretApps=new Set(['misa','shopee','tiktok','lazada','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx']);
 const aiProfile=z.object({model:z.string().trim().max(120).regex(/^[a-zA-Z0-9._-]*$/),apiKey:z.string().trim().min(1).max(2000).optional()}).strict();
 const shippingSchema=z.object({accountId:z.string().trim().max(160),partnerCode:z.string().trim().max(160),pickupName:z.string().trim().max(160),pickupPhone:z.string().trim().max(30),pickupAddress:z.string().trim().max(500),secret:z.string().trim().min(1).max(2000).optional()}).strict();
 const schemas={shipping_ghn:shippingSchema,shipping_ghtk:shippingSchema,shipping_viettel:shippingSchema,shipping_jt:shippingSchema,shipping_spx:shippingSchema,
@@ -51,6 +51,7 @@ const schemas={shipping_ghn:shippingSchema,shipping_ghtk:shippingSchema,shipping
  }).strict(),
  shopee:z.object({partnerId:z.string().trim().regex(/^\d{1,30}$/),shopId:z.string().trim().regex(/^\d{1,30}$/),secret:z.string().min(1).max(2000).optional()}).strict(),
  tiktok:z.object({appKey:z.string().trim().min(1).max(160),shopId:z.string().trim().max(160),secret:z.string().min(1).max(2000).optional()}).strict(),
+ lazada:z.object({appKey:z.string().trim().min(1).max(160),sellerId:z.string().trim().max(160),secret:z.string().min(1).max(2000).optional()}).strict(),
  oauth:z.object({googleClientId:z.string().trim().max(300).default(''),enabled:z.boolean().default(true)}).strict()
 };
 function fail(message,status=400){return Object.assign(Error(message),{status});}

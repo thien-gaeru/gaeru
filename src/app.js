@@ -189,6 +189,12 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const marketing=require("./marketing").createMarketing(pool);
   app.use("/api/gaeru_ceo",marketing.admin);
   app.use("/api/customer/marketing",marketing.customer);
+  const omnichannel=require("./omnichannel-sync").createOmnichannelSync(pool,config);
+  app.use("/api/gaeru_ceo",omnichannel.admin);
+  app.use("/api",omnichannel.publicApi);
+  const loyalty=require("./loyalty-api").createLoyaltyApi(pool);
+  app.use("/api/gaeru_ceo",loyalty.admin);
+  app.use("/api/customer",loyalty.customer);
   const videos=createCatalogVideos(pool);app.use("/api/gaeru_ceo",videos.admin);app.use("/api",videos.publicApi);
   const productWorkspace=createProductWorkspace(pool);
   app.use("/api/gaeru_ceo",productWorkspace.admin);

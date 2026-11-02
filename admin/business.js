@@ -25,6 +25,7 @@
     const misaProvider = integrations?.providers?.find(p=>p.name==='MISA eShop');
     const shopeeProvider = integrations?.providers?.find(p=>p.name==='Shopee');
     const tiktokProvider = integrations?.providers?.find(p=>p.name==='TikTok Shop');
+    const lazadaProvider = integrations?.providers?.find(p=>p.name==='Lazada');
     
     const integrationCardsHtml = `<div class="marketplace-hub-cards">
       <article class="marketplace-hub-card ${misaProvider?.connected ? 'connected' : ''}">
@@ -59,6 +60,17 @@
         </div>
         <p class="hub-card-desc" style="font-size:12px;color:#4b5563;margin:8px 0 12px;line-height:1.5">App Key, Shop ID & App Secret liên kết sàn TikTok Shop.</p>
         <button type="button" class="secondary-button" data-open-config-popup="tiktok" style="font-size:12px;padding:6px 12px;width:100%">Cấu hình &amp; Khóa TikTok Shop ⚙</button>
+      </article>
+      <article class="marketplace-hub-card ${lazadaProvider?.connected ? 'connected' : ''}">
+        <div class="hub-card-header">
+          <span class="hub-card-badge" style="background:#0f146d;color:#ffffff;font-weight:700;padding:4px 8px;border-radius:6px;font-size:11px">Lazada</span>
+          <div>
+            <h4 style="margin:0;font-size:14px">Sàn Lazada</h4>
+            <p class="hub-status-text" style="margin:2px 0 0;font-size:11px;color:${lazadaProvider?.connected?'#15803d':'#6b7280'}">${lazadaProvider?.connected ? '🟢 Đã lưu kết nối' : '⚪ Chưa kết nối Open Platform'}</p>
+          </div>
+        </div>
+        <p class="hub-card-desc" style="font-size:12px;color:#4b5563;margin:8px 0 12px;line-height:1.5">App Key, Seller ID &amp; Secret liên kết sàn Lazada Open Platform.</p>
+        <button type="button" class="secondary-button" data-open-config-popup="lazada" style="font-size:12px;padding:6px 12px;width:100%">Cấu hình &amp; Khóa Lazada ⚙</button>
       </article>
     </div>`;
 
