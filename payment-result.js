@@ -16,7 +16,50 @@
   };
   const initialState = result.get('result');
   const canCheck = ['pending','processing'].includes(initialState) && orderNumber && orderNumber.length <= 120;
-  const message = ['pending','processing'].includes(initialState) && !canCheck ? messages.invalid : Object.hasOwn(messages,initialState) ? messages[initialState] : messages.invalid;
+  const vnpayCodeDetails = {
+    '24': {
+      title: 'Bạn đã hủy giao dịch thanh toán.',
+      detail: 'Giao dịch thanh toán VNPAY đã được hủy theo yêu cầu. Đơn hàng của bạn vẫn được lưu lại; bạn có thể thanh toán lại bất kỳ lúc nào.'
+    },
+    '09': {
+      title: 'Thẻ chưa kích hoạt Internet Banking.',
+      detail: 'Thẻ hoặc tài khoản ngân hàng chưa kích hoạt dịch vụ thanh toán trực tuyến. Vui lòng liên hệ ngân hàng phát hành hoặc sử dụng phương thức khác.'
+    },
+    '10': {
+      title: 'Xác thực OTP không thành công.',
+      detail: 'Xác thực thông tin thẻ hoặc mã OTP không chính xác quá số lần quy định, hoặc thẻ đã hết hạn.'
+    },
+    '11': {
+      title: 'Đã hết thời gian chờ thanh toán.',
+      detail: 'Giao dịch thanh toán trên cổng VNPAY đã quá hạn thời gian chờ. Vui lòng thử lại.'
+    },
+    '12': {
+      title: 'Thẻ hoặc tài khoản bị khóa.',
+      detail: 'Thẻ hoặc tài khoản ngân hàng của bạn đang bị khóa. Vui lòng liên hệ ngân hàng phát hành.'
+    },
+    '51': {
+      title: 'Số dư tài khoản không đủ.',
+      detail: 'Số dư tài khoản ngân hàng không đủ để thực hiện thanh toán cho đơn hàng này.'
+    },
+    '65': {
+      title: 'Vượt quá hạn mức giao dịch trong ngày.',
+      detail: 'Tài khoản đã vượt quá hạn mức thanh toán trong ngày được ngân hàng cho phép.'
+    },
+    '75': {
+      title: 'Ngân hàng đang bảo trì.',
+      detail: 'Hệ thống ngân hàng thanh toán đang tạm thời bảo trì dịch vụ. Vui lòng thử lại sau.'
+    },
+    '79': {
+      title: 'Nhập sai mật khẩu quá số lần.',
+      detail: 'Bạn đã nhập sai mật khẩu thanh toán quá số lần quy định.'
+    }
+  };
+  const responseCode = result.get('code');
+  const provider = result.get('provider');
+  const customFailed = (initialState === 'failed' && provider === 'vnpay' && responseCode && vnpayCodeDetails[responseCode])
+    ? vnpayCodeDetails[responseCode]
+    : null;
+  const message = ['pending','processing'].includes(initialState) && !canCheck ? messages.invalid : customFailed || (Object.hasOwn(messages,initialState) ? messages[initialState] : messages.invalid);
   const title = document.createElement('h2');
   const detail = document.createElement('p');
   title.textContent = message.title;

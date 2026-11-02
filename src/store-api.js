@@ -256,7 +256,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const successful = parameters.vnp_ResponseCode === "00" && parameters.vnp_TransactionStatus === "00";
     const query = new URLSearchParams({
       result: successful ? "processing" : "failed",
-      order: parameters.vnp_TxnRef || ""
+      provider: "vnpay",
+      order: parameters.vnp_TxnRef || "",
+      code: parameters.vnp_ResponseCode || ""
     });
     res.redirect(`/payment-result.html?${query}`);
   });
