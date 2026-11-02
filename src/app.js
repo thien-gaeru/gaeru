@@ -194,6 +194,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   const marketing=require("./marketing").createMarketing(pool);
   app.use("/api/gaeru_ceo",marketing.admin);
   app.use("/api/customer/marketing",marketing.customer);
+  const abandonedCart=require("./abandoned-cart").createAbandonedCartApi(pool,config);
+  app.use("/api/gaeru_ceo",abandonedCart.admin);
+  app.use("/api/abandoned-cart",abandonedCart.publicApi);
   const omnichannel=require("./omnichannel-sync").createOmnichannelSync(pool,config);
   app.use("/api/gaeru_ceo",omnichannel.admin);
   app.use("/api",omnichannel.publicApi);

@@ -496,6 +496,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if(shippingSelection){await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);createdOrder.shippingCarrierName=shippingSelection.name;}
         if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
         if(bundleDiscountVnd>0){await client.query('UPDATE orders SET discount_vnd=COALESCE(discount_vnd,0)+$2 WHERE id=$1',[createdOrder.id,bundleDiscountVnd]);createdOrder.discountVnd=(createdOrder.discountVnd||0)+bundleDiscountVnd;createdOrder.bundleDiscountVnd=bundleDiscountVnd;}
+        try { await require('./abandoned-cart').markCartRecovered(client, { orderId: createdOrder.id, email: parsed.data.customer.email, customerId: req.session?.customer?.id }); } catch (_) {}
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
           if (parsed.data.loyaltyPointsToRedeem) {

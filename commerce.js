@@ -458,6 +458,27 @@ function renderCart() {
 async function renderCheckout() {
   const root = document.querySelector("#checkout-content");
   if (!root) return;
+
+  const urlParams = typeof window !== "undefined" && window.location ? new URLSearchParams(window.location.search) : null;
+  const recoveryToken = urlParams ? urlParams.get("recovery_token") : null;
+  let recoveredCart = null;
+  if (recoveryToken) {
+    try {
+      const resp = await apiRequest(`/api/abandoned-cart/recover/${encodeURIComponent(recoveryToken)}`);
+      if (resp?.cart) {
+        recoveredCart = resp.cart;
+        if (Array.isArray(resp.cart.items) && resp.cart.items.length > 0) {
+          const currentCart = readCart();
+          if (!currentCart.length) {
+            writeCart(resp.cart.items.map(it => ({ variantId: it.variantId, quantity: it.quantity })));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Khôi phục giỏ hàng qua recovery_token thất bại:", e);
+    }
+  }
+
   const purchase=window.GAERUCheckout.selection(products,location.search);
   const rows = cartRows(purchase.direct?purchase.items:readCart());
   if (!rows.length) {
@@ -505,6 +526,7 @@ async function renderCheckout() {
   }
   root.classList.add("checkout-single");
   root.innerHTML = `
+    ${recoveredCart ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
     <form class="checkout-form" id="checkout-form">
       <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> Phí giao hàng được tính theo tỉnh/thành phố bạn chọn.</div>
       <label class="saved-address-label" data-saved-address-label hidden>Địa chỉ đã lưu<select data-saved-address><option value="">Nhập địa chỉ mới</option></select></label><p class="address-status" data-address-status role="status"></p>
@@ -516,6 +538,10 @@ async function renderCheckout() {
           <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: hotro@gaeru.com"></label>
           <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)"></label>
         </div>
+        <label class="checkout-recovery-consent" style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:#555;margin-top:10px;cursor:pointer;">
+          <input type="checkbox" name="recoveryConsent" id="checkout-recovery-consent" checked style="margin-top:2px;">
+          <span>Lưu thông tin liên hệ và giỏ hàng để nhận nhắc nhở khôi phục nếu chưa kịp thanh toán (tuân thủ Nghị định 13/2023/NĐ-CP).</span>
+        </label>
       </div>
       <div class="form-section">
         <h2>Địa chỉ giao hàng</h2>
@@ -559,6 +585,52 @@ async function renderCheckout() {
 
   window.GAERUAddress?.enhance(root);
   const form = root.querySelector("#checkout-form");
+  if (recoveredCart) {
+    if (recoveredCart.customerName && form.elements.name && !form.elements.name.value) {
+      form.elements.name.value = recoveredCart.customerName;
+    }
+    if (recoveredCart.email && form.elements.email && !form.elements.email.value) {
+      form.elements.email.value = recoveredCart.email;
+    }
+    if (recoveredCart.phone && form.elements.phone && !form.elements.phone.value) {
+      form.elements.phone.value = recoveredCart.phone;
+    }
+  }
+
+  let captureDebounceTimer = null;
+  const triggerAbandonedCartCapture = () => {
+    clearTimeout(captureDebounceTimer);
+    captureDebounceTimer = setTimeout(async () => {
+      const email = form.elements.email?.value?.trim();
+      const phone = form.elements.phone?.value?.trim();
+      const name = form.elements.name?.value?.trim();
+      const consent = form.elements.recoveryConsent ? form.elements.recoveryConsent.checked : true;
+      if (!email || !/.+@.+\..+/.test(email)) return;
+      const checkoutItems = rows.map(({ variantId, quantity }) => ({ variantId, quantity }));
+      if (!checkoutItems.length) return;
+
+      try {
+        await apiRequest("/api/abandoned-cart/capture", {
+          method: "POST",
+          body: JSON.stringify({
+            email,
+            customerName: name || undefined,
+            phone: phone || undefined,
+            items: checkoutItems,
+            recoveryConsent: consent
+          })
+        });
+      } catch (_) {
+        // Non-blocking background capture
+      }
+    }, 1000);
+  };
+
+  form.elements.email?.addEventListener("blur", triggerAbandonedCartCapture);
+  form.elements.email?.addEventListener("change", triggerAbandonedCartCapture);
+  form.elements.phone?.addEventListener("blur", triggerAbandonedCartCapture);
+  form.elements.name?.addEventListener("blur", triggerAbandonedCartCapture);
+  form.elements.recoveryConsent?.addEventListener("change", triggerAbandonedCartCapture);
   const paymentMethod = form.elements.paymentMethod;
   const paymentHelp = form.querySelector("[data-payment-help]");
   let voucherDiscount=0,appliedVoucher="";
