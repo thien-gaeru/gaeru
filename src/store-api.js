@@ -351,7 +351,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if(!channelConfig)return res.status(404).json({code:'99',message:'Provider unavailable'});
       // Official wallet notifications are server POST JSON, never query aliases.
       if(req.method!=='POST')return res.status(405).end();
-      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig);
+      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers});
       if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback'});
       const outcome=await withTransaction(pool,async client=>{
         const row=(await client.query('SELECT provider_request_id FROM payment_attempts WHERE transaction_ref=$1 AND provider=$2',[verified.orderNumber,provider])).rows[0];
@@ -363,6 +363,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
       if(provider==='zalopay')return res.json({return_code:outcome.code==='00'||outcome.code==='02'?1:0,return_message:outcome.message,orderStatus:outcome.orderStatus,paymentStatus:outcome.paymentStatus});
       if(provider==='momo')return outcome.matched?res.status(204).end():res.status(409).json({resultCode:Number(outcome.code)||99,message:outcome.message});
+      if(provider==='bank_transfer')return res.json({error:outcome.matched?0:1,success:outcome.matched,code:outcome.code,message:outcome.message,orderNumber:verified.orderNumber});
       return res.json({code:outcome.code,message:outcome.message});
     }catch(error){next(error);}
   };

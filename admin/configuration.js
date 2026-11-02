@@ -50,7 +50,7 @@ function paymentVerificationBadge(channel){
 
 const fieldPlaceholders={
  payment_cod:{maxAmountVnd:'50000000',instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.'},
- payment_bank_transfer:{bankName:'VD: Vietcombank, Techcombank, MB...',accountNumber:'VD: 1903888999 (hệ thống tự lọc khoảng trắng)',accountHolder:'VD: NGUYEN VAN A hoặc CÔNG TY TNHH...',branch:'VD: Sở Giao Dịch, CN Sài Gòn (tùy chọn)',transferSyntax:'Cú pháp: GAERU {MA_DON}'},
+ payment_bank_transfer:{bankName:'VD: Vietcombank, Techcombank, MB...',accountNumber:'VD: 1903888999 (hệ thống tự lọc khoảng trắng)',accountHolder:'VD: NGUYEN VAN A hoặc CÔNG TY TNHH...',branch:'VD: Sở Giao Dịch, CN Sài Gòn (tùy chọn)',transferSyntax:'Cú pháp: GAERU {MA_DON}',webhookSecret:'Secure Token / Secret Key từ Casso, SeAPay hoặc VietQR Open API'},
  vnpay:{tmnCode:'Mã website 8 ký tự (VD: GAERUVN1)'},
  payment_momo:{partnerCode:'Partner Code do MoMo cấp',accessKey:'Access Key do MoMo cấp'},
  payment_zalopay:{appId:'App ID (dãy số do ZaloPay cấp, VD: 2554)'},
@@ -63,7 +63,7 @@ const fields={
  profile:[['fullName','Họ và tên'],['company','Tên doanh nghiệp'],['position','Chức danh'],['taxCode','Mã số thuế'],['address','Địa chỉ doanh nghiệp']],
  security:[['idleMinutes','Tự đăng xuất khi không hoạt động (phút)','number'],['absoluteHours','Thời hạn tối đa mỗi phiên (giờ)','number']],
  payment_cod:[['maxAmountVnd','Hạn mức tối đa đơn COD (₫)','number'],['instructions','Hướng dẫn thanh toán khi nhận hàng']],
- payment_bank_transfer:[['bankName','Tên ngân hàng thụ hưởng'],['accountNumber','Số tài khoản'],['accountHolder','Chủ tài khoản'],['branch','Chi nhánh (không bắt buộc)'],['transferSyntax','Cú pháp nội dung chuyển khoản']],
+ payment_bank_transfer:[['bankName','Tên ngân hàng thụ hưởng'],['accountNumber','Số tài khoản'],['accountHolder','Chủ tài khoản'],['branch','Chi nhánh (không bắt buộc)'],['transferSyntax','Cú pháp nội dung chuyển khoản'],['webhookSecret','Khóa Webhook đối soát (Secure Token / API Key)','password']],
  vnpay:[['tmnCode','Mã website / TmnCode'],['hashSecret','Hash secret','password']],
  payment_momo:[['partnerCode','Partner Code'],['accessKey','Access Key'],['secretKey','Secret Key','password']],
  payment_zalopay:[['appId','App ID'],['key1','Key 1 (Khóa tạo đơn)','password'],['key2','Key 2 (Khóa đối soát callback)','password']],
@@ -269,7 +269,7 @@ async function mountPayments(){
   if(chId==='cod'){
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Hạn mức tối đa:</span><span class="payment-snapshot-val">'+Number(v.maxAmountVnd||50000000).toLocaleString('vi-VN')+'₫</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Phí vận chuyển:</span><span class="payment-snapshot-val">Theo bảng giá tỉnh/thành</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Xác nhận đơn:</span><span class="payment-snapshot-val">Quy trình tiêu chuẩn</span></div>';
   }else if(chId==='bank_transfer'){
-   snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Ngân hàng:</span><span class="payment-snapshot-val">'+esc(v.bankName||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Số tài khoản:</span><span class="payment-snapshot-val">'+esc(v.accountNumber||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Chủ tài khoản:</span><span class="payment-snapshot-val">'+esc(v.accountHolder||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Cú pháp:</span><span class="payment-snapshot-val"><code>'+esc(v.transferSyntax||'GAERU {MA_DON}')+'</code></span></div>';
+   snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Ngân hàng:</span><span class="payment-snapshot-val">'+esc(v.bankName||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Số tài khoản:</span><span class="payment-snapshot-val">'+esc(v.accountNumber||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Chủ tài khoản:</span><span class="payment-snapshot-val">'+esc(v.accountHolder||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Đối soát tự động:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã cấu hình Webhook Token':'○ Thủ công (chưa gắn Webhook)')+'</span></div>';
   }else if(chId==='vnpay'){
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Mã website (TMN):</span><span class="payment-snapshot-val"><code>'+esc(v.tmnCode||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Khóa Hash Secret:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
   }else if(chId==='momo'){

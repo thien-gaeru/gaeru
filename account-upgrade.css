@@ -328,7 +328,7 @@
   text-overflow: ellipsis;
 }
 
-/* Apple-style navigation hidden */
+/* Hub navigation hidden */
 .account-hub-nav {
   display: none !important;
 }
@@ -370,7 +370,7 @@
 }
 
 /* ==========================================================================
-   EXECUTIVE USER HEADER BANNER (Apple Executive Style)
+   EXECUTIVE USER HEADER BANNER (Executive Style)
    ========================================================================== */
 .account-header-banner {
   display: flex !important;

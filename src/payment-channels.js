@@ -25,9 +25,15 @@ function safeHexEqual(left,right){
  return a.length>0&&a.length===b.length&&timingSafeEqual(a,b);
 }
 
+function safeTokenEqual(left,right){
+ const a=Buffer.from(String(left||'').trim(),'utf8');
+ const b=Buffer.from(String(right||'').trim(),'utf8');
+ return a.length>0&&a.length===b.length&&timingSafeEqual(a,b);
+}
+
 function defaultChannelData(id){
  if(id==='cod')return {enabled:true,maxAmountVnd:50000000,instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.'};
- if(id==='bank_transfer')return {bankName:'',accountNumber:'',accountHolder:'',branch:'',transferSyntax:'GAERU {MA_DON}',enabled:false};
+ if(id==='bank_transfer')return {bankName:'',accountNumber:'',accountHolder:'',branch:'',transferSyntax:'GAERU {MA_DON}',webhookSecret:'',enabled:false};
  if(id==='vnpay')return {tmnCode:'',environment:'sandbox',enabled:false};
  if(id==='momo')return {partnerCode:'',accessKey:'',environment:'sandbox',enabled:false};
  if(id==='zalopay')return {appId:'',environment:'sandbox',enabled:false};
@@ -87,7 +93,7 @@ function extractOrderNumber(input){
  return text;
 }
 
-function verifyGatewayPayload(provider,payload,settings){
+function verifyGatewayPayload(provider,payload,settings,options={}){
  if(!settings)return {valid:false,reason:'Provider not configured'};
  if(!payload||typeof payload!=='object'||Array.isArray(payload))return {valid:false,reason:'Invalid callback payload'};
  const scalar=value=>(typeof value==='string'||typeof value==='number')&&!(typeof value==='number'&&!Number.isSafeInteger(value));
@@ -142,9 +148,81 @@ function verifyGatewayPayload(provider,payload,settings){
    responseCode:'1'
   };
  }
- if(provider==='bank_transfer'){
-  return {valid:false,reason:'Automatic bank reconciliation is disabled until a verified provider adapter is configured. Use owner-authorized reconciliation.'};
- }
+  if(provider==='bank_transfer'){
+   const configuredSecret=String(settings?.webhookSecret||settings?.secureToken||settings?.apiKey||process.env.BANK_WEBHOOK_SECRET||'').trim();
+   if(!configuredSecret){
+    return {valid:false,reason:'Automatic bank reconciliation is disabled until a verified provider adapter is configured. Use owner-authorized reconciliation.'};
+   }
+   const headers=options.headers||{};
+   const incomingToken=String(
+    headers['secure-token']||
+    headers['x-api-key']||
+    headers['x-casso-token']||
+    headers['x-webhook-secret']||
+    headers['x-seapay-token']||
+    (headers['authorization']?headers['authorization'].replace(/^(?:Bearer|Apikey)\s+/i,''):'')||
+    payload.secureToken||
+    payload.secure_token||
+    payload.apiKey||
+    payload.token||
+    payload.secret||
+    ''
+   ).trim();
+   const incomingSignature=String(headers['x-signature']||payload.signature||payload.mac||'').trim();
+   let tokenValid=false;
+   if(incomingToken&&safeTokenEqual(incomingToken,configuredSecret)){
+    tokenValid=true;
+   }else if(incomingSignature){
+    const payloadStr=typeof payload==='object'?JSON.stringify(payload):String(payload);
+    const expectedHmac=createHmac('sha256',configuredSecret).update(payloadStr,'utf8').digest('hex');
+    if(safeHexEqual(incomingSignature,expectedHmac))tokenValid=true;
+   }
+   if(!tokenValid){
+    return {valid:false,reason:'Invalid or missing bank transfer webhook credentials'};
+   }
+   let transactions=[];
+   if(Array.isArray(payload.data))transactions=payload.data;
+   else if(Array.isArray(payload.transactions))transactions=payload.transactions;
+   else if(typeof payload==='object'&&payload!==null)transactions=[payload];
+   if(!transactions.length){
+    return {valid:false,reason:'No bank transaction found in webhook payload'};
+   }
+   let matchedTxn=null,orderNumber='';
+   for(const txn of transactions){
+    if(!txn||typeof txn!=='object')continue;
+    if(txn.transferType==='out'||txn.transfer_type==='out')continue;
+    const searchTexts=[
+     txn.description,txn.content,txn.transferContent,txn.transfer_content,
+     txn.orderNumber,txn.order_number,txn.orderId,txn.order_id,txn.notes,txn.comment,txn.code
+    ].filter(Boolean).map(String);
+    for(const text of searchTexts){
+     const extracted=extractOrderNumber(text);
+     if(orderPattern.test(extracted)){
+      orderNumber=extracted;
+      matchedTxn=txn;
+      break;
+     }
+    }
+    if(matchedTxn)break;
+   }
+   if(!matchedTxn||!orderNumber){
+    return {valid:false,reason:'No matching GAERU order number found in transaction content'};
+   }
+   const rawAmount=matchedTxn.amount??matchedTxn.amountVnd??matchedTxn.transferAmount??matchedTxn.transfer_amount;
+   const numAmount=Number(rawAmount);
+   if(!Number.isSafeInteger(numAmount)||numAmount<=0||numAmount>2000000000){
+    return {valid:false,reason:'Invalid transaction amount'};
+   }
+   const txnId=matchedTxn.tid||matchedTxn.id||matchedTxn.reference_number||matchedTxn.referenceNumber||matchedTxn.transactionId||matchedTxn.ref||'BANK_'+Date.now();
+   return {
+    valid:true,
+    orderNumber,
+    amountVnd:numAmount,
+    successful:true,
+    providerTransactionId:String(txnId),
+    responseCode:'00'
+   };
+  }
  return {valid:false,reason:'Unsupported provider'};
 }
 
@@ -297,7 +375,8 @@ async function verifyPaymentChannel(id,settings,{config={},pool=null,fetcher=fet
  }
  if(id==='bank_transfer'){
   if(!settings.bankName||settings.bankName.trim().length<2||!settings.accountHolder||settings.accountHolder.trim().length<2||!(/^[0-9A-Za-z]{6,30}$/).test(String(settings.accountNumber||''))||String(settings.transferSyntax||'GAERU {MA_DON}').trim().length<3)throw fail('Thông tin chuyển khoản chưa hợp lệ.',400);
-  return {...base,configured:true,reachable:null,method:'configuration_validation',message:'Thông tin chuyển khoản đúng định dạng. Chưa xác minh quyền sở hữu tài khoản; chủ doanh nghiệp đối soát giao dịch trước khi ghi nhận đã thu tiền.'};
+  const autoReconcile=Boolean(settings.webhookSecret&&String(settings.webhookSecret).trim().length>=8);
+  return {...base,configured:true,reachable:null,method:'configuration_validation',webhookConfigured:autoReconcile,message:'Thông tin chuyển khoản đúng định dạng.'+(autoReconcile?' Đã cấu hình Webhook đối soát tự động.':'')+' Chưa xác minh quyền sở hữu tài khoản; chủ doanh nghiệp đối soát giao dịch trước khi ghi nhận đã thu tiền.'};
  }
  if(id==='momo'||id==='zalopay'){
   let attempt=null;if(pool)attempt=(await pool.query("SELECT transaction_ref,amount_vnd,provider_request_id FROM payment_attempts WHERE provider=$1 AND provider_request_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",[id])).rows[0]||null;
