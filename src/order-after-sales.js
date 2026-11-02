@@ -44,6 +44,9 @@ const transitions = Object.freeze({
  * Determine delivery/completion timestamp of an order.
  */
 function getOrderDeliveredAt(order, shipment = null) {
+  if (shipment?.delivered_at || order.delivered_at) {
+    return new Date(shipment?.delivered_at || order.delivered_at);
+  }
   if (shipment?.status === 'delivered' && shipment?.last_synced_at) {
     return new Date(shipment.last_synced_at);
   }
@@ -106,6 +109,15 @@ function checkReturnEligibility(order, activeCase = null, completedCase = null, 
   // 7-day policy window verification
   const deliveredAt = getOrderDeliveredAt(order, shipment);
   const diffMs = Date.now() - deliveredAt.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return {
+      eligible: false,
+      daysRemaining: 0,
+      policyWindowDays: RETURN_POLICY_DAYS,
+      code: 'INVALID_DELIVERY_DATE',
+      reason: 'Ngày nhận hàng chưa hợp lệ. Vui lòng liên hệ GAERU để đối chiếu.'
+    };
+  }
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
 
   if (diffDays > RETURN_POLICY_DAYS) {
@@ -328,25 +340,21 @@ function afterSalesRouter(pool) {
         if (data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange') {
           await c.query('UPDATE orders SET return_completed_at = COALESCE(return_completed_at, now()), updated_at = now() WHERE id = $1', [row.order_id]);
           if (order.customer_id) {
-            try {
-              const { refundPoints } = require('./loyalty-api');
-              await refundPoints(c, {
-                customerId: order.customer_id,
-                orderId: row.order_id,
-                cycleKey: 'return:' + row.id,
-                reason: 'Hoàn trả đơn hàng #' + order.order_number,
-                actor: req.admin
-              });
-            } catch {}
+            const { refundPoints } = require('./loyalty-api');
+            await refundPoints(c, {
+              customerId: order.customer_id,
+              orderId: row.order_id,
+              reason: 'Hoàn trả đơn hàng #' + order.order_number,
+              actor: req.admin
+            });
           }
           if (row.restock_eligible === true) {
-            try {
-              await require('./inventory').releaseOrderStock(c, {
-                orderId: row.order_id,
-                actor: req.admin
-              });
-              try { require('../cache').flushAllCache(); } catch {}
-            } catch {}
+            await require('./inventory').releaseOrderStock(c, {
+              orderId: row.order_id,
+              actor: req.admin
+            });
+            // Cache invalidation does not participate in the financial transaction.
+            try { require('../cache').flushAllCache(); } catch {}
           }
         }
 

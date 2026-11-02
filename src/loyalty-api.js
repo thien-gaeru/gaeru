@@ -34,6 +34,7 @@ async function getOrCreateLoyalty(client, customerId) {
   const ins = await client.query(
     `INSERT INTO customer_loyalty (customer_id, points_balance, lifetime_earned, lifetime_spent, tier)
      VALUES ($1, 0, 0, 0, 'bronze')
+     ON CONFLICT (customer_id) DO UPDATE SET customer_id = EXCLUDED.customer_id
      RETURNING customer_id AS "customerId", points_balance AS "pointsBalance",
                lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
                tier, created_at AS "createdAt", updated_at AS "updatedAt"`,
@@ -227,13 +228,12 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
         [customerId, newBalance, newEarned, newTier]
       );
 
-      if (actualRevoked > 0) {
-        await client.query(
-          `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
-           VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
-          [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}`, revokeEventKey]
-        );
-      }
+      // Even a zero-balance reversal needs a durable replay marker.
+      await client.query(
+        `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
+         VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
+        [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}`, revokeEventKey]
+      );
       revokedEarn = actualRevoked;
     }
   }

@@ -112,61 +112,23 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
     );
   }
 
-  // 4. Atomic restore inventory / stock
-  let inv = inventory;
-  if (!inv) {
-    try {
-      inv = require('./inventory');
-    } catch {}
-  }
+  // Use the shared inventory ledger for allocations and legacy orders alike.
+  // It groups repeated SKU lines, locks balances and records an idempotent move.
+  const inv = inventory || require('./inventory');
+  await inv.releaseOrderStock(client, {
+    orderId: order.id,
+    actor: actor || { id: customerId, username: 'customer', source: 'customer' }
+  });
+  const stockRestored = true;
 
-  let stockRestored = false;
-  if (inv && typeof inv.releaseOrderStock === 'function') {
-    const allocCheck = await client.query(
-      'SELECT COUNT(*)::int AS cnt FROM order_stock_allocations WHERE order_id = $1',
-      [order.id]
-    );
-    const hasAllocations = Number(allocCheck.rows[0]?.cnt || 0) > 0;
-    if (hasAllocations) {
-      await inv.releaseOrderStock(client, {
-        orderId: order.id,
-        actor: actor || { id: customerId, username: 'customer', source: 'customer' }
-      });
-      stockRestored = true;
-    } else {
-      await client.query(
-        `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-         FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-        [order.id]
-      );
-      await client.query(
-        `UPDATE warehouse_stock ws
-         SET quantity = ws.quantity + i.quantity, updated_at = now()
-         FROM order_items i, warehouses w
-         WHERE i.order_id = $1 AND ws.variant_id = i.variant_id AND ws.warehouse_id = w.id AND w.code = 'MAIN'`,
-        [order.id]
-      );
-      stockRestored = true;
-    }
-  } else {
-    await client.query(
-      `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-       FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-      [order.id]
-    );
-    stockRestored = true;
-  }
-
-  // 5. Atomic refund GAERU Xu (loyalty points if any were redeemed)
-  try {
-    const { refundPoints } = require('./loyalty-api');
-    await refundPoints(client, {
-      customerId,
-      orderId: order.id,
-      reason: 'Khách hàng tự hủy: ' + cancelReason,
-      actor: actor || { id: customerId, username: 'customer', source: 'customer' }
-    });
-  } catch {}
+  // A failed loyalty refund must roll back the entire cancellation.
+  const { refundPoints } = require('./loyalty-api');
+  await refundPoints(client, {
+    customerId,
+    orderId: order.id,
+    reason: 'Khách hàng tự hủy: ' + cancelReason,
+    actor: actor || { id: customerId, username: 'customer', source: 'customer' }
+  });
 
   // 6. Update order status and note
   const noteAppend = order.note ? `${order.note} [Khách hủy: ${cancelReason}]` : `[Khách hủy: ${cancelReason}]`;
@@ -183,31 +145,23 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
     [order.id, customerId, noteAppend, cancelReason]
   )).rows[0];
 
-  // 7. Audit log
-  try {
-    const auditFn = audit || require('./audit').appendAudit;
-    if (typeof auditFn === 'function') {
-      await auditFn(client, {
-        actor: {
-          id: customerId,
-          username: actor?.username || 'customer',
-          fullName: actor?.fullName || 'Khách hàng',
-          role: 'customer',
-          source: 'customer'
-        },
-        action: 'order.customer_cancel',
-        entityType: 'order',
-        entityId: order.id,
-        before: { status: order.status, paymentStatus: order.payment_status },
-        after: { status: 'cancelled', paymentStatus: order.payment_status },
-        metadata: {
-          reason: cancelReason,
-          voucherCode: order.voucher_code || null,
-          restoredStock: stockRestored
-        }
-      });
-    }
-  } catch {}
+  // Audit persistence is part of the same transaction as cancellation.
+  const auditFn = audit || require('./audit').appendAudit;
+  await auditFn(client, {
+    actor: {
+      id: customerId,
+      username: actor?.username || 'customer',
+      fullName: actor?.fullName || 'Khách hàng',
+      role: 'customer',
+      source: 'customer'
+    },
+    action: 'order.customer_cancel',
+    entityType: 'order',
+    entityId: order.id,
+    before: { status: order.status, paymentStatus: order.payment_status },
+    after: { status: 'cancelled', paymentStatus: order.payment_status },
+    metadata: { reason: cancelReason, voucherCode: order.voucher_code || null, restoredStock: stockRestored }
+  });
 
   return {
     success: true,

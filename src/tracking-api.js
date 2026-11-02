@@ -218,7 +218,7 @@ function buildOrderTimeline(order, shipment) {
       ? 'Kiện hàng đã được giao đến tay người nhận an toàn.'
       : 'Khách hàng đồng kiểm và ký nhận hàng theo quy định.',
     status: isDelivered ? 'completed' : 'pending',
-    timestamp: isDelivered ? (shipment?.lastSyncedAt || order.updated_at) : null
+    timestamp: isDelivered ? (shipment?.deliveredAt || order.delivered_at || shipment?.lastSyncedAt || order.updated_at) : null
   });
 
   return timeline;
@@ -243,7 +243,7 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
     `SELECT id, order_number, customer_name, email, phone, address, city,
             payment_method, payment_status, status, subtotal_vnd,
             shipping_fee_vnd, discount_vnd, voucher_code, total_vnd,
-            cancellation_reason, created_at, updated_at
+            cancellation_reason, created_at, updated_at, delivered_at, return_completed_at
      FROM orders
      WHERE UPPER(TRIM(order_number)) = UPPER(TRIM($1))
      LIMIT 1`,
@@ -276,7 +276,7 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
   // 3. Query shipment
   const shipmentResult = await pool.query(
     `SELECT carrier_id, tracking_number, status, carrier_status_desc,
-            tracking_history, label_url, created_at, last_synced_at
+            tracking_history, label_url, created_at, last_synced_at, delivered_at
      FROM carrier_shipments
      WHERE order_id = $1 AND status != 'cancelled'
      ORDER BY created_at DESC
@@ -310,6 +310,7 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
       trackingUrl: getCarrierTrackingUrl(shipmentRow.carrier_id, shipmentRow.tracking_number),
       history: Array.isArray(shipmentRow.tracking_history) ? shipmentRow.tracking_history : [],
       lastSyncedAt: shipmentRow.last_synced_at,
+      deliveredAt: shipmentRow.delivered_at,
       createdAt: shipmentRow.created_at
     };
   }

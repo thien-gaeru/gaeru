@@ -159,7 +159,8 @@ async function withTransaction(pool, handler) {
     await client.query("COMMIT");
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    // Preserve the business error if a lost connection also prevents rollback.
+    await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
     client.release();
