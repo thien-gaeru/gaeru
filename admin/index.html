@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="vi">
+  <head><script src="/bot-protection.js?v=20261024" defer></script><script src="/action-feedback.js?v=20261028-validation" defer></script><link rel="stylesheet" href="/action-feedback.css?v=20261028-validation"><link rel="stylesheet" href="/bot-protection.css?v=20261024">
+    <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0055b8">
+    <title>Quản trị GAERU</title>
+    <link rel="manifest" href="/gaeru_ceo/manifest.webmanifest">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="GAERU CEO">
+    <link rel="apple-touch-icon" href="/assets/brand/gaeru-app-192.png">
+    <script src="/gaeru_ceo/assets/pwa-install.js?v=20261029-pwa" defer></script>
+    <link rel="stylesheet" href="/gaeru_ceo/assets/admin.css?v=20261025-ai-diagnostics">
+    <link rel="stylesheet" href="/gaeru_ceo/assets/enterprise.css?v=20261026-direct-dialogs">
+    <script src="/gaeru_ceo/assets/admin-ui.js?v=20261028-mobile-menu-opt" defer></script>
+    <script src="/gaeru_ceo/assets/admin.js?v=20261026-file-library" defer></script>
+    <script src="/gaeru_ceo/assets/enterprise.js?v=20261026-direct-dialogs" defer></script>
+    <script src="/gaeru_ceo/assets/tiktok-ads.js?v=20261028-ad-spend" defer></script>
+    <script src="/care-live.js?v=20261024-notice" defer></script><script src="/gaeru_ceo/assets/care.js?v=20261024-design" defer></script>
+    <script src="/gaeru_ceo/assets/owner.js?v=20261024-owner-status-dot" defer></script>
+    <script src="/gaeru_ceo/assets/warranty.js?v=20261024-resubmit" defer></script>
+    <script src="/gaeru_ceo/assets/business.js?v=20261024-design" defer></script><script src="/gaeru_ceo/assets/news.js?v=20261024-design" defer></script>
+  <link rel="stylesheet" href="/brand.css?v=20261025-webp">
+    <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
+  <link rel="stylesheet" href="/account-security.css?v=20261024-layout"><script src="/account-security.js?v=20261024-hardened" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/product-editor.css?v=20261024-refined"><link rel="stylesheet" href="/care-chat.css?v=20261023-mobile-tight"><link rel="stylesheet" href="/gaeru_ceo/assets/news-ai.css?v=20261023-ai"><link rel="stylesheet" href="/gaeru_ceo/assets/notifications.css?v=20261024"><script src="/gaeru_ceo/assets/notifications.js?v=20261029-notify-status" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-refinement.css?v=20261028-mobile-menu-opt"><link rel="stylesheet" href="/gaeru_ceo/assets/admin-workspace.css?v=20261028-config-modal"><script src="/gaeru_ceo/assets/configuration.js?v=20261028-config-modal" defer></script><script src="/gaeru_ceo/assets/email-marketing.js?v=20261024-banner" defer></script><script src="/gaeru_ceo/assets/marketing.js?v=20261025-webp" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/admin-mobile.css?v=20261028-mobile-menu-opt"><script src="/shopping-chat-client.js?v=20261029-clean-chat" defer></script><script src="/gaeru_ceo/assets/shopping-chat.js?v=20261024-ai-first" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261029-clean-chat"><script src="/gaeru_ceo/assets/order-review.js?v=20261025-order-review" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/orders-workspace.css?v=20261026-return-entry"><script src="/gaeru_ceo/assets/after-sales.js?v=20261026-return-entry" defer></script><script src="/gaeru_ceo/assets/pages.js?v=20261026" defer></script><link rel="stylesheet" href="/gaeru_ceo/assets/file-library.css?v=20261026"><script src="/gaeru_ceo/assets/file-library.js?v=20261026" defer></script></head>
+  <body>
+    <main class="admin-shell">
+      <section class="login-card" id="login-panel" hidden>
+        <a class="admin-wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="/assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375"></span> <span>ADMIN</span></a>
+        <p class="eyebrow">Khu vực quản trị riêng</p>
+        <h1>Đăng nhập quản trị.</h1>
+        <form id="login-form">
+          <label>Tên đăng nhập, email hoặc số điện thoại<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="254" placeholder="Liên hệ đã xác thực hoặc tên đăng nhập"></label>
+          <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+          <button class="primary-button" type="submit">Đăng nhập</button>
+          <p class="feedback" id="login-feedback" role="alert"></p>
+        </form><div data-admin-recovery></div>
+      </section>
+
+      <div class="admin-app" id="admin-app" hidden>
+        <aside class="sidebar">
+          <a class="admin-wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="/assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375"></span> <span>ADMIN</span></a>
+          <button class="sidebar-toggle secondary-button" type="button" aria-controls="admin-navigation" aria-expanded="false">Menu quản lý <span aria-hidden="true">☰</span></button>
+          <nav id="admin-navigation" aria-label="Quản trị">
+            <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Trang tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
+            <button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden style="display:none !important;" aria-hidden="true" tabindex="-1">Quản trị tối cao</button>
+            <div class="nav-group" data-nav-group="sales">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="sales">
+                <span class="nav-group-title">Bán hàng</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button class="nav-item" type="button" data-view="orders" data-permission="orders.read">Đơn hàng</button>
+              <button class="nav-item" type="button" data-view="shopping-chat" data-permission="customers.read">Chat trực tuyến</button>
+              <button class="nav-item" type="button" data-view="care" data-permission="orders.read">GAERU CARE+</button>
+              <button class="nav-item" type="button" data-view="warranty" data-permission="orders.read">Bảo hành sản phẩm</button>
+              <button class="nav-item" type="button" data-view="customers" data-permission="customers.read">Khách hàng</button>
+              <button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
+              <button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button>
+              <button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button>
+              <button class="nav-item" type="button" data-view="payments" data-permission="orders.read">Quản lý thanh toán</button>
+              <button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button>
+              <button class="nav-item" type="button" data-view="pages" data-permission="settings.read">Quản lý trang</button>
+              <button class="nav-item" type="button" data-view="file-library" data-permission="settings.read" data-owner-only hidden>Thư viện tệp</button>
+            </div>
+            <div class="nav-group" data-nav-group="inventory">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="inventory">
+                <span class="nav-group-title">Kho &amp; mua hàng</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button class="nav-item" type="button" data-view="inventory" data-permission="inventory.read">Tồn kho &amp; điều chuyển</button>
+              <button class="nav-item" type="button" data-view="warehouses" data-permission="inventory.read">Kho hàng</button>
+              <button class="nav-item" type="button" data-view="suppliers" data-permission="suppliers.read">Nhà cung cấp</button>
+              <button class="nav-item" type="button" data-view="purchases" data-permission="purchases.read">Đơn mua &amp; nhập hàng</button>
+            </div>
+            <div class="nav-group" data-nav-group="finance">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="finance">
+                <span class="nav-group-title">Tài chính</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button class="nav-item" type="button" data-view="finance" data-permission="finance.read">Công nợ &amp; thanh toán</button>
+              <button class="nav-item" type="button" data-view="payroll" data-permission="payroll.read">Tính lương</button>
+              <button class="nav-item" type="button" data-view="tax" data-permission="tax.read">Đối chiếu thuế</button>
+              <button class="nav-item" type="button" data-view="invoice" data-permission="invoice.read">Hóa đơn điện tử</button>
+              <button class="nav-item" type="button" data-view="marketplace" data-permission="marketplace.read">Quản lý Sàn TMĐT</button>
+              <button class="nav-item" type="button" data-view="reports" data-permission="reports.read">Báo cáo kinh doanh</button>
+            </div>
+            <div class="nav-group" data-nav-group="organization">
+              <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="organization">
+                <span class="nav-group-title">Tổ chức</span>
+                <span class="nav-group-dot" hidden title="Trang đang xem nằm trong mục này"></span>
+                <svg class="nav-group-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button class="nav-item" type="button" data-view="staff" data-permission="staff.read">Nhân viên &amp; quyền</button>
+              <button class="nav-item" type="button" data-view="departments" data-permission="staff.read">Phòng ban</button>
+              <button class="nav-item" type="button" data-view="audit" data-permission="audit.read">Nhật ký hoạt động</button>
+              <button class="nav-item" type="button" data-view="settings" data-permission="settings.read">Cài đặt cửa hàng</button>
+              <button class="nav-item" type="button" data-view="security" data-permission="dashboard.read">Cài đặt bảo mật (2FA)</button>
+              <button class="nav-item" type="button" data-view="oauth" data-permission="settings.read">Đăng nhập Google</button>
+            </div>
+          </nav>
+          <div class="sidebar-bottom">
+            <button class="secondary-button" type="button" data-pwa-install-action style="width:100%;justify-content:center;font-size:12px;font-weight:600;min-height:36px;border-radius:999px;margin-bottom:6px"><span aria-hidden="true">📲</span> <span>Cài đặt App</span></button>
+            <a href="/">Mở cửa hàng ↗</a>
+            <button class="plain-button" id="logout-button" type="button">Đăng xuất</button>
+          </div>
+        </aside>
+
+        <section class="admin-content">
+          <header class="topbar">
+            <div><p class="eyebrow">GAERU Store</p><h1 id="view-title">Trang tổng quan</h1><p class="admin-section-description" id="view-description">Các chỉ số kinh doanh, công việc cần xử lý và điều hành quản trị hệ thống.</p></div>
+            <div class="topbar-actions" style="display:flex;align-items:center;gap:10px">
+              <button class="secondary-button" type="button" data-pwa-install-action style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:999px;white-space:nowrap" title="Cài đặt App GAERU CEO cho Android và iOS"><span aria-hidden="true">📲</span> <span>App di động</span></button>
+              <span class="admin-identity" id="admin-identity"></span>
+            </div>
+          </header>
+
+          <div class="admin-view-state" id="admin-view-state" role="status" aria-live="polite"></div>
+          <div class="global-feedback" id="global-feedback" role="status" aria-live="polite"></div>
+
+          <section class="view-panel" id="overview-view">
+            <div class="stat-grid">
+              <article class="stat-card"><span>Sản phẩm đang bán</span><strong id="active-product-count">—</strong></article>
+              <article class="stat-card"><span>Tổng sản phẩm</span><strong id="product-count">—</strong></article>
+              <article class="stat-card"><span>Đơn cần xử lý</span><strong id="pending-order-count">—</strong></article>
+              <article class="stat-card"><span>Tổng đơn hàng</span><strong id="order-count">—</strong></article>
+              <article class="stat-card" id="card-unpaid-orders" style="cursor: pointer;" title="Xem các đơn chờ thanh toán"><span>Đơn chờ thanh toán</span><strong id="unpaid-order-count">—</strong></article>
+              <article class="stat-card"><span>Phiên bản sắp hết hàng</span><strong id="low-stock-count">—</strong></article>
+              <article class="stat-card"><span>Truy cập hôm nay</span><strong id="traffic-today-visits">0</strong></article>
+              <article class="stat-card"><span>Tổng lượt truy cập</span><strong id="traffic-total-visits">0</strong></article>
+            </div>
+            <div class="overview-actions" aria-label="Thao tác nhanh">
+              <button class="secondary-button" type="button" data-shortcut="pending" data-require="orders.read">Xử lý đơn mới <span aria-hidden="true">↗</span></button>
+              <button class="secondary-button" type="button" data-shortcut="unpaid" data-require="orders.read">Kiểm tra thanh toán <span aria-hidden="true">↗</span></button>
+              <button class="secondary-button" type="button" data-shortcut="stock" data-require="inventory.read">Kiểm tra tồn kho <span aria-hidden="true">↗</span></button>
+            </div>
+                        <section class="overview-traffic-card" id="overview-traffic-section" aria-label="Bộ đếm truy cập tự động Storefront">
+              <div class="traffic-card-header">
+                <div class="traffic-title-group">
+                  <div class="traffic-icon-pulse" aria-hidden="true">
+                    <span class="traffic-pulse-dot"></span>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+                  <div>
+                    <h2 class="traffic-heading">Bộ đếm truy cập Storefront</h2>
+                    <p class="traffic-subheading">Theo dõi lưu lượng khách ghé thăm website tự động theo thời gian thực</p>
+                  </div>
+                </div>
+                <div class="traffic-header-actions">
+                  <span class="traffic-live-badge tag-live" id="traffic-live-badge">
+                    <span class="status-indicator"></span> Đang đếm tự động
+                  </span>
+                  <button type="button" class="plain-button btn-refresh-traffic" id="btn-refresh-traffic" title="Làm mới bộ đếm truy cập">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="traffic-metrics-grid">
+                <div class="traffic-metric-item">
+                  <span class="traffic-metric-label">Lượt xem hôm nay (Pageviews)</span>
+                  <strong class="traffic-metric-val" id="metric-today-pageviews">0</strong>
+                </div>
+                <div class="traffic-metric-item">
+                  <span class="traffic-metric-label">Khách hôm nay (Unique Visitors)</span>
+                  <strong class="traffic-metric-val" id="metric-today-visitors">0</strong>
+                </div>
+                <div class="traffic-metric-item">
+                  <span class="traffic-metric-label">Tổng lượt xem tích lũy</span>
+                  <strong class="traffic-metric-val" id="metric-total-pageviews">0</strong>
+                </div>
+                <div class="traffic-metric-item highlight-metric">
+                  <span class="traffic-metric-label">Khách đang online (15 phút)</span>
+                  <strong class="traffic-metric-val active-now" id="metric-active-visitors"><span class="traffic-live-dot"></span><span id="metric-active-count">0</span></strong>
+                </div>
+              </div>
+            </section>
+            <section class="overview-health-card" id="overview-health-section" aria-label="Sức khỏe hệ thống và an ninh bảo vệ web">
+              <div class="health-card-header">
+                <div class="health-title-group">
+                  <div class="health-icon-pulse" aria-hidden="true">
+                    <span class="health-pulse-dot"></span>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  </div>
+                  <div>
+                    <h2 class="health-heading">Trạng thái sức khỏe &amp; An ninh bảo vệ</h2>
+                    <p class="health-subheading">Hệ thống giám sát thời gian thực: Chống Spam • Chống Hack • Chống Bot • Chống DDoS</p>
+                  </div>
+                </div>
+                <div class="health-header-actions">
+                  <span class="health-overall-badge tag-healthy" id="health-overall-status">
+                    <span class="status-indicator"></span> Đang hoạt động tối ưu &amp; An toàn
+                  </span>
+                  <button type="button" class="plain-button btn-refresh-health" id="btn-refresh-health" title="Quét lại sức khỏe hệ thống">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Quét lại
+                  </button>
+                </div>
+              </div>
+
+              <div class="health-grid">
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🗄️</span>
+                    <strong class="health-item-title">Máy chủ &amp; Cơ sở dữ liệu</strong>
+                    <span class="health-pill tag-healthy" id="health-db-status">Bình thường</span>
+                  </div>
+                  <p class="health-item-desc" id="health-db-desc">PostgreSQL Pooler đang phản hồi ổn định</p>
+                  <div class="health-item-meta">Độ trễ: <span id="health-db-latency">&lt; 5ms</span></div>
+                </article>
+
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🛡️</span>
+                    <strong class="health-item-title">Lá chắn chống DDoS</strong>
+                    <span class="health-pill tag-healthy" id="health-ddos-status">Đang bảo vệ</span>
+                  </div>
+                  <p class="health-item-desc" id="health-ddos-desc">Adaptive Rate Limiting điều tiết lưu lượng API</p>
+                  <div class="health-item-meta">Giới hạn: <span id="health-ddos-limit">600 req/phút/IP</span></div>
+                </article>
+
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🤖</span>
+                    <strong class="health-item-title">Chống Bot &amp; Chống Spam</strong>
+                    <span class="health-pill tag-healthy" id="health-bot-status">Đang bật</span>
+                  </div>
+                  <p class="health-item-desc" id="health-bot-desc">Honeypot thông minh + Bộ lọc hành vi bot rác</p>
+                  <div class="health-item-meta">Cơ chế: <span id="health-bot-mode">Turnstile &amp; Smart Form Guard</span></div>
+                </article>
+
+                <article class="health-item-card">
+                  <div class="health-item-top">
+                    <span class="health-item-icon">🔒</span>
+                    <strong class="health-item-title">Tường lửa WAF &amp; Mã hóa TLS</strong>
+                    <span class="health-pill tag-healthy" id="health-waf-status">Đang bảo vệ</span>
+                  </div>
+                  <p class="health-item-desc" id="health-waf-desc">Chống SQLi, XSS, Path Traversal &amp; Scanners</p>
+                  <div class="health-item-meta">Mối đe dọa đã chặn: <strong id="health-threats-count">0</strong></div>
+                </article>
+              </div>
+
+              <div class="health-footer-row">
+                <div class="health-server-details">
+                  <span>RAM Heap: <strong id="health-memory-info">—</strong></span>
+                  <span>Thời gian máy chủ chạy: <strong id="health-uptime-info">—</strong></span>
+                </div>
+                <div class="health-timestamp">
+                  Lần kiểm tra gần nhất: <span id="health-last-check">—</span>
+                </div>
+              </div>
+            </section>
+            <div class="notice-card" id="orders-gate-notice" hidden role="status">
+              <h2>Tiếp nhận đơn hàng trực tuyến đang tắt</h2>
+              <p>Hệ thống checkout đang tạm dừng tiếp nhận đơn mới. Chủ doanh nghiệp có thể bật mở bán tại Trang tổng quan → Điều khiển vận hành sau khi đảm bảo sẵn sàng biểu phí giao hàng và chính sách bán hàng theo quy định pháp luật Việt Nam.</p>
+            </div>
+            <div class="notice-card" id="shipping-rates-notice" hidden role="status">
+              <h2>Chưa có bảng phí giao hàng</h2>
+              <p>Thêm phí theo tỉnh/thành tại Cài đặt cửa hàng. Checkout sẽ không nhận đơn nếu chưa có khu vực giao hàng hợp lệ.</p>
+            </div>
+            <div class="notice-card">
+              <h2>Vận hành cửa hàng</h2>
+              <p>Thêm phiên bản/SKU với giá và tồn kho đã xác minh, sau đó bật sản phẩm. Sản phẩm mẫu ban đầu được tạo ở trạng thái nháp và không có giá mặc định.</p>
+              <p>VNPAY chỉ xuất hiện khi cấu hình merchant trên máy chủ; 9Pay chưa được bật. Không nhập khóa bí mật cổng thanh toán tại đây.</p>
+            </div>
+            <div id="overview-owner-section" data-owner-only hidden></div>
+          </section>
+
+          <section class="view-panel" id="products-view" hidden><div class="product-scope-tabs" role="group" aria-label="Khu vực sản phẩm"><button type="button" data-product-scope="catalog" aria-pressed="true">Danh mục sản phẩm</button><button type="button" data-product-scope="trash" aria-pressed="false">Sản phẩm đã xóa</button></div><p id="product-trash-note" class="help-text" hidden>Khôi phục đưa sản phẩm về bản nháp. Kích hoạt lại dùng các biến thể đã chọn; sản phẩm xóa từ bản cũ có thể cần chỉnh sửa biến thể trước. Xóa vĩnh viễn chỉ áp dụng khi không còn tồn và chưa có chứng từ liên quan.</p><div class="catalog-summary" data-catalog-summary></div>
+            <div class="toolbar">
+              <input id="product-search" type="search" placeholder="Tìm tên sản phẩm, đường dẫn hoặc SKU" aria-label="Tìm sản phẩm theo tên, đường dẫn hoặc SKU">
+              <button class="primary-button" id="new-product-button" type="button" data-require="catalog.write">Thêm sản phẩm</button>
+            </div>
+            <div class="filter-bar product-filters">
+              <label for="product-category-filter">Danh mục<select id="product-category-filter"><option value="">Tất cả danh mục</option><option value="audio">Thu âm</option><option value="video">Ghi hình</option><option value="accessory">Phụ kiện</option></select></label>
+              <label for="product-status-filter">Hiển thị<select id="product-status-filter"><option value="">Tất cả trạng thái</option><option value="active">Đang hiển thị</option><option value="draft">Bản nháp</option></select></label>
+              <label for="product-stock-filter">Tình trạng kho<select id="product-stock-filter"><option value="">Tất cả tồn kho</option><option value="low">Từ 0 đến 5</option><option value="out">Hết hàng</option><option value="missing">Chưa có phiên bản đang bán</option></select></label>
+              <button class="plain-button" type="button" id="reset-product-filters">Xóa bộ lọc</button>
+            </div>
+            <p class="list-status" id="product-list-status" aria-live="polite"></p>
+            <div class="product-list" id="product-list"></div>
+            <section class="editor-card" id="product-editor" hidden>
+              <div class="editor-heading"><div><p class="eyebrow">Danh mục</p><h2 id="product-form-title">Sản phẩm</h2></div><button class="plain-button" type="button" data-close-editor>Đóng</button></div>
+              <form id="product-form">
+                <input name="id" type="hidden">
+                <p class="editor-guidance" id="product-draft-guidance">Lưu sản phẩm ở dạng bản nháp, thêm phiên bản với giá và tồn kho đã xác minh, sau đó mở hiển thị trên cửa hàng.</p>
+                <div class="form-grid">
+                  <label>Tên sản phẩm<input name="name" required maxlength="160"></label>
+                  <label>Đường dẫn sản phẩm<input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" maxlength="120" placeholder="vi-du: gaeru-k9"><span class="help-text">Dùng chữ thường không dấu, số và dấu gạch ngang.</span></label>
+                  <label>Danh mục<select name="category"><option value="audio">Thu âm</option><option value="video">Ghi hình</option><option value="accessory">Phụ kiện</option></select></label>
+                  <label>Thứ tự hiển thị<input name="sortOrder" type="number" value="0" min="-1000" max="10000"></label>
+                  <label class="span-all">Mô tả ngắn<input name="descriptor" maxlength="160"></label>
+                  <label class="span-all">Mô tả sản phẩm<textarea name="description" rows="3" maxlength="3000"></textarea></label>
+                  <label class="span-all">Ảnh sản phẩm<input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp"><span class="help-text">PNG, JPEG hoặc WebP; tối đa 8 MB. Ảnh được lưu trên máy chủ GAERU.</span></label>
+                  <figure class="product-image-preview span-all" id="product-image-preview" hidden><img id="product-preview-image" alt="Ảnh xem trước của sản phẩm"><figcaption id="product-preview-caption"></figcaption></figure>
+                  <label class="span-all">Hoặc dùng ảnh đã có<input name="imageUrl" required pattern="/assets/products/[a-zA-Z0-9._-]+" placeholder="/assets/products/k9.webp"><span class="help-text">Chọn tệp ở trên hoặc nhập đường dẫn ảnh đã lưu trên cửa hàng.</span></label>
+                  <label class="span-all">Mô tả ảnh<input name="imageAlt" maxlength="250"></label>
+                  <label class="checkbox-label"><input name="active" type="checkbox"> Đang hiển thị trên cửa hàng</label>
+                </div>
+                <button class="primary-button" type="submit">Lưu sản phẩm</button>
+                <p class="feedback" data-form-feedback role="alert"></p>
+              </form>
+              <section class="variant-manager" id="variant-manager" hidden>
+                <div class="editor-heading"><div><p class="eyebrow">Biến thể &amp; tồn kho</p><h3>Phiên bản bán hàng</h3></div><button class="secondary-button" id="new-variant-button" type="button" data-require="catalog.write">Thêm phiên bản</button></div>
+                <div id="variant-list"></div>
+                <form id="variant-form" class="variant-form" hidden>
+                  <input name="id" type="hidden">
+                  <div class="form-grid">
+                    <label>SKU<input name="sku" required maxlength="80" pattern="[a-zA-Z0-9._-]+"><span class="help-text">Mã riêng cho phiên bản: chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.</span></label>
+                    <label>Tên phiên bản<input name="name" required maxlength="160" placeholder="Ví dụ: Type-C · Bộ 1 mic"></label>
+                    <label>Giá bán (₫)<input name="priceVnd" type="number" required min="0" max="20000000" step="1" inputmode="numeric"></label>
+                    <label>Tồn kho tổng<input name="stockQuantity" type="number" required min="0" max="1000000" step="1" inputmode="numeric"><span class="help-text">Nhập hàng và điều chuyển theo từng kho tại mục Tồn kho. Chỉ người có quyền duyệt kho được điều chỉnh tổng ở đây.</span></label>
+                    <fieldset class="attribute-editor span-all"><legend>Thuộc tính phiên bản</legend><p class="help-text">Ví dụ: Cổng kết nối — Type-C, hoặc Bộ mic — Bộ 1. Có thể để trống.</p><div id="variant-attributes"></div><button class="plain-button" id="add-variant-attribute" type="button">+ Thêm thuộc tính</button></fieldset>
+                    <label class="checkbox-label"><input name="active" type="checkbox"> Phiên bản đang bán</label>
+                  </div>
+                  <button class="primary-button" type="submit">Lưu phiên bản</button>
+                  <button class="plain-button" type="button" data-close-variant>Hủy</button>
+                  <p class="feedback" data-variant-feedback role="alert"></p>
+                </form>
+              </section>
+            </section>
+          </section>
+
+          <section class="view-panel" id="payments-view" hidden><h2>Quản lý thanh toán</h2><p>Kết nối, kiểm tra và điều khiển các kênh thanh toán COD, Chuyển khoản ngân hàng, VNPAY, 9Pay, MoMo và ZaloPay.</p><div id="payment-configuration"></div></section><section class="view-panel" id="shipping-view" hidden><h2>Quản lý vận chuyển</h2><p>Kết nối GHN, GHTK, Viettel Post, J&T Express và Shopee Express (SPX).</p><div id="shipping-configuration"></div></section><section class="view-panel" id="oauth-view" hidden><h2>Đăng nhập Google</h2><p>Cấu hình Google Client ID cho phép khách hàng đăng nhập nhanh chóng bằng tài khoản Google.</p><div id="oauth-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
+<div class="orders-heading"><div class="order-export-actions"><label>Phạm vi xuất<select id="order-export-scope"><option value="page">Trang hiện tại</option><option value="all">Tất cả theo bộ lọc (tối đa 5.000 đơn)</option></select></label><button type="button" class="secondary-button" id="export-order-excel">Xuất Excel</button><button type="button" class="plain-button" id="export-order-page">CSV trang hiện tại</button></div></div>
+<nav id="order-tabs" class="order-tabs" aria-label="Lọc theo trạng thái đơn"></nav>
+<p class="help-text">Chờ gửi hàng gồm đơn đã xác nhận và đang chuẩn bị. Đã giao hàng là đã bàn giao cho hãng vận chuyển.</p>
+<button type="button" class="secondary-button" id="after-sales-toggle" aria-expanded="false" aria-controls="after-sales-panel">Hồ sơ hủy & hoàn trả</button>
+<section id="after-sales-panel" hidden aria-labelledby="after-sales-title"><h2 id="after-sales-title">Hủy / trả hàng</h2><p>Ghi nhận và theo dõi yêu cầu hủy, trả hàng. Kiểm tra chứng từ hoàn tiền và nhập kho trước khi đóng yêu cầu.</p><button type="button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></section>
+<div id="order-workspace"><input type="hidden" id="order-filter" value="">
+            <div class="toolbar">
+              <input id="order-search" type="search" placeholder="Tìm mã đơn, tên, email hoặc số điện thoại" aria-label="Tìm đơn hàng">
+              <button class="secondary-button" id="refresh-orders" type="button">Tải lại</button>
+            </div>
+            <div class="filter-bar order-filters">
+              <button type="button" class="secondary-button" id="btn-unpaid-orders" data-order-tab="payment_pending" title="Lọc đơn chờ thanh toán">Đơn chờ thanh toán <span class="unpaid-badge" id="unpaid-orders-count">—</span></button>
+              <label for="order-payment-filter">Thanh toán<select id="order-payment-filter"><option value="">Tất cả thanh toán</option><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select></label>
+              <label for="order-method-filter">Phương thức<select id="order-method-filter"><option value="">Tất cả phương thức</option><option value="cod">COD</option><option value="bank_transfer">Chuyển khoản thủ công</option><option value="vnpay">VNPAY</option><option value="9pay">9Pay</option><option value="momo">MoMo</option><option value="zalopay">ZaloPay</option></select></label>
+              <label>Sắp xếp<select id="order-sort"><option value="newest">Mới nhất</option><option value="oldest">Cũ nhất</option><option value="highest">Tổng tiền giảm dần</option><option value="lowest">Tổng tiền tăng dần</option></select></label><label>Số đơn / trang<select id="order-page-size"><option value="20">20</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label><button class="plain-button" type="button" id="reset-order-filters">Xóa bộ lọc</button>
+            </div>
+            <p class="list-status" id="order-list-status" aria-live="polite"></p>
+            <p class="list-status" id="order-live-status" role="status">Tự cập nhật mỗi 15 giây</p>
+            <div class="order-bulk-actions" id="order-bulk-actions"><button type="button" class="primary-button" data-bulk-process disabled>Xử lý hàng loạt</button><span id="selected-order-count" aria-live="polite">Đã chọn 0 đơn</span><button type="button" class="secondary-button" data-print-orders="invoice" disabled>In đơn</button><button type="button" class="secondary-button" data-print-orders="label" disabled>In tem giao hàng</button><small>Chọn các đơn trên trang này để in hàng loạt.</small></div><details id="order-review" data-permission="orders.read"><summary>Đơn hàng rác / chờ xác minh qua điện thoại</summary><p>Email lỗi chưa đủ để kết luận đơn giả. Gọi xác nhận trước khi tiếp tục xử lý. Không tự động hủy đơn hoặc thay đổi thanh toán.</p><button type="button" class="secondary-button" data-review-refresh>Tải lại danh sách</button><p data-review-status role="status"></p><div data-review-orders></div></details><div class="orders-table-scroll" tabindex="0" aria-label="Danh sách đơn hàng, cuộn ngang để xem đầy đủ"><div class="order-table-head"><label class="order-select-cell"><input type="checkbox" id="select-order-page" aria-label="Chọn tất cả đơn trên trang này"></label><span>Đơn hàng</span><span>Khách hàng</span><span>Mặt hàng</span><span>Trạng thái</span><span>Thanh toán</span><span>Tổng cộng</span><span>Thao tác</span></div><div class="order-list" id="order-list"></div></div>
+            <nav class="pagination" id="order-pagination" aria-label="Phân trang đơn hàng" hidden>
+              <button class="secondary-button" id="previous-orders" type="button">Trước</button>
+              <span id="order-page-label"></span>
+              <button class="secondary-button" id="next-orders" type="button">Tiếp</button>
+            </nav></div>
+          </section>
+
+          <section class="view-panel" id="customers-view" hidden>
+            <div class="toolbar">
+              <label>Bộ lọc tài khoản<select id="customer-status" aria-label="Bộ lọc trạng thái tài khoản"><option value="all">Tất cả tài khoản</option><option value="active">Đang hoạt động</option><option value="warning">Cảnh báo SĐT (12h)</option><option value="locked">Bị khóa</option><option value="spam">Tài khoản rác / Spam</option><option value="trash">Thùng rác (Xóa tạm thời)</option></select></label>
+              <label>Trạng thái xác minh<select id="customer-verification" aria-label="Trạng thái xác minh khách hàng"><option value="all">Tất cả tài khoản</option><option value="verified">Đã xác minh</option><option value="unverified">Chưa xác minh</option></select></label>
+              <input id="customer-search" type="search" placeholder="Tìm tên, email hoặc số điện thoại" aria-label="Tìm khách hàng">
+              <button class="secondary-button" id="refresh-customers" type="button">Tải lại</button>
+            </div>
+            <div class="customer-list" id="customer-list"></div>
+            <nav class="pagination" id="customer-pagination" aria-label="Phân trang khách hàng" hidden>
+              <button class="secondary-button" id="previous-customers" type="button">Trước</button>
+              <span id="customer-page-label"></span>
+              <button class="secondary-button" id="next-customers" type="button">Tiếp</button>
+            </nav>
+          </section>
+
+          <section class="view-panel" id="settings-view" hidden>
+            <details class="configuration-panel shipping-settings"><summary><span>Thanh toán &amp; giao hàng</span><small>Mở để chỉnh thông tin và phí giao hàng</small></summary><form class="editor-card settings-card" id="settings-form">
+              <p class="eyebrow">Cấu hình công khai</p>
+              <h2>Thanh toán &amp; giao hàng</h2>
+              <p class="help-text" id="payment-provider-status">Đang tải trạng thái cổng thanh toán…</p>
+              <label>Thông tin giao hàng<textarea name="shippingNote" rows="3" maxlength="1000"></textarea></label>
+              <section class="shipping-rates">
+                <div class="editor-heading"><div><h3>Phí giao hàng theo tỉnh/thành phố</h3><p class="help-text">Phí tính một lần cho mỗi đơn. Chỉ các tỉnh/thành phố được khai báo mới xuất hiện khi khách đặt hàng.</p></div><button class="secondary-button" id="add-shipping-rate" type="button">Thêm tỉnh/thành</button></div>
+                <div id="shipping-rate-list"></div>
+              </section>
+              <p class="help-text">Toàn bộ tác vụ kết nối và kiểm tra kênh thanh toán được quản lý tập trung tại mục Quản lý thanh toán. <button class="plain-button" type="button" data-config-open="vnpay">Mở Quản lý thanh toán ↗</button></p>
+              <button class="primary-button" type="submit">Lưu cài đặt</button>
+              <p class="feedback" data-form-feedback role="alert"></p>
+            </form></details>
+<section class="editor-card" id="system-configuration" data-owner-only hidden></section>
+<section class="editor-card" id="tiktok-ads-configuration" data-owner-only hidden></section>
+            <section class="editor-card settings-security-card" style="margin-top:16px;">
+              <p class="eyebrow">Bảo vệ tài khoản &amp; Cửa hàng</p>
+              <h3>Cài đặt bảo mật tài khoản &amp; 2FA</h3>
+              <p class="help-text">Đổi mật khẩu, liên hệ khôi phục và kích hoạt xác thực hai yếu tố (App TOTP, Email OTP) bảo vệ quyền quản trị.</p>
+              <button type="button" class="secondary-button" data-open-security-settings>Mở Cài đặt bảo mật tài khoản ↗</button>
+            </section>
+          </section>
+          <section class="view-panel enterprise-view" id="inventory-view" hidden></section>
+          <section class="view-panel enterprise-view" id="warehouses-view" hidden></section>
+          <section class="view-panel enterprise-view" id="suppliers-view" hidden></section>
+          <section class="view-panel enterprise-view" id="purchases-view" hidden></section>
+          <section class="view-panel enterprise-view" id="finance-view" hidden></section>
+          <section class="view-panel enterprise-view" id="reports-view" hidden></section>
+          <section class="view-panel enterprise-view" id="staff-view" hidden></section>
+          <section class="view-panel enterprise-view" id="departments-view" hidden></section>
+          <section class="view-panel enterprise-view" id="audit-view" hidden></section>
+          <section class="view-panel enterprise-view" id="notifications-view" hidden></section><section class="view-panel enterprise-view" id="security-view" hidden></section><section class="view-panel enterprise-view" id="file-library-view" hidden></section><section class="view-panel enterprise-view" id="pages-view" hidden></section><section class="view-panel enterprise-view" id="news-view" hidden></section><section class="view-panel enterprise-view" id="care-view" hidden></section><section class="view-panel enterprise-view" id="shopping-chat-view" hidden></section>
+          <section class="view-panel enterprise-view" id="marketing-view" hidden></section>
+          <section class="view-panel enterprise-view" id="owner-view" hidden></section>
+          <section class="view-panel enterprise-view" id="warranty-view" hidden></section>
+          <section class="view-panel enterprise-view" id="payroll-view" hidden></section>
+          <section class="view-panel enterprise-view" id="tax-view" hidden></section>
+          <section class="view-panel enterprise-view" id="invoice-view" hidden></section>
+          <section class="view-panel enterprise-view" id="marketplace-view" hidden></section>
+        </section>
+      </div>
+    </main>
+    <div id="config-popup-modal" class="config-modal-backdrop" hidden></div>
+  </body>
+</html>

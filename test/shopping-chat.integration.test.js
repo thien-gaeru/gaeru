@@ -1,0 +1,115 @@
+const test=require('node:test'),assert=require('node:assert/strict'),{PGlite}=require('@electric-sql/pglite'),{randomUUID}=require('node:crypto'),bcrypt=require('bcryptjs'),session=require('express-session'),{createApp}=require('../src/app'),{migrateDatabase}=require('../src/migrate');
+const {startChatCompressionWorker}=require('../src/shopping-chat-compression');
+test('shopping chat isolates guest sessions, preserves messages, enforces permissions and supports live pagination',{timeout:60000},async t=>{
+ const db=await PGlite.create();let queue=Promise.resolve();async function lock(){let release;const previous=queue;queue=new Promise(r=>release=r);await previous;return release;}
+ async function query(sql,values){const r=!values&&sql.includes(';')?(await db.exec(sql)).at(-1):await db.query(sql,values);return {...r,rows:r?.rows||[],rowCount:r?.affectedRows??r?.rows?.length??0};}const pool={async query(sql,values){const release=await lock();try{return await query(sql,values);}finally{release();}},async connect(){const release=await lock();return {query,release};}};await migrateDatabase(pool);
+ const app=createApp({pool,sessionStore:new session.MemoryStore(),config:{NODE_ENV:'test',SESSION_SECRET:'shopping-chat-fixture-session-secret-32',ADMIN_USERNAME:'owner',ADMIN_PASSWORD_HASH:bcrypt.hashSync('fixture-password',4)}}),server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await db.close();});const base='http://127.0.0.1:'+server.address().port;
+ const stopChatCompression=startChatCompressionWorker(pool);
+ function client(){let cookie='',csrf='';return {async call(path,method='GET',body,token=true,extraHeaders={}){const r=await fetch(base+path,{method,headers:{Cookie:cookie,...extraHeaders,'X-CSRF-Token':token?csrf:'',...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];const data=r.headers.get('content-type')?.includes('application/json')?await r.json():{bytes:(await r.arrayBuffer()).byteLength};if(data.csrfToken)csrf=data.csrfToken;return{status:r.status,data,headers:r.headers};},async login(username){await this.call('/api/csrf');return this.call('/api/auth/login','POST',{username,password:'fixture-password'});}};}
+ const product=(await pool.query("INSERT INTO products(slug,name,category,descriptor,description,image_url,image_alt,active) VALUES('chat-fixture','Chat fixture','audio','','','/assets/products/k9.png','Fixture',true) RETURNING id")).rows[0];const guest=client(),other=client(),owner=client();await guest.call('/api/csrf');await other.call('/api/csrf');await owner.login('owner');const first={productSlug:'chat-fixture',body:'Help choosing a connector',requestKey:randomUUID()};assert.equal((await guest.call('/api/shopping-chat/threads','POST',first,false)).status,403);const created=await guest.call('/api/shopping-chat/threads','POST',first);assert.equal(created.status,201);const id=created.data.thread.id,path='/api/shopping-chat/threads/'+id+'/messages';assert.equal((await guest.call('/api/shopping-chat/threads','POST',first)).data.thread.id,id);assert.equal((await guest.call(path)).data.messages.length,1);assert.equal((await other.call(path)).status,404);assert.equal((await other.call(path,'POST',{body:'intrusion',requestKey:randomUUID()})).status,404);assert.equal((await other.call('/api/shopping-chat/threads')).data.threads.length,0);
+ const reply={body:'My phone has USB C',requestKey:randomUUID()};assert.equal((await guest.call(path,'POST',reply)).status,200);await guest.call(path,'POST',reply);assert.equal((await guest.call(path)).data.messages.length,2);assert.equal((await owner.call('/api/gaeru_ceo/shopping-chat')).data.threads[0].awaiting_admin,false);
+ const adminPath='/api/gaeru_ceo/shopping-chat/'+id;assert.equal((await owner.call(adminPath+'/messages','POST',{body:'GAERU can help with that.',requestKey:randomUUID()})).status,200);const read=(await guest.call(path)).data;assert.equal(read.messages.at(-1).sender,'admin');assert.equal((await guest.call(path+'?after='+read.messages[0].id)).data.messages.length,2);assert.equal((await owner.call(adminPath+'/status','PUT',{status:'closed',version:read.thread.version})).status,200);assert.equal((await guest.call(path,'POST',{body:'Closed reply',requestKey:randomUUID()})).status,409);assert.equal((await owner.call(adminPath+'/status','PUT',{status:'open',version:1})).status,409);
+ await pool.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) SELECT $1,'admin','History fixture '||g,gen_random_uuid() FROM generate_series(1,55) g",[id]);const history=(await guest.call(path)).data;assert.equal(history.messages.length,50);assert.equal(history.hasMore,true);const earlier=(await guest.call(path+'?before='+history.messages[0].id)).data;assert.equal(earlier.messages.length,8);assert.equal(new Set([...earlier.messages,...history.messages].map(m=>m.id)).size,58);
+ await pool.query("INSERT INTO staff_accounts(username,full_name,password_hash,role) VALUES('chat-viewer','Viewer',$1,'viewer')",[bcrypt.hashSync('fixture-password',4)]);const viewer=client();await viewer.login('chat-viewer');assert.equal((await viewer.call('/api/gaeru_ceo/shopping-chat')).status,200);assert.equal((await viewer.call(adminPath+'/messages','POST',{body:'forbidden',requestKey:randomUUID()})).status,403);await pool.query("INSERT INTO marketing_vouchers(code,title,kind,amount,min_spend_vnd,starts_at,ends_at,total_limit,per_customer_limit,public_claim,active) VALUES('CHATPUBLIC','Public chat offer','percent',10,100000,now()-interval '1 day',now()+interval '1 day',100,1,true,true),('CHATPRIVATE','Private chat offer','fixed',10000,0,now()-interval '1 day',now()+interval '1 day',100,1,false,true),('CHATEXPIRED','Expired','fixed',10000,0,now()-interval '2 day',now()-interval '1 day',100,1,true,true)");
+ await pool.query("INSERT INTO marketing_campaigns(title,body,starts_at,ends_at,active) VALUES('Active campaign','Campaign fixture details',now()-interval '1 day',now()+interval '1 day',true),('Draft campaign','Hidden draft details',now()-interval '1 day',now()+interval '1 day',false)");
+ const offers=(await owner.call(adminPath+'/offers?kind=vouchers')).data;assert.equal(offers.items.length,1);assert.match(offers.items[0].text,/CHATPUBLIC/);assert.match(offers.items[0].text,/10%/);assert.match(offers.items[0].text,/100.000/);
+ const campaigns=(await owner.call(adminPath+'/offers?kind=campaigns')).data;assert.equal(campaigns.items.length,1);assert.match(campaigns.items[0].text,/Campaign fixture details/);
+ await pool.query("INSERT INTO orders(order_number,customer_name,phone,email,address,city,status,payment_method,payment_status,subtotal_vnd,shipping_fee_vnd,total_vnd) VALUES('GR-CHAT-01','Khách chat','0988776655','chat@example.invalid','123 Hang Bai','Hà Nội','pending','cod','pending',150000,0,150000)");
+ const orderOffers=(await owner.call(adminPath+'/offers?kind=orders')).data;assert.ok(orderOffers.items.length>=1);assert.match(orderOffers.items[0].title,/GR-CHAT-01/);assert.match(orderOffers.items[0].text,/123 Hang Bai/);
+ assert.equal((await owner.call(adminPath+'/offers?kind=bad')).status,400);
+ assert.equal((await other.call(adminPath+'/offers?kind=vouchers')).status,401);
+ const current=(await owner.call(adminPath+'/messages')).data.thread;
+ assert.equal((await owner.call(adminPath+'/status','PUT',{status:'open',version:current.version})).status,200);
+ const upload=()=>{const f=new FormData();f.append('file',new Blob(['%PDF-1.7\nlocal fixture'],{type:'application/pdf'}),'fixture.pdf');f.append('requestKey',fileKey);return f;};
+ const fileKey=randomUUID();
+ assert.equal((await other.call('/api/shopping-chat/threads/'+id+'/files','POST',upload())).status,404);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',upload(),false)).status,403);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',upload())).status,201);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',upload())).status,201);
+ const attached=(await guest.call(path)).data.messages.at(-1).attachment;assert.equal(attached.name,'fixture.pdf');
+ assert.equal((await pool.query('SELECT count(*)::int AS total FROM shopping_chat_files')).rows[0].total,1);
+ assert.equal((await other.call('/api/shopping-chat/threads/'+id+'/files/'+attached.id)).status,404);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/'+attached.id)).data.bytes,22);
+ assert.equal((await owner.call(adminPath+'/files/'+attached.id)).status,200);
+ const videoForm=new FormData(),video=Buffer.alloc(32);video.writeUInt32BE(32,0);video.write('ftypisom',4);videoForm.append('file',new Blob([video],{type:'video/mp4'}),'fixture.mp4');videoForm.append('requestKey',randomUUID());assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',videoForm)).status,201);
+ const videoAttachment=(await guest.call(path)).data.messages.at(-1).attachment,videoPath='/api/shopping-chat/threads/'+id+'/files/'+videoAttachment.id;
+ assert.equal((await other.call(videoPath)).status,404);assert.match((await guest.call(videoPath)).headers.get('content-disposition'),/^inline/);assert.match((await guest.call(videoPath+'?download=1')).headers.get('content-disposition'),/^attachment/);
+ // Native video playback seeks through authenticated byte-range requests.
+ const mediaResponse=await guest.call(videoPath,'GET',null,true,{Range:'bytes=0-3'});assert.equal(mediaResponse.status,206);assert.equal(mediaResponse.data.bytes,4);assert.equal(mediaResponse.headers.get('content-range'),'bytes 0-3/32');assert.equal((await guest.call(videoPath,'GET',null,true,{Range:'bytes=999-'})).status,416);
+ // Chunked background upload + automatic background file compression.
+ const chunkKey=randomUUID(),bigPdf=Buffer.from('%PDF-1.7\n'+'GAERU compressible document content line\n'.repeat(120));
+ const part1=bigPdf.subarray(0,500),part2=bigPdf.subarray(500);
+ const c1=new FormData();c1.append('file',new Blob([part1]),'manual.pdf');c1.append('requestKey',chunkKey);c1.append('fileName','manual.pdf');c1.append('chunkIndex','0');c1.append('totalChunks','2');c1.append('totalBytes',String(bigPdf.length));
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c1)).status,202);
+ const c2=new FormData();c2.append('file',new Blob([part2]),'manual.pdf');c2.append('requestKey',chunkKey);c2.append('fileName','manual.pdf');c2.append('chunkIndex','1');c2.append('totalChunks','2');c2.append('totalBytes',String(bigPdf.length));
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/chunk','POST',c2)).status,201);
+let compressedMsg;
+
+for(let i=0;i<50;i++){
+  compressedMsg=(await guest.call(path)).data.messages.find(
+    m=>m.attachment?.name==='manual.pdf'
+  );
+
+  if(compressedMsg?.attachment?.compressionStatus==='compressed') break;
+
+  await new Promise(resolve=>setTimeout(resolve,100));
+}
+
+assert.ok(compressedMsg);
+assert.equal(compressedMsg.attachment.compressionStatus,'compressed');
+assert.ok(compressedMsg.attachment.compressedSize<compressedMsg.attachment.originalSize);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files/'+compressedMsg.attachment.id)).data.bytes,bigPdf.length);
+ const bad=new FormData();bad.append('file',new Blob(['<script>bad</script>'],{type:'image/png'}),'bad.png');bad.append('requestKey',randomUUID());
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/files','POST',bad)).status,400);
+ assert.equal((await guest.call('/api/shopping-chat/capabilities')).data.aiConfigured,false);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+id+'/ai','POST',{requestKey:randomUUID()})).status,409);
+ await pool.query("INSERT INTO account_security(account_key,email) VALUES('owner','owner-chat@example.invalid')");
+ assert.equal((await viewer.call('/api/gaeru_ceo/shopping-chat/email/preferences')).status,403);
+ assert.equal((await owner.call('/api/gaeru_ceo/shopping-chat/email/preferences','PUT',{accounts:['owner']})).status,200);
+ const emailSession=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Session to notify admin',requestKey:randomUUID()});const emailPath='/api/shopping-chat/threads/'+emailSession.data.thread.id+'/messages';
+ assert.equal((await guest.call(emailPath,'POST',{body:'Private customer message not for email',requestKey:randomUUID()})).status,200);
+ await guest.call(emailPath,'POST',{body:'Another message in same five-minute window',requestKey:randomUUID()});
+ assert.equal((await pool.query('SELECT count(*)::int AS total FROM shopping_chat_email_outbox')).rows[0].total,1);
+ let deliveries=[];const fakeMailer={sendMail:async m=>{deliveries.push(m);return{accepted:[m.to]};}};
+ const {processChatEmail}=require('../src/shopping-chat-email');
+ assert.equal(await processChatEmail(pool,{smtp:{from:'from@example.invalid'}},fakeMailer),true);
+ assert.equal(deliveries.length,1);assert.equal(deliveries[0].to,'owner-chat@example.invalid');assert.ok(!deliveries[0].text.includes('Private customer message'));assert.match(deliveries[0].text,/gaeru_ceo#shopping-chat/);
+ await processChatEmail(pool,{smtp:{from:'from@example.invalid'}},fakeMailer);assert.equal(deliveries.length,1);
+ const staff=(await pool.query("SELECT id FROM staff_accounts WHERE username='chat-viewer'")).rows[0];const staffKey='staff:'+staff.id;
+ await pool.query('INSERT INTO account_security(account_key,email) VALUES($1,$2)',[staffKey,'viewer-chat@example.invalid']);
+ assert.equal((await owner.call('/api/gaeru_ceo/shopping-chat/email/preferences','PUT',{accounts:[staffKey]})).status,200);
+ await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Message before permission revocation',requestKey:randomUUID()});await pool.query('UPDATE staff_accounts SET active=false WHERE id=$1',[staff.id]);
+ await processChatEmail(pool,{smtp:{from:'from@example.invalid'}},fakeMailer);assert.equal(deliveries.length,1);assert.equal((await pool.query("SELECT status FROM shopping_chat_email_outbox WHERE account_key=$1",[staffKey])).rows[0].status,'skipped');
+ assert.equal((await owner.call('/api/gaeru_ceo/shopping-chat/email/preferences','PUT',{accounts:[staffKey]})).status,400);
+ await owner.call('/api/gaeru_ceo/shopping-chat/email/preferences','PUT',{accounts:[]});
+ const general=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'General support question',requestKey:randomUUID()});assert.equal(general.status,201);assert.equal(general.data.thread.product_name,'Hỗ trợ GAERU');
+ assert.equal((await guest.call('/api/shopping-chat/threads')).data.threads.find(t=>t.id===general.data.thread.id).product_slug,null);
+ const {processAIChat,resumeTimedOutHumanThreads}=require('../src/shopping-chat-ai-first');
+ const drain=async decisionFn=>{for(let i=0;i<40;i++)if(!await processAIChat(pool,{}, {decisionFn}))break;};
+ await drain(async()=>({answer:'AI fixture reply',handoff:false}));
+ const aiSession=await guest.call('/api/shopping-chat/threads','POST',{productSlug:'chat-fixture',body:'Explain the product',requestKey:randomUUID()});const aiPath='/api/shopping-chat/threads/'+aiSession.data.thread.id+'/messages';
+ await drain(async()=>({answer:'Supported fixture fact',handoff:false}));let aiRead=(await guest.call(aiPath)).data;assert.equal(aiRead.thread.handlingMode,'ai');assert.equal(aiRead.messages.at(-1).body,'Supported fixture fact');assert.equal((await pool.query('SELECT awaiting_admin FROM shopping_chat_threads WHERE id=$1',[aiSession.data.thread.id])).rows[0].awaiting_admin,false);
+ await guest.call(aiPath,'POST',{body:'Question without sufficient facts',requestKey:randomUUID()});await drain(async()=>({answer:'Need a human to verify this.',handoff:true}));aiRead=(await guest.call(aiPath)).data;assert.equal(aiRead.thread.handlingMode,'ai');assert.equal(aiRead.thread.handoffOffered,true);assert.match(aiRead.messages.at(-1).body,/Need a human/);
+ const offeredCount=aiRead.messages.length;await guest.call(aiPath,'POST',{body:'Follow-up while offered',requestKey:randomUUID()});await drain(async()=>{throw Error('AI should pause after offer');});assert.equal((await guest.call(aiPath)).data.messages.length,offeredCount+1);
+ await guest.call('/api/shopping-chat/threads/'+aiSession.data.thread.id+'/handoff','POST',{});aiRead=(await guest.call(aiPath)).data;assert.equal(aiRead.thread.handlingMode,'human');assert.equal(aiRead.thread.handoffOffered,false);assert.equal(aiRead.thread.staffReplied,false);assert.ok(aiRead.thread.handoffWaitSeconds<10);
+ await pool.query("UPDATE shopping_chat_threads SET handoff_started_at=now()-interval '301 seconds' WHERE id=$1",[aiSession.data.thread.id]);assert.ok((await guest.call(aiPath)).data.thread.handoffWaitSeconds>=300);
+ await owner.call('/api/gaeru_ceo/shopping-chat/'+aiSession.data.thread.id+'/messages','POST',{body:'Staff response stops hotline reminder',requestKey:randomUUID()});assert.equal((await guest.call(aiPath)).data.thread.staffReplied,true);
+
+ const humanSession=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Tôi muốn gặp nhân viên',requestKey:randomUUID()});await drain(async()=>{throw Error('Provider must not run for explicit human request');});assert.equal((await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages')).data.thread.handlingMode,'human');
+ // After 5 minutes (300s) without staff response, AI automatically reactivates.
+ await pool.query("UPDATE shopping_chat_threads SET handoff_started_at=now()-interval '301 seconds' WHERE id=$1",[humanSession.data.thread.id]);
+ assert.equal(await resumeTimedOutHumanThreads(pool),1);
+ const resumedRead=(await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages')).data;
+ assert.equal(resumedRead.thread.handlingMode,'ai');
+ assert.match(resumedRead.messages.at(-1).body,/Sau 5 phút chưa có nhân viên phản hồi/);
+ await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages','POST',{body:'Tư vấn tiếp giúp tôi',requestKey:randomUUID()});
+ await drain(async()=>({answer:'AI đã hỗ trợ lại cho bạn.',handoff:false}));
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+humanSession.data.thread.id+'/messages')).data.messages.at(-1).body,'AI đã hỗ trợ lại cho bạn.');
+
+ const race=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Race fixture question',requestKey:randomUUID()});await drain(async()=>{await owner.call('/api/gaeru_ceo/shopping-chat/'+race.data.thread.id+'/messages','POST',{body:'Staff already answered',requestKey:randomUUID()});return{answer:'Stale AI answer',handoff:false};});assert.equal((await guest.call('/api/shopping-chat/threads/'+race.data.thread.id+'/messages')).data.messages.at(-1).body,'Staff already answered');
+ const direct=await guest.call('/api/shopping-chat/threads','POST',{productSlug:null,body:'Direct handoff fixture',requestKey:randomUUID()});assert.equal((await guest.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/handoff','POST',{})).status,200);assert.equal((await other.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/handoff','POST',{})).status,404);
+ assert.equal((await other.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/close','POST',{})).status,404);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/close','POST',{})).status,200);
+ assert.equal((await guest.call('/api/shopping-chat/threads/'+direct.data.thread.id+'/messages')).data.thread.status,'closed');
+ await pool.query('UPDATE products SET active=false WHERE id=$1',[product.id]);assert.equal((await guest.call('/api/shopping-chat/threads','POST',{...first,requestKey:randomUUID()})).status,404);
+});

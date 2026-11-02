@@ -1,0 +1,13 @@
+Shipping verification
+
+Saving a supported carrier configuration triggers verification after the encrypted configuration commit. Saving credentials and verification are separate results: failed checks preserve the saved configuration but cannot enable checkout selection. Previous proofs stop matching after a version change. A verification nonce prevents older concurrent tests from publishing stale success.
+
+GHN: account/shop lookup with the configured Shop ID. GHTK: pickup address lookup. Viettel Post: documented POST /v2/order/getPriceAllNlp on https://partner.viettelpost.vn with fixed public sample geographic addresses and zero collection amount. This checks authenticated service access without creating any shipment or sending customer contact data. Success requires documented service fields and price values; HTTP 200 alone is insufficient.
+
+Official Viettel references:
+https://partner2.viettelpost.vn/document/get-list-service-by-address-detail
+https://partner2.viettelpost.vn/document/environment-parameter
+https://partner2.viettelpost.vn/document/token-authen
+Public documentation source was read on 2026-10-26. No live token was used in local tests.
+
+J&T verification remains unavailable until its partner-specific contract is confirmed; no connection success is guessed. Verification does not create shipments, labels, update delivery fees or automatically enable a carrier for checkout.

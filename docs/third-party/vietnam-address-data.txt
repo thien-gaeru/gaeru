@@ -1,0 +1,10 @@
+Vietnam address dataset
+Source: https://github.com/thanglequoc/vietnamese-provinces-database/tree/master/json
+Downloaded: 2026-10-26
+Published dataset README generation: 2026-08-27
+Source file: vn_only_simplified_json_generated_data_vn_units_minified.json
+Source SHA-256: 1c2c0a3e2e204fc39b4624cf9c5c6ae116761385bfd2a092599400e7ac4c0eaa
+Normalized local file: assets/data/vietnam-addresses.json
+Counts verified: 34 provinces/cities and 3321 unique ward codes.
+License: MIT; copyright and license included in vietnam-address-data-LICENSE.txt.
+No runtime external lookup is required. Existing saved strings are preserved; no automatic conversion of legacy merged addresses.

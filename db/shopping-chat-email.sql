@@ -1,0 +1,6 @@
+CREATE TABLE shopping_chat_email_preferences(account_key text PRIMARY KEY,enabled boolean NOT NULL DEFAULT false,updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE shopping_chat_email_outbox(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),thread_id uuid NOT NULL REFERENCES shopping_chat_threads(id) ON DELETE CASCADE,account_key text NOT NULL,bucket bigint NOT NULL,status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','skipped','failed','unknown')),created_at timestamptz NOT NULL DEFAULT now(),attempted_at timestamptz,finished_at timestamptz,result text NOT NULL DEFAULT '',UNIQUE(thread_id,account_key,bucket));
+CREATE INDEX shopping_chat_email_pending ON shopping_chat_email_outbox(created_at) WHERE status='pending';
+CREATE FUNCTION enqueue_shopping_chat_email() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+ IF NEW.sender='customer' THEN INSERT INTO shopping_chat_email_outbox(thread_id,account_key,bucket) SELECT NEW.thread_id,account_key,floor(extract(epoch FROM now())/300)::bigint FROM shopping_chat_email_preferences WHERE enabled=true ON CONFLICT DO NOTHING; END IF;RETURN NEW;END $$;
+CREATE TRIGGER shopping_chat_email_insert AFTER INSERT ON shopping_chat_messages FOR EACH ROW EXECUTE FUNCTION enqueue_shopping_chat_email();
