@@ -164,6 +164,15 @@
 }
 
 .marketing-banner{display:block;width:100%;max-width:100%;height:auto;max-height:280px;object-fit:cover;border-radius:14px;margin:12px 0 16px;background:#f5f5f7}.marketing-banner[hidden]{display:none}.marketing-banner-editor{min-width:0}.marketing-banner-editor input[type=file]{max-width:100%}
+.marketing-bundle-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.marketing-bundle-card{border:1px solid #e5e5ea;border-radius:24px;background:white;padding:26px}
+.bundle-items-summary{display:grid;gap:6px;margin:12px 0;font-size:13px;color:#515154}
+.marketing-card-actions{display:flex;gap:10px;margin-top:16px}
+.bundle-variant-row{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.bundle-check-label{display:flex;align-items:center;gap:14px;cursor:pointer}
+.bundle-variant-config{display:flex;gap:16px;align-items:center;background:#f5f5f7;padding:8px 14px;border-radius:10px;font-size:13px}
+.bundle-variant-config select,.bundle-variant-config input{min-height:36px;font-size:13px}
+@media(max-width:650px){.marketing-bundle-list{grid-template-columns:1fr}.bundle-variant-config{flex-direction:column;align-items:stretch;gap:8px}}
 
 
 /* ==========================================================================

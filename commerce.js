@@ -234,6 +234,114 @@ function safeProductImage(value) {
  return /^\/(?:assets\/products\/|api\/catalog-images\/|media\/products\/)[a-zA-Z0-9/_.?=&%+-]+$/.test(image) ? image : '/assets/products/k9.webp';
 }
 
+async function loadAndRenderBundles(product, currentVariantId) {
+  const container = document.querySelector("[data-product-bundles-wrap]");
+  if (!container) return;
+  try {
+    const res = await fetch(`/api/products/${encodeURIComponent(product.slug)}/bundles`);
+    if (!res.ok) return;
+    const { bundles } = await res.json();
+    if (!bundles || !bundles.length) {
+      container.innerHTML = "";
+      return;
+    }
+    window.__currentBundles = bundles;
+    renderBundlesHtml(container, bundles, currentVariantId);
+  } catch (_) {}
+}
+
+function updateBundleCardPricing(card, bundle) {
+  const currentSelector = document.querySelector("#product-variant");
+  const primaryItem = bundle.primaryItems?.find(p => p.variantId === currentSelector?.value) || bundle.primaryItems?.[0];
+  const primaryPrice = primaryItem ? primaryItem.priceVnd : 0;
+  
+  const checkedBoxes = [...(card.querySelectorAll("[data-bundle-accessory]:checked") || [])];
+  let secondaryTotal = 0;
+  for (const box of checkedBoxes) {
+    const secItem = bundle.bundledItems?.find(it => it.variantId === box.dataset.bundleAccessory);
+    if (secItem) secondaryTotal += secItem.priceVnd * (secItem.minQuantity || 1);
+  }
+  const originalTotal = primaryPrice + secondaryTotal;
+  let discount = 0;
+  if (checkedBoxes.length > 0) {
+    if (bundle.discountType === 'percent') {
+      discount = Math.floor(secondaryTotal * bundle.discountValue / 100);
+    } else {
+      discount = Math.min(originalTotal, bundle.discountValue);
+    }
+  }
+  const finalTotal = Math.max(0, originalTotal - discount);
+  const origEl = card.querySelector(`[data-bundle-orig="${bundle.id}"]`);
+  const finalEl = card.querySelector(`[data-bundle-final="${bundle.id}"]`);
+  if (origEl) origEl.textContent = formatPrice(originalTotal);
+  if (finalEl) finalEl.textContent = formatPrice(finalTotal);
+  const addBtn = card.querySelector(`[data-add-bundle="${bundle.id}"]`);
+  if (addBtn) addBtn.disabled = checkedBoxes.length === 0;
+}
+
+function updateAllBundleCards(selectedVariantId) {
+  const container = document.querySelector("[data-product-bundles-wrap]");
+  if (!container || !window.__currentBundles) return;
+  for (const bundle of window.__currentBundles) {
+    const card = container.querySelector(`[data-bundle-id="${bundle.id}"]`);
+    if (card) updateBundleCardPricing(card, bundle);
+  }
+}
+
+function renderBundlesHtml(container, bundles, currentVariantId) {
+  if (!container || !bundles) return;
+  container.innerHTML = bundles.map(b => {
+    const primaryItem = b.primaryItems?.find(p => p.variantId === currentVariantId) || b.primaryItems?.[0];
+    const bundledItems = b.bundledItems || [];
+    if (!primaryItem || !bundledItems.length) return "";
+    return `
+      <section class="product-bundle-cross-sell" data-bundle-id="${escapeHtml(b.id)}">
+        <div class="bundle-header">
+          <h3 class="bundle-title">
+            <span>Ưu đãi mua kèm: ${escapeHtml(b.title)}</span>
+            <span class="bundle-badge">-${b.discountType === 'percent' ? b.discountValue + '%' : formatPrice(b.discountValue)}</span>
+          </h3>
+          ${b.description ? `<p class="bundle-desc">${escapeHtml(b.description)}</p>` : ''}
+        </div>
+        <div class="bundle-items-flow">
+          <div class="bundle-item-card primary-card">
+            <img src="${escapeHtml(safeProductImage(primaryItem.imageUrl))}" alt="${escapeHtml(primaryItem.productName)}" loading="lazy">
+            <div class="bundle-item-info">
+              <strong>${escapeHtml(primaryItem.productName)}</strong>
+              <small>${escapeHtml(primaryItem.variantName)}</small>
+              <span class="item-price">${formatPrice(primaryItem.priceVnd)}</span>
+            </div>
+          </div>
+          <span class="bundle-plus-icon" aria-hidden="true">+</span>
+          ${bundledItems.map(item => `
+            <div class="bundle-item-card secondary-card">
+              <label class="bundle-accessory-choice">
+                <input type="checkbox" data-bundle-accessory="${escapeHtml(item.variantId)}" checked>
+                <img src="${escapeHtml(safeProductImage(item.imageUrl))}" alt="${escapeHtml(item.productName)}" loading="lazy">
+                <div class="bundle-item-info">
+                  <strong>${escapeHtml(item.productName)}</strong>
+                  <small>${escapeHtml(item.variantName)}</small>
+                  <span class="item-price">${formatPrice(item.priceVnd)}</span>
+                </div>
+              </label>
+            </div>
+          `).join('<span class="bundle-plus-icon" aria-hidden="true">+</span>')}
+        </div>
+        <div class="bundle-footer">
+          <div class="bundle-price-box">
+            <span class="bundle-original-price" data-bundle-orig="${escapeHtml(b.id)}">${formatPrice(b.originalComboTotal)}</span>
+            <strong class="bundle-final-price" data-bundle-final="${escapeHtml(b.id)}">${formatPrice(b.discountedComboTotal)}</strong>
+          </div>
+          <button type="button" class="button button-blue bundle-add-button" data-add-bundle="${escapeHtml(b.id)}">
+            Thêm combo vào giỏ
+          </button>
+        </div>
+        <p class="bundle-feedback" data-bundle-feedback="${escapeHtml(b.id)}" role="status" aria-live="polite"></p>
+      </section>
+    `;
+  }).join("");
+}
+
 function renderProduct() {
   const root = document.querySelector("#product-detail");
   if (!root) return;
@@ -278,6 +386,7 @@ function renderProduct() {
           <button class="button button-blue" type="button" data-add-to-cart="" disabled>Thêm vào giỏ</button>
         </div>
         <p class="cart-feedback" data-cart-feedback aria-live="polite"></p>
+        <div data-product-bundles-wrap></div>
         <section class="product-save-later"><h3>Vẫn chưa thể quyết định?</h3><p>Lưu sản phẩm để dễ dàng quay lại xem trên trình duyệt này.</p><button type="button" class="save-product-button" data-save-product="${escapeHtml(product.slug)}" aria-pressed="false">Lưu để xem lại sau</button><a href="shop.html?saved=1">Xem sản phẩm đã lưu ↗</a><p role="status" aria-live="polite"></p></section>
         <section class="product-shopping-help"><svg viewBox="0 0 32 30" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 3h20v17H10l-6 6v-6H3zM23 10h6v15h-7l-4 4v-9"/></svg><div><h3>Trợ giúp mua sắm.</h3><p><button type="button" class="chat-product-button" data-product-chat="${escapeHtml(product.slug)}">Chat ngay ↗</button> hoặc gọi <a href="tel:0829191080">082 919 1080</a>.</p><small>AI hỗ trợ trước; chọn Gặp nhân viên khi cần.</small></div></section>
       </div>
@@ -302,13 +411,13 @@ function renderProduct() {
     const buyNow=root.querySelector("[data-buy-now]");buyNow.dataset.buyNow=variant.id;buyNow.disabled=variant.stockQuantity===0;
     root.querySelectorAll("[data-option-group]").forEach(b=>b.setAttribute("aria-pressed",String(variant.options?.[b.dataset.optionGroup]===b.dataset.optionValue)));
     root.querySelectorAll("[data-visual-variant]").forEach(b=>b.setAttribute("aria-pressed",String(variant.id===b.dataset.visualVariant)));
-    const image=root.querySelector("[data-product-main-image]");image.src=safeProductImage(variant.imageUrl||product.imageUrl);image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.galleryImage===(variant.imageUrl||product.imageUrl))));
+    const image=root.querySelector("[data-product-main-image]");image.src=safeProductImage(variant.imageUrl||product.imageUrl);image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.galleryImage===(variant.imageUrl||product.imageUrl)))); updateAllBundleCards(variant.id);
   });
   let galleryTouch=null;
   root.addEventListener('touchstart',event=>{galleryTouch=event.touches.length===1&&event.target.closest('[data-product-main-image]')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
   root.addEventListener('touchcancel',()=>{galleryTouch=null;},{passive:true});
   root.addEventListener('touchend',event=>{const start=galleryTouch;galleryTouch=null;if(!start||event.changedTouches.length!==1)return;const dx=event.changedTouches[0].clientX-start.x,dy=event.changedTouches[0].clientY-start.y;if(Math.abs(dx)<40||Math.abs(dx)<Math.abs(dy)*1.5)return;const buttons=[...root.querySelectorAll('[data-gallery-image]')];if(buttons.length<2)return;const current=buttons.findIndex(b=>b.getAttribute('aria-pressed')==='true');const next=buttons[(Math.max(0,current)+(dx<0?1:-1)+buttons.length)%buttons.length];next.click();const rail=next.parentElement;rail.scrollTo({left:Math.max(0,next.offsetLeft-rail.offsetLeft-(rail.clientWidth-next.offsetWidth)/2),behavior:'smooth'});},{passive:true});
-  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}});
+  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}}); void loadAndRenderBundles(product, selector?.value);
 }
 
 function renderCart() {
@@ -636,6 +745,30 @@ function bindGlobalControls() {
     if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0)location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));return;}
     const choose=event.target.closest('[data-choose-cart]');
     if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
+    const bundleBtn = event.target.closest("[data-add-bundle]");
+    if (bundleBtn) {
+      const bundleId = bundleBtn.dataset.addBundle;
+      const bundleCard = bundleBtn.closest("[data-bundle-id]");
+      const bundle = (window.__currentBundles || []).find(b => b.id === bundleId);
+      if (bundle) {
+        const currentSelector = document.querySelector("#product-variant");
+        const primaryVariantId = currentSelector?.value || bundle.primaryItems?.[0]?.variantId;
+        const checkedAccessories = [...(bundleCard?.querySelectorAll("[data-bundle-accessory]:checked") || [])].map(cb => cb.dataset.bundleAccessory);
+        const allToAdd = [primaryVariantId, ...checkedAccessories].filter(Boolean);
+        const cart = readCart();
+        for (const vId of allToAdd) {
+          const existing = cart.find(i => i.variantId === vId);
+          if (existing) existing.quantity += 1;
+          else cart.push({ variantId: vId, quantity: 1 });
+        }
+        if (writeCart(cart)) {
+          const fb = bundleCard?.querySelector(`[data-bundle-feedback="${bundleId}"]`);
+          if (fb) fb.textContent = `Đã thêm combo ${bundle.title} vào giỏ hàng!`;
+          document.dispatchEvent(new CustomEvent("gaeru:open-cart"));
+        }
+      }
+      return;
+    }
     const addButton = event.target.closest("[data-add-to-cart]");
     if (addButton) {
       const variantId = addButton.dataset.addToCart;
@@ -744,6 +877,20 @@ window.GAERUStore = Object.freeze({
   searchProducts,
   mergeCartWithServer,
   syncCartToServer
+});
+window.GAERUBundles = Object.freeze({
+  loadAndRenderBundles,
+  renderBundlesHtml,
+  updateBundleCardPricing,
+  updateAllBundleCards
+});
+document.addEventListener("change", (e) => {
+  const cb = e.target.closest("[data-bundle-accessory]");
+  if (cb) {
+    const card = cb.closest("[data-bundle-id]");
+    const bundle = (window.__currentBundles || []).find(b => b.id === card?.dataset.bundleId);
+    if (bundle && card) updateBundleCardPricing(card, bundle);
+  }
 });
 document.addEventListener("gaeru:cart-updated", () => { updateCartBadge(); renderMiniCart(); renderCart(); });
 document.addEventListener("gaeru:cart-panel-open", renderMiniCart);

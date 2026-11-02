@@ -180,6 +180,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
+  router.get("/products/:slug/bundles", async (req, res, next) => {
+    try {
+      const bundles = await require("./product-bundles").getApplicableBundles(pool, { slug: req.params.slug });
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.json({ bundles });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/search-index.json", async (req, res, next) => {
     try {
       const index = await getFreshData('data:search-index', async () => {
@@ -454,7 +464,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const shippingSelection=shippingChoices?await require('./shipping-choice').validateSelection(client,parsed.data.shippingCarrierId):null;
         if(parsed.data.expectedShippingFeeVnd!==undefined&&parsed.data.expectedShippingFeeVnd!==shippingFee)throw Object.assign(Error('Phí vận chuyển đã thay đổi. Tải lại trang trước khi đặt hàng.'),{status:409});
         const promotion=parsed.data.voucherCode?await require("./marketing").eligible(client,parsed.data.voucherCode,req.session?.customer?.id,subtotal,true):null;
-        const total = subtotal + shippingFee - (promotion?.discountVnd||0);
+        const bundleCalc = await require("./product-bundles").calculateCartBundleDiscount(client, prepared);
+        const bundleDiscountVnd = bundleCalc.bundleDiscountVnd;
+        const total = Math.max(0, subtotal + shippingFee - (promotion?.discountVnd||0) - bundleDiscountVnd);
         if (!Number.isSafeInteger(total) || total > 2_000_000_000) {
           const error = new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép.");
           error.status = 400;
@@ -483,6 +495,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const createdOrder = inserted.rows[0];
         if(shippingSelection){await client.query('INSERT INTO order_shipping_selection(order_id,carrier_id,carrier_name,fee_vnd,config_version) VALUES($1,$2,$3,$4,$5)',[createdOrder.id,shippingSelection.id,shippingSelection.name,shippingFee,shippingSelection.version]);createdOrder.shippingCarrierName=shippingSelection.name;}
         if(promotion){await require("./marketing").redeem(client,promotion,req.session.customer.id,createdOrder.id);createdOrder.discountVnd=promotion.discountVnd;createdOrder.voucherCode=promotion.voucher.code;}
+        if(bundleDiscountVnd>0){await client.query('UPDATE orders SET discount_vnd=COALESCE(discount_vnd,0)+$2 WHERE id=$1',[createdOrder.id,bundleDiscountVnd]);createdOrder.discountVnd=(createdOrder.discountVnd||0)+bundleDiscountVnd;createdOrder.bundleDiscountVnd=bundleDiscountVnd;}
         if (req.session?.customer?.id) {
           await client.query('UPDATE orders SET customer_id=$2 WHERE id=$1 AND EXISTS (SELECT 1 FROM customers WHERE id=$2 AND active=true)', [createdOrder.id, req.session.customer.id]);
           if (parsed.data.loyaltyPointsToRedeem) {
