@@ -14,7 +14,6 @@ const titles={
  payment_cod:'Thanh toán khi nhận hàng (COD)',
  payment_bank_transfer:'Chuyển khoản ngân hàng (VietQR)',
  vnpay:'Cổng thanh toán VNPAY',
- payment_9pay:'Cổng thanh toán 9Pay',
  payment_momo:'Ví điện tử MoMo',
  payment_zalopay:'Ví điện tử ZaloPay',
  chat_ai:'Chat AI · GPT, Gemini, Claude',
@@ -27,8 +26,8 @@ const titles={
  oauth:'Đăng nhập Google (OAuth)'
 };
 
-const paymentMap={cod:'payment_cod',bank_transfer:'payment_bank_transfer',vnpay:'vnpay','9pay':'payment_9pay',momo:'payment_momo',zalopay:'payment_zalopay'};
-const paymentIds=new Set(['payments','vnpay','payment_cod','payment_bank_transfer','payment_9pay','payment_momo','payment_zalopay']);
+const paymentMap={cod:'payment_cod',bank_transfer:'payment_bank_transfer',vnpay:'vnpay',momo:'payment_momo',zalopay:'payment_zalopay'};
+const paymentIds=new Set(['payments','vnpay','payment_cod','payment_bank_transfer','payment_momo','payment_zalopay']);
 
 function authenticatedPaymentProof(channel){
  if(!channel?.verified||['cod','bank_transfer'].includes(channel.id))return false;
@@ -37,7 +36,7 @@ function authenticatedPaymentProof(channel){
 }
 
 function paymentVerificationBadge(channel){
- if(channel.supported===false||channel.id==='9pay')return '<span class="payment-badge badge-pending">Chưa hỗ trợ nhận thanh toán</span>';
+ if(channel.supported===false)return '<span class="payment-badge badge-pending">Chưa hỗ trợ nhận thanh toán</span>';
  if(['cod','bank_transfer'].includes(channel.id))return channel.method==='configuration_validation'
   ?'<span class="payment-badge badge-pending">Đã kiểm tra cấu hình</span>'
   :'<span class="payment-badge badge-unconfigured">'+(channel.configured?'Đã lưu cấu hình':'Chưa cấu hình')+'</span>';
@@ -53,7 +52,6 @@ const fieldPlaceholders={
  payment_cod:{maxAmountVnd:'50000000',instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.'},
  payment_bank_transfer:{bankName:'VD: Vietcombank, Techcombank, MB...',accountNumber:'VD: 1903888999 (hệ thống tự lọc khoảng trắng)',accountHolder:'VD: NGUYEN VAN A hoặc CÔNG TY TNHH...',branch:'VD: Sở Giao Dịch, CN Sài Gòn (tùy chọn)',transferSyntax:'Cú pháp: GAERU {MA_DON}'},
  vnpay:{tmnCode:'Mã website 8 ký tự (VD: GAERUVN1)'},
- payment_9pay:{merchantKey:'Merchant Key do 9Pay cấp'},
  payment_momo:{partnerCode:'Partner Code do MoMo cấp',accessKey:'Access Key do MoMo cấp'},
  payment_zalopay:{appId:'App ID (dãy số do ZaloPay cấp, VD: 2554)'},
  misa:{appId:'App ID Open API do MISA cấp',storeId:'Store ID mã định danh cửa hàng MISA',taxCode:'Mã số thuế doanh nghiệp (VD: 0101243150)',templateCode:'Ký hiệu mẫu hóa đơn (VD: 1/001)',series:'Ký hiệu hóa đơn (VD: C26TGA)'}
@@ -67,7 +65,6 @@ const fields={
  payment_cod:[['maxAmountVnd','Hạn mức tối đa đơn COD (₫)','number'],['instructions','Hướng dẫn thanh toán khi nhận hàng']],
  payment_bank_transfer:[['bankName','Tên ngân hàng thụ hưởng'],['accountNumber','Số tài khoản'],['accountHolder','Chủ tài khoản'],['branch','Chi nhánh (không bắt buộc)'],['transferSyntax','Cú pháp nội dung chuyển khoản']],
  vnpay:[['tmnCode','Mã website / TmnCode'],['hashSecret','Hash secret','password']],
- payment_9pay:[['merchantKey','Merchant Key'],['secretKey','Secret Key','password'],['checksumKey','Checksum Key','password']],
  payment_momo:[['partnerCode','Partner Code'],['accessKey','Access Key'],['secretKey','Secret Key','password']],
  payment_zalopay:[['appId','App ID'],['key1','Key 1 (Khóa tạo đơn)','password'],['key2','Key 2 (Khóa đối soát callback)','password']],
  misa:[['appId','Mã ứng dụng / App ID Open API'],['storeId','Mã cửa hàng Store ID'],['secret','Khóa bảo mật Open API Secret','password'],['taxCode','Mã số thuế doanh nghiệp xuất HĐ'],['templateCode','Ký hiệu mẫu số hóa đơn (VD: 1/001)'],['series','Ký hiệu hóa đơn (VD: C26TGA)']],
@@ -91,7 +88,6 @@ const channelMeta={
  cod:{title:'COD · Tiền mặt khi nhận hàng',sub:'Giao hàng thu tiền mặt tận nơi',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="12" cy="12" r="2"></circle><path d="M6 12h.01M18 12h.01"></path></svg>'},
  bank_transfer:{title:'Chuyển khoản VietQR',sub:'Thông tin nhận chuyển khoản, xác nhận sau đối chiếu',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M3 10h18M5 10v11M9 10v11M15 10v11M19 10v11M12 2L2 7h20L12 2z"></path></svg>'},
  vnpay:{title:'Cổng thanh toán VNPAY',sub:'VNPAY-QR, Thẻ ATM nội địa & Quốc tế Visa/Master',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#005baa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><path d="M7 15h2M12 15h5"></path></svg>'},
- '9pay':{title:'Cổng thanh toán 9Pay',sub:'Ví điện tử 9Pay, Thẻ ATM/Visa/Master, 9Pay QR',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon><line x1="12" y1="22" x2="12" y2="12"></line><line x1="2" y1="8.5" x2="12" y2="12"></line><line x1="22" y1="8.5" x2="12" y2="12"></line></svg>'},
  momo:{title:'Ví điện tử MoMo',sub:'Ví MoMo, MoMo QR, Ví trả sau, thẻ liên kết',icon:'<svg width="26" height="26" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#d82d8b"/><path d="M6 16V8h2.2l1.9 4.2L12 8h2.2v8h-1.8v-5.2l-1.7 3.8h-1.4l-1.7-3.8V16H6z" fill="#fff"/></svg>'},
  zalopay:{title:'Ví điện tử ZaloPay',sub:'ZaloPay Gateway, ZaloPay QR, ví Zalo',icon:'<svg width="26" height="26" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#0068ff"/><path d="M7 8h10l-6.5 6.5H17V17H7l6.5-6.5H7V8z" fill="#fff"/></svg>'}
 };
@@ -108,7 +104,6 @@ const configModalMeta={
  payment_cod:{title:'Cấu hình & Khóa · Thanh toán khi nhận hàng (COD)',sub:'Hạn mức COD và hướng dẫn người mua thanh toán tiền mặt',icon:channelMeta.cod.icon},
  payment_bank_transfer:{title:'Cấu hình & Khóa · Chuyển khoản VietQR',sub:'Tài khoản thụ hưởng và hướng dẫn đối chiếu tiền vào',icon:channelMeta.bank_transfer.icon},
  vnpay:{title:'Cấu hình & Khóa bảo mật · Cổng VNPAY',sub:'Mã website TMN, Khóa Hash Secret & URLs đối soát IPN',icon:channelMeta.vnpay.icon},
- payment_9pay:{title:'Cấu hình & Khóa bảo mật · Cổng 9Pay',sub:'Merchant Key, Secret Key, Checksum Key & URLs IPN/Webhook',icon:channelMeta['9pay'].icon},
  payment_momo:{title:'Cấu hình & Khóa bảo mật · Ví MoMo',sub:'Partner Code, Access Key, Secret Key & URLs IPN/Webhook',icon:channelMeta.momo.icon},
  payment_zalopay:{title:'Cấu hình & Khóa bảo mật · Ví ZaloPay',sub:'App ID, Khóa Key 1, Khóa Key 2 & Callback URLs',icon:channelMeta.zalopay.icon},
  shipping_ghn:{title:'Cấu hình & Khóa API · Giao Hàng Nhanh (GHN)',sub:'Shop ID, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_ghn.icon},
@@ -135,12 +130,6 @@ function renderWebhookBox(configId){
    {label:'IPN URL',url:callbacks.vnpayIpn||'https://gaeru.com/api/payments/vnpay/ipn'}
   ];
   note='Đăng ký 2 URL này vào trang Merchant VNPAY để nhận kết quả thanh toán & tự động duyệt đơn.';
- }else if(configId==='payment_9pay'){
-  rows=[
-   {label:'Return URL',url:callbacks.ninepayReturn||'https://gaeru.com/api/payments/9pay/return'},
-   {label:'IPN URL',url:callbacks.ninepayIpn||'https://gaeru.com/api/payments/9pay/ipn'}
-  ];
-  note='9Pay chưa hỗ trợ nhận thanh toán trong phiên bản này. Có thể lưu thông tin cấu hình; chưa bật cho người mua.';
  }else if(configId==='payment_momo'){
   rows=[
    {label:'Return URL',url:callbacks.momoReturn||'https://gaeru.com/api/payments/momo/return'},
@@ -269,7 +258,7 @@ async function mountPayments(){
 
  const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý thanh toán GAERU:</strong> Lưu cấu hình và xem bằng chứng xác thực của từng kênh. Chỉ phương thức được bật và sẵn sàng mới xuất hiện khi khách thanh toán.</p><p style="margin-top:6px;font-size:12px;color:#475569;">Đơn thanh toán qua cổng được cập nhật khi nhận phản hồi hợp lệ. Chuyển khoản ngân hàng cần đối chiếu thủ công trước khi xác nhận.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/6</strong></span><span class="payment-stat-pill">Đã có bằng chứng xác thực: <strong>'+verifiedCount+'</strong></span></div></div>';
 
- const cardsHtml=['cod','bank_transfer','vnpay','9pay','momo','zalopay'].map(chId=>{
+ const cardsHtml=['cod','bank_transfer','vnpay','momo','zalopay'].map(chId=>{
   const configId=paymentMap[chId];
   const channel=channels.find(c=>c.id===chId)||{id:chId,configId,verified:false,enabled:chId==='cod',version:data.records[configId]?.version||0};
   const record=data.records[configId]||{version:0,data:{}};
@@ -283,8 +272,6 @@ async function mountPayments(){
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Ngân hàng:</span><span class="payment-snapshot-val">'+esc(v.bankName||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Số tài khoản:</span><span class="payment-snapshot-val">'+esc(v.accountNumber||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Chủ tài khoản:</span><span class="payment-snapshot-val">'+esc(v.accountHolder||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Cú pháp:</span><span class="payment-snapshot-val"><code>'+esc(v.transferSyntax||'GAERU {MA_DON}')+'</code></span></div>';
   }else if(chId==='vnpay'){
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Mã website (TMN):</span><span class="payment-snapshot-val"><code>'+esc(v.tmnCode||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Khóa Hash Secret:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
-  }else if(chId==='9pay'){
-   snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Merchant Key:</span><span class="payment-snapshot-val"><code>'+(v.merchantKey?esc(v.merchantKey.slice(0,8)+'••••'):'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Khóa bí mật:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
   }else if(chId==='momo'){
    snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">Partner Code:</span><span class="payment-snapshot-val"><code>'+esc(v.partnerCode||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Môi trường:</span><span class="payment-snapshot-val">'+(v.environment==='production'?'Chính thức':'Thử nghiệm')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Secret Key:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
   }else{
@@ -298,8 +285,6 @@ async function mountPayments(){
    webhookBox='<div class="payment-integration-box">Cần đối chiếu thủ công tiền vào tài khoản trước khi xác nhận thanh toán. Kiểm tra cấu hình chỉ kiểm tra định dạng, không xác minh chủ tài khoản.</div>';
   }else if(chId==='vnpay'){
    webhookBox='<div class="payment-integration-box"><strong>VNPAY URLs:</strong><br>Return URL: <code>'+esc(callbacks.vnpayReturn||'')+'</code><br>IPN URL: <code>'+esc(callbacks.vnpayIpn||'')+'</code></div>';
-  }else if(chId==='9pay'){
-   webhookBox='<div class="payment-integration-box"><strong>9Pay URLs:</strong><br>Return URL: <code>'+esc(callbacks.ninepayReturn||'')+'</code><br>IPN URL: <code>'+esc(callbacks.ninepayIpn||'')+'</code></div>';
   }else if(chId==='momo'){
    webhookBox='<div class="payment-integration-box"><strong>MoMo URLs:</strong><br>Return URL: <code>'+esc(callbacks.momoReturn||'')+'</code><br>IPN URL: <code>'+esc(callbacks.momoIpn||'')+'</code></div>';
   }else{
@@ -309,13 +294,13 @@ async function mountPayments(){
   const envPill=v.environment?(v.environment==='production'?'<span class="payment-badge badge-prod">Chính thức</span>':'<span class="payment-badge badge-sandbox">Thử nghiệm</span>'):'';
   const statusPill=channel.enabled?'<span class="payment-badge badge-enabled">● Đang bật</span>':'<span class="payment-badge badge-disabled">○ Đang tắt</span>';
   const verifyPill=paymentVerificationBadge(channel);
-  const enableBlocked=!channel.enabled&&(chId==='9pay'||channel.canEnable===false||channel.supported===false);
+  const enableBlocked=!channel.enabled&&(channel.canEnable===false||channel.supported===false);
   const readinessHtml=channel.unsupportedReason?'<p class="help-text">'+esc(channel.unsupportedReason)+'</p>':channel.enabled&&channel.checkoutReady===false?'<p class="help-text">Kênh đã bật nhưng chưa sẵn sàng nhận thanh toán.</p>':'';
 
   return '<article class="payment-card configuration-panel '+(channel.enabled?'card-enabled':'')+'" id="config-panel-'+configId+'" data-channel-id="'+chId+'"><div class="payment-card-header"><div class="payment-card-icon">'+meta.icon+'</div><div class="payment-card-header-main"><h3 class="payment-card-title">'+meta.title+'</h3><p class="payment-card-sub">'+meta.sub+'</p><div class="payment-card-badges">'+statusPill+verifyPill+envPill+'</div></div></div><div class="payment-card-body">'+snapshotHtml+readinessHtml+'</div><div class="payment-card-actions"><button type="button" class="payment-action-btn payment-btn-setup" data-open-config-popup="'+configId+'" data-toggle-drawer="'+configId+'">⚙ Cấu hình &amp; Khóa</button><button type="button" class="payment-action-btn '+(channel.enabled?'payment-btn-disable':'payment-btn-enable')+'" data-payment-enable="'+chId+'" data-enabled="'+(!channel.enabled)+'" '+(enableBlocked?'disabled':'')+'>'+(channel.enabled?'Tắt kênh':'Bật kênh')+'</button><button type="button" class="payment-action-btn payment-btn-test" data-payment-test="'+chId+'">Kiểm tra kết nối</button><p role="status" class="payment-card-status" data-payment-result></p></div><details class="payment-card-drawer" id="drawer-'+configId+'" style="display:none"><summary class="payment-drawer-summary"><span>⚙ Chi tiết cấu hình, Khóa bảo mật &amp; Webhook</span></summary>'+webhookBox+form(configId)+'</details></article>';
  }).join('');
 
- const reconcileHtml='<details class="configuration-panel" id="config-panel-payment-reconcile"><summary>Xác nhận thanh toán sau đối chiếu</summary><p class="help-text">Chỉ xác nhận tại đây sau khi đã đối chiếu tiền thực nhận và chứng từ của đúng đơn hàng. Thao tác này ghi nhận thanh toán thủ công; không truy vấn số dư ngân hàng và không chuyển tiền.</p><form class="configuration-form" data-payment-reconcile-form><div class="form-grid"><label>Kênh thanh toán trước<select name="provider"><option value="bank_transfer">Chuyển khoản ngân hàng</option><option value="momo">Ví điện tử MoMo</option><option value="zalopay">Ví điện tử ZaloPay</option><option value="vnpay">Cổng VNPAY</option><option value="9pay">9Pay (đơn lịch sử)</option></select></label><label>Mã đơn / Nội dung giao dịch<input name="orderNumber" required maxlength="120" placeholder="VD: GAERU GR-20261027-ABCDE12345"></label><label>Số tiền giao dịch (₫)<input name="amountVnd" type="number" required min="1" max="2000000000" placeholder="Nhập đúng tổng tiền đơn"></label><label>Mã giao dịch tham chiếu<input name="providerTransactionId" maxlength="120" placeholder="Mã GD ngân hàng / ví (tùy chọn)"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div></div><div class="configuration-actions"><button type="submit" class="primary-button">Xác nhận đã đối chiếu và nhận tiền</button><p role="status" data-reconcile-result></p></div></form></details>';
+ const reconcileHtml='<details class="configuration-panel" id="config-panel-payment-reconcile"><summary>Xác nhận thanh toán sau đối chiếu</summary><p class="help-text">Chỉ xác nhận tại đây sau khi đã đối chiếu tiền thực nhận và chứng từ của đúng đơn hàng. Thao tác này ghi nhận thanh toán thủ công; không truy vấn số dư ngân hàng và không chuyển tiền.</p><form class="configuration-form" data-payment-reconcile-form><div class="form-grid"><label>Kênh thanh toán trước<select name="provider"><option value="bank_transfer">Chuyển khoản ngân hàng</option><option value="momo">Ví điện tử MoMo</option><option value="zalopay">Ví điện tử ZaloPay</option><option value="vnpay">Cổng VNPAY</option></select></label><label>Mã đơn / Nội dung giao dịch<input name="orderNumber" required maxlength="120" placeholder="VD: GAERU GR-20261027-ABCDE12345"></label><label>Số tiền giao dịch (₫)<input name="amountVnd" type="number" required min="1" max="2000000000" placeholder="Nhập đúng tổng tiền đơn"></label><label>Mã giao dịch tham chiếu<input name="providerTransactionId" maxlength="120" placeholder="Mã GD ngân hàng / ví (tùy chọn)"></label></div><div class="configuration-reauth"><p>Xác nhận bằng mật khẩu hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div></div><div class="configuration-actions"><button type="submit" class="primary-button">Xác nhận đã đối chiếu và nhận tiền</button><p role="status" data-reconcile-result></p></div></form></details>';
 
  root.innerHTML=introHtml+'<div class="payment-channel-grid">'+cardsHtml+'</div>'+reconcileHtml;
 }
@@ -510,8 +495,8 @@ function form(id){
   ?'<button type="button" class="secondary-button" data-payment-test="'+(id==='vnpay'?'vnpay':id.slice(8))+'">Kiểm tra kết nối đã lưu</button>'
   :'';
 
- const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='chat_ai'?chatAIFields(v):'')+fields[id].map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+(v.secretConfigured?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_9pay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Tự động xuất hóa đơn khi đơn hoàn thành & đã thanh toán</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Kích hoạt kết nối hóa đơn điện tử MISA eShop</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(id==='chat_ai'?'Chat AI':titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
- return id==='payment_9pay'?markup.replace(/<input type="checkbox" name="enabled"[^>]*>/,'<input type="checkbox" name="enabled" disabled>')+'<p class="help-text">9Pay chưa hỗ trợ nhận thanh toán. Có thể lưu thông tin cấu hình để đối chiếu.</p>':markup;
+ const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='chat_ai'?chatAIFields(v):'')+fields[id].map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+(v.secretConfigured?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Tự động xuất hóa đơn khi đơn hoàn thành & đã thanh toán</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Kích hoạt kết nối hóa đơn điện tử MISA eShop</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(id==='chat_ai'?'Chat AI':titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
+ return markup;
 }
 
 async function mountProfile(root){
@@ -527,7 +512,7 @@ async function load(){
  const root=document.querySelector('#system-configuration');
  if(!root)return;
  const services=data.services;
- root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối, AI và bảo mật</h2></div><button type="button" class="secondary-button" data-config-open="payments">Mở Quản lý thanh toán ↗</button></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi quan trọng cần mật khẩu và xác thực hai yếu tố. Các kênh thanh toán (COD, Chuyển khoản, VNPAY, 9Pay) được quản lý tập trung tại mục Quản lý thanh toán.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" data-media-storage-probe>Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['chat_ai','oauth','misa','shopee','tiktok','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='chat_ai'?(data.records.chat_ai.data.enabled?'Đã bật · kiểm tra model trước khi sử dụng':'Chưa bật'):id==='oauth'?(data.records.oauth?.data?.googleClientId||data.records.oauth?.data?.appleClientId?'Đã lưu Client ID · Sẵn sàng':'Chưa cấu hình'):id==='misa'?(data.records.misa?.data?.enabled?(data.records.misa?.data?.autoIssue?'Đã bật · Tự động xuất hóa đơn':'Đã bật · Xuất thủ công'):'Chưa kích hoạt'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='oauth'?'<p class="help-text">Nhập Google Client ID và Apple Service ID để kích hoạt đăng nhập một chạm. Hướng dẫn lấy mã: <br>• <strong>Google:</strong> Truy cập Google Cloud Console ➔ APIs & Services ➔ Credentials ➔ OAuth Client ID (Web Application) ➔ thêm redirect URI: <code>https://gaeru.com/account.html</code> (hoặc <code>http://localhost:3000/account.html</code>).<br>• <strong>Apple:</strong> Truy cập Apple Developer ➔ Certificates, Identifiers & Profiles ➔ Services IDs (VD: <code>com.gaeru.web.signin</code>).</p>':id==='chat_ai'?'<p class="help-text">Chọn AI, nhập ID model và khóa tương ứng rồi lưu. Có thể giữ khóa riêng cho cả ba nhà cung cấp. Kiểm tra chat AI gửi một câu thử, có thể tính phí API theo tài khoản của bạn. Chỉ câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm được gửi cho AI; tệp đính kèm dành cho nhân viên.</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Chưa thực hiện OAuth, gọi API hay đồng bộ đơn và tồn kho. Cần quyền và thông tin ứng dụng được nhà cung cấp phê duyệt.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
+ root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối, AI và bảo mật</h2></div><button type="button" class="secondary-button" data-config-open="payments">Mở Quản lý thanh toán ↗</button></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi quan trọng cần mật khẩu và xác thực hai yếu tố. Các kênh thanh toán (COD, Chuyển khoản, VNPAY, MoMo, ZaloPay) được quản lý tập trung tại mục Quản lý thanh toán.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" data-media-storage-probe>Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['chat_ai','oauth','misa','shopee','tiktok','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='chat_ai'?(data.records.chat_ai.data.enabled?'Đã bật · kiểm tra model trước khi sử dụng':'Chưa bật'):id==='oauth'?(data.records.oauth?.data?.googleClientId?'Đã lưu Client ID · Sẵn sàng':'Chưa cấu hình'):id==='misa'?(data.records.misa?.data?.enabled?(data.records.misa?.data?.autoIssue?'Đã bật · Tự động xuất hóa đơn':'Đã bật · Xuất thủ công'):'Chưa kích hoạt'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='oauth'?'<p class="help-text">Nhập Google Client ID để kích hoạt đăng nhập một chạm. Hướng dẫn lấy mã: Truy cập Google Cloud Console ➔ APIs & Services ➔ Credentials ➔ OAuth Client ID (Web Application) ➔ thêm redirect URI: <code>https://gaeru.com/account.html</code> (hoặc <code>http://localhost:3000/account.html</code>).</p>':id==='chat_ai'?'<p class="help-text">Chọn AI, nhập ID model và khóa tương ứng rồi lưu. Có thể giữ khóa riêng cho cả ba nhà cung cấp. Kiểm tra chat AI gửi một câu thử, có thể tính phí API theo tài khoản của bạn. Chỉ câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm được gửi cho AI; tệp đính kèm dành cho nhân viên.</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Chưa thực hiện OAuth, gọi API hay đồng bộ đơn và tồn kho. Cần quyền và thông tin ứng dụng được nhà cung cấp phê duyệt.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
 }
 
 document.addEventListener('click',async e=>{
@@ -620,7 +605,7 @@ document.addEventListener('submit',async e=>{
   if(id==='operations'){
    values.ordersEnabled=f.elements.ordersEnabled?f.elements.ordersEnabled.checked:false;
   }
-  if(['vnpay','payment_9pay','payment_momo','payment_zalopay'].includes(id)){
+  if(['vnpay','payment_momo','payment_zalopay'].includes(id)){
    if(f.elements.environment)values.environment=f.elements.environment.value;
    if(f.elements.enabled)values.enabled=f.elements.enabled.checked;
   }
@@ -636,7 +621,6 @@ document.addEventListener('submit',async e=>{
    if(typeof values.transferSyntax==='string')values.transferSyntax=values.transferSyntax.trim();
   }
   if(id==='vnpay'&&typeof values.tmnCode==='string')values.tmnCode=values.tmnCode.trim();
-  if(id==='payment_9pay'&&typeof values.merchantKey==='string')values.merchantKey=values.merchantKey.trim();
   if(id==='payment_momo'){
    if(typeof values.partnerCode==='string')values.partnerCode=values.partnerCode.trim();
    if(typeof values.accessKey==='string')values.accessKey=values.accessKey.trim();
@@ -663,13 +647,6 @@ document.addEventListener('submit',async e=>{
    if(!curVersion&&!values.hashSecret){
     if(f.elements.hashSecret&&typeof f.elements.hashSecret.focus==='function')f.elements.hashSecret.focus();
     showMsg('Vui lòng nhập khóa bí mật (Hash Secret) cho lần cấu hình đầu tiên.',true);
-    if(button)button.disabled=false;
-    return;
-   }
-  }
-  if(id==='payment_9pay'){
-   if(!curVersion&&(!values.secretKey||!values.checksumKey)){
-    showMsg('Vui lòng nhập Secret Key và Checksum Key cho lần cấu hình đầu tiên.',true);
     if(button)button.disabled=false;
     return;
    }

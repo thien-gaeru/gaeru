@@ -8,7 +8,6 @@ MoMo và ZaloPay tạo phiên ở máy chủ qua API chính thức. Checkout ch�
 - VNPAY giữ luồng URL thanh toán có chữ ký và IPN. HTTP 200 của trang công khai chỉ chứng minh nhận được phản hồi HTTP, không xác thực merchant hoặc khóa.
 - MoMo dùng POST `/v2/gateway/api/create`, truy vấn `/v2/gateway/api/query`, thông báo JSON có chữ ký đầy đủ; xác nhận IPN khớp đơn bằng HTTP 204.
 - ZaloPay dùng POST `/v2/create`, truy vấn `/v2/query`, callback JSON có MAC và merchant khớp. `app_trans_id` lấy ngày theo múi giờ Việt Nam, được giữ trong payment attempt và dùng lại khi truy vấn/callback.
-- 9Pay chưa có adapter được đối chiếu với hợp đồng merchant. Không cho bật, tạo checkout hoặc tự ghi nhận callback theo định dạng suy đoán. Cấu hình tắt vẫn có thể lưu; giao dịch lịch sử chỉ được đối soát bởi chủ doanh nghiệp.
 
 Khóa được lưu mã hóa trong cấu hình chủ hiện có. Không có biến môi trường mới để nhập khóa vào mã nguồn. Trên production không cho bật cấu hình sandbox. Không tự bật nhận đơn hoặc kênh thanh toán khi khởi động.
 

@@ -80,11 +80,9 @@ test('ZaloPay rejects bad MAC, wrong event types and signed malformed transactio
   assert.equal(verifyGatewayPayload('zalopay', signed([]), zalo).valid, false);
 });
 
-test('9Pay and bank transfer cannot settle through unverified generic callback formats', () => {
-  const settings = { checksumKey: 'fixture-unverified-9pay-key' };
+test('unverified generic callback formats cannot settle orders', () => {
+  const settings = { checksumKey: 'fixture-unverified-key' };
   const payload = { invoice_no: orderNumber, amount: 230000, status: 'PAID' };
-  payload.checksum = hmac(settings.checksumKey, `${orderNumber}:230000:PAID`);
-  assert.equal(verifyGatewayPayload('9pay', payload, settings).valid, false);
   assert.equal(verifyGatewayPayload('bank_transfer', payload, settings).valid, false);
   assert.equal(verifyGatewayPayload('momo', null, momo).valid, false);
   assert.equal(verifyGatewayPayload('zalopay', [], zalo).valid, false);

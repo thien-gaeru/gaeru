@@ -37,7 +37,6 @@ const labels = {
   cod: "Thanh toán khi nhận hàng",
   bank_transfer: "Chuyển khoản thủ công",
   vnpay: "VNPAY",
-  "9pay": "9Pay",
   momo: "MoMo",
   zalopay: "ZaloPay"
 };
@@ -688,7 +687,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function isLiveVnpayAttempt(order) {
-  return ["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod) && order.paymentAttemptStatus === "pending"
+  return ["vnpay", "momo", "zalopay"].includes(order.paymentMethod) && order.paymentAttemptStatus === "pending"
     && (!order.paymentAttemptExpiresAt || new Date(order.paymentAttemptExpiresAt).getTime() > Date.now());
 }
 
@@ -699,7 +698,7 @@ function canEditShipping(order) {
 
 function orderPaymentControl(order) {
   const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
-  if (["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
+  if (["vnpay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
   if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
   return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
@@ -770,7 +769,7 @@ function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
  document.getElementById('order-bulk-dialog')?.remove();const dialog=document.createElement('dialog');dialog.id='order-bulk-dialog';dialog.className='order-processing-dialog';
  dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="confirm">Xác nhận đơn → Đã xác nhận</option><option value="prepare">Chuẩn bị hàng → Cần gửi</option><option value="ship">Xác nhận bàn giao → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ số tiền còn lại của các đơn COD đã giao.</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
- const form=dialog.querySelector('form'),hint=dialog.querySelector('[data-bulk-hint]');const refresh=()=>{const target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[form.elements.action.value];const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=='confirmed'||o.shippingFeeVnd!=null)&&(target!=='cancelled'||o.paymentStatus!=='paid'&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=='completed'||o.paymentStatus==='paid'||can('payments.write')&&!['vnpay','9pay'].includes(o.paymentMethod)));hint.textContent=eligible.length+'/'+orders.length+' đơn đủ điều kiện cho bước đã chọn.';dialog.querySelector('[data-bulk-money]').hidden=target!=='completed';form.elements.confirmReceived.required=target==='completed'&&orders.some(o=>o.paymentStatus!=='paid');form.elements.confirmReceived.checked=false;form.querySelector('[type=submit]').disabled=eligible.length!==orders.length;};
+ const form=dialog.querySelector('form'),hint=dialog.querySelector('[data-bulk-hint]');const refresh=()=>{const target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[form.elements.action.value];const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=='confirmed'||o.shippingFeeVnd!=null)&&(target!=='cancelled'||o.paymentStatus!=='paid'&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=='completed'||o.paymentStatus==='paid'||can('payments.write')&&!['vnpay', 'momo', 'zalopay'].includes(o.paymentMethod)));hint.textContent=eligible.length+'/'+orders.length+' đơn đủ điều kiện cho bước đã chọn.';dialog.querySelector('[data-bulk-money]').hidden=target!=='completed';form.elements.confirmReceived.required=target==='completed'&&orders.some(o=>o.paymentStatus!=='paid');form.elements.confirmReceived.checked=false;form.querySelector('[type=submit]').disabled=eligible.length!==orders.length;};
  const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:'confirm',confirmed:'prepare',processing:'ship',shipped:'complete'}[common];if(next)form.elements.action.value=next;form.elements.action.addEventListener('change',refresh);dialog.querySelector('[data-close-bulk]').addEventListener('click',()=>{if(typeof dialog.close==='function')dialog.close();dialog.remove();});dialog.addEventListener('close',()=>dialog.remove());
  form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');if(button.disabled)return;button.disabled=true;feedback.textContent='Đang kiểm tra và xử lý…';let saved=false;try{const result=await request('/api/gaeru_ceo/orders/bulk',{method:'POST',body:JSON.stringify({action:form.elements.action.value,confirmReceived:form.elements.confirmReceived.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==='function')dialog.close();dialog.remove();document.querySelector('#order-filter').value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal('Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;button.disabled=false;}});
  document.body.append(dialog);refresh();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
@@ -817,7 +816,7 @@ function renderOrders() {
     const orderDate = new Date(order.createdAt).toLocaleString("vi-VN");
     const returned=order.returnStatus==='returned'||Boolean(order.returnedAt);
     const allowed = can("orders.write")&&!returned ? (orderTransitions[order.status] || []).filter((status) => (status !== "cancelled" || (order.paymentStatus !== "paid" && !(Number(order.receivedVnd) > 0) && !isLiveVnpayAttempt(order)))
-      && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "9pay", "momo", "zalopay"].includes(order.paymentMethod)))) : [];
+      && (status !== "completed" || order.paymentStatus === "paid" || (can("payments.write") && !["vnpay", "momo", "zalopay"].includes(order.paymentMethod)))) : [];
     const optionMarkup = [order.status, ...allowed].map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(labels[key] || key)}</option>`).join("");
     const paymentStatus = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
     const paymentNote = order.paymentProvider === "vnpay" ? (order.paymentAttemptStatus === "pending" && !isLiveVnpayAttempt(order) ? "Phiên thanh toán VNPAY đã hết hạn; kiểm tra đối soát trước khi xử lý đơn." : paymentAttemptLabels[order.paymentAttemptStatus]) : "";

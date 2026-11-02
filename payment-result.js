@@ -3,7 +3,7 @@
   const content = document.querySelector('#payment-result');
   if (!content) return;
   const orderNumber = result.get('order');
-  const providerNames = { vnpay:'VNPAY', '9pay':'9Pay', momo:'MoMo', zalopay:'ZaloPay', bank_transfer:'Chuyển khoản ngân hàng' };
+  const providerNames = { vnpay:'VNPAY',  momo:'MoMo', zalopay:'ZaloPay', bank_transfer:'Chuyển khoản ngân hàng' };
   const waiting = {
     title:'Đang kiểm tra trạng thái thanh toán.',
     detail:'GAERU đang chờ xác nhận từ máy chủ. Trang chuyển hướng chưa phải bằng chứng thanh toán thành công.'

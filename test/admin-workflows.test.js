@@ -131,7 +131,7 @@ test("admin cannot undo received payments, alter gateway results, or reprice pai
     { method: "bank_transfer", payment: "paid", body: { paymentStatus: "pending" }, error: /đã thanh toán về chưa thanh toán/ },
     { method: "vnpay", payment: "paid", body: { paymentStatus: "pending" }, error: /đã thanh toán về chưa thanh toán/ },
     { method: "vnpay", payment: "pending", body: { paymentStatus: "paid" }, error: /không thể sửa thủ công/ },
-    { method: "9pay", payment: "pending", body: { paymentStatus: "paid" }, error: /không thể sửa thủ công/ },
+    { method: "momo", payment: "pending", body: { paymentStatus: "paid" }, error: /không thể sửa thủ công/ },
     { method: "bank_transfer", payment: "paid", body: { shippingFeeVnd: 40000 }, error: /phí giao hàng sau khi đơn đã thanh toán/ },
     { method: "vnpay", payment: "paid", body: { status: "cancelled" }, error: /hoàn tiền trước khi hủy/ }
   ];
@@ -212,7 +212,7 @@ test("order payment filters use the same count/page predicate and preserve pagin
     assert.equal(invalid.status, 400);
   }
   assert.equal(queries.length, 2);
-  for (const paymentMethod of ["cod", "bank_transfer", "9pay", "vnpay"]) {
+  for (const paymentMethod of ["cod", "bank_transfer", "vnpay"]) {
     const valid = await request(`/gaeru_ceo/orders?paymentStatus=pending&paymentMethod=${paymentMethod}`);
     assert.equal(valid.status, 200);
   }

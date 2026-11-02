@@ -526,7 +526,7 @@ async function loadOAuthConfig() {
   } catch (e) {
     console.warn('Cannot load oauth config', e);
   }
-  return oauthConfig || { google: { configured: false, clientId: '' }, apple: { configured: false, clientId: '' } };
+  return oauthConfig || { google: { configured: false, clientId: '' } };
 }
 
 function showOAuthConfigModal(provider, cfg) {

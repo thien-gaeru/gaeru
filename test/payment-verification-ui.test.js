@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { parseHTML } = require('linkedom');
 
-const configIds = { cod:'payment_cod',bank_transfer:'payment_bank_transfer',vnpay:'vnpay','9pay':'payment_9pay',momo:'payment_momo',zalopay:'payment_zalopay' };
+const configIds = { cod:'payment_cod',bank_transfer:'payment_bank_transfer',vnpay:'vnpay',momo:'payment_momo',zalopay:'payment_zalopay' };
 async function fixture({ result={verified:false,reachable:true,method:'gateway_reachability',message:'Liên lạc được máy chủ; chưa xác minh tài khoản.'},error }={}) {
   const {document}=parseHTML('<html><body><section id="payment-configuration"></section><section id="shipping-configuration"></section></body></html>');
   const listeners={},requests=[];
@@ -15,7 +15,6 @@ async function fixture({ result={verified:false,reachable:true,method:'gateway_r
     {id:'cod',configured:true,enabled:true,verified:false,method:'configuration_validation',canEnable:true,supported:true,checkoutReady:true},
     {id:'bank_transfer',configured:true,enabled:true,verified:true,method:'account_verification',canEnable:true,supported:true,checkoutReady:true},
     {id:'vnpay',configured:true,enabled:true,verified:true,method:'gateway_handshake',reachable:true,canEnable:true,supported:true,checkoutReady:true},
-    {id:'9pay',configured:true,enabled:false,verified:true,method:'gateway_handshake',canEnable:false,supported:false,checkoutReady:false,unsupportedReason:'Chưa hỗ trợ nhận thanh toán 9Pay.'},
     {id:'momo',configured:true,enabled:true,verified:true,method:'provider_order_create',verificationScope:'api_credentials',callbackVerified:false,canEnable:true,supported:true,checkoutReady:true},
     {id:'zalopay',configured:true,enabled:true,verified:true,method:'signed_callback',verificationScope:'callback_signature',callbackVerified:true,canEnable:true,supported:true,checkoutReady:true}
   ];
@@ -52,10 +51,6 @@ test('payment cards distinguish configuration, reachability, authenticated proof
   assert.match(card('bank_transfer').textContent,/đối chiếu thủ công/i);
   assert.match(card('vnpay').textContent,/Liên lạc được.*Chưa xác minh/);
   assert.doesNotMatch(card('vnpay').textContent,/Đã xác minh tài khoản/);
-  assert.equal(card('9pay').querySelector('[data-payment-enable]').disabled,true);
-  assert.equal(card('9pay').querySelector('input[name=enabled]').disabled,true);
-  assert.equal(card('9pay').querySelector('input[name=enabled]').hasAttribute('checked'),false);
-  assert.match(card('9pay').textContent,/Chưa hỗ trợ nhận thanh toán 9Pay/);
   assert.match(card('momo').textContent,/Đã xác thực API.*Chưa kiểm tra phản hồi/);
   assert.match(card('zalopay').textContent,/Đã xác thực phản hồi thanh toán/);
   assert.match(f.document.querySelector('.payment-hub-stats').textContent,/Đã có bằng chứng xác thực:\s*2/);

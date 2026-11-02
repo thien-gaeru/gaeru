@@ -156,7 +156,7 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
     if (/huong dan|ket noi|su dung|cach dung|sac|pin|bluetooth|usb|type c|lightning/.test(qNorm) && page.file.startsWith('guide')) score += 18;
     if (/bao hanh|care|doi moi|sua chua|kich hoat/.test(qNorm) && (page.file === 'care.html' || page.file === 'warranty-activation.html' || page.file === 'product-support.html')) score += 20;
     if (/giao hang|van chuyen|ship|doi tra|hoan tien|nhan hang/.test(qNorm) && page.file === 'delivery-returns.html') score += 20;
-    if (/thanh toan|vnpay|momo|zalopay|9pay|chuyen khoan|cod|tra gop/.test(qNorm) && page.file === 'payment.html') score += 20;
+    if (/thanh toan|vnpay|momo|zalopay|chuyen khoan|cod|tra gop/.test(qNorm) && page.file === 'payment.html') score += 20;
     if (/gia|bang gia|uu dai|khuyen mai/.test(qNorm) && (page.file === 'pricing.html' || page.file === 'shop.html')) score += 15;
     if (/khieu nai|gop y|tranh chap/.test(qNorm) && page.file === 'complaints.html') score += 18;
     if (/chinh sach|dieu khoan|bao mat/.test(qNorm) && (page.file === 'terms.html' || page.file === 'privacy.html' || page.file === 'legal.html')) score += 15;

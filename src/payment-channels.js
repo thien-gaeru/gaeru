@@ -12,7 +12,6 @@ const channels=Object.freeze({
  cod:{id:'cod',configId:'payment_cod',name:'Thanh toán khi nhận hàng (COD)',prepaid:false},
  bank_transfer:{id:'bank_transfer',configId:'payment_bank_transfer',name:'Chuyển khoản ngân hàng',prepaid:true},
  vnpay:{id:'vnpay',configId:'vnpay',name:'Cổng thanh toán VNPAY',prepaid:true},
- '9pay':{id:'9pay',configId:'payment_9pay',name:'Cổng thanh toán 9Pay',prepaid:true},
  momo:{id:'momo',configId:'payment_momo',name:'Ví điện tử MoMo',prepaid:true},
  zalopay:{id:'zalopay',configId:'payment_zalopay',name:'Ví điện tử ZaloPay',prepaid:true}
 });
@@ -30,7 +29,6 @@ function defaultChannelData(id){
  if(id==='cod')return {enabled:true,maxAmountVnd:50000000,instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.'};
  if(id==='bank_transfer')return {bankName:'',accountNumber:'',accountHolder:'',branch:'',transferSyntax:'GAERU {MA_DON}',enabled:false};
  if(id==='vnpay')return {tmnCode:'',environment:'sandbox',enabled:false};
- if(id==='9pay')return {merchantKey:'',environment:'sandbox',enabled:false};
  if(id==='momo')return {partnerCode:'',accessKey:'',environment:'sandbox',enabled:false};
  if(id==='zalopay')return {appId:'',environment:'sandbox',enabled:false};
  return {};
@@ -52,7 +50,6 @@ function isChannelConfigured(id,record,vnpayConfig){
  if(id==='cod')return true;
  if(id==='bank_transfer')return Boolean(record?.version>0&&d.bankName&&d.accountNumber&&d.accountHolder);
  if(id==='vnpay')return Boolean(vnpayConfig||(record?.version>0&&d.tmnCode&&d.hashSecret));
- if(id==='9pay')return Boolean(record?.version>0&&d.merchantKey&&d.secretKey&&d.checksumKey);
  if(id==='momo')return Boolean(record?.version>0&&d.partnerCode&&d.accessKey&&d.secretKey);
  if(id==='zalopay')return Boolean(record?.version>0&&d.appId&&d.key1&&d.key2);
  return false;
@@ -98,9 +95,6 @@ function verifyGatewayPayload(provider,payload,settings){
  const amount=value=>unsigned(value)&&Number.isSafeInteger(Number(value))&&Number(value)>0&&Number(value)<=2000000000;
  const positiveId=value=>unsigned(value)&&String(value)!=='0';
  const orderPattern=/^GR-\d{8}-[A-Z0-9]{4,20}$/;
- if(provider==='9pay'){
-  return {valid:false,reason:'Automatic 9Pay callbacks are unavailable until a verified merchant contract is configured. Use owner-authorized reconciliation.'};
- }
  if(provider==='momo'){
   const textFields=['partnerCode','orderId','orderInfo','orderType','payType','requestId','message','extraData'];
   if(textFields.some(field=>typeof payload[field]!=='string'||payload[field].length>4000)
@@ -250,9 +244,9 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
 }
 
 async function assertPaymentConfigurationChange(client,id,before,after){
- if(!['vnpay','9pay','momo','zalopay'].includes(id))return;
+ if(!['vnpay','momo','zalopay'].includes(id))return;
  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[id==='vnpay'?'gaeru:vnpay-config':'gaeru:payment-config:'+id]);
- const fields={vnpay:['tmnCode','hashSecret','environment'],'9pay':['merchantKey','secretKey','checksumKey','environment'],momo:['partnerCode','accessKey','secretKey','environment'],zalopay:['appId','key1','key2','environment']}[id];
+ const fields={vnpay:['tmnCode','hashSecret','environment'],momo:['partnerCode','accessKey','secretKey','environment'],zalopay:['appId','key1','key2','environment']}[id];
  if(fields.every(k=>before[k]===after[k]))return;
  const count=(await client.query("SELECT count(*)::int AS count FROM payment_attempts WHERE provider=$1 AND status='pending'",[id])).rows[0]?.count||0;
  if(count)throw fail('Có giao dịch đang chờ. Đối soát hoặc hủy đơn trước khi đổi tài khoản, khóa hoặc môi trường thanh toán.',409);
@@ -261,12 +255,12 @@ function authenticatedProof(method,scope){
  return method==='signed_callback'?scope==='callback_signature':['authenticated_api','provider_order_create'].includes(method)&&scope==='api_credentials';
 }
 function availability(id,record,vnpayConfig,config={}){
- const supported=id!=='9pay';
+ const supported=true;
  const configured=isChannelConfigured(id,record,vnpayConfig);
  const sandboxOnProduction=config.NODE_ENV==='production'&&(record.data.environment==='sandbox'||(id==='vnpay'&&String(vnpayConfig?.paymentUrl||'').includes('sandbox.')));
  const canEnable=supported&&configured&&!sandboxOnProduction;
  const enabled=supported&&isChannelEnabled(id,record,vnpayConfig);
- return {supported,canEnable,enabled,checkoutReady:enabled&&canEnable,unsupportedReason:!supported?'9Pay chưa có bộ kết nối được đối chiếu với tài liệu merchant.':sandboxOnProduction?'Dùng cấu hình chính thức trên website đang hoạt động.':!configured?'Lưu đủ thông tin cấu hình trước khi bật.':null};
+ return {supported,canEnable,enabled,checkoutReady:enabled&&canEnable,unsupportedReason:sandboxOnProduction?'Dùng cấu hình chính thức trên website đang hoạt động.':!configured?'Lưu đủ thông tin cấu hình trước khi bật.':null};
 }
 async function recordGatewayEvidence(client,id,version,{method='signed_callback',scope='callback_signature',enabled=false}={}){
  if(!authenticatedProof(method,scope))throw fail('Bằng chứng xác thực không hợp lệ.',400);
@@ -283,7 +277,7 @@ async function getCheckoutPaymentChannels(pool,config={},fallbackVnpay=null){
  for(const id of channelIds){
   const record=await readChannelRecord(pool,config,id);versions[id]=record.version;
   if(id==='vnpay'){const callback=storedVnpay.version?callbackVnpay:callbackVnpay||fallbackVnpay;if(callback)callbackConfigs.vnpay=callback;}
-  else if(id!=='9pay'&&isChannelConfigured(id,record,null))callbackConfigs[id]=record.data;
+  else if(isChannelConfigured(id,record,null))callbackConfigs[id]=record.data;
   if(!availability(id,record,vnpayConfig,config).checkoutReady)continue;
   methods.push(id);configs[id]=id==='vnpay'?vnpayConfig:record.data;
   if(id==='bank_transfer')bankTransfer=formatBankTransferInstructions(record.data);
@@ -305,7 +299,6 @@ async function verifyPaymentChannel(id,settings,{config={},pool=null,fetcher=fet
   if(!settings.bankName||settings.bankName.trim().length<2||!settings.accountHolder||settings.accountHolder.trim().length<2||!(/^[0-9A-Za-z]{6,30}$/).test(String(settings.accountNumber||''))||String(settings.transferSyntax||'GAERU {MA_DON}').trim().length<3)throw fail('Thông tin chuyển khoản chưa hợp lệ.',400);
   return {...base,configured:true,reachable:null,method:'configuration_validation',message:'Thông tin chuyển khoản đúng định dạng. Chưa xác minh quyền sở hữu tài khoản; chủ doanh nghiệp đối soát giao dịch trước khi ghi nhận đã thu tiền.'};
  }
- if(id==='9pay')return {...base,reachable:null,supported:false,method:'unsupported',message:'9Pay chưa có bộ kết nối được đối chiếu với tài liệu merchant; chưa cho phép nhận thanh toán.'};
  if(id==='momo'||id==='zalopay'){
   let attempt=null;if(pool)attempt=(await pool.query("SELECT transaction_ref,amount_vnd,provider_request_id FROM payment_attempts WHERE provider=$1 AND provider_request_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",[id])).rows[0]||null;
   const result=await require('./payment-provider-clients').verifyGatewayAccount(id,settings,{fetcher,...(attempt?{txnRef:attempt.transaction_ref,amountVnd:attempt.amount_vnd,requestId:attempt.provider_request_id}:{})});
@@ -375,8 +368,6 @@ async function listPaymentChannels(pool,config){
   callbacks:{
    vnpayReturn:new URL('/api/payments/vnpay/return',baseUrl).toString(),
    vnpayIpn:new URL('/api/payments/vnpay/ipn',baseUrl).toString(),
-   ninepayReturn:new URL('/api/payments/9pay/return',baseUrl).toString(),
-   ninepayIpn:new URL('/api/payments/9pay/ipn',baseUrl).toString(),
    momoReturn:new URL('/api/payments/momo/return',baseUrl).toString(),
    momoIpn:new URL('/api/payments/momo/ipn',baseUrl).toString(),
    zalopayReturn:new URL('/api/payments/zalopay/return',baseUrl).toString(),
@@ -388,7 +379,7 @@ async function listPaymentChannels(pool,config){
 
 function createPaymentAdmin(pool,config,{fetcher,finance}={}){
  const router=Router();
- const channelEnum=z.enum(['cod','bank_transfer','vnpay','9pay','momo','zalopay']);
+ const channelEnum=z.enum(['cod','bank_transfer','vnpay','momo','zalopay']);
  router.use('/owner/payments',(req,res,next)=>req.admin?.role==='owner'&&req.admin?.source==='bootstrap'?next():res.status(403).json({error:'Chỉ chủ doanh nghiệp được thiết lập kênh thanh toán.'}));
  router.get('/owner/payments',async(_req,res,next)=>{
   try{
@@ -420,10 +411,9 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    await config.accountSecurity.authorize(req,async(_a,c)=>{
     const current=await readChannelRecord(c,config,id);
     if(current.version!==payload.version)throw fail('Cấu hình đã thay đổi. Tải lại trang.');
-    if(payload.enabled&&id==='9pay')throw fail('9Pay chưa sẵn sàng nhận thanh toán.',409);
      await assertPaymentConfigurationChange(c,id,current.data,{...current.data,enabled:payload.enabled});
      if(payload.enabled&&id!=='cod'&&current.version===0)throw fail('Lưu thông tin kết nối kênh thanh toán trước khi bật.');
-    if(['vnpay','9pay','momo','zalopay'].includes(id)&&payload.enabled&&config.NODE_ENV==='production'&&current.data.environment==='sandbox'){
+    if(['vnpay','momo','zalopay'].includes(id)&&payload.enabled&&config.NODE_ENV==='production'&&current.data.environment==='sandbox'){
      throw fail(`Chỉ bật ${meta.name} chính thức trên website đang hoạt động. Dùng môi trường riêng để thử sandbox.`,400);
     }
     const updated=await writeRecord(c,config,meta.configId,{...current.data,enabled:payload.enabled},current.version,req.admin);
@@ -449,7 +439,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
  router.post('/owner/payments/reconcile',requireCsrf,rateLimit({windowMs:900000,limit:30,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
   try{
    const parsed=z.object({
-    provider:z.enum(['bank_transfer','vnpay','9pay','momo','zalopay']),
+    provider:z.enum(['bank_transfer','vnpay','momo','zalopay']),
     orderNumber:z.string().trim().min(5).max(80),
     amountVnd:z.number().int().min(1).max(2000000000),
     providerTransactionId:z.string().trim().max(120).optional()

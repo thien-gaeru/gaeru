@@ -8,7 +8,7 @@ Cửa hàng GAERU độc lập chạy bằng Node.js, Express và PostgreSQL th�
 
 - Cửa hàng công khai: trang chủ, danh mục, tìm kiếm, chi tiết sản phẩm, giỏ hàng và đặt hàng.
 - Giỏ hàng lưu trên trình duyệt; giá, phiên bản và tồn kho được đọc từ PostgreSQL.
-- Checkout có COD, chuyển khoản đối soát bởi chủ, VNPAY và client tạo phiên MoMo/ZaloPay phía máy chủ. Chỉ dùng URL thanh toán do provider trả về; callback được kiểm tra riêng. 9Pay bị chặn nhận thanh toán khi chưa có adapter đối chiếu hợp đồng merchant. Xem [luồng thanh toán và ý nghĩa xác minh](docs/payment-providers.md). Kiểm thử provider hiện dùng mô phỏng; cần nghiệm thu merchant sandbox trước production. Phí giao hàng theo tỉnh/thành được áp dụng phía server.
+- Checkout có COD, chuyển khoản đối soát bởi chủ, VNPAY và client tạo phiên MoMo/ZaloPay phía máy chủ. Chỉ dùng URL thanh toán do provider trả về; callback được kiểm tra riêng. Xem [luồng thanh toán và ý nghĩa xác minh](docs/payment-providers.md). Kiểm thử provider hiện dùng mô phỏng; cần nghiệm thu merchant sandbox trước production. Phí giao hàng theo tỉnh/thành được áp dụng phía server.
 - Khu vực `/gaeru_ceo`: quản lý sản phẩm, phiên bản/SKU, giá, tồn kho; dashboard có số đơn cần xử lý, đơn chờ thanh toán và cảnh báo tồn thấp; tra cứu/lọc/phân trang lịch sử đơn, cập nhật trạng thái và cấu hình phí giao hàng theo tỉnh/thành.
 - Đăng nhập quản trị bằng mật khẩu băm; phiên lưu trong PostgreSQL, có CSRF token, giới hạn đăng nhập và giới hạn đặt hàng.
 - Khách hàng có thể đăng ký/đăng nhập bằng email và mật khẩu, lưu số điện thoại liên hệ; tài khoản chưa xác minh vẫn đăng nhập và mua hàng bình thường. Trong tài khoản, khách có thể yêu cầu gửi email xác minh với liên kết dùng một lần (hiệu lực 30 phút); trạng thái chưa xác minh biến mất sau khi xác nhận. Khôi phục mật khẩu đối chiếu email và số điện thoại rồi gửi liên kết dùng một lần qua email (hiệu lực 30 phút).
@@ -23,7 +23,7 @@ Mở `/gaeru_ceo` và đăng nhập bằng tài khoản đã cấu hình trên m
 - **Bảo toàn danh mục:** muốn ẩn hoặc xóa phiên bản đang bán cuối cùng, phải tạm ẩn sản phẩm trước. Phiên bản đã có trong đơn hàng được giữ lại để bảo toàn lịch sử; có thể tạm ẩn thay cho xóa.
 - **Đơn hàng:** kết hợp tìm kiếm, trạng thái xử lý, trạng thái thanh toán và phương thức thanh toán; mở chi tiết để xem liên hệ, địa chỉ, sản phẩm và tổng tiền. Phân trang giữ nguyên các bộ lọc đang chọn.
 - **Xử lý đơn:** giao diện chỉ cung cấp trạng thái hiện tại và các bước tiếp theo hợp lệ. COD chỉ được ghi nhận đã thu tiền khi hoàn tất giao hàng. Hủy đơn chưa thanh toán sẽ hoàn lại tồn kho một lần.
-- **Đối soát thanh toán:** trạng thái VNPAY/9Pay được cập nhật từ cổng thanh toán, không sửa thủ công. Bộ lọc 9Pay chỉ hỗ trợ tra cứu dữ liệu lịch sử; không bật tích hợp 9Pay mới. Đơn đã thanh toán không được chuyển về chưa thanh toán hoặc đổi phí giao hàng; cần xử lý hoàn tiền riêng trước khi hủy. Phí của phiên VNPAY đã tạo cũng được khóa.
+- **Đối soát thanh toán:** trạng thái thanh toán trực tuyến (VNPAY, MoMo, ZaloPay) được cập nhật từ cổng thanh toán, không sửa thủ công. Đơn đã thanh toán không được chuyển về chưa thanh toán hoặc đổi phí giao hàng; cần xử lý hoàn tiền riêng trước khi hủy. Phí của phiên thanh toán đã tạo cũng được khóa.
 
 ## Yêu cầu
 
@@ -89,7 +89,7 @@ Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàn
 ## Giới hạn hiện tại
 
 - Checkout bị khóa theo mặc định bằng `STORE_ORDERS_ENABLED=false`; API cũng từ chối tạo đơn khi cờ này tắt. Việc bật cờ không thay thế thủ tục pháp lý áp dụng hay rà soát pháp lý.
-- VNPAY đã có luồng tạo giao dịch, xác minh chữ ký/IPN và cập nhật thanh toán idempotent; cần thông số merchant sandbox để kiểm thử thực tế trước khi production. 9Pay chưa được tích hợp vì chưa có tài liệu API merchant chính thức. Không nhập secret vào Git, chat hoặc giao diện quản trị.
+- VNPAY đã có luồng tạo giao dịch, xác minh chữ ký/IPN và cập nhật thanh toán idempotent; cần thông số merchant sandbox để kiểm thử thực tế trước khi production. Không nhập secret vào Git, chat hoặc giao diện quản trị.
 - Giá, phiên bản, tồn kho, bảng phí giao hàng theo tỉnh/thành và thông tin nhận chuyển khoản cần được xác minh/cập nhật qua `/gaeru_ceo`. Phí theo tỉnh được đọc và áp dụng tại máy chủ; checkout chỉ mở khi có ít nhất một mức phí hợp lệ.
 - Upload ảnh được lưu trên ổ đĩa cục bộ; Render Free không giữ ảnh tải lên sau khi dịch vụ khởi động lại hoặc triển khai lại.
 # Tài khoản và mua hàng

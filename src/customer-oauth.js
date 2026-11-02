@@ -74,60 +74,11 @@ async function verifyGoogleToken(token, { googleClientId, fetcher = fetch } = {}
   };
 }
 
-async function verifyAppleToken(token, { appleClientId } = {}) {
-  if (token === 'mock-apple-demo-token') {
-    return {
-      sub: 'apple-demo-mock-002',
-      email: 'khachhang.apple.demo@privaterelay.appleid.com',
-      emailVerified: true
-    };
-  }
-
-  const { header, payload } = parseJwt(token);
-
-  const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && payload.exp < now - 300) {
-    throw Object.assign(new Error('Mã xác thực Apple đã hết hạn. Vui lòng thử lại.'), { status: 401 });
-  }
-
-  if (payload.iss !== 'https://appleid.apple.com') {
-    throw Object.assign(new Error('Nguồn cấp chứng thực Apple không hợp lệ.'), { status: 400 });
-  }
-
-  if (appleClientId && payload.aud && payload.aud !== appleClientId) {
-    throw Object.assign(new Error('Mã ứng dụng Apple Service ID không khớp.'), { status: 400 });
-  }
-
-  const sub = String(payload.sub || '').trim();
-  if (!sub) {
-    throw Object.assign(new Error('Mã định danh người dùng Apple không hợp lệ.'), { status: 400 });
-  }
-
-  const email = payload.email ? String(payload.email).trim().toLowerCase() : null;
-  if (email && !z.string().email().safeParse(email).success) {
-    throw Object.assign(new Error('Email Apple không hợp lệ.'), { status: 400 });
-  }
-
-  return {
-    sub,
-    email,
-    emailVerified: payload.email_verified === true || payload.email_verified === 'true'
-  };
-}
 
 const googleSchema = z.object({
   credential: z.string().trim().min(10).max(5000)
 }).strict();
 
-const appleSchema = z.object({
-  idToken: z.string().trim().min(10).max(5000),
-  user: z.object({
-    name: z.object({
-      firstName: z.string().trim().max(80).optional(),
-      lastName: z.string().trim().max(80).optional()
-    }).optional()
-  }).optional()
-}).strict();
 
 
 async function resolveOrCreateGoogleCustomer(pool, googleUser) {
@@ -214,13 +165,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     return config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '';
   };
 
-  const getAppleClientId = async () => {
-    const dbOAuth = await getOAuthSettings();
-    if (dbOAuth.appleClientId) return dbOAuth.appleClientId;
-    return config.APPLE_CLIENT_ID || process.env.APPLE_CLIENT_ID || '';
-  };
-
-  // Public config endpoint so client can initialize Google/Apple SDK buttons
+  // Public config endpoint so client can initialize Google SDK button
   router.get('/config', async (_req, res) => {
     try {
       const googleId = await getGoogleClientId();
@@ -231,13 +176,11 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
           configured: Boolean(googleId),
           clientId: googleId,
           isDev
-        },
-        apple: { enabled: false, configured: false, clientId: '' }
+        }
       });
     } catch {
       res.json({
-        google: { enabled: false, configured: false, clientId: '' },
-        apple: { enabled: false, configured: false, clientId: '' }
+        google: { enabled: false, configured: false, clientId: '' }
       });
     }
   });
@@ -261,11 +204,6 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       if (error.status) return res.status(error.status).json({ error: error.message });
       next(error);
     }
-  });
-
-  // Sign in with Apple Handler
-  router.post('/apple', (_req, res) => {
-    res.status(404).json({ error: 'Tính năng Đăng nhập Apple không còn được hỗ trợ.' });
   });
 
   const handleRedirectCallback = async (req, res, next) => {
@@ -298,6 +236,5 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
 module.exports = {
   createCustomerOAuthRouter,
   verifyGoogleToken,
-  verifyAppleToken,
   parseJwt
 };

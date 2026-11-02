@@ -185,7 +185,6 @@
 .payment-card[data-channel-id="cod"]::before{background:#10b981}
 .payment-card[data-channel-id="bank_transfer"]::before{background:#0284c7}
 .payment-card[data-channel-id="vnpay"]::before{background:#005baa}
-.payment-card[data-channel-id="9pay"]::before{background:#ea580c}
 .payment-card[data-channel-id="momo"]::before{background:#d82d8b}
 .payment-card[data-channel-id="zalopay"]::before{background:#0068ff}
 
@@ -194,7 +193,6 @@
 .payment-card[data-channel-id="cod"] .payment-card-icon{background:#ecfdf5;border-color:#a7f3d0}
 .payment-card[data-channel-id="bank_transfer"] .payment-card-icon{background:#f0f9ff;border-color:#bae6fd}
 .payment-card[data-channel-id="vnpay"] .payment-card-icon{background:#eff6ff;border-color:#bfdbfe}
-.payment-card[data-channel-id="9pay"] .payment-card-icon{background:#fff7ed;border-color:#fed7aa}
 .payment-card[data-channel-id="momo"] .payment-card-icon{background:#fdf2f8;border-color:#fbcfe8}
 .payment-card[data-channel-id="zalopay"] .payment-card-icon{background:#eff6ff;border-color:#bfdbfe}
 
@@ -250,7 +248,6 @@
 .payment-card[data-channel-id="cod"] .payment-card-icon{background:#064e3b;border-color:#059669}
 .payment-card[data-channel-id="bank_transfer"] .payment-card-icon{background:#0c4a6e;border-color:#0284c7}
 .payment-card[data-channel-id="vnpay"] .payment-card-icon{background:#172554;border-color:#1d4ed8}
-.payment-card[data-channel-id="9pay"] .payment-card-icon{background:#431407;border-color:#c2410c}
 .payment-card[data-channel-id="momo"] .payment-card-icon{background:#500724;border-color:#db2777}
 .payment-card[data-channel-id="zalopay"] .payment-card-icon{background:#172554;border-color:#2563eb}
 .payment-card-title{color:#f8fafc}

@@ -36,7 +36,7 @@ Các phiếu nhập, biến động kho và phiếu thu đã ghi nhận không �
 
 ## Quy tắc tiền và báo cáo
 
-Phiếu thu/chi chỉ **ghi nhận giao dịch đã diễn ra bên ngoài**; hệ thống không chuyển tiền ngân hàng. VNPAY/9Pay không nhận phiếu thu thủ công. 9Pay trong bộ lọc chỉ phục vụ dữ liệu lịch sử; chưa có tích hợp thanh toán 9Pay mới.
+Phiếu thu/chi chỉ **ghi nhận giao dịch đã diễn ra bên ngoài**; hệ thống không chuyển tiền ngân hàng. Thanh toán trực tuyến (VNPAY, MoMo, ZaloPay) không nhận phiếu thu thủ công. 
 
 Đơn thu một phần được giữ số dư còn phải thu. Khi thu đủ, trạng thái thanh toán được cập nhật; COD chỉ ghi nhận sau bước giao hàng. Đơn đã có phiếu thu không được hủy hoặc đổi phí giao hàng khi chưa xử lý đối soát/hoàn tiền. Các khoản đã thanh toán trước bản nâng cấp tiếp tục được tính từ đơn hàng; danh sách phiếu thu chỉ liệt kê các phiếu mới có sổ chi tiết.
 

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { createApp } = require('../src/app');
-const { verifyGoogleToken, verifyAppleToken, parseJwt } = require('../src/customer-oauth');
+const { verifyGoogleToken, parseJwt } = require('../src/customer-oauth');
 
 function makeJwt(payload, header = { alg: 'RS256', typ: 'JWT' }) {
   const encHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
@@ -18,7 +18,6 @@ const baseConfig = {
   ADMIN_USERNAME: 'manager',
   ADMIN_PASSWORD_HASH: bcrypt.hashSync('test-password', 4),
   GOOGLE_CLIENT_ID: 'test-google-client-id.apps.googleusercontent.com',
-  APPLE_CLIENT_ID: 'com.gaeru.web.signin'
 };
 
 async function startApp(context, { pool, config = baseConfig } = {}) {
@@ -112,36 +111,6 @@ test('verifyGoogleToken validates valid token and catches violations', async () 
   );
 });
 
-test('verifyAppleToken validates valid token and catches violations', async () => {
-  const validPayload = {
-    iss: 'https://appleid.apple.com',
-    aud: 'com.gaeru.web.signin',
-    sub: 'apple-sub-2002',
-    email: 'appleuser@privaterelay.appleid.com',
-    email_verified: true,
-    exp: Math.floor(Date.now() / 1000) + 3600
-  };
-
-  const validResult = await verifyAppleToken(makeJwt(validPayload), {
-    appleClientId: 'com.gaeru.web.signin'
-  });
-  assert.equal(validResult.sub, 'apple-sub-2002');
-  assert.equal(validResult.email, 'appleuser@privaterelay.appleid.com');
-
-  // Expired
-  const expiredPayload = { ...validPayload, exp: Math.floor(Date.now() / 1000) - 500 };
-  await assert.rejects(
-    () => verifyAppleToken(makeJwt(expiredPayload)),
-    /Mã xác thực Apple đã hết hạn/
-  );
-
-  // Invalid issuer
-  const badIss = { ...validPayload, iss: 'https://evil.com' };
-  await assert.rejects(
-    () => verifyAppleToken(makeJwt(badIss)),
-    /Nguồn cấp chứng thực Apple không hợp lệ/
-  );
-});
 
 test('GET /api/customer-auth/oauth/config returns client configuration', async (context) => {
   const pool = { query: async () => ({ rows: [] }) };
@@ -152,7 +121,6 @@ test('GET /api/customer-auth/oauth/config returns client configuration', async (
   const data = await res.json();
   assert.equal(data.google.enabled, true);
   assert.equal(data.google.clientId, 'test-google-client-id.apps.googleusercontent.com');
-  assert.equal(data.apple.enabled, false);
 });
 
 test('POST /api/customer-auth/oauth/google creates a new customer and returns session', async (context) => {

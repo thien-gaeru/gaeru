@@ -12,17 +12,15 @@ test('payment checks distinguish configuration, public reachability and authenti
  assert.match(bank.message,/Chưa xác minh quyền sở hữu/);
  const settings={
   vnpay:{tmnCode:'TEST1234',hashSecret:'deliberately-fake-vnpay-key',environment:'sandbox',enabled:true},
-  '9pay':{merchantKey:'FAKE9PAY',secretKey:'fake-9pay-secret',checksumKey:'fake-9pay-checksum',environment:'sandbox',enabled:true},
   momo:{partnerCode:'FAKEMOMO',accessKey:'FAKEACCESS',secretKey:'fake-momo-secret',environment:'sandbox',enabled:true},
   zalopay:{appId:'2554',key1:'fake-zalopay-key1',key2:'fake-zalopay-key2',environment:'sandbox',enabled:true}
  };
- for(const id of ['vnpay','9pay','momo','zalopay']){
+ for(const id of ['vnpay','momo','zalopay']){
   const result=await payments.verifyPaymentChannel(id,settings[id],{config:{PUBLIC_BASE_URL:'https://gaeru.com'},fetcher});
   assert.equal(result.id,id);assert.equal(result.verified,false,id+' must not authenticate fake keys from HTTP404');
   assert.equal(result.callbackVerified,false);
-  if(id==='9pay'){assert.equal(result.supported,false);assert.equal(result.method,'unsupported');}
  }
- assert.equal(seen.length,3,'9Pay must not contact an unsupported provider adapter');
+ assert.equal(seen.length,3,'Gateway probe calls must match configured providers');
  assert.equal(seen[0].options.method,'GET');
  for(const call of seen.slice(1)){
   assert.equal(call.options.method,'POST','wallet checks must use their authenticated query protocol');
@@ -95,10 +93,9 @@ test('official wallet creation, callback integrity, disabled pending channels an
  assert.equal((await api('/api/gaeru_ceo/owner/payments')).data.channels.every(c=>c.verified===false),true);
  assert.equal((await save('payment_bank_transfer',{bankName:'Techcombank',accountNumber:'190388889999',accountHolder:'CONG TY GAERU',branch:'Hà Nội',transferSyntax:'GAERU {MA_DON}',enabled:true})).status,200);
  assert.equal((await save('vnpay',{tmnCode:'GAERU123',hashSecret:'vnpay-fixture-secret',environment:'sandbox',enabled:true})).status,200);
- assert.equal((await save('payment_9pay',{merchantKey:'FIXTURE9PAY',secretKey:'9pay-secret-fixture',checksumKey:'9pay-checksum-fixture',environment:'sandbox',enabled:false})).status,200);
  const savedMomo=await save('payment_momo',momoSettings);assert.equal(savedMomo.status,200);assert.equal(savedMomo.data.data.secretConfigured,true);assert.ok(!savedMomo.text.includes(momoSettings.secretKey));
  const savedZalo=await save('payment_zalopay',zaloSettings);assert.equal(savedZalo.status,200);assert.ok(!savedZalo.text.includes(zaloSettings.key1));assert.ok(!savedZalo.text.includes(zaloSettings.key2));
- for(const [id,version] of [['cod',0],['bank_transfer',1],['vnpay',1],['9pay',1],['momo',1],['zalopay',1]]){
+ for(const [id,version] of [['cod',0],['bank_transfer',1],['vnpay',1],['momo',1],['zalopay',1]]){
   const checked=await api('/api/gaeru_ceo/owner/payments/'+id+'/test','POST',{version,password:ownerPassword});
   assert.equal(checked.status,200,JSON.stringify(checked.data));assert.equal(checked.data.verified,false,id);
  }
@@ -106,9 +103,6 @@ test('official wallet creation, callback integrity, disabled pending channels an
  const listed=await api('/api/gaeru_ceo/owner/payments');assert.ok(listed.data.channels.every(c=>c.verified===false),'legacy public-probe evidence must remain unverified');
  const publicSettings=await api('/api/settings/public');assert.deepEqual(publicSettings.data.paymentMethods,['cod','bank_transfer','vnpay','momo','zalopay']);
  assert.equal(publicSettings.data.bankTransfer.accountNumber,'190388889999');
- assert.equal((await api('/api/gaeru_ceo/owner/payments/9pay/availability','PATCH',{version:1,enabled:true,password:ownerPassword})).status,409);
- const beforeUnsupported=await snapshot();assert.equal((await api('/api/orders','POST',orderBody('9pay'))).status,503);assert.deepEqual(await snapshot(),beforeUnsupported);
- assert.equal((await api('/api/payments/9pay/ipn','POST',{invoice_no:'fixture',status:'PAID'})).status,503);
 
  // A definite provider rejection must roll back all local side effects.
  const beforeFailure=await snapshot();rejectCreate=true;
@@ -175,7 +169,6 @@ test('admin payment workspace renders all six channels and dispatches connection
   payment_cod:{version:1,data:{enabled:true,maxAmountVnd:50000000,instructions:'COD'}},
   payment_bank_transfer:{version:2,data:{bankName:'VCB',accountNumber:'0123456789',accountHolder:'GAERU',branch:'HN',transferSyntax:'GAERU {MA_DON}',enabled:true}},
   vnpay:{version:3,data:{tmnCode:'GAERU123',environment:'sandbox',enabled:true,secretConfigured:true}},
-  payment_9pay:{version:1,data:{merchantKey:'M9PAY',environment:'sandbox',enabled:false,secretConfigured:true}},
   payment_momo:{version:1,data:{partnerCode:'MOMOGAERU',accessKey:'MOMOACC',environment:'sandbox',enabled:true,secretConfigured:true}},
   payment_zalopay:{version:1,data:{appId:'2554',environment:'sandbox',enabled:true,secretConfigured:true}}
  };
@@ -185,12 +178,11 @@ test('admin payment workspace renders all six channels and dispatches connection
   showGlobal(){},
   request:async(path,options={})=>{
    calls.push({path,options});
-   if(path==='/api/gaeru_ceo/owner/configuration')return {records,services:{},callbacks:{vnpayReturn:'https://gaeru.com/api/payments/vnpay/return',vnpayIpn:'https://gaeru.com/api/payments/vnpay/ipn',ninepayReturn:'https://gaeru.com/api/payments/9pay/return',ninepayIpn:'https://gaeru.com/api/payments/9pay/ipn',momoReturn:'https://gaeru.com/api/payments/momo/return',momoIpn:'https://gaeru.com/api/payments/momo/ipn',zalopayReturn:'https://gaeru.com/api/payments/zalopay/return',zalopayIpn:'https://gaeru.com/api/payments/zalopay/ipn',bankTransferWebhook:'https://gaeru.com/api/payments/bank_transfer/webhook'}};
+   if(path==='/api/gaeru_ceo/owner/configuration')return {records,services:{},callbacks:{vnpayReturn:'https://gaeru.com/api/payments/vnpay/return',vnpayIpn:'https://gaeru.com/api/payments/vnpay/ipn',momoReturn:'https://gaeru.com/api/payments/momo/return',momoIpn:'https://gaeru.com/api/payments/momo/ipn',zalopayReturn:'https://gaeru.com/api/payments/zalopay/return',zalopayIpn:'https://gaeru.com/api/payments/zalopay/ipn',bankTransferWebhook:'https://gaeru.com/api/payments/bank_transfer/webhook'}};
    if(path==='/api/gaeru_ceo/owner/payments')return {channels:[
     {id:'cod',configId:'payment_cod',verified:true,enabled:true,configured:true,version:1},
     {id:'bank_transfer',configId:'payment_bank_transfer',verified:true,enabled:true,configured:true,version:2},
     {id:'vnpay',configId:'vnpay',verified:false,enabled:true,configured:true,version:3},
-    {id:'9pay',configId:'payment_9pay',verified:false,enabled:false,configured:true,version:1},
     {id:'momo',configId:'payment_momo',verified:true,enabled:true,configured:true,version:1},
     {id:'zalopay',configId:'payment_zalopay',verified:true,enabled:true,configured:true,version:1}
    ]};
@@ -200,7 +192,7 @@ test('admin payment workspace renders all six channels and dispatches connection
  const context={window:{GAERUAdmin:admin},document:{addEventListener:(t,fn)=>(listeners[t]||=[]).push(fn),querySelector:s=>s==='#payment-configuration'?root:null,getElementById:()=>null}};
  vm.runInNewContext(fs.readFileSync(require.resolve('../admin/configuration.js'),'utf8'),context);
  await context.window.GAERUConfiguration.mountPayments();
- for(const id of ['cod','bank_transfer','vnpay','9pay','momo','zalopay']){
+ for(const id of ['cod','bank_transfer','vnpay','momo','zalopay']){
   assert.match(root.innerHTML,new RegExp(`data-payment-test="${id}"`));
   assert.match(root.innerHTML,new RegExp(`data-payment-enable="${id}"`));
  }
