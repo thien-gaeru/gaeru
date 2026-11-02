@@ -60,7 +60,7 @@ BEGIN
   END IF;
 END $$;
 
--- 4. Re-verify customer_loyalty, product_bundles, abandoned_carts, and product_reviews in case earlier migrations were pre-recorded
+-- 4. Re-verify customer_loyalty, product_bundles, and abandoned_carts in case earlier migrations were pre-recorded
 ALTER TABLE customer_loyalty ADD COLUMN IF NOT EXISTS points_balance integer NOT NULL DEFAULT 0;
 ALTER TABLE customer_loyalty ADD COLUMN IF NOT EXISTS lifetime_earned integer NOT NULL DEFAULT 0;
 ALTER TABLE customer_loyalty ADD COLUMN IF NOT EXISTS lifetime_spent integer NOT NULL DEFAULT 0;

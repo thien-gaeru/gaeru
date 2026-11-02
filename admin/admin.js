@@ -1192,16 +1192,11 @@ document.querySelector("#reset-product-filters").addEventListener("click", () =>
   loadProducts().catch((error) => showGlobal(error.message, true));
 });
 document.querySelectorAll('[data-product-scope]').forEach(button=>button.addEventListener('click',async()=>{
-  state.productScope=button.dataset.productScope;const address=new URL(location.href);if(state.productScope==='trash'||state.productScope==='reviews')address.searchParams.set('productScope',state.productScope);else address.searchParams.delete('productScope');history.replaceState(null,'',address.pathname+address.search+address.hash);
+  state.productScope=button.dataset.productScope;const address=new URL(location.href);if(state.productScope==='trash')address.searchParams.set('productScope',state.productScope);else address.searchParams.delete('productScope');history.replaceState(null,'',address.pathname+address.search+address.hash);
   document.querySelectorAll('[data-product-scope]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));
   document.querySelector('#product-status-filter').value='';document.querySelector('#product-stock-filter').value='';
   document.querySelector('#product-trash-note').hidden=state.productScope!=='trash';
-  if(state.productScope==='reviews'){
-    window.GAERUProductReviews?.open();
-  }else{
-    window.GAERUProductReviews?.close();
-    try{await loadProducts(document.querySelector('#product-search').value.trim());}catch(e){showGlobal(e.message,true);}
-  }
+  try{await loadProducts(document.querySelector('#product-search').value.trim());}catch(e){showGlobal(e.message,true);}
 }));
 document.querySelector("#product-list").addEventListener("click", async (event) => {
   const recover=event.target.closest('[data-restore-product],[data-activate-product],[data-purge-product]');

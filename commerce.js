@@ -342,209 +342,6 @@ function renderBundlesHtml(container, bundles, currentVariantId) {
   }).join("");
 }
 
-async function loadAndRenderProductReviews(product, root) {
-  const container = root.querySelector("[data-product-reviews-wrap]");
-  if (!container) return;
-
-  const avgSpan = root.querySelector("[data-rating-avg]");
-  const totalSpan = root.querySelector("[data-rating-total]");
-
-  try {
-    const data = await apiRequest(`/api/products/${encodeURIComponent(product.slug)}/reviews`);
-    const summary = data.summary || { averageRating: 5.0, totalReviews: 0, verifiedCount: 0, distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }, percentages: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } };
-    const reviews = data.reviews || [];
-
-    if (avgSpan) avgSpan.textContent = summary.averageRating > 0 ? summary.averageRating.toFixed(1) : "5.0";
-    if (totalSpan) totalSpan.textContent = `(${summary.totalReviews} đánh giá)`;
-
-    const customer = window.GAERUCustomerSession?.customer;
-
-    container.innerHTML = `
-      <div class="reviews-container" style="border-top:1px solid #e5e5ea;padding-top:48px;margin-top:48px;">
-        <div class="reviews-header" style="margin-bottom:32px;">
-          <p class="eyebrow" style="color:#087f8c;font-weight:600;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;">NHẬN XÉT THỰC TẾ</p>
-          <h2 style="font-size:28px;margin:8px 0 16px;color:#1d1d1f;">Đánh giá từ khách hàng</h2>
-        </div>
-
-        <div class="reviews-summary-card" style="background:#f5f5f7;border-radius:20px;padding:28px;margin-bottom:36px;display:grid;grid-template-columns:220px 1fr;gap:32px;align-items:center;">
-          <div style="text-align:center;border-right:1px solid #e5e5ea;padding-right:24px;">
-            <div style="font-size:48px;font-weight:700;color:#1d1d1f;line-height:1;">${summary.averageRating > 0 ? summary.averageRating.toFixed(1) : "5.0"}</div>
-            <div style="color:#f59e0b;font-size:20px;margin:8px 0 4px;letter-spacing:2px;">★★★★★</div>
-            <div style="font-size:13px;color:#6e6e73;">${summary.totalReviews} lượt đánh giá</div>
-            ${summary.verifiedCount > 0 ? `<div style="margin-top:8px;font-size:12px;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:4px 8px;display:inline-block;">✓ ${summary.verifiedCount} người mua xác thực</div>` : ''}
-          </div>
-          <div class="rating-bars" style="display:flex;flex-direction:column;gap:6px;">
-            ${[5, 4, 3, 2, 1].map(star => `
-              <div style="display:flex;align-items:center;gap:10px;font-size:12.5px;color:#515154;">
-                <span style="width:36px;">${star} sao</span>
-                <div style="flex:1;background:#e5e5ea;height:8px;border-radius:4px;overflow:hidden;">
-                  <div style="background:#f59e0b;height:100%;width:${summary.percentages[star] || 0}%;border-radius:4px;"></div>
-                </div>
-                <span style="width:30px;text-align:right;color:#86868b;">${summary.percentages[star] || 0}%</span>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="reviews-layout" style="display:grid;grid-template-columns:1fr 380px;gap:40px;align-items:start;">
-          <div class="reviews-list-col">
-            <h3 style="font-size:18px;margin:0 0 20px;color:#1d1d1f;">Tất cả nhận xét (${reviews.length})</h3>
-            ${reviews.length === 0 ? `
-              <div style="background:#fff;border:1px solid #e5e5ea;border-radius:16px;padding:32px;text-align:center;color:#6e6e73;">
-                <p style="margin:0 0 8px;font-size:15px;color:#1d1d1f;font-weight:600;">Chưa có đánh giá nào cho sản phẩm này.</p>
-                <p style="margin:0;font-size:13.5px;">Hãy là người đầu tiên chia sẻ trải nghiệm sử dụng thực tế của bạn!</p>
-              </div>
-            ` : reviews.map(r => `
-              <article class="review-item-card" style="background:#fff;border:1px solid #e5e5ea;border-radius:16px;padding:20px;margin-bottom:16px;">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
-                  <div style="display:flex;align-items:center;gap:10px;">
-                    <div style="width:36px;height:36px;border-radius:50%;background:#0071e3;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;">
-                      ${(r.customerName || 'K').charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <strong style="display:block;font-size:14px;color:#1d1d1f;">${escapeHtml(r.customerName)}</strong>
-                      ${r.isVerifiedBuyer ? `<span style="display:inline-block;font-size:11px;color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:2px 7px;font-weight:500;margin-top:2px;">✓ Đã mua hàng tại GAERU</span>` : ''}
-                    </div>
-                  </div>
-                  <div style="text-align:right;">
-                    <div style="color:#f59e0b;font-size:14px;letter-spacing:1px;">${'★'.repeat(r.rating) + '☆'.repeat(5 - r.rating)}</div>
-                    <small style="color:#86868b;font-size:12px;">${new Date(r.createdAt).toLocaleDateString('vi-VN')}</small>
-                  </div>
-                </div>
-                ${r.title ? `<h4 style="font-size:15px;margin:8px 0 6px;color:#1d1d1f;">${escapeHtml(r.title)}</h4>` : ''}
-                <p style="font-size:14px;line-height:1.6;color:#374151;margin:0 0 12px;white-space:pre-line;">${escapeHtml(r.comment)}</p>
-                ${r.adminReply ? `
-                  <div style="background:#f8fafc;border-left:3px solid #0071e3;border-radius:0 10px 10px 0;padding:12px 14px;margin:12px 0;font-size:13px;">
-                    <div style="font-weight:600;color:#0071e3;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
-                      <span style="background:#0071e3;color:#fff;padding:2px 6px;border-radius:4px;font-size:10.5px;">Phản hồi chính thức</span> GAERU Official
-                    </div>
-                    <div style="color:#4b5563;line-height:1.5;">${escapeHtml(r.adminReply)}</div>
-                  </div>
-                ` : ''}
-                <div style="display:flex;justify-content:flex-end;margin-top:10px;">
-                  <button type="button" class="helpful-vote-btn" data-vote-helpful="${escapeHtml(r.id)}" style="background:none;border:1px solid #d2d2d7;border-radius:16px;padding:4px 12px;font-size:12px;color:#515154;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                    👍 Hữu ích (${r.helpfulCount})
-                  </button>
-                </div>
-              </article>
-            `).join('')}
-          </div>
-
-          <div class="review-form-col" style="background:#fff;border:1px solid #e5e5ea;border-radius:20px;padding:24px;position:sticky;top:20px;">
-            <h3 style="font-size:18px;margin:0 0 6px;color:#1d1d1f;">Viết đánh giá của bạn</h3>
-            <p style="font-size:13px;color:#6e6e73;margin:0 0 18px;line-height:1.4;">Chia sẻ cảm nhận thực tế giúp cộng đồng có cái nhìn khách quan hơn.</p>
-            <form data-product-review-form style="display:flex;flex-direction:column;gap:14px;">
-              <div>
-                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#1d1d1f;">Đánh giá của bạn *</label>
-                <div class="star-rating-picker" data-star-picker style="display:flex;gap:4px;font-size:26px;color:#f59e0b;cursor:pointer;">
-                  <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
-                </div>
-                <input type="hidden" name="rating" value="5">
-              </div>
-              <div>
-                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Tiêu đề đánh giá</label>
-                <input name="title" maxlength="120" placeholder="Tóm tắt ngắn gọn cảm nhận của bạn" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13.5px;">
-              </div>
-              <div>
-                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Nội dung nhận xét *</label>
-                <textarea name="comment" required minlength="5" maxlength="2000" rows="4" placeholder="Chia sẻ chi tiết về chất lượng âm thanh, thiết kế, thời lượng pin, độ hoàn thiện..." style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13.5px;font-family:inherit;line-height:1.5;"></textarea>
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                <div>
-                  <label style="display:block;font-size:12.5px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Họ và tên *</label>
-                  <input name="customerName" required maxlength="100" value="${escapeHtml(customer?.fullName || customer?.name || '')}" placeholder="Nguyễn Văn A" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13px;">
-                </div>
-                <div>
-                  <label style="display:block;font-size:12.5px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Email *</label>
-                  <input type="email" name="customerEmail" required maxlength="254" value="${escapeHtml(customer?.email || '')}" placeholder="hotro@gaeru.com" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13px;">
-                </div>
-              </div>
-              <div>
-                <label style="display:block;font-size:12.5px;font-weight:600;margin-bottom:4px;color:#1d1d1f;">Mã đơn hàng (không bắt buộc)</label>
-                <input name="orderNumber" maxlength="50" placeholder="Ví dụ: GA-261025-XXXX" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:13px;">
-                <small style="display:block;color:#087f8c;margin-top:4px;font-size:11.5px;">💡 Nhập mã đơn để nhận huy hiệu Xác nhận đã mua hàng (Verified Buyer) ✓</small>
-              </div>
-              <button type="submit" class="button button-blue" style="width:100%;padding:12px;font-size:14px;font-weight:600;margin-top:6px;">Gửi đánh giá</button>
-              <p class="review-form-feedback" data-review-feedback role="status" style="font-size:13px;margin:4px 0 0;text-align:center;"></p>
-            </form>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const starPicker = container.querySelector("[data-star-picker]");
-    const ratingInput = container.querySelector('input[name="rating"]');
-    if (starPicker && ratingInput) {
-      starPicker.addEventListener("click", e => {
-        const star = e.target.closest("[data-star]");
-        if (!star) return;
-        const val = Number(star.dataset.star) || 5;
-        ratingInput.value = val;
-        starPicker.querySelectorAll("[data-star]").forEach(s => {
-          const num = Number(s.dataset.star);
-          s.textContent = num <= val ? "★" : "☆";
-        });
-      });
-    }
-
-    container.querySelectorAll("[data-vote-helpful]").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const reviewId = btn.dataset.voteHelpful;
-        btn.disabled = true;
-        try {
-          const resp = await apiRequest(`/api/reviews/${encodeURIComponent(reviewId)}/helpful`, { method: "POST" });
-          if (resp?.helpfulCount !== undefined) {
-            btn.textContent = `👍 Hữu ích (${resp.helpfulCount})`;
-            if (resp.alreadyVoted) {
-              btn.style.color = "#0071e3";
-            }
-          }
-        } catch (_) {}
-      });
-    });
-
-    const form = container.querySelector("[data-product-review-form]");
-    const feedback = container.querySelector("[data-review-feedback]");
-    if (form) {
-      form.addEventListener("submit", async e => {
-        e.preventDefault();
-        const submitBtn = form.querySelector('button[type="submit"]');
-        submitBtn.disabled = true;
-        feedback.style.color = "#6e6e73";
-        feedback.textContent = "Đang gửi đánh giá…";
-
-        try {
-          const body = {
-            rating: Number(form.elements.rating.value) || 5,
-            title: form.elements.title.value.trim() || undefined,
-            comment: form.elements.comment.value.trim(),
-            customerName: form.elements.customerName.value.trim(),
-            customerEmail: form.elements.customerEmail.value.trim(),
-            orderNumber: form.elements.orderNumber.value.trim() || undefined
-          };
-
-          const res = await apiRequest(`/api/products/${encodeURIComponent(product.slug)}/reviews`, {
-            method: "POST",
-            body: JSON.stringify(body)
-          });
-
-          feedback.style.color = "#16a34a";
-          feedback.textContent = res.message || "Đã gửi đánh giá thành công!";
-          form.reset();
-          ratingInput.value = 5;
-          starPicker.querySelectorAll("[data-star]").forEach(s => s.textContent = "★");
-        } catch (err) {
-          feedback.style.color = "#dc2626";
-          feedback.textContent = err.message || "Không thể gửi đánh giá. Vui lòng thử lại.";
-          submitBtn.disabled = false;
-        }
-      });
-    }
-  } catch (err) {
-    console.warn("Lỗi tải đánh giá sản phẩm:", err);
-  }
-}
-
 function renderProduct() {
   const root = document.querySelector("#product-detail");
   if (!root) return;
@@ -577,7 +374,7 @@ function renderProduct() {
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
   root.innerHTML = `
-    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1><div class="product-rating-snippet" data-rating-snippet style="margin-top:6px;font-size:14px;display:flex;align-items:center;gap:8px;"><span class="stars" style="color:#f59e0b;letter-spacing:1px;">★★★★★</span> <strong data-rating-avg>5.0</strong> <span style="color:#6e6e73;" data-rating-total>(Đang tải…)</span><span>·</span><a class="text-link" href="#product-reviews" style="font-size:13px;">Xem đánh giá ↓</a></div>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
+    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
       <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
@@ -595,7 +392,6 @@ function renderProduct() {
       </div>
     </section>
     <section class="product-information section-wrap" id="product-information"><header><p class="eyebrow">TÌM HIỂU SẢN PHẨM</p><h2>${escapeHtml(product.name)}. <span>Chi tiết cho lựa chọn của bạn.</span></h2></header>${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}</section>
-    <section class="product-reviews-section section-wrap" id="product-reviews" data-product-reviews-wrap></section>
     <section class="detail-more"><p class="eyebrow">Khám phá thêm</p><h2>Thiết bị khác. Cùng cảm hứng.</h2><a class="text-link" href="shop.html">Xem toàn bộ cửa hàng <span aria-hidden="true">›</span></a></section>`;
 
   const selector = root.querySelector("#product-variant");
@@ -621,7 +417,7 @@ function renderProduct() {
   root.addEventListener('touchstart',event=>{galleryTouch=event.touches.length===1&&event.target.closest('[data-product-main-image]')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
   root.addEventListener('touchcancel',()=>{galleryTouch=null;},{passive:true});
   root.addEventListener('touchend',event=>{const start=galleryTouch;galleryTouch=null;if(!start||event.changedTouches.length!==1)return;const dx=event.changedTouches[0].clientX-start.x,dy=event.changedTouches[0].clientY-start.y;if(Math.abs(dx)<40||Math.abs(dx)<Math.abs(dy)*1.5)return;const buttons=[...root.querySelectorAll('[data-gallery-image]')];if(buttons.length<2)return;const current=buttons.findIndex(b=>b.getAttribute('aria-pressed')==='true');const next=buttons[(Math.max(0,current)+(dx<0?1:-1)+buttons.length)%buttons.length];next.click();const rail=next.parentElement;rail.scrollTo({left:Math.max(0,next.offsetLeft-rail.offsetLeft-(rail.clientWidth-next.offsetWidth)/2),behavior:'smooth'});},{passive:true});
-  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}}); void loadAndRenderBundles(product, selector?.value); void loadAndRenderProductReviews(product, root);
+  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}}); void loadAndRenderBundles(product, selector?.value);
 }
 
 function renderCart() {

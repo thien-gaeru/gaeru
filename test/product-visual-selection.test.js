@@ -42,6 +42,8 @@ test('entering product page displays primary product image and does not pre-sele
     Event: class { constructor(type) { this.type = type; } }
   });
 
+  assert.doesNotMatch(root.innerHTML, /product-reviews|data-rating|★★★★★|Xem đánh giá|Viết đánh giá/);
+
   // 1. Main image is the primary product image, NOT the first variant image
   assert.ok(root.innerHTML.includes('data-product-main-image src="/assets/products/primary-k9.webp"'), 'Main image must be product primary image');
   assert.ok(!root.innerHTML.includes('data-product-main-image src="/assets/products/black.webp"'), 'Main image must not be auto-selected to variant image');

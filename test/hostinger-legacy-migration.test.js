@@ -171,12 +171,12 @@ test('Hostinger legacy production schema reconciles cleanly without 42703 undefi
        VALUES ('Combo Moi', 'Mo ta', 'percent', 10, true, now(), now() + interval '30 days')`
     );
 
-    // Insert new review with NULL title and 'hidden' status
-    await pg.query(
-      `INSERT INTO product_reviews (product_id, customer_name, customer_email, rating, title, comment, status)
-       VALUES ($1, 'User Moi', 'new@example.com', 5, NULL, 'San pham rat tuyet voi', 'hidden')`,
-      [product.id]
-    );
+    // Retired reviews are inaccessible to the application but historical rows survive.
+    const archivedReview = (await pg.query(
+      'SELECT product_slug, author_name, comment FROM archived_product_reviews'
+    )).rows;
+    assert.deepEqual(archivedReview, [{ product_slug: product.slug, author_name: 'Khach Cu', comment: 'Hay' }]);
+    assert.equal((await pg.query("SELECT to_regclass('product_reviews') AS name")).rows[0].name, null);
 
     // Verify Google identity backfilled
     const identity = (await pg.query(

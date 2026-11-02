@@ -981,10 +981,33 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
   extractCookies(adminLogin, jar);
   const { csrfToken: adminCsrf } = await adminLogin.json();
 
+  // Retired product-review routes must be unavailable even to an authenticated owner.
+  // Valid CSRF/session credentials ensure a 404 is route removal, not an auth failure.
+  for (const [method, retiredPath] of [
+    ['GET', '/api/products/micro-gaeru-k9/reviews'],
+    ['POST', '/api/products/micro-gaeru-k9/reviews'],
+    ['POST', '/api/reviews/00000000-0000-0000-0000-000000000001/helpful'],
+    ['GET', '/api/gaeru_ceo/product-reviews'],
+    ['POST', '/api/gaeru_ceo/product-reviews/00000000-0000-0000-0000-000000000001/approve'],
+    ['POST', '/api/gaeru_ceo/product-reviews/00000000-0000-0000-0000-000000000001/reject'],
+    ['POST', '/api/gaeru_ceo/product-reviews/00000000-0000-0000-0000-000000000001/reply'],
+    ['DELETE', '/api/gaeru_ceo/product-reviews/00000000-0000-0000-0000-000000000001'],
+    ['GET', '/gaeru_ceo/assets/product-reviews.js']
+  ]) {
+    const r = await fetch(`${baseUrl}${retiredPath}`, {
+      method,
+      headers: { Cookie: cookieHeader(jar), 'X-CSRF-Token': adminCsrf }
+    });
+    assert.equal(r.status, 404, `${method} ${retiredPath} must be removed`);
+  }
+  const reviewTables = await pool.query(`SELECT to_regclass('product_reviews') AS reviews,
+    to_regclass('product_review_helpful_votes') AS votes,
+    to_regclass('archived_product_reviews') AS archive`);
+  assert.deepEqual(reviewTables.rows[0], { reviews: null, votes: null, archive: null });
+
   // 1. BL-01: Previously blocked admin routes now pass adminPolicy and return 200
   for (const adminPath of [
     '/api/gaeru_ceo/barcode/history',
-    '/api/gaeru_ceo/product-reviews',
     '/api/gaeru_ceo/marketplace/orders',
     '/api/gaeru_ceo/forecast?days=30',
     '/api/gaeru_ceo/marketing/abandoned-carts'
