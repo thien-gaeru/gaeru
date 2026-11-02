@@ -1,6 +1,6 @@
 const {Router}=require('express');
 const {randomUUID}=require('node:crypto');
-const supported=new Set(['ghn','ghtk','viettel','spx']);
+const supported=new Set(['ghn','ghtk','viettel','jt','spx']);
 const {rateLimit}=require('express-rate-limit');
 const {z}=require('zod');
 const {withTransaction}=require('./db');
@@ -25,13 +25,15 @@ async function verifyCarrier(id,settings,{fetcher=fetch}={}){
  else if(id==='ghtk'){url='https://services.giaohangtietkiem.vn/services/shipment/list_pick_add';headers.Token=settings.secret;if(settings.partnerCode)headers['X-Client-Source']=settings.partnerCode;}
  else if(id==='viettel'){url='https://partner.viettelpost.vn/v2/order/getPriceAllNlp';method='POST';headers.Token=settings.secret;headers['Content-Type']='application/json';body=JSON.stringify({SENDER_ADDRESS:'Đại Mỗ, Nam Từ Liêm, Hà Nội',RECEIVER_ADDRESS:'Định Công, Hoàng Mai, Hà Nội',RECEIVER_PROVINCE:1,PRODUCT_TYPE:'HH',PRODUCT_WEIGHT:100,PRODUCT_PRICE:0,MONEY_COLLECTION:0,PRODUCT_LENGTH:0,PRODUCT_WIDTH:0,PRODUCT_HEIGHT:0,TYPE:1});}
  else if(id==='spx'){if(!settings.accountId)throw fail('Nhập Shop ID hoặc Mã đối tác Shopee Express.');url='https://spx.vn/api/v2/fleet_order/tracking/open_api?shop_id='+encodeURIComponent(settings.accountId);headers.Token=settings.secret;if(settings.partnerCode)headers['X-Client-Source']=settings.partnerCode;}
+ else if(id==='jt'){if(!settings.accountId)throw fail('Nhập Mã khách hàng (Customer Code) của J&T Express.');const crypto=require('node:crypto');const payload=JSON.stringify({customerCode:settings.accountId,billcode:'TEST8400000000'});const digest=crypto.createHash('md5').update(payload+settings.secret,'utf8').digest('base64');url='https://open.jtexpress.vn/api/order/inquiryTrack';method='POST';headers['Content-Type']='application/json';body=JSON.stringify({logistics_interface:payload,data_digest:digest,msg_type:'TRACKQUERY',eccompanyid:settings.accountId});}
  else throw fail('Cần hoàn tất tích hợp tài liệu API theo tài khoản đối tác của hãng này trước khi xác minh. Chưa bật lựa chọn cho người mua.',501);
  let data;try{const response=await fetcher(url,{method,headers,...(body?{body}:{}),signal:AbortSignal.timeout(12000),redirect:'error'});if(!response.ok)throw fail('Hãng vận chuyển từ chối kết nối. Kiểm tra token và quyền tài khoản.',502);const text=await response.text();if(text.length>1000000)throw fail('Phản hồi hãng vận chuyển vượt giới hạn.',502);data=JSON.parse(text);}catch(e){if(e.status)throw e;throw fail('Chưa xác minh được hãng vận chuyển. Kiểm tra kết nối và thử lại.',502);}
  if(id==='ghn'&&(data.code!==200||!Array.isArray(data.data?.shops)||!data.data.shops.some(s=>String(s._id)===settings.accountId&&s.status===1)))throw fail('Chưa tìm thấy Shop ID GHN đang hoạt động trong tài khoản. Kiểm tra quyền của token.',502);
  if(id==='ghtk'&&(data.success!==true||!Array.isArray(data.data)||!data.data.length))throw fail('Tài khoản GHTK chưa trả về kho lấy hàng khả dụng.',502);
  if(id==='viettel'){const services=Array.isArray(data)?data:data?.error===false&&data?.status===200?data.data:null;if(!Array.isArray(services)||!services.some(row=>typeof row.MA_DV_CHINH==='string'&&row.MA_DV_CHINH&&typeof row.TEN_DICHVU==='string'&&Number.isFinite(row.GIA_CUOC)&&row.GIA_CUOC>=0))throw fail('Chưa xác minh được token Viettel Post hoặc quyền đọc dịch vụ. Kiểm tra token Partner và thử lại.',502);}
  if(id==='spx'){const ok=data.code===200||data.code===0||data.success===true||data.status==='success'||Boolean(data.data);if(!ok)throw fail('Chưa xác minh được token Shopee Express hoặc mã khách hàng. Kiểm tra thông tin kết nối SPX và thử lại.',502);}
- return {id,name:names[id],checkedAt:new Date().toISOString(),method:id==='viettel'?'service_quote':'account_lookup'};
+ if(id==='jt'){const ok=data.code==='1'||data.code===200||data.code==='200'||data.success===true||data.status==='success'||Boolean(data.data)||Boolean(data.desc&&!data.desc.includes('khóa')&&!data.desc.includes('sai')&&!data.desc.includes('invalid'));if(!ok)throw fail('Chưa xác minh được tài khoản J&T Express. Kiểm tra Mã khách hàng và Private Key.',502);}
+ return {id,name:names[id],checkedAt:new Date().toISOString(),method:id==='viettel'||id==='jt'?'service_quote':'account_lookup'};
 }
 async function verifyAndRecord(pool,config,id,version,{fetcher,actor}={}){
  if(!supported.has(id))throw fail('Hãng này chưa hoàn tất giao thức xác minh API.',501);

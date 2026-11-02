@@ -841,6 +841,25 @@ function renderOrders() {
       ${paymentNote ? `<p class="help-text">${escapeHtml(paymentNote)}</p>` : ""}
       ${latePaymentWarning ? `<p class="feedback">${escapeHtml(latePaymentWarning)}</p>` : ""}
       ${lockNote ? `<p class="editor-guidance">${lockNote}</p>` : ""}
+      <div class="order-shipping-fulfillment" style="margin:12px 0;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+        <strong style="display:block;margin-bottom:6px;font-size:13px;">Hành trình & Vận đơn hãng vận chuyển</strong>
+        ${order.trackingNumber ? `
+          <p style="margin:0 0 8px;font-size:13px;">Mã vận đơn: <strong>${escapeHtml(order.trackingNumber)}</strong> (${escapeHtml(order.carrierShipment?.carrierId || order.shippingCarrierName || 'Hãng')}) · Trạng thái: <span class="status-pill status-${escapeHtml(order.carrierShipment?.status || 'shipped')}">${escapeHtml(order.carrierShipment?.status || 'created')}</span></p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="secondary-button" data-sync-carrier-tracking="${escapeHtml(order.id)}" style="font-size:12px;padding:5px 12px;">Đồng bộ hành trình</button>
+            ${order.carrierShipment?.labelUrl ? `<a href="${escapeHtml(order.carrierShipment.labelUrl)}" target="_blank" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">In nhãn hãng</a>` : ''}
+            ${can('orders.write') && order.status !== 'completed' && order.status !== 'cancelled' ? `<button type="button" class="order-delete-button" data-cancel-waybill="${escapeHtml(order.id)}" style="background:#fff;color:#b42318;border:1px solid #fecdd3;font-size:12px;padding:5px 12px;">Hủy vận đơn</button>` : ''}
+          </div>
+        ` : `
+          <p style="margin:0 0 8px;font-size:12px;color:#64748b;">Chưa tạo vận đơn hãng cho đơn hàng này.</p>
+          ${can('orders.write') && !['cancelled', 'completed'].includes(order.status) ? `
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="primary-button" data-create-carrier-waybill="${escapeHtml(order.id)}" style="padding:6px 14px;font-size:12px;">Tạo vận đơn thật</button>
+              <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" data-auto-ship="${escapeHtml(order.id)}"> Bàn giao ngay (Đang giao)</label>
+            </div>
+          ` : ''}
+        `}
+      </div>
       <form class="order-controls" data-order-form="${escapeHtml(order.id)}">
         <label>Trạng thái đơn<select name="status" ${allowed.length ? "" : "disabled"}>${optionMarkup}</select></label>
         <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${canEditShipping(order) ? "" : "disabled"}></label>
@@ -1295,13 +1314,72 @@ document.querySelector("#next-orders").addEventListener("click", () => {
   if (state.orderPage < state.orderPagination.pageCount) loadOrders(state.orderPage + 1).catch((error) => showGlobal(error.message, true));
 });
 document.querySelector("#order-list").addEventListener("submit", updateOrder);
-document.querySelector("#order-list").addEventListener("click",event=>{
+document.querySelector("#order-list").addEventListener("click",async event=>{
   const back=event.target.closest('[data-return-order]');
   if(back){startOrderReturn(back.dataset.returnOrder);return;}
   const button=event.target.closest('[data-process-order]');
   if(button){openOrderProcessing(button.dataset.processOrder,button);return;}
   const del=event.target.closest('[data-permanent-delete-order]');
   if(del){handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder);return;}
+  const createWaybillBtn = event.target.closest('[data-create-carrier-waybill]');
+  if(createWaybillBtn){
+    const orderId = createWaybillBtn.dataset.createCarrierWaybill;
+    const autoShip = document.querySelector(`[data-auto-ship="${CSS.escape(orderId)}"]`)?.checked;
+    createWaybillBtn.disabled = true;
+    createWaybillBtn.textContent = 'Đang tạo…';
+    try {
+      const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/create-waybill`, {
+        method: 'POST',
+        body: JSON.stringify({ autoShip })
+      });
+      showGlobal(res.message || 'Đã tạo vận đơn thành công.');
+      await loadOrders(state.orderPage);
+    } catch(err) {
+      showGlobal(err.message, true);
+    } finally {
+      createWaybillBtn.disabled = false;
+      createWaybillBtn.textContent = 'Tạo vận đơn thật';
+    }
+    return;
+  }
+  const cancelWaybillBtn = event.target.closest('[data-cancel-waybill]');
+  if(cancelWaybillBtn){
+    const orderId = cancelWaybillBtn.dataset.cancelWaybill;
+    if(!window.confirm('Hủy mã vận đơn này trên hệ thống của hãng?')) return;
+    cancelWaybillBtn.disabled = true;
+    try {
+      const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/cancel-waybill`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      showGlobal(res.message || 'Đã hủy vận đơn.');
+      await loadOrders(state.orderPage);
+    } catch(err) {
+      showGlobal(err.message, true);
+    } finally {
+      cancelWaybillBtn.disabled = false;
+    }
+    return;
+  }
+  const syncTrackingBtn = event.target.closest('[data-sync-carrier-tracking]');
+  if(syncTrackingBtn){
+    const orderId = syncTrackingBtn.dataset.syncCarrierTracking;
+    syncTrackingBtn.disabled = true;
+    syncTrackingBtn.textContent = 'Đang đồng bộ…';
+    try {
+      const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/sync-tracking`, {
+        method: 'POST'
+      });
+      showGlobal(`Đồng bộ hành trình: ${res.statusDescription || res.status}`);
+      await loadOrders(state.orderPage);
+    } catch(err) {
+      showGlobal(err.message, true);
+    } finally {
+      syncTrackingBtn.disabled = false;
+      syncTrackingBtn.textContent = 'Đồng bộ hành trình';
+    }
+    return;
+  }
 });
 
 document.querySelector("#order-list").addEventListener("change", changeOrderControl);

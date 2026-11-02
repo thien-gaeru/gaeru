@@ -1044,7 +1044,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
        GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY ${sortSql[sort]} LIMIT $5 OFFSET $6`,
       [...filterValues, exportAll ? 5000 : pageSize, exportAll ? 0 : (page - 1) * pageSize]
     );
-    if(shippingChoices&&result.rows.length){const selected=(await pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])',[result.rows.map(o=>o.id)])).rows;for(const order of result.rows)order.shippingCarrierName=selected.find(r=>r.order_id===order.id)?.carrier_name||null;}
+    if(shippingChoices&&result.rows.length){
+      const selected=(await pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])',[result.rows.map(o=>o.id)])).rows;
+      for(const order of result.rows)order.shippingCarrierName=selected.find(r=>r.order_id===order.id)?.carrier_name||null;
+      const shipments=(await pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled'",[result.rows.map(o=>o.id)])).rows;
+      for(const order of result.rows){const s=shipments.find(r=>r.order_id===order.id);if(s){order.carrierShipment={carrierId:s.carrier_id,trackingNumber:s.tracking_number,status:s.status,labelUrl:s.label_url};order.trackingNumber=s.tracking_number;}}
+    }
     if (finance && result.rows.length) {
       const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
       const receivedByOrder = new Map(receipts.rows.map((row) => [row.order_id, Number(row.received)]));

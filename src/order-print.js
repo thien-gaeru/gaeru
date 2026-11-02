@@ -44,6 +44,23 @@ function createOrderPrint(pool) {
       res.set({'Cache-Control':'no-store','Pragma':'no-cache','X-Robots-Tag':'noindex, nofollow, noarchive'}).type('html').send(renderOrderPrint(result.rows,format));
     }catch(error){next(error);}
   });
+  router.get('/orders/:id/carrier-label',requirePermission('orders.read'),rateLimit({windowMs:60000,limit:30,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+    try {
+      const orderId=z.string().uuid().parse(req.params.id);
+      const result=await pool.query(
+        `SELECT s.tracking_number, s.label_url, s.carrier_id, o.order_number
+         FROM carrier_shipments s
+         JOIN orders o ON o.id = s.order_id
+         WHERE s.order_id = $1 AND s.status != 'cancelled'
+         ORDER BY s.created_at DESC LIMIT 1`,
+        [orderId]
+      );
+      if(!result.rows.length||!result.rows[0].label_url){
+        return res.status(404).json({error:'Đơn hàng chưa có nhãn in từ hãng vận chuyển. Vui lòng tạo vận đơn trước.'});
+      }
+      res.redirect(result.rows[0].label_url);
+    }catch(error){next(error);}
+  });
   return router;
 }
 module.exports={createOrderPrint,renderOrderPrint,due,labelFits};
