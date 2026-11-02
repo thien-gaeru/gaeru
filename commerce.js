@@ -50,11 +50,52 @@ function readCart() {
   }
 }
 
+let serverCartSyncTimer = null;
+function syncCartToServer(cart) {
+  if (typeof window === "undefined" || !window.GAERUCustomerSession?.customer) return;
+  clearTimeout(serverCartSyncTimer);
+  serverCartSyncTimer = setTimeout(async () => {
+    try {
+      await apiRequest("/api/customer/cart", {
+        method: "PUT",
+        body: JSON.stringify({ items: cart.map(i => ({ variantId: i.variantId, quantity: i.quantity })) })
+      });
+    } catch (_) {}
+  }, 300);
+}
+
+let isMergingCart = false;
+async function mergeCartWithServer() {
+  if (isMergingCart || typeof window === "undefined" || !window.GAERUCustomerSession?.customer) return;
+  isMergingCart = true;
+  try {
+    const local = readCart();
+    const result = await apiRequest("/api/customer/cart/merge", {
+      method: "POST",
+      body: JSON.stringify({ localItems: local.map(i => ({ variantId: i.variantId, quantity: i.quantity })) })
+    });
+    if (result && Array.isArray(result.items)) {
+      const merged = result.items.map(i => ({ variantId: i.variantId, quantity: i.quantity }));
+      localStorage.setItem(cartStorageKey, JSON.stringify(merged));
+      updateCartBadge(merged);
+      document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
+    syncCartToServer(cart);
+      renderCart();
+      renderMiniCart();
+      renderCheckout();
+    }
+  } catch (_) {}
+  finally {
+    isMergingCart = false;
+  }
+}
+
 function writeCart(cart) {
   try {
     localStorage.setItem(cartStorageKey, JSON.stringify(cart));
     updateCartBadge(cart);
     document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
+    syncCartToServer(cart);
     return true;
   } catch (error) {
     console.error("Không thể lưu giỏ hàng GAERU:", error);
@@ -689,6 +730,7 @@ async function initializeStore() {
     renderProduct();
     renderCart();
     await renderCheckout();
+    if (typeof window !== "undefined" && window.GAERUCustomerSession?.customer) { void mergeCartWithServer(); }
     renderMiniCart();
   } catch (error) {
     showStoreError(error);
@@ -699,10 +741,17 @@ async function initializeStore() {
 window.GAERUStore = Object.freeze({
   get products() { return products; },
   formatPrice,
-  searchProducts
+  searchProducts,
+  mergeCartWithServer,
+  syncCartToServer
 });
 document.addEventListener("gaeru:cart-updated", () => { updateCartBadge(); renderMiniCart(); renderCart(); });
 document.addEventListener("gaeru:cart-panel-open", renderMiniCart);
+document.addEventListener("gaeru:customer-updated", () => {
+  if (typeof window !== "undefined" && window.GAERUCustomerSession?.customer) {
+    void mergeCartWithServer();
+  }
+});
 window.addEventListener("storage", (event) => {
   if (event.key !== null && event.key !== cartStorageKey) return;
   updateCartBadge();
