@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),{constants}=require('node:fs'),{randomUUID}=require('node:crypto');
 const {checkKey}=require('./media-keys');
-const limits={products:8,banners:5,news:5,articles:25,documents:25,thumbnails:25,videos:25,chat:102400};
+const limits={products:8,banners:5,news:5,articles:25,documents:25,thumbnails:25,videos:25,chat:102400,care:102400};
 const types={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/heic':'heic','video/mp4':'mp4','video/quicktime':'mov','video/webm':'webm','application/pdf':'pdf','application/octet-stream':'bin','text/plain':'txt'};
 let lastCheck=null;
 function configured(){return typeof process.env.MEDIA_ROOT==='string'&&process.env.MEDIA_ROOT.trim().length>0;}

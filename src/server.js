@@ -17,7 +17,7 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-let server;let mediaAuditTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;
+let server;let mediaAuditTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;
 
 async function start() {
   await migrateDatabase(pool);
@@ -40,6 +40,7 @@ async function start() {
   stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
   stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
   stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
+  stopCareEmail=require("./care-api").startCareEmailWorker(pool,config);
   stopEmail=require("./email-marketing").startEmailWorker(pool,config);
   stopRetention=require("./account-retention").startRetentionWorker(pool);
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
@@ -91,6 +92,7 @@ async function shutdown() {
   stopRetention?.();
   stopEmail?.();
   stopWarrantyEmail?.();
+  stopCareEmail?.();
   stopOrderEmail?.();
   if (server) await new Promise(resolve => server.close(resolve));
   // Background conversion and verification must finish before releasing its database.

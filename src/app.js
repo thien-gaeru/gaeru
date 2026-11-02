@@ -125,7 +125,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer", createCustomerExperience(pool));
-  app.use("/api/customer/care", createCareCustomerApi(pool));
+  app.use("/api/customer/care", createCareCustomerApi(pool, config));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
   app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool));
@@ -173,7 +173,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use("/api/gaeru_ceo", createOperationsApi(pool));
   app.use("/api/gaeru_ceo", createFinanceApi(pool));
-  app.use("/api/gaeru_ceo", createCareAdminApi(pool));
+  app.use("/api/gaeru_ceo", createCareAdminApi(pool, config));
   app.use("/api/gaeru_ceo", createOwnerApi(pool, config));
   app.use("/api/gaeru_ceo", createWarrantyAdminApi(pool));
   app.use("/api/gaeru_ceo", createBusinessApi(pool, config));

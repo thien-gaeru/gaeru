@@ -38,6 +38,7 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
     './shopping-chat-file-retention':'startChatFileRetentionWorker', './tiktok-ads':'startTikTokAdsWorker', './shopping-chat-ai-first':'startAIChatWorker',
     './shopping-chat-compression':'startChatCompressionWorker', './shopping-chat-email':'startChatEmailWorker',
     './order-email':'startOrderEmailWorker', './warranty-email':'startWarrantyEmailWorker',
+    './care-api':'startCareEmailWorker',
     './email-marketing':'startEmailWorker', './account-retention':'startRetentionWorker'
   };
   for (const [module, method] of Object.entries(workerNames)) modules[module] = { [method]: () => () => calls.workersStopped++ };
@@ -82,7 +83,7 @@ test('listener errors stop workers and close resources without exposing the raw 
   assert.doesNotThrow(() => f.server.emit('error', Object.assign(new Error('sensitive listener context'), { code: 'EADDRINUSE' })));
   await settle();
   assert.equal(f.fakeProcess.exitCode, 1);
-  assert.equal(f.calls.workersStopped, 9);
+  assert.equal(f.calls.workersStopped, 10);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
   assert.doesNotMatch(JSON.stringify(f.calls.errors), /sensitive listener context/);
@@ -102,7 +103,7 @@ test('an unavailable media volume leaves the listener available without copying 
   assert.deepEqual(f.calls.errors, []);
   f.events.emit('SIGTERM');
   await settle();
-  assert.equal(f.calls.workersStopped, 9);
+  assert.equal(f.calls.workersStopped, 10);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
 });
@@ -118,7 +119,7 @@ test('a blocked background media audit does not block listening and shutdown wai
   f.events.emit('SIGTERM');
   await settle();
   assert.equal(f.calls.listenerClosed, 1);
-  assert.equal(f.calls.workersStopped, 9);
+  assert.equal(f.calls.workersStopped, 10);
   assert.equal(f.calls.storeClosed, 0);
   assert.equal(f.calls.poolClosed, 0);
   f.events.emit('SIGINT');

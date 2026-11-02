@@ -14,7 +14,7 @@ function metadata(content){
  const b=Buffer.from(content),prefix=b.subarray(0,PREFIX.length).equals(PREFIX)?PREFIX:OLD_V2;
  if(!b.subarray(0,prefix.length).equals(prefix))return null;
  let m;try{m=JSON.parse(b.subarray(prefix.length).toString('utf8'));}catch{throw Error('Invalid media metadata');}
- checkKey(m?.key);const maxBytes=m.key.startsWith('chat/')?Number.MAX_SAFE_INTEGER:25*1024*1024;
+ checkKey(m?.key);const maxBytes=m.key.startsWith('chat/')||m.key.startsWith('care/')?Number.MAX_SAFE_INTEGER:25*1024*1024;
  if(!Number.isSafeInteger(m.size)||m.size<1||m.size>maxBytes||!/^[0-9a-f]{64}$/.test(m.sha256))throw Error('Invalid media metadata');
  return m;
 }
@@ -40,9 +40,9 @@ async function readMedia(content){
  return cacheable?imageCache.get(sha(b),load):load();
 }
 async function storeUpload(scope,buffer,mime){
- const maxUploadBytes=scope==='chat'?require('../audit-fixes/upload-state').MAX_FILE_BYTES:({products:8,banners:5,news:5,videos:25})[scope]*1024*1024;
+ const maxUploadBytes=scope==='chat'||scope==='care'?require('../audit-fixes/upload-state').MAX_FILE_BYTES:({products:8,banners:5,news:5,videos:25})[scope]*1024*1024;
  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>maxUploadBytes)throw Object.assign(Error('Upload is too large.'),{status:413});
- let mimeType=mime;if(mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes});buffer=optimized.buffer;mimeType=optimized.mimeType;}catch(e){if(scope!=='chat')throw e;}
+ let mimeType=mime;if(mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes});buffer=optimized.buffer;mimeType=optimized.mimeType;}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
  return {content:await storeMedia(scope,buffer,mimeType),mimeType,byteSize:buffer.length};
 }
 module.exports={storeMedia,storeUpload,readMedia,metadata,pointer,PREFIX};
