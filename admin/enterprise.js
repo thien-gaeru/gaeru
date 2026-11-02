@@ -186,6 +186,9 @@
     const section = document.querySelector("#inventory-forecast-section");
     if (!section) return;
     section.hidden = false;
+    let dialog=root('inventory').querySelector('[data-forecast-dialog]');
+    if(!dialog){dialog=document.createElement('dialog');dialog.className='inventory-forecast-dialog';dialog.dataset.forecastDialog='';dialog.setAttribute('aria-label','Dự báo và điểm đặt hàng');const close=document.createElement('button');close.type='button';close.className='secondary-button';close.textContent='Đóng';close.onclick=()=>dialog.close();dialog.append(close);root('inventory').append(dialog);dialog.append(section);}
+    if(!dialog.open)dialog.showModal();
     const target = section.querySelector("#forecast-content");
     target.textContent = "Đang tính toán dự báo nhu cầu & điểm đặt hàng lại…";
 

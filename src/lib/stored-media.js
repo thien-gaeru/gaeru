@@ -39,13 +39,13 @@ async function readMedia(content){
  const cacheable=process.env.MEDIA_CACHE_ENABLED!=='false'&&/^(products|news|banners)\//.test(key)&&(process.env.NODE_ENV==='production'||process.env.MEDIA_CACHE_ENABLED==='true');
  return cacheable?imageCache.get(sha(b),load):load();
 }
-async function storeUpload(scope,buffer,mime,pool=null){
+async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==='products'}={}){
  const originalBuffer=buffer;
  const maxUploadBytes=scope==='chat'||scope==='care'?require('../audit-fixes/upload-state').MAX_FILE_BYTES:({products:8,banners:5,news:5,videos:25})[scope]*1024*1024;
  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>maxUploadBytes)throw Object.assign(Error('Upload is too large.'),{status:413});
- let mimeType=mime;if(scope!=='chat'&&scope!=='care'&&mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes});buffer=optimized.buffer;mimeType=optimized.mimeType;}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
+ let mimeType=mime,backgroundRemoved=false;if(scope!=='chat'&&scope!=='care'&&mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes,removeBackground});buffer=optimized.buffer;mimeType=optimized.mimeType;backgroundRemoved=Boolean(optimized.backgroundRemoved);}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
  const content=await storeMedia(scope,buffer,mimeType),meta=metadata(content);
  if(meta&&mime.startsWith('image/')&&scope!=='chat'&&scope!=='care')await require('./image-originals').preserveOriginal(pool,{scope,buffer:originalBuffer,mime,derivativeKey:meta.key});
- return {content,mimeType,byteSize:buffer.length};
+ return {content,mimeType,byteSize:buffer.length,backgroundRemoved};
 }
 module.exports={storeMedia,storeUpload,readMedia,metadata,pointer,PREFIX};

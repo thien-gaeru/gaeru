@@ -344,7 +344,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       const bodyCsrf = req.body?.g_csrf_token;
 
       if (!verifyGisCsrf(cookieCsrf, bodyCsrf)) {
-        return res.status(403).send('Xác thực CSRF Google không hợp lệ (g_csrf_token missing or mismatch).');
+        return res.status(403).type('html').send('<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thử lại đăng nhập Google | GAERU</title><main><h1>Phiên đăng nhập Google chưa hợp lệ</h1><p>Kiểm tra CSRF không thành công. Vui lòng quay lại trang tài khoản và chọn nút Đăng nhập bằng Google để thử lại.</p><a href="/tai-khoan#login">Quay lại đăng nhập GAERU</a></main></html>');
       }
 
       const googleClientId = await getGoogleClientId();

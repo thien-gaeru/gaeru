@@ -372,6 +372,7 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
     const accepted = Array.isArray(result?.accepted)
       ? result.accepted.some(e => String(e.address || e).toLowerCase() === normEmail)
       : Boolean(result?.messageId);
+    if (!accepted) throw new Error('Dịch vụ email chưa chấp nhận địa chỉ nhận. Chưa ghi nhận gửi nhắc thành công.');
 
     await withTransaction(pool, async c => {
       // Calculate next reminder cadence

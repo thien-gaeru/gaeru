@@ -17,7 +17,7 @@ function invalidImage() {
   return error;
 }
 
-async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}={}) {
+async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES,removeBackground=false}={}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 ||
       buffer.length > maxUploadBytes || !EXPECTED_FORMATS[mimeType]) {
     throw invalidImage();
@@ -31,6 +31,7 @@ async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES}={
         info.width * info.height > pixelLimit || (info.pages||1)>1) {
       throw invalidImage();
     }
+    if(removeBackground){const cutout=await require('./product-background').removeWhiteBackground(buffer);if(cutout)return {buffer:cutout,mimeType:'image/webp',backgroundRemoved:true};}
     if(info.format==='webp'&&info.width<=MAX_DIMENSION&&info.height<=MAX_DIMENSION&&!info.exif&&!info.icc&&!info.xmp&&!info.orientation)return {buffer,mimeType:'image/webp'};
     const webp = await sharp(buffer, input)
       .rotate() // Apply EXIF orientation; output metadata is stripped.

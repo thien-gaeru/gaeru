@@ -436,6 +436,18 @@ function createLoyaltyApi(pool) {
       res.json({ policy: saved, tierBenefits: tierBenefits(saved) });
     } catch (e) { next(e); }
   });
+  adminRouter.get('/customers/loyalty-members', requirePermission('customers.read'), async (req,res,next)=>{
+    try{
+      const page=z.coerce.number().int().min(1).max(1000000).default(1).parse(req.query.page);
+      const q=z.string().max(100).default('').parse(req.query.q).trim();
+      const policy=await readPolicy(pool);
+      const where="c.deleted_at IS NULL AND ($1::text='' OR c.full_name ILIKE '%'||$1||'%' OR c.email ILIKE '%'||$1||'%' OR c.phone ILIKE '%'||$1||'%')";
+      const rows=(await pool.query(`SELECT c.id,c.full_name AS "fullName",c.email,c.phone,c.active,COALESCE(l.points_balance,0)::int AS "pointsBalance",COALESCE(l.lifetime_earned,0)::int AS "lifetimeEarned",COALESCE(l.lifetime_spent,0)::int AS "lifetimeSpent" FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where} ORDER BY COALESCE(l.points_balance,0) DESC,c.id LIMIT 25 OFFSET $2`,[q,(page-1)*25])).rows;
+      const summary=(await pool.query(`SELECT count(*)::int AS total,COALESCE(sum(l.points_balance),0)::text AS balance,COALESCE(sum(l.lifetime_earned),0)::text AS earned,COALESCE(sum(l.lifetime_spent),0)::text AS spent FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where}`,[q])).rows[0];
+      res.json({members:rows.map(row=>({...row,tier:calculateTier(row.lifetimeEarned,policy)})),summary,tierBenefits:tierBenefits(policy),pagination:{page,pageCount:Math.max(1,Math.ceil(summary.total/25)),total:summary.total,pageSize:25}});
+    }catch(error){next(error);}
+  });
+
   adminRouter.get('/customers/:id/loyalty',
     requirePermission('customers.read'),
     async (req, res, next) => {

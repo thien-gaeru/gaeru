@@ -16,13 +16,14 @@ function resolveInitialAccountTab() {
   const hash = (typeof window !== 'undefined' && window.location?.hash ? window.location.hash : '').replace('#', '').toLowerCase();
   if (hash === 'offers' || hash === 'account-offers' || hash === 'vouchers') return 'offers';
   if (hash === 'profile' || hash === 'account-overview' || hash === 'account-addresses') return 'profile';
-  if (hash === 'security' || hash === 'account-security') return 'security';
+  if (hash === 'security' || hash === 'account-security') return 'profile';
   if (hash === 'warranties' || hash === 'account-warranties') return 'warranties';
   if (hash === 'orders' || hash === 'customer-orders') return 'orders';
   return 'profile';
 }
 
 function switchAccountTab(tabName, updateHash = true) {
+  if(tabName==='security')tabName='profile';
   const validTabs = ['orders', 'offers', 'profile', 'warranties', 'security'];
   if (!validTabs.includes(tabName)) tabName = 'orders';
   currentActiveTab = tabName;
@@ -40,8 +41,9 @@ function switchAccountTab(tabName, updateHash = true) {
     panel.classList?.toggle('is-active', isActive);
   });
 
-  if (tabName === 'security') {
-    const secPanel = document.querySelector?.('[data-security-panel]');
+  if(tabName==='profile'&&(updateHash||['#profile','#security','#account-security'].includes(window.location.hash)))window.GAERUAccountSettings?.open();
+  if (tabName === 'profile' && ['#security','#account-security'].includes(window.location.hash)) {
+    const secPanel = document.querySelector?.('[data-security-panel]')?.closest('details');
     if (secPanel) {
       secPanel.open = true;
       secPanel.dispatchEvent?.(new Event('toggle'));
@@ -592,112 +594,64 @@ function showOAuthConfigModal(provider, cfg) {
 }
 
 let googleGsiInitialized = false;
-
-function redirectToGoogleOAuth(cfg) {
-  if (!cfg?.google?.clientId) return;
-  const origin = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : '';
-  const redirectUri = origin + '/api/customer-auth/oauth/google-callback';
-  const state = Math.random().toString(36).substring(2) + Date.now().toString(36);
-  const nonce = Math.random().toString(36).substring(2) + Date.now().toString(36);
-  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  authUrl.searchParams.set('client_id', cfg.google.clientId);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('response_type', 'id_token');
-  authUrl.searchParams.set('response_mode', 'form_post');
-  authUrl.searchParams.set('scope', 'openid email profile');
-  authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('nonce', nonce);
-  authUrl.searchParams.set('prompt', 'select_account');
-  window.location.href = authUrl.toString();
+let googleSdkPromise;
+function loadGoogleSdk() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleSdkPromise) return googleSdkPromise;
+  googleSdkPromise = new Promise((resolve, reject) => {
+    const script = document.querySelector('script[src="https://accounts.google.com/gsi/client"]') || document.createElement('script');
+    const done = (error) => {
+      clearTimeout(timer);
+      script.removeEventListener('load', loaded); script.removeEventListener('error', failed);
+      if (error) { script.remove(); reject(error); } else resolve();
+    };
+    const loaded = () => done(window.google?.accounts?.id ? null : new Error('Google chưa sẵn sàng. Vui lòng thử lại.'));
+    const failed = () => done(new Error('Chưa tải được đăng nhập Google. Kiểm tra kết nối rồi thử lại.'));
+    const timer = setTimeout(failed, 10000);
+    script.addEventListener('load', loaded, {once:true}); script.addEventListener('error', failed, {once:true});
+    if (!script.src) { script.src='https://accounts.google.com/gsi/client'; script.async=true; document.head.append(script); }
+  }).catch(error => { googleSdkPromise=null; throw error; });
+  return googleSdkPromise;
 }
-
 async function initGoogleOAuth(interactive = false) {
-  let cfg = null;
   try {
-    cfg = await loadOAuthConfig();
+    const cfg = await loadOAuthConfig();
     if (!cfg?.google?.clientId) {
-      if (interactive) showOAuthConfigModal('Google', cfg);
+      if (interactive) setAccountFeedback('Đăng nhập Google chưa sẵn sàng. Bạn có thể đăng nhập bằng email hoặc số điện thoại.', true);
       return;
     }
-
-    let sdkReady = Boolean(window.google?.accounts?.id);
-    if (!sdkReady) {
-      try {
-        await new Promise((resolve, reject) => {
-          const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
-          if (existing && window.google?.accounts?.id) return resolve();
-          const s = existing || document.createElement('script');
-          if (!existing) {
-            s.src = 'https://accounts.google.com/gsi/client';
-            s.async = true;
-            s.defer = true;
-            document.head.appendChild(s);
-          }
-          s.addEventListener('load', resolve, { once: true });
-          s.addEventListener('error', () => reject(new Error('GIS_LOAD_ERROR')), { once: true });
-          setTimeout(() => {
-            if (window.google?.accounts?.id) resolve();
-            else reject(new Error('GIS_TIMEOUT'));
-          }, 3500);
-        });
-        sdkReady = Boolean(window.google?.accounts?.id);
-      } catch (e) {
-        sdkReady = false;
-      }
-    }
-
-    if (sdkReady && !googleGsiInitialized && window.google?.accounts?.id) {
+    await loadGoogleSdk();
+    if (!googleGsiInitialized) {
       window.google.accounts.id.initialize({
-        client_id: cfg.google.clientId,
-        ux_mode: 'popup',
-        login_uri: window.location.origin + '/api/customer-auth/oauth/google-callback',
-        cancel_on_tap_outside: true,
-        callback: async (response) => {
+        client_id: cfg.google.clientId, ux_mode:'popup', auto_select:false,
+        callback: async response => {
           try {
             if (!response?.credential) throw new Error('Không nhận được thông tin xác thực từ Google.');
-            setAccountFeedback('Đang xác thực thông tin tài khoản Google...');
-            const result = await accountRequest('/api/customer-auth/oauth/google', {
-              credential: response.credential
-            });
-            accountCsrfToken = result.csrfToken;
+            setAccountFeedback('Đang xác thực tài khoản Google…');
+            const result=await accountRequest('/api/customer-auth/oauth/google',{credential:response.credential});
+            accountCsrfToken=result.csrfToken;
             showCustomerProfile(result.customer);
-    if (['#login', '#register'].includes(window.location.hash)) {
-      history.replaceState(null, '', window.location.pathname + '#customer-account');
-    }
-            history.replaceState(null, '', window.location.pathname + '#customer-account');
-            setAccountFeedback('Đăng nhập Google thành công!');
-            const returnUrl = new URLSearchParams(window.location.search).get('returnUrl') || new URLSearchParams(window.location.search).get('redirect');
-            if (returnUrl && /^\/(?!\/|\\)/.test(returnUrl)) {
-              setTimeout(() => { window.location.href = returnUrl; }, 600);
-            }
-          } catch (err) {
-            setAccountFeedback(err.message || 'Không thể đăng nhập Google lúc này.', true);
-          }
+            history.replaceState(null,'',window.location.pathname+'#customer-account');
+            setAccountFeedback('Đăng nhập Google thành công.');
+            const query=new URLSearchParams(window.location.search);
+            const returnUrl=query.get('returnUrl')||query.get('redirect');
+            if (returnUrl && /^\/(?!\/|\\)/.test(returnUrl)) setTimeout(()=>{window.location.href=returnUrl;},600);
+          } catch(error) { setAccountFeedback(error.message||'Không thể đăng nhập Google lúc này.',true); }
         }
       });
-      googleGsiInitialized = true;
+      googleGsiInitialized=true;
     }
-
-    if (interactive) {
-      if (sdkReady && window.google?.accounts?.id) {
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            redirectToGoogleOAuth(cfg);
-          }
-        });
-      } else {
-        redirectToGoogleOAuth(cfg);
+    document.querySelectorAll('[data-oauth-action="google"]').forEach(button=>{
+      let host=button.parentElement.querySelector('[data-google-signin]');
+      if (!host) {
+        host=document.createElement('div');host.dataset.googleSignin='';host.className='google-signin-button';
+        button.after(host);
+        window.google.accounts.id.renderButton(host,{type:'standard',theme:'outline',size:'large',shape:'pill',text:'signin_with',locale:'vi',width:Math.max(200,Math.min(360,button.parentElement.clientWidth||300))});
       }
-    }
-  } catch (err) {
-    if (interactive) {
-      if (cfg?.google?.clientId) {
-        redirectToGoogleOAuth(cfg);
-        return;
-      }
-      setAccountFeedback(err.message || 'Không thể đăng nhập với Google lúc này.', true);
-    }
-  }
+      button.hidden=true;
+    });
+    if (interactive) setAccountFeedback('Chọn nút Đăng nhập bằng Google để tiếp tục.');
+  } catch(error) { if(interactive) setAccountFeedback(error.message||'Chưa tải được đăng nhập Google. Vui lòng thử lại.',true); }
 }
 
 function bindOAuthButtons() {
@@ -714,3 +668,5 @@ bindOAuthButtons();
 setTimeout(() => {
   initGoogleOAuth(false).catch(() => {});
 }, 300);
+
+window.addEventListener?.('pageshow',event=>{if(event.persisted)window.location.reload();});

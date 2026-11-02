@@ -913,8 +913,6 @@ async function updateOrder(event) {
 
 async function loadCustomers(page = state.customerPage) {
   if (!can("customers.read")) return;
-  if (can('settings.write')) await loadLoyaltyPolicy().catch(error => showGlobal('Chưa tải được chính sách Xu: ' + error.message, true));
-  else document.querySelector('#customer-loyalty-policy')?.remove();
   const search = document.querySelector("#customer-search").value.trim();
   const params = new URLSearchParams({ page: String(page) });
   if (search) params.set("q", search);
@@ -1000,7 +998,7 @@ async function showCustomerDetail(id, panel, ledgerPage = 1) {
   if (ledgerPage > 1 && panel.querySelector('.customer-loyalty-summary details')) panel.querySelector('.customer-loyalty-summary details').open = true;
 }
 
-async function openLoyaltyAdjustment(customerId, trigger) {
+async function openLoyaltyAdjustment(customerId, trigger, onSaved) {
   if (!can('customers.write')) return;
   const dialog = document.createElement('dialog'); dialog.className = 'enterprise-confirm-dialog';
   dialog.setAttribute('aria-labelledby', 'loyalty-adjust-title');
@@ -1022,6 +1020,7 @@ async function openLoyaltyAdjustment(customerId, trigger) {
       saving = false; close();
       const panel = document.querySelector(`[data-customer-detail-panel="${CSS.escape(customerId)}"]`);
       if (panel) await showCustomerDetail(customerId, panel);
+      if(onSaved)await onSaved();
       showGlobal('Đã ghi nhận điều chỉnh vào sổ GAERU Xu.');
     } catch (error) { status.textContent = error.message; }
     finally { saving = false; form.querySelector('button[type=submit]').disabled = false; }
@@ -1033,7 +1032,7 @@ async function loadLoyaltyPolicy(force = false) {
   if (!can('settings.write')) return;
   let root = document.querySelector('#customer-loyalty-policy');
   if (root?.dataset.loaded === 'true' && !force) return;
-  if (!root) { root = document.createElement('details'); root.id = 'customer-loyalty-policy'; root.className = 'configuration-panel'; document.querySelector('#customer-list').before(root); }
+  if (!root) { root = document.createElement('details'); root.id = 'customer-loyalty-policy'; root.className = 'configuration-panel'; (document.querySelector('#loyalty-policy-host')||document.querySelector('#customers-view')).prepend(root); }
   const { policy, tierBenefits } = await request('/api/gaeru_ceo/customers/loyalty-policy');
   root.innerHTML = '<summary>Chính sách GAERU Xu</summary><div><p>Tỷ lệ áp dụng theo hạng trước khi tích Xu cho đơn mới. Thay đổi chỉ áp dụng giao dịch tiếp theo; không sửa sổ Xu đã ghi nhận.</p><form data-loyalty-policy-form data-version="' + policy.version + '">' + policy.tiers.map(tier => '<fieldset><legend>' + escapeHtml(tierBenefits[tier.id].name) + '</legend><div class="form-grid"><label>Ngưỡng Xu tích lũy<input type="number" min="0" max="2000000000" step="1" required data-tier-min="' + tier.id + '" value="' + tier.minPoints + '" ' + (tier.id === 'bronze' ? 'readonly' : '') + '></label><label>Tích Xu (% giá trị đơn)<input type="number" min="0" max="100" step="0.01" required data-tier-rate="' + tier.id + '" value="' + tier.earnBasisPoints / 100 + '"></label></div></fieldset>').join('') + '<div class="configuration-actions"><button type="submit" class="primary-button">Lưu chính sách Xu</button><button type="button" class="secondary-button" data-loyalty-policy-reload>Tải lại</button></div><p role="status" aria-live="polite"></p></form></div>';
   root.dataset.loaded = 'true';
@@ -1047,6 +1046,40 @@ async function loadLoyaltyPolicy(force = false) {
       await loadLoyaltyPolicy(true); root.open = true; root.querySelector('[role=status]').textContent = 'Đã lưu. Áp dụng cho giao dịch tiếp theo.';
     } catch (error) { status.textContent = error.message; } finally { button.disabled = false; }
   });
+}
+
+async function loadLoyaltyWorkspace(page=1){
+  if(!can('customers.read'))return;
+  const root=document.querySelector('#loyalty-view');
+  if(!root.dataset.ready){
+    root.dataset.ready='true';root.innerHTML='<div id="loyalty-policy-host"></div><form data-xu-search class="section-toolbar"><label>Tìm thành viên<input name="q" type="search" maxlength="100" placeholder="Tên, email hoặc số điện thoại"></label><button class="primary-button" type="submit">Tra cứu</button><button class="secondary-button" type="button" data-xu-refresh>Tải lại</button></form><p role="status" data-xu-status></p><div class="metric-grid" data-xu-metrics></div><div data-xu-members></div><div class="pagination" data-xu-pagination></div>';
+    root.querySelector('form').onsubmit=event=>{event.preventDefault();loadLoyaltyWorkspace().catch(error=>root.querySelector('[data-xu-status]').textContent=error.message);};
+    root.querySelector('[data-xu-refresh]').onclick=()=>loadLoyaltyWorkspace().catch(error=>root.querySelector('[data-xu-status]').textContent=error.message);
+    root.addEventListener('click',async event=>{
+      const button=event.target.closest('button');if(!button)return;
+      try{
+        if(button.dataset.xuPage)await loadLoyaltyWorkspace(Number(button.dataset.xuPage));
+        if(button.dataset.xuDetail){const panel=button.closest('article').querySelector('[data-xu-ledger]');panel.hidden=!panel.hidden;if(!panel.hidden)await loadXuLedger(button.dataset.xuDetail,panel);}
+        if(button.dataset.loyaltyPage)await loadXuLedger(button.dataset.loyaltyCustomer,button.closest('[data-xu-ledger]'),Number(button.dataset.loyaltyPage));
+        if(button.dataset.customerAdjustXu)await openLoyaltyAdjustment(button.dataset.customerAdjustXu,button,()=>loadLoyaltyWorkspace(root._xuPage||1));
+      }catch(error){root.querySelector('[data-xu-status]').textContent=error.message;}
+    });
+  }
+  const feedback=root.querySelector('[data-xu-status]');feedback.textContent='Đang tải sổ Xu…';
+  const q=root.querySelector('[name=q]').value.trim();
+  const result=await request('/api/gaeru_ceo/customers/loyalty-members?'+new URLSearchParams({q,page}));
+  root._xuPage=result.pagination.page;
+  const number=value=>new Intl.NumberFormat('vi-VN').format(Number(value)||0);
+  root.querySelector('[data-xu-metrics]').innerHTML=[['Thành viên',result.summary.total],['Xu khả dụng',result.summary.balance],['Xu đã tích',result.summary.earned],['Xu đã dùng',result.summary.spent]].map(([label,value])=>'<article class="metric-card"><span>'+label+'</span><strong>'+number(value)+'</strong></article>').join('');
+  root.querySelector('[data-xu-members]').innerHTML=result.members.map(c=>'<article class="customer-card"><div class="customer-card-header"><div><h3>'+escapeHtml(c.fullName)+'</h3><p>'+escapeHtml(c.email)+' · '+escapeHtml(c.phone)+'</p></div><div><strong>'+number(c.pointsBalance)+' Xu</strong><p>'+escapeHtml(result.tierBenefits[c.tier]?.name||c.tier)+'</p></div></div><button class="secondary-button" type="button" data-xu-detail="'+c.id+'">Xem sổ Xu</button><div data-xu-ledger hidden></div></article>').join('')||'<p>Không có thành viên phù hợp.</p>';
+  const p=result.pagination;root.querySelector('[data-xu-pagination]').innerHTML='<button type="button" class="secondary-button" data-xu-page="'+(p.page-1)+'" '+(p.page<=1?'disabled':'')+'>Trước</button><span>Trang '+p.page+'/'+p.pageCount+'</span><button type="button" class="secondary-button" data-xu-page="'+(p.page+1)+'" '+(p.page>=p.pageCount?'disabled':'')+'>Tiếp</button>';
+  feedback.textContent='Số liệu theo kết quả tra cứu. Mọi điều chỉnh được lưu trong sổ Xu và nhật ký.';
+  if(can('settings.write'))await loadLoyaltyPolicy();
+  else if(!root.querySelector('[data-xu-policy-read]')){const data=await request('/api/gaeru_ceo/customers/loyalty-policy');root.querySelector('#loyalty-policy-host').innerHTML='<details data-xu-policy-read><summary>Chính sách GAERU Xu</summary>'+data.policy.tiers.map(t=>'<p>'+escapeHtml(data.tierBenefits[t.id].name)+' · Từ '+number(t.minPoints)+' Xu · Tích '+t.earnBasisPoints/100+'%</p>').join('')+'</details>';}
+}
+async function loadXuLedger(id,panel,page=1){
+  panel.hidden=false;panel.innerHTML=renderCustomerLoyalty(id,await request('/api/gaeru_ceo/customers/'+encodeURIComponent(id)+'/loyalty?ledgerPage='+page));
+  panel.querySelector('details').open=true;
 }
 
 async function toggleCustomer(id, active) {
@@ -1177,6 +1210,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (view === "oauth" && window.GAERUConfiguration) await window.GAERUConfiguration.mountOAuth();
     if (view === "shipping") await window.GAERUConfiguration.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
+    if(view === "loyalty")await loadLoyaltyWorkspace();
     if (button.dataset.view === "settings") {await loadSettings();if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();}
     if (button.dataset.view === "overview") { await loadSummary(); await loadSystemHealth(); if (window.GAERUOwner && (state.session?.role === "owner" || state.user?.role === "owner")) await window.GAERUOwner.load(); }
     if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();

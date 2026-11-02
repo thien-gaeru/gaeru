@@ -380,3 +380,5 @@
     box-shadow: 0 0 0 8px rgba(6, 78, 59, 0.35);
   }
 }
+
+.background-removal-option{display:flex;align-items:center;gap:10px;font-size:13px;line-height:1.5;margin:12px 0}.background-removal-option input{width:18px;height:18px;flex:none}

@@ -186,6 +186,15 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
     assert.equal(supp.rows.length, 1);
   });
 
+  await t.test('rejected recipient is recorded as failed without increasing successful reminder count', async () => {
+    const captured = await captureAbandonedCart(pool, {email:'rejected@example.com',items:[{variantId,quantity:1}],recoveryConsent:true});
+    const result = await sendRecoveryEmail(pool,{PUBLIC_BASE_URL:'https://gaeru.com',smtp:{from:'test@example.com'}},captured.cart,{sendMail:async()=>({accepted:[],rejected:['rejected@example.com']})});
+    assert.equal(result.success,false);
+    const row=(await pool.query('SELECT reminder_count,last_reminded_at,next_reminder_at FROM abandoned_carts WHERE id=$1',[captured.cart.id])).rows[0];
+    assert.equal(row.reminder_count,0);assert.equal(row.last_reminded_at,null);assert.ok(row.next_reminder_at);
+    const reminder=(await pool.query('SELECT status FROM abandoned_cart_reminders WHERE cart_id=$1',[captured.cart.id])).rows[0];assert.equal(reminder.status,'failed');
+  });
+
   // 7. Email cadence and worker processing
   await t.test('sendRecoveryEmail and processAbandonedCartReminders advance stages', async () => {
     const sentEmails = [];

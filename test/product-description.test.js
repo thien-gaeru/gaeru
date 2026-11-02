@@ -29,3 +29,11 @@ test('editable M3 artwork uses reviewed static paths and rejects traversal',()=>
    for(const url of ['/assets/products/m3-description/../secret.'+ext,'/assets/products/m3-description/5.'+ext,'https://other.test/a.'+ext])assert.equal(schema.shape.gallery.safeParse([url]).success,false);
  }
 });
+
+test('K9, P185 and G1 legacy descriptions become model-specific chapters while custom editor content remains editable',()=>{
+ for(const [slug,description,expected]of [['gaeru-k9','MIC CÀI ÁO GAERU K9','Không cần'],['gaeru-p185','Gậy chụp ảnh P185 có remote bluetooth','Bluetooth'],['gaeru-g1-ultra','Ghi trọn câu chuyện.','kiểm âm']]){
+  const product={slug,name:slug.toUpperCase(),description,imageUrl:'/assets/products/k9.webp',gallery:[],descriptionMedia:[]};
+  const html=render(product);assert.match(html,/product-feature-story/);assert.match(html,/product-feature-specs/);assert.match(html,new RegExp('/huong-dan/'+slug));assert.ok(!html.includes('90%'));
+  const custom=render({...product,description:'Bản mô tả mới của cửa hàng',descriptionMedia:[{type:'image',url:'/custom.webp',alt:'Ảnh riêng',afterParagraph:1}]});assert.match(custom,/Bản mô tả mới/);assert.match(custom,/custom.webp/);assert.ok(!custom.includes('product-feature-story'));
+ }
+});
