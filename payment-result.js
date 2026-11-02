@@ -54,10 +54,41 @@
       detail: 'Bạn đã nhập sai mật khẩu thanh toán quá số lần quy định.'
     }
   };
+  
+  const momoCodeDetails = {
+    '0': {
+      title: 'Đã thanh toán thành công qua MoMo.',
+      detail: 'Giao dịch qua Ví MoMo đã được xác nhận thành công.'
+    },
+    '1006': {
+      title: 'Bạn đã hủy giao dịch trên Ví MoMo.',
+      detail: 'Giao dịch thanh toán MoMo đã được hủy theo yêu cầu của bạn. Đơn hàng vẫn được lưu lại; bạn có thể thanh toán lại hoặc chọn phương thức khác.'
+    },
+    '1005': {
+      title: 'Đã hết thời gian chờ thanh toán MoMo.',
+      detail: 'Liên kết thanh toán trên ứng dụng MoMo đã hết hạn. Vui lòng thực hiện lại giao dịch.'
+    },
+    '1004': {
+      title: 'Số tiền vượt quá hạn mức MoMo.',
+      detail: 'Số tiền giao dịch vượt quá hạn mức thanh toán quy định của Ví MoMo.'
+    },
+    '2001': {
+      title: 'Số dư Ví MoMo không đủ.',
+      detail: 'Số dư trong Ví MoMo không đủ để thanh toán đơn hàng này. Vui lòng nạp thêm tiền hoặc đổi nguồn tiền thanh toán.'
+    },
+    '1001': {
+      title: 'Tài khoản MoMo không đủ số dư.',
+      detail: 'Tài khoản MoMo không đủ số dư để thực hiện thanh toán.'
+    },
+    '4100': {
+      title: 'Tài khoản MoMo chưa xác thực.',
+      detail: 'Tài khoản Ví MoMo của bạn cần được xác thực định danh (KYC) hoặc liên kết ngân hàng trước khi thực hiện giao dịch này.'
+    }
+  };
   const responseCode = result.get('code');
   const provider = result.get('provider');
-  const customFailed = (initialState === 'failed' && provider === 'vnpay' && responseCode && vnpayCodeDetails[responseCode])
-    ? vnpayCodeDetails[responseCode]
+  const customFailed = (initialState === 'failed' && responseCode)
+    ? (provider === 'vnpay' ? vnpayCodeDetails[responseCode] : provider === 'momo' ? momoCodeDetails[responseCode] : null)
     : null;
   const message = ['pending','processing'].includes(initialState) && !canCheck ? messages.invalid : customFailed || (Object.hasOwn(messages,initialState) ? messages[initialState] : messages.invalid);
   const title = document.createElement('h2');

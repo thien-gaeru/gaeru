@@ -342,7 +342,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const verified=require('./payment-channels').verifyGatewayPayload(provider,req.query,channelConfig);
     const order=require('./payment-channels').extractOrderNumber(verified.orderNumber||req.query.orderId||req.query.apptransid||req.query.app_trans_id||req.query.order||'');
     // Browser-controlled navigation is display only. IPN/query is authoritative.
-    const query=new URLSearchParams({result:verified.valid?(verified.successful?'processing':'failed'):'pending',provider,order});
+    const query=new URLSearchParams({result:verified.valid?(verified.successful?'processing':'failed'):'pending',provider,order,code:verified.responseCode||req.query.resultCode||''});
     res.redirect('/payment-result.html?'+query);
   });
 
