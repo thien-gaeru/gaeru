@@ -42,6 +42,14 @@ test('Customer Order Cancellation - Unit & Integration Test Suite', async (t) =>
     [product.id]
   )).rows[0];
 
+  const mainWh = (await pool.query("SELECT id FROM warehouses WHERE code = 'MAIN'")).rows[0];
+  if (mainWh) {
+    await pool.query(
+      'INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity) VALUES ($1, $2, 20) ON CONFLICT DO NOTHING',
+      [mainWh.id, variant.id]
+    );
+  }
+
   // Seed Voucher
   const voucher = (await pool.query(
     `INSERT INTO marketing_vouchers (code, title, kind, amount, min_spend_vnd, total_limit, per_customer_limit, starts_at, ends_at, active, public_claim)
@@ -197,6 +205,7 @@ test('Customer Order Cancellation - Unit & Integration Test Suite', async (t) =>
   await t.test('Customer successfully cancels pending unpaid COD order and restores stock atomically', async () => {
     // Set variant stock to 10
     await pool.query('UPDATE product_variants SET stock_quantity = 10 WHERE id = $1', [variant.id]);
+    await pool.query('UPDATE warehouse_stock SET quantity = 10 WHERE variant_id = $1', [variant.id]);
 
     // Create Order with 2 items
     const order = (await pool.query(
@@ -214,6 +223,7 @@ test('Customer Order Cancellation - Unit & Integration Test Suite', async (t) =>
 
     // Simulate stock deduction at checkout: 10 - 2 = 8
     await pool.query('UPDATE product_variants SET stock_quantity = 8 WHERE id = $1', [variant.id]);
+    await pool.query('UPDATE warehouse_stock SET quantity = 8 WHERE variant_id = $1', [variant.id]);
 
     // Create a pending payment attempt
     await pool.query(

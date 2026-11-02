@@ -220,7 +220,8 @@ test('migrateDatabase tags failing migration filename without leaking SQL conten
     connect: async () => ({
       query: async (sql, params) => {
         if (/SELECT name FROM schema_migrations/i.test(sql)) {
-          return { rows: params[0] === 'abandoned-cart.sql' ? [] : [{ name: params[0] }] };
+          if (params?.[0]) return { rows: params[0] === 'abandoned-cart.sql' ? [] : [{ name: params[0] }] };
+          return { rows: MIGRATION_FILES.filter(f => f !== 'abandoned-cart.sql').map(name => ({ name })) };
         }
         if (/CREATE TABLE IF NOT EXISTS abandoned_carts/i.test(sql)) {
           const err = new Error('column "next_reminder_at" does not exist');
