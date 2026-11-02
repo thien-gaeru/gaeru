@@ -54,7 +54,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
+        scriptSrc: ["'self'", require('./speculation-policy').cspHash, "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
@@ -105,10 +105,10 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
   app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
-  app.get("/api/health", async (_req, res, next) => {
+  app.get("/api/health", async (req, res, next) => {
     try {
       await pool.query("SELECT 1");
-      res.set({'Cache-Control':'no-store','X-GAERU-Web-TLS':'enforced','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Local-References':require('./media-storage-audit').auditStatus().state,'X-GAERU-Media-Volume':require('./lib/filesystem-media').status().volumeFingerprint||'unverified','X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
+      res.set({'Cache-Control':'no-store','X-GAERU-Web-TLS':req.secure?'observed_https':'observed_http','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Local-References':require('./media-storage-audit').auditStatus().state,'X-GAERU-Media-Volume':require('./lib/filesystem-media').status().volumeFingerprint||'unverified','X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
     } catch (error) {
       next(error);
     }

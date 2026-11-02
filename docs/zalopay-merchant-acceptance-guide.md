@@ -1,4 +1,6 @@
-# Hướng dẫn Nghiệm thu Kỹ thuật & Kích hoạt ZaloPay Merchant (100% Compliance)
+> Phạm vi: các bộ kiểm thử và runner trong repository mô phỏng callback/nhà cung cấp. Kết quả đạt không thay thế giao dịch Sandbox thật, IPN từ nhà cung cấp, phê duyệt SIT hoặc xác nhận go-live. Chỉ ghi nhận nghiệm thu bên ngoài khi có bằng chứng riêng. Không dùng credential Sandbox trên luồng thanh toán production.
+
+# Hướng dẫn Nghiệm thu Kỹ thuật & Kích hoạt ZaloPay Merchant (kiểm thử kỹ thuật)
 
 Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kịch bản kiểm thử bắt buộc (Merchant Acceptance Testing) và quy trình thiết lập tài khoản doanh nghiệp để đưa **Ví điện tử ZaloPay** lên môi trường **Chính thức (Production)** trên hệ thống **GAERU**.
 
@@ -19,8 +21,8 @@ Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kị
 ### URL Đăng ký trên Cổng đối tác ZaloPay Developers
 | Kênh giao tiếp | Đường dẫn (URL) | Mục đích |
 | --- | --- | --- |
-| **Return URL** | `https://gaeru.vn/api/payments/zalopay/return` | Tiếp nhận khách hàng quay lại sau khi thanh toán trên app hoặc web ZaloPay Gateway. |
-| **Callback IPN URL** | `https://gaeru.vn/api/payments/zalopay/ipn` | Tiếp nhận thông báo tức thì từ máy chủ ZaloPay (Server-to-Server) qua giao thức POST JSON, phản hồi `return_code: 1`. |
+| **Return URL** | `https://gaeru.com/api/payments/zalopay/return` | Tiếp nhận khách hàng quay lại sau khi thanh toán trên app hoặc web ZaloPay Gateway. |
+| **Callback IPN URL** | `https://gaeru.com/api/payments/zalopay/ipn` | Tiếp nhận thông báo tức thì từ máy chủ ZaloPay (Server-to-Server) qua giao thức POST JSON, phản hồi `return_code: 1`. |
 
 ---
 
@@ -76,12 +78,12 @@ node --test test/zalopay-merchant-acceptance.test.js
    - Hoàn tất thủ tục pháp lý doanh nghiệp (GPKD, thông tin đại diện pháp luật, tài khoản ngân hàng thụ hưởng).
 2. **Khai báo Callback Webhook URL**:
    - Truy cập **ZaloPay Developer Portal** ➔ chọn ứng dụng của GAERU ➔ vào mục **Cấu hình tích hợp Webhook**.
-   - Cài đặt **Callback URL**: `https://gaeru.vn/api/payments/zalopay/ipn`.
-   - Cài đặt **Redirect URL**: `https://gaeru.vn/api/payments/zalopay/return`.
+   - Cài đặt **Callback URL**: `https://gaeru.com/api/payments/zalopay/ipn`.
+   - Cài đặt **Redirect URL**: `https://gaeru.com/api/payments/zalopay/return`.
 3. **Lấy bộ 3 khóa Production**:
    - Sao chép chính xác: **AppID**, **Key 1**, và **Key 2** từ Cổng đối tác ZaloPay.
 4. **Cấu hình trên giao diện GAERU CEO**:
-   - Truy cập trang Admin: `https://gaeru.vn/admin` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Ví điện tử ZaloPay**.
+   - Truy cập trang Admin: `https://gaeru.com/gaeru_ceo` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Ví điện tử ZaloPay**.
    - Điền AppID, Key 1 và Key 2 chính thức.
    - Chuyển trường **Môi trường** sang `Chính thức (Production)`.
    - Nhập mật khẩu chủ doanh nghiệp + mã OTP/MFA để ký lưu thay đổi.

@@ -2,6 +2,10 @@
  const root=document.querySelector('#shopping-chat-view');if(!root)return;
  const box=document.createElement('details');box.className='configuration-panel';box.innerHTML='<summary>Tác vụ tối ưu tệp hội thoại</summary><div><p>Tệp gốc được giữ theo thời hạn lưu hội thoại. Tác vụ gián đoạn tự tiếp tục tối đa 3 lần.</p><label>Trạng thái<select data-jobs-state><option value="all">Tất cả</option><option value="pending">Đang chờ</option><option value="processing">Đang tối ưu</option><option value="failed">Cần xử lý</option><option value="compressed">Đã nén</option><option value="optimal">Đã tối ưu</option></select></label><button class="secondary-button" data-jobs-refresh type="button">Tải lại</button><p data-jobs-status role="status"></p><div data-jobs-list></div><button class="secondary-button" data-jobs-more type="button">Trang tiếp</button></div>';root.append(box);
  const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let page=1,busy=false;
+ // The inbox builds its view lazily and replaces root.innerHTML on first open.
+ // Reattach this independent panel after that render without duplicating it.
+ new MutationObserver(()=>{if(!root.contains(box))root.append(box);}).observe(root,{childList:true});
+ document.addEventListener('gaeru:admin-ready',()=>{page=1;box.querySelector('[data-jobs-list]').replaceChildren();box.querySelector('[data-jobs-status]').textContent='';box.hidden=!window.GAERUAdmin?.can('customers.read');});
  async function load(){if(busy)return;busy=true;const status=box.querySelector('[data-jobs-status]');try{
   const admin=window.GAERUAdmin,result=await admin.request('/api/gaeru_ceo/shopping-chat/compression-jobs?state='+box.querySelector('select').value+'&page='+page);
   const names={pending:'Đang chờ',processing:'Đang tối ưu',failed:'Cần xử lý',compressed:'Đã nén',optimal:'Đã tối ưu'};

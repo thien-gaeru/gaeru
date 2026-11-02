@@ -1,4 +1,6 @@
-# Hướng dẫn Nghiệm thu Kỹ thuật & Kích hoạt MoMo Business (100% Compliance)
+> Phạm vi: các bộ kiểm thử và runner trong repository mô phỏng callback/nhà cung cấp. Kết quả đạt không thay thế giao dịch Sandbox thật, IPN từ nhà cung cấp, phê duyệt SIT hoặc xác nhận go-live. Chỉ ghi nhận nghiệm thu bên ngoài khi có bằng chứng riêng. Không dùng credential Sandbox trên luồng thanh toán production.
+
+# Hướng dẫn Nghiệm thu Kỹ thuật & Kích hoạt MoMo Business (kiểm thử kỹ thuật)
 
 Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kịch bản kiểm thử bắt buộc (Merchant Acceptance Testing) và quy trình ký hợp đồng doanh nghiệp để đưa **Ví điện tử MoMo** lên môi trường **Chính thức (Production)** trên hệ thống **GAERU**.
 
@@ -16,8 +18,8 @@ Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kị
 ### URL Đăng ký trên Cổng đối tác MoMo Developers
 | Kênh giao tiếp | Đường dẫn (URL) | Mục đích |
 | --- | --- | --- |
-| **Return URL** | `https://gaeru.vn/api/payments/momo/return` | Điều hướng khách hàng quay lại website, trích xuất mã kết quả `resultCode` và hiển thị chi tiết trạng thái đơn. |
-| **IPN URL** | `https://gaeru.vn/api/payments/momo/ipn` | Tiếp nhận thông báo tức thì từ máy chủ MoMo (Server-to-Server) qua giao thức POST JSON, phản hồi HTTP 204 No Content. |
+| **Return URL** | `https://gaeru.com/api/payments/momo/return` | Điều hướng khách hàng quay lại website, trích xuất mã kết quả `resultCode` và hiển thị chi tiết trạng thái đơn. |
+| **IPN URL** | `https://gaeru.com/api/payments/momo/ipn` | Tiếp nhận thông báo tức thì từ máy chủ MoMo (Server-to-Server) qua giao thức POST JSON, phản hồi HTTP 204 No Content. |
 
 ---
 
@@ -63,12 +65,12 @@ node --test test/momo-merchant-acceptance.test.js
    - Sau khi hoàn tất ký kết, MoMo cấp tài khoản truy cập **MoMo Merchant Portal**.
 3. **Cấu hình IPN URL & Lấy bộ khóa Production**:
    - Đăng nhập Cổng đối tác MoMo ➔ vào mục **Cấu hình tích hợp**.
-   - Điền **IPN URL**: `https://gaeru.vn/api/payments/momo/ipn`
-   - Điền **Return URL**: `https://gaeru.vn/api/payments/momo/return`
+   - Điền **IPN URL**: `https://gaeru.com/api/payments/momo/ipn`
+   - Điền **Return URL**: `https://gaeru.com/api/payments/momo/return`
    - Thực hiện bài test kiểm thử kết nối IPN trên Cổng MoMo (máy chủ GAERU tự động phản hồi mã 204 No Content trong vòng chưa tới 0.05 giây).
    - Lấy thông tin kết nối Production: **Partner Code**, **Access Key**, và **Secret Key**.
 4. **Kích hoạt trên GAERU CEO**:
-   - Đăng nhập Admin: `https://gaeru.vn/admin` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Ví điện tử MoMo**.
+   - Đăng nhập Admin: `https://gaeru.com/gaeru_ceo` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Ví điện tử MoMo**.
    - Cập nhật Partner Code, Access Key và Secret Key Production.
    - Chuyển trường **Môi trường** sang `Chính thức (Production)`.
    - Nhập mật khẩu chủ doanh nghiệp + mã OTP/MFA để ký lưu thay đổi.
