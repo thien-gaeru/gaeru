@@ -292,6 +292,34 @@ const searchInput = document.querySelector("#search-query");
 const searchResults = document.querySelector("#search-results");
 const searchQuicklinks = document.querySelector("[data-search-quicklinks]");
 let searchRenderTimer;
+
+// Tầng Tìm kiếm Tức thì (Client-Side Edge Index: tải ngầm 1 lần khi chạm vào ô tìm kiếm)
+let edgeSearchIndex = null;
+let edgeSearchLoading = false;
+function loadSearchIndex() {
+  if (edgeSearchIndex || edgeSearchLoading) return;
+  edgeSearchLoading = true;
+  fetch('/api/search-index.json', { cache: 'default' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => { if (Array.isArray(data)) edgeSearchIndex = data; })
+    .catch(() => {})
+    .finally(() => { edgeSearchLoading = false; });
+}
+searchInput?.addEventListener("focus", loadSearchIndex, { credentials: "same-origin" });
+searchToggle?.addEventListener("click", loadSearchIndex, { credentials: "same-origin" });
+
+function filterSearchProducts(query) {
+  const needle = query.trim().toLocaleLowerCase("vi");
+  if (!needle) return [];
+  if (edgeSearchIndex && Array.isArray(edgeSearchIndex)) {
+    return edgeSearchIndex.filter((p) => {
+      const hay = (p.name + " " + p.slug + " " + (p.sku || "") + " " + (p.desc || "") + " " + (p.category || "")).toLocaleLowerCase("vi");
+      return hay.includes(needle);
+    });
+  }
+  return window.GAERUStore?.searchProducts(query) ?? [];
+}
+
 searchInput?.addEventListener("input", () => {
   clearTimeout(searchRenderTimer);
   searchRenderTimer = window.setTimeout(() => {
@@ -301,20 +329,64 @@ searchInput?.addEventListener("input", () => {
       searchQuicklinks.hidden = false;
       return;
     }
-    const matches = (window.GAERUStore?.searchProducts(query) ?? []).slice(0, 4);
+    const matches = filterSearchProducts(query).slice(0, 4);
     searchQuicklinks.hidden = true;
     if (matches.length === 0) {
       searchResults.innerHTML = '<p class="search-no-results">Không tìm thấy sản phẩm phù hợp. Thử “micro” hoặc “gimbal”.</p>';
       return;
     }
-    searchResults.innerHTML = `<p class="search-results-label">Sản phẩm phù hợp</p>${matches.map((product, index) => `
-      <a class="search-result" href="product.html?id=${encodeURIComponent(product.slug)}">
-        <img src="${escapeShellHtml(product.imageUrl)}" alt="" loading="lazy">
-        <span><strong>${escapeShellHtml(product.name)}</strong><small>${escapeShellHtml(product.description)}</small></span>
-        <b aria-hidden="true">›</b>
-      </a>`).join("")}`;
-  }, 100);
+    searchResults.innerHTML = '<p class="search-results-label">Sản phẩm phù hợp</p>' + matches.map((product) => (
+      '<a class="search-result" href="product.html?id=' + encodeURIComponent(product.slug) + '">' +
+        '<img src="' + escapeShellHtml(product.imageUrl) + '" alt="" loading="lazy">' +
+        '<span><strong>' + escapeShellHtml(product.name) + '</strong><small>' + escapeShellHtml(product.desc || product.description || '') + '</small></span>' +
+        '<b aria-hidden="true">›</b>' +
+      '</a>'
+    )).join('');
+  }, 50);
 });
+
+// Tầng Trình duyệt: Speculative Preloading (0ms)
+(function initSpeculationRules() {
+  if (typeof document === 'undefined') return;
+  const isSupported = typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules');
+  if (isSupported && !document.querySelector('script[type="speculationrules"]')) {
+    const spec = document.createElement('script');
+    spec.type = 'speculationrules';
+    spec.textContent = JSON.stringify({
+      prerender: [{
+        where: {
+          and: [
+            { href_matches: "/*" },
+            { not: { href_matches: "/tai-khoan*" } },
+            { not: { href_matches: "/gio-hang*" } },
+            { not: { href_matches: "/thanh-toan*" } },
+            { not: { href_matches: "/admin*" } },
+            { not: { href_matches: "/gaeru_ceo*" } },
+            { not: { href_matches: "/api/*" } }
+          ]
+        },
+        eagerness: "moderate"
+      }]
+    });
+    document.head.appendChild(spec);
+  }
+
+  const prefetchedUrls = new Set();
+  document.addEventListener('pointerenter', (e) => {
+    const a = e.target.closest && e.target.closest('a[href]');
+    if (!a || !a.href || prefetchedUrls.has(a.href)) return;
+    try {
+      const url = new URL(a.href, location.origin);
+      if (url.origin !== location.origin) return;
+      if (/^\/(?:tai-khoan|gio-hang|thanh-toan|admin|gaeru_ceo|api)/.test(url.pathname)) return;
+      prefetchedUrls.add(a.href);
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.href = a.href;
+      document.head.appendChild(link);
+    } catch (_) {}
+  }, { capture: true, passive: true });
+})();
 
 function initializeMotion() {
   document.body.classList.add("motion-ready");

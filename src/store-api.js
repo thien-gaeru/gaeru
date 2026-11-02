@@ -11,6 +11,7 @@ const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
 const { decoratePublicProductImages } = require("./lib/public-image-urls");
 const { checkCustomerPhoneStatus, checkCustomerRegEmailStatus } = require("./customer-lifecycle");
+const { getFreshData, stockMap, reserveStock, releaseStock, flushAllCache } = require("./cache");
 
 const orderSchema = z.object({
   customer: z.object({
@@ -141,16 +142,96 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   };
 
   router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;req.paymentChannels=getPaymentChannels?await getPaymentChannels():paymentChannels;req.vnpayCallbackConfig=req.paymentChannels?.callbackConfigs?.vnpay||req.vnpayConfig;next();}catch(error){next(error);}});
-  router.get("/products", async (req, res) => {
-    const products = await loadProducts(pool, { search: String(req.query.q || "") });
-    res.json(decoratePublicProductImages({ products }));
+  router.get("/products", async (req, res, next) => {
+    try {
+      const search = String(req.query.q || "").trim();
+      const products = await loadProducts(pool, { search });
+      products?.forEach(p => p.variants?.forEach(v => {
+        const qty = Number(v.stockQuantity ?? v.stock ?? 0);
+        if (v.sku) stockMap.set(v.sku, qty);
+        if (v.id) stockMap.set(v.id, qty);
+      }));
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.json(decoratePublicProductImages({ products }));
+    } catch (err) {
+      next(err);
+    }
   });
 
-  router.get("/products/:slug", async (req, res) => {
-    const products = await loadProducts(pool);
-    const product = products.find((item) => item.slug === req.params.slug);
-    if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-    res.json(decoratePublicProductImages({ product }));
+  router.get("/products/:slug", async (req, res, next) => {
+    try {
+      const products = await loadProducts(pool);
+      const product = products.find((item) => item.slug === req.params.slug);
+      if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      product?.variants?.forEach(v => {
+        const qty = Number(v.stockQuantity ?? v.stock ?? 0);
+        if (v.sku) stockMap.set(v.sku, qty);
+        if (v.id) stockMap.set(v.id, qty);
+      });
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.json(decoratePublicProductImages({ product }));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/search-index.json", async (req, res, next) => {
+    try {
+      const index = await getFreshData('data:search-index', async () => {
+        const all = await getFreshData('data:catalog', () => loadProducts(pool));
+        return (all || []).map(p => ({
+          name: p.name,
+          slug: p.slug,
+          sku: p.variants?.[0]?.sku || p.sku || '',
+          desc: p.cardSummary || p.descriptor || p.description || '',
+          price: p.variants?.[0]?.priceVnd || p.priceVnd || 0,
+          originalPrice: p.variants?.[0]?.originalPriceVnd || p.originalPriceVnd || 0,
+          imageUrl: p.imageUrl || '',
+          category: p.category || '',
+          inStock: p.variants?.some(v => (v.stockQuantity ?? v.stock ?? 0) > 0) ?? true,
+          tags: [p.name, p.slug, p.category, ...(p.variants || []).map(v => v.sku)].filter(Boolean)
+        }));
+      });
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.json(index);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/stock/:sku", (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const sku = String(req.params.sku || '').trim();
+    const stock = stockMap.get(sku) ?? 0;
+    res.json({ sku, stock, inStock: stock > 0 });
+  });
+
+  router.post("/checkout", async (req, res, next) => {
+    try {
+      const { sku, qty } = req.body || {};
+      if (!sku) return res.status(400).json({ error: "Thiếu mã SKU." });
+      const quantity = Number(qty || 1);
+      const check = reserveStock(sku, quantity);
+      if (!check.ok) {
+        return res.status(400).json({ error: 'Sản phẩm vừa hết hàng', remaining: check.remaining });
+      }
+      try {
+        await pool.query("UPDATE product_variants SET stock_quantity = GREATEST(0, stock_quantity - $2), updated_at = now() WHERE sku = $1", [sku, quantity]);
+        if (check.remaining === 0) flushAllCache();
+        res.json({ success: true, remaining: check.remaining });
+      } catch (err) {
+        releaseStock(sku, quantity);
+        res.status(500).json({ error: 'Lỗi tạo đơn hàng' });
+      }
+    } catch (err) {
+      next(err);
+    }
   });
 
   router.get("/settings/public", async (req, res) => {
@@ -468,6 +549,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         };
       });
 
+      for (const [variantId, quantity] of uniqueItems.entries()) {
+        reserveStock(variantId, quantity);
+        if ((stockMap.get(variantId) ?? 0) <= 0) {
+          flushAllCache();
+        }
+      }
+
       res.status(201).json({
         order: order.order,
         paymentUrl: order.paymentUrl,
@@ -683,6 +771,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       await audit(client, { actor: req.admin, action: "catalog.product.create", entityType: "product", entityId: result.rows[0].id, after: { ...p, active: false } });
       return result.rows[0];
       });
+      flushAllCache();
       res.status(201).json({ id: product.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Slug sản phẩm đã được sử dụng." });
@@ -705,6 +794,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return true;
       });
       if(!removed)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});
+      flushAllCache();
       res.status(204).end();
     }catch(error){if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });
@@ -754,6 +844,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
 
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      flushAllCache();
       res.json({
         message: product.active ? "Đã hiển thị sản phẩm trên cửa hàng." : "Đã ẩn sản phẩm khỏi cửa hàng.",
         id: product.id,
@@ -794,6 +885,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return result.rows[0];
       });
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      flushAllCache();
       res.json({ id: product.id });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -821,6 +913,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       return result.rows[0];
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
+      flushAllCache();
       res.status(201).json({ id: variant.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "SKU đã được sử dụng." });
@@ -850,6 +943,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return result.rows[0];
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
+      flushAllCache();
       res.json({ id: variant.id });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -879,6 +973,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
       if (result.missing) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
       if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng hoặc kho. Hãy sửa và tạm ẩn thay vì xóa." });
+      flushAllCache();
       res.status(204).end();
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });

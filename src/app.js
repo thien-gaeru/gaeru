@@ -253,6 +253,7 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
     if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });
+  app.use(require('./cache').smartPageCache());
   app.use(require('./clean-routes').staticHtml);
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",
@@ -267,7 +268,9 @@ function createApp({ config, pool, sessionStore, customerMailer }) {
         res.setHeader('Cache-Control', 'no-store');
       }
     },
-    maxAge: config.NODE_ENV === "production" ? "1h" : 0
+    etag: true,
+    lastModified: true,
+    maxAge: 0
   }));
 
   app.use((error, _req, res, _next) => {

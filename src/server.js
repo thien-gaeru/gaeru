@@ -46,6 +46,7 @@ async function start() {
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {
     console.log(`GAERU standalone store listening on ${host}:${port}`);
+    try { require('./lib/cache-warmup').warmUpCache(pool).catch(() => {}); } catch (_) {}
     if(mediaCheck.verified&&!shuttingDown){
       mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)
         .then(({localization,audit})=>{
