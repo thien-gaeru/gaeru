@@ -1,4 +1,4 @@
-.customer-workspace{margin-top:28px;text-align:left;display:grid;gap:18px;min-width:0}.customer-workspace h3{margin:14px 0 0;font-size:22px}.customer-workspace article,.customer-workspace details{padding:18px;border:1px solid #e5e5e8;border-radius:16px;background:#fff;overflow-wrap:anywhere}.customer-workspace article+article{margin-top:12px}.customer-workspace article p{font-size:13px;line-height:1.7;color:#515154}.customer-workspace button:not(.button){padding:10px 12px;border:1px solid #d2d2d7;border-radius:20px;background:white;color:#0066cc;cursor:pointer;margin:4px 4px 0 0;min-height:44px}.customer-workspace button:disabled{opacity:.55;cursor:wait}.customer-workspace .account-form{width:100%;max-width:none;margin:8px 0}.customer-workspace summary{cursor:pointer;font-weight:600;padding:8px 0}.customer-workspace [role=status]{font-size:13px;color:#515154}.customer-workspace [hidden]{display:none!important}.customer-workspace ul{padding-left:20px;font-size:13px;line-height:1.7}.customer-workspace input[type=checkbox]{width:18px;height:18px}.customer-workspace :focus-visible{outline:2px solid #0071e3;outline-offset:3px}
+.customer-workspace{margin-top:28px;text-align:left;display:grid;gap:18px;min-width:0}.customer-workspace h3{margin:14px 0 0;font-size:22px}.customer-workspace article,.customer-workspace details{padding:18px;border:1px solid #e5e5e8;border-radius:16px;background:#fff;overflow-wrap:anywhere}.customer-workspace article+article{margin-top:12px}.customer-workspace article p{font-size:13px;line-height:1.7;color:#515154}.customer-workspace button:not(.button):not(.account-add-address-link){padding:10px 12px;border:1px solid #d2d2d7;border-radius:20px;background:white;color:#0066cc;cursor:pointer;margin:4px 4px 0 0;min-height:44px}.customer-workspace button:disabled{opacity:.55;cursor:wait}.customer-workspace .account-form{width:100%;max-width:none;margin:8px 0}.customer-workspace summary{cursor:pointer;font-weight:600;padding:8px 0}.customer-workspace [role=status]{font-size:13px;color:#515154}.customer-workspace [hidden]{display:none!important}.customer-workspace ul{padding-left:20px;font-size:13px;line-height:1.7}.customer-workspace input[type=checkbox]{width:18px;height:18px}.customer-workspace :focus-visible{outline:2px solid #0071e3;outline-offset:3px}
 .account-page{background:#f5f5f7}
 .account-page .account-layout{width:min(calc(100% - 40px),680px);padding-top:64px;gap:32px}
 .account-page .account-layout:not(.is-authenticated) .account-card { border: 1px solid #e5e5e8; border-radius: 24px; background: #fff; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
@@ -537,7 +537,7 @@
   color: #515154 !important;
   margin: 6px 0 10px !important;
 }
-.account-overview-addresses button:not(.button) {
+.account-overview-addresses button:not(.button):not(.account-add-address-link) {
   padding: 8px 14px !important;
   border: 1px solid #d2d2d7 !important;
   border-radius: 20px !important;
@@ -549,7 +549,7 @@
   min-height: 38px !important;
   transition: all 0.2s ease !important;
 }
-.account-overview-addresses button:not(.button):hover {
+.account-overview-addresses button:not(.button):not(.account-add-address-link):hover {
   background: #f5f5f7 !important;
   border-color: #0071e3 !important;
 }
@@ -630,3 +630,5 @@
 .account-member-line{display:flex;align-items:center;justify-content:space-between;gap:12px}.account-member-line h3{min-width:0;overflow-wrap:anywhere;margin:0}.account-member-line .account-xu-balance{flex:none;text-align:right;white-space:nowrap}.account-settings-menu>summary{font-size:21px;font-weight:650;cursor:pointer}.account-settings-menu>button{display:block;width:100%;text-align:left;padding:15px;border:1px solid #dce3e9;border-radius:12px;background:white;margin-top:10px;color:#173444;font:inherit}.account-settings-dialog>nav[hidden],.account-settings-content [hidden]{display:none!important}
 
 .account-settings-content .security-facts,.account-settings-content [data-security-panel]>h4{display:none}.account-settings-content .security-section[open]>summary{display:none}
+
+#account-addresses>.account-add-address-link{display:inline-flex;align-items:center;gap:5px;min-height:44px;margin-top:8px;padding:8px 0;border:0;border-radius:4px;background:transparent;box-shadow:none;color:#0071e3;font:inherit;font-size:16px;cursor:pointer;text-decoration:none}#account-addresses>.account-add-address-link:hover{text-decoration:underline}#account-addresses>.account-add-address-link:focus-visible{outline:2px solid #0071e3;outline-offset:4px}

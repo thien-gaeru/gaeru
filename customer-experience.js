@@ -132,7 +132,7 @@
     const addressForm=profile.querySelector('[data-address-form]');const addressSubmit=addressForm.querySelector('button[type="submit"],button:not([type])');const cancelEdit=document.createElement('button');cancelEdit.type='button';cancelEdit.textContent='Hủy chỉnh sửa';cancelEdit.hidden=true;addressForm.append(cancelEdit);cancelEdit.addEventListener('click',()=>{editingId=null;addressForm.reset();addressSubmit.textContent='Lưu địa chỉ';cancelEdit.hidden=true;});
     let addressDialog=overviewCard.querySelector('[data-address-dialog]');
     if(!addressDialog){
-      const old=addressForm.closest('details'),opener=document.createElement('button');opener.type='button';opener.className='button button-outline';opener.dataset.addAddress='';opener.textContent='Thêm địa chỉ giao hàng';
+      const old=addressForm.closest('details'),opener=document.createElement('button');opener.type='button';opener.className='text-link account-add-address-link';opener.dataset.addAddress='';opener.innerHTML='Thêm địa chỉ giao hàng <span aria-hidden="true">↗</span>';opener.setAttribute('aria-haspopup','dialog');
       addressDialog=document.createElement('dialog');addressDialog.dataset.addressDialog='';addressDialog.className='account-address-dialog';addressDialog.setAttribute('aria-labelledby','address-dialog-title');
       addressDialog.innerHTML='<header><h2 id="address-dialog-title">Địa chỉ giao hàng</h2><button type="button" data-address-close aria-label="Đóng">×</button></header><p role="status" data-address-dialog-status></p>';
       addressDialog.append(addressForm);old.before(opener,addressDialog);old.remove();
