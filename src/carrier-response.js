@@ -9,7 +9,8 @@ function succeeded(carrier, value) {
   if (carrier === 'ghn') return value.code === 200;
   if (carrier === 'ghtk') return value.success === true;
   if (carrier === 'viettel') return value.status === 200 && [false, 0].includes(value.error);
-  const validCodes = carrier === 'jt' ? ['1', 1, '200', 200] : carrier === 'spx' ? ['0', 0, '200', 200] : [];
+  if (carrier === 'jt') return ['1', 1].includes(value.code);
+  const validCodes = carrier === 'spx' ? ['0', 0, '200', 200] : [];
   if (value.code !== undefined) return validCodes.includes(value.code);
   return validCodes.length > 0 && (value.success === true || value.status === 'success');
 }

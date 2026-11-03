@@ -1,4 +1,4 @@
-const crypto = require('node:crypto');
+const jtVietnam = require('./jt-vietnam');
 const carrierResponse = require('./carrier-response');
 
 const CARRIER_NAMES = Object.freeze({
@@ -37,207 +37,90 @@ function normalizeCarrierStatus(carrierId, rawStatus) {
 // 1. J&T Express Adapter (VIP / OpenAPI)
 // -----------------------------------------------------------------------------
 const jtAdapter = {
-  createDigest(dataStr, secret) {
-    // Legacy external J&T wire bytes, retained pending the Vietnam partner spec.
-    // MD5 remains a known protocol risk; see docs/codeql-integration-review-20261103.md.
-    return crypto.createHash('md5').update(dataStr + secret, 'utf8').digest('base64');
-  },
+  createDigest: jtVietnam.headerDigest,
 
-  async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
-    if (!settings.accountId || !settings.secret) {
-      throw fail('Cần cấu hình Mã khách hàng và Secret Key của J&T Express.', 400);
+  async createWaybill(settings, orderData, options = {}) {
+    const identity = jtVietnam.businessIdentity(settings);
+    const sender = jtVietnam.address({ name: settings.pickupName, mobile: settings.pickupPhone,
+      address: settings.pickupAddress, prov: settings.pickupProvince, area: settings.pickupArea }, 'người gửi');
+    const receiver = jtVietnam.address(orderData.receiver, 'người nhận');
+    const txlogisticId = jtVietnam.text(orderData.orderNumber, 'mã đơn hàng', 100);
+    if (!['PP_PM', 'PP_CASH', 'CC_CASH'].includes(settings.payType) || ![1, 6].includes(settings.serviceType)) {
+      throw jtVietnam.fail('Chọn phương thức trả cước và hình thức lấy hàng J&T trước khi tạo vận đơn.', 409);
     }
-    const businessData = {
-      customerCode: settings.accountId,
-      txlogisticid: orderData.orderNumber,
-      ordertype: '1',
-      servicetype: '6',
-      sender: {
-        name: settings.pickupName || 'GAERU Store',
-        mobile: settings.pickupPhone || '0900000000',
-        address: settings.pickupAddress || 'Hà Nội'
-      },
-      receiver: {
-        name: orderData.customerName,
-        mobile: orderData.phone,
-        address: orderData.address,
-        city: orderData.city
-      },
-      items: (orderData.items || []).map(i => ({
-        itemname: `${i.productName || 'Sản phẩm'} - ${i.variantName || ''}`.trim(),
-        number: Number(i.quantity) || 1,
-        itemvalue: Number(i.priceVnd) || 0
-      })),
-      itemsvalue: Number(orderData.subtotalVnd) || 0,
-      weight: (Number(orderData.weightGrams) || 500) / 1000,
-      totalquantity: (orderData.items || []).reduce((sum, i) => sum + (Number(i.quantity) || 1), 0) || 1,
-      goodsdesc: 'Thiết bị công nghệ GAERU',
-      cod: orderData.codAmountVnd > 0 ? Number(orderData.codAmountVnd) : 0,
-      remark: orderData.note || 'Cho xem hàng, không cho thử'
-    };
-
-    const dataJson = JSON.stringify(businessData);
-    const digest = this.createDigest(dataJson, settings.secret);
-    const url = 'https://open.jtexpress.vn/api/order/create';
-
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        logistics_interface: dataJson,
-        data_digest: digest,
-        msg_type: 'ORDERCREATE',
-        eccompanyid: settings.accountId
-      }),
-      signal: AbortSignal.timeout(15000),
-      redirect: 'error'
-    });
-
-    if (!response.ok) {
-      throw fail(`J&T Express API từ chối kết nối (HTTP ${response.status}).`, 502);
+    const weight = Number(orderData.weightGrams) / 1000;
+    const goodsValue = Number(orderData.subtotalVnd);
+    const codMoney = Number(orderData.codAmountVnd);
+    if (!Number.isFinite(weight) || weight < 0.01 || weight > 999 || !Number.isSafeInteger(goodsValue) || goodsValue < 0 || goodsValue > 30000000 || !Number.isSafeInteger(codMoney) || codMoney < 0) {
+      throw jtVietnam.fail('Kiểm tra cân nặng, giá trị hàng hóa và tiền thu hộ J&T; chưa gửi yêu cầu.', 400);
     }
-
-    const res = await response.json();
-    const isSuccess = carrierResponse.succeeded('jt', res);
-    if (!isSuccess) {
-      throw fail(`J&T Express báo lỗi tạo vận đơn: ${res.desc || res.message || 'Lỗi không xác định'}`, 502);
-    }
-
-    const trackingNumber = carrierResponse.trackingNumber(res.data?.mailno ?? res.mailno ?? res.data?.tracking_number, 'jt');
-    const carrierOrderId = String(res.data?.txlogisticid || res.txlogisticid || orderData.orderNumber);
-    const feeVnd = carrierResponse.fee(res.data?.shippingFee ?? res.shippingFee);
-    const labelUrl = `https://open.jtexpress.vn/api/order/print?billcode=${encodeURIComponent(trackingNumber)}&customerCode=${encodeURIComponent(settings.accountId)}`;
-
-    return {
-      success: true,
-      carrierId: 'jt',
-      carrierName: CARRIER_NAMES.jt,
-      trackingNumber,
-      carrierOrderId,
-      shippingFeeVnd: feeVnd,
-      estimatedDelivery: res.data?.expectedDelivery || null,
-      labelUrl,
-      rawResponse: res
-    };
+    if (!Array.isArray(orderData.items) || !orderData.items.length) throw jtVietnam.fail('J&T cần danh sách hàng hóa thực tế.', 400);
+    const items = orderData.items.map(item => {
+      const quantity = Number(item.quantity), price = Number(item.priceVnd);
+      if (!Number.isSafeInteger(quantity) || quantity < 1 || !Number.isSafeInteger(price) || price < 0) throw jtVietnam.fail('Thông tin hàng hóa J&T chưa hợp lệ.', 400);
+      const itemName = jtVietnam.text([item.productName, item.variantName].filter(Boolean).join(' - '), 'tên hàng hóa', 100);
+      return { itemName, englishName: itemName, number: String(quantity), itemValue: String(price) };
+    });
+    const business = { ...identity, txlogisticId, orderType: 1, selfAddress: 0, serviceType: settings.serviceType,
+      payType: settings.payType, productType: 'EXPRESS', goodsType: 'bm000010', deliveryType: 1,
+      sender, receiver, items, packageInfo: { weight: String(weight) }, isInsured: 0, goodsValue,
+      codMoney: String(codMoney), ...(orderData.note ? { remark: jtVietnam.text(orderData.note, 'ghi chú', 200) } : {}) };
+    const response = await jtVietnam.request(settings, 'create', business, options);
+    jtVietnam.assertOrderEcho(response.data, txlogisticId, { required: true });
+    const trackingNumber = carrierResponse.trackingNumber(response.data?.billCode, 'jt');
+    const fees = [response.data.inquiryFee, response.data.codFee, response.data.insuranceFee];
+    const amounts = fees.map(value => carrierResponse.fee(value));
+    const total = amounts.every(value => value !== null) ? amounts.reduce((sum, value) => sum + value, 0) : null;
+    const shippingFeeVnd = total === null ? null : carrierResponse.fee(total);
+    // Printing is a signed POST operation. Never fabricate an unauthenticated URL.
+    return { success: true, carrierId: 'jt', carrierName: CARRIER_NAMES.jt, trackingNumber,
+      carrierOrderId: txlogisticId, shippingFeeVnd, estimatedDelivery: null, labelUrl: null,
+      rawResponse: { code: response.code, data: { billCode: trackingNumber, txlogisticId, inquiryFee: amounts[0], codFee: amounts[1], insuranceFee: amounts[2] } } };
   },
 
-  async cancelWaybill(settings, { trackingNumber, carrierOrderId, reason = 'Chủ shop hủy' }, { fetcher = fetch } = {}) {
-    if (!settings.accountId || !settings.secret) throw fail('Cấu hình J&T Express chưa đầy đủ.', 400);
-    const dataJson = JSON.stringify({
-      customerCode: settings.accountId,
-      txlogisticid: carrierOrderId,
-      mailno: trackingNumber,
-      reason
-    });
-    const digest = this.createDigest(dataJson, settings.secret);
-    const url = 'https://open.jtexpress.vn/api/order/cancel';
-
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        logistics_interface: dataJson,
-        data_digest: digest,
-        msg_type: 'ORDERCANCEL',
-        eccompanyid: settings.accountId
-      }),
-      signal: AbortSignal.timeout(12000),
-      redirect: 'error'
-    });
-
-    if (!response.ok) throw fail(`J&T Express hủy vận đơn thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    const ok = carrierResponse.succeeded('jt', res);
-    if (!ok) throw fail(`J&T Express từ chối hủy vận đơn: ${res.desc || res.message || 'Lỗi'}`, 502);
-
-    return { success: true, cancelled: true, message: 'Đã hủy vận đơn J&T Express thành công.' };
+  async cancelWaybill(settings, { trackingNumber, carrierOrderId, reason = 'Chủ shop hủy' }, options = {}) {
+    const txlogisticId = jtVietnam.text(carrierOrderId, 'mã đơn hàng của shop', 100);
+    const billCode = carrierResponse.trackingNumber(trackingNumber, 'jt');
+    const response = await jtVietnam.request(settings, 'cancel', { ...jtVietnam.businessIdentity(settings), txlogisticId,
+      billCode, reason: jtVietnam.text(reason, 'lý do hủy', 200) }, options);
+    jtVietnam.assertOrderEcho(response.data, txlogisticId, { required: true });
+    if (response.data.billCode !== undefined && String(response.data.billCode) !== billCode) throw jtVietnam.fail('J&T trả mã vận đơn hủy khác yêu cầu. Đối soát tại hãng.', 502, { ambiguous: true });
+    return { success: true, cancelled: true, message: 'J&T đã xác nhận hủy đúng mã đơn.' };
   },
 
-  async queryTracking(settings, { trackingNumber, carrierOrderId }, { fetcher = fetch } = {}) {
-    const dataJson = JSON.stringify({
-      customerCode: settings.accountId,
-      billcode: trackingNumber,
-      txlogisticid: carrierOrderId
-    });
-    const digest = this.createDigest(dataJson, settings.secret);
-    const url = 'https://open.jtexpress.vn/api/order/inquiryTrack';
-
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        logistics_interface: dataJson,
-        data_digest: digest,
-        msg_type: 'TRACKQUERY',
-        eccompanyid: settings.accountId
-      }),
-      signal: AbortSignal.timeout(12000),
-      redirect: 'error'
-    });
-
-    if (!response.ok) throw fail(`J&T Express tra cứu thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('jt', res)) throw fail('J&T chưa xác nhận kết quả tra cứu.', 502);
-    const details = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.details) ? res.data.details : [];
-    const latest = details[details.length - 1] || {};
-    const rawStatus = latest.scantype || latest.status || 'pending';
-
-    return {
-      success: true,
-      carrierId: 'jt',
-      trackingNumber,
-      carrierStatusRaw: rawStatus,
-      status: normalizeCarrierStatus('jt', rawStatus),
-      statusDescription: latest.desc || latest.description || 'Đang cập nhật hành trình',
-      history: details.map(d => ({
-        timestamp: d.scandate || d.time || new Date().toISOString(),
-        status: normalizeCarrierStatus('jt', d.scantype || d.status),
-        rawStatus: d.scantype || d.status,
-        location: d.scancity || d.location || '',
-        description: d.desc || d.description || ''
-      }))
-    };
+  async queryTracking(settings, { trackingNumber, carrierOrderId }, options = {}) {
+    const billCodes = carrierResponse.trackingNumber(trackingNumber, 'jt');
+    const business = { ...jtVietnam.businessIdentity(settings), billCodes,
+      txlogisticId: carrierOrderId ? jtVietnam.text(carrierOrderId, 'mã đơn hàng', 100) : '' };
+    const response = await jtVietnam.request(settings, 'tracking', business, options);
+    const row = Array.isArray(response.data) ? response.data.find(item => String(item?.billCode) === billCodes) : null;
+    if (!row || !Array.isArray(row.details)) throw jtVietnam.fail('J&T chưa trả hành trình khớp mã vận đơn được hỏi.', 502);
+    const details = row.details.filter(item => item && typeof item === 'object').sort((a, b) => String(b.scanTime || '').localeCompare(String(a.scanTime || '')));
+    const latest = details[0] || {};
+    // VN sample uses 100/94 while the same portal FAQ uses 113/112. Until the
+    // contracted status map is accepted, show raw data without auto-settling COD.
+    return { success: true, carrierId: 'jt', trackingNumber: billCodes, carrierStatusRaw: String(latest.scanTypeCode ?? ''),
+      status: 'pending', statusMappingVerified: false, statusDescription: String(latest.desc || latest.scanTypeName || 'Chưa có hành trình'),
+      history: details.map(item => ({ timestamp: item.scanTime || null, status: 'pending', rawStatus: String(item.scanTypeCode ?? ''),
+        location: String(item.scanNetworkName || ''), description: String(item.desc || item.scanTypeName || '') })) };
   },
 
-  async quoteShippingFee(settings, { city, weightGrams = 500, totalVnd = 0 }, { fetcher = fetch } = {}) {
-    const dataJson = JSON.stringify({
-      customerCode: settings.accountId,
-      sendCity: settings.pickupAddress || 'Hà Nội',
-      receiverCity: city,
-      weight: (Number(weightGrams) || 500) / 1000,
-      itemValue: Number(totalVnd) || 0
-    });
-    const digest = this.createDigest(dataJson, settings.secret);
-    const url = 'https://open.jtexpress.vn/api/order/inquiryFee';
-
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        logistics_interface: dataJson,
-        data_digest: digest,
-        msg_type: 'FEEINQUIRY',
-        eccompanyid: settings.accountId
-      }),
-      signal: AbortSignal.timeout(8000),
-      redirect: 'error'
-    });
-
-    if (!response.ok) throw fail('J&T Express không phản hồi báo giá cước.', 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('jt', res)) throw fail('J&T chưa xác nhận báo giá.', 502);
-    const feeVnd = carrierResponse.fee(res.data?.fee ?? res.fee, { required: true });
-    return {
-      success: true,
-      carrierId: 'jt',
-      carrierName: CARRIER_NAMES.jt,
-      feeVnd,
-      estimatedDays: Number(res.data?.estimatedDays || 2),
-      carrierService: 'J&T Standard Express'
-    };
+  async quoteShippingFee(settings, orderData, options = {}) {
+    const identity = jtVietnam.businessIdentity(settings);
+    const sender = jtVietnam.address({ name: settings.pickupName, mobile: settings.pickupPhone,
+      address: settings.pickupAddress, prov: settings.pickupProvince, area: settings.pickupArea }, 'người gửi');
+    const receiver = jtVietnam.address(orderData.receiver, 'người nhận');
+    const weight = Number(orderData.weightGrams) / 1000;
+    const goodsValue = Number(orderData.totalVnd), codMoney = Number(orderData.codAmountVnd ?? 0);
+    if (!Number.isFinite(weight) || weight < 0.01 || weight > 999 || !Number.isSafeInteger(goodsValue) || goodsValue < 0 || goodsValue > 30000000 || !Number.isSafeInteger(codMoney) || codMoney < 0) throw jtVietnam.fail('Thông tin kiện hàng báo giá J&T chưa hợp lệ.', 400);
+    const location = ({ prov, city, area }) => ({ prov, ...(city ? { city } : {}), area });
+    const response = await jtVietnam.request(settings, 'quote', { ...identity, weight, selfAddress: 0, isInsured: 0,
+      productType: 'EXPRESS', goodsType: 'bm000010', goodsValue, codMoney: String(codMoney),
+      sender: location(sender), receiver: location(receiver) }, options);
+    const fees = [response.data?.price, response.data?.codFee, response.data?.insuranceFee].map(value => carrierResponse.fee(value, { required: true }));
+    return { success: true, carrierId: 'jt', carrierName: CARRIER_NAMES.jt,
+      feeVnd: carrierResponse.fee(fees.reduce((sum, value) => sum + value, 0), { required: true }),
+      estimatedDays: null, carrierService: 'J&T EXPRESS' };
   }
 };
 

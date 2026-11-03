@@ -391,6 +391,7 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
 }
 
 async function handleCarrierWebhook(pool, config, carrierId, payload, { headers = {}, finance, actor = { username: 'carrier_webhook', source: 'webhook' } } = {}) {
+  if (carrierId === 'jt') throw fail('Webhook J&T Việt Nam chưa được nghiệm thu chữ ký và bảng trạng thái. Không tự cập nhật đơn hàng.', 501);
   // Never accept public delivery/payment changes without a configured credential.
   // Configuration/decryption errors must also stop processing, not bypass auth.
   {

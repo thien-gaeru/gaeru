@@ -5,7 +5,11 @@ const sharp=require('sharp');
 // white labels, product details and existing transparency remain untouched.
 // Photographs without a predominantly white perimeter are left unchanged.
 async function removeWhiteBackground(buffer){
-  const {data,info}=await sharp(buffer,{limitInputPixels:24_000_000,failOn:'error'}).rotate().resize(1600,1600,{fit:'inside',withoutEnlargement:true}).toColourspace('srgb').ensureAlpha().raw().toBuffer({resolveWithObject:true});
+  // The optional flood fill needs a full-size pixel mask. Skip very large
+  // cutouts instead of shrinking the product or allocating an unbounded mask.
+  const meta=await sharp(buffer,{limitInputPixels:24_000_000,failOn:'error'}).metadata();
+  if(meta.width*meta.height>8_000_000)return null;
+  const {data,info}=await sharp(buffer,{limitInputPixels:24_000_000,failOn:'error'}).rotate().toColourspace('srgb').ensureAlpha().raw().toBuffer({resolveWithObject:true});
   const {width:w,height:h}=info,n=w*h;
   const white=i=>{const p=i*4;return data[p+3]>240&&Math.min(data[p],data[p+1],data[p+2])>=240&&Math.max(data[p],data[p+1],data[p+2])-Math.min(data[p],data[p+1],data[p+2])<=12;};
   const edge=[];for(let x=0;x<w;x++){edge.push(x);if(h>1)edge.push((h-1)*w+x);}for(let y=1;y<h-1;y++){edge.push(y*w);if(w>1)edge.push(y*w+w-1);}

@@ -20,3 +20,9 @@ Cần nhận spec đúng tài khoản/phiên bản J&T Việt Nam và approved t
 ## Phạm vi kiểm chứng
 
 `test/codeql-integration-boundaries.test.js` cùng các kiểm thử payment provider, web knowledge, shipping choice/carriers là fixture phần mềm. Không dùng khóa thật, không gửi tiền, vận đơn hoặc thay đổi trạng thái alert GitHub. Các sửa mã cần scan lại commit mới; trạng thái alert default branch chỉ đổi sau khi CodeQL phân tích mã đã cập nhật.
+
+## Cập nhật sau khi tìm được tài liệu J&T Việt Nam công khai
+
+Phần mô tả adapter legacy ở trên là bằng chứng trước lần sửa tiếp theo trong ngày. Đã tìm được [tài liệu J&T Việt Nam](https://open.jtexpress.vn/apiDoc/index), đối chiếu bundle công khai của portal và thay wire contract cũ bằng form `bizContent`, header `apiAccount/digest/timestamp`, base demo/production riêng. Tài liệu Việt Nam xác nhận MD5 bytes rồi Base64; không còn cần lấy tài liệu Indonesia làm cơ sở cho encoding này. MD5 vẫn là thuật toán yếu; không suppress/dismiss cảnh báo.
+
+[Bản rà soát mới](jt-vietnam-open-platform.md) ghi rõ các mâu thuẫn còn lại về password salt, bảng trạng thái, nguồn địa chỉ, nhãn và callback. Probe chỉ xác thực tài khoản, không nghiệm thu fulfillment hay bật checkout. Chưa có cuộc gọi dùng khóa GAERU hoặc nghiệm thu API thật của J&T. Known-vector/fixture chỉ xác minh mã nguồn; vẫn cần approved vectors và SIT của tài khoản.

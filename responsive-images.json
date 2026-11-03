@@ -54,5 +54,19 @@
       "bytes": 143826,
       "sourceWidth": 1254
     }
+  ],
+  "/assets/products/p185-cutout-1cc9dfde9fa3.webp": [
+    {
+      "url": "/assets/products/p185-cutout-display-480-0992b5f5e3ed.webp",
+      "width": 480,
+      "bytes": 45262,
+      "sourceWidth": 1254
+    },
+    {
+      "url": "/assets/products/p185-cutout-display-800-5b0e6749a14c.webp",
+      "width": 800,
+      "bytes": 100470,
+      "sourceWidth": 1254
+    }
   ]
 }

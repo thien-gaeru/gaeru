@@ -16,12 +16,12 @@ async function fixture(t) {
   t.after(() => db.close());
   await migrateDatabase(pool);
   const config = { SESSION_SECRET: 'isolated-shipment-attempt-fixture-secret' };
-  await pool.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('private_admin:shipping_jt',$1)", [JSON.stringify({ version: 1, cipher: seal(JSON.stringify({ accountId: '123', secret: 'fixture', webhookSecret:'dedicated-shipment-fixture-webhook-secret' }), process.env.AUTH_ENCRYPTION_KEY || config.SESSION_SECRET) })]);
-  await pool.query("INSERT INTO shipping_carrier_connections(carrier_id,config_version,verified_at,enabled) VALUES('jt',1,now(),true)");
+  await pool.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('private_admin:shipping_ghn',$1)", [JSON.stringify({ version: 1, cipher: seal(JSON.stringify({ accountId: '123', secret: 'fixture', webhookSecret:'dedicated-shipment-fixture-webhook-secret' }), process.env.AUTH_ENCRYPTION_KEY || config.SESSION_SECRET) })]);
+  await pool.query("INSERT INTO shipping_carrier_connections(carrier_id,config_version,verified_at,enabled) VALUES('ghn',1,now(),true)");
   const order = (await pool.query("INSERT INTO orders(order_number,customer_name,email,phone,address,city,payment_method,payment_status,status,subtotal_vnd,total_vnd) VALUES('SHIPMENT-FENCING','Fixture','fixture@example.invalid','0900000000','Fixture','Hà Nội','cod','pending','confirmed',100000,100000) RETURNING id")).rows[0];
   return { pool, config, orderId: order.id };
 }
-const success = () => ({ ok: true, json: async () => ({ code: '1', data: { mailno: 'PROVIDER-FENCING', shippingFee: 20000 } }) });
+const success = () => ({ ok: true, json: async () => ({ code: 200, data: { order_code: 'PROVIDER-FENCING', total_fee: 20000 } }) });
 
 test('shipment claim is committed before the provider call and concurrent requests cannot send twice', async t => {
   const f = await fixture(t);
@@ -29,15 +29,15 @@ test('shipment claim is committed before the provider call and concurrent reques
   const started = new Promise(r => { entered = r; });
   const gate = new Promise(r => { release = r; });
   const fetcher = async () => { calls++; entered(); await gate; return success(); };
-  const first = createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher });
+  const first = createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher });
   await started;
   assert.equal((await f.pool.query('SELECT status FROM carrier_shipment_attempts')).rows[0].status, 'sending');
-  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher }), e => e.status === 409);
+  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher }), e => e.status === 409);
   assert.equal(calls, 1);
   release();
   assert.equal((await first).shipment.trackingNumber, 'PROVIDER-FENCING');
   assert.equal((await f.pool.query('SELECT status FROM carrier_shipment_attempts')).rows[0].status, 'succeeded');
-  assert.equal((await createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher })).existing, true);
+  assert.equal((await createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher })).existing, true);
   assert.equal(calls, 1);
 });
 
@@ -45,9 +45,9 @@ test('ambiguous provider timeout remains durably fenced across later create call
   const f = await fixture(t);
   let calls = 0;
   const fetcher = async () => { calls++; throw Object.assign(Error('fixture timeout after remote acceptance'), { name: 'TimeoutError' }); };
-  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher }), e => e.status === 502);
+  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher }), e => e.status === 502);
   assert.equal((await f.pool.query('SELECT status FROM carrier_shipment_attempts')).rows[0].status, 'unknown');
-  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher }), e => e.status === 409);
+  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher }), e => e.status === 409);
   assert.equal(calls, 1);
   assert.equal((await f.pool.query('SELECT count(*)::int AS n FROM carrier_shipments')).rows[0].n, 0);
 });
@@ -63,25 +63,25 @@ test('a failed local shipment transaction retains the acknowledged tracking refe
   };
   let calls = 0;
   const fetcher = async () => { calls++; return success(); };
-  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher }), e => e.status === 502);
+  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher }), e => e.status === 502);
   const attempt = (await f.pool.query('SELECT status,provider_result FROM carrier_shipment_attempts')).rows[0];
   assert.equal(attempt.status, 'unknown');
   assert.equal(attempt.provider_result.trackingNumber, 'PROVIDER-FENCING');
   assert.equal((await f.pool.query('SELECT count(*)::int AS n FROM carrier_shipments')).rows[0].n, 0);
-  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher }), e => e.status === 409);
+  await assert.rejects(() => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher }), e => e.status === 409);
   assert.equal(calls, 1);
 });
 
 test('explicit carrier selection cannot bypass disabled/unverified credentials or an abandoned durable claim', async t => {
   const f = await fixture(t);
   let calls = 0;
-  const options = { orderId: f.orderId, carrierId: 'jt', actor:{username:'fixture'}, fetcher: async () => { calls++; return success(); } };
-  await f.pool.query("UPDATE shipping_carrier_connections SET enabled=false WHERE carrier_id='jt'");
+  const options = { orderId: f.orderId, carrierId: 'ghn', actor:{username:'fixture'}, fetcher: async () => { calls++; return success(); } };
+  await f.pool.query("UPDATE shipping_carrier_connections SET enabled=false WHERE carrier_id='ghn'");
   await assert.rejects(() => createWaybill(f.pool, f.config, options), e => e.status === 409);
-  await f.pool.query("UPDATE shipping_carrier_connections SET enabled=true,verified_at=NULL WHERE carrier_id='jt'");
+  await f.pool.query("UPDATE shipping_carrier_connections SET enabled=true,verified_at=NULL WHERE carrier_id='ghn'");
   await assert.rejects(() => createWaybill(f.pool, f.config, options), e => e.status === 409);
-  await f.pool.query("UPDATE shipping_carrier_connections SET verified_at=now() WHERE carrier_id='jt'");
-  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,created_at) VALUES($1,'jt',1,now()-interval '1 day')", [f.orderId]);
+  await f.pool.query("UPDATE shipping_carrier_connections SET verified_at=now() WHERE carrier_id='ghn'");
+  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,created_at) VALUES($1,'ghn',1,now()-interval '1 day')", [f.orderId]);
   await assert.rejects(() => createWaybill(f.pool, f.config, options), e => e.status === 409);
   assert.equal(calls, 0, 'claims never expire into automatic re-sending');
 });
@@ -90,7 +90,7 @@ test('manual no-waybill reconciliation requires owner reauthentication and evide
   const f=await fixture(t),express=require('express');
   let authorizations=0;
   const config={...f.config,accountSecurity:{async authorize(req,fn){authorizations++;if(req.body.password!=='fresh-fixture-password')throw Object.assign(Error('Fresh password required'),{status:403});return withTransaction(f.pool,c=>fn({},c));}}};
-  const attempt=(await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status) VALUES($1,'jt',1,'unknown') RETURNING id",[f.orderId])).rows[0];
+  const attempt=(await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status) VALUES($1,'ghn',1,'unknown') RETURNING id",[f.orderId])).rows[0];
   const app=express();app.use(express.json());app.use((req,_res,next)=>{req.session={csrfToken:'fixture-csrf'};req.admin={username:'fixture',role:req.get('x-fixture-staff')?'admin':'owner',source:'bootstrap',permissions:['orders.write']};next();});
   app.use(require('../src/shipping-management').createShippingManagement(f.pool,config).admin);
   app.use((err,_req,res,_next)=>res.status(err.status||500).json({error:err.message}));
@@ -114,11 +114,11 @@ test('manual no-waybill reconciliation requires owner reauthentication and evide
 
 test('a late callback for a cancelled label cannot complete an order with a replacement label', async t=>{
   const f=await fixture(t),actor={username:'fixture'};let calls=0;
-  const fetcher=async()=>({ok:true,json:async()=>({code:'1',data:{mailno:'PROVIDER-LABEL-'+(++calls)}})});
-  await createWaybill(f.pool,f.config,{orderId:f.orderId,carrierId:'jt',actor,fetcher});
-  await cancelWaybill(f.pool,f.config,{orderId:f.orderId,actor,fetcher:async()=>({ok:true,json:async()=>({code:'1'})})});
-  await createWaybill(f.pool,f.config,{orderId:f.orderId,carrierId:'jt',actor,fetcher});
-  const result=await handleCarrierWebhook(f.pool,f.config,'jt',{billcode:'PROVIDER-LABEL-1',status:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}});
+  const fetcher=async()=>({ok:true,json:async()=>({code:200,data:{order_code:'PROVIDER-LABEL-'+(++calls)}})});
+  await createWaybill(f.pool,f.config,{orderId:f.orderId,carrierId:'ghn',actor,fetcher});
+  await cancelWaybill(f.pool,f.config,{orderId:f.orderId,actor,fetcher:async()=>({ok:true,json:async()=>({code:200,data:[{order_code:'PROVIDER-LABEL-1',result:true}]})})});
+  await createWaybill(f.pool,f.config,{orderId:f.orderId,carrierId:'ghn',actor,fetcher});
+  const result=await handleCarrierWebhook(f.pool,f.config,'ghn',{order_code:'PROVIDER-LABEL-1',status:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}});
   assert.equal(result.processed,false);
   assert.deepEqual((await f.pool.query('SELECT status,payment_status FROM orders WHERE id=$1',[f.orderId])).rows[0],{status:'processing',payment_status:'pending'});
   assert.equal((await f.pool.query('SELECT count(*)::int AS n FROM carrier_shipments WHERE order_id=$1',[f.orderId])).rows[0].n,2);
@@ -127,9 +127,9 @@ test('a late callback for a cancelled label cannot complete an order with a repl
 test('carrier completion rolls back order/payment and shipment when loyalty accounting fails',async t=>{
   const f=await fixture(t),customer=(await f.pool.query("INSERT INTO customers(email,full_name,phone) VALUES('loyalty-carrier@example.invalid','Fixture','0900000000') RETURNING id")).rows[0];
   await f.pool.query('UPDATE orders SET customer_id=$2 WHERE id=$1',[f.orderId,customer.id]);
-  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status,cod_amount_vnd) VALUES($1,'jt','LOYALTY-TRACKING','created',100000)",[f.orderId]);
+  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status,cod_amount_vnd) VALUES($1,'ghn','LOYALTY-TRACKING','created',100000)",[f.orderId]);
   t.mock.method(require('../src/loyalty-api'),'earnPoints',async()=>{throw Error('fixture loyalty accounting failure');});
-  await assert.rejects(()=>handleCarrierWebhook(f.pool,f.config,'jt',{billcode:'LOYALTY-TRACKING',status:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}}),/fixture loyalty accounting failure/);
+  await assert.rejects(()=>handleCarrierWebhook(f.pool,f.config,'ghn',{order_code:'LOYALTY-TRACKING',status:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}}),/fixture loyalty accounting failure/);
   assert.deepEqual((await f.pool.query('SELECT status,payment_status FROM orders WHERE id=$1',[f.orderId])).rows[0],{status:'confirmed',payment_status:'pending'});
   assert.equal((await f.pool.query('SELECT status FROM carrier_shipments WHERE order_id=$1',[f.orderId])).rows[0].status,'created');
 });
@@ -137,7 +137,7 @@ test('carrier completion rolls back order/payment and shipment when loyalty acco
 test('permanent deletion cannot erase an in-flight provider claim before its tracking reference is attached',async t=>{
   const f=await fixture(t),actor={username:'fixture'};let entered,release;
   const started=new Promise(r=>{entered=r;}),gate=new Promise(r=>{release=r;});
-  const creating=createWaybill(f.pool,f.config,{orderId:f.orderId,carrierId:'jt',actor,fetcher:async()=>{entered();await gate;return success();}}).catch(error=>error);
+  const creating=createWaybill(f.pool,f.config,{orderId:f.orderId,carrierId:'ghn',actor,fetcher:async()=>{entered();await gate;return success();}}).catch(error=>error);
   await started;
   let deletionError;
   try{await withTransaction(f.pool,c=>require('../src/order-deletion').deleteOrderPermanently(c,f.orderId,{actor}));}catch(error){deletionError=error;}
@@ -150,11 +150,11 @@ test('permanent deletion cannot erase an in-flight provider claim before its tra
 test('permanent deletion preserves unknown carrier outcomes and active labels until reconciliation or cancellation',async t=>{
   const f=await fixture(t),actor={username:'fixture'};
   const remove=()=>withTransaction(f.pool,c=>require('../src/order-deletion').deleteOrderPermanently(c,f.orderId,{actor}));
-  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status) VALUES($1,'jt',1,'unknown')",[f.orderId]);
+  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status) VALUES($1,'ghn',1,'unknown')",[f.orderId]);
   await assert.rejects(remove,{status:409});
   assert.equal((await f.pool.query('SELECT status FROM carrier_shipment_attempts WHERE order_id=$1',[f.orderId])).rows[0].status,'unknown');
   await f.pool.query("UPDATE carrier_shipment_attempts SET status='reconciled' WHERE order_id=$1",[f.orderId]);
-  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status) VALUES($1,'jt','ACTIVE-DELETE-GUARD','created')",[f.orderId]);
+  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status) VALUES($1,'ghn','ACTIVE-DELETE-GUARD','created')",[f.orderId]);
   for(const status of ['created','picking','delivering']){
     await f.pool.query('UPDATE carrier_shipments SET status=$2 WHERE order_id=$1',[f.orderId,status]);
     await assert.rejects(remove,{status:409});
@@ -166,10 +166,10 @@ test('permanent deletion preserves unknown carrier outcomes and active labels un
 test('an acknowledged provider reference must match reconciled terminal shipment history before permanent deletion',async t=>{
   const f=await fixture(t),actor={username:'fixture'};
   const remove=()=>withTransaction(f.pool,c=>require('../src/order-deletion').deleteOrderPermanently(c,f.orderId,{actor}));
-  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status,provider_result) VALUES($1,'jt',1,'succeeded',$2)",[f.orderId,JSON.stringify({trackingNumber:'ACKNOWLEDGED-TRACKING',carrierOrderId:'ACKNOWLEDGED-ORDER'})]);
+  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status,provider_result) VALUES($1,'ghn',1,'succeeded',$2)",[f.orderId,JSON.stringify({trackingNumber:'ACKNOWLEDGED-TRACKING',carrierOrderId:'ACKNOWLEDGED-ORDER'})]);
   await assert.rejects(remove,{status:409},'a saved carrier acknowledgement cannot be discarded without local reconciliation evidence');
-  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,carrier_order_id,status) VALUES($1,'jt','UNRELATED-TRACKING','UNRELATED-ORDER','cancelled')",[f.orderId]);
+  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,carrier_order_id,status) VALUES($1,'ghn','UNRELATED-TRACKING','UNRELATED-ORDER','cancelled')",[f.orderId]);
   await assert.rejects(remove,{status:409},'unrelated historical labels cannot satisfy the acknowledgement guard');
-  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,carrier_order_id,status) VALUES($1,'jt','ACKNOWLEDGED-TRACKING','ACKNOWLEDGED-ORDER','cancelled')",[f.orderId]);
+  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,carrier_order_id,status) VALUES($1,'ghn','ACKNOWLEDGED-TRACKING','ACKNOWLEDGED-ORDER','cancelled')",[f.orderId]);
   assert.equal((await remove()).id,f.orderId,'matching cancelled history permits the existing explicit permanent-delete policy');
 });
