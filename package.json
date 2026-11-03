@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "start:cluster": "node src/cluster.js",
     "dev": "node --watch src/server.js",
     "dev:local": "node src/local-server.js",
     "owner:setup": "node src/setup-owner.js",

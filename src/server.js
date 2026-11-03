@@ -33,17 +33,20 @@ async function start() {
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
   }
   if (shuttingDown) return;
-  stopChatFileRetention=require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool);
-  stopTikTokAds=require('./tiktok-ads').startTikTokAdsWorker(pool,config);
-  stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
-  stopChatCompression=require('./shopping-chat-compression').startChatCompressionWorker(pool);
-  stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
-  stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
-  stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
-  stopCareEmail=require("./care-api").startCareEmailWorker(pool,config);
-  stopEmail=require("./email-marketing").startEmailWorker(pool,config);
-  stopAbandonedCart=require("./abandoned-cart").startAbandonedCartWorker(pool,config);
-  stopRetention=require("./account-retention").startRetentionWorker(pool);
+  const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
+  if (isBackgroundWorker) {
+    stopChatFileRetention=require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool);
+    stopTikTokAds=require('./tiktok-ads').startTikTokAdsWorker(pool,config);
+    stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
+    stopChatCompression=require('./shopping-chat-compression').startChatCompressionWorker(pool);
+    stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
+    stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
+    stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
+    stopCareEmail=require("./care-api").startCareEmailWorker(pool,config);
+    stopEmail=require("./email-marketing").startEmailWorker(pool,config);
+    stopAbandonedCart=require("./abandoned-cart").startAbandonedCartWorker(pool,config);
+    stopRetention=require("./account-retention").startRetentionWorker(pool);
+  }
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
   const host = "0.0.0.0";
   server = app.listen(port, host, () => {

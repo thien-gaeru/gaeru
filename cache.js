@@ -123,12 +123,14 @@ function invalidateTags(tags = [], { immediate = false } = {}) {
   return purgedKeys;
 }
 
-// Lắng nghe tín hiệu xóa cache từ Master/Worker khác (khi chạy Cluster)
+// Lắng nghe tín hiệu xóa cache & đồng bộ tồn kho từ Master/Worker khác (khi chạy Cluster)
 if (typeof process.on === 'function') {
   process.on('message', (msg) => {
     if (msg?.type === 'CACHE_INVALIDATE_TAGS' && Array.isArray(msg.tags)) {
       purgeTagsLocal(msg.tags);
       cacheEvents.emit('invalidated', { tags: msg.tags, timestamp: Date.now() });
+    } else if (msg?.type === 'STOCK_SYNC' && msg.skuOrId !== undefined && msg.qty !== undefined) {
+      stockMap.set(msg.skuOrId, Number(msg.qty) || 0);
     }
   });
 }
@@ -376,6 +378,9 @@ function reserveStock(skuOrId, qty) {
   }
   const remaining = current - qty;
   stockMap.set(skuOrId, remaining);
+  if (process.send) {
+    try { process.send({ type: 'STOCK_SYNC', skuOrId, qty: remaining }); } catch (_) {}
+  }
   return { ok: true, remaining };
 }
 
@@ -390,6 +395,9 @@ function releaseStock(skuOrId, qty) {
   }
   const remaining = current + qty;
   stockMap.set(skuOrId, remaining);
+  if (process.send) {
+    try { process.send({ type: 'STOCK_SYNC', skuOrId, qty: remaining }); } catch (_) {}
+  }
   return { ok: true, remaining };
 }
 
@@ -398,6 +406,9 @@ function seedStock(skuOrId, qty) {
   const num = typeof qty === 'number' ? qty : Number(qty);
   if (!Number.isSafeInteger(num) || num < 0) return;
   stockMap.set(skuOrId, num);
+  if (process.send) {
+    try { process.send({ type: 'STOCK_SYNC', skuOrId, qty: num }); } catch (_) {}
+  }
 }
 
 module.exports = {
