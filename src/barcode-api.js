@@ -91,7 +91,7 @@ function generateCode128Svg(rawText, options = {}) {
     }
   }
 
-  const escapedText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const escapedText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const textElem = includeText
     ? `<text x="${svgWidth / 2}" y="${topMargin + barHeight + fontSize + 2}" font-family="ui-monospace,SFMono-Regular,Consolas,monospace" font-size="${fontSize}px" font-weight="600" text-anchor="middle" fill="#111827">${escapedText}</text>`
     : "";

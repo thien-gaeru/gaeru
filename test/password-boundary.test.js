@@ -13,8 +13,10 @@ test('customer login checks the entire password at the 72 UTF-8 byte boundary', 
   for (const password of ['a'.repeat(72), '界'.repeat(24)]) {
     const passwordHash = bcrypt.hashSync(password, 4);
     const app = express();
+    app.set('trust proxy', 1);
     app.use(express.json());
-    app.use(session({secret:'password-boundary-fixture-session-secret',resave:false,saveUninitialized:false}));
+    // Model the HTTPS reverse proxy while the isolated Node client uses loopback.
+    app.use(session({secret:'password-boundary-fixture-session-secret',resave:false,saveUninitialized:false,cookie:{secure:true,httpOnly:true,sameSite:'strict'}}));
     app.get('/csrf', (req,res) => { req.session.csrfToken='fixture';res.json({}); });
     app.use(createCustomerAuthRouter({async query() { return {rows:[{
       id:customerId,fullName:'Boundary Customer',email:'boundary@example.invalid',
@@ -25,10 +27,10 @@ test('customer login checks the entire password at the 72 UTF-8 byte boundary', 
     t.after(() => new Promise(resolve => server.close(resolve)));
     const base=`http://127.0.0.1:${server.address().port}`;
     for (const [candidate,status] of [[password,200],[password+'unexpected-suffix',401],[password.slice(0,-1)+'x',401]]) {
-      const csrf=await fetch(base+'/csrf');
+      const csrf=await fetch(base+'/csrf',{headers:{'X-Forwarded-Proto':'https'}});
       const cookie=csrf.headers.get('set-cookie').split(';')[0];
       await csrf.text();
-      const response=await fetch(base+'/login',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'fixture',Cookie:cookie},body:JSON.stringify({email:'boundary@example.invalid',password:candidate})});
+      const response=await fetch(base+'/login',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':'fixture','X-Forwarded-Proto':'https',Cookie:cookie},body:JSON.stringify({email:'boundary@example.invalid',password:candidate})});
       await response.text();
       assert.equal(response.status,status,`${Buffer.byteLength(candidate)}-byte login candidate`);
     }

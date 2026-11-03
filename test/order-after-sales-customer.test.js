@@ -373,15 +373,11 @@ test('Customer After-Sales & Self-Service Return Suite', async (t) => {
     const updated = await updateRmaLogisticsByAdmin(pool, {
       caseId: row.id,
       inboundStatus: 'delivered_to_warehouse',
-      outboundCarrier: 'viettel',
-      outboundTrackingNumber: 'VT777',
-      outboundStatus: 'in_transit',
       inspectionNotes: 'Lỗi mạch thu, đổi mới 1:1',
       actor: { username: 'fixture' }
     });
     assert.equal(updated.inbound_status, 'delivered_to_warehouse');
-    assert.equal(updated.outbound_status, 'in_transit');
-    const after = (await (await fetch(`${baseUrl}/api/rma/${row.rma_number}?token=${row.rma_token}`)).json()).rma;
-    assert.ok(after.outbound.trackingUrl.includes('viettelpost.vn'));
+    assert.equal(updated.outbound_status, 'none');
+    await assert.rejects(updateRmaLogisticsByAdmin(pool, { caseId: row.id, outboundCarrier: 'viettel', outboundTrackingNumber: 'VT777', outboundStatus: 'in_transit', actor: { username: 'fixture' } }), { status: 409 });
   });
 });

@@ -382,11 +382,12 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       });
     } catch (error) {
       console.warn('Google OAuth Redirect Callback error:', error.message);
+      const publicMessage = 'Không thể xác thực Google. Vui lòng quay lại trang tài khoản và thử lại.';
       if (req.path === '/auth/google') {
         const code = error.status && error.status >= 400 && error.status < 600 ? error.status : 401;
-        return res.status(code).send(error.message || 'Xác thực Google thất bại.');
+        return res.status(code).type('text/plain').send(publicMessage);
       }
-      res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(error.message || 'Không thể xác thực Google.'));
+      res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(publicMessage));
     }
   };
 

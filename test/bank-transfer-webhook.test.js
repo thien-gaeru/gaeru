@@ -249,7 +249,7 @@ test('Bank Transfer Webhook Adapter - Security and Verification', async (t) => {
     assert.strictEqual(res.providerTransactionId, 'MB_RAW_999');
   });
 
-  await t.test('successfully verifies token passed in query parameter (?token=...) or payload body', () => {
+  await t.test('rejects credentials passed in URL query parameters or payload fields', () => {
     const payload = {
       orderNumber: 'GR-20261102-QUERY123',
       amount: 199000,
@@ -259,8 +259,9 @@ test('Bank Transfer Webhook Adapter - Security and Verification', async (t) => {
       headers: {},
       query: { token: secret }
     });
-    assert.strictEqual(res.valid, true);
-    assert.strictEqual(res.orderNumber, 'GR-20261102-QUERY123');
-    assert.strictEqual(res.amountVnd, 199000);
+    assert.strictEqual(res.valid, false);
+    for (const key of ['secureToken', 'secure_token', 'apiKey', 'token', 'secret']) {
+      assert.strictEqual(verifyGatewayPayload('bank_transfer', { ...payload, [key]: secret }, settings).valid, false);
+    }
   });
 });

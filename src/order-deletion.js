@@ -20,31 +20,23 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   const orderRes = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
   if (!orderRes.rows.length) return null;
   const order = orderRes.rows[0];
+  const unresolvedShipment = await client.query(`SELECT a.id FROM carrier_shipment_attempts a WHERE a.order_id=$1 AND (
+    a.status IN ('sending','unknown') OR (a.status='succeeded' AND NOT EXISTS (
+      SELECT 1 FROM carrier_shipments s WHERE s.order_id=a.order_id AND s.carrier_id=a.carrier_id AND (
+        s.tracking_number=NULLIF(a.provider_result->>'trackingNumber','') OR s.carrier_order_id=NULLIF(a.provider_result->>'carrierOrderId','')
+      )
+    ))) LIMIT 1`, [order.id]);
+  if (unresolvedShipment.rows.length) throw Object.assign(new Error('Yêu cầu tạo vận đơn đang xử lý hoặc chưa đối soát đầy đủ với mã hãng. Giữ đơn và bằng chứng vận chuyển để đối soát trước khi xóa.'), { status: 409 });
+  const activeShipment = await client.query("SELECT id FROM carrier_shipments WHERE order_id=$1 AND status IN ('created','picking','delivering') LIMIT 1", [order.id]);
+  if (activeShipment.rows.length) throw Object.assign(new Error('Đơn còn vận đơn đang hoạt động. Hủy vận đơn trên hệ thống hãng hoặc hoàn tất giao hàng trước khi xóa lịch sử đơn.'), { status: 409 });
+  const openExchange = await client.query(`SELECT e.id FROM rma_exchange_issues e JOIN order_after_sales a ON a.id=e.case_id
+    WHERE a.order_id=$1 AND e.status='posted' AND a.status NOT IN ('resolved','rejected') LIMIT 1`, [order.id]);
+  if (openExchange.rows.length) throw Object.assign(new Error('Đơn đang có chứng từ xuất hàng đổi chưa hoàn tất. Hủy chứng từ trước khi bàn giao hoặc hoàn tất giao đổi và đóng hồ sơ trước khi xóa đơn.'), { status: 409 });
 
   // 2. If order holds active inventory (not cancelled and not completed), release stock
   if (order.status !== 'cancelled' && order.status !== 'completed') {
-    let inv = inventory;
-    if (!inv) {
-      try { inv = require('./inventory'); } catch (_) {}
-    }
-    if (inv && typeof inv.releaseOrderStock === 'function') {
-      try {
-        await inv.releaseOrderStock(client, { orderId: order.id, actor });
-      } catch (_) {
-        // Fallback direct inventory restoration if inventory release throws
-        await client.query(
-          `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-           FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-          [order.id]
-        );
-      }
-    } else {
-      await client.query(
-        `UPDATE product_variants v SET stock_quantity = v.stock_quantity + i.quantity, updated_at = now()
-         FROM order_items i WHERE i.order_id = $1 AND i.variant_id = v.id`,
-        [order.id]
-      );
-    }
+    const inv = inventory || require('./inventory');
+    await inv.releaseOrderStock(client, { orderId: order.id, actor });
   }
 
   // 3. Delete dependent records in strict dependency order:
@@ -83,16 +75,13 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
 
   // E2. Refund/reconcile loyalty points before deleting order if customer exists and order was not cancelled
   if (order.customer_id && order.status !== 'cancelled') {
-    try {
-      const { refundPoints } = require('./loyalty-api');
-      await refundPoints(client, {
-        customerId: order.customer_id,
-        orderId: order.id,
-        cycleKey: 'permanent-delete',
-        reason: 'Xóa vĩnh viễn đơn hàng #' + order.order_number,
-        actor
-      });
-    } catch (_) {}
+    const { refundPoints } = require('./loyalty-api');
+    await refundPoints(client, {
+      customerId: order.customer_id,
+      orderId: order.id,
+      reason: 'Xóa vĩnh viễn đơn hàng #' + order.order_number,
+      actor
+    });
   }
 
   // F. Carrier shipments, barcode pack verifications & shipping selections

@@ -466,9 +466,9 @@ test('Omnichannel: Stock deduction on order, idempotent restock reversal on canc
   const stockAfterDuplicate = (await client.query('SELECT stock_quantity FROM product_variants WHERE id = $1', [variantId])).rows[0].stock_quantity;
   assert.equal(stockAfterDuplicate, 20); // Still 20, never double restored!
 
-  // 6. Webhook ingestion with idempotent event ledger
+  // 6. Unauthenticated public webhook ingestion remains disabled
   const config = makeConfig();
-  const webhookResult = await handleMarketplaceWebhook(pool, config, 'tiktok', {
+  await assert.rejects(() => handleMarketplaceWebhook(pool, config, 'tiktok', {
     shop_id: 'SHOP_TT_01',
     data: {
       order_id: 'TT-ORDER-888',
@@ -476,9 +476,8 @@ test('Omnichannel: Stock deduction on order, idempotent restock reversal on canc
       total_amount: 250000,
       items: [{ externalSku: 'MIC-K1-STD', quantity: 1 }]
     }
-  });
-  assert.equal(webhookResult.success, true);
-  assert.equal(webhookResult.status, 'processing');
+  }), e => e.status === 501);
+  assert.equal((await client.query('SELECT stock_quantity FROM product_variants WHERE id=$1',[variantId])).rows[0].stock_quantity,20);
 });
 
 // -----------------------------------------------------------------------------

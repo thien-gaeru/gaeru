@@ -131,7 +131,7 @@ async function resolveReturn(pool, row) {
   const router=afterSalesRouter(pool);
   const handler=router.stack.find(layer=>layer.route?.path==='/orders/after-sales/:id'&&layer.route.methods.patch).route.stack.at(-1).handle;
   let error;
-  await handler({params:{id:row.id},body:{version:row.version,status:'resolved',resolution:'Goods inspected and refund approved'},admin:{username:'audit-owner',role:'owner',source:'bootstrap'}},
+  await handler({params:{id:row.id},body:{version:row.version,status:'resolved',resolution:'Goods inspected and refund approved',manualRefund:{amountVnd:500000,method:'bank_transfer',reference:'FIXTURE-REFUND-1',confirmedSent:true}},admin:{username:'audit-owner',role:'owner',source:'bootstrap',permissions:['orders.write','payments.write','inventory.approve']}},
     {json:()=>{},status(){return this;}}, e=>{error=e;});
   if(error)throw error;
 }

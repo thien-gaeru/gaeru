@@ -385,7 +385,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if(!channelConfig)return res.status(404).json({code:'99',message:'Provider unavailable'});
       // Official wallet notifications are server POST JSON, never query aliases.
       if(req.method!=='POST')return res.status(405).end();
-      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers,query:req.query});
+      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers});
       if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback',reason:verified.reason});
       if(provider==='bank_transfer'){
         const txns=verified.matchedTransactions?.length?verified.matchedTransactions:[verified];
@@ -646,6 +646,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     let idempotencyClaimed = false;
     let scopeKey = null;
     let idempotencyKey = null;
+    let idempotencyRequestHash = null;
+    let idempotencyClaimToken = null;
     try {
       if (Array.isArray(req.body?.items) && req.body.items.some((item) => !isValidOrderQuantity(item?.quantity))) {
         return res.status(400).json({ error: "Số lượng sản phẩm phải là số nguyên từ 1 đến 99." });
@@ -696,15 +698,17 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           loyaltyPointsToRedeem: parsed.data.loyaltyPointsToRedeem || 0,
           items: sortedEntries
         })).digest("hex");
+        idempotencyRequestHash = requestHash;
+        idempotencyClaimToken = randomUUID();
 
         const claimOutcome = await withTransaction(pool, async (client) => {
           await client.query("DELETE FROM order_idempotency_keys WHERE expires_at <= now()");
           const ins = await client.query(
-            `INSERT INTO order_idempotency_keys (scope_key, idempotency_key, request_hash, status)
-             VALUES ($1, $2, $3, 'in_progress')
+            `INSERT INTO order_idempotency_keys (scope_key, idempotency_key, request_hash, claim_token, status)
+             VALUES ($1, $2, $3, $4, 'in_progress')
              ON CONFLICT (scope_key, idempotency_key) DO NOTHING
              RETURNING status`,
-            [scopeKey, idempotencyKey, requestHash]
+            [scopeKey, idempotencyKey, requestHash, idempotencyClaimToken]
           );
           if (ins.rowCount > 0) return { claimed: true };
           const existing = (await client.query(
@@ -737,6 +741,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             if (!polled) {
               return res.status(409).json({ error: "Yêu cầu đặt hàng đồng thời trước đó không thành công. Vui lòng thử lại." });
             }
+            if (polled.requestHash !== requestHash) {
+              return res.status(409).json({ error: "X-Idempotency-Key đã được thay thế bởi một nội dung đơn hàng khác." });
+            }
             if (polled.status === "completed" && polled.responseBody) {
               return res.status(polled.responseStatus || 201).json(polled.responseBody);
             }
@@ -744,6 +751,30 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           return res.status(409).json({ error: "Yêu cầu đặt hàng với cùng X-Idempotency-Key đang được xử lý." });
         }
         idempotencyClaimed = true;
+      }
+
+      const checkoutResponse = (result) => ({
+        order: result.order,
+        paymentUrl: result.paymentUrl,
+        ...(result.bankTransfer ? { bankTransfer: result.bankTransfer } : {}),
+        message: parsed.data.paymentMethod === "cod"
+          ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
+          : parsed.data.paymentMethod === "bank_transfer"
+            ? "Đã tiếp nhận đơn chuyển khoản. Sau khi giao dịch được xác nhận khớp số tiền và mã đơn, đơn hàng sẽ tự động chuyển sang trạng thái Chờ gửi hàng."
+            : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
+      });
+      async function completeCheckout(client, result) {
+        if (idempotencyClaimed && scopeKey && idempotencyKey) {
+          const completedClaim = await client.query(
+            `UPDATE order_idempotency_keys
+             SET status = 'completed', order_id = $3, response_status = 201, response_body = $4::jsonb, updated_at = now()
+             WHERE scope_key = $1 AND idempotency_key = $2 AND status = 'in_progress' AND request_hash = $5 AND claim_token = $6
+             RETURNING order_id`,
+            [scopeKey, idempotencyKey, result.order.id, JSON.stringify(checkoutResponse(result)), idempotencyRequestHash, idempotencyClaimToken]
+          );
+          if (completedClaim.rowCount !== 1) throw Object.assign(Error('Yêu cầu đặt hàng đã thay đổi hoặc hết hạn. Vui lòng kiểm tra đơn trước khi thử lại.'), { status: 409 });
+        }
+        return result;
       }
 
       let order;
@@ -1050,7 +1081,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               entityId: createdOrder.id,
               metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod }
             });
-            return {
+            return completeCheckout(client, {
               order: {
                 ...createdOrder,
                 items: phase1.prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({
@@ -1062,7 +1093,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                 }))
               },
               paymentUrl: gateway.paymentUrl
-            };
+            });
           });
         } catch (phase3Err) {
           await releaseCheckoutIntent(pool, phase1.intentId, "released").catch(() => {});
@@ -1214,7 +1245,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             entityId: createdOrder.id,
             metadata: { orderNumber: createdOrder.orderNumber, totalVnd: createdOrder.totalVnd, paymentMethod: parsed.data.paymentMethod }
           });
-          return {
+          return completeCheckout(client, {
             order: {
               ...createdOrder,
               items: calc.prepared.map(({ productName, variantName, sku, priceVnd, quantity }) => ({
@@ -1227,41 +1258,21 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             },
             paymentUrl,
             ...(bankTransfer ? { bankTransfer } : {})
-          };
+          });
         });
       }
 
       flushAllCache();
 
-      const responsePayload = {
-        order: order.order,
-        paymentUrl: order.paymentUrl,
-        ...(order.bankTransfer ? { bankTransfer: order.bankTransfer } : {}),
-        message: parsed.data.paymentMethod === "cod"
-          ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
-          : parsed.data.paymentMethod === "bank_transfer"
-            ? "Đã tiếp nhận đơn chuyển khoản. Sau khi giao dịch được xác nhận khớp số tiền và mã đơn, đơn hàng sẽ tự động chuyển sang trạng thái Chờ gửi hàng."
-            : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
-      };
-
-      if (idempotencyClaimed && scopeKey && idempotencyKey) {
-        await withTransaction(pool, async (client) => {
-          await client.query(
-            `UPDATE order_idempotency_keys
-             SET status = 'completed', order_id = $3, response_status = 201, response_body = $4::jsonb, updated_at = now()
-             WHERE scope_key = $1 AND idempotency_key = $2`,
-            [scopeKey, idempotencyKey, order.order.id, JSON.stringify(responsePayload)]
-          );
-        });
-      }
+      const responsePayload = checkoutResponse(order);
 
       res.status(201).json(responsePayload);
     } catch (error) {
       if (idempotencyClaimed && scopeKey && idempotencyKey) {
         await withTransaction(pool, async (client) => {
           await client.query(
-            "DELETE FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2 AND status = 'in_progress'",
-            [scopeKey, idempotencyKey]
+            "DELETE FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2 AND status = 'in_progress' AND request_hash = $3 AND claim_token = $4",
+            [scopeKey, idempotencyKey, idempotencyRequestHash, idempotencyClaimToken]
           );
         }).catch(() => {});
       }
@@ -1937,10 +1948,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             [current.id]
           );
           if (current.customer_id) {
-            try {
-              const { refundPoints } = require('./loyalty-api');
-              await refundPoints(client, { customerId: current.customer_id, orderId: current.id, actor });
-            } catch {}
+            const { refundPoints } = require('./loyalty-api');
+            await refundPoints(client, { customerId: current.customer_id, orderId: current.id, actor });
           }
         }
         const total = shippingFee === null ? null : Math.max(0, current.subtotal_vnd + shippingFee - (current.discount_vnd||0));
@@ -1963,15 +1972,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         await audit(client, { actor: actor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         if ((targetStatus === 'completed' || updated.rows[0].status === 'completed') && (targetPaymentStatus === 'paid' || updated.rows[0].paymentStatus === 'paid')) {
           if (current.customer_id && updated.rows[0].totalVnd > 0) {
-            try {
-              const { earnPoints } = require('./loyalty-api');
-              await earnPoints(client, {
-                customerId: current.customer_id,
-                orderId: current.id,
-                orderTotalVnd: updated.rows[0].totalVnd,
-                actor
-              });
-            } catch {}
+            const { earnPoints } = require('./loyalty-api');
+            await earnPoints(client, {
+              customerId: current.customer_id,
+              orderId: current.id,
+              orderTotalVnd: updated.rows[0].totalVnd,
+              actor
+            });
           }
         }
         return updated.rows[0];
@@ -2061,7 +2068,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const { autoIssueForOrder } = require('./misa-einvoice');
           await autoIssueForOrder(pool, config, req.params.id, { fetcher: misaFetcher });
         } catch (misaErr) {
-          console.error('MISA auto-issue error for order ' + req.params.id + ':', misaErr.message);
+          console.error('MISA auto-issue error for order %s: %s', req.params.id, misaErr.message);
         }
       }
       res.json({ order: result });

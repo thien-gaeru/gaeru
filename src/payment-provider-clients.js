@@ -53,10 +53,14 @@ function timestamp(value) {
 function vietnamDate(time) {
   return new Date(time + 7 * 60 * 60 * 1000).toISOString().slice(2, 10).replaceAll('-', '');
 }
+function validReference(value, max) {
+  const alphanumeric = char => (char >= '0' && char <= '9') || (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z');
+  return validText(value, 1, max) && alphanumeric(value[0]) && alphanumeric(value[value.length - 1]) && !/[^A-Za-z0-9._-]/.test(value);
+}
 function reference(provider, txnRef, time, requestId) {
-  if (!validText(txnRef, 1, 50) || !/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(txnRef)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
+  if (!validReference(txnRef, 50)) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
   const id = requestId ?? (provider === 'zalopay' ? vietnamDate(time) + '_' + txnRef : txnRef);
-  if (!validText(id, 1, provider === 'zalopay' ? 40 : 50) || !/^[A-Za-z0-9](?:[-_.]*[A-Za-z0-9]+)*$/.test(id)
+  if (!validReference(id, provider === 'zalopay' ? 40 : 50)
     || (provider === 'zalopay' && (!/^\d{6}_/.test(id) || id.slice(7) !== txnRef))) throw fail(provider, 'PAYMENT_REQUEST_INVALID', { status: 400 });
   return id;
 }

@@ -19,10 +19,14 @@ test('Forensic Audit: safeTokenEqual resists Unicode multi-byte length differenc
   // 1. Direct unit test of updateRmaInboundTracking with unicode token
   const mockClient = {
     query: async (sql) => {
-      if (sql.includes('SELECT a.*')) {
+      if (sql.includes('SELECT id FROM order_after_sales')) return { rows: [{ id: 'case-1' }] };
+      if (sql.includes('SELECT order_id FROM order_after_sales')) return { rows: [{ order_id: 'order-1' }] };
+      if (sql.includes('FROM orders')) return { rows: [{ id: 'order-1', customer_id: 'cust-1' }] };
+      if (sql.includes('SELECT * FROM order_after_sales')) {
         return {
           rows: [{
             id: 'case-1',
+            order_id: 'order-1',
             rma_number: 'RMA-261102-TEST',
             rma_token: tokenA,
             status: 'approved',

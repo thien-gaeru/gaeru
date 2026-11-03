@@ -1,6 +1,7 @@
 const { getExternalWebKnowledge } = require('./chat-external-knowledge');
 const fs = require('node:fs');
 const path = require('node:path');
+const { parseHTML } = require('linkedom');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const EXCLUDED_HTML = new Set(['cart.html', 'checkout.html', 'payment-result.html', 'sitemap.html']);
@@ -21,40 +22,26 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
-function decodeHtmlEntities(str) {
-  return String(str || '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&bull;|&middot;/gi, '·')
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
-}
-
 function extractPageKnowledge(fileName, html) {
-  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-  const descMatch = /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i.exec(html)
-    || /<meta[^>]+content=["']([^"']*)["'][^>]+name=["']description["']/i.exec(html);
-  const title = decodeHtmlEntities(titleMatch ? titleMatch[1] : fileName).replace(/\s+/g, ' ').trim();
-  const description = decodeHtmlEntities(descMatch ? descMatch[1] : '').replace(/\s+/g, ' ').trim();
-
-  const mainMatch = /<main[^>]*>([\s\S]*?)<\/main>/i.exec(html);
-  let bodyHtml = mainMatch ? mainMatch[1] : html;
-  bodyHtml = bodyHtml
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
-    .replace(/<dialog[\s\S]*?<\/dialog>/gi, ' ')
-    .replace(/<\/(h[1-6]|p|li|tr|section|article|div)>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ');
-
-  const cleanText = decodeHtmlEntities(bodyHtml)
+  // Parse markup once. DOM text/attributes decode entities exactly once and
+  // parser-recognized closing tags cannot leak script/style text into knowledge.
+  const { document } = parseHTML(String(html || ''));
+  const compact = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const attribute = (node, name) => [...node.attributes].find(item => item.name.toLowerCase() === name)?.value || '';
+  const title = compact(document.querySelector('title')?.textContent || fileName);
+  const metadata = [...document.querySelectorAll('meta')].find(node => attribute(node, 'name').toLowerCase() === 'description');
+  const description = compact(metadata ? attribute(metadata, 'content') : '');
+  const root = document.querySelector('main') || document.querySelector('body') || document;
+  for (const node of root.querySelectorAll('script,style,svg,nav,footer,dialog,template,noscript,head')) node.remove();
+  const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','TR','SECTION','ARTICLE','DIV','BR']);
+  for (const node of root.querySelectorAll('*')) {
+    node.before(document.createTextNode(' '));
+    if (blocks.has(node.tagName)) node.after(document.createTextNode('\n'));
+  }
+  const text = root.nodeType === 9 ? [...root.childNodes].map(node => node.textContent || '').join(' ') : root.textContent;
+  const cleanText = String(text || '')
     .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
+    .map(compact)
     .filter(line => line.length > 2)
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -195,6 +182,7 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
 }
 
 module.exports = {
+  extractPageKnowledge,
   loadWebPagesIndex,
   loadLiveSiteFacts,
   getRelevantWebKnowledge

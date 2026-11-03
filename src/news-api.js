@@ -2,6 +2,7 @@ const {rateLimit}=require('express-rate-limit');
 const publicImageReadLimiter=rateLimit({windowMs:900000,limit:1800,standardHeaders:'draft-8',legacyHeaders:false});
 const adminImageReadLimiter=rateLimit({windowMs:900000,limit:120,standardHeaders:'draft-8',legacyHeaders:false});
 const {storeUpload,readMedia}=require('./lib/stored-media');
+const {sendPublicImage}=require('./lib/image-renditions');
 const {normalizeBrandText}=require('./primary-domain');
 const {Router}=require('express');
 const multer=require('multer');
@@ -21,7 +22,7 @@ function validImage(file){if(!file)return false;const b=file.buffer;return file.
 function createNewsPublicApi(pool){const router=Router();
  router.get('/news',async(req,res,next)=>{try{const page=Number(req.query.page||1);if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).json({error:'Trang không hợp lệ.'});const posts=(await pool.query(`SELECT ${fields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 12 OFFSET $1`,[(page-1)*12])).rows;res.set('Cache-Control','no-store').json({posts:posts.map(output),page,hasMore:posts.length===12});}catch(e){next(e);}});
  router.get('/news/:slug',async(req,res,next)=>{if(!slug.safeParse(req.params.slug).success)return res.status(404).json({error:'Không tìm thấy bài viết.'});try{const post=(await pool.query(`SELECT ${fields},body FROM news_posts WHERE slug=$1 AND status='published'`,[req.params.slug])).rows[0];if(!post)return res.status(404).json({error:'Không tìm thấy bài viết.'});res.set('Cache-Control','no-store').json({post:output(post)});}catch(e){next(e);}});
- router.get('/news-images/:id',publicImageReadLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const image=(await pool.query("SELECT content,mime_type FROM news_images WHERE id=$1 AND EXISTS(SELECT 1 FROM news_posts WHERE cover_id=$1 AND status='published')",[req.params.id])).rows[0];if(!image)return res.sendStatus(404);res.type(image.mime_type).set({'Cache-Control':'private, max-age=60, must-revalidate','X-GAERU-Media-Storage':'2','ETag':'\"gaeru-news-'+req.params.id+'-'+require('node:crypto').createHash('sha256').update(image.content).digest('hex')+'\"'});if(req.fresh)return res.status(304).end();res.send(await readMedia(image.content));}catch(e){next(e);}});
+ router.get('/news-images/:id',publicImageReadLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const image=(await pool.query("SELECT content,mime_type FROM news_images WHERE id=$1 AND EXISTS(SELECT 1 FROM news_posts WHERE cover_id=$1 AND status='published')",[req.params.id])).rows[0];if(!image)return res.sendStatus(404);await sendPublicImage(req,res,image,'news');}catch(e){next(e);}});
  return router;
 }
 function createNewsAdminApi(pool){const router=Router();

@@ -37,7 +37,7 @@ test('Live search retrieves web snippets and caches repeat queries', async () =>
   let callCount = 0;
   const mockTransport = async (url) => {
     callCount++;
-    assert.ok(url.includes('duckduckgo.com'));
+    assert.equal(new URL(url).hostname, 'html.duckduckgo.com');
     return {
       ok: true,
       text: async () => `

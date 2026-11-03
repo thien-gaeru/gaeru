@@ -248,7 +248,8 @@ function afterSalesRouter(pool) {
       }
 
       const result = await pool.query(
-        `SELECT a.*, o.order_number, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status
+        `SELECT a.*, o.order_number, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status,
+          CASE WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END AS refundable_amount_vnd
          FROM order_after_sales a
          JOIN orders o ON o.id = a.order_id
          WHERE ($1::text = '' OR a.status = $1)
@@ -256,6 +257,7 @@ function afterSalesRouter(pool) {
          LIMIT 100`,
         [status]
       );
+      for (const item of result.rows) item.exchange_issue = await require('./rma-exchange').readIssue(pool, item.id);
       res.json({ cases: result.rows });
     } catch (e) {
       next(e);
@@ -320,13 +322,17 @@ function afterSalesRouter(pool) {
       const data = z.object({
         version: z.number().int().positive(),
         status: z.enum(['approved', 'received', 'resolved', 'rejected']),
-        resolution: z.string().trim().min(5).max(2000)
+        resolution: z.string().trim().min(5).max(2000),
+        manualRefund: z.object({
+          amountVnd: z.number().int().min(1).max(2000000000),
+          method: z.enum(['cash', 'bank_transfer']),
+          reference: z.string().trim().min(5).max(160),
+          confirmedSent: z.literal(true)
+        }).strict().optional()
       }).strict().parse(req.body);
 
       const result = await withTransaction(pool, async (c) => {
-        const row = (await c.query('SELECT * FROM order_after_sales WHERE id = $1 FOR UPDATE', [id])).rows[0];
-        if (!row) throw fail('Không tìm thấy yêu cầu.', 404);
-        if (row.version !== data.version) throw fail('Yêu cầu đã thay đổi. Tải lại trước khi lưu.');
+        const row = await require('./rma-exchange').lockCase(c, id, data.version);
         if (!transitions[row.status].includes(data.status)) throw fail('Không thể chuyển trạng thái này.');
         if (row.kind === 'cancellation' && data.status === 'received') throw fail('Yêu cầu hủy không có bước nhận hàng hoàn.');
 
@@ -337,7 +343,28 @@ function afterSalesRouter(pool) {
         if (data.status === 'resolved' && row.kind === 'return' && row.status !== 'received') {
           throw fail('Xác nhận đã nhận hàng trả trước khi đóng yêu cầu.');
         }
+        if (data.status === 'resolved' && row.kind === 'return' && row.restock_eligible === true && !req.admin?.permissions?.includes('inventory.approve')) throw fail('Cần quyền duyệt kho để tái nhập hàng về tồn bán khi đóng hồ sơ.', 403);
+        if (data.status === 'resolved' && row.kind === 'return' && row.return_type === 'exchange') {
+          const issue = await require('./rma-exchange').readIssue(c, row.id);
+          if (!issue || row.outbound_status !== 'delivered') throw fail('Cần chứng từ xuất kho đổi mới đang hiệu lực và xác nhận khách đã nhận hàng trước khi đóng hồ sơ.');
+          if (row.restock_eligible === true) {
+            await require('./inventory').releaseOrderStock(c, { orderId: row.order_id, actor: req.admin });
+            await c.query('UPDATE order_after_sales SET restocked_at=now() WHERE id=$1', [row.id]);
+          }
+        }
+        let refundAmount = null;
         if (data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange') {
+          const received = Number((await c.query('SELECT COALESCE(SUM(amount_vnd),0) AS received FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0]?.received || 0);
+          const refundable = order.payment_status === 'paid' ? Number(order.total_vnd) : received;
+          if ((order.payment_status === 'paid' && order.total_vnd === null) || !Number.isSafeInteger(refundable) || refundable < 0 || refundable > 2000000000 || received > refundable) throw fail('Số tiền cần hoàn chưa hợp lệ. Cần đối soát thanh toán trước.');
+          if (refundable > 0) {
+            if (!req.admin?.permissions?.includes('payments.write')) throw fail('Cần quyền ghi nhận thanh toán để đối soát chứng từ hoàn tiền.', 403);
+            if (!data.manualRefund) throw fail('Cần xác nhận đã hoàn tiền thủ công và nhập số tiền, phương thức, mã chứng từ đối soát trước khi đóng hồ sơ. Hệ thống không tự chuyển tiền.');
+            if (data.manualRefund.amountVnd !== refundable) throw fail('Số tiền hoàn phải khớp toàn bộ số tiền đã thu của đơn hàng.');
+          } else if (data.manualRefund) {
+            throw fail('Đơn chưa ghi nhận tiền; không tạo chứng từ đã hoàn tiền.');
+          }
+          refundAmount = refundable;
           await c.query('UPDATE orders SET return_completed_at = COALESCE(return_completed_at, now()), updated_at = now() WHERE id = $1', [row.order_id]);
           if (order.customer_id) {
             const { refundPoints } = require('./loyalty-api');
@@ -359,8 +386,8 @@ function afterSalesRouter(pool) {
         }
 
         const changed = (await c.query(
-          'UPDATE order_after_sales SET status = $2, resolution = $3, version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
-          [id, data.status, data.resolution]
+          'UPDATE order_after_sales SET status = $2, resolution = $3, refund_amount_vnd = COALESCE($4, refund_amount_vnd), version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
+          [id, data.status, data.resolution, refundAmount]
         )).rows[0];
 
         await appendAudit(c, {
@@ -368,9 +395,9 @@ function afterSalesRouter(pool) {
           action: 'order.after_sales.update',
           entityType: 'order',
           entityId: row.order_id,
-          metadata: { caseId: id, status: data.status, resolution: data.resolution }
+          metadata: { caseId: id, status: data.status, resolution: data.resolution, ...(refundAmount !== null ? { settlementScope: data.manualRefund ? 'manual_refund_recorded' : 'no_payment_to_refund', manualRefund: data.manualRefund || null } : {}) }
         });
-        return changed;
+        return { ...changed, ...(refundAmount !== null ? { settlementScope: data.manualRefund ? 'manual_refund_recorded' : 'no_payment_to_refund' } : {}) };
       });
 
       res.json(result);
