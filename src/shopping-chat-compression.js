@@ -90,7 +90,7 @@ async function processOneChatCompression(pool, targetId = null, { readMedia, sto
     let nextBuffer=raw,nextMime=originalMime,nextName=job.original_name||job.name,wasCompressed=false;
     if(['image/jpeg','image/png','image/heic'].includes(originalMime)){
       try {const optimized=await optimizeImage(raw,originalMime,{maxUploadBytes:Infinity});
-        if(optimized.mimeType==='image/webp'){nextBuffer=optimized.buffer;nextMime=optimized.mimeType;wasCompressed=true;
+        if(optimized.mimeType==='image/webp'&&optimized.buffer.length<raw.length){nextBuffer=optimized.buffer;nextMime=optimized.mimeType;wasCompressed=true;
           if(nextMime==='image/webp')nextName=nextName.replace(/\.[^.]+$/,'')+'.webp';}
       }catch{/* Original remains downloadable if an optional optimization is unsupported. */}
     }

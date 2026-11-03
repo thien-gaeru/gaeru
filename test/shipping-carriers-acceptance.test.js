@@ -49,66 +49,34 @@ async function setupTestDb(t) {
   return pool;
 }
 
-test('Shipping Carriers Acceptance: J&T adapter verification, supported set and available carriers', async t => {
+test('J&T account lookup uses the VN contract but legacy verification cannot expose checkout', async t => {
   const pool = await setupTestDb(t);
-  const config = makeConfig();
-
-  // Verify J&T connection check with mock fetcher
+  const settings = { protocol: 'jt-vn-open-platform-v1', environment: 'sandbox', accountId: 'FIXTURE-VN',
+    partnerCode: '90000000000000001', secret: 'fixture-private-key', customerPassword: '00000000000000000000000000000000' };
   const fetchCalls = [];
-  const mockFetcher = async (url, opts) => {
-    fetchCalls.push({ url, opts });
-    return {
-      ok: true,
-      text: async () => JSON.stringify({ code: '1', desc: 'success', data: { details: [] } })
-    };
-  };
-
-  const result = await shipping.verifyCarrier('jt', {
-    accountId: 'VIP0099',
-    secret: 'jt_private_secret_key'
-  }, { fetcher: mockFetcher });
-
-  assert.equal(result.id, 'jt');
-  assert.equal(result.name, 'J&T Express');
-  assert.equal(fetchCalls.length, 1);
-  assert.match(fetchCalls[0].url, /jtexpress\.vn/);
+  const result = await shipping.verifyCarrier('jt', settings, { fetcher: async (url, opts) => {
+    fetchCalls.push({url, opts}); return new Response(JSON.stringify({code:'1',msg:'success'}));
+  }});
+  assert.equal(result.accountVerified, true);
+  assert.equal(result.checkoutReady, false);
+  assert.equal(result.environment, 'sandbox');
+  assert.equal(fetchCalls[0].url, 'https://demoopenapi.jtexpress.vn/webopenplatformapi/api/vip/checkCusPwd');
   assert.equal(fetchCalls[0].opts.method, 'POST');
-
-  // Verify missing accountId throws 409
-  await assert.rejects(
-    () => shipping.verifyCarrier('jt', { secret: 'secret' }, { fetcher: mockFetcher }),
-    err => err.status === 409 && err.message.includes('Mã khách hàng')
-  );
-
-  // Verify availableCarriers returns J&T when enabled & verified
-  const cipher = seal(JSON.stringify({
-    accountId: 'VIP0099',
-    partnerCode: 'PARTNER_JT',
-    pickupName: 'GAERU Central',
-    pickupPhone: '0901234567',
-    pickupAddress: 'Hà Nội',
-    secret: 'jt_secret'
-  }), ENCRYPTION_KEY);
-
-  await pool.query(
-    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_jt', $1)",
-    [JSON.stringify({ version: 1, cipher })]
-  );
-  await pool.query(
-    "INSERT INTO shipping_carrier_connections(carrier_id, config_version, verified_at, enabled) VALUES('jt', 1, now(), true)"
-  );
-
-  const available = await shipping.availableCarriers(pool);
-  assert.ok(available.some(c => c.id === 'jt' && c.name === 'J&T Express'));
+  assert.equal(JSON.parse(new URLSearchParams(fetchCalls[0].opts.body).get('bizContent')).customerCode, settings.accountId);
+  await assert.rejects(() => shipping.verifyCarrier('jt', {secret:'fixture'}), error => error.status === 409);
+  const cipher = seal(JSON.stringify(settings), ENCRYPTION_KEY);
+  await pool.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('private_admin:shipping_jt',$1)", [JSON.stringify({version:1,cipher})]);
+  await pool.query("INSERT INTO shipping_carrier_connections(carrier_id,config_version,verified_at,enabled) VALUES('jt',1,now(),true)");
+  assert.deepEqual(await shipping.availableCarriers(pool), [], 'legacy verification has no protocol/environment acceptance');
 });
 
 test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary with Idempotency enforcement', async t => {
   const pool = await setupTestDb(t);
   const config = makeConfig();
 
-  // Seed J&T configuration
+  // Seed GHN configuration
   const cipher = seal(JSON.stringify({
-    accountId: 'VIP0099',
+    accountId: '12345',
     pickupName: 'GAERU Kho',
     pickupPhone: '0901234567',
     pickupAddress: '123 Cầu Giấy, Hà Nội',
@@ -116,11 +84,11 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   }), ENCRYPTION_KEY);
 
   await pool.query(
-    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_jt', $1)",
+    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_ghn', $1)",
     [JSON.stringify({ version: 1, cipher })]
   );
   await pool.query(
-    "INSERT INTO shipping_carrier_connections(carrier_id, config_version, verified_at, enabled) VALUES('jt', 1, now(), true)"
+    "INSERT INTO shipping_carrier_connections(carrier_id, config_version, verified_at, enabled) VALUES('ghn', 1, now(), true)"
   );
 
   // Create an order
@@ -147,12 +115,12 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
     return {
       ok: true,
       json: async () => ({
-        code: '1',
+        code: 200,
         desc: 'success',
         data: {
-          mailno: '840012345678',
+          order_code: '840012345678',
           txlogisticid: 'GR-20261102-TEST01',
-          shippingFee: 25000,
+          total_fee: 25000,
           expectedDelivery: '2026-11-04'
         }
       })
@@ -162,7 +130,7 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   // 1. Create waybill first time
   const res1 = await createWaybill(pool, config, {
     orderId,
-    carrierId: 'jt',
+    carrierId: 'ghn',
     autoShip: false,
     actor: { username: 'admin_test' },
     fetcher: mockFetcher
@@ -171,7 +139,7 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   assert.equal(res1.success, true);
   assert.equal(res1.existing, false);
   assert.equal(res1.shipment.trackingNumber, '840012345678');
-  assert.equal(res1.shipment.carrierId, 'jt');
+  assert.equal(res1.shipment.carrierId, 'ghn');
   assert.equal(res1.shipment.codAmountVnd, 275000);
   assert.equal(jtApiCallCount, 1);
 
@@ -187,7 +155,7 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   // 2. IDEMPOTENCY CHECK: Call createWaybill second time on the same order
   const res2 = await createWaybill(pool, config, {
     orderId,
-    carrierId: 'jt',
+    carrierId: 'ghn',
     autoShip: false,
     actor: { username: 'admin_test' },
     fetcher: mockFetcher

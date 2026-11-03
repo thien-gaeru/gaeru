@@ -45,12 +45,19 @@ test('compression lease ownership stops stale workers from overwriting a replace
  await processOneChatCompression(f.pool,row.id,{readMedia:async content=>{replacement=randomUUID();await f.pool.query("UPDATE shopping_chat_files SET compression_lease=$2 WHERE id=$1",[row.id,replacement]);return readMedia(content);}});
  const r=(await f.pool.query('SELECT * FROM shopping_chat_files WHERE id=$1',[row.id])).rows[0];assert.equal(r.compression_lease,replacement);assert.deepEqual(Buffer.from(r.content),Buffer.from(row.content));
 });
-test('source image bytes are preserved separately from the bounded WebP rendition and protected in library',async t=>{
+test('optional chat conversion never replaces an attachment with a larger WebP',async t=>{
+ const f=await fixture(t),source=await sharp({create:{width:16,height:16,channels:3,background:'#125678'}}).jpeg().toBuffer(),row=await f.file(source,'image/jpeg');
+ await processOneChatCompression(f.pool,row.id,{optimizeImage:async()=>({mimeType:'image/webp',buffer:Buffer.alloc(source.length+1)})});
+ const saved=(await f.pool.query('SELECT * FROM shopping_chat_files WHERE id=$1',[row.id])).rows[0];
+ assert.equal(saved.mime,'image/jpeg');assert.equal(saved.compression_status,'optimal');assert.deepEqual(await readMedia(saved.content),source);assert.deepEqual(await readMedia(saved.original_content),source);
+});
+test('source image bytes are preserved separately from the full-size WebP and protected in library',async t=>{
  const f=await fixture(t),original=await sharp({create:{width:2100,height:1200,channels:4,background:{r:120,g:60,b:20,alpha:.6}}}).png().withMetadata().toBuffer();
  const uploaded=await storeUpload('products',original,'image/png',f.pool),m=metadata(uploaded.content),row=(await f.pool.query('SELECT * FROM media_upload_originals WHERE derivative_key=$1',[m.key])).rows[0];
  assert.ok(row);assert.equal(row.original_mime,'image/png');assert.equal(Number(row.original_size),original.length);assert.equal(row.original_sha256,createHash('sha256').update(original).digest('hex'));
  assert.deepEqual(await fs.readFile(path.join(f.root,row.original_key)),original);
- assert.equal((await sharp(await readMedia(uploaded.content)).metadata()).width,1600);
+ assert.equal((await sharp(await readMedia(uploaded.content)).metadata()).width,2100);
+ assert.deepEqual(await sharp(await readMedia(uploaded.content)).rotate().toColourspace('srgb').ensureAlpha().raw().toBuffer(),await sharp(original).rotate().toColourspace('srgb').ensureAlpha().raw().toBuffer());
  const app=express();app.use((q,_r,n)=>{q.admin={role:'owner',source:'bootstrap',permissions:[]};n();});app.use(require('../src/file-library').createFileLibrary(f.pool));const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>new Promise(r=>server.close(r)));
  const result=await (await fetch('http://127.0.0.1:'+server.address().port+'/file-library?originals=1')).json();assert.ok(result.files.find(x=>x.key===row.original_key).references.includes('Bản gốc ảnh đã lưu'));
 });

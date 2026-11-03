@@ -1,5 +1,5 @@
 'use strict';
-const {image}=require('../product-art');
+const {image,attributes}=require('../product-art');
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const copy={
  'gaeru-k9':['Giọng nói ở gần hơn.','Micro cài áo nhỏ gọn cho vlog, livestream và những cuộc trò chuyện. Chọn cổng kết nối và số lượng micro phù hợp với thiết bị của bạn.'],
@@ -19,6 +19,6 @@ function storyMarkup(products){
 function applyP185(document,products){
  const product=products.find(p=>p.slug==='gaeru-p185'),anchor=document.querySelector('section#gaeru-m3');if(!product||!anchor)return;
  const section=document.createElement('section');section.id='home-gaeru-p185';section.className='story-section home-p185-story';const [headline,body]=copy['gaeru-p185'];
- section.innerHTML='<div class="story-copy is-visible"><p class="eyebrow">'+escape(product.name)+'</p><h2>'+escape(headline)+'</h2><p>'+escape(body)+'</p><div class="home-m3-actions"><a class="text-link home-explore-link" href="'+url(product)+'">Khám phá '+escape(product.name)+' <span aria-hidden="true">↗</span></a><a class="button button-outline" href="'+url(product)+'">Mua</a></div></div><div class="story-art is-visible"><img src="'+escape(image(product))+'" alt="'+escape(product.imageAlt||product.name)+'" width="560" height="440" loading="lazy"></div>';anchor.after(section);
+ section.innerHTML='<div class="story-copy is-visible"><p class="eyebrow">'+escape(product.name)+'</p><h2>'+escape(headline)+'</h2><p>'+escape(body)+'</p><div class="home-m3-actions"><a class="text-link home-explore-link" href="'+url(product)+'">Khám phá '+escape(product.name)+' <span aria-hidden="true">↗</span></a><a class="button button-outline" href="'+url(product)+'">Mua</a></div></div><div class="story-art is-visible"><img src="'+escape(image(product))+'" '+attributes(image(product))+' alt="'+escape(product.imageAlt||product.name)+'" width="560" height="440" loading="lazy" decoding="async"></div>';anchor.after(section);
 }
 module.exports={storyMarkup,applyP185};

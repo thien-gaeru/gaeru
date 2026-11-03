@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const sharp = require('sharp');
 const { optimizeProductImage } = require('../src/lib/image-optimizer');
 
-test('GAERU: convert PNG to resized WebP', async () => {
+test('GAERU: convert PNG to WebP without reducing its dimensions', async () => {
   const png = await sharp({
     create: { width: 2000, height: 1200, channels: 3,
       background: { r: 120, g: 170, b: 210 } }
@@ -13,7 +13,8 @@ test('GAERU: convert PNG to resized WebP', async () => {
   const meta = await sharp(result.buffer).metadata();
   assert.equal(result.mimeType, 'image/webp');
   assert.equal(meta.format, 'webp');
-  assert.ok(meta.width <= 1600 && meta.height <= 1600);
+  assert.equal(meta.width,2000);
+  assert.equal(meta.height,1200);
 });
 
 test('GAERU: reject corrupt images and fake MIME types', async () => {

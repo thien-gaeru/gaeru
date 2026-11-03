@@ -60,7 +60,7 @@ test('linear gateway reference validation preserves existing single-character, r
   assert.equal(calls,3,'invalid references are rejected before the provider boundary');
 });
 
-test('legacy J&T digest keeps existing binary-MD5 wire bytes pending the Vietnam partner specification', () => {
+test('J&T Vietnam public signature contract uses binary MD5 bytes before Base64', () => {
   const { jtAdapter } = require('../src/shipping-adapters');
   assert.equal(jtAdapter.createDigest('a', 'bc'), 'kAFQmDzST7DWlj99KOF/cg==');
 });
