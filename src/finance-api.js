@@ -121,10 +121,8 @@ function createFinanceApi(pool) {
         )).rows[0];
         await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
         if (updatedOrd?.status === "completed" && order.customer_id && Number(order.total_vnd) > 0) {
-          try {
-            const { earnPoints } = require("./loyalty-api");
-            await earnPoints(client, { customerId: order.customer_id, orderId: order.id, orderTotalVnd: Number(order.total_vnd), actor: req.admin });
-          } catch {}
+          const { earnPoints } = require("./loyalty-api");
+          await earnPoints(client, { customerId: order.customer_id, orderId: order.id, orderTotalVnd: Number(order.total_vnd), actor: req.admin });
         }
       }
       await appendAudit(client, { actor: req.admin, action: "finance.receipt.post", entityType: "sales_receipt", entityId: inserted.rows[0].id, metadata: { orderId: order.id, amountVnd: data.amountVnd, method: data.method } });

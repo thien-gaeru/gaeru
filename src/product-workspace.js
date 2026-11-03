@@ -1,5 +1,5 @@
 const { rateLimit } = require('express-rate-limit');
-const { createHash } = require('node:crypto');
+const { sendPublicImage } = require('./lib/image-renditions');
 const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
@@ -7,16 +7,7 @@ const { readStoredImage } = require('./lib/stored-images');
 // Only images attached to published products reach this function.
 // Storage objects use immutable keys; a format migration changes the pointer and MIME.
 async function sendPublicCatalogImage(req, res, row) {
-  const version = createHash('sha256').update(row.content).update('\0').update(row.mime_type).digest('hex');
-  const etag = '"gaeru-catalog-image-' + req.params.id + '-' + version + '"';
-  res.type(row.mime_type);
-  res.set('Cache-Control', 'private, max-age=60, must-revalidate');
-  res.set('ETag', etag);
-  res.set('X-Content-Type-Options', 'nosniff');
-  // Check after the database verifies the product is still published.
-  // Avoid downloading the object again when the browser already has it.
-  if (req.fresh) return res.status(304).end();
-  return res.send(await readStoredImage(row.content));
+  return sendPublicImage(req, res, row, 'catalog-image');
 }
 
 const uuid=z.string().uuid(),image=z.string().regex(/^(?:\/assets\/products\/(?:[a-zA-Z0-9._-]+|m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)\.(?:png|webp))|\/api\/catalog-images\/[0-9a-f-]{36})$/).refine(v=>v.startsWith('/assets/')||uuid.safeParse(v.split('/').at(-1)).success);
@@ -51,7 +42,7 @@ function createProductWorkspace(pool){const admin=Router(),publicApi=Router(),pu
  // Explicitly approved homepage artwork; other unreferenced catalog objects stay private.
  publicApi.get('/site-media/g1-home',(_req,res)=>res.redirect(301,'/assets/products/g1-ultra-874bf1d3db77.webp'));
 
-async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}}
+async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const url='/api/catalog-images/'+req.params.id;const row=(await pool.query(`SELECT content,mime_type FROM catalog_images WHERE id=$1 AND EXISTS(SELECT 1 FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id WHERE p.active=true AND p.deleted_at IS NULL AND (p.image_url=$2 OR m.gallery @> $3::jsonb OR m.description_media @> $4::jsonb OR EXISTS(SELECT 1 FROM product_variants v WHERE v.product_id=p.id AND v.active=true AND v.image_url=$2)))`,[req.params.id,url,JSON.stringify([url]),JSON.stringify([{type:"image",url}])])).rows[0];if(!row)return res.sendStatus(404);await sendPublicCatalogImage(req,res,row);}catch(e){next(e);}}
  publicApi.get('/catalog-images/:id',catalogImagePublicLimiter,serveCatalogImage);
  publicMedia.get('/products/:filename',catalogImagePublicLimiter,async(req,res,next)=>{if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|png|jpg)$/.test(req.params.filename))return res.sendStatus(404);try{const key='products/'+req.params.filename;const row=(await pool.query("SELECT id FROM catalog_images WHERE CASE WHEN substring(content from 1 for 12)=convert_to('GAERU_FS_V1:','UTF8') THEN convert_from(substring(content from 13),'UTF8')::jsonb->>'key' ELSE NULL END=$1 LIMIT 1",[key])).rows[0];if(!row)return res.sendStatus(404);req.params.id=row.id;return serveCatalogImage(req,res,next);}catch(e){next(e);}});
  admin.use('/product-workspace',requirePermission('catalog.read'));

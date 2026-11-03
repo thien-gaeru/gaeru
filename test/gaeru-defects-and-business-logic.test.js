@@ -1079,11 +1079,13 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
     [codOrder.id]
   );
 
+  const carrierWebhookSecret = 'fixture-viettel-webhook-authentication-secret';
+  await pool.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('private_admin:shipping_viettel',$1) ON CONFLICT(setting_key) DO UPDATE SET setting_value=$1", [JSON.stringify({version:1,cipher:seal(JSON.stringify({secret:'fixture-viettel-token',webhookSecret:carrierWebhookSecret}),process.env.AUTH_ENCRYPTION_KEY||config.SESSION_SECRET)})]);
   const whRes = await handleCarrierWebhook(pool, config, 'viettel', {
     ORDER_NUMBER: 'VT-REAL-FIN-01',
     ORDER_STATUS: 'delivered',
     desc: 'Giao thành công & thu hộ COD'
-  }, { finance: { receiptTotal, recordFullOrderPayment } });
+  }, { finance: { receiptTotal, recordFullOrderPayment }, headers:{'x-webhook-secret':carrierWebhookSecret} });
   assert.equal(whRes.success, true);
 
   const settledCod = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [codOrder.id])).rows[0];
@@ -1134,7 +1136,7 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
   assert.equal((await pool.query('SELECT payment_status, status FROM orders WHERE id = $1', [bt1.id])).rows[0].payment_status, 'paid');
   assert.equal((await pool.query('SELECT payment_status, status FROM orders WHERE id = $1', [bt2.id])).rows[0].payment_status, 'paid');
 
-  // 5. BL-06: Resolving an 'exchange' return case does NOT set orders.return_completed_at
+  // 5. BL-06: Exchange closure requires a linked inventory issue workflow.
   const exchCase = (await pool.query(
     `INSERT INTO order_after_sales (order_id, kind, return_type, status, reason, requested_by)
      VALUES ($1, 'return', 'exchange', 'received', 'Đổi màu sản phẩm 1:1', 'customer')
@@ -1154,11 +1156,12 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
       resolution: 'Đã gửi sản phẩm đổi mới 1:1 cho khách hàng'
     })
   });
-  assert.equal(resolveExch.status, 200);
+  assert.equal(resolveExch.status, 409);
+  assert.equal((await pool.query('SELECT status FROM order_after_sales WHERE id=$1', [exchCase.id])).rows[0].status, 'received');
   const afterExchOrder = (await pool.query('SELECT return_completed_at FROM orders WHERE id = $1', [codOrder.id])).rows[0];
   assert.equal(afterExchOrder.return_completed_at, null, '1:1 exchange must NOT mark order as return_completed_at');
 
-  // 6. BL-05: Omnichannel stock deduction keeps warehouse_stock & product_variants synchronized + deduplicates webhook; permanent order deletion cleans carrier_shipments without FK 23503
+  // 6. BL-05: Omnichannel stock deduction keeps warehouse_stock & product_variants synchronized + rejects unsigned webhook; permanent order deletion cleans carrier_shipments without FK 23503
   await withTransaction(pool, async (client) => {
     await ingestMarketplaceOrder(client, {
       channel: 'shopee',
@@ -1174,18 +1177,11 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
   assert.equal((await pool.query('SELECT stock_quantity FROM product_variants WHERE id = $1', [variant.id])).rows[0].stock_quantity, 7);
   assert.equal((await pool.query('SELECT quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2', [mainWh.id, variant.id])).rows[0].quantity, 7);
 
-  const dupWh1 = await handleMarketplaceWebhook(pool, config, 'shopee', {
-    shop_id: 'SHOP_SYNC',
-    event_id: 'EVT-SHOPEE-100',
+  for (let i=0;i<2;i++) await assert.rejects(() => handleMarketplaceWebhook(pool, config, 'shopee', {
+    shop_id: 'SHOP_SYNC', event_id: 'EVT-SHOPEE-100',
     data: { order_sn: 'SPX-WH-SYNC-1', status: 'SHIPPED', items: [{ externalSku: 'M9-PRO', quantity: 3 }] }
-  });
-  const dupWh2 = await handleMarketplaceWebhook(pool, config, 'shopee', {
-    shop_id: 'SHOP_SYNC',
-    event_id: 'EVT-SHOPEE-100',
-    data: { order_sn: 'SPX-WH-SYNC-1', status: 'SHIPPED', items: [{ externalSku: 'M9-PRO', quantity: 3 }] }
-  });
-  assert.equal(dupWh1.success, true);
-  assert.equal(dupWh2.duplicated, true, 'Repeated marketplace webhook with same event_id/status must be deduplicated');
+  }), err => err.status===501);
+  assert.equal((await pool.query('SELECT stock_quantity FROM product_variants WHERE id=$1',[variant.id])).rows[0].stock_quantity,7,'Unsigned callbacks cannot deduct again');
 
   // Permanent deletion of codOrder (which has carrier_shipments, sales_receipts, order_after_sales) succeeds cleanly without FK 23503
   await pool.query(

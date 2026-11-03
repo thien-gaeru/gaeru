@@ -102,7 +102,7 @@ test('Shipping Carriers Acceptance: J&T adapter verification, supported set and 
   assert.ok(available.some(c => c.id === 'jt' && c.name === 'J&T Express'));
 });
 
-test('Shipping Carriers Acceptance: [P0] Create Waybill real API call with Idempotency enforcement', async t => {
+test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary with Idempotency enforcement', async t => {
   const pool = await setupTestDb(t);
   const config = makeConfig();
 
@@ -236,12 +236,15 @@ test('Shipping Carriers Acceptance: [P0] Tracking sync & Webhook automatic statu
     }
   };
 
-  // 1. Webhook delivers 'delivering' status
+  const webhookSecret = 'fixture-carrier-webhook-secret-32-chars';
+  await pool.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('private_admin:shipping_viettel',$1)", [JSON.stringify({version:1,cipher:seal(JSON.stringify({secret:'fixture-viettel-token',webhookSecret}),ENCRYPTION_KEY)})]);
+
+  // 1. Authenticated fixture webhook delivers 'delivering' status
   const webhookRes1 = await handleCarrierWebhook(pool, config, 'viettel', {
     ORDER_NUMBER: 'VT88990011',
     ORDER_STATUS: 'delivering',
     desc: 'Bưu tá đang phát hàng'
-  }, { finance: mockFinance });
+  }, { finance: mockFinance, headers:{'x-webhook-secret':webhookSecret} });
 
   assert.equal(webhookRes1.success, true);
   assert.equal(webhookRes1.normalizedStatus, 'delivering');
@@ -256,7 +259,7 @@ test('Shipping Carriers Acceptance: [P0] Tracking sync & Webhook automatic statu
     ORDER_NUMBER: 'VT88990011',
     ORDER_STATUS: 'delivered',
     desc: 'Khách hàng đã nhận và thanh toán tiền'
-  }, { finance: mockFinance });
+  }, { finance: mockFinance, headers:{'x-webhook-secret':webhookSecret} });
 
   assert.equal(webhookRes2.success, true);
   assert.equal(webhookRes2.normalizedStatus, 'delivered');
@@ -329,7 +332,7 @@ test('Shipping Carriers Acceptance: [P1] Cancel waybill and print carrier label 
     cancelCalled = true;
     return {
       ok: true,
-      json: async () => ({ code: 200, message: 'Success' })
+      json: async () => ({ code: 200, message: 'Success', data: [{order_code:'GHN998877',result:true,message:'OK'}] })
     };
   };
 

@@ -3,6 +3,7 @@ const accountPanels = [...document.querySelectorAll("[data-account-panel]")];
 accountPanels.forEach((panel) => { if (panel.hidden) panel.style?.setProperty?.('display', 'none', 'important'); });
 let accountCsrfToken = "";
 let currentCustomer = null;
+let accountSessionVersion = 0;
 
 function setAccountFeedback(message, isError = false) {
   accountFeedback.textContent = message;
@@ -217,23 +218,24 @@ function showCustomerProfile(customer, publish = true) {
   if (publish) window.GAERUCustomerSession?.set(customer);
 }
 
-document.addEventListener('gaeru:customer-updated',()=>{const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;setAccountPresentation(customer);const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
+document.addEventListener('gaeru:customer-updated',()=>{accountSessionVersion++;const customer=window.GAERUCustomerSession?.customer;if(customer){if(currentCustomer?.id===customer.id){currentCustomer=customer;setAccountPresentation(customer);const profile=document.querySelector('[data-account-profile]');profile.querySelector('[data-customer-name]').textContent=customer.fullName;profile.querySelector('[data-customer-email]').textContent=customer.email;profile.querySelector('[data-customer-phone]').textContent=customer.phone;profile.querySelector('[data-email-verification-notice]').hidden=customer.emailVerified;}else showCustomerProfile(customer,false);}else if(currentCustomer){currentCustomer=null;document.querySelector('[data-address-book]')?.remove();activateAccountPanel('login');}});
 
-const initialOauthError = new URLSearchParams(window.location.search).get('oauthError');
-if (initialOauthError) {
-  setAccountFeedback(decodeURIComponent(initialOauthError), true);
-  history.replaceState(null, '', window.location.pathname + (window.location.hash || '#login'));
-}
+const initialAccountQuery = new URLSearchParams(window.location.search);
+const initialOauthError = initialAccountQuery.get('oauthError');
+const linkRequired = initialAccountQuery.get('linkRequired');
+const linkEmail = initialAccountQuery.get('email');
 
-const linkRequired = new URLSearchParams(window.location.search).get('linkRequired');
-const linkEmail = new URLSearchParams(window.location.search).get('email');
-if (linkRequired) {
-  const emailMsg = linkEmail ? ' (' + decodeURIComponent(linkEmail) + ')' : '';
-  setAccountFeedback('Tài khoản GAERU với email này' + emailMsg + ' đã tồn tại. Vui lòng đăng nhập bằng mật khẩu của tài khoản để liên kết Google an toàn.', true);
-  if (linkEmail && typeof elements !== 'undefined' && elements?.loginIdentifier) {
-    elements.loginIdentifier.value = decodeURIComponent(linkEmail);
-  }
-  history.replaceState(null, '', window.location.pathname + '#login');
+function showInitialOAuthFeedback() {
+  if (!initialOauthError && !linkRequired) return;
+  if (linkRequired) {
+    const identifier = document.querySelector('[data-account-form="login"] [name="identifier"]');
+    if (identifier && linkEmail) identifier.value = linkEmail;
+    const emailMsg = linkEmail ? ' (' + linkEmail + ')' : '';
+    setAccountFeedback('Tài khoản GAERU với email này' + emailMsg + ' đã tồn tại. Vui lòng đăng nhập bằng mật khẩu của tài khoản để liên kết Google an toàn.', true);
+  } else setAccountFeedback(initialOauthError, true);
+  const query = new URLSearchParams(window.location.search);
+  for (const key of ['oauthError', 'linkRequired', 'email']) query.delete(key);
+  history.replaceState(null, '', window.location.pathname + (query.size ? '?' + query : '') + (window.location.hash || '#login'));
 }
 
 async function confirmContactChangeFromUrl() {
@@ -250,15 +252,18 @@ async function confirmContactChangeFromUrl() {
 
 async function initializeCustomerAccount() {
   let authenticated = false;
+  const sessionVersion = accountSessionVersion;
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),15000);
   try {
     const sessionResponse = await fetch("/api/customer-auth/me", { credentials: "same-origin", cache: "no-store", signal:controller.signal });
     if (!sessionResponse.ok) throw new Error("Không thể tải thông tin tài khoản.");
     const session = await sessionResponse.json();
-    authenticated = session.authenticated;
-    if (authenticated) showCustomerProfile(session.customer);
-    else activateAccountPanel("login");
+    if (sessionVersion === accountSessionVersion) {
+      authenticated = session.authenticated;
+      if (authenticated) showCustomerProfile(session.customer);
+      else activateAccountPanel("login");
+    } else authenticated = Boolean(currentCustomer);
   } catch (error) {
     if(currentCustomer) {
       showCustomerProfile(currentCustomer,false);
@@ -303,6 +308,7 @@ async function initializeCustomerAccount() {
   } else if (!authenticated && window.location.hash === "#login") {
     activateAccountPanel("login");
   }
+  showInitialOAuthFeedback();
 }
 
 document.querySelector("[data-account-show-reset]")?.addEventListener("click", () => {
@@ -399,7 +405,12 @@ document.querySelector('[data-account-form="password-reset-complete"]')?.addEven
   }
 });
 
+let customerLogoutPending = false;
 async function handleCustomerLogout() {
+  if (customerLogoutPending) return;
+  customerLogoutPending = true;
+  const buttons = document.querySelectorAll('[data-account-logout]');
+  buttons.forEach(button => button.disabled = true);
   try {
     const result = await accountRequest("/api/customer-auth/logout", {});
     if (result?.csrfToken) accountCsrfToken = result.csrfToken;
@@ -411,10 +422,11 @@ async function handleCustomerLogout() {
     setAccountFeedback("Bạn đã đăng xuất.");
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    customerLogoutPending = false;
+    buttons.forEach(button => button.disabled = false);
   }
 }
-
-document.querySelector("[data-account-logout]")?.addEventListener("click", handleCustomerLogout);
 
 document.addEventListener("click", (e) => {
   const tabLink = e.target?.closest?.('[data-account-tab]');
@@ -628,7 +640,8 @@ async function initGoogleOAuth(interactive = false) {
           try {
             if (!response?.credential) throw new Error('Không nhận được thông tin xác thực từ Google.');
             setAccountFeedback('Đang xác thực tài khoản Google…');
-            const result=await accountRequest('/api/customer-auth/oauth/google',{credential:response.credential});
+            let result=await accountRequest('/api/customer-auth/oauth/google',{credential:response.credential});
+            if(result.mfaRequired)result=await window.GAERUSecurity.loginChallenge(result);
             accountCsrfToken=result.csrfToken;
             showCustomerProfile(result.customer);
             history.replaceState(null,'',window.location.pathname+'#customer-account');

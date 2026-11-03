@@ -12,9 +12,11 @@ Khóa ứng dụng và token được mã hóa trong cơ sở dữ liệu. API q
 
 1. Tìm biến thể theo SKU/tên nội bộ. Nhập Shop/Seller ID, SKU người bán trên sàn và định danh sản phẩm thực. Shopee dùng Item ID + Model ID (0 cho sản phẩm không model); TikTok dùng Product ID + SKU ID; Lazada dùng Seller SKU. ID sàn không được tự suy ra từ SKU nội bộ.
 2. Lưu cùng channel/Shop ID/SKU sàn sẽ cập nhật mapping tương ứng. Có thể bỏ mapping; thao tác không xóa đơn hoặc sửa lịch sử kho đã ghi nhận.
-3. **Lấy đơn** nhận các đơn trong 1–3 ngày gần nhất. Mặc định chỉ nhập để xem. Chỉ chọn trừ tồn nội bộ nếu kho này đang dùng chung và đã đối chiếu quy trình với sàn. Phân trang có giới hạn an toàn 20 trang (50 đơn/trang); cursor lặp hoặc vượt giới hạn sẽ dừng và yêu cầu khoảng ngày ngắn hơn, không báo đã nhận hết.
+3. **Lấy đơn** nhận các đơn trong 1–3 ngày gần nhất. Mặc định chỉ nhập để xem. Khi chọn trừ tồn, thiếu mapping hoặc thiếu tồn khiến toàn bộ thao tác của đơn đó rollback và trả lỗi; không trừ một phần rồi đánh dấu đã trừ xong. Chỉ chọn trừ tồn nội bộ nếu kho này đang dùng chung và đã đối chiếu quy trình với sàn. Phân trang có giới hạn an toàn 20 trang (50 đơn/trang); cursor lặp hoặc vượt giới hạn sẽ dừng và yêu cầu khoảng ngày ngắn hơn, không báo đã nhận hết.
 4. **Gửi tồn lên sàn** yêu cầu xác minh đọc thành công với cấu hình hiện tại và có mapping đầy đủ của đúng gian hàng. Người quản trị xác nhận thao tác trước khi gửi. Các mục thiếu mapping được báo bỏ qua; mục bị sàn từ chối không được tính là cập nhật thành công.
 5. Danh sách đơn, trạng thái trừ/hoàn tồn và các lần đồng bộ thủ công xuất hiện trong cùng khối. Chứng từ đối soát/lợi nhuận thủ công cũ được giữ nguyên.
+
+Public `/api/marketplace/:channel/webhook` hiện trả 501 trước khi đọc/ghi dữ liệu. Các hàm chữ ký giả lập không đủ chứng minh giao thức callback thật. Chỉ mở lại sau khi có tài liệu, raw body, chữ ký/replay protection, shop binding và nghiệm thu theo từng sàn.
 
 ## Giới hạn nghiệm thu
 

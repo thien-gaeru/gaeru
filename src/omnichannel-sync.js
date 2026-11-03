@@ -107,19 +107,14 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     const enrichedItems = [];
     for (const item of items) {
       const variantId = await resolveVariantForSku(client, channel, shopId, item.externalSku);
-      const requestedQty = Math.max(1, Math.floor(Number(item.quantity) || 1));
-      if (!variantId) {
-        enrichedItems.push({ ...item, deductedQuantity: 0 });
-        continue;
-      }
+      const requestedQty = Number(item.quantity);
+      if(!Number.isSafeInteger(requestedQty)||requestedQty<1)throw fail('Số lượng sản phẩm của đơn sàn không hợp lệ. Chưa trừ tồn.',409);
+      if (!variantId) throw fail('Thiếu mapping SKU '+String(item.externalSku||'')+'. Chưa trừ tồn của đơn sàn.',409);
       const varLock = (await client.query(
         'SELECT id, stock_quantity FROM product_variants WHERE id = $1 FOR UPDATE',
         [variantId]
       )).rows[0];
-      if (!varLock) {
-        enrichedItems.push({ ...item, variantId, deductedQuantity: 0 });
-        continue;
-      }
+      if (!varLock || Number(varLock.stock_quantity)<requestedQty) throw fail('Tồn nội bộ không đủ cho SKU '+String(item.externalSku||'')+'. Chưa trừ tồn của đơn sàn.',409);
 
       const whRows = (await client.query(
         `SELECT ws.warehouse_id, ws.quantity
@@ -134,6 +129,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
       let actualDeducted = 0;
       const warehouseAllocations = [];
       if (whRows.length > 0) {
+        if(whRows.reduce((sum,w)=>sum+Math.max(0,Number(w.quantity)||0),0)<requestedQty)throw fail('Tồn kho đang hoạt động không đủ cho SKU '+String(item.externalSku||'')+'. Chưa trừ tồn của đơn sàn.',409);
         let remaining = Math.min(requestedQty, Math.max(0, Number(varLock.stock_quantity) || 0));
         for (const wh of whRows) {
           if (remaining <= 0) break;
@@ -238,76 +234,10 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
 // -----------------------------------------------------------------------------
 // 3. WEBHOOK EVENT HANDLER WITH IDEMPOTENCY
 // -----------------------------------------------------------------------------
-async function handleMarketplaceWebhook(pool, config, channel, payload, { headers = {}, fetcher = fetch } = {}) {
-  const connector = getConnector(channel);
-
-  let externalOrderId = null;
-  let rawStatus = null;
-  let shopId = null;
-
-  if (channel === 'shopee') {
-    externalOrderId = String(payload.data?.order_sn || payload.order_sn || '');
-    rawStatus = payload.data?.status || payload.status || 'PROCESSED';
-    shopId = String(payload.shop_id || payload.data?.shop_id || 'DEFAULT_SHOP');
-  } else if (channel === 'tiktok') {
-    externalOrderId = String(payload.data?.order_id || payload.order_id || '');
-    rawStatus = payload.data?.order_status || payload.order_status || 'AWAITING_COLLECTION';
-    shopId = String(payload.shop_id || payload.data?.shop_id || 'DEFAULT_SHOP');
-  } else if (channel === 'lazada') {
-    externalOrderId = String(payload.data?.order_id || payload.order_id || '');
-    rawStatus = payload.data?.order_status || payload.order_status || 'delivered';
-    shopId = String(payload.seller_id || payload.data?.seller_id || 'DEFAULT_SHOP');
-  }
-
-  if (!externalOrderId) {
-    return { success: false, reason: 'Không tìm thấy mã đơn trong webhook payload.' };
-  }
-
-  const rawEventId = String(payload.event_id || payload.eventId || payload.request_id || payload.timestamp || payload.create_time || '').trim();
-  const eventKey = rawEventId
-    ? `${channel}:${externalOrderId}:${rawStatus}:${rawEventId}`
-    : `${channel}:${externalOrderId}:${rawStatus}`;
-
-  return withTransaction(pool, async client => {
-    // Check if event already processed
-    const existing = await client.query(
-      `SELECT id FROM marketplace_sync_events WHERE event_key = $1`,
-      [eventKey]
-    );
-    if (existing.rows.length) {
-      return { success: true, duplicated: true };
-    }
-
-    await client.query(
-      `INSERT INTO marketplace_sync_events (channel, event_type, external_order_id, event_key, payload, processed)
-       VALUES ($1, $2, $3, $4, $5, true)`,
-      [channel, 'order_status_update', externalOrderId, eventKey, JSON.stringify(payload)]
-    );
-
-    const orderData = {
-      externalOrderId,
-      rawStatus,
-      customerName: payload.data?.buyer_username || payload.data?.recipient_address?.name || '',
-      totalAmountVnd: Math.round(Number(payload.data?.total_amount || payload.total_amount || 0)),
-      items: payload.data?.items || payload.data?.item_list || []
-    };
-
-    const ingested = await ingestMarketplaceOrder(client, {
-      channel,
-      shopId,
-      order: orderData,
-      autoDeductStock: true,
-      actor: { username: `${channel}_webhook`, source: 'webhook' }
-    });
-
-    return {
-      success: true,
-      channel,
-      externalOrderId,
-      status: ingested.status,
-      stockReversed: ingested.stock_reversed
-    };
-  });
+async function handleMarketplaceWebhook() {
+  // Partner signatures and exact raw-body verification are not implemented.
+  // Public payloads must never be treated as authoritative stock/order events.
+  throw fail('Webhook sàn chưa được nghiệm thu giao thức xác thực. Dùng đồng bộ thủ công bằng token đã cấp quyền.', 501);
 }
 
 // -----------------------------------------------------------------------------

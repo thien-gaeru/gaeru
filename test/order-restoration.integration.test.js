@@ -86,7 +86,7 @@ test('restoration revalidates released voucher rights and rolls them back when s
 test('resolved physical returns are terminal and the six-tab filters preserve actual statuses',async t=>{
  const f=await fixture(t),order=await f.order({status:'completed',paymentStatus:'paid'}),path='/api/gaeru_ceo/orders/'+order.id+'/after-sales';
  const created=await f.api(path,'POST',{kind:'return',reason:'Khách yêu cầu hoàn trả sản phẩm'});assert.equal(created.status,201);
- const caseId=created.data.id;for(const [version,status]of [[1,'approved'],[2,'received'],[3,'resolved']])assert.equal((await f.api('/api/gaeru_ceo/orders/after-sales/'+caseId,'PATCH',{version,status,resolution:'Đã kiểm tra hồ sơ và chứng từ liên quan'})).status,200);
+ const caseId=created.data.id;for(const [version,status]of [[1,'approved'],[2,'received'],[3,'resolved']])assert.equal((await f.api('/api/gaeru_ceo/orders/after-sales/'+caseId,'PATCH',{version,status,resolution:'Đã kiểm tra hồ sơ và chứng từ liên quan',...(status==='resolved'?{manualRefund:{amountVnd:200000,method:'bank_transfer',reference:'FIXTURE-REFUND-1',confirmedSent:true}}:{})})).status,200);
  const closed=await f.state(order.id);assert.ok(closed.return_completed_at);assert.equal(closed.status,'completed');assert.equal(closed.payment_status,'paid');assert.equal(await f.stock(),8);
  assert.equal((await f.api(path,'POST',{kind:'return',reason:'Thử tạo lại hồ sơ hoàn trả cũ'})).status,409);
  assert.equal((await f.api('/api/gaeru_ceo/orders/'+order.id,'PATCH',{status:'completed'})).status,409);

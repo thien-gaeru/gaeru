@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const carrierResponse = require('./carrier-response');
 
 const CARRIER_NAMES = Object.freeze({
   ghn: 'GHN (Giao Hàng Nhanh)',
@@ -14,7 +15,7 @@ function fail(message, status = 502) {
 
 function normalizeCarrierStatus(carrierId, rawStatus) {
   const s = String(rawStatus || '').toLowerCase().trim();
-  if (['delivered', 'success', 'hoanthanh', 'dagiao', 'thanh_cong', 'finish', 'received'].some(k => s.includes(k))) {
+  if (['delivered', 'hoanthanh', 'dagiao', 'thanh_cong'].includes(s)) {
     return 'delivered';
   }
   if (['cancel', 'huy', 'huy_don', 'deleted', 'closed'].some(k => s.includes(k))) {
@@ -98,14 +99,14 @@ const jtAdapter = {
     }
 
     const res = await response.json();
-    const isSuccess = res.code === '1' || res.code === 200 || res.success === true || Boolean(res.data?.mailno || res.mailno);
+    const isSuccess = carrierResponse.succeeded('jt', res);
     if (!isSuccess) {
       throw fail(`J&T Express báo lỗi tạo vận đơn: ${res.desc || res.message || 'Lỗi không xác định'}`, 502);
     }
 
-    const trackingNumber = String(res.data?.mailno || res.mailno || res.data?.tracking_number || `JT${Date.now()}`);
+    const trackingNumber = carrierResponse.trackingNumber(res.data?.mailno ?? res.mailno ?? res.data?.tracking_number, 'jt');
     const carrierOrderId = String(res.data?.txlogisticid || res.txlogisticid || orderData.orderNumber);
-    const feeVnd = Number(res.data?.shippingFee || res.shippingFee || 25000);
+    const feeVnd = carrierResponse.fee(res.data?.shippingFee ?? res.shippingFee);
     const labelUrl = `https://open.jtexpress.vn/api/order/print?billcode=${encodeURIComponent(trackingNumber)}&customerCode=${encodeURIComponent(settings.accountId)}`;
 
     return {
@@ -147,7 +148,7 @@ const jtAdapter = {
 
     if (!response.ok) throw fail(`J&T Express hủy vận đơn thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
-    const ok = res.code === '1' || res.code === 200 || res.success === true;
+    const ok = carrierResponse.succeeded('jt', res);
     if (!ok) throw fail(`J&T Express từ chối hủy vận đơn: ${res.desc || res.message || 'Lỗi'}`, 502);
 
     return { success: true, cancelled: true, message: 'Đã hủy vận đơn J&T Express thành công.' };
@@ -177,6 +178,7 @@ const jtAdapter = {
 
     if (!response.ok) throw fail(`J&T Express tra cứu thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
+    if (!carrierResponse.succeeded('jt', res)) throw fail('J&T chưa xác nhận kết quả tra cứu.', 502);
     const details = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.details) ? res.data.details : [];
     const latest = details[details.length - 1] || {};
     const rawStatus = latest.scantype || latest.status || 'pending';
@@ -224,7 +226,8 @@ const jtAdapter = {
 
     if (!response.ok) throw fail('J&T Express không phản hồi báo giá cước.', 502);
     const res = await response.json();
-    const feeVnd = Number(res.data?.fee || res.fee || 25000);
+    if (!carrierResponse.succeeded('jt', res)) throw fail('J&T chưa xác nhận báo giá.', 502);
+    const feeVnd = carrierResponse.fee(res.data?.fee ?? res.fee, { required: true });
     return {
       success: true,
       carrierId: 'jt',
@@ -273,13 +276,13 @@ const viettelAdapter = {
 
     if (!response.ok) throw fail(`Viettel Post từ chối kết nối (HTTP ${response.status}).`, 502);
     const res = await response.json();
-    const isSuccess = res.status === 200 && (res.error === false || res.error === 0) || Boolean(res.data?.ORDER_NUMBER);
+    const isSuccess = carrierResponse.succeeded('viettel', res);
     if (!isSuccess) {
       throw fail(`Viettel Post báo lỗi tạo vận đơn: ${res.message || 'Lỗi tạo đơn'}`, 502);
     }
 
-    const trackingNumber = String(res.data?.ORDER_NUMBER || `VT${Date.now()}`);
-    const feeVnd = Number(res.data?.MONEY_TOTAL || 22000);
+    const trackingNumber = carrierResponse.trackingNumber(res.data?.ORDER_NUMBER, 'viettel');
+    const feeVnd = carrierResponse.fee(res.data?.MONEY_TOTAL);
     const labelUrl = `https://partner.viettelpost.vn/v2/print?orderNumber=${encodeURIComponent(trackingNumber)}`;
 
     return {
@@ -307,7 +310,7 @@ const viettelAdapter = {
     });
     if (!response.ok) throw fail(`Viettel Post hủy đơn thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
-    if (res.status !== 200 && res.error !== false) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
+    if (!carrierResponse.succeeded('viettel', res)) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
     return { success: true, cancelled: true, message: 'Đã hủy vận đơn Viettel Post thành công.' };
   },
 
@@ -322,6 +325,7 @@ const viettelAdapter = {
     });
     if (!response.ok) throw fail(`Viettel Post tra cứu thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
+    if (!carrierResponse.succeeded('viettel', res)) throw fail('Viettel Post chưa xác nhận kết quả tra cứu.', 502);
     const data = Array.isArray(res.data) ? res.data : [];
     const latest = data[data.length - 1] || {};
     const rawStatus = latest.ORDER_STATUS || res.status_name || 'pending';
@@ -366,9 +370,10 @@ const viettelAdapter = {
     });
     if (!response.ok) throw fail('Viettel Post không phản hồi cước phí.', 502);
     const res = await response.json();
+    if (!Array.isArray(res) && !carrierResponse.succeeded('viettel', res)) throw fail('Viettel Post chưa xác nhận báo giá.', 502);
     const rows = Array.isArray(res) ? res : res.data || [];
     const best = rows.find(r => r.GIA_CUOC > 0) || rows[0];
-    const feeVnd = Number(best?.GIA_CUOC || 22000);
+    const feeVnd = carrierResponse.fee(best?.GIA_CUOC, { required: true });
     return {
       success: true,
       carrierId: 'viettel',
@@ -423,7 +428,7 @@ const ghnAdapter = {
     }
 
     const trackingNumber = String(res.data.order_code);
-    const feeVnd = Number(res.data.total_fee || 26000);
+    const feeVnd = carrierResponse.fee(res.data.total_fee);
     const labelUrl = `https://online-gateway.ghn.vn/a5/public-api/printA5?token=${encodeURIComponent(trackingNumber)}`;
 
     return {
@@ -454,7 +459,7 @@ const ghnAdapter = {
     });
     if (!response.ok) throw fail(`GHN hủy đơn thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
-    if (res.code !== 200) throw fail(`GHN từ chối hủy: ${res.message || 'Lỗi'}`, 502);
+    if (!carrierResponse.succeeded('ghn', res) || !Array.isArray(res.data) || !res.data.some(row => row.order_code === trackingNumber && row.result === true)) throw fail('GHN chưa xác nhận hủy đúng mã vận đơn.', 502);
     return { success: true, cancelled: true, message: 'Đã hủy vận đơn GHN thành công.' };
   },
 
@@ -469,6 +474,7 @@ const ghnAdapter = {
     });
     if (!response.ok) throw fail(`GHN tra cứu thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
+    if (!carrierResponse.succeeded('ghn', res)) throw fail('GHN chưa xác nhận kết quả tra cứu.', 502);
     const rawStatus = res.data?.status || 'pending';
     const log = Array.isArray(res.data?.log) ? res.data.log : [];
 
@@ -507,7 +513,8 @@ const ghnAdapter = {
     });
     if (!response.ok) throw fail('GHN không phản hồi cước phí.', 502);
     const res = await response.json();
-    const feeVnd = Number(res.data?.total || 25000);
+    if (!carrierResponse.succeeded('ghn', res)) throw fail('GHN chưa xác nhận báo giá.', 502);
+    const feeVnd = carrierResponse.fee(res.data?.total, { required: true });
     return {
       success: true,
       carrierId: 'ghn',
@@ -564,7 +571,7 @@ const ghtkAdapter = {
     }
 
     const trackingNumber = String(res.order.label);
-    const feeVnd = Number(res.order.fee || 22000);
+    const feeVnd = carrierResponse.fee(res.order.fee);
     const labelUrl = `https://services.giaohangtietkiem.vn/services/label/${encodeURIComponent(trackingNumber)}`;
 
     return {
@@ -600,6 +607,7 @@ const ghtkAdapter = {
     const response = await fetcher(url, { headers, signal: AbortSignal.timeout(12000), redirect: 'error' });
     if (!response.ok) throw fail(`GHTK tra cứu thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
+    if (!carrierResponse.succeeded('ghtk', res)) throw fail('GHTK chưa xác nhận kết quả tra cứu.', 502);
     const order = res.order || {};
     const rawStatus = String(order.status_text || order.status || 'pending');
 
@@ -622,7 +630,8 @@ const ghtkAdapter = {
     const response = await fetcher(url, { headers, signal: AbortSignal.timeout(8000), redirect: 'error' });
     if (!response.ok) throw fail('GHTK không phản hồi cước phí.', 502);
     const res = await response.json();
-    const feeVnd = Number(res.fee?.fee || 22000);
+    if (!carrierResponse.succeeded('ghtk', res)) throw fail('GHTK chưa xác nhận báo giá.', 502);
+    const feeVnd = carrierResponse.fee(res.fee?.fee, { required: true });
     return {
       success: true,
       carrierId: 'ghtk',
@@ -660,11 +669,11 @@ const spxAdapter = {
     const response = await fetcher(url, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000), redirect: 'error' });
     if (!response.ok) throw fail(`SPX từ chối kết nối (HTTP ${response.status}).`, 502);
     const res = await response.json();
-    const ok = res.code === 200 || res.code === 0 || res.success === true;
+    const ok = carrierResponse.succeeded('spx', res);
     if (!ok) throw fail(`SPX báo lỗi tạo đơn: ${res.message || 'Lỗi SPX'}`, 502);
 
-    const trackingNumber = String(res.data?.tracking_number || res.tracking_number || `SPX${Date.now()}`);
-    const feeVnd = Number(res.data?.fee || 24000);
+    const trackingNumber = carrierResponse.trackingNumber(res.data?.tracking_number ?? res.tracking_number, 'spx');
+    const feeVnd = carrierResponse.fee(res.data?.fee);
     const labelUrl = `https://spx.vn/api/v2/fleet_order/print?tracking_number=${encodeURIComponent(trackingNumber)}`;
 
     return {
@@ -688,6 +697,7 @@ const spxAdapter = {
     const response = await fetcher(url, { method: 'POST', headers, body: JSON.stringify({ tracking_number: trackingNumber, shop_id: settings.accountId }), signal: AbortSignal.timeout(12000), redirect: 'error' });
     if (!response.ok) throw fail(`SPX hủy đơn thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
+    if (!carrierResponse.succeeded('spx', res)) throw fail('SPX chưa xác nhận hủy vận đơn.', 502);
     return { success: true, cancelled: true, message: 'Đã hủy vận đơn SPX thành công.' };
   },
 
@@ -699,6 +709,7 @@ const spxAdapter = {
     const response = await fetcher(url, { headers, signal: AbortSignal.timeout(12000), redirect: 'error' });
     if (!response.ok) throw fail(`SPX tra cứu thất bại (HTTP ${response.status}).`, 502);
     const res = await response.json();
+    if (!carrierResponse.succeeded('spx', res)) throw fail('SPX chưa xác nhận kết quả tra cứu.', 502);
     const rawStatus = res.data?.status || 'pending';
 
     return {
@@ -712,15 +723,8 @@ const spxAdapter = {
     };
   },
 
-  async quoteShippingFee(settings, { city, weightGrams = 500 }, { fetcher = fetch } = {}) {
-    return {
-      success: true,
-      carrierId: 'spx',
-      carrierName: CARRIER_NAMES.spx,
-      feeVnd: 24000,
-      estimatedDays: 2,
-      carrierService: 'SPX Tiêu Chuẩn'
-    };
+  async quoteShippingFee() {
+    throw fail('Chưa tích hợp API báo giá SPX; sử dụng bảng phí niêm yết của website.', 501);
   }
 };
 

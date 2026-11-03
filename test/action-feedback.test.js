@@ -62,6 +62,14 @@ function fixture(fetchImpl) {
 const tick = () => new Promise(r => setTimeout(r, 10));
 const response = (status, data) => new Response(JSON.stringify(data), {status, headers: {'Content-Type': 'application/json'}});
 
+test('explicit stock validation errors produce an error notice without a request or a success-colored toast', async () => {
+  let calls=0;const f=fixture(async()=>{calls++;return response(200,{});}),button=new f.Element(),status=new f.Element('p');
+  f.document.statuses=[status];
+  button.onclick=async()=>{status.classList.add('is-error');status.textContent='Kho đã chọn không đủ số lượng phiên bản đổi. Kiểm tra lại tồn kho.';};
+  await Promise.all(f.emit(button).results);await tick();
+  assert.equal(calls,0);assert.equal(f.notices().length,1);assert.equal(f.notices()[0].classList.contains('is-error'),true);assert.equal(f.notices()[0].children[0].textContent,status.textContent);
+});
+
 test('submit spinner blocks duplicate clicks, preserves labels and application disabled state, and reports success', async () => {
   let release, calls = 0; const gate = new Promise(r => release = r);
   const f = fixture(async () => { calls++; await gate; return response(200, {message: 'Đã lưu cài đặt.'}); });

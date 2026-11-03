@@ -59,16 +59,9 @@ async function updateRmaInboundTracking(pool, {
   audit = appendAudit
 }) {
   return await withTransaction(pool, async (client) => {
-    const row = (await client.query(
-      `SELECT a.*, o.order_number, o.customer_id, o.email, o.phone
-       FROM order_after_sales a
-       JOIN orders o ON o.id = a.order_id
-       WHERE a.rma_number = $1
-       FOR UPDATE`,
-      [rmaNumber]
-    )).rows[0];
-
-    if (!row) throw fail('Không tìm thấy phiếu RMA.', 404);
+    const reference = (await client.query('SELECT id FROM order_after_sales WHERE rma_number=$1', [rmaNumber])).rows[0];
+    if (!reference) throw fail('Không tìm thấy phiếu RMA.', 404);
+    const row = await require('./rma-exchange').lockCase(client, reference.id);
 
     // Verify capability token or order ownership (fail closed)
     const tokenOk = safeTokenEqual(token, row.rma_token);
@@ -78,6 +71,9 @@ async function updateRmaInboundTracking(pool, {
     }
     if (['resolved', 'rejected'].includes(row.status)) {
       throw fail('Phiếu RMA đã đóng, không thể cập nhật vận đơn.', 409);
+    }
+    if (row.status === 'received' || row.inbound_status === 'delivered_to_warehouse') {
+      throw fail('Kho đã tiếp nhận hàng hoàn, không thể thay đổi vận đơn gửi về.', 409);
     }
 
     const cleanCarrier = String(inboundCarrier || '').trim();
@@ -92,6 +88,7 @@ async function updateRmaInboundTracking(pool, {
        SET inbound_carrier = $2,
            inbound_tracking_number = $3,
            inbound_status = 'in_transit',
+           version = version + 1,
            updated_at = now()
        WHERE id = $1
        RETURNING *`,
@@ -121,6 +118,7 @@ async function updateRmaInboundTracking(pool, {
  */
 async function updateRmaLogisticsByAdmin(pool, {
   caseId,
+  version = null,
   inboundStatus = null,
   outboundCarrier = null,
   outboundTrackingNumber = null,
@@ -131,16 +129,27 @@ async function updateRmaLogisticsByAdmin(pool, {
   audit = appendAudit
 }) {
   return await withTransaction(pool, async (client) => {
-    const row = (await client.query(
-      `SELECT a.*, o.order_number
-       FROM order_after_sales a
-       JOIN orders o ON o.id = a.order_id
-       WHERE a.id = $1
-       FOR UPDATE`,
-      [caseId]
-    )).rows[0];
+    const row = await require('./rma-exchange').lockCase(client, caseId, version);
 
-    if (!row) throw fail('Không tìm thấy phiếu RMA.', 404);
+    if (['resolved', 'rejected'].includes(row.status)) {
+      throw fail('Phiếu RMA đã đóng; không thể thay đổi kết quả thẩm định hoặc điều phối kho.', 409);
+    }
+    if (restockEligible !== null && !actor?.permissions?.includes('inventory.approve')) throw fail('Cần quyền duyệt kho để xác nhận hàng đủ điều kiện tái nhập tồn bán.', 403);
+    const issue = await require('./rma-exchange').readIssue(client, caseId);
+    const outboundChange = (outboundStatus && outboundStatus !== 'none') || String(outboundTrackingNumber || '').trim() || String(outboundCarrier || '').trim();
+    if (outboundChange && (!issue || row.kind !== 'return' || row.return_type !== 'exchange' || row.status !== 'received')) {
+      throw fail('Cần chứng từ xuất kho đổi mới đang hiệu lực trước khi ghi vận đơn hoặc xác nhận giao.', 409);
+    }
+    if (issue) {
+      if (inboundStatus && inboundStatus !== 'delivered_to_warehouse') throw fail('Đã xuất hàng đổi; không thể bỏ xác nhận đã nhận hàng về kho.', 409);
+      const current = row.outbound_status || 'none', target = outboundStatus || current;
+      const allowed = { none: ['preparing'], preparing: ['preparing', 'in_transit'], in_transit: ['in_transit', 'delivered'], delivered: ['delivered'] };
+      if (!allowed[current]?.includes(target)) throw fail('Bước giao hàng đổi không hợp lệ. Hoàn lại chứng từ trước khi hủy xuất hàng.', 409);
+      const carrier = outboundCarrier === null ? row.outbound_carrier : outboundCarrier;
+      const tracking = outboundTrackingNumber === null ? row.outbound_tracking_number : outboundTrackingNumber;
+      if (['in_transit', 'delivered'].includes(target) && (!String(carrier || '').trim() || String(tracking || '').trim().length < 4)) throw fail('Nhập đơn vị vận chuyển và mã vận đơn đối soát trước khi ghi đang giao/đã giao.', 409);
+      if (['in_transit', 'delivered'].includes(current) && ((outboundCarrier !== null && outboundCarrier !== row.outbound_carrier) || (outboundTrackingNumber !== null && outboundTrackingNumber !== row.outbound_tracking_number))) throw fail('Hàng đã bàn giao; không thể thay vận đơn đã ghi nhận.', 409);
+    }
 
     const updates = [];
     const values = [caseId];
@@ -173,7 +182,7 @@ async function updateRmaLogisticsByAdmin(pool, {
 
     if (!updates.length) return row;
 
-    updates.push('updated_at = now()');
+    updates.push('version = version + 1', 'updated_at = now()');
 
     const updated = (await client.query(
       `UPDATE order_after_sales
@@ -332,10 +341,24 @@ function createRmaApi(pool, _config = {}) {
 
   // 3. PATCH /api/gaeru_ceo/orders/after-sales/:id/logistics (Admin logistics management)
   const adminRouter = express.Router();
+  adminRouter.get('/orders/after-sales/:id/exchange-options', requirePermission('orders.read'), requirePermission('inventory.read'), async (req, res, next) => {
+    try { res.json(await require('./rma-exchange').exchangeOptions(pool, z.string().uuid().parse(req.params.id))); }
+    catch (err) { if (err instanceof z.ZodError) return res.status(400).json({ error: 'Mã hồ sơ chưa hợp lệ.' }); next(err); }
+  });
+  for (const [suffix, method] of [['exchange-issue', 'issueExchange'], ['exchange-issue/void', 'voidExchange']]) {
+    adminRouter.post('/orders/after-sales/:id/' + suffix, requirePermission('orders.write'), requirePermission('inventory.approve'), require('./security').requireCsrf, async (req, res, next) => {
+      try {
+        const result = await require('./rma-exchange')[method](pool, { caseId: z.string().uuid().parse(req.params.id), data: req.body, actor: req.admin });
+        require('./cache').flushAllCache();
+        res.status(result.existing ? 200 : 201).json(result);
+      } catch (err) { if (err instanceof z.ZodError) return res.status(400).json({ error: 'Kiểm tra phiên bản, kho, hàng thay thế và xác nhận đã nhận đủ hàng.' }); next(err); }
+    });
+  }
   adminRouter.patch('/orders/after-sales/:id/logistics', requirePermission('orders.write'), async (req, res, next) => {
     try {
       const caseId = z.string().uuid().parse(req.params.id);
       const schema = z.object({
+        version: z.number().int().positive(),
         inboundStatus: z.enum(['pending_shipment', 'in_transit', 'delivered_to_warehouse']).optional(),
         outboundCarrier: z.string().trim().max(60).nullable().optional(),
         outboundTrackingNumber: z.string().trim().max(60).nullable().optional(),

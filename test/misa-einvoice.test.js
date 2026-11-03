@@ -90,130 +90,16 @@ test("MISA eShop e-invoice payload builder maps items, shipping, payment method 
   assert.equal(payload.Items[1].Amount, 30000);
 });
 
-test("MISA probeConnection validates credentials and calls verification endpoint", async () => {
-  let probeCalled = false;
-  const mockFetcher = async (url, options) => {
-    probeCalled = true;
-    assert.match(url, /\/api\/v1\/connection\/verify$/);
-    assert.equal(options.headers["X-MISA-AppId"], "MISA-APP-OK");
-    assert.equal(options.headers["X-MISA-Secret"], "SEC-123");
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ Success: true, Data: { storeName: "GAERU Official" } })
-    };
-  };
-
-  const result = await probeConnection(
-    { appId: "MISA-APP-OK", storeId: "STORE-01", secret: "SEC-123" },
-    { fetcher: mockFetcher }
-  );
-  assert.equal(result.verified, true);
-  assert.equal(probeCalled, true);
-
-  // Failure scenario
-  const failingFetcher = async () => ({
-    ok: false,
-    status: 401,
-    text: async () => JSON.stringify({ ErrorMessage: "AppId hoặc Secret không hợp lệ" })
-  });
-
-  await assert.rejects(
-    probeConnection({ appId: "BAD", storeId: "STORE-01", secret: "BAD" }, { fetcher: failingFetcher }),
-    /AppId hoặc Secret không hợp lệ/
-  );
+test("MISA probe and direct publishing fail closed before network access or invented invoice identifiers", async () => {
+  let calls=0;const fetcher=async()=>{calls++;return {ok:true,json:async()=>({})};};
+  for(const action of [()=>probeConnection({appId:'fixture',storeId:'fixture',secret:'fixture'},{fetcher}),()=>issueInvoice({},{},{fetcher}),()=>issueInvoiceForDocument({}, {}, 'fixture', {}, {fetcher})]) {
+    await assert.rejects(action,e=>e.status===501&&e.code==='MISA_PROTOCOL_UNVERIFIED');
+  }
+  const result=await autoIssueForOrder({query(){throw Error('must not read or write');}},{},'fixture',{fetcher});
+  assert.equal(result.skipped,true);assert.equal(result.reason,'misa_protocol_unverified');assert.equal(calls,0);
 });
 
-test("autoIssueForOrder completes e-invoice issuance and is strictly idempotent", async (t) => {
-  const pool = await setupTestDb(t);
-  const sessionSecret = "misa-test-session-secret-key-12345";
-  const config = {
-    SESSION_SECRET: sessionSecret,
-    accountSecurity: { authorize: (_r, fn) => fn(null, pool) }
-  };
-
-  // Configure MISA in store_settings
-  await pool.query(
-    "INSERT INTO store_settings(setting_key, setting_value) VALUES($1, $2)",
-    [
-      "private_admin:misa",
-      JSON.stringify({
-        version: 1,
-        cipher: require("../src/totp").seal(
-          JSON.stringify({
-            appId: "APP-MISA-REAL",
-            storeId: "STORE-001",
-            secret: "SECRET-REAL",
-            taxCode: "0109998888",
-            templateCode: "1/001",
-            series: "C26TGA",
-            environment: "sandbox",
-            autoIssue: true,
-            enabled: true
-          }),
-          sessionSecret
-        )
-      })
-    ]
-  );
-
-  // Insert a completed & paid order
-  const order = (
-    await pool.query(
-      `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, subtotal_vnd, shipping_fee_vnd, total_vnd, status, payment_status)
-       VALUES('GR-MISA-999', 'Trần Thị B', 'b@example.com', '0987654321', '456 Lê Lợi', 'TP. Hồ Chí Minh', 'cod', 150000, 20000, 170000, 'completed', 'paid')
-       RETURNING *`
-    )
-  ).rows[0];
-
-  await pool.query(
-    `INSERT INTO order_items(order_id, product_name, variant_name, sku, unit_price_vnd, quantity, line_total_vnd)
-     VALUES($1, 'Cáp sạc Type-C', '1m', 'CABLE-C-1M', 150000, 1, 150000)`,
-    [order.id]
-  );
-
-  let publishCallCount = 0;
-  const mockFetcher = async (url, options) => {
-    publishCallCount++;
-    assert.match(url, /\/api\/v1\/invoices\/publish$/);
-    const body = JSON.parse(options.body);
-    assert.equal(body.RefNo, "GR-MISA-999");
-    assert.equal(body.TotalAmount, 170000);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        Success: true,
-        InvoiceNo: "0000123",
-        InvoiceSeries: "C26TGA",
-        TemplateCode: "1/001",
-        TransactionID: "TX-MISA-UUID-1234",
-        ViewUrl: "https://testmeinvoice.vn/view/TX-MISA-UUID-1234"
-      })
-    };
-  };
-
-  // 1st run: Should issue invoice
-  const firstRun = await autoIssueForOrder(pool, config, order.id, { fetcher: mockFetcher });
-  assert.equal(firstRun.success, true);
-  assert.equal(firstRun.einvoice.invoice_number, "0000123");
-  assert.equal(firstRun.einvoice.view_url, "https://testmeinvoice.vn/view/TX-MISA-UUID-1234");
-  assert.equal(publishCallCount, 1);
-
-  // Verify stored in DB
-  const rows = (await pool.query("SELECT * FROM misa_einvoices WHERE order_id=$1", [order.id])).rows;
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].invoice_number, "0000123");
-  assert.equal(rows[0].transaction_id, "TX-MISA-UUID-1234");
-
-  // 2nd run: Should skip due to idempotency constraint
-  const secondRun = await autoIssueForOrder(pool, config, order.id, { fetcher: mockFetcher });
-  assert.equal(secondRun.skipped, true);
-  assert.equal(secondRun.reason, "already_issued");
-  assert.equal(publishCallCount, 1, "MISA publish API must never be called twice for the same order");
-});
-
-test("Order status completion via admin API automatically triggers MISA e-invoice issuing", async (t) => {
+test("MISA stays unverified after saving; order completion and approved internal documents never publish externally", async (t) => {
   const pool = await setupTestDb(t);
   const sessionSecret = "misa-order-completion-session-secret";
   const password = "Owner-password-2026";
@@ -326,34 +212,32 @@ test("Order status completion via admin API automatically triggers MISA e-invoic
   const patchRes = await api("/api/gaeru_ceo/orders/" + order.id, "PATCH", { status: "completed" });
   assert.equal(patchRes.status, 200);
 
-  // Verify MISA invoice was automatically issued
-  assert.equal(misaIssued, true);
+  // Protocol is unverified: completing the order must not publish an external invoice
+  assert.equal(misaIssued, false);
   const einvoiceRows = (await pool.query("SELECT * FROM misa_einvoices WHERE order_id=$1", [order.id])).rows;
-  assert.equal(einvoiceRows.length, 1);
-  assert.equal(einvoiceRows[0].invoice_number, "0009876");
-  assert.equal(einvoiceRows[0].view_url, "https://testmeinvoice.vn/view/TX-ORDER-COMPLETE-001");
+  assert.equal(einvoiceRows.length, 0);
 
   // Verify GET /api/gaeru_ceo/orders returns the invoice details
   const getOrdersRes = await api("/api/gaeru_ceo/orders?status=completed");
   assert.equal(getOrdersRes.status, 200);
   const found = getOrdersRes.data.orders.find((o) => o.id === order.id);
   assert.ok(found);
-  assert.equal(found.einvoice?.invoiceNumber, "0009876");
+  assert.ok(!found.einvoice);
 
-  // Verify probe endpoint POST /api/gaeru_ceo/owner/configuration/misa/test
+  // Probe is explicitly unavailable before partner protocol acceptance
   const probeRes = await api("/api/gaeru_ceo/owner/configuration/misa/test", "POST", { version: 1, password });
-  assert.equal(probeRes.status, 200);
-  assert.equal(probeRes.data.compatible, true);
-  assert.equal(probeHit, true);
+  assert.equal(probeRes.status, 501);
+  assert.equal(probeRes.data.compatible, false);
+  assert.equal(probeHit, false);
 
-  // Verify business integrations endpoint reflects active MISA connection
+  // Saved MISA configuration never becomes authenticated provider evidence
   const intRes = await api("/api/gaeru_ceo/business/integrations");
   assert.equal(intRes.status, 200);
-  assert.equal(intRes.data.automaticSyncEnabled, true);
+  assert.equal(intRes.data.automaticSyncEnabled, false);
   const misaProvider = intRes.data.providers.find((p) => p.name === "MISA eShop");
   assert.ok(misaProvider);
-  assert.equal(misaProvider.connected, true);
-  assert.equal(misaProvider.status, "connected");
+  assert.equal(misaProvider.connected, false);
+  assert.equal(misaProvider.status, "configured_unverified");
 
   // Create another order to test manual issuance via business document API
   const order2 = (
@@ -388,16 +272,15 @@ test("Order status completion via admin API automatically triggers MISA e-invoic
 
   // Issue invoice via POST /business/invoice/:id/issue
   const manualIssueRes = await api("/api/gaeru_ceo/business/invoice/" + docId + "/issue", "POST", {});
-  assert.equal(manualIssueRes.status, 200);
-  assert.equal(manualIssueRes.data.success, true);
-  assert.ok(manualIssueRes.data.einvoice);
-  assert.equal(manualIssueRes.data.einvoice.buyer_tax_code, "0109997777");
+  assert.equal(manualIssueRes.status, 501);
+  assert.ok(!manualIssueRes.data.einvoice);
+  assert.equal(misaIssued,false);
 
   // Check GET /business/invoice returns einvoice details
   const listDocsRes = await api("/api/gaeru_ceo/business/invoice?period=2026-10");
   assert.equal(listDocsRes.status, 200);
   const foundDoc = listDocsRes.data.documents.find((d) => d.id === docId);
   assert.ok(foundDoc);
-  assert.equal(foundDoc.calculation?.issued, true);
-  assert.ok(foundDoc.einvoice);
+  assert.notEqual(foundDoc.calculation?.issued,true);
+  assert.ok(!foundDoc.einvoice);
 });
