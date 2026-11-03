@@ -88,6 +88,10 @@
           if(sub&&section.dataset.accordionItem==='factor')sub.textContent='Bảo vệ tài khoản bằng lớp bảo mật thứ hai khi đăng nhập';
           if(body?.querySelector('[data-action]')&&identity){const tc=initial||body.querySelector('.security-modal-inner')||body;tc.prepend(identity);identity.hidden=false;}
           else if(identity)identity.hidden=true;
+        } else {
+          allItems().forEach(other=>{other.hidden=false;});
+          const pf=dialog.querySelector('[data-profile-form]');
+          if(pf)pf.hidden=false;
         }
         updateHeaders();
       });
@@ -206,11 +210,17 @@ document.addEventListener?.('click',e=>{
     e.stopPropagation?.();
     const item=c.closest?.('.security-accordion-item');
     if(item)item.open=false;
+    document.querySelectorAll?.('.security-section')?.forEach(s=>{s.hidden=false;});
+    const pf=document.querySelector?.('[data-profile-form]');
+    if(pf)pf.hidden=false;
   }
 });
 document.addEventListener?.('keydown',e=>{
   if(e.key==='Escape'){
     const item=document.querySelector?.('.security-accordion-item[open]');
     if(item)item.open=false;
+    document.querySelectorAll?.('.security-section')?.forEach(s=>{s.hidden=false;});
+    const pf=document.querySelector?.('[data-profile-form]');
+    if(pf)pf.hidden=false;
   }
 });
