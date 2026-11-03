@@ -65,7 +65,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
-        upgradeInsecureRequests: []
+        upgradeInsecureRequests: config.NODE_ENV === "production" ? [] : null
       }
     },
     crossOriginEmbedderPolicy: false,

@@ -9,6 +9,7 @@
 
   function notify(message, error = false) {
     if (!message) return;
+    if (typeof document !== 'undefined' && [...document.querySelectorAll('dialog[open]')].some(d => d.classList?.contains?.('gaeru-center-popup'))) return;
     const host = [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
     if (!region?.isConnected) {
       region = document.createElement('div');
@@ -38,7 +39,7 @@
     const button = event.type === 'submit'
       ? event.submitter || event.target.querySelector('button[type="submit"],button:not([type]),input[type="submit"]')
       : event.target.closest?.('button,input[type="submit"],input[type="button"]');
-    if (!button || button.closest('.gaeru-action-notices') || button.hasAttribute('data-no-action-feedback')) return null;
+    if (!button || button.closest('.gaeru-action-notices') || button.hasAttribute('data-no-action-feedback') || button.form?.hasAttribute?.('data-no-action-feedback')) return null;
     // A submit can follow an async delegated click before its settle timer.
     // Keep the original aria snapshot for that button rather than snapshotting
     // the busy state installed by the click and restoring it permanently.

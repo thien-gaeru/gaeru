@@ -265,13 +265,20 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
   });
 
   router.patch('/profile', requireCsrf, async (req, res, next) => {
-    const parsed = z.object({ fullName: addressSchema.shape.fullName, phone: addressSchema.shape.phone.optional(), email: z.string().trim().email().transform(v => v.toLowerCase()).optional() }).strict().safeParse(req.body);
+    const parsed = z.object({ fullName: addressSchema.shape.fullName, phone: addressSchema.shape.phone.optional(), email: z.string().trim().email().transform(v => v.toLowerCase()).optional(), currentPassword: z.string().max(200).optional() }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Thông tin hồ sơ chưa hợp lệ.' });
     try {
       const result = await withTransaction(pool, async (client) => {
-        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at FROM customers WHERE id=$1 AND active=true FOR UPDATE', [req.customerId])).rows[0];
+        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at,password_hash FROM customers WHERE id=$1 AND active=true FOR UPDATE', [req.customerId])).rows[0];
         if (!current) return { status: 401, error: 'Tài khoản không còn hoạt động.' };
         const a = parsed.data;
+        if (a.currentPassword !== undefined && a.currentPassword !== '') {
+          const bcrypt = require('bcryptjs');
+          const { withinBcryptLimit } = require('./audit-fixes/password-rules');
+          if (!current.password_hash || !withinBcryptLimit(a.currentPassword) || !await bcrypt.compare(a.currentPassword, current.password_hash)) {
+            return { status: 401, error: 'Mật khẩu hiện tại không đúng.' };
+          }
+        }
         const { isValidVietnamMobile, normalizeVietnamPhone, isDisposableEmail } = require('./customer-lifecycle');
         let phoneUpdated = false;
         let emailUpdated = false;

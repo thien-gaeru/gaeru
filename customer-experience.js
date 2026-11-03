@@ -1,4 +1,65 @@
 (() => {
+
+  function showCenterPopup({ type = 'info', title = '', message = '' } = {}) {
+    document.querySelectorAll('.gaeru-center-popup').forEach(p => {
+      try { p.close?.(); } catch(e) {}
+      p.remove();
+    });
+    document.querySelectorAll('.gaeru-action-notices, .gaeru-action-notice').forEach(n => n.remove());
+    const isError = type === 'error' || /lỗi|không đúng|chưa hợp lệ|sai|thất bại/i.test(message);
+    const isSuccess = type === 'success' || /thành công|đã cập nhật|đã lưu|đã đổi|đã gửi|đã bật|đã tắt/i.test(message);
+    const actualType = isError ? 'error' : (isSuccess ? 'success' : 'info');
+    const actualTitle = title || (isError ? 'Thông báo' : (isSuccess ? 'Thành công' : 'Thông báo'));
+    const iconSvg = actualType === 'error'
+      ? '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+      : actualType === 'success'
+      ? '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+      : '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0071e3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="8"></line></svg>';
+
+    const dialog = document.createElement('dialog');
+    dialog.className = 'gaeru-center-popup';
+    dialog.setAttribute('aria-modal', 'true');
+    const escSafe = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    dialog.innerHTML = `
+      <div class="center-popup-backdrop"></div>
+      <div class="center-popup-card" role="dialog" aria-modal="true" aria-labelledby="center-popup-title">
+        <div class="center-popup-icon center-popup-icon--${actualType}">${iconSvg}</div>
+        <h3 id="center-popup-title" class="center-popup-title">${escSafe(actualTitle)}</h3>
+        <p class="center-popup-message">${escSafe(message)}</p>
+        <button type="button" class="button button-blue center-popup-btn">Đã hiểu</button>
+      </div>
+    `;
+    let isClosing = false;
+    const close = () => {
+      if (isClosing) return;
+      isClosing = true;
+      dialog.classList.add('is-closing');
+      setTimeout(() => {
+        try { dialog.close?.(); } catch(e) {}
+        dialog.remove();
+      }, 180);
+    };
+    dialog.addEventListener('click', e => {
+      if (e.target === dialog || e.target.classList.contains('center-popup-backdrop')) close();
+    });
+    dialog.addEventListener('cancel', e => {
+      e.preventDefault();
+      close();
+    });
+    const btn = dialog.querySelector('.center-popup-btn');
+    btn.onclick = close;
+    document.body.append(dialog);
+    if (typeof dialog.showModal === 'function') {
+      try { dialog.showModal(); } catch(e) { dialog.setAttribute('open', ''); }
+    } else {
+      dialog.setAttribute('open', '');
+    }
+    btn.focus();
+  }
+  window.GAERUPopup = { show: showCenterPopup };
+  window.showCenterPopup = showCenterPopup;
+
+
   const escape = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function request(path,method='GET',body,isCurrent=()=>true) {
     const checkSession=()=>{if(!isCurrent())throw Error('Phiên tài khoản đã thay đổi. Mở lại tài khoản để tiếp tục.');};
@@ -88,12 +149,13 @@
       }).catch(() => {});
     }
     
-    const profileEditor=document.createElement('details');profileEditor.className='account-profile-editor account-tab-panel';profileEditor.dataset.accountTabPanel='profile';profileEditor.innerHTML='<summary>Thông tin và bảo mật</summary><h4>Thông tin cá nhân</h4><form class="account-form" data-profile-form><label>Họ và tên<input name="fullName" autocomplete="name" minlength="2" maxlength="120" required></label><label>Email<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="Ví dụ: hotro@gaeru.com" required></label><label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label><label>Mật khẩu hiện tại<input name="currentPassword" type="password" autocomplete="current-password" maxlength="200"><span class="account-field-note">Cần nhập khi đổi email hoặc số điện thoại.</span></label><p class="account-field-note">Đổi số điện thoại: xác nhận qua email hiện tại. Đổi email: xác nhận tại cả hộp thư hiện tại và hộp thư mới. Thông tin cũ được giữ nguyên cho đến khi hoàn tất.</p><button class="button button-blue">Lưu thông tin</button><p role="status"></p></form>';
-    const settingsPanel=document.createElement('section');settingsPanel.className='account-workspace-card account-tab-panel';settingsPanel.dataset.accountTabPanel='profile';settingsPanel.innerHTML='<h3>Thông tin và bảo mật</h3><p>Chỉnh thông tin liên hệ, đổi mật khẩu và quản lý xác thực tài khoản.</p><button type="button" class="button button-blue" data-settings-open>Mở cài đặt</button>';
+    const profileEditor=document.createElement('details');profileEditor.open=true;profileEditor.className='account-profile-editor';profileEditor.innerHTML='<summary hidden>Thông tin và bảo mật</summary><div class="account-security-accordion" data-security-accordion-group><details class="security-accordion-item security-section" data-accordion-item="profile" data-security-section="profile" open><summary class="security-accordion-header is-active" data-settings-jump="profile"><span class="security-item-icon security-icon-profile" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></span><span class="security-item-titles"><strong>1. Thông tin cá nhân</strong><span>Họ tên, email, số điện thoại</span></span><span class="security-item-chevron" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span></summary><div class="security-accordion-body security-section-body"><form class="account-form" data-profile-form><label>Họ và tên<input name="fullName" autocomplete="name" minlength="2" maxlength="120" required></label><label>Email<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="Ví dụ: hotro@gaeru.com" required></label><label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label><label>Mật khẩu hiện tại<input name="currentPassword" type="password" autocomplete="current-password" maxlength="200"><span class="account-field-note">Cần nhập khi đổi email hoặc số điện thoại.</span></label><p class="account-field-note">Đổi số điện thoại: xác nhận qua email hiện tại. Đổi email: xác nhận tại cả hộp thư hiện tại và hộp thư mới. Thông tin cũ được giữ nguyên cho đến khi hoàn tất.</p><button class="button button-blue">Lưu thông tin</button><p role="status"></p></form></div></details></div>';
+    const settingsPanel=document.createElement('section');settingsPanel.className='account-workspace-card account-tab-panel';settingsPanel.dataset.accountTabPanel='profile';settingsPanel.id='account-settings-card';settingsPanel.innerHTML='<div class="account-section-heading"><div><p class="eyebrow">CÀI ĐẶT BẢO MẬT</p><h3>Thông tin và bảo mật</h3><p>Chỉnh thông tin liên hệ, đổi mật khẩu và quản lý xác thực tài khoản.</p></div></div>';
+    settingsPanel.append(profileEditor);
     section.append(settingsPanel);
-    const settingsDialog=document.createElement('dialog');settingsDialog.className='account-settings-dialog';settingsDialog.dataset.accountSettingsDialog='';settingsDialog.setAttribute('aria-labelledby','account-settings-title');settingsDialog.innerHTML='<header><h2 id="account-settings-title">Thông tin và bảo mật</h2><button type="button" data-settings-close aria-label="Đóng cài đặt">×</button></header><nav aria-label="Mục cài đặt"><button type="button" data-settings-jump="profile">Thông tin cá nhân</button><button type="button" data-settings-jump="password">Mật khẩu</button><button type="button" data-settings-jump="factor">Xác thực 2 bước</button></nav><div class="account-settings-content"></div>';
-    profileEditor.className='account-profile-editor';delete profileEditor.dataset.accountTabPanel;profileEditor.querySelector('summary').hidden=true;settingsDialog.querySelector('.account-settings-content').append(profileEditor);section.append(settingsDialog);
-    const openSettings=()=>{if(!settingsDialog.isConnected||profile.hidden)return;if(!settingsDialog.open){settingsDialog.showModal();profileEditor.open=true;settingsDialog.querySelector('.account-settings-content').scrollTop=0;}};
+    const settingsDialog=document.createElement('dialog');settingsDialog.className='account-settings-dialog';settingsDialog.dataset.accountSettingsDialog='';settingsDialog.setAttribute('aria-labelledby','account-settings-title');settingsDialog.innerHTML='<header><h2 id="account-settings-title">Thông tin và bảo mật</h2><button type="button" data-settings-close aria-label="Đóng cài đặt">×</button></header><nav aria-label="Mục cài đặt" hidden><button type="button" data-settings-jump="profile">Thông tin cá nhân</button><button type="button" data-settings-jump="password">Mật khẩu</button><button type="button" data-settings-jump="factor">Xác thực 2 bước</button></nav><div class="account-settings-content"></div>';
+    section.append(settingsDialog);
+    const openSettings=()=>{if(!settingsDialog.isConnected||profile.hidden)return;if(!settingsDialog.open){if(settingsDialog.showModal)settingsDialog.showModal();else settingsDialog.open=true;profileEditor.open=true;}};
     let pendingSettingsJump='';
     function jumpToSettings(name){
       const target=name==='profile'?profileEditor.querySelector('[data-profile-form]'):profileEditor.querySelector('[data-security-section="'+name+'"]');
@@ -102,15 +164,15 @@
       target.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
       (target.querySelector('input:not([type=hidden]),select')||target).focus?.({preventScroll:true});
     }
-    settingsPanel.querySelector('[data-settings-open]').onclick=openSettings;settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';profileEditor.open=false;settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
-    settingsDialog.addEventListener('click',event=>{const button=event.target.closest('[data-settings-jump]');if(button)jumpToSettings(button.dataset.settingsJump);});
-    settingsDialog.addEventListener('gaeru:security-rendered',()=>{if(pendingSettingsJump&&settingsDialog.open)jumpToSettings(pendingSettingsJump);});
+    settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
+    document.addEventListener('click',event=>{const button=event.target.closest('[data-settings-jump]');if(button)jumpToSettings(button.dataset.settingsJump);});
+    window.addEventListener('gaeru:security-rendered',()=>{if(pendingSettingsJump)jumpToSettings(pendingSettingsJump);});
     window.GAERUAccountSettings={open:openSettings,close:()=>settingsDialog.close()};
 
     const profileForm=profileEditor.querySelector('form');profileForm.elements.fullName.value=profile.querySelector('[data-customer-name]').textContent;profileForm.elements.phone.value=profile.querySelector('[data-customer-phone]').textContent;profileForm.elements.email.value=profile.querySelector('[data-customer-email]').textContent;
     profileForm.addEventListener('submit',async e=>{
       e.preventDefault();const button=profileForm.querySelector('button'),feedback=profileForm.querySelector('[role=status]');
-      button.disabled=true;feedback.textContent='Đang xử lý…';let pendingMessage='';
+      button.disabled=true;feedback.textContent='Đang xử lý…';feedback.style.color='';let pendingMessage='';
       try {
         const values=Object.fromEntries(new FormData(profileForm));
         const email=values.email.trim().toLowerCase(),phone=values.phone.trim();
@@ -120,14 +182,27 @@
           const confirmation=await workspaceRequest('/api/customer-auth/contact-change/request','POST',{email,phone,password:values.currentPassword});
           pendingMessage=confirmation.message;
         }
-        const result=await workspaceRequest('/profile','PATCH',{fullName:values.fullName});
+        const payload={fullName:values.fullName};
+        if(values.currentPassword&&values.currentPassword.trim())payload.currentPassword=values.currentPassword;
+        const result=await workspaceRequest('/profile','PATCH',payload);
         if(!isCurrent())return;
         profile.querySelector('[data-customer-name]').textContent=result.customer.fullName;
         window.GAERUCustomerSession?.set(result.customer);
-        feedback.textContent=pendingMessage||'Đã cập nhật thông tin.';
-      }catch(error){feedback.textContent=(pendingMessage?pendingMessage+' ':'')+error.message;}
+        const successMsg=pendingMessage||'Đã cập nhật thông tin thành công.';feedback.textContent=successMsg;feedback.style.color='#16a34a';window.GAERUPopup?.show({type:'success',title:'Thành công',message:successMsg}); const mItem=profileForm.closest('.security-accordion-item'); if(mItem)mItem.open=false;
+        if(pendingMessage){
+          profileForm.elements.email.value=profile.querySelector('[data-customer-email]').textContent;
+          profileForm.elements.phone.value=profile.querySelector('[data-customer-phone]').textContent;
+        }
+      }catch(error){
+        const errorMsg=(pendingMessage?pendingMessage+' ':'')+error.message;feedback.textContent=errorMsg;feedback.style.color='#dc2626';window.GAERUPopup?.show({type:'error',title:'Thông báo',message:errorMsg});
+        if(error.message.includes('mật khẩu')||error.message.includes('Mật khẩu')){
+          profileForm.elements.currentPassword?.setAttribute('aria-invalid','true');
+          profileForm.elements.currentPassword?.focus();
+        }
+      }
       finally{profileForm.elements.currentPassword.value='';button.disabled=false;}
     });
+    profileForm.elements.currentPassword?.addEventListener('input',()=>profileForm.elements.currentPassword.removeAttribute('aria-invalid'));
     const addressForm=profile.querySelector('[data-address-form]');const addressSubmit=addressForm.querySelector('button[type="submit"],button:not([type])');const cancelEdit=document.createElement('button');cancelEdit.type='button';cancelEdit.textContent='Hủy chỉnh sửa';cancelEdit.hidden=true;addressForm.append(cancelEdit);cancelEdit.addEventListener('click',()=>{editingId=null;addressForm.reset();addressSubmit.textContent='Lưu địa chỉ';cancelEdit.hidden=true;});
     let addressDialog=overviewCard.querySelector('[data-address-dialog]');
     if(!addressDialog){

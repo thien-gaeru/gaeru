@@ -6,9 +6,18 @@ let currentCustomer = null;
 let accountSessionVersion = 0;
 
 function setAccountFeedback(message, isError = false) {
-  accountFeedback.textContent = message;
-  accountFeedback.classList.toggle("is-error", isError);
-  accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
+  if (accountFeedback) {
+    accountFeedback.textContent = message;
+    accountFeedback.classList.toggle("is-error", isError);
+    accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
+  }
+  if (message && typeof window !== 'undefined' && typeof window.showCenterPopup === 'function') {
+    window.showCenterPopup({
+      type: isError ? 'error' : 'success',
+      title: isError ? 'Thông báo' : 'Thành công',
+      message: message
+    });
+  }
 }
 
 let currentActiveTab = 'profile';
