@@ -1,7 +1,7 @@
 'use strict';
 const zlib = require('node:zlib');
 const { promisify } = require('node:util');
-const { createHash } = require('node:crypto');
+const { createHash, randomUUID } = require('node:crypto');
 const { withTransaction } = require('./db');
 
 const gzipAsync = promisify(zlib.gzip);
@@ -53,94 +53,67 @@ function decompressBuffer(buffer) {
   return raw;
 }
 
-async function processOneChatCompression(pool, targetId = null) {
-  const { readMedia, storeMedia } = require('./lib/stored-media');
-  const job = await withTransaction(pool, async (client) => {
-    const row = (await client.query(
-      targetId
-        ? `SELECT id, name, mime, content, byte_size, original_byte_size
-           FROM shopping_chat_files
-           WHERE id = $1 AND compression_status = 'pending' AND deleted_at IS NULL AND created_at>now()-interval '30 days'
-           FOR UPDATE SKIP LOCKED`
-        : `SELECT id, name, mime, content, byte_size, original_byte_size
-           FROM shopping_chat_files
-           WHERE compression_status = 'pending' AND deleted_at IS NULL AND created_at>now()-interval '30 days'
-           ORDER BY created_at ASC, id ASC
-           FOR UPDATE SKIP LOCKED
-           LIMIT 1`,
-      targetId ? [targetId] : []
-    )).rows[0];
-    if (!row) return null;
-    await client.query(
-      `UPDATE shopping_chat_files SET compression_status = 'processing' WHERE id = $1`,
-      [row.id]
-    );
+const MAX_ATTEMPTS = 3;
+const LEASE_MINUTES = 10;
+async function reclaimExpired(pool) {
+  await pool.query(`UPDATE shopping_chat_files SET compression_status='failed', compression_lease=NULL,
+    compression_lease_until=NULL, compression_last_error='ATTEMPTS_EXHAUSTED'
+    WHERE compression_status='processing' AND compression_lease_until<now() AND compression_attempts >= $1`,[MAX_ATTEMPTS]);
+}
+async function processOneChatCompression(pool, targetId = null, { readMedia, storeMedia, optimizeImage } = {}) {
+  readMedia ||= require('./lib/stored-media').readMedia;
+  storeMedia ||= require('./lib/stored-media').storeMedia;
+  optimizeImage ||= require('./lib/image-optimizer').optimizeImage;
+  await reclaimExpired(pool);
+  const lease = randomUUID();
+  const job = await withTransaction(pool, async client => {
+    const row = (await client.query(`SELECT id,name,mime,content,byte_size,original_byte_size,original_content,original_mime,original_name
+      FROM shopping_chat_files WHERE deleted_at IS NULL AND created_at>now()-interval '30 days'
+      AND compression_attempts<$1 AND ($2::uuid IS NULL OR id=$2)
+      AND ((compression_status='pending' AND compression_next_attempt_at<=now())
+        OR (compression_status='processing' AND (compression_lease_until IS NULL OR compression_lease_until<now())))
+      ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`,[MAX_ATTEMPTS,targetId])).rows[0];
+    if(!row)return null;
+    await client.query(`UPDATE shopping_chat_files SET compression_status='processing',compression_attempts=compression_attempts+1,
+      compression_lease=$2,compression_lease_until=now()+interval '10 minutes',compression_last_error=NULL,
+      original_content=COALESCE(original_content,content),original_mime=COALESCE(original_mime,mime),original_name=COALESCE(original_name,name) WHERE id=$1`,[row.id,lease]);
     return row;
   });
-  if (!job) return false;
-
+  if(!job)return false;
+  let leaseLost=false;
+  const heartbeat=setInterval(()=>{pool.query(`UPDATE shopping_chat_files SET compression_lease_until=now()+interval '10 minutes'
+    WHERE id=$1 AND compression_lease=$2 AND compression_status='processing' AND deleted_at IS NULL`,[job.id,lease])
+    .then(r=>{if(!r.rowCount)leaseLost=true;}).catch(()=>{leaseLost=true;});},30000);heartbeat.unref?.();
   try {
-    const raw = await readMedia(job.content);
-    const originalSize = Number(job.original_byte_size || job.byte_size || raw.length);
-    let nextBuffer = raw;
-    let nextMime = job.mime;
-    let nextName = job.name;
-    let wasCompressed = false;
-
-    if (['image/jpeg', 'image/png', 'image/heic'].includes(job.mime)) {
-      try {
-        const optimized = await require('./lib/image-optimizer').optimizeImage(raw, job.mime, { maxUploadBytes: Infinity });
-        if (optimized.buffer.length < raw.length) {
-          nextBuffer = optimized.buffer;
-          nextMime = optimized.mimeType;
-          if (nextMime === 'image/webp') nextName = nextName.replace(/\.[^.]+$/, '') + '.webp';
-          wasCompressed = true;
-        }
-      } catch {
-        // Keep original image if sharp cannot optimize further
-      }
+    const raw=await readMedia(job.original_content||job.content),originalMime=job.original_mime||job.mime;
+    const originalSize=raw.length;
+    let nextBuffer=raw,nextMime=originalMime,nextName=job.original_name||job.name,wasCompressed=false;
+    if(['image/jpeg','image/png','image/heic'].includes(originalMime)){
+      try {const optimized=await optimizeImage(raw,originalMime,{maxUploadBytes:Infinity});
+        if(optimized.mimeType==='image/webp'){nextBuffer=optimized.buffer;nextMime=optimized.mimeType;wasCompressed=true;
+          if(nextMime==='image/webp')nextName=nextName.replace(/\.[^.]+$/,'')+'.webp';}
+      }catch{/* Original remains downloadable if an optional optimization is unsupported. */}
     }
-
-    if (!wasCompressed) {
-      const gz = await compressBuffer(nextBuffer, nextMime);
-      if (gz.compressed) {
-        nextBuffer = gz.buffer;
-        wasCompressed = true;
-      }
-    }
-
-    if (wasCompressed) {
-      const storedContent = await storeMedia('chat', nextBuffer, nextMime);
-      const logicalSize = nextMime === 'image/webp' && job.mime !== 'image/webp' ? nextBuffer.length : originalSize;
-      const updated=await pool.query(
-        `UPDATE shopping_chat_files
-         SET name = $2,
-             mime = $3,
-             content = $4,
-             byte_size = $5,
-             original_byte_size = $6,
-             compressed_byte_size = $7,
-             compression_status = 'compressed'
-         WHERE id = $1 AND deleted_at IS NULL`,
-        [job.id, nextName, nextMime, storedContent, logicalSize, originalSize, nextBuffer.length]
-      );
-      await require('./shopping-chat-file-retention').cleanupUnreferencedChatMedia(pool,updated.rowCount===0?storedContent:job.content);
-    } else {
-      await pool.query(
-        `UPDATE shopping_chat_files
-         SET original_byte_size = $2,
-             compressed_byte_size = $3,
-             compression_status = 'optimal'
-         WHERE id = $1 AND deleted_at IS NULL`,
-        [job.id, originalSize, raw.length]
-      );
-    }
-  } catch {
-    await pool.query(
-      `UPDATE shopping_chat_files SET compression_status = 'failed' WHERE id = $1 AND deleted_at IS NULL`,
-      [job.id]
-    ).catch(() => {});
-  }
+    if(!wasCompressed){const gz=await compressBuffer(nextBuffer,nextMime);if(gz.compressed){nextBuffer=gz.buffer;wasCompressed=true;}}
+    if(leaseLost)return true;
+    if(wasCompressed){
+      const stored=await storeMedia('chat',nextBuffer,nextMime);
+      const logical=nextMime==='image/webp'&&originalMime!=='image/webp'?nextBuffer.length:originalSize;
+      const updated=await pool.query(`UPDATE shopping_chat_files SET name=$3,mime=$4,content=$5,byte_size=$6,
+        original_byte_size=$7,compressed_byte_size=$8,compression_status='compressed',compression_lease=NULL,compression_lease_until=NULL
+        WHERE id=$1 AND compression_lease=$2 AND compression_status='processing' AND deleted_at IS NULL`,
+        [job.id,lease,nextName,nextMime,stored,logical,originalSize,nextBuffer.length]);
+      // Original content is retained until the attachment's existing retention/deletion policy runs.
+      if(!updated.rowCount)await require('./shopping-chat-file-retention').cleanupUnreferencedChatMedia(pool,stored);
+    }else await pool.query(`UPDATE shopping_chat_files SET original_byte_size=$3,compressed_byte_size=$4,
+      compression_status='optimal',compression_lease=NULL,compression_lease_until=NULL
+      WHERE id=$1 AND compression_lease=$2 AND compression_status='processing' AND deleted_at IS NULL`,[job.id,lease,originalSize,raw.length]);
+  }catch(error){
+    const code=/^[A-Z0-9_]{1,50}$/.test(String(error.code||''))?error.code:'COMPRESSION_FAILED';
+    await pool.query(`UPDATE shopping_chat_files SET compression_status=CASE WHEN compression_attempts<$3 THEN 'pending' ELSE 'failed' END,
+      compression_lease=NULL,compression_lease_until=NULL,compression_last_error=$4,
+      compression_next_attempt_at=now()+interval '5 minutes' WHERE id=$1 AND compression_lease=$2 AND deleted_at IS NULL`,[job.id,lease,MAX_ATTEMPTS,code]).catch(()=>{});
+  }finally{clearInterval(heartbeat);}
   return true;
 }
 
@@ -181,6 +154,7 @@ module.exports = {
   isCompressedBuffer,
   compressBuffer,
   decompressBuffer,
+  MAX_ATTEMPTS, LEASE_MINUTES, reclaimExpired, processOneChatCompression,
   processChatCompression,
   startChatCompressionWorker
 };

@@ -1,4 +1,6 @@
-# Hướng dẫn Nghiệm thu Kỹ thuật & Đấu nối Chính thức Cổng VNPAY (100% Compliance)
+> Phạm vi: các bộ kiểm thử và runner trong repository mô phỏng callback/nhà cung cấp. Kết quả đạt không thay thế giao dịch Sandbox thật, IPN từ nhà cung cấp, phê duyệt SIT hoặc xác nhận go-live. Chỉ ghi nhận nghiệm thu bên ngoài khi có bằng chứng riêng. Không dùng credential Sandbox trên luồng thanh toán production.
+
+# Hướng dẫn Nghiệm thu Kỹ thuật & Đấu nối Chính thức Cổng VNPAY (kiểm thử kỹ thuật)
 
 Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kịch bản kiểm thử bắt buộc (Merchant Acceptance Testing) và quy trình chuyển đổi môi trường (Production Cutover) cho cổng thanh toán điện tử **VNPAY 2.1.0** trên hệ thống **GAERU**.
 
@@ -15,8 +17,8 @@ Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kị
 ### URL Đăng ký trên Merchant Admin VNPAY
 | Kênh giao tiếp | Đường dẫn (URL) | Mục đích |
 | --- | --- | --- |
-| **Return URL** | `https://gaeru.vn/api/payments/vnpay/return` | Tiếp nhận khách hàng quay lại từ cổng VNPAY, hiển thị kết quả giao dịch và mã phản hồi chi tiết. |
-| **IPN URL** | `https://gaeru.vn/api/payments/vnpay/ipn` | Tiếp nhận thông báo tức thì từ máy chủ VNPAY (Server-to-Server) để cập nhật trạng thái đơn sang `paid` và `processing`. |
+| **Return URL** | `https://gaeru.com/api/payments/vnpay/return` | Tiếp nhận khách hàng quay lại từ cổng VNPAY, hiển thị kết quả giao dịch và mã phản hồi chi tiết. |
+| **IPN URL** | `https://gaeru.com/api/payments/vnpay/ipn` | Tiếp nhận thông báo tức thì từ máy chủ VNPAY (Server-to-Server) để cập nhật trạng thái đơn sang `paid` và `processing`. |
 
 ---
 
@@ -34,7 +36,7 @@ Tài liệu này cung cấp toàn bộ quy chuẩn kỹ thuật, danh mục kị
 
 ## 3. Bảng kịch bản nghiệm thu kỹ thuật (Merchant Acceptance Checklist)
 
-Hệ thống GAERU đã hoàn thiện và vượt qua 100% các kịch bản nghiệm thu tiêu chuẩn:
+Các kịch bản kỹ thuật cần kiểm tra; bảng dưới đây mô tả kết quả kỳ vọng, không phải chứng nhận phê duyệt của nhà cung cấp:
 
 | Mã | Tên kịch bản | Thao tác trên VNPAY | `vnp_ResponseCode` | Phản hồi IPN (`RspCode`) | Trạng thái đơn GAERU |
 |---|---|---|---|---|---|
@@ -71,7 +73,7 @@ Sau khi VNPAY phê duyệt tài liệu nghiệm thu kỹ thuật, thực hiện 
    - `vnp_TmnCode` (Mã website chính thức do VNPAY cấp).
    - `vnp_HashSecret` (Khóa bí mật mã hóa chính thức).
 2. **Cấu hình trên giao diện quản trị GAERU CEO**:
-   - Truy cập trang Admin: `https://gaeru.vn/admin` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Cổng thanh toán VNPAY**.
+   - Truy cập trang Admin: `https://gaeru.com/gaeru_ceo` ➔ vào mục **Cấu hình hệ thống & Khóa API** ➔ chọn **Cổng thanh toán VNPAY**.
    - Cập nhật **Mã website (TmnCode)** và **Hash Secret**.
    - Chuyển trường **Môi trường** sang `Chính thức (Production)`.
    - Nhập mật khẩu hiện tại của chủ doanh nghiệp cùng mã xác thực OTP/MFA để ký lưu thay đổi.

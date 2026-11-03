@@ -345,6 +345,19 @@ test('Customer After-Sales & Self-Service Return Suite', async (t) => {
     });
     assert.equal(badInbound.status, 403);
 
+    // An owner cannot bypass CSRF by supplying an invalid capability token.
+    const ownerForgedToken = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
+      method:'POST', headers:{'Content-Type':'application/json','X-Customer-Id':custA.id},
+      body:JSON.stringify({token:'invalid-capability',inboundCarrier:'ghn',inboundTrackingNumber:'FORGED123'})
+    });
+    assert.equal(ownerForgedToken.status,403);
+    const ownerWithoutCsrf = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
+      method:'POST',headers:{'Content-Type':'application/json','X-Customer-Id':custA.id},
+      body:JSON.stringify({inboundCarrier:'ghn',inboundTrackingNumber:'FORGED456'})
+    });
+    assert.equal(ownerWithoutCsrf.status,403);
+    assert.equal((await pool.query('SELECT inbound_status FROM order_after_sales WHERE id=$1',[row.id])).rows[0].inbound_status,'pending_shipment');
+
     // 5. Inbound update with valid token -> in_transit
     const okInbound = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Customer-Id': custB.id },

@@ -99,7 +99,8 @@ function smartPageCache(swrMs = 3000) {
 
     // Bỏ qua cache với route riêng tư / session nhạy cảm
     if (req.session?.customer || req.session?.admin) return next();
-    if (/^\/(?:tai-khoan|gio-hang|thanh-toan|ket-qua-thanh-toan|admin|gaeru_ceo|api)(?:\/|$)/i.test(req.path)) {
+    const privatePath=p=>/^\/(?:tai-khoan|gio-hang|thanh-toan|ket-qua-thanh-toan|admin|gaeru_ceo|api)(?:\/|$)/i.test(p)||/^\/(?:account|cart|checkout|payment-result)\.html$/i.test(p);
+    if (privatePath(req.path) || privatePath(String(req.originalUrl).split('?')[0])) {
       return next();
     }
 
@@ -117,6 +118,7 @@ function smartPageCache(swrMs = 3000) {
         ramCache.delete(key);
       }
 
+      res.vary('Accept-Encoding');
       if (req.headers['if-none-match'] === hit.etag) {
         return res.status(304).end();
       }
@@ -125,25 +127,34 @@ function smartPageCache(swrMs = 3000) {
       res.setHeader('X-Cache', 'HIT-FRESH-RAM');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
-      const acceptEncoding = req.headers['accept-encoding'] || '';
-      if (acceptEncoding.includes('br') && hit.br) {
+      const preferences=new Map(String(req.headers['accept-encoding']||'').split(',').map(part=>{
+        const [name,...params]=part.trim().toLowerCase().split(';'),value=params.find(p=>/^\s*q\s*=/.test(p));
+        const q=value===undefined?1:Number(value.split('=')[1]);return[name,Number.isFinite(q)&&q>=0&&q<=1?q:0];
+      }));
+      const quality=name=>preferences.get(name)??preferences.get('*')??(name==='identity'?1:0);
+      const encoding=[{name:'br',data:hit.br},{name:'gzip',data:hit.gz},{name:'identity',data:hit.raw}]
+        .filter(item=>item.data&&quality(item.name)>0).sort((a,b)=>quality(b.name)-quality(a.name))[0]?.name;
+      if (!encoding) return res.status(406).end();
+      if (encoding==='br') {
         res.setHeader('Content-Encoding', 'br');
         res.setHeader('Content-Length', hit.br.length);
         return res.end(hit.br);
       }
-      if (acceptEncoding.includes('gzip') && hit.gz) {
+      if (encoding==='gzip') {
         res.setHeader('Content-Encoding', 'gzip');
         res.setHeader('Content-Length', hit.gz.length);
         return res.end(hit.gz);
       }
-      return res.send(hit.raw);
+      return (res.locals.publicHtml?.send || res.send.bind(res))(hit.raw);
     }
 
-    const origSend = res.send.bind(res);
+    const origSend = res.locals.publicHtml?.send || res.send.bind(res);
     res.send = (body) => {
+      if (res.locals.publicHtml) body = res.locals.publicHtml.prepare(body);
       if (res.statusCode === 200 && typeof body === 'string') {
         const etag = `"${BOOT_ID}-${crypto.createHash('md5').update(body).digest('hex')}"`;
         if (!res.headersSent) {
+          res.vary('Accept-Encoding');
           res.setHeader('ETag', etag);
           res.setHeader('X-Cache', 'MISS-REBUILT');
         }

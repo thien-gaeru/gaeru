@@ -1,0 +1,58 @@
+{
+  "/assets/products/k9.webp": [
+    {
+      "url": "/assets/products/k9-display-480-f7433a67675b.webp",
+      "width": 480,
+      "bytes": 116010,
+      "sourceWidth": 1254
+    },
+    {
+      "url": "/assets/products/k9-display-800-19cce68491be.webp",
+      "width": 800,
+      "bytes": 323176,
+      "sourceWidth": 1254
+    }
+  ],
+  "/assets/products/m3-home-cutout.webp": [
+    {
+      "url": "/assets/products/m3-home-cutout-display-480-95e9e4d1416c.webp",
+      "width": 480,
+      "bytes": 72458,
+      "sourceWidth": 1617
+    },
+    {
+      "url": "/assets/products/m3-home-cutout-display-800-2d66fc21b488.webp",
+      "width": 800,
+      "bytes": 203182,
+      "sourceWidth": 1617
+    }
+  ],
+  "/assets/products/p01.webp": [
+    {
+      "url": "/assets/products/p01-display-480-3006d4ac291d.webp",
+      "width": 427,
+      "bytes": 51584,
+      "sourceWidth": 910
+    },
+    {
+      "url": "/assets/products/p01-display-800-b1693527696c.webp",
+      "width": 711,
+      "bytes": 131586,
+      "sourceWidth": 910
+    }
+  ],
+  "/assets/products/g1-ultra-874bf1d3db77.webp": [
+    {
+      "url": "/assets/products/g1-ultra-874bf1d3db77-display-480-19288308445b.webp",
+      "width": 480,
+      "bytes": 72556,
+      "sourceWidth": 1254
+    },
+    {
+      "url": "/assets/products/g1-ultra-874bf1d3db77-display-800-a5a917ef6f29.webp",
+      "width": 800,
+      "bytes": 143826,
+      "sourceWidth": 1254
+    }
+  ]
+}

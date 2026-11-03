@@ -140,6 +140,10 @@
    ========================================================================== */
 .option-type-toggle {
   display: inline-flex;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   gap: 6px;
   background: #e2e8f0;
   padding: 4px;
@@ -147,6 +151,11 @@
   margin: 12px 0;
 }
 .option-toggle-btn {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   padding: 8px 16px;
   border-radius: 9px;
   font-size: 13px;
@@ -371,3 +380,5 @@
     box-shadow: 0 0 0 8px rgba(6, 78, 59, 0.35);
   }
 }
+
+.background-removal-option{display:flex;align-items:center;gap:10px;font-size:13px;line-height:1.5;margin:12px 0}.background-removal-option input{width:18px;height:18px;flex:none}

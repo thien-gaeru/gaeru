@@ -200,7 +200,7 @@ test('TikTok Shop Open API: Auth, token, orders, stock, fulfillment and webhook'
     authCode: 'TT_CODE_77'
   }, { fetcher: mockFetchToken });
   assert.equal(tokenRes.accessToken, 'tt_access_token_123');
-  assert.equal(tokenRes.shopCipher, 'VN_SHOP_CIPHER_888');
+  assert.equal(tokenRes.shopCipher, null, 'Open ID is not a TikTok shop cipher; obtain it from Get Authorized Shops');
 
   // 3. Fetch Orders
   const mockFetchOrders = async (url, opts) => {
@@ -231,7 +231,7 @@ test('TikTok Shop Open API: Auth, token, orders, stock, fulfillment and webhook'
     appKey,
     appSecret,
     accessToken: tokenRes.accessToken,
-    shopCipher: tokenRes.shopCipher
+    shopCipher: 'VN_SHOP_CIPHER_888'
   }, { fetcher: mockFetchOrders });
   assert.equal(orders.length, 1);
   assert.equal(orders[0].externalOrderId, '5789234789123');
@@ -249,7 +249,7 @@ test('TikTok Shop Open API: Auth, token, orders, stock, fulfillment and webhook'
     appKey,
     appSecret,
     accessToken: tokenRes.accessToken,
-    shopCipher: tokenRes.shopCipher,
+    shopCipher: 'VN_SHOP_CIPHER_888',
     productId: 'P123',
     skuId: 'S123',
     availableStock: 100
@@ -265,7 +265,7 @@ test('TikTok Shop Open API: Auth, token, orders, stock, fulfillment and webhook'
     appKey,
     appSecret,
     accessToken: tokenRes.accessToken,
-    shopCipher: tokenRes.shopCipher,
+    shopCipher: 'VN_SHOP_CIPHER_888',
     packageId: 'PKG_889'
   }, { fetcher: mockFetchShip });
   assert.equal(shipRes.success, true);
@@ -785,7 +785,7 @@ test('Store API Integration: Checkout with GAERU Xu redemption, and earn points 
   assert.equal(balRes1.rows[0].points_balance, 50000);
 
   // 2. Admin completes the order & marks paid: Order lifecycle hook triggers earnPoints
-  // 1% of 480,000 VND = 4,800 Xu earned
+  // Silver tier earns 1.2% of 480,000 VND = 5,760 Xu.
   const updateRes = await fetch(`${baseUrl}/api/gaeru_ceo/orders/${orderId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
@@ -810,7 +810,7 @@ test('Store API Integration: Checkout with GAERU Xu redemption, and earn points 
   });
   assert.equal(completeRes.status, 200);
 
-  // Check customer loyalty balance: 50,000 + 4,800 = 54,800 Xu!
+  // Check customer loyalty balance: 50,000 + 5,760 = 55,760 Xu.
   const balRes2 = await pool.query('SELECT points_balance FROM customer_loyalty WHERE customer_id = $1', [customerId]);
-  assert.equal(balRes2.rows[0].points_balance, 54800);
+  assert.equal(balRes2.rows[0].points_balance, 55760);
 });

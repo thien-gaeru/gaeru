@@ -48,6 +48,45 @@
     } catch {}
   }
 
+  let cameraControls=null,cameraDialog=null,cameraGeneration=0,decoderPromise;
+  function stopCamera(){
+    cameraGeneration++;cameraControls?.stop();cameraControls=null;
+    if(cameraDialog){cameraDialog.querySelector('video')?.srcObject?.getTracks().forEach(track=>track.stop());cameraDialog.close();cameraDialog.remove();cameraDialog=null;}
+  }
+  function loadDecoder(){
+    if(window.ZXingBrowser)return Promise.resolve(window.ZXingBrowser);
+    if(decoderPromise)return decoderPromise;
+    decoderPromise=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');script.src='/gaeru_ceo/assets/zxing-browser.min.js';
+      const timer=setTimeout(()=>{script.remove();reject(Error('Không tải được trình quét. Vui lòng thử lại.'));},15000);
+      script.onload=()=>{clearTimeout(timer);window.ZXingBrowser?resolve(window.ZXingBrowser):reject(Error('Trình quét chưa sẵn sàng.'));};
+      script.onerror=()=>{clearTimeout(timer);script.remove();reject(Error('Không tải được trình quét. Vui lòng thử lại.'));};document.head.append(script);
+    }).catch(error=>{decoderPromise=null;throw error;});return decoderPromise;
+  }
+  async function openCamera(){
+    const feedback=viewPanel.querySelector('#barcode-scan-feedback');
+    if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){feedback.textContent='Camera cần kết nối HTTPS và trình duyệt cho phép sử dụng máy ảnh. Bạn vẫn có thể nhập SKU hoặc dùng máy quét.';return;}
+    stopCamera();const generation=cameraGeneration;
+    const dialog=document.createElement('dialog');cameraDialog=dialog;dialog.className='barcode-camera-dialog';dialog.setAttribute('aria-label','Quét mã bằng camera');
+    dialog.innerHTML='<header><h2>Quét mã bằng camera</h2><button class="secondary-button" type="button">Đóng</button></header><p>Đưa mã vạch hoặc QR vào giữa khung. Camera dừng sau khi đọc được một mã.</p><video muted playsinline autoplay></video><p role="status">Đang chuẩn bị camera…</p>';
+    viewPanel.append(dialog);dialog.showModal();dialog.querySelector('button').onclick=stopCamera;dialog.oncancel=event=>{event.preventDefault();stopCamera();};
+    let found=false;
+    try{
+      const library=await loadDecoder();if(generation!==cameraGeneration)return;
+      const reader=new library.BrowserMultiFormatReader(undefined,{delayBetweenScanAttempts:250,delayBetweenScanSuccess:1000});
+      const controls=await reader.decodeFromConstraints({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},dialog.querySelector('video'),result=>{
+        if(!result||found||generation!==cameraGeneration)return;found=true;
+        const code=result.getText().trim();viewPanel.querySelector('#barcode-master-input').value=code;
+        stopCamera();void handleBarcodeScan(code);
+      });
+      if(generation!==cameraGeneration||found){controls.stop();return;}cameraControls=controls;dialog.querySelector('[role=status]').textContent='Camera đang quét. Chưa có thao tác nhập hoặc xuất kho.';
+    }catch(error){
+      if(generation!==cameraGeneration)return;
+      const messages={NotAllowedError:'Bạn chưa cấp quyền camera. Mở cài đặt trình duyệt để cho phép hoặc nhập mã bên dưới.',NotFoundError:'Không tìm thấy camera trên thiết bị.',NotReadableError:'Camera đang được ứng dụng khác sử dụng.'};
+      const message=messages[error.name]||error.message||'Không mở được camera.';stopCamera();feedback.textContent=message;
+    }
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera();});window.addEventListener('pagehide',stopCamera);
   // Active state
   const state = {
     activeTab: "lookup",
@@ -139,18 +178,19 @@
         <!-- Global Master Scanner Input Box -->
         <div style="background:var(--card-bg, #ffffff); border:2px solid #3b82f6; border-radius:10px; padding:16px 20px; margin-bottom:20px; box-shadow:0 4px 12px rgba(59,130,246,0.08);">
           <form id="barcode-global-scan-form" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-            <div style="flex:1; min-width:260px; position:relative;">
+            <div style="flex:1; min-width:0; flex-basis:220px; position:relative;">
               <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:18px;">🎯</span>
               <input type="text" id="barcode-master-input" autofocus autocomplete="off" placeholder="Quét mã vạch hoặc gõ SKU / Mã đơn / Vận đơn rồi nhấn Enter..." style="width:100%; box-sizing:border-box; padding:12px 14px 12px 40px; font-size:16px; font-weight:600; font-family:ui-monospace, monospace; border:1px solid #d1d5db; border-radius:6px; outline:none;">
             </div>
             <button type="submit" class="primary-button" style="padding:12px 24px; font-size:15px; font-weight:700; background:#2563eb; color:#fff; border:none; border-radius:6px; cursor:pointer;">
               Quét / Tra Cứu
             </button>
+            <button type="button" id="barcode-camera-open" class="secondary-button">Quét bằng camera</button>
             <button type="button" id="barcode-clear-input" class="secondary-button" style="padding:12px 16px; font-size:14px;">
               Xóa ô nhập
             </button>
           </form>
-          <div id="barcode-scan-feedback" style="margin-top:10px; font-size:14px; font-weight:600; min-height:20px;"></div>
+          <div role="status" aria-live="polite" id="barcode-scan-feedback" style="margin-top:10px; font-size:14px; font-weight:600; min-height:20px;"></div>
         </div>
 
         <!-- Tab 1: Lookup Panel -->
@@ -323,6 +363,8 @@
     const refreshBtn = viewPanel.querySelector("#barcode-refresh-metrics");
     if (refreshBtn) refreshBtn.addEventListener("click", loadMetrics);
 
+    viewPanel.querySelector('#barcode-camera-open')?.addEventListener('click',openCamera);
+
     // Clear input
     const clearBtn = viewPanel.querySelector("#barcode-clear-input");
     if (clearBtn) {
@@ -342,7 +384,7 @@
         e.preventDefault();
         const input = viewPanel.querySelector("#barcode-master-input");
         const code = input ? input.value.trim() : "";
-        if (!code) return;
+        if (!code) { viewPanel.querySelector("#barcode-scan-feedback").textContent="Nhập mã SKU, mã đơn hoặc chọn Quét bằng camera."; input?.focus(); return; }
         await handleBarcodeScan(code);
       });
     }
@@ -956,6 +998,7 @@
 
   // Re-focus master input when view is opened
   const observer = new MutationObserver(() => {
+    if (viewPanel.hidden)stopCamera();
     if (!viewPanel.hidden) {
       loadMetrics();
       const master = viewPanel.querySelector("#barcode-master-input");

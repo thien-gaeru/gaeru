@@ -1,0 +1,897 @@
+{
+  "scope": {
+    "candidate": "PR 50 / codex/complete-audit-fixes-20261103",
+    "productionDeployed": false,
+    "unitTests": {
+      "tests": "796",
+      "pass": "796",
+      "fail": "0"
+    },
+    "features": 127,
+    "scope": "Môi trường riêng, dữ liệu giả; đối tác thật được nêu riêng",
+    "publicSource": "https://gaeru.com/api/products",
+    "sourceCapturedAt": "2026-11-02T21:28:16Z"
+  },
+  "evidence": {
+    "new-ui": [
+      {
+        "id": "U01-loyalty-page-and-adjustment",
+        "status": "PASS",
+        "evidence": {
+          "balance": 456,
+          "policyTiers": 4,
+          "ledger": {
+            "n": 1
+          }
+        }
+      },
+      {
+        "id": "U02-ROP-visible-popup",
+        "status": "PASS",
+        "evidence": {
+          "rows": 8,
+          "dialog": true
+        }
+      },
+      {
+        "id": "U03-barcode-lookup-empty-and-found",
+        "status": "PASS",
+        "evidence": {
+          "feedback": "✅ Đã nhận diện SKU: gaeru-k9-1 (GAERU K9)"
+        }
+      },
+      {
+        "id": "U04-camera-decodes-QR-and-stops-stream",
+        "status": "PASS",
+        "evidence": {
+          "decoder": "ZXing actual QR decoding",
+          "fakeCameraStream": true,
+          "stopped": true
+        }
+      },
+      {
+        "id": "U05-barcode-inbound-and-count-through-browser",
+        "status": "PASS",
+        "evidence": {
+          "before": 10,
+          "received": 3,
+          "counted": 12
+        }
+      },
+      {
+        "id": "U06-OAuth-page-single-title-and-private-headers",
+        "status": "PASS",
+        "evidence": {
+          "duplicateHeading": false,
+          "noStore": true
+        }
+      },
+      {
+        "id": "U07-account-card-contact-and-histories",
+        "status": "PASS",
+        "evidence": {
+          "visibleOrders": 2,
+          "olderOrders": 4,
+          "visibleWarranties": 2,
+          "olderWarranties": 2,
+          "duplicateContactsHidden": true
+        }
+      },
+      {
+        "id": "U08-address-popup-and-combined-security",
+        "status": "PASS",
+        "evidence": {
+          "dialog": true,
+          "merged": true
+        }
+      },
+      {
+        "id": "U09-checkout-recovery-position-and-total",
+        "status": "PASS",
+        "evidence": {
+          "consentAboveSubmit": true,
+          "pendingTotal": "189.000 ₫ + phí giao hàng"
+        }
+      },
+      {
+        "id": "U10-Google-standard-button-signed-callback",
+        "status": "PASS",
+        "evidence": {
+          "standardGISButton": true,
+          "signedFixtureJWTVerified": true,
+          "missingCsrfBlocked403": true,
+          "realGoogleProvider": false
+        }
+      },
+      {
+        "id": "U11-care-mobile-layout-no-timer-label",
+        "status": "PASS",
+        "evidence": {
+          "checkbox": 18,
+          "noTimerLabel": true
+        }
+      }
+    ],
+    "support-final": [
+      {
+        "id": "478-home",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--cau-chuyen",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--ho-tro",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--ho-tro-san-pham-gaeru-m3",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan-gaeru-p01",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--san-pham-gaeru-k9",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--san-pham-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--san-pham-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478-home-rail-2-rows",
+        "status": "PASS",
+        "evidence": {
+          "client": 442,
+          "total": 1362,
+          "rows": "460px 460px",
+          "children": [
+            {
+              "x": 18,
+              "y": 4808,
+              "width": 442
+            },
+            {
+              "x": 18,
+              "y": 5286,
+              "width": 442
+            },
+            {
+              "x": 478,
+              "y": 4808,
+              "width": 442
+            },
+            {
+              "x": 478,
+              "y": 5286,
+              "width": 442
+            },
+            {
+              "x": 938,
+              "y": 4808,
+              "width": 442
+            }
+          ]
+        }
+      },
+      {
+        "id": "891-home",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--cau-chuyen",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--ho-tro",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--ho-tro-san-pham-gaeru-m3",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan-gaeru-p01",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--san-pham-gaeru-k9",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--san-pham-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--san-pham-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891-home-rail-2-rows",
+        "status": "PASS",
+        "evidence": {
+          "client": 843,
+          "total": 2565,
+          "rows": "490.234px 490.234px",
+          "children": [
+            {
+              "x": 24,
+              "y": 3641,
+              "width": 843
+            },
+            {
+              "x": 24,
+              "y": 4149,
+              "width": 843
+            },
+            {
+              "x": 885,
+              "y": 3641,
+              "width": 843
+            },
+            {
+              "x": 885,
+              "y": 4149,
+              "width": 843
+            },
+            {
+              "x": 1746,
+              "y": 3641,
+              "width": 843
+            }
+          ]
+        }
+      },
+      {
+        "id": "1440-home",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--cau-chuyen",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--ho-tro",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--ho-tro-san-pham-gaeru-m3",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan-gaeru-p01",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--san-pham-gaeru-k9",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--san-pham-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--san-pham-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440-home-rail-2-rows",
+        "status": "PASS",
+        "evidence": {
+          "client": 1120,
+          "total": 3396,
+          "rows": "498.375px 498.375px",
+          "children": [
+            {
+              "x": 160,
+              "y": 4423,
+              "width": 1120
+            },
+            {
+              "x": 160,
+              "y": 4940,
+              "width": 1120
+            },
+            {
+              "x": 1298,
+              "y": 4423,
+              "width": 1120
+            },
+            {
+              "x": 1298,
+              "y": 4940,
+              "width": 1120
+            },
+            {
+              "x": 2436,
+              "y": 4423,
+              "width": 1120
+            }
+          ]
+        }
+      },
+      {
+        "id": "support-links-target-right-model",
+        "status": "PASS",
+        "evidence": {
+          "links": [
+            "/ho-tro/san-pham/gaeru-g1-ultra",
+            "/ho-tro/san-pham/gaeru-k9",
+            "/ho-tro/san-pham/gaeru-m3",
+            "/ho-tro/san-pham/gaeru-p01",
+            "/ho-tro/san-pham/gaeru-p185"
+          ]
+        }
+      }
+    ],
+    "support-webkit-final": [
+      {
+        "id": "478-home",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--cau-chuyen",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--ho-tro",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--ho-tro-san-pham-gaeru-m3",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--huong-dan-gaeru-p01",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--san-pham-gaeru-k9",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--san-pham-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478--san-pham-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 478
+        }
+      },
+      {
+        "id": "478-home-rail-2-rows",
+        "status": "PASS",
+        "evidence": {
+          "client": 442,
+          "total": 1362,
+          "rows": "460px 460px",
+          "children": [
+            {
+              "x": 18,
+              "y": 4808,
+              "width": 442
+            },
+            {
+              "x": 18,
+              "y": 5286,
+              "width": 442
+            },
+            {
+              "x": 478,
+              "y": 4808,
+              "width": 442
+            },
+            {
+              "x": 478,
+              "y": 5286,
+              "width": 442
+            },
+            {
+              "x": 938,
+              "y": 4808,
+              "width": 442
+            }
+          ]
+        }
+      },
+      {
+        "id": "891-home",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--cau-chuyen",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--ho-tro",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--ho-tro-san-pham-gaeru-m3",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--huong-dan-gaeru-p01",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--san-pham-gaeru-k9",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--san-pham-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891--san-pham-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 891
+        }
+      },
+      {
+        "id": "891-home-rail-2-rows",
+        "status": "PASS",
+        "evidence": {
+          "client": 843,
+          "total": 2565,
+          "rows": "490.21875px 490.21875px",
+          "children": [
+            {
+              "x": 24,
+              "y": 3641,
+              "width": 843
+            },
+            {
+              "x": 24,
+              "y": 4149,
+              "width": 843
+            },
+            {
+              "x": 885,
+              "y": 3641,
+              "width": 843
+            },
+            {
+              "x": 885,
+              "y": 4149,
+              "width": 843
+            },
+            {
+              "x": 1746,
+              "y": 3641,
+              "width": 843
+            }
+          ]
+        }
+      },
+      {
+        "id": "1440-home",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--cau-chuyen",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--ho-tro",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--ho-tro-san-pham-gaeru-m3",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--huong-dan-gaeru-p01",
+        "status": "PASS",
+        "evidence": {
+          "images": 1,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--san-pham-gaeru-k9",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--san-pham-gaeru-p185",
+        "status": "PASS",
+        "evidence": {
+          "images": 5,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440--san-pham-gaeru-g1-ultra",
+        "status": "PASS",
+        "evidence": {
+          "images": 6,
+          "viewport": 1440
+        }
+      },
+      {
+        "id": "1440-home-rail-2-rows",
+        "status": "PASS",
+        "evidence": {
+          "client": 1120,
+          "total": 3396,
+          "rows": "498.375px 498.375px",
+          "children": [
+            {
+              "x": 160,
+              "y": 4423,
+              "width": 1120
+            },
+            {
+              "x": 160,
+              "y": 4940,
+              "width": 1120
+            },
+            {
+              "x": 1298,
+              "y": 4423,
+              "width": 1120
+            },
+            {
+              "x": 1298,
+              "y": 4940,
+              "width": 1120
+            },
+            {
+              "x": 2436,
+              "y": 4423,
+              "width": 1120
+            }
+          ]
+        }
+      },
+      {
+        "id": "support-links-target-right-model",
+        "status": "PASS",
+        "evidence": {
+          "links": [
+            "/ho-tro/san-pham?id=gaeru-g1-ultra",
+            "/ho-tro/san-pham?id=gaeru-k9",
+            "/ho-tro/san-pham?id=gaeru-m3",
+            "/ho-tro/san-pham?id=gaeru-p01",
+            "/ho-tro/san-pham?id=gaeru-p185"
+          ]
+        }
+      }
+    ]
+  },
+  "limitations": [
+    "VNPay return 00 but no signed IPN to isolated staging",
+    "Real Google, SMTP, carriers, marketplaces, AI, Ads, MISA not externally accepted",
+    "No physical phone camera or printer acceptance",
+    "Uploaded article cover still needs responsive renditions",
+    "Payroll accepts manual time; no standalone attendance module"
+  ]
+}

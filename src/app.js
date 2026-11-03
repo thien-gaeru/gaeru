@@ -47,14 +47,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       if (!/^\/api(?:\/|$)/.test(req.path) || (/^\/api\/gaeru_ceo(?:\/|$)/i.test(req.path) && !/^\/api\/gaeru_ceo(?:\/|$)/.test(req.path))) return res.sendStatus(404);
     }
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
-    res.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
+    if (/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|gaeru_ceo)(?:\/|$)/i.test(req.path)||/^\/(?:account|checkout|cart|payment-result)\.(?:html|js)$/i.test(req.path)) {
+      res.set({'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store','Cloudflare-CDN-Cache-Control':'no-store','Surrogate-Control':'no-store','Pragma':'no-cache','Expires':'0'});res.vary('Cookie');
+    }
+    res.set('Permissions-Policy',/^\/gaeru_ceo(?:\/|$)/.test(req.path)?'camera=(self), microphone=(), geolocation=()':'camera=(), microphone=(), geolocation=()');
     next();
   });
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
+        scriptSrc: ["'self'", require('./speculation-policy').cspHash, "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
@@ -105,10 +108,10 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
   app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
-  app.get("/api/health", async (_req, res, next) => {
+  app.get("/api/health", async (req, res, next) => {
     try {
       await pool.query("SELECT 1");
-      res.set({'Cache-Control':'no-store','X-GAERU-Web-TLS':'enforced','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Local-References':require('./media-storage-audit').auditStatus().state,'X-GAERU-Media-Volume':require('./lib/filesystem-media').status().volumeFingerprint||'unverified','X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
+      res.set({'Cache-Control':'no-store','X-GAERU-Web-TLS':req.secure?'observed_https':'observed_http','X-GAERU-Media-Backend':require('./lib/filesystem-media').status().provider+'-'+(require('./lib/filesystem-media').status().verified?'ready':'unverified'),'X-GAERU-Media-Local-References':require('./media-storage-audit').auditStatus().state,'X-GAERU-Media-Volume':require('./lib/filesystem-media').status().volumeFingerprint||'unverified','X-GAERU-Media-Error':require('./lib/filesystem-media').status().errorCode||'none','X-GAERU-Media-Persistence':require('./lib/filesystem-media').status().verified?(require('./lib/filesystem-media').status().persistenceMarkerFound?'seen':'new'):'unverified'}).json({ status: "ok" });
     } catch (error) {
       next(error);
     }
@@ -246,15 +249,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
     next();
   });
-  app.get("/api/gaeru_ceo/system-health", async (_req, res, next) => {
+  app.get("/api/gaeru_ceo/system-health", async (req, res, next) => {
     try {
-      const health = await getSystemHealth(pool, config);
+      const health = await getSystemHealth(pool, config, req);
       res.set("Cache-Control", "no-store").json(health);
     } catch (err) {
       next(err);
     }
   });
   app.use("/api/gaeru_ceo", require("./media-diagnostics").createMediaDiagnostics());
+  app.use('/api/gaeru_ceo', require('./ai-knowledge-admin').createKnowledgeAdmin(pool));
+  app.use('/api/gaeru_ceo', require('./chat-compression-admin').createChatCompressionAdmin(pool));
   app.use("/api/gaeru_ceo", require("./file-library").createFileLibrary(pool));
   app.use("/api/gaeru_ceo", require("./site-pages").createPagesAdmin(pool));
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
@@ -294,10 +299,13 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/gaeru_ceo",realtime.adminRouter);
   app.use("/api/shopping-chat",realtime.publicRouter);
   app.use("/api/customer",realtime.publicRouter);
+  const homeBanner=require("./home-banner").createHomeBanner(pool);
+  app.use("/api/gaeru_ceo",homeBanner.admin);
+  app.use("/api",homeBanner.publicApi);
   const marketing=require("./marketing").createMarketing(pool);
   app.use("/api/gaeru_ceo",marketing.admin);
   app.use("/api/customer/marketing",marketing.customer);
-  const abandonedCart=require("./abandoned-cart").createAbandonedCartApi(pool,config);
+  const abandonedCart=require("./abandoned-cart").createAbandonedCartApi(pool,config,{mailer:customerMailer});
   app.use("/api/gaeru_ceo",abandonedCart.admin);
   app.use("/api/abandoned-cart",abandonedCart.publicApi);
   const barcode=require("./barcode-api").createBarcodeApi(pool,config);
@@ -342,10 +350,11 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     next();
   });
 
-  const managementAssets=new Set(['barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
+  const managementAssets=new Set(['marketing-home-banner.js','marketplace-sync.js','marketplace-sync.css','ai-knowledge.js','operational-tools.js','chat-compression-jobs.js','barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile('notification-worker.js',{root:adminRoot}));
-  app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'public, max-age=3600'}).sendFile('manifest.webmanifest',{root:adminRoot}));
+  app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'no-store'}).sendFile('manifest.webmanifest',{root:adminRoot}));
+  app.get('/gaeru_ceo/assets/zxing-browser.min.js',(_req,res)=>res.set('Cache-Control','no-store').sendFile('zxing-browser.min.js',{root:path.join(projectRoot,'node_modules','@zxing','browser','umd')}));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
     res.set('Cache-Control','no-store');
@@ -359,6 +368,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(require('./traffic-tracker').createTrafficTracker(pool));
   app.use(require('./site-pages').pageMetadata(pool));
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
+  app.use(require('./product-guides').createProductGuidePages(pool));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
@@ -400,6 +410,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if(error.code==='IMAGE_PROCESSING_BUSY')return res.status(503).json({error:'Đang tối ưu nhiều ảnh. Vui lòng thử lại sau.'});
     if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;
+    if ([502,503,504].includes(status)) return res.status(status).json({ error: status===504 ? 'Dịch vụ kết nối phản hồi quá chậm. Vui lòng thử lại.' : 'Dịch vụ kết nối chưa trả dữ liệu hợp lệ. Vui lòng thử lại.' });
     if (status >= 400 && status < 500) {
       const isSyntaxOrBody = error instanceof SyntaxError || error.type === 'entity.parse.failed' || status === 413 || !error.message;
       return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : (isSyntaxOrBody ? "Yêu cầu không hợp lệ." : error.message) });

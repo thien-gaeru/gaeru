@@ -126,3 +126,38 @@ test('a successful application-managed retry clears the earlier network error', 
   assert.equal(calls, 2); assert.equal(f.notices().length, 1);
   assert.equal(f.notices()[0].children[0].textContent, 'Đã lưu thành công.'); assert.ok(!f.notices()[0].className.includes('is-error'));
 });
+
+test('a delegated async click and native submit share one busy state and allow a corrected retry', async () => {
+  let calls = 0, release;
+  const f = fixture(async () => {
+    calls++;
+    await new Promise(resolve => { release = resolve; });
+    return calls === 1 ? response(403, {error: 'Mật khẩu hiện tại không đúng.'}) : response(200, {message: 'Đã xác minh quyền đọc.'});
+  });
+  const button = new f.Element(), form = new f.Element('form'); button.form = form; form.button = button;
+  // Delegated click handlers can be async even when this particular button is
+  // handled only by the form submit listener.
+  button.addEventListener('click', async () => {});
+  form.addEventListener('submit', async event => { event.preventDefault(); await f.window.fetch('/api/marketplace/verify', {method: 'POST'}); });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await Promise.all(f.emit(button, 'click').results);
+    // Do not tick: this is the browser's click-to-submit window before settle.
+    const submitted = f.emit(form, 'submit', button);
+    assert.equal(submitted.event.stopped, undefined);
+    await tick();
+    assert.equal(button.getAttribute('aria-busy'), 'true');
+    assert.equal(f.emit(button, 'click').event.stopped, true);
+    assert.equal(f.emit(form, 'submit', button).event.stopped, true);
+    assert.equal(calls, attempt + 1, 'duplicate interactions do not send another mutation');
+    release(); await Promise.all(submitted.results); await tick();
+    assert.equal(button.getAttribute('aria-busy'), null);
+    assert.equal(button.getAttribute('aria-disabled'), null);
+    assert.equal(button.classList.contains('gaeru-action-busy'), false);
+    assert.equal(button.disabled, false);
+  }
+  const notices = f.notices();
+  assert.match(notices[0].className, /is-error/);
+  assert.equal(notices[0].children[0].textContent, 'Mật khẩu hiện tại không đúng.');
+  assert.equal(notices[1].children[0].textContent, 'Đã xác minh quyền đọc.');
+  assert.ok(!notices[1].className.includes('is-error'));
+});

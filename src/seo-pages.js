@@ -23,15 +23,17 @@ const postFields='slug,title,excerpt,body,cover_id AS "coverId",image_alt AS "im
 function createSeoPages(pool,base='https://gaeru.com'){
  const origin=new URL(normalizePublicBase(base||'https://gaeru.com')).origin,router=Router({caseSensitive:true,strict:true}),limit=rateLimit({windowMs:60000,limit:120,standardHeaders:'draft-8',legacyHeaders:false});
  router.get('/index.html',(_req,res)=>res.redirect(301,'/'+(_req.originalUrl.includes('?')?_req.originalUrl.slice(_req.originalUrl.indexOf('?')):'')));
- router.get(['/','/shop.html','/product.html','/news.html','/news-article.html'],limit,async(req,res,next)=>{
+ router.get(['/','/shop.html','/product.html','/news.html','/news-article.html','/story.html'],limit,async(req,res,next)=>{
   res.set('Cache-Control','no-cache');
   try{
-   const file=({'/':'index.html','/shop.html':'shop.html','/product.html':'product.html','/news.html':'news.html','/news-article.html':'news-article.html'})[req.path];if(!file)return next();const {document:doc}=parseHTML(fs.readFileSync(path.join(__dirname,'..',file),'utf8'));
+   const file=({'/':'index.html','/shop.html':'shop.html','/product.html':'product.html','/news.html':'news.html','/news-article.html':'news-article.html','/story.html':'story.html'})[req.path];if(!file)return next();const {document:doc}=parseHTML(fs.readFileSync(path.join(__dirname,'..',file),'utf8'));
+   if(req.path==='/')await require('./home-banner').applyHomeBanner(doc,pool);
    let canonical=origin+(req.path==='/'?'/':req.path),structured=null,status=200,socialImage=origin+'/assets/brand/gaeru-logo.webp';
    const setMeta=(selector,attrs)=>{let node=doc.head.querySelector(selector);if(!node){node=doc.createElement(selector.startsWith('link')?'link':'meta');doc.head.append(node);}for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);};
    const fail=message=>{status=404;doc.querySelector('main').innerHTML='<section class="section-wrap"><h1>'+escape(message)+'</h1><a href="/shop.html">Cửa hàng GAERU</a> · <a href="/news.html">Tin tức GAERU</a></section>';doc.title=message+' — GAERU';res.set('X-Robots-Tag','noindex');};
    if(['/','/shop.html','/product.html'].includes(req.path)){
     const products=decoratePublicProductImages(await loadProducts(pool));
+    if(req.path==='/')require('./brand-story').applyP185(doc,products);
     const bootstrap=doc.createElement('script');bootstrap.type='application/json';bootstrap.id='store-bootstrap';bootstrap.textContent=JSON.stringify({products}).replace(/</g,'\\u003c');doc.head.append(bootstrap);
     if(req.path==='/product.html'){
      const id=typeof req.query.id==='string'?req.query.id:'';const p=products.find(p=>p.slug===id||p.slug==='gaeru-'+id);
@@ -49,6 +51,7 @@ function createSeoPages(pool,base='https://gaeru.com'){
      const root=doc.querySelector(req.path==='/'?'.product-grid':'#catalog-grid');root.innerHTML=shown.map(p=>productCard(p,req.path==='/')).join('')||'<p>Chưa có sản phẩm phù hợp.</p>';root.dataset.ssr='true';structured={'@context':'https://schema.org','@type':'ItemList',itemListElement:shown.map((p,index)=>({'@type':'ListItem',position:index+1,name:p.name,url:origin+productUrl(p)}))};
     }
    }
+   if(req.path==='/story.html'){const products=decoratePublicProductImages(await loadProducts(pool));doc.querySelector('main').innerHTML=require('./brand-story').storyMarkup(products);doc.title='Câu chuyện GAERU — Thiết bị cho cách bạn sáng tạo';}
    if(['/','/news.html'].includes(req.path)){
     const page=req.path==='/news.html'?Number(req.query.page||1):1;if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).set('X-Robots-Tag','noindex').type('html').send('<h1>Trang không hợp lệ</h1>');
     const rows=(await pool.query(`SELECT ${postFields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 13 OFFSET $1`,[(page-1)*12])).rows,more=rows.length>12,posts=rows.slice(0,12);

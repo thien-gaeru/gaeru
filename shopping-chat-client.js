@@ -89,7 +89,7 @@
       const deleteButton=admin&&window.GAERUAdmin?.can('chat.files.delete')?`<button type="button" class="chat-file-delete" data-chat-delete-file="${escape(file.id)}" data-no-action-feedback>Xóa tệp</button>`:'';
       const url=base+'/'+id+'/files/'+encodeURIComponent(file.id);
       const saved=file.originalSize&&file.compressedSize&&file.compressedSize<file.originalSize?` · Đã nén tự động (${formatSize(file.compressedSize)})`:'';
-      return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a>${deleteButton}`;
+      return media(url,file.mime,file.name)+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a><a class="chat-file-link" href="${escape(url)}?download=1&original=1" target="_blank" rel="noopener">Tải bản gốc được gửi</a>${deleteButton}`;
     }
     function release(file){if(file?.url)URL.revokeObjectURL(file.url);}
     function clearFastAiTimers(){
@@ -268,7 +268,7 @@
       const oversized=rawFile.size>MAX_UPLOAD_BYTES;
       const type=String(rawFile.type||'');
       if(isImageFile(rawFile)&&type!=='image/gif'&&type!=='image/svg+xml'){
-        if(oversized||(['image/jpeg','image/png'].includes(type)&&rawFile.size>307200))return compressImage(rawFile,oversized);
+        if(oversized)return compressImage(rawFile,true); // In-limit originals go to the server unchanged; optimization runs afterwards.
         return rawFile;
       }
       if(oversized&&isVideoFile(rawFile))return compressVideo(rawFile);

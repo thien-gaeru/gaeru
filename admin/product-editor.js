@@ -208,7 +208,7 @@
  function gallery(){
    const gHost=document.querySelector('#gallery');
    if(!gHost)return;
-   gHost.innerHTML=model.gallery.map((url,i)=>'<article class="gallery-item"><img src="'+esc(imageUrl(url))+'" alt="Ảnh sản phẩm '+(i+1)+'"><span>'+(i===0?'Ảnh chính':'Ảnh '+(i+1))+'</span><div>'+(i?'<button type="button" data-main-image="'+i+'">Đặt ảnh chính</button>':'')+'<button type="button" data-remove-image="'+i+'" aria-label="Bỏ ảnh '+(i+1)+'">×</button></div></article>').join('')+imageUploads.map(item=>'<article class="gallery-item upload-pending" aria-busy="'+(item.error?'false':'true')+'"><img src="'+esc(item.preview)+'" alt="'+esc(item.file.name)+'"><span>'+(item.error?'Tải chưa thành công':'Đang tải ảnh…')+'</span><div>'+(item.error?'<button type="button" data-retry-upload="'+item.id+'">Thử lại</button><button type="button" data-discard-upload="'+item.id+'">Bỏ</button>':'<small>Có thể tiếp tục nhập sản phẩm</small>')+'</div></article>').join('')+(!model.gallery.length&&!imageUploads.length?'<button type="button" class="gallery-slot is-main" data-upload-slot aria-label="Tải ảnh chính"><span aria-hidden="true">＋</span>Ảnh chính</button>':'')+(model.gallery.length+imageUploads.length<9?'<button type="button" class="gallery-slot" data-upload-slot aria-label="Thêm ảnh sản phẩm"><span aria-hidden="true">＋</span>Thêm ảnh · '+(model.gallery.length+imageUploads.length)+'/9</button>':'');
+   gHost.innerHTML=model.gallery.map((url,i)=>'<article class="gallery-item"><img src="'+esc(imageUrl(url))+'" alt="Ảnh sản phẩm '+(i+1)+'"><span>'+(i===0?'Ảnh chính':'Ảnh '+(i+1))+'</span><div>'+(i?'<button type="button" data-main-image="'+i+'">Đặt ảnh chính</button>':'')+(/^\/api\/catalog-images\/[0-9a-f-]{36}$/.test(url)?'<button type="button" data-cutout-image="'+i+'">Tách nền trắng</button>':'')+'<button type="button" data-remove-image="'+i+'" aria-label="Bỏ ảnh '+(i+1)+'">×</button></div></article>').join('')+imageUploads.map(item=>'<article class="gallery-item upload-pending" aria-busy="'+(item.error?'false':'true')+'"><img src="'+esc(item.preview)+'" alt="'+esc(item.file.name)+'"><span>'+(item.error?'Tải chưa thành công':'Đang tải ảnh…')+'</span><div>'+(item.error?'<button type="button" data-retry-upload="'+item.id+'">Thử lại</button><button type="button" data-discard-upload="'+item.id+'">Bỏ</button>':'<small>Có thể tiếp tục nhập sản phẩm</small>')+'</div></article>').join('')+(!model.gallery.length&&!imageUploads.length?'<button type="button" class="gallery-slot is-main" data-upload-slot aria-label="Tải ảnh chính"><span aria-hidden="true">＋</span>Ảnh chính</button>':'')+(model.gallery.length+imageUploads.length<9?'<button type="button" class="gallery-slot" data-upload-slot aria-label="Thêm ảnh sản phẩm"><span aria-hidden="true">＋</span>Thêm ảnh · '+(model.gallery.length+imageUploads.length)+'/9</button>':'');
    preview();
  }
 
@@ -333,7 +333,7 @@
        try{
          const data=new FormData();
          data.append('image',item.file);
-         const result=await request('/api/gaeru_ceo/catalog-images','POST',data);
+         const result=await request('/api/gaeru_ceo/catalog-images'+(document.querySelector('#product-auto-background')?.checked===false?'?background=keep':''),'POST',data);
          readRows();
          model.gallery.push(result.imageUrl);
          imageUploads.splice(imageUploads.indexOf(item),1);
@@ -619,21 +619,17 @@
  const sPriceInp=document.querySelector('#simple-price');
  const sStockInp=document.querySelector('#simple-stock');
  const sSkuInp=document.querySelector('#simple-sku');
- if(sPriceInp)sPriceInp.oninput=()=>{
+ function updateSimpleVariant(key,value){
    if(!model.variants.length)model.variants.push({sku:'',name:'Phiên bản tiêu chuẩn',options:{},priceVnd:null,stockQuantity:0,active:true,imageUrl:''});
-   model.variants[0].priceVnd=sPriceInp.value===''?null:Number(sPriceInp.value);
+   model.variants[0][key]=value;
+   // The detailed table is also editable. Keep it current before background uploads read it.
+   const field=document.querySelector('[data-variant-index="0"] [data-field="'+key+'"]');
+   if(field)field.value=value??'';
    dirty=true;preview();
- };
- if(sStockInp)sStockInp.oninput=()=>{
-   if(!model.variants.length)model.variants.push({sku:'',name:'Phiên bản tiêu chuẩn',options:{},priceVnd:null,stockQuantity:0,active:true,imageUrl:''});
-   model.variants[0].stockQuantity=sStockInp.value===''?0:Number(sStockInp.value);
-   dirty=true;preview();
- };
- if(sSkuInp)sSkuInp.oninput=()=>{
-   if(!model.variants.length)model.variants.push({sku:'',name:'Phiên bản tiêu chuẩn',options:{},priceVnd:null,stockQuantity:0,active:true,imageUrl:''});
-   model.variants[0].sku=sSkuInp.value.trim();
-   dirty=true;preview();
- };
+ }
+ if(sPriceInp)sPriceInp.oninput=()=>updateSimpleVariant('priceVnd',sPriceInp.value===''?null:Number(sPriceInp.value));
+ if(sStockInp)sStockInp.oninput=()=>updateSimpleVariant('stockQuantity',sStockInp.value===''?0:Number(sStockInp.value));
+ if(sSkuInp)sSkuInp.oninput=()=>updateSimpleVariant('sku',sSkuInp.value.trim());
 
  form.addEventListener('click',e=>{
    const b=e.target.closest('[data-block-action]');
@@ -712,7 +708,7 @@
      lock(true);
      try{
        const data=new FormData();data.append('image',file);
-       const result=await request('/api/gaeru_ceo/catalog-images','POST',data);
+       const result=await request('/api/gaeru_ceo/catalog-images'+(document.querySelector('#product-auto-background')?.checked===false?'?background=keep':''),'POST',data);
        model.variants[i].imageUrl=result.imageUrl;
        rows();
        feedback('Đã thêm ảnh riêng cho biến thể.');
@@ -730,6 +726,12 @@
  form.addEventListener('click',e=>{
     const b=e.target.closest('button');
     if(!b||busy||!can('catalog.write'))return;
+    if(b.dataset.cutoutImage!==undefined){
+      const index=Number(b.dataset.cutoutImage),url=model.gallery[index];b.disabled=true;
+      request('/api/gaeru_ceo/catalog-images/'+url.split('/').at(-1)+'/remove-background','POST',{}).then(result=>{
+        readRows();model.gallery[index]=result.imageUrl;model.variants.forEach(v=>{if(v.imageUrl===url)v.imageUrl=result.imageUrl;});if(model.product.imageUrl===url)model.product.imageUrl=result.imageUrl;dirty=true;gallery();rows();feedback('Đã tạo ảnh tách nền. Bản gốc được giữ; lưu sản phẩm để áp dụng.');
+      }).catch(error=>{b.disabled=false;feedback(error.message,true);});return;
+    }
     if(b.dataset.retryUpload!==undefined){
       const item=imageUploads.find(v=>v.id===Number(b.dataset.retryUpload));
       if(item){item.error=false;gallery();runUploads();}
@@ -834,7 +836,14 @@
      try{model.groups=groupsFromForm();preview();}catch(err){feedback(err.message,true);}
    }
    if(e.target===form.elements.description){readMedia();mediaEditor();}
-   if(e.target.matches('[data-field]')){readRows();dirty=true;preview();}
+   if(e.target.matches('[data-field]')){
+     readRows();
+     if(!model.groups.length&&model.variants.length===1){
+       const simpleField={priceVnd:sPriceInp,stockQuantity:sStockInp,sku:sSkuInp}[e.target.dataset.field];
+       if(simpleField)simpleField.value=e.target.value;
+     }
+     dirty=true;preview();
+   }
  });
 
  form.addEventListener('click',e=>{

@@ -57,6 +57,17 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
  admin.use('/product-workspace',requirePermission('catalog.read'));
  admin.get('/product-workspace/:id',async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const data=await read(pool,req.params.id,req.query.trash==='1');if(!data)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});res.set('Cache-Control','no-store').json(data);}catch(e){next(e);}});
  admin.get('/catalog-images/:id',catalogImageAdminLimiter,requirePermission('catalog.read'),async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const row=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);res.type(row.mime_type).set('Cache-Control','no-store').send(await readStoredImage(row.content));}catch(e){next(e);}});
+ admin.post('/catalog-images/:id/remove-background',catalogImageUploadLimiter,requirePermission('catalog.write'),requireCsrf,async(req,res,next)=>{
+  try{
+   const id=uuid.parse(req.params.id),source=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[id])).rows[0];if(!source)return res.sendStatus(404);
+   const buffer=await readStoredImage(source.content),cutout=await require('./lib/image-optimizer').optimizeImage(buffer,source.mime_type,{removeBackground:true});
+   if(!cutout.backgroundRemoved)return res.status(409).json({error:'Chưa nhận diện được vùng nền trắng liền mép. Ảnh được giữ nguyên; dùng ảnh PNG/WebP đã tách nền cho nền phức tạp.'});
+   const saved=await require('./lib/stored-media').storeUpload('products',buffer,source.mime_type,pool,{removeBackground:true});
+   const image=(await pool.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',[saved.content,saved.mimeType])).rows[0];
+   await appendAudit(pool,{actor:req.admin,action:'catalog.image.remove_background',entityType:'catalog_image',entityId:image.id,metadata:{sourceId:id}});
+   res.status(201).json({imageUrl:'/api/catalog-images/'+image.id,backgroundRemoved:true});
+  }catch(error){next(error);}
+ });
  const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:0}}).single('image');
 admin.post(['/catalog-images','/uploads/image'],
   catalogImageUploadLimiter,
@@ -91,7 +102,7 @@ admin.post(['/catalog-images','/uploads/image'],
 
 
     try {
-      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype);
+      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype,pool,{removeBackground:req.query.background!=='keep'});
       const content=optimized.content;
 
       const row = (await pool.query(

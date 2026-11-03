@@ -151,7 +151,7 @@ function productCard(product, compact = false) {
         <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
 
       </div>
-      <img class="product-image" src="${escapeHtml(cardImage)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
+      <img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
           <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">${product.slug === "gaeru-m3" ? "Mua Ngay" : "Mua ngay"}</a>
@@ -159,7 +159,7 @@ function productCard(product, compact = false) {
     </article>` : `
     <article class="${cardClass}">
       <a class="catalog-card-image" href="product.html?id=${encodeURIComponent(product.slug)}">
-        <img src="${escapeHtml(cardImage)}" alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
+        <img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
@@ -203,7 +203,7 @@ function renderCatalog() {
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
   const categoryArtwork=product=>window.GAERUProductArtwork?.image(product)||product.imageUrl;
-  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" ${window.GAERUProductArtwork?.attributes?.(categoryArtwork(product))||''} alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
   window.GAERUK9Loop?.mountHome();
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
@@ -376,7 +376,7 @@ function renderProduct() {
   root.innerHTML = `
     <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
-      <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
+      <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}"><img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
@@ -411,13 +411,13 @@ function renderProduct() {
     const buyNow=root.querySelector("[data-buy-now]");buyNow.dataset.buyNow=variant.id;buyNow.disabled=variant.stockQuantity===0;
     root.querySelectorAll("[data-option-group]").forEach(b=>b.setAttribute("aria-pressed",String(variant.options?.[b.dataset.optionGroup]===b.dataset.optionValue)));
     root.querySelectorAll("[data-visual-variant]").forEach(b=>b.setAttribute("aria-pressed",String(variant.id===b.dataset.visualVariant)));
-    const image=root.querySelector("[data-product-main-image]");image.src=safeProductImage(variant.imageUrl||product.imageUrl);image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.galleryImage===(variant.imageUrl||product.imageUrl)))); updateAllBundleCards(variant.id);
+    const image=root.querySelector("[data-product-main-image]");if(window.GAERUProductArtwork?.updateImage)window.GAERUProductArtwork.updateImage(image,safeProductImage(variant.imageUrl||product.imageUrl));else image.src=safeProductImage(variant.imageUrl||product.imageUrl);image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.galleryImage===(variant.imageUrl||product.imageUrl)))); updateAllBundleCards(variant.id);
   });
   let galleryTouch=null;
   root.addEventListener('touchstart',event=>{galleryTouch=event.touches.length===1&&event.target.closest('[data-product-main-image]')?{x:event.touches[0].clientX,y:event.touches[0].clientY}:null;},{passive:true});
   root.addEventListener('touchcancel',()=>{galleryTouch=null;},{passive:true});
   root.addEventListener('touchend',event=>{const start=galleryTouch;galleryTouch=null;if(!start||event.changedTouches.length!==1)return;const dx=event.changedTouches[0].clientX-start.x,dy=event.changedTouches[0].clientY-start.y;if(Math.abs(dx)<40||Math.abs(dx)<Math.abs(dy)*1.5)return;const buttons=[...root.querySelectorAll('[data-gallery-image]')];if(buttons.length<2)return;const current=buttons.findIndex(b=>b.getAttribute('aria-pressed')==='true');const next=buttons[(Math.max(0,current)+(dx<0?1:-1)+buttons.length)%buttons.length];next.click();const rail=next.parentElement;rail.scrollTo({left:Math.max(0,next.offsetLeft-rail.offsetLeft-(rail.clientWidth-next.offsetWidth)/2),behavior:'smooth'});},{passive:true});
-  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){root.querySelector("[data-product-main-image]").src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}}); void loadAndRenderBundles(product, selector?.value);
+  root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){const mainImage=root.querySelector("[data-product-main-image]");if(window.GAERUProductArtwork?.updateImage)window.GAERUProductArtwork.updateImage(mainImage,safeProductImage(imageButton.dataset.galleryImage));else mainImage.src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}}); void loadAndRenderBundles(product, selector?.value);
 }
 
 function renderCart() {
@@ -538,10 +538,7 @@ async function renderCheckout() {
           <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: hotro@gaeru.com"></label>
           <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)"></label>
         </div>
-        <label class="checkout-recovery-consent" style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:#555;margin-top:10px;cursor:pointer;">
-          <input type="checkbox" name="recoveryConsent" id="checkout-recovery-consent" checked style="margin-top:2px;">
-          <span>Lưu thông tin liên hệ và giỏ hàng để nhận nhắc nhở khôi phục nếu chưa kịp thanh toán (tuân thủ Nghị định 13/2023/NĐ-CP).</span>
-        </label>
+
       </div>
       <div class="form-section">
         <h2>Địa chỉ giao hàng</h2>
@@ -558,10 +555,10 @@ async function renderCheckout() {
       ${rows.map(({ quantity, product, variant }) => `
         <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
       <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
-      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chọn tỉnh/thành</strong></p>
+      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chưa tính phí</strong></p>
       <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã voucher</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã voucher" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
       <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
-      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>Chọn tỉnh/thành</strong></p>
+      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>${formatPrice(total)} + phí giao hàng</strong></p>
       <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
     </aside><div class="form-section">
         <h2>Phương thức thanh toán</h2>
@@ -578,6 +575,7 @@ async function renderCheckout() {
         <p class="payment-placeholder" data-payment-help>GAERU sẽ xác nhận đơn hàng trước khi gửi.</p>
       </div>
       <p class="checkout-account-notice">Khi đặt hàng, GAERU tạo tài khoản theo email nếu bạn chưa có tài khoản và gửi hướng dẫn đặt mật khẩu. Bạn không tự động đăng ký nhận tin quảng cáo.</p><p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="privacy.html">Chính sách quyền riêng tư</a>. <a href="terms.html">Điều khoản mua hàng</a>.</p>
+      <label class="checkout-recovery-consent"><input type="checkbox" name="recoveryConsent" id="checkout-recovery-consent" checked><span>Lưu liên hệ và giỏ hàng để nhận nhắc nhở nếu chưa hoàn tất thanh toán.</span></label>
       <button class="button button-blue" type="submit">Đặt hàng</button>
       <p class="checkout-feedback" id="checkout-feedback" aria-live="polite"></p>
     </form>
@@ -637,9 +635,9 @@ async function renderCheckout() {
   const updateShippingTotal = () => {
     const fee = window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
     root.querySelector("[data-checkout-shipping]").textContent =
-      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(fee);
+      fee === undefined ? "Chưa tính phí" : formatPrice(fee);
     root.querySelector("[data-checkout-total]").textContent =
-      fee === undefined ? "Chọn tỉnh/thành" : formatPrice(Math.max(0, total + fee - voucherDiscount - (loyaltyDiscount || 0)));
+      fee === undefined ? formatPrice(Math.max(0,total-voucherDiscount-(loyaltyDiscount||0)))+" + phí giao hàng" : formatPrice(Math.max(0, total + fee - voucherDiscount - (loyaltyDiscount || 0)));
   };
   const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
   const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};

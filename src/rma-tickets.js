@@ -291,7 +291,7 @@ function createRmaApi(pool, _config = {}) {
   });
 
   // 2. POST /api/rma/:rmaNumber/inbound (Customer submits inbound waybill tracking code)
-  router.post('/rma/:rmaNumber/inbound', rmaLimiter, async (req, res, next) => {
+  router.post('/rma/:rmaNumber/inbound', rmaLimiter, (req,res,next)=>{if(req.session?.customer&&!req.body?.token&&!req.headers['x-rma-token']&&!req.query.token)return require('./security').requireCsrf(req,res,next);next();}, async (req, res, next) => {
     try {
       const rmaNumber = String(req.params.rmaNumber).trim().toUpperCase();
       const token = String(req.body.token || req.headers['x-rma-token'] || req.query.token || '').trim();
@@ -311,7 +311,7 @@ function createRmaApi(pool, _config = {}) {
         token,
         inboundCarrier: parsed.data.inboundCarrier,
         inboundTrackingNumber: parsed.data.inboundTrackingNumber,
-        actor: req.session?.customer ? { id: req.session.customer.id, username: req.session.customer.email, source: 'customer' } : null
+        actor: !token && req.session?.customer ? { id: req.session.customer.id, username: req.session.customer.email, source: 'customer' } : null
       });
 
       res.json({

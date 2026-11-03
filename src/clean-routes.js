@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),{parseHTML}=require('linke
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
 function enrich(html,original,origin,override){origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);
+ require('./responsive-images').apply(doc);
  if(override){doc.title=normalizeBrandText(override.title);let description=doc.head.querySelector('meta[name=description]');if(!description){description=doc.createElement('meta');description.name='description';doc.head.append(description)}description.content=normalizeBrandText(override.description)}
  doc.documentElement.setAttribute('lang','vi');let base=doc.head.querySelector('base');if(!base){base=doc.createElement('base');base.setAttribute('href','/');doc.head.prepend(base)}
  for(const el of doc.querySelectorAll('[href],[action],[src],[poster]'))for(const key of ['href','action','src','poster'])if(el.hasAttribute(key))el.setAttribute(key,clean(el.getAttribute(key),origin));
@@ -20,13 +21,15 @@ function enrich(html,original,origin,override){origin=normalizePublicBase(origin
  const crumbs=[{'@type':'ListItem',position:1,name:'Trang chủ',item:origin+'/'}];if(u.pathname!=='/'){if(u.pathname.startsWith('/san-pham/'))crumbs.push({'@type':'ListItem',position:2,name:'Cửa hàng',item:origin+'/cua-hang'});else if(u.pathname.startsWith('/tin-tuc/'))crumbs.push({'@type':'ListItem',position:2,name:'Tin tức',item:origin+'/tin-tuc'});crumbs.push({'@type':'ListItem',position:crumbs.length+1,name:doc.querySelector('h1')?.textContent||doc.title,item:canonicalUrl});add({'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:crumbs})}
  const faq=[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
  if(['/tai-khoan','/gio-hang','/thanh-toan','/ket-qua-thanh-toan'].includes(u.pathname))meta('robots','noindex, follow');
- if(!doc.querySelector('script[type="speculationrules"]')){const spec=doc.createElement('script');spec.type='speculationrules';spec.textContent=JSON.stringify({prerender:[{where:{and:[{href_matches:"/*"},{not:{href_matches:"/tai-khoan*"}},{not:{href_matches:"/gio-hang*"}},{not:{href_matches:"/thanh-toan*"}},{not:{href_matches:"/admin*"}},{not:{href_matches:"/gaeru_ceo*"}},{not:{href_matches:"/api/*"}}]},eagerness:"moderate"}]});if(doc.body)doc.body.append(spec);else doc.head.append(spec);}
+ if(!doc.querySelector('script[type="speculationrules"]')){const spec=doc.createElement('script');spec.type='speculationrules';spec.textContent=require('./speculation-policy').text;if(doc.body)doc.body.append(spec);else doc.head.append(spec);}
  return normalizeBrandText('<!doctype html>'+doc.documentElement.outerHTML);
 }
 function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method)||/^\/(?:api|gaeru_ceo)(?:\/|$)/.test(req.path))return next();
  const target=clean(req.originalUrl,origin);if(target!==req.originalUrl)return res.redirect(301,target);
- const send=res.send.bind(res);res.send=body=>send(typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body);
+ const send=res.send.bind(res),prepare=body=>typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body;
+ // Cache the final document, including metadata, rather than the unprocessed template.
+ res.locals.publicHtml={prepare,send};res.send=body=>send(prepare(body));
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
 function staticHtml(req,res,next){if(!['GET','HEAD'].includes(req.method))return next();const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(fs.readFileSync(path.join(__dirname,'..',file),'utf8'))}
