@@ -12,5 +12,8 @@
 
 @media(max-width:600px){.home-page .hero-actions,.home-page .home-m3-actions{gap:10px}.home-page .hero-actions .button,.home-page .home-m3-actions .button{font-size:14px;padding-inline:14px}}
 
+/* Keep the P185 decoration inside its artwork, behind the purchase controls. */
+.home-page .home-p185-story .story-copy{z-index:2}.home-page .home-p185-story .story-art{isolation:isolate}.home-page .home-p185-story .story-art:before{height:min(100%,430px);width:auto;max-width:90%;aspect-ratio:1;pointer-events:none}
+
 /* Two rows and a partial next column make the native horizontal rail discoverable. */
 .home-page #products .product-grid{display:grid;min-width:0;max-width:100%;grid-template-rows:repeat(2,auto);grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:min(88%,620px);gap:18px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-padding-inline:0;padding:4px 0 16px}.home-page #products .product-grid>.product-card{scroll-snap-align:start;min-width:0}.home-page #products .product-card[hidden]{display:none}.home-page .news-heading{position:relative;isolation:isolate;padding:28px;border:1px solid #dce8ed;border-radius:24px;background:radial-gradient(ellipse at 95% 0,#dcebef 0,transparent 60%),linear-gradient(120deg,#f7fafc,#edf4f7);gap:18px}.home-page .news-heading::before{content:"";position:absolute;inset:0;border-radius:inherit;z-index:-1;background:linear-gradient(155deg,transparent 55%,#d5e4ec55 56%,transparent 80%)}.home-page .news-heading h2{font-size:clamp(28px,4vw,46px)}.home-page .news-heading .news-controls{flex-wrap:wrap}@media(max-width:600px){.home-page .news-heading{padding:20px}.home-page #products .product-card{min-height:460px}}
