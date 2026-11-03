@@ -158,13 +158,29 @@
     const openSettings=()=>{if(!settingsDialog.isConnected||profile.hidden)return;if(!settingsDialog.open){if(settingsDialog.showModal)settingsDialog.showModal();else settingsDialog.open=true;profileEditor.open=true;}};
     let pendingSettingsJump='';
     function jumpToSettings(name){
+      const pForm=profileEditor.querySelector('[data-profile-form]');
+      if(pForm) pForm.hidden=name!=='profile';
+      const secPanel=profileEditor.querySelector('[data-security-panel]');
+      if(secPanel) secPanel.hidden=name==='profile';
       const target=name==='profile'?profileEditor.querySelector('[data-profile-form]'):profileEditor.querySelector('[data-security-section="'+name+'"]');
       if(!target){pendingSettingsJump=name;return;}
-      pendingSettingsJump='';if(target.tagName==='DETAILS')target.open=true;
+      pendingSettingsJump='';
+      profileEditor.querySelectorAll('.security-section').forEach(item=>{
+        item.hidden=(item!==target&&name!=='all');
+        item.open=(item===target);
+      });
+      if(target.tagName==='DETAILS'){target.open=true;target.hidden=false;}
       target.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
       (target.querySelector('input:not([type=hidden]),select')||target).focus?.({preventScroll:true});
     }
-    settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
+    settingsDialog.querySelector('[data-settings-close]').onclick=()=>{
+      settingsDialog.close();
+      const pForm=profileEditor.querySelector('[data-profile-form]');
+      if(pForm)pForm.hidden=false;
+      const secPanel=profileEditor.querySelector('[data-security-panel]');
+      if(secPanel)secPanel.hidden=false;
+      profileEditor.querySelectorAll('.security-section').forEach(item=>{item.hidden=false;item.open=false;});
+    };settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
     document.addEventListener('click',event=>{const button=event.target.closest('[data-settings-jump]');if(button)jumpToSettings(button.dataset.settingsJump);});
     window.addEventListener('gaeru:security-rendered',()=>{if(pendingSettingsJump)jumpToSettings(pendingSettingsJump);});
     window.GAERUAccountSettings={open:openSettings,close:()=>settingsDialog.close()};
