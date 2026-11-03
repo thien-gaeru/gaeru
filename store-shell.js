@@ -492,3 +492,62 @@ if (document.readyState === "loading") {
 
 document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),window.GAERUStore?.products));
 document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',poll.refresh)});
+
+// Kênh lắng nghe Realtime SSE (/api/realtime) để tự động làm mới dữ liệu và DOM khi Cache Invalidation xảy ra
+(function initRealtimeSSE() {
+  if (typeof window === 'undefined' || typeof window.EventSource !== 'function') return;
+
+  let evtSource = null;
+  let reconnectTimer = null;
+
+  function connect() {
+    try {
+      evtSource = new EventSource('/api/realtime');
+
+      evtSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.type === 'CACHE_INVALIDATED') {
+            const tags = Array.isArray(payload.tags) ? payload.tags : [];
+
+            // Nếu nhãn liên quan đến danh mục/sản phẩm hoặc toàn cục, tự động làm mới menu và chân trang
+            if (tags.some(t => ['catalog', 'product:list', 'search-index', '*'].includes(t))) {
+              if (typeof refreshMenuProducts === 'function') {
+                refreshMenuProducts({ fresh: true });
+              }
+            }
+
+            // Phát sự kiện toàn cục để các trang con tự động cập nhật
+            window.dispatchEvent(new CustomEvent('gaeru:cache-invalidated', { detail: payload }));
+          }
+        } catch (_) {}
+      };
+
+      evtSource.onerror = () => {
+        if (evtSource) {
+          evtSource.close();
+          evtSource = null;
+        }
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connect();
+          }, 5000);
+        }
+      };
+    } catch (_) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', connect, { once: true });
+  } else {
+    connect();
+  }
+
+  window.addEventListener('pagehide', (e) => {
+    if (!e.persisted && evtSource) {
+      evtSource.close();
+      evtSource = null;
+    }
+  });
+})();

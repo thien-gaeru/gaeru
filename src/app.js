@@ -126,6 +126,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     });
   });
 
+  const { sseHandler } = require("./realtime-sse");
+  app.get("/api/realtime", sseHandler);
+
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer/cart", require("./customer-cart").createCustomerCartRouter(pool));
   app.use("/api/customer", createCustomerExperience(pool, { inventory, audit: appendAudit }));

@@ -1,6 +1,7 @@
 const { EventEmitter } = require('node:events');
 const { z } = require('zod');
 const { requirePermission } = require('./staff-access');
+const { cacheEvents } = require('../cache');
 
 class RealtimeHub {
   constructor() {
@@ -161,6 +162,52 @@ function publishChatEvent(threadId, event, data) {
   }
 }
 
+// Danh sách client đang kết nối kênh Realtime Cache / Data SSE (/api/realtime)
+const realtimeClients = new Set();
+
+function sseHandler(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no' // Tắt buffer trên Nginx/Cloudflare để đẩy tin tức thời
+  });
+
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+  realtimeClients.add(res);
+
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded) {
+      clearInterval(heartbeat);
+      return;
+    }
+    try {
+      res.write(': keepalive\n\n');
+    } catch (_) {}
+  }, 25000);
+
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    realtimeClients.delete(res);
+  };
+
+  req.on('close', cleanup);
+  req.on('end', cleanup);
+}
+
+// Khi có Cache Tag bị xóa, thông báo ngay tới mọi trình duyệt đang mở trang
+cacheEvents.on('invalidated', (payload) => {
+  if (realtimeClients.size === 0) return;
+  const message = `data: ${JSON.stringify({ type: 'CACHE_INVALIDATED', ...payload })}\n\n`;
+  for (const client of realtimeClients) {
+    try {
+      client.write(message);
+    } catch (_) {
+      realtimeClients.delete(client);
+    }
+  }
+});
+
 module.exports = {
   RealtimeHub,
   defaultHub,
@@ -169,5 +216,7 @@ module.exports = {
   createRealtimeRouter,
   publishAdminEvent,
   publishCareEvent,
-  publishChatEvent
+  publishChatEvent,
+  sseHandler,
+  realtimeClients
 };

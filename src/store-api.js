@@ -11,7 +11,7 @@ const { withTransaction } = require("./db");
 const { buildVnpayPaymentUrl, verifyVnpayQuery } = require("./vnpay");
 const { decoratePublicProductImages } = require("./lib/public-image-urls");
 const { checkCustomerPhoneStatus, checkCustomerRegEmailStatus } = require("./customer-lifecycle");
-const { getFreshData, stockMap, isValidOrderQuantity, reserveStock, releaseStock, seedStock, flushAllCache } = require("./cache");
+const { getFreshData, stockMap, isValidOrderQuantity, reserveStock, releaseStock, seedStock, flushAllCache, invalidateTags } = require("./cache");
 
 const orderSchema = z.object({
   customer: z.object({
@@ -1262,7 +1262,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         });
       }
 
-      flushAllCache();
+      invalidateTags(['orders', `order:${order.id}`, 'stock']);
 
       const responsePayload = checkoutResponse(order);
 
@@ -1303,7 +1303,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           audit
         });
       });
-      flushAllCache();
+      invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
       res.json(result);
     } catch (err) {
       if (err.status) return res.status(err.status).json({ error: err.message });
@@ -1506,7 +1506,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       await audit(client, { actor: req.admin, action: "catalog.product.create", entityType: "product", entityId: result.rows[0].id, after: { ...p, active: false } });
       return result.rows[0];
       });
-      flushAllCache();
+      invalidateTags(['product:' + product.id, 'product:' + p.slug, 'product:list', 'catalog', 'search-index']);
       res.status(201).json({ id: product.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "Slug sản phẩm đã được sử dụng." });
@@ -1529,7 +1529,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return true;
       });
       if(!removed)return res.status(404).json({error:'Không tìm thấy sản phẩm.'});
-      flushAllCache();
+      invalidateTags(['product:' + req.params.id, 'product:list', 'catalog', 'search-index']);
       res.status(204).end();
     }catch(error){if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });
@@ -1579,7 +1579,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
 
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      flushAllCache();
+      invalidateTags(['product:' + product.id, 'product:' + product.slug, 'product:list', 'catalog', 'search-index']);
       res.json({
         message: product.active ? "Đã hiển thị sản phẩm trên cửa hàng." : "Đã ẩn sản phẩm khỏi cửa hàng.",
         id: product.id,
@@ -1620,7 +1620,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return result.rows[0];
       });
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      flushAllCache();
+      invalidateTags(['product:' + req.params.id, 'product:' + p.slug, 'product:list', 'catalog', 'search-index']);
       res.json({ id: product.id });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -1648,7 +1648,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       return result.rows[0];
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      flushAllCache();
+      invalidateTags(['product:' + req.params.id, 'product:list', 'catalog', 'search-index', 'stock']);
       res.status(201).json({ id: variant.id });
     } catch (error) {
       if (error.code === "23505") return res.status(409).json({ error: "SKU đã được sử dụng." });
@@ -1661,8 +1661,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const parsed = variantSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Thông tin phiên bản chưa hợp lệ.", details: parsed.error.issues });
       const v = parsed.data;
+      let affectedProductId = null;
       const variant = await withTransaction(pool, async (client) => {
         const current = await lockVariantWithProduct(client, req.params.id);
+        if (current?.product?.id) affectedProductId = current.product.id;
         if (!current) return null;
         if (req.admin && v.stockQuantity !== current.variant.stockQuantity && !req.admin.permissions.includes("inventory.approve")) {
           const error = new Error("Cần quyền duyệt kho để thay đổi số lượng tồn."); error.status = 403; throw error;
@@ -1678,7 +1680,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return result.rows[0];
       });
       if (!variant) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
-      flushAllCache();
+      invalidateTags([...(affectedProductId ? ['product:' + affectedProductId] : []), 'product:list', 'catalog', 'search-index', 'stock']);
       res.json({ id: variant.id });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -1689,8 +1691,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.delete("/gaeru_ceo/variants/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
+      let affectedProductId = null;
       const result = await withTransaction(pool, async (client) => {
         const current = await lockVariantWithProduct(client, req.params.id);
+        if (current?.product?.id) affectedProductId = current.product.id;
         if (!current) return { missing: true };
         const references = await client.query(
           "SELECT EXISTS (SELECT 1 FROM order_items WHERE variant_id=$1) AS referenced",
@@ -1708,7 +1712,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       });
       if (result.missing) return res.status(404).json({ error: "Không tìm thấy phiên bản." });
       if (result.inUse) return res.status(409).json({ error: "Phiên bản đã có trong lịch sử đơn hàng hoặc kho. Hãy sửa và tạm ẩn thay vì xóa." });
-      flushAllCache();
+      invalidateTags([...(affectedProductId ? ['product:' + affectedProductId] : []), 'product:list', 'catalog', 'search-index', 'stock']);
       res.status(204).end();
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -2017,14 +2021,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           console.error('MISA auto-issue error in bulk:', misaErr.message);
         }
       }
-      flushAllCache();
+      invalidateTags(['orders', 'stock']);
       res.json({orders:result,targetStatus:target,message:'Đã cập nhật '+result.length+' đơn hàng.'});
     }catch(error){next(error);}
   });
   router.post('/gaeru_ceo/orders/:id/restore',requirePermission('orders.write'),requireUuidParam('id'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{const {restoreOrder,restorationSchema}=require('./order-restoration');const data=restorationSchema.parse(req.body);
       const order=await withTransaction(pool,client=>restoreOrder(client,{id:req.params.id,data,actor:req.admin,inventory:inventory||require('./inventory'),audit}));
-      flushAllCache();
+      invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
       res.json({order,message:order.alreadyRestored?'Yêu cầu đã được xử lý trước đó.':'Đã khôi phục đơn về Chờ xác nhận và giữ lại tồn kho. Chưa ghi nhận thanh toán hoặc gửi hàng.'});
     }catch(error){if(error instanceof z.ZodError)return res.status(400).json({error:'Nhập lý do, phiên bản và xác nhận đã đối chiếu chưa nhận tiền trước khi khôi phục.'});if(error.code==='23505')return res.status(409).json({error:'Mã yêu cầu khôi phục đã được dùng. Tải lại để kiểm tra trạng thái.'});if(error.status)return res.status(error.status).json({error:error.message});next(error);}
   });
@@ -2039,7 +2043,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         })
       );
       if (!deleted) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
-      flushAllCache();
+      invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
       res.json({
         id: req.params.id,
         orderNumber: deleted.order_number,
@@ -2062,7 +2066,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return applyOrderUpdate(client,req.params.id,update,req.admin);
       });
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
-      flushAllCache();
+      invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
       if (result.status === 'completed' && result.paymentStatus === 'paid') {
         try {
           const { autoIssueForOrder } = require('./misa-einvoice');
