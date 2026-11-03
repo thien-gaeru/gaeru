@@ -1,5 +1,7 @@
 node_modules/
 .local-data/
+.local-data*
+scratch/
 .env
 .env.*
 !.env.example
