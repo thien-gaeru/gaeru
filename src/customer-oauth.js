@@ -384,7 +384,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       console.warn('Google OAuth Redirect Callback error:', error.message);
       if (req.path === '/auth/google') {
         const code = error.status && error.status >= 400 && error.status < 600 ? error.status : 401;
-        return res.status(code).send(error.message || 'Xác thực Google thất bại.');
+        return res.status(code).type('text/plain').send(error.message || 'Xác thực Google thất bại.');
       }
       res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(error.message || 'Không thể xác thực Google.'));
     }

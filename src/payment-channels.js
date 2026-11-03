@@ -174,9 +174,10 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
  const positiveId=value=>unsigned(value)&&String(value)!=='0';
  const orderPattern=/^GR-\d{8}-[A-Z0-9]{4,20}$/;
  if(provider==='momo'){
-  const textFields=['partnerCode','orderId','orderInfo','orderType','payType','requestId','message','extraData'];
-  if(textFields.some(field=>typeof payload[field]!=='string'||payload[field].length>4000)
-   ||!orderPattern.test(payload.orderId)||!payload.requestId||payload.requestId.length>100
+  const textFields=['partnerCode','orderId','orderInfo','orderType','payType','message','extraData'];
+  if(typeof payload.requestId!=='string'||payload.requestId.length<1||payload.requestId.length>100
+   ||textFields.some(field=>typeof payload[field]!=='string'||payload[field].length>4000)
+   ||!orderPattern.test(payload.orderId)
    ||!payload.orderType||!amount(payload.amount)||!unsigned(payload.resultCode)
    ||!unsigned(payload.transId)||!positiveId(payload.responseTime)
    ||(String(payload.resultCode)==='0'&&!positiveId(payload.transId))
@@ -226,26 +227,19 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
     return {valid:false,reason:'Automatic bank reconciliation is disabled until a verified provider adapter is configured. Use owner-authorized reconciliation.'};
    }
    const headers=options.headers||{};
-   const query=options.query||{};
-   const incomingToken=String(
-    query.token||
-    query.secret||
-    headers['x-payos-token']||
-    headers['x-vietqr-token']||
-    headers['secure-token']||
-    headers['x-api-key']||
-    headers['x-casso-token']||
-    headers['x-webhook-secret']||
-    headers['x-seapay-token']||
-    (headers['authorization']?headers['authorization'].replace(/^(?:Bearer|Apikey)\s+/i,''):'')||
-    payload.secureToken||
-    payload.secure_token||
-    payload.apiKey||
-    payload.token||
-    payload.secret||
+   const header=name=>typeof headers[name]==='string'?headers[name]:'';
+   const incomingToken=(
+    header('x-payos-token')||
+    header('x-vietqr-token')||
+    header('secure-token')||
+    header('x-api-key')||
+    header('x-casso-token')||
+    header('x-webhook-secret')||
+    header('x-seapay-token')||
+    header('authorization').replace(/^(?:Bearer|Apikey)\s+/i,'')||
     ''
    ).trim();
-   const incomingSignature=String(headers['x-signature']||payload.signature||payload.mac||'').trim();
+   const incomingSignature=header('x-signature').trim();
    let tokenValid=false;
    if(incomingToken&&safeTokenEqual(incomingToken,configuredSecret)){
     tokenValid=true;

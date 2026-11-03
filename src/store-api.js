@@ -385,7 +385,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if(!channelConfig)return res.status(404).json({code:'99',message:'Provider unavailable'});
       // Official wallet notifications are server POST JSON, never query aliases.
       if(req.method!=='POST')return res.status(405).end();
-      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers,query:req.query});
+      const verified=require('./payment-channels').verifyGatewayPayload(provider,req.body||{},channelConfig,{headers:req.headers});
       if(!verified.valid)return res.status(400).json({code:'97',return_code:-1,resultCode:97,message:'Invalid callback',reason:verified.reason});
       if(provider==='bank_transfer'){
         const txns=verified.matchedTransactions?.length?verified.matchedTransactions:[verified];
@@ -2068,7 +2068,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const { autoIssueForOrder } = require('./misa-einvoice');
           await autoIssueForOrder(pool, config, req.params.id, { fetcher: misaFetcher });
         } catch (misaErr) {
-          console.error('MISA auto-issue error for order ' + req.params.id + ':', misaErr.message);
+          console.error('MISA auto-issue error for order %s: %s', req.params.id, misaErr.message);
         }
       }
       res.json({ order: result });

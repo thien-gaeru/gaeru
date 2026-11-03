@@ -38,6 +38,8 @@ function normalizeCarrierStatus(carrierId, rawStatus) {
 // -----------------------------------------------------------------------------
 const jtAdapter = {
   createDigest(dataStr, secret) {
+    // Legacy external J&T wire bytes, retained pending the Vietnam partner spec.
+    // MD5 remains a known protocol risk; see docs/codeql-integration-review-20261103.md.
     return crypto.createHash('md5').update(dataStr + secret, 'utf8').digest('base64');
   },
 
