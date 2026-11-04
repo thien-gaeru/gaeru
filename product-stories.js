@@ -7,7 +7,14 @@
  };
  function render(product){const c=stories[product.slug];if(!c||!c.legacy.test(product.description||''))return null;
  const urls=[...new Set([c.art||product.imageUrl,...(product.gallery||[]),...(product.descriptionMedia||[]).filter(m=>m.type==='image').map(m=>m.url)].filter(u=>typeof u==='string'&&/^\/(?!\/)/.test(u)))];
- const art=(index)=>{const url=urls[index%urls.length];return url?'<figure><img src="'+h(url)+'" alt="'+h(product.name)+' — '+h(index?c.chapters[(index-1)%c.chapters.length][0]:'Bộ sản phẩm')+'" loading="lazy" decoding="async" width="800" height="640"></figure>':'';};
+ const art=(index)=>{
+  const single=product.slug==='gaeru-k9'&&[1,4,5].includes(index);
+  const url=single?c.art:urls[index%urls.length];
+  const alt=h(product.name)+' — '+h(index?c.chapters[(index-1)%c.chapters.length][0]:'Bộ sản phẩm');
+  if(!url)return '';
+  if(single){const clip='k9-story-single-'+index;return '<figure><svg class="k9-story-single" viewBox="0 0 1280 1280" role="img" aria-label="'+alt+' · một mic"><defs><clipPath id="'+clip+'"><rect width="640" height="1280"/></clipPath></defs><g transform="translate(256 0)" clip-path="url(#'+clip+')"><image href="'+h(url)+'" width="1280" height="1280"/></g></svg></figure>';}
+  return '<figure><img '+(product.slug==='gaeru-k9'&&index===0?'data-k9-animate ':'')+'src="'+h(url)+'" alt="'+alt+'" loading="lazy" decoding="async" width="800" height="640"></figure>';
+ };
  return '<div class="product-description-media product-feature-story"><section class="product-feature-intro"><p class="eyebrow">'+h(product.name)+'</p><h3>'+h(c.title)+'</h3><p>'+h(c.intro)+'</p><div class="product-feature-highlights">'+c.highlights.map(([title,copy])=>'<div><strong>'+h(title)+'</strong><span>'+h(copy)+'</span></div>').join('')+'</div>'+art(0)+'</section>'+c.chapters.map(([title,copy],i)=>'<section class="product-feature-chapter"><div><p class="eyebrow">'+String(i+1).padStart(2,'0')+' / '+h(product.name)+'</p><h3>'+h(title)+'</h3><p>'+h(copy)+'</p></div>'+art(i+1)+'</section>').join('')+'<section class="product-feature-specs"><p class="eyebrow">CHI TIẾT ĐỂ CHỌN ĐÚNG</p><h3>Thông tin '+h(product.name)+'.</h3><dl>'+c.specs.map(([name,value])=>'<div><dt>'+h(name)+'</dt><dd>'+h(value)+'</dd></div>').join('')+'</dl><p>Thông tin dựa trên mô tả sản phẩm GAERU. Thiết kế, phụ kiện và khả năng tương thích có thể khác theo phiên bản; ưu tiên nhãn và tài liệu đi kèm thiết bị.</p><a class="text-link" href="/huong-dan/'+h(product.slug)+'">Hướng dẫn sử dụng '+h(product.name)+' ↗</a></section></div>';
  }
  return {render};
