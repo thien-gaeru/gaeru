@@ -22,8 +22,14 @@ async function removeWhiteBackground(buffer, options = {}) {
       : null,
     maxTextDimension = Number(options.maxTextDimension) || 45,
     autoCenterSquare = Boolean(options.autoCenterSquare === true || options.autoCenterSquare === 'true' || options.autoCenterSquare === '1' || options.autoSquare === true || options.autoSquare === '1'),
-    canvasSize = Number(options.canvasSize) || 1000,
-    paddingRatio = options.paddingRatio !== undefined ? Number(options.paddingRatio) : 0.08
+    canvasSize = Number(options.canvasSize || options.mainSize) || 1000,
+    mainSize = Number(options.mainSize || options.canvasSize) || 1000,
+    thumbSize = Number(options.thumbSize) || 400,
+    paddingRatio = options.paddingRatio !== undefined ? Number(options.paddingRatio) : 0.08,
+    enableShadow = options.enableShadow !== undefined ? Boolean(options.enableShadow === true || options.enableShadow === 'true' || options.enableShadow === 1 || options.enableShadow === '1') : true,
+    shadowBlur = Number(options.shadowBlur) || 18,
+    shadowOpacity = options.shadowOpacity !== undefined ? Number(options.shadowOpacity) : 0.22,
+    shadowOffsetY = options.shadowOffsetY !== undefined ? Number(options.shadowOffsetY) : 12
   } = options;
 
   const input = sharp(buffer, { limitInputPixels: 24_000_000, failOn: 'error' });
@@ -206,40 +212,116 @@ async function removeWhiteBackground(buffer, options = {}) {
     return null;
   }
 
-  let processedImage = sharp(data, {
-    raw: { width, height, channels: 4 }
-  });
-
   if (autoCenterSquare) {
+    let trimmedBuffer;
     try {
-      const trimmedBuffer = await processedImage
+      trimmedBuffer = await sharp(data, { raw: { width, height, channels: 4 } })
         .png()
         .trim({ threshold: 5 })
         .toBuffer();
-      const paddingPx = Math.round(canvasSize * paddingRatio);
-      const innerSize = Math.max(1, canvasSize - (paddingPx * 2));
-      processedImage = sharp(trimmedBuffer)
-        .resize({
-          width: innerSize,
-          height: innerSize,
-          fit: 'contain',
-          background: { r: 0, g: 0, b: 0, alpha: 0 }
-        })
-        .extend({
-          top: paddingPx,
-          bottom: paddingPx,
-          left: paddingPx,
-          right: paddingPx,
-          background: { r: 0, g: 0, b: 0, alpha: 0 }
-        });
     } catch (_) {
-      // Trường hợp không có pixel biên hoặc lỗi trim, giữ nguyên processedImage
+      trimmedBuffer = await sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
     }
+
+    const paddingPx = Math.round(mainSize * paddingRatio);
+    const innerSize = Math.max(1, mainSize - (paddingPx * 2));
+    const centeredProductBuffer = await sharp(trimmedBuffer)
+      .resize({
+        width: innerSize,
+        height: innerSize,
+        fit: 'contain',
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      })
+      .extend({
+        top: paddingPx,
+        bottom: paddingPx,
+        left: paddingPx,
+        right: paddingPx,
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      })
+      .png()
+      .toBuffer();
+
+    let finalMasterPipeline;
+    if (enableShadow) {
+      const { data: fgData } = await sharp(centeredProductBuffer)
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const shadowData = new Uint8Array(fgData.length);
+      for (let y = 0; y < mainSize; y++) {
+        const targetY = y + shadowOffsetY;
+        if (targetY < 0 || targetY >= mainSize) continue;
+
+        for (let x = 0; x < mainSize; x++) {
+          const srcIdx = (y * mainSize + x) * 4;
+          const dstIdx = (targetY * mainSize + x) * 4;
+          const srcAlpha = fgData[srcIdx + 3];
+
+          if (srcAlpha > 0) {
+            shadowData[dstIdx + 3] = Math.round(srcAlpha * shadowOpacity);
+          }
+        }
+      }
+
+      const blurredShadowBuffer = await sharp(shadowData, {
+        raw: { width: mainSize, height: mainSize, channels: 4 }
+      })
+        .blur(shadowBlur)
+        .png()
+        .toBuffer();
+
+      finalMasterPipeline = sharp(blurredShadowBuffer).composite([
+        { input: centeredProductBuffer, top: 0, left: 0 }
+      ]);
+    } else {
+      finalMasterPipeline = sharp(centeredProductBuffer);
+    }
+
+    const compositedBuffer = await finalMasterPipeline.png().toBuffer();
+
+    const [mainBuffer, thumbBuffer] = await Promise.all([
+      sharp(compositedBuffer)
+        .webp({ lossless: true, alphaQuality: 100, effort: 4 })
+        .toBuffer(),
+      sharp(compositedBuffer)
+        .resize(thumbSize, thumbSize, { fit: 'inside' })
+        .webp({ quality: 82, alphaQuality: 90, effort: 4 })
+        .toBuffer()
+    ]);
+
+    mainBuffer.thumbBuffer = thumbBuffer;
+    return mainBuffer;
   }
 
-  return await processedImage
-    .webp({ lossless: true, alphaQuality: 100, effort: 4 })
-    .toBuffer();
+  const [mainBuffer, thumbBuffer] = await Promise.all([
+    sharp(data, { raw: { width, height, channels: 4 } })
+      .webp({ lossless: true, alphaQuality: 100, effort: 4 })
+      .toBuffer(),
+    sharp(data, { raw: { width, height, channels: 4 } })
+      .resize(thumbSize, thumbSize, { fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 82, alphaQuality: 90, effort: 4 })
+      .toBuffer()
+  ]);
+
+  mainBuffer.thumbBuffer = thumbBuffer;
+  return mainBuffer;
 }
 
-module.exports = { removeWhiteBackground, removeWhiteBgBuffer: removeWhiteBackground };
+async function processProductImage(inputBuffer, options = {}) {
+  const result = await removeWhiteBackground(inputBuffer, {
+    autoCenterSquare: true,
+    ...options
+  });
+  if (!result) return null;
+  return {
+    mainBuffer: result,
+    thumbBuffer: result.thumbBuffer
+  };
+}
+
+module.exports = {
+  removeWhiteBackground,
+  removeWhiteBgBuffer: removeWhiteBackground,
+  processProductImage
+};

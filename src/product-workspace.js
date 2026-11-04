@@ -1,6 +1,6 @@
 const { rateLimit } = require('express-rate-limit');
 const { sendPublicImage } = require('./lib/image-renditions');
-const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
+const {Router}=require('express'),{z}=require('zod'),multer=require('multer'),path=require('path'),fsPromises=require('fs/promises');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
 const { readStoredImage } = require('./lib/stored-images');
@@ -55,70 +55,167 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
    const autoCenterSquare=req.body?.autoCenterSquare!==undefined?parseSquare(req.body.autoCenterSquare):(req.query?.autoCenterSquare!==undefined?parseSquare(req.query.autoCenterSquare):false);
    const canvasSize=Number(req.body?.canvasSize||req.query?.canvasSize)||1000;
    const paddingRatio=Number(req.body?.paddingRatio||req.query?.paddingRatio)||0.08;
-   const bgOpts={whiteThreshold:req.body?.threshold||req.body?.whiteThreshold||req.query?.threshold||req.query?.whiteThreshold,tolerance:req.body?.tolerance||req.query?.tolerance,minHoleArea:req.body?.minHoleArea||req.query?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio};
+   const enableShadow=req.body?.enableShadow!==undefined?parseSquare(req.body.enableShadow):(req.query?.enableShadow!==undefined?parseSquare(req.query.enableShadow):true);
+   const bgOpts={whiteThreshold:req.body?.threshold||req.body?.whiteThreshold||req.query?.threshold||req.query?.whiteThreshold,tolerance:req.body?.tolerance||req.query?.tolerance,minHoleArea:req.body?.minHoleArea||req.query?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio,enableShadow};
    const buffer=await readStoredImage(source.content),cutout=await require('./lib/image-optimizer').optimizeImage(buffer,source.mime_type,{removeBackground:true,...bgOpts});
    if(!cutout.backgroundRemoved)return res.status(409).json({error:'Chưa nhận diện được vùng nền trắng liền mép. Ảnh được giữ nguyên; dùng ảnh PNG/WebP đã tách nền cho nền phức tạp.'});
    const saved=await require('./lib/stored-media').storeUpload('products',buffer,source.mime_type,pool,{removeBackground:true,...bgOpts});
    const image=(await pool.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',[saved.content,saved.mimeType])).rows[0];
-   await appendAudit(pool,{actor:req.admin,action:'catalog.image.remove_background',entityType:'catalog_image',entityId:image.id,metadata:{sourceId:id}});
-   res.status(201).json({imageUrl:'/api/catalog-images/'+image.id,backgroundRemoved:true});
+   let thumbUrl=null;
+   if(saved.thumbBuffer){
+     const thumbSaved=await require('./lib/stored-media').storeUpload('products',saved.thumbBuffer,'image/webp',pool,{removeBackground:false});
+     const thumbRow=(await pool.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',[thumbSaved.content,thumbSaved.mimeType])).rows[0];
+     thumbUrl='/api/catalog-images/'+thumbRow.id;
+   }
+   await appendAudit(pool,{actor:req.admin,action:'catalog.image.remove_background',entityType:'catalog_image',entityId:image.id,metadata:{sourceId:id,thumbUrl}});
+   res.status(201).json({imageUrl:'/api/catalog-images/'+image.id,thumbUrl,backgroundRemoved:true});
   }catch(error){next(error);}
  });
- const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:10}}).single('image');
-admin.post(['/catalog-images','/uploads/image'],
-  catalogImageUploadLimiter,
-  requirePermission('catalog.write'),
-  requireCsrf,
-  (req, res, next) => upload(req, res, e => e
-    ? res.status(400).json({
-        error: 'Chọn ảnh PNG, JPG hoặc WebP tối đa 8 MB.'
-      })
-    : next()),
-  async (req, res, next) => {
-    const f = req.file;
-    const b = f?.buffer;
+ const uploadBatch = multer({
+   storage: multer.memoryStorage(),
+   limits: { fileSize: 10 * 1024 * 1024, files: 10, fields: 20 },
+   fileFilter: (_req, file, cb) => {
+     if (/image\/(jpeg|png|webp)/.test(file.mimetype) || /\.(png|jpe?g|webp)$/i.test(file.originalname)) {
+       cb(null, true);
+     } else {
+       cb(Object.assign(new Error('Chỉ chấp nhận định dạng ảnh JPG, PNG hoặc WebP!'), { status: 400 }));
+     }
+   }
+ }).fields([{ name: 'image', maxCount: 10 }, { name: 'images', maxCount: 10 }]);
 
-    const valid = Boolean(b && (
-      (f.mimetype === 'image/png' &&
-        b.subarray(0, 8).equals(
-          Buffer.from([137,80,78,71,13,10,26,10])
-        )) ||
-      (f.mimetype === 'image/jpeg' &&
-        b[0] === 255 && b[1] === 216 && b[2] === 255) ||
-      (f.mimetype === 'image/webp' &&
-        b.toString('ascii', 0, 4) === 'RIFF' &&
-        b.toString('ascii', 8, 12) === 'WEBP')
-    ));
+ async function handleBatchUpload(req, res, next) {
+   const files = [...(req.files?.images || []), ...(req.files?.image || []), ...(req.file ? [req.file] : [])];
+   if (!files.length) {
+     return res.status(400).json({ error: 'Vui lòng chọn ít nhất một file ảnh.' });
+   }
 
-    if (!valid) {
-      return res.status(400).json({
-        error: 'Tệp ảnh không hợp lệ.'
-      });
-    }
+   for (const f of files) {
+     const b = f.buffer;
+     const valid = Boolean(b && (
+       (f.mimetype === 'image/png' && b.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) ||
+       (f.mimetype === 'image/jpeg' && b[0] === 255 && b[1] === 216 && b[2] === 255) ||
+       (f.mimetype === 'image/webp' && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP')
+     ));
+     if (!valid) {
+       return res.status(400).json({ error: 'Tệp ảnh không hợp lệ.' });
+     }
+   }
 
+   try {
+     const parseSquare = v => v === true || v === 'true' || v === '1';
+     const autoCenterSquare = req.query?.autoCenterSquare !== undefined ? parseSquare(req.query.autoCenterSquare) : (req.body?.autoCenterSquare !== undefined ? parseSquare(req.body.autoCenterSquare) : true);
+     const canvasSize = Number(req.query?.canvasSize || req.body?.canvasSize) || 1000;
+     const paddingRatio = Number(req.query?.paddingRatio || req.body?.paddingRatio) || 0.08;
+     const enableShadow = req.query?.enableShadow !== undefined ? parseSquare(req.query.enableShadow) : (req.body?.enableShadow !== undefined ? parseSquare(req.body.enableShadow) : true);
+     const removeBackground = req.query?.background !== 'keep' && req.body?.background !== 'keep';
 
-    try {
-      const parseSquare=v=>v===true||v==='true'||v==='1';
-      const autoCenterSquare=req.query?.autoCenterSquare!==undefined?parseSquare(req.query.autoCenterSquare):(req.body?.autoCenterSquare!==undefined?parseSquare(req.body.autoCenterSquare):false);
-      const canvasSize=Number(req.query?.canvasSize||req.body?.canvasSize)||1000;
-      const paddingRatio=Number(req.query?.paddingRatio||req.body?.paddingRatio)||0.08;
-      const bgOpts={whiteThreshold:req.query.threshold||req.query.whiteThreshold||req.body?.threshold||req.body?.whiteThreshold,tolerance:req.query.tolerance||req.body?.tolerance,minHoleArea:req.query.minHoleArea||req.body?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio};
-      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype,pool,{removeBackground:req.query.background!=='keep',...bgOpts});
-      const content=optimized.content;
+     const bgOpts = {
+       whiteThreshold: req.query.threshold || req.query.whiteThreshold || req.body?.threshold || req.body?.whiteThreshold,
+       tolerance: req.query.tolerance || req.body?.tolerance,
+       minHoleArea: req.query.minHoleArea || req.body?.minHoleArea,
+       autoCenterSquare,
+       canvasSize,
+       paddingRatio,
+       enableShadow
+     };
 
-      const row = (await pool.query(
-        'INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',
-        [content, optimized.mimeType]
-      )).rows[0];
+     const uploadDir = path.join(__dirname, '..', 'public', 'uploads');
+     try { await fsPromises.mkdir(uploadDir, { recursive: true }); } catch (_) {}
 
-      return res.status(201).json({
-        imageUrl: '/api/catalog-images/' + row.id
-      });
-    } catch (e) {
-      if (e.status === 400) return res.status(400).json({error: e.message});
-      return next(e);
-    }
-  });
+     // Concurrency bounded runner: process at most 3 images simultaneously to protect RAM/CPU
+     const results = new Array(files.length);
+     let cursor = 0;
+     const concurrency = Math.min(3, files.length);
+     const workers = Array.from({ length: concurrency }, async () => {
+       while (cursor < files.length) {
+         const i = cursor++;
+         const f = files[i];
+         const b = f.buffer;
+         const optimized = await require('./lib/stored-media').storeUpload('products', b, f.mimetype, pool, {
+           removeBackground,
+           ...bgOpts
+         });
+         const content = optimized.content;
+
+         const row = (await pool.query(
+           'INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',
+           [content, optimized.mimeType]
+         )).rows[0];
+
+         let thumbUrl = null;
+         if (optimized.thumbBuffer) {
+           const thumbSaved = await require('./lib/stored-media').storeUpload('products', optimized.thumbBuffer, 'image/webp', pool, { removeBackground: false });
+           const thumbRow = (await pool.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id', [thumbSaved.content, thumbSaved.mimeType])).rows[0];
+           thumbUrl = '/api/catalog-images/' + thumbRow.id;
+         }
+
+         const timestamp = Date.now();
+         const safeName = (f.originalname || `product-${i}`).replace(/[^a-zA-Z0-9.-]/g, '_');
+         const mainFileName = `product-${timestamp}-${i}-${safeName}.webp`;
+         const thumbFileName = `product-${timestamp}-${i}-thumb.webp`;
+         try {
+           const mainBuf = await require('./lib/stored-media').readMedia(content);
+           await fsPromises.writeFile(path.join(uploadDir, mainFileName), mainBuf);
+           if (optimized.thumbBuffer) {
+             await fsPromises.writeFile(path.join(uploadDir, thumbFileName), optimized.thumbBuffer);
+           }
+         } catch (_) {}
+
+         results[i] = {
+           originalName: f.originalname || `image-${i + 1}`,
+           imageUrl: '/api/catalog-images/' + row.id,
+           thumbUrl,
+           publicUrl: `/public/uploads/${mainFileName}`,
+           publicThumbUrl: `/public/uploads/${thumbFileName}`,
+           backgroundRemoved: Boolean(optimized.backgroundRemoved)
+         };
+       }
+     });
+     await Promise.all(workers);
+
+     if (files.length === 1 && !req.path.includes('batch') && !req.path.includes('upload-batch-products')) {
+       return res.status(201).json({
+         imageUrl: results[0].imageUrl,
+         ...(results[0].thumbUrl ? { thumbUrl: results[0].thumbUrl } : {}),
+         backgroundRemoved: results[0].backgroundRemoved,
+         success: true,
+         count: 1,
+         data: results
+       });
+     }
+
+     return res.status(201).json({
+       success: true,
+       count: results.length,
+       data: results,
+       imageUrl: results[0]?.imageUrl,
+       ...(results[0]?.thumbUrl ? { thumbUrl: results[0].thumbUrl } : {})
+     });
+   } catch (e) {
+     if (e.status === 400) return res.status(400).json({ error: e.message });
+     return next(e);
+   }
+ }
+
+ admin.post(['/catalog-images', '/uploads/image', '/catalog-images/batch', '/upload-batch-products'],
+   catalogImageUploadLimiter,
+   requirePermission('catalog.write'),
+   requireCsrf,
+   (req, res, next) => uploadBatch(req, res, e => e
+     ? res.status(400).json({
+         error: e.message || 'Chọn ảnh PNG, JPG hoặc WebP tối đa 10 MB.'
+       })
+     : next()),
+   handleBatchUpload);
+
+ publicApi.post('/upload-batch-products',
+   catalogImageUploadLimiter,
+   (req, res, next) => uploadBatch(req, res, e => e
+     ? res.status(400).json({
+         error: e.message || 'Chọn ảnh PNG, JPG hoặc WebP tối đa 10 MB.'
+       })
+     : next()),
+   handleBatchUpload);
  admin.post('/product-workspace',requirePermission('catalog.write'),requireCsrf,async(req,res,next)=>{const parsed=schema.safeParse(req.body);if(!parsed.success){const issues=parsed.error.issues||[];const first=issues[0];let msg='Kiểm tra thông tin, ảnh, SKU, giá và số lượng biến thể.';if(first){const p=first.path.join('.');if(p==='product.name')msg='Tên sản phẩm cần từ 2 đến 160 ký tự.';else if(p==='product.slug')msg='Đường dẫn sản phẩm chỉ được dùng chữ thường không dấu, số và dấu gạch nối (ví dụ: gaeru-k9).';else if(p==='gallery'||p.startsWith('gallery'))msg='Vui lòng thêm ít nhất một ảnh sản phẩm (tối đa 9 ảnh).';else if(p.includes('sku'))msg='Mã SKU không được để trống và chỉ gồm chữ, số, dấu gạch nối (ví dụ: K9-01).';else if(p.includes('priceVnd'))msg='Giá bán biến thể phải là số nguyên từ 0₫ đến 20.000.000₫.';else if(p.includes('stockQuantity'))msg='Số lượng tồn kho phải là số nguyên từ 0 đến 1.000.000.';else if(p==='product.description')msg='Mô tả chi tiết sản phẩm không quá 3000 ký tự.';else if(p==='product.cardTitle')msg='Tiêu đề thẻ sản phẩm tối đa 100 ký tự.';else if(p==='product.cardSummary')msg='Thông điệp giới thiệu tối đa 240 ký tự.';else if(first.message&&!first.message.startsWith('Required')&&!first.message.startsWith('Expected')&&!first.message.startsWith('Invalid'))msg=first.message;}return res.status(400).json({error:msg,issues});}const a=parsed.data;if(a.inTrash&&(!a.id||a.product.active))return res.status(400).json({error:'Sản phẩm đã xóa chỉ được lưu trong khu vực đã xóa. Dùng Khôi phục hoặc Kích hoạt lại để đưa ra danh mục.'});
  try{const names=a.groups.map(g=>g.name.toLocaleLowerCase());if(new Set(names).size!==names.length)throw fail('Tên nhóm phân loại không được trùng.',400);for(const g of a.groups)if(new Set(g.values.map(v=>v.toLocaleLowerCase())).size!==g.values.length)throw fail('Lựa chọn trong một nhóm không được trùng.',400);
  const ids=a.variants.filter(v=>v.id).map(v=>v.id);if(new Set(ids).size!==ids.length)throw fail('Mỗi biến thể đã lưu chỉ được xuất hiện một lần.',400);

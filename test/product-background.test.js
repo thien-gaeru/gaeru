@@ -36,3 +36,21 @@ test('auto-trims excess padding and centers product into ecommerce standard squa
  assert.equal(pixel(20,20)[3],0);
  assert.deepEqual(pixel(500,500),[18,52,86,255]);
 });
+test('processProductImage generates mainBuffer with drop shadow and thumbBuffer (400x400)',async()=>{
+ const svg=Buffer.from('<svg width="1600" height="800"><rect width="1600" height="800" fill="white"/><rect x="400" y="200" width="800" height="400" fill="#123456"/></svg>');
+ const source=await sharp(svg).png().toBuffer();
+ const {processProductImage}=require('../src/lib/product-background');
+ const result=await processProductImage(source,{enableShadow:true,mainSize:1000,thumbSize:400});
+ assert.ok(result.mainBuffer);
+ assert.ok(result.thumbBuffer);
+ const mainMeta=await sharp(result.mainBuffer).metadata();
+ const thumbMeta=await sharp(result.thumbBuffer).metadata();
+ assert.equal(mainMeta.width,1000);
+ assert.equal(mainMeta.height,1000);
+ assert.equal(thumbMeta.width,400);
+ assert.equal(thumbMeta.height,400);
+ const mainPixels=await sharp(result.mainBuffer).ensureAlpha().raw().toBuffer();
+ const pixel=(x,y)=>[...mainPixels.subarray((y*1000+x)*4,(y*1000+x)*4+4)];
+ assert.deepEqual(pixel(500,500),[18,52,86,255],'foreground intact');
+ assert.ok(pixel(500,750)[3]>0,'shadow is visible below product');
+});

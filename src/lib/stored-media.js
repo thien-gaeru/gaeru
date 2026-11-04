@@ -46,6 +46,6 @@ async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==
  let mimeType=mime,backgroundRemoved=false;if(scope!=='chat'&&scope!=='care'&&mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes,removeBackground,...backgroundOptions});buffer=optimized.buffer;mimeType=optimized.mimeType;backgroundRemoved=Boolean(optimized.backgroundRemoved);}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
  const content=await storeMedia(scope,buffer,mimeType),meta=metadata(content);
  if(meta&&mime.startsWith('image/')&&scope!=='chat'&&scope!=='care')await require('./image-originals').preserveOriginal(pool,{scope,buffer:originalBuffer,mime,derivativeKey:meta.key});
- return {content,mimeType,byteSize:buffer.length,backgroundRemoved};
+ return {content,mimeType,byteSize:buffer.length,backgroundRemoved,thumbBuffer:buffer.thumbBuffer};
 }
 module.exports={storeMedia,storeUpload,readMedia,metadata,pointer,PREFIX};

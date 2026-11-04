@@ -385,7 +385,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     } catch {return res.set('Cache-Control','no-store').sendStatus(404);}
     const publicFiles=require('./public-files');
     const isFile=pathname==='/' || publicFiles.has(pathname.slice(1));
-    const isAsset=pathname==='/assets/data/vietnam-addresses.json' || pathname.startsWith('/assets/') && /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf)$/i.test(pathname);
+    const isAsset=pathname==='/assets/data/vietnam-addresses.json' || (pathname.startsWith('/assets/') || pathname.startsWith('/public/')) && /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf)$/i.test(pathname);
     if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });

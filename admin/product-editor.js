@@ -327,12 +327,14 @@
  function getCutoutParams(){
    const autoBg=document.querySelector('#product-auto-background')?.checked!==false;
    const autoSquare=document.querySelector('#cutout-auto-square')?.checked===true;
+   const enableShadow=document.querySelector('#cutout-enable-shadow')?.checked!==false;
    const th=document.querySelector('#cutout-threshold')?.value;
    const tol=document.querySelector('#cutout-tolerance')?.value;
    const hole=document.querySelector('#cutout-min-hole')?.value;
    const parts=[];
    if(!autoBg)parts.push('background=keep');
    if(autoSquare)parts.push('autoCenterSquare=true');
+   if(!enableShadow)parts.push('enableShadow=false');
    if(th&&th!=='240')parts.push('threshold='+encodeURIComponent(th));
    if(tol&&tol!=='35')parts.push('tolerance='+encodeURIComponent(tol));
    if(hole&&hole!=='450')parts.push('minHoleArea='+encodeURIComponent(hole));
@@ -342,6 +344,7 @@
      queryString: qs,
      body: {
        autoCenterSquare: autoSquare,
+       enableShadow,
        threshold: th ? Number(th) : 240,
        tolerance: tol ? Number(tol) : 35,
        minHoleArea: hole ? Number(hole) : 450,
@@ -758,6 +761,65 @@
   if(tolInput&&tolVal)tolInput.addEventListener('input',()=>tolVal.textContent=tolInput.value);
   const holeInput=document.querySelector('#cutout-min-hole'),holeVal=document.querySelector('#valHole');
   if(holeInput&&holeVal)holeInput.addEventListener('input',()=>holeVal.textContent=holeInput.value+' px');
+
+  const btnBatch=document.querySelector('#btn-batch-upload'),batchInput=document.querySelector('#batch-album-input'),batchStatus=document.querySelector('#batch-status-text'),batchGrid=document.querySelector('#batch-preview-grid');
+  if(btnBatch&&batchInput){
+    btnBatch.addEventListener('click',async()=>{
+      const files=[...(batchInput.files||[])];
+      if(!files.length){
+        feedback('Vui lòng chọn ít nhất một file ảnh.',true);
+        if(batchStatus)batchStatus.textContent='Vui lòng chọn ít nhất một file ảnh.';
+        return;
+      }
+      if(files.length>10){
+        feedback('Tối đa 10 ảnh mỗi lần tải lên.',true);
+        if(batchStatus)batchStatus.textContent='Tối đa 10 ảnh mỗi lần tải lên.';
+        return;
+      }
+      if(batchStatus)batchStatus.textContent=`Đang xử lý ${files.length} ảnh, vui lòng đợi...`;
+      if(batchGrid)batchGrid.innerHTML='';
+      btnBatch.disabled=true;
+      try{
+        const formData=new FormData();
+        for(const file of files)formData.append('images',file);
+        const {queryString,body}=getCutoutParams();
+        formData.append('enableShadow',body.enableShadow);
+        formData.append('autoCenterSquare',body.autoCenterSquare);
+        formData.append('threshold',body.threshold);
+        formData.append('tolerance',body.tolerance);
+        formData.append('minHoleArea',body.minHoleArea);
+
+        const result=await request('/api/gaeru_ceo/catalog-images/batch'+queryString,'POST',formData);
+        if(result.success&&Array.isArray(result.data)){
+          if(batchStatus)batchStatus.textContent=`Thành công! Đã xử lý xong ${result.count} ảnh.`;
+          readRows();
+          result.data.forEach(item=>{
+            if(batchGrid){
+              const card=document.createElement('div');
+              card.style.cssText='border:1px solid #cbd5e1;height:120px;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(#f1f5f9 0% 25%, #fff 0% 50%) 50%/16px 16px;position:relative';
+              card.innerHTML=`<img src="${esc(imageUrl(item.imageUrl))}" style="max-width:100%;max-height:100%;object-fit:contain" title="${esc(item.originalName)}"><span style="position:absolute;bottom:4px;right:4px;background:#16a34a;color:#fff;font-size:10px;padding:2px 6px;border-radius:999px">✓ WebP</span>`;
+              batchGrid.appendChild(card);
+            }
+            if(model.gallery.length<9&&!model.gallery.includes(item.imageUrl)){
+              model.gallery.push(item.imageUrl);
+            }
+          });
+          dirty=true;
+          gallery();
+          rows();
+          feedback(`Đã xử lý và thêm ${result.count} ảnh vào bộ ảnh sản phẩm.`);
+        }else{
+          if(batchStatus)batchStatus.textContent=`Lỗi: ${result.error||'Chưa xử lý được.'}`;
+          feedback(result.error||'Chưa xử lý được.',true);
+        }
+      }catch(err){
+        if(batchStatus)batchStatus.textContent=`Lỗi: ${err.message}`;
+        feedback(err.message,true);
+      }finally{
+        btnBatch.disabled=false;
+      }
+    });
+  }
 
  form.addEventListener('click',e=>{
     const b=e.target.closest('button');
