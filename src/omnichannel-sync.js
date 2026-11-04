@@ -271,9 +271,11 @@ async function syncStockToChannel(pool, config, channel, { variantId, fetcher = 
       skippedCount++;results.push({sku:v.sku,state:'skipped',message:'Chưa có mapping và ID sản phẩm/biến thể sàn đầy đủ.'});continue;
     }
     try{
-      const r=await connector.updateStock(channel==='shopee'?{...base,itemId:v.externalProductId,modelId:v.externalVariantId||'0',stock:v.stockQuantity}:channel==='tiktok'?{...base,productId:v.externalProductId,skuId:v.externalVariantId,availableStock:v.stockQuantity}:{...base,sku:v.externalSku,quantity:v.stockQuantity},{fetcher});
+      const safetyBuffer = Math.max(0, Number(record.data?.safetyStockBuffer ?? 2));
+      const safeStock = Math.max(0, Number(v.stockQuantity) - safetyBuffer);
+      const r=await connector.updateStock(channel==='shopee'?{...base,itemId:v.externalProductId,modelId:v.externalVariantId||'0',stock:safeStock}:channel==='tiktok'?{...base,productId:v.externalProductId,skuId:v.externalVariantId,availableStock:safeStock}:{...base,sku:v.externalSku,quantity:safeStock},{fetcher});
       if(r?.success!==true)throw fail('Sàn chưa xác nhận cập nhật tồn kho.',502);
-      updatedCount++;results.push({sku:v.sku,state:'updated',message:'Sàn đã xác nhận cập nhật.'});
+      updatedCount++;results.push({sku:v.sku,state:'updated',message:'Sàn đã xác nhận cập nhật.',syncedStock:safeStock,safetyBuffer});
     }catch{failedCount++;results.push({sku:v.sku,state:'failed',message:'Sàn chưa xác nhận cập nhật. Kiểm tra token, quyền và ID mapping rồi thử lại.'});}
   }
   const result={success:failedCount===0&&skippedCount===0,channel,updatedCount,failedCount,skippedCount,results};await recordSync(pool,channel,'sync_stock',result,actor);return result;

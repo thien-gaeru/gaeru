@@ -38,6 +38,57 @@ function createCustomerCartRouter(pool) {
     }
   });
 
+  // POST /api/customer/cart/check-prices: Đối chiếu giá niêm yết hiện hành với giá giỏ hàng
+  router.post('/check-prices', async (req, res, next) => {
+    try {
+      const itemsToCheck = Array.isArray(req.body?.items) ? req.body.items : [];
+      const cartQuery = await pool.query(
+        `SELECT c.variant_id AS "variantId", c.quantity,
+                pv.stock_quantity AS "stockQuantity", pv.price_vnd AS "priceVnd",
+                pv.name AS "variantName", p.name AS "productName"
+         FROM customer_cart_items c
+         JOIN product_variants pv ON pv.id = c.variant_id
+         JOIN products p ON p.id = pv.product_id
+         WHERE c.customer_id = $1 AND pv.active = true AND p.active = true AND p.deleted_at IS NULL`,
+        [req.customerId]
+      );
+      const dbItems = cartQuery.rows;
+      const priceChanges = [];
+      let totalCurrentVnd = 0;
+
+      for (const item of dbItems) {
+        totalCurrentVnd += item.priceVnd * item.quantity;
+        const expected = itemsToCheck.find((i) => i.variantId === item.variantId);
+        if (expected && expected.expectedPriceVnd !== undefined && Number(expected.expectedPriceVnd) !== item.priceVnd) {
+          priceChanges.push({
+            variantId: item.variantId,
+            productName: item.productName,
+            variantName: item.variantName,
+            oldPriceVnd: Number(expected.expectedPriceVnd),
+            currentPriceVnd: item.priceVnd,
+            differenceVnd: item.priceVnd - Number(expected.expectedPriceVnd)
+          });
+        }
+      }
+
+      res.json({
+        hasPriceChanges: priceChanges.length > 0,
+        priceChanges,
+        currentSubtotalVnd: totalCurrentVnd,
+        items: dbItems.map((r) => ({
+          variantId: r.variantId,
+          quantity: r.quantity,
+          priceVnd: r.priceVnd,
+          stockQuantity: r.stockQuantity,
+          productName: r.productName,
+          variantName: r.variantName
+        }))
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // GET /api/customer/cart: Lấy toàn bộ sản phẩm trong giỏ hàng trên máy chủ
   router.get('/', async (req, res, next) => {
     try {

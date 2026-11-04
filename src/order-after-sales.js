@@ -337,6 +337,33 @@ function afterSalesRouter(pool) {
         if (row.kind === 'cancellation' && data.status === 'received') throw fail('Yêu cầu hủy không có bước nhận hàng hoàn.');
 
         const order = (await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [row.order_id])).rows[0];
+        if (data.status === 'approved' && row.kind === 'return' && row.return_type === 'exchange') {
+          const items = (await c.query('SELECT variant_id, quantity FROM order_items WHERE order_id = $1 AND variant_id IS NOT NULL', [row.order_id])).rows;
+          if (items.length > 0) {
+            const variantIds = items.map((i) => i.variant_id);
+            const availableStock = (await c.query(
+              `SELECT COALESCE(SUM(ws.quantity), 0)::int AS total
+               FROM warehouse_stock ws
+               JOIN warehouses w ON w.id = ws.warehouse_id
+               WHERE ws.variant_id = ANY($1::uuid[]) AND w.active = true`,
+              [variantIds]
+            )).rows[0]?.total || 0;
+            if (availableStock <= 0) {
+              const productStock = (await c.query(
+                `SELECT COALESCE(SUM(ws.quantity), 0)::int AS total
+                 FROM product_variants v
+                 JOIN warehouse_stock ws ON ws.variant_id = v.id
+                 JOIN warehouses w ON w.id = ws.warehouse_id
+                 WHERE v.product_id IN (SELECT product_id FROM product_variants WHERE id = ANY($1::uuid[]))
+                   AND v.active = true AND w.active = true`,
+                [variantIds]
+              )).rows[0]?.total || 0;
+              if (productStock <= 0) {
+                throw fail('Sản phẩm đổi hiện đã hết tồn kho khả dụng để đổi mới. Vui lòng đối chiếu với khách để chọn màu/size khác hoặc chuyển sang hoàn tiền.');
+              }
+            }
+          }
+        }
         if (data.status === 'resolved' && row.kind === 'cancellation' && order.status !== 'cancelled') {
           throw fail('Hoàn tất thao tác hủy đơn trong chi tiết đơn trước khi đóng yêu cầu.');
         }

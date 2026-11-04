@@ -21,3 +21,18 @@ CREATE TABLE IF NOT EXISTS misa_einvoices (
 );
 
 CREATE INDEX IF NOT EXISTS misa_einvoices_order_number ON misa_einvoices(order_number);
+
+CREATE TABLE IF NOT EXISTS misa_einvoice_retry_queue (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  attempts integer NOT NULL DEFAULT 0,
+  max_attempts integer NOT NULL DEFAULT 3,
+  last_error text,
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(order_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_misa_retry_pending ON misa_einvoice_retry_queue(next_attempt_at) WHERE status = 'pending';

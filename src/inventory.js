@@ -131,7 +131,7 @@ async function setVariantStock(client, { variantId, quantity, actor, reason = "C
     before: { quantity: variant.stockQuantity }, after: { quantity }, metadata: { reason } });
 }
 
-async function reserveStock(client, { variantId, quantity, orderId, actor }) {
+async function reserveStock(client, { variantId, quantity, orderId, actor, warehouseId }) {
   validateQuantity(quantity, { allowZero: false });
   const variant = await lockVariant(client, variantId);
   const existing = await client.query(
@@ -145,11 +145,14 @@ async function reserveStock(client, { variantId, quantity, orderId, actor }) {
   }
   const balances = await allBalances(client, variantId);
   verifyBalanceTotal(variant, balances);
-  if (variant.stockQuantity < quantity || balances.filter((row) => row.active).reduce((sum, row) => sum + row.quantity, 0) < quantity) {
-    throw operationError("Tồn kho khả dụng không đủ để đặt hàng.");
+  const eligibleBalances = warehouseId
+    ? balances.filter((row) => row.active && row.warehouseId === warehouseId)
+    : balances.filter((row) => row.active);
+  if (variant.stockQuantity < quantity || eligibleBalances.reduce((sum, row) => sum + row.quantity, 0) < quantity) {
+    throw operationError(warehouseId ? "Kho được chọn không đủ tồn khả dụng cho đơn hàng." : "Tồn kho khả dụng không đủ để đặt hàng.");
   }
   let remaining = quantity;
-  for (const balance of balances.filter((row) => row.active)) {
+  for (const balance of eligibleBalances) {
     const amount = Math.min(remaining, balance.quantity);
     if (amount) {
       await client.query(
@@ -164,7 +167,7 @@ async function reserveStock(client, { variantId, quantity, orderId, actor }) {
     if (!remaining) break;
   }
   await updateAggregate(client, variantId, variant.stockQuantity - quantity);
-  await appendAudit(client, { actor, action: "inventory.reserve", entityType: "order", entityId: orderId, metadata: { variantId, quantity } });
+  await appendAudit(client, { actor, action: "inventory.reserve", entityType: "order", entityId: orderId, metadata: { variantId, quantity, ...(warehouseId ? { warehouseId } : {}) } });
 }
 
 async function releaseOrderStock(client, { orderId, actor }) {

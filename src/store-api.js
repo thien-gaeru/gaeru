@@ -31,7 +31,8 @@ const orderSchema = z.object({
   paymentMethod: z.enum(["cod", "bank_transfer", "vnpay", "momo", "zalopay"]),
   items: z.array(z.object({
     variantId: z.string().uuid(),
-    quantity: z.number().int().min(1).max(99)
+    quantity: z.number().int().min(1).max(99),
+    expectedPriceVnd: z.number().int().min(0).max(2000000000).optional()
   })).min(1).max(30)
 });
 
@@ -546,6 +547,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
 
     prepared = await require("./product-promotions").applyPromotions(client, prepared);
+    for (const item of prepared) {
+      const orig = (parsedData.items || []).find((i) => i.variantId === item.id);
+      if (orig?.expectedPriceVnd !== undefined && orig.expectedPriceVnd !== item.priceVnd) {
+        throw Object.assign(
+          new Error(`Giá sản phẩm "${item.productName} (${item.variantName})" đã thay đổi từ ${new Intl.NumberFormat('vi-VN').format(orig.expectedPriceVnd)} ₫ thành ${new Intl.NumberFormat('vi-VN').format(item.priceVnd)} ₫. Vui lòng tải lại giỏ hàng để cập nhật.`),
+          { status: 409, code: 'PRICE_CHANGED', variantId: item.id, oldPriceVnd: orig.expectedPriceVnd, newPriceVnd: item.priceVnd }
+        );
+      }
+    }
     const subtotal = prepared.reduce((sum, item) => sum + item.priceVnd * item.quantity, 0);
     if (!Number.isSafeInteger(subtotal) || subtotal > 2_000_000_000) {
       throw Object.assign(new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép."), { status: 400 });
@@ -1933,6 +1943,26 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
+        if (targetStatus && ["confirmed", "processing", "shipped"].includes(targetStatus) && current.status === "pending") {
+          const hasAllocations = (await client.query("SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1", [current.id])).rows.length > 0;
+          if (!hasAllocations && inventory) {
+            let targetWarehouseId = update.warehouseId;
+            if (!targetWarehouseId) {
+              const defWh = await client.query("SELECT id FROM warehouses WHERE active = true ORDER BY CASE WHEN code = 'MAIN' THEN 0 ELSE 1 END, created_at ASC LIMIT 1");
+              if (defWh.rows.length) targetWarehouseId = defWh.rows[0].id;
+            }
+            const items = (await client.query("SELECT variant_id, quantity FROM order_items WHERE order_id = $1 AND variant_id IS NOT NULL", [current.id])).rows;
+            for (const item of items) {
+              await inventory.reserveStock(client, {
+                variantId: item.variant_id,
+                quantity: item.quantity,
+                orderId: current.id,
+                actor: actor || { username: "admin", source: "admin" },
+                warehouseId: targetWarehouseId
+              });
+            }
+          }
+        }
         if (update.status === "cancelled" && current.status !== "cancelled") {
           const activeWaybill = await client.query(
             "SELECT 1 FROM carrier_shipments WHERE order_id = $1 AND status <> 'cancelled' LIMIT 1",
@@ -2139,7 +2169,8 @@ const variantSchema = z.object({
 const orderUpdateSchema = z.object({
   status: z.enum(["pending", "confirmed", "processing", "shipped", "completed", "cancelled"]).optional(),
   paymentStatus: z.enum(["pending", "paid"]).optional(),
-  shippingFeeVnd: z.number().int().min(0).max(1_000_000_000).optional()
+  shippingFeeVnd: z.number().int().min(0).max(1_000_000_000).optional(),
+  warehouseId: z.string().uuid().optional()
 }).refine((value) => Object.keys(value).length > 0);
 
 const settingsSchema = z.object({
