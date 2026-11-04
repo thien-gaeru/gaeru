@@ -1,0 +1,92 @@
+-- Editorial publication requested for five GAERU K9 practical guides.
+-- Reuse the published K9 connection illustration; never overwrite edited posts.
+WITH cover AS (
+ SELECT cover_id,image_alt FROM news_posts
+ WHERE slug='gaeru-k9-chon-cong-ket-noi-va-bo-mic' AND status='published'
+ LIMIT 1
+), articles(slug,title,excerpt,body) AS (VALUES
+('gaeru-k9-thu-thu-truoc-khi-quay','GAERU K9: Kiểm tra bản thu trong 5 bước trước buổi quay','Một quy trình ngắn để kiểm tra kết nối, nguồn âm và vị trí cài micro trước khi quay nội dung chính.','Bản thu thử giúp bạn phát hiện vấn đề trước khi quay một đoạn dài. Với GAERU K9, hãy bắt đầu từ đúng phiên bản đầu thu và ứng dụng bạn định dùng. Không nên chỉ nhìn biểu tượng kết nối rồi mặc định rằng điện thoại đã nhận âm thanh từ micro ngoài.
+
+1. Kiểm tra cổng và nguồn điện
+Đối chiếu đầu thu với cổng của thiết bị. Nếu có ốp dày hoặc bộ chuyển, kiểm tra đầu cắm đã vào chắc và phụ kiện có hỗ trợ đường âm thanh hay chưa. Chuẩn bị pin theo hướng dẫn đi kèm sản phẩm.
+
+2. Cài micro gọn trên áo
+Chọn vị trí gần người nói nhưng tránh cổ áo, dây đeo hoặc tóc cọ vào đầu micro. Giữ phần thu thoáng; đừng để vải che kín. Nói thử với tư thế bạn sẽ sử dụng khi quay.
+
+3. Ghi một đoạn có cả tiếng nói và khoảng lặng
+Mở đúng ứng dụng quay, nói vài câu ở âm lượng thông thường rồi im lặng một lúc. Nếu dùng bộ hai micro, thử từng người riêng để dễ phát hiện nguồn chưa được nhận.
+
+4. Nghe lại bằng tai nghe
+Tạm dừng và nghe lại bản ghi. Chú ý tiếng cọ áo, âm quá nhỏ, tiếng méo khi nói lớn và âm nền. Nếu chưa rõ ứng dụng đang dùng nguồn nào, ghi hai đoạn khi có và không có đầu thu để đối chiếu; không gõ hoặc thổi mạnh vào micro.
+
+5. Giữ cấu hình ổn định
+Khi kết quả phù hợp, giữ vị trí cài và ứng dụng đó cho nội dung chính. Sau khi thay điện thoại, bộ chuyển hoặc ứng dụng, hãy thử lại. Xem các phiên bản tại https://gaeru.com/san-pham/gaeru-k9 và hướng dẫn tại https://gaeru.com/huong-dan.'),
+('gaeru-k9-phong-van-hai-nguoi','GAERU K9: Chuẩn bị cuộc phỏng vấn hai người','Cách phân chia hai nguồn nói, bố trí micro và kiểm tra từng người trước một cuộc phỏng vấn.','Một cuộc phỏng vấn dễ nghe bắt đầu từ việc chuẩn bị nguồn âm cho từng người. Khi chọn GAERU K9, hãy kiểm tra phiên bản có số lượng micro phù hợp trong danh sách sản phẩm; bộ một micro và bộ hai micro phục vụ cách sử dụng khác nhau.
+
+Chọn bộ theo cách nói chuyện
+Nếu hai người cùng xuất hiện và trao đổi liên tục, bộ có hai micro giúp mỗi người giữ một vị trí thu riêng. Nếu chỉ một người nói, một micro có thể phù hợp hơn. Số micro không tự quyết định chất lượng; vị trí cài, phòng quay và ứng dụng vẫn cần kiểm tra.
+
+Cài riêng cho từng người
+Tránh để micro chạm dây chuyền, tóc hoặc cổ áo. Hai người nên thử ở âm lượng trò chuyện thật, không cần cố nói to. Sắp xếp chỗ ngồi để không phải quay đầu quá xa vị trí micro khi trả lời.
+
+Thử từng nguồn trước khi cùng nói
+Ghi người thứ nhất nói, rồi người thứ hai, sau đó trao đổi ngắn. Nghe lại xem cả hai đều rõ. Đừng mặc định hai micro được lưu thành hai kênh độc lập: cách ghi phụ thuộc phiên bản và thiết bị. Nếu cần xử lý riêng từng người, hãy xác minh khả năng đó trước buổi quay.
+
+Quản lý nhịp phỏng vấn
+Hạn chế nói chồng nhau. Để một khoảng nghỉ ngắn sau câu hỏi giúp biên tập thuận tiện hơn. Khi thay vị trí hoặc ra ngoài trời, thu thử lại để kiểm tra âm nền.
+
+Kết thúc bằng kiểm tra dữ liệu
+Nghe vài đoạn ở đầu, giữa và cuối trước khi rời địa điểm. Giữ bản gốc để đối chiếu trong hậu kỳ. Thông tin bộ và kết nối hiện có được cập nhật tại https://gaeru.com/san-pham/gaeru-k9.'),
+('gaeru-k9-giam-tieng-co-ao-va-am-nen','GAERU K9: Giảm tiếng cọ áo và âm nền khi quay','Ưu tiên cách đặt micro và chọn không gian để giọng nói dễ nghe hơn, trước khi xử lý hậu kỳ.','Tiếng vải cọ vào micro hoặc tiếng quạt sát người nói có thể làm bản thu khó nghe. Với GAERU K9, cách bố trí thường là bước nên thử đầu tiên. Không nên kỳ vọng tính năng giảm ồn loại bỏ mọi tiếng động trong mọi môi trường.
+
+Tách micro khỏi vật dễ va chạm
+Cài micro ở phần áo ổn định và tránh mép cổ áo thường xuyên chuyển động. Kiểm tra dây đeo, tóc và trang sức. Khi quay có đi lại hoặc cử động tay, hãy ghi thử đúng các động tác đó; tư thế đứng yên chưa phản ánh toàn bộ tình huống.
+
+Đổi vị trí trước khi tăng xử lý
+Nếu tiếng quạt, điều hòa hoặc đường phố quá rõ, thử đổi hướng đứng và chọn nơi yên tĩnh hơn. Giữ khoảng cách nói tương đối ổn định. Phòng trống nhiều mặt cứng có thể tạo tiếng vang; rèm và đồ nội thất mềm có thể giúp giảm phản xạ trong không gian sẵn có.
+
+Ngoài trời cần thu thử riêng
+Gió và tiếng nền thay đổi liên tục. Kiểm tra phụ kiện chắn gió đúng phiên bản nếu có, đồng thời chọn vị trí được che gió. Đừng che đầu micro bằng tay hoặc quấn vật liệu tùy ý vì có thể làm thay đổi tiếng nói.
+
+So sánh bằng cùng một câu
+Ghi cùng một đoạn ở hai cách bố trí, nghe lại với mức âm lượng tương đương rồi chọn bản tự nhiên và rõ lời hơn. Nếu sử dụng chế độ giảm ồn được hỗ trợ trên phiên bản đang có, thử theo tài liệu của thiết bị và so sánh trước khi quay chính.
+
+Giữ bản thu gốc
+Hậu kỳ chỉ nên thực hiện sau khi có bản sao. Xử lý quá mạnh có thể làm giọng thiếu tự nhiên. Khi cần hỗ trợ, gửi một đoạn mẫu cùng tên điện thoại, ứng dụng và phiên bản K9 tại https://gaeru.com/ho-tro.'),
+('gaeru-k9-livestream-kiem-tra-ung-dung','GAERU K9 khi livestream: Kiểm tra đúng ứng dụng và nguồn âm','Các bước thử trước buổi phát trực tiếp để tránh nhầm nguồn thu hoặc chọn sai cổng kết nối.','Livestream dùng một chuỗi thiết bị và phần mềm khác với quay video thông thường. Một bản ghi trong ứng dụng camera có âm thanh chưa đủ để khẳng định ứng dụng livestream cũng đang nhận đúng GAERU K9.
+
+Đối chiếu thiết bị trước khi bắt đầu
+Chọn đầu thu phù hợp với cổng điện thoại và kiểm tra bộ chuyển nếu dùng. Tên cổng giống nhau chưa bảo đảm mọi thiết bị hay phụ kiện đều hỗ trợ âm thanh ngoài. Xem thông tin phiên bản tại https://gaeru.com/san-pham/gaeru-k9 và hỏi hỗ trợ khi chưa chắc cấu hình.
+
+Thử trong đúng nền tảng
+Mở ứng dụng sẽ phát trực tiếp và kiểm tra quyền micro. Nếu nền tảng cho phép bản thử hoặc phạm vi xem hạn chế, dùng chế độ đó trước. Quyền và công cụ của từng nền tảng có thể khác nhau; xem hướng dẫn trong ứng dụng đang sử dụng.
+
+Nghe từ thiết bị thứ hai
+Nhờ một người nghe bằng tai nghe trên thiết bị khác, hoặc kiểm tra bản ghi được nền tảng hỗ trợ. Để loa thiết bị kiểm tra nhỏ hoặc tắt tại khu vực quay để hạn chế vọng và hú. Đừng chỉ dựa vào mức âm lượng nghe từ điện thoại đang phát.
+
+Tập thử thao tác trong buổi phát
+Di chuyển, cầm sản phẩm và quay đầu như lúc thật. Nếu có hai người nói, thử từng micro trước. Giữ điện thoại và đầu thu ở vị trí chắc chắn, tránh va chạm khi thao tác màn hình.
+
+Chuẩn bị phương án khi mất tiếng
+Tạm dừng trình bày để kiểm tra nguồn, đầu cắm và quyền ứng dụng. Kết nối lại theo hướng dẫn rồi nghe kiểm tra trước khi tiếp tục. Giữ một quy trình ngắn, dễ lặp lại sẽ hữu ích hơn việc thay nhiều thiết lập cùng lúc.'),
+('gaeru-k9-bao-quan-va-chuan-bi-lan-dung-sau','GAERU K9: Bảo quản và chuẩn bị cho lần sử dụng tiếp theo','Sắp xếp micro, đầu thu và phụ kiện sau buổi quay để lần sử dụng sau dễ kiểm tra hơn.','Cất thiết bị đúng cách giúp lần quay sau ít phải tìm phụ kiện và dễ phát hiện vấn đề. Với GAERU K9, nên hoàn tất việc kiểm tra bản thu trước, rồi mới tắt và thu dọn thiết bị.
+
+Kiểm tra bản ghi trước khi cất
+Nghe lại một vài đoạn quan trọng và xác nhận tệp đã được lưu. Khi cần biên tập, tạo bản sao thay vì ghi đè ngay lên bản gốc. Tên tệp theo ngày hoặc nội dung giúp tìm lại thuận tiện hơn.
+
+Tắt và tháo thiết bị nhẹ nhàng
+Tháo đầu thu bằng phần thân, không kéo lệch cổng. Kiểm tra đầu cắm có bụi hoặc dấu hiệu hư hại hay không. Nếu thiết bị bị ẩm, ngừng sử dụng và xử lý theo tài liệu đi kèm; không cắm sạc khi chưa bảo đảm khô và an toàn.
+
+Làm sạch đúng mức
+Dùng khăn mềm khô cho bề mặt ngoài. Tránh đổ chất lỏng vào lỗ micro hoặc cổng kết nối. Không tự chọc vật nhọn vào đầu thu âm và không tháo thiết bị nếu chưa được hướng dẫn.
+
+Sắp xếp theo bộ
+Đặt micro, đầu thu và bộ chuyển tương ứng cùng nhau trong túi hoặc hộp bảo vệ phù hợp. Với bộ hai micro, kiểm đếm đủ hai chiếc. Tránh để thiết bị chịu lực đè hoặc chung với vật có thể làm xước, cong đầu cắm.
+
+Chuẩn bị cho lần quay sau
+Kiểm tra pin và sạc theo thông số của phiên bản, không suy đoán thời gian sạc từ một sản phẩm khác. Trước mỗi buổi quay vẫn nên ghi thử ngắn, kể cả khi lần trước hoạt động bình thường. Khi cần đối chiếu phụ kiện hoặc tình trạng sản phẩm, dùng https://gaeru.com/ho-tro hoặc trang đăng ký bảo hành https://gaeru.com/dang-ky-bao-hanh.')
+)
+INSERT INTO news_posts(slug,title,excerpt,body,cover_id,image_alt,status,published_at)
+SELECT a.slug,a.title,a.excerpt,a.body,c.cover_id,c.image_alt,'published',now()
+FROM articles a CROSS JOIN cover c
+ON CONFLICT(slug) DO NOTHING;
