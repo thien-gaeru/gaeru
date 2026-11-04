@@ -1,0 +1,9 @@
+const phoneLike=value=>/^\+?[0-9().\-\s]{8,25}$/.test(value);
+function phones(value){const compact=value.replace(/[().\-\s]/g,'');const local=/^\+?84[35789]\d{8}$/.test(compact)?'0'+compact.replace(/^\+?84/,''):compact;return /^0[35789]\d{8}$/.test(local)?[local,'+84'+local.slice(1),'84'+local.slice(1)]:[compact];}
+async function resolveLogin(pool,config,identifier){const value=identifier.trim();const reserved=value.toLowerCase()===config.ADMIN_USERNAME.toLowerCase();if(reserved)return value===config.ADMIN_USERNAME?{source:'bootstrap'}:null;
+ const fields='id,username,full_name AS "fullName",role,active,password_hash AS "passwordHash",auth_version AS "authVersion"';const staff=pool?(await pool.query('SELECT '+fields+' FROM staff_accounts WHERE lower(username)=lower($1)',[value])).rows[0]:null;
+ if(!pool||(!value.includes('@')&&!phoneLike(value)))return staff?{source:'staff',staff}:null;
+ const rows=(await pool.query(`SELECT s.account_key FROM account_security s LEFT JOIN staff_accounts a ON s.account_key='staff:'||a.id::text WHERE s.contacts_verified_at IS NOT NULL AND (s.account_key='owner' OR a.active=true) AND (lower(trim(s.email))=$1 OR regexp_replace(s.phone,'[().[:space:]-]','','g')=ANY($2::text[]))`,[value.includes('@')?value.toLowerCase():'',phoneLike(value)?phones(value):[]])).rows;
+ const candidates=new Set(rows.map(r=>r.account_key).filter(Boolean));if(staff)candidates.add('staff:'+staff.id);if(candidates.size!==1)return null;const key=[...candidates][0];if(key==='owner')return {source:'bootstrap'};if(!key.startsWith('staff:'))return null;const selected=staff&&key==='staff:'+staff.id?staff:(await pool.query('SELECT '+fields+' FROM staff_accounts WHERE id=$1',[key.slice(6)])).rows[0];return selected?{source:'staff',staff:selected}:null;
+}
+module.exports={resolveLogin,phones};

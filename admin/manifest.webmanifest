@@ -1,0 +1,71 @@
+{
+  "name": "GAERU CEO — Quản Trị Doanh Nghiệp",
+  "short_name": "GAERU CEO",
+  "description": "Ứng dụng điều hành và quản trị bán hàng, đơn hàng, kho vận và chăm sóc khách hàng GAERU",
+  "start_url": "/gaeru_ceo",
+  "scope": "/gaeru_ceo",
+  "id": "/gaeru_ceo",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8fafc",
+  "theme_color": "#0055b8",
+  "lang": "vi",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/assets/brand/gaeru-app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/brand/gaeru-app-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/assets/brand/gaeru-app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/brand/gaeru-app-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Đơn hàng",
+      "short_name": "Đơn hàng",
+      "description": "Quản lý và xử lý đơn hàng",
+      "url": "/gaeru_ceo#orders",
+      "icons": [{ "src": "/assets/brand/gaeru-app-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Chat trực tuyến",
+      "short_name": "Chat",
+      "description": "Hỗ trợ khách hàng qua chat",
+      "url": "/gaeru_ceo#shopping-chat",
+      "icons": [{ "src": "/assets/brand/gaeru-app-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Tổng quan",
+      "short_name": "Tổng quan",
+      "description": "Xem báo cáo doanh số & trạng thái",
+      "url": "/gaeru_ceo#overview",
+      "icons": [{ "src": "/assets/brand/gaeru-app-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Thông báo",
+      "short_name": "Thông báo",
+      "description": "Xem thông báo mới nhất",
+      "url": "/gaeru_ceo#notifications",
+      "icons": [{ "src": "/assets/brand/gaeru-app-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

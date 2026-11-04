@@ -1,0 +1,364 @@
+const { Router } = require('express');
+const { z } = require('zod');
+const { requireCsrf } = require('./security');
+const { withTransaction } = require('./db');
+const { cancelOrderSchema, cancelCustomerOrder } = require('./customer-order-cancellation');
+const { checkReturnEligibility, createCustomerReturnRequest } = require('./order-after-sales');
+
+const addressSchema = z.object({label:z.string().trim().min(1).max(60),fullName:z.string().trim().min(2).max(120),phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/),address:z.string().trim().min(5).max(250),city:z.string().trim().min(2).max(120),isDefault:z.boolean().default(false)}).strict();
+const fields = 'id, label, full_name AS "fullName", phone, address, city, is_default AS "isDefault"';
+
+function createCustomerExperience(pool, { inventory = null, audit = null } = {}) {
+  const router = Router();
+
+  router.use(async (req, res, next) => {
+    try {
+      const id = req.session?.customer?.id;
+      if (!id) return res.status(401).json({ error: 'Vui lòng đăng nhập.' });
+      const found = await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true', [id]);
+      if (!found.rows.length) return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
+      req.customerId = id;
+      next();
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/addresses', async (req, res, next) => {
+    try {
+      res.json({
+        addresses: (await pool.query(`SELECT ${fields} FROM customer_addresses WHERE customer_id=$1 ORDER BY is_default DESC,created_at,id`, [req.customerId])).rows
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/addresses', requireCsrf, async (req, res, next) => {
+    const parsed = addressSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Kiểm tra tên, số điện thoại và địa chỉ.' });
+    try {
+      const address = await withTransaction(pool, async (client) => {
+        await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
+        const count = Number((await client.query('SELECT count(*) AS count FROM customer_addresses WHERE customer_id=$1', [req.customerId])).rows[0].count);
+        if (count >= 20) {
+          const e = new Error('Address limit');
+          e.status = 409;
+          throw e;
+        }
+        const a = parsed.data;
+        const defaultAddress = a.isDefault || count === 0;
+        if (defaultAddress) await client.query('UPDATE customer_addresses SET is_default=false WHERE customer_id=$1', [req.customerId]);
+        return (await client.query(`INSERT INTO customer_addresses(customer_id,label,full_name,phone,address,city,is_default) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING ${fields}`, [req.customerId, a.label, a.fullName, a.phone, a.address, a.city, defaultAddress])).rows[0];
+      });
+      res.status(201).json({ address });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/addresses/:id/default', requireCsrf, async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) return res.status(404).json({ error: "Không tìm thấy địa chỉ." });
+    try {
+      const found = await withTransaction(pool, async (client) => {
+        await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
+        const a = await client.query('SELECT id FROM customer_addresses WHERE id=$1 AND customer_id=$2', [req.params.id, req.customerId]);
+        if (!a.rows.length) return false;
+        await client.query('UPDATE customer_addresses SET is_default=false WHERE customer_id=$1', [req.customerId]);
+        await client.query('UPDATE customer_addresses SET is_default=true WHERE id=$1 AND customer_id=$2', [req.params.id, req.customerId]);
+        return true;
+      });
+      found ? res.status(204).end() : res.status(404).json({ error: "Không tìm thấy địa chỉ." });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.delete('/addresses/:id', requireCsrf, async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) return res.status(404).json({ error: "Không tìm thấy địa chỉ." });
+    try {
+      const removed = await withTransaction(pool, async (client) => {
+        await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
+        const r = await client.query('DELETE FROM customer_addresses WHERE id=$1 AND customer_id=$2 RETURNING is_default', [req.params.id, req.customerId]);
+        if (r.rows[0]?.is_default) await client.query('UPDATE customer_addresses SET is_default=true WHERE id=(SELECT id FROM customer_addresses WHERE customer_id=$1 ORDER BY created_at,id LIMIT 1)', [req.customerId]);
+        return r.rows.length;
+      });
+      removed ? res.status(204).end() : res.status(404).json({ error: "Không tìm thấy địa chỉ." });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/orders', async (req, res, next) => {
+    try {
+      const page = Math.max(1, Math.min(10000, Number(req.query.page) || 1));
+      if (!Number.isInteger(page)) return res.status(400).json({ error: "Trang không hợp lệ." });
+      const orders = await pool.query(
+        'SELECT id,order_number AS "orderNumber",status,payment_status AS "paymentStatus",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'resolution\', a.resolution, \'rmaNumber\', a.rma_number) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE customer_id=$1 ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $2',
+        [req.customerId, (page - 1) * 20]
+      );
+      res.json({ orders: orders.rows, page });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/orders/:id/cancel', requireCsrf, async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) {
+      return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+    }
+    const parsed = cancelOrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Lý do hủy đơn không hợp lệ.' });
+    }
+    try {
+      const result = await withTransaction(pool, async (client) => {
+        return await cancelCustomerOrder(client, {
+          orderId: req.params.id,
+          customerId: req.customerId,
+          actor: {
+            id: req.customerId,
+            username: req.session?.customer?.email || 'customer',
+            fullName: req.session?.customer?.fullName || 'Khách hàng',
+            source: 'customer'
+          },
+          reason: parsed.data.reason,
+          inventory,
+          audit
+        });
+      });
+      res.json(result);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
+
+  router.get('/orders/:id/after-sales/eligibility', async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) {
+      return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+    }
+    try {
+      const order = (await pool.query(
+        'SELECT * FROM orders WHERE id = $1 AND customer_id = $2',
+        [req.params.id, req.customerId]
+      )).rows[0];
+      if (!order) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+
+      const activeCase = (await pool.query(
+        "SELECT * FROM order_after_sales WHERE order_id = $1 AND status NOT IN ('resolved', 'rejected') ORDER BY created_at DESC LIMIT 1",
+        [order.id]
+      )).rows[0];
+
+      const completedCase = (await pool.query(
+        "SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' LIMIT 1",
+        [order.id]
+      )).rows[0];
+
+      const shipment = (await pool.query(
+        "SELECT * FROM carrier_shipments WHERE order_id = $1 AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1",
+        [order.id]
+      )).rows[0];
+
+      const eligibility = checkReturnEligibility(order, activeCase, completedCase, shipment);
+      res.json(eligibility);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/orders/:id/after-sales', async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) {
+      return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+    }
+    try {
+      const order = (await pool.query(
+        'SELECT id FROM orders WHERE id = $1 AND customer_id = $2',
+        [req.params.id, req.customerId]
+      )).rows[0];
+      if (!order) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+
+      const cases = (await pool.query(
+        `SELECT id, order_id AS "orderId", kind, status, reason, resolution,
+                requested_by AS "requestedBy", return_type AS "returnType",
+                reason_category AS "reasonCategory", bank_info AS "bankInfo",
+                evidence_urls AS "evidenceUrls", rma_number AS "rmaNumber",
+                rma_token AS "rmaToken", inbound_carrier AS "inboundCarrier",
+                inbound_tracking_number AS "inboundTrackingNumber",
+                inbound_status AS "inboundStatus", outbound_carrier AS "outboundCarrier",
+                outbound_tracking_number AS "outboundTrackingNumber",
+                outbound_status AS "outboundStatus", version,
+                created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM order_after_sales
+         WHERE order_id = $1
+         ORDER BY created_at DESC`,
+        [order.id]
+      )).rows;
+
+      res.json({ cases });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/orders/:id/after-sales', requireCsrf, async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) {
+      return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+    }
+    const normalizedBody = {
+      ...(req.body && typeof req.body === 'object' ? req.body : {}),
+      reason: req.body?.reason ?? req.body?.details,
+      bankInfo: req.body?.bankInfo || ((req.body?.bankName || req.body?.accountNumber || req.body?.accountHolder)
+        ? {
+            bankName: req.body?.bankName,
+            accountNumber: req.body?.accountNumber,
+            accountHolder: req.body?.accountHolder
+          }
+        : undefined)
+    };
+    const returnSchema = z.object({
+      returnType: z.enum(['exchange', 'refund']).default('exchange'),
+      reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'change_mind', 'other']).default('faulty'),
+      reason: z.string().trim().min(5, 'Lý do đổi trả phải có ít nhất 5 ký tự.').max(2000, 'Lý do tối đa 2000 ký tự.'),
+      bankInfo: z.object({
+        bankName: z.string().trim().max(100).optional(),
+        accountNumber: z.string().trim().max(50).optional(),
+        accountHolder: z.string().trim().max(100).optional()
+      }).optional().default({}),
+      evidenceUrls: z.array(z.string().trim().max(500)).max(5).optional().default([])
+    });
+
+    const parsed = returnSchema.safeParse(normalizedBody);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Thông tin yêu cầu chưa hợp lệ.' });
+    }
+
+    try {
+      const result = await withTransaction(pool, async (client) => {
+        return await createCustomerReturnRequest(client, {
+          orderId: req.params.id,
+          customerId: req.customerId,
+          requestedBy: 'customer',
+          returnType: parsed.data.returnType,
+          reasonCategory: parsed.data.reasonCategory,
+          reason: parsed.data.reason,
+          bankInfo: parsed.data.bankInfo,
+          evidenceUrls: parsed.data.evidenceUrls,
+          actor: {
+            id: req.customerId,
+            username: req.session?.customer?.email || 'customer',
+            fullName: req.session?.customer?.fullName || 'Khách hàng',
+            source: 'customer'
+          },
+          audit
+        });
+      });
+      res.status(201).json({
+        ok: true,
+        case: result,
+        message: 'Đã gửi yêu cầu đổi/trả hàng thành công. Bộ phận CSKH GAERU sẽ liên hệ xử lý trong vòng 24 giờ làm việc.'
+      });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  });
+
+  router.patch('/profile', requireCsrf, async (req, res, next) => {
+    const parsed = z.object({ fullName: addressSchema.shape.fullName, phone: addressSchema.shape.phone.optional(), email: z.string().trim().email().transform(v => v.toLowerCase()).optional(), currentPassword: z.string().max(200).optional() }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Thông tin hồ sơ chưa hợp lệ.' });
+    try {
+      const result = await withTransaction(pool, async (client) => {
+        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at,password_hash FROM customers WHERE id=$1 AND active=true FOR UPDATE', [req.customerId])).rows[0];
+        if (!current) return { status: 401, error: 'Tài khoản không còn hoạt động.' };
+        const a = parsed.data;
+        if (a.currentPassword !== undefined && a.currentPassword !== '') {
+          const bcrypt = require('bcryptjs');
+          const { withinBcryptLimit } = require('./audit-fixes/password-rules');
+          if (!current.password_hash || !withinBcryptLimit(a.currentPassword) || !await bcrypt.compare(a.currentPassword, current.password_hash)) {
+            return { status: 401, error: 'Mật khẩu hiện tại không đúng.' };
+          }
+        }
+        const { isValidVietnamMobile, normalizeVietnamPhone, isDisposableEmail } = require('./customer-lifecycle');
+        let phoneUpdated = false;
+        let emailUpdated = false;
+        if (a.phone !== undefined && a.phone !== current.phone) {
+          if (!isValidVietnamMobile(current.phone) && isValidVietnamMobile(a.phone)) {
+            phoneUpdated = true;
+          } else {
+            return { status: 409, error: 'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.' };
+          }
+        }
+        if (a.email !== undefined && a.email !== current.email) {
+          if (current.reg_email_failed_at && !isDisposableEmail(a.email)) {
+            emailUpdated = true;
+          } else {
+            return { status: 409, error: 'Đổi email hoặc số điện thoại cần được xác nhận qua email trước khi áp dụng.' };
+          }
+        }
+        const newPhone = phoneUpdated ? normalizeVietnamPhone(a.phone) : current.phone;
+        const newEmail = emailUpdated ? a.email.toLowerCase().trim() : current.email;
+        const customer = (await client.query(
+          `UPDATE customers
+           SET full_name = $2,
+               phone = $3,
+               email = $4,
+               phone_invalid_at = CASE WHEN $5::boolean THEN NULL ELSE phone_invalid_at END,
+               reg_email_failed_at = CASE WHEN $6::boolean THEN NULL ELSE reg_email_failed_at END,
+               lock_reason = CASE WHEN $5::boolean OR $6::boolean THEN NULL ELSE lock_reason END,
+               updated_at = now()
+           WHERE id = $1
+           RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
+          [req.customerId, a.fullName, newPhone, newEmail, phoneUpdated, emailUpdated]
+        )).rows[0];
+        return { status: 200, customer };
+      });
+      if (result.customer) req.session.customer = result.customer;
+      res.status(result.status).json(result.error ? { error: result.error } : { customer: result.customer });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.put('/addresses/:id', requireCsrf, async (req, res, next) => {
+    const parsed = addressSchema.safeParse(req.body);
+    if (!parsed.success || !z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Địa chỉ chưa hợp lệ.' });
+    try {
+      const address = await withTransaction(pool, async (client) => {
+        await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
+        const old = (await client.query('SELECT is_default FROM customer_addresses WHERE id=$1 AND customer_id=$2', [req.params.id, req.customerId])).rows[0];
+        if (!old) return null;
+        const a = parsed.data;
+        const makeDefault = a.isDefault || old.is_default;
+        if (makeDefault) await client.query('UPDATE customer_addresses SET is_default=false WHERE customer_id=$1', [req.customerId]);
+        return (await client.query(`UPDATE customer_addresses SET label=$3,full_name=$4,phone=$5,address=$6,city=$7,is_default=$8 WHERE id=$1 AND customer_id=$2 RETURNING ${fields}`, [req.params.id, req.customerId, a.label, a.fullName, a.phone, a.address, a.city, makeDefault])).rows[0];
+      });
+      if (!address) return res.status(404).json({ error: 'Không tìm thấy địa chỉ.' });
+      res.json({ address });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/orders/:id', async (req, res, next) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+    try {
+      const order = (await pool.query(
+        'SELECT id,order_number AS "orderNumber",customer_name AS "customerName",phone,address,city,status,payment_method AS "paymentMethod",payment_status AS "paymentStatus",discount_vnd AS "discountVnd",voucher_code AS "voucherCode",subtotal_vnd AS "subtotalVnd",shipping_fee_vnd AS "shippingFeeVnd",total_vnd AS "totalVnd",cancellation_reason AS "cancellationReason",created_at AS "createdAt",updated_at AS "updatedAt",(SELECT json_build_object(\'id\', a.id, \'status\', a.status, \'kind\', a.kind, \'returnType\', a.return_type, \'reason\', a.reason, \'resolution\', a.resolution, \'rmaNumber\', a.rma_number, \'inboundStatus\', a.inbound_status, \'outboundStatus\', a.outbound_status, \'createdAt\', a.created_at, \'updatedAt\', a.updated_at) FROM order_after_sales a WHERE a.order_id = orders.id ORDER BY a.created_at DESC LIMIT 1) AS "afterSales" FROM orders WHERE id=$1 AND customer_id=$2',
+        [req.params.id, req.customerId]
+      )).rows[0];
+      if (!order) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
+      order.items = (await pool.query(
+        'SELECT id,product_name AS "productName",variant_name AS "variantName",sku,quantity,unit_price_vnd AS "unitPriceVnd",line_total_vnd AS "lineTotalVnd" FROM order_items WHERE order_id=$1 ORDER BY id',
+        [order.id]
+      )).rows;
+      res.json({ order });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  return router;
+}
+
+module.exports = { createCustomerExperience, addressSchema };

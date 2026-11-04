@@ -1,0 +1,93 @@
+#orders-view{--order-line:#e7e9ed;--order-muted:#69717c}
+.orders-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.orders-heading h2{font-size:30px;margin:0 0 8px}.orders-heading p{margin:0;color:var(--order-muted)}
+.order-overview{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:#fff;border:1px solid var(--order-line);border-radius:16px;margin-bottom:24px;overflow:hidden}.order-overview button{border:0;background:none;text-align:left;padding:24px 18px;display:flex;flex-direction:column;gap:18px;color:#202329;cursor:pointer;font:inherit}.order-overview button:hover{background:#f0f8fa}.order-overview strong{font-size:26px}.order-overview p{grid-column:1/-1;border-top:1px solid var(--order-line);margin:0;padding:14px 18px;color:var(--order-muted);font-size:12px}
+.order-tabs{display:flex;gap:24px;overflow-x:auto;border-bottom:1px solid #d4d9df;margin-bottom:18px}.order-tabs button{flex:none;border:0;border-bottom:3px solid transparent;background:none;padding:14px 0;font:inherit;font-weight:600;color:#515965;cursor:pointer}.order-tabs button[aria-pressed=true]{border-color:#009eaa;color:#152b31}.order-tabs span{color:#009eaa;margin-left:4px}
+#orders-view .toolbar{display:flex;gap:12px}#orders-view .toolbar input{flex:1;min-width:0}#orders-view .order-filters{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:16px 0}#orders-view .order-filters label{flex:1 1 150px;font-size:12px;color:var(--order-muted)}#orders-view .order-filters select{width:100%;margin-top:6px;background:#fff}#orders-view #order-review{background:#fff8ed;border:1px solid #f0dfbd;border-radius:12px;padding:16px;margin:16px 0}#orders-view #order-review summary{cursor:pointer;font-weight:600}
+.orders-table-scroll{overflow:auto;border:1px solid var(--order-line);border-radius:14px;background:#fff}.order-table-head,#orders-view .order-table-row{display:grid;grid-template-columns:1.2fr 1fr 1.35fr 1fr 1fr .85fr;gap:20px;min-width:1020px;padding:20px;align-items:start}.order-table-head{background:#f7f8fa;color:var(--order-muted);font-size:12px;font-weight:600}#orders-view #order-list{display:block;gap:0}#orders-view #order-list>.order-card{border:0;border-top:1px solid var(--order-line);border-radius:0;box-shadow:none;margin:0;padding:0;min-width:1020px}#orders-view .order-table-row{cursor:pointer;list-style:none;margin:0}#orders-view .order-table-row::-webkit-details-marker{display:none}#orders-view .order-table-row:hover{background:#f5fafb}.order-cell{display:flex;flex-direction:column;gap:8px;min-width:0;overflow-wrap:anywhere}.order-cell strong{font-size:14px}.order-cell small{font-size:12px;color:var(--order-muted);line-height:1.5}.order-cell .status-pill{align-self:start}.order-amount{text-align:right}#orders-view .order-card-body{padding:24px;background:#f8fafc;border-top:1px solid var(--order-line)}#orders-view .order-expand-label{font-size:12px;color:#007a88}#orders-view .pagination{padding:18px;background:#fff;border-radius:12px}
+#orders-view button:focus-visible,.orders-table-scroll:focus-visible{outline:3px solid #007aff;outline-offset:3px}
+@media(max-width:760px){.orders-heading{align-items:start;flex-direction:column}.orders-heading h2{font-size:25px}.order-overview{grid-template-columns:repeat(3,minmax(0,1fr))}.order-overview button{padding:16px 12px;gap:12px;font-size:12px}.order-overview strong{font-size:23px}.order-tabs{gap:18px}.order-tabs button{font-size:13px}#orders-view .order-filters label{flex-basis:calc(50% - 12px)}#orders-view .toolbar{flex-wrap:wrap}#orders-view .toolbar input{flex-basis:100%}.orders-table-scroll{max-width:100%}}
+@media(max-width:380px){.order-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.order-export-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.order-export-actions label{font-size:12px}.order-export-actions select{display:block;margin-top:6px}#after-sales-panel{padding:16px;border:1px solid #dae0e5;border-radius:12px;margin:0 0 20px;background:white}#after-sales-panel summary{cursor:pointer;font-weight:600}#after-sales-list form{display:grid;gap:12px}#shipping-configuration .configuration-panel,#payment-configuration .configuration-panel{margin:18px 0;padding:20px;background:white;border:1px solid #dfe4e9;border-radius:14px}#shipping-configuration summary,#payment-configuration summary{cursor:pointer;font-weight:600;font-size:18px}
+#orders-view .orders-heading{justify-content:flex-end;margin-bottom:16px}
+#orders-view .order-table-head,#orders-view .order-table-row{grid-template-columns:32px 1.25fr 1fr 1.4fr 1fr 1fr .9fr 90px;min-width:1120px;gap:16px}
+#orders-view #order-list>.order-card{min-width:1120px}
+#orders-view .order-table-row{cursor:default}
+#orders-view .order-table-row:hover{background:#fbfcfd}
+#orders-view .order-select-cell{display:flex;align-items:center;justify-content:center;margin:0;padding:0;min-width:0}
+#orders-view .order-select-cell input{width:18px;height:18px;min-height:18px;margin:0;accent-color:#087e8b;cursor:pointer}
+#orders-view .order-action-cell{justify-self:end;display:flex;flex-direction:column;align-items:flex-end;gap:5px;white-space:nowrap}
+#orders-view [data-restore-order]{white-space:nowrap!important;padding:6px 12px;font-size:11px;min-height:30px;border-radius:999px;width:max-content;display:inline-flex;align-items:center;justify-content:center}
+#orders-view .order-process-button{padding:9px 16px;min-height:38px;white-space:nowrap;font-size:13px;border-radius:9px}
+#orders-view .order-bulk-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--order-line);border-radius:12px;padding:12px 16px;margin:16px 0}
+#orders-view .order-bulk-actions>span{font-size:13px;font-weight:600;margin-right:auto}
+#orders-view .order-bulk-actions small{flex-basis:100%;font-size:12px;color:var(--order-muted)}
+#orders-view [hidden]{display:none!important}
+#orders-view #after-sales-toggle[aria-expanded=true]{border-bottom-color:#009eaa;color:#152b31}
+#orders-view #after-sales-panel{margin:16px 0;padding:20px;border-radius:12px}
+#orders-view #after-sales-panel h2{font-size:20px;margin:0 0 10px}
+@media(max-width:760px){#orders-view .orders-heading{align-items:stretch}#orders-view .order-export-actions{width:100%;gap:8px}#orders-view .order-export-actions>label{flex:1 1 100%}#orders-view .order-export-actions select{width:100%;max-width:none}#orders-view .order-bulk-actions>span{flex-basis:100%;margin:0}#orders-view .order-bulk-actions button{flex:1;min-width:120px}#orders-view .order-tabs{margin-bottom:12px}}
+.order-processing-dialog{width:min(960px,calc(100vw - 24px));max-height:90dvh;padding:0;border:1px solid #d9e1e7;border-radius:20px;background:white;color:#202329;box-shadow:0 24px 80px #001e3440}.order-processing-dialog::backdrop{background:#11233080;backdrop-filter:blur(3px)}.order-processing-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 24px;border-bottom:1px solid #e2e7ec}.order-processing-dialog h2{font-size:22px;margin:0}.order-processing-dialog header p{font-size:12px;color:#6b7380;margin:0 0 6px}.order-processing-content,.bulk-process-form{padding:24px}.bulk-process-form{display:grid;gap:18px}.bulk-process-form label{display:grid;gap:8px}.order-process-steps{list-style:none;display:flex;overflow-x:auto;gap:10px;padding:16px 24px;margin:0;background:#f4f7fa}.order-process-steps li{flex:none;font-size:12px;color:#737d87;border-bottom:3px solid #dce3e8;padding:8px}.order-process-steps li.current{color:#007aff;border-color:#007aff;font-weight:700}.order-process-steps li.done{color:#16836d;border-color:#16836d}.after-sales-toolbar{display:flex;gap:18px;align-items:start;flex-wrap:wrap;margin:18px 0}.after-sales-toolbar>label{min-width:200px;display:grid;gap:8px}.after-sales-toolbar details{flex:1;min-width:260px}.after-sales-toolbar form{display:grid;gap:12px;padding:16px 0}.after-sales-toolbar label{display:grid;gap:8px}@media(max-width:600px){.order-processing-dialog>header,.order-processing-content,.bulk-process-form{padding:16px}.order-processing-dialog h2{font-size:18px}.order-process-steps{padding:10px 16px}.order-processing-dialog .order-controls{grid-template-columns:1fr}.after-sales-toolbar details{min-width:0;flex-basis:100%}}
+
+/* Keep the processing header and actions visible within short screens. */
+#order-processing-dialog{max-height:calc(100dvh - 24px);overflow:hidden}
+#order-processing-dialog[open]{display:flex;flex-direction:column}
+#order-processing-dialog>header{padding:12px 20px;flex:none}
+#order-processing-dialog .order-process-steps{padding:6px 20px;flex:none}
+#order-processing-dialog .order-processing-content{min-height:0;overflow:auto;padding:12px 20px;overscroll-behavior:contain}
+#order-processing-dialog .order-meta{gap:12px;padding:0;margin:0}
+#order-processing-dialog .order-meta p{margin:6px 0}
+#order-processing-dialog .order-items{margin:8px 0;padding:0}
+#order-processing-dialog .order-items li{padding:8px 0}
+#order-processing-dialog .order-totals{margin:8px 0}
+#order-processing-dialog .order-totals>div{padding:5px 0}
+#order-processing-dialog .order-controls{gap:10px;padding-top:10px;margin-top:8px}
+#order-processing-dialog .order-controls>label[hidden]{display:none}
+.order-status-buttons{grid-column:1/-1;border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:8px}
+.order-status-buttons legend{font-size:12px;font-weight:700;margin-bottom:8px}
+.order-status-buttons button[aria-pressed=true]{background:#007aff;color:white;border-color:#007aff}
+#order-processing-dialog .order-controls>button[type=submit]{position:sticky;bottom:0;box-shadow:0 0 0 6px white;z-index:1}
+@media(max-width:600px){#order-processing-dialog>header,#order-processing-dialog .order-processing-content{padding:10px 14px}#order-processing-dialog .order-controls{grid-template-columns:1fr 1fr}#order-processing-dialog .order-controls>button,#order-processing-dialog .order-feedback{grid-column:1/-1}.order-status-buttons button{padding:9px 12px;font-size:12px}}
+
+.page-manager-list{display:grid;gap:12px}.page-manager-list article{padding:18px}.page-editor{display:grid;gap:12px;padding:20px;background:white;border:1px solid #dce2e8;border-radius:18px;margin-bottom:18px}.page-editor label{display:grid;gap:6px}.page-editor textarea{width:100%;resize:vertical}.managed-page{padding-block:48px;max-width:900px}.managed-page p{line-height:1.8}
+
+@media(min-width:1000px){#orders-view .order-table-head,#orders-view .order-table-row{grid-template-columns:24px minmax(120px,1.3fr) minmax(65px,.75fr) minmax(85px,1.1fr) minmax(70px,.85fr) minmax(80px,.95fr) minmax(80px,.9fr) minmax(115px,max-content);min-width:0;gap:10px;padding:12px 14px}#orders-view #order-list>.order-card{min-width:0}#orders-view .order-cell{gap:5px}#orders-view .order-cell strong{font-size:12px;line-height:1.45}#orders-view .order-cell small{font-size:11px;line-height:1.4}#orders-view .order-cell .status-pill{font-size:10px;white-space:nowrap}#orders-view .order-process-button{font-size:12px;padding:8px 12px;min-height:34px;border-radius:999px}#orders-view .orders-table-scroll{overflow-x:hidden}}
+.order-status-buttons[hidden]{display:none!important}
+
+#orders-view .order-return-button{font-size:11px;padding:5px 8px;min-height:28px;border-radius:999px;white-space:nowrap}.order-return-action{padding-bottom:12px;margin-bottom:8px;border-bottom:1px solid #e3e7ec}@media(min-width:1280px){#orders-view .order-table-head,#orders-view .order-table-row{grid-template-columns:24px minmax(125px,1.35fr) minmax(70px,.8fr) minmax(90px,1.2fr) minmax(75px,.9fr) minmax(82px,1fr) minmax(85px,.9fr) minmax(125px,max-content)}}@media(max-width:760px){#orders-view .order-return-button{min-height:40px}}
+
+/* All six workflow filters remain visible instead of hiding off-screen. */
+#orders-view .order-tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;overflow:visible;border:0}
+#btn-unpaid-orders{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+#btn-unpaid-orders[aria-pressed=true]{border-color:#007aff;background:#eaf4ff;color:#0055b8}
+#btn-unpaid-orders .unpaid-badge{display:inline-block;padding:2px 7px;border-radius:10px;background:#e0edff;color:#0055b8;font-size:12px;font-weight:700}
+#btn-unpaid-orders[aria-pressed=true] .unpaid-badge{background:#007aff;color:#fff}
+#orders-view .order-tabs button{min-width:0;white-space:normal;line-height:1.4;padding:11px 8px;border:1px solid #d9e0e8;border-radius:18px;background:#fff}
+#orders-view .order-tabs button[aria-pressed=true]{border-color:#007aff;background:#eaf4ff;color:#0055b8}
+#order-restoration-dialog form{display:grid;gap:16px;padding:20px 24px}
+#order-restoration-dialog label{display:grid;gap:8px}
+#order-restoration-dialog label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:10px}
+#order-restoration-dialog input[type=checkbox]{flex:none;width:20px;height:20px;margin:2px 0}
+#order-restoration-dialog textarea{width:100%;min-height:90px;resize:vertical}
+@media(max-width:1100px){#orders-view .order-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:480px){#orders-view .order-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}#order-restoration-dialog form{padding:16px}}
+
+#orders-view .order-delete-button, .order-processing-dialog .order-delete-button{
+  padding: 4px 8px;
+  min-height: 26px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  color: #b42318;
+  border: 1px solid #fecdca;
+  background: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+#orders-view .order-delete-button:hover, .order-processing-dialog .order-delete-button:hover{
+  background: #fef3f2;
+  border-color: #fda29b;
+}

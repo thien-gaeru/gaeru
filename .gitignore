@@ -1,0 +1,9 @@
+node_modules/
+.local-data/
+.local-data*
+scratch/
+.env
+.env.*
+!.env.example
+coverage/
+npm-debug.log*
