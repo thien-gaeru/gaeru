@@ -149,7 +149,7 @@
       }).catch(() => {});
     }
     
-    const profileEditor=document.createElement('details');profileEditor.open=true;profileEditor.className='account-profile-editor';profileEditor.innerHTML='<summary hidden>Thông tin và bảo mật</summary><div class="account-security-accordion" data-security-accordion-group><details class="security-accordion-item security-section" data-accordion-item="profile" data-security-section="profile"><summary class="security-accordion-header"><span class="security-item-icon security-icon-profile" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></span><span class="security-item-titles"><strong>Thông tin cá nhân</strong><span>Họ tên, email, số điện thoại</span></span><span class="security-item-chevron" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span></summary><div class="security-accordion-body security-section-body"><div class="security-modal-backdrop" data-close-modal></div><div class="security-modal-card"><div class="security-modal-header"><div class="security-modal-title-group"><span class="security-item-icon security-icon-profile" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></span><div><h3 class="security-modal-title">Thông tin cá nhân</h3><p class="security-modal-subtitle">Chỉnh sửa họ tên, email và số điện thoại liên hệ</p></div></div><button type="button" class="security-modal-close" data-close-modal aria-label="Đóng">✕</button></div><div class="security-modal-inner"><form class="account-form" data-profile-form data-no-action-feedback><label>Họ và tên<input name="fullName" autocomplete="name" minlength="2" maxlength="120" required></label><label>Email<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="Ví dụ: hotro@gaeru.com" required></label><label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label><label>Mật khẩu hiện tại<input name="currentPassword" type="password" autocomplete="current-password" maxlength="200"><span class="account-field-note">Cần nhập khi đổi email hoặc số điện thoại.</span></label><p class="account-field-note">Đổi số điện thoại: xác nhận qua email hiện tại. Đổi email: xác nhận tại cả hộp thư hiện tại và hộp thư mới. Thông tin cũ được giữ nguyên cho đến khi hoàn tất.</p><button class="button button-blue" type="submit">Lưu thông tin</button><p role="status"></p></form></div></div></div></details></div>';
+    const profileEditor=document.createElement('details');profileEditor.open=true;profileEditor.className='account-profile-editor';profileEditor.innerHTML='<summary hidden>Thông tin và bảo mật</summary><div class="account-security-accordion" data-security-accordion-group><details class="security-accordion-item security-section" data-accordion-item="profile" data-security-section="profile" open><summary class="security-accordion-header is-active" data-settings-jump="profile"><span class="security-item-icon security-icon-profile" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></span><span class="security-item-titles"><strong>1. Thông tin cá nhân</strong><span>Họ tên, email, số điện thoại</span></span><span class="security-item-chevron" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></span></summary><div class="security-accordion-body security-section-body"><form class="account-form" data-profile-form><label>Họ và tên<input name="fullName" autocomplete="name" minlength="2" maxlength="120" required></label><label>Email<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="Ví dụ: hotro@gaeru.com" required></label><label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label><label>Mật khẩu hiện tại<input name="currentPassword" type="password" autocomplete="current-password" maxlength="200"><span class="account-field-note">Cần nhập khi đổi email hoặc số điện thoại.</span></label><p class="account-field-note">Đổi số điện thoại: xác nhận qua email hiện tại. Đổi email: xác nhận tại cả hộp thư hiện tại và hộp thư mới. Thông tin cũ được giữ nguyên cho đến khi hoàn tất.</p><button class="button button-blue">Lưu thông tin</button><p role="status"></p></form></div></details></div>';
     const settingsPanel=document.createElement('section');settingsPanel.className='account-workspace-card account-tab-panel';settingsPanel.dataset.accountTabPanel='profile';settingsPanel.id='account-settings-card';settingsPanel.innerHTML='<div class="account-section-heading"><div><p class="eyebrow">CÀI ĐẶT BẢO MẬT</p><h3>Thông tin và bảo mật</h3><p>Chỉnh thông tin liên hệ, đổi mật khẩu và quản lý xác thực tài khoản.</p></div></div>';
     settingsPanel.append(profileEditor);
     section.append(settingsPanel);
@@ -160,28 +160,23 @@
     function jumpToSettings(name){
       const pForm=profileEditor.querySelector('[data-profile-form]');
       if(pForm) pForm.hidden=name!=='profile';
-      const secPanel=profileEditor.querySelector('[data-security-panel]');
-      if(secPanel) secPanel.hidden=name==='profile';
       const target=name==='profile'?(profileEditor.querySelector('[data-accordion-item="profile"]')||pForm):profileEditor.querySelector('[data-security-section="'+name+'"]');
       if(!target){pendingSettingsJump=name;return;}
       pendingSettingsJump='';
-      profileEditor.querySelectorAll('.security-section').forEach(item=>{
-        const isTarget=(item===target||item.contains(target));
-        if(settingsDialog.open)item.hidden=(!isTarget&&name!=='all');
-        item.open=isTarget;
+      const allSections=document.querySelectorAll('.security-section');
+      allSections.forEach(s=>{
+        if(s!==target && name!=='all'){
+          s.hidden=true;
+          if(s.tagName==='DETAILS')s.open=false;
+        } else {
+          s.hidden=false;
+        }
       });
-      if(target.tagName==='DETAILS'){target.open=true;target.hidden=false;}
+      if(target.tagName==='DETAILS')target.open=true;
       target.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
       (target.querySelector('input:not([type=hidden]),select')||target).focus?.({preventScroll:true});
     }
-    settingsDialog.querySelector('[data-settings-close]').onclick=()=>{
-      settingsDialog.close();
-      const pForm=profileEditor.querySelector('[data-profile-form]');
-      if(pForm)pForm.hidden=false;
-      const secPanel=profileEditor.querySelector('[data-security-panel]');
-      if(secPanel)secPanel.hidden=false;
-      profileEditor.querySelectorAll('.security-section').forEach(item=>{item.hidden=false;item.open=false;});
-    };settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
+    settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
     document.addEventListener('click',event=>{const button=event.target.closest('[data-settings-jump]');if(button)jumpToSettings(button.dataset.settingsJump);});
     window.addEventListener('gaeru:security-rendered',()=>{if(pendingSettingsJump)jumpToSettings(pendingSettingsJump);});
     window.GAERUAccountSettings={open:openSettings,close:()=>settingsDialog.close()};

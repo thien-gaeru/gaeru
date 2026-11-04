@@ -15,7 +15,7 @@
     "db:migrate": "node src/migrate.js",
     "db:seed": "node src/seed.js",
     "admin:hash-password": "node src/hash-password.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "benchmark:cache": "node scripts/run-experiments.js"
   },
   "dependencies": {
