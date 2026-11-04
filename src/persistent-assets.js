@@ -2,7 +2,7 @@
 const fs=require('node:fs/promises'),path=require('node:path'),{constants}=require('node:fs'),{createHash,randomUUID}=require('node:crypto');
 const disk=require('./lib/file-library-storage'),filesystem=require('./lib/filesystem-media');
 const {createObjectCache}=require('./lib/object-cache');
-const types={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.avif':'image/avif','.ico':'image/x-icon'};
+const types={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.avif':'image/avif','.ico':'image/x-icon','.mp4':'video/mp4'};
 const valid=relative=>typeof relative==='string'&&/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+$/.test(relative)&&!relative.split('/').some(p=>p==='.'||p==='..')&&Object.hasOwn(types,path.posix.extname(relative).toLowerCase());
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 let last={state:'not-configured',files:0};
@@ -34,7 +34,23 @@ function serveAssets(pool){const cache=createObjectCache();return async(req,res,
  if(!valid(relative))return next();
  try{const row=(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[relative])).rows[0];if(!row)return res.set('Cache-Control','no-store').sendStatus(404);
   const bytes=await cache.get(row.storage_key,async()=>{const value=await disk.read(row.storage_key);if(value.length!==Number(row.byte_size)||hash(value)!==row.sha256)throw Error('SITE_ASSET_INTEGRITY');return value;});
-  res.type(row.mime_type).set({'Cache-Control':/-[0-9a-f]{12}\./.test(relative)?'public, max-age=31536000, immutable':'public, max-age=3600, must-revalidate','ETag':'"'+row.sha256+'"','X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});if(req.fresh)return res.status(304).end();return res.send(bytes);
+  res.type(row.mime_type).set({'Cache-Control':/-[0-9a-f]{12}\./.test(relative)?'public, max-age=31536000, immutable':'public, max-age=3600, must-revalidate','ETag':'"'+row.sha256+'"','X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});if(req.fresh)return res.status(304).end();
+  if(row.mime_type==='video/mp4'){
+   res.set('Accept-Ranges','bytes');
+   const range=req.headers.range,tag='"'+row.sha256+'"';
+   if(req.method==='GET'&&range&&(!req.headers['if-range']||req.headers['if-range']===tag)){
+    const match=/^bytes=(\d*)-(\d*)$/.exec(range);
+    let start,end;
+    if(match&&(match[1]||match[2])){
+     if(!match[1]){const suffix=Number(match[2]);if(Number.isSafeInteger(suffix)&&suffix>0){start=Math.max(0,bytes.length-suffix);end=bytes.length-1;}}
+     else{start=Number(match[1]);end=match[2]?Number(match[2]):bytes.length-1;if(!Number.isSafeInteger(end))start=undefined;end=Math.min(end,bytes.length-1);}
+    }
+    if(!Number.isSafeInteger(start)||start<0||start>=bytes.length||!Number.isSafeInteger(end)||end<start)return res.status(416).set('Content-Range','bytes */'+bytes.length).end();
+    return res.status(206).set('Content-Range',`bytes ${start}-${end}/${bytes.length}`).send(bytes.subarray(start,end+1));
+   }
+   if(req.method==='HEAD')return res.set('Content-Length',String(bytes.length)).end();
+  }
+  return res.send(bytes);
  }catch(e){if(e.code==='ENOENT')return res.set('Cache-Control','no-store').status(503).send('Ảnh lưu trữ tạm thời chưa sẵn sàng.');next(e);}
 };}
 module.exports={syncAssets,serveAssets,valid,status:()=>last};

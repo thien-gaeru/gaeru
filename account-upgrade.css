@@ -1821,3 +1821,5 @@ p.account-feedback {
 
 /* Highlight the point amount while retaining readable contrast on the member card. */
 .account-loyalty-card .account-xu-balance strong{color:#b88600!important}
+
+.account-loyalty-card .account-xu-balance{font-weight:600!important}
