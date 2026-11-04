@@ -37,3 +37,22 @@
  .home-page #products .product-image{height:clamp(200px,52vw,270px);margin-top:0}
  .home-page #products .card-actions{gap:10px}
 }
+
+/* Keep the news heading and a complete card compact on phone screens. */
+@media(max-width:760px){
+ .home-page .home-news{padding-block:20px}
+ .home-page .news-heading{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding:12px;margin-bottom:12px;border-radius:18px}
+ .home-page .news-heading .eyebrow{font-size:10px;line-height:1.3;margin:0}
+ .home-page .news-heading h2{font-size:24px;line-height:1.15;margin:6px 0}
+ .home-page .news-heading .text-link{font-size:14px}
+ .home-page .news-controls{justify-content:flex-start;gap:8px}
+ .home-page .news-strip{gap:14px;padding:4px 3px 16px}
+ .home-page .news-card{flex-basis:88%;min-width:0;border-radius:18px;scroll-snap-align:start}
+ .home-page .news-card>img{height:clamp(96px,20svh,124px);max-height:124px;padding:8px}
+ .home-page .news-card>div{padding:14px 16px 16px}
+ .home-page .news-card time{font-size:11px;line-height:1.3}
+ .home-page .news-card h3{font-size:18px;line-height:1.3;margin:8px 0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
+ .home-page .news-card p{font-size:14px;line-height:1.45;margin:8px 0 12px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+ .home-page .news-card span{font-size:14px;line-height:1.4}
+ .home-page .home-news>[data-news-status]:empty{display:none}
+}
