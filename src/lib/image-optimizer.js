@@ -35,7 +35,7 @@ async function reservePixels(pixels){
   };
 }
 
-async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES,maxOutputBytes=MAX_OUTPUT_BYTES,removeBackground=false}={}) {
+async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES,maxOutputBytes=MAX_OUTPUT_BYTES,removeBackground=false,...backgroundOptions}={}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0 ||
       buffer.length > maxUploadBytes || !EXPECTED_FORMATS[mimeType]) {
     throw invalidImage();
@@ -57,7 +57,7 @@ async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES,ma
     const pixels=info.width*info.height;
     const releasePixels=await reservePixels(Math.min(MAX_INPUT_PIXELS,pixels*(removeBackground&&pixels<=8_000_000?3:1)));
     try {
-    if(removeBackground){const cutout=await require('./product-background').removeWhiteBackground(buffer);if(cutout){if(cutout.length>maxOutputBytes)throw outputTooLarge();return {buffer:cutout,mimeType:'image/webp',backgroundRemoved:true};}}
+    if(removeBackground){const cutout=await require('./product-background').removeWhiteBackground(buffer,backgroundOptions);if(cutout){if(cutout.length>maxOutputBytes)throw outputTooLarge();return {buffer:cutout,mimeType:'image/webp',backgroundRemoved:true};}}
     if(info.format==='webp'&&!info.exif&&!info.icc&&!info.xmp&&!info.orientation){
       await sharp(buffer,input).stats(); // Validate the complete image before storing it.
       if(buffer.length>maxOutputBytes)throw outputTooLarge();

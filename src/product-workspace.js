@@ -51,15 +51,20 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
  admin.post('/catalog-images/:id/remove-background',catalogImageUploadLimiter,requirePermission('catalog.write'),requireCsrf,async(req,res,next)=>{
   try{
    const id=uuid.parse(req.params.id),source=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[id])).rows[0];if(!source)return res.sendStatus(404);
-   const buffer=await readStoredImage(source.content),cutout=await require('./lib/image-optimizer').optimizeImage(buffer,source.mime_type,{removeBackground:true});
+   const parseSquare=v=>v===true||v==='true'||v==='1';
+   const autoCenterSquare=req.body?.autoCenterSquare!==undefined?parseSquare(req.body.autoCenterSquare):(req.query?.autoCenterSquare!==undefined?parseSquare(req.query.autoCenterSquare):false);
+   const canvasSize=Number(req.body?.canvasSize||req.query?.canvasSize)||1000;
+   const paddingRatio=Number(req.body?.paddingRatio||req.query?.paddingRatio)||0.08;
+   const bgOpts={whiteThreshold:req.body?.threshold||req.body?.whiteThreshold||req.query?.threshold||req.query?.whiteThreshold,tolerance:req.body?.tolerance||req.query?.tolerance,minHoleArea:req.body?.minHoleArea||req.query?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio};
+   const buffer=await readStoredImage(source.content),cutout=await require('./lib/image-optimizer').optimizeImage(buffer,source.mime_type,{removeBackground:true,...bgOpts});
    if(!cutout.backgroundRemoved)return res.status(409).json({error:'Chưa nhận diện được vùng nền trắng liền mép. Ảnh được giữ nguyên; dùng ảnh PNG/WebP đã tách nền cho nền phức tạp.'});
-   const saved=await require('./lib/stored-media').storeUpload('products',buffer,source.mime_type,pool,{removeBackground:true});
+   const saved=await require('./lib/stored-media').storeUpload('products',buffer,source.mime_type,pool,{removeBackground:true,...bgOpts});
    const image=(await pool.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',[saved.content,saved.mimeType])).rows[0];
    await appendAudit(pool,{actor:req.admin,action:'catalog.image.remove_background',entityType:'catalog_image',entityId:image.id,metadata:{sourceId:id}});
    res.status(201).json({imageUrl:'/api/catalog-images/'+image.id,backgroundRemoved:true});
   }catch(error){next(error);}
  });
- const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:0}}).single('image');
+ const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:8*1024*1024,files:1,fields:10}}).single('image');
 admin.post(['/catalog-images','/uploads/image'],
   catalogImageUploadLimiter,
   requirePermission('catalog.write'),
@@ -93,7 +98,12 @@ admin.post(['/catalog-images','/uploads/image'],
 
 
     try {
-      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype,pool,{removeBackground:req.query.background!=='keep'});
+      const parseSquare=v=>v===true||v==='true'||v==='1';
+      const autoCenterSquare=req.query?.autoCenterSquare!==undefined?parseSquare(req.query.autoCenterSquare):(req.body?.autoCenterSquare!==undefined?parseSquare(req.body.autoCenterSquare):false);
+      const canvasSize=Number(req.query?.canvasSize||req.body?.canvasSize)||1000;
+      const paddingRatio=Number(req.query?.paddingRatio||req.body?.paddingRatio)||0.08;
+      const bgOpts={whiteThreshold:req.query.threshold||req.query.whiteThreshold||req.body?.threshold||req.body?.whiteThreshold,tolerance:req.query.tolerance||req.body?.tolerance,minHoleArea:req.query.minHoleArea||req.body?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio};
+      const optimized=await require('./lib/stored-media').storeUpload('products',b,f.mimetype,pool,{removeBackground:req.query.background!=='keep',...bgOpts});
       const content=optimized.content;
 
       const row = (await pool.query(

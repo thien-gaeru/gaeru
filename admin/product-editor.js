@@ -324,6 +324,33 @@
  }
  upload.sequence=0;
 
+ function getCutoutParams(){
+   const autoBg=document.querySelector('#product-auto-background')?.checked!==false;
+   const autoSquare=document.querySelector('#cutout-auto-square')?.checked===true;
+   const th=document.querySelector('#cutout-threshold')?.value;
+   const tol=document.querySelector('#cutout-tolerance')?.value;
+   const hole=document.querySelector('#cutout-min-hole')?.value;
+   const parts=[];
+   if(!autoBg)parts.push('background=keep');
+   if(autoSquare)parts.push('autoCenterSquare=true');
+   if(th&&th!=='240')parts.push('threshold='+encodeURIComponent(th));
+   if(tol&&tol!=='35')parts.push('tolerance='+encodeURIComponent(tol));
+   if(hole&&hole!=='450')parts.push('minHoleArea='+encodeURIComponent(hole));
+   const qs=parts.length?('?'+parts.join('&')):'';
+   return {
+     autoBg,
+     queryString: qs,
+     body: {
+       autoCenterSquare: autoSquare,
+       threshold: th ? Number(th) : 240,
+       tolerance: tol ? Number(tol) : 35,
+       minHoleArea: hole ? Number(hole) : 450,
+       canvasSize: 1000,
+       paddingRatio: 0.08
+     }
+   };
+ }
+
  function runUploads(){
    if(uploadWorker)return uploadWorker;
    uploadWorker=(async()=>{
@@ -333,7 +360,8 @@
        try{
          const data=new FormData();
          data.append('image',item.file);
-         const result=await request('/api/gaeru_ceo/catalog-images'+(document.querySelector('#product-auto-background')?.checked===false?'?background=keep':''),'POST',data);
+         const {queryString}=getCutoutParams();
+         const result=await request('/api/gaeru_ceo/catalog-images'+queryString,'POST',data);
          readRows();
          model.gallery.push(result.imageUrl);
          imageUploads.splice(imageUploads.indexOf(item),1);
@@ -708,7 +736,8 @@
      lock(true);
      try{
        const data=new FormData();data.append('image',file);
-       const result=await request('/api/gaeru_ceo/catalog-images'+(document.querySelector('#product-auto-background')?.checked===false?'?background=keep':''),'POST',data);
+       const {queryString}=getCutoutParams();
+       const result=await request('/api/gaeru_ceo/catalog-images'+queryString,'POST',data);
        model.variants[i].imageUrl=result.imageUrl;
        rows();
        feedback('Đã thêm ảnh riêng cho biến thể.');
@@ -723,12 +752,20 @@
  const gfInput=document.querySelector('#gallery-files');
   if(gfInput)gfInput.addEventListener('change',e=>upload([...e.target.files]));
 
+  const thInput=document.querySelector('#cutout-threshold'),thVal=document.querySelector('#valThreshold');
+  if(thInput&&thVal)thInput.addEventListener('input',()=>thVal.textContent=thInput.value);
+  const tolInput=document.querySelector('#cutout-tolerance'),tolVal=document.querySelector('#valTolerance');
+  if(tolInput&&tolVal)tolInput.addEventListener('input',()=>tolVal.textContent=tolInput.value);
+  const holeInput=document.querySelector('#cutout-min-hole'),holeVal=document.querySelector('#valHole');
+  if(holeInput&&holeVal)holeInput.addEventListener('input',()=>holeVal.textContent=holeInput.value+' px');
+
  form.addEventListener('click',e=>{
     const b=e.target.closest('button');
     if(!b||busy||!can('catalog.write'))return;
     if(b.dataset.cutoutImage!==undefined){
       const index=Number(b.dataset.cutoutImage),url=model.gallery[index];b.disabled=true;
-      request('/api/gaeru_ceo/catalog-images/'+url.split('/').at(-1)+'/remove-background','POST',{}).then(result=>{
+      const {body}=getCutoutParams();
+      request('/api/gaeru_ceo/catalog-images/'+url.split('/').at(-1)+'/remove-background','POST',body).then(result=>{
         readRows();model.gallery[index]=result.imageUrl;model.variants.forEach(v=>{if(v.imageUrl===url)v.imageUrl=result.imageUrl;});if(model.product.imageUrl===url)model.product.imageUrl=result.imageUrl;dirty=true;gallery();rows();feedback('Đã tạo ảnh tách nền. Bản gốc được giữ; lưu sản phẩm để áp dụng.');
       }).catch(error=>{b.disabled=false;feedback(error.message,true);});return;
     }

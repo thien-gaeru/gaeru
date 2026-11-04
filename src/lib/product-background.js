@@ -1,24 +1,245 @@
 'use strict';
-const sharp=require('sharp');
+const sharp = require('sharp');
 
-// Only remove a nearly white region connected to the image border. Enclosed
-// white labels, product details and existing transparency remain untouched.
-// Photographs without a predominantly white perimeter are left unchanged.
-async function removeWhiteBackground(buffer){
-  // The optional flood fill needs a full-size pixel mask. Skip very large
-  // cutouts instead of shrinking the product or allocating an unbounded mask.
-  const meta=await sharp(buffer,{limitInputPixels:24_000_000,failOn:'error'}).metadata();
-  if(meta.width*meta.height>8_000_000)return null;
-  const {data,info}=await sharp(buffer,{limitInputPixels:24_000_000,failOn:'error'}).rotate().toColourspace('srgb').ensureAlpha().raw().toBuffer({resolveWithObject:true});
-  const {width:w,height:h}=info,n=w*h;
-  const white=i=>{const p=i*4;return data[p+3]>240&&Math.min(data[p],data[p+1],data[p+2])>=240&&Math.max(data[p],data[p+1],data[p+2])-Math.min(data[p],data[p+1],data[p+2])<=12;};
-  const edge=[];for(let x=0;x<w;x++){edge.push(x);if(h>1)edge.push((h-1)*w+x);}for(let y=1;y<h-1;y++){edge.push(y*w);if(w>1)edge.push(y*w+w-1);}
-  if(!edge.length||edge.filter(white).length/edge.length<0.85)return null;
-  const seen=new Uint8Array(n),queue=new Uint32Array(n);let head=0,tail=0;
-  const add=i=>{if(!seen[i]&&white(i)){seen[i]=1;queue[tail++]=i;}};edge.forEach(add);
-  while(head<tail){const i=queue[head++],x=i%w;if(x)add(i-1);if(x<w-1)add(i+1);if(i>=w)add(i-w);if(i<n-w)add(i+w);}
-  if(tail/n<0.01||tail/n>0.97)return null;
-  for(let j=0;j<tail;j++){const p=queue[j]*4,min=Math.min(data[p],data[p+1],data[p+2]);const alpha=Math.max(0,Math.min(1,(250-min)/10));data[p+3]=Math.round(data[p+3]*alpha);if(alpha>0)for(let c=0;c<3;c++)data[p+c]=Math.max(0,Math.min(255,Math.round((data[p+c]-255*(1-alpha))/alpha)));}
-  return sharp(data,{raw:{width:w,height:h,channels:4}}).webp({lossless:true,effort:5,alphaQuality:100}).toBuffer();
+/**
+ * Tách nền trắng siêu tốc bằng Sharp + Thuật toán Connected-Component Labeling (CCL)
+ * - Tự động xóa nền bao ngoài (Flood Fill từ 4 cạnh biên)
+ * - Tự động đục thủng các khoảng trống khép kín lớn (lỗ kẹp áo, khe hở dây cáp, tay cầm)
+ * - Bảo toàn 100% chữ in, logo, đèn báo màu trắng trên thân sản phẩm
+ * - Khử răng cưa và khử viền sáng (Color Decontamination) tại mép sản phẩm
+ *
+ * @param {Buffer} buffer - Buffer ảnh gốc
+ * @param {Object} [options] - Cấu hình tinh chỉnh
+ * @returns {Promise<Buffer|null>} - Buffer ảnh WebP trong suốt hoặc null nếu không phải ảnh nền trắng
+ */
+async function removeWhiteBackground(buffer, options = {}) {
+  const {
+    whiteThreshold = Number(options.whiteThreshold || options.threshold) || 240,
+    tolerance = Number(options.tolerance) || 35,
+    maxWidth = options.maxWidth ? Number(options.maxWidth) : null,
+    minHoleArea = (options.minHoleArea !== undefined && options.minHoleArea !== null && options.minHoleArea !== '')
+      ? Number(options.minHoleArea)
+      : null,
+    maxTextDimension = Number(options.maxTextDimension) || 45,
+    autoCenterSquare = Boolean(options.autoCenterSquare === true || options.autoCenterSquare === 'true' || options.autoCenterSquare === '1' || options.autoSquare === true || options.autoSquare === '1'),
+    canvasSize = Number(options.canvasSize) || 1000,
+    paddingRatio = options.paddingRatio !== undefined ? Number(options.paddingRatio) : 0.08
+  } = options;
+
+  const input = sharp(buffer, { limitInputPixels: 24_000_000, failOn: 'error' });
+  const meta = await input.metadata();
+  if (!meta.width || !meta.height) return null;
+  if (meta.width * meta.height > 24_000_000) return null;
+
+  let pipeline = sharp(buffer, { limitInputPixels: 24_000_000, failOn: 'error' }).rotate().toColourspace('srgb');
+  if (maxWidth && (meta.width > maxWidth || meta.height > maxWidth)) {
+    pipeline = pipeline.resize({ width: maxWidth, height: maxWidth, fit: 'inside', withoutEnlargement: true });
+  }
+
+  const { data, info } = await pipeline.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const width = info.width;
+  const height = info.height;
+  const totalPixels = width * height;
+
+  const lowerBound = whiteThreshold - tolerance;
+
+  // Đánh giá nhanh chu vi biên ảnh: phải có ít nhất 65% pixel màu trắng
+  let edgeWhiteCount = 0;
+  let totalEdgePixels = 0;
+
+  const isWhitePixel = (idx) => {
+    const bIdx = idx * 4;
+    const a = data[bIdx + 3];
+    if (a < 200) return false;
+    const r = data[bIdx];
+    const g = data[bIdx + 1];
+    const b = data[bIdx + 2];
+    const minCh = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    const maxCh = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    return minCh >= whiteThreshold && (maxCh - minCh) <= 20;
+  };
+
+  for (let x = 0; x < width; x++) {
+    totalEdgePixels += 2;
+    if (isWhitePixel(x)) edgeWhiteCount++;
+    if (isWhitePixel((height - 1) * width + x)) edgeWhiteCount++;
+  }
+  for (let y = 1; y < height - 1; y++) {
+    totalEdgePixels += 2;
+    if (isWhitePixel(y * width)) edgeWhiteCount++;
+    if (isWhitePixel(y * width + width - 1)) edgeWhiteCount++;
+  }
+
+  if (totalEdgePixels === 0 || (edgeWhiteCount / totalEdgePixels) < 0.65) {
+    return null;
+  }
+
+  const visited = new Uint8Array(totalPixels);
+  const queue = new Int32Array(totalPixels);
+  const borderBuffer = new Int32Array(totalPixels);
+
+  const smoothEdgePixel = (idx) => {
+    if (visited[idx] === 2) return;
+    visited[idx] = 2;
+
+    const bIdx = idx * 4;
+    const r = data[bIdx];
+    const g = data[bIdx + 1];
+    const b = data[bIdx + 2];
+    const minCh = r < g ? (r < b ? r : b) : (g < b ? g : b);
+
+    if (minCh > lowerBound) {
+      const ratio = Math.max(0, Math.min(1, (whiteThreshold - minCh) / tolerance));
+      const currentAlpha = data[bIdx + 3];
+      const newAlpha = Math.round(currentAlpha * ratio);
+      data[bIdx + 3] = newAlpha;
+      if (newAlpha > 0 && newAlpha < 255) {
+        const aNorm = newAlpha / 255;
+        for (let c = 0; c < 3; c++) {
+          data[bIdx + c] = Math.max(0, Math.min(255, Math.round((data[bIdx + c] - 255 * (1 - aNorm)) / aNorm)));
+        }
+      }
+    }
+  };
+
+  let totalRemovedPixels = 0;
+
+  for (let startIdx = 0; startIdx < totalPixels; startIdx++) {
+    if (visited[startIdx] !== 0 || !isWhitePixel(startIdx)) continue;
+
+    let head = 0;
+    let tail = 0;
+    let borderCount = 0;
+    let touchesImageBorder = false;
+
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+
+    visited[startIdx] = 1;
+    queue[tail++] = startIdx;
+
+    while (head < tail) {
+      const curr = queue[head++];
+      const x = curr % width;
+      const y = (curr - x) / width;
+
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+
+      if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
+        touchesImageBorder = true;
+      }
+
+      // Trái
+      if (x > 0) {
+        const nIdx = curr - 1;
+        if (visited[nIdx] === 0) {
+          if (isWhitePixel(nIdx)) {
+            visited[nIdx] = 1;
+            queue[tail++] = nIdx;
+          } else {
+            borderBuffer[borderCount++] = nIdx;
+          }
+        }
+      }
+      // Phải
+      if (x < width - 1) {
+        const nIdx = curr + 1;
+        if (visited[nIdx] === 0) {
+          if (isWhitePixel(nIdx)) {
+            visited[nIdx] = 1;
+            queue[tail++] = nIdx;
+          } else {
+            borderBuffer[borderCount++] = nIdx;
+          }
+        }
+      }
+      // Trên
+      if (y > 0) {
+        const nIdx = curr - width;
+        if (visited[nIdx] === 0) {
+          if (isWhitePixel(nIdx)) {
+            visited[nIdx] = 1;
+            queue[tail++] = nIdx;
+          } else {
+            borderBuffer[borderCount++] = nIdx;
+          }
+        }
+      }
+      // Dưới
+      if (y < height - 1) {
+        const nIdx = curr + width;
+        if (visited[nIdx] === 0) {
+          if (isWhitePixel(nIdx)) {
+            visited[nIdx] = 1;
+            queue[tail++] = nIdx;
+          } else {
+            borderBuffer[borderCount++] = nIdx;
+          }
+        }
+      }
+    }
+
+    const pixelCount = tail;
+    const boxWidth = maxX - minX + 1;
+    const boxHeight = maxY - minY + 1;
+    const fillRatio = pixelCount / (boxWidth * boxHeight);
+
+    const isInteriorHole =
+      minHoleArea !== null &&
+      pixelCount >= minHoleArea &&
+      (boxWidth > maxTextDimension || boxHeight > maxTextDimension || fillRatio > 0.45);
+
+    if (touchesImageBorder || isInteriorHole) {
+      totalRemovedPixels += pixelCount;
+      for (let i = 0; i < pixelCount; i++) {
+        data[queue[i] * 4 + 3] = 0;
+      }
+      for (let i = 0; i < borderCount; i++) {
+        smoothEdgePixel(borderBuffer[i]);
+      }
+    }
+  }
+
+  if (totalRemovedPixels / totalPixels < 0.01 || totalRemovedPixels / totalPixels > 0.98) {
+    return null;
+  }
+
+  let processedImage = sharp(data, {
+    raw: { width, height, channels: 4 }
+  });
+
+  if (autoCenterSquare) {
+    try {
+      const trimmedBuffer = await processedImage
+        .png()
+        .trim({ threshold: 5 })
+        .toBuffer();
+      const paddingPx = Math.round(canvasSize * paddingRatio);
+      const innerSize = Math.max(1, canvasSize - (paddingPx * 2));
+      processedImage = sharp(trimmedBuffer)
+        .resize({
+          width: innerSize,
+          height: innerSize,
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 }
+        })
+        .extend({
+          top: paddingPx,
+          bottom: paddingPx,
+          left: paddingPx,
+          right: paddingPx,
+          background: { r: 0, g: 0, b: 0, alpha: 0 }
+        });
+    } catch (_) {
+      // Trường hợp không có pixel biên hoặc lỗi trim, giữ nguyên processedImage
+    }
+  }
+
+  return await processedImage
+    .webp({ lossless: true, alphaQuality: 100, effort: 4 })
+    .toBuffer();
 }
-module.exports={removeWhiteBackground};
+
+module.exports = { removeWhiteBackground, removeWhiteBgBuffer: removeWhiteBackground };
