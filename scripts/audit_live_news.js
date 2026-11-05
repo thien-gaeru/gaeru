@@ -15,7 +15,7 @@ async function checkNews() {
   const uniqueCovers = new Set(allPosts.map(i => i.coverId));
   const uniqueUrls = new Set(allPosts.map(i => i.imageUrl));
 
-  console.log('\n=== TỔNG HỢP KIỂM KÊ TRÊN MÁY SỐNG (SAU KHI BỔ SUNG 5 BÀI TIKTOK) ===');
+  console.log('\n=== TỔNG HỢP KIỂM KÊ TRÊN MÁY SỐNG (36 BÀI VIẾT) ===');
   console.log('Tổng số bài viết phát hành:', allPosts.length);
   console.log('Số lượng coverId độc nhất:', uniqueCovers.size);
   console.log('Số lượng imageUrl độc nhất:', uniqueUrls.size);
@@ -32,7 +32,7 @@ async function checkNews() {
     console.log('>> KẾT QUẢ: 100% ẢNH ĐỘC NHẤT, KHÔNG TRÙNG LẶP DÙ CHỈ 1 ẢNH! <<');
   }
 
-  console.log('\nDanh sách chi tiết 31 bài:');
+  console.log('\nDanh sách chi tiết 36 bài:');
   allPosts.forEach((p, idx) => {
     console.log(`${idx + 1}. [${p.slug}]\n   Tiêu đề: ${p.title}\n   Ảnh: ${p.imageUrl}\n`);
   });
