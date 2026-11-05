@@ -710,109 +710,22 @@
   box-sizing: border-box !important;
 }
 
-/* Responsive Breakpoints for Helpdesk Layout */
-@media (max-width: 900px) {
-  #shopping-chat-view .admin-shopping-chat {
-    display: flex !important;
-    flex-direction: column !important;
-    position: relative !important;
-  }
-  .admin-shopping-chat.has-selected-thread .chat-folder-nav,
-  .admin-shopping-chat.has-selected-thread .chat-threads-aside {
-    display: none !important;
-  }
-  .admin-shopping-chat:not(.has-selected-thread) .chat-conversation-section {
-    display: none !important;
-  }
-  .admin-shopping-chat.has-selected-thread .chat-conversation-section {
-    display: flex !important;
-    width: 100% !important;
-  }
+/* Responsive Breakpoints & Universal Device Optimization for Helpdesk Layout */
 
-  .chat-folder-nav {
-    display: none !important;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    bottom: 0 !important;
-    width: 250px !important;
-    min-width: 250px !important;
-    z-index: 1000 !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2) !important;
-    background: #ffffff !important;
-    padding: 16px 0 !important;
-  }
-  .chat-folder-nav.is-mobile-open {
-    display: flex !important;
-  }
-
-  .chat-threads-aside {
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    border-right: 0 !important;
-    padding: 14px !important;
-  }
-
-  .chat-mobile-folder-btn {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 32px !important;
-    height: 32px !important;
-    border: 1px solid #e5e5ea !important;
-    border-radius: 8px !important;
-    background: #f8fafc !important;
-    color: #374151 !important;
-    cursor: pointer !important;
-    padding: 0 !important;
-  }
+/* --- 1. Shared Elements & Base Enhancements --- */
+.chat-folder-backdrop {
+  display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  .chat-folder-nav {
-    background: #1c1c1e !important;
-    border-right-color: #2c2c2e !important;
-  }
-  .chat-folder-title {
-    color: #ffffff !important;
-  }
-  .chat-folder-toggle {
-    color: #9ca3af !important;
-  }
-  .chat-folder-toggle:hover {
-    background: #2c2c2e !important;
-    color: #ffffff !important;
-  }
-  .chat-folder-item {
-    color: #d1d5db !important;
-  }
-  .chat-folder-item:hover {
-    background: #2c2c2e !important;
-    color: #ffffff !important;
-  }
-  .chat-folder-item.is-active,
-  .chat-folder-item[aria-pressed="true"] {
-    background: #1e293b !important;
-    color: #38bdf8 !important;
-    border-color: #0284c7 !important;
-  }
-  .chat-folder-item.is-active .chat-folder-badge {
-    color: #38bdf8 !important;
-  }
-  .chat-folder-divider {
-    background: #2c2c2e !important;
-  }
-  .chat-threads-aside {
-    background: #1c1c1e !important;
-    border-right-color: #2c2c2e !important;
-  }
-  .chat-conversation-section {
-    background: #1c1c1e !important;
-  }
+.chat-folder-close-btn {
+  display: none !important;
 }
 
-/* 2. Thread list buttons */
+.admin-chat-mobile-header {
+  display: none !important;
+}
+
+/* Thread list buttons & cards */
 [data-admin-chat-list] {
   display: flex !important;
   flex-direction: column !important;
@@ -822,6 +735,7 @@
   max-height: calc(100dvh - 340px) !important;
   min-height: 160px !important;
   overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
 }
 
 [data-chat-thread] {
@@ -839,6 +753,8 @@
   transition: all .15s ease !important;
   width: 100% !important;
   box-sizing: border-box !important;
+  touch-action: manipulation !important;
+  -webkit-tap-highlight-color: transparent !important;
 }
 
 [data-chat-thread]:hover {
@@ -871,7 +787,67 @@
   align-self: flex-end !important;
 }
 
-/* 3. Pagination bar & buttons */
+/* Conversation action controls (Đóng hội thoại, Mở lại) */
+[data-admin-chat-controls] {
+  display: flex !important;
+  gap: 8px !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  margin-bottom: 12px !important;
+  padding-bottom: 10px !important;
+  border-bottom: 1px solid #f2f2f7 !important;
+}
+
+[data-admin-chat-controls] button,
+[data-chat-status] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  border: 1px solid #d2d2d7 !important;
+  background: #ffffff !important;
+  color: #374151 !important;
+  cursor: pointer !important;
+  transition: all .15s ease !important;
+  white-space: nowrap !important;
+  touch-action: manipulation !important;
+}
+
+[data-admin-chat-controls] button:hover,
+[data-chat-status]:hover {
+  background: #f3f4f6 !important;
+  border-color: #9ca3af !important;
+}
+
+[data-chat-status="closed"] {
+  color: #dc2626 !important;
+  border-color: #fecaca !important;
+  background: #fef2f2 !important;
+}
+
+[data-chat-status="closed"]:hover {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+}
+
+[data-chat-status="open"] {
+  color: #0284c7 !important;
+  border-color: #bae6fd !important;
+  background: #f0f9ff !important;
+}
+
+[data-chat-status="open"]:hover {
+  background: #e0f2fe !important;
+  border-color: #7dd3fc !important;
+}
+
+/* Pagination bar & buttons */
 .admin-shopping-chat .pagination {
   display: flex !important;
   align-items: center !important;
@@ -901,6 +877,7 @@
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
+  touch-action: manipulation !important;
 }
 
 .admin-shopping-chat .pagination button:hover:not(:disabled),
@@ -924,7 +901,7 @@
   flex: 1 !important;
 }
 
-/* 4. Desktop Empty Selection */
+/* Desktop Empty Selection */
 .admin-chat-empty-selection {
   display: flex !important;
   flex-direction: column !important;
@@ -959,15 +936,40 @@
   line-height: 1.5 !important;
 }
 
-/* Mobile Header (Hidden on Desktop) */
-.admin-chat-mobile-header {
-  display: none !important;
+/* --- 2. Tablet Landscape & Medium Desktops (901px - 1180px) --- */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .chat-folder-nav:not(.is-expanded) {
+    width: 58px !important;
+    min-width: 58px !important;
+  }
+  .chat-folder-nav:not(.is-expanded) .chat-folder-title,
+  .chat-folder-nav:not(.is-expanded) .chat-folder-label,
+  .chat-folder-nav:not(.is-expanded) .chat-folder-badge {
+    display: none !important;
+  }
+  .chat-folder-nav:not(.is-expanded) .chat-folder-item {
+    width: 42px !important;
+    margin: 2px auto !important;
+    padding: 0 !important;
+    justify-content: center !important;
+  }
+  .chat-folder-nav:not(.is-expanded) .chat-folder-item .chat-folder-icon {
+    margin-right: 0 !important;
+  }
+  .chat-folder-nav:not(.is-expanded) .chat-folder-header {
+    justify-content: center !important;
+    padding: 0 4px 10px 4px !important;
+  }
+  .chat-folder-nav:not(.is-expanded) .chat-folder-toggle svg {
+    transform: rotate(180deg) !important;
+  }
+  .chat-threads-aside {
+    width: 270px !important;
+    min-width: 250px !important;
+  }
 }
 
-/* ==========================================================================
-   MOBILE & TABLET RESPONSIVE RULES (<= 900px)
-   Apple Messages List-Detail pattern: 100% full-width view for List OR Thread
-   ========================================================================== */
+/* --- 3. Mobile & Tablet Portrait Rules (<= 900px) --- */
 @media (max-width: 900px) {
   #shopping-chat-view .admin-shopping-chat,
   .admin-shopping-chat {
@@ -978,11 +980,84 @@
     border-radius: 14px !important;
     width: 100% !important;
     border: 1px solid #e5e5ea !important;
+    position: relative !important;
+  }
+
+  /* Backdrop Overlay for Folder Drawer */
+  .chat-folder-backdrop {
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background: rgba(0, 0, 0, 0.45) !important;
+    backdrop-filter: blur(2px) !important;
+    -webkit-backdrop-filter: blur(2px) !important;
+    z-index: 999 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity .25s ease !important;
+  }
+
+  .chat-folder-backdrop.is-active {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  /* Off-canvas Sliding Drawer */
+  .chat-folder-nav {
+    display: flex !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: min(290px, 82vw) !important;
+    min-width: 0 !important;
+    z-index: 1000 !important;
+    transform: translateX(-105%) !important;
+    transition: transform .28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow .28s ease !important;
+    box-shadow: none !important;
+    border-right: 1px solid #e5e5ea !important;
+    background: #ffffff !important;
+    padding: 16px 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .chat-folder-nav.is-mobile-open {
+    transform: translateX(0) !important;
+    box-shadow: 4px 0 28px rgba(0, 0, 0, 0.25) !important;
+  }
+
+  .chat-folder-close-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    border: 0 !important;
+    border-radius: 50% !important;
+    background: #f2f2f7 !important;
+    color: #4b5563 !important;
+    font-size: 15px !important;
+    cursor: pointer !important;
+    flex-shrink: 0 !important;
+    padding: 0 !important;
+    touch-action: manipulation !important;
+  }
+
+  .chat-folder-close-btn:hover {
+    background: #e5e5ea !important;
+    color: #111827 !important;
   }
 
   /* When NO thread is selected: Show aside 100% full-width, hide section completely */
   #shopping-chat-view .admin-shopping-chat:not(.has-selected-thread) > aside,
-  .admin-shopping-chat:not(.has-selected-thread) > aside {
+  .admin-shopping-chat:not(.has-selected-thread) > aside,
+  #shopping-chat-view .admin-shopping-chat:not(.has-selected-thread) .chat-threads-aside,
+  .admin-shopping-chat:not(.has-selected-thread) .chat-threads-aside {
     display: flex !important;
     flex-direction: column !important;
     width: 100% !important;
@@ -994,18 +1069,24 @@
   }
 
   #shopping-chat-view .admin-shopping-chat:not(.has-selected-thread) > section,
-  .admin-shopping-chat:not(.has-selected-thread) > section {
+  .admin-shopping-chat:not(.has-selected-thread) > section,
+  #shopping-chat-view .admin-shopping-chat:not(.has-selected-thread) .chat-conversation-section,
+  .admin-shopping-chat:not(.has-selected-thread) .chat-conversation-section {
     display: none !important;
   }
 
   /* When a thread IS selected: Hide aside completely, show section 100% full-width */
   #shopping-chat-view .admin-shopping-chat.has-selected-thread > aside,
-  .admin-shopping-chat.has-selected-thread > aside {
+  .admin-shopping-chat.has-selected-thread > aside,
+  #shopping-chat-view .admin-shopping-chat.has-selected-thread .chat-threads-aside,
+  .admin-shopping-chat.has-selected-thread .chat-threads-aside {
     display: none !important;
   }
 
   #shopping-chat-view .admin-shopping-chat.has-selected-thread > section,
-  .admin-shopping-chat.has-selected-thread > section {
+  .admin-shopping-chat.has-selected-thread > section,
+  #shopping-chat-view .admin-shopping-chat.has-selected-thread .chat-conversation-section,
+  .admin-shopping-chat.has-selected-thread .chat-conversation-section {
     display: flex !important;
     flex-direction: column !important;
     width: 100% !important;
@@ -1014,6 +1095,27 @@
     padding: 14px 12px !important;
     box-sizing: border-box !important;
     min-height: calc(100dvh - 140px) !important;
+  }
+
+  /* Mobile Folder Drawer Button */
+  .chat-mobile-folder-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 34px !important;
+    height: 34px !important;
+    border: 1px solid #e5e5ea !important;
+    border-radius: 8px !important;
+    background: #f8fafc !important;
+    color: #374151 !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    flex-shrink: 0 !important;
+    touch-action: manipulation !important;
+  }
+
+  .chat-mobile-folder-btn:hover {
+    background: #f1f5f9 !important;
   }
 
   /* Mobile Header with Back button */
@@ -1043,6 +1145,7 @@
     cursor: pointer !important;
     flex-shrink: 0 !important;
     margin: 0 !important;
+    touch-action: manipulation !important;
   }
 
   .admin-chat-back-btn:hover {
@@ -1081,6 +1184,7 @@
     font-size: 13px !important;
     font-weight: 500 !important;
     white-space: nowrap !important;
+    touch-action: manipulation !important;
   }
 
   [data-admin-chat-list] {
@@ -1109,6 +1213,7 @@
     min-height: 38px !important;
     min-width: 76px !important;
     font-size: 13px !important;
+    touch-action: manipulation !important;
   }
 
   /* Chat messages & composer on mobile */
@@ -1132,15 +1237,250 @@
   }
 
   .admin-shopping-chat .chat-composer textarea {
-    font-size: 15px !important;
+    font-size: 16px !important; /* Prevents auto-zoom on iOS Safari */
     min-height: 36px !important;
   }
 
   .admin-shopping-chat .chat-plus,
   .admin-shopping-chat .chat-send {
-    flex: 0 0 36px !important;
-    min-width: 36px !important;
-    height: 36px !important;
+    flex: 0 0 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
     font-size: 22px !important;
+    touch-action: manipulation !important;
+  }
+}
+
+/* --- 4. Extra Small Phones (<= 480px) --- */
+@media (max-width: 480px) {
+  #shopping-chat-view .admin-shopping-chat,
+  .admin-shopping-chat {
+    border-radius: 10px !important;
+    margin: 0 !important;
+  }
+
+  .admin-chat-aside-header h2 {
+    font-size: 16px !important;
+  }
+
+  .chat-live-badge {
+    padding: 3px 8px !important;
+    font-size: 11.5px !important;
+  }
+
+  .admin-shopping-chat .shopping-message {
+    max-width: 94% !important;
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+  }
+
+  [data-admin-chat-controls] button,
+  [data-chat-status] {
+    height: 32px !important;
+    min-height: 32px !important;
+    font-size: 12px !important;
+    padding: 0 10px !important;
+  }
+
+  /* Safe Area Inset Support for Notch / Home Indicator */
+  .admin-shopping-chat .chat-conversation-section {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* --- 5. Ultra-wide & Large Screens (> 1440px) --- */
+@media (min-width: 1440px) {
+  .admin-shopping-chat .shopping-message {
+    max-width: 72% !important;
+  }
+  .chat-threads-aside {
+    width: 310px !important;
+  }
+}
+
+/* --- 6. Dark Theme Adaptation (prefers-color-scheme: dark) --- */
+@media (prefers-color-scheme: dark) {
+  #shopping-chat-view .admin-shopping-chat,
+  .admin-shopping-chat {
+    background: #1c1c1e !important;
+    border-color: #2c2c2e !important;
+  }
+
+  .chat-folder-backdrop {
+    background: rgba(0, 0, 0, 0.7) !important;
+  }
+
+  .chat-folder-nav {
+    background: #1c1c1e !important;
+    border-right-color: #2c2c2e !important;
+  }
+
+  .chat-folder-title {
+    color: #ffffff !important;
+  }
+
+  .chat-folder-toggle {
+    color: #9ca3af !important;
+  }
+
+  .chat-folder-toggle:hover {
+    background: #2c2c2e !important;
+    color: #ffffff !important;
+  }
+
+  .chat-folder-close-btn {
+    background: #2c2c2e !important;
+    color: #9ca3af !important;
+  }
+
+  .chat-folder-close-btn:hover {
+    background: #3a3a3c !important;
+    color: #ffffff !important;
+  }
+
+  .chat-folder-item {
+    color: #d1d5db !important;
+  }
+
+  .chat-folder-item:hover:not(.is-active) {
+    background: #2c2c2e !important;
+    color: #ffffff !important;
+  }
+
+  .chat-folder-item.is-active,
+  .chat-folder-item[aria-pressed="true"] {
+    background: #1e293b !important;
+    color: #38bdf8 !important;
+    border-color: #0284c7 !important;
+  }
+
+  .chat-folder-item.is-card {
+    background: #262629 !important;
+  }
+
+  .chat-folder-item.is-active .chat-folder-badge {
+    color: #38bdf8 !important;
+  }
+
+  .chat-folder-divider {
+    background: #2c2c2e !important;
+  }
+
+  .chat-threads-aside {
+    background: #1c1c1e !important;
+    border-right-color: #2c2c2e !important;
+  }
+
+  .chat-conversation-section {
+    background: #1c1c1e !important;
+  }
+
+  .chat-mobile-folder-btn {
+    background: #2c2c2e !important;
+    border-color: #3a3a3c !important;
+    color: #d1d5db !important;
+  }
+
+  .chat-mobile-folder-btn:hover {
+    background: #3a3a3c !important;
+  }
+
+  .admin-chat-mobile-header {
+    border-bottom-color: #2c2c2e !important;
+  }
+
+  .admin-chat-back-btn {
+    background: #1e293b !important;
+    border-color: #0284c7 !important;
+    color: #38bdf8 !important;
+  }
+
+  .admin-chat-back-btn:hover {
+    background: #0f172a !important;
+  }
+
+  .admin-chat-mobile-thread-title {
+    color: #ffffff !important;
+  }
+
+  [data-chat-thread] {
+    background: #242426 !important;
+    border-color: #38383a !important;
+    color: #f5f5f7 !important;
+  }
+
+  [data-chat-thread]:hover {
+    background: #2c2c2e !important;
+    border-color: #48484a !important;
+  }
+
+  [data-chat-thread][aria-pressed="true"] {
+    background: #1e293b !important;
+    border-color: #0284c7 !important;
+  }
+
+  [data-chat-thread] strong {
+    color: #ffffff !important;
+  }
+
+  [data-chat-thread] small {
+    color: #9ca3af !important;
+  }
+
+  [data-admin-chat-controls] {
+    border-bottom-color: #2c2c2e !important;
+  }
+
+  [data-admin-chat-controls] button,
+  [data-chat-status] {
+    background: #242426 !important;
+    border-color: #38383a !important;
+    color: #e5e5ea !important;
+  }
+
+  [data-admin-chat-controls] button:hover,
+  [data-chat-status]:hover {
+    background: #2c2c2e !important;
+  }
+
+  [data-chat-status="closed"] {
+    background: #451a1a !important;
+    border-color: #7f1d1d !important;
+    color: #fca5a5 !important;
+  }
+
+  [data-chat-status="open"] {
+    background: #082f49 !important;
+    border-color: #0369a1 !important;
+    color: #7dd3fc !important;
+  }
+
+  .admin-shopping-chat .pagination {
+    border-top-color: #2c2c2e !important;
+  }
+
+  .admin-shopping-chat .pagination button,
+  .admin-shopping-chat [data-chat-page] {
+    background: #242426 !important;
+    border-color: #38383a !important;
+    color: #e5e5ea !important;
+  }
+
+  .admin-shopping-chat .pagination button:hover:not(:disabled),
+  .admin-shopping-chat [data-chat-page]:hover:not(:disabled) {
+    background: #2c2c2e !important;
+  }
+
+  .admin-chat-empty-selection h3 {
+    color: #ffffff !important;
+  }
+
+  .admin-shopping-chat .chat-composer {
+    background: #242426 !important;
+    border-color: #38383a !important;
+  }
+
+  .admin-shopping-chat .chat-composer textarea {
+    color: #ffffff !important;
   }
 }

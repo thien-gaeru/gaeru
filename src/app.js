@@ -4,6 +4,7 @@ const {createCatalogVideos}=require('./catalog-videos');
 const {createProductWorkspace}=require("./product-workspace");
 const {createAccountSecurity}=require("./account-security");
 const {createNewsPublicApi,createNewsAdminApi}=require("./news-api");
+const fs = require("node:fs");
 const path = require("node:path");
 const express = require("express");
 const session = require("express-session");
@@ -354,7 +355,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     next();
   });
 
-  const managementAssets=new Set(['marketing-home-banner.js','marketplace-sync.js','marketplace-sync.css','ai-knowledge.js','operational-tools.js','operational-tools.css','chat-compression-jobs.js','barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','pwa-install.js']);
+  const managementAssets=new Set(['marketing-home-banner.js','marketplace-sync.js','marketplace-sync.css','ai-knowledge.js','operational-tools.js','operational-tools.css','chat-compression-jobs.js','barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','shopping-chat.css','pwa-install.js']);
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile('notification-worker.js',{root:adminRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'no-store'}).sendFile('manifest.webmanifest',{root:adminRoot}));
@@ -362,7 +363,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);
     res.set('Cache-Control','no-store');
-    res.sendFile(req.params.file,{root:adminRoot},error=>{if(error)next(error);});
+    const rootDir=fs.existsSync(path.join(adminRoot,req.params.file))?adminRoot:projectRoot;res.sendFile(req.params.file,{root:rootDir},error=>{if(error)next(error);});
   });
   app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res)=>{res.set("Cache-Control","no-store").sendFile("product-editor.html",{root:adminRoot});});
   app.get("/gaeru_ceo", (_req, res, next) => {
@@ -395,8 +396,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     dotfiles: "deny",
     index: "index.html",
     setHeaders(res, file) {
-      if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)&&/^[a-zA-Z0-9._-]{6,80}$/.test(String(res.req.query.v||'')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
-      if (/\/assets\/.*-[0-9a-f]{12}\.webp$/i.test(file.replace(/\\/g,'/')))res.setHeader('Cache-Control','public, max-age=31536000, immutable');
+      if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)) {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
       }

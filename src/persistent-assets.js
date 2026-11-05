@@ -34,7 +34,7 @@ function serveAssets(pool){const cache=createObjectCache();return async(req,res,
  if(!valid(relative))return next();
  try{const row=(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[relative])).rows[0];if(!row)return res.set('Cache-Control','no-store').sendStatus(404);
   const bytes=await cache.get(row.storage_key,async()=>{const value=await disk.read(row.storage_key);if(value.length!==Number(row.byte_size)||hash(value)!==row.sha256)throw Error('SITE_ASSET_INTEGRITY');return value;});
-  res.type(row.mime_type).set({'Cache-Control':/-[0-9a-f]{12}\./.test(relative)?'public, max-age=31536000, immutable':'public, max-age=3600, must-revalidate','ETag':'"'+row.sha256+'"','X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});if(req.fresh)return res.status(304).end();
+  res.type(row.mime_type).set({'Cache-Control':'public, max-age=0, must-revalidate','ETag':'"'+row.sha256+'"','X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});if(req.fresh)return res.status(304).end();
   if(row.mime_type==='video/mp4'){
    res.set('Accept-Ranges','bytes');
    const range=req.headers.range,tag='"'+row.sha256+'"';

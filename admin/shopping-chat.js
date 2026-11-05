@@ -30,6 +30,7 @@
                     '<line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="15" y2="18"></line><polyline points="18 9 15 12 18 15"></polyline>'+
                   '</svg>'+
                 '</button>'+
+                '<button type="button" class="chat-folder-close-btn" data-chat-folder-close title="Đóng danh mục" aria-label="Đóng danh mục hộp thư">✕</button>'+
               '</div>'+
               '<div class="chat-folder-group">'+
                 '<button type="button" class="chat-folder-item" data-chat-filter="unassigned" aria-pressed="false">'+
@@ -81,6 +82,7 @@
                 '</button>'+
               '</div>'+
             '</nav>'+
+            '<div class="chat-folder-backdrop" data-chat-folder-backdrop></div>'+
             '<aside class="chat-threads-aside">'+
               '<div class="admin-chat-aside-header" style="display:flex;align-items:center;justify-content:space-between">'+
                 '<div style="display:flex;align-items:center;gap:8px">'+
@@ -153,8 +155,17 @@
           pager=e.target.closest('[data-chat-page]'),
           status=e.target.closest('[data-chat-status]'),
           folderToggle=e.target.closest('[data-chat-folder-toggle]'),
-          mobileFolderToggle=e.target.closest('[data-chat-folder-drawer-toggle]');
+          mobileFolderToggle=e.target.closest('[data-chat-folder-drawer-toggle]'),
+          folderBackdrop=e.target.closest('[data-chat-folder-backdrop]'),
+          folderClose=e.target.closest('[data-chat-folder-close]');
     try{
+      if(folderBackdrop||folderClose){
+        const nav=root.querySelector('.chat-folder-nav');
+        if(nav)nav.classList.remove('is-mobile-open');
+        const bd=root.querySelector('.chat-folder-backdrop');
+        if(bd)bd.classList.remove('is-active');
+        return;
+      }
       if(folderToggle){
         const nav=root.querySelector('.chat-folder-nav');
         if(nav)nav.classList.toggle('is-collapsed');
@@ -162,7 +173,12 @@
       }
       if(mobileFolderToggle){
         const nav=root.querySelector('.chat-folder-nav');
-        if(nav)nav.classList.toggle('is-mobile-open');
+        const bd=root.querySelector('.chat-folder-backdrop');
+        if(nav){
+          const willOpen=!nav.classList.contains('is-mobile-open');
+          nav.classList.toggle('is-mobile-open',willOpen);
+          if(bd)bd.classList.toggle('is-active',willOpen);
+        }
         return;
       }
       if(backBtn){
@@ -183,6 +199,8 @@
         page=1;
         const nav=root.querySelector('.chat-folder-nav');
         if(nav)nav.classList.remove('is-mobile-open');
+        const bd=root.querySelector('.chat-folder-backdrop');
+        if(bd)bd.classList.remove('is-active');
         await load();
         return;
       }
