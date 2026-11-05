@@ -2,31 +2,138 @@
   const admin=window.GAERUAdmin,root=document.querySelector('#shopping-chat-view'),h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let page=1,selected=null,client=null,loading=false,chatFilter='open';
 
+  const FOLDER_NAMES={
+    open:'Tất cả',
+    assigned:'Đã chỉ định',
+    unassigned:'Chưa chỉ định',
+    urgent:'Cấp bách',
+    overdue:'Quá hạn',
+    due_soon:'Sắp hết hạn',
+    unanswered:'Chưa trả lời',
+    unread:'Chưa đọc',
+    starred:'Đã gắn sao',
+    closed:'Đã đóng'
+  };
+
   async function load(){
     if(loading||!admin.can('customers.read'))return;
     loading=true;
     try{
       if(!root.querySelector('[data-admin-chat-list]')){
         root.innerHTML=(admin.can('staff.write')?'<details class="chat-email-settings" data-chat-email-settings><summary>Thông báo qua email</summary><div data-chat-email-content></div></details>':'')+
-          '<div class="admin-shopping-chat"><aside><div style="display:flex;align-items:center;justify-content:space-between"><h2>Hộp thư</h2><span class="chat-live-badge" data-admin-chat-live title="Kết nối thời gian thực 0ms"><span class="chat-live-dot"></span><span data-admin-chat-live-text>Trực tuyến</span></span></div>'+
-          '<div class="chat-scope-tabs" role="group" aria-label="Bộ lọc chat" style="display:flex;gap:6px;margin:8px 0 12px">'+
-            '<button type="button" class="secondary-button" data-chat-filter="open" style="font-size:11px;padding:6px 10px;flex:1;border-radius:8px;font-weight:700;border-color:#087e8b;background:#e6f4f6">Đang xử lý (<span data-chat-count="open">0</span>)</button>'+
-            '<button type="button" class="secondary-button" data-chat-filter="closed" style="font-size:11px;padding:6px 10px;flex:1;border-radius:8px;font-weight:400;border-color:#d1d5db;background:#fff">Lịch sử chat (<span data-chat-count="closed">0</span>)</button>'+
-          '</div>'+
-          '<div data-admin-chat-list></div><div class="pagination"><button data-chat-page="-1">Trước</button><span data-chat-page-label></span><button data-chat-page="1">Tiếp</button></div></aside>'+
-          '<section><div data-admin-chat-controls></div><div data-admin-chat-thread><p>Chọn hội thoại để đọc và phản hồi.</p></div></section></div><p role="status" data-admin-chat-status></p>';
+          '<div class="admin-shopping-chat'+(selected?' has-selected-thread':'')+'">'+
+            '<nav class="chat-folder-nav" role="navigation" aria-label="Danh mục hộp thư">'+
+              '<div class="chat-folder-header">'+
+                '<span class="chat-folder-title" title="Hộp thư đến">Hộp thư đ...</span>'+
+                '<button type="button" class="chat-folder-toggle" data-chat-folder-toggle title="Thu gọn / Mở rộng" aria-label="Thu gọn hoặc mở rộng danh mục">'+
+                  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
+                    '<line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="15" y2="18"></line><polyline points="18 9 15 12 18 15"></polyline>'+
+                  '</svg>'+
+                '</button>'+
+              '</div>'+
+              '<div class="chat-folder-group">'+
+                '<button type="button" class="chat-folder-item" data-chat-filter="unassigned" aria-pressed="false">'+
+                  '<span class="chat-folder-icon">🕒</span>'+
+                  '<span class="chat-folder-label">Chưa chỉ định</span>'+
+                '</button>'+
+              '</div>'+
+              '<hr class="chat-folder-divider">'+
+              '<div class="chat-folder-group">'+
+                '<button type="button" class="chat-folder-item is-card" data-chat-filter="assigned" aria-pressed="false">'+
+                  '<span class="chat-folder-icon chat-icon-teal">👥</span>'+
+                  '<span class="chat-folder-label">Đã chỉ định</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="assigned">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub is-card is-active" data-chat-filter="open" aria-pressed="true">'+
+                  '<span class="chat-folder-label">Tất cả</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="open">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="urgent" aria-pressed="false">'+
+                  '<span class="chat-folder-label">Cấp bách</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="urgent">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="overdue" aria-pressed="false">'+
+                  '<span class="chat-folder-label">Quá hạn</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="overdue">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="due_soon" aria-pressed="false">'+
+                  '<span class="chat-folder-label">Sắp hết hạn</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="due_soon">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="unanswered" aria-pressed="false">'+
+                  '<span class="chat-folder-label">Chưa trả lời</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="unanswered">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="unread" aria-pressed="false">'+
+                  '<span class="chat-folder-label">Chưa đọc</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="unread">0</span>'+
+                '</button>'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="starred" aria-pressed="false">'+
+                  '<span class="chat-folder-label">Đã gắn sao</span>'+
+                '</button>'+
+              '</div>'+
+              '<hr class="chat-folder-divider">'+
+              '<div class="chat-folder-group">'+
+                '<button type="button" class="chat-folder-item" data-chat-filter="closed" aria-pressed="false">'+
+                  '<span class="chat-folder-icon">✔️</span>'+
+                  '<span class="chat-folder-label">Đã đóng</span>'+
+                  '<span class="chat-folder-badge" data-chat-count="closed" style="display:none">0</span>'+
+                '</button>'+
+              '</div>'+
+            '</nav>'+
+            '<aside class="chat-threads-aside">'+
+              '<div class="admin-chat-aside-header" style="display:flex;align-items:center;justify-content:space-between">'+
+                '<div style="display:flex;align-items:center;gap:8px">'+
+                  '<button type="button" class="chat-mobile-folder-btn" data-chat-folder-drawer-toggle title="Danh mục" aria-label="Mở danh mục hộp thư">'+
+                    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>'+
+                  '</button>'+
+                  '<h2 data-chat-active-folder-title>Tất cả</h2>'+
+                '</div>'+
+                '<span class="chat-live-badge" data-admin-chat-live title="Kết nối thời gian thực 0ms"><span class="chat-live-dot"></span><span data-admin-chat-live-text>Trực tuyến</span></span>'+
+              '</div>'+
+              '<div data-admin-chat-list></div>'+
+              '<div class="pagination"><button data-chat-page="-1">Trước</button><span data-chat-page-label></span><button data-chat-page="1">Tiếp</button></div>'+
+            '</aside>'+
+            '<section class="chat-conversation-section">'+
+              '<div class="admin-chat-mobile-header">'+
+                '<button type="button" class="admin-chat-back-btn" data-chat-back>← Hộp thư</button>'+
+                '<span class="admin-chat-mobile-thread-title" data-chat-mobile-title>Hội thoại</span>'+
+              '</div>'+
+              '<div data-admin-chat-controls></div>'+
+              '<div data-admin-chat-thread>'+
+                '<div class="admin-chat-empty-selection"><div class="admin-chat-empty-icon">💬</div><h3>Hộp thư hỗ trợ trực tuyến</h3><p>Chọn một hội thoại trong danh sách để đọc và phản hồi.</p></div>'+
+              '</div>'+
+            '</section>'+
+          '</div><p role="status" data-admin-chat-status></p>';
       }
+      const chatWrap=root.querySelector('.admin-shopping-chat');
+      if(chatWrap)chatWrap.classList.toggle('has-selected-thread',!!selected);
       root.querySelectorAll('[data-chat-filter]').forEach(btn=>{
         const active=btn.dataset.chatFilter===chatFilter;
-        btn.style.fontWeight=active?'700':'400';
-        btn.style.borderColor=active?'#087e8b':'#d1d5db';
-        btn.style.background=active?'#e6f4f6':'#fff';
+        btn.classList.toggle('is-active',active);
+        btn.setAttribute('aria-pressed',String(active));
       });
+      const titleEl=root.querySelector('[data-chat-active-folder-title]');
+      if(titleEl)titleEl.textContent=FOLDER_NAMES[chatFilter]||'Tất cả';
+
       const d=await admin.request('/api/gaeru_ceo/shopping-chat?page='+page+'&status='+chatFilter);
-      const openEl=root.querySelector('[data-chat-count="open"]');
-      const closedEl=root.querySelector('[data-chat-count="closed"]');
-      if(openEl)openEl.textContent=d.openCount||0;
-      if(closedEl)closedEl.textContent=d.closedCount||0;
+      const counts={
+        open:d.openCount||0,
+        closed:d.closedCount||0,
+        unassigned:d.unassignedCount||0,
+        assigned:d.assignedCount||0,
+        urgent:d.urgentCount||0,
+        overdue:d.overdueCount||0,
+        due_soon:d.dueSoonCount||0,
+        unanswered:0,
+        unread:0
+      };
+      for(const [k,v] of Object.entries(counts)){
+        const el=root.querySelector('[data-chat-count="'+k+'"]');
+        if(el){
+          el.textContent=v;
+        }
+      }
 
       root.querySelector('[data-admin-chat-list]').innerHTML=d.threads.map(t=>'<button type="button" data-chat-thread="'+h(t.id)+'" aria-pressed="'+(t.id===selected)+'"><strong>'+h(t.product_name)+'</strong><small>'+(t.status==='closed'?'Đã đóng':t.awaiting_admin?'Cần nhân viên':t.handling_mode==='ai'?'AI đang hỗ trợ':'Nhân viên hỗ trợ')+'</small><time title="'+h(new Date(t.updated_at).toLocaleString('vi-VN'))+'">'+h(new Date(t.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}))+'</time></button>').join('')||'<p style="padding:16px 0;font-size:12px;color:var(--muted)">Không có hội thoại trong mục này.</p>';
       root.querySelector('[data-chat-page-label]').textContent='Trang '+page;
@@ -40,11 +147,42 @@
   }
 
   root.addEventListener('click',async e=>{
-    const filterBtn=e.target.closest('[data-chat-filter]'),thread=e.target.closest('[data-chat-thread]'),pager=e.target.closest('[data-chat-page]'),status=e.target.closest('[data-chat-status]');
+    const backBtn=e.target.closest('[data-chat-back]'),
+          filterBtn=e.target.closest('[data-chat-filter]'),
+          thread=e.target.closest('[data-chat-thread]'),
+          pager=e.target.closest('[data-chat-page]'),
+          status=e.target.closest('[data-chat-status]'),
+          folderToggle=e.target.closest('[data-chat-folder-toggle]'),
+          mobileFolderToggle=e.target.closest('[data-chat-folder-drawer-toggle]');
     try{
+      if(folderToggle){
+        const nav=root.querySelector('.chat-folder-nav');
+        if(nav)nav.classList.toggle('is-collapsed');
+        return;
+      }
+      if(mobileFolderToggle){
+        const nav=root.querySelector('.chat-folder-nav');
+        if(nav)nav.classList.toggle('is-mobile-open');
+        return;
+      }
+      if(backBtn){
+        selected=null;
+        client?.stop();
+        client=null;
+        const chatWrap=root.querySelector('.admin-shopping-chat');
+        if(chatWrap)chatWrap.classList.remove('has-selected-thread');
+        const threadView=root.querySelector('[data-admin-chat-thread]');
+        if(threadView)threadView.innerHTML='<div class="admin-chat-empty-selection"><div class="admin-chat-empty-icon">💬</div><h3>Hộp thư hỗ trợ trực tuyến</h3><p>Chọn một hội thoại trong danh sách để đọc và phản hồi.</p></div>';
+        const controls=root.querySelector('[data-admin-chat-controls]');
+        if(controls)controls.innerHTML='';
+        await load();
+        return;
+      }
       if(filterBtn){
         chatFilter=filterBtn.dataset.chatFilter;
         page=1;
+        const nav=root.querySelector('.chat-folder-nav');
+        if(nav)nav.classList.remove('is-mobile-open');
         await load();
         return;
       }
@@ -55,6 +193,10 @@
       }
       if(thread){
         selected=thread.dataset.chatThread;
+        const chatWrap=root.querySelector('.admin-shopping-chat');
+        if(chatWrap)chatWrap.classList.add('has-selected-thread');
+        const mobileTitle=root.querySelector('[data-chat-mobile-title]');
+        if(mobileTitle)mobileTitle.textContent=thread.querySelector('strong')?.textContent||'Hội thoại';
         client?.stop();
         client=window.GAERUChatClient.mount(root.querySelector('[data-admin-chat-thread]'),{base:'/api/gaeru_ceo/shopping-chat',request:admin.request,id:selected,admin:true});
         const controls=root.querySelector('[data-admin-chat-controls]');

@@ -119,6 +119,18 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
     assert.equal(res.cart.next_reminder_at, null);
   });
 
+  await t.test('captureAbandonedCart defaults recoveryConsent to false without explicit consent', async () => {
+    const res = await captureAbandonedCart(pool, {
+      email: 'no-consent@example.com',
+      customerName: 'Không Đồng Ý',
+      phone: '0987000111',
+      items: [{ variantId, quantity: 1 }]
+    });
+    assert.ok(res);
+    assert.equal(res.cart.recovery_consent, false);
+    assert.equal(res.cart.next_reminder_at, null);
+  });
+
   // 4. recoverCartByToken
   await t.test('recoverCartByToken transitions cart to recovering and returns details', async () => {
     const captured = await captureAbandonedCart(pool, {

@@ -20,7 +20,7 @@ const captureSchema = z.object({
     variantId: z.string().uuid(),
     quantity: z.number().int().min(1).max(99)
   })).min(1).max(50),
-  recoveryConsent: z.boolean().default(true)
+  recoveryConsent: z.boolean().default(false)
 }).strict();
 
 function makeMailer(config) {
@@ -31,7 +31,7 @@ function makeMailer(config) {
 /**
  * Capture or update an abandoned cart from checkout or cart interactions
  */
-async function captureAbandonedCart(pool, { email, customerName = null, phone = null, items = [], recoveryConsent = true, customerId = null }) {
+async function captureAbandonedCart(pool, { email, customerName = null, phone = null, items = [], recoveryConsent = false, customerId = null }) {
   const normEmail = String(email || '').trim().toLowerCase();
   if (!normEmail || !items.length) return null;
 

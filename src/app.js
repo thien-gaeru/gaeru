@@ -295,7 +295,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api", createNewsPublicApi(pool));
   app.use("/api/gaeru_ceo",require("./admin-configuration").createAdminConfiguration(pool,config));
   app.use('/api/gaeru_ceo',require('./tiktok-ads').createTikTokAdsAdmin(pool,config));
-  const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config);
+  const emailMarketing=require("./email-marketing").createEmailMarketing(pool,config,{mailer:customerMailer});
   app.use("/api/gaeru_ceo",emailMarketing.admin);
   app.use("/api/marketing-email",emailMarketing.publicApi);
   const chat=require("./shopping-chat").createShoppingChat(pool,config);app.use("/api/shopping-chat",chat.publicApi);app.use("/api/gaeru_ceo",chat.admin);

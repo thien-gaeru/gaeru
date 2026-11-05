@@ -1,3 +1,29 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-async function render(canWrite){const root={innerHTML:'',textContent:''};const data={audienceCount:3,configured:true,campaigns:[{id:'fixture',title:'<script>title</script>',subject:'Subject',body:'Body fixture',sources:['customers'],scheduled_at:'2026-10-25T00:00:00Z',status:'draft',total:0,sent:0,pending:0,failed:0,unknown:0,skipped:0}]};const window={GAERUAdmin:{can:()=>canWrite,request:async()=>data}};vm.runInNewContext(fs.readFileSync('admin/email-marketing.js','utf8'),{window,document:{querySelector:()=>root,addEventListener(){}},Date});await window.GAERUEmailMarketing.load();return root.innerHTML;}
-test('email dashboard escapes content and reserves creation controls for marketing writers',async()=>{const read=await render(false);assert.ok(read.includes('&lt;script&gt;'));assert.ok(!read.includes('<script>'));assert.ok(!read.includes('data-email-new'));assert.ok(!read.includes('data-email-cancel='));assert.ok(read.includes('SMTP tiếp nhận'));const write=await render(true);assert.ok(write.includes('data-email-new'));assert.ok(write.includes('data-email-cancel="fixture"'));});
+async function render(canWrite){
+  const root={innerHTML:'',textContent:''};
+  const data={
+    audienceCount:3,
+    configured:true,
+    subscriberStats:{subscribed:3,pending:1,unsubscribed:0},
+    smtpStats:{total_sent:10,total_failed:1,total_unknown:0,sent_24h:5},
+    campaigns:[{id:'fixture',title:'<script>title</script>',subject:'Subject',body:'Body fixture',sources:['subscribers'],scheduled_at:'2026-10-25T00:00:00Z',status:'draft',total:0,sent:0,pending:0,failed:0,unknown:0,skipped:0}]
+  };
+  const window={GAERUAdmin:{can:()=>canWrite,request:async()=>data}};
+  vm.runInNewContext(fs.readFileSync('admin/email-marketing.js','utf8'),{window,document:{querySelector:()=>root,addEventListener(){}},Date});
+  await window.GAERUEmailMarketing.load();
+  return root.innerHTML;
+}
+
+test('email dashboard escapes content and reserves creation controls for marketing writers',async()=>{
+  const read=await render(false);
+  assert.ok(read.includes('&lt;script&gt;'));
+  assert.ok(!read.includes('<script>'));
+  assert.ok(!read.includes('data-email-new'));
+  assert.ok(!read.includes('data-email-cancel='));
+  assert.ok(read.includes('SMTP tiếp nhận'));
+  assert.ok(read.includes('Đã đăng ký'));
+  assert.ok(read.includes('Lỗi gửi SMTP'));
+  const write=await render(true);
+  assert.ok(write.includes('data-email-new'));
+  assert.ok(write.includes('data-email-cancel="fixture"'));
+});

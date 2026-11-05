@@ -145,6 +145,23 @@ if (footerRoot) {
             <a href="story.html">Câu chuyện GAERU</a>
           </div>
         </details>
+        <div class="footer-column footer-newsletter-column">
+          <span class="footer-column-heading">Bản tin GAERU</span>
+          <p class="footer-newsletter-note">Cập nhật sản phẩm &amp; ưu đãi mới nhất.</p>
+          <form class="footer-newsletter-compact-form" data-newsletter-form data-source="web_footer">
+            <div class="footer-newsletter-field">
+              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" required maxlength="254" autocomplete="email">
+              <button type="submit" class="footer-newsletter-compact-submit" aria-label="Đăng ký nhận tin">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+            </div>
+            <label class="footer-newsletter-consent">
+              <input type="checkbox" name="consent" required>
+              <span>Tôi đồng ý nhận email từ GAERU.</span>
+            </label>
+            <div class="footer-newsletter-feedback" data-newsletter-feedback role="status" aria-live="polite"></div>
+          </form>
+        </div>
       </div>
       <div class="footer-help">
         <p>Cần hỗ trợ? <button type="button" class="chat-product-button footer-chat-link" data-product-chat="">Chat ngay ↗</button>, email <a href="mailto:business@gaeru.com">business@gaeru.com</a> hoặc gọi <a href="tel:0829191080">082 919 1080</a>. Giờ hỗ trợ: Thứ Hai–Thứ Sáu 10:00–17:00, cuối tuần và ngày lễ 10:00–16:00.</p>
@@ -173,13 +190,62 @@ if (footerRoot) {
     </footer>`;
   const footerAccordion = window.matchMedia("(max-width: 760px)");
   const syncFooterAccordion = () => {
-    footerRoot.querySelectorAll(".footer-column").forEach((column) => {
+    footerRoot.querySelectorAll("details.footer-column").forEach((column) => {
       column.open = !footerAccordion.matches;
     });
   };
   syncFooterAccordion();
   footerAccordion.addEventListener("change", syncFooterAccordion);
 }
+
+function populateCustomerNewsletterEmail() {
+  const customerEmail = window.GAERUCustomer?.session?.customer?.email ||
+                        window.GAERUCustomerSession?.customer?.email ||
+                        window.__GAERU_CUSTOMER__?.email;
+  if (customerEmail) {
+    document.querySelectorAll("[data-newsletter-form] input[name=email]").forEach(input => {
+      if (!input.value) input.value = customerEmail;
+    });
+  }
+}
+window.addEventListener("gaeru:customer-session-ready", populateCustomerNewsletterEmail);
+window.addEventListener("DOMContentLoaded", populateCustomerNewsletterEmail);
+
+document.addEventListener("submit", async (e) => {
+  const form = e.target.closest("[data-newsletter-form]");
+  if (!form) return;
+  e.preventDefault();
+  const input = form.querySelector("input[name=email]");
+  const consent = form.querySelector("input[name=consent]");
+  const feedback = form.querySelector("[data-newsletter-feedback]");
+  const btn = form.querySelector("button[type=submit]");
+  if (!input || !consent || !feedback) return;
+  if (!consent.checked) {
+    feedback.innerHTML = '<span style="color:#d32f2f;">Vui lòng tích đồng ý nhận tin trước khi đăng ký.</span>';
+    return;
+  }
+  btn.disabled = true;
+  feedback.innerHTML = '<span style="color:#86868b;">Đang gửi thông tin đăng ký...</span>';
+  try {
+    const res = await fetch("/api/marketing-email/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: input.value.trim(),
+        consent: true,
+        source: form.dataset.source || "web_footer"
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Không thể đăng ký lúc này. Vui lòng thử lại sau.");
+    feedback.innerHTML = '<span style="color:#2e7d32;font-weight:600;">' + (data.message || "Vui lòng kiểm tra hộp thư để xác nhận đăng ký.") + '</span>';
+    form.reset();
+  } catch (err) {
+    feedback.innerHTML = '<span style="color:#d32f2f;">' + err.message + '</span>';
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 const menuToggle = document.querySelector(".menu-toggle");
 const menuNavTrigger = document.querySelector(".menu-nav-trigger");

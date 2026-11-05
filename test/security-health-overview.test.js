@@ -158,4 +158,7 @@ test('Trang tong quan contains system health UI elements and scripts', () => {
 
   const css = fs.readFileSync(path.join(__dirname, '../admin/admin-workspace.css'), 'utf8');
   assert.ok(css.includes('.overview-health-card'), 'Must style .overview-health-card');
+  assert.ok(css.includes('.health-item-title'), 'Must style .health-item-title');
+  assert.ok(indexHtml.includes('class="health-item-title"'), 'Health item title must exist');
+  assert.ok(css.includes('word-break: normal'), 'Title must preserve natural Vietnamese word flow');
 });
