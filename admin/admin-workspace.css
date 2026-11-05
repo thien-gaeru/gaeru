@@ -912,8 +912,7 @@
   margin: 0;
   line-height: 1.35;
   display: block;
-  word-break: keep-all;
-  hyphens: none;
+  word-break: normal;
   overflow-wrap: break-word;
 }
 
