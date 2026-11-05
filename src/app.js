@@ -33,12 +33,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   require('./cache').clearHtmlCacheOnly();
   if (pool && typeof pool.query === 'function' && !pool.__gaeruCacheHooked) {
-    const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|news_posts|news_images|site_pages|store_settings|marketing_banner_images)\b/i.test(sql);
+    const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i.test(sql);
     const notifyMutation = sql => {
       const text = typeof sql === 'object' && sql !== null ? sql.text : sql;
       if (isCatalogOrPageMutation(text)) {
         require('./cache').clearHtmlCacheOnly();
-        require('./site-pages').clearSitePagesCache(pool);
+        require('./site-pages').clearSitePagesCache(pool); require('./lib/image-renditions').clearImageLookupCache(pool); require('./persistent-assets').clearAssetSnapshotCache(pool);
       }
     };
     const wrapQuery = fn => function(sql, values, cb) {

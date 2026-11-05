@@ -2,7 +2,7 @@ const {rateLimit}=require('express-rate-limit');
 const publicImageReadLimiter=rateLimit({windowMs:900000,limit:1800,standardHeaders:'draft-8',legacyHeaders:false});
 const adminImageReadLimiter=rateLimit({windowMs:900000,limit:120,standardHeaders:'draft-8',legacyHeaders:false});
 const {storeUpload,readMedia}=require('./lib/stored-media');
-const {sendPublicImage}=require('./lib/image-renditions');
+const {sendPublicImage,getCachedImageRow}=require('./lib/image-renditions');
 const {normalizeBrandText}=require('./primary-domain');
 const {Router}=require('express');
 const multer=require('multer');
@@ -70,7 +70,7 @@ function createNewsPublicApi(pool){const router=Router();
     });
   }catch(e){next(e);}
  });
- router.get('/news-images/:id',publicImageReadLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const image=(await pool.query("SELECT content,mime_type FROM news_images WHERE id=$1 AND EXISTS(SELECT 1 FROM news_posts WHERE cover_id=$1 AND status='published')",[req.params.id])).rows[0];if(!image)return res.sendStatus(404);await sendPublicImage(req,res,image,'news');}catch(e){next(e);}});
+ router.get('/news-images/:id',publicImageReadLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const image=await getCachedImageRow(pool,'news:'+req.params.id,async()=>(await pool.query("SELECT content,mime_type FROM news_images WHERE id=$1 AND EXISTS(SELECT 1 FROM news_posts WHERE cover_id=$1 AND status='published')",[req.params.id])).rows[0]);if(!image)return res.sendStatus(404);await sendPublicImage(req,res,image,'news');}catch(e){next(e);}});
  return router;
 }
 function createNewsAdminApi(pool){const router=Router();
