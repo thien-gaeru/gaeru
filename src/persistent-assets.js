@@ -35,6 +35,35 @@ async function getCachedSnapshotRow(pool,relative,loader){
  state.pending.set(relative,task);
  return task;
 }
+let responsiveMap = null;
+function getResponsiveMap() {
+  if (!responsiveMap) {
+    try { responsiveMap = require('../responsive-images.json'); } catch (_) { responsiveMap = {}; }
+  }
+  return responsiveMap;
+}
+
+async function getPreGeneratedAvif(relative, width = null) {
+  if (width) {
+    const map = getResponsiveMap();
+    const variants = map['/assets/' + relative];
+    const match = variants?.find(v => v.width === width || v.url.includes('-display-' + width + '-'));
+    if (match?.avifUrl) {
+      try {
+        const diskFile = path.join(__dirname, '..', match.avifUrl.replace(/^\//, ''));
+        return await fs.readFile(diskFile);
+      } catch (_) {}
+    }
+  }
+  if (relative && relative.endsWith('.webp')) {
+    try {
+      const directAvif = path.join(__dirname, '..', 'assets', relative.replace(/\.webp$/, '.avif'));
+      return await fs.readFile(directAvif);
+    } catch (_) {}
+  }
+  return null;
+}
+
 async function warmStaticAssets(pool){
  if(!pool||!pool.__gaeruCacheHooked||process.env.MEDIA_CACHE_ENABLED==='false')return;
  const cache=assetCaches.get(pool);
@@ -122,6 +151,21 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
  if(requestedWidth!==undefined&&!width)return res.status(400).json({error:'Kích thước ảnh không được hỗ trợ.'});
  const mime=types[path.posix.extname(relative).toLowerCase()],isImage=Boolean(mime?.startsWith('image/'));
  const cacheControl=/-[0-9a-f]{12}\.[a-z0-9]+$/i.test(relative)&&process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=31536000, immutable':(process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=300, stale-while-revalidate=86400, must-revalidate':'public, max-age=0, must-revalidate'); if(isImage)res.vary('Accept');
+  if (isImage && qualifiesForSelectiveAvif(req)) {
+    const preAvif = await getPreGeneratedAvif(relative, width);
+    if (preAvif) {
+      const etag = '"' + hash(preAvif) + (width ? '-w' + width : '') + '-avif"';
+      res.type('image/avif').set({
+        'Cache-Control': cacheControl,
+        'ETag': etag,
+        'X-GAERU-Asset-Backend': filesystem.configured() ? 'media-root' : 'local-fallback',
+        'X-GAERU-AVIF-Source': 'avif-ultra-pregen',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      if (req.fresh) return res.status(304).end();
+      return res.send(preAvif);
+    }
+  }
   if(!filesystem.configured()){
    if(!isImage)return next();
    if(!width&&!qualifiesForSelectiveAvif(req))return next();

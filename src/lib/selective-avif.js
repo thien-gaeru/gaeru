@@ -21,10 +21,10 @@ function qualifiesForSelectiveAvif(req, sourceByteSize) {
   return true;
 }
 
-async function encodeAvif(inputBuffer, { width, quality = 68, effort = 2, chromaSubsampling = '4:4:4' } = {}) {
+async function encodeAvif(inputBuffer, { width, quality = 68, effort = 2, chromaSubsampling = '4:4:4', tune = 'ssim' } = {}) {
   let pipeline = sharp(inputBuffer, { limitInputPixels: 24000000 }).rotate();
   if (width) pipeline = pipeline.resize({ width, withoutEnlargement: true });
-  return pipeline.avif({ quality, effort, chromaSubsampling }).toBuffer();
+  return pipeline.avif({ quality, effort, chromaSubsampling, tune }).toBuffer();
 }
 
 async function encodeWebp(inputBuffer, { width, quality = 84, alphaQuality = 92, effort = 2, lossless = false } = {}) {

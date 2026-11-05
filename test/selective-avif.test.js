@@ -142,3 +142,23 @@ test('persistent assets serve selective AVIF on /assets/ when accepted and prese
   });
   assert.equal(r304.status, 304);
 });
+
+test('persistent assets serve pre-generated AVIF Ultra with X-GAERU-AVIF-Source: avif-ultra-pregen without runtime encoding', async (t) => {
+  const app = express();
+  app.use('/assets', serveAssets(null));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  // Requesting pre-generated variant k9-display-480 with Accept: image/avif
+  const res = await fetch(`${base}/assets/products/k9-display-480-f7433a67675b.webp`, {
+    headers: { Accept: 'image/avif,image/webp,*/*' }
+  });
+
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /image\/avif/);
+  assert.equal(res.headers.get('x-gaeru-avif-source'), 'avif-ultra-pregen');
+  assert.ok(Number(res.headers.get('content-length')) < 20 * 1024, 'Pre-generated AVIF is extremely compact');
+});
