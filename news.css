@@ -3,3 +3,4 @@
 .news-card>img{display:block;width:100%;height:220px;max-height:220px;object-fit:contain;object-position:center;box-sizing:border-box;padding:12px;background:#f5f5f7}@media(max-width:600px){.news-card>img{height:200px;max-height:200px}}
 
 .news-controls .news-autoplay{width:auto;min-height:44px;padding:10px 14px;border-radius:24px;font-size:13px}.news-autoplay[hidden]{display:none}.news-controls{flex-wrap:wrap;justify-content:flex-end}
+.news-related-section{margin-top:64px;padding-top:40px;border-top:1px solid #d2d2d7}.news-related-title{font-size:26px;letter-spacing:-.03em;margin-bottom:24px;color:#1d1d1f}.news-related-grid{margin:20px 0 32px}.news-article-actions{margin-top:40px;text-align:center}

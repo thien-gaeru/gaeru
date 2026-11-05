@@ -21,7 +21,46 @@ const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024
 function validImage(file){if(!file)return false;const b=file.buffer;return file.mimetype==='image/png'&&b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||file.mimetype==='image/jpeg'&&b[0]===255&&b[1]===216&&b[2]===255||file.mimetype==='image/webp'&&b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP';}
 function createNewsPublicApi(pool){const router=Router();
  router.get('/news',async(req,res,next)=>{try{const page=Number(req.query.page||1);if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).json({error:'Trang không hợp lệ.'});const posts=(await pool.query(`SELECT ${fields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 12 OFFSET $1`,[(page-1)*12])).rows;res.set('Cache-Control','no-store').json({posts:posts.map(output),page,hasMore:posts.length===12});}catch(e){next(e);}});
- router.get('/news/:slug',async(req,res,next)=>{if(!slug.safeParse(req.params.slug).success)return res.status(404).json({error:'Không tìm thấy bài viết.'});try{const post=(await pool.query(`SELECT ${fields},body FROM news_posts WHERE slug=$1 AND status='published'`,[req.params.slug])).rows[0];if(!post)return res.status(404).json({error:'Không tìm thấy bài viết.'});res.set('Cache-Control','no-store').json({post:output(post)});}catch(e){next(e);}});
+ router.get('/news/:slug',async(req,res,next)=>{
+  if(!slug.safeParse(req.params.slug).success)return res.status(404).json({error:'Không tìm thấy bài viết.'});
+  try{
+    const post=(await pool.query(`SELECT ${fields},body FROM news_posts WHERE slug=$1 AND status='published'`,[req.params.slug])).rows[0];
+    if(!post)return res.status(404).json({error:'Không tìm thấy bài viết.'});
+    const currentSlug = req.params.slug;
+    let keyword = '';
+    if (currentSlug.includes('tiktok')) keyword = '%tiktok%';
+    else if (currentSlug.includes('video-marketing') || currentSlug.includes('storytelling') || currentSlug.includes('trieu-view') || currentSlug.includes('phong-cach')) keyword = '%video%';
+    else if (currentSlug.includes('k9')) keyword = '%k9%';
+    else if (currentSlug.includes('m3')) keyword = '%m3%';
+    else if (currentSlug.includes('p01')) keyword = '%p01%';
+    else if (currentSlug.includes('p185')) keyword = '%p185%';
+    else if (currentSlug.includes('affiliate') || currentSlug.includes('hoa-hong') || currentSlug.includes('doi-tac')) keyword = '%affiliate%';
+
+    let relatedRows = [];
+    if (keyword) {
+      relatedRows = (await pool.query(
+        `SELECT ${fields} FROM news_posts 
+         WHERE status='published' AND id <> $1 AND (slug LIKE $2 OR title ILIKE $2) 
+         ORDER BY published_at DESC, id LIMIT 3`,
+        [post.id, keyword]
+      )).rows;
+    }
+    if (relatedRows.length < 3) {
+      const excludeIds = [post.id, ...relatedRows.map(r => r.id)];
+      const fillers = (await pool.query(
+        `SELECT ${fields} FROM news_posts 
+         WHERE status='published' AND id NOT IN (${excludeIds.map((_, i) => `$${i + 1}`).join(',')})
+         ORDER BY published_at DESC, id LIMIT ${3 - relatedRows.length}`,
+        excludeIds
+      )).rows;
+      relatedRows = [...relatedRows, ...fillers];
+    }
+    res.set('Cache-Control','no-store').json({
+      post: output(post),
+      relatedPosts: relatedRows.map(output)
+    });
+  }catch(e){next(e);}
+ });
  router.get('/news-images/:id',publicImageReadLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const image=(await pool.query("SELECT content,mime_type FROM news_images WHERE id=$1 AND EXISTS(SELECT 1 FROM news_posts WHERE cover_id=$1 AND status='published')",[req.params.id])).rows[0];if(!image)return res.sendStatus(404);await sendPublicImage(req,res,image,'news');}catch(e){next(e);}});
  return router;
 }
