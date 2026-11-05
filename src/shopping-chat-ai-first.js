@@ -138,7 +138,7 @@ function startAIChatWorker(pool,config){
     }
   }
   activeWakeup=()=>void run();
-  const timer=setInterval(run,400);
+  const timer=setInterval(run,3000);
   timer.unref?.();
   void run();
   return()=>{

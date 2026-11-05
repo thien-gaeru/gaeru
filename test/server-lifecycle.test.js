@@ -23,6 +23,8 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
     './db': { createPool: () => pool, inspectDatabaseTls: async () => ({}) },
     './app': { createApp: () => ({ listen(port, host, ready) { calls.listening++; queueMicrotask(ready); return server; } }) },
     './migrate': { migrateDatabase: async () => { await migration; if (migrationError) throw migrationError; } },
+    './lib/readiness-gate': require('../src/lib/readiness-gate'),
+    'node:perf_hooks': require('node:perf_hooks'),
     './lib/filesystem-media': { probe: async () => mediaCheck },
     './lib/cache-warmup': { warmUpCache: async () => {} },
     './persistent-assets': { syncAssets: async () => { calls.copiedAssets++; return {}; } },
@@ -59,18 +61,19 @@ test('startup failure closes database/session resources and redacts error detail
   assert.equal(f.fakeProcess.exitCode, 1);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
-  assert.equal(f.calls.listening, 0);
+  assert.equal(f.calls.listening, 1);
+  assert.equal(f.calls.listenerClosed, 1);
   assert.doesNotMatch(JSON.stringify(f.calls.errors), /private-password/);
 });
 
-test('shutdown before startup completes never opens a listener and releases resources once', async () => {
+test('shutdown before startup completes closes listener and releases resources once', async () => {
   const f = fixture({ pendingMigration: true });
   assert.doesNotThrow(() => f.events.emit('SIGTERM'));
   f.resolveMigration();
   await settle();
   f.events.emit('SIGINT');
   await settle();
-  assert.equal(f.calls.listening, 0);
+  assert.equal(f.calls.listenerClosed, 1);
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
 });
@@ -146,4 +149,49 @@ test('a background audit rejection is caught and redacted without taking down th
   await settle();
   assert.equal(f.calls.storeClosed, 1);
   assert.equal(f.calls.poolClosed, 1);
+});
+
+test('readiness gate rejects business traffic with 503 while initializing and passes when ready', async () => {
+  const { setReady, readinessMiddleware, resetReadinessForTesting } = require('../src/lib/readiness-gate');
+  resetReadinessForTesting();
+  setReady(false);
+
+  let statusCode = 0;
+  const headers = {};
+  let responseBody = null;
+  const mockReq = {
+    path: '/san-pham/test',
+    accepts: () => false
+  };
+  const mockRes = {
+    setHeader(k, v) { headers[k] = v; },
+    status(code) { statusCode = code; return this; },
+    json(data) { responseBody = data; return this; }
+  };
+  let passed = false;
+  readinessMiddleware(mockReq, mockRes, () => { passed = true; });
+
+  assert.equal(passed, false);
+  assert.equal(statusCode, 503);
+  assert.equal(headers['Retry-After'], '1');
+  assert.equal(responseBody?.error, 'SERVICE_INITIALIZING');
+
+  // Liveness probe passes even when not ready
+  let livenessPassed = false;
+  let livenessStatus = 0;
+  const livenessReq = { path: '/healthz' };
+  const livenessRes = {
+    status(code) { livenessStatus = code; return this; },
+    json(data) { return data; }
+  };
+  readinessMiddleware(livenessReq, livenessRes, () => { livenessPassed = true; });
+  assert.equal(livenessStatus, 200);
+
+  // When ready, business traffic passes freely
+  setReady(true);
+  let readyPassed = false;
+  readinessMiddleware(mockReq, mockRes, () => { readyPassed = true; });
+  assert.equal(readyPassed, true);
+
+  resetReadinessForTesting();
 });

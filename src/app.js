@@ -87,6 +87,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     Object.defineProperty(pool, '__gaeruCacheHooked', { value: true });
   }
   const app = express();
+  app.use(require('./lib/readiness-gate').readinessMiddleware);
   app.use(require('./lib/public-compression').publicCompression());
   const normalizePublicBase=require('./primary-domain').normalizePublicBase;
   config={...config,PUBLIC_BASE_URL:normalizePublicBase(config.PUBLIC_BASE_URL),...(config.smtp?{smtp:{...config.smtp,publicBaseUrl:normalizePublicBase(config.smtp.publicBaseUrl||config.PUBLIC_BASE_URL)}}:{})};

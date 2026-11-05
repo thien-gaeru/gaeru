@@ -127,7 +127,7 @@ async function processChatCompression(pool, targetId = null) {
   return count > 0;
 }
 
-function startChatCompressionWorker(pool) {
+function startChatCompressionWorker(pool, intervalMs = (process.env.NODE_ENV === 'test' ? 1000 : 5000)) {
   let stopped = false;
   let running = false;
   async function tick() {
@@ -141,8 +141,9 @@ function startChatCompressionWorker(pool) {
       running = false;
     }
   }
-  const timer = setInterval(tick, 2500);
+  const timer = setInterval(tick, intervalMs);
   timer.unref?.();
+  void tick();
   return () => {
     stopped = true;
     clearInterval(timer);

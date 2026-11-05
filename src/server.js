@@ -6,6 +6,10 @@ const { loadConfig } = require("./config");
 const { createPool, inspectDatabaseTls } = require("./db");
 const { createApp } = require("./app");
 const { migrateDatabase } = require("./migrate");
+const { setReady, setStartupError } = require("./lib/readiness-gate");
+
+// Set readiness to false at the start of production server process
+setReady(false);
 
 const config = loadConfig();
 const pool = createPool(config);
@@ -18,21 +22,31 @@ const sessionStore = new PgSessionStore({
 });
 const app = createApp({ config, pool, sessionStore });
 let server;let mediaAuditTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
+let resourceMonitor;
 
 async function start() {
+  const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
+  const host = "0.0.0.0";
+
+  // Phase 1: Open HTTP listener immediately (< 300ms) to satisfy Hostinger 3s watchdog.
+  // The Readiness Gate holds business traffic with 503 Retry-After until Phase 2 finishes.
+  server = app.listen(port, host, () => {
+    console.log(`GAERU standalone store listening on ${host}:${port}`);
+  });
+  server.on('error', (error) => {
+    console.error('GAERU listener failed:', errorSummary(error));
+    process.exitCode = 1;
+    void shutdown();
+  });
+
+  // Phase 2: Run critical database migrations while incoming traffic is gated safely
   await migrateDatabase(pool);
   if (shuttingDown) return;
-  const mediaCheck=await require('./lib/filesystem-media').probe();
-  console.log('Media storage:',JSON.stringify(mediaCheck));
-  const mediaAudit=require('./media-storage-audit');
-  if(mediaCheck.verified){
-    console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
-    if (shuttingDown) return;
-  }else{
-    const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
-    console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
-  }
-  if (shuttingDown) return;
+
+  // Mark Readiness Gate as READY: All business traffic flows through normally
+  setReady(true);
+
+  // Background workers initialization
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
   if (isBackgroundWorker) {
     stopChatFileRetention=require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool);
@@ -47,28 +61,52 @@ async function start() {
     stopAbandonedCart=require("./abandoned-cart").startAbandonedCartWorker(pool,config);
     stopRetention=require("./account-retention").startRetentionWorker(pool);
   }
-  const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
-  const host = "0.0.0.0";
-  server = app.listen(port, host, () => {
-    console.log(`GAERU standalone store listening on ${host}:${port}`);
-    try { require('./lib/cache-warmup').warmUpCache(pool).catch(() => {}); } catch (_) {}
-    if(mediaCheck.verified&&!shuttingDown){
-      mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)
-        .then(({localization,audit})=>{
-          console.log('Local media:',JSON.stringify(localization));
-          console.log('Local media checks:',JSON.stringify({state:audit.state,failedChecks:audit.failedChecks,legacyReferences:audit.legacyReferences}));
-        })
-        .catch(error=>console.error('Local media audit failed:',errorSummary(error)));
-    }
-    inspectDatabaseTls(pool, config)
-      .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
-      .catch(() => console.log("Database TLS active: unavailable"));
-  });
-  server.on('error', (error) => {
-    console.error('GAERU listener failed:', errorSummary(error));
-    process.exitCode = 1;
-    void shutdown();
-  });
+
+  // Non-blocking media probe and asynchronous asset sync in the background
+  const mediaCheck=await require('./lib/filesystem-media').probe();
+  console.log('Media storage:',JSON.stringify(mediaCheck));
+  const mediaAudit=require('./media-storage-audit');
+  if(mediaCheck.verified){
+    console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
+    if (shuttingDown) return;
+  }else{
+    const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
+    console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
+  }
+  if (shuttingDown) return;
+
+  if(mediaCheck.verified&&!shuttingDown){
+    mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)
+      .then(({localization,audit})=>{
+        console.log('Local media:',JSON.stringify(localization));
+        console.log('Local media checks:',JSON.stringify({state:audit.state,failedChecks:audit.failedChecks,legacyReferences:audit.legacyReferences}));
+      })
+      .catch(error=>console.error('Local media audit failed:',errorSummary(error)));
+  }
+
+  // Cache warmup and database TLS verification
+  try { require('./lib/cache-warmup').warmUpCache(pool).catch(() => {}); } catch (_) {}
+  inspectDatabaseTls(pool, config)
+    .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
+    .catch(() => console.log("Database TLS active: unavailable"));
+
+  // Resource telemetry monitor (every 60s) for Hostinger 2 CPU / 3 GB RAM
+  try {
+    const { monitorEventLoopDelay } = require('node:perf_hooks');
+    const lag = monitorEventLoopDelay({ resolution: 20 });
+    lag.enable();
+    resourceMonitor = setInterval(() => {
+      const m = process.memoryUsage();
+      console.log('[GAERU_RESOURCES]', JSON.stringify({
+        rssMB: Math.round(m.rss / 1048576),
+        heapMB: Math.round(m.heapUsed / 1048576),
+        externalMB: Math.round(m.external / 1048576),
+        eventLoopP95Ms: Math.round(lag.percentile(95) / 1e6)
+      }));
+      lag.reset();
+    }, 60000);
+    resourceMonitor.unref?.();
+  } catch (_) {}
 }
 
 let shuttingDown = false;
@@ -84,6 +122,7 @@ function errorSummary(error) {
 }
 const startTask = start();
 startTask.catch(async (error) => {
+  setStartupError(error);
   console.error('GAERU startup failed:', errorSummary(error));
   process.exitCode = 1;
   await shutdown();
@@ -92,6 +131,8 @@ startTask.catch(async (error) => {
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  setStartupError(new Error('SHUTDOWN'));
+  if (resourceMonitor) clearInterval(resourceMonitor);
   // Let any in-flight startup work settle before closing the pool it is using.
   await startTask.catch(() => {});
   stopChatFileRetention?.();

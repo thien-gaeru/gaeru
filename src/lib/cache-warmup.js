@@ -4,6 +4,7 @@ const { getFreshData, stockMap } = require('../cache');
 const { loadProducts } = require('../store-api');
 const { getCachedImageRow, warmPublicImage } = require('./image-renditions');
 const { warmStaticAssets } = require('../persistent-assets');
+try { require('sharp').concurrency(1); } catch (_) {}
 
 async function warmHotImagesInBackground(pool, products) {
   if (!pool || !pool.__gaeruCacheHooked || process.env.MEDIA_CACHE_ENABLED === 'false') return;
@@ -27,7 +28,7 @@ async function warmHotImagesInBackground(pool, products) {
           [id, canonical, JSON.stringify([canonical]), JSON.stringify([{ type: 'image', url: canonical }])]
         )).rows[0]
       );
-      if (row) await warmPublicImage(row, [480, 800]);
+      if (row) { await warmPublicImage(row, [480, 800]); await new Promise(r => setImmediate(r)); }
     }
     const newsRows = (await pool.query("SELECT cover_id FROM news_posts WHERE status='published' AND cover_id IS NOT NULL ORDER BY published_at DESC, id LIMIT 12")).rows;
     for (const { cover_id: coverId } of newsRows) {
