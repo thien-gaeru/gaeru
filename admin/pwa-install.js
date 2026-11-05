@@ -44,7 +44,7 @@
 
     const origin = window.location.origin;
     const adminUrl = origin + '/gaeru_ceo';
-    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(adminUrl);
+    const qrUrl = '/gaeru_ceo/pwa-qr.png?url=' + encodeURIComponent(adminUrl);
 
     let platformHtml = '';
     if (isStandalone) {
@@ -95,7 +95,7 @@
               '<img src="' + qrUrl + '" alt="QR Code mở GAERU CEO" width="140" height="140" style="display:block;border-radius:6px">' +
             '</div>' +
             '<div style="flex:1;min-width:200px;font-size:12px;color:#475569;line-height:1.6">' +
-              '<div><strong>Đường dẫn quản trị:</strong><br><code style="font-size:11px;background:#f1f5f9;padding:3px 6px;border-radius:4px;word-break:break-all;display:inline-block;margin-top:4px">' + adminUrl + '</code></div>' +
+              '<div><strong>Đường dẫn quản trị:</strong><br><div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap"><code style="font-size:11px;background:#f1f5f9;padding:3px 6px;border-radius:4px;word-break:break-all;display:inline-block">' + adminUrl + '</code><button type="button" class="secondary-button" data-copy-admin-url style="font-size:11px;padding:2px 8px;min-height:24px;border-radius:6px;cursor:pointer;white-space:nowrap">Sao chép</button><span data-copy-status style="color:#059669;font-size:11px;display:none;font-weight:600">Đã chép!</span></div></div>' +
               '<div style="margin-top:8px"><strong>Tính năng khi cài app:</strong></div>' +
               '<ul style="margin:4px 0 0;padding-left:16px">' +
                 '<li>Khởi chạy toàn màn hình, mượt mà như app gốc</li>' +
@@ -116,6 +116,26 @@
         dialog.remove();
       };
     });
+
+    const copyBtn = dialog.querySelector('[data-copy-admin-url]');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(adminUrl);
+          const status = dialog.querySelector('[data-copy-status]');
+          if (status) {
+            status.style.display = 'inline';
+            setTimeout(() => { status.style.display = 'none'; }, 2500);
+          }
+        } catch (_) {
+          const status = dialog.querySelector('[data-copy-status]');
+          if (status) {
+            status.textContent = 'Hãy chép tay';
+            status.style.display = 'inline';
+          }
+        }
+      };
+    }
 
     const triggerBtn = dialog.querySelector('[data-pwa-trigger-install]');
     if (triggerBtn) {

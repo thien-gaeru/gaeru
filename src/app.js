@@ -416,6 +416,14 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo/'}).sendFile('notification-worker.js',{root:adminRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'no-store'}).sendFile('manifest.webmanifest',{root:adminRoot}));
+  app.get('/gaeru_ceo/pwa-qr.png',async(req,res,next)=>{
+    try{
+      const QRCode=require('qrcode');
+      const target=typeof req.query.url==='string'&&/^https?:\/\//i.test(req.query.url)?req.query.url:`${req.protocol}://${req.get('host')||'gaeru.com'}/gaeru_ceo`;
+      const buf=await QRCode.toBuffer(target,{width:280,margin:1,errorCorrectionLevel:'M',color:{dark:'#0f172a',light:'#ffffff'}});
+      res.set({'Content-Type':'image/png','Cache-Control':'public, max-age=86400'}).send(buf);
+    }catch(err){next(err);}
+  });
   app.get('/gaeru_ceo/assets/zxing-browser.min.js',(_req,res)=>res.set('Cache-Control','no-store').sendFile('zxing-browser.min.js',{root:path.join(projectRoot,'node_modules','@zxing','browser','umd')}));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     if(!managementAssets.has(req.params.file))return res.sendStatus(404);

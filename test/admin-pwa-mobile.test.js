@@ -93,4 +93,11 @@ test('Admin PWA for Android and iOS is configured, served, and installable', asy
   const swRes = await fetch(`${baseUrl}/gaeru_ceo/notification-worker.js`);
   assert.equal(swRes.status, 200);
   assert.equal(swRes.headers.get('service-worker-allowed'), '/gaeru_ceo/');
+
+  // Test pwa-qr.png endpoint
+  const qrRes = await fetch(`${baseUrl}/gaeru_ceo/pwa-qr.png`);
+  assert.equal(qrRes.status, 200);
+  assert.equal(qrRes.headers.get('content-type'), 'image/png');
+  const qrBuf = Buffer.from(await qrRes.arrayBuffer());
+  assert.ok(qrBuf.length > 500, 'QR PNG buffer must be valid');
 });
