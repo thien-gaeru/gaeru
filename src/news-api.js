@@ -35,9 +35,18 @@ function createNewsPublicApi(pool){const router=Router();
     else if (currentSlug.includes('p01')) keyword = '%p01%';
     else if (currentSlug.includes('p185')) keyword = '%p185%';
     else if (currentSlug.includes('affiliate') || currentSlug.includes('hoa-hong') || currentSlug.includes('doi-tac')) keyword = '%affiliate%';
+    else if (currentSlug.includes('ky-nang') || currentSlug.includes('thiet-bi') || currentSlug.includes('gimbal') || currentSlug.includes('anh-sang')) keyword = '%ky-nang%';
+    else if (currentSlug.includes('tap-am') || currentSlug.includes('tieng-on') || currentSlug.includes('khu-on') || currentSlug.includes('loc-am') || currentSlug.includes('dsp') || currentSlug.includes('deadcat') || currentSlug.includes('chong-on')) keyword = 'noise';
 
     let relatedRows = [];
-    if (keyword) {
+    if (keyword === 'noise') {
+      relatedRows = (await pool.query(
+        `SELECT ${fields} FROM news_posts 
+         WHERE status='published' AND id <> $1 AND (slug LIKE '%tap-am%' OR slug LIKE '%tieng-on%' OR slug LIKE '%chong-on%' OR slug LIKE '%deadcat%' OR slug LIKE '%dsp%') 
+         ORDER BY published_at DESC, id LIMIT 3`,
+        [post.id]
+      )).rows;
+    } else if (keyword) {
       relatedRows = (await pool.query(
         `SELECT ${fields} FROM news_posts 
          WHERE status='published' AND id <> $1 AND (slug LIKE $2 OR title ILIKE $2) 
