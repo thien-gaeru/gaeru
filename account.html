@@ -7,12 +7,12 @@
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="description" content="Đăng nhập hoặc tạo tài khoản khách hàng GAERU.">
     <title>Tài khoản khách hàng — GAERU</title>
-    <link rel="stylesheet" href="styles.css?v=20261103-dropdown-v2">
-    <link rel="stylesheet" href="account-upgrade.css?v=20261104-xu-type">
+    <link rel="stylesheet" href="styles.css?v=20261105-newsletter-bottom">
+    <link rel="stylesheet" href="account-upgrade.css?v=20261105-newsletter-card">
     <script src="customer-session.js" defer></script><script src="/footer-products.js?v=20261027-all-products" defer></script><script src="store-shell.js?v=20261104-realtime-v1" defer></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="account.js?v=20261103-dropdown-v2" defer></script>
-    <script src="customer-experience.js?v=20261104-profile-title" defer></script>
+    <script src="customer-experience.js?v=20261105-newsletter-card" defer></script>
   <link rel="stylesheet" href="brand.css?v=20261025-webp">
     <link rel="icon" type="image/webp" href="assets/brand/gaeru-logo.webp">
   <link rel="stylesheet" href="/account-security.css?v=20261104-backdrop-v4"><script src="/account-security.js?v=20261104-backdrop-v4" defer></script><script src="/account-deletion.js?v=20261024-confirm-mail" defer></script><link rel="stylesheet" href="/marketing.css?v=20261029-banner"><script src="/customer-marketing.js?v=20261029-banner" defer></script><link rel="stylesheet" href="/typography.css?v=20261025-mobile-delete"><script src="/care-live.js?v=20261024-support-email" defer></script><script src="/shopping-chat-client.js?v=20261103-complete" defer></script><script src="/product-services.js?v=20261028-chat-v2" defer></script><link rel="stylesheet" href="/shopping-chat.css?v=20261105-helpdesk-v1"><script src="vietnam-address.js?v=20261026-unified-ui" defer></script><link rel="stylesheet" href="quick-purchase.css?v=20261025-wallet-compact"><link rel="stylesheet" href="vietnam-address.css?v=20261026-unified-ui"><style>
@@ -219,15 +219,18 @@
                 </details>
                 <p role="status" data-address-status></p>
               </div>
-              <div class="account-newsletter-box">
+              <div class="account-profile-footer"><p>Thông tin của bạn được dùng để liên hệ và giao hàng.</p><button class="secondary-button" type="button" data-account-logout>Đăng xuất</button></div>
+              </div>
+
+              <section class="account-workspace-card account-newsletter-card" data-account-newsletter>
                 <div class="account-section-heading">
                   <div>
                     <p class="eyebrow">BẢN TIN GAERU</p>
                     <h3>Nhận ưu đãi &amp; thông tin sản phẩm</h3>
                   </div>
                 </div>
-                <p>Cập nhật sản phẩm microphone, phụ kiện và các chương trình ưu đãi dành riêng cho bạn.</p>
-                <form class="footer-newsletter-form" data-newsletter-form data-source="account">
+                <p class="account-newsletter-desc">Cập nhật sản phẩm microphone, phụ kiện và các chương trình ưu đãi dành riêng cho bạn.</p>
+                <form class="footer-newsletter-form account-newsletter-form" data-newsletter-form data-source="account">
                   <div class="footer-newsletter-row">
                     <input type="email" name="email" class="footer-newsletter-input" placeholder="Nhập địa chỉ email của bạn" required maxlength="254" autocomplete="email">
                     <button type="submit" class="button button-blue footer-newsletter-button">Đăng ký nhận tin</button>
@@ -238,9 +241,7 @@
                   </label>
                   <div class="footer-newsletter-feedback" data-newsletter-feedback role="status" aria-live="polite"></div>
                 </form>
-              </div>
-              <div class="account-profile-footer"><p>Thông tin của bạn được dùng để liên hệ và giao hàng.</p><button class="secondary-button" type="button" data-account-logout>Đăng xuất</button></div>
-              </div>
+              </section>
             </div>
             <div class="account-loading" data-account-loading role="status" aria-live="polite"><span class="account-spinner" aria-hidden="true"></span><p data-account-loading-message>Đang tải tài khoản…</p></div>
             <p class="account-feedback" data-account-feedback role="status" aria-live="polite" hidden></p>

@@ -196,6 +196,13 @@ img { display: block; max-width: 100%; }
 .footer-newsletter-button { white-space: nowrap; padding: 11px 22px; font-size: 13px; font-weight: 500; border-radius: 980px; cursor: pointer; transition: background .2s ease, transform .1s ease; }
 .footer-newsletter-button:hover:not(:disabled) { background: #0077ed; }
 .footer-newsletter-button:disabled { opacity: 0.6; cursor: not-allowed; }
+.account-newsletter-card { margin-top: 24px; padding: 28px; background: #fff; border: 1px solid #e5e5e8; border-radius: 24px; box-sizing: border-box; transition: border-color .2s ease, box-shadow .2s ease; }
+.account-newsletter-card:hover { border-color: #d2d2d7; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+.account-newsletter-card .footer-newsletter-form { max-width: 520px; }
+.account-newsletter-card .account-section-heading { margin-bottom: 8px; }
+.account-newsletter-card .account-section-heading h3 { font-size: 17px; font-weight: 600; color: #1d1d1f; margin: 4px 0 0; }
+.account-newsletter-card .account-newsletter-desc,
+.account-newsletter-card > p { font-size: 13.5px; color: #86868b; margin: 0 0 16px 0; line-height: 1.55; }
 .account-newsletter-box { margin-top: 24px; padding: 24px 28px; background: #fbfbfd; border: 1px solid #e5e5ea; border-radius: 18px; transition: border-color .2s ease, box-shadow .2s ease; }
 .account-newsletter-box:hover { border-color: #d2d2d7; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
 .account-newsletter-box .footer-newsletter-form { max-width: 520px; }

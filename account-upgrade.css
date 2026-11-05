@@ -16,7 +16,7 @@
 .is-authenticated .account-copy h1{font-size:40px;text-align:left}
 .is-authenticated .account-copy>p:last-of-type{font-size:15px;margin:16px 0 0;line-height:1.6}
 .is-authenticated .account-card,.is-authenticated .customer-account-card{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;min-width:0}
-.account-overview-card,.account-workspace-card{background:#fff;border:1px solid #e5e5e8;border-radius:24px;padding:28px;min-width:0}
+.account-overview-card,.account-workspace-card,.account-newsletter-card{background:#fff;border:1px solid #e5e5e8;border-radius:24px;padding:28px;min-width:0}
 .account-profile-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .account-profile-header h3{overflow-wrap:anywhere;margin:6px 0 0!important;font-size:28px!important;letter-spacing:-.04em}
 .account-verification-badge{display:inline-flex;padding:7px 11px;border-radius:20px;background:#f2f2f4;color:#515154;font-size:11px;line-height:1.5}
@@ -55,14 +55,14 @@
  .is-authenticated .account-copy h1{font-size:34px}
  .account-hub-nav{display:none!important}
  .account-hub-link{padding:12px 10px!important;font-size:13px!important;min-height:48px!important;align-items:center!important;justify-content:flex-start!important}
- .account-overview-card,.account-workspace-card{padding:22px;border-radius:20px}
+ .account-overview-card,.account-workspace-card,.account-newsletter-card{padding:22px;border-radius:20px}
  .account-page .account-layout:not(.is-authenticated) .account-card { padding: 24px; border-radius: 20px; }
  .account-page .is-authenticated .customer-account-card{padding:0}
  .account-page .customer-workspace .account-profile-editor{padding:16px 22px}
 }
 @media(max-width:420px){
  .account-page .account-layout{width:calc(100% - 28px);padding-top:36px}
- .account-overview-card,.account-workspace-card{padding:18px}
+ .account-overview-card,.account-workspace-card,.account-newsletter-card{padding:18px}
  .account-page .account-profile-footer{align-items:flex-start;flex-direction:column}
  .account-page .customer-profile dl>div{grid-template-columns:82px minmax(0,1fr);font-size:13px}
  .account-profile-header h3{font-size:25px!important}
