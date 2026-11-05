@@ -425,6 +425,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     res.set("Cache-Control", "no-store");
     res.sendFile("index.html", { root: adminRoot }, error => { if (error) next(error); });
   });
+  app.get('/dict/shared-template.dict', require('./lib/compression-dictionary').serveDictionaryRoute);
+  app.use(require('./lib/early-hints').earlyHintsMiddleware);
   app.use(require('./traffic-tracker').createTrafficTracker(pool));
   app.use(require('./site-pages').pageMetadata(pool));
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));

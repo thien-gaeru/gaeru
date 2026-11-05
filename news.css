@@ -18,7 +18,7 @@
 .news-card:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
 .news-page{max-width:1120px;padding:48px 24px 80px;margin:auto;min-height:60vh}
 .news-page h1{font-size:clamp(36px,5vw,60px);line-height:1.1;letter-spacing:-.04em}
-.news-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:36px 0}
+.news-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:36px 0;content-visibility:auto;contain-intrinsic-size:auto 600px}
 .news-article{max-width:800px;margin:48px auto}
 .news-intro{font-size:21px;line-height:1.6;color:#6e6e73}
 .news-cover{width:100%!important;max-width:100%!important;height:auto!important;aspect-ratio:16/10;max-height:520px;object-fit:cover!important;background:#ebebee;border-radius:24px;margin:32px 0}

@@ -2,7 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),{parseHTML}=require('linkedom'),{paths,clean}=require('../clean-urls'),{normalizePublicBase,normalizeBrandText}=require('./primary-domain');
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
-function enrich(html,original,origin,override){origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);
+function enrich(html,original,origin,override){if(typeof html==='string'&&html.includes('/clean-urls.js?v=')&&!override)return html;origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);
  require('./responsive-images').apply(doc);
  if(override){doc.title=normalizeBrandText(override.title);let description=doc.head.querySelector('meta[name=description]');if(!description){description=doc.createElement('meta');description.name='description';doc.head.append(description)}description.content=normalizeBrandText(override.description)}
  doc.documentElement.setAttribute('lang','vi');let base=doc.head.querySelector('base');if(!base){base=doc.createElement('base');base.setAttribute('href','/');doc.head.prepend(base)}
@@ -22,6 +22,7 @@ function enrich(html,original,origin,override){origin=normalizePublicBase(origin
  const faq=[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
  if(['/tai-khoan','/gio-hang','/thanh-toan','/ket-qua-thanh-toan'].includes(u.pathname))meta('robots','noindex, follow');
  if(!doc.querySelector('script[type="speculationrules"]')){const spec=doc.createElement('script');spec.type='speculationrules';spec.textContent=require('./speculation-policy').text;if(doc.body)doc.body.append(spec);else doc.head.append(spec);}
+ if(!doc.head.querySelector('link[rel="compression-dictionary"]')){const dl=doc.createElement('link');dl.setAttribute('rel','compression-dictionary');dl.setAttribute('href','/dict/shared-template.dict');doc.head.append(dl);}
  const mainStyle=doc.head.querySelector('link[rel="stylesheet"][href^="/styles.css"]');if(mainStyle&&!doc.head.querySelector('link[rel="preload"][href^="/styles.css"]')){const preload=doc.createElement('link');preload.setAttribute('rel','preload');preload.setAttribute('as','style');preload.setAttribute('href',mainStyle.getAttribute('href'));base.after(preload);}
  if(doc.querySelector('script[src*="store-shell.js"]')&&!['/thanh-toan','/tai-khoan','/dang-ky-bao-hanh','/kich-hoat-bao-hanh'].includes(u.pathname)){for(const css of doc.head.querySelectorAll('link[rel="stylesheet"]')){const href=css.getAttribute('href')||'';if(/^\/(shopping-chat|quick-purchase|action-feedback|bot-protection|vietnam-address)\.css(?:\?|$)/.test(href)){css.setAttribute('media','print');css.setAttribute('data-deferred-css','');const ns=doc.createElement('noscript');ns.innerHTML='<link rel="stylesheet" href="'+href+'">';css.after(ns);}}}
  return normalizeBrandText('<!doctype html>'+doc.documentElement.outerHTML);
@@ -31,7 +32,38 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
  const target=clean(req.originalUrl,origin);if(target!==req.originalUrl)return res.redirect(301,target);
  const send=res.send.bind(res),prepare=body=>typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body;
  // Cache the final document, including metadata, rather than the unprocessed template.
- res.locals.publicHtml={prepare,send};res.send=body=>send(prepare(body));
+ const {isDcbEligible,compressDcb}=require('./lib/compression-dictionary');
+ const customSend=body=>{
+  const prepared=prepare(body);
+  if(req.headers['sec-purpose']?.includes('prerender'))req.isPrerender=true;
+  if(typeof prepared==='string'&&isDcbEligible(req)){
+   const dcbPayload=compressDcb(Buffer.from(prepared,'utf8'));
+   res.setHeader('Content-Encoding','dcb');
+   res.setHeader('Vary','Accept-Encoding, Available-Dictionary, Sec-Purpose');
+   res.setHeader('X-Accel-Buffering','no');
+   res.setHeader('Cache-Control','public, max-age=0, must-revalidate, no-transform');
+   let etag=res.getHeader('ETag');
+   if(!etag){
+    const crypto=require('node:crypto');
+    etag='"'+crypto.createHash('md5').update(dcbPayload).digest('hex')+'-dcb"';
+    res.setHeader('ETag',etag);
+   }else{
+    etag=String(etag).replace(/"$/,'-dcb"');
+    res.setHeader('ETag',etag);
+   }
+   res.setHeader('Content-Type','text/html; charset=utf-8');
+   res.setHeader('Content-Length',dcbPayload.length);
+   if(etag&&req.headers['if-none-match']===res.getHeader('ETag'))return res.status(304).end();
+   return send(dcbPayload);
+  }
+  const existingVary=res.getHeader('Vary');
+  if(!existingVary||!String(existingVary).includes('Available-Dictionary')){
+   res.setHeader('Vary',existingVary?existingVary+', Available-Dictionary, Sec-Purpose':'Accept-Encoding, Available-Dictionary, Sec-Purpose');
+  }
+  return send(prepared);
+ };
+ res.locals.publicHtml={prepare,send:customSend};
+ res.send=customSend;
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
 const htmlTemplates=new Map();function readHtmlTemplate(file){let content=htmlTemplates.get(file);if(content===undefined){content=fs.readFileSync(path.join(__dirname,'..',file),'utf8');htmlTemplates.set(file,content);}return content;}

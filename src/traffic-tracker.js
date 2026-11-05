@@ -192,6 +192,11 @@ function createTrafficTracker(pool) {
       return next();
     }
 
+    const secPurpose = String(req.headers['sec-purpose'] || '');
+    if (secPurpose.includes('prerender') || secPurpose.includes('prefetch')) {
+      return next();
+    }
+
     const ua = req.headers['user-agent'] || '';
     if (BOT_USER_AGENT_PATTERN.test(ua)) {
       return next();

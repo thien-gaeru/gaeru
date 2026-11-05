@@ -6,6 +6,7 @@ function shouldCompress(req,res){
  const adminStatic=/^\/gaeru_ceo\/assets\/[a-z0-9-]+\.(?:js|css)$/.test(route);
  const privateRoute=(/^\/api(?:\/|$)/.test(route)&&!/^\/api\/(?:products|news)(?:\/|$)/.test(route))||(/^\/(?:gaeru_ceo|admin)(?:\/|$)/.test(route)&&!adminStatic);
  if(privateRoute){const cache=String(res.getHeader('Cache-Control')||'private, no-store');if(!cache.includes('no-transform'))res.setHeader('Cache-Control',cache+', no-transform');return false;}
+ if(res.getHeader('Content-Encoding')==='dcb'||require('./compression-dictionary').isDcbEligible(req))return false;
  return compression.filter(req,res);
 }
 module.exports={publicCompression:()=>compression({threshold:1024,filter:shouldCompress}),shouldCompress};

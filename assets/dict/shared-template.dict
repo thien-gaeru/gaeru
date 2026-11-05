@@ -1,0 +1,126 @@
+<!doctype html><html lang="vi"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#f5f5f7">
+<link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
+<link rel="stylesheet" href="/styles.css?v=20261103-experience">
+<link rel="stylesheet" href="/brand.css?v=20261025-webp">
+<script src="/customer-session.js" defer></script>
+<script src="/footer-products.js?v=20261027-all-products" defer></script>
+<script src="/store-shell.js?v=20261104-realtime-v1" defer></script>
+<script src="/clean-urls.js?v=20261027-gaeru-com" defer></script>
+<script src="/commerce.js?v=20261103-experience" defer></script>
+<link rel="stylesheet" href="/typography.css?v=20261025-mobile-delete">
+<script src="/care-live.js?v=20261024-support-email" defer></script>
+<script src="/shopping-chat-client.js?v=20261103-complete" defer></script>
+<script src="/product-services.js?v=20261028-chat-v2" defer></script>
+<link rel="stylesheet" href="/shopping-chat.css?v=20261105-helpdesk-v1">
+<script src="/vietnam-address.js?v=20261026-unified-ui" defer></script>
+<link rel="stylesheet" href="/vietnam-address.css?v=20261026-unified-ui">
+<a class="skip-link" href="#main">Bỏ qua điều hướng</a>
+<div id="site-header"></div>
+<div id="site-footer"></div>
+<header class="site-header">
+      <div class="nav-wrap">
+        <a class="wordmark" href="/" aria-label="GAERU — Trang chủ"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375" decoding="async"></span></a>
+        <button class="menu-toggle icon-button" type="button" aria-expanded="false" aria-controls="menu-panel" aria-label="Mở menu" data-open-label="Mở menu" data-close-label="Đóng menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="menu-icon-top" d="M4 8h16"/><path class="menu-icon-bottom" d="M4 16h16"/></svg>
+        </button>
+        <nav class="primary-nav" aria-label="Điều hướng chính">
+          <button class="menu-nav-trigger" type="button" aria-expanded="false" aria-controls="menu-panel">Sản phẩm <span aria-hidden="true">⌄</span></button>
+          <a href="story.html">Câu chuyện</a>
+          <a href="care.html">GAERU Care+</a>
+          <a href="support.html">Hỗ trợ</a>
+        </nav>
+        <div class="nav-actions">
+          <button class="search-toggle icon-button" type="button" aria-label="Tìm kiếm" aria-expanded="false" aria-controls="search-panel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="5.4"/><path d="m14 14 5.5 5.5"/></svg>
+          </button>
+          <button class="icon-button bag-link" type="button" aria-label="Giỏ hàng, 0 sản phẩm" aria-expanded="false" aria-controls="cart-panel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+            <span class="cart-count" hidden>0</span>
+          </button>
+          <a class="account-link" href="account.html">Tài khoản</a>
+        </div>
+      </div>
+    </header>
+<footer class="site-footer">
+      <div class="footer-main">
+        <div class="footer-brand">
+          <a class="wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375" loading="lazy" decoding="async"></span></a>
+          <p>Nhỏ gọn để bắt đầu.<br>Tự do để sáng tạo.</p>
+        </div>
+        <details class="footer-column" open>
+          <summary>Khám phá GAERU</summary>
+          <div class="footer-links" data-footer-products><a href="/cua-hang">Cửa hàng</a></div>
+        </details>
+        <details class="footer-column" open>
+          <summary>Hỗ trợ &amp; tài khoản</summary>
+          <div class="footer-links">
+            <a href="care.html">GAERU Care+</a>
+            <a href="support.html#guide">Hướng dẫn</a>
+            <a href="support.html">Trung tâm hỗ trợ</a>
+            <a href="tracking.html">Tra cứu đơn hàng</a>
+            <a href="account.html">Tài khoản</a>
+          </div>
+        </details>
+        <details class="footer-column" open>
+          <summary>Về GAERU</summary>
+          <div class="footer-links">
+            <a href="story.html">Câu chuyện GAERU</a>
+          </div>
+        </details>
+        <div class="footer-column footer-newsletter-column">
+          <span class="footer-column-heading">Bản tin GAERU</span>
+          <p class="footer-newsletter-note">Cập nhật sản phẩm &amp; ưu đãi mới nhất.</p>
+          <form class="footer-newsletter-compact-form" data-newsletter-form data-source="web_footer">
+            <div class="footer-newsletter-field">
+              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" required maxlength="254" autocomplete="email">
+              <button type="submit" class="footer-newsletter-compact-submit" aria-label="Đăng ký nhận tin">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+            </div>
+            <label class="footer-newsletter-consent">
+              <input type="checkbox" name="consent" required>
+              <span>Tôi đồng ý nhận email từ GAERU.</span>
+            </label>
+            <div class="footer-newsletter-feedback" data-newsletter-feedback role="status" aria-live="polite"></div>
+          </form>
+        </div>
+      </div>
+      <div class="footer-help">
+        <p>Cần hỗ trợ? <button type="button" class="chat-product-button footer-chat-link" data-product-chat="">Chat ngay ↗</button>, email <a href="mailto:business@gaeru.com">business@gaeru.com</a> hoặc gọi <a href="tel:0829191080">082 919 1080</a>. Giờ hỗ trợ: Thứ Hai–Thứ Sáu 10:00–17:00, cuối tuần và ngày lễ 10:00–16:00.</p>
+      </div>
+      <div class="footer-bottom">
+        <span class="footer-region">Việt Nam</span>
+        <div class="footer-legal">
+          <span>Bản quyền GAERU © 2026 · GAERU HOUSEHOLD BUSINESS (GAERU)</span>
+          <nav aria-label="Chính sách và pháp lý">
+            <a href="privacy.html">Chính sách quyền riêng tư</a>
+            <a href="terms.html">Điều khoản sử dụng</a>
+            <a href="pricing.html">Chính sách giá</a>
+            <a href="payment.html">Chính sách thanh toán</a>
+            <a href="delivery-returns.html">Bán hàng và hoàn tiền</a>
+            <a href="complaints.html">Giải quyết khiếu nại</a>
+            <a href="legal.html">Pháp lý</a>
+            <a href="sitemap.html">Sơ đồ trang web</a>
+          </nav>
+        </div>
+        <p class="footer-business-info">
+          HỘ KINH DOANH GAERU (GAERU HOUSEHOLD BUSINESS) · Mã số đăng ký &amp; Mã số thuế: 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
+          Địa chỉ: Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình · Hotline: 082 919 1080 · Email: business@gaeru.com<br>
+          Website thương mại điện tử bán hàng tuân thủ Nghị định 52/2013/NĐ-CP và Nghị định 85/2021/NĐ-CP.
+        </p>
+      </div>
+    </footer>
+{"@context":"https://schema.org","@type":"Organization","@id":"https://gaeru.com/#organization","name":"GAERU","url":"https://gaeru.com/","logo":"https://gaeru.com/assets/brand/gaeru-logo.webp"}
+{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Trang chủ","item":"https://gaeru.com/"}
+{"@context":"https://schema.org","@type":"Product","name":"
+HỘ KINH DOANH GAERU
+8836293843-002
+Thôn 2, Xã Rạng Đông, Huyện Tuần Giáo, Tỉnh Điện Biên, Việt Nam
+business@gaeru.com
+082 919 1080
+Nghị định 52/2013/NĐ-CP
+Nghị định 85/2021/NĐ-CP
+Nghị định 13/2023/NĐ-CP
+<script type="application/ld+json">

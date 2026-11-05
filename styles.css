@@ -164,7 +164,7 @@ img { display: block; max-width: 100%; }
 .story-support { width: min(100% - 48px, 1120px); margin: 16px auto 90px; padding: 48px 52px; display: grid; grid-template-columns: 1.1fr .9fr; align-items: center; gap: 32px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .story-support > div:last-child > p { max-width: 430px; margin-top: 0; }
 
-.site-footer { padding: 42px 24px 20px; background: var(--surface); color: var(--ink); }
+.site-footer { padding: 42px 24px 20px; background: var(--surface); color: var(--ink); content-visibility: auto; contain-intrinsic-size: auto 500px; }
 .footer-main, .footer-help, .footer-bottom { width: min(100%, 1050px); margin: 0 auto; }
 .footer-main { display: grid; grid-template-columns: 1.25fr 1fr 1.15fr 0.85fr 1.35fr; gap: 26px; padding-bottom: 24px; }
 .footer-brand .wordmark { font-size: 25px; }
@@ -373,7 +373,7 @@ img { display: block; max-width: 100%; }
 .detail-benefits { margin-top: 22px; border-top: 1px solid var(--line); }
 .detail-benefits p { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 15px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .detail-benefits span { color: var(--muted); }
-.detail-more { padding: 60px 24px; background: var(--surface); text-align: center; }
+.detail-more { padding: 60px 24px; background: var(--surface); text-align: center; content-visibility: auto; contain-intrinsic-size: auto 300px; }
 .detail-more h2 { margin: 0 0 16px; font-size: clamp(30px, 4vw, 42px); letter-spacing: -.045em; }
 .not-found { padding-top: 80px; padding-bottom: 100px; text-align: center; }
 .not-found h1 { max-width: 700px; margin: 0 auto 25px; font-size: clamp(35px, 5vw, 54px); }

@@ -295,6 +295,26 @@ function smartPageCache(swrMs = 60000) {
       res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.vary('Accept-Encoding');
+      res.vary('Available-Dictionary');
+      res.vary('Sec-Purpose');
+      res.setHeader('X-Accel-Buffering', 'no');
+
+      const { isDcbEligible, compressDcb } = require('./src/lib/compression-dictionary');
+      if (isDcbEligible(req)) {
+        if (!hit.dcb) {
+          hit.dcb = compressDcb(Buffer.from(hit.raw, 'utf-8'));
+          hit.dcbEtag = hit.etag.replace(/"$/, '-dcb"');
+        }
+        res.setHeader('ETag', hit.dcbEtag);
+        if (req.headers['if-none-match'] === hit.dcbEtag) {
+          return res.status(304).end();
+        }
+        res.setHeader('Content-Encoding', 'dcb');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Length', hit.dcb.length);
+        res.setHeader('X-Cache', 'HIT-FRESH-RAM-DCB');
+        return res.end(hit.dcb);
+      }
       if (req.headers['if-none-match'] === hit.etag) {
         return res.status(304).end();
       }
@@ -338,6 +358,9 @@ function smartPageCache(swrMs = 60000) {
           res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
           res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
           res.vary('Accept-Encoding');
+          res.vary('Available-Dictionary');
+          res.vary('Sec-Purpose');
+          res.setHeader('X-Accel-Buffering', 'no');
           res.setHeader('ETag', etag);
           res.setHeader('X-Cache', 'MISS-REBUILT');
         }
