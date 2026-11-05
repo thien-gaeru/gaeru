@@ -187,6 +187,12 @@ test('readiness gate rejects business traffic with 503 while initializing and pa
   readinessMiddleware(livenessReq, livenessRes, () => { livenessPassed = true; });
   assert.equal(livenessStatus, 200);
 
+  // Static assets pass through even when not ready
+  let assetPassed = false;
+  const assetReq = { path: '/assets/products/m3-description/9.webp' };
+  readinessMiddleware(assetReq, mockRes, () => { assetPassed = true; });
+  assert.equal(assetPassed, true);
+
   // When ready, business traffic passes freely
   setReady(true);
   let readyPassed = false;

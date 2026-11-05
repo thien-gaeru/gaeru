@@ -25,6 +25,13 @@ function resetReadinessForTesting() {
   startupError = null;
 }
 
+function isAssetPath(pathname) {
+  if (typeof pathname !== 'string') return false;
+  return pathname.startsWith('/assets/') ||
+         pathname.startsWith('/public/') ||
+         /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|css|js|map|json|mp4|webm|pdf)$/i.test(pathname);
+}
+
 function readinessMiddleware(req, res, next) {
   // Liveness probes allowed at all times (returns 200 whether ready or initializing)
   if (req.path === '/healthz' || req.path === '/livez') {
@@ -40,6 +47,12 @@ function readinessMiddleware(req, res, next) {
       return res.status(503).json({ status: 'initializing', isReady: false });
     }
     return res.status(200).json({ status: 'ready', isReady: true });
+  }
+
+  // Static assets do not depend on DB migrations or session storage; pass them through
+  // so browser assets never fail with 503 during startup
+  if (isAssetPath(req.path)) {
+    return next();
   }
 
   if (isReady) return next();

@@ -158,8 +158,38 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
     return next();
    }catch{return next();}
   }
- try{const row=await getCachedSnapshotRow(pool,relative,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[relative])).rows[0]);if(!row)return res.set('Cache-Control','no-store').sendStatus(404);
-  const bytes=await cache.get(row.storage_key,async()=>{const value=await disk.read(row.storage_key);if(value.length!==Number(row.byte_size)||hash(value)!==row.sha256)throw Error('SITE_ASSET_INTEGRITY');return value;});
+  const serveLocalFallback=async()=>{
+    const localFile=path.join(__dirname,'..','assets',relative);
+    const raw=await fs.readFile(localFile);
+    if(width&&isImage){
+      const resized=await cache.get('local:'+relative+':w='+width,async()=>{
+        return sharp(raw,{limitInputPixels:24000000}).rotate().resize({width,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer();
+      });
+      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':'"'+hash(resized)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
+      if(req.fresh)return res.status(304).end();
+      return res.send(resized);
+    }
+    res.type(mime||'application/octet-stream').set({'Cache-Control':cacheControl,'ETag':'"'+hash(raw)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
+    if(req.fresh)return res.status(304).end();
+    return res.send(raw);
+  };
+  try{
+    const row=await getCachedSnapshotRow(pool,relative,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[relative])).rows[0]);
+    if(!row){
+      try{return await serveLocalFallback();}catch(_){return res.set('Cache-Control','no-store').sendStatus(404);}
+    }
+    const bytes=await cache.get(row.storage_key,async()=>{
+      try{
+        const value=await disk.read(row.storage_key);
+        if(value.length!==Number(row.byte_size)||hash(value)!==row.sha256)throw Error('SITE_ASSET_INTEGRITY');
+        return value;
+      }catch(err){
+        if(err.code==='ENOENT'){
+          return await fs.readFile(path.join(__dirname,'..','assets',relative));
+        }
+        throw err;
+      }
+    });
   if(width&&row.mime_type.startsWith('image/')){
    const resized=await cache.get(row.storage_key+':w='+width,()=>sharp(bytes,{limitInputPixels:24000000}).rotate().resize({width,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer());
    if(qualifiesForSelectiveAvif(req,resized.length)){
@@ -202,6 +232,11 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
    if(req.method==='HEAD')return res.set('Content-Length',String(bytes.length)).end();
   }
   return res.send(bytes);
- }catch(e){if(e.code==='ENOENT')return res.set('Cache-Control','no-store').status(503).send('Ảnh lưu trữ tạm thời chưa sẵn sàng.');next(e);}
+ }catch(e){
+   if(e.code==='ENOENT'||e.code==='ECONNREFUSED'){
+     try{return await serveLocalFallback();}catch(_){return res.set('Cache-Control','no-store').status(503).send('Ảnh lưu trữ tạm thời chưa sẵn sàng.');}
+   }
+   next(e);
+ }
 };}
 module.exports={syncAssets,serveAssets,valid,clearAssetSnapshotCache,warmStaticAssets,status:()=>last};
