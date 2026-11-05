@@ -34,24 +34,54 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   require('./cache').clearHtmlCacheOnly();
   if (pool && typeof pool.query === 'function' && !pool.__gaeruCacheHooked) {
     const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|news_posts|news_images|site_pages|store_settings|marketing_banner_images)\b/i.test(sql);
-    const wrapQuery = fn => async function(sql, values) {
-      const res = await fn.call(this, sql, values);
-      if (isCatalogOrPageMutation(sql)) {
+    const notifyMutation = sql => {
+      const text = typeof sql === 'object' && sql !== null ? sql.text : sql;
+      if (isCatalogOrPageMutation(text)) {
         require('./cache').clearHtmlCacheOnly();
         require('./site-pages').clearSitePagesCache(pool);
       }
-      return res;
+    };
+    const wrapQuery = fn => function(sql, values, cb) {
+      if (typeof values === 'function') {
+        const origCb = values;
+        return fn.call(this, sql, (err, res) => {
+          if (!err) notifyMutation(sql);
+          origCb(err, res);
+        });
+      }
+      if (typeof cb === 'function') {
+        return fn.call(this, sql, values, (err, res) => {
+          if (!err) notifyMutation(sql);
+          cb(err, res);
+        });
+      }
+      const p = fn.call(this, sql, values);
+      if (p && typeof p.then === 'function') {
+        return p.then(res => {
+          notifyMutation(sql);
+          return res;
+        });
+      }
+      return p;
     };
     pool.query = wrapQuery(pool.query);
     if (typeof pool.connect === 'function') {
       const origConnect = pool.connect;
-      pool.connect = async function(...args) {
-        const client = await origConnect.apply(this, args);
-        if (client && typeof client.query === 'function' && !client.__gaeruCacheHooked) {
-          client.query = wrapQuery(client.query);
-          Object.defineProperty(client, '__gaeruCacheHooked', { value: true });
+      pool.connect = function(cb) {
+        const hookClient = client => {
+          if (client && typeof client.query === 'function' && !client.__gaeruCacheHooked) {
+            client.query = wrapQuery(client.query);
+            Object.defineProperty(client, '__gaeruCacheHooked', { value: true });
+          }
+          return client;
+        };
+        if (typeof cb === 'function') {
+          return origConnect.call(this, (err, client, done) => {
+            if (!err && client) hookClient(client);
+            cb(err, client, done);
+          });
         }
-        return client;
+        return origConnect.call(this).then(hookClient);
       };
     }
     Object.defineProperty(pool, '__gaeruCacheHooked', { value: true });
