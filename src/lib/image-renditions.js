@@ -4,11 +4,11 @@ const sharp = require('sharp');
 const { readMedia } = require('./stored-media');
 const { createObjectCache } = require('./object-cache');
 const widths = [480, 800, 1200];
-const cache = createObjectCache({ maxBytes: 32 * 1024 * 1024, maxEntryBytes: 5 * 1024 * 1024, maxPending: 8 });
+const cache = createObjectCache({ maxBytes: 96 * 1024 * 1024, maxEntryBytes: 8 * 1024 * 1024, ttl: 3600000, maxPending: 64 });
 let active = 0;
 const waiting = [];
 async function bounded(work) {
-  if (active >= 2) await new Promise(resolve => waiting.push(resolve));
+  if (active >= 4) await new Promise(resolve => waiting.push(resolve));
   else active++;
   try { return await work(); }
   finally { const resume = waiting.shift(); if (resume) resume(); else active--; }
@@ -28,7 +28,7 @@ async function sendPublicImage(req, res, row, namespace) {
   if (req.fresh) return res.status(304).end();
   const bytes = width ? await cache.get(version, () => bounded(async () => {
     const original = await readMedia(row.content);
-    return sharp(original, { limitInputPixels: 24000000 }).rotate().resize({ width, withoutEnlargement: true }).webp({ lossless: true, effort: 5 }).toBuffer();
+    return sharp(original, { limitInputPixels: 24000000 }).rotate().resize({ width, withoutEnlargement: true }).webp({ lossless: true, effort: 1 }).toBuffer();
   })) : await readMedia(row.content);
   return res.send(bytes);
 }

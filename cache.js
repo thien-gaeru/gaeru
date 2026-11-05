@@ -269,31 +269,31 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
 }
 
 // 2. Middleware HTML Cache: Luôn đối chiếu ETag (Trả 304 nếu chưa đổi, trả bản mới ngay nếu đã đổi)
-function smartPageCache(swrMs = 3000) {
+function smartPageCache(swrMs = 60000) {
   return (req, res, next) => {
     if (req.method !== 'GET') return next();
 
-    // Bỏ qua cache với route riêng tư / session nhạy cảm
+    // Bỏ qua cache với route riêng tư / session nhạy cảm hoặc file tài nguyên tĩnh không phải HTML
     if (req.session?.customer || req.session?.admin) return next();
     const privatePath = p => /^\/(?:tai-khoan|gio-hang|thanh-toan|ket-qua-thanh-toan|admin|gaeru_ceo|api)(?:\/|$)/i.test(p) || /^\/(?:account|cart|checkout|payment-result)\.html$/i.test(p);
     if (privatePath(req.path) || privatePath(String(req.originalUrl).split('?')[0])) {
       return next();
     }
+    if (/\.(?:js|css|webp|png|jpe?g|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf|json|xml|txt|webmanifest|map)$/i.test(req.path)) {
+      return next();
+    }
 
     const key = `html:${req.originalUrl}`;
 
-    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
-    res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
-    res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
-
-    const hit = ramCache.get(key);
+    let hit = ramCache.get(key);
+    if (hit && Date.now() - (hit.time || 0) > swrMs) {
+      ramCache.delete(key);
+      hit = undefined;
+    }
     if (hit) {
-      const now = Date.now();
-      // SWR: Nếu bản HTML đã nằm trong RAM quá swrMs (3s), xóa để lượt truy cập tiếp theo tự đối chiếu getFreshData
-      if (now - (hit.time || 0) > swrMs) {
-        ramCache.delete(key);
-      }
-
+      res.setHeader('Cache-Control', hit.cacheControl || 'public, max-age=0, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.vary('Accept-Encoding');
       if (req.headers['if-none-match'] === hit.etag) {
         return res.status(304).end();
@@ -329,27 +329,36 @@ function smartPageCache(swrMs = 3000) {
     const origSend = res.locals.publicHtml?.send || res.send.bind(res);
     res.send = (body) => {
       if (res.locals.publicHtml) body = res.locals.publicHtml.prepare(body);
-      if (res.statusCode === 200 && typeof body === 'string') {
+      const currentCacheControl = String(res.getHeader('Cache-Control') || '');
+      if (res.statusCode === 200 && typeof body === 'string' && !/no-store|private/i.test(currentCacheControl)) {
         const etag = `"${BOOT_ID}-${crypto.createHash('md5').update(body).digest('hex')}"`;
+        const cacheControl = currentCacheControl || 'public, max-age=0, must-revalidate';
         if (!res.headersSent) {
+          res.setHeader('Cache-Control', cacheControl);
+          res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+          res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
           res.vary('Accept-Encoding');
           res.setHeader('ETag', etag);
           res.setHeader('X-Cache', 'MISS-REBUILT');
         }
+
+        const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: Date.now() };
+        ramCache.set(key, entry);
 
         const rawBuffer = Buffer.from(body, 'utf-8');
         Promise.all([
           brotli(rawBuffer, {
             params: {
               [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
-              [zlib.constants.BROTLI_PARAM_QUALITY]: 6
+              [zlib.constants.BROTLI_PARAM_QUALITY]: 5
             }
           }).catch(() => null),
           gzip(rawBuffer, { level: 6 }).catch(() => null)
         ]).then(([br, gz]) => {
-          ramCache.set(key, { raw: body, br, gz, etag, time: Date.now() });
+          entry.br = br;
+          entry.gz = gz;
         }).catch(() => {});
-      } else if (!res.headersSent) {
+      } else if (!res.headersSent && !/no-store|private/i.test(currentCacheControl)) {
         res.setHeader('X-Cache', 'MISS-REBUILT');
       }
 

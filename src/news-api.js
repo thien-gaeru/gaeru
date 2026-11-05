@@ -83,7 +83,7 @@ function createNewsAdminApi(pool){const router=Router();
   let row;if(req.params.id){row=(await client.query(`UPDATE news_posts SET slug=$2,title=$3,excerpt=$4,body=$5,cover_id=$6,image_alt=$7,status=$8,version=version+1,published_at=CASE WHEN $8='published' THEN COALESCE(published_at,now()) ELSE published_at END,updated_at=now() WHERE id=$1 AND version=$9 RETURNING ${fields},body`,[req.params.id,a.slug,a.title,a.excerpt,a.body,a.coverId,a.imageAlt,a.status,a.version])).rows[0];if(!row)return {status:409,error:'Bài viết đã thay đổi. Tải lại trước khi sửa.'};}
   else row=(await client.query(`INSERT INTO news_posts(slug,title,excerpt,body,cover_id,image_alt,status,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,CASE WHEN $7='published' THEN now() ELSE NULL END) RETURNING ${fields},body`,[a.slug,a.title,a.excerpt,a.body,a.coverId,a.imageAlt,a.status])).rows[0];
   await appendAudit(client,{actor:req.admin,action:'news.'+(req.params.id?'update':'create'),entityType:'news_post',entityId:row.id,metadata:{status:row.status,version:row.version}});return {status:req.params.id?200:201,post:output(row)};
- });res.status(result.status).json(result.error?{error:result.error}:{post:result.post});}catch(e){if(e.code==='23505')return res.status(409).json({error:'Đường dẫn bài viết đã được sử dụng.'});next(e);}};
+ });if(!result.error)require('./cache').clearHtmlCacheOnly();res.status(result.status).json(result.error?{error:result.error}:{post:result.post});}catch(e){if(e.code==='23505')return res.status(409).json({error:'Đường dẫn bài viết đã được sử dụng.'});next(e);}};
  router.post('/news',requirePermission('catalog.write'),requireCsrf,save);router.put('/news/:id',requirePermission('catalog.write'),requireCsrf,save);
  return router;
 }

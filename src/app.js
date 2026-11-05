@@ -31,6 +31,31 @@ const { createBusinessApi } = require("./business-api");
 
 function createApp({ config, pool, sessionStore, customerMailer, oauthClient = null }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
+  require('./cache').clearHtmlCacheOnly();
+  if (pool && typeof pool.query === 'function' && !pool.__gaeruCacheHooked) {
+    const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|news_posts|news_images|site_pages|store_settings|marketing_banner_images)\b/i.test(sql);
+    const wrapQuery = fn => async function(sql, values) {
+      const res = await fn.call(this, sql, values);
+      if (isCatalogOrPageMutation(sql)) {
+        require('./cache').clearHtmlCacheOnly();
+        require('./site-pages').clearSitePagesCache(pool);
+      }
+      return res;
+    };
+    pool.query = wrapQuery(pool.query);
+    if (typeof pool.connect === 'function') {
+      const origConnect = pool.connect;
+      pool.connect = async function(...args) {
+        const client = await origConnect.apply(this, args);
+        if (client && typeof client.query === 'function' && !client.__gaeruCacheHooked) {
+          client.query = wrapQuery(client.query);
+          Object.defineProperty(client, '__gaeruCacheHooked', { value: true });
+        }
+        return client;
+      };
+    }
+    Object.defineProperty(pool, '__gaeruCacheHooked', { value: true });
+  }
   const app = express();
   app.use(require('./lib/public-compression').publicCompression());
   const normalizePublicBase=require('./primary-domain').normalizePublicBase;
@@ -373,6 +398,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(require('./traffic-tracker').createTrafficTracker(pool));
   app.use(require('./site-pages').pageMetadata(pool));
   app.use(require('./clean-routes').cleanRoutes(new URL(config.PUBLIC_BASE_URL||'https://gaeru.com').origin));
+
+  app.use(require('./cache').smartPageCache());
   app.use(require('./product-guides').createProductGuidePages(pool));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});
   app.use(require("./site-pages").createPagesPublic(pool));
@@ -390,7 +417,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
     next();
   });
-  app.use(require('./cache').smartPageCache());
+
   app.use(require('./clean-routes').staticHtml);
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",

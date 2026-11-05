@@ -15,7 +15,7 @@ function createProductGuidePages(pool){const router=Router();router.get(['/guide
  const products=await loadProducts(pool),list=req.path==='/guides.html',slug=String(req.params.slug||req.query.id||(req.path.match(/^\/guide-([a-z0-9-]+)\.html$/)?.[1]?'gaeru-'+req.path.match(/^\/guide-([a-z0-9-]+)\.html$/)[1]:''));
  const p=products.find(p=>p.slug===slug||p.slug==='gaeru-'+slug);if(!list&&!p)return res.status(404).type('html').send('<h1>Không tìm thấy hướng dẫn sản phẩm</h1><a href="/huong-dan">Xem sản phẩm đang hỗ trợ</a>');
  if(req.path==='/product-support.html')return res.redirect(301,'/ho-tro/san-pham/'+encodeURIComponent(p.slug));
- const {document:doc}=parseHTML(fs.readFileSync(path.join(__dirname,'..','guides.html'),'utf8'));
+ const {document:doc}=parseHTML(require('./clean-routes').readHtmlTemplate('guides.html'));
  const main=doc.querySelector('main');main.className='guides-page';
  if(list){main.innerHTML='<header class="guides-hero"><p class="eyebrow">HƯỚNG DẪN SỬ DỤNG</p><h1>Bắt đầu đúng.<br>Sáng tạo dễ dàng.</h1><p>Chọn đúng sản phẩm và đối chiếu phiên bản trong hộp trước khi thao tác.</p></header><section><h2>Bạn đang sử dụng sản phẩm nào?</h2><div class="guides-grid">'+products.map(p=>'<a class="guide-card" href="/huong-dan/'+h(p.slug)+'"><img src="'+h(image(p))+'" alt="'+h(p.name)+'" width="400" height="320" loading="lazy"><p class="eyebrow">'+h(p.descriptor)+'</p><h3>'+h(p.name)+'</h3><p>'+h((content[p.slug]||fallback).intro)+'</p><span class="guide-link">Đọc hướng dẫn ›</span></a>').join('')+'</div></section>';}
  else {main.innerHTML=detail(p);doc.title='Hướng dẫn '+p.name+' — Kết nối, sử dụng và xử lý lỗi | GAERU';}

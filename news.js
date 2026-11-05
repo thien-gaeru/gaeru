@@ -1,7 +1,7 @@
 (()=>{
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const norm=v=>String(v??'').replace(/\b(https?:\/\/)?(?:www\.)?gaeru\.o[r]g(?!\.[a-z0-9-])(?![\w-])/gi,(_m,scheme)=>scheme?'https://gaeru.com':'gaeru.com');
- const paragraph=value=>norm(value).split(/(https:\/\/[^\s<>"']+)/g).map((part,index)=>index%2?'<a href="'+esc(part)+'" target="_blank" rel="noopener noreferrer">'+esc(part)+'</a>':esc(part)).join('').replace(/\n/g,'<br>');
+ const paragraph=value=>norm(value).split(/(https:\/\/[^\s<>"']*[^\s<>"'.,;:!?)])/g).map((part,index)=>index%2?'<a href="'+esc(part)+'" target="_blank" rel="noopener noreferrer">'+esc(part)+'</a>':esc(part)).join('').replace(/\n/g,'<br>');
  const date=v=>new Date(v).toLocaleDateString('vi-VN');
  const imageAttrs=(url,hero=false)=>/^\/api\/news-images\/[0-9a-f-]{36}$/.test(url)?'srcset="'+[480,800,1200].map(w=>url+'?w='+w+' '+w+'w').join(', ')+'" sizes="'+(hero?'(max-width: 760px) calc(100vw - 40px), 1000px':'(max-width: 760px) calc(100vw - 48px), 480px')+'"':'';
  const cards=posts=>posts.map(p=>`<a class="news-card" href="news-article.html?slug=${encodeURIComponent(p.slug)}"><img src="${esc(p.imageUrl)}" ${imageAttrs(p.imageUrl)} alt="${esc(norm(p.imageAlt))}" loading="lazy" width="480" height="300"><div><time datetime="${esc(p.publishedAt)}">${esc(date(p.publishedAt))}</time><h3>${esc(norm(p.title))}</h3><p>${esc(norm(p.excerpt))}</p><span>Đọc bài viết ↗</span></div></a>`).join('');

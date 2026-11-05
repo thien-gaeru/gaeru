@@ -7,7 +7,7 @@
   if(channel)channel.onmessage=()=>session.refresh();
   root.addEventListener('storage',event=>{if(event.key===key)session.refresh();});
   root.addEventListener('focus',()=>session.refresh());
-  root.addEventListener('pageshow',()=>session.refresh());
+  root.addEventListener('pageshow',event=>{if(event?.persisted)session.refresh();});
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')session.refresh();});
   document.addEventListener('gaeru:cart-panel-open',()=>session.refresh());
   if(root.location.protocol!=='file:')session.refresh();

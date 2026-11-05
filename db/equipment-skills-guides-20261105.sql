@@ -35,7 +35,7 @@ Micro không dây truyền sóng 2.4GHz rất nhạy cảm với vật cản kim
 - Đặt đầu thu (Receiver) ở vị trí thông thoáng, hướng thẳng về phía người nói.
 - Sau mỗi buổi quay, cất mic vào hộp sạc để tiếp điểm luôn sạch sẽ và sẵn sàng năng lượng cho buổi quay tiếp theo.
 
-Tìm hiểu chi tiết các dòng micro cài áo GAERU K9 chính hãng tại https://gaeru.com/cua-hang và xem hướng dẫn kết nối tại https://gaeru.com/tin-tuc/gaeru-k9-chon-dung-ket-noi.',
+Tìm hiểu chi tiết các dòng micro cài áo GAERU K9 chính hãng tại https://gaeru.com/cua-hang và xem hướng dẫn kết nối tại https://gaeru.com/tin-tuc/gaeru-k9-chon-cong-ket-noi-va-bo-mic.',
   'a0000000-0000-4000-8000-000000000037'::uuid,
   'Kỹ năng làm chủ micro cài áo không dây: Cách giấu mic, gài vị trí chuẩn và kiểm soát độ nhạy khi quay video',
   'published',
@@ -88,7 +88,7 @@ Dòng gimbal GAERU P01 tích hợp mắt thần AI nhận diện khuôn mặt t�
 - Khi quay một mình, hãy đặt gimbal lên tripod mini cách bạn 1.5 - 2.5m.
 - Sử dụng cử chỉ bàn tay (Hand Gesture) giơ lòng bàn tay lên để kích hoạt bám theo, và giơ ký hiệu chữ V để tạm dừng. Tính năng này giải phóng hoàn toàn đôi tay cho nhà sáng tạo.
 
-Khám phá bộ sưu tập gimbal và gậy quay chống rung GAERU tại https://gaeru.com/cua-hang và tra cứu cẩm nang sử dụng tại https://gaeru.com/tin-tuc/gaeru-p01-chon-dung-khung-hinh.',
+Khám phá bộ sưu tập gimbal và gậy quay chống rung GAERU tại https://gaeru.com/cua-hang và tra cứu cẩm nang sử dụng tại https://gaeru.com/tin-tuc/gaeru-p01-khung-doc-ngang-video.',
   'a0000000-0000-4000-8000-000000000038'::uuid,
   'Kỹ năng sử dụng gimbal chống rung: Các bước cân bằng trọng tâm và chuyển động bước đi Ninja mượt mà',
   'published',
@@ -137,7 +137,7 @@ Nếu chỉ sử dụng đèn chính, một nửa khuôn mặt của bạn sẽ 
 - Đèn ấm (3200K) mang lại cảm giác hoài niệm, ấm áp; đèn trắng ban ngày (5600K) tạo vẻ hiện đại, năng động và tôn đúng màu sản phẩm.
 - Khi livestream bán hàng thời trang hoặc mỹ phẩm, luôn ưu tiên đèn có chỉ số hoàn màu CRI > 95 và giữ nhiệt độ màu ở mức 5000K - 5600K để khách hàng nhìn thấy màu son, màu vải chân thực nhất.
 
-Khám phá các thiết bị hỗ trợ quay chụp GAERU tại https://gaeru.com/cua-hang và xem thêm cẩm nang livestream bán hàng tại https://gaeru.com/tin-tuc/bi-quyet-livestream-tiktok-nghin-mat-xem.',
+Khám phá các thiết bị hỗ trợ quay chụp GAERU tại https://gaeru.com/cua-hang và xem thêm cẩm nang livestream bán hàng tại https://gaeru.com/tin-tuc/ky-thuat-livestream-tiktok-shop-am-thanh-nguon-dien.',
   'a0000000-0000-4000-8000-000000000039'::uuid,
   'Kỹ năng setup ánh sáng 3 điểm (Three-Point Lighting): Bí quyết để khuôn mặt sáng đẹp và nổi bật chủ thể khi quay live',
   'published',
@@ -187,7 +187,7 @@ Một bí quyết nhà nghề của các phát thanh viên chuyên nghiệp:
 - Treo rèm vải dày ở cửa sổ và phủ thảm trải sàn dưới chân bàn thu âm.
 - Đặt bàn thu âm hướng về phía tủ quần áo mở cửa: Các lớp vải áo quần dày mềm là vật liệu tiêu âm tự nhiên hoàn hảo nhất, triệt tiêu gần như 90% sóng phản xạ tần số trung và cao.
 
-Trải nghiệm chất âm chân thực của micro chuyên nghiệp GAERU M3 tại https://gaeru.com/cua-hang và xem cẩm nang setup studio tại https://gaeru.com/tin-tuc/gaeru-m3-khong-gian-thu-am.',
+Trải nghiệm chất âm chân thực của micro chuyên nghiệp GAERU M3 tại https://gaeru.com/cua-hang và xem cẩm nang setup studio tại https://gaeru.com/tin-tuc/gaeru-m3-bong-loc-gio-vi-tri-cai.',
   'a0000000-0000-4000-8000-000000000040'::uuid,
   'Kỹ năng thu âm với micro phòng thu: Hướng thu Cardioid, màng lọc âm Pop Filter và tiêu âm không gian',
   'published',

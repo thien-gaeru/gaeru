@@ -3,7 +3,8 @@ const map=require('../responsive-images.json');
 function apply(document){
  if(!document.getElementById('responsive-artwork')){const manifest=document.createElement('script');manifest.id='responsive-artwork';manifest.type='application/json';manifest.textContent=JSON.stringify(map).replace(/</g,'\\u003c');document.head.prepend(manifest);}
  for(const image of document.querySelectorAll('img[src]')){
- if(image.closest('[data-audio-art]'))continue;
+ if(!image.hasAttribute('decoding'))image.setAttribute('decoding','async');if(image.closest('[data-audio-art]'))continue;
+ if(!image.hasAttribute('decoding'))image.setAttribute('decoding','async');
  const source='/'+image.getAttribute('src').replace(/^\//,''),variants=map[source];
  if(/^\/api\/(?:news|catalog)-images\/[0-9a-f-]{36}(?:\?v=[a-zA-Z0-9-]+)?$/.test(source)){
    image.setAttribute('srcset',[480,800,1200].map(width=>source+(source.includes('?')?'&':'?')+'w='+width+' '+width+'w').join(', '));

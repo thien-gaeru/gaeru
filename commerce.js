@@ -921,7 +921,7 @@ async function initializeStore() {
   renderMiniCart();
   try {
     const embedded=document.querySelector('#store-bootstrap');
-    const response = embedded ? JSON.parse(embedded.textContent) : await apiRequest("/api/products");
+    const response = embedded ? JSON.parse(embedded.textContent) : await (typeof window === "object" && window ? (window.__gaeruProductsPromise ||= apiRequest("/api/products").catch((err) => { delete window.__gaeruProductsPromise; throw err; })) : apiRequest("/api/products"));
     products = response.products;
     document.dispatchEvent(new CustomEvent("gaeru:products-loaded"));
     const validVariantIds = new Set(products.flatMap((product) => product.variants.map((variant) => variant.id)));

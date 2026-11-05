@@ -22,6 +22,8 @@ function enrich(html,original,origin,override){origin=normalizePublicBase(origin
  const faq=[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
  if(['/tai-khoan','/gio-hang','/thanh-toan','/ket-qua-thanh-toan'].includes(u.pathname))meta('robots','noindex, follow');
  if(!doc.querySelector('script[type="speculationrules"]')){const spec=doc.createElement('script');spec.type='speculationrules';spec.textContent=require('./speculation-policy').text;if(doc.body)doc.body.append(spec);else doc.head.append(spec);}
+ const mainStyle=doc.head.querySelector('link[rel="stylesheet"][href^="/styles.css"]');if(mainStyle&&!doc.head.querySelector('link[rel="preload"][href^="/styles.css"]')){const preload=doc.createElement('link');preload.setAttribute('rel','preload');preload.setAttribute('as','style');preload.setAttribute('href',mainStyle.getAttribute('href'));base.after(preload);}
+ if(doc.querySelector('script[src*="store-shell.js"]')&&!['/thanh-toan','/tai-khoan','/dang-ky-bao-hanh','/kich-hoat-bao-hanh'].includes(u.pathname)){for(const css of doc.head.querySelectorAll('link[rel="stylesheet"]')){const href=css.getAttribute('href')||'';if(/^\/(shopping-chat|quick-purchase|action-feedback|bot-protection|vietnam-address)\.css(?:\?|$)/.test(href)){css.setAttribute('media','print');css.setAttribute('data-deferred-css','');const ns=doc.createElement('noscript');ns.innerHTML='<link rel="stylesheet" href="'+href+'">';css.after(ns);}}}
  return normalizeBrandText('<!doctype html>'+doc.documentElement.outerHTML);
 }
 function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,next)=>{
@@ -32,5 +34,6 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
  res.locals.publicHtml={prepare,send};res.send=body=>send(prepare(body));
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}
-function staticHtml(req,res,next){if(!['GET','HEAD'].includes(req.method))return next();const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(fs.readFileSync(path.join(__dirname,'..',file),'utf8'))}
-module.exports={legacy,enrich,cleanRoutes,staticHtml};
+const htmlTemplates=new Map();function readHtmlTemplate(file){let content=htmlTemplates.get(file);if(content===undefined){content=fs.readFileSync(path.join(__dirname,'..',file),'utf8');htmlTemplates.set(file,content);}return content;}
+function staticHtml(req,res,next){if(!['GET','HEAD'].includes(req.method))return next();const file=req.path.slice(1);if(!file.endsWith('.html')||!require('./public-files').has(file))return next();res.set('Cache-Control',/^(account|checkout|cart|payment-result)\.html$/.test(file)?'no-store':'no-cache').type('html').send(readHtmlTemplate(file))}
+module.exports={legacy,enrich,cleanRoutes,staticHtml,readHtmlTemplate};

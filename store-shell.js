@@ -21,7 +21,7 @@ if (headerRoot) {
   headerRoot.innerHTML = `
     <header class="site-header">
       <div class="nav-wrap">
-        <a class="wordmark" href="/" aria-label="GAERU — Trang chủ"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375"></span></a>
+        <a class="wordmark" href="/" aria-label="GAERU — Trang chủ"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375" decoding="async"></span></a>
         <button class="menu-toggle icon-button" type="button" aria-expanded="false" aria-controls="menu-panel" aria-label="Mở menu" data-open-label="Mở menu" data-close-label="Đóng menu">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path class="menu-icon-top" d="M4 8h16"/><path class="menu-icon-bottom" d="M4 16h16"/></svg>
         </button>
@@ -94,6 +94,7 @@ if (headerRoot) {
   headerRoot.querySelector("[data-mini-cart]").innerHTML = window.GAERUEmptyCartMarkup;
 }
 
+document.querySelectorAll('link[rel="stylesheet"][data-deferred-css]').forEach((link) => { const activate = () => { link.media = "all"; link.removeAttribute("data-deferred-css"); }; if (link.sheet) activate(); else { link.addEventListener("load", activate, { once: true }); setTimeout(activate, 200); } });
 let menuProductsRequest = null;
 async function refreshMenuProducts({fresh=false}={}) {
   const target = document.querySelector('[data-menu-products]');
@@ -102,27 +103,27 @@ async function refreshMenuProducts({fresh=false}={}) {
   menuProductsRequest = (async () => {
     try {
       const embedded=!fresh&&document.querySelector('#store-bootstrap');
-      let data;if(embedded)data=await Promise.resolve(JSON.parse(embedded.textContent));else{const response=await fetch('/api/products',{cache:'no-store'});if(!response.ok)throw Error('Catalog unavailable');data=await response.json();}
+      let data;if(embedded)data=await Promise.resolve(JSON.parse(embedded.textContent));else if(!fresh&&Array.isArray(window.GAERUStore?.products)&&window.GAERUStore.products.length)data={products:window.GAERUStore.products};else if(!fresh&&typeof window==='object'&&window){window.__gaeruProductsPromise||=fetch('/api/products',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('Catalog unavailable');return r.json();}).catch(err=>{delete window.__gaeruProductsPromise;throw err;});data=await window.__gaeruProductsPromise;}else{const response=await fetch('/api/products',{cache:'no-store'});if(!response.ok)throw Error('Catalog unavailable');data=await response.json();if(typeof window==='object'&&window)window.__gaeruProductsPromise=Promise.resolve(data);}
       const {products}=data;
       if (!Array.isArray(products)) throw new Error('Invalid catalog');
       const links = products.filter(product => product.active !== false && product.slug && product.name)
         .map(product => `<a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeShellHtml(product.name)}</a>`).join('');
       if (target&&target.innerHTML !== links) target.innerHTML = links;
-      window.GAERUFooterProducts?.render(footer,products);
+      window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),products);
     } catch {
       // Keep the store link available when the catalog is temporarily unavailable.
     } finally { menuProductsRequest = null; }
   })();
   return menuProductsRequest;
 }
-refreshMenuProducts();
+
 
 if (footerRoot) {
   footerRoot.innerHTML = `
     <footer class="site-footer">
       <div class="footer-main">
         <div class="footer-brand">
-          <a class="wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375"></span></a>
+          <a class="wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375" loading="lazy" decoding="async"></span></a>
           <p>Nhỏ gọn để bắt đầu.<br>Tự do để sáng tạo.</p>
         </div>
         <details class="footer-column" open>
@@ -198,6 +199,8 @@ if (footerRoot) {
   footerAccordion.addEventListener("change", syncFooterAccordion);
 }
 
+
+refreshMenuProducts();
 function populateCustomerNewsletterEmail() {
   const customerEmail = window.GAERUCustomer?.session?.customer?.email ||
                         window.GAERUCustomerSession?.customer?.email ||
@@ -557,7 +560,7 @@ if (document.readyState === "loading") {
 }
 
 document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),window.GAERUStore?.products));
-document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',poll.refresh)});
+document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',event=>{if(event?.persisted)poll.refresh()})});
 
 // Kênh lắng nghe Realtime SSE (/api/realtime) để tự động làm mới dữ liệu và DOM khi Cache Invalidation xảy ra
 (function initRealtimeSSE() {
