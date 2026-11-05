@@ -34,7 +34,7 @@ test('news publishing protects drafts, enforces permissions and CSRF, stores ima
  assert.equal((await api('/api/gaeru_ceo/news','POST',payload)).status,409);
  const published={...payload,status:'published',version:post.version};saved=await api('/api/gaeru_ceo/news/'+post.id,'PUT',published);assert.equal(saved.status,200);post=saved.data.post;
  const publishedPosts=(await api('/api/news')).data.posts;
- assert.equal(publishedPosts.length,initialPosts.length+1);
+ assert.equal(publishedPosts.length,Math.min(12,initialPosts.length+1));
  assert.equal(publishedPosts[0].slug,payload.slug);
  assert.equal((await api('/api/news/'+payload.slug)).data.post.body,payload.body);
  const publicImage=await api('/api/news-images/'+coverId);assert.equal(publicImage.status,200);assert.deepEqual(Buffer.from(publicImage.data),(await require('../src/lib/image-optimizer').optimizeImage(image,'image/png')).buffer);

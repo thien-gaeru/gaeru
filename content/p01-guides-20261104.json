@@ -4,34 +4,49 @@
     "title": "GAERU P01: Bố trí ánh sáng và vùng theo dõi khi tự quay",
     "excerpt": "Chuẩn bị không gian để thiết bị có điều kiện nhận diện người và theo khung hình ổn định hơn.",
     "body": "Tự quay sẽ thuận tiện hơn khi bạn chủ động kiểm tra vùng hoạt động của thiết bị trước. Với GAERU P01, hãy bố trí điện thoại chắc chắn và thử theo dõi trong điều kiện ánh sáng thực tế. Khả năng theo người không có nghĩa là mọi chuyển động đều được giữ đúng khung hình trong mọi hoàn cảnh.\n\nBắt đầu từ một người trong khung\nĐặt người ở vị trí dễ quan sát và kiểm tra vùng nhìn của cảm biến theo hướng dẫn. Khi thử lần đầu, hạn chế người khác đi ngang để dễ xác định thiết bị đang theo ai. Nếu P01 chọn sai người, điều chỉnh lại vị trí và thử chậm thay vì tiếp tục quay đoạn dài.\n\nChọn ánh sáng dễ quan sát\nTránh để khuôn mặt quá tối trong khi phía sau rất sáng. Có thể đổi hướng đứng hoặc vị trí máy để chủ thể rõ hơn. Không tự che cảm biến hoặc gắn phụ kiện vào vị trí có thể cản vùng nhìn chỉ để cải thiện góc quay.\n\nThử một vùng di chuyển nhỏ\nĐi chậm sang hai bên trong khu vực định quay, quan sát khung hình rồi tăng phạm vi nếu kết quả phù hợp. Kiểm tra các vật có thể cản chuyển động hoặc vướng dây quanh chân đỡ. Nếu ra ngoài vùng quan sát, trở lại vị trí thử ban đầu và đối chiếu cách bắt lại người trong tài liệu.\n\nQuay thử trước nội dung chính\nGhi một đoạn có cả đứng yên và chuyển động, xem lại xem đầu hoặc tay có bị cắt khỏi khung không. Thử lại sau khi đổi ánh sáng hay vị trí. Hướng dẫn GAERU P01 có tại https://gaeru.com/huong-dan/gaeru-p01; cần đối chiếu thêm, gửi tình huống tại https://gaeru.com/ho-tro.",
-    "status": "draft"
+    "coverId": "a0000000-0000-4000-8000-000000000012",
+    "imageUrl": "/api/news-images/a0000000-0000-4000-8000-000000000012",
+    "imageAlt": "Bố trí ánh sáng và vùng nhận diện tự động GAERU P01",
+    "status": "published"
   },
   {
     "slug": "gaeru-p01-de-ban-hay-kem-chan",
     "title": "GAERU P01 để bàn hay kèm chân: Chọn theo không gian quay",
     "excerpt": "Bắt đầu từ mặt đặt và chiều cao góc máy mong muốn để chọn cấu hình phù hợp.",
     "body": "Danh sách phiên bản GAERU P01 có lựa chọn để bàn và bộ kèm chân theo thông tin sản phẩm. Cấu hình phù hợp phụ thuộc nơi bạn định đặt máy, góc quay và cách sử dụng. Không nên mặc định chân xuất hiện trong một hình minh họa luôn nằm trong mọi bộ sản phẩm.\n\nXác định điểm đặt thực tế\nNếu quay tại bàn, kiểm tra mặt bàn có đủ rộng và vững, đồng thời có khoảng trống cho thiết bị xoay. Nếu cần đặt máy tách khỏi bàn, xem xét chân tương thích theo bộ. Vị trí đặt phải tránh lối đi và các vật dễ làm va chạm hoặc kéo đổ.\n\nChọn chiều cao theo khung hình\nBắt đầu với góc máy phù hợp với chủ thể, không nhất thiết ở vị trí cao nhất. Khi dùng bộ có chân, lắp đúng ren và siết khớp theo tài liệu trước khi gắn điện thoại. Kiểm tra độ vững ở cấu hình thấp rồi mới tăng chiều cao nếu cần.\n\nĐối chiếu điện thoại và kẹp\nKiểm tra kích thước thiết bị cùng ốp với hướng dẫn của kẹp. Đặt máy cân bằng, tránh tì vào nút hoặc để máy có thể trượt. Giữ chắc điện thoại trong lúc điều chỉnh hướng và dừng chuyển động trước khi thay đổi góc kẹp.\n\nKiểm tra bộ trước khi mua\nĐọc tên phiên bản, danh sách phụ kiện và hình mô tả của lựa chọn đang đặt. Nếu đã có chân riêng, hỏi rõ tương thích ren và tải trọng thay vì chỉ thử lắp vì thấy vừa đầu nối. Xem phiên bản tại https://gaeru.com/san-pham/gaeru-p01 và gửi nhu cầu bố trí tại https://gaeru.com/ho-tro để được đối chiếu.",
-    "status": "draft"
+    "coverId": "a0000000-0000-4000-8000-000000000013",
+    "imageUrl": "/api/news-images/a0000000-0000-4000-8000-000000000013",
+    "imageAlt": "Lựa chọn cấu hình GAERU P01 để bàn hoặc kèm chân",
+    "status": "published"
   },
   {
     "slug": "gaeru-p01-quay-trinh-dien-san-pham",
     "title": "GAERU P01 khi quay trình diễn sản phẩm: Giữ người và vật trong khung",
     "excerpt": "Lên vị trí đứng và cách cầm sản phẩm trước khi bật chế độ theo dõi.",
     "body": "Một video trình diễn cần cho người xem nhìn rõ cả người nói và món đồ đang giới thiệu. GAERU P01 được dùng như giá đỡ điện thoại theo dõi người; không nên mặc định thiết bị sẽ tự chuyển sang theo món đồ bạn đang cầm. Vì vậy, bố cục và thao tác vẫn cần được chuẩn bị trước.\n\nChia nội dung thành cảnh rõ mục tiêu\nCảnh tổng thể dùng để nói và thao tác; cảnh cận dùng để nhìn rõ chi tiết. Nếu cần chuyển cảnh, dừng quay rồi điều chỉnh máy có thể dễ kiểm soát hơn việc đưa đồ vật quá sát ống kính trong khi thiết bị đang theo người.\n\nXác định vùng cầm sản phẩm\nĐứng tại vị trí thử và đưa sản phẩm đến các điểm bạn sẽ trình diễn. Kiểm tra xem tay hoặc món đồ có che vùng quan sát của thiết bị không. Nếu vật thường rời khung, đổi khoảng đứng và cách cầm thay vì cố di chuyển nhanh để máy đuổi theo.\n\nGiữ mặt đặt và vùng xoay thông thoáng\nĐặt P01 trên nền vững, kiểm tra khớp kẹp và để dây gọn ngoài vùng chuyển động. Không kéo dây căng hoặc để các vật nhỏ có thể mắc vào thiết bị khi xoay. Khi muốn thay hướng kẹp, dừng chuyển động và giữ chắc điện thoại.\n\nXem lại cả độ rõ lẫn âm thanh\nQuay thử một đoạn trình diễn đầy đủ, kiểm tra nhãn, thao tác tay và tiếng nói. Giá đỡ không tự giải quyết chất lượng âm thanh; nếu dùng micro rời, thử kết nối trong đúng ứng dụng. Hướng dẫn P01 tại https://gaeru.com/huong-dan/gaeru-p01 giúp bạn đối chiếu các bước chuẩn bị trước khi ghi hình.",
-    "status": "draft"
+    "coverId": "a0000000-0000-4000-8000-000000000014",
+    "imageUrl": "/api/news-images/a0000000-0000-4000-8000-000000000014",
+    "imageAlt": "Hướng dẫn quay trình diễn sản phẩm với GAERU P01",
+    "status": "published"
   },
   {
     "slug": "gaeru-p01-khung-doc-ngang-video",
     "title": "GAERU P01: Chuẩn bị khung dọc và ngang trước buổi ghi hình",
     "excerpt": "Chọn hướng khung hình theo nội dung rồi kiểm tra lại độ cân bằng và vùng theo dõi.",
     "body": "Video dọc và video ngang không chỉ khác nhau ở thao tác xoay điện thoại. Diện tích khung hình thay đổi có thể làm tay, vật đang cầm hoặc chuyển động bị cắt nhiều hơn. Với GAERU P01, hãy chọn hướng quay từ đầu và thử lại bố cục sau mỗi lần điều chỉnh.\n\nChọn hướng theo nơi sử dụng\nNội dung xem chủ yếu trên điện thoại có thể phù hợp với khung dọc, trong khi cảnh cần nhiều không gian hai bên có thể dùng khung ngang. Xác định trước phần chữ hoặc thông tin sẽ đặt lên video để chừa khoảng trống hợp lý khi quay.\n\nDừng thiết bị trước khi chỉnh kẹp\nGiữ chắc điện thoại, điều chỉnh hướng theo cơ cấu được hướng dẫn rồi kiểm tra các điểm giữ. Tránh để kẹp chèn vào nút hoặc máy mất cân bằng. Không cố xoay khi thiết bị đang chuyển động nếu hướng dẫn không cho phép thao tác đó.\n\nThử chuyển động trong khung mới\nMột khoảng đi ngang phù hợp với video ngang có thể vượt khỏi khung dọc. Thử chậm từ vị trí trung tâm sang hai bên và xem lại toàn cảnh. Kiểm tra khoảng trống phía trên đầu, vùng tay và phần vật thể bạn muốn giữ trong hình.\n\nQuay lại bản thử sau thay đổi\nMỗi khi đổi chiều cao, hướng điện thoại hoặc vị trí đứng, ghi một đoạn ngắn để đối chiếu. Đừng suy ra rằng thiết bị đã được cấu hình phù hợp chỉ vì lần quay trước thành công. Xem cách chuẩn bị tại https://gaeru.com/huong-dan/gaeru-p01 và thông tin phiên bản tại https://gaeru.com/san-pham/gaeru-p01.",
-    "status": "draft"
+    "coverId": "a0000000-0000-4000-8000-000000000015",
+    "imageUrl": "/api/news-images/a0000000-0000-4000-8000-000000000015",
+    "imageAlt": "Thiết lập khung hình dọc và ngang trên GAERU P01",
+    "status": "published"
   },
   {
     "slug": "gaeru-p01-xu-ly-theo-doi-chua-on-dinh",
     "title": "GAERU P01 theo dõi chưa ổn định: Kiểm tra từ đâu?",
     "excerpt": "Phân biệt vấn đề nhận diện người, bố trí máy và độ vững của chân đỡ trước khi thay đổi nhiều cài đặt.",
     "body": "Khi khung hình chưa theo đúng ý, nên kiểm tra từng nhóm nguyên nhân thay vì thay đổi nhiều thứ cùng lúc. Với GAERU P01, việc bố trí máy, ánh sáng, người trong khung và độ chắc của bộ đỡ đều có thể ảnh hưởng trải nghiệm.\n\nNếu máy không theo đúng người\nBắt đầu với một người trong vùng quan sát, kiểm tra cảm biến có bị che không và ánh sáng có đủ để chủ thể rõ ràng không. Đối chiếu khoảng đứng được hướng dẫn, sau đó đi chậm để thử. Tránh suy đoán rằng bật nguồn đồng nghĩa chế độ theo dõi đã được chọn đúng.\n\nNếu máy theo nhưng bố cục chưa phù hợp\nKiểm tra vị trí điện thoại, hướng kẹp và khoảng đứng. Thiết bị theo dõi không tự quyết định được mọi chủ ý về bố cục của người quay. Thử một khu vực nhỏ trước và xem lại video để xác định chính xác phần nào bị cắt khỏi khung.\n\nNếu chân hoặc kẹp bị rung\nDừng sử dụng để kiểm tra mặt đặt, các khớp và cách gắn điện thoại. Hạ chiều cao nếu đang dùng chân, tránh mép bàn, mặt nghiêng và lối có người đi qua. Không cố bù rung bằng cách tiếp tục kéo cao hoặc siết quá mức cơ cấu.\n\nChuẩn bị thông tin khi cần hỗ trợ\nGhi lại phiên bản P01, cách đặt, điện thoại sử dụng và thao tác đã thử. Một đoạn video ngắn thể hiện cả thiết bị lẫn khu vực quay có thể giúp mô tả tình huống rõ hơn; tránh đưa thông tin riêng tư vào hình gửi. Xem hướng dẫn tại https://gaeru.com/huong-dan/gaeru-p01 hoặc gửi yêu cầu tại https://gaeru.com/ho-tro.",
-    "status": "draft"
+    "coverId": "a0000000-0000-4000-8000-000000000016",
+    "imageUrl": "/api/news-images/a0000000-0000-4000-8000-000000000016",
+    "imageAlt": "Khắc phục vấn đề theo dõi đối tượng trên GAERU P01",
+    "status": "published"
   }
 ]
