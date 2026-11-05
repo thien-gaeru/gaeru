@@ -1,0 +1,32 @@
+name: Notify Mobile App on Web Changes
+
+on:
+  push:
+    branches: [gaeru, main]
+    paths:
+      - 'assets/**'
+      - 'content/**'
+      - 'brand.css'
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  dispatch-to-mobile:
+    name: Dispatch Event to gaeru-mobile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Mobile App Real-time Sync
+        run: |
+          echo "Kiểm tra quyền dispatch sang thien-gaeru/gaeru-mobile..."
+          DISPATCH_TOKEN="${{ secrets.MOBILE_SYNC_PAT || secrets.GH_PAT || '' }}"
+          if [ -n "$DISPATCH_TOKEN" ]; then
+            echo "Đang phát tín hiệu repository_dispatch [gaeru_web_updated] sang gaeru-mobile..."
+            curl -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token $DISPATCH_TOKEN" \
+              https://api.github.com/repos/thien-gaeru/gaeru-mobile/dispatches \
+              -d '{"event_type": "gaeru_web_updated", "client_payload": {"commit": "${{ github.sha }}", "ref": "${{ github.ref }}"}}'
+            echo "✅ Đã phát tín hiệu thành công!"
+          else
+            echo "ℹ️ MOBILE_SYNC_PAT chưa được cấu hình trong Secrets. Mobile app vẫn tự động đồng bộ theo chu kỳ 2 giờ và Realtime SSE / ETag."
+          fi
