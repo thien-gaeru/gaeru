@@ -43,7 +43,7 @@ async function getOrderForFulfillment(client, orderId) {
   return order;
 }
 
-async function createWaybill(pool, config, { orderId, carrierId, autoShip = false, actor, fetcher = fetch }) {
+async function createWaybill(pool, config, { orderId, carrierId, autoShip = false, forceRetry = false, actor, fetcher = fetch }) {
   const prepared = await withTransaction(pool, async client => {
     const order = await getOrderForFulfillment(client, orderId);
 
@@ -98,7 +98,14 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     }
 
     const unresolved = (await client.query("SELECT id,status FROM carrier_shipment_attempts WHERE order_id=$1 AND status IN ('sending','unknown') ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[orderId])).rows[0];
-    if (unresolved) throw fail('Yêu cầu tạo vận đơn '+unresolved.id+' đang xử lý hoặc chưa rõ kết quả. Đối chiếu trên hệ thống hãng trước khi cho phép tạo lại.',409);
+    if (unresolved) {
+      if (forceRetry) {
+        await client.query("UPDATE carrier_shipment_attempts SET status='reconciled',result='Quản trị viên xác nhận tạo lại sau khi kiểm tra',updated_at=now() WHERE id=$1",[unresolved.id]);
+        await appendAudit(client,{actor,action:'shipping.waybill.reconcile_retry',entityType:'order',entityId:order.id,metadata:{attemptId:unresolved.id,forced:true}});
+      } else {
+        throw fail('Yêu cầu tạo vận đơn '+unresolved.id+' đang xử lý hoặc chưa rõ kết quả. Đối chiếu trên hệ thống hãng trước khi cho phép tạo lại.',409);
+      }
+    }
 
     const available = await availableCarriers(client,{lock:true});
     const targetCarrierId = carrierId || order.selectedCarrierId || available[0]?.id;
@@ -191,6 +198,10 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     };
     });
   } catch (error) {
+    if (error.isCarrierRejected || error.status === 400 || error.status === 409) {
+      await pool.query("UPDATE carrier_shipment_attempts SET status='failed',result=$2,updated_at=now() WHERE id=$1 AND status='sending'",[attemptId, error.message || 'Hãng vận chuyển từ chối tạo đơn']).catch(()=>{});
+      throw error;
+    }
     await pool.query("UPDATE carrier_shipment_attempts SET status='unknown',result='Chưa xác định kết quả; đối soát tại hãng trước khi tạo lại',updated_at=now() WHERE id=$1 AND status='sending'",[attemptId]).catch(()=>{});
     throw fail('Chưa xác định kết quả tạo vận đơn. Yêu cầu '+attemptId+' đã khóa gửi lại; đối chiếu mã đơn '+order.orderNumber+' trên hệ thống hãng trước khi xử lý tiếp.',502);
   }
@@ -606,15 +617,17 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     async (req, res, next) => {
       try {
         const orderId = z.string().uuid().parse(req.params.id);
-        const { carrierId, autoShip } = z.object({
+        const { carrierId, autoShip, forceRetry } = z.object({
           carrierId: z.enum(['viettel', 'jt', 'spx']).optional(),
-          autoShip: z.boolean().optional()
+          autoShip: z.boolean().optional(),
+          forceRetry: z.boolean().optional()
         }).parse(req.body || {});
 
         const result = await createWaybill(pool, config, {
           orderId,
           carrierId,
           autoShip,
+          forceRetry,
           actor: req.admin,
           fetcher
         });

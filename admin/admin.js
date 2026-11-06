@@ -1119,12 +1119,50 @@ async function loadSettings() {
   const settings = await request("/api/gaeru_ceo/settings");
   const form = document.querySelector("#settings-form");
   form.elements.shippingNote.value = settings.shipping_note || "";
+  const paymentMethodsLabel = settings.paymentMethods.map((method) => method === "cod" ? "COD" : (labels[method] || method.toUpperCase())).join(", ");
   document.querySelector("#payment-provider-status").textContent =
-    `Đang kích hoạt tại trang đặt hàng: ${settings.paymentMethods.map((method) => method === "cod" ? "COD" : (labels[method] || method.toUpperCase())).join(", ")}.`;
-  renderShippingRates(settings.shipping_rates || {});
+    `Đang kích hoạt tại trang đặt hàng: ${paymentMethodsLabel || 'Chưa bật kênh nào'}.`;
+
+  const syncPaymentEl = document.querySelector("#sync-summary-payment-status");
+  if (syncPaymentEl) syncPaymentEl.textContent = paymentMethodsLabel || "Chưa kích hoạt kênh nào";
+
+  const rates = settings.shipping_rates || {};
+  const nationwideEntry = Object.entries(rates).find(([k]) => /^toàn\s*quốc$/i.test(k));
+  const syncRatesEl = document.querySelector("#sync-summary-rates-status");
+  if (syncRatesEl) {
+    if (nationwideEntry) {
+      syncRatesEl.textContent = nationwideEntry[1] === 0 ? "Miễn phí vận chuyển toàn quốc (0 ₫)" : `COD Toàn quốc: ${formatPrice(nationwideEntry[1])}`;
+    } else {
+      const count = Object.keys(rates).length;
+      syncRatesEl.textContent = count ? `Theo ${count} tỉnh/thành phố` : "Chưa cấu hình phí";
+    }
+  }
+
+  try {
+    if (can("orders.read")) {
+      const shippingInfo = await request("/api/gaeru_ceo/owner/shipping");
+      const activeCarriers = (shippingInfo.carriers || []).filter(c => c.enabled).map(c => c.name);
+      const syncCarrierEl = document.querySelector("#sync-summary-carrier-status");
+      if (syncCarrierEl) {
+        syncCarrierEl.textContent = activeCarriers.length ? activeCarriers.join(", ") : "Chưa bật hãng nào";
+      }
+    }
+  } catch (_e) {}
+
+  renderShippingRates(rates);
   if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
   applyPermissions();
 }
+
+document.addEventListener('click', event => {
+  const hubBtn = event.target.closest('[data-hub-tab]');
+  if (!hubBtn) return;
+  event.preventDefault();
+  const tab = hubBtn.dataset.hubTab;
+  if (tab === 'rates') activateView('settings');
+  else if (tab === 'shipping') activateView('shipping');
+  else if (tab === 'payments') activateView('payments');
+});
 
 function renderShippingRates(rates) {
   const root = document.querySelector("#shipping-rate-list");
@@ -1463,7 +1501,24 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
       showGlobal(res.message || 'Đã tạo vận đơn thành công.');
       await loadOrders(state.orderPage);
     } catch(err) {
-      showGlobal(err.message, true);
+      if (err.message && err.message.includes('đang xử lý hoặc chưa rõ kết quả')) {
+        const confirmRetry = window.confirm(err.message + '\n\nNếu bạn đã kiểm tra và xác nhận hãng chưa nhận được vận đơn, bấm OK để mở khóa và thử tạo lại ngay.');
+        if (confirmRetry) {
+          try {
+            const retryRes = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/create-waybill`, {
+              method: 'POST',
+              body: JSON.stringify({ autoShip, forceRetry: true })
+            });
+            showGlobal(retryRes.message || 'Đã tạo vận đơn thành công.');
+            await loadOrders(state.orderPage);
+            return;
+          } catch(retryErr) {
+            showGlobal(retryErr.message, true);
+          }
+        }
+      } else {
+        showGlobal(err.message, true);
+      }
     } finally {
       createWaybillBtn.disabled = false;
       createWaybillBtn.textContent = 'Tạo vận đơn thật';

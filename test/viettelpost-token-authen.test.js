@@ -168,3 +168,107 @@ test('viettelAdapter rejects missing secret with 400', async () => {
   await assert.rejects(() => viettelAdapter.createWaybill({}, {}), { status: 400 });
   await assert.rejects(() => viettelAdapter.cancelWaybill({}, { trackingNumber: 'VT1' }), { status: 400 });
 });
+
+
+test('viettelAdapter.createWaybill populates ORDER_SERVICE and correct ORDER_PAYMENT for COD freeship', async () => {
+  const jwtToken = 'eyJhbGciOiJFUzI1NiJ9.test-jwt';
+  const settings = { secret: jwtToken, pickupAddress: 'Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình' };
+  const orderData = {
+    orderNumber: 'GR-20261107-COD01',
+    customerName: 'Đỗ Thiện',
+    address: 'Ở điaa na, Xã Tả Lèng',
+    city: 'Lai Châu',
+    phone: '0358888536',
+    items: [{ productName: 'GAERU K9' }],
+    subtotalVnd: 202300,
+    codAmountVnd: 202300,
+    shippingFeeVnd: 0,
+    weightGrams: 500
+  };
+
+  let sentPayload = null;
+  const mockFetcher = async (url, options) => {
+    if (url === 'https://partner.viettelpost.vn/v2/order/createOrder') {
+      sentPayload = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () => ({
+          status: 200,
+          error: false,
+          data: { ORDER_NUMBER: 'VT123456789', MONEY_TOTAL: 33600 }
+        })
+      };
+    }
+    throw new Error('Unexpected: ' + url);
+  };
+
+  const result = await viettelAdapter.createWaybill(settings, orderData, { fetcher: mockFetcher });
+  assert.equal(result.success, true);
+  assert.equal(sentPayload.ORDER_SERVICE, 'LCOD', 'Default to LCOD service');
+  assert.equal(sentPayload.ORDER_PAYMENT, 3, 'ORDER_PAYMENT must be 3 for COD freeship');
+  assert.equal(sentPayload.MONEY_COLLECTION, 202300);
+});
+
+test('viettelAdapter.createWaybill automatically falls back to NLP service if itinerary does not support default service', async () => {
+  const jwtToken = 'eyJhbGciOiJFUzI1NiJ9.test-jwt';
+  const settings = { secret: jwtToken, pickupAddress: 'Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình' };
+  const orderData = {
+    orderNumber: 'GR-20261107-FALLBACK',
+    customerName: 'Đỗ Thiện',
+    address: 'Xã Tả Lèng',
+    city: 'Lai Châu',
+    phone: '0358888536',
+    items: [{ productName: 'GAERU K9' }],
+    subtotalVnd: 202300,
+    codAmountVnd: 202300,
+    shippingFeeVnd: 30000
+  };
+
+  let attemptCount = 0;
+  let finalServiceUsed = null;
+  const mockFetcher = async (url, options) => {
+    if (url === 'https://partner.viettelpost.vn/v2/order/createOrder') {
+      attemptCount++;
+      const payload = JSON.parse(options.body);
+      if (payload.ORDER_SERVICE === 'LCOD') {
+        return {
+          ok: true,
+          json: async () => ({
+            status: 204,
+            error: true,
+            message: 'Price does not apply to this itinerary!',
+            data: null
+          })
+        };
+      }
+      finalServiceUsed = payload.ORDER_SERVICE;
+      return {
+        ok: true,
+        json: async () => ({
+          status: 200,
+          error: false,
+          data: { ORDER_NUMBER: 'VT987654321', MONEY_TOTAL: 34720 }
+        })
+      };
+    }
+    if (url === 'https://partner.viettelpost.vn/v2/order/getPriceAllNlp') {
+      return {
+        ok: true,
+        json: async () => ({
+          status: 200,
+          error: false,
+          RESULT: [
+            { MA_DV_CHINH: 'NCOD', TEN_DICHVU: 'TMĐT Nhanh thỏa thuận', GIA_CUOC: 34720 }
+          ]
+        })
+      };
+    }
+    throw new Error('Unexpected: ' + url);
+  };
+
+  const result = await viettelAdapter.createWaybill(settings, orderData, { fetcher: mockFetcher });
+  assert.equal(result.success, true);
+  assert.equal(attemptCount, 2, 'Retried createOrder with viable NLP service');
+  assert.equal(finalServiceUsed, 'NCOD', 'Used NCOD from NLP result');
+  assert.equal(result.trackingNumber, 'VT987654321');
+});
