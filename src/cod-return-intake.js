@@ -198,12 +198,12 @@ function createCodReturnIntake(pool) {
           throw fail('Đơn hàng đã hoàn tất giao hàng thành công; không thể kiểm nhận chuyển hoàn tự động.', 409);
         }
 
-        // 5. Xác minh trạng thái giao vận: Bắt buộc phải là chuyển hoàn / giao thất bại / trả hàng
+        // 5. Xác minh trạng thái giao vận: Bắt buộc phải là chuyển hoàn / giao thất bại / trả hàng (GAERU F-07: loại bỏ từ khóa hủy chung chung)
         const rawStatus = String(shipment.carrier_status_raw || '').toLowerCase();
         const descStatus = String(shipment.carrier_status_desc || '').toLowerCase();
         const isReturnSignal = shipment.status === 'returned' ||
-          /return|hoan|fail|refus|huy|reject|undeliver/i.test(rawStatus) ||
-          /chuyển hoàn|trả hàng|thất bại|từ chối|hủy/i.test(descStatus);
+          /return|hoan|fail|refus|reject|undeliver/i.test(rawStatus) ||
+          /chuyển hoàn|trả hàng|thất bại|từ chối|hoàn/i.test(descStatus);
 
         if (!isReturnSignal) {
           throw fail(`Vận đơn ${shipment.tracking_number} đang ở trạng thái "${shipment.status}". Chỉ bưu phẩm có xác nhận chuyển hoàn hoặc giao không thành công từ bưu cục mới được kiểm nhận hoàn kho.`, 400);
@@ -218,20 +218,25 @@ function createCodReturnIntake(pool) {
         );
         const items = itemsResult.rows;
 
+        // GAERU F-08: Kiểm tra đơn hàng có phân bổ nhiều kho không để tránh ghi lệch kho vật lý
+        const allocWarehouseIds = (await client.query(
+          `SELECT DISTINCT warehouse_id FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL`,
+          [shipment.orderId]
+        )).rows.map(r => r.warehouse_id);
+
+        if (allocWarehouseIds.length > 1) {
+          throw fail(`Đơn hàng (${shipment.orderNumber}) được phân bổ từ nhiều kho khác nhau (${allocWarehouseIds.length} kho). Kiểm nhận hoàn kho một chạm chỉ hỗ trợ đơn xuất từ một kho duy nhất để bảo đảm đối soát tồn kho chính xác. Vui lòng xử lý qua quy trình RMA từng kho.`, 400);
+        }
+
         // Xác định kho tiếp nhận
         let targetWarehouseId = data.warehouseId;
         let targetWarehouseName = '';
 
         if (!targetWarehouseId) {
-          const allocWarehouse = await client.query(
-            `SELECT w.id, w.name FROM order_stock_allocations osa
-             JOIN warehouses w ON w.id = osa.warehouse_id
-             WHERE osa.order_id = $1 LIMIT 1`,
-            [shipment.orderId]
-          );
-          if (allocWarehouse.rows.length) {
-            targetWarehouseId = allocWarehouse.rows[0].id;
-            targetWarehouseName = allocWarehouse.rows[0].name;
+          if (allocWarehouseIds.length === 1) {
+            targetWarehouseId = allocWarehouseIds[0];
+            const wRow = (await client.query('SELECT name FROM warehouses WHERE id = $1', [targetWarehouseId])).rows[0];
+            targetWarehouseName = wRow?.name || '';
           } else {
             const mainW = (await client.query("SELECT id, name FROM warehouses WHERE code = 'MAIN' OR active = true ORDER BY created_at ASC LIMIT 1")).rows[0];
             if (mainW) {
@@ -243,10 +248,6 @@ function createCodReturnIntake(pool) {
           const wRow = (await client.query('SELECT name FROM warehouses WHERE id = $1', [targetWarehouseId])).rows[0];
           targetWarehouseName = wRow?.name || '';
 
-          const allocWarehouseIds = (await client.query(
-            `SELECT DISTINCT warehouse_id FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL`,
-            [shipment.orderId]
-          )).rows.map(r => r.warehouse_id);
           if (allocWarehouseIds.length && !allocWarehouseIds.includes(targetWarehouseId)) {
             throw fail(`Kho tiếp nhận (${targetWarehouseName || targetWarehouseId}) khác kho xuất hàng ban đầu. Vui lòng chọn đúng kho xuất ban đầu để hoàn tồn chính xác.`, 400);
           }

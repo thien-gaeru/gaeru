@@ -89,15 +89,13 @@ async function warmStaticAssets(pool){
   'products/p185-cutout-display-480-0992b5f5e3ed.webp',
   'products/p185-cutout-display-800-5b0e6749a14c.webp'
  ];
+ // GAERU F-05: Startup warmup only prefetches existing bytes into RAM cache; no runtime Sharp/AVIF re-encoding at boot.
  if(filesystem.configured()){
   for(const rel of hotSnapshots){
    try{
     const row=await getCachedSnapshotRow(pool,rel,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[rel])).rows[0]);
     if(row){
-     const bytes=await cache.get(row.storage_key,async()=>disk.read(row.storage_key));
-     if(bytes&&bytes.length>=16*1024){
-      await cache.get(row.storage_key+':avif',()=>encodeAvif(bytes,{quality:68,effort:2}));
-     }
+     await cache.get(row.storage_key,async()=>disk.read(row.storage_key));
     }
    }catch{}
   }
@@ -107,17 +105,10 @@ async function warmStaticAssets(pool){
    if(filesystem.configured()){
     const row=await getCachedSnapshotRow(pool,rel,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[rel])).rows[0]);
     if(!row)continue;
-    const bytes=await cache.get(row.storage_key,async()=>disk.read(row.storage_key));
-    for(const w of [480,800]){
-     await cache.get(row.storage_key+':w='+w,()=>sharp(bytes,{limitInputPixels:24000000}).rotate().resize({width:w,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer());
-     await cache.get(row.storage_key+':w='+w+':avif',()=>encodeAvif(bytes,{width:w,quality:w<=480?66:68,effort:2}));
-    }
+    await cache.get(row.storage_key,async()=>disk.read(row.storage_key));
    }else{
     const raw=await fs.readFile(path.join(__dirname,'..','assets',rel));
-    for(const w of [480,800]){
-     await cache.get('local:'+rel+':w='+w,()=>sharp(raw,{limitInputPixels:24000000}).rotate().resize({width:w,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer());
-     await cache.get('local:'+rel+':w='+w+':avif',()=>encodeAvif(raw,{width:w,quality:w<=480?66:68,effort:2}));
-    }
+    await cache.get('local:'+rel,()=>raw);
    }
   }catch{}
  }
@@ -223,6 +214,11 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
     const row=await getCachedSnapshotRow(pool,relative,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[relative])).rows[0]);
     if(!row){
       try{return await serveLocalFallback();}catch(_){return res.set('Cache-Control','no-store').sendStatus(404);}
+    }
+    // GAERU F-15: Fast 304 response before disk read if client already holds matching snapshot ETag
+    if(!width && req.headers['if-none-match'] === '"' + row.sha256 + '"'){
+      res.type(row.mime_type).set({'Cache-Control':cacheControl,'ETag':'"'+row.sha256+'"','X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
+      return res.status(304).end();
     }
     const bytes=await cache.get(row.storage_key,async()=>{
       try{

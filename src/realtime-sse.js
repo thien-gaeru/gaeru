@@ -92,8 +92,9 @@ function acquireSseSlot(req, res) {
     }
   };
 
+  // GAERU F-03: Do NOT release on req.end because GET requests emit 'end' immediately upon reading headers.
+  // Release slot on socket / connection close (req.close, res.close, res.finish).
   req.once?.('close', release);
-  req.once?.('end', release);
   res.once?.('close', release);
   res.once?.('finish', release);
   return true;

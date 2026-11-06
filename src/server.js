@@ -64,16 +64,16 @@ async function start() {
   console.log('Media storage:',JSON.stringify(mediaCheck));
   const mediaAudit=require('./media-storage-audit');
   if(mediaCheck.verified){
+    // GAERU F-06: Mark Readiness Gate as READY once DB migrations and filesystem probe succeed, without waiting for full media sync
+    setReady(true);
     console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
     if (shuttingDown) return;
   }else{
     const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
+    setReady(true);
   }
   if (shuttingDown) return;
-
-  // GAERU-10: Mark Readiness Gate as READY only after DB migrations and static assets are probed/synced
-  setReady(true);
 
   if(mediaCheck.verified&&!shuttingDown){
     mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)

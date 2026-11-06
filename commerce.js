@@ -363,13 +363,12 @@ function renderProduct() {
   const initialOriginalPrice = getPriceLabel(product, true);
   let initialDiscountPercent = 0;
   if (hasSale) {
-    const salePrices = saleVariants.map(v => v.priceVnd);
-    const origPrices = saleVariants.map(v => v.originalPriceVnd ?? v.priceVnd);
-    const minSale = Math.min(...salePrices);
-    const maxOrig = Math.max(...origPrices);
-    if (maxOrig > minSale) {
-      initialDiscountPercent = Math.round((1 - minSale / maxOrig) * 100);
-    }
+    // GAERU F-17: Compute exact discount percentage per individual variant to prevent mismatched cross-SKU mixing
+    const discounts = saleVariants.map(v => {
+      const orig = v.originalPriceVnd ?? v.priceVnd;
+      return orig > v.priceVnd ? Math.round((1 - v.priceVnd / orig) * 100) : 0;
+    });
+    initialDiscountPercent = Math.max(0, ...discounts);
   }
   const priceBoxHtml = `<div class="product-price-box ${hasFlash ? 'is-flash' : ''}" data-price-box><div class="product-flash-header" data-flash-header ${hasFlash ? '' : 'hidden'}><div class="flash-badge-wrap"><span class="flash-badge-icon" aria-hidden="true">⚡</span><strong class="promotion-badge flash-badge-pill">FLASH SALE</strong></div><div class="flash-timer-wrap"><span class="flash-timer-label">Kết thúc sau</span><span class="sale-countdown store-sale-countdown" data-selected-countdown ${initialFlashEnd ? `data-sale-end="${new Date(initialFlashEnd).toISOString()}"` : ''}></span></div></div><div class="product-price-body"><div class="product-price-main"><span class="detail-price ${hasFlash ? 'detail-price-flash' : ''}" data-selected-price>${escapeHtml(initialSalePrice)}</span><span class="flash-price-tag" data-flash-tag ${hasFlash ? '' : 'hidden'}>Giá Flash Sale</span></div><div class="product-price-sub" data-price-sub ${hasSale ? '' : 'hidden'}><span class="price-original" data-selected-original><span class="price-original-label">Giá gốc: </span><del data-selected-original-price>${escapeHtml(initialOriginalPrice)}</del></span><span class="promotion-discount-badge" data-selected-discount ${initialDiscountPercent ? '' : 'hidden'}>-${initialDiscountPercent}%</span></div></div></div>`;
   const seoDescriptor=String(product.descriptor||'').replace(/\*\*/g,'').replace(/\s+/g,' ').trim();

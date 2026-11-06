@@ -283,3 +283,24 @@ test('GAERU-14: SSE connection budget rejects excessive concurrent sockets with 
   }
   assert.equal(getActiveSseCount(), initialActive, 'Active count must return to initial after close');
 });
+
+test('GAERU F-03: req.emit("end") does not prematurely release SSE slot while response is open', async () => {
+  const { EventEmitter } = require('node:events');
+  const { openSseStream, getActiveSseCount } = require('../src/realtime-sse');
+  const initial = getActiveSseCount();
+  const mockReq = new EventEmitter();
+  mockReq.ip = '10.0.0.101';
+  const mockRes = new EventEmitter();
+  mockRes.writeHead = () => {};
+  mockRes.write = () => {};
+  openSseStream(mockReq, mockRes, 'test-f03');
+  assert.equal(getActiveSseCount(), initial + 1);
+
+  // Emitting req 'end' (which happens when GET headers finish) must NOT release slot
+  mockReq.emit('end');
+  assert.equal(getActiveSseCount(), initial + 1, 'Slot must stay occupied after req end');
+
+  // Releasing happens on response or socket close
+  mockRes.emit('close');
+  assert.equal(getActiveSseCount(), initial, 'Slot released on response close');
+});

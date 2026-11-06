@@ -146,6 +146,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   let cachedStoreConfig = null;
   let cachedStoreConfigTime = 0;
+  let inFlightStoreConfigPromise = null;
   const STORE_CONFIG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 5000;
 
   async function resolveStorePaymentConfig() {
@@ -153,18 +154,55 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     if (cachedStoreConfig && (now - cachedStoreConfigTime) < STORE_CONFIG_CACHE_TTL_MS) {
       return cachedStoreConfig;
     }
-    const resolvedOrdersEnabled = getOrdersEnabled ? await getOrdersEnabled() : ordersEnabled;
-    const resolvedVnpayConfig = getVnpayConfig ? await getVnpayConfig() : vnpayConfig;
-    const resolvedPaymentChannels = getPaymentChannels ? await getPaymentChannels() : paymentChannels;
-    const resolvedVnpayCallbackConfig = resolvedPaymentChannels?.callbackConfigs?.vnpay || resolvedVnpayConfig;
-    cachedStoreConfig = {
-      ordersEnabled: resolvedOrdersEnabled,
-      vnpayConfig: resolvedVnpayConfig,
-      paymentChannels: resolvedPaymentChannels,
-      vnpayCallbackConfig: resolvedVnpayCallbackConfig
-    };
-    cachedStoreConfigTime = now;
-    return cachedStoreConfig;
+    if (inFlightStoreConfigPromise) {
+      return inFlightStoreConfigPromise;
+    }
+    inFlightStoreConfigPromise = (async () => {
+      try {
+        const resolvedOrdersEnabled = getOrdersEnabled ? await getOrdersEnabled() : ordersEnabled;
+        const resolvedVnpayConfig = getVnpayConfig ? await getVnpayConfig() : vnpayConfig;
+        const resolvedPaymentChannels = getPaymentChannels ? await getPaymentChannels() : paymentChannels;
+        const resolvedVnpayCallbackConfig = resolvedPaymentChannels?.callbackConfigs?.vnpay || resolvedVnpayConfig;
+        cachedStoreConfig = {
+          ordersEnabled: resolvedOrdersEnabled,
+          vnpayConfig: resolvedVnpayConfig,
+          paymentChannels: resolvedPaymentChannels,
+          vnpayCallbackConfig: resolvedVnpayCallbackConfig
+        };
+        cachedStoreConfigTime = Date.now();
+        return cachedStoreConfig;
+      } finally {
+        inFlightStoreConfigPromise = null;
+      }
+    })();
+    return inFlightStoreConfigPromise;
+  }
+
+  // GAERU F-09: Singleflight read-through cache for storefront catalog to prevent DB stampede
+  let cachedCatalogProducts = null;
+  let cachedCatalogProductsTime = 0;
+  let inFlightCatalogPromise = null;
+  const CATALOG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 3000;
+
+  async function getCachedCatalogProducts() {
+    const now = Date.now();
+    if (cachedCatalogProducts && (now - cachedCatalogProductsTime) < CATALOG_CACHE_TTL_MS) {
+      return cachedCatalogProducts;
+    }
+    if (inFlightCatalogPromise) {
+      return inFlightCatalogPromise;
+    }
+    inFlightCatalogPromise = (async () => {
+      try {
+        const products = await loadProducts(pool);
+        cachedCatalogProducts = products;
+        cachedCatalogProductsTime = Date.now();
+        return products;
+      } finally {
+        inFlightCatalogPromise = null;
+      }
+    })();
+    return inFlightCatalogPromise;
   }
 
   router.use(async (req, res, next) => {
@@ -187,7 +225,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.get("/products", async (req, res, next) => {
     try {
       const search = String(req.query.q || "").trim();
-      const products = await loadProducts(pool, { search });
+      const products = search ? await loadProducts(pool, { search }) : await getCachedCatalogProducts();
       products?.forEach(p => p.variants?.forEach(v => {
         const qty = Number(v.stockQuantity ?? v.stock ?? 0);
         if (v.sku) stockMap.set(v.sku, qty);
@@ -204,7 +242,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.get("/products/:slug", async (req, res, next) => {
     try {
-      const products = await loadProducts(pool);
+      const products = await getCachedCatalogProducts();
       const product = products.find((item) => item.slug === req.params.slug);
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
       product?.variants?.forEach(v => {

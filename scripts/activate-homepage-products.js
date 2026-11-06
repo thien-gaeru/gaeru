@@ -1,21 +1,45 @@
-const PORT = 3000;
+const BASE_URL = process.env.BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`;
+const isApply = process.argv.includes('--apply');
 
 async function activateProducts() {
   console.log('--- KÍCH HOẠT SẢN PHẨM MỞ BÁN TRÊN TRANG CHỦ GAERU ---');
+  if (!isApply) {
+    console.log('ℹ CHẾ ĐỘ DRY-RUN: Script đang chạy ở chế độ kiểm tra an toàn. Không có dữ liệu nào được ghi.');
+    console.log('  Để áp dụng thay đổi, chạy lệnh với cờ: node scripts/activate-homepage-products.js --apply\n');
+  }
+
+  const username = process.env.GAERU_ADMIN_USER;
+  const password = process.env.GAERU_ADMIN_PASSWORD;
+
+  if (!username || !password) {
+    console.warn('⚠ THÔNG BÁO: Chưa cung cấp GAERU_ADMIN_USER và GAERU_ADMIN_PASSWORD trong môi trường.');
+    console.warn('  Vui lòng thiết lập biến môi trường để xác thực với API quản trị:');
+    console.warn('    $env:GAERU_ADMIN_USER="owner_username"');
+    console.warn('    $env:GAERU_ADMIN_PASSWORD="owner_password"');
+    if (isApply) {
+      throw new Error('Thiếu thông tin đăng nhập quản trị (GAERU_ADMIN_USER, GAERU_ADMIN_PASSWORD) để thực hiện --apply.');
+    }
+    console.log('\n[Dry-run] Tiếp tục kiểm tra API Public Storefront...');
+    const rPublic = await fetch(`${BASE_URL}/api/products`);
+    const pubData = await rPublic.json();
+    const publicList = pubData.products || [];
+    console.log(`  -> Số sản phẩm đang mở bán trên Trang Chủ: ${publicList.length}`);
+    return;
+  }
 
   // 1. Đăng nhập quản trị viên
   console.log('1. Đăng nhập quyền Chủ doanh nghiệp (Owner)...');
-  const rCsrf = await fetch(`http://127.0.0.1:${PORT}/api/csrf`);
+  const rCsrf = await fetch(`${BASE_URL}/api/csrf`);
   const { csrfToken } = await rCsrf.json();
   const initialCookie = rCsrf.headers.get('set-cookie');
 
-  const rLogin = await fetch(`http://127.0.0.1:${PORT}/api/auth/login`, {
+  const rLogin = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken, 'Cookie': initialCookie },
-    body: JSON.stringify({ username: 'gaeru', password: 'GaeruSecret2026!' })
+    body: JSON.stringify({ username, password })
   });
   if (rLogin.status !== 200) {
-    throw new Error('Đăng nhập thất bại: ' + rLogin.status);
+    throw new Error('Đăng nhập thất bại: HTTP ' + rLogin.status);
   }
   const loginData = await rLogin.json();
   const loginCookie = rLogin.headers.get('set-cookie') || initialCookie;
@@ -35,7 +59,7 @@ async function activateProducts() {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(`http://127.0.0.1:${PORT}` + url, opts);
+    const res = await fetch(`${BASE_URL}` + url, opts);
     const data = await res.json().catch(() => null);
     return { status: res.status, data };
   }
@@ -181,16 +205,46 @@ async function activateProducts() {
 
   for (const t of targetProducts) {
     const existing = existingProducts.find(p => p.slug === t.slug);
+    if (!isApply) {
+      console.log(`[Dry-Run] Kế hoạch đồng bộ [${t.slug}]: ${existing ? `Cập nhật (ID: ${existing.id})` : 'Tạo mới'}`);
+      continue;
+    }
     if (existing) {
       console.log(`\nCập nhật và kích hoạt sản phẩm có sẵn: [${t.slug}] (ID: ${existing.id})...`);
       const { data: currentData } = await adminReq(`/api/gaeru_ceo/product-workspace/${existing.id}`);
+      if (!currentData) {
+        console.error(`  -> Không lấy được chi tiết hiện tại của [${t.slug}]`);
+        continue;
+      }
+      // Khớp biến thể để bảo tồn id, version, giá và tồn kho thực tế nếu có
+      const existingVariants = currentData.variants || [];
+      const mergedVariants = t.variants.map(tv => {
+        const match = existingVariants.find(ev => ev.sku === tv.sku);
+        if (match) {
+          return {
+            ...tv,
+            id: match.id,
+            version: match.version,
+            priceVnd: match.priceVnd ?? tv.priceVnd,
+            stockQuantity: match.stockQuantity ?? tv.stockQuantity,
+            active: true
+          };
+        }
+        return tv;
+      });
+      // Nếu có biến thể cũ không nằm trong target, giữ nguyên chúng
+      for (const ev of existingVariants) {
+        if (!mergedVariants.some(mv => mv.id === ev.id)) {
+          mergedVariants.push(ev);
+        }
+      }
       const payload = {
         id: existing.id,
         version: currentData.version,
-        product: t.product,
-        gallery: t.gallery,
-        groups: t.groups,
-        variants: t.variants,
+        product: { ...currentData.product, ...t.product, active: true },
+        gallery: t.gallery && t.gallery.length ? t.gallery : (currentData.gallery || []),
+        groups: t.groups || currentData.groups || [],
+        variants: mergedVariants,
         descriptionMedia: currentData.descriptionMedia || []
       };
       const res = await adminReq('/api/gaeru_ceo/product-workspace', 'POST', payload);
@@ -202,7 +256,7 @@ async function activateProducts() {
     } else {
       console.log(`\nTạo mới và kích hoạt sản phẩm: [${t.slug}]...`);
       const payload = {
-        product: t.product,
+        product: { ...t.product, active: true },
         gallery: t.gallery,
         groups: t.groups,
         variants: t.variants,
@@ -219,7 +273,7 @@ async function activateProducts() {
 
   // 4. Kiểm tra lại kết quả API Public Storefront
   console.log('\n4. Kiểm tra API Public Storefront (/api/products)...');
-  const rPublic = await fetch(`http://127.0.0.1:${PORT}/api/products`);
+  const rPublic = await fetch(`${BASE_URL}/api/products`);
   const pubData = await rPublic.json();
   const publicList = pubData.products || [];
   console.log(`  -> Tổng số sản phẩm đang mở bán trên Trang Chủ: ${publicList.length}`);
