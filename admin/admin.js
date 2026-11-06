@@ -370,6 +370,8 @@ function setProductForm(product = null, { scroll = true } = {}) {
   form.elements.description.value = product?.description || "";
   form.elements.imageUrl.value = product?.imageUrl || "";
   form.elements.imageAlt.value = product?.imageAlt || "";
+  if (form.elements.shopeeUrl) form.elements.shopeeUrl.value = product?.shopeeUrl || "";
+  if (form.elements.tiktokShopUrl) form.elements.tiktokShopUrl.value = product?.tiktokShopUrl || "";
   form.elements.active.checked = Boolean(product?.active);
   form.elements.active.disabled = !product || (!product.active && !product.variants.some((variant) => variant.active));
   form.elements.sortOrder.value = product?.sortOrder ?? 0;
@@ -542,7 +544,9 @@ async function saveProduct(event) {
       imageUrl: form.elements.imageUrl.value.trim(),
       imageAlt: form.elements.imageAlt.value.trim(),
       active: Boolean(id) && form.elements.active.checked,
-      sortOrder: Number(form.elements.sortOrder.value)
+      sortOrder: Number(form.elements.sortOrder.value),
+      shopeeUrl: form.elements.shopeeUrl?.value.trim() || "",
+      tiktokShopUrl: form.elements.tiktokShopUrl?.value.trim() || ""
     };
     if (file) {
       const upload = new FormData();

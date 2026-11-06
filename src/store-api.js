@@ -50,7 +50,7 @@ async function loadProducts(pool, { includeDrafts = false, deleted = false, sear
   const query = `
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description, p.card_title AS "cardTitle", p.card_summary AS "cardSummary",
       p.image_url AS "imageUrl", p.image_alt AS "imageAlt", p.active, p.edit_version AS version, p.deleted_at AS "deletedAt",
-      p.sort_order AS "sortOrder",
+      p.sort_order AS "sortOrder", COALESCE(p.shopee_url, '') AS "shopeeUrl", COALESCE(p.tiktok_shop_url, '') AS "tiktokShopUrl",
       COALESCE(m.description_media,'[]'::jsonb) AS "descriptionMedia",COALESCE(m.gallery,'[]'::jsonb) AS gallery,COALESCE(m.option_groups,'[]'::jsonb) AS "optionGroups",
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
@@ -1508,10 +1508,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const p = parsed.data;
       const product = await withTransaction(pool, async (client) => {
       const result = await client.query(
-        `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
+        `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order, shopee_url, tiktok_shop_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9, $10)
          RETURNING id`,
-        [p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.sortOrder]
+        [p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.sortOrder, p.shopeeUrl || '', p.tiktokShopUrl || '']
       );
       await audit(client, { actor: req.admin, action: "catalog.product.create", entityType: "product", entityId: result.rows[0].id, after: { ...p, active: false } });
       return result.rows[0];
@@ -1622,9 +1622,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         const result = await client.query(
           `UPDATE products SET slug=$2, name=$3, category=$4, descriptor=$5, description=$6,
-            image_url=$7, image_alt=$8, active=$9, sort_order=$10, updated_at=now()
+            image_url=$7, image_alt=$8, active=$9, sort_order=$10, shopee_url=$11, tiktok_shop_url=$12, updated_at=now()
            WHERE id=$1 RETURNING id`,
-          [req.params.id, p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.active, p.sortOrder]
+          [req.params.id, p.slug, p.name, p.category, p.descriptor, p.description, p.imageUrl, p.imageAlt, p.active, p.sortOrder, p.shopeeUrl || '', p.tiktokShopUrl || '']
         );
         await audit(client, { actor: req.admin, action: "catalog.product.update", entityType: "product", entityId: req.params.id, after: p });
         return result.rows[0];
@@ -2154,7 +2154,9 @@ const productSchema = z.object({
   imageUrl: z.string().trim().regex(/^(?:\/assets\/products\/[a-zA-Z0-9._-]+|\/api\/catalog-images\/[0-9a-f-]{36})$/),
   imageAlt: z.string().trim().max(250).default(""),
   active: z.boolean().default(false),
-  sortOrder: z.number().int().min(-1000).max(10000).default(0)
+  sortOrder: z.number().int().min(-1000).max(10000).default(0),
+  shopeeUrl: z.string().trim().max(1000).nullish().transform(v=>v||'').default(""),
+  tiktokShopUrl: z.string().trim().max(1000).nullish().transform(v=>v||'').default("")
 });
 
 const variantSchema = z.object({

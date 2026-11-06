@@ -4,7 +4,7 @@
  const slugify=v=>v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[đĐ]/g,'d').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
  const money=v=>new Intl.NumberFormat('vi-VN').format(v)+' ₫';
  const editingTrash=/(?:[?&])trash=1(?:&|$)/.test(location.search||'');
- let model={product:{name:'',slug:'',category:'audio',descriptor:'',cardTitle:'',cardSummary:'',description:'',imageUrl:'',imageAlt:'',active:false,sortOrder:0},gallery:[],groups:[],variants:[],descriptionMedia:[]},user=null,busy=false,dirty=false;const disabledStates=new WeakMap();const imageUploads=[];let uploadWorker=null;
+ let model={product:{name:'',slug:'',category:'audio',descriptor:'',cardTitle:'',cardSummary:'',description:'',imageUrl:'',imageAlt:'',active:false,sortOrder:0,shopeeUrl:'',tiktokShopUrl:''},gallery:[],groups:[],variants:[],descriptionMedia:[]},user=null,busy=false,dirty=false;const disabledStates=new WeakMap();const imageUploads=[];let uploadWorker=null;
  const can=p=>user?.permissions?.includes(p),imageUrl=u=>{const path=u.startsWith('/api/catalog-images/')?u.replace('/api/catalog-images/','/api/gaeru_ceo/catalog-images/'):u.startsWith('/api/catalog-videos/')?u.replace('/api/catalog-videos/','/api/gaeru_ceo/catalog-videos/'):u;return window.GAERUAdminUI?.imageUrl(path)??path;};
  
  async function request(path,method='GET',body){
@@ -111,6 +111,8 @@
      else if(p==='product.cardTitle')target=form.elements.cardTitle;
      else if(p==='product.cardSummary')target=form.elements.cardSummary;
      else if(p==='product.description')target=document.querySelector('#description-media');
+      else if(p==='product.shopeeUrl')target=form.elements.shopeeUrl;
+      else if(p==='product.tiktokShopUrl')target=form.elements.tiktokShopUrl;
      else if(p.includes('sku')){
        const match=p.match(/variants\.(\d+)\.sku/);
        if(match)target=document.querySelector('[data-variant-index="'+match[1]+'"] [data-field="sku"]');
@@ -160,7 +162,9 @@
      description:form.elements.description.value,
      imageUrl:model.gallery[0]||'',
      imageAlt:form.elements.imageAlt.value,
-     sortOrder:Number(form.elements.sortOrder.value)
+     sortOrder:Number(form.elements.sortOrder.value),
+      shopeeUrl:(form.elements.shopeeUrl?.value||'').trim(),
+      tiktokShopUrl:(form.elements.tiktokShopUrl?.value||'').trim()
    };
  }
 
@@ -270,7 +274,7 @@
  }
 
  function render(){
-   for(const key of ['name','slug','category','descriptor','cardTitle','cardSummary','description','imageAlt','sortOrder']){
+   for(const key of ['name','slug','category','descriptor','cardTitle','cardSummary','description','imageAlt','sortOrder','shopeeUrl','tiktokShopUrl']){
      if(form.elements[key])form.elements[key].value=model.product[key]??'';
    }
    const titleEl=document.querySelector('#editor-title');
