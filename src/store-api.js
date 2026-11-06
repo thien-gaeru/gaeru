@@ -1949,7 +1949,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const current = currentResult.rows[0];
         if (!current) return null;
         if(current.return_completed_at)throw Object.assign(Error('Đơn đã hoàn trả xong; không thể xử lý lại.'),{status:409});
-        if (update.confirmReceived && (update.status === 'completed' || current.status === 'completed') && current.payment_method === 'cod' && current.payment_status !== 'paid') {
+        if ((update.status === 'completed' || current.status === 'completed') && current.payment_method === 'cod' && (update.confirmReceived || update.paymentStatus === 'paid' || update.status === 'completed')) {
+          update.confirmReceived = true;
           update.paymentStatus = 'paid';
         }
         if (actor) {

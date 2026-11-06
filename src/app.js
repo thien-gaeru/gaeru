@@ -500,7 +500,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       const isSyntaxOrBody = error instanceof SyntaxError || error.type === 'entity.parse.failed' || status === 413 || !error.message;
       return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : (isSyntaxOrBody ? "Yêu cầu không hợp lệ." : error.message) });
     }
-    console.error("Request failed:", {name:error.name||'Error',code:error.code||'INTERNAL_ERROR'});
+    console.error("Request failed:", {
+      name: error.name || 'Error',
+      code: error.code || 'INTERNAL_ERROR',
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({ error: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
   });
 

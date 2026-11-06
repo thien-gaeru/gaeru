@@ -905,7 +905,8 @@ async function updateOrder(event) {
   if (targetStatus !== order.status) payload.status = targetStatus;
   const paymentField = form.elements.paymentStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
-  if (targetStatus === "completed" && order.paymentMethod === "cod" && order.paymentStatus !== "paid" && can("payments.write")) {
+  if (targetStatus === "completed" && order.paymentMethod === "cod") {
+    payload.confirmReceived = true;
     payload.paymentStatus = "paid";
     if (paymentField) {
       paymentField.value = "paid";
