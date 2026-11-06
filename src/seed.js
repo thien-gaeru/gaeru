@@ -14,12 +14,15 @@ async function main() {
   const pool = createPool(config);
   try {
     for (const product of products) {
-      await pool.query(
-        `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
-         ON CONFLICT (slug) DO NOTHING`,
-        product
-      );
+      const existing = await pool.query("SELECT id, slug FROM products WHERE slug = $1 OR name = $2", [product[0], product[1]]);
+      if (!existing.rows.length) {
+        await pool.query(
+          `INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8)
+           ON CONFLICT (slug) DO NOTHING`,
+          product
+        );
+      }
     }
     console.log("Draft GAERU catalog is ready. Add verified variants and stock in /gaeru_ceo before publishing products.");
   } finally {

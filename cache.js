@@ -399,8 +399,11 @@ function smartPageCache(swrMs = 60000) {
           }).catch(() => null),
           gzip(rawBuffer, { level: 6 }).catch(() => null)
         ]).then(([br, gz]) => {
-          entry.br = br;
-          entry.gz = gz;
+          if (ramCache.get(key) === entry) {
+            entry.br = br;
+            entry.gz = gz;
+            ramCache.set(key, entry);
+          }
         }).catch(() => {});
       } else if (!res.headersSent && !/no-store|private/i.test(currentCacheControl)) {
         res.setHeader('X-Cache', 'MISS-REBUILT');

@@ -42,7 +42,7 @@ async function createTestFixture(t) {
     username: 'admin-owner',
     role: 'owner',
     source: 'bootstrap',
-    permissions: ['orders.read', 'orders.write', 'customers.read', 'customers.write', 'finance.read', 'payments.write']
+    permissions: ['orders.read', 'orders.write', 'orders.permanent_delete', 'customers.read', 'customers.write', 'customers.permanent_delete', 'finance.read', 'payments.write']
   };
 
   const adminPassword = 'AdminSecretPassword123!';
@@ -190,6 +190,9 @@ test('Admin can permanently delete order: cleans all dependent rows, releases st
   // Unauthorized attempts
   assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', {}, { 'X-Readonly': '1' })).status, 403);
   assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', {}, { 'X-CSRF-Token': 'wrong' })).status, 403);
+  f.actor.permissions = ['orders.read', 'orders.write', 'customers.read', 'customers.write'];
+  assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST')).status, 403, 'sales role with orders.write must be rejected with 403');
+  f.actor.permissions = ['orders.read', 'orders.write', 'orders.permanent_delete', 'customers.read', 'customers.write', 'customers.permanent_delete', 'finance.read', 'payments.write'];
 
   // Perform permanent deletion
   const deleteRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST');
@@ -257,6 +260,11 @@ test('Customer permanent deletion automatically purges their order history and e
 
   const summaryBefore = await f.api('/api/gaeru_ceo/summary');
   assert.equal(summaryBefore.data.orders.total, 2);
+
+  // Customer permanent deletion requires customers.permanent_delete permission
+  f.actor.permissions = ['orders.read', 'orders.write', 'customers.read', 'customers.write'];
+  assert.equal((await f.api(`/api/gaeru_ceo/customers/${customer.id}/permanent-delete`, 'POST', { password: f.adminPassword, reason: 'Test' })).status, 403, 'sales role must be rejected with 403');
+  f.actor.permissions = ['orders.read', 'orders.write', 'orders.permanent_delete', 'customers.read', 'customers.write', 'customers.permanent_delete', 'finance.read', 'payments.write'];
 
   // Customer permanently deleted by admin
   const delCustRes = await f.api(`/api/gaeru_ceo/customers/${customer.id}/permanent-delete`, 'POST', {

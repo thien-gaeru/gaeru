@@ -195,7 +195,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   }
   try {
     const { cacheEvents } = require('../cache');
-    cacheEvents.on('invalidated', invalidateCatalogCache);
+    cacheEvents.on('invalidated', (payload) => {
+      const tags = payload?.tags;
+      if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['catalog', 'stock', 'promotion', 'product', 'products'].includes(t) || String(t).startsWith('product:'))) {
+        invalidateCatalogCache();
+      }
+    });
   } catch (_) {}
 
   async function getCachedCatalogProducts() {
@@ -1949,9 +1954,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const current = currentResult.rows[0];
         if (!current) return null;
         if(current.return_completed_at)throw Object.assign(Error('Đơn đã hoàn trả xong; không thể xử lý lại.'),{status:409});
-        if ((update.status === 'completed' || current.status === 'completed') && current.payment_method === 'cod' && (update.confirmReceived || update.paymentStatus === 'paid' || update.status === 'completed')) {
-          update.confirmReceived = true;
-          update.paymentStatus = 'paid';
+        if ((update.status === 'completed' || current.status === 'completed') && current.payment_method === 'cod') {
+          if (update.confirmReceived || update.paymentStatus === 'paid') {
+            if (actor && !actor.permissions.includes("payments.write")) {
+              const error = new Error("Tài khoản cần có quyền quản lý thanh toán (payments.write) để xác nhận thu tiền COD.");
+              error.status = 403;
+              throw error;
+            }
+            update.confirmReceived = true;
+            update.paymentStatus = 'paid';
+          }
         }
         if (actor) {
           const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
@@ -2198,8 +2210,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       next(error);
     }
   };
-  router.post('/gaeru_ceo/orders/:id/permanent-delete', requirePermission('orders.write'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
-  router.delete('/gaeru_ceo/orders/:id', requirePermission('orders.write'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
+  router.post('/gaeru_ceo/orders/:id/permanent-delete', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
+  router.delete('/gaeru_ceo/orders/:id', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
 
   router.patch("/gaeru_ceo/orders/:id", requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {

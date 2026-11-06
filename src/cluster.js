@@ -2,6 +2,7 @@
 
 require('dotenv').config();
 const cluster = require('node:cluster');
+const workerSlots = new Map();
 const os = require('node:os');
 const path = require('node:path');
 const { loadConfig } = require('./config');
@@ -54,7 +55,9 @@ async function startMaster() {
     defaultFanoutHub.metrics.workerCrashes++;
     console.warn(`[Master ${process.pid}] Worker ${worker.process.pid} (id: ${worker.id}) đã dừng với mã ${code} (${signal || 'normal'}). Đang tự động hồi sinh Worker thay thế...`);
     defaultFanoutHub.metrics.workerRespawns++;
-    forkWorker(worker.id - 1);
+    const slot = workerSlots.get(worker.id) ?? 0;
+    workerSlots.delete(worker.id);
+    forkWorker(slot);
   });
 
   // 6. Graceful shutdown khi nhận tín hiệu từ hệ điều hành / Docker / Kubernetes
@@ -100,6 +103,7 @@ function forkWorker(index) {
     CLUSTER_WORKER: 'true',
     WORKER_INDEX: String(index)
   });
+  workerSlots.set(worker.id, index);
   console.log(`[Master ${process.pid}] Khởi chạy Worker ${worker.id} (PID: ${worker.process.pid}) [Slot #${index}]`);
   return worker;
 }
