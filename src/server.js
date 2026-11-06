@@ -21,7 +21,7 @@ const sessionStore = new PgSessionStore({
   pruneSessionInterval: 15 * 60
 });
 const app = createApp({ config, pool, sessionStore });
-let server;let mediaAuditTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
+let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
 let resourceMonitor;
 
 async function start() {
@@ -66,7 +66,7 @@ async function start() {
   if(mediaCheck.verified){
     // GAERU F-06 & OPS-01: Mark Readiness Gate as READY once DB migrations and filesystem probe succeed; run static media sync asynchronously
     setReady(true);
-    require('./persistent-assets').syncAssets(pool)
+    staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
       .then(res => console.log('Static media:', JSON.stringify(res)))
       .catch(err => console.error('Static media sync failed:', errorSummary(err)));
   }else{
@@ -148,8 +148,8 @@ async function shutdown() {
   stopCareEmail?.();
   stopOrderEmail?.();
   if (server) await new Promise(resolve => server.close(resolve));
-  // Background conversion and verification must finish before releasing its database.
-  await mediaAuditTask;
+  // Background conversion, verification and media sync must finish before releasing its database.
+  await Promise.allSettled([mediaAuditTask, staticMediaSyncTask]);
   try {
     await sessionStore.close();
   } catch (error) {

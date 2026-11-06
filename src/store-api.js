@@ -178,15 +178,20 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     return inFlightStoreConfigPromise;
   }
 
-  // GAERU F-09 & DB-01: Singleflight read-through cache for storefront catalog to prevent DB stampede
+  // GAERU F-09, DB-01 & DB-02: Singleflight read-through cache with revision counter and stockMap TTL
+  let catalogRevision = 0;
   let cachedCatalogProducts = null;
   let cachedCatalogProductsTime = 0;
   let inFlightCatalogPromise = null;
   const CATALOG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 3000;
+  const stockTimestampMap = new Map();
+  const STOCK_MAP_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 60000 : 5000;
 
   function invalidateCatalogCache() {
+    catalogRevision++;
     cachedCatalogProducts = null;
     cachedCatalogProductsTime = 0;
+    inFlightCatalogPromise = null;
   }
   try {
     const { cacheEvents } = require('../cache');
@@ -201,20 +206,31 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     if (inFlightCatalogPromise) {
       return inFlightCatalogPromise;
     }
+    const currentRevision = catalogRevision;
     inFlightCatalogPromise = (async () => {
       try {
         const products = await loadProducts(pool);
-        cachedCatalogProducts = products;
-        cachedCatalogProductsTime = Date.now();
-        // GAERU DB-01: Update stockMap ONLY from fresh DB query, never from stale cached snapshots
-        products?.forEach(p => p.variants?.forEach(v => {
-          const qty = Number(v.stockQuantity ?? v.stock ?? 0);
-          if (v.sku) stockMap.set(v.sku, qty);
-          if (v.id) stockMap.set(v.id, qty);
-        }));
+        // Only publish if revision did not change during in-flight fetch (DB-01)
+        if (currentRevision === catalogRevision) {
+          cachedCatalogProducts = products;
+          cachedCatalogProductsTime = Date.now();
+          products?.forEach(p => p.variants?.forEach(v => {
+            const qty = Number(v.stockQuantity ?? v.stock ?? 0);
+            if (v.sku) {
+              stockMap.set(v.sku, qty);
+              stockTimestampMap.set(v.sku, Date.now());
+            }
+            if (v.id) {
+              stockMap.set(v.id, qty);
+              stockTimestampMap.set(v.id, Date.now());
+            }
+          }));
+        }
         return products;
       } finally {
-        inFlightCatalogPromise = null;
+        if (currentRevision === catalogRevision) {
+          inFlightCatalogPromise = null;
+        }
       }
     })();
     return inFlightCatalogPromise;
@@ -313,7 +329,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       res.setHeader('Cache-Control', 'no-store');
       const sku = String(req.params.sku || '').trim();
       if (!sku) return res.status(400).json({ error: "Thiếu mã SKU." });
-      if (stockMap.has(sku)) {
+      const now = Date.now();
+      const lastStockTime = stockTimestampMap.get(sku) || 0;
+      if (stockMap.has(sku) && (now - lastStockTime < STOCK_MAP_TTL_MS)) {
         const stock = stockMap.get(sku);
         return res.json({ sku, stock, inStock: stock > 0 });
       }
@@ -332,6 +350,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const stock = Math.max(0, Number(row.stockQuantity) || 0);
           seedStock(row.sku, stock);
           seedStock(row.id, stock);
+          stockTimestampMap.set(row.sku, now);
+          stockTimestampMap.set(row.id, now);
           return res.json({ sku: row.sku, stock, inStock: stock > 0 });
         }
       }

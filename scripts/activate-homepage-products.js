@@ -2,6 +2,20 @@ const BASE_URL = process.env.BASE_URL || `http://127.0.0.1:${process.env.PORT ||
 const isApply = process.argv.includes('--apply');
 const isPlan = process.argv.includes('--plan') || (!isApply && !process.env.GAERU_ADMIN_USER);
 
+// GAERU OPS-03: Enforce HTTPS for remote URLs to prevent unencrypted credential transit
+try {
+  const parsedBase = new URL(BASE_URL);
+  if (parsedBase.protocol !== 'https:' && !['127.0.0.1', 'localhost', '::1'].includes(parsedBase.hostname)) {
+    if (isApply) {
+      throw new Error('BASE_URL bắt buộc phải dùng giao thức HTTPS khi không chạy trên localhost để bảo mật thông tin quản trị.');
+    } else {
+      console.warn('⚠️ CẢNH BÁO: BASE_URL đang dùng HTTP (' + BASE_URL + '). Khi áp dụng --apply trên máy chủ từ xa, bắt buộc phải dùng HTTPS.');
+    }
+  }
+} catch (e) {
+  if (isApply) throw e;
+}
+
 async function activateProducts() {
   console.log('--- KÍCH HOẠT SẢN PHẨM MỞ BÁN TRÊN TRANG CHỦ GAERU ---');
   if (isPlan || !isApply) {

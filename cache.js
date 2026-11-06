@@ -16,8 +16,29 @@ cacheEvents.setMaxListeners(1000);
 // Đổi mới mỗi khi sửa code và restart server -> Ép trình duyệt bỏ bản HTML cũ ngay lập tức
 const BOOT_ID = Date.now().toString(36);
 
-// L1 RAM Cache: Tối đa 5000 mục
-const ramCache = new LRUCache({ max: 5000 });
+// GAERU PERF-02: L1 RAM Cache capped at 2000 entries and 48 MiB max byte limit to prevent memory bloat on 3GB RAM
+const ramCache = new LRUCache({
+  max: 2000,
+  maxSize: 48 * 1024 * 1024,
+  sizeCalculation: (entry) => {
+    if (!entry) return 1;
+    const rawLen = typeof entry.raw === 'string' ? Buffer.byteLength(entry.raw, 'utf8') : (entry.raw?.length || 0);
+    const brLen = entry.br?.length || 0;
+    const gzLen = entry.gz?.length || 0;
+    const dcbLen = entry.dcb?.length || 0;
+    return Math.max(1024, rawLen + brLen + gzLen + dcbLen);
+  }
+});
+
+function canonicalizeHtmlCacheUrl(originalUrl) {
+  const [pathPart, queryPart] = String(originalUrl || '').split('?');
+  if (!queryPart) return pathPart;
+  const params = new URLSearchParams(queryPart);
+  const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ttclid', '_ga', 'ref'];
+  for (const p of trackingParams) params.delete(p);
+  const remaining = params.toString();
+  return remaining ? `${pathPart}?${remaining}` : pathPart;
+}
 
 // Bảng ánh xạ Tag -> Set<cacheKey> cho việc xóa chính xác theo nhãn
 const tagIndex = new Map();
@@ -283,7 +304,7 @@ function smartPageCache(swrMs = 60000) {
       return next();
     }
 
-    const key = `html:${req.originalUrl}`;
+    const key = `html:${canonicalizeHtmlCacheUrl(req.originalUrl)}`;
 
     let hit = ramCache.get(key);
     if (hit && Date.now() - (hit.time || 0) > swrMs) {
