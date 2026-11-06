@@ -4,6 +4,7 @@ const { createPool } = require("./db");
 
 const products = [
   ["k9", "GAERU K9", "audio", "Nhỏ mà có võ", "Mic cài áo nhỏ gọn. Cho những câu chuyện đầu tiên.", "/assets/products/k9.webp", "Micro cài áo GAERU K9", 10],
+  ["m3", "GAERU M3", "audio", "Nhỏ gọn trên áo. Trọn vẹn câu chuyện.", "Micro thu âm cài áo không dây kèm hộp sạc cao cấp.", "/assets/products/m3-home-cutout.webp", "Bộ micro không dây GAERU M3 cùng hộp sạc", 20],
   ["p01", "GAERU P01", "video", "Luôn trong khung hình", "Gimbal tự động theo người. Thêm linh hoạt cho khung hình.", "/assets/products/p01.webp", "Gimbal theo dõi tự động GAERU P01", 30],
   ["g1-ultra", "GAERU G1 ULTRA", "audio", "Linh hoạt không giới hạn", "Mic không dây đa thiết bị. Mở rộng không gian sáng tạo.", "/assets/products/g1-ultra-clean.webp", "Bộ micro không dây đa thiết bị GAERU G1 ULTRA", 40]
 ];

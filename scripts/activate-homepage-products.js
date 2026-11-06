@@ -122,6 +122,72 @@ async function activateProducts() {
       ]
     },
     {
+      slug: 'gaeru-m3',
+      product: {
+        name: 'GAERU M3 Micro Thu Âm Không Dây',
+        slug: 'gaeru-m3',
+        category: 'audio',
+        descriptor: 'DÂY CÀI ÁO CÓ HỘP SẠC CAO CẤP',
+        cardTitle: 'GAERU M3',
+        cardSummary: 'Micro thu âm cài áo không dây kèm hộp sạc cao cấp, màn hình kỹ thuật số hiển thị pin, lọc ồn thông minh cho điện thoại và máy ảnh.',
+        description: 'Micro thu âm cài áo không dây kèm hộp sạc cao cấp, màn hình kỹ thuật số hiển thị pin, lọc ồn thông minh cho điện thoại và máy ảnh. Tương thích Type-C, Lightning, USB và Micro USB.',
+        imageUrl: '/assets/products/m3-home-cutout.webp',
+        imageAlt: 'Bộ micro không dây GAERU M3 cùng hộp sạc',
+        active: true,
+        sortOrder: 20,
+        shopeeUrl: 'https://shopee.vn/gaeru-m3-chinh-hang',
+        tiktokShopUrl: 'https://vn.tiktok.com/@gaerustore/live'
+      },
+      gallery: ['/assets/products/m3-home-cutout.webp'],
+      groups: [{ name: 'Cổng kết nối', values: ['Type C', 'Type C + đầu chuyển Lightning', 'Type C + chuyển USB', 'Type C + chuyển Micro usb'] }],
+      variants: [
+        {
+          sku: 'M3-TYPEC',
+          name: 'Bản Type C',
+          options: { 'Cổng kết nối': 'Type C' },
+          priceVnd: 840000,
+          originalPriceVnd: 1200000,
+          stockQuantity: 50,
+          active: true,
+          imageUrl: '/assets/products/m3-home-cutout.webp',
+          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+        },
+        {
+          sku: 'M3-LIGHTNING',
+          name: 'Bản Type C + đầu chuyển Lightning',
+          options: { 'Cổng kết nối': 'Type C + đầu chuyển Lightning' },
+          priceVnd: 840000,
+          originalPriceVnd: 1200000,
+          stockQuantity: 50,
+          active: true,
+          imageUrl: '/assets/products/m3-home-cutout.webp',
+          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+        },
+        {
+          sku: 'M3-USB',
+          name: 'Bản Type C + chuyển USB',
+          options: { 'Cổng kết nối': 'Type C + chuyển USB' },
+          priceVnd: 840000,
+          originalPriceVnd: 1200000,
+          stockQuantity: 40,
+          active: true,
+          imageUrl: '/assets/products/m3-home-cutout.webp',
+          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+        },
+        {
+          sku: 'M3-MICROUSB',
+          name: 'Bản Type C + chuyển Micro usb',
+          options: { 'Cổng kết nối': 'Type C + chuyển Micro usb' },
+          priceVnd: 840000,
+          originalPriceVnd: 1200000,
+          stockQuantity: 30,
+          active: true,
+          imageUrl: '/assets/products/m3-home-cutout.webp',
+          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+        }
+      ]
+    },
+    {
       slug: 'gaeru-p01',
       product: {
         name: 'GAERU P01 Gimbal Xoay Theo Dõi AI',
