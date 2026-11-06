@@ -81,7 +81,7 @@
    </article>`).join('')||'<p>Không có yêu cầu trong thư mục này.</p>';
   }catch(e){if(version===loading)list.textContent=e.message;}
  }
- function open(){panel.hidden=false;document.getElementById('order-workspace').hidden=true;document.querySelectorAll('[data-order-tab]').forEach(b=>b.setAttribute('aria-pressed','false'));document.getElementById('after-sales-toggle')?.setAttribute('aria-expanded','true');return load();}
+ function open(){panel.hidden=false;document.getElementById('order-workspace').hidden=true;const cr=document.getElementById('cod-return-panel');if(cr)cr.hidden=true;document.getElementById('cod-return-toggle')?.setAttribute('aria-expanded','false');document.querySelectorAll('[data-order-tab]').forEach(b=>b.setAttribute('aria-pressed','false'));document.getElementById('after-sales-toggle')?.setAttribute('aria-expanded','true');return load();}
  function close(){panel.hidden=true;document.getElementById('order-workspace').hidden=false;document.querySelectorAll('[data-order-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.orderTab===document.getElementById('order-filter').value)));document.getElementById('after-sales-toggle')?.setAttribute('aria-expanded','false');}
  async function createReturn(order){
   if(!window.GAERUAdmin.can('orders.write')||!order||!['shipped','completed'].includes(order.status)||order.returnStatus==='returned'||order.returnedAt)return false;

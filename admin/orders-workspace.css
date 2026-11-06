@@ -91,3 +91,26 @@
   background: #fef3f2;
   border-color: #fda29b;
 }
+
+
+/* COD Return Intake & After-Sales Toggle Consistency */
+#cod-return-toggle{margin-left:8px;display:inline-flex;align-items:center;justify-content:center}
+#cod-return-toggle[aria-expanded=true]{border-bottom-color:#009eaa;color:#152b31}
+#after-sales-toggle{display:inline-flex;align-items:center;justify-content:center}
+#cod-return-panel{margin:16px 0;padding:20px;border-radius:14px;background:#fff;border:1px solid #cbd5e0}
+#cod-return-panel h2{font-size:20px;margin:0 0 6px}
+.cod-return-tabs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.cod-return-tab-btn{white-space:nowrap;padding:8px 16px;min-height:38px;border-radius:999px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+#cod-return-lookup-form{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+@media(max-width:760px){
+  #after-sales-toggle{width:100% !important;margin:4px 0 !important;min-height:44px !important;border-radius:12px !important;justify-content:center !important;text-align:center !important}
+  #cod-return-toggle{width:100% !important;margin:6px 0 10px 0 !important;min-height:44px !important;border-radius:12px !important;justify-content:center !important;text-align:center !important}
+  #cod-return-panel{padding:14px;border-radius:14px;margin:12px 0}
+  #cod-return-panel h2{font-size:18px}
+  #cod-return-lookup-form label{width:100%;margin-bottom:2px}
+  #cod-return-lookup-form input{width:100% !important;min-height:46px !important;font-size:16px !important;box-sizing:border-box}
+  #cod-return-lookup-form button{width:100% !important;min-height:44px !important}
+  .cod-return-tabs{gap:6px}
+  .cod-return-tab-btn{flex:1 1 calc(50% - 6px);min-width:140px;text-align:center;font-size:12.5px;padding:8px 10px}
+}

@@ -11,7 +11,7 @@
     let panel = document.getElementById('cod-return-panel');
     let toggleBtn = document.getElementById('cod-return-toggle');
 
-    if (!panel) {
+    if (!toggleBtn) {
       const afterSalesBtn = document.getElementById('after-sales-toggle');
       toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
@@ -19,12 +19,16 @@
       toggleBtn.id = 'cod-return-toggle';
       toggleBtn.setAttribute('aria-expanded', 'false');
       toggleBtn.setAttribute('aria-controls', 'cod-return-panel');
-      toggleBtn.style.marginLeft = '8px';
+      toggleBtn.style.margin = '4px 0 4px 8px';
       toggleBtn.innerHTML = '📦 Kiểm nhận hàng hoàn COD <span id="cod-return-badge" style="background:#e53e3e;color:#fff;border-radius:10px;padding:2px 7px;font-size:0.75em;display:none;">0</span>';
 
       if (afterSalesBtn && afterSalesBtn.parentNode) {
         afterSalesBtn.after(toggleBtn);
       }
+    }
+
+    if (!panel) {
+      const afterSalesBtn = document.getElementById('after-sales-toggle');
 
       panel = document.createElement('section');
       panel.id = 'cod-return-panel';
@@ -50,17 +54,17 @@
         <div style="background:#f7fafc;padding:14px;border-radius:8px;border:1px dashed #cbd5e0;margin-bottom:16px;">
           <form id="cod-return-lookup-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="font-weight:600;min-width:140px;">Quét mã bưu kiện:</label>
-            <input type="text" id="cod-return-scan-input" placeholder="Quét barcode vận đơn hoặc nhập mã đơn..." style="flex:1;min-width:220px;padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-family:monospace;" autocomplete="off" required>
+            <input type="text" id="cod-return-scan-input" placeholder="Quét barcode vận đơn hoặc nhập mã đơn..." style="flex:1;min-width:200px;padding:10px 12px;border:1px solid #cbd5e0;border-radius:8px;font-family:monospace;font-size:16px;box-sizing:border-box;" autocomplete="off" required>
             <button type="submit" class="primary-button" id="btn-cod-return-search">Tìm kiện hàng</button>
           </form>
           <div id="cod-return-scan-result" style="margin-top:12px;" hidden></div>
         </div>
 
         <!-- Bộ lọc tab -->
-        <div style="display:flex;gap:8px;margin-bottom:12px;">
-          <button type="button" class="secondary-button" id="btn-tab-cod-pending" style="font-weight:600;background:#edf2f7;">Chờ kiểm nhận (<span id="count-cod-pending">0</span>)</button>
-          <button type="button" class="plain-button" id="btn-tab-cod-history">Lịch sử đã kiểm</button>
-          <button type="button" class="plain-button" id="btn-tab-cod-claims" style="color:#c53030;">Hồ sơ bồi thường hãng vận chuyển</button>
+        <div class="cod-return-tabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="secondary-button cod-return-tab-btn" id="btn-tab-cod-pending" style="font-weight:600;background:#edf2f7;white-space:nowrap;min-height:38px;padding:8px 14px;border-radius:999px;">Chờ kiểm nhận (<span id="count-cod-pending">0</span>)</button>
+          <button type="button" class="plain-button cod-return-tab-btn" id="btn-tab-cod-history" style="white-space:nowrap;min-height:38px;padding:8px 14px;border-radius:999px;">Lịch sử đã kiểm</button>
+          <button type="button" class="plain-button cod-return-tab-btn" id="btn-tab-cod-claims" style="color:#c53030;white-space:nowrap;min-height:38px;padding:8px 14px;border-radius:999px;">Hồ sơ bồi thường hãng vận chuyển</button>
         </div>
 
         <div id="cod-return-list-container">
@@ -78,14 +82,23 @@
         const isHidden = panel.hidden;
         panel.hidden = !isHidden;
         toggleBtn.setAttribute('aria-expanded', String(!isHidden));
+        const ws = document.getElementById('order-workspace');
         if (!panel.hidden) {
+          if (ws) ws.hidden = true;
+          const afterSalesPanel = document.getElementById('after-sales-panel');
+          if (afterSalesPanel) afterSalesPanel.hidden = true;
+          document.getElementById('after-sales-toggle')?.setAttribute('aria-expanded', 'false');
           loadPending();
+        } else {
+          if (ws) ws.hidden = false;
         }
       });
 
       panel.querySelector('#cod-return-close').addEventListener('click', () => {
         panel.hidden = true;
         toggleBtn.setAttribute('aria-expanded', 'false');
+        const ws = document.getElementById('order-workspace');
+        if (ws) ws.hidden = false;
       });
 
       panel.querySelector('#cod-return-refresh').addEventListener('click', () => {
@@ -140,23 +153,28 @@
     const cBtn = document.getElementById('btn-tab-cod-claims');
 
     [pBtn, hBtn, cBtn].forEach(b => {
-      b.className = 'plain-button';
+      if (!b) return;
+      b.className = 'plain-button cod-return-tab-btn';
       b.style.fontWeight = 'normal';
       b.style.background = 'transparent';
+      b.style.whiteSpace = 'nowrap';
     });
 
-    if (tab === 'pending') {
-      pBtn.className = 'secondary-button';
+    if (tab === 'pending' && pBtn) {
+      pBtn.className = 'secondary-button cod-return-tab-btn';
       pBtn.style.fontWeight = '600';
       pBtn.style.background = '#edf2f7';
-    } else if (tab === 'history') {
-      hBtn.className = 'secondary-button';
+      pBtn.style.whiteSpace = 'nowrap';
+    } else if (tab === 'history' && hBtn) {
+      hBtn.className = 'secondary-button cod-return-tab-btn';
       hBtn.style.fontWeight = '600';
       hBtn.style.background = '#edf2f7';
-    } else if (tab === 'claims') {
-      cBtn.className = 'secondary-button';
+      hBtn.style.whiteSpace = 'nowrap';
+    } else if (tab === 'claims' && cBtn) {
+      cBtn.className = 'secondary-button cod-return-tab-btn';
       cBtn.style.fontWeight = '600';
       cBtn.style.background = '#fed7d7';
+      cBtn.style.whiteSpace = 'nowrap';
     }
   }
 

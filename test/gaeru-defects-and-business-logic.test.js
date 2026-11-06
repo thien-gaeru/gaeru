@@ -1010,7 +1010,8 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
     '/api/gaeru_ceo/barcode/history',
     '/api/gaeru_ceo/marketplace/orders',
     '/api/gaeru_ceo/forecast?days=30',
-    '/api/gaeru_ceo/marketing/abandoned-carts'
+    '/api/gaeru_ceo/marketing/abandoned-carts',
+    '/api/gaeru_ceo/cod-returns/pending'
   ]) {
     const r = await fetch(`${baseUrl}${adminPath}`, {
       headers: { Cookie: cookieHeader(jar) }
