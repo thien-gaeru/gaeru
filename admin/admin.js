@@ -717,10 +717,15 @@ function changeOrderControl(event){
   const paymentField = form.elements.paymentStatus;
   if (order?.paymentMethod === "cod" && paymentField) {
     paymentField.disabled = event.target.value !== "completed";
-    if (paymentField.disabled) paymentField.value = "pending";
-    form.querySelector("[data-payment-guidance]").textContent = paymentField.disabled
-      ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng."
-      : "Chọn Đã thanh toán sau khi đã thu đủ tiền của khách.";
+    if (paymentField.disabled) {
+      paymentField.value = "pending";
+      if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "pending"));
+      form.querySelector("[data-payment-guidance]").textContent = "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng.";
+    } else {
+      paymentField.value = "paid";
+      if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
+      form.querySelector("[data-payment-guidance]").textContent = "Đã tự động xác nhận thu đủ tiền COD khi giao thành công.";
+    }
   }
 
 }
@@ -768,7 +773,7 @@ function openOrderProcessing(id,opener){
   const choices=document.createElement('fieldset');choices.className='order-status-buttons';choices.innerHTML='<legend>Bước tiếp theo</legend>'+[...statusSelect.options].filter(option=>option.value!==order.status).map(option=>'<button type="button" class="secondary-button" data-status-choice="'+escapeHtml(option.value)+'" aria-pressed="'+(option.value===statusSelect.value)+'" '+(statusSelect.disabled?'disabled':'')+'>'+escapeHtml(option.textContent)+'</button>').join('');
   choices.hidden=choices.querySelectorAll('button').length===0;
   statusSelect.closest('label').hidden=true;statusSelect.closest('label').after(choices);
-  choices.addEventListener('click',event=>{const button=event.target.closest('[data-status-choice]');if(!button||statusSelect.closest('form').dataset.saving)return;statusSelect.value=button.dataset.statusChoice;statusSelect.dispatchEvent(new Event('change',{bubbles:true}));choices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
+  choices.addEventListener('click',event=>{const button=event.target.closest('[data-status-choice]');if(!button||statusSelect.closest('form').dataset.saving)return;statusSelect.value=button.dataset.statusChoice;if(statusSelect.options)[...statusSelect.options].forEach(o=>o.selected=(o.value===button.dataset.statusChoice));const changeEv = typeof Event === 'function' ? new Event('change',{bubbles:true}) : (typeof window !== 'undefined' && window.Event ? new window.Event('change',{bubbles:true}) : null); if (changeEv) statusSelect.dispatchEvent(changeEv);choices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
  }
  dialog.addEventListener('submit',updateOrder);dialog.addEventListener('change',changeOrderControl);dialog.querySelector('[data-close-order]').addEventListener('click',closeOrderProcessing);dialog.addEventListener('close',()=>{dialog.remove();opener?.isConnected&&opener.focus();});document.body.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
 }
@@ -900,6 +905,13 @@ async function updateOrder(event) {
   if (targetStatus !== order.status) payload.status = targetStatus;
   const paymentField = form.elements.paymentStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
+  if (targetStatus === "completed" && order.paymentMethod === "cod" && order.paymentStatus !== "paid" && can("payments.write")) {
+    payload.paymentStatus = "paid";
+    if (paymentField) {
+      paymentField.value = "paid";
+      if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
+    }
+  }
   if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
   try {
     if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");

@@ -69,3 +69,26 @@ test('the combined tabs count returned orders once and risky gateway restoration
  const tabs=f.document.querySelectorAll('#order-tabs button');assert.equal(tabs[0].querySelector('span').textContent,'14');assert.equal(tabs[1].querySelector('span').textContent,'3');assert.equal(tabs[3].querySelector('span').textContent,'5');assert.equal(tabs[6].querySelector('span').textContent,'4');
  f.context.can=()=>true;Object.assign(f.order,{status:'cancelled',paymentMethod:'momo'});f.context.renderOrders();assert.equal(f.document.querySelector('[data-restore-order]').disabled,true);f.context.openOrderRestoration(f.order.id);assert.equal(f.document.querySelector('#order-restoration-dialog'),null);
 });
+
+test('selecting completed for a COD order automatically enables payment and updates guidance', () => {
+  const f = fixture();
+  f.context.can = () => true;
+  f.order.status = 'shipped';
+  f.order.paymentStatus = 'pending';
+  f.order.paymentMethod = 'cod';
+  f.context.orderTransitions = { shipped: ['completed'] };
+  f.context.labels.completed = 'Hoàn tất';
+  f.context.renderOrders();
+  f.context.openOrderProcessing(f.order.id, null);
+  const popup = f.document.querySelector('#order-processing-dialog');
+  const paymentField = popup.querySelector('select[name="paymentStatus"]');
+  assert.equal(paymentField.disabled, true);
+  assert.match(popup.querySelector('[data-payment-guidance]').textContent, /Chỉ ghi nhận thu tiền/);
+
+  const completeBtn = popup.querySelector('[data-status-choice="completed"]');
+  assert.ok(completeBtn);
+  completeBtn.click();
+
+  assert.equal(paymentField.disabled, false);
+  assert.match(popup.querySelector('[data-payment-guidance]').textContent, /Đã tự động xác nhận thu đủ tiền COD/);
+});

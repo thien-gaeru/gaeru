@@ -185,3 +185,12 @@ test('replacement shipment metadata cannot claim stock dispatch without a linked
   assert.equal((await f.query('SELECT outbound_status FROM order_after_sales WHERE id=$1', [row.id])).rows[0].outbound_status, 'none');
   assert.equal((await f.query('SELECT stock_quantity FROM product_variants WHERE id=$1', [f.variant.id])).rows[0].stock_quantity, 8);
 });
+
+test('admin completion with confirmReceived automatically settles COD and completes order', async t => {
+  const f = await fixture(t), order = await f.order('shipped');
+  const res = await callOrderHandler(f.pool, f.actor, '/gaeru_ceo/orders/:id', 'patch', { status: 'completed', confirmReceived: true }, order.id);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await f.state(order.id), { status: 'completed', payment_status: 'paid' });
+  assert.equal((await f.query('SELECT count(*)::int AS n FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0].n, 1);
+  assert.equal((await f.query("SELECT points FROM customer_loyalty_ledger WHERE order_id=$1 AND type='earn'", [order.id])).rows[0].points, 2000);
+});

@@ -1929,6 +1929,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const current = currentResult.rows[0];
         if (!current) return null;
         if(current.return_completed_at)throw Object.assign(Error('Đơn đã hoàn trả xong; không thể xử lý lại.'),{status:409});
+        if (update.confirmReceived && (update.status === 'completed' || current.status === 'completed') && current.payment_method === 'cod' && current.payment_status !== 'paid') {
+          update.paymentStatus = 'paid';
+        }
         if (actor) {
           const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
           const paymentChange = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
@@ -2262,7 +2265,8 @@ const orderUpdateSchema = z.object({
   status: z.enum(["pending", "confirmed", "processing", "shipped", "completed", "cancelled"]).optional(),
   paymentStatus: z.enum(["pending", "paid"]).optional(),
   shippingFeeVnd: z.number().int().min(0).max(1_000_000_000).optional(),
-  warehouseId: z.string().uuid().optional()
+  warehouseId: z.string().uuid().optional(),
+  confirmReceived: z.boolean().optional()
 }).refine((value) => Object.keys(value).length > 0);
 
 const settingsSchema = z.object({
