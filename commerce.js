@@ -140,11 +140,12 @@ function productCard(product, compact = false) {
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
   const cardImage = window.GAERUProductArtwork?.image(product) || product.imageUrl;
+  const pUrl = `/san-pham/${encodeURIComponent(product.slug)}`;
   const cardClass = compact
     ? `product-card ${product.slug === "k9" ? "product-card-dark" : ""} ${product.slug === "g1-ultra" ? "product-card-wide" : ""}`
     : `catalog-card ${product.slug === "k9" ? "catalog-card-dark" : ""}`;
   return compact ? `
-    <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}">
+    <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}">
       <div class="product-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
@@ -155,20 +156,20 @@ function productCard(product, compact = false) {
       <img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
-          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua ngay</a>
+          <a class="button button-outline" href="${pUrl}">Mua ngay</a>
         </div>
     </article>` : `
-    <article class="${cardClass}">
-      <a class="catalog-card-image" href="product.html?id=${encodeURIComponent(product.slug)}">
+    <article class="${cardClass}" data-href="${pUrl}">
+      <a class="catalog-card-image" href="${pUrl}">
         <img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
-      <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
+      <h2><a href="${pUrl}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
       <p class="catalog-description">${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
       ${promotionLabel(product)}
       <div class="catalog-actions">
         <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>
-        <a class="button button-blue" href="product.html?id=${encodeURIComponent(product.slug)}">Mua Ngay</a>
+        <a class="button button-blue" href="${pUrl}">Mua Ngay</a>
       </div>
     </article>`;
 }
@@ -872,6 +873,12 @@ function renderMiniCart() {
 }
 
 function bindGlobalControls() {
+  let pointerStartX = 0, pointerStartY = 0;
+  document.addEventListener("pointerdown", (e) => {
+    pointerStartX = e.clientX;
+    pointerStartY = e.clientY;
+  }, { passive: true });
+
   document.addEventListener("click", (event) => {
     const buyNow=event.target.closest('[data-buy-now]');
     if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0)location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));return;}
@@ -944,6 +951,25 @@ function bindGlobalControls() {
       item.quantity = Math.max(1, Math.min(maximum, item.quantity + (quantityButton.dataset.miniQuantity === "increase" ? 1 : -1)));
       writeCart(cart);
       document.querySelector(`[data-mini-quantity="increase"][data-product="${CSS.escape(variantId)}"]`)?.focus();
+      return;
+    }
+
+    const card = event.target.closest(".product-card, .catalog-card");
+    if (card) {
+      if (event.target.closest(".card-actions, button, a, input, select, textarea, label, dialog")) return;
+      if (typeof event.clientX === "number" && typeof event.clientY === "number" && (pointerStartX || pointerStartY)) {
+        const dist = Math.hypot(event.clientX - pointerStartX, event.clientY - pointerStartY);
+        if (dist > 12) return;
+      }
+      const targetUrl = card.dataset.href || card.querySelector('a.button-outline, a.button-blue, a[href*="/san-pham/"], a[href*="product.html?id="]')?.getAttribute("href");
+      if (targetUrl) {
+        if (event.button === 1 || event.ctrlKey || event.metaKey) {
+          window.open(targetUrl, "_blank", "noopener,noreferrer");
+        } else if (event.button === 0 || event.button === undefined) {
+          location.assign(targetUrl);
+        }
+      }
+      return;
     }
   });
 
