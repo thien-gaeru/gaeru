@@ -83,15 +83,19 @@ function purgeTagsLocal(tags = []) {
       clearHtmlCacheOnly();
       break;
     }
-    const keys = tagIndex.get(tag);
-    if (keys) {
-      for (const key of keys) {
-        ramCache.delete(key);
-        purgedKeys.push(key);
+    const catalogAliases = ['catalog', 'product:list', 'gaeru-catalog', 'products'];
+    const aliasesToPurge = catalogAliases.includes(tag) ? catalogAliases : [tag];
+    for (const t of aliasesToPurge) {
+      const keys = tagIndex.get(t);
+      if (keys) {
+        for (const key of keys) {
+          ramCache.delete(key);
+          purgedKeys.push(key);
+        }
+        tagIndex.delete(t);
       }
-      tagIndex.delete(tag);
     }
-    if (tag === 'catalog' || tag === 'product:list' || tag === 'gaeru-catalog') {
+    if (catalogAliases.includes(tag)) {
       clearHtmlCacheOnly();
     }
   }

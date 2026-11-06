@@ -194,8 +194,17 @@ test('Admin can permanently delete order: cleans all dependent rows, releases st
   assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST')).status, 403, 'sales role with orders.write must be rejected with 403');
   f.actor.permissions = ['orders.read', 'orders.write', 'orders.permanent_delete', 'customers.read', 'customers.write', 'customers.permanent_delete', 'finance.read', 'payments.write'];
 
-  // Perform permanent deletion
-  const deleteRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST');
+  // Step-up authentication verification (A04)
+  const noPassRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', {});
+  assert.equal(noPassRes.status, 400);
+  assert.match(noPassRes.data.error, /mật khẩu/i);
+
+  const wrongPassRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', { password: 'WrongPassword!' });
+  assert.equal(wrongPassRes.status, 403);
+  assert.match(wrongPassRes.data.error, /mật khẩu/i);
+
+  // Perform permanent deletion with valid step-up auth
+  const deleteRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', { password: f.adminPassword });
   assert.equal(deleteRes.status, 200);
   assert.match(deleteRes.data.message, /Đã xóa vĩnh viễn đơn hàng/);
 
@@ -225,7 +234,7 @@ test('Admin can permanently delete order: cleans all dependent rows, releases st
   assert.equal(ordersListAfter.data.orders.length, 0);
 
   // Deleting again returns 404
-  const secondDelete = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST');
+  const secondDelete = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', { password: f.adminPassword });
   assert.equal(secondDelete.status, 404);
 });
 
@@ -292,4 +301,44 @@ test('Customer permanent deletion automatically purges their order history and e
   // Orders list is completely empty!
   const ordersListAfter = await f.api('/api/gaeru_ceo/orders');
   assert.equal(ordersListAfter.data.orders.length, 0);
+});
+
+test('COD carrier reconciliation reference and permissions matrix (A05, A06, A12, A13)', async t => {
+  const f = await createTestFixture(t);
+
+  // Create a shipped COD order with shipping fee 30,000 VND
+  const codOrder = (await f.pool.query(
+    `INSERT INTO orders (order_number, customer_name, email, phone, address, city, payment_method, subtotal_vnd, shipping_fee_vnd, total_vnd, status, payment_status)
+     VALUES ('GR-COD-TEST', 'COD Buyer', 'cod@example.invalid', '0933333333', '100 Lê Lợi', 'Đà Nẵng', 'cod', 350000, 30000, 380000, 'shipped', 'pending')
+     RETURNING *`
+  )).rows[0];
+
+  // 1. Sales role without payments.write cannot confirm payment / complete COD order (A06)
+  f.actor.permissions = ['orders.read', 'orders.write'];
+  const unauthorizedComplete = await f.api(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', {
+    status: 'completed',
+    confirmReceived: true
+  });
+  assert.equal(unauthorizedComplete.status, 403);
+  assert.match(unauthorizedComplete.data.error, /payments.write/);
+
+  // 2. Finance/owner role with payments.write can complete COD with reconciliationRef and paymentNote (A05, A12)
+  f.actor.permissions = ['orders.read', 'orders.write', 'payments.write'];
+  const authorizedComplete = await f.api(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', {
+    status: 'completed',
+    confirmReceived: true,
+    reconciliationRef: 'VNPOST-RECON-998877',
+    paymentNote: 'Bưu điện hoàn tất đối soát phiên ngày 06/11'
+  });
+  assert.equal(authorizedComplete.status, 200);
+  assert.equal(authorizedComplete.data.order.status, 'completed');
+  assert.equal(authorizedComplete.data.order.paymentStatus, 'paid');
+
+  // Verify sales receipt created with the explicit reconciliation reference (A12)
+  const receipts = (await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [codOrder.id])).rows;
+  assert.equal(receipts.length, 1);
+  assert.equal(receipts[0].amount_vnd, 380000);
+  assert.equal(receipts[0].method, 'cash');
+  assert.equal(receipts[0].reference, 'VNPOST-RECON-998877', 'Must record the exact carrier reconciliation reference');
+  assert.equal(receipts[0].note, 'Bưu điện hoàn tất đối soát phiên ngày 06/11');
 });

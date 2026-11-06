@@ -2120,7 +2120,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         if (update.paymentStatus === "paid" && current.payment_status !== "paid") {
           await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
-          if (finance) await finance.recordFullOrderPayment(client, { order: { ...current, total_vnd: total }, actor: actor });
+          const ledger = finance || require('./finance-api');
+          if (ledger) await ledger.recordFullOrderPayment(client, {
+            order: { ...current, total_vnd: total },
+            actor: actor,
+            options: {
+              reference: update.reconciliationRef || ('COD-' + (current.order_number || current.id.slice(0, 8))),
+              note: update.paymentNote || 'Xác nhận thu tiền COD'
+            }
+          });
         }
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
@@ -2191,6 +2199,36 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
     const handleOrderPermanentDelete = async (req, res, next) => {
     try {
+      const adminPassword = req.body?.password;
+      if (!adminPassword || typeof adminPassword !== 'string' || !adminPassword.trim()) {
+        return res.status(400).json({ error: 'Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng.' });
+      }
+      const bcrypt = require('bcryptjs');
+      let adminHash = null;
+      if (config?.accountSecurity) {
+        try {
+          const key = req.admin?.source === 'bootstrap' ? 'owner' : ('staff:' + req.admin?.id);
+          const a = await config.accountSecurity.account(key, pool);
+          adminHash = a.passwordHash;
+        } catch (_) {}
+      }
+      if (!adminHash) {
+        if (req.admin?.source === 'bootstrap' || req.admin?.role === 'owner') {
+          const effectiveConfig = config?.accountSecurity ? await config.accountSecurity.ownerConfig() : config;
+          adminHash = effectiveConfig?.ADMIN_PASSWORD_HASH || config?.ADMIN_PASSWORD_HASH;
+        } else if (req.admin?.id) {
+          const row = (await pool.query('SELECT password_hash FROM staff_accounts WHERE id = $1', [req.admin.id])).rows[0];
+          adminHash = row?.password_hash;
+        }
+      }
+      if (!adminHash) {
+        return res.status(401).json({ error: 'Không thể xác thực danh tính quản trị viên.' });
+      }
+      const passwordMatches = await bcrypt.compare(adminPassword, adminHash);
+      if (!passwordMatches) {
+        return res.status(403).json({ error: 'Mật khẩu quản trị viên không chính xác.' });
+      }
+
       const { deleteOrderPermanently } = require('./order-deletion');
       const deleted = await withTransaction(pool, client =>
         deleteOrderPermanently(client, req.params.id, {
@@ -2299,7 +2337,9 @@ const orderUpdateSchema = z.object({
   paymentStatus: z.enum(["pending", "paid"]).optional(),
   shippingFeeVnd: z.number().int().min(0).max(1_000_000_000).optional(),
   warehouseId: z.string().uuid().optional(),
-  confirmReceived: z.boolean().optional()
+  confirmReceived: z.boolean().optional(),
+  reconciliationRef: z.string().trim().max(100).optional(),
+  paymentNote: z.string().trim().max(255).optional()
 }).refine((value) => Object.keys(value).length > 0);
 
 const settingsSchema = z.object({

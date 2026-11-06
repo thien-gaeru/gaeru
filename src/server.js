@@ -23,6 +23,19 @@ const sessionStore = new PgSessionStore({
 const app = createApp({ config, pool, sessionStore });
 let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
 let resourceMonitor;
+const workerTimeouts = [];
+function scheduleWorker(fn, delayMs) {
+  if (shuttingDown) return;
+  if (typeof setTimeout === 'undefined' || process.env.NODE_ENV === 'test' || delayMs === 0) {
+    fn();
+    return;
+  }
+  const t = setTimeout(() => {
+    if (!shuttingDown) fn();
+  }, delayMs);
+  t.unref?.();
+  workerTimeouts.push(t);
+}
 
 async function start() {
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
@@ -43,20 +56,20 @@ async function start() {
   await migrateDatabase(pool);
   if (shuttingDown) return;
 
-  // Background workers initialization
+  // Background workers initialization with staggered startup to prevent CPU/DB spikes on boot (A10)
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
   if (isBackgroundWorker) {
-    stopChatFileRetention=require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool);
-    stopTikTokAds=require('./tiktok-ads').startTikTokAdsWorker(pool,config);
-    stopAIChat=require('./shopping-chat-ai-first').startAIChatWorker(pool,config);
-    stopChatCompression=require('./shopping-chat-compression').startChatCompressionWorker(pool);
-    stopChatEmail=require('./shopping-chat-email').startChatEmailWorker(pool,config);
-    stopOrderEmail=require("./order-email").startOrderEmailWorker(pool,config);
-    stopWarrantyEmail=require("./warranty-email").startWarrantyEmailWorker(pool,config);
-    stopCareEmail=require("./care-api").startCareEmailWorker(pool,config);
-    stopEmail=require("./email-marketing").startEmailWorker(pool,config);
-    stopAbandonedCart=require("./abandoned-cart").startAbandonedCartWorker(pool,config);
-    stopRetention=require("./account-retention").startRetentionWorker(pool);
+    scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(pool, config); }, 0);
+    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(pool, config); }, 2000);
+    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(pool, config); }, 4000);
+    scheduleWorker(() => { stopAIChat = require('./shopping-chat-ai-first').startAIChatWorker(pool, config); }, 6000);
+    scheduleWorker(() => { stopChatEmail = require('./shopping-chat-email').startChatEmailWorker(pool, config); }, 8000);
+    scheduleWorker(() => { stopChatCompression = require('./shopping-chat-compression').startChatCompressionWorker(pool); }, 10000);
+    scheduleWorker(() => { stopTikTokAds = require('./tiktok-ads').startTikTokAdsWorker(pool, config); }, 14000);
+    scheduleWorker(() => { stopAbandonedCart = require("./abandoned-cart").startAbandonedCartWorker(pool, config); }, 18000);
+    scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(pool, config); }, 22000);
+    scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool); }, 26000);
+    scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(pool); }, 30000);
   }
 
   // Non-blocking media probe and asynchronous asset sync in the background
@@ -134,6 +147,7 @@ async function shutdown() {
   shuttingDown = true;
   setStartupError(new Error('SHUTDOWN'));
   if (resourceMonitor) clearInterval(resourceMonitor);
+  if (typeof clearTimeout !== 'undefined') workerTimeouts.forEach(t => clearTimeout(t));
   // Let any in-flight startup work settle before closing the pool it is using.
   await startTask.catch(() => {});
   stopChatFileRetention?.();
@@ -148,8 +162,16 @@ async function shutdown() {
   stopCareEmail?.();
   stopOrderEmail?.();
   if (server) await new Promise(resolve => server.close(resolve));
-  // Background conversion, verification and media sync must finish before releasing its database.
-  await Promise.allSettled([mediaAuditTask, staticMediaSyncTask]);
+  // Background conversion, verification and media sync bounded by a 4-second deadline (A15)
+  if (typeof setTimeout !== 'undefined') {
+    const shutdownDeadline = new Promise(resolve => setTimeout(resolve, 4000).unref?.());
+    await Promise.race([
+      Promise.allSettled([mediaAuditTask, staticMediaSyncTask]),
+      shutdownDeadline
+    ]);
+  } else {
+    await Promise.allSettled([mediaAuditTask, staticMediaSyncTask]);
+  }
   try {
     await sessionStore.close();
   } catch (error) {

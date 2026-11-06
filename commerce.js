@@ -145,7 +145,7 @@ function productCard(product, compact = false) {
     ? `product-card ${product.slug === "k9" ? "product-card-dark" : ""} ${product.slug === "g1-ultra" ? "product-card-wide" : ""}`
     : `catalog-card ${product.slug === "k9" ? "catalog-card-dark" : ""}`;
   return compact ? `
-    <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}">
+    <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}" tabindex="0" role="link" aria-label="${escapeHtml(product.cardTitle||product.name)}">
       <div class="product-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
@@ -159,7 +159,7 @@ function productCard(product, compact = false) {
           <a class="button button-outline" href="${pUrl}">Mua ngay</a>
         </div>
     </article>` : `
-    <article class="${cardClass}" data-href="${pUrl}">
+    <article class="${cardClass}" data-href="${pUrl}" tabindex="0" role="link" aria-label="${escapeHtml(product.cardTitle||product.name)}">
       <a class="catalog-card-image" href="${pUrl}">
         <img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
       </a>
@@ -970,6 +970,23 @@ function bindGlobalControls() {
         }
       }
       return;
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const card = event.target.closest(".product-card[data-href], .catalog-card[data-href]");
+    if (!card || event.target.closest("button, a, input, select, textarea")) return;
+    if (event.target === card) {
+      if (event.key === " ") event.preventDefault();
+      const targetUrl = card.dataset.href;
+      if (targetUrl) {
+        if (event.ctrlKey || event.metaKey) {
+          window.open(targetUrl, "_blank", "noopener,noreferrer");
+        } else {
+          location.assign(targetUrl);
+        }
+      }
     }
   });
 

@@ -475,7 +475,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     dotfiles: "deny",
     index: "index.html",
     setHeaders(res, file) {
-      if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)) {
+      if (/-[0-9a-f]{8,32}\.(?:js|css|webp|png|jpe?g|woff2?|avif)$/i.test(file)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (/\.(?:js|css|webp|png|jpe?g|woff2?)$/i.test(file)) {
         res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       }
       if (path.extname(file) === '.html') {
@@ -500,11 +502,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       const isSyntaxOrBody = error instanceof SyntaxError || error.type === 'entity.parse.failed' || status === 413 || !error.message;
       return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : (isSyntaxOrBody ? "Yêu cầu không hợp lệ." : error.message) });
     }
+    const sanitizeErrorMessage = (msg) => {
+      if (!msg || typeof msg !== 'string') return '';
+      return msg
+        .replace(/(?:password|secret|token|key|authorization|bearer)[=:\s]+[^\s,;&]+/gi, '[REDACTED]')
+        .replace(/postgres(?:ql)?:\/\/[^\s@]+@[^\s\/]+/gi, 'postgres://[REDACTED]@[HOST]');
+    };
     const isProd = (config?.NODE_ENV || process.env.NODE_ENV) === 'production';
     console.error("Request failed:", {
       name: error.name || 'Error',
       code: error.code || 'INTERNAL_ERROR',
-      message: error.message,
+      message: isProd ? sanitizeErrorMessage(error.message) : error.message,
       ...(isProd ? {} : { stack: error.stack })
     });
     res.status(500).json({ error: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });

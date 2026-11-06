@@ -33,6 +33,18 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
     WHERE a.order_id=$1 AND e.status='posted' AND a.status NOT IN ('resolved','rejected') LIMIT 1`, [order.id]);
   if (openExchange.rows.length) throw Object.assign(new Error('Đơn đang có chứng từ xuất hàng đổi chưa hoàn tất. Hủy chứng từ trước khi bàn giao hoặc hoàn tất giao đổi và đóng hồ sơ trước khi xóa đơn.'), { status: 409 });
 
+  // 1b. Check for issued MISA e-invoices (Nghị định 123/2020/NĐ-CP)
+  const issuedInvoice = await client.query(
+    "SELECT id, invoice_number, invoice_series FROM misa_einvoices WHERE order_id = $1 AND status = 'issued' LIMIT 1",
+    [order.id]
+  );
+  if (issuedInvoice.rows.length) {
+    throw Object.assign(
+      new Error(`Không thể xóa vĩnh viễn đơn hàng đã xuất hóa đơn điện tử hợp lệ (${issuedInvoice.rows[0].invoice_series}-${issuedInvoice.rows[0].invoice_number}). Theo Nghị định 123/2020/NĐ-CP, hóa đơn phải được hủy hoặc thay thế/điều chỉnh trên cơ quan thuế trước khi xử lý hồ sơ.`),
+      { status: 409 }
+    );
+  }
+
   // 2. If order holds active inventory (not cancelled and not completed), release stock
   if (order.status !== 'cancelled' && order.status !== 'completed') {
     const inv = inventory || require('./inventory');
@@ -145,20 +157,13 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
  * @returns {Promise<number>} Count of deleted orders
  */
 async function deleteCustomerOrdersPermanently(client, customerId, customerEmail, { actor, inventory } = {}) {
-  let orderIds = [];
-  if (customerEmail && typeof customerEmail === 'string' && customerEmail.trim()) {
-    const rows = (await client.query(
-      `SELECT id FROM orders WHERE customer_id = $1 OR (customer_id IS NULL AND lower(email) = lower($2)) FOR UPDATE`,
-      [customerId, customerEmail.trim()]
-    )).rows;
-    orderIds = rows.map(r => r.id);
-  } else {
-    const rows = (await client.query(
-      `SELECT id FROM orders WHERE customer_id = $1 FOR UPDATE`,
-      [customerId]
-    )).rows;
-    orderIds = rows.map(r => r.id);
-  }
+  // Only query orders where customer_id strictly matches the account being deleted.
+  // Never match guest orders by email, preserving independent buyer records (A03).
+  const rows = (await client.query(
+    `SELECT id FROM orders WHERE customer_id = $1 FOR UPDATE`,
+    [customerId]
+  )).rows;
+  const orderIds = rows.map(r => r.id);
 
   let count = 0;
   for (const id of orderIds) {
@@ -168,7 +173,56 @@ async function deleteCustomerOrdersPermanently(client, customerId, customerEmail
   return count;
 }
 
+/**
+ * Anonymizes customer PII on their historical orders when an account is deleted or purged,
+ * while preserving orders, line items, sales receipts, and e-invoices intact in the accounting ledger (A01).
+ *
+ * @param {import('pg').PoolClient} client
+ * @param {string} customerId
+ * @param {object} [options]
+ * @returns {Promise<number>} Count of anonymized orders
+ */
+async function anonymizeCustomerOrders(client, customerId, { actor = { username: 'system', source: 'order_anonymization' } } = {}) {
+  if (!customerId) return 0;
+  const rows = (await client.query(
+    `SELECT id, order_number, total_vnd FROM orders WHERE customer_id = $1 FOR UPDATE`,
+    [customerId]
+  )).rows;
+  if (!rows.length) return 0;
+
+  await client.query(
+    `UPDATE orders
+     SET customer_id = NULL,
+         customer_name = 'Khách hàng ẩn danh (Lưu trữ theo luật)',
+         email = 'anonymized@privacy.gaeru.com',
+         phone = '0000000000',
+         address = 'Đã ẩn danh theo quy định lưu trữ',
+         city = 'Đã ẩn danh',
+         note = 'Đã ẩn danh thông tin cá nhân theo quy định lưu trữ kế toán',
+         updated_at = now()
+     WHERE customer_id = $1`,
+    [customerId]
+  );
+
+  for (const o of rows) {
+    await appendAudit(client, {
+      actor,
+      action: 'order.anonymized_for_retention',
+      entityType: 'order',
+      entityId: o.id,
+      metadata: {
+        orderNumber: o.order_number,
+        totalVnd: o.total_vnd,
+        originalCustomerId: customerId
+      }
+    });
+  }
+
+  return rows.length;
+}
+
 module.exports = {
   deleteOrderPermanently,
-  deleteCustomerOrdersPermanently
+  deleteCustomerOrdersPermanently,
+  anonymizeCustomerOrders
 };

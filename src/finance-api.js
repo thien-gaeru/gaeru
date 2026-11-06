@@ -41,13 +41,31 @@ async function paged(pool, query, select, count, values = []) {
 async function receiptTotal(client, orderId) {
   return Number((await client.query("SELECT COALESCE(SUM(amount_vnd),0) AS total FROM sales_receipts WHERE order_id=$1", [orderId])).rows[0]?.total || 0);
 }
-async function recordFullOrderPayment(client, { order, actor }) {
+async function recordFullOrderPayment(client, orderOrPayload, maybeActor, maybeOptions) {
+  let order, actor, options = {};
+  if (orderOrPayload && typeof orderOrPayload === 'object' && orderOrPayload.order) {
+    order = orderOrPayload.order;
+    actor = orderOrPayload.actor;
+    options = orderOrPayload.options || {};
+  } else if (typeof orderOrPayload === 'string') {
+    const row = (await client.query('SELECT * FROM orders WHERE id = $1', [orderOrPayload])).rows[0];
+    order = row;
+    actor = maybeActor;
+    options = maybeOptions || {};
+  } else {
+    order = orderOrPayload;
+    actor = maybeActor;
+    options = maybeOptions || {};
+  }
+  if (!order) return;
   const received = await receiptTotal(client, order.id);
   const remaining = Number(order.total_vnd) - received;
   if (remaining <= 0) return;
   const internalKey = `system-full:${randomUUID()}`;
+  const reference = (options && options.reference) || ('COD-' + (order.order_number || order.id.slice(0, 8)));
+  const note = (options && options.note) || 'Ghi nhận đủ tiền khi xử lý đơn';
   await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by)
-    VALUES ($1,$2,$3,'','Ghi nhận đủ tiền khi xử lý đơn',$4,$4,$5)`, [order.id, remaining, order.payment_method === "cod" ? "cash" : "bank_transfer", internalKey, actor?.username || "system"]);
+    VALUES ($1,$2,$3,$4,$5,$6,$6,$7)`, [order.id, remaining, order.payment_method === "cod" ? "cash" : "bank_transfer", reference, note, internalKey, actor?.username || "system"]);
 }
 async function supplierBalance(client, supplierId) {
   const result = await client.query(`SELECT

@@ -347,9 +347,9 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
     await client.query(
       `DELETE FROM warranty_activations WHERE customer_id = $1 OR order_item_id IN (
          SELECT i.id FROM order_items i JOIN orders o ON o.id = i.order_id
-         WHERE o.customer_id = $1 OR (o.customer_id IS NULL AND lower(o.email) = lower($2))
+         WHERE o.customer_id = $1
        )`,
-      [customerId, customer.email]
+      [customerId]
     );
     await client.query('DELETE FROM customer_contact_changes WHERE customer_id = $1', [customerId]);
     await client.query('DELETE FROM customer_addresses WHERE customer_id = $1', [customerId]);

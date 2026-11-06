@@ -43,8 +43,65 @@ function getResponsiveMap() {
   return responsiveMap;
 }
 
-// GAERU IMG-03: In-memory cache for pre-generated AVIF metadata & buffers to eliminate disk I/O and hash recomputation
-const preAvifCache = new Map();
+// GAERU IMG-03 / A08: In-memory byte-capped LRU cache for pre-generated AVIF (16 MiB max) to prevent unbounded RSS growth
+class ByteCappedLruCache {
+  constructor(maxBytes = 16 * 1024 * 1024) {
+    this.maxBytes = maxBytes;
+    this.currentBytes = 0;
+    this.map = new Map();
+  }
+  get(key) {
+    const item = this.map.get(key);
+    if (!item) return null;
+    this.map.delete(key);
+    this.map.set(key, item);
+    return item.value;
+  }
+  has(key) {
+    return this.map.has(key);
+  }
+  set(key, value) {
+    const bytes = (value?.buffer?.length || 0) + 128;
+    if (bytes > this.maxBytes) return;
+    if (this.map.has(key)) {
+      this.currentBytes -= this.map.get(key).bytes;
+      this.map.delete(key);
+    }
+    while (this.currentBytes + bytes > this.maxBytes && this.map.size > 0) {
+      const oldestKey = this.map.keys().next().value;
+      const oldest = this.map.get(oldestKey);
+      this.currentBytes -= oldest.bytes;
+      this.map.delete(oldestKey);
+    }
+    this.map.set(key, { value, bytes });
+    this.currentBytes += bytes;
+  }
+  clear() {
+    this.map.clear();
+    this.currentBytes = 0;
+  }
+}
+const preAvifCache = new ByteCappedLruCache(16 * 1024 * 1024);
+
+async function getPreGeneratedWebp(relative, width = null) {
+  if (!width) return null;
+  const map = getResponsiveMap();
+  const variants = map['/assets/' + relative];
+  const match = variants?.find(v => v.width === width || v.url.includes('-display-' + width + '-'));
+  if (match?.url) {
+    try {
+      const diskFile = path.join(__dirname, '..', match.url.replace(/^\//, ''));
+      const buffer = await fs.readFile(diskFile);
+      if (buffer) {
+        return {
+          buffer,
+          etag: '"' + hash(buffer) + '-w' + width + '"'
+        };
+      }
+    } catch (_) {}
+  }
+  return null;
+}
 
 async function getPreGeneratedAvif(relative, width = null) {
   const cacheKey = relative + (width ? ':w=' + width : '');
@@ -176,34 +233,22 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
    if(!isImage)return next();
    if(!width&&!qualifiesForSelectiveAvif(req))return next();
    try{
-    const localFile=path.join(__dirname,'..','assets',relative);
-    const raw=await fs.readFile(localFile);
     if(width){
+     const preWebp = await getPreGeneratedWebp(relative, width);
+     if(preWebp){
+      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':preWebp.etag,'X-Content-Type-Options':'nosniff'});
+      if(req.fresh)return res.status(304).end();
+      return res.send(preWebp.buffer);
+     }
+     const localFile=path.join(__dirname,'..','assets',relative);
+     const raw=await fs.readFile(localFile);
      const resized=await cache.get('local:'+relative+':w='+width,async()=>{
       return sharp(raw,{limitInputPixels:24000000}).rotate().resize({width,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer();
      });
-     if(qualifiesForSelectiveAvif(req,resized.length)){
-      const avifResized=await cache.get('local:'+relative+':w='+width+':avif',async()=>encodeAvif(raw,{width,quality:width<=480?66:68,effort:2}));
-      if(avifResized.length<=resized.length*SAVINGS_RATIO){
-       const avifEtag='"'+hash(avifResized)+'-avif"';
-       res.type('image/avif').set({'Cache-Control':cacheControl,'ETag':avifEtag,'X-Content-Type-Options':'nosniff'});
-       if(req.fresh)return res.status(304).end();
-       return res.send(avifResized);
-      }
-     }
      const etag='"'+hash(resized)+'"';
      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':etag,'X-Content-Type-Options':'nosniff'});
      if(req.fresh)return res.status(304).end();
      return res.send(resized);
-    }
-    if(qualifiesForSelectiveAvif(req,raw.length)){
-     const avifBytes=await cache.get('local:'+relative+':avif',async()=>encodeAvif(raw,{quality:68,effort:2}));
-     if(avifBytes.length<=raw.length*SAVINGS_RATIO){
-      const etag='"'+hash(avifBytes)+'-avif"';
-      res.type('image/avif').set({'Cache-Control':cacheControl,'ETag':etag,'X-Content-Type-Options':'nosniff'});
-      if(req.fresh)return res.status(304).end();
-      return res.send(avifBytes);
-     }
     }
     return next();
    }catch{return next();}
@@ -212,12 +257,15 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
     const localFile=path.join(__dirname,'..','assets',relative);
     const raw=await fs.readFile(localFile);
     if(width&&isImage){
-      const resized=await cache.get('local:'+relative+':w='+width,async()=>{
-        return sharp(raw,{limitInputPixels:24000000}).rotate().resize({width,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer();
-      });
-      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':'"'+hash(resized)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
+      const preWebp = await getPreGeneratedWebp(relative, width);
+      if(preWebp){
+        res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':preWebp.etag,'X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
+        if(req.fresh)return res.status(304).end();
+        return res.send(preWebp.buffer);
+      }
+      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':'"'+hash(raw)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
       if(req.fresh)return res.status(304).end();
-      return res.send(resized);
+      return res.send(raw);
     }
     res.type(mime||'application/octet-stream').set({'Cache-Control':cacheControl,'ETag':'"'+hash(raw)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
     if(req.fresh)return res.status(304).end();

@@ -916,7 +916,12 @@ async function updateOrder(event) {
   if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
   try {
     if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");
-    if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
+    if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") {
+      if (order.paymentMethod === "cod" && !can("payments.write")) {
+        throw new Error("Tài khoản chưa có quyền xác nhận thu tiền (payments.write). Vui lòng để kế toán xác nhận đối soát thu tiền COD trước khi hoàn tất đơn.");
+      }
+      throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
+    }
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     saved=true;closeOrderProcessing();
     if(targetStatus!==order.status)document.querySelector("#order-filter").value=targetStatus;
@@ -1815,16 +1820,18 @@ function confirmOrderPermanentDeletion(order) {
 }
 
 async function handleOrderPermanentDeleteUI(orderId) {
-  if (!can('orders.write')) return;
+  if (!can('orders.permanent_delete')) return;
   const order = state.orders.find(o => o.id === orderId) || { id: orderId, orderNumber: orderId };
   const confirmed = await confirmOrderPermanentDeletion(order);
   if (!confirmed) return;
+  const password = window.prompt("CẢNH BÁO: Xóa vĩnh viễn đơn hàng " + (order.orderNumber || orderId) + "?\nĐơn hàng và các liên kết sẽ bị xóa hoàn toàn khỏi hệ thống!\n\nNhập mật khẩu quản trị viên để xác thực:");
+  if (!password || !password.trim()) return;
   try {
     const csrf = await request('/api/csrf');
     state.csrfToken = csrf.csrfToken;
     const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/permanent-delete', {
       method: 'POST',
-      body: JSON.stringify({ reason: 'Quản trị viên xác nhận xóa vĩnh viễn đơn ' + (order.orderNumber || orderId) })
+      body: JSON.stringify({ password: password.trim(), reason: 'Quản trị viên xác nhận xóa vĩnh viễn đơn ' + (order.orderNumber || orderId) })
     });
     await Promise.all([loadOrders(state.orderPage), loadSummary()]);
     showGlobal(res.message || 'Đã xóa vĩnh viễn đơn hàng và loại khỏi dữ liệu doanh số.');

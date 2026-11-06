@@ -200,3 +200,78 @@ test('Clicking product card navigates to product detail page, while choose-cart 
   assert.equal(openedTab, '/san-pham/gaeru-m3', 'Ctrl+click must open product page in new tab');
   assert.equal(navigatedTo, null, 'Ctrl+click must not navigate current tab');
 });
+
+test('Keyboard navigation (Enter / Space) on product card navigates to product detail page (A14)', () => {
+  const commerceSource = fs.readFileSync('commerce.js', 'utf8');
+  const html = `<!doctype html><html><body>
+    <article class="product-card is-visible" id="gaeru-m3" data-category="audio" data-href="/san-pham/gaeru-m3" tabindex="0" role="link" aria-label="GAERU M3">
+      <div class="product-copy">
+        <h3 class="product-title">GAERU M3</h3>
+      </div>
+      <div class="card-actions">
+        <button class="button button-blue" type="button" data-choose-cart="gaeru-m3">Thêm vào giỏ hàng</button>
+        <a class="button button-outline" href="/san-pham/gaeru-m3">Mua ngay</a>
+      </div>
+    </article>
+  </body></html>`;
+
+  const { document, window } = parseHTML(html);
+  let navigatedTo = null;
+  let openedTab = null;
+
+  const ctx = {
+    window,
+    document,
+    location: { assign: (url) => { navigatedTo = url; } },
+    escapeHtml: (s) => String(s || ''),
+    getPriceLabel: () => '840.000 ₫',
+    promotionLabel: () => '',
+    formatPrice: (n) => n + ' ₫',
+    renderMiniCart: () => {},
+    renderCart: () => {},
+    readCart: () => [],
+    writeCart: () => true,
+    cartRows: () => [],
+    products: fixtureProducts,
+    toast: () => {}
+  };
+  ctx.window.open = (url) => { openedTab = url; return {}; };
+  vm.createContext(ctx);
+
+  const startBind = commerceSource.indexOf('function bindGlobalControls() {');
+  const endBind = commerceSource.indexOf('function updateSaleCountdowns()');
+  vm.runInContext(commerceSource.slice(startBind, endBind), ctx);
+  ctx.bindGlobalControls();
+
+  const card = document.querySelector('.product-card');
+  assert.equal(card.getAttribute('tabindex'), '0');
+  assert.equal(card.getAttribute('role'), 'link');
+  assert.equal(card.getAttribute('aria-label'), 'GAERU M3');
+
+  // 1. Enter key on card navigates
+  navigatedTo = null;
+  const enterEvent = new window.Event('keydown', { bubbles: true, cancelable: true }); enterEvent.key = 'Enter';
+  card.dispatchEvent(enterEvent);
+  assert.equal(navigatedTo, '/san-pham/gaeru-m3', 'Enter key on focused card must navigate to product page');
+
+  // 2. Space key on card navigates
+  navigatedTo = null;
+  const spaceEvent = new window.Event('keydown', { bubbles: true, cancelable: true }); spaceEvent.key = ' ';
+  card.dispatchEvent(spaceEvent);
+  assert.equal(navigatedTo, '/san-pham/gaeru-m3', 'Space key on focused card must navigate to product page');
+
+  // 3. Ctrl+Enter opens in new tab
+  openedTab = null;
+  navigatedTo = null;
+  const ctrlEnter = new window.Event('keydown', { bubbles: true, cancelable: true }); ctrlEnter.key = 'Enter'; ctrlEnter.ctrlKey = true;
+  card.dispatchEvent(ctrlEnter);
+  assert.equal(openedTab, '/san-pham/gaeru-m3', 'Ctrl+Enter must open in new tab');
+  assert.equal(navigatedTo, null);
+
+  // 4. Enter on internal button does not trigger card navigation
+  navigatedTo = null;
+  const btn = document.querySelector('[data-choose-cart]');
+  const btnEnter = new window.Event('keydown', { bubbles: true, cancelable: true }); btnEnter.key = 'Enter';
+  btn.dispatchEvent(btnEnter);
+  assert.equal(navigatedTo, null, 'Enter on button inside card must NOT navigate card');
+});

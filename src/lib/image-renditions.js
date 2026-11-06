@@ -5,12 +5,12 @@ const { readMedia } = require('./stored-media');
 const { createObjectCache } = require('./object-cache');
 const { qualifiesForSelectiveAvif, encodeAvif, SAVINGS_RATIO } = require('./selective-avif');
 const widths = [480, 800, 1200];
-const cache = createObjectCache({ maxBytes: 96 * 1024 * 1024, maxEntryBytes: 8 * 1024 * 1024, ttl: 3600000, maxPending: 64 });
+const cache = createObjectCache({ maxBytes: 32 * 1024 * 1024, maxEntryBytes: 4 * 1024 * 1024, ttl: 3600000, maxPending: 64 });
 const poolRowCaches = new WeakMap();
 let active = 0;
 const waiting = [];
 async function bounded(work) {
-  if (active >= 4) await new Promise(resolve => waiting.push(resolve));
+  if (active >= 1) await new Promise(resolve => waiting.push(resolve));
   else active++;
   try { return await work(); }
   finally { const resume = waiting.shift(); if (resume) resume(); else active--; }
