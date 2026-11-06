@@ -21,7 +21,7 @@ if (headerRoot) {
   headerRoot.innerHTML = `
     <header class="site-header">
       <div class="nav-wrap">
-        <a class="wordmark" href="/" aria-label="GAERU — Trang chủ"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375" decoding="async"></span></a>
+        <a class="wordmark" href="/" aria-label="GAERU — Trang chủ"><span class="brand-window"><picture><source srcset="/assets/brand/gaeru-logo.webp" type="image/webp"><img class="brand-logo" src="/assets/brand/gaeru-logo.png" alt="GAERU" width="375" height="375" decoding="async" onerror="this.onerror=null;this.src='/assets/brand/gaeru-logo.png'"></picture></span></a>
         <button class="menu-toggle icon-button" type="button" aria-expanded="false" aria-controls="menu-panel" aria-label="Mở menu" data-open-label="Mở menu" data-close-label="Đóng menu">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path class="menu-icon-top" d="M4 8h16"/><path class="menu-icon-bottom" d="M4 16h16"/></svg>
         </button>
@@ -123,7 +123,7 @@ if (footerRoot) {
     <footer class="site-footer">
       <div class="footer-main">
         <div class="footer-brand">
-          <a class="wordmark" href="/"><span class="brand-window"><img class="brand-logo" src="assets/brand/gaeru-logo.webp" alt="GAERU" width="375" height="375" loading="lazy" decoding="async"></span></a>
+          <a class="wordmark" href="/"><span class="brand-window"><picture><source srcset="/assets/brand/gaeru-logo.webp" type="image/webp"><img class="brand-logo" src="/assets/brand/gaeru-logo.png" alt="GAERU" width="375" height="375" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='/assets/brand/gaeru-logo.png'"></picture></span></a>
           <p>Nhỏ gọn để bắt đầu.<br>Tự do để sáng tạo.</p>
         </div>
         <details class="footer-column" open>

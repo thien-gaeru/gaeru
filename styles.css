@@ -519,7 +519,14 @@ img { display: block; max-width: 100%; }
 .support-search-form { display: flex; width: min(100%, 640px); min-height: 52px; align-items: center; gap: 12px; margin: 0 auto; padding: 0 16px; border: 1px solid #b8b8bd; border-radius: 12px; background: #fff; box-shadow: 0 3px 10px rgb(0 0 0 / 4%); text-align: left; }
 .support-search-form:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgb(0 113 227 / 14%); }
 .support-search-form svg { width: 20px; height: 20px; flex: 0 0 auto; fill: none; stroke: var(--muted); stroke-width: 1.7; stroke-linecap: round; }
-.support-search-form input { width: 100%; min-width: 0; padding: 13px 0; border: 0; outline: 0; background: transparent; font-size: 14px; }
+.support-search-form input { width: 100%; min-width: 0; padding: 13px 0; border: 0; outline: 0; background: transparent; font-size: 14px; -webkit-appearance: none; appearance: none; }
+.support-search-form input[type="search"]::-webkit-search-decoration,
+.support-search-form input[type="search"]::-webkit-search-results-decoration,
+.support-search-form input[type="search"]::-webkit-search-results-button,
+.support-search-form input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  display: none;
+}
 .support-search-form button { padding: 6px 0 6px 8px; border: 0; background: transparent; color: var(--blue); font-size: 12px; cursor: pointer; }
 .support-search-form button:hover { text-decoration: underline; }
 .support-search-status { min-height: 19px; margin: 12px 0 0; color: var(--muted); font-size: 12px; }
@@ -975,7 +982,14 @@ body { overflow-x: clip; }
 .search-form:focus-within { border: 0; box-shadow: none; }
 .search-form > svg { flex: 0 0 25px; width: 25px; height: 25px; fill: none; stroke: #6e6e73; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .search-form input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(25px, 4vw, 34px); font-weight: 600; letter-spacing: -.04em; }
-.search-panel .search-form input[type="search"] { padding: 0; border: 0; font-size: clamp(25px, 4vw, 34px); }
+.search-panel .search-form input[type="search"] { padding: 0; border: 0; font-size: clamp(25px, 4vw, 34px); -webkit-appearance: none; appearance: none; }
+.search-form input[type="search"]::-webkit-search-decoration,
+.search-form input[type="search"]::-webkit-search-results-decoration,
+.search-form input[type="search"]::-webkit-search-results-button,
+.search-form input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  display: none;
+}
 .search-form input::placeholder { color: #6e6e73; opacity: 1; }
 .search-form input:focus-visible { outline: 0; }
 .search-suggestions { padding-top: 54px; }
