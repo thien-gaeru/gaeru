@@ -144,7 +144,46 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     });
   };
 
-  router.use(async(req,res,next)=>{try{req.ordersEnabled=getOrdersEnabled?await getOrdersEnabled():ordersEnabled;req.vnpayConfig=getVnpayConfig?await getVnpayConfig():vnpayConfig;req.paymentChannels=getPaymentChannels?await getPaymentChannels():paymentChannels;req.vnpayCallbackConfig=req.paymentChannels?.callbackConfigs?.vnpay||req.vnpayConfig;next();}catch(error){next(error);}});
+  let cachedStoreConfig = null;
+  let cachedStoreConfigTime = 0;
+  const STORE_CONFIG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 5000;
+
+  async function resolveStorePaymentConfig() {
+    const now = Date.now();
+    if (cachedStoreConfig && (now - cachedStoreConfigTime) < STORE_CONFIG_CACHE_TTL_MS) {
+      return cachedStoreConfig;
+    }
+    const resolvedOrdersEnabled = getOrdersEnabled ? await getOrdersEnabled() : ordersEnabled;
+    const resolvedVnpayConfig = getVnpayConfig ? await getVnpayConfig() : vnpayConfig;
+    const resolvedPaymentChannels = getPaymentChannels ? await getPaymentChannels() : paymentChannels;
+    const resolvedVnpayCallbackConfig = resolvedPaymentChannels?.callbackConfigs?.vnpay || resolvedVnpayConfig;
+    cachedStoreConfig = {
+      ordersEnabled: resolvedOrdersEnabled,
+      vnpayConfig: resolvedVnpayConfig,
+      paymentChannels: resolvedPaymentChannels,
+      vnpayCallbackConfig: resolvedVnpayCallbackConfig
+    };
+    cachedStoreConfigTime = now;
+    return cachedStoreConfig;
+  }
+
+  router.use(async (req, res, next) => {
+    const p = req.path || '';
+    const isCatalogOnly = /^\/products(?:\/|$)/.test(p) || p === '/search-index.json' || /^\/stock(?:\/|$)/.test(p) || /^\/categories(?:\/|$)/.test(p) || /^\/editorial(?:\/|$)/.test(p);
+    if (isCatalogOnly) {
+      return next();
+    }
+    try {
+      const cfg = await resolveStorePaymentConfig();
+      req.ordersEnabled = cfg.ordersEnabled;
+      req.vnpayConfig = cfg.vnpayConfig;
+      req.paymentChannels = cfg.paymentChannels;
+      req.vnpayCallbackConfig = cfg.vnpayCallbackConfig;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
   router.get("/products", async (req, res, next) => {
     try {
       const search = String(req.query.q || "").trim();

@@ -43,7 +43,64 @@ function checkAdminSessionValid(req) {
   return true;
 }
 
+
+// GAERU-14: Ngân sách kiểm soát kết nối SSE đồng thời cho Hostinger (2 CPU / 3 GB RAM)
+const MAX_TOTAL_SSE = Number(process.env.MAX_SSE_CONNECTIONS) || 120;
+const MAX_PER_IP_SSE = Number(process.env.MAX_PER_IP_SSE) || (process.env.NODE_ENV === 'test' ? 60 : 10);
+
+const activeSseConnections = new Set();
+const ipSseCounts = new Map();
+
+function getActiveSseCount() {
+  return activeSseConnections.size;
+}
+
+function acquireSseSlot(req, res) {
+  if (activeSseConnections.size >= MAX_TOTAL_SSE) {
+    if (typeof res.status === 'function') {
+      res.status(503).json({ error: 'Hệ thống đang phục vụ lượng kết nối thời gian thực tối đa. Vui lòng thử lại sau.' });
+    } else {
+      res.writeHead?.(503, { 'Content-Type': 'application/json' });
+      res.end?.(JSON.stringify({ error: 'Hệ thống đang phục vụ lượng kết nối thời gian thực tối đa. Vui lòng thử lại sau.' }));
+    }
+    return false;
+  }
+  const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+  const currentIpCount = ipSseCounts.get(ip) || 0;
+  if (currentIpCount >= MAX_PER_IP_SSE) {
+    if (typeof res.status === 'function') {
+      res.status(429).json({ error: 'Quá nhiều kết nối đồng thời từ thiết bị này.' });
+    } else {
+      res.writeHead?.(429, { 'Content-Type': 'application/json' });
+      res.end?.(JSON.stringify({ error: 'Quá nhiều kết nối đồng thời từ thiết bị này.' }));
+    }
+    return false;
+  }
+  ipSseCounts.set(ip, currentIpCount + 1);
+  activeSseConnections.add(res);
+
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeSseConnections.delete(res);
+    const count = ipSseCounts.get(ip) || 1;
+    if (count <= 1) {
+      ipSseCounts.delete(ip);
+    } else {
+      ipSseCounts.set(ip, count - 1);
+    }
+  };
+
+  req.once?.('close', release);
+  req.once?.('end', release);
+  res.once?.('close', release);
+  res.once?.('finish', release);
+  return true;
+}
+
 function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, checkSession = null } = {}) {
+  if (!acquireSseSlot(req, res)) return;
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -166,6 +223,7 @@ function publishChatEvent(threadId, event, data) {
 const realtimeClients = new Set();
 
 function sseHandler(req, res) {
+  if (!acquireSseSlot(req, res)) return;
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -218,5 +276,8 @@ module.exports = {
   publishCareEvent,
   publishChatEvent,
   sseHandler,
-  realtimeClients
+  realtimeClients,
+  getActiveSseCount,
+  MAX_TOTAL_SSE,
+  MAX_PER_IP_SSE
 };

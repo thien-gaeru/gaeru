@@ -10,10 +10,31 @@ async function sendPublicCatalogImage(req, res, row) {
   return sendPublicImage(req, res, row, 'catalog-image');
 }
 
+function isValidMarketplaceUrl(val, provider) {
+  if (!val || typeof val !== 'string') return true;
+  const trimmed = val.trim();
+  if (!trimmed) return true;
+  let parsed;
+  try {
+    parsed = new URL(trimmed.startsWith('http') ? trimmed : 'https://' + trimmed);
+  } catch (_) {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return false;
+  const host = parsed.hostname.toLowerCase();
+  if (provider === 'shopee') {
+    return host === 'shopee.vn' || host.endsWith('.shopee.vn') || host === 'shopee.com' || host.endsWith('.shopee.com') || host === 's.shopee.vn';
+  }
+  if (provider === 'tiktok') {
+    return host === 'tiktok.com' || host.endsWith('.tiktok.com') || host === 'tiktokshop.com' || host.endsWith('.tiktokshop.com');
+  }
+  return false;
+}
+
 const uuid=z.string().uuid(),image=z.string().regex(/^(?:\/assets\/products\/(?:[a-zA-Z0-9._-]+|m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)\.(?:png|webp))|\/api\/catalog-images\/[0-9a-f-]{36})$/).refine(v=>v.startsWith('/assets/')||uuid.safeParse(v.split('/').at(-1)).success);
 const group=z.object({name:z.string().trim().min(1).max(50),values:z.array(z.string().trim().min(1).max(80)).min(1).max(20)}).strict();
 const media=z.object({type:z.enum(["image","video"]),url:z.string(),alt:z.string().trim().min(3).max(250),caption:z.string().max(300).default(""),afterParagraph:z.number().int().min(0).max(100).nullable().default(null)}).strict().refine(m=>m.type==="image"?image.safeParse(m.url).success:/^\/api\/catalog-videos\/[0-9a-f-]{36}$/.test(m.url)&&uuid.safeParse(m.url.split("/").at(-1)).success);
-const schema=z.object({inTrash:z.literal(true).optional(),descriptionMedia:z.array(media).max(12).default([]),id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),product:z.object({name:z.string().trim().min(2).max(160),slug:z.string().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),category:z.enum(['audio','video','accessory']),descriptor:z.string().trim().max(160),cardTitle:z.string().trim().max(100).default(''),cardSummary:z.string().trim().max(240).default(''),description:z.string().trim().max(3000),imageUrl:image,imageAlt:z.string().max(250),active:z.boolean(),sortOrder:z.number().int().min(-1000).max(10000),shopeeUrl:z.string().trim().max(1000).nullish().transform(v=>v||'').default(''),tiktokShopUrl:z.string().trim().max(1000).nullish().transform(v=>v||'').default('')}).strict(),gallery:z.array(image).min(1).max(9),groups:z.array(group).max(3),variants:z.array(z.object({id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),sku:z.string().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/),name:z.string().min(1).max(160),options:z.record(z.string().min(1).max(50),z.string().min(1).max(80)),priceVnd:z.number().int().min(0).max(20000000),stockQuantity:z.number().int().min(0).max(1000000),active:z.boolean(),imageUrl:z.union([image,z.literal('')])}).strict()).max(100)}).strict();
+const schema=z.object({inTrash:z.literal(true).optional(),descriptionMedia:z.array(media).max(12).default([]),id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),product:z.object({name:z.string().trim().min(2).max(160),slug:z.string().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),category:z.enum(['audio','video','accessory']),descriptor:z.string().trim().max(160),cardTitle:z.string().trim().max(100).default(''),cardSummary:z.string().trim().max(240).default(''),description:z.string().trim().max(3000),imageUrl:image,imageAlt:z.string().max(250),active:z.boolean(),sortOrder:z.number().int().min(-1000).max(10000),shopeeUrl:z.string().trim().max(1000).nullish().transform(v=>v||'').refine(v=>isValidMarketplaceUrl(v,'shopee'),{message:'Đường dẫn Shopee không hợp lệ.'}).default(''),tiktokShopUrl:z.string().trim().max(1000).nullish().transform(v=>v||'').refine(v=>isValidMarketplaceUrl(v,'tiktok'),{message:'Đường dẫn TikTok Shop không hợp lệ.'}).default('')}).strict(),gallery:z.array(image).min(1).max(9),groups:z.array(group).max(3),variants:z.array(z.object({id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),sku:z.string().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/),name:z.string().min(1).max(160),options:z.record(z.string().min(1).max(50),z.string().min(1).max(80)),priceVnd:z.number().int().min(0).max(20000000),stockQuantity:z.number().int().min(0).max(1000000),active:z.boolean(),imageUrl:z.union([image,z.literal('')])}).strict()).max(100)}).strict();
 const fail=(message,status=409)=>Object.assign(Error(message),{status});
 const signature=o=>JSON.stringify(Object.entries(o).sort(([a],[b])=>a.localeCompare(b)));
 async function read(client,id,inTrash=false){const product=(await client.query('SELECT deleted_at,deleted_variant_state,id,name,slug,category,descriptor,description,card_title AS "cardTitle",card_summary AS "cardSummary",image_url AS "imageUrl",image_alt AS "imageAlt",active,sort_order AS "sortOrder",COALESCE(shopee_url,\'\') AS "shopeeUrl",COALESCE(tiktok_shop_url,\'\') AS "tiktokShopUrl",updated_at AS "updatedAt",edit_version AS version FROM products WHERE id=$1 AND (deleted_at IS NOT NULL)=$2',[id,inTrash])).rows[0];if(!product)return null;product.updatedAt=new Date(product.updatedAt).toISOString();const variants=(await client.query('SELECT id,sku,name,options,price_vnd AS "priceVnd",stock_quantity AS "stockQuantity",active,image_url AS "imageUrl",updated_at AS "updatedAt",edit_version AS version FROM product_variants WHERE product_id=$1 ORDER BY name,id',[id])).rows.map(v=>({...v,updatedAt:new Date(v.updatedAt).toISOString()}));if(inTrash){const states=new Map(product.deleted_variant_state.map(v=>[v.id,v.active]));for(const v of variants)if(states.has(v.id))v.active=states.get(v.id)===true;}const meta=(await client.query('SELECT gallery,option_groups AS groups,description_media AS "descriptionMedia" FROM product_presentations WHERE product_id=$1',[id])).rows[0];const {deleted_at,deleted_variant_state,id:productId,updatedAt:productDate,version,...fields}=product;return {...(inTrash?{inTrash:true}:{}),id,updatedAt:product.updatedAt,version,product:fields,variants,gallery:meta?.gallery?.length?meta.gallery:[product.imageUrl],groups:meta?.groups||[],descriptionMedia:meta?.descriptionMedia||[]};}
@@ -208,14 +229,6 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
      : next()),
    handleBatchUpload);
 
- publicApi.post('/upload-batch-products',
-   catalogImageUploadLimiter,
-   (req, res, next) => uploadBatch(req, res, e => e
-     ? res.status(400).json({
-         error: e.message || 'Chọn ảnh PNG, JPG hoặc WebP tối đa 10 MB.'
-       })
-     : next()),
-   handleBatchUpload);
  admin.post('/product-workspace',requirePermission('catalog.write'),requireCsrf,async(req,res,next)=>{const parsed=schema.safeParse(req.body);if(!parsed.success){const issues=parsed.error.issues||[];const first=issues[0];let msg='Kiểm tra thông tin, ảnh, SKU, giá và số lượng biến thể.';if(first){const p=first.path.join('.');if(p==='product.name')msg='Tên sản phẩm cần từ 2 đến 160 ký tự.';else if(p==='product.slug')msg='Đường dẫn sản phẩm chỉ được dùng chữ thường không dấu, số và dấu gạch nối (ví dụ: gaeru-k9).';else if(p==='gallery'||p.startsWith('gallery'))msg='Vui lòng thêm ít nhất một ảnh sản phẩm (tối đa 9 ảnh).';else if(p.includes('sku'))msg='Mã SKU không được để trống và chỉ gồm chữ, số, dấu gạch nối (ví dụ: K9-01).';else if(p.includes('priceVnd'))msg='Giá bán biến thể phải là số nguyên từ 0₫ đến 20.000.000₫.';else if(p.includes('stockQuantity'))msg='Số lượng tồn kho phải là số nguyên từ 0 đến 1.000.000.';else if(p==='product.description')msg='Mô tả chi tiết sản phẩm không quá 3000 ký tự.';else if(p==='product.cardTitle')msg='Tiêu đề thẻ sản phẩm tối đa 100 ký tự.';else if(p==='product.cardSummary')msg='Thông điệp giới thiệu tối đa 240 ký tự.';else if(first.message&&!first.message.startsWith('Required')&&!first.message.startsWith('Expected')&&!first.message.startsWith('Invalid'))msg=first.message;}return res.status(400).json({error:msg,issues});}const a=parsed.data;if(a.inTrash&&(!a.id||a.product.active))return res.status(400).json({error:'Sản phẩm đã xóa chỉ được lưu trong khu vực đã xóa. Dùng Khôi phục hoặc Kích hoạt lại để đưa ra danh mục.'});
  try{const names=a.groups.map(g=>g.name.toLocaleLowerCase());if(new Set(names).size!==names.length)throw fail('Tên nhóm phân loại không được trùng.',400);for(const g of a.groups)if(new Set(g.values.map(v=>v.toLocaleLowerCase())).size!==g.values.length)throw fail('Lựa chọn trong một nhóm không được trùng.',400);
  const ids=a.variants.filter(v=>v.id).map(v=>v.id);if(new Set(ids).size!==ids.length)throw fail('Mỗi biến thể đã lưu chỉ được xuất hiện một lần.',400);

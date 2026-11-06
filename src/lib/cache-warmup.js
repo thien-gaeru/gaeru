@@ -28,7 +28,7 @@ async function warmHotImagesInBackground(pool, products) {
           [id, canonical, JSON.stringify([canonical]), JSON.stringify([{ type: 'image', url: canonical }])]
         )).rows[0]
       );
-      if (row) { await warmPublicImage(row, [480, 800]); await new Promise(r => setImmediate(r)); }
+      // GAERU-09: Row content is cached in LRU; heavy Sharp/AVIF re-encoding skipped at boot
     }
     const newsRows = (await pool.query("SELECT cover_id FROM news_posts WHERE status='published' AND cover_id IS NOT NULL ORDER BY published_at DESC, id LIMIT 12")).rows;
     for (const { cover_id: coverId } of newsRows) {
@@ -41,7 +41,7 @@ async function warmHotImagesInBackground(pool, products) {
           [coverId]
         )).rows[0]
       );
-      if (row) await warmPublicImage(row, [480, 800]);
+      // GAERU-09: Cover image row is cached in LRU; heavy Sharp/AVIF re-encoding skipped at boot
     }
   } catch (_) {}
 }

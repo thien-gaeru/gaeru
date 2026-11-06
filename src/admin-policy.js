@@ -13,7 +13,7 @@ function adminPolicy(req, res, next) {
   if (/^\/warranties(\/|$)/.test(path)) return next();
   if (/^\/business(\/|$)/.test(path)) return next();
   if (/^\/(news|news-images)(\/|$)/.test(path)) return next();
-  if (/^\/(product-workspace|catalog-images|catalog-videos)(\/|$)/.test(path)) return next();
+  if (/^\/(product-workspace|catalog-images|catalog-videos|upload-batch-products)(\/|$)/.test(path)) return next();
   let permission;
   if (/^\/pages(\/|$)/.test(path)) return next();
   if (path === "/summary" || path === "/system-health" || path === "/traffic-summary") permission = "dashboard.read";

@@ -132,6 +132,19 @@ test('Product marketplace purchase links (Shopee & TikTok Shop) lifecycle and re
 
   const productId = createRes.data.id;
 
+  // GAERU-15: Reject untrusted/phishing marketplace domains
+  const maliciousPayload = {
+    ...initialPayload,
+    product: {
+      ...initialPayload.product,
+      slug: 'gaeru-m3-pro-fake',
+      shopeeUrl: 'https://fake-shopee.xyz/steal-creds'
+    }
+  };
+  const malRes = await api('/api/gaeru_ceo/product-workspace', 'POST', maliciousPayload);
+  assert.equal(malRes.status, 400, 'Must reject fake shopee domain with 400');
+  assert.ok(malRes.data?.error?.includes('Shopee') || JSON.stringify(malRes.data).includes('Shopee'));
+
   // Read product back from admin workspace
   const readRes = await api(`/api/gaeru_ceo/product-workspace/${productId}`);
   assert.equal(readRes.status, 200);

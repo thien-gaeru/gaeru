@@ -193,6 +193,19 @@ test('readiness gate rejects business traffic with 503 while initializing and pa
   readinessMiddleware(assetReq, mockRes, () => { assetPassed = true; });
   assert.equal(assetPassed, true);
 
+  // GAERU-16: API endpoints with .json extension must NOT bypass readiness gate
+  let apiJsonPassed = false;
+  let apiJsonStatus = 0;
+  const apiJsonReq = { path: '/api/products.json', accepts: () => false };
+  const apiJsonRes = {
+    setHeader(k, v) {},
+    status(code) { apiJsonStatus = code; return this; },
+    json(data) { return data; }
+  };
+  readinessMiddleware(apiJsonReq, apiJsonRes, () => { apiJsonPassed = true; });
+  assert.equal(apiJsonPassed, false, 'API route with .json suffix must not bypass readiness');
+  assert.equal(apiJsonStatus, 503);
+
   // When ready, business traffic passes freely
   setReady(true);
   let readyPassed = false;

@@ -27,9 +27,21 @@ function resetReadinessForTesting() {
 
 function isAssetPath(pathname) {
   if (typeof pathname !== 'string') return false;
-  return pathname.startsWith('/assets/') ||
-         pathname.startsWith('/public/') ||
-         /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|css|js|map|json|mp4|webm|pdf)$/i.test(pathname);
+  // GAERU-16: Tuyệt đối không cho qua API hoặc tuyến quản trị có đuôi .json / .js
+  if (/^\/(?:api|gaeru_ceo)(?:\/|$)/i.test(pathname)) return false;
+
+  if (pathname.startsWith('/assets/') || pathname.startsWith('/public/')) {
+    return true;
+  }
+  // File tĩnh thực sự trong web root
+  if (/\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|css|js|map|mp4|webm|pdf)$/i.test(pathname)) {
+    return true;
+  }
+  // Riêng .json: chỉ cho phép các file manifest tĩnh hoặc search index công khai
+  if (pathname === '/manifest.webmanifest' || pathname === '/site.webmanifest' || pathname === '/search-index.json') {
+    return true;
+  }
+  return false;
 }
 
 function readinessMiddleware(req, res, next) {

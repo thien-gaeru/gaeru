@@ -70,6 +70,7 @@ function createCodReturnIntake(pool) {
          WHERE (s.status = 'returned' OR s.carrier_status_raw ILIKE '%return%' OR s.carrier_status_raw ILIKE '%hoan%')
            AND cri.id IS NULL
            AND o.status != 'cancelled'
+           AND o.payment_method = 'cod'
          GROUP BY s.id, o.id
          ORDER BY s.updated_at DESC
          LIMIT $1 OFFSET $2`,
@@ -177,9 +178,35 @@ function createCodReturnIntake(pool) {
           throw fail('Vận đơn này đã được kiểm nhận hoàn kho trước đó.', 409);
         }
 
-        // Đơn hàng đã giao thành công không được kiểm nhận hoàn COD tự động
+        // 1. Chỉ áp dụng cho đơn hàng COD
+        if (shipment.paymentMethod !== 'cod') {
+          throw fail(`Đơn hàng (${shipment.orderNumber}) sử dụng phương thức thanh toán ${(shipment.paymentMethod || '').toUpperCase()}, không phải đơn COD. Chỉ đơn COD mới được xử lý hoàn qua luồng này.`, 400);
+        }
+
+        // 2. Không cho phép kiểm nhận hoàn đơn COD đã thu tiền/đối soát
+        if (shipment.paymentStatus === 'paid') {
+          throw fail(`Đơn hàng COD (${shipment.orderNumber}) đã được ghi nhận thanh toán/đối soát. Vui lòng đối soát kế toán trước khi xử lý hủy đơn hoặc hoàn tiền.`, 409);
+        }
+
+        // 3. Đơn hàng đã ở trạng thái hủy trước đó
+        if (shipment.orderStatus === 'cancelled') {
+          throw fail(`Đơn hàng (${shipment.orderNumber}) đã ở trạng thái hủy trước đó.`, 409);
+        }
+
+        // 4. Đơn hàng đã giao thành công không được kiểm nhận hoàn COD tự động
         if (shipment.orderStatus === 'completed') {
-          throw fail('Đơn hàng đã hoàn tất giao hàng thành công; không thể kiểm nhận chuyển hoàn.', 409);
+          throw fail('Đơn hàng đã hoàn tất giao hàng thành công; không thể kiểm nhận chuyển hoàn tự động.', 409);
+        }
+
+        // 5. Xác minh trạng thái giao vận: Bắt buộc phải là chuyển hoàn / giao thất bại / trả hàng
+        const rawStatus = String(shipment.carrier_status_raw || '').toLowerCase();
+        const descStatus = String(shipment.carrier_status_desc || '').toLowerCase();
+        const isReturnSignal = shipment.status === 'returned' ||
+          /return|hoan|fail|refus|huy|reject|undeliver/i.test(rawStatus) ||
+          /chuyển hoàn|trả hàng|thất bại|từ chối|hủy/i.test(descStatus);
+
+        if (!isReturnSignal) {
+          throw fail(`Vận đơn ${shipment.tracking_number} đang ở trạng thái "${shipment.status}". Chỉ bưu phẩm có xác nhận chuyển hoàn hoặc giao không thành công từ bưu cục mới được kiểm nhận hoàn kho.`, 400);
         }
 
         // Lấy danh sách sản phẩm
@@ -215,6 +242,14 @@ function createCodReturnIntake(pool) {
         } else {
           const wRow = (await client.query('SELECT name FROM warehouses WHERE id = $1', [targetWarehouseId])).rows[0];
           targetWarehouseName = wRow?.name || '';
+
+          const allocWarehouseIds = (await client.query(
+            `SELECT DISTINCT warehouse_id FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL`,
+            [shipment.orderId]
+          )).rows.map(r => r.warehouse_id);
+          if (allocWarehouseIds.length && !allocWarehouseIds.includes(targetWarehouseId)) {
+            throw fail(`Kho tiếp nhận (${targetWarehouseName || targetWarehouseId}) khác kho xuất hàng ban đầu. Vui lòng chọn đúng kho xuất ban đầu để hoàn tồn chính xác.`, 400);
+          }
         }
 
         let restocked = false;
@@ -280,8 +315,9 @@ function createCodReturnIntake(pool) {
               reason: 'Hoàn điểm do đơn COD chuyển hoàn',
               actor: req.admin
             });
-          } catch (_) {
-            // Không ngắt giao dịch nếu đơn chưa dùng điểm
+          } catch (loyaltyErr) {
+            console.error(`[COD-INTAKE] Lỗi khi hoàn điểm loyalty cho đơn ${shipment.orderNumber}:`, loyaltyErr);
+            throw fail('Lỗi khi hoàn điểm tích lũy của khách hàng: ' + loyaltyErr.message, 500);
           }
         }
 
@@ -350,7 +386,8 @@ function createCodReturnIntake(pool) {
       res.json(intakeResult);
     } catch (e) {
       if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: e.errors[0]?.message || 'Dữ liệu kiểm nhận không hợp lệ.' });
+        const msg = e.issues?.[0]?.message || e.errors?.[0]?.message || 'Dữ liệu kiểm nhận không hợp lệ.';
+        return res.status(400).json({ error: msg });
       }
       next(e);
     }

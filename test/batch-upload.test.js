@@ -83,15 +83,38 @@ test('Batch Upload API processes multi-image album, dual resolutions, and disk c
   const img2 = await sharp(Buffer.from('<svg width="200" height="200"><rect width="200" height="200" fill="white"/><circle cx="100" cy="100" r="60" fill="#2563eb"/></svg>')).png().toBuffer();
   const img3 = await sharp(Buffer.from('<svg width="200" height="200"><rect width="200" height="200" fill="white"/><polygon points="100,30 170,170 30,170" fill="#16a34a"/></svg>')).png().toBuffer();
 
-  await t.test('POST /api/upload-batch-products accepts multiple images and returns dual urls', async () => {
+  await t.test('POST /api/upload-batch-products public route is closed (returns 404)', async () => {
+    const form = new FormData();
+    form.append('images', new Blob([img1], { type: 'image/png' }), 'product-1.png');
+
+    const res = await fetch(base + '/api/upload-batch-products', {
+      method: 'POST',
+      body: form
+    });
+    assert.equal(res.status, 404);
+  });
+
+  await t.test('POST /api/gaeru_ceo/upload-batch-products requires admin auth and CSRF (returns 401)', async () => {
+    const form = new FormData();
+    form.append('images', new Blob([img1], { type: 'image/png' }), 'product-1.png');
+
+    const res = await fetch(base + '/api/gaeru_ceo/upload-batch-products', {
+      method: 'POST',
+      body: form
+    });
+    assert.equal(res.status, 401);
+  });
+
+  await t.test('POST /api/gaeru_ceo/upload-batch-products accepts multiple images with admin auth', async () => {
     const form = new FormData();
     form.append('images', new Blob([img1], { type: 'image/png' }), 'product-1.png');
     form.append('images', new Blob([img2], { type: 'image/png' }), 'product-2.png');
     form.append('images', new Blob([img3], { type: 'image/png' }), 'product-3.png');
     form.append('enableShadow', 'true');
 
-    const res = await fetch(base + '/api/upload-batch-products', {
+    const res = await fetch(base + '/api/gaeru_ceo/upload-batch-products', {
       method: 'POST',
+      headers: adminHeaders,
       body: form
     });
 
@@ -154,8 +177,9 @@ test('Batch Upload API processes multi-image album, dual resolutions, and disk c
 
   await t.test('Batch Upload rejects empty submission with 400', async () => {
     const form = new FormData();
-    const res = await fetch(base + '/api/upload-batch-products', {
+    const res = await fetch(base + '/api/gaeru_ceo/upload-batch-products', {
       method: 'POST',
+      headers: adminHeaders,
       body: form
     });
     assert.equal(res.status, 400);

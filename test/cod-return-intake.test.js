@@ -252,4 +252,106 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
     headers: { 'X-No-Perm': '1' }
   });
   assert.equal(noPermRes.status, 403);
+
+  // --- TEST CASE 10 (GAERU-02): Chặn kiểm nhận đơn trả trước VNPAY qua luồng COD (400) ---
+  const order3 = (await pool.query(
+    `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, subtotal_vnd, total_vnd, status, payment_status)
+     VALUES('ORD-PREPAID-3', 'Lê Văn C', 'c@example.com', '0933333333', '12 Nguyễn Trãi', 'Hà Nội', 'vnpay', 1500000, 1500000, 'shipped', 'paid')
+     RETURNING id`
+  )).rows[0];
+  await pool.query(
+    `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
+     VALUES($1, 'ghn', 'VNPAY-SHIP-003', 'returned', 'Delivery Failed - Return', 0)`,
+    [order3.id]
+  );
+  const prepaidRes = await fetch(`${base}/cod-returns/intake`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
+    body: JSON.stringify({ trackingNumber: 'VNPAY-SHIP-003', packageCondition: 'intact' })
+  });
+  assert.equal(prepaidRes.status, 400);
+  const prepaidErr = await prepaidRes.json();
+  assert.ok(prepaidErr.error.includes('VNPAY'), 'Phải thông báo rõ không phải đơn COD');
+
+  // Đơn hàng VNPAY không bị hủy ngoài ý muốn
+  const checkOrder3 = (await pool.query('SELECT status FROM orders WHERE id = $1', [order3.id])).rows[0];
+  assert.equal(checkOrder3.status, 'shipped');
+
+  // --- TEST CASE 11 (GAERU-02): Chặn đơn COD đã thanh toán/đối soát (409) ---
+  const order4 = (await pool.query(
+    `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, subtotal_vnd, total_vnd, status, payment_status)
+     VALUES('ORD-PAID-COD-4', 'Phạm Văn D', 'd@example.com', '0944444444', '88 Cầu Giấy', 'Hà Nội', 'cod', 1500000, 1500000, 'shipped', 'paid')
+     RETURNING id`
+  )).rows[0];
+  await pool.query(
+    `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
+     VALUES($1, 'ghn', 'COD-PAID-004', 'returned', 'Return completed', 1500000)`,
+    [order4.id]
+  );
+  const paidCodRes = await fetch(`${base}/cod-returns/intake`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
+    body: JSON.stringify({ trackingNumber: 'COD-PAID-004', packageCondition: 'intact' })
+  });
+  assert.equal(paidCodRes.status, 409);
+  const paidCodErr = await paidCodRes.json();
+  assert.ok(paidCodErr.error.includes('thanh toán/đối soát'), 'Phải yêu cầu đối soát kế toán trước');
+
+  // --- TEST CASE 12 (GAERU-02): Chặn kiện hàng đang đi giao / chưa có xác nhận hoàn từ bưu cục (400) ---
+  const order5 = (await pool.query(
+    `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, subtotal_vnd, total_vnd, status, payment_status)
+     VALUES('ORD-DELIVERING-5', 'Hoàng Văn E', 'e@example.com', '0955555555', '99 Hai Bà Trưng', 'Hà Nội', 'cod', 1500000, 1500000, 'shipped', 'pending')
+     RETURNING id`
+  )).rows[0];
+  await pool.query(
+    `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
+     VALUES($1, 'ghn', 'COD-DELIVERING-005', 'delivering', 'Shipper is delivering package to customer', 1500000)`,
+    [order5.id]
+  );
+  const deliveringRes = await fetch(`${base}/cod-returns/intake`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
+    body: JSON.stringify({ trackingNumber: 'COD-DELIVERING-005', packageCondition: 'intact' })
+  });
+  assert.equal(deliveringRes.status, 400);
+  const deliveringErr = await deliveringRes.json();
+  assert.ok(deliveringErr.error.includes('delivering') || deliveringErr.error.includes('chuyển hoàn'), 'Phải chặn kiện hàng đang đi giao');
+
+  // --- TEST CASE 13 (GAERU-03): Chặn kiểm nhận nếu kho tiếp nhận khác kho xuất ban đầu (400) ---
+  const warehouseHCM = (await pool.query(
+    "INSERT INTO warehouses(code, name, address, active) VALUES('KHO-HCM', 'Kho Hồ Chí Minh', '456 Quận 1', true) RETURNING id"
+  )).rows[0];
+  const order6 = (await pool.query(
+    `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, subtotal_vnd, total_vnd, status, payment_status)
+     VALUES('ORD-DIFF-WH-6', 'Đỗ Văn F', 'f@example.com', '0966666666', '101 Kim Mã', 'Hà Nội', 'cod', 1500000, 1500000, 'shipped', 'pending')
+     RETURNING id`
+  )).rows[0];
+  await pool.query(
+    `INSERT INTO order_stock_allocations(order_id, variant_id, warehouse_id, quantity)
+     VALUES($1, $2, $3, 1)`,
+    [order6.id, variant.id, warehouse.id]
+  );
+  await pool.query(
+    `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
+     VALUES($1, 'ghn', 'COD-DIFF-WH-006', 'returned', 'Returning to sender', 1500000)`,
+    [order6.id]
+  );
+  const diffWhRes = await fetch(`${base}/cod-returns/intake`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
+    body: JSON.stringify({ trackingNumber: 'COD-DIFF-WH-006', packageCondition: 'intact', warehouseId: warehouseHCM.id })
+  });
+  assert.equal(diffWhRes.status, 400);
+  const diffWhErr = await diffWhRes.json();
+  assert.ok(diffWhErr.error.includes('khác kho xuất'), 'Phải cảnh báo sai lệch kho tiếp nhận');
+
+  // --- TEST CASE 14 (GAERU-11): Validate dữ liệu không hợp lệ trả về 400 Bad Request (không bị lỗi 500 TypeError) ---
+  const invalidRes = await fetch(`${base}/cod-returns/intake`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
+    body: JSON.stringify({ trackingNumber: '', packageCondition: 'not_valid_condition' })
+  });
+  assert.equal(invalidRes.status, 400);
+  const invalidData = await invalidRes.json();
+  assert.ok(invalidData.error, 'Phải có thông báo lỗi rõ ràng');
 });

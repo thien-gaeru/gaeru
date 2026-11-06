@@ -5,10 +5,18 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
-const DCB_MAGIC = Buffer.from([0xff, 0x44, 0x43, 0x42]); // \xffDCB (RFC 9682)
+const DCB_MAGIC = Buffer.from([0xff, 0x44, 0x43, 0x42]); // \xffDCB (RFC 9842)
 const DICT_PATH = path.join(__dirname, '..', '..', 'assets', 'dict', 'shared-template.dict');
 
 let cachedDict = null;
+
+function isDcbEnabled() {
+  // GAERU-06: Tắt DCB mặc định trên production cho đến khi có encoder/decoder chuẩn RFC 9842
+  if (process.env.ENABLE_DCB === 'true') return true;
+  if (process.env.DISABLE_DCB === 'true' || process.env.ENABLE_DCB === 'false') return false;
+  if (process.env.NODE_ENV === 'production') return false;
+  return true;
+}
 
 function getDictionaryInfo() {
   if (!cachedDict) {
@@ -34,6 +42,7 @@ function getDictionaryInfo() {
 }
 
 function isDcbEligible(req) {
+  if (!isDcbEnabled()) return false;
   if (!req || !['GET', 'HEAD'].includes(req.method)) return false;
   const acceptEncoding = String(req.headers['accept-encoding'] || '');
   if (!acceptEncoding.includes('dcb')) return false;
@@ -82,6 +91,7 @@ function serveDictionaryRoute(req, res) {
 module.exports = {
   DCB_MAGIC,
   getDictionaryInfo,
+  isDcbEnabled,
   isDcbEligible,
   compressDcb,
   serveDictionaryRoute

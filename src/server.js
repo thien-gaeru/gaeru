@@ -43,9 +43,6 @@ async function start() {
   await migrateDatabase(pool);
   if (shuttingDown) return;
 
-  // Mark Readiness Gate as READY: All business traffic flows through normally
-  setReady(true);
-
   // Background workers initialization
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
   if (isBackgroundWorker) {
@@ -74,6 +71,9 @@ async function start() {
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
   }
   if (shuttingDown) return;
+
+  // GAERU-10: Mark Readiness Gate as READY only after DB migrations and static assets are probed/synced
+  setReady(true);
 
   if(mediaCheck.verified&&!shuttingDown){
     mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)

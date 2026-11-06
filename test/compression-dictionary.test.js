@@ -109,4 +109,19 @@ test('cleanRoutes negotiates dcb when Available-Dictionary matches and falls bac
     }
   });
   assert.equal(revalRes.status, 304);
+
+  // 4. GAERU-06: When DCB is disabled, cleanRoutes falls back to standard compression
+  process.env.DISABLE_DCB = 'true';
+  try {
+    const disabledRes = await fetch(`${base}/san-pham/test-product`, {
+      headers: {
+        'Accept-Encoding': 'dcb, br, gzip',
+        'Available-Dictionary': info.hashBase64Formatted
+      }
+    });
+    assert.equal(disabledRes.status, 200);
+    assert.notEqual(disabledRes.headers.get('content-encoding'), 'dcb', 'Must not serve DCB when DCB is disabled');
+  } finally {
+    delete process.env.DISABLE_DCB;
+  }
 });

@@ -54,6 +54,8 @@ async function getPreGeneratedAvif(relative, width = null) {
         return await fs.readFile(diskFile);
       } catch (_) {}
     }
+    // GAERU-08: Nếu yêu cầu kích thước cụ thể nhưng không có bản responsive tương ứng, không được trả bản gốc full-size
+    return null;
   }
   if (relative && relative.endsWith('.webp')) {
     try {
@@ -229,7 +231,11 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
         return value;
       }catch(err){
         if(err.code==='ENOENT'){
-          return await fs.readFile(path.join(__dirname,'..','assets',relative));
+          const fallbackBytes = await fs.readFile(path.join(__dirname,'..','assets',relative));
+          if(fallbackBytes.length!==Number(row.byte_size)||hash(fallbackBytes)!==row.sha256){
+            throw Error('SITE_ASSET_FALLBACK_INTEGRITY');
+          }
+          return fallbackBytes;
         }
         throw err;
       }

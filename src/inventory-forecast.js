@@ -798,7 +798,7 @@ function createInventoryForecastApi(pool) {
       res.json({ success: true, settings: saved });
     } catch (err) {
       if (err.name === 'ZodError') {
-        return res.status(400).json({ error: 'Dữ liệu cấu hình ROP không hợp lệ.', details: err.errors });
+        return res.status(400).json({ error: 'Dữ liệu cấu hình ROP không hợp lệ.', details: err.issues || err.errors });
       }
       if (err.status) return res.status(err.status).json({ error: err.message });
       next(err);

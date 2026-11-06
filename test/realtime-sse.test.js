@@ -249,3 +249,37 @@ test('Realtime SSE Server & Client Integration Suite', async t => {
   p.stop();
   assert.equal(mockEsInstance.closed, true);
 });
+
+test('GAERU-14: SSE connection budget rejects excessive concurrent sockets with 429 or 503', async () => {
+  const { EventEmitter } = require('node:events');
+  const { openSseStream, getActiveSseCount } = require('../src/realtime-sse');
+  const initialActive = getActiveSseCount();
+  const reqList = [];
+  const responses = [];
+
+  // Simulate reaching the per-IP limit (cap in test is 60)
+  for (let i = 0; i < 70; i++) {
+    const mockReq = new EventEmitter();
+    mockReq.ip = '10.0.0.99';
+    let writtenStatus = null;
+    let jsonBody = null;
+    const mockRes = new EventEmitter();
+    mockRes.writeHead = (st) => { writtenStatus = st; };
+    mockRes.write = () => {};
+    mockRes.status = (code) => { writtenStatus = code; return mockRes; };
+    mockRes.json = (d) => { jsonBody = d; return mockRes; };
+    openSseStream(mockReq, mockRes, 'test-cap');
+    reqList.push(mockReq);
+    responses.push({ status: writtenStatus, body: jsonBody });
+  }
+
+  // Late connections must have been rejected with 429
+  const rejected429 = responses.filter(r => r.status === 429);
+  assert.ok(rejected429.length > 0, 'Must reject connections over the per-IP cap with 429');
+
+  // Cleanup: trigger close on all connections
+  for (const req of reqList) {
+    req.emit('close');
+  }
+  assert.equal(getActiveSseCount(), initialActive, 'Active count must return to initial after close');
+});
