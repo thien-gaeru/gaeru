@@ -169,3 +169,28 @@ test('a delegated async click and native submit share one busy state and allow a
   assert.equal(notices[1].children[0].textContent, 'Đã xác minh quyền đọc.');
   assert.ok(!notices[1].className.includes('is-error'));
 });
+
+test('notify suppresses bottom action notice when center popup backdrop is open', async () => {
+  const f = fixture(async () => response(200, {message: 'Đã lưu sản phẩm thành công.'}));
+  const button = new f.Element();
+  const form = new f.Element('form');
+  button.form = form;
+  form.button = button;
+
+  const popup = new f.Element('div');
+  popup.classList.add('product-success-popup-backdrop');
+  popup.hidden = false;
+  f.document.querySelector = (sel) => {
+    if (sel.includes('.product-success-popup-backdrop:not([hidden])')) return popup;
+    return null;
+  };
+
+  button.onclick = async () => {
+    await f.window.fetch('/api/products/save', {method: 'POST'});
+  };
+
+  await Promise.all(f.emit(button).results);
+  await tick();
+
+  assert.equal(f.notices().length, 0, 'No bottom action notice should be displayed when center popup is active');
+});

@@ -305,4 +305,5 @@ test('admin.js includes showProductAddedPopup and checkProductAddedNotice for pr
   assert.ok(adminJs.includes('checkProductAddedNotice()'), 'Must call checkProductAddedNotice in products view');
   assert.ok(adminJs.includes('showProductAddedPopup("Đã thêm sản phẩm mới thành công")'), 'Must show popup on new product save');
   assert.ok(adminJs.includes('showProductAddedPopup("Đã sửa sản phẩm thành công")'), 'Must show popup on edit product save');
+  assert.ok(!adminJs.includes('checkProductAddedNotice() {\n    try {\n      const notice = sessionStorage.getItem("gaeru:product-added-notice");\n      if (notice) {\n        sessionStorage.removeItem("gaeru:product-added-notice");\n        showProductAddedPopup(notice);\n        showGlobal(notice);'), 'Must NOT call duplicate showGlobal in checkProductAddedNotice');
 });

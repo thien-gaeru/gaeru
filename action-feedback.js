@@ -7,9 +7,27 @@
   const statusSelector = '[role="status"],.feedback,.security-feedback,.workspace-status,[data-global-feedback]';
   const text = node => (node.textContent || '').trim();
 
+  function isCenterPopupActive() {
+    if (typeof document === 'undefined') return false;
+    try {
+      if (typeof document.querySelectorAll === 'function') {
+        const dialogs = document.querySelectorAll('dialog[open]');
+        if (Array.isArray(dialogs) ? dialogs.some(d => d.classList?.contains?.('gaeru-center-popup')) : [...(dialogs || [])].some(d => d.classList?.contains?.('gaeru-center-popup'))) return true;
+      }
+      if (typeof document.querySelector === 'function') {
+        if (document.querySelector('.product-success-popup-backdrop:not([hidden]), #product-success-popup:not([hidden]), #product-added-popup:not([hidden]), .gaeru-center-popup:not([hidden])')) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   function notify(message, error = false) {
-    if (!message) return;
-    if (typeof document !== 'undefined' && [...document.querySelectorAll('dialog[open]')].some(d => d.classList?.contains?.('gaeru-center-popup'))) return;
+    if (!message || isCenterPopupActive()) {
+      if (region?.isConnected && isCenterPopupActive()) {
+        try { region.replaceChildren(); } catch (_) { region.innerHTML = ''; }
+      }
+      return;
+    }
     const host = [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
     if (!region?.isConnected) {
       region = document.createElement('div');

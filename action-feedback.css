@@ -31,3 +31,13 @@ input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="tr
   25%{transform:translateX(-3px)}
   75%{transform:translateX(3px)}
 }
+/* Suppress bottom action notices when center popup / modal dialog is active */
+body:has(.product-success-popup-backdrop:not([hidden])) .gaeru-action-notices,
+body:has(#product-success-popup:not([hidden])) .gaeru-action-notices,
+body:has(#product-added-popup:not([hidden])) .gaeru-action-notices,
+body:has(.gaeru-center-popup:not([hidden])) .gaeru-action-notices,
+body:has(dialog.gaeru-center-popup[open]) .gaeru-action-notices {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

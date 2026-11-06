@@ -83,11 +83,16 @@ function showGlobal(message, isError = false) {
 }
 
 function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành công") {
+  try {
+    const gf = document.querySelector("#global-feedback");
+    if (gf) { gf.textContent = ""; gf.classList.remove("is-error"); }
+    document.querySelectorAll(".gaeru-action-notice, .gaeru-action-notices").forEach((n) => n.remove());
+  } catch (_) {}
   let popup = document.querySelector("#product-added-popup");
   if (!popup) {
     popup = document.createElement("div");
     popup.id = "product-added-popup";
-    popup.className = "product-success-popup-backdrop";
+    popup.className = "product-success-popup-backdrop gaeru-center-popup";
     popup.setAttribute("role", "dialog");
     popup.setAttribute("aria-modal", "true");
     popup.innerHTML = '<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2>' + escapeHtml(message) + '</h2><p class="product-success-sub">Sản phẩm đã được lưu và cập nhật vào danh sách quản lý sản phẩm.</p><div class="product-success-actions"><button type="button" class="primary-button product-success-btn" data-close-product-popup>Đóng thông báo</button></div></div>';
@@ -99,6 +104,7 @@ function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành c
     const container = document.body || document.querySelector("body") || document.documentElement || document;
     if (container && typeof container.appendChild === "function") container.appendChild(popup);
   } else {
+    popup.classList.add("gaeru-center-popup");
     popup.hidden = false;
     const h2 = popup.querySelector("h2");
     if (h2) h2.textContent = message;
@@ -114,7 +120,6 @@ function checkProductAddedNotice() {
     if (notice) {
       sessionStorage.removeItem("gaeru:product-added-notice");
       showProductAddedPopup(notice);
-      showGlobal(notice);
     }
   } catch (_) {}
 }
@@ -561,10 +566,8 @@ async function saveProduct(event) {
     await reloadSelectedProduct(id || result.id, id);
     if (!id) {
       showProductAddedPopup("Đã thêm sản phẩm mới thành công");
-      showGlobal("Đã thêm sản phẩm mới thành công");
     } else {
       showProductAddedPopup("Đã sửa sản phẩm thành công");
-      showGlobal("Đã sửa sản phẩm thành công");
     }
     const editor = document.querySelector("#product-editor");
     if (editor) editor.hidden = true;
