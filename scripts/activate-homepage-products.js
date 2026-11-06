@@ -1,29 +1,41 @@
 const BASE_URL = process.env.BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`;
 const isApply = process.argv.includes('--apply');
+const isPlan = process.argv.includes('--plan') || (!isApply && !process.env.GAERU_ADMIN_USER);
 
 async function activateProducts() {
   console.log('--- KÍCH HOẠT SẢN PHẨM MỞ BÁN TRÊN TRANG CHỦ GAERU ---');
-  if (!isApply) {
-    console.log('ℹ CHẾ ĐỘ DRY-RUN: Script đang chạy ở chế độ kiểm tra an toàn. Không có dữ liệu nào được ghi.');
+  if (isPlan || !isApply) {
+    console.log('ℹ CHẾ ĐỘ PLAN / DRY-RUN: Script đang chạy ở chế độ xem trước an toàn. Không có dữ liệu nào được ghi.');
     console.log('  Để áp dụng thay đổi, chạy lệnh với cờ: node scripts/activate-homepage-products.js --apply\n');
   }
 
   const username = process.env.GAERU_ADMIN_USER;
   const password = process.env.GAERU_ADMIN_PASSWORD;
 
-  if (!username || !password) {
-    console.warn('⚠ THÔNG BÁO: Chưa cung cấp GAERU_ADMIN_USER và GAERU_ADMIN_PASSWORD trong môi trường.');
-    console.warn('  Vui lòng thiết lập biến môi trường để xác thực với API quản trị:');
-    console.warn('    $env:GAERU_ADMIN_USER="owner_username"');
-    console.warn('    $env:GAERU_ADMIN_PASSWORD="owner_password"');
-    if (isApply) {
-      throw new Error('Thiếu thông tin đăng nhập quản trị (GAERU_ADMIN_USER, GAERU_ADMIN_PASSWORD) để thực hiện --apply.');
+  if (isPlan || !username || !password) {
+    if (!username || !password) {
+      console.log('ℹ Không phát hiện credentials quản trị (GAERU_ADMIN_USER / GAERU_ADMIN_PASSWORD).');
+      if (isApply) {
+        throw new Error('Thiếu thông tin đăng nhập quản trị (GAERU_ADMIN_USER, GAERU_ADMIN_PASSWORD) để thực hiện --apply.');
+      }
     }
-    console.log('\n[Dry-run] Tiếp tục kiểm tra API Public Storefront...');
-    const rPublic = await fetch(`${BASE_URL}/api/products`);
-    const pubData = await rPublic.json();
-    const publicList = pubData.products || [];
-    console.log(`  -> Số sản phẩm đang mở bán trên Trang Chủ: ${publicList.length}`);
+    console.log('[Plan] Kiểm tra API Public Storefront...');
+    try {
+      const rPublic = await fetch(`${BASE_URL}/api/products`);
+      const pubData = await rPublic.json();
+      const publicList = pubData.products || [];
+      console.log(`  -> Số sản phẩm đang mở bán trên Trang Chủ: ${publicList.length}`);
+      publicList.forEach((p, idx) => {
+        console.log(`     ${idx + 1}. [${p.slug}] - ${p.name}`);
+      });
+    } catch (_) {
+      console.log('  -> Không thể kết nối tới server storefront (chưa khởi động hoặc khác cổng).');
+    }
+    console.log('\n[Plan] Kế hoạch các sản phẩm mục tiêu (Target Products):');
+    console.log('  1. GAERU K9 (gaeru-k9) - 3 biến thể');
+    console.log('  2. GAERU M3 (gaeru-m3) - 4 biến thể (chuẩn hóa theo Zod variant schema)');
+    console.log('  3. GAERU P01 (gaeru-p01) - 2 biến thể');
+    console.log('  4. GAERU G1 ULTRA (gaeru-g1-ultra) - 2 biến thể');
     return;
   }
 
@@ -127,7 +139,7 @@ async function activateProducts() {
         name: 'GAERU M3 Micro Thu Âm Không Dây',
         slug: 'gaeru-m3',
         category: 'audio',
-        descriptor: 'DÂY CÀI ÁO CÓ HỘP SẠC CAO CẤP',
+        descriptor: 'MIC KHÔNG DÂY CÀI ÁO CÓ HỘP SẠC CAO CẤP',
         cardTitle: 'GAERU M3',
         cardSummary: 'Micro thu âm cài áo không dây kèm hộp sạc cao cấp, màn hình kỹ thuật số hiển thị pin, lọc ồn thông minh cho điện thoại và máy ảnh.',
         description: 'Micro thu âm cài áo không dây kèm hộp sạc cao cấp, màn hình kỹ thuật số hiển thị pin, lọc ồn thông minh cho điện thoại và máy ảnh. Tương thích Type-C, Lightning, USB và Micro USB.',
@@ -146,44 +158,36 @@ async function activateProducts() {
           name: 'Bản Type C',
           options: { 'Cổng kết nối': 'Type C' },
           priceVnd: 840000,
-          originalPriceVnd: 1200000,
           stockQuantity: 50,
           active: true,
-          imageUrl: '/assets/products/m3-home-cutout.webp',
-          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+          imageUrl: '/assets/products/m3-home-cutout.webp'
         },
         {
           sku: 'M3-LIGHTNING',
           name: 'Bản Type C + đầu chuyển Lightning',
           options: { 'Cổng kết nối': 'Type C + đầu chuyển Lightning' },
           priceVnd: 840000,
-          originalPriceVnd: 1200000,
           stockQuantity: 50,
           active: true,
-          imageUrl: '/assets/products/m3-home-cutout.webp',
-          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+          imageUrl: '/assets/products/m3-home-cutout.webp'
         },
         {
           sku: 'M3-USB',
           name: 'Bản Type C + chuyển USB',
           options: { 'Cổng kết nối': 'Type C + chuyển USB' },
           priceVnd: 840000,
-          originalPriceVnd: 1200000,
           stockQuantity: 40,
           active: true,
-          imageUrl: '/assets/products/m3-home-cutout.webp',
-          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+          imageUrl: '/assets/products/m3-home-cutout.webp'
         },
         {
           sku: 'M3-MICROUSB',
           name: 'Bản Type C + chuyển Micro usb',
           options: { 'Cổng kết nối': 'Type C + chuyển Micro usb' },
           priceVnd: 840000,
-          originalPriceVnd: 1200000,
           stockQuantity: 30,
           active: true,
-          imageUrl: '/assets/products/m3-home-cutout.webp',
-          promotion: { type: 'flash', endsAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString() }
+          imageUrl: '/assets/products/m3-home-cutout.webp'
         }
       ]
     },
@@ -270,7 +274,7 @@ async function activateProducts() {
   ];
 
   for (const t of targetProducts) {
-    const existing = existingProducts.find(p => p.slug === t.slug);
+    const existing = existingProducts.find(p => p.slug === t.slug || p.slug === t.slug.replace(/^gaeru-/, ''));
     if (!isApply) {
       console.log(`[Dry-Run] Kế hoạch đồng bộ [${t.slug}]: ${existing ? `Cập nhật (ID: ${existing.id})` : 'Tạo mới'}`);
       continue;

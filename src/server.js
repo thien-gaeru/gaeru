@@ -64,10 +64,11 @@ async function start() {
   console.log('Media storage:',JSON.stringify(mediaCheck));
   const mediaAudit=require('./media-storage-audit');
   if(mediaCheck.verified){
-    // GAERU F-06: Mark Readiness Gate as READY once DB migrations and filesystem probe succeed, without waiting for full media sync
+    // GAERU F-06 & OPS-01: Mark Readiness Gate as READY once DB migrations and filesystem probe succeed; run static media sync asynchronously
     setReady(true);
-    console.log('Static media:',JSON.stringify(await require('./persistent-assets').syncAssets(pool)));
-    if (shuttingDown) return;
+    require('./persistent-assets').syncAssets(pool)
+      .then(res => console.log('Static media:', JSON.stringify(res)))
+      .catch(err => console.error('Static media sync failed:', errorSummary(err)));
   }else{
     const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));

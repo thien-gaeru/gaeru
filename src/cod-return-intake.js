@@ -198,15 +198,16 @@ function createCodReturnIntake(pool) {
           throw fail('Đơn hàng đã hoàn tất giao hàng thành công; không thể kiểm nhận chuyển hoàn tự động.', 409);
         }
 
-        // 5. Xác minh trạng thái giao vận: Bắt buộc phải là chuyển hoàn / giao thất bại / trả hàng (GAERU F-07: loại bỏ từ khóa hủy chung chung)
+        // 5. Xác minh trạng thái giao vận: Bắt buộc phải có tín hiệu xác nhận chuyển hoàn từ đối tác giao vận (GAERU COD-01)
         const rawStatus = String(shipment.carrier_status_raw || '').toLowerCase();
         const descStatus = String(shipment.carrier_status_desc || '').toLowerCase();
         const isReturnSignal = shipment.status === 'returned' ||
-          /return|hoan|fail|refus|reject|undeliver/i.test(rawStatus) ||
-          /chuyển hoàn|trả hàng|thất bại|từ chối|hoàn/i.test(descStatus);
+          /return|returning|hoan|chuyen_hoan|phat_hoan|tra_hang/i.test(rawStatus) ||
+          /chuyển hoàn|trả hàng|phát hoàn|đã hoàn|về kho|trả lại|returning to sender/i.test(descStatus) ||
+          /returning to sender/i.test(rawStatus);
 
         if (!isReturnSignal) {
-          throw fail(`Vận đơn ${shipment.tracking_number} đang ở trạng thái "${shipment.status}". Chỉ bưu phẩm có xác nhận chuyển hoàn hoặc giao không thành công từ bưu cục mới được kiểm nhận hoàn kho.`, 400);
+          throw fail(`Vận đơn ${shipment.tracking_number} đang ở trạng thái "${shipment.status}". Chỉ bưu phẩm có xác nhận chuyển hoàn từ bưu cục mới được kiểm nhận hoàn kho.`, 400);
         }
 
         // Lấy danh sách sản phẩm

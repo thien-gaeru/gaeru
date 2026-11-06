@@ -43,7 +43,15 @@ function getResponsiveMap() {
   return responsiveMap;
 }
 
+// GAERU IMG-03: In-memory cache for pre-generated AVIF metadata & buffers to eliminate disk I/O and hash recomputation
+const preAvifCache = new Map();
+
 async function getPreGeneratedAvif(relative, width = null) {
+  const cacheKey = relative + (width ? ':w=' + width : '');
+  if (preAvifCache.has(cacheKey)) {
+    return preAvifCache.get(cacheKey);
+  }
+  let buffer = null;
   if (width) {
     const map = getResponsiveMap();
     const variants = map['/assets/' + relative];
@@ -51,17 +59,23 @@ async function getPreGeneratedAvif(relative, width = null) {
     if (match?.avifUrl) {
       try {
         const diskFile = path.join(__dirname, '..', match.avifUrl.replace(/^\//, ''));
-        return await fs.readFile(diskFile);
+        buffer = await fs.readFile(diskFile);
       } catch (_) {}
     }
-    // GAERU-08: Nếu yêu cầu kích thước cụ thể nhưng không có bản responsive tương ứng, không được trả bản gốc full-size
-    return null;
-  }
-  if (relative && relative.endsWith('.webp')) {
+    if (!buffer) return null;
+  } else if (relative && relative.endsWith('.webp')) {
     try {
       const directAvif = path.join(__dirname, '..', 'assets', relative.replace(/\.webp$/, '.avif'));
-      return await fs.readFile(directAvif);
+      buffer = await fs.readFile(directAvif);
     } catch (_) {}
+  }
+  if (buffer) {
+    const entry = {
+      buffer,
+      etag: '"' + hash(buffer) + (width ? '-w' + width : '') + '-avif"'
+    };
+    preAvifCache.set(cacheKey, entry);
+    return entry;
   }
   return null;
 }
@@ -145,18 +159,17 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
  const mime=types[path.posix.extname(relative).toLowerCase()],isImage=Boolean(mime?.startsWith('image/'));
  const cacheControl=/-[0-9a-f]{12}\.[a-z0-9]+$/i.test(relative)&&process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=31536000, immutable':(process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=300, stale-while-revalidate=86400, must-revalidate':'public, max-age=0, must-revalidate'); if(isImage)res.vary('Accept');
   if (isImage && qualifiesForSelectiveAvif(req)) {
-    const preAvif = await getPreGeneratedAvif(relative, width);
-    if (preAvif) {
-      const etag = '"' + hash(preAvif) + (width ? '-w' + width : '') + '-avif"';
+    const preAvifEntry = await getPreGeneratedAvif(relative, width);
+    if (preAvifEntry) {
       res.type('image/avif').set({
         'Cache-Control': cacheControl,
-        'ETag': etag,
+        'ETag': preAvifEntry.etag,
         'X-GAERU-Asset-Backend': filesystem.configured() ? 'media-root' : 'local-fallback',
         'X-GAERU-AVIF-Source': 'avif-ultra-pregen',
         'X-Content-Type-Options': 'nosniff'
       });
       if (req.fresh) return res.status(304).end();
-      return res.send(preAvif);
+      return res.send(preAvifEntry.buffer);
     }
   }
   if(!filesystem.configured()){

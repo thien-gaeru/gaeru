@@ -155,7 +155,7 @@ function productCard(product, compact = false) {
       <img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
-          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">${product.slug === "gaeru-m3" ? "Mua Ngay" : "Mua ngay"}</a>
+          <a class="button button-outline" href="product.html?id=${encodeURIComponent(product.slug)}">Mua ngay</a>
         </div>
     </article>` : `
     <article class="${cardClass}">

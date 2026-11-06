@@ -419,7 +419,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.get('/gaeru_ceo/pwa-qr.png',async(req,res,next)=>{
     try{
       const QRCode=require('qrcode');
-      const target=typeof req.query.url==='string'&&/^https?:\/\//i.test(req.query.url)?req.query.url:`${req.protocol}://${req.get('host')||'gaeru.com'}/gaeru_ceo`;
+      let target=`${req.protocol}://${req.get('host')||'gaeru.com'}/gaeru_ceo`;
+      if(typeof req.query.url==='string'&&/^https?:\/\//i.test(req.query.url)){
+        try{
+          const parsed=new URL(req.query.url);
+          const host=parsed.hostname.toLowerCase();
+          const currentHost=(req.get('host')||'gaeru.com').split(':')[0].toLowerCase();
+          if(host===currentHost||host==='gaeru.com'||host.endsWith('.gaeru.com')||host==='localhost'||host==='127.0.0.1'){
+            target=parsed.href;
+          }
+        }catch(_){}
+      }
       const buf=await QRCode.toBuffer(target,{width:280,margin:1,errorCorrectionLevel:'M',color:{dark:'#0f172a',light:'#ffffff'}});
       res.set({'Content-Type':'image/png','Cache-Control':'public, max-age=86400'}).send(buf);
     }catch(err){next(err);}

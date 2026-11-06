@@ -254,7 +254,7 @@ test('GAERU-14: SSE connection budget rejects excessive concurrent sockets with 
   const { EventEmitter } = require('node:events');
   const { openSseStream, getActiveSseCount } = require('../src/realtime-sse');
   const initialActive = getActiveSseCount();
-  const reqList = [];
+  const resList = [];
   const responses = [];
 
   // Simulate reaching the per-IP limit (cap in test is 60)
@@ -269,7 +269,7 @@ test('GAERU-14: SSE connection budget rejects excessive concurrent sockets with 
     mockRes.status = (code) => { writtenStatus = code; return mockRes; };
     mockRes.json = (d) => { jsonBody = d; return mockRes; };
     openSseStream(mockReq, mockRes, 'test-cap');
-    reqList.push(mockReq);
+    resList.push(mockRes);
     responses.push({ status: writtenStatus, body: jsonBody });
   }
 
@@ -277,30 +277,37 @@ test('GAERU-14: SSE connection budget rejects excessive concurrent sockets with 
   const rejected429 = responses.filter(r => r.status === 429);
   assert.ok(rejected429.length > 0, 'Must reject connections over the per-IP cap with 429');
 
-  // Cleanup: trigger close on all connections
-  for (const req of reqList) {
-    req.emit('close');
+  // Cleanup: trigger close on all connections via response
+  for (const res of resList) {
+    res.emit('close');
   }
   assert.equal(getActiveSseCount(), initialActive, 'Active count must return to initial after close');
 });
 
-test('GAERU F-03: req.emit("end") does not prematurely release SSE slot while response is open', async () => {
+test('GAERU RT-01: req emit end and close do not release slot or cancel subscription while response stream is open', async () => {
   const { EventEmitter } = require('node:events');
-  const { openSseStream, getActiveSseCount } = require('../src/realtime-sse');
+  const { openSseStream, getActiveSseCount, defaultHub } = require('../src/realtime-sse');
   const initial = getActiveSseCount();
   const mockReq = new EventEmitter();
   mockReq.ip = '10.0.0.101';
   const mockRes = new EventEmitter();
+  const writtenChunks = [];
   mockRes.writeHead = () => {};
-  mockRes.write = () => {};
-  openSseStream(mockReq, mockRes, 'test-f03');
+  mockRes.write = (chunk) => { writtenChunks.push(chunk); };
+  openSseStream(mockReq, mockRes, 'test-rt01');
   assert.equal(getActiveSseCount(), initial + 1);
 
-  // Emitting req 'end' (which happens when GET headers finish) must NOT release slot
+  // In Node.js, incoming GET requests emit 'end' and 'close' as soon as headers are parsed
   mockReq.emit('end');
-  assert.equal(getActiveSseCount(), initial + 1, 'Slot must stay occupied after req end');
+  mockReq.emit('close');
+  assert.equal(getActiveSseCount(), initial + 1, 'Slot must stay occupied after req end & close');
 
-  // Releasing happens on response or socket close
+  // Hub event broadcast must still reach the client
+  defaultHub.publish('test-rt01', 'order:created', { id: 'ORD-999' });
+  const eventFound = writtenChunks.some(c => c.includes('ORD-999'));
+  assert.ok(eventFound, 'Client must still receive hub events after req close');
+
+  // Releasing happens strictly on response close
   mockRes.emit('close');
   assert.equal(getActiveSseCount(), initial, 'Slot released on response close');
 });

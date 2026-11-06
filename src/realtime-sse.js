@@ -92,9 +92,9 @@ function acquireSseSlot(req, res) {
     }
   };
 
-  // GAERU F-03: Do NOT release on req.end because GET requests emit 'end' immediately upon reading headers.
-  // Release slot on socket / connection close (req.close, res.close, res.finish).
-  req.once?.('close', release);
+  // GAERU RT-01: Release slot strictly on response close/finish.
+  // In modern Node.js, req emits 'end' and 'close' immediately when GET request headers finish,
+  // while the SSE response stream is still alive and streaming.
   res.once?.('close', release);
   res.once?.('finish', release);
   return true;
@@ -136,13 +136,17 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
     res.write(': ping\n\n');
   }, 20000);
 
+  let cleanedUp = false;
   const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
     clearInterval(heartbeatTimer);
     unsubscribe();
   };
 
-  req.on('close', cleanup);
-  req.on('end', cleanup);
+  // GAERU RT-01: Cleanup SSE subscription and timers strictly on response close/finish.
+  res.once?.('close', cleanup);
+  res.once?.('finish', cleanup);
 }
 
 function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
@@ -245,13 +249,17 @@ function sseHandler(req, res) {
     } catch (_) {}
   }, 25000);
 
+  let cleanedUp = false;
   const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
     clearInterval(heartbeat);
     realtimeClients.delete(res);
   };
 
-  req.on('close', cleanup);
-  req.on('end', cleanup);
+  // GAERU RT-01: Remove SSE client strictly on response close/finish.
+  res.once?.('close', cleanup);
+  res.once?.('finish', cleanup);
 }
 
 // Khi có Cache Tag bị xóa, thông báo ngay tới mọi trình duyệt đang mở trang

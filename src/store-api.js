@@ -178,11 +178,20 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     return inFlightStoreConfigPromise;
   }
 
-  // GAERU F-09: Singleflight read-through cache for storefront catalog to prevent DB stampede
+  // GAERU F-09 & DB-01: Singleflight read-through cache for storefront catalog to prevent DB stampede
   let cachedCatalogProducts = null;
   let cachedCatalogProductsTime = 0;
   let inFlightCatalogPromise = null;
   const CATALOG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 3000;
+
+  function invalidateCatalogCache() {
+    cachedCatalogProducts = null;
+    cachedCatalogProductsTime = 0;
+  }
+  try {
+    const { cacheEvents } = require('../cache');
+    cacheEvents.on('invalidated', invalidateCatalogCache);
+  } catch (_) {}
 
   async function getCachedCatalogProducts() {
     const now = Date.now();
@@ -197,6 +206,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         const products = await loadProducts(pool);
         cachedCatalogProducts = products;
         cachedCatalogProductsTime = Date.now();
+        // GAERU DB-01: Update stockMap ONLY from fresh DB query, never from stale cached snapshots
+        products?.forEach(p => p.variants?.forEach(v => {
+          const qty = Number(v.stockQuantity ?? v.stock ?? 0);
+          if (v.sku) stockMap.set(v.sku, qty);
+          if (v.id) stockMap.set(v.id, qty);
+        }));
         return products;
       } finally {
         inFlightCatalogPromise = null;
@@ -226,11 +241,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     try {
       const search = String(req.query.q || "").trim();
       const products = search ? await loadProducts(pool, { search }) : await getCachedCatalogProducts();
-      products?.forEach(p => p.variants?.forEach(v => {
-        const qty = Number(v.stockQuantity ?? v.stock ?? 0);
-        if (v.sku) stockMap.set(v.sku, qty);
-        if (v.id) stockMap.set(v.id, qty);
-      }));
+      if (search) {
+        products?.forEach(p => p.variants?.forEach(v => {
+          const qty = Number(v.stockQuantity ?? v.stock ?? 0);
+          if (v.sku) stockMap.set(v.sku, qty);
+          if (v.id) stockMap.set(v.id, qty);
+        }));
+      }
       res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
@@ -243,13 +260,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.get("/products/:slug", async (req, res, next) => {
     try {
       const products = await getCachedCatalogProducts();
-      const product = products.find((item) => item.slug === req.params.slug);
+      const targetSlug = req.params.slug;
+      const product = products.find((item) => item.slug === targetSlug || item.slug === targetSlug.replace(/^gaeru-/, '') || item.slug === 'gaeru-' + targetSlug);
       if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm." });
-      product?.variants?.forEach(v => {
-        const qty = Number(v.stockQuantity ?? v.stock ?? 0);
-        if (v.sku) stockMap.set(v.sku, qty);
-        if (v.id) stockMap.set(v.id, qty);
-      });
       res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
       res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
