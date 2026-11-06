@@ -3,7 +3,7 @@
  * Comprehensive reality test suite for GAERU:
  * - Real order creation workflows
  * - All payment methods: COD, VietQR Bank Transfer, VNPAY, MoMo, ZaloPay
- * - Shipping carrier selection: Shopee Express (SPX), Giao Hàng Nhanh (GHN)
+ * - Shipping carrier selection: Shopee Express (SPX), Viettel Post
  * - Invoicing, shipping labels, co-inspection (đồng kiểm), and warranty auto-activation
  */
 const test = require('node:test');
@@ -49,7 +49,7 @@ async function createTestDb() {
   };
 }
 
-test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & Shipping (SPX, GHN)', { timeout: 90000 }, async (t) => {
+test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & Shipping (SPX, Viettel)', { timeout: 90000 }, async (t) => {
   const pool = await createTestDb();
   await migrateDatabase(pool);
 
@@ -219,18 +219,18 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
      WHERE channel_id IN ('vnpay', 'momo', 'zalopay')`
   );
 
-  // Cấu hình các hãng vận chuyển: Shopee Express (SPX) và Giao Hàng Nhanh (GHN)
+  // Cấu hình các hãng vận chuyển: Shopee Express (SPX) và Viettel Post
   await pool.query(
     `INSERT INTO store_settings(setting_key, setting_value)
-     VALUES('private_admin:shipping_spx', $1), ('private_admin:shipping_ghn', $2)`,
+     VALUES('private_admin:shipping_spx', $1), ('private_admin:shipping_viettel', $2)`,
     [
       JSON.stringify({ version: 1, cipher: 'enc', data: { accountId: 'SPX-SHOP-01', secret: 'spx-secret-token', partnerCode: 'GAERU' } }),
-      JSON.stringify({ version: 1, cipher: 'enc', data: { accountId: '123456', secret: 'ghn-secret-token' } })
+      JSON.stringify({ version: 1, cipher: 'enc', data: { accountId: '123456', secret: 'viettel-secret-token' } })
     ]
   );
   await pool.query(
     `INSERT INTO shipping_carrier_connections(carrier_id, config_version, verified_at, enabled)
-     VALUES('spx', 1, now(), true), ('ghn', 1, now(), true)
+     VALUES('spx', 1, now(), true), ('viettel', 1, now(), true)
      ON CONFLICT(carrier_id) DO UPDATE SET config_version = 1, verified_at = now(), enabled = true`
   );
 
@@ -239,8 +239,9 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
   assert.equal(publicSettings.status, 200);
   assert.ok(publicSettings.data.ordersEnabled);
   assert.deepEqual(publicSettings.data.shippingCarriers.sort((a, b) => a.id.localeCompare(b.id)), [
-    { id: 'ghn', name: 'GHN' },
-    { id: 'spx', name: 'Shopee Express' }
+    
+    { id: 'spx', name: 'Shopee Express' },
+    { id: 'viettel', name: 'Viettel Post' }
   ]);
   assert.deepEqual(publicSettings.data.paymentMethods, ['cod', 'bank_transfer', 'vnpay', 'momo', 'zalopay']);
   assert.equal(publicSettings.data.bankTransfer.accountNumber, '0829191080');
@@ -311,7 +312,7 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
   assert.equal(warrantyCheck1.rows[0].status, 'active');
 
   // =========================================================================
-  // TEST CASE 2: ĐẶT HÀNG CHUYỂN KHOẢN VIETQR (bank_transfer) + HÃNG GHN
+  // TEST CASE 2: ĐẶT HÀNG CHUYỂN KHOẢN VIETQR (bank_transfer) + HÃNG VIETTEL POST
   // =========================================================================
   const bankOrderPayload = {
     customer: {
@@ -323,7 +324,7 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
       note: 'Giao tận tay'
     },
     paymentMethod: 'bank_transfer',
-    shippingCarrierId: 'ghn',
+    shippingCarrierId: 'viettel',
     expectedShippingFeeVnd: 25000,
     items: [{ variantId: varSingle.id, quantity: 1 }] // 159.000₫
   };
@@ -334,7 +335,7 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
   assert.equal(bankOrder.subtotalVnd, 159000);
   assert.equal(bankOrder.shippingFeeVnd, 25000);
   assert.equal(bankOrder.totalVnd, 184000);
-  assert.equal(bankOrder.shippingCarrierName, 'GHN');
+  assert.equal(bankOrder.shippingCarrierName, 'Viettel Post');
 
   // Kiểm tra hướng dẫn thanh toán VietQR gửi về cho khách
   assert.ok(bankRes.data.bankTransfer, 'Must include bankTransfer instructions');
@@ -348,7 +349,7 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
     ids: [bankOrder.id],
     format: 'label'
   });
-  assert.ok(prePaymentLabel.data.includes('Khách chọn: GHN'));
+  assert.ok(prePaymentLabel.data.includes('Khách chọn: Viettel Post'));
 
   // Đối soát & Ghi nhận tiền chuyển khoản về tài khoản ngân hàng
   const reconcileRes = await admin.call('/api/gaeru_ceo/owner/payments/reconcile', 'POST', {
@@ -464,7 +465,7 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
       note: ''
     },
     paymentMethod: 'momo',
-    shippingCarrierId: 'ghn',
+    shippingCarrierId: 'viettel',
     expectedShippingFeeVnd: 20000,
     items: [{ variantId: varSingle.id, quantity: 1 }] // 159.000₫ -> Tổng 179.000₫
   };
@@ -567,7 +568,7 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
   const invalidCarrierRes = await customer.call('/api/orders', 'POST', {
     customer: codOrderPayload.customer,
     paymentMethod: 'cod',
-    shippingCarrierId: 'viettel', // Chưa bật
+    shippingCarrierId: 'jt', // Chưa bật
     items: [{ variantId: varTypeC.id, quantity: 1 }]
   });
   assert.equal(invalidCarrierRes.status, 409, 'Disabled or invalid carrier must be rejected with 409');

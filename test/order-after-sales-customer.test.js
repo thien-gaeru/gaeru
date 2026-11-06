@@ -341,19 +341,19 @@ test('Customer After-Sales & Self-Service Return Suite', async (t) => {
     // 4. Inbound update with wrong token by non-owner -> 403
     const badInbound = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Customer-Id': custB.id },
-      body: JSON.stringify({ token: 'x'.repeat(48), inboundCarrier: 'ghn', inboundTrackingNumber: 'GHN123456' })
+      body: JSON.stringify({ token: 'x'.repeat(48), inboundCarrier: 'viettel', inboundTrackingNumber: 'VT123456' })
     });
     assert.equal(badInbound.status, 403);
 
     // An owner cannot bypass CSRF by supplying an invalid capability token.
     const ownerForgedToken = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
       method:'POST', headers:{'Content-Type':'application/json','X-Customer-Id':custA.id},
-      body:JSON.stringify({token:'invalid-capability',inboundCarrier:'ghn',inboundTrackingNumber:'FORGED123'})
+      body:JSON.stringify({token:'invalid-capability',inboundCarrier:'viettel',inboundTrackingNumber:'FORGED123'})
     });
     assert.equal(ownerForgedToken.status,403);
     const ownerWithoutCsrf = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
       method:'POST',headers:{'Content-Type':'application/json','X-Customer-Id':custA.id},
-      body:JSON.stringify({inboundCarrier:'ghn',inboundTrackingNumber:'FORGED456'})
+      body:JSON.stringify({inboundCarrier:'viettel',inboundTrackingNumber:'FORGED456'})
     });
     assert.equal(ownerWithoutCsrf.status,403);
     assert.equal((await pool.query('SELECT inbound_status FROM order_after_sales WHERE id=$1',[row.id])).rows[0].inbound_status,'pending_shipment');
@@ -361,12 +361,12 @@ test('Customer After-Sales & Self-Service Return Suite', async (t) => {
     // 5. Inbound update with valid token -> in_transit
     const okInbound = await fetch(`${baseUrl}/api/rma/${row.rma_number}/inbound`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Customer-Id': custB.id },
-      body: JSON.stringify({ token: row.rma_token, inboundCarrier: 'ghn', inboundTrackingNumber: 'ghn123456' })
+      body: JSON.stringify({ token: row.rma_token, inboundCarrier: 'viettel', inboundTrackingNumber: 'vt123456' })
     });
     assert.equal(okInbound.status, 200);
     const inboundData = await okInbound.json();
     assert.equal(inboundData.rma.inboundStatus, 'in_transit');
-    assert.equal(inboundData.rma.inboundTrackingNumber, 'GHN123456');
+    assert.equal(inboundData.rma.inboundTrackingNumber, 'VT123456');
 
     // 6. Admin logistics update (service level)
     const { updateRmaLogisticsByAdmin } = require('../src/rma-tickets');

@@ -161,7 +161,7 @@ test('Audit: delivery clocks survive shipment polling, order edits and repeated 
   const f=await fixture(t);
   const timestamp='2026-10-01T12:00:00.000Z';
   await f.pool.query(`INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status,delivered_at)
-    VALUES($1,'ghn','AUDIT-TRACK-1','delivered',$2)`,[f.order.id,timestamp]);
+    VALUES($1,'viettel','AUDIT-TRACK-1','delivered',$2)`,[f.order.id,timestamp]);
   await f.pool.query("UPDATE carrier_shipments SET status='delivered',last_synced_at=now(),updated_at=now(),delivered_at=now() WHERE order_id=$1",[f.order.id]);
   await f.pool.query("UPDATE orders SET status='completed',payment_status='paid',updated_at=now(),delivered_at=now() WHERE id=$1",[f.order.id]);
   await migrateDatabase(f.pool);

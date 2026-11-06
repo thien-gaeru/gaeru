@@ -592,20 +592,17 @@
 }
 
 /* Shipping Carrier Card Accents */
-.payment-card[data-carrier-id="ghn"]::before{background:#f97316}
-.payment-card[data-carrier-id="ghtk"]::before{background:#16a34a}
 .payment-card[data-carrier-id="viettel"]::before{background:#dc2626}
 .payment-card[data-carrier-id="jt"]::before{background:#e11d48}
-.payment-card[data-carrier-id="ghn"] .payment-card-icon{background:#fff7ed;border-color:#fed7aa}
-.payment-card[data-carrier-id="ghtk"] .payment-card-icon{background:#f0fdf4;border-color:#bbf7d0}
+.payment-card[data-carrier-id="spx"]::before{background:#ee4d2d}
 .payment-card[data-carrier-id="viettel"] .payment-card-icon{background:#fef2f2;border-color:#fecaca}
 .payment-card[data-carrier-id="jt"] .payment-card-icon{background:#fff1f2;border-color:#fecdd3}
+.payment-card[data-carrier-id="spx"] .payment-card-icon{background:#fff7ed;border-color:#fed7aa}
 
 @media (prefers-color-scheme: dark) {
-  .payment-card[data-carrier-id="ghn"] .payment-card-icon{background:#431407;border-color:#ea580c}
-  .payment-card[data-carrier-id="ghtk"] .payment-card-icon{background:#052e16;border-color:#16a34a}
   .payment-card[data-carrier-id="viettel"] .payment-card-icon{background:#450a0a;border-color:#dc2626}
   .payment-card[data-carrier-id="jt"] .payment-card-icon{background:#4c0519;border-color:#e11d48}
+  .payment-card[data-carrier-id="spx"] .payment-card-icon{background:#431407;border-color:#ea580c}
 }
 
 

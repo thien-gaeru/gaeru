@@ -6,12 +6,12 @@ const {seal,open}=require('./totp');
 const {withTransaction}=require('./db');
 const {requireCsrf}=require('./security');
 const {appendAudit}=require('./audit');
-const names=['vnpay','payment_cod','payment_bank_transfer','payment_momo','payment_zalopay','misa','shopee','tiktok','lazada','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx','oauth'];
-const secretApps=new Set(['misa','shopee','tiktok','lazada','shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx']);
+const names=['vnpay','payment_cod','payment_bank_transfer','payment_momo','payment_zalopay','misa','shopee','tiktok','lazada','shipping_viettel','shipping_jt','shipping_spx','oauth'];
+const secretApps=new Set(['misa','shopee','tiktok','lazada','shipping_viettel','shipping_jt','shipping_spx']);
 const aiProfile=z.object({model:z.string().trim().max(120).regex(/^[a-zA-Z0-9._-]*$/),apiKey:z.string().trim().min(1).max(2000).optional()}).strict();
 const shippingSchema=z.object({accountId:z.string().trim().max(160),partnerCode:z.string().trim().max(160),pickupName:z.string().trim().max(160),pickupPhone:z.string().trim().max(30),pickupAddress:z.string().trim().max(500),webhookSecret:z.string().trim().min(32).max(500).optional(),secret:z.string().trim().min(1).max(2000).optional()}).strict();
 const jtShippingSchema=shippingSchema.extend({protocol:z.literal(require('./jt-vietnam').PROTOCOL),environment:z.enum(['sandbox','production']),customerPassword:z.string().regex(/^[A-F0-9]{32}$/, 'Password nghiệp vụ J&T cần đúng 32 ký tự HEX viết hoa từ công cụ ký của hãng.').optional(),pickupProvince:z.string().trim().max(40),pickupArea:z.string().trim().max(40),payType:z.enum(['PP_PM','PP_CASH','CC_CASH']).optional(),serviceType:z.union([z.literal(1),z.literal(6)]).optional()}).strict();
-const schemas={shipping_ghn:shippingSchema,shipping_ghtk:shippingSchema,shipping_viettel:shippingSchema,shipping_jt:jtShippingSchema,shipping_spx:shippingSchema,
+const schemas={shipping_viettel:shippingSchema,shipping_jt:jtShippingSchema,shipping_spx:shippingSchema,
  chat_ai:z.object({enabled:z.boolean(),provider:z.enum(['openai','gemini','claude']),profiles:z.object({openai:aiProfile,gemini:aiProfile,claude:aiProfile}).strict()}).strict(),
  operations:z.object({ordersEnabled:z.boolean()}).strict(),
  profile:z.object({fullName:z.string().trim().max(160),company:z.string().trim().max(200),position:z.string().trim().max(100),taxCode:z.string().trim().max(30),address:z.string().trim().max(500)}).strict(),

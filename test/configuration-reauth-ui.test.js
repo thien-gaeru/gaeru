@@ -8,7 +8,7 @@ async function fixture() {
   const { document } = parseHTML('<html><body><section id="system-configuration"></section></body></html>');
   const listeners = {};
   document.addEventListener = (type, handler) => (listeners[type] ||= []).push(handler);
-  const records = Object.fromEntries(['profile', 'security', 'operations', 'chat_ai', 'misa', 'shopee', 'tiktok', 'shipping_ghn', 'payment_cod'].map(id => [id, { version: 0, data: {} }]));
+  const records = Object.fromEntries(['profile', 'security', 'operations', 'chat_ai', 'misa', 'shopee', 'tiktok', 'shipping_viettel', 'payment_cod'].map(id => [id, { version: 0, data: {} }]));
   records.security = { version: 1, data: { idleMinutes: 30, absoluteHours: 8 } };
   const requests = [];
   const admin = {
@@ -95,7 +95,7 @@ test('configuration modal contains keyboard focus and restores its trigger and p
 test('shipping and payment availability confirmations use the newly entered modal credentials', async () => {
   for (const type of ['shipping', 'payment']) {
     const f = await fixture();
-    const id = type === 'shipping' ? 'ghn' : 'cod';
+    const id = type === 'shipping' ? 'viettel' : 'cod';
     const panel = f.document.createElement('article');
     panel.id = 'config-panel-' + (type === 'shipping' ? 'shipping_' : 'payment_') + id;
     panel.innerHTML = '<button type="button" data-' + type + '-enable="' + id + '" data-enabled="true">Bật kênh</button>';

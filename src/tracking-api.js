@@ -129,10 +129,6 @@ function getCarrierTrackingUrl(carrierId, trackingNumber) {
   if (!trackingNumber) return null;
   const encoded = encodeURIComponent(String(trackingNumber).trim());
   switch (carrierId) {
-    case 'ghn':
-      return `https://tracking.ghn.vn/?order_code=${encoded}`;
-    case 'ghtk':
-      return `https://i.ghtk.vn/${encoded}`;
     case 'viettel':
       return `https://viettelpost.vn/tra-cuu-hanh-trinh-don/?orderNumber=${encoded}`;
     case 'jt':

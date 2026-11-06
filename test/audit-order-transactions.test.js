@@ -95,11 +95,11 @@ test('RMA logistics changes invalidate stale case versions and customers cannot 
   const f = await fixture(t), order = await f.order('completed');
   const row = (await f.query(`INSERT INTO order_after_sales(order_id,kind,status,reason,rma_number,rma_token,return_type)
     VALUES($1,'return','approved','Faulty item','RMA-261103-TEST','fixture-rma-capability','refund') RETURNING *`, [order.id])).rows[0];
-  const inbound = await updateRmaInboundTracking(f.pool, { rmaNumber: row.rma_number, token: row.rma_token, inboundCarrier: 'ghn', inboundTrackingNumber: 'ABC123' });
+  const inbound = await updateRmaInboundTracking(f.pool, { rmaNumber: row.rma_number, token: row.rma_token, inboundCarrier: 'viettel', inboundTrackingNumber: 'ABC123' });
   assert.equal(inbound.version, row.version + 1);
   const received = await updateRmaLogisticsByAdmin(f.pool, { caseId: row.id, inboundStatus: 'delivered_to_warehouse', restockEligible: true, actor: f.actor });
   assert.equal(received.version, inbound.version + 1);
-  await assert.rejects(updateRmaInboundTracking(f.pool, { rmaNumber: row.rma_number, token: row.rma_token, inboundCarrier: 'ghtk', inboundTrackingNumber: 'REPLACE123' }), { status: 409 });
+  await assert.rejects(updateRmaInboundTracking(f.pool, { rmaNumber: row.rma_number, token: row.rma_token, inboundCarrier: 'jt', inboundTrackingNumber: 'REPLACE123' }), { status: 409 });
   const final = (await f.query('SELECT inbound_status,inbound_tracking_number FROM order_after_sales WHERE id=$1', [row.id])).rows[0];
   assert.deepEqual(final, { inbound_status: 'delivered_to_warehouse', inbound_tracking_number: 'ABC123' });
 });
@@ -181,7 +181,7 @@ test('paid return closure requires authorized manual refund evidence and records
 test('replacement shipment metadata cannot claim stock dispatch without a linked inventory document', async t => {
   const f = await fixture(t), order = await f.order('completed');
   const row = (await f.query("INSERT INTO order_after_sales(order_id,kind,status,reason,return_type) VALUES($1,'return','received','Faulty item','exchange') RETURNING *", [order.id])).rows[0];
-  await assert.rejects(updateRmaLogisticsByAdmin(f.pool, { caseId: row.id, outboundCarrier: 'ghn', outboundTrackingNumber: 'REPLACEMENT123', outboundStatus: 'in_transit', actor: f.actor }), { status: 409 });
+  await assert.rejects(updateRmaLogisticsByAdmin(f.pool, { caseId: row.id, outboundCarrier: 'viettel', outboundTrackingNumber: 'REPLACEMENT123', outboundStatus: 'in_transit', actor: f.actor }), { status: 409 });
   assert.equal((await f.query('SELECT outbound_status FROM order_after_sales WHERE id=$1', [row.id])).rows[0].outbound_status, 'none');
   assert.equal((await f.query('SELECT stock_quantity FROM product_variants WHERE id=$1', [f.variant.id])).rows[0].stock_quantity, 8);
 });

@@ -63,11 +63,11 @@ test('carrier webhooks fail closed before any shipment/payment write and require
 test('carrier webhook secret is validated, encrypted-record public views redact it, and blank updates preserve it', () => {
   const base = { accountId: '123', partnerCode: '', pickupName: 'Fixture', pickupPhone: '0900000000', pickupAddress: 'Fixture', secret: 'api-token' };
   const webhookSecret = 'fixture-dedicated-webhook-secret-32-chars';
-  assert.equal(schemas.shipping_ghn.safeParse({ ...base, webhookSecret: 'short' }).success, false);
-  const parsed = schemas.shipping_ghn.parse({ ...base, webhookSecret });
-  const publicValue = publicRecord('shipping_ghn', { version: 1, data: parsed });
+  assert.equal(schemas.shipping_viettel.safeParse({ ...base, webhookSecret: 'short' }).success, false);
+  const parsed = schemas.shipping_viettel.parse({ ...base, webhookSecret });
+  const publicValue = publicRecord('shipping_viettel', { version: 1, data: parsed });
   assert.equal(publicValue.data.webhookSecretConfigured, true);
   assert.equal(JSON.stringify(publicValue).includes(webhookSecret), false);
   assert.equal(JSON.stringify(publicValue).includes(base.secret), false);
-  assert.equal(Object.hasOwn(schemas.shipping_ghn.parse(base), 'webhookSecret'), false);
+  assert.equal(Object.hasOwn(schemas.shipping_viettel.parse(base), 'webhookSecret'), false);
 });

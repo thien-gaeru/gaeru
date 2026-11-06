@@ -3,7 +3,7 @@
 CREATE TABLE carrier_shipment_attempts (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  order_id uuid NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
- carrier_id text NOT NULL CHECK(carrier_id IN ('ghn','ghtk','viettel','jt','spx')),
+ carrier_id text NOT NULL CHECK(carrier_id IN ('viettel','jt','spx')),
  config_version integer NOT NULL,
  status text NOT NULL DEFAULT 'sending' CHECK(status IN ('sending','unknown','succeeded','reconciled')),
  provider_result jsonb,

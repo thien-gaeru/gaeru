@@ -2,8 +2,6 @@ const jtVietnam = require('./jt-vietnam');
 const carrierResponse = require('./carrier-response');
 
 const CARRIER_NAMES = Object.freeze({
-  ghn: 'GHN (Giao Hàng Nhanh)',
-  ghtk: 'GHTK (Giao Hàng Tiết Kiệm)',
   viettel: 'Viettel Post',
   jt: 'J&T Express',
   spx: 'Shopee Express (SPX)'
@@ -129,6 +127,58 @@ const jtAdapter = {
 // -----------------------------------------------------------------------------
 const viettelTokenCache = new Map();
 
+async function getViettelActiveToken(settings, { fetcher = fetch, forceRefresh = false } = {}) {
+  const secret = settings?.secret?.trim();
+  if (!secret) throw fail('Cần lưu API Token của Viettel Post.', 400);
+
+  if (secret.startsWith('eyJ')) {
+    return secret;
+  }
+
+  if (!forceRefresh) {
+    const cached = viettelTokenCache.get(secret);
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+      return cached.token;
+    }
+  }
+
+  const loginUrl = 'https://partner.viettelpost.vn/v2/user/LoginVTP';
+  let loginRes;
+  try {
+    loginRes = await fetcher(loginUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ token: secret }),
+      signal: AbortSignal.timeout(10000),
+      redirect: 'error'
+    });
+  } catch (err) {
+    throw fail('Không thể kết nối máy chủ xác thực Viettel Post (LoginVTP). Kiểm tra mạng hoặc thử lại.', 502);
+  }
+
+  if (!loginRes.ok) {
+    throw fail('Viettel Post từ chối kết nối LoginVTP (mã HTTP ' + loginRes.status + '). Kiểm tra token bí mật và thử lại.', 502);
+  }
+
+  let loginData;
+  try {
+    const raw = typeof loginRes.text === 'function' ? await loginRes.text() : await loginRes.json();
+    loginData = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (_e) {
+    throw fail('Phản hồi từ Viettel Post LoginVTP không đúng định dạng JSON.', 502);
+  }
+
+  if (!carrierResponse.succeeded('viettel', loginData) || !loginData.data?.token) {
+    const detail = loginData?.message || (loginData?.status ? `Mã phản hồi ${loginData.status}` : 'Mã token bí mật không hợp lệ');
+    throw fail('Xác thực Viettel Post qua viettelpost.vn thất bại: ' + detail, 502);
+  }
+
+  const jwtToken = loginData.data.token;
+  const expiresAt = Number(loginData.data.expired) || (Date.now() + 24 * 60 * 60 * 1000);
+  viettelTokenCache.set(secret, { token: jwtToken, expiresAt });
+  return jwtToken;
+}
+
 async function executeViettelRequest(settings, buildRequestFn, { fetcher = fetch } = {}) {
   const secret = settings?.secret?.trim();
   if (!secret) throw fail('Cần lưu API Token của Viettel Post.', 400);
@@ -143,19 +193,20 @@ async function executeViettelRequest(settings, buildRequestFn, { fetcher = fetch
 
   let { response, parsed } = await buildRequestFn(activeToken);
 
-  const isInvalidToken = parsed && (parsed.status === 201 || parsed.status === 203 || (typeof parsed.message === 'string' && /token\s*invalid/i.test(parsed.message)));
+  const isInvalidToken = parsed && (parsed.status === 201 || parsed.status === 203 || parsed.status === 204 || (typeof parsed.message === 'string' && /token\s*invalid/i.test(parsed.message)));
   if (isInvalidToken && !secret.startsWith('eyJ')) {
     try {
       const loginUrl = 'https://partner.viettelpost.vn/v2/user/LoginVTP';
       const loginRes = await fetcher(loginUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ token: secret }),
         signal: AbortSignal.timeout(10000),
         redirect: 'error'
       });
       if (loginRes.ok) {
-        const loginData = await loginRes.json();
+        const raw = typeof loginRes.text === 'function' ? await loginRes.text() : await loginRes.json();
+        const loginData = typeof raw === 'string' ? JSON.parse(raw) : raw;
         if (carrierResponse.succeeded('viettel', loginData) && loginData.data?.token) {
           const jwtToken = loginData.data.token;
           const expiresAt = Number(loginData.data.expired) || (Date.now() + 24 * 60 * 60 * 1000);
@@ -315,8 +366,9 @@ const viettelAdapter = {
       return { response: resp, parsed: data };
     }, { fetcher });
 
-    if (!Array.isArray(res) && !carrierResponse.succeeded('viettel', res)) throw fail('Viettel Post chưa xác nhận báo giá.', 502);
-    const rows = Array.isArray(res) ? res : res.data || [];
+    const extractServices = d => Array.isArray(d) ? d : (Array.isArray(d?.RESULT) ? d.RESULT : (Array.isArray(d?.data) ? d.data : []));
+    const rows = extractServices(res);
+    if (!rows.length && !carrierResponse.succeeded('viettel', res)) throw fail('Viettel Post chưa xác nhận báo giá.', 502);
     const best = rows.find(r => r.GIA_CUOC > 0) || rows[0];
     const feeVnd = carrierResponse.fee(best?.GIA_CUOC, { required: true });
     return {
@@ -331,266 +383,9 @@ const viettelAdapter = {
 };
 
 // -----------------------------------------------------------------------------
-// 3. GHN (Giao Hàng Nhanh) Adapter
+// 3. SPX (Shopee Express) Adapter
 // -----------------------------------------------------------------------------
-const ghnAdapter = {
-  async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
-    if (!settings.secret || !settings.accountId) throw fail('Cần Shop ID và Token GHN.', 400);
-    const url = 'https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/create';
-    const payload = {
-      client_order_code: orderData.orderNumber,
-      to_name: orderData.customerName,
-      to_phone: orderData.phone,
-      to_address: orderData.address,
-      cod_amount: Number(orderData.codAmountVnd) || 0,
-      weight: Number(orderData.weightGrams) || 500,
-      payment_type_id: orderData.codAmountVnd > 0 ? 2 : 1,
-      required_note: 'CHOXEMHANGKHONGTHU',
-      items: (orderData.items || []).map(i => ({
-        name: i.productName || 'Sản phẩm GAERU',
-        quantity: Number(i.quantity) || 1,
-        price: Number(i.priceVnd) || 0,
-        weight: 200
-      }))
-    };
 
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Token': settings.secret,
-        'ShopId': String(settings.accountId)
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000),
-      redirect: 'error'
-    });
-
-    if (!response.ok) throw fail(`GHN từ chối kết nối (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (res.code !== 200 || !res.data?.order_code) {
-      throw fail(`GHN báo lỗi tạo đơn: ${res.message || 'Lỗi GHN'}`, 502);
-    }
-
-    const trackingNumber = String(res.data.order_code);
-    const feeVnd = carrierResponse.fee(res.data.total_fee);
-    const labelUrl = `https://online-gateway.ghn.vn/a5/public-api/printA5?token=${encodeURIComponent(trackingNumber)}`;
-
-    return {
-      success: true,
-      carrierId: 'ghn',
-      carrierName: CARRIER_NAMES.ghn,
-      trackingNumber,
-      carrierOrderId: trackingNumber,
-      shippingFeeVnd: feeVnd,
-      estimatedDelivery: res.data.expected_delivery_time || null,
-      labelUrl,
-      rawResponse: res
-    };
-  },
-
-  async cancelWaybill(settings, { trackingNumber }, { fetcher = fetch } = {}) {
-    const url = 'https://online-gateway.ghn.vn/shiip/public-api/v2/switch-status/cancel';
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Token': settings.secret,
-        'ShopId': String(settings.accountId)
-      },
-      body: JSON.stringify({ order_codes: [trackingNumber] }),
-      signal: AbortSignal.timeout(12000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail(`GHN hủy đơn thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('ghn', res) || !Array.isArray(res.data) || !res.data.some(row => row.order_code === trackingNumber && row.result === true)) throw fail('GHN chưa xác nhận hủy đúng mã vận đơn.', 502);
-    return { success: true, cancelled: true, message: 'Đã hủy vận đơn GHN thành công.' };
-  },
-
-  async queryTracking(settings, { trackingNumber }, { fetcher = fetch } = {}) {
-    const url = 'https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/detail';
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Token': settings.secret },
-      body: JSON.stringify({ order_code: trackingNumber }),
-      signal: AbortSignal.timeout(12000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail(`GHN tra cứu thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('ghn', res)) throw fail('GHN chưa xác nhận kết quả tra cứu.', 502);
-    const rawStatus = res.data?.status || 'pending';
-    const log = Array.isArray(res.data?.log) ? res.data.log : [];
-
-    return {
-      success: true,
-      carrierId: 'ghn',
-      trackingNumber,
-      carrierStatusRaw: rawStatus,
-      status: normalizeCarrierStatus('ghn', rawStatus),
-      statusDescription: res.data?.status_name || rawStatus,
-      history: log.map(l => ({
-        timestamp: l.updated_date || new Date().toISOString(),
-        status: normalizeCarrierStatus('ghn', l.status),
-        rawStatus: l.status,
-        location: '',
-        description: l.status_name || ''
-      }))
-    };
-  },
-
-  async quoteShippingFee(settings, { weightGrams = 500 }, { fetcher = fetch } = {}) {
-    const url = 'https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/fee';
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Token': settings.secret,
-        'ShopId': String(settings.accountId)
-      },
-      body: JSON.stringify({
-        weight: Number(weightGrams) || 500,
-        service_type_id: 2
-      }),
-      signal: AbortSignal.timeout(8000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail('GHN không phản hồi cước phí.', 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('ghn', res)) throw fail('GHN chưa xác nhận báo giá.', 502);
-    const feeVnd = carrierResponse.fee(res.data?.total, { required: true });
-    return {
-      success: true,
-      carrierId: 'ghn',
-      carrierName: CARRIER_NAMES.ghn,
-      feeVnd,
-      estimatedDays: 2,
-      carrierService: 'GHN Chuẩn'
-    };
-  }
-};
-
-// -----------------------------------------------------------------------------
-// 4. GHTK (Giao Hàng Tiết Kiệm) Adapter
-// -----------------------------------------------------------------------------
-const ghtkAdapter = {
-  async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
-    if (!settings.secret) throw fail('Cần Token GHTK.', 400);
-    const url = 'https://services.giaohangtietkiem.vn/services/shipment/order';
-    const headers = { 'Content-Type': 'application/json', 'Token': settings.secret };
-    if (settings.partnerCode) headers['X-Client-Source'] = settings.partnerCode;
-
-    const payload = {
-      order: {
-        id: orderData.orderNumber,
-        pick_name: settings.pickupName || 'GAERU Store',
-        pick_address: settings.pickupAddress || 'Hà Nội',
-        pick_tel: settings.pickupPhone || '0900000000',
-        name: orderData.customerName,
-        address: orderData.address,
-        province: orderData.city,
-        tel: orderData.phone,
-        is_freeship: orderData.codAmountVnd > 0 ? 0 : 1,
-        pick_money: Number(orderData.codAmountVnd) || 0,
-        value: Number(orderData.subtotalVnd) || 0
-      },
-      products: (orderData.items || []).map(i => ({
-        name: i.productName || 'Sản phẩm',
-        weight: 0.2,
-        quantity: Number(i.quantity) || 1
-      }))
-    };
-
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail(`GHTK từ chối kết nối (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (res.success !== true || !res.order?.label) {
-      throw fail(`GHTK báo lỗi tạo đơn: ${res.message || 'Lỗi GHTK'}`, 502);
-    }
-
-    const trackingNumber = String(res.order.label);
-    const feeVnd = carrierResponse.fee(res.order.fee);
-    const labelUrl = `https://services.giaohangtietkiem.vn/services/label/${encodeURIComponent(trackingNumber)}`;
-
-    return {
-      success: true,
-      carrierId: 'ghtk',
-      carrierName: CARRIER_NAMES.ghtk,
-      trackingNumber,
-      carrierOrderId: res.order.tracking_id || orderData.orderNumber,
-      shippingFeeVnd: feeVnd,
-      estimatedDelivery: res.order.estimated_deliver_time || null,
-      labelUrl,
-      rawResponse: res
-    };
-  },
-
-  async cancelWaybill(settings, { trackingNumber }, { fetcher = fetch } = {}) {
-    const url = `https://services.giaohangtietkiem.vn/services/shipment/cancel/${encodeURIComponent(trackingNumber)}`;
-    const headers = { 'Token': settings.secret };
-    if (settings.partnerCode) headers['X-Client-Source'] = settings.partnerCode;
-
-    const response = await fetcher(url, { method: 'POST', headers, signal: AbortSignal.timeout(12000), redirect: 'error' });
-    if (!response.ok) throw fail(`GHTK hủy đơn thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (res.success !== true) throw fail(`GHTK từ chối hủy: ${res.message || 'Lỗi'}`, 502);
-    return { success: true, cancelled: true, message: 'Đã hủy vận đơn GHTK thành công.' };
-  },
-
-  async queryTracking(settings, { trackingNumber }, { fetcher = fetch } = {}) {
-    const url = `https://services.giaohangtietkiem.vn/services/shipment/v2/${encodeURIComponent(trackingNumber)}`;
-    const headers = { 'Token': settings.secret };
-    if (settings.partnerCode) headers['X-Client-Source'] = settings.partnerCode;
-
-    const response = await fetcher(url, { headers, signal: AbortSignal.timeout(12000), redirect: 'error' });
-    if (!response.ok) throw fail(`GHTK tra cứu thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('ghtk', res)) throw fail('GHTK chưa xác nhận kết quả tra cứu.', 502);
-    const order = res.order || {};
-    const rawStatus = String(order.status_text || order.status || 'pending');
-
-    return {
-      success: true,
-      carrierId: 'ghtk',
-      trackingNumber,
-      carrierStatusRaw: rawStatus,
-      status: normalizeCarrierStatus('ghtk', rawStatus),
-      statusDescription: order.status_text || 'Đang vận chuyển',
-      history: []
-    };
-  },
-
-  async quoteShippingFee(settings, { city, weightGrams = 500 }, { fetcher = fetch } = {}) {
-    const url = `https://services.giaohangtietkiem.vn/services/shipment/fee?pick_province=${encodeURIComponent('Hà Nội')}&province=${encodeURIComponent(city || 'Hà Nội')}&weight=${weightGrams}`;
-    const headers = { 'Token': settings.secret };
-    if (settings.partnerCode) headers['X-Client-Source'] = settings.partnerCode;
-
-    const response = await fetcher(url, { headers, signal: AbortSignal.timeout(8000), redirect: 'error' });
-    if (!response.ok) throw fail('GHTK không phản hồi cước phí.', 502);
-    const res = await response.json();
-    if (!carrierResponse.succeeded('ghtk', res)) throw fail('GHTK chưa xác nhận báo giá.', 502);
-    const feeVnd = carrierResponse.fee(res.fee?.fee, { required: true });
-    return {
-      success: true,
-      carrierId: 'ghtk',
-      carrierName: CARRIER_NAMES.ghtk,
-      feeVnd,
-      estimatedDays: 2,
-      carrierService: 'GHTK Chuẩn'
-    };
-  }
-};
-
-// -----------------------------------------------------------------------------
-// 5. SPX (Shopee Express) Adapter
-// -----------------------------------------------------------------------------
 const spxAdapter = {
   async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
     if (!settings.secret || !settings.accountId) throw fail('Cần Shop ID và Token SPX.', 400);
@@ -676,8 +471,6 @@ const spxAdapter = {
 const adapters = {
   jt: jtAdapter,
   viettel: viettelAdapter,
-  ghn: ghnAdapter,
-  ghtk: ghtkAdapter,
   spx: spxAdapter
 };
 
@@ -694,8 +487,8 @@ module.exports = {
   adapters,
   jtAdapter,
   viettelAdapter,
-  ghnAdapter,
-  ghtkAdapter,
   spxAdapter,
-  viettelTokenCache
+  viettelTokenCache,
+  getViettelActiveToken,
+  executeViettelRequest
 };

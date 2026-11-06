@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS carrier_shipments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
-  carrier_id text NOT NULL CHECK (carrier_id IN ('ghn','ghtk','viettel','jt','spx')),
+  carrier_id text NOT NULL CHECK (carrier_id IN ('viettel','jt','spx')),
   tracking_number text NOT NULL,
   carrier_order_id text,
   label_url text,

@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS cod_return_intakes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
   shipment_id uuid REFERENCES carrier_shipments(id) ON DELETE SET NULL,
-  carrier_id text NOT NULL CHECK (carrier_id IN ('ghn','ghtk','viettel','jt','spx','standard','other')),
+  carrier_id text NOT NULL CHECK (carrier_id IN ('viettel','jt','spx','standard','other')),
   tracking_number text NOT NULL,
   order_number text NOT NULL,
   package_condition text NOT NULL CHECK (package_condition IN ('intact', 'damaged', 'lost_or_tampered')),

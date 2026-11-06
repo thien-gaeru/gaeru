@@ -58,10 +58,10 @@ test('RMA full-order exchange issues stock once, records linked proof, advances 
   assert.equal((await f.api('/exchange-issue', 'POST', { ...body, reason: 'Khác nội dung cùng mã yêu cầu' })).status, 409);
   const close = version => f.api('', 'PATCH', { version, status: 'resolved', resolution: 'Đã đối chiếu hàng giao đổi hoàn tất' });
   assert.equal((await close(2)).status, 409);
-  assert.equal((await f.api('/logistics', 'PATCH', { version: 1, outboundStatus: 'in_transit', outboundCarrier: 'ghn', outboundTrackingNumber: 'RMA-TRACK-1' })).status, 409);
-  assert.equal((await f.api('/logistics', 'PATCH', { version: 2, outboundStatus: 'delivered', outboundCarrier: 'ghn', outboundTrackingNumber: 'RMA-TRACK-1' })).status, 409);
+  assert.equal((await f.api('/logistics', 'PATCH', { version: 1, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'RMA-TRACK-1' })).status, 409);
+  assert.equal((await f.api('/logistics', 'PATCH', { version: 2, outboundStatus: 'delivered', outboundCarrier: 'viettel', outboundTrackingNumber: 'RMA-TRACK-1' })).status, 409);
   assert.equal((await f.api('/logistics', 'PATCH', { version: 2, outboundStatus: 'in_transit' })).status, 409);
-  assert.equal((await f.api('/logistics', 'PATCH', { version: 2, outboundStatus: 'in_transit', outboundCarrier: 'ghn', outboundTrackingNumber: 'RMA-TRACK-1' })).status, 200);
+  assert.equal((await f.api('/logistics', 'PATCH', { version: 2, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'RMA-TRACK-1' })).status, 200);
   assert.equal((await f.api('/exchange-issue/void', 'POST', { version: 3, requestKey: randomUUID(), issueId: created.data.issue.id, reason: 'Không được hoàn lại khi đang giao' })).status, 409);
   assert.equal((await f.api('/logistics', 'PATCH', { version: 3, outboundTrackingNumber: 'CHANGED-TRACK' })).status, 409);
   assert.equal((await f.api('/logistics', 'PATCH', { version: 3, outboundStatus: 'delivered' })).status, 200);
@@ -132,7 +132,7 @@ test('exchange closure restocks only approved original goods once and keeps repl
   const f = await fixture(t);
   await f.pool.query('UPDATE order_after_sales SET restock_eligible=true WHERE id=$1', [f.row.id]);
   await issueExchange(f.pool, { caseId: f.row.id, data: f.body(), actor: f.actor });
-  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'ghn', outboundTrackingNumber: 'EXCHANGE-APPROVED-1', actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'EXCHANGE-APPROVED-1', actor: f.actor });
   await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 3, outboundStatus: 'delivered', actor: f.actor });
   const close = () => f.api('', 'PATCH', { version: 4, status: 'resolved', resolution: 'Khách đã nhận đủ hàng đổi mới' });
   assert.equal((await close()).status, 200); assert.equal((await close()).status, 409);
@@ -147,7 +147,7 @@ test('RMA restock flag and saleable stock restoration require inventory approval
   assert.equal((await f.state()).restock_eligible, false);
   await f.pool.query('UPDATE order_after_sales SET restock_eligible=true WHERE id=$1', [f.row.id]);
   await issueExchange(f.pool, { caseId: f.row.id, data: f.body(), actor: f.actor });
-  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'ghn', outboundTrackingNumber: 'EXCHANGE-APPROVAL-1', actor: f.actor });
+  await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 2, outboundStatus: 'in_transit', outboundCarrier: 'viettel', outboundTrackingNumber: 'EXCHANGE-APPROVAL-1', actor: f.actor });
   await updateRmaLogisticsByAdmin(f.pool, { caseId: f.row.id, version: 3, outboundStatus: 'delivered', actor: f.actor });
   assert.equal((await f.api('', 'PATCH', { version: 4, status: 'resolved', resolution: 'Chưa có quyền duyệt tái nhập kho' }, { 'X-Readonly': '1' })).status, 403);
   assert.equal((await f.state()).status, 'received');

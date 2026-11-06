@@ -13,7 +13,7 @@ const {
   handleCarrierWebhook,
   quoteShippingFee
 } = require('../src/shipping-management');
-const { jtAdapter, viettelAdapter, ghnAdapter, ghtkAdapter, spxAdapter } = require('../src/shipping-adapters');
+const { jtAdapter, viettelAdapter, spxAdapter } = require('../src/shipping-adapters');
 
 const ENCRYPTION_KEY = process.env.AUTH_ENCRYPTION_KEY || 'test-session-secret-key-12345';
 
@@ -74,21 +74,21 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   const pool = await setupTestDb(t);
   const config = makeConfig();
 
-  // Seed GHN configuration
+  // Seed SPX configuration
   const cipher = seal(JSON.stringify({
-    accountId: '12345',
+    accountId: 'SPX12345',
     pickupName: 'GAERU Kho',
     pickupPhone: '0901234567',
     pickupAddress: '123 Cầu Giấy, Hà Nội',
-    secret: 'my_jt_secret'
+    secret: 'my_spx_secret'
   }), ENCRYPTION_KEY);
 
   await pool.query(
-    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_ghn', $1)",
+    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_spx', $1)",
     [JSON.stringify({ version: 1, cipher })]
   );
   await pool.query(
-    "INSERT INTO shipping_carrier_connections(carrier_id, config_version, verified_at, enabled) VALUES('ghn', 1, now(), true)"
+    "INSERT INTO shipping_carrier_connections(carrier_id, config_version, verified_at, enabled) VALUES('spx', 1, now(), true)"
   );
 
   // Create an order
@@ -109,19 +109,17 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
     [orderId]
   );
 
-  let jtApiCallCount = 0;
+  let spxApiCallCount = 0;
   const mockFetcher = async (url, opts) => {
-    jtApiCallCount++;
+    spxApiCallCount++;
     return {
       ok: true,
       json: async () => ({
-        code: 200,
-        desc: 'success',
+        code: 0,
+        message: 'success',
         data: {
-          order_code: '840012345678',
-          txlogisticid: 'GR-20261102-TEST01',
-          total_fee: 25000,
-          expectedDelivery: '2026-11-04'
+          tracking_number: 'SPX840012345678',
+          total_fee: 25000
         }
       })
     };
@@ -130,7 +128,7 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   // 1. Create waybill first time
   const res1 = await createWaybill(pool, config, {
     orderId,
-    carrierId: 'ghn',
+    carrierId: 'spx',
     autoShip: false,
     actor: { username: 'admin_test' },
     fetcher: mockFetcher
@@ -138,10 +136,10 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
 
   assert.equal(res1.success, true);
   assert.equal(res1.existing, false);
-  assert.equal(res1.shipment.trackingNumber, '840012345678');
-  assert.equal(res1.shipment.carrierId, 'ghn');
+  assert.equal(res1.shipment.trackingNumber, 'SPX840012345678');
+  assert.equal(res1.shipment.carrierId, 'spx');
   assert.equal(res1.shipment.codAmountVnd, 275000);
-  assert.equal(jtApiCallCount, 1);
+  assert.equal(spxApiCallCount, 1);
 
   // Order status should be transitioned to 'processing'
   const checkOrder = await pool.query('SELECT status FROM orders WHERE id = $1', [orderId]);
@@ -150,12 +148,12 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
   // Check database shipment record
   const checkShipment = await pool.query('SELECT * FROM carrier_shipments WHERE order_id = $1', [orderId]);
   assert.equal(checkShipment.rows.length, 1);
-  assert.equal(checkShipment.rows[0].tracking_number, '840012345678');
+  assert.equal(checkShipment.rows[0].tracking_number, 'SPX840012345678');
 
   // 2. IDEMPOTENCY CHECK: Call createWaybill second time on the same order
   const res2 = await createWaybill(pool, config, {
     orderId,
-    carrierId: 'ghn',
+    carrierId: 'spx',
     autoShip: false,
     actor: { username: 'admin_test' },
     fetcher: mockFetcher
@@ -163,9 +161,9 @@ test('Shipping Carriers Acceptance: [P0] Create Waybill simulated API boundary w
 
   assert.equal(res2.success, true);
   assert.equal(res2.existing, true);
-  assert.equal(res2.shipment.trackingNumber, '840012345678');
+  assert.equal(res2.shipment.trackingNumber, 'SPX840012345678');
   // API was NOT called again!
-  assert.equal(jtApiCallCount, 1, 'Idempotency must prevent calling carrier API again');
+  assert.equal(spxApiCallCount, 1, 'Idempotency must prevent calling carrier API again');
 
   // Database shipment table still has only 1 row!
   const finalCheck = await pool.query('SELECT count(*)::int AS count FROM carrier_shipments WHERE order_id = $1', [orderId]);
@@ -243,17 +241,17 @@ test('Shipping Carriers Acceptance: [P1] Cancel waybill and print carrier label 
   const pool = await setupTestDb(t);
   const config = makeConfig();
 
-  // Seed GHN configuration
+  // Seed SPX configuration
   const cipher = seal(JSON.stringify({
-    accountId: '12345',
+    accountId: 'SPX12345',
     pickupName: 'GAERU Kho',
     pickupPhone: '0901234567',
     pickupAddress: 'Hà Nội',
-    secret: 'ghn_token_secret'
+    secret: 'spx_token_secret'
   }), ENCRYPTION_KEY);
 
   await pool.query(
-    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_ghn', $1)",
+    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_spx', $1)",
     [JSON.stringify({ version: 1, cipher })]
   );
 
@@ -268,12 +266,12 @@ test('Shipping Carriers Acceptance: [P1] Cancel waybill and print carrier label 
   );
   const orderId = orderRes.rows[0].id;
 
-  const labelUrl = 'https://online-gateway.ghn.vn/a5/public-api/printA5?token=GHN998877';
+  const labelUrl = 'https://spx.vn/order/print?tracking_no=SPX998877';
   await pool.query(
     `INSERT INTO carrier_shipments (
        order_id, carrier_id, tracking_number, carrier_order_id, label_url,
        status, cod_amount_vnd, tracking_history
-     ) VALUES ($1, 'ghn', 'GHN998877', 'GHN998877', $2, 'created', 0, '[]'::jsonb)`,
+     ) VALUES ($1, 'spx', 'SPX998877', 'SPX998877', $2, 'created', 0, '[]'::jsonb)`,
     [orderId, labelUrl]
   );
 
@@ -300,7 +298,7 @@ test('Shipping Carriers Acceptance: [P1] Cancel waybill and print carrier label 
     cancelCalled = true;
     return {
       ok: true,
-      json: async () => ({ code: 200, message: 'Success', data: [{order_code:'GHN998877',result:true,message:'OK'}] })
+      json: async () => ({ code: 0, message: 'Success' })
     };
   };
 
@@ -329,35 +327,42 @@ test('Shipping Carriers Acceptance: [P1] Realtime fee quote with LRU Cache and g
     "UPDATE store_settings SET setting_value = '{\"Hà Nội\": 20000, \"Hồ Chí Minh\": 30000}' WHERE setting_key = 'shipping_rates'"
   );
 
-  // Seed GHTK
+  // Seed Viettel Post
   const cipher = seal(JSON.stringify({
-    accountId: 'GHTK123',
+    accountId: 'VT123',
     pickupName: 'GAERU Kho',
     pickupPhone: '0901234567',
     pickupAddress: 'Hà Nội',
-    secret: 'ghtk_secret_token'
+    secret: 'viettel_secret_token'
   }), ENCRYPTION_KEY);
 
   await pool.query(
-    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_ghtk', $1)",
+    "INSERT INTO store_settings(setting_key, setting_value) VALUES('private_admin:shipping_viettel', $1)",
     [JSON.stringify({ version: 1, cipher })]
   );
 
-  let ghtkApiCallCount = 0;
+  let viettelApiCallCount = 0;
   const mockFetcher = async (url, opts) => {
-    ghtkApiCallCount++;
+    viettelApiCallCount++;
     return {
       ok: true,
       json: async () => ({
-        success: true,
-        fee: { fee: 22000 }
+        status: 200,
+        error: false,
+        data: [
+          {
+            MA_DV_CHINH: 'VCN',
+            TEN_DICHVU: 'Viettel Post Nhanh',
+            GIA_CUOC: 22000
+          }
+        ]
       })
     };
   };
 
   // 1. First quote call - fetches from carrier
   const quote1 = await quoteShippingFee(pool, config, {
-    carrierId: 'ghtk',
+    carrierId: 'viettel',
     city: 'Hà Nội',
     weightGrams: 500,
     totalVnd: 200000,
@@ -366,11 +371,11 @@ test('Shipping Carriers Acceptance: [P1] Realtime fee quote with LRU Cache and g
 
   assert.equal(quote1.feeVnd, 22000);
   assert.equal(quote1.source, 'carrier_realtime');
-  assert.equal(ghtkApiCallCount, 1);
+  assert.equal(viettelApiCallCount, 1);
 
   // 2. Second quote call - hits RAM LRU cache
   const quote2 = await quoteShippingFee(pool, config, {
-    carrierId: 'ghtk',
+    carrierId: 'viettel',
     city: 'Hà Nội',
     weightGrams: 500,
     totalVnd: 200000,
@@ -378,7 +383,7 @@ test('Shipping Carriers Acceptance: [P1] Realtime fee quote with LRU Cache and g
   });
 
   assert.equal(quote2.feeVnd, 22000);
-  assert.equal(ghtkApiCallCount, 1, 'Cache must prevent redundant API calls');
+  assert.equal(viettelApiCallCount, 1, 'Cache must prevent redundant API calls');
 
   // 3. Fallback Test: Carrier API failure falls back to rate table
   const failingFetcher = async () => {
@@ -386,7 +391,7 @@ test('Shipping Carriers Acceptance: [P1] Realtime fee quote with LRU Cache and g
   };
 
   const fallbackQuote = await quoteShippingFee(pool, config, {
-    carrierId: 'ghtk',
+    carrierId: 'viettel',
     city: 'Hồ Chí Minh',
     weightGrams: 500,
     totalVnd: 200000,

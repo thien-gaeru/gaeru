@@ -158,10 +158,10 @@ test('Public Order Tracking & Verification Suite', async (t) => {
 
   await t.test('Unit: getCarrierTrackingUrl creates correct third-party URLs', () => {
     assert.equal(getCarrierTrackingUrl('viettel', 'VT123'), 'https://viettelpost.vn/tra-cuu-hanh-trinh-don/?orderNumber=VT123');
-    assert.equal(getCarrierTrackingUrl('ghn', 'GHN456'), 'https://tracking.ghn.vn/?order_code=GHN456');
-    assert.equal(getCarrierTrackingUrl('ghtk', 'GHTK789'), 'https://i.ghtk.vn/GHTK789');
     assert.equal(getCarrierTrackingUrl('jt', 'JT001'), 'https://jtexpress.vn/vi/tracking?type=track&billcode=JT001');
     assert.equal(getCarrierTrackingUrl('spx', 'SPX999'), 'https://spx.vn/track?SPX999');
+    assert.equal(getCarrierTrackingUrl('ghn', 'GHN456'), null);
+    assert.equal(getCarrierTrackingUrl('ghtk', 'GHTK789'), null);
     assert.equal(getCarrierTrackingUrl('unknown', '123'), null);
     assert.equal(getCarrierTrackingUrl('viettel', ''), null);
   });

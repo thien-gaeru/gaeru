@@ -21,7 +21,7 @@ async function fixture({ result={verified:false,reachable:true,method:'gateway_r
   const admin={user:{role:'owner',source:'bootstrap'},showGlobal(){},async request(path,options={}) {
     if(!options.method){
       if(path.endsWith('/configuration'))return {records,callbacks:{},services:{}};
-      if(path.endsWith('/shipping'))return {carriers:[{id:'ghn',configured:false,verified:false,enabled:false,supported:true}]};
+      if(path.endsWith('/shipping'))return {carriers:[{id:'viettel',configured:false,verified:false,enabled:false,supported:true}]};
       return {channels};
     }
     requests.push({path,body:JSON.parse(options.body)});
@@ -93,5 +93,5 @@ test('old handshake success flags cannot display authenticated-success feedback'
 test('shipping workspace still renders independently of payment readiness',async()=>{
   const f=await fixture();
   await f.mountShipping();
-  assert.ok(f.document.querySelector('#config-panel-shipping_ghn [data-shipping-enable]'));
+  assert.ok(f.document.querySelector('#config-panel-shipping_viettel [data-shipping-enable]'));
 });

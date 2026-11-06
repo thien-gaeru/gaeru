@@ -421,13 +421,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
   let rawStatus = null;
   let carrierOrderId = null;
 
-  if (carrierId === 'ghn') {
-    trackingNumber = payload.OrderCode || payload.order_code;
-    rawStatus = payload.Status || payload.status;
-  } else if (carrierId === 'ghtk') {
-    trackingNumber = payload.label_id || payload.label;
-    rawStatus = payload.status_id || payload.status;
-  } else if (carrierId === 'viettel') {
+  if (carrierId === 'viettel') {
     trackingNumber = payload.ORDER_NUMBER || payload.order_number;
     rawStatus = payload.ORDER_STATUS || payload.status;
   } else if (carrierId === 'jt') {
@@ -613,7 +607,7 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
       try {
         const orderId = z.string().uuid().parse(req.params.id);
         const { carrierId, autoShip } = z.object({
-          carrierId: z.enum(['ghn', 'ghtk', 'viettel', 'jt', 'spx']).optional(),
+          carrierId: z.enum(['viettel', 'jt', 'spx']).optional(),
           autoShip: z.boolean().optional()
         }).parse(req.body || {});
 
@@ -714,7 +708,7 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
-        const carrierId = z.enum(['ghn', 'ghtk', 'viettel', 'jt', 'spx']).parse(req.params.carrier);
+        const carrierId = z.enum(['viettel', 'jt', 'spx']).parse(req.params.carrier);
         const result = await handleCarrierWebhook(pool, config, carrierId, req.body || {}, {
           headers: req.headers,
           finance
@@ -732,7 +726,7 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     async (req, res, next) => {
       try {
         const schema = z.object({
-          carrierId: z.enum(['ghn', 'ghtk', 'viettel', 'jt', 'spx']).optional(),
+          carrierId: z.enum(['viettel', 'jt', 'spx']).optional(),
           city: z.string().trim().min(1).max(120),
           district: z.string().trim().max(120).optional(),
           address: z.string().trim().max(500).optional(),

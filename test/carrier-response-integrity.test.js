@@ -31,25 +31,17 @@ test('a positive envelope without a provider tracking number never fabricates a 
   assert.equal(unknownFee.shippingFeeVnd, null, 'missing fee is unknown, not a made-up amount');
 });
 
-test('GHN cancellation needs a positive acknowledgement for the requested order, including per-item failures under code 200', async () => {
-  for (const data of [{ code: 200 }, { code: 200, data: [{ order_code: 'FIXTURE', result: false }] }, { code: 200, data: [{ order_code: 'DIFFERENT', result: true }] }]) {
-    await assert.rejects(() => adapters.ghn.cancelWaybill(settings, { trackingNumber: 'FIXTURE' }, response(data)), e => e.status === 502);
-  }
-  assert.equal((await adapters.ghn.cancelWaybill(settings, { trackingNumber: 'FIXTURE' }, response({ code: 200, data: [{ order_code: 'FIXTURE', result: true }] }))).cancelled, true);
-});
-
 test('carrier prices are accepted only from valid responses and SPX never labels a fixed fallback realtime', async () => {
-  for (const id of ['jt', 'viettel', 'ghn', 'ghtk']) {
+  for (const id of ['jt', 'viettel']) {
     await assert.rejects(() => adapters[id].quoteShippingFee(settings, { ...order, city: 'Hà Nội' }, response({ code: 401, status: 401, error: true, success: false })), e => e.status === 502, id);
   }
-  for (const [id, data] of [['jt', { code: '1', data: {} }], ['ghn', { code: 200, data: {} }], ['ghtk', { success: true, fee: {} }]]) {
+  for (const [id, data] of [['jt', { code: '1', data: {} }]]) {
     await assert.rejects(() => adapters[id].quoteShippingFee(settings, order, response(data)), e => e.status === 502, id);
   }
-  assert.equal((await adapters.ghn.quoteShippingFee(settings, {}, response({ code: 200, data: { total: 0 } }))).feeVnd, 0);
   await assert.rejects(() => adapters.spx.quoteShippingFee(settings, {}, response({})), e => e.status === 501);
 });
 
 test('negative and unknown status words cannot be mistaken for successful delivery', () => {
-  for (const value of ['undelivered', 'unsuccessful', 'delivery_success_pending', 'not_received', 'unknown', 'delivery_fail', 'success', 'finish', 'received']) assert.equal(normalizeCarrierStatus('ghn', value), 'pending', value);
-  assert.equal(normalizeCarrierStatus('ghn', 'delivered'), 'delivered');
+  for (const value of ['undelivered', 'unsuccessful', 'delivery_success_pending', 'not_received', 'unknown', 'delivery_fail', 'success', 'finish', 'received']) assert.equal(normalizeCarrierStatus('spx', value), 'pending', value);
+  assert.equal(normalizeCarrierStatus('spx', 'delivered'), 'delivered');
 });

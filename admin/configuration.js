@@ -6,8 +6,6 @@ let configModalTrigger=null;
 let configModalPreviousOverflow='';
 
 const titles={
- shipping_ghn:'Giao Hàng Nhanh (GHN)',
- shipping_ghtk:'Giao Hàng Tiết Kiệm (GHTK)',
  shipping_viettel:'Viettel Post',
  shipping_jt:'J&T Express',
  shipping_spx:'Shopee Express (SPX Express)',
@@ -77,9 +75,9 @@ const fields={
 
 for(const id of ['shopee','tiktok','lazada'])fields[id].push(['accessToken','Access Token do sàn cấp','password'],['refreshToken','Refresh Token (tùy chọn)','password'],['tokenExpiresAt','Hạn token (ISO 8601, tùy chọn)']);
 
-for(const id of ['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx']){
+for(const id of ['shipping_viettel','shipping_jt','shipping_spx']){
  fields[id]=[
-  ['accountId',id==='shipping_ghn'?'Shop ID':id==='shipping_jt'?'Mã khách hàng J&T (customerCode)':id==='shipping_viettel'?'Số điện thoại / Mã khách hàng Viettel Post':'Mã khách hàng / tài khoản API'],
+  ['accountId',id==='shipping_jt'?'Mã khách hàng J&T (customerCode)':id==='shipping_viettel'?'Số điện thoại / Mã khách hàng Viettel Post':id==='shipping_spx'?'Shop ID / Mã KH SPX':'Mã khách hàng / tài khoản API'],
   ['partnerCode',id==='shipping_jt'?'apiAccount từ ứng dụng J&T Open Platform':'Mã đối tác / API account (nếu hãng cấp)'],
   ['secret',id==='shipping_jt'?'Khóa API / private key':id==='shipping_viettel'?'API Token (Token ủy quyền 1 năm hoặc Token bí mật sao chép từ viettelpost.vn)':'API Token','password'],
   ['webhookSecret','Khóa xác thực Webhook riêng (ít nhất 32 ký tự; chỉ khi hãng hỗ trợ)','password'],
@@ -99,8 +97,6 @@ const channelMeta={
 };
 
 const shippingMeta={
- shipping_ghn:{id:'ghn',name:'Giao Hàng Nhanh (GHN)',sub:'Mạng lưới bưu cục toàn quốc, giao nhanh 24h',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>'},
- shipping_ghtk:{id:'ghtk',name:'Giao Hàng Tiết Kiệm (GHTK)',sub:'Tối ưu chi phí cho shop online, giao hàng nội ngoại tỉnh',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"></circle><circle cx="5.5" cy="17.5" r="3.5"></circle><circle cx="15" cy="5" r="1"></circle><path d="M12 17.5V14l-3-3 4-3 2 3h2"></path></svg>'},
  shipping_viettel:{id:'viettel',name:'Viettel Post',sub:'Chuyển phát bưu chính quân đội, phủ sóng đến từng xã đảo',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>'},
  shipping_jt:{id:'jt',name:'J&T Express',sub:'Chuyển phát nhanh tiêu chuẩn & dịch vụ hỏa tốc toàn quốc',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>'},
  shipping_spx:{id:'spx',name:'Shopee Express (SPX)',sub:'Vận chuyển Shopee Express, mạng lưới bưu cục và giao nhanh toàn quốc',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ee4d2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>'}
@@ -112,8 +108,6 @@ const configModalMeta={
  vnpay:{title:'Cấu hình & Khóa bảo mật · Cổng VNPAY',sub:'Mã website TMN, Khóa Hash Secret & URLs đối soát IPN',icon:channelMeta.vnpay.icon},
  payment_momo:{title:'Cấu hình & Khóa bảo mật · Ví MoMo',sub:'Partner Code, Access Key, Secret Key & URLs IPN/Webhook',icon:channelMeta.momo.icon},
  payment_zalopay:{title:'Cấu hình & Khóa bảo mật · Ví ZaloPay',sub:'App ID, Khóa Key 1, Khóa Key 2 & Callback URLs',icon:channelMeta.zalopay.icon},
- shipping_ghn:{title:'Cấu hình & Khóa API · Giao Hàng Nhanh (GHN)',sub:'Shop ID, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_ghn.icon},
- shipping_ghtk:{title:'Cấu hình & Khóa API · Giao Hàng Tiết Kiệm (GHTK)',sub:'Mã tài khoản, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_ghtk.icon},
  shipping_viettel:{title:'Cấu hình & Khóa API · Viettel Post',sub:'Mã đối tác, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_viettel.icon},
  shipping_jt:{title:'Cấu hình & Khóa API · J&T Việt Nam',sub:'Open Platform: customerCode, apiAccount, privateKey và password nghiệp vụ',icon:shippingMeta.shipping_jt.icon},
  shipping_spx:{title:'Cấu hình & Khóa API · Shopee Express (SPX)',sub:'Mã khách hàng / Shop ID, API Key / Token SPX và thông tin kho lấy hàng',icon:shippingMeta.shipping_spx.icon},
@@ -237,7 +231,7 @@ async function mountShipping(){
 
  const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý kết nối vận chuyển:</strong> Thiết lập tài khoản API, mã hóa Token kết nối của các đơn vị vận chuyển hàng đầu tại Việt Nam. Bật đơn vị vận chuyển đã xác minh để người mua tự do lựa chọn khi đặt hàng.</p><p style="margin-top:6px;font-size:12px;color:#059669;">✓ Phí giao hàng áp dụng linh hoạt theo cấu hình bảng giá tỉnh/thành phố GAERU.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/5</strong></span><span class="payment-stat-pill">🛡️ Đã xác minh: <strong>'+verifiedCount+'/5</strong></span></div></div>';
 
- const cardsHtml=['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx'].map(configId=>{
+ const cardsHtml=['shipping_viettel','shipping_jt','shipping_spx'].map(configId=>{
   const meta=shippingMeta[configId];
   const carrier=carriers.find(c=>c.id===meta.id)||{id:meta.id,verified:false,enabled:false,supported:true};
   const record=data?.records?.[configId]||{version:0,data:{}};
@@ -246,7 +240,7 @@ async function mountShipping(){
   const statusPill=carrier.enabled?'<span class="payment-badge badge-enabled">● Đang bật</span>':'<span class="payment-badge badge-disabled">○ Đang tắt</span>';
   const verifyPill=carrier.verified?'<span class="payment-badge badge-verified">✓ Đã xác minh</span>':carrier.accountVerified?'<span class="payment-badge badge-pending">Đã xác thực tài khoản '+(carrier.environment==='sandbox'?'thử nghiệm':'chính thức')+' · Chưa nghiệm thu vận đơn</span>':record.version?'<span class="payment-badge badge-pending">⏳ Chưa xác minh</span>':'<span class="payment-badge badge-unconfigured">Chưa cấu hình</span>';
 
-  const snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">'+(meta.id==='ghn'?'Shop ID:':'Mã tài khoản / KH:')+'</span><span class="payment-snapshot-val"><code>'+esc(v.accountId||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Người gửi:</span><span class="payment-snapshot-val">'+esc(v.pickupName||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Kho lấy hàng:</span><span class="payment-snapshot-val">'+esc(v.pickupAddress||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Khóa kết nối:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
+  const snapshotHtml='<div class="payment-snapshot-item"><span class="payment-snapshot-label">'+(meta.id==='spx'?'Shop ID / Mã KH:':'Mã tài khoản / KH:')+'</span><span class="payment-snapshot-val"><code>'+esc(v.accountId||'Chưa thiết lập')+'</code></span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Người gửi:</span><span class="payment-snapshot-val">'+esc(v.pickupName||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Kho lấy hàng:</span><span class="payment-snapshot-val">'+esc(v.pickupAddress||'Chưa thiết lập')+'</span></div><div class="payment-snapshot-item"><span class="payment-snapshot-label">Khóa kết nối:</span><span class="payment-snapshot-val">'+(v.secretConfigured?'✓ Đã mã hóa':'Chưa nhập khóa')+'</span></div>';
 
   return '<article class="payment-card configuration-panel '+(carrier.enabled?'card-enabled':'')+'" id="config-panel-'+configId+'" data-carrier-id="'+meta.id+'"><div class="payment-card-header"><div class="payment-card-icon">'+meta.icon+'</div><div class="payment-card-header-main"><h3 class="payment-card-title">'+esc(meta.name)+'</h3><p class="payment-card-sub">'+esc(meta.sub)+'</p><div class="payment-card-badges">'+statusPill+verifyPill+'</div></div></div><div class="payment-card-body">'+snapshotHtml+'</div><div class="payment-card-actions"><button type="button" class="payment-action-btn payment-btn-setup" data-open-config-popup="'+configId+'">⚙ Cấu hình &amp; Khóa API</button>'+(carrier.supported?'<button type="button" class="payment-action-btn '+(carrier.enabled?'payment-btn-disable':'payment-btn-enable')+'" data-shipping-enable="'+carrier.id+'" data-enabled="'+(!carrier.enabled)+'" '+(carrier.checkoutReady===false?'disabled':'')+'>'+ (carrier.checkoutReady===false?'Chưa nghiệm thu vận đơn':carrier.enabled?'Tắt hãng':'Bật hãng')+'</button><button type="button" class="payment-action-btn payment-btn-test" data-shipping-test="'+carrier.id+'">Kiểm tra kết nối</button>':'<p>Chưa hoàn tất tích hợp API.</p>')+'<p role="status" class="payment-card-status" data-shipping-result></p></div><details class="payment-card-drawer" id="drawer-'+configId+'" style="display:none"><summary class="payment-drawer-summary"><span>⚙ Chi tiết cấu hình</span></summary>'+form(configId)+'</details></article>';
  }).join('');

@@ -68,7 +68,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
 
   const shipment1 = (await pool.query(
     `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
-     VALUES($1, 'ghn', 'GHN-RET-001', 'returned', 'Delivery Failed - Returning to sender', 1500000)
+     VALUES($1, 'viettel', 'VT-RET-001', 'returned', 'Delivery Failed - Returning to sender', 1500000)
      RETURNING id`,
     [order1.id]
   )).rows[0];
@@ -129,14 +129,14 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
   const pendingData = await pendingRes.json();
   assert.equal(pendingData.total, 2);
   assert.equal(pendingData.pendingReturns.length, 2);
-  assert.ok(pendingData.pendingReturns.some(r => r.trackingNumber === 'GHN-RET-001'));
+  assert.ok(pendingData.pendingReturns.some(r => r.trackingNumber === 'VT-RET-001'));
   assert.ok(pendingData.pendingReturns.some(r => r.trackingNumber === 'JT-DAMAGED-002'));
 
   // --- TEST CASE 2: Tra cứu nhanh bằng Barcode scanner (/lookup) ---
-  const lookupRes = await fetch(`${base}/cod-returns/lookup?q=GHN-RET-001`);
+  const lookupRes = await fetch(`${base}/cod-returns/lookup?q=VT-RET-001`);
   assert.equal(lookupRes.status, 200);
   const lookupData = await lookupRes.json();
-  assert.equal(lookupData.shipment.trackingNumber, 'GHN-RET-001');
+  assert.equal(lookupData.shipment.trackingNumber, 'VT-RET-001');
   assert.equal(lookupData.shipment.orderNumber, 'ORD-COD-RETURN-1');
   assert.equal(lookupData.intakeStatus, 'pending');
   assert.equal(lookupData.shipment.items.length, 1);
@@ -156,7 +156,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
     body: JSON.stringify({
-      trackingNumber: 'GHN-RET-001',
+      trackingNumber: 'VT-RET-001',
       packageCondition: 'intact',
       inspectionNotes: 'Hộp nguyên seal, phụ kiện đầy đủ, đủ chuẩn bán mới'
     })
@@ -181,7 +181,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-csrf-token': 'test-csrf-token' },
     body: JSON.stringify({
-      trackingNumber: 'GHN-RET-001',
+      trackingNumber: 'VT-RET-001',
       packageCondition: 'intact'
     })
   });
@@ -230,7 +230,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
   // Lọc lịch sử theo condition=intact
   const intactHistory = await (await fetch(`${base}/cod-returns/history?condition=intact`)).json();
   assert.equal(intactHistory.total, 1);
-  assert.equal(intactHistory.history[0].trackingNumber, 'GHN-RET-001');
+  assert.equal(intactHistory.history[0].trackingNumber, 'VT-RET-001');
 
   // Lọc lịch sử theo condition=damaged
   const damagedHistory = await (await fetch(`${base}/cod-returns/history?condition=damaged`)).json();
@@ -261,7 +261,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
   )).rows[0];
   await pool.query(
     `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
-     VALUES($1, 'ghn', 'VNPAY-SHIP-003', 'returned', 'Delivery Failed - Return', 0)`,
+     VALUES($1, 'viettel', 'VNPAY-SHIP-003', 'returned', 'Delivery Failed - Return', 0)`,
     [order3.id]
   );
   const prepaidRes = await fetch(`${base}/cod-returns/intake`, {
@@ -285,7 +285,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
   )).rows[0];
   await pool.query(
     `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
-     VALUES($1, 'ghn', 'COD-PAID-004', 'returned', 'Return completed', 1500000)`,
+     VALUES($1, 'viettel', 'COD-PAID-004', 'returned', 'Return completed', 1500000)`,
     [order4.id]
   );
   const paidCodRes = await fetch(`${base}/cod-returns/intake`, {
@@ -305,7 +305,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
   )).rows[0];
   await pool.query(
     `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
-     VALUES($1, 'ghn', 'COD-DELIVERING-005', 'delivering', 'Shipper is delivering package to customer', 1500000)`,
+     VALUES($1, 'viettel', 'COD-DELIVERING-005', 'delivering', 'Shipper is delivering package to customer', 1500000)`,
     [order5.id]
   );
   const deliveringRes = await fetch(`${base}/cod-returns/intake`, {
@@ -333,7 +333,7 @@ test('COD Return Intake Workflow: pending listing, barcode lookup, condition ins
   );
   await pool.query(
     `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, carrier_status_raw, cod_amount_vnd)
-     VALUES($1, 'ghn', 'COD-DIFF-WH-006', 'returned', 'Returning to sender', 1500000)`,
+     VALUES($1, 'viettel', 'COD-DIFF-WH-006', 'returned', 'Returning to sender', 1500000)`,
     [order6.id]
   );
   const diffWhRes = await fetch(`${base}/cod-returns/intake`, {
