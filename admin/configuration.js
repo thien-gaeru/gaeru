@@ -79,9 +79,9 @@ for(const id of ['shopee','tiktok','lazada'])fields[id].push(['accessToken','Acc
 
 for(const id of ['shipping_ghn','shipping_ghtk','shipping_viettel','shipping_jt','shipping_spx']){
  fields[id]=[
-  ['accountId',id==='shipping_ghn'?'Shop ID':id==='shipping_jt'?'Mã khách hàng J&T (customerCode)':'Mã khách hàng / tài khoản API'],
+  ['accountId',id==='shipping_ghn'?'Shop ID':id==='shipping_jt'?'Mã khách hàng J&T (customerCode)':id==='shipping_viettel'?'Số điện thoại / Mã khách hàng Viettel Post':'Mã khách hàng / tài khoản API'],
   ['partnerCode',id==='shipping_jt'?'apiAccount từ ứng dụng J&T Open Platform':'Mã đối tác / API account (nếu hãng cấp)'],
-  ['secret',id==='shipping_jt'?'Khóa API / private key':'API Token','password'],
+  ['secret',id==='shipping_jt'?'Khóa API / private key':id==='shipping_viettel'?'API Token (Token ủy quyền 1 năm hoặc Token bí mật sao chép từ viettelpost.vn)':'API Token','password'],
   ['webhookSecret','Khóa xác thực Webhook riêng (ít nhất 32 ký tự; chỉ khi hãng hỗ trợ)','password'],
   ['pickupName','Tên người gửi'],
   ['pickupPhone','Điện thoại lấy hàng'],
@@ -149,7 +149,7 @@ function renderWebhookBox(configId){
   ];
   note='Cài đặt Callback URL trên ZaloPay Portal để nhận thông báo thanh toán thành công.';
  }else if(configId.startsWith('shipping_')){
-  note=configId==='shipping_jt'?'Tài liệu J&T Việt Nam: https://open.jtexpress.vn/apiDoc/index · Tạo password nghiệp vụ tại https://open.jtexpress.vn/helpCenter. Không nhập mật khẩu đăng nhập hoặc tự băm mật khẩu. Tài liệu công khai còn mâu thuẫn salt và mã trạng thái; kiểm tra tài khoản chưa nghiệm thu tạo vận đơn. Chưa bật cho người mua.':'Webhook chỉ nhận khi đã lưu khóa xác thực riêng và hãng gửi khóa trong header X-Webhook-Secret hoặc Authorization: Bearer. Chưa xác nhận giao thức Webhook của hãng thì dùng Đồng bộ hành trình trong quản trị.';
+  note=configId==='shipping_jt'?'Tài liệu J&T Việt Nam: https://open.jtexpress.vn/apiDoc/index · Tạo password nghiệp vụ tại https://open.jtexpress.vn/helpCenter. Không nhập mật khẩu đăng nhập hoặc tự băm mật khẩu. Tài liệu công khai còn mâu thuẫn salt và mã trạng thái; kiểm tra tài khoản chưa nghiệm thu tạo vận đơn. Chưa bật cho người mua.':configId==='shipping_viettel'?'Tài liệu Viettel Post: https://partner2.viettelpost.vn/document/token-authen · Hỗ trợ 2 loại token: (1) Token ủy quyền dài hạn 1 năm (JWT eyJ...) qua API ownerconnect hoặc (2) Token bí mật (hex) sao chép tại https://viettelpost.vn/cau-hinh-tai-khoan (hệ thống tự động kích hoạt phiên LoginVTP).':'Webhook chỉ nhận khi đã lưu khóa xác thực riêng và hãng gửi khóa trong header X-Webhook-Secret hoặc Authorization: Bearer. Chưa xác nhận giao thức Webhook của hãng thì dùng Đồng bộ hành trình trong quản trị.';
  }else if(configId==='misa'){
   note='MISA eShop và meInvoice cần giao thức, quyền ứng dụng và tài khoản được xác nhận riêng. Bản này khóa probe và phát hành; chỉ lưu cấu hình và hồ sơ nội bộ. Không tự tạo mã hóa đơn điện tử.';
  }else if(configId==='payment_bank_transfer'){

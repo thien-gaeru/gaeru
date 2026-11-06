@@ -127,6 +127,51 @@ const jtAdapter = {
 // -----------------------------------------------------------------------------
 // 2. Viettel Post Adapter
 // -----------------------------------------------------------------------------
+const viettelTokenCache = new Map();
+
+async function executeViettelRequest(settings, buildRequestFn, { fetcher = fetch } = {}) {
+  const secret = settings?.secret?.trim();
+  if (!secret) throw fail('Cần lưu API Token của Viettel Post.', 400);
+
+  let activeToken = secret;
+  if (!secret.startsWith('eyJ')) {
+    const cached = viettelTokenCache.get(secret);
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+      activeToken = cached.token;
+    }
+  }
+
+  let { response, parsed } = await buildRequestFn(activeToken);
+
+  const isInvalidToken = parsed && (parsed.status === 201 || parsed.status === 203 || (typeof parsed.message === 'string' && /token\s*invalid/i.test(parsed.message)));
+  if (isInvalidToken && !secret.startsWith('eyJ')) {
+    try {
+      const loginUrl = 'https://partner.viettelpost.vn/v2/user/LoginVTP';
+      const loginRes = await fetcher(loginUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: secret }),
+        signal: AbortSignal.timeout(10000),
+        redirect: 'error'
+      });
+      if (loginRes.ok) {
+        const loginData = await loginRes.json();
+        if (carrierResponse.succeeded('viettel', loginData) && loginData.data?.token) {
+          const jwtToken = loginData.data.token;
+          const expiresAt = Number(loginData.data.expired) || (Date.now() + 24 * 60 * 60 * 1000);
+          viettelTokenCache.set(secret, { token: jwtToken, expiresAt });
+          const retry = await buildRequestFn(jwtToken);
+          response = retry.response;
+          parsed = retry.parsed;
+        }
+      }
+    } catch (_err) {
+      // Preserve original parsed response if login endpoint or mock fetcher does not support LoginVTP
+    }
+  }
+
+  return { response, res: parsed };
+}
 const viettelAdapter = {
   async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
     if (!settings.secret) throw fail('Cần lưu API Token của Viettel Post.', 400);
@@ -148,19 +193,22 @@ const viettelAdapter = {
       TYPE: 1
     };
 
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Token': settings.secret
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000),
-      redirect: 'error'
-    });
+    const { res } = await executeViettelRequest(settings, async (token) => {
+      const resp = await fetcher(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Token': token
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
+        redirect: 'error'
+      });
+      if (!resp.ok) throw fail(`Viettel Post từ chối kết nối (HTTP ${resp.status}).`, 502);
+      const data = await resp.json();
+      return { response: resp, parsed: data };
+    }, { fetcher });
 
-    if (!response.ok) throw fail(`Viettel Post từ chối kết nối (HTTP ${response.status}).`, 502);
-    const res = await response.json();
     const isSuccess = carrierResponse.succeeded('viettel', res);
     if (!isSuccess) {
       throw fail(`Viettel Post báo lỗi tạo vận đơn: ${res.message || 'Lỗi tạo đơn'}`, 502);
@@ -186,30 +234,38 @@ const viettelAdapter = {
   async cancelWaybill(settings, { trackingNumber }, { fetcher = fetch } = {}) {
     if (!settings.secret) throw fail('Cần API Token Viettel Post.', 400);
     const url = 'https://partner.viettelpost.vn/v2/order/UpdateOrder';
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Token': settings.secret },
-      body: JSON.stringify({ TYPE: 4, ORDER_NUMBER: trackingNumber }),
-      signal: AbortSignal.timeout(12000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail(`Viettel Post hủy đơn thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
+    const { res } = await executeViettelRequest(settings, async (token) => {
+      const resp = await fetcher(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Token': token },
+        body: JSON.stringify({ TYPE: 4, ORDER_NUMBER: trackingNumber }),
+        signal: AbortSignal.timeout(12000),
+        redirect: 'error'
+      });
+      if (!resp.ok) throw fail(`Viettel Post hủy đơn thất bại (HTTP ${resp.status}).`, 502);
+      const data = await resp.json();
+      return { response: resp, parsed: data };
+    }, { fetcher });
+
     if (!carrierResponse.succeeded('viettel', res)) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
     return { success: true, cancelled: true, message: 'Đã hủy vận đơn Viettel Post thành công.' };
   },
 
   async queryTracking(settings, { trackingNumber }, { fetcher = fetch } = {}) {
     const url = 'https://partner.viettelpost.vn/v2/order/getTracking';
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Token': settings.secret },
-      body: JSON.stringify({ ORDER_NUMBER: trackingNumber }),
-      signal: AbortSignal.timeout(12000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail(`Viettel Post tra cứu thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
+    const { res } = await executeViettelRequest(settings, async (token) => {
+      const resp = await fetcher(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Token': token },
+        body: JSON.stringify({ ORDER_NUMBER: trackingNumber }),
+        signal: AbortSignal.timeout(12000),
+        redirect: 'error'
+      });
+      if (!resp.ok) throw fail(`Viettel Post tra cứu thất bại (HTTP ${resp.status}).`, 502);
+      const data = await resp.json();
+      return { response: resp, parsed: data };
+    }, { fetcher });
+
     if (!carrierResponse.succeeded('viettel', res)) throw fail('Viettel Post chưa xác nhận kết quả tra cứu.', 502);
     const data = Array.isArray(res.data) ? res.data : [];
     const latest = data[data.length - 1] || {};
@@ -234,27 +290,31 @@ const viettelAdapter = {
 
   async quoteShippingFee(settings, { city, weightGrams = 500 }, { fetcher = fetch } = {}) {
     const url = 'https://partner.viettelpost.vn/v2/order/getPriceAllNlp';
-    const response = await fetcher(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Token': settings.secret },
-      body: JSON.stringify({
-        SENDER_ADDRESS: settings.pickupAddress || 'Hà Nội',
-        RECEIVER_ADDRESS: city || 'Hà Nội',
-        RECEIVER_PROVINCE: 1,
-        PRODUCT_TYPE: 'HH',
-        PRODUCT_WEIGHT: Number(weightGrams) || 500,
-        PRODUCT_PRICE: 0,
-        MONEY_COLLECTION: 0,
-        PRODUCT_LENGTH: 0,
-        PRODUCT_WIDTH: 0,
-        PRODUCT_HEIGHT: 0,
-        TYPE: 1
-      }),
-      signal: AbortSignal.timeout(8000),
-      redirect: 'error'
-    });
-    if (!response.ok) throw fail('Viettel Post không phản hồi cước phí.', 502);
-    const res = await response.json();
+    const { res } = await executeViettelRequest(settings, async (token) => {
+      const resp = await fetcher(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Token': token },
+        body: JSON.stringify({
+          SENDER_ADDRESS: settings.pickupAddress || 'Hà Nội',
+          RECEIVER_ADDRESS: city || 'Hà Nội',
+          RECEIVER_PROVINCE: 1,
+          PRODUCT_TYPE: 'HH',
+          PRODUCT_WEIGHT: Number(weightGrams) || 500,
+          PRODUCT_PRICE: 0,
+          MONEY_COLLECTION: 0,
+          PRODUCT_LENGTH: 0,
+          PRODUCT_WIDTH: 0,
+          PRODUCT_HEIGHT: 0,
+          TYPE: 1
+        }),
+        signal: AbortSignal.timeout(8000),
+        redirect: 'error'
+      });
+      if (!resp.ok) throw fail('Viettel Post không phản hồi cước phí.', 502);
+      const data = await resp.json();
+      return { response: resp, parsed: data };
+    }, { fetcher });
+
     if (!Array.isArray(res) && !carrierResponse.succeeded('viettel', res)) throw fail('Viettel Post chưa xác nhận báo giá.', 502);
     const rows = Array.isArray(res) ? res : res.data || [];
     const best = rows.find(r => r.GIA_CUOC > 0) || rows[0];
@@ -636,5 +696,6 @@ module.exports = {
   viettelAdapter,
   ghnAdapter,
   ghtkAdapter,
-  spxAdapter
+  spxAdapter,
+  viettelTokenCache
 };
