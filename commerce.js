@@ -126,16 +126,16 @@ function updateCartBadge(cart = readCart()) {
   link.setAttribute("aria-label", `Giỏ hàng, ${quantity} sản phẩm`);
 }
 
-function getPriceLabel(product) {
+function getPriceLabel(product, original = false) {
   const availableVariants = product.variants.filter((variant) => variant.active);
   if (!availableVariants.length) return "Chưa mở bán";
-  const prices = availableVariants.map((variant) => variant.priceVnd);
+  const prices = availableVariants.map((variant) => original ? (variant.originalPriceVnd ?? variant.priceVnd) : variant.priceVnd);
   const low = Math.min(...prices);
   const high = Math.max(...prices);
   return low === high ? formatPrice(low) : `Từ ${formatPrice(low)} đến ${formatPrice(high)}`;
 }
 
-function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];return `<p class="store-promotion-note"><strong>${flash?'Flash Sale':'Ưu đãi sản phẩm'}</strong>${flash?` <span data-sale-end="${new Date(end).toISOString()}"></span>`:''} · Giá gốc ${escapeHtml(getPriceLabel({...product,variants:product.variants.map(v=>({...v,priceVnd:v.originalPriceVnd??v.priceVnd}))}))}</p>`;}
+function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];const salePrice=getPriceLabel(product,false);return `<p class="store-promotion-note ${flash?'is-flash':''}"><strong class="promotion-badge">${flash?'Flash Sale':'Ưu đãi'}</strong>${flash?` <span class="sale-countdown" data-sale-end="${new Date(end).toISOString()}"></span>`:''} <span class="promotion-divider">·</span> <span class="promotion-sale-price">${escapeHtml(salePrice)}</span></p>`;}
 function productCard(product, compact = false) {
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
@@ -149,7 +149,7 @@ function productCard(product, compact = false) {
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
         <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
-        <p class="price">${escapeHtml(getPriceLabel(product))}</p>${promotionLabel(product)}
+        ${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return hasSale?`<p class="price price-original"><span class="price-original-label">Giá gốc </span><del>${escapeHtml(getPriceLabel(product,true))}</del></p>${promotionLabel(product)}`:`<p class="price">${escapeHtml(getPriceLabel(product))}</p>`;})()}
 
       </div>
       <img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
@@ -354,6 +354,24 @@ function renderProduct() {
   }
   const variants = product.variants.filter((variant) => variant.active);
   const selected = null;
+  const saleVariants = variants.filter(v => v.promotion);
+  const flashVariants = saleVariants.filter(v => v.promotion.type === 'flash');
+  const hasFlash = flashVariants.length > 0;
+  const hasSale = saleVariants.length > 0;
+  const initialFlashEnd = flashVariants.map(v => new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];
+  const initialSalePrice = getPriceLabel(product, false);
+  const initialOriginalPrice = getPriceLabel(product, true);
+  let initialDiscountPercent = 0;
+  if (hasSale) {
+    const salePrices = saleVariants.map(v => v.priceVnd);
+    const origPrices = saleVariants.map(v => v.originalPriceVnd ?? v.priceVnd);
+    const minSale = Math.min(...salePrices);
+    const maxOrig = Math.max(...origPrices);
+    if (maxOrig > minSale) {
+      initialDiscountPercent = Math.round((1 - minSale / maxOrig) * 100);
+    }
+  }
+  const priceBoxHtml = `<div class="product-price-box ${hasFlash ? 'is-flash' : ''}" data-price-box><div class="product-flash-header" data-flash-header ${hasFlash ? '' : 'hidden'}><div class="flash-badge-wrap"><span class="flash-badge-icon" aria-hidden="true">⚡</span><strong class="promotion-badge flash-badge-pill">FLASH SALE</strong></div><div class="flash-timer-wrap"><span class="flash-timer-label">Kết thúc sau</span><span class="sale-countdown store-sale-countdown" data-selected-countdown ${initialFlashEnd ? `data-sale-end="${new Date(initialFlashEnd).toISOString()}"` : ''}></span></div></div><div class="product-price-body"><div class="product-price-main"><span class="detail-price ${hasFlash ? 'detail-price-flash' : ''}" data-selected-price>${escapeHtml(initialSalePrice)}</span><span class="flash-price-tag" data-flash-tag ${hasFlash ? '' : 'hidden'}>Giá Flash Sale</span></div><div class="product-price-sub" data-price-sub ${hasSale ? '' : 'hidden'}><span class="price-original" data-selected-original><span class="price-original-label">Giá gốc: </span><del data-selected-original-price>${escapeHtml(initialOriginalPrice)}</del></span><span class="promotion-discount-badge" data-selected-discount ${initialDiscountPercent ? '' : 'hidden'}>-${initialDiscountPercent}%</span></div></div></div>`;
   const seoDescriptor=String(product.descriptor||'').replace(/\*\*/g,'').replace(/\s+/g,' ').trim();
   const seoLabel=(seoDescriptor||'Thiết bị sáng tạo GAERU').toLocaleLowerCase('vi').replace(/\bai\b/g,'AI');
   document.title=product.name+' — '+seoLabel.charAt(0).toLocaleUpperCase('vi')+seoLabel.slice(1);
@@ -371,16 +389,16 @@ function renderProduct() {
         }).join("")}
       </select>
     </label>
-    <p class="detail-price" data-selected-price>${escapeHtml(getPriceLabel(product))}</p>` : `
+    ${priceBoxHtml}` : `
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
   root.innerHTML = `
-    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
+    <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${hasFlash ? `<div class="product-heading-flash-badge"><span class="flash-badge-icon" aria-hidden="true">⚡</span><span class="flash-badge-text">FLASH SALE ĐANG DIỄN RA ${initialDiscountPercent ? `· Tiết kiệm tới ${initialDiscountPercent}%` : ''}</span></div>` : ''}${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
       <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}"><img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
-        ${variantField}<p data-selected-countdown class="store-sale-countdown"></p><p data-selected-promotion class="store-promotion-note">${selected?.promotion?escapeHtml((selected.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(selected.originalPriceVnd)+' · Kết thúc '+new Date(selected.promotion.endsAt).toLocaleString('vi-VN')):''}</p>
+        ${variantField}<p data-selected-promotion class="store-promotion-note" hidden></p>
         <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>Vui lòng chọn phiên bản</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
           <button class="button button-blue buy-now-button" type="button" data-buy-now="" disabled>Mua ngay</button>
@@ -405,14 +423,50 @@ function renderProduct() {
 
   const selector = root.querySelector("#product-variant");
   const countdown=root.querySelector('[data-selected-countdown]');
-  const setCountdown=variant=>{if(variant?.promotion?.type==='flash')countdown.dataset.saleEnd=new Date(variant.promotion.endsAt).toISOString();else{delete countdown.dataset.saleEnd;countdown.textContent='';}};
+  const setCountdown = variant => {
+    if (!countdown) return;
+    if (variant?.promotion?.type === 'flash') countdown.dataset.saleEnd = new Date(variant.promotion.endsAt).toISOString();
+    else if (!variant && hasFlash && initialFlashEnd) countdown.dataset.saleEnd = new Date(initialFlashEnd).toISOString();
+    else { delete countdown.dataset.saleEnd; countdown.textContent = ''; }
+  };
   setCountdown(selected);
+  if (typeof updateSaleCountdowns === 'function') updateSaleCountdowns();
   selector?.addEventListener("change", () => {
     const variant = variants.find((item) => item.id === selector.value);
     if (!variant) return;
     setCountdown(variant);
-    root.querySelector("[data-selected-price]").textContent = formatPrice(variant.priceVnd);
-    root.querySelector("[data-selected-promotion]").textContent=variant.promotion?(variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi')+' · Giá gốc '+formatPrice(variant.originalPriceVnd)+' · Kết thúc '+new Date(variant.promotion.endsAt).toLocaleString('vi-VN'):'';
+    if (typeof updateSaleCountdowns === 'function') updateSaleCountdowns();
+    const priceNode = root.querySelector("[data-selected-price]");
+    if (priceNode) priceNode.textContent = formatPrice(variant.priceVnd);
+    const isFlash = variant.promotion?.type === 'flash';
+    const hasPromo = Boolean(variant.promotion);
+    const flashHeader = root.querySelector("[data-flash-header]");
+    const flashTag = root.querySelector("[data-flash-tag]");
+    const priceSub = root.querySelector("[data-price-sub]");
+    const origPriceNode = root.querySelector("[data-selected-original-price]");
+    const discountNode = root.querySelector("[data-selected-discount]");
+    const priceBox = root.querySelector("[data-price-box]");
+    if (flashHeader) flashHeader.hidden = !isFlash;
+    if (flashTag) flashTag.hidden = !isFlash;
+    if (priceSub) priceSub.hidden = !hasPromo;
+    if (hasPromo && variant.originalPriceVnd) {
+      if (origPriceNode) origPriceNode.textContent = formatPrice(variant.originalPriceVnd);
+      if (discountNode) {
+        if (variant.originalPriceVnd > variant.priceVnd) {
+          const pct = Math.round((1 - variant.priceVnd / variant.originalPriceVnd) * 100);
+          discountNode.textContent = `-${pct}%`;
+          discountNode.hidden = false;
+        } else {
+          discountNode.hidden = true;
+        }
+      }
+    } else {
+      if (discountNode) discountNode.hidden = true;
+    }
+    if (priceBox?.classList) priceBox.classList.toggle("is-flash", isFlash);
+    if (priceNode?.classList) priceNode.classList.toggle("detail-price-flash", isFlash);
+    const promoNote = root.querySelector("[data-selected-promotion]");
+    if (promoNote) promoNote.innerHTML = variant.promotion ? `<strong class="promotion-badge">${variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi'}</strong> · Giá bán: <span class="promotion-sale-price">${formatPrice(variant.priceVnd)}</span> (Giá gốc: <del>${formatPrice(variant.originalPriceVnd)}</del>) · Kết thúc ${new Date(variant.promotion.endsAt).toLocaleString('vi-VN')}` : '';
     root.querySelector("[data-stock-note]").textContent = Number(variant.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng";
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;

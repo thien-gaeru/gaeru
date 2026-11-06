@@ -31,11 +31,13 @@
  .home-page #products .section-heading>p{font-size:16px;line-height:1.5}
  .home-page #products .filter-row{justify-content:flex-start;gap:8px;margin-bottom:18px}
  .home-page #products .product-grid{grid-template-rows:auto;grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:88%;gap:14px}
- .home-page #products .product-card{min-height:0;padding:24px 16px 20px;gap:18px;grid-column:auto;grid-row:auto}
+ .home-page #products .product-card{display:flex;flex-direction:column;min-height:0;padding:24px 16px 20px;gap:14px;grid-column:auto;grid-row:auto}
  .home-page #products .product-card h3{font-size:clamp(25px,6vw,32px)}
+ .home-page #products .product-copy{display:flex;flex-direction:column;min-width:0;max-width:100%}
  .home-page #products .product-copy .eyebrow{font-size:11px;line-height:1.5}
- .home-page #products .product-image{height:clamp(200px,52vw,270px);margin-top:0}
- .home-page #products .card-actions{gap:10px}
+ .home-page #products .product-image{height:clamp(200px,52vw,270px);margin-top:auto;margin-bottom:0}
+ .home-page #products .card-actions{margin-top:0;width:100%;gap:10px}
+ .home-page .product-card .price-original{font-size:12px;margin-bottom:2px}.home-page .product-card .store-promotion-note{font-size:12px;gap:4px;word-break:break-word;overflow-wrap:anywhere;text-wrap:balance}.home-page .product-card .store-promotion-note .promotion-badge{font-size:10px;padding:1px 5px}.home-page .product-card .store-promotion-note [data-sale-end],.home-page .product-card .store-promotion-note .sale-countdown{font-size:12px}.home-page .product-card .store-promotion-note .promotion-sale-price{font-size:14px}
 }
 
 /* Keep the news heading and a complete card compact on phone screens. */
