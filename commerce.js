@@ -556,10 +556,15 @@ async function renderCheckout() {
     settingsError = error.message;
   }
   const shippingRates = storeSettings.shippingRates || {};
-  const provinces = Object.keys(shippingRates).sort((left, right) => left.localeCompare(right, "vi"));
+  const isNationwide = name => Boolean(name && (window.GAERUCheckout?.cityKey ? window.GAERUCheckout.cityKey(name) === 'toan quoc' : /toàn\s*quốc/i.test(name)));
+  const hasNationwide = Object.keys(shippingRates).some(isNationwide);
+  let provinces = Object.keys(shippingRates).filter(p => !isNationwide(p)).sort((left, right) => left.localeCompare(right, "vi"));
+  if (hasNationwide && !provinces.length) {
+    provinces = ['Hà Nội','Hải Phòng','Huế','Đà Nẵng','Hồ Chí Minh','Cần Thơ','An Giang','Bắc Ninh','Cà Mau','Cao Bằng','Đắk Lắk','Điện Biên','Đồng Nai','Đồng Tháp','Gia Lai','Hà Tĩnh','Hưng Yên','Khánh Hòa','Lai Châu','Lâm Đồng','Lạng Sơn','Lào Cai','Nghệ An','Ninh Bình','Phú Thọ','Quảng Ngãi','Quảng Ninh','Quảng Trị','Sơn La','Tây Ninh','Thái Nguyên','Thanh Hóa','Tuyên Quang','Vĩnh Long'].sort((a,b)=>a.localeCompare(b,'vi'));
+  }
   const paymentMethods = storeSettings.paymentMethods || ["cod"];
   const shippingCarriers=storeSettings.shippingCarriers||[];
-  if (settingsError || !storeSettings.ordersEnabled || !provinces.length) {
+  if (settingsError || !storeSettings.ordersEnabled || (!provinces.length && !hasNationwide)) {
     const noticeTitle = settingsError
       ? "Chưa thể xác nhận trạng thái đặt hàng."
       : !storeSettings.ordersEnabled
@@ -607,7 +612,7 @@ async function renderCheckout() {
         <h2>Địa chỉ giao hàng</h2>
         <label>Địa chỉ<input name="address" autocomplete="street-address" required maxlength="250"></label>
         <div class="form-row">
-          <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" required maxlength="120" list="checkout-cities" placeholder="Nhập tỉnh/thành phố"><datalist id="checkout-cities">${provinces.filter(p=>p!=='Toàn quốc').map(p=>`<option value="${escapeHtml(p)}"></option>`).join('')}</datalist></label>
+          <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" required maxlength="120" list="checkout-cities" placeholder="Nhập tỉnh/thành phố"><datalist id="checkout-cities">${provinces.filter(p=>!isNationwide(p)).map(p=>`<option value="${escapeHtml(p)}"></option>`).join('')}</datalist></label>
           <label class="checkout-note"><span class="checkout-field-title">Ghi chú <small>(không bắt buộc)</small></span><input name="note" maxlength="1000"></label>
         </div>
       </div>

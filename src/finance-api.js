@@ -65,7 +65,7 @@ async function recordFullOrderPayment(client, orderOrPayload, maybeActor, maybeO
   const reference = (options && options.reference) || ('COD-' + (order.order_number || order.id.slice(0, 8)));
   const note = (options && options.note) || 'Ghi nhận đủ tiền khi xử lý đơn';
   await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by)
-    VALUES ($1,$2,$3,$4,$5,$6,$6,$7)`, [order.id, remaining, order.payment_method === "cod" ? "cash" : "bank_transfer", reference, note, internalKey, actor?.username || "system"]);
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [order.id, remaining, order.payment_method === "cod" ? "cash" : "bank_transfer", reference, note, internalKey, digest(internalKey), actor?.username || "system"]);
 }
 async function supplierBalance(client, supplierId) {
   const result = await client.query(`SELECT

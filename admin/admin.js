@@ -1128,13 +1128,13 @@ async function loadSettings() {
 
 function renderShippingRates(rates) {
   const root = document.querySelector("#shipping-rate-list");
-  const entries = Object.entries(rates).sort(([left], [right]) => left.localeCompare(right, "vi"));
+  const entries = Object.entries(rates).sort(([left], [right]) => { const a = /toàn\s*quốc/i.test(left), b = /toàn\s*quốc/i.test(right); return a && !b ? -1 : !a && b ? 1 : left.localeCompare(right, "vi"); });
   root.innerHTML = entries.length ? entries.map(([province, fee]) => `
     <div class="shipping-rate-row">
-      <label>Tỉnh/thành phố<input data-shipping-province required maxlength="120" value="${escapeHtml(province)}"></label>
+      <label>Tỉnh/thành phố<input data-shipping-province required maxlength="120" value="${escapeHtml(province)}" ${/toàn\s*quốc/i.test(province)?'readonly title="Áp dụng cho mọi tỉnh/thành trên toàn quốc"':''}>${/toàn\s*quốc/i.test(province)?'<span class="status-pill" style="margin-left:6px;font-size:11px;background:#e0f2fe;color:#0369a1;font-weight:600;">COD Toàn quốc</span>':''}</label>
       <label>Phí giao hàng (₫)<input data-shipping-fee type="number" required min="0" max="1000000000" step="1" value="${fee}"></label>
-      <button class="plain-button" type="button" data-remove-shipping-rate>Xóa tỉnh/thành</button>
-    </div>`).join("") : '<p class="shipping-rate-empty">Chưa có bảng phí. Thêm các tỉnh/thành phố GAERU đang giao hàng.</p>';
+      <button class="plain-button" type="button" data-remove-shipping-rate>${/toàn\s*quốc/i.test(province)?'Xóa COD toàn quốc':'Xóa tỉnh/thành'}</button>
+    </div>`).join("") : '<p class="shipping-rate-empty">Chưa có bảng phí. Bấm "+ Cài đặt COD toàn quốc" hoặc thêm các tỉnh/thành phố GAERU đang giao hàng.</p>';
 }
 
 async function saveSettings(event) {
@@ -1148,7 +1148,8 @@ async function saveSettings(event) {
   try {
     const shippingRates = {};
     for (const row of document.querySelectorAll(".shipping-rate-row")) {
-      const province = row.querySelector("[data-shipping-province]").value.trim();
+      let province = row.querySelector("[data-shipping-province]").value.trim();
+      if (/^toàn\s*quốc$/iu.test(province)) province = "Toàn quốc";
       const fee = Number(row.querySelector("[data-shipping-fee]").value);
       const normalizedProvince = province.normalize("NFC").toLocaleLowerCase("vi");
       if (!province || Object.keys(shippingRates).some((name) =>
@@ -1590,6 +1591,26 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
   }
 });
 document.querySelector("#settings-form").addEventListener("submit", saveSettings);
+document.querySelector("#set-nationwide-shipping")?.addEventListener("click", () => {
+  const rates = Object.fromEntries([...document.querySelectorAll(".shipping-rate-row")].map((row) => [
+    row.querySelector("[data-shipping-province]").value.trim(),
+    Number(row.querySelector("[data-shipping-fee]").value) || 0
+  ]));
+  const existingKey = Object.keys(rates).find(k => /toàn\s*quốc/i.test(k));
+  if (existingKey) {
+    const row = [...document.querySelectorAll(".shipping-rate-row")].find(r => r.querySelector("[data-shipping-province]").value.trim() === existingKey);
+    const feeInput = row?.querySelector("[data-shipping-fee]");
+    feeInput?.focus();
+    feeInput?.select();
+    return;
+  }
+  rates['Toàn quốc'] = 0;
+  renderShippingRates(rates);
+  const rows = document.querySelectorAll(".shipping-rate-row");
+  const feeInput = rows[0]?.querySelector("[data-shipping-fee]");
+  feeInput?.focus();
+  feeInput?.select();
+});
 document.querySelector("#add-shipping-rate").addEventListener("click", () => {
   const rates = Object.fromEntries([...document.querySelectorAll(".shipping-rate-row")].map((row, index) => [
     row.querySelector("[data-shipping-province]").value || `Tỉnh/thành ${index + 1}`,

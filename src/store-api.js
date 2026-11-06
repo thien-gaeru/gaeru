@@ -2288,7 +2288,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     if (!parsed.success) return res.status(400).json({ error: "Cài đặt chưa hợp lệ.", details: parsed.error.issues });
     const settings = {
       shipping_note: parsed.data.shippingNote,
-      shipping_rates: parsed.data.shippingRates
+      shipping_rates: Object.fromEntries(Object.entries(parsed.data.shippingRates).map(([k, v]) => [/^toàn\s*quốc$/iu.test(k.trim()) ? 'Toàn quốc' : k.trim(), v]))
     };
     await withTransaction(pool, async (client) => {
       for (const [key, value] of Object.entries(settings)) {
