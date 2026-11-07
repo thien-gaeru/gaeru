@@ -66,8 +66,8 @@ test('Request 4: Shopee Express (SPX) is fully integrated into carriers and conf
   assert.equal(shipping.names.spx, 'Shopee Express');
   assert.ok(clientConfig.includes('shipping_spx'));
   assert.ok(clientConfig.includes('Shopee Express (SPX)'));
-  assert.ok(clientConfig.includes("activeCount+'/5"));
-  assert.ok(clientConfig.includes("verifiedCount+'/5"));
+  assert.ok(clientConfig.includes("activeCount+'/'+carrierConfigIds.length"));
+  assert.ok(clientConfig.includes("verifiedCount+'/'+carrierConfigIds.length"));
 });
 
 test('Request 5: Admin shopping chat menu includes "Lịch sử đơn hàng" action tile', () => {

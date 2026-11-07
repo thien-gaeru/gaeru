@@ -928,7 +928,7 @@ async function updateOrder(event) {
     }
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     saved=true;closeOrderProcessing();
-    if(targetStatus!==order.status)document.querySelector("#order-filter").value=targetStatus;
+    if(targetStatus!==order.status)document.querySelector("#order-filter").value=(["confirmed","processing"].includes(targetStatus)?"ready_to_ship":targetStatus);
     await Promise.all([loadOrders(1), loadSummary()]);
     showGlobal("Đã cập nhật đơn hàng.");
   } catch (error) {
@@ -1807,7 +1807,7 @@ document.querySelector("#btn-refresh-health")?.addEventListener("click", async (
   }
 });
 
-window.GAERUAdmin = Object.freeze({ loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ loadSettings, loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});

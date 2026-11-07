@@ -228,10 +228,11 @@ async function mountShipping(){
  const carriers=info.carriers||[];
  const activeCount=carriers.filter(c=>c.enabled).length;
  const verifiedCount=carriers.filter(c=>c.verified).length;
+ const carrierConfigIds=['shipping_viettel','shipping_jt','shipping_spx'];
 
- const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý kết nối vận chuyển:</strong> Thiết lập tài khoản API, mã hóa Token kết nối của các đơn vị vận chuyển hàng đầu tại Việt Nam. Bật đơn vị vận chuyển đã xác minh để người mua tự do lựa chọn khi đặt hàng.</p><p style="margin-top:6px;font-size:12px;color:#059669;">✓ Phí giao hàng áp dụng linh hoạt theo cấu hình bảng giá tỉnh/thành phố GAERU.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/5</strong></span><span class="payment-stat-pill">🛡️ Đã xác minh: <strong>'+verifiedCount+'/5</strong></span></div></div>';
+ const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý kết nối vận chuyển:</strong> Thiết lập tài khoản API, mã hóa Token kết nối của các đơn vị vận chuyển hàng đầu tại Việt Nam. Bật đơn vị vận chuyển đã xác minh để người mua tự do lựa chọn khi đặt hàng.</p><p style="margin-top:6px;font-size:12px;color:#059669;">✓ Phí giao hàng áp dụng linh hoạt theo cấu hình bảng giá tỉnh/thành phố GAERU.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/'+carrierConfigIds.length+'</strong></span><span class="payment-stat-pill">🛡️ Đã xác minh: <strong>'+verifiedCount+'/'+carrierConfigIds.length+'</strong></span></div></div>';
 
- const cardsHtml=['shipping_viettel','shipping_jt','shipping_spx'].map(configId=>{
+ const cardsHtml=carrierConfigIds.map(configId=>{
   const meta=shippingMeta[configId];
   const carrier=carriers.find(c=>c.id===meta.id)||{id:meta.id,verified:false,enabled:false,supported:true};
   const record=data?.records?.[configId]||{version:0,data:{}};
@@ -260,10 +261,11 @@ async function mountPayments(){
  const channels=info.channels||[];
  const activeCount=channels.filter(c=>c.enabled).length;
  const verifiedCount=channels.filter(authenticatedPaymentProof).length;
+ const paymentChannelIds=['cod','bank_transfer','vnpay','momo','zalopay'];
 
- const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý thanh toán GAERU:</strong> Lưu cấu hình và xem bằng chứng xác thực của từng kênh. Chỉ phương thức được bật và sẵn sàng mới xuất hiện khi khách thanh toán.</p><p style="margin-top:6px;font-size:12px;color:#475569;">Đơn thanh toán qua cổng được cập nhật khi nhận phản hồi hợp lệ. Chuyển khoản ngân hàng cần đối chiếu thủ công trước khi xác nhận.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/6</strong></span><span class="payment-stat-pill">Đã có bằng chứng xác thực: <strong>'+verifiedCount+'</strong></span></div></div>';
+ const introHtml='<div class="payment-hub-intro"><div><p><strong>Quản lý thanh toán GAERU:</strong> Lưu cấu hình và xem bằng chứng xác thực của từng kênh. Chỉ phương thức được bật và sẵn sàng mới xuất hiện khi khách thanh toán.</p><p style="margin-top:6px;font-size:12px;color:#475569;">Đơn thanh toán qua cổng được cập nhật khi nhận phản hồi hợp lệ. Chuyển khoản ngân hàng cần đối chiếu thủ công trước khi xác nhận.</p></div><div class="payment-hub-stats"><span class="payment-stat-pill">● Đang bật: <strong>'+activeCount+'/'+paymentChannelIds.length+'</strong></span><span class="payment-stat-pill">Đã có bằng chứng xác thực: <strong>'+verifiedCount+'/'+paymentChannelIds.length+'</strong></span></div></div>';
 
- const cardsHtml=['cod','bank_transfer','vnpay','momo','zalopay'].map(chId=>{
+ const cardsHtml=paymentChannelIds.map(chId=>{
   const configId=paymentMap[chId];
   const channel=channels.find(c=>c.id===chId)||{id:chId,configId,verified:false,enabled:chId==='cod',version:data.records[configId]?.version||0};
   const record=data.records[configId]||{version:0,data:{}};
