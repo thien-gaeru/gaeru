@@ -311,6 +311,7 @@ test('QA-13: PATCH /gaeru_ceo/orders/:id rolls back atomically when finance.reco
     )
   ).rows[0];
 
+  await pool.query('UPDATE orders SET delivered_at=now() WHERE id=$1',[order.id]);
   const brokenFinance = {
     receiptTotal: async () => 0,
     recordFullOrderPayment: async () => {
