@@ -714,14 +714,6 @@ const carrierShipmentLabels = {
   cancel_reconciliation_required: "Chờ đối soát hủy",
   cancelled: "Đã hủy vận đơn"
 };
-const codSettlementStatusLabels = {
-  unsettled: "Chờ đối soát COD",
-  verification_required: "Cần xác minh sao kê cũ",
-  settled: "Đã đối soát COD"
-};
-function hasUnsettledCarrierCod(_order) {
-  return false;
-}
 function hasUndeliveredActiveWaybill(order) {
   return Boolean(
     order &&
@@ -744,12 +736,11 @@ function renderOrderWaybillCard(order) {
   const portalUrl = carrierId === "viettel"
     ? "https://viettelpost.vn/tra-cuu-hanh-trinh-don/?orderNumber=" + encodeURIComponent(order.trackingNumber)
     : (carrierId === "jt" ? "https://jtexpress.vn/track?billcode=" + encodeURIComponent(order.trackingNumber) : "https://spx.vn/track?billcode=" + encodeURIComponent(order.trackingNumber));
-  let codBadge = "";
   const canConfirmDelivered = can("orders.write") && !["delivered", "returned", "cancelled"].includes(rawSt);
   const canConfirmCancelled = can("orders.write") && rawSt === "cancel_reconciliation_required";
   return '<div class="order-shipping-fulfillment" style="margin:12px 0;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">' +
     '<strong style="display:block;margin-bottom:6px;font-size:13px;">Hành trình &amp; Vận đơn hãng vận chuyển</strong>' +
-    '<p style="margin:0 0 8px;font-size:13px;">Mã vận đơn: <strong>' + escapeHtml(order.trackingNumber) + '</strong> (' + escapeHtml(cs.carrierId || order.shippingCarrierName || "Hãng") + ') · Trạng thái: <span class="status-pill status-' + escapeHtml(rawSt) + '">' + escapeHtml(stLabel) + '</span>' + codBadge + '</p>' +
+    '<p style="margin:0 0 8px;font-size:13px;">Mã vận đơn: <strong>' + escapeHtml(order.trackingNumber) + '</strong> (' + escapeHtml(cs.carrierId || order.shippingCarrierName || "Hãng") + ') · Trạng thái: <span class="status-pill status-' + escapeHtml(rawSt) + '">' + escapeHtml(stLabel) + '</span></p>' +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
       '<button type="button" class="secondary-button" data-sync-carrier-tracking="' + escapeHtml(order.id) + '" style="font-size:12px;padding:5px 12px;">Đồng bộ hành trình</button>' +
       '<a href="' + portalUrl + '" target="_blank" rel="noopener noreferrer" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">Tra cứu trên cổng hãng ↗</a>' +
@@ -850,16 +841,12 @@ function openBulkProcessing(){
  const getActionVal=()=>{const selOpt=actionEl.querySelector("option[selected]");return actionEl.value||selOpt?.getAttribute("value")||selOpt?.value||"prepare";};
  const refresh=()=>{
   const actionVal=getActionVal();const target={confirm:"processing",prepare:"processing",ship:"shipped",complete:"completed",cancel:"cancelled"}[actionVal];
-  const blockedCarrierCod=target==="completed"?orders.filter(o=>hasUnsettledCarrierCod(o)):[];
   const blockedUndelivered=target==="completed"?orders.filter(o=>hasUndeliveredActiveWaybill(o)):[];
-  const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=="confirmed"||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=="completed"||(!hasUnsettledCarrierCod(o)&&!hasUndeliveredActiveWaybill(o)&&(o.paymentStatus==="paid"||(can("payments.write")&&!["vnpay","momo","zalopay"].includes(o.paymentMethod))))));
+  const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=="confirmed"||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=="completed"||(!hasUndeliveredActiveWaybill(o)&&(o.paymentStatus==="paid"||(can("payments.write")&&!["vnpay","momo","zalopay"].includes(o.paymentMethod))))));
   hint.textContent=eligible.length+"/"+orders.length+" đơn đủ điều kiện cho bước đã chọn.";
-  if(target==="completed"&&(blockedCarrierCod.length>0||blockedUndelivered.length>0)){
+  if(target==="completed"&&blockedUndelivered.length>0){
    codCallout.hidden=false;
-   const parts=[];
-   if(blockedCarrierCod.length>0)parts.push(blockedCarrierCod.length+" đơn COD thu hộ qua hãng chưa đối soát sao kê");
-   if(blockedUndelivered.length>0)parts.push(blockedUndelivered.length+" đơn có vận đơn hãng chưa xác nhận Đã giao hàng");
-   codMsg.textContent="Không thể hoàn tất gộp: "+parts.join("; ")+". Vui lòng đối soát theo lô sao kê trước.";
+   codMsg.textContent="Không thể hoàn tất: "+blockedUndelivered.length+" đơn có vận đơn hãng chưa xác nhận Đã giao hàng.";
   }else{codCallout.hidden=true;codMsg.textContent="";}
   const needDirectCashConfirm=target==="completed"&&eligible.length===orders.length&&orders.some(o=>o.paymentStatus!=="paid");
   dialog.querySelector("[data-bulk-money]").hidden=!needDirectCashConfirm;
@@ -989,9 +976,6 @@ async function updateOrder(event) {
       paymentField.value = "paid";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
     }
-  }
-  if (form.elements.reconciliationRef && form.elements.reconciliationRef.value.trim()) {
-    payload.reconciliationRef = form.elements.reconciliationRef.value.trim();
   }
   if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
   try {

@@ -28,14 +28,18 @@
      * Cả frontend `admin/admin.js` và backend `src/store-api.js` (dòng 2079) đã được nâng cấp: Khi đơn COD có vận đơn hãng `delivered` và có mã đối soát hợp lệ ($\ge 4$ ký tự), hệ thống tự động thăng hạng đơn sang `completed` và `confirmReceived = true`.
      * Tự động ghi nhận phiếu thu kế toán `sales_receipts` và liên kết phân bổ `cod_settlement_allocations`, tự động chuyển đơn sang hoàn tất trơn tru.
 
-3. **Gỡ bỏ hoàn toàn chức năng đối soát COD thủ công (Theo yêu cầu người dùng):**
-   - **Gỡ bỏ triệt để trên Giao diện Quản trị (Admin UI):**
-     * Trong popup/modal *"Xử lý đơn hàng"*: Đã xóa bỏ hoàn toàn ô nhập *"Mã đối soát / sao kê thu hộ COD"* (`reconciliationRef`) và hướng dẫn nhập mã đối soát thủ công.
-     * Trong card *"Hành trình & Vận đơn"*: Đã xóa bỏ nút *"Đối soát COD theo lô"*.
-     * Trên thanh công cụ đơn hàng: Đã ẩn triệt để nút toggle *"💰 Đối soát thu hộ COD"* và toàn bộ panel *"Đối soát tiền thu hộ COD theo lô / sao kê hãng"*. Quản trị viên không còn bị vướng bận hay bấm nhầm vào form đối soát thủ công gây lỗi.
+3. **Xóa hoàn toàn chức năng Đối soát doanh thu COD & Loại bỏ mã rác:**
+   - **Xóa sạch hoàn toàn trên Giao diện Quản trị (Admin UI):**
+     * Trong `admin/index.html`: Đã **xóa bỏ hoàn toàn** nút bấm `💰 Đối soát thu hộ COD` (`#cod-settlement-toggle`) và toàn bộ phân hệ `<section id="cod-settlement-panel">`, không còn tồn tại trong DOM.
+     * Trong popup/modal *"Xử lý đơn hàng"*: Đã xóa bỏ hoàn toàn ô nhập *"Mã đối soát / sao kê thu hộ COD"* (`reconciliationRef`).
+     * Trong card *"Hành trình & Vận đơn"*: Đã xóa bỏ nút *"Đối soát COD theo lô"* và huy hiệu *"Chờ đối soát COD"*.
+     * Trong hộp thoại *"Xử lý đơn hàng loạt"*: Đã loại bỏ các điều kiện chặn đối soát COD thủ công, đơn COD sau khi giao hàng được hoàn tất tự động trơn tru.
+   - **Loại bỏ triệt để mã rác (Dead Code & Obsolete Variables):**
+     * Đã xóa các hàm và đối tượng không còn sử dụng: `codSettlementState`, `updateCodBatchSelectionUI`, `loadCodSettlementWorkspace`, `codSettlementStatusLabels`, `hasUnsettledCarrierCod`, các event listener thừa của form và bộ lọc đối soát COD.
+     * Đã gỡ bỏ cơ chế polling nền `gaeru:orders-loaded` gọi tới API đối soát COD.
    - **Tự động hóa hoàn tất đơn hàng COD dưới Backend:**
      * Khi đơn hàng COD được chuyển sang hoàn tất (`completed` và `paid`), hệ thống tự động hoàn tất đơn, tự động ghi nhận thanh toán `paid`, tự động chuyển vận đơn `carrier_shipments.cod_settlement_status = 'settled'`, và tự động ghi nhận phiếu thu kế toán `sales_receipts` với reference chuẩn hóa `COD-${orderNumber}`.
-     * Không còn phụ thuộc hay bắt buộc quy trình đối soát lô thủ công, loại bỏ triệt để các lỗi 500 / 409 khi người dùng lưu cập nhật đơn hàng.
+     * Xử lý thanh toán COD diễn ra trực tiếp và nguyên tử (atomic), không gọi các hàm đối soát lô phức tạp làm hủy giao dịch CSDL, loại bỏ triệt để lỗi 500 / 409 khi lưu cập nhật đơn hàng.
 
 4. **Cho phép Quản Trị Tối Cao (Supreme Owner) xóa vĩnh viễn đơn hàng không hạn chế:**
    - **Phân định quyền hạn:**
@@ -63,7 +67,7 @@
 
 ## 3. Kết Quả Kiểm Thử Toàn Diện
 
-- **Full test suite (`npm test`):** **1004 / 1004 PASS (100%)**, 0 fail, 0 skipped.
+- **Full test suite (`npm test`):** **1003 / 1003 PASS (100%)**, 0 fail, 0 skipped.
 - **Tài nguyên tĩnh (`npm run verify:assets`):** Xác nhận đủ 20 phiên bản ảnh WebP + AVIF trên đĩa.
 - **An toàn thư viện phụ thuộc (`npm audit --omit=dev --audit-level=high`):** 0 vulnerabilities.
 - **Định dạng mã nguồn (`git diff --check`):** 0 lỗi cú pháp hoặc khoảng trắng.
