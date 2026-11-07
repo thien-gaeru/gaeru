@@ -176,10 +176,11 @@ test('Public Order Tracking & Verification Suite', async (t) => {
       updated_at: new Date().toISOString()
     };
     const timeline = buildOrderTimeline(processingOrder, null);
-    assert.equal(timeline.length, 5);
-    assert.equal(timeline[0].status, 'completed'); // placed
-    assert.equal(timeline[1].status, 'completed'); // confirmed
-    assert.equal(timeline[2].status, 'completed'); // processing
+    assert.equal(timeline.length, 4);
+    assert.equal(timeline[0].status, 'completed'); // confirmed
+    assert.equal(timeline[1].status, 'in_progress'); // shipping
+    assert.equal(timeline[2].status, 'pending'); // delivered
+    assert.equal(timeline[3].status, 'pending'); // auto-completed
 
     const cancelledOrder = {
       order_number: 'GAE-2',
