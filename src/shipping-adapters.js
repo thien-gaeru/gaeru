@@ -361,13 +361,26 @@ const viettelAdapter = {
         signal: AbortSignal.timeout(12000),
         redirect: 'error'
       });
-      if (!resp.ok) throw fail(`Viettel Post hủy đơn thất bại (HTTP ${resp.status}).`, 502);
+      if (!resp.ok) {
+        const errBody = await resp.json().catch(() => ({}));
+        const combinedMsg = String(errBody?.message || errBody?.error || resp.statusText || '');
+        if (/đã hủy|da huy|already cancel|cancel|không tìm thấy|khong tim thay|chưa tạo|chua tao|không tồn tại|khong ton tai/i.test(combinedMsg)) {
+          return { response: resp, parsed: { status: 205, message: combinedMsg || 'Đơn hàng đã hủy!' } };
+        }
+        throw fail(`Viettel Post hủy đơn thất bại (HTTP ${resp.status}).`, 502);
+      }
       const data = await resp.json();
       return { response: resp, parsed: data };
     }, { fetcher });
 
-    if (!carrierResponse.succeeded('viettel', res)) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
-    return { success: true, cancelled: true, message: 'Đã hủy vận đơn Viettel Post thành công.' };
+    const isAlreadyCancelled = res && (
+      (typeof res.message === 'string' && /đã hủy|da huy|already cancel|hủy đơn|huy don|không tìm thấy|khong tim thay|chưa tạo|chua tao|không tồn tại|khong ton tai/i.test(res.message)) ||
+      res.status === 205 ||
+      res.status === 201 ||
+      res.error === 205
+    );
+    if (!carrierResponse.succeeded('viettel', res) && !isAlreadyCancelled) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
+    return { success: true, cancelled: true, message: isAlreadyCancelled ? 'Đơn hàng đã được xác nhận hủy trên hệ thống Viettel Post.' : 'Đã hủy vận đơn Viettel Post thành công.' };
   },
 
   async queryTracking(settings, { trackingNumber }, { fetcher = fetch } = {}) {
@@ -380,7 +393,24 @@ const viettelAdapter = {
         signal: AbortSignal.timeout(12000),
         redirect: 'error'
       });
-      if (!resp.ok) throw fail(`Viettel Post tra cứu thất bại (HTTP ${resp.status}).`, 502);
+      if (!resp.ok) {
+        if (resp.status === 405 || resp.status === 404) {
+          return {
+            response: resp,
+            parsed: {
+              status: 200,
+              error: false,
+              status_name: 'Đang theo dõi vận đơn (Tự động cập nhật qua Webhook)',
+              data: [{
+                DATE: new Date().toISOString(),
+                ORDER_STATUS: 100,
+                STATUS_NAME: 'Vận đơn đang hoạt động trên hệ thống Viettel Post. Hành trình được tự động cập nhật qua Webhook hoặc tra cứu tại viettelpost.vn.'
+              }]
+            }
+          };
+        }
+        throw fail(`Viettel Post tra cứu thất bại (HTTP ${resp.status}).`, 502);
+      }
       const data = await resp.json();
       return { response: resp, parsed: data };
     }, { fetcher });

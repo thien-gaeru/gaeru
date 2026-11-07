@@ -42,7 +42,7 @@ const labels = {
 };
 const categoryLabels = { audio: "Thu âm", video: "Ghi hình", accessory: "Phụ kiện" };
 const orderTransitions = {
-  pending: ["confirmed", "cancelled"], confirmed: ["processing", "cancelled"],
+  pending: ["processing", "cancelled"], confirmed: ["processing", "shipped", "cancelled"],
   processing: ["shipped", "cancelled"], shipped: ["completed"], completed: [], cancelled: []
 };
 const paymentAttemptLabels = {
@@ -739,7 +739,7 @@ function openOrderProcessing(id,opener){
  const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
  if(order.returnStatus==='returned'||order.returnedAt)return showGlobal('Đơn đã hoàn trả xong; không thể xử lý lại.',true);
  closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
- const steps=['pending','confirmed','processing','shipped','completed'],current=steps.indexOf(order.status);
+ const steps=['pending','processing','shipped','completed'],current=order.status==='confirmed'?1:steps.indexOf(order.status);
  dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
  if(order.reviewReason){
    const callout=document.createElement('div');
@@ -784,7 +784,7 @@ function openOrderProcessing(id,opener){
 function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
  document.getElementById('order-bulk-dialog')?.remove();const dialog=document.createElement('dialog');dialog.id='order-bulk-dialog';dialog.className='order-processing-dialog';
- dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="confirm">Xác nhận đơn → Đã xác nhận</option><option value="prepare">Chuẩn bị hàng → Cần gửi</option><option value="ship">Xác nhận bàn giao → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ số tiền còn lại của các đơn COD đã giao.</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
+ dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="confirm">Xác nhận đơn → Đang xử lý</option><option value="prepare">Chuẩn bị hàng → Đang xử lý</option><option value="ship">Xác nhận bàn giao → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ số tiền còn lại của các đơn COD đã giao.</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
  const form=dialog.querySelector('form'),hint=dialog.querySelector('[data-bulk-hint]');const refresh=()=>{const target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[form.elements.action.value];const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=='confirmed'||o.shippingFeeVnd!=null)&&(target!=='cancelled'||o.paymentStatus!=='paid'&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=='completed'||o.paymentStatus==='paid'||can('payments.write')&&!['vnpay', 'momo', 'zalopay'].includes(o.paymentMethod)));hint.textContent=eligible.length+'/'+orders.length+' đơn đủ điều kiện cho bước đã chọn.';dialog.querySelector('[data-bulk-money]').hidden=target!=='completed';form.elements.confirmReceived.required=target==='completed'&&orders.some(o=>o.paymentStatus!=='paid');form.elements.confirmReceived.checked=false;form.querySelector('[type=submit]').disabled=eligible.length!==orders.length;};
  const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:'confirm',confirmed:'prepare',processing:'ship',shipped:'complete'}[common];if(next)form.elements.action.value=next;form.elements.action.addEventListener('change',refresh);dialog.querySelector('[data-close-bulk]').addEventListener('click',()=>{if(typeof dialog.close==='function')dialog.close();dialog.remove();});dialog.addEventListener('close',()=>dialog.remove());
  form.addEventListener('submit',async event=>{event.preventDefault();const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');if(button.disabled)return;button.disabled=true;feedback.textContent='Đang kiểm tra và xử lý…';let saved=false;try{const result=await request('/api/gaeru_ceo/orders/bulk',{method:'POST',body:JSON.stringify({action:form.elements.action.value,confirmReceived:form.elements.confirmReceived.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==='function')dialog.close();dialog.remove();document.querySelector('#order-filter').value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal('Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;button.disabled=false;}});
@@ -863,6 +863,7 @@ function renderOrders() {
           <p style="margin:0 0 8px;font-size:13px;">Mã vận đơn: <strong>${escapeHtml(order.trackingNumber)}</strong> (${escapeHtml(order.carrierShipment?.carrierId || order.shippingCarrierName || 'Hãng')}) · Trạng thái: <span class="status-pill status-${escapeHtml(order.carrierShipment?.status || 'shipped')}">${escapeHtml(order.carrierShipment?.status || 'created')}</span></p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button type="button" class="secondary-button" data-sync-carrier-tracking="${escapeHtml(order.id)}" style="font-size:12px;padding:5px 12px;">Đồng bộ hành trình</button>
+            <a href="${(order.carrierShipment?.carrierId || 'viettel') === 'viettel' ? 'https://viettelpost.vn/tra-cuu-hanh-trinh-don/?orderNumber=' + encodeURIComponent(order.trackingNumber) : (order.carrierShipment?.carrierId === 'jt' ? 'https://jtexpress.vn/track?billcode=' + encodeURIComponent(order.trackingNumber) : 'https://spx.vn/track?billcode=' + encodeURIComponent(order.trackingNumber))}" target="_blank" rel="noopener noreferrer" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">Tra cứu trên cổng hãng ↗</a>
             ${order.carrierShipment?.labelUrl ? `<a href="${escapeHtml(order.carrierShipment.labelUrl)}" target="_blank" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">In nhãn hãng</a>` : ''}
             ${can('orders.write') && order.status !== 'completed' && order.status !== 'cancelled' ? `<button type="button" class="order-delete-button" data-cancel-waybill="${escapeHtml(order.id)}" style="background:#fff;color:#b42318;border:1px solid #fecdd3;font-size:12px;padding:5px 12px;">Hủy vận đơn</button>` : ''}
           </div>
@@ -875,12 +876,13 @@ function renderOrders() {
             </div>
           ` : ''}
         `}
+        <p class="feedback waybill-feedback" data-waybill-feedback="${escapeHtml(order.id)}" role="alert" style="margin:8px 0 0;font-size:12px;" hidden></p>
       </div>
       <form class="order-controls" data-order-form="${escapeHtml(order.id)}">
         <label>Trạng thái đơn<select name="status" ${allowed.length ? "" : "disabled"}>${optionMarkup}</select></label>
         <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${canEditShipping(order) ? "" : "disabled"}></label>
         ${orderPaymentControl(order)}
-        <button class="primary-button" type="submit" ${!allowed.length && !canEditShipping(order) && (!orderPaymentControl(order).includes('name="paymentStatus"')) ? "disabled" : ""}>Lưu cập nhật</button>
+        ${['completed', 'cancelled'].includes(order.status) ? '' : `<button class="primary-button" type="submit" \${!allowed.length && !canEditShipping(order) && (!orderPaymentControl(order).includes('name="paymentStatus"')) ? "disabled" : ""}>Lưu cập nhật</button>`}
         <p class="feedback order-feedback" role="alert"></p>
       </form>
       </div></article>`;
@@ -1552,6 +1554,13 @@ async function handleCarrierWaybillAction(event) {
     const orderId = createWaybillBtn.dataset.createCarrierWaybill;
     const container = createWaybillBtn.closest('dialog') || createWaybillBtn.closest('article') || document;
     const autoShip = container.querySelector(`[data-auto-ship="${CSS.escape(orderId)}"]`)?.checked;
+    const waybillFeedback = container.querySelector(`[data-waybill-feedback="${CSS.escape(orderId)}"]`) || container.querySelector('.order-feedback');
+    if (waybillFeedback) {
+      waybillFeedback.hidden = false;
+      waybillFeedback.textContent = 'Đang kết nối hãng vận chuyển…';
+      waybillFeedback.style.color = '#0284c7';
+      waybillFeedback.classList.remove('is-error');
+    }
     createWaybillBtn.disabled = true;
     createWaybillBtn.textContent = 'Đang tạo…';
     try {
@@ -1559,6 +1568,12 @@ async function handleCarrierWaybillAction(event) {
         method: 'POST',
         body: JSON.stringify({ autoShip })
       });
+      if (waybillFeedback) {
+        waybillFeedback.hidden = false;
+        waybillFeedback.textContent = res.message || 'Đã tạo vận đơn thành công.';
+        waybillFeedback.style.color = '#16a34a';
+        waybillFeedback.classList.remove('is-error');
+      }
       showGlobal(res.message || 'Đã tạo vận đơn thành công.');
       await loadOrders(state.orderPage);
       const openDialog = document.getElementById('order-processing-dialog');
@@ -1566,6 +1581,12 @@ async function handleCarrierWaybillAction(event) {
         openOrderProcessing(orderId);
       }
     } catch(err) {
+      if (waybillFeedback) {
+        waybillFeedback.hidden = false;
+        waybillFeedback.textContent = err.message || 'Không thể tạo vận đơn.';
+        waybillFeedback.style.color = '#b42318';
+        waybillFeedback.classList.add('is-error');
+      }
       if (err.message && err.message.includes('đang xử lý hoặc chưa rõ kết quả')) {
         const confirmRetry = window.confirm(err.message + '\n\nNếu bạn đã kiểm tra và xác nhận hãng chưa nhận được vận đơn, bấm OK để mở khóa và thử tạo lại ngay.');
         if (confirmRetry) {
@@ -1574,6 +1595,12 @@ async function handleCarrierWaybillAction(event) {
               method: 'POST',
               body: JSON.stringify({ autoShip, forceRetry: true })
             });
+            if (waybillFeedback) {
+              waybillFeedback.hidden = false;
+              waybillFeedback.textContent = retryRes.message || 'Đã tạo vận đơn thành công.';
+              waybillFeedback.style.color = '#16a34a';
+              waybillFeedback.classList.remove('is-error');
+            }
             showGlobal(retryRes.message || 'Đã tạo vận đơn thành công.');
             await loadOrders(state.orderPage);
             const openDialog = document.getElementById('order-processing-dialog');
@@ -1582,6 +1609,12 @@ async function handleCarrierWaybillAction(event) {
             }
             return;
           } catch(retryErr) {
+            if (waybillFeedback) {
+              waybillFeedback.hidden = false;
+              waybillFeedback.textContent = retryErr.message;
+              waybillFeedback.style.color = '#b42318';
+              waybillFeedback.classList.add('is-error');
+            }
             showGlobal(retryErr.message, true);
           }
         }
@@ -1815,7 +1848,7 @@ document.querySelector('#customer-list').addEventListener('submit',async e=>{if(
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-delete]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');if(!form.reportValidity())return;button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerDelete+'/delete',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value,confirmed:form.elements.confirmed.checked})});await loadCustomers();showGlobal('Đã gửi email xác nhận xóa; tài khoản vẫn hoạt động đến khi khách xác nhận.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
 
 function renderOrderOverview(counts) {
-  const tabs = [['','Tất cả'],['payment_pending','Đơn chờ thanh toán'],['pending','Chờ xác nhận'],['ready_to_ship','chờ gửi hàng'],['shipped','Đã giao hàng'],['completed','Hoàn Tất'],['cancelled_or_returned','Hủy & Hoàn trả']];
+  const tabs = [['','Tất cả'],['payment_pending','Đơn chờ thanh toán'],['pending','Chờ xác nhận'],['ready_to_ship','Đang xử lý'],['shipped','Đang giao'],['completed','Hoàn tất'],['cancelled_or_returned','Hủy & hoàn trả']];
   const total = ['pending','confirmed','processing','shipped','completed','cancelled','returned'].reduce((sum,key)=>sum+Number(counts[key]||0),0);
   const afterSalesOpen = !document.querySelector('#after-sales-panel').hidden;
   const currentFilter = document.querySelector('#order-filter')?.value || '';

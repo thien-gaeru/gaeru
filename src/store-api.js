@@ -1960,7 +1960,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if(current.return_completed_at)throw Object.assign(Error('Đơn đã hoàn trả xong; không thể xử lý lại.'),{status:409});
         if ((update.status === 'completed' || current.status === 'completed') && current.payment_method === 'cod') {
           if (update.confirmReceived || update.paymentStatus === 'paid') {
-            if (actor && !actor.permissions.includes("payments.write")) {
+            if (actor && actor.role !== "owner" && Array.isArray(actor.permissions) && !actor.permissions.includes("payments.write")) {
               const error = new Error("Tài khoản cần có quyền quản lý thanh toán (payments.write) để xác nhận thu tiền COD.");
               error.status = 403;
               throw error;
@@ -1969,7 +1969,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             update.paymentStatus = 'paid';
           }
         }
-        if (actor) {
+        if (actor && actor.role !== "owner" && Array.isArray(actor.permissions)) {
           const fulfillmentChange = (update.status !== undefined && update.status !== current.status) || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd);
           const paymentChange = update.paymentStatus !== undefined && update.paymentStatus !== current.payment_status;
           if ((fulfillmentChange && !actor.permissions.includes("orders.write")) || (paymentChange && !actor.permissions.includes("payments.write"))) {
@@ -1982,7 +1982,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
         }
         const prepaidAutoProcess = current.payment_method !== "cod" && (current.payment_status === "paid" || update.paymentStatus === "paid");
-        if (update.status && update.status !== current.status && !transitions[current.status].includes(update.status) && !(prepaidAutoProcess && current.status === "pending" && update.status === "processing")) {
+        const adminDirectProcessing = current.status === "pending" && update.status === "processing";
+        if (update.status && update.status !== current.status && !transitions[current.status].includes(update.status) && !(prepaidAutoProcess && current.status === "pending" && update.status === "processing") && !adminDirectProcessing) {
           const error = new Error(`Không thể chuyển đơn từ ${current.status} sang ${update.status}.`);
           error.status = 409;
           throw error;
@@ -2043,7 +2044,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        if (update.status === "confirmed" && update.shippingFeeVnd === undefined && current.shipping_fee_vnd === null) {
+        if (["confirmed", "processing"].includes(update.status) && update.shippingFeeVnd === undefined && current.shipping_fee_vnd === null) {
           const error = new Error("Nhập phí giao hàng để chốt tổng tiền trước khi xác nhận đơn.");
           error.status = 409;
           throw error;
