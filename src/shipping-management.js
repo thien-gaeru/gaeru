@@ -621,7 +621,9 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
   if (isTerminalBlocked) return updatedOrderStatus;
 
   const canAdvanceFulfillment = shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid';
-  if (!canAdvanceFulfillment) return updatedOrderStatus;
+  // Once delivery is verified, fulfillment completes regardless of whether finance is paid.
+  // An unpaid prepaid order is an exception to investigate, but shipping proof must be preserved.
+  if (!canAdvanceFulfillment && newNormalizedStatus !== 'delivered') return updatedOrderStatus;
 
   if (newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
     updatedOrderStatus = 'shipped';
