@@ -342,8 +342,61 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
     const customer = (await client.query('SELECT id, email FROM customers WHERE id = $1 FOR UPDATE', [customerId])).rows[0];
     if (!customer) return null;
 
+    const inFlight = await client.query(
+      `SELECT o.id FROM orders o
+       WHERE o.customer_id = $1 AND (
+         o.status = 'shipped'
+         OR EXISTS (
+           SELECT 1 FROM carrier_shipment_attempts a
+           WHERE a.order_id = o.id AND a.status IN ('sending', 'unknown')
+         )
+         OR EXISTS (
+           SELECT 1 FROM carrier_shipments s
+           WHERE s.order_id = o.id AND (
+             s.status IN ('created','picking','delivering','return_requested','returning','cancel_requested','cancel_reconciliation_required')
+             OR (s.status = 'delivered' AND s.cod_amount_vnd > 0 AND s.cod_settlement_status <> 'settled')
+           )
+         )
+       ) LIMIT 1`,
+      [customerId]
+    );
+    if (inFlight.rows.length) {
+      throw Object.assign(
+        new Error('Khách hàng còn đơn hàng hoặc vận đơn đang giao / chưa đối soát COD. Vui lòng hoàn tất giao vận và đối soát tiền trước khi xóa tài khoản.'),
+        { status: 409 }
+      );
+    }
+
+    // Giải phóng tồn kho giữ chỗ cho các đơn nháp chưa thanh toán trước khi ẩn danh PII
+    const inv = require('./inventory');
+    const openUnpaidOrders = (await client.query(
+      `SELECT id, voucher_code FROM orders
+       WHERE customer_id = $1 AND status IN ('pending', 'confirmed', 'processing') AND payment_status <> 'paid'
+       FOR UPDATE`,
+      [customerId]
+    )).rows;
+    for (const draft of openUnpaidOrders) {
+      await inv.releaseOrderStock(client, { orderId: draft.id, actor });
+      await client.query("UPDATE payment_attempts SET status = 'failed', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [draft.id]);
+      if (draft.voucher_code) {
+        await client.query('UPDATE voucher_redemptions SET released = true WHERE order_id = $1 AND released = false', [draft.id]);
+      }
+      await client.query(
+        "UPDATE orders SET status = 'cancelled', cancellation_reason = 'Hủy đơn chưa thanh toán khi xóa tài khoản khách hàng', updated_at = now() WHERE id = $1",
+        [draft.id]
+      );
+    }
+
     await client.query('DELETE FROM care_messages WHERE care_id IN (SELECT id FROM care_requests WHERE customer_id = $1)', [customerId]);
     await client.query('DELETE FROM care_requests WHERE customer_id = $1', [customerId]);
+    await client.query(
+      `DELETE FROM warranty_email_outbox WHERE warranty_id IN (
+         SELECT id FROM warranty_activations WHERE customer_id = $1 OR order_item_id IN (
+           SELECT i.id FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.customer_id = $1
+         )
+       )`,
+      [customerId]
+    );
     await client.query(
       `DELETE FROM warranty_activations WHERE customer_id = $1 OR order_item_id IN (
          SELECT i.id FROM order_items i JOIN orders o ON o.id = i.order_id
@@ -361,11 +414,8 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
     await client.query('DELETE FROM account_deletion_requests WHERE customer_id = $1', [customerId]);
     await client.query('DELETE FROM security_challenges WHERE account_key = $1', ['customer:' + customerId]);
     await client.query('DELETE FROM account_security WHERE account_key = $1', ['customer:' + customerId]);
-    const { deleteCustomerOrdersPermanently } = require('./order-deletion');
-    await deleteCustomerOrdersPermanently(client, customerId, customer.email, {
-      actor,
-      inventory: require('./inventory')
-    });
+    const { anonymizeCustomerOrders } = require('./order-deletion');
+    await anonymizeCustomerOrders(client, customerId, { actor });
     const deleteRes = await client.query('DELETE FROM customers WHERE id = $1 RETURNING id', [customerId]);
     if (!deleteRes.rowCount) return null;
 

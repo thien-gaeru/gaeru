@@ -56,20 +56,54 @@ async function start() {
   await migrateDatabase(pool);
   if (shuttingDown) return;
 
-  // Background workers initialization with staggered startup to prevent CPU/DB spikes on boot (A10)
+  // GAERU P2-02: Priority DB concurrency semaphore for background workers on 2 CPU / 3 GB RAM
+  let activeHighOps = 0;
+  let activeLowOps = 0;
+  const lowWaitQueue = [];
+  const MAX_LOW_PRIORITY_OPS = 2;
+  const pumpLowQueue = () => {
+    while (activeHighOps === 0 && activeLowOps < MAX_LOW_PRIORITY_OPS && lowWaitQueue.length > 0) {
+      activeLowOps++;
+      const resume = lowWaitQueue.shift();
+      resume();
+    }
+  };
+  const createPriorityPool = (priority) => {
+    if (!pool || typeof pool.query !== 'function') return pool;
+    const proxy = Object.create(pool);
+    proxy.query = async (...args) => {
+      if (priority === 'high') {
+        activeHighOps++;
+        try { return await pool.query(...args); }
+        finally { activeHighOps = Math.max(0, activeHighOps - 1); pumpLowQueue(); }
+      }
+      if (activeHighOps > 0 || activeLowOps >= MAX_LOW_PRIORITY_OPS) {
+        await new Promise(resolve => lowWaitQueue.push(resolve));
+      } else {
+        activeLowOps++;
+      }
+      try { return await pool.query(...args); }
+      finally { activeLowOps = Math.max(0, activeLowOps - 1); pumpLowQueue(); }
+    };
+    return proxy;
+  };
+  const highPriorityPool = createPriorityPool('high');
+  const lowPriorityPool = createPriorityPool('low');
+
+  // Background workers initialization with staggered startup and priority concurrency cap (A10 / P2-02)
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
   if (isBackgroundWorker) {
-    scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(pool, config); }, 0);
-    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(pool, config); }, 2000);
-    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(pool, config); }, 4000);
-    scheduleWorker(() => { stopAIChat = require('./shopping-chat-ai-first').startAIChatWorker(pool, config); }, 6000);
-    scheduleWorker(() => { stopChatEmail = require('./shopping-chat-email').startChatEmailWorker(pool, config); }, 8000);
-    scheduleWorker(() => { stopChatCompression = require('./shopping-chat-compression').startChatCompressionWorker(pool); }, 10000);
-    scheduleWorker(() => { stopTikTokAds = require('./tiktok-ads').startTikTokAdsWorker(pool, config); }, 14000);
-    scheduleWorker(() => { stopAbandonedCart = require("./abandoned-cart").startAbandonedCartWorker(pool, config); }, 18000);
-    scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(pool, config); }, 22000);
-    scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(pool); }, 26000);
-    scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(pool); }, 30000);
+    scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(highPriorityPool, config); }, 0);
+    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(highPriorityPool, config); }, 2000);
+    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(highPriorityPool, config); }, 4000);
+    scheduleWorker(() => { stopAIChat = require('./shopping-chat-ai-first').startAIChatWorker(lowPriorityPool, config); }, 6000);
+    scheduleWorker(() => { stopChatEmail = require('./shopping-chat-email').startChatEmailWorker(lowPriorityPool, config); }, 8000);
+    scheduleWorker(() => { stopChatCompression = require('./shopping-chat-compression').startChatCompressionWorker(lowPriorityPool); }, 10000);
+    scheduleWorker(() => { stopTikTokAds = require('./tiktok-ads').startTikTokAdsWorker(lowPriorityPool, config); }, 14000);
+    scheduleWorker(() => { stopAbandonedCart = require("./abandoned-cart").startAbandonedCartWorker(lowPriorityPool, config); }, 18000);
+    scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(lowPriorityPool, config); }, 22000);
+    scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(lowPriorityPool); }, 26000);
+    scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 30000);
   }
 
   // Non-blocking media probe and asynchronous asset sync in the background
@@ -115,7 +149,13 @@ async function start() {
         rssMB: Math.round(m.rss / 1048576),
         heapMB: Math.round(m.heapUsed / 1048576),
         externalMB: Math.round(m.external / 1048576),
-        eventLoopP95Ms: Math.round(lag.percentile(95) / 1e6)
+        eventLoopP95Ms: Math.round(lag.percentile(95) / 1e6),
+        dbPoolTotal: Number(pool?.totalCount || 0),
+        dbPoolIdle: Number(pool?.idleCount || 0),
+        dbPoolWaiting: Number(pool?.waitingCount || 0),
+        bgWorkerHighActive: activeHighOps,
+        bgWorkerLowActive: activeLowOps,
+        bgWorkerLowQueued: lowWaitQueue.length
       }));
       lag.reset();
     }, 60000);

@@ -129,7 +129,7 @@ test('recordFullOrderPayment uses 8 distinct placeholders with valid SHA-256 req
   assert.equal(Number(receipt.amount_vnd), 840000);
   assert.equal(receipt.method, 'cash');
   assert.equal(receipt.created_by, 'test-admin');
-  assert.ok(receipt.request_key.startsWith('system-full:'));
+  assert.ok(receipt.request_key.startsWith('order-full:'));
   assert.equal(receipt.request_hash.length, 64); // SHA-256 hex digest
 });
 

@@ -129,9 +129,18 @@ test('carrier completion rolls back order/payment and shipment when loyalty acco
   await f.pool.query('UPDATE orders SET customer_id=$2 WHERE id=$1',[f.orderId,customer.id]);
   await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status,cod_amount_vnd) VALUES($1,'viettel','LOYALTY-TRACKING','created',100000)",[f.orderId]);
   t.mock.method(require('../src/loyalty-api'),'earnPoints',async()=>{throw Error('fixture loyalty accounting failure');});
-  await assert.rejects(()=>handleCarrierWebhook(f.pool,f.config,'viettel',{ORDER_NUMBER:'LOYALTY-TRACKING',ORDER_STATUS:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}}),/fixture loyalty accounting failure/);
-  assert.deepEqual((await f.pool.query('SELECT status,payment_status FROM orders WHERE id=$1',[f.orderId])).rows[0],{status:'confirmed',payment_status:'pending'});
-  assert.equal((await f.pool.query('SELECT status FROM carrier_shipments WHERE order_id=$1',[f.orderId])).rows[0].status,'created');
+  // 1. COD delivered transitions shipment to delivered (unsettled), then settleCarrierCod rolls back atomically on loyalty failure
+  await handleCarrierWebhook(f.pool,f.config,'viettel',{ORDER_NUMBER:'LOYALTY-TRACKING',ORDER_STATUS:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}});
+  const {settleCarrierCod}=require('../src/shipping-management');
+  await assert.rejects(()=>settleCarrierCod(f.pool,{orderId:f.orderId,providerTransactionRef:'VTP-FAIL-LOYALTY',settledAmountVnd:100000,actor:{username:'fixture',role:'owner',source:'bootstrap'}}),/fixture loyalty accounting failure/);
+  assert.deepEqual((await f.pool.query('SELECT status,payment_status FROM orders WHERE id=$1',[f.orderId])).rows[0],{status:'shipped',payment_status:'pending'});
+  assert.equal((await f.pool.query('SELECT cod_settlement_status FROM carrier_shipments WHERE order_id=$1',[f.orderId])).rows[0].cod_settlement_status,'unsettled');
+  // 2. Prepaid order rolls back delivered webhook atomically on loyalty failure
+  const prepaid=(await f.pool.query("INSERT INTO orders(order_number,customer_id,customer_name,email,phone,address,city,payment_method,payment_status,status,subtotal_vnd,total_vnd) VALUES('PREPAID-LOYALTY-RB',$1,'Fixture','fixture@example.invalid','0900000000','Fixture','Hà Nội','bank_transfer','paid','shipped',100000,100000) RETURNING id",[customer.id])).rows[0];
+  await f.pool.query("INSERT INTO carrier_shipments(order_id,carrier_id,tracking_number,status,cod_amount_vnd,cod_settlement_status) VALUES($1,'viettel','PREPAID-LOYALTY-TRK','delivering',0,'not_applicable')",[prepaid.id]);
+  await assert.rejects(()=>handleCarrierWebhook(f.pool,f.config,'viettel',{ORDER_NUMBER:'PREPAID-LOYALTY-TRK',ORDER_STATUS:'delivered'},{headers:{'x-webhook-secret':'dedicated-shipment-fixture-webhook-secret'}}),/fixture loyalty accounting failure/);
+  assert.equal((await f.pool.query('SELECT status FROM orders WHERE id=$1',[prepaid.id])).rows[0].status,'shipped');
+  assert.equal((await f.pool.query('SELECT status FROM carrier_shipments WHERE order_id=$1',[prepaid.id])).rows[0].status,'delivering');
 });
 
 test('permanent deletion cannot erase an in-flight provider claim before its tracking reference is attached',async t=>{

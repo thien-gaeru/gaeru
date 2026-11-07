@@ -11,12 +11,185 @@ function fail(message, status = 502) {
   return Object.assign(new Error(message), { status });
 }
 
+function stripVietnameseAccents(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/\b(?:tinh|thanh pho|tp\.?|tp)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+const VIETTEL_PROVINCE_IDS = Object.freeze({
+  'ha noi': 1,
+  'ho chi minh': 2,
+  'hcm': 2,
+  'sai gon': 2,
+  'hai phong': 3,
+  'da nang': 4,
+  'can tho': 5,
+  'an giang': 6,
+  'ba ria vung tau': 7,
+  'vung tau': 7,
+  'bac giang': 8,
+  'bac kan': 9,
+  'bac lieu': 10,
+  'bac ninh': 11,
+  'ben tre': 12,
+  'binh dinh': 13,
+  'binh duong': 14,
+  'binh phuoc': 15,
+  'binh thuan': 16,
+  'ca mau': 17,
+  'cao bang': 18,
+  'dak lak': 19,
+  'dak nong': 20,
+  'dien bien': 21,
+  'dong nai': 22,
+  'dong thap': 23,
+  'gia lai': 24,
+  'ha giang': 25,
+  'ha nam': 26,
+  'ha tinh': 27,
+  'hai duong': 28,
+  'hau giang': 29,
+  'hoa binh': 30,
+  'hung yen': 31,
+  'khanh hoa': 32,
+  'kien giang': 33,
+  'kon tum': 34,
+  'lai chau': 35,
+  'lam dong': 36,
+  'lang son': 37,
+  'lao cai': 38,
+  'long an': 39,
+  'nam dinh': 40,
+  'nghe an': 41,
+  'ninh binh': 42,
+  'ninh thuan': 43,
+  'phu tho': 44,
+  'phu yen': 45,
+  'quang binh': 46,
+  'quang nam': 47,
+  'quang ngai': 48,
+  'quang ninh': 49,
+  'quang tri': 50,
+  'soc trang': 51,
+  'son la': 52,
+  'tay ninh': 53,
+  'thai binh': 54,
+  'thai nguyen': 55,
+  'thanh hoa': 56,
+  'thua thien hue': 57,
+  'hue': 57,
+  'tien giang': 58,
+  'tra vinh': 59,
+  'tuyen quang': 60,
+  'vinh long': 61,
+  'vinh phuc': 62,
+  'yen bai': 63
+});
+
+function resolveViettelProvinceId(city) {
+  const key = stripVietnameseAccents(city);
+  if (!key) return 1;
+  if (VIETTEL_PROVINCE_IDS[key]) return VIETTEL_PROVINCE_IDS[key];
+  for (const [name, id] of Object.entries(VIETTEL_PROVINCE_IDS)) {
+    if (key.includes(name) || name.includes(key)) return id;
+  }
+  return 1;
+}
+
+function estimateItemWeightGrams(item) {
+  if (Number(item?.weightGrams) > 0) return Math.round(Number(item.weightGrams));
+  const text = `${item?.sku || ''} ${item?.productName || ''} ${item?.variantName || ''}`.toLowerCase();
+  if (/2m1|tripod|chan\b/.test(text)) return 850;
+  if (/p01|gimbal/.test(text)) return 450;
+  if (/g1|ultra|m3/.test(text)) return 320;
+  if (/k9/.test(text)) return 250;
+  return 300;
+}
+
+function computeCarrierShipmentPricing(orderData = {}, settings = {}) {
+  const subtotalVnd = Math.max(0, Number(orderData.subtotalVnd ?? orderData.subtotal_vnd) || 0);
+  const discountVnd = Math.max(0, Number(orderData.discountVnd ?? orderData.discount_vnd) || 0);
+  const productPayableVnd = Math.max(0, subtotalVnd - discountVnd);
+  const webShippingFeeVnd = Math.max(0, Number(orderData.shippingFeeVnd ?? orderData.shipping_fee_vnd) || 0);
+
+  let weightGrams = Number(orderData.weightGrams);
+  if (!Number.isFinite(weightGrams) || weightGrams <= 0) {
+    const items = Array.isArray(orderData.items) ? orderData.items : [];
+    const computed = items.reduce((sum, item) => {
+      const qty = Math.max(1, Number(item?.quantity) || 1);
+      const unitWeight = Number(item?.weightGrams) > 0
+        ? Math.round(Number(item.weightGrams))
+        : (Number(settings?.defaultItemWeightGrams) > 0 ? Math.round(Number(settings.defaultItemWeightGrams)) : estimateItemWeightGrams(item));
+      return sum + qty * unitWeight;
+    }, 0);
+    weightGrams = Math.min(50000, Math.max(100, computed || 500));
+  } else {
+    weightGrams = Math.min(50000, Math.max(1, Math.round(weightGrams)));
+  }
+
+  const explicitCod = (orderData.codAmountVnd ?? orderData.cod_amount_vnd) !== undefined && (orderData.codAmountVnd ?? orderData.cod_amount_vnd) !== null
+    ? Math.max(0, Math.round(Number(orderData.codAmountVnd ?? orderData.cod_amount_vnd) || 0))
+    : null;
+  const effectivePaymentMethod = orderData.paymentMethod ?? orderData.payment_method;
+  const effectivePaymentStatus = orderData.paymentStatus ?? orderData.payment_status;
+  const effectiveTotalVnd = orderData.totalVnd ?? orderData.total_vnd;
+  const isCod = explicitCod !== null
+    ? explicitCod > 0
+    : (effectivePaymentMethod === 'cod' && effectivePaymentStatus !== 'paid');
+
+  // Khi đơn web đã cộng sẵn shippingFeeVnd vào totalVnd (hoặc shop freeship), người gửi (GAERU) thanh toán cước cho hãng
+  // để hãng chỉ thu đúng số tiền khách chốt trên website (tránh ORDER_PAYMENT=2 cộng trùng cước lần 2).
+  const requestedPayer = orderData.feePayer || settings?.feePayer || 'sender';
+  const feePayer = (requestedPayer === 'receiver' && webShippingFeeVnd === 0) ? 'receiver' : 'sender';
+
+  let carrierCodCollectionVnd = 0;
+  if (isCod) {
+    if (feePayer === 'receiver') {
+      carrierCodCollectionVnd = productPayableVnd;
+    } else if (explicitCod !== null) {
+      carrierCodCollectionVnd = explicitCod;
+    } else if (effectiveTotalVnd !== undefined && effectiveTotalVnd !== null) {
+      carrierCodCollectionVnd = Math.max(0, Math.round(Number(effectiveTotalVnd) || 0));
+    } else {
+      carrierCodCollectionVnd = productPayableVnd + webShippingFeeVnd;
+    }
+  }
+
+  // Viettel Post ORDER_PAYMENT:
+  // 1: Không thu tiền (người gửi trả cước)
+  // 2: Thu hộ tiền hàng + cước hãng (người nhận trả thêm cước hãng ngoài MONEY_COLLECTION)
+  // 3: Thu hộ đúng MONEY_COLLECTION, người gửi trả cước cho hãng (chuẩn TMĐT khi cước web đã tính trong MONEY_COLLECTION hoặc freeship)
+  // 4: Không thu hộ tiền hàng, người nhận tự trả cước hãng
+  const viettelOrderPayment = isCod
+    ? (feePayer === 'receiver' ? 2 : 3)
+    : (feePayer === 'receiver' ? 4 : 1);
+
+  return {
+    productPayableVnd,
+    webShippingFeeVnd,
+    feePayer,
+    isCod,
+    carrierCodCollectionVnd,
+    viettelOrderPayment,
+    weightGrams,
+    receiverProvinceId: resolveViettelProvinceId(orderData.city)
+  };
+}
+
 function normalizeCarrierStatus(carrierId, rawStatus) {
   const s = String(rawStatus ?? '').toLowerCase().trim();
   if (carrierId === 'viettel' && /^-?\d+$/.test(s)) {
     if (s === '501') return 'delivered';
     if (['107', '503'].includes(s)) return 'cancelled';
-    if (['502', '504', '505'].includes(s)) return 'returned';
+    if (s === '504') return 'returned';
+    if (s === '502') return 'returning';
+    if (s === '505') return 'return_requested';
     if (['105', '200', '202', '300', '320', '400', '500'].includes(s)) return 'delivering';
     if (['100', '102', '103', '104'].includes(s)) return 'picking';
     return 'pending';
@@ -27,7 +200,13 @@ function normalizeCarrierStatus(carrierId, rawStatus) {
   if (['cancel', 'huy', 'huy_don', 'deleted', 'closed'].some(k => s.includes(k))) {
     return 'cancelled';
   }
-  if (['return', 'tra_hang', 'chuyen_hoan', 'that_bai', 'failed', 'refused'].some(k => s.includes(k))) {
+  if (['return_requested', 'cho_chuyen_hoan', 'cho_xu_ly_hoan', 'cho_hoan'].includes(s)) {
+    return 'return_requested';
+  }
+  if (['returning', 'returning_to_sender', 'dang_hoan', 'chuyen_hoan_ve_buu_cuc'].includes(s)) {
+    return 'returning';
+  }
+  if (['return', 'tra_hang', 'chuyen_hoan', 'that_bai', 'failed', 'refused', 'returned_to_sender'].some(k => s.includes(k))) {
     return 'returned';
   }
   if (['delivering', 'transport', 'shipping', 'danggiao', 'dang_giao', 'xuat_kho', 'luanchuyen', 'on_delivery'].some(k => s.includes(k))) {
@@ -235,10 +414,8 @@ const viettelAdapter = {
   async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
     if (!settings.secret) throw fail('Cần lưu API Token của Viettel Post.', 400);
     const url = 'https://partner.viettelpost.vn/v2/order/createOrder';
-    const isCod = Number(orderData.codAmountVnd) > 0;
-    const isCustomerPaidShip = Number(orderData.shippingFeeVnd) > 0;
-    // ORDER_PAYMENT: 1 = Không thu tiền, 2 = Thu hộ tiền hàng và cước (khách trả ship), 3 = Thu hộ tiền hàng, cước người gửi trả (shop freeship)
-    const orderPayment = isCod ? (isCustomerPaidShip ? 2 : 3) : 1;
+    const pricing = computeCarrierShipmentPricing(orderData, settings);
+    const { isCod, viettelOrderPayment: orderPayment, carrierCodCollectionVnd, weightGrams, receiverProvinceId, productPayableVnd } = pricing;
     let serviceCode = orderData.carrierServiceCode || settings.defaultService || 'LCOD';
 
     const buildPayload = (srv) => ({
@@ -249,13 +426,14 @@ const viettelAdapter = {
       SENDER_PHONE: settings.pickupPhone || '0900000000',
       RECEIVER_FULLNAME: orderData.customerName,
       RECEIVER_ADDRESS: `${orderData.address}, ${orderData.city}`,
+      RECEIVER_PROVINCE: receiverProvinceId,
       RECEIVER_PHONE: orderData.phone,
       PRODUCT_NAME: (orderData.items || []).map(i => i.productName).join(', ') || 'Thiết bị GAERU',
-      PRODUCT_PRICE: Number(orderData.subtotalVnd) || 0,
-      PRODUCT_WEIGHT: Number(orderData.weightGrams) || 500,
+      PRODUCT_PRICE: productPayableVnd,
+      PRODUCT_WEIGHT: weightGrams,
       PRODUCT_TYPE: 'HH',
       ORDER_PAYMENT: orderPayment,
-      MONEY_COLLECTION: isCod ? Number(orderData.codAmountVnd) || 0 : 0,
+      MONEY_COLLECTION: isCod ? carrierCodCollectionVnd : 0,
       TYPE: 1
     });
 
@@ -291,11 +469,11 @@ const viettelAdapter = {
             body: JSON.stringify({
               SENDER_ADDRESS: settings.pickupAddress || 'Hà Nội',
               RECEIVER_ADDRESS: `${orderData.address}, ${orderData.city}`,
-              RECEIVER_PROVINCE: 1,
+              RECEIVER_PROVINCE: receiverProvinceId,
               PRODUCT_TYPE: 'HH',
-              PRODUCT_WEIGHT: Number(orderData.weightGrams) || 500,
-              PRODUCT_PRICE: Number(orderData.subtotalVnd) || 0,
-              MONEY_COLLECTION: isCod ? Number(orderData.codAmountVnd) || 0 : 0,
+              PRODUCT_WEIGHT: weightGrams,
+              PRODUCT_PRICE: productPayableVnd,
+              MONEY_COLLECTION: isCod ? carrierCodCollectionVnd : 0,
               PRODUCT_LENGTH: 0,
               PRODUCT_WIDTH: 0,
               PRODUCT_HEIGHT: 0,
@@ -436,20 +614,22 @@ const viettelAdapter = {
     };
   },
 
-  async quoteShippingFee(settings, { city, weightGrams = 500 }, { fetcher = fetch } = {}) {
+  async quoteShippingFee(settings, { city, district, address, weightGrams = 500, totalVnd = 0, codAmountVnd = 0 }, { fetcher = fetch } = {}) {
     const url = 'https://partner.viettelpost.vn/v2/order/getPriceAllNlp';
+    const receiverAddress = [address, district, city].filter(Boolean).join(', ') || 'Hà Nội';
+    const receiverProvince = resolveViettelProvinceId(city);
     const { res } = await executeViettelRequest(settings, async (token) => {
       const resp = await fetcher(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Token': token },
         body: JSON.stringify({
           SENDER_ADDRESS: settings.pickupAddress || 'Hà Nội',
-          RECEIVER_ADDRESS: city || 'Hà Nội',
-          RECEIVER_PROVINCE: 1,
+          RECEIVER_ADDRESS: receiverAddress,
+          RECEIVER_PROVINCE: receiverProvince,
           PRODUCT_TYPE: 'HH',
-          PRODUCT_WEIGHT: Number(weightGrams) || 500,
-          PRODUCT_PRICE: 0,
-          MONEY_COLLECTION: 0,
+          PRODUCT_WEIGHT: Math.max(1, Math.round(Number(weightGrams) || 500)),
+          PRODUCT_PRICE: Math.max(0, Math.round(Number(totalVnd) || 0)),
+          MONEY_COLLECTION: Math.max(0, Math.round(Number(codAmountVnd) || 0)),
           PRODUCT_LENGTH: 0,
           PRODUCT_WIDTH: 0,
           PRODUCT_HEIGHT: 0,
@@ -580,6 +760,8 @@ function getAdapter(carrierId) {
 module.exports = {
   CARRIER_NAMES,
   normalizeCarrierStatus,
+  resolveViettelProvinceId,
+  computeCarrierShipmentPricing,
   getAdapter,
   adapters,
   jtAdapter,

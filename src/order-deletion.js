@@ -27,8 +27,15 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
       )
     ))) LIMIT 1`, [order.id]);
   if (unresolvedShipment.rows.length) throw Object.assign(new Error('Yêu cầu tạo vận đơn đang xử lý hoặc chưa đối soát đầy đủ với mã hãng. Giữ đơn và bằng chứng vận chuyển để đối soát trước khi xóa.'), { status: 409 });
-  const activeShipment = await client.query("SELECT id FROM carrier_shipments WHERE order_id=$1 AND status IN ('created','picking','delivering') LIMIT 1", [order.id]);
-  if (activeShipment.rows.length) throw Object.assign(new Error('Đơn còn vận đơn đang hoạt động. Hủy vận đơn trên hệ thống hãng hoặc hoàn tất giao hàng trước khi xóa lịch sử đơn.'), { status: 409 });
+  const activeShipment = await client.query(
+    `SELECT id FROM carrier_shipments
+     WHERE order_id=$1 AND (
+       status IN ('created','picking','delivering','return_requested','returning','cancel_requested','cancel_reconciliation_required')
+       OR (status = 'delivered' AND cod_amount_vnd > 0 AND cod_settlement_status <> 'settled')
+     ) LIMIT 1`,
+    [order.id]
+  );
+  if (activeShipment.rows.length) throw Object.assign(new Error('Đơn còn vận đơn đang hoạt động hoặc tiền thu hộ COD tại hãng chưa đối soát. Hủy vận đơn hoặc hoàn tất đối soát trước khi xóa lịch sử đơn.'), { status: 409 });
   const openExchange = await client.query(`SELECT e.id FROM rma_exchange_issues e JOIN order_after_sales a ON a.id=e.case_id
     WHERE a.order_id=$1 AND e.status='posted' AND a.status NOT IN ('resolved','rejected') LIMIT 1`, [order.id]);
   if (openExchange.rows.length) throw Object.assign(new Error('Đơn đang có chứng từ xuất hàng đổi chưa hoàn tất. Hủy chứng từ trước khi bàn giao hoặc hoàn tất giao đổi và đóng hồ sơ trước khi xóa đơn.'), { status: 409 });
@@ -41,6 +48,29 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   if (issuedInvoice.rows.length) {
     throw Object.assign(
       new Error(`Không thể xóa vĩnh viễn đơn hàng đã xuất hóa đơn điện tử hợp lệ (${issuedInvoice.rows[0].invoice_series}-${issuedInvoice.rows[0].invoice_number}). Theo Nghị định 123/2020/NĐ-CP, hóa đơn phải được hủy hoặc thay thế/điều chỉnh trên cơ quan thuế trước khi xử lý hồ sơ.`),
+      { status: 409 }
+    );
+  }
+
+  // 1c. P0-02: Bảo vệ tuyệt đối sổ thu tiền & chứng từ đối soát kế toán bất biến
+  const existingReceipt = await client.query('SELECT id FROM sales_receipts WHERE order_id = $1 LIMIT 1', [order.id]);
+  if (existingReceipt.rows.length) {
+    throw Object.assign(
+      new Error('Không thể xóa cứng đơn hàng đã phát sinh phiếu thu kế toán (sales_receipts). Sổ thu tiền là bất biến; vui lòng lưu trữ đơn hoặc lập bút toán hoàn/điều chỉnh có kiểm toán.'),
+      { status: 409 }
+    );
+  }
+  const paidAttempt = await client.query("SELECT id FROM payment_attempts WHERE order_id = $1 AND status = 'paid' LIMIT 1", [order.id]);
+  if (paidAttempt.rows.length) {
+    throw Object.assign(
+      new Error('Không thể xóa cứng đơn hàng đã có giao dịch cổng thanh toán thành công.'),
+      { status: 409 }
+    );
+  }
+  const codIntake = await client.query('SELECT id FROM cod_return_intakes WHERE order_id = $1 LIMIT 1', [order.id]);
+  if (codIntake.rows.length) {
+    throw Object.assign(
+      new Error('Không thể xóa cứng đơn hàng đã có biên bản kiểm nhận hoàn kho vật lý.'),
       { status: 409 }
     );
   }
@@ -101,9 +131,7 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   await client.query('DELETE FROM order_pack_verifications WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_shipping_selection WHERE order_id = $1', [order.id]);
 
-  // G. Sales receipts (removes completely from sales reports, revenue figures)
-  await client.query('INSERT INTO order_deletion_sessions(order_id) VALUES ($1) ON CONFLICT DO NOTHING', [order.id]);
-  await client.query('DELETE FROM sales_receipts WHERE order_id = $1', [order.id]);
+  // G. Sales receipts are strictly append-only (guarded above; never deleted)
 
   // H. Voucher redemptions
   await client.query('DELETE FROM voucher_redemptions WHERE order_id = $1', [order.id]);
@@ -126,7 +154,6 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
 
   // N. Finally delete the order itself
   await client.query('DELETE FROM orders WHERE id = $1', [order.id]);
-  await client.query('DELETE FROM order_deletion_sessions WHERE order_id = $1', [order.id]);
 
   // 4. Audit trail
   await appendAudit(client, {

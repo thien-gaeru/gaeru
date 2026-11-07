@@ -29,63 +29,112 @@ const { createWarrantyCustomerApi, createWarrantyAdminApi } = require("./warrant
 const { createWarrantyPublicApi } = require("./warranty-public-api");
 const { createBusinessApi } = require("./business-api");
 
+function attachTransactionalCacheInvalidation(pool) {
+  if (!pool || typeof pool.query !== 'function' || pool.__gaeruCacheHooked) return pool;
+  const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i.test(sql);
+  const isBeginSql = sql => typeof sql === 'string' && /^\s*(?:BEGIN|START\s+TRANSACTION)\b/i.test(sql);
+  const isCommitSql = sql => typeof sql === 'string' && /^\s*(?:COMMIT|END)\b/i.test(sql);
+  const isRollbackSql = sql => typeof sql === 'string' && /^\s*ROLLBACK\b(?!\s+TO\b)/i.test(sql);
+  const flushCatalogCaches = () => {
+    const cacheMod = require('./cache');
+    cacheMod.clearHtmlCacheOnly();
+    cacheMod.ramCache.delete('data:catalog');
+    cacheMod.invalidateTags(['products', 'catalog', 'promotions'], { immediate: true });
+    require('./site-pages').clearSitePagesCache(pool);
+    require('./lib/image-renditions').clearImageLookupCache(pool);
+    require('./persistent-assets').clearAssetSnapshotCache(pool);
+  };
+  const extractSqlText = sql => (typeof sql === 'object' && sql !== null ? sql.text : sql);
+  const rawPoolQuery = pool.query.bind(pool);
+  const wrapAutocommitQuery = fn => function(sql, values, cb) {
+    const onDone = err => { if (!err && isCatalogOrPageMutation(extractSqlText(sql))) flushCatalogCaches(); };
+    if (typeof values === 'function') {
+      const origCb = values;
+      return fn.call(this, sql, (err, res) => { onDone(err); origCb(err, res); });
+    }
+    if (typeof cb === 'function') {
+      return fn.call(this, sql, values, (err, res) => { onDone(err); cb(err, res); });
+    }
+    const p = fn.call(this, sql, values);
+    if (p && typeof p.then === 'function') {
+      return p.then(res => { onDone(null); return res; });
+    }
+    return p;
+  };
+  const wrapClientQuery = (client, fn) => function(sql, values, cb) {
+    const text = extractSqlText(sql);
+    const afterSuccess = () => {
+      if (isBeginSql(text)) {
+        client.__gaeruInTx = true;
+        client.__gaeruDirtyCatalog = false;
+      } else if (isRollbackSql(text)) {
+        client.__gaeruInTx = false;
+        client.__gaeruDirtyCatalog = false;
+      } else if (isCommitSql(text)) {
+        const wasDirty = Boolean(client.__gaeruDirtyCatalog);
+        client.__gaeruInTx = false;
+        client.__gaeruDirtyCatalog = false;
+        if (wasDirty) flushCatalogCaches();
+      } else if (isCatalogOrPageMutation(text)) {
+        if (client.__gaeruInTx) {
+          client.__gaeruDirtyCatalog = true;
+        } else {
+          flushCatalogCaches();
+        }
+      }
+    };
+    if (typeof values === 'function') {
+      const origCb = values;
+      return fn.call(this, sql, (err, res) => { if (!err) afterSuccess(); origCb(err, res); });
+    }
+    if (typeof cb === 'function') {
+      return fn.call(this, sql, values, (err, res) => { if (!err) afterSuccess(); cb(err, res); });
+    }
+    const p = fn.call(this, sql, values);
+    if (p && typeof p.then === 'function') {
+      return p.then(res => { afterSuccess(); return res; });
+    }
+    return p;
+  };
+  pool.query = wrapAutocommitQuery(rawPoolQuery);
+  if (typeof pool.connect === 'function') {
+    const origConnect = pool.connect;
+    pool.connect = function(cb) {
+      const hookClient = client => {
+        if (client && typeof client.query === 'function' && !client.__gaeruCacheHooked) {
+          const baseClientQuery = client.query === pool.query ? rawPoolQuery : client.query.bind(client);
+          client.__gaeruInTx = false;
+          client.__gaeruDirtyCatalog = false;
+          client.query = wrapClientQuery(client, baseClientQuery);
+          if (typeof client.release === 'function') {
+            const origRelease = client.release.bind(client);
+            client.release = (...args) => {
+              client.__gaeruInTx = false;
+              client.__gaeruDirtyCatalog = false;
+              return origRelease(...args);
+            };
+          }
+          Object.defineProperty(client, '__gaeruCacheHooked', { value: true });
+        }
+        return client;
+      };
+      if (typeof cb === 'function') {
+        return origConnect.call(this, (err, client, done) => {
+          if (!err && client) hookClient(client);
+          cb(err, client, done);
+        });
+      }
+      return origConnect.call(this).then(hookClient);
+    };
+  }
+  Object.defineProperty(pool, '__gaeruCacheHooked', { value: true });
+  return pool;
+}
+
 function createApp({ config, pool, sessionStore, customerMailer, oauthClient = null }) {
   if (!sessionStore) throw new Error("A persistent session store must be provided.");
   require('./cache').clearHtmlCacheOnly();
-  if (pool && typeof pool.query === 'function' && !pool.__gaeruCacheHooked) {
-    const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i.test(sql);
-    const notifyMutation = sql => {
-      const text = typeof sql === 'object' && sql !== null ? sql.text : sql;
-      if (isCatalogOrPageMutation(text)) {
-        require('./cache').clearHtmlCacheOnly();
-        require('./site-pages').clearSitePagesCache(pool); require('./lib/image-renditions').clearImageLookupCache(pool); require('./persistent-assets').clearAssetSnapshotCache(pool);
-      }
-    };
-    const wrapQuery = fn => function(sql, values, cb) {
-      if (typeof values === 'function') {
-        const origCb = values;
-        return fn.call(this, sql, (err, res) => {
-          if (!err) notifyMutation(sql);
-          origCb(err, res);
-        });
-      }
-      if (typeof cb === 'function') {
-        return fn.call(this, sql, values, (err, res) => {
-          if (!err) notifyMutation(sql);
-          cb(err, res);
-        });
-      }
-      const p = fn.call(this, sql, values);
-      if (p && typeof p.then === 'function') {
-        return p.then(res => {
-          notifyMutation(sql);
-          return res;
-        });
-      }
-      return p;
-    };
-    pool.query = wrapQuery(pool.query);
-    if (typeof pool.connect === 'function') {
-      const origConnect = pool.connect;
-      pool.connect = function(cb) {
-        const hookClient = client => {
-          if (client && typeof client.query === 'function' && !client.__gaeruCacheHooked) {
-            client.query = wrapQuery(client.query);
-            Object.defineProperty(client, '__gaeruCacheHooked', { value: true });
-          }
-          return client;
-        };
-        if (typeof cb === 'function') {
-          return origConnect.call(this, (err, client, done) => {
-            if (!err && client) hookClient(client);
-            cb(err, client, done);
-          });
-        }
-        return origConnect.call(this).then(hookClient);
-      };
-    }
-    Object.defineProperty(pool, '__gaeruCacheHooked', { value: true });
-  }
+  attachTransactionalCacheInvalidation(pool);
   const app = express();
   app.use(require('./lib/readiness-gate').readinessMiddleware);
   app.use(require('./lib/public-compression').publicCompression());
@@ -521,4 +570,4 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   return app;
 }
 
-module.exports = { createApp };
+module.exports = { createApp, attachTransactionalCacheInvalidation };

@@ -518,9 +518,39 @@ function renderCart() {
     </aside>`;
 }
 
+async function ensureCheckoutDependencies() {
+  if (typeof document === "undefined" || !document.head) return;
+  const ensureCss = (href) => {
+    if (document.querySelector(`link[href^="${href.split("?")[0]}"]`)) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = href;
+    document.head.append(link);
+  };
+  const ensureJs = (src, check) => {
+    if (check()) return Promise.resolve();
+    return new Promise((resolve) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.defer = true;
+      s.onload = () => resolve();
+      s.onerror = () => resolve();
+      document.head.append(s);
+    });
+  };
+  if (typeof window !== "undefined" && !window.GAERUCheckout && typeof navigator !== "undefined") {
+    await ensureJs("/checkout-flow.js?v=20261026-ward-picker", () => Boolean(window.GAERUCheckout));
+  }
+  if (typeof window !== "undefined" && !window.GAERUAddress && typeof navigator !== "undefined") {
+    ensureCss("/vietnam-address.css?v=20261026-unified-ui");
+    await ensureJs("/vietnam-address.js?v=20261026-unified-ui", () => Boolean(window.GAERUAddress));
+  }
+}
+
 async function renderCheckout() {
   const root = document.querySelector("#checkout-content");
   if (!root) return;
+  await ensureCheckoutDependencies();
 
   const urlParams = typeof window !== "undefined" && window.location ? new URLSearchParams(window.location.search) : null;
   const recoveryToken = urlParams ? urlParams.get("recovery_token") : null;

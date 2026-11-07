@@ -57,6 +57,8 @@ test('HTTP Content Negotiation serves AVIF when accepted and falls back to WebP 
     content: await sharp(raw, { raw: { width: 1200, height: 800, channels: 4 } }).png().toBuffer()
   };
 
+  const { warmPublicImage } = require('../src/lib/image-renditions');
+  await warmPublicImage({ content: fixture.content, mime_type: 'image/png' }, [480]);
   const id = '8467673c-8a88-41f9-a6b1-ada46e04dec3';
   const pool = {
     async query(sql) {

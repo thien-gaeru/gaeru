@@ -9,3 +9,6 @@ coverage/
 public/uploads/*
 !public/uploads/.gitkeep
 npm-debug.log*
+artifacts/
+screenshots/
+audit-screenshots/

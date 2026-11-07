@@ -197,8 +197,8 @@ test('Shipping Carriers Acceptance: [P0] Tracking sync & Webhook automatic statu
 
   let recordedPaymentOrderId = null;
   const mockFinance = {
-    async recordFullOrderPayment(_client, id, _actor) {
-      recordedPaymentOrderId = id;
+    async recordFullOrderPayment(_client, payload) {
+      recordedPaymentOrderId = payload?.order?.id || payload;
     }
   };
 
@@ -230,11 +230,25 @@ test('Shipping Carriers Acceptance: [P0] Tracking sync & Webhook automatic statu
   assert.equal(webhookRes2.success, true);
   assert.equal(webhookRes2.normalizedStatus, 'delivered');
 
-  // Verify order transitioned to 'completed' and COD marked 'paid'
+  // P0-01: COD delivery leaves payment_status = 'pending' and cod_settlement_status = 'unsettled' until reconciled
   const orderAfterDelivered = await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId]);
-  assert.equal(orderAfterDelivered.rows[0].status, 'completed');
-  assert.equal(orderAfterDelivered.rows[0].payment_status, 'paid');
-  assert.equal(recordedPaymentOrderId, orderId, 'Finance accounting hook must be triggered on COD delivery');
+  assert.equal(orderAfterDelivered.rows[0].status, 'shipped');
+  assert.equal(orderAfterDelivered.rows[0].payment_status, 'pending');
+  assert.equal(recordedPaymentOrderId, null, 'COD delivery alone must NOT record finance receipt before carrier settlement');
+
+  const { settleCarrierCod } = require('../src/shipping-management');
+  const settleRes = await settleCarrierCod(pool, {
+    orderId,
+    providerTransactionRef: 'VTP-SETTLE-88990011',
+    settledAmountVnd: 325000,
+    actor: { username: 'finance_lead', role: 'finance', source: 'staff', permissions: ['payments.write'] },
+    finance: mockFinance
+  });
+  assert.equal(settleRes.success, true);
+  const orderAfterSettled = await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId]);
+  assert.equal(orderAfterSettled.rows[0].status, 'completed');
+  assert.equal(orderAfterSettled.rows[0].payment_status, 'paid');
+  assert.equal(recordedPaymentOrderId, orderId, 'Finance accounting hook must be triggered on COD settlement');
 });
 
 test('Shipping Carriers Acceptance: [P1] Cancel waybill and print carrier label redirection', async t => {

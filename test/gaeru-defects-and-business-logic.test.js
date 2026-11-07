@@ -1088,6 +1088,16 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
     desc: 'Giao thành công & thu hộ COD'
   }, { finance: { receiptTotal, recordFullOrderPayment }, headers:{'x-webhook-secret':carrierWebhookSecret} });
   assert.equal(whRes.success, true);
+  assert.equal(await receiptTotal(pool, codOrder.id), 0, 'Delivered COD webhook must not create receipt before settlement');
+
+  const { settleCarrierCod } = require('../src/shipping-management');
+  await settleCarrierCod(pool, {
+    orderId: codOrder.id,
+    providerTransactionRef: 'VTP-STATEMENT-20261107-01',
+    settledAmountVnd: 500000,
+    actor: { username: ADMIN_USERNAME, role: 'owner', source: 'bootstrap' },
+    finance: { receiptTotal, recordFullOrderPayment }
+  });
 
   const settledCod = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [codOrder.id])).rows[0];
   assert.equal(settledCod.status, 'completed');
@@ -1095,7 +1105,7 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
   const receiptSum = await receiptTotal(pool, codOrder.id);
   assert.equal(receiptSum, 500000, 'Real finance.recordFullOrderPayment must record 500,000 VND sales_receipt');
   const earnedLoyalty = (await pool.query('SELECT points_balance FROM customer_loyalty WHERE customer_id = $1', [cust.id])).rows[0];
-  assert.equal(earnedLoyalty.points_balance, 5000, 'COD completion via carrier webhook must award 1% GAERU Xu');
+  assert.equal(earnedLoyalty.points_balance, 5000, 'COD settlement must award 1% GAERU Xu');
 
   // 4. BL-04: VietQR bank transfer webhook batch with 2 transactions settles BOTH orders
   await seedPaymentConfig(pool, 'bank_transfer', {
@@ -1184,15 +1194,27 @@ test('BL-01..BL-07: Admin policy routing, real COD finance+loyalty settlement, f
   }), err => err.status===501);
   assert.equal((await pool.query('SELECT stock_quantity FROM product_variants WHERE id=$1',[variant.id])).rows[0].stock_quantity,7,'Unsigned callbacks cannot deduct again');
 
-  // Permanent deletion of codOrder (which has carrier_shipments, sales_receipts, order_after_sales) succeeds cleanly without FK 23503
+  // P0-02: Permanent deletion of settled codOrder with sales_receipts MUST be blocked (409) to preserve ledger
+  await assert.rejects(
+    () => withTransaction(pool, (client) => deleteOrderPermanently(client, codOrder.id, { actor: { username: ADMIN_USERNAME } })),
+    (err) => err.status === 409
+  );
+  assert.equal(await receiptTotal(pool, codOrder.id), 500000, 'Immutable sales_receipt must remain intact');
+
+  // Unpaid order with cancelled carrier_shipments and pack verifications deletes cleanly without FK 23503
+  await pool.query(
+    `INSERT INTO carrier_shipments (order_id, carrier_id, tracking_number, status, cod_amount_vnd, cod_settlement_status)
+     VALUES ($1, 'jt', 'JT-CANCELLED-01', 'cancelled', 0, 'not_applicable')`,
+    [unpaidPrepaid.id]
+  );
   await pool.query(
     `INSERT INTO order_pack_verifications (order_id, status, total_items, scanned_items)
      VALUES ($1, 'dispatched', 1, 1)`,
-    [codOrder.id]
+    [unpaidPrepaid.id]
   );
   await withTransaction(pool, async (client) => {
-    const deleted = await deleteOrderPermanently(client, codOrder.id, { actor: { username: ADMIN_USERNAME } });
+    const deleted = await deleteOrderPermanently(client, unpaidPrepaid.id, { actor: { username: ADMIN_USERNAME } });
     assert.ok(deleted);
   });
-  assert.equal((await pool.query('SELECT COUNT(*)::int AS cnt FROM orders WHERE id = $1', [codOrder.id])).rows[0].cnt, 0);
+  assert.equal((await pool.query('SELECT COUNT(*)::int AS cnt FROM orders WHERE id = $1', [unpaidPrepaid.id])).rows[0].cnt, 0);
 });

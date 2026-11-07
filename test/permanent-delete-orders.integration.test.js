@@ -160,91 +160,74 @@ async function createTestFixture(t) {
   return { pool, actor, adminPassword, variant, api, createCustomer, createOrder, stock };
 }
 
-test('Admin can permanently delete order: cleans all dependent rows, releases stock, and excludes from sales & order history', async t => {
+test('Admin permanent order deletion blocks orders with immutable sales_receipts (P0-02) and deletes unpaid draft orders cleanly', async t => {
   const f = await createTestFixture(t);
 
   // Initial stock is 20
   assert.equal(await f.stock(), 20);
 
-  // Create an active paid order
-  const order = await f.createOrder({ status: 'confirmed', paymentStatus: 'paid', amount: 300000, quantity: 2 });
-  // Stock reserved 2 => stock is 18
+  // 1. Paid order with sales_receipts MUST be blocked (409) to protect accounting ledger
+  const paidOrder = await f.createOrder({ status: 'confirmed', paymentStatus: 'paid', amount: 300000, quantity: 2 });
   assert.equal(await f.stock(), 18);
 
-  // Check sales figures include this 300,000 VND
   const financeBefore = await f.api('/api/gaeru_ceo/finance/summary');
   assert.equal(financeBefore.status, 200);
   assert.equal(financeBefore.data.summary.salesPaidVnd, 300000);
 
-  // Summary reports 1 order
-  const summaryBefore = await f.api('/api/gaeru_ceo/summary');
-  assert.equal(summaryBefore.status, 200);
-  assert.equal(summaryBefore.data.orders.total, 1);
-
-  // Orders list returns the order
-  const ordersListBefore = await f.api('/api/gaeru_ceo/orders');
-  assert.equal(ordersListBefore.status, 200);
-  assert.equal(ordersListBefore.data.orders.length, 1);
-  assert.equal(ordersListBefore.data.orders[0].id, order.id);
-
   // Unauthorized attempts
-  assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', {}, { 'X-Readonly': '1' })).status, 403);
-  assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', {}, { 'X-CSRF-Token': 'wrong' })).status, 403);
+  assert.equal((await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST', {}, { 'X-Readonly': '1' })).status, 403);
+  assert.equal((await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST', {}, { 'X-CSRF-Token': 'wrong' })).status, 403);
   f.actor.permissions = ['orders.read', 'orders.write', 'customers.read', 'customers.write'];
-  assert.equal((await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST')).status, 403, 'sales role with orders.write must be rejected with 403');
+  assert.equal((await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST')).status, 403, 'sales role with orders.write must be rejected with 403');
   f.actor.permissions = ['orders.read', 'orders.write', 'orders.permanent_delete', 'customers.read', 'customers.write', 'customers.permanent_delete', 'finance.read', 'payments.write'];
 
   // Step-up authentication verification (A04)
-  const noPassRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', {});
+  const noPassRes = await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST', {});
   assert.equal(noPassRes.status, 400);
   assert.match(noPassRes.data.error, /mật khẩu/i);
 
-  const wrongPassRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', { password: 'WrongPassword!' });
+  const wrongPassRes = await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST', { password: 'WrongPassword!' });
   assert.equal(wrongPassRes.status, 403);
   assert.match(wrongPassRes.data.error, /mật khẩu/i);
 
-  // Perform permanent deletion with valid step-up auth
-  const deleteRes = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', { password: f.adminPassword });
+  // Paid order with sales_receipts is blocked with 409 and revenue remains intact!
+  const blockedPaidDelete = await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST', { password: f.adminPassword });
+  assert.equal(blockedPaidDelete.status, 409);
+  assert.equal((await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [paidOrder.id])).rows.length, 1);
+
+  // 2. Unpaid draft order deletes cleanly, releasing stock while preserving paid ledger
+  const unpaidOrder = await f.createOrder({ status: 'pending', paymentStatus: 'pending', amount: 150000, quantity: 3 });
+  assert.equal(await f.stock(), 15);
+
+  const deleteRes = await f.api(`/api/gaeru_ceo/orders/${unpaidOrder.id}/permanent-delete`, 'POST', { password: f.adminPassword });
   assert.equal(deleteRes.status, 200);
   assert.match(deleteRes.data.message, /Đã xóa vĩnh viễn đơn hàng/);
 
-  // Stock is released back to 20
-  assert.equal(await f.stock(), 20);
+  // Stock of unpaid order is released back to 18
+  assert.equal(await f.stock(), 18);
 
-  // Database verification: order and all children are completely gone!
-  assert.equal((await f.pool.query('SELECT * FROM orders WHERE id = $1', [order.id])).rows.length, 0);
-  assert.equal((await f.pool.query('SELECT * FROM order_items WHERE order_id = $1', [order.id])).rows.length, 0);
-  assert.equal((await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [order.id])).rows.length, 0);
-  assert.equal((await f.pool.query('SELECT * FROM warranty_activations WHERE order_item_id = $1', [order.item.id])).rows.length, 0);
-  assert.equal((await f.pool.query('SELECT * FROM care_requests WHERE order_id = $1', [order.id])).rows.length, 0);
+  // Database verification: unpaid order and all its children are gone, while paid ledger stays 300,000 VND
+  assert.equal((await f.pool.query('SELECT * FROM orders WHERE id = $1', [unpaidOrder.id])).rows.length, 0);
+  assert.equal((await f.pool.query('SELECT * FROM order_items WHERE order_id = $1', [unpaidOrder.id])).rows.length, 0);
+  assert.equal((await f.pool.query('SELECT * FROM warranty_activations WHERE order_item_id = $1', [unpaidOrder.item.id])).rows.length, 0);
+  assert.equal((await f.pool.query('SELECT * FROM care_requests WHERE order_id = $1', [unpaidOrder.id])).rows.length, 0);
 
-  // Sales figures immediately exclude the deleted order
   const financeAfter = await f.api('/api/gaeru_ceo/finance/summary');
   assert.equal(financeAfter.status, 200);
-  assert.equal(financeAfter.data.summary.salesPaidVnd, 0);
+  assert.equal(financeAfter.data.summary.salesPaidVnd, 300000);
 
-  // Summary reports 0 orders
-  const summaryAfter = await f.api('/api/gaeru_ceo/summary');
-  assert.equal(summaryAfter.status, 200);
-  assert.equal(summaryAfter.data.orders.total, 0);
-
-  // Orders list is empty
-  const ordersListAfter = await f.api('/api/gaeru_ceo/orders');
-  assert.equal(ordersListAfter.status, 200);
-  assert.equal(ordersListAfter.data.orders.length, 0);
-
-  // Deleting again returns 404
-  const secondDelete = await f.api(`/api/gaeru_ceo/orders/${order.id}/permanent-delete`, 'POST', { password: f.adminPassword });
+  // Deleting unpaidOrder again returns 404
+  const secondDelete = await f.api(`/api/gaeru_ceo/orders/${unpaidOrder.id}/permanent-delete`, 'POST', { password: f.adminPassword });
   assert.equal(secondDelete.status, 404);
 });
 
-test('Customer permanent deletion automatically purges their order history and excludes orders from sales', async t => {
+test('Customer permanent deletion anonymizes PII while preserving accounting sales_receipts and revenue (P0-02 / QA17)', async t => {
   const f = await createTestFixture(t);
 
   // Create customer
   const customer = await f.createCustomer({ email: 'delete.me@example.invalid', fullName: 'Customer To Delete' });
 
-  // Create 2 orders for this customer (one paid, one unpaid)
+  // Create 2 orders for this customer (one paid, one unpaid draft)
   const order1 = await f.createOrder({
     customerId: customer.id,
     email: customer.email,
@@ -262,13 +245,11 @@ test('Customer permanent deletion automatically purges their order history and e
     amount: 200000,
     quantity: 1
   });
+  assert.equal(await f.stock(), 19);
 
   // Verify before state
   const financeBefore = await f.api('/api/gaeru_ceo/finance/summary');
   assert.equal(financeBefore.data.summary.salesPaidVnd, 500000);
-
-  const summaryBefore = await f.api('/api/gaeru_ceo/summary');
-  assert.equal(summaryBefore.data.orders.total, 2);
 
   // Customer permanent deletion requires customers.permanent_delete permission
   f.actor.permissions = ['orders.read', 'orders.write', 'customers.read', 'customers.write'];
@@ -282,25 +263,24 @@ test('Customer permanent deletion automatically purges their order history and e
   });
   assert.equal(delCustRes.status, 200);
 
-  // Customer is deleted
+  // Customer row is deleted
   assert.equal((await f.pool.query('SELECT * FROM customers WHERE id = $1', [customer.id])).rows.length, 0);
 
-  // All customer's orders are automatically permanently deleted!
-  assert.equal((await f.pool.query('SELECT * FROM orders WHERE id = $1', [order1.id])).rows.length, 0);
-  assert.equal((await f.pool.query('SELECT * FROM orders WHERE id = $1', [order2.id])).rows.length, 0);
-  assert.equal((await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [order1.id])).rows.length, 0);
+  // Unpaid draft order2 was cancelled and its 1 reserved unit released back to 20
+  assert.equal(await f.stock(), 20);
+  const anonOrder1 = (await f.pool.query('SELECT customer_id, customer_name, email, phone FROM orders WHERE id = $1', [order1.id])).rows[0];
+  assert.equal(anonOrder1.customer_id, null);
+  assert.equal(anonOrder1.customer_name, 'Khách hàng ẩn danh (Lưu trữ theo luật)');
+  assert.equal(anonOrder1.email, 'anonymized@privacy.gaeru.com');
 
-  // Sales figures automatically exclude the deleted customer's orders!
+  const cancelledOrder2 = (await f.pool.query('SELECT status, customer_id FROM orders WHERE id = $1', [order2.id])).rows[0];
+  assert.equal(cancelledOrder2.status, 'cancelled');
+  assert.equal(cancelledOrder2.customer_id, null);
+
+  // Immutable sales_receipts and revenue MUST NOT decrease (QA17)!
+  assert.equal((await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [order1.id])).rows.length, 1);
   const financeAfter = await f.api('/api/gaeru_ceo/finance/summary');
-  assert.equal(financeAfter.data.summary.salesPaidVnd, 0);
-
-  // Summary reports 0 total orders!
-  const summaryAfter = await f.api('/api/gaeru_ceo/summary');
-  assert.equal(summaryAfter.data.orders.total, 0);
-
-  // Orders list is completely empty!
-  const ordersListAfter = await f.api('/api/gaeru_ceo/orders');
-  assert.equal(ordersListAfter.data.orders.length, 0);
+  assert.equal(financeAfter.data.summary.salesPaidVnd, 500000);
 });
 
 test('COD carrier reconciliation reference and permissions matrix (A05, A06, A12, A13)', async t => {

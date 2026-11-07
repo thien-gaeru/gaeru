@@ -360,7 +360,8 @@ test('QA-14: Viettel Post numeric status codes and nested DATA webhook envelope 
   assert.equal(normalizeCarrierStatus('viettel', '503'), 'cancelled');
   assert.equal(normalizeCarrierStatus('viettel', 107), 'cancelled');
   assert.equal(normalizeCarrierStatus('viettel', 504), 'returned');
-  assert.equal(normalizeCarrierStatus('viettel', '505'), 'returned');
+  assert.equal(normalizeCarrierStatus('viettel', '505'), 'return_requested');
+  assert.equal(normalizeCarrierStatus('viettel', '502'), 'returning');
   assert.equal(normalizeCarrierStatus('viettel', 200), 'delivering');
   assert.equal(normalizeCarrierStatus('viettel', 103), 'picking');
   assert.equal(normalizeCarrierStatus('viettel', 999), 'pending');

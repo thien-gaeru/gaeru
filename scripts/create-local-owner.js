@@ -4,20 +4,44 @@ const bcrypt = require(path.join(__dirname, '..', 'node_modules', 'bcryptjs'));
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 
-async function setup() {
-  if (process.env.NODE_ENV === 'production') {
+function assertLocalOwnerEnvironment(env = process.env) {
+  if (env.NODE_ENV === 'production') {
     throw new Error('Refusing to generate .env.local-owner in production mode.');
   }
-  const username = (process.env.GAERU_LOCAL_OWNER_USER || 'gaeru').trim();
-  const password = process.env.GAERU_LOCAL_OWNER_PASSWORD || (crypto.randomBytes(18).toString('base64url') + 'A1!');
-  const hash = await bcrypt.hash(password, 10);
+  if (env.CI === 'true' || env.GITHUB_ACTIONS === 'true') {
+    throw new Error('Refusing to generate .env.local-owner inside CI/CD runners.');
+  }
+  if (env.DATABASE_URL) {
+    let parsedDb;
+    try {
+      parsedDb = new URL(env.DATABASE_URL);
+    } catch {
+      throw new Error('Invalid DATABASE_URL in environment.');
+    }
+    if (!['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsedDb.hostname.toLowerCase())) {
+      throw new Error('Refusing to generate local owner credentials when DATABASE_URL points to a non-loopback host.');
+    }
+  }
+}
+
+async function setup(env = process.env) {
+  assertLocalOwnerEnvironment(env);
+  const username = (env.GAERU_LOCAL_OWNER_USER || 'gaeru').trim();
+  const generated = env.GAERU_LOCAL_OWNER_PASSWORD || (crypto.randomBytes(18).toString('base64url') + 'A1!');
+  const hash = await bcrypt.hash(generated, 10);
   const secret = crypto.randomBytes(32).toString('hex');
-  const target = path.join(__dirname, '..', '.env.local-owner');
+  const rootDir = path.join(__dirname, '..');
+  const target = path.join(rootDir, '.env.local-owner');
   const content = `ADMIN_USERNAME=${JSON.stringify(username)}\nADMIN_PASSWORD_HASH="${hash}"\nSESSION_SECRET="${secret}"\n`;
   fs.writeFileSync(target, content, { encoding: 'utf8', mode: 0o600 });
-  console.log('Created .env.local-owner successfully for local development.');
-  if (!process.env.GAERU_LOCAL_OWNER_PASSWORD) {
-    console.log(`Generated one-time local owner credentials -> username: ${username} | password: ${password}`);
+  if (!env.GAERU_LOCAL_OWNER_PASSWORD) {
+    const localDir = path.join(rootDir, '.local-data');
+    fs.mkdirSync(localDir, { recursive: true });
+    const secretFile = path.join(localDir, '.local-owner-credentials');
+    fs.writeFileSync(secretFile, `username=${username}\ncredential=${generated}\n`, { encoding: 'utf8', mode: 0o600 });
+    console.log('Created .env.local-owner and wrote restricted local credentials to .local-data/.local-owner-credentials (0600).');
+  } else {
+    console.log('Created .env.local-owner successfully for local development.');
   }
 }
 
@@ -28,4 +52,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { setup };
+module.exports = { setup, assertLocalOwnerEnvironment };

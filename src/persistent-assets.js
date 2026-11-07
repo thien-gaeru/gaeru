@@ -240,15 +240,19 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
       if(req.fresh)return res.status(304).end();
       return res.send(preWebp.buffer);
      }
+     const cachedWebp=cache.peek('local:'+relative+':w='+width);
+     if(cachedWebp){
+      const etag='"'+hash(cachedWebp)+'"';
+      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':etag,'X-Content-Type-Options':'nosniff'});
+      if(req.fresh)return res.status(304).end();
+      return res.send(cachedWebp);
+     }
      const localFile=path.join(__dirname,'..','assets',relative);
      const raw=await fs.readFile(localFile);
-     const resized=await cache.get('local:'+relative+':w='+width,async()=>{
-      return sharp(raw,{limitInputPixels:24000000}).rotate().resize({width,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer();
-     });
-     const etag='"'+hash(resized)+'"';
-     res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':etag,'X-Content-Type-Options':'nosniff'});
+     const etag='"'+hash(raw)+'"';
+     res.type(mime||'application/octet-stream').set({'Cache-Control':cacheControl,'ETag':etag,'X-Content-Type-Options':'nosniff'});
      if(req.fresh)return res.status(304).end();
-     return res.send(resized);
+     return res.send(raw);
     }
     return next();
    }catch{return next();}
@@ -298,24 +302,32 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
       }
     });
   if(width&&row.mime_type.startsWith('image/')){
-   const resized=await cache.get(row.storage_key+':w='+width,()=>sharp(bytes,{limitInputPixels:24000000}).rotate().resize({width,withoutEnlargement:true}).webp({quality:84,alphaQuality:92,effort:2}).toBuffer());
-   if(qualifiesForSelectiveAvif(req,resized.length)){
-    const avifResized=await cache.get(row.storage_key+':w='+width+':avif',()=>encodeAvif(bytes,{width,quality:width<=480?66:68,effort:2}));
-    if(avifResized.length<=resized.length*SAVINGS_RATIO){
-     const avifEtag='"'+row.sha256+'-w'+width+'-avif"';
-     res.type('image/avif').set({'Cache-Control':cacheControl,'ETag':avifEtag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
-     if(req.fresh)return res.status(304).end();
-     return res.send(avifResized);
-    }
+   const preWebp=await getPreGeneratedWebp(relative,width);
+   if(preWebp){
+    res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':preWebp.etag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
+    if(req.fresh)return res.status(304).end();
+    return res.send(preWebp.buffer);
    }
-   const etag='"'+row.sha256+'-w'+width+'"';
-   res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':etag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
-   if(req.fresh)return res.status(304).end();
-   return res.send(resized);
+   const resized=cache.peek(row.storage_key+':w='+width);
+   if(resized){
+    if(qualifiesForSelectiveAvif(req,resized.length)){
+     const avifResized=cache.peek(row.storage_key+':w='+width+':avif');
+     if(avifResized&&avifResized.length<=resized.length*SAVINGS_RATIO){
+      const avifEtag='"'+row.sha256+'-w'+width+'-avif"';
+      res.type('image/avif').set({'Cache-Control':cacheControl,'ETag':avifEtag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
+      if(req.fresh)return res.status(304).end();
+      return res.send(avifResized);
+     }
+    }
+    const etag='"'+row.sha256+'-w'+width+'"';
+    res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':etag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
+    if(req.fresh)return res.status(304).end();
+    return res.send(resized);
+   }
   }
-  if(row.mime_type.startsWith('image/')&&qualifiesForSelectiveAvif(req,bytes.length)){
-   const avifBytes=await cache.get(row.storage_key+':avif',()=>encodeAvif(bytes,{quality:68,effort:2}));
-   if(avifBytes.length<=bytes.length*SAVINGS_RATIO){
+  if(!width&&row.mime_type.startsWith('image/')&&qualifiesForSelectiveAvif(req,bytes.length)){
+   const avifBytes=cache.peek(row.storage_key+':avif');
+   if(avifBytes&&avifBytes.length<=bytes.length*SAVINGS_RATIO){
     const etag='"'+row.sha256+'-avif"';
     res.type('image/avif').set({'Cache-Control':cacheControl,'ETag':etag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
     if(req.fresh)return res.status(304).end();

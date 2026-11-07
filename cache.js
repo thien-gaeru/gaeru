@@ -49,6 +49,15 @@ const stockMap = new Map();
 // Singleflight Map: Gộp các request đồng thời thành 1 truy vấn duy nhất
 const inflight = new Map();
 
+// GAERU P2-03: Mốc thời gian bắt đầu/kết thúc khuyến mại gần nhất để tự động hết hạn HTML/API cache đúng giây
+let nextPromotionBoundaryMs = null;
+function setNextPromotionBoundary(ms) {
+  nextPromotionBoundaryMs = typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms : null;
+}
+function getNextPromotionBoundary() {
+  return nextPromotionBoundaryMs;
+}
+
 // Safe Cloudflare Edge Purge helper
 let edgePurgeService = null;
 try {
@@ -164,6 +173,7 @@ function flushAllCache() {
   ramCache.clear();
   stockMap.clear();
   tagIndex.clear();
+  nextPromotionBoundaryMs = null;
   if (edgePurgeService && typeof edgePurgeService.purgeCatalog === 'function') {
     edgePurgeService.purgeCatalog().catch(() => {});
   }
@@ -245,8 +255,13 @@ function withCache(keyBuilder, tagsBuilder, fetchFn, ttl) {
 
 // 1. Lấy dữ liệu DB: Phản hồi 0.01ms từ RAM, tự kiểm tra ngầm DB sau mỗi 3 giây (SWR)
 async function getFreshData(key, dbFetchFn, swrMs = 3000) {
-  const entry = ramCache.get(key);
+  let entry = ramCache.get(key);
   const now = Date.now();
+
+  if (entry && nextPromotionBoundaryMs && now >= nextPromotionBoundaryMs && (entry.time || 0) < nextPromotionBoundaryMs) {
+    ramCache.delete(key);
+    entry = undefined;
+  }
 
   if (entry) {
     if (now - entry.time > swrMs && !inflight.has(key)) {
@@ -311,7 +326,14 @@ function smartPageCache(swrMs = 60000) {
     const key = `html:${canonicalizeHtmlCacheUrl(req.originalUrl)}`;
 
     let hit = ramCache.get(key);
-    if (hit && Date.now() - (hit.time || 0) > swrMs) {
+    const nowMs = Date.now();
+    const crossedPromoBoundary = Boolean(
+      hit && (
+        (hit.expiresAt && nowMs >= hit.expiresAt) ||
+        (nextPromotionBoundaryMs && nowMs >= nextPromotionBoundaryMs && (hit.time || 0) < nextPromotionBoundaryMs)
+      )
+    );
+    if (hit && (nowMs - (hit.time || 0) > swrMs || crossedPromoBoundary)) {
       ramCache.delete(key);
       hit = undefined;
     }
@@ -390,7 +412,11 @@ function smartPageCache(swrMs = 60000) {
           res.setHeader('X-Cache', 'MISS-REBUILT');
         }
 
-        const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: Date.now() };
+        const builtAt = Date.now();
+        const expiresAt = nextPromotionBoundaryMs && nextPromotionBoundaryMs > builtAt
+          ? Math.min(builtAt + swrMs, nextPromotionBoundaryMs)
+          : builtAt + swrMs;
+        const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: builtAt, expiresAt };
         ramCache.set(key, entry);
 
         const rawBuffer = Buffer.from(body, 'utf-8');
@@ -490,5 +516,7 @@ module.exports = {
   getOrSetCache,
   purgeTagsLocal,
   invalidateTags,
-  withCache
+  withCache,
+  setNextPromotionBoundary,
+  getNextPromotionBoundary
 };

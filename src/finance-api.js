@@ -60,12 +60,21 @@ async function recordFullOrderPayment(client, orderOrPayload, maybeActor, maybeO
   if (!order) return;
   const received = await receiptTotal(client, order.id);
   const remaining = Number(order.total_vnd) - received;
-  if (remaining <= 0) return;
-  const internalKey = `system-full:${randomUUID()}`;
-  const reference = (options && options.reference) || ('COD-' + (order.order_number || order.id.slice(0, 8)));
-  const note = (options && options.note) || 'Ghi nhận đủ tiền khi xử lý đơn';
-  await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [order.id, remaining, order.payment_method === "cod" ? "cash" : "bank_transfer", reference, note, internalKey, digest(internalKey), actor?.username || "system"]);
+  if (remaining <= 0) return null;
+  const reference = String((options && options.reference) || '').trim() || ('DIRECT-' + (order.order_number || order.id.slice(0, 8)));
+  const note = String((options && options.note) || '').trim() || 'Ghi nhận đủ tiền khi xử lý đơn';
+  const method = (options && options.method) || (order.payment_method === "cod" ? "cash" : "bank_transfer");
+  const internalKey = (options && options.requestKey) || ('order-full:' + order.id + ':' + createHash('sha256').update(reference).digest('hex').slice(0, 24));
+  const payloadHash = digest({ orderId: order.id, amountVnd: remaining, method, reference });
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`sales_receipts:${internalKey}`]);
+  const existing = (await client.query("SELECT id, request_hash FROM sales_receipts WHERE request_key = $1", [internalKey])).rows[0];
+  if (existing) {
+    if (existing.request_hash !== payloadHash) throw fail(409, "Mã đối soát thanh toán đã được sử dụng cho nội dung khác.");
+    return existing;
+  }
+  const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, remaining, method, reference, note, internalKey, payloadHash, actor?.username || "system"]);
+  return inserted.rows[0];
 }
 async function supplierBalance(client, supplierId) {
   const result = await client.query(`SELECT
@@ -138,6 +147,7 @@ function createFinanceApi(pool) {
           [order.id]
         )).rows[0];
         await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
+        await client.query("UPDATE carrier_shipments SET cod_settlement_status='settled', cod_settled_at=now(), cod_settlement_ref=$2, updated_at=now() WHERE order_id=$1 AND cod_amount_vnd>0 AND status<>'cancelled'", [order.id, data.reference || data.requestKey]);
         if (updatedOrd?.status === "completed" && order.customer_id && Number(order.total_vnd) > 0) {
           const { earnPoints } = require("./loyalty-api");
           await earnPoints(client, { customerId: order.customer_id, orderId: order.id, orderTotalVnd: Number(order.total_vnd), actor: req.admin });

@@ -7,13 +7,104 @@ const { requireCsrf } = require('./security');
 const { requirePermission } = require('./staff-access');
 const { readRecord } = require('./admin-configuration');
 const { appendAudit } = require('./audit');
-const { getAdapter, normalizeCarrierStatus, CARRIER_NAMES } = require('./shipping-adapters');
+const crypto = require('node:crypto');
+const { getAdapter, normalizeCarrierStatus, computeCarrierShipmentPricing, CARRIER_NAMES } = require('./shipping-adapters');
 const { availableCarriers } = require('./shipping-choice');
 
 const quoteCache = new LRUCache({ max: 500, ttl: 1000 * 60 * 5 }); // 5 minutes TTL
 
+function invalidateShippingQuoteCache() {
+  quoteCache.clear();
+}
+
 function fail(message, status = 400) {
   return Object.assign(new Error(message), { status });
+}
+
+const CARRIER_TERMINAL_STATES = new Set(['delivered', 'returned', 'cancelled']);
+const CARRIER_STAGE_RANK = Object.freeze({
+  created: 1,
+  picking: 2,
+  delivering: 3,
+  return_requested: 4,
+  returning: 5,
+  delivered: 10,
+  returned: 10,
+  cancelled: 10
+});
+
+function parseProviderEventTime(raw) {
+  if (!raw) return null;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
+  const str = String(raw).trim();
+  if (!str) return null;
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/.exec(str);
+  if (dmy) {
+    const iso = `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}T${(dmy[4] || '00').padStart(2, '0')}:${(dmy[5] || '00').padStart(2, '0')}:${(dmy[6] || '00').padStart(2, '0')}+07:00`;
+    const parsed = new Date(iso);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  const parsed = new Date(str);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function canAdvanceCarrierStatus(currentStatus, nextStatus, currentEventTime = null, nextEventTime = null) {
+  if (!nextStatus || nextStatus === 'pending') return { allowed: false, reason: 'unsupported_status' };
+  if (CARRIER_TERMINAL_STATES.has(currentStatus)) {
+    return { allowed: false, reason: `terminal_${currentStatus}` };
+  }
+  if (currentStatus === 'cancel_reconciliation_required' && !CARRIER_TERMINAL_STATES.has(nextStatus)) {
+    return { allowed: false, reason: 'reconciliation_locked' };
+  }
+  const curTime = parseProviderEventTime(currentEventTime);
+  const nxtTime = parseProviderEventTime(nextEventTime);
+  if (curTime && nxtTime && nxtTime.getTime() < curTime.getTime()) {
+    return { allowed: false, reason: 'stale_event_timestamp' };
+  }
+  if (currentStatus === 'cancel_requested') {
+    if (CARRIER_TERMINAL_STATES.has(nextStatus)) return { allowed: true };
+    return { allowed: false, reason: 'cancel_in_flight' };
+  }
+  const curRank = CARRIER_STAGE_RANK[currentStatus] || 0;
+  const nxtRank = CARRIER_STAGE_RANK[nextStatus] || 0;
+  if (nxtRank < curRank) {
+    return { allowed: false, reason: 'backward_transition' };
+  }
+  return { allowed: true };
+}
+
+function sanitizeWebhookPayload(payload) {
+  if (!payload || typeof payload !== 'object') return {};
+  const clone = JSON.parse(JSON.stringify(payload));
+  for (const key of ['token', 'Token', 'secret', 'webhookSecret', 'authorization', 'password']) {
+    if (key in clone) delete clone[key];
+    if (clone.DATA && typeof clone.DATA === 'object' && key in clone.DATA) delete clone.DATA[key];
+  }
+  return clone;
+}
+
+function signGuestTrackingToken(config, orderNumber, expiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000) {
+  const secret = String(config?.SESSION_SECRET || '');
+  if (!secret || !orderNumber) throw fail('Thiếu cấu hình khóa ký token tra cứu.', 500);
+  const exp = Math.floor(Number(expiresAtMs));
+  const payload = `${String(orderNumber).trim()}.${exp}`;
+  const sig = crypto.createHmac('sha256', secret).update('guest-tracking:' + payload).digest('base64url');
+  return `${exp}.${sig}`;
+}
+
+function verifyGuestTrackingToken(config, orderNumber, token) {
+  const secret = String(config?.SESSION_SECRET || '');
+  if (!secret || !orderNumber || typeof token !== 'string') return false;
+  const dot = token.indexOf('.');
+  if (dot <= 0) return false;
+  const expStr = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const exp = Number(expStr);
+  if (!Number.isSafeInteger(exp) || exp < Date.now()) return false;
+  const expected = crypto.createHmac('sha256', secret).update(`guest-tracking:${String(orderNumber).trim()}.${exp}`).digest('base64url');
+  const bufA = Buffer.from(sig, 'utf8');
+  const bufB = Buffer.from(expected, 'utf8');
+  return bufA.byteLength === bufB.byteLength && crypto.timingSafeEqual(bufA, bufB);
 }
 
 async function getOrderForFulfillment(client, orderId) {
@@ -22,7 +113,7 @@ async function getOrderForFulfillment(client, orderId) {
             o.customer_name AS "customerName", o.return_completed_at AS "returnCompletedAt",
             o.phone, o.email, o.address, o.city, o.note, o.status,
             o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus",
-            o.subtotal_vnd AS "subtotalVnd", o.shipping_fee_vnd AS "shippingFeeVnd",
+            o.subtotal_vnd AS "subtotalVnd", o.discount_vnd AS "discountVnd", o.shipping_fee_vnd AS "shippingFeeVnd",
             o.total_vnd AS "totalVnd",
             s.carrier_id AS "selectedCarrierId", s.carrier_name AS "selectedCarrierName"
      FROM orders o
@@ -114,11 +205,16 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
   });
   if (prepared.existing) return prepared;
   const {order,targetCarrierId,settings,attemptId}=prepared;
-  const codAmount = (order.paymentMethod === 'cod' && order.paymentStatus !== 'paid') ? Number(order.totalVnd || 0) : 0;
+  const pricing = computeCarrierShipmentPricing(order, settings);
+  const codAmount = pricing.carrierCodCollectionVnd;
+  const codSettlementStatus = codAmount > 0 ? 'unsettled' : 'not_applicable';
   let providerAcknowledged = false;
   try {
     const waybillResult = await getAdapter(targetCarrierId).createWaybill(settings, {
-      ...order, codAmountVnd:codAmount, weightGrams:500
+      ...order,
+      codAmountVnd: codAmount,
+      weightGrams: pricing.weightGrams,
+      feePayer: pricing.feePayer
     }, {fetcher});
     providerAcknowledged = true;
     // Keep the provider reference even if the order transaction fails later.
@@ -131,8 +227,8 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     const inserted = await client.query(
       `INSERT INTO carrier_shipments (
          order_id, carrier_id, tracking_number, carrier_order_id, label_url,
-         status, shipping_fee_vnd, cod_amount_vnd, tracking_history, metadata
-       ) VALUES ($1, $2, $3, $4, $5, 'created', $6, $7, $8, $9)
+         status, shipping_fee_vnd, cod_amount_vnd, cod_settlement_status, tracking_history, metadata
+       ) VALUES ($1, $2, $3, $4, $5, 'created', $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         order.id,
@@ -142,6 +238,7 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
         waybillResult.labelUrl,
         waybillResult.shippingFeeVnd,
         codAmount,
+        codSettlementStatus,
         JSON.stringify([{
           timestamp: new Date().toISOString(),
           status: 'created',
@@ -208,63 +305,155 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
 }
 
 async function cancelWaybill(pool, config, { orderId, reason = 'Chủ shop hủy vận đơn', actor, fetcher = fetch }) {
-  const precheck = await pool.query(
-    `SELECT * FROM carrier_shipments
-     WHERE order_id = $1 AND status != 'cancelled'
-     ORDER BY created_at DESC LIMIT 1`,
-    [orderId]
-  );
-  if (!precheck.rows.length) {
-    throw fail('Không tìm thấy vận đơn đang hoạt động để hủy.', 404);
+  // Phase 1: Claim cancel_requested and fence status_version inside a short transaction
+  const claimed = await withTransaction(pool, async client => {
+    const locked = await client.query(
+      `SELECT * FROM carrier_shipments
+       WHERE order_id = $1 AND status != 'cancelled'
+       ORDER BY created_at DESC LIMIT 1
+       FOR UPDATE`,
+      [orderId]
+    );
+    if (!locked.rows.length) {
+      throw fail('Không tìm thấy vận đơn đang hoạt động để hủy.', 404);
+    }
+    const s = locked.rows[0];
+    if (s.status === 'delivered') {
+      throw fail('Vận đơn đã được hãng ghi nhận giao hàng thành công; không thể hủy vận đơn.', 409);
+    }
+    if (s.status === 'returned') {
+      throw fail('Vận đơn đã hoàn trả về kho; không thể hủy vận đơn.', 409);
+    }
+    if (s.status === 'cancel_requested') {
+      throw fail('Yêu cầu hủy vận đơn đang được xử lý. Vui lòng chờ phản hồi từ hãng.', 409);
+    }
+    if (s.status === 'cancel_reconciliation_required') {
+      throw fail('Vận đơn đang có xung đột trạng thái hủy/giao hàng; cần đối soát thủ công trên hệ thống hãng.', 409);
+    }
+    const carrierRecord = await readRecord(client, config, 'shipping_' + s.carrier_id);
+    const updated = (await client.query(
+      `UPDATE carrier_shipments
+       SET status = 'cancel_requested',
+           status_version = status_version + 1,
+           metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('preCancelStatus', status),
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [s.id]
+    )).rows[0];
+    return {
+      shipmentId: updated.id,
+      carrierId: updated.carrier_id,
+      trackingNumber: updated.tracking_number,
+      carrierOrderId: updated.carrier_order_id,
+      previousStatus: s.status,
+      claimedVersion: Number(updated.status_version),
+      settings: carrierRecord.data
+    };
+  });
+
+  const adapter = getAdapter(claimed.carrierId);
+  try {
+    await adapter.cancelWaybill(claimed.settings, {
+      trackingNumber: claimed.trackingNumber,
+      carrierOrderId: claimed.carrierOrderId,
+      reason
+    }, { fetcher });
+  } catch (err) {
+    // Roll back cancel_requested only if no newer webhook/sync superseded claimedVersion
+    await withTransaction(pool, async client => {
+      await client.query(
+        `UPDATE carrier_shipments
+         SET status = $3, status_version = status_version + 1, updated_at = now()
+         WHERE id = $1 AND status = 'cancel_requested' AND status_version = $2`,
+        [claimed.shipmentId, claimed.claimedVersion, claimed.previousStatus]
+      );
+    }).catch(() => {});
+    throw err;
   }
 
-  const targetShipment = precheck.rows[0];
-  const carrierRecord = await readRecord(pool, config, 'shipping_' + targetShipment.carrier_id);
-  const adapter = getAdapter(targetShipment.carrier_id);
-
-  await adapter.cancelWaybill(carrierRecord.data, {
-    trackingNumber: targetShipment.tracking_number,
-    carrierOrderId: targetShipment.carrier_order_id,
-    reason
-  }, { fetcher });
-
+  // Phase 3: Finalize cancellation only if version & status are still valid (do not overwrite concurrent delivered/returned)
   return withTransaction(pool, async client => {
     const locked = await client.query(
       `SELECT * FROM carrier_shipments WHERE id = $1 FOR UPDATE`,
-      [targetShipment.id]
+      [claimed.shipmentId]
     );
     if (!locked.rows.length) {
       throw fail('Không tìm thấy vận đơn đang hoạt động để hủy.', 404);
     }
     const shipment = locked.rows[0];
-    if (shipment.status !== 'cancelled') {
-      const history = Array.isArray(shipment.tracking_history) ? [...shipment.tracking_history] : [];
-      history.push({
-        timestamp: new Date().toISOString(),
-        status: 'cancelled',
-        rawStatus: 'cancelled_by_shop',
-        description: `Đã hủy vận đơn trên hệ thống hãng: ${reason}`
-      });
-
-      await client.query(
-        `UPDATE carrier_shipments
-         SET status = 'cancelled', tracking_history = $2, updated_at = now()
-         WHERE id = $1`,
-        [shipment.id, JSON.stringify(history)]
-      );
-
+    if (shipment.status === 'cancelled') {
+      return {
+        success: true,
+        cancelled: true,
+        message: `Đã hủy vận đơn ${shipment.tracking_number} (${CARRIER_NAMES[shipment.carrier_id] || shipment.carrier_id}) thành công.`
+      };
+    }
+    if (shipment.status === 'delivered' || shipment.status === 'returned') {
       await appendAudit(client, {
         actor,
-        action: 'shipping.waybill.cancel',
+        action: 'shipping.waybill.cancel_conflict',
         entityType: 'order',
         entityId: orderId,
         metadata: {
           carrierId: shipment.carrier_id,
           trackingNumber: shipment.tracking_number,
-          reason
+          concurrentStatus: shipment.status,
+          claimedVersion: claimed.claimedVersion,
+          currentVersion: shipment.status_version
         }
       });
+      throw fail(`Hãng vận chuyển đã cập nhật trạng thái "${shipment.status}" trong lúc yêu cầu hủy đang xử lý. Hệ thống giữ nguyên trạng thái "${shipment.status}" để bảo vệ đối soát tiền và hàng hóa.`, 409);
     }
+    if (shipment.status !== 'cancel_requested' || Number(shipment.status_version) !== claimed.claimedVersion) {
+      await client.query(
+        `UPDATE carrier_shipments
+         SET status = 'cancel_reconciliation_required', status_version = status_version + 1, updated_at = now()
+         WHERE id = $1`,
+        [shipment.id]
+      );
+      await appendAudit(client, {
+        actor,
+        action: 'shipping.waybill.cancel_reconciliation_required',
+        entityType: 'order',
+        entityId: orderId,
+        metadata: {
+          carrierId: shipment.carrier_id,
+          trackingNumber: shipment.tracking_number,
+          claimedVersion: claimed.claimedVersion,
+          currentVersion: shipment.status_version,
+          currentStatus: shipment.status
+        }
+      });
+      throw fail('Trạng thái vận đơn đã thay đổi đồng thời khi gọi hủy hãng. Đã chuyển sang chế độ chờ đối soát thủ công (cancel_reconciliation_required).', 409);
+    }
+
+    const history = Array.isArray(shipment.tracking_history) ? [...shipment.tracking_history] : [];
+    history.push({
+      timestamp: new Date().toISOString(),
+      status: 'cancelled',
+      rawStatus: 'cancelled_by_shop',
+      description: `Đã hủy vận đơn trên hệ thống hãng: ${reason}`
+    });
+
+    await client.query(
+      `UPDATE carrier_shipments
+       SET status = 'cancelled', status_version = status_version + 1, tracking_history = $2, updated_at = now()
+       WHERE id = $1`,
+      [shipment.id, JSON.stringify(history)]
+    );
+
+    await appendAudit(client, {
+      actor,
+      action: 'shipping.waybill.cancel',
+      entityType: 'order',
+      entityId: orderId,
+      metadata: {
+        carrierId: shipment.carrier_id,
+        trackingNumber: shipment.tracking_number,
+        reason
+      }
+    });
 
     return {
       success: true,
@@ -287,7 +476,208 @@ async function reconcileWaybillAttempt(client, { attemptId, reason, actor }) {
   return {message:'Đã ghi nhận đối chiếu thủ công: hãng chưa có vận đơn. Thao tác này không gửi lại; bạn có thể chủ động tạo yêu cầu mới.'};
 }
 
-async function syncShipmentTracking(pool, config, { orderId, trackingNumber, actor, fetcher = fetch, finance }) {
+async function applyCarrierDeliveryTransition(client, shipment, newNormalizedStatus, actor) {
+  let updatedOrderStatus = shipment.orderStatus;
+  const isTerminalBlocked = shipment.orderStatus === 'cancelled' || Boolean(shipment.orderReturnCompletedAt);
+  if (isTerminalBlocked) return updatedOrderStatus;
+
+  const canAdvanceFulfillment = shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid';
+  if (!canAdvanceFulfillment) return updatedOrderStatus;
+
+  if (newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
+    updatedOrderStatus = 'shipped';
+    await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
+    return updatedOrderStatus;
+  }
+
+  if (newNormalizedStatus === 'delivered') {
+    // P0-01: delivered chứng minh giao hàng thành công, KHÔNG chứng minh tiền COD đã chuyển về tài khoản GAERU.
+    if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
+      if (['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
+        updatedOrderStatus = 'shipped';
+        await client.query(
+          'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+          [shipment.order_id, 'shipped']
+        );
+      } else {
+        await client.query(
+          'UPDATE orders SET delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+          [shipment.order_id]
+        );
+      }
+      return updatedOrderStatus;
+    }
+
+    // Đơn trả trước đã paid (hoặc COD đã đối soát paid trước đó): chuyển thẳng sang completed và cộng Xu
+    if (shipment.orderPaymentStatus === 'paid' && shipment.orderStatus !== 'completed') {
+      updatedOrderStatus = 'completed';
+      await client.query(
+        'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+        [shipment.order_id, 'completed']
+      );
+      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+        const { earnPoints } = require('./loyalty-api');
+        await earnPoints(client, {
+          customerId: shipment.orderCustomerId,
+          orderId: shipment.order_id,
+          orderTotalVnd: Number(shipment.orderTotalVnd),
+          actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
+        });
+      }
+    }
+  }
+
+  return updatedOrderStatus;
+}
+
+async function settleCarrierCod(pool, { orderId, providerTransactionRef, settledAmountVnd, method = 'bank_transfer', settledAt = null, note = '', actor, finance }) {
+  const txRef = String(providerTransactionRef || '').trim();
+  if (txRef.length < 4 || txRef.length > 120) {
+    throw fail('Bắt buộc cung cấp mã giao dịch đối soát / sao kê chuyển tiền thực tế của hãng vận chuyển (tối thiểu 4 ký tự).', 400);
+  }
+  const amount = Number(settledAmountVnd);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw fail('Số tiền đối soát COD phải là số nguyên dương hợp lệ.', 400);
+  }
+  if (!['cash', 'bank_transfer'].includes(method)) {
+    throw fail('Phương thức nhận tiền đối soát không hợp lệ.', 400);
+  }
+  if (actor && actor.role !== 'owner' && Array.isArray(actor.permissions) && !actor.permissions.includes('payments.write')) {
+    throw fail('Tài khoản cần quyền quản lý thanh toán (payments.write) để xác nhận đối soát tiền COD.', 403);
+  }
+
+  return withTransaction(pool, async client => {
+    const result = await client.query(
+      `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
+              o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
+              o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
+       FROM carrier_shipments s
+       JOIN orders o ON o.id = s.order_id
+       WHERE s.order_id = $1 AND s.status != 'cancelled'
+       ORDER BY s.created_at DESC LIMIT 1
+       FOR UPDATE OF s, o`,
+      [orderId]
+    );
+    if (!result.rows.length) {
+      throw fail('Không tìm thấy vận đơn hoạt động cho đơn hàng này.', 404);
+    }
+    const shipment = result.rows[0];
+    if (shipment.orderPaymentMethod !== 'cod') {
+      throw fail('Chỉ đối soát thu hộ cho đơn hàng thanh toán COD.', 409);
+    }
+    if (shipment.orderStatus === 'cancelled' || shipment.orderReturnCompletedAt) {
+      throw fail('Đơn hàng đã hủy hoặc hoàn trả; không thể đối soát thu tiền COD.', 409);
+    }
+    if (shipment.status !== 'delivered' && !['shipped', 'completed'].includes(shipment.orderStatus)) {
+      throw fail('Chỉ đối soát tiền COD sau khi hãng vận chuyển đã giao hàng.', 409);
+    }
+
+    const ledger = finance || require('./finance-api');
+    const requestKey = `cod-settlement:${shipment.carrier_id}:${txRef}`;
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`sales_receipts:${requestKey}`]);
+    const existingReceipt = (await client.query(
+      'SELECT id, order_id, amount_vnd FROM sales_receipts WHERE request_key = $1',
+      [requestKey]
+    )).rows[0];
+    if (existingReceipt) {
+      if (existingReceipt.order_id === orderId && Number(existingReceipt.amount_vnd) === amount) {
+        return {
+          success: true,
+          replayed: true,
+          receiptId: existingReceipt.id,
+          orderId,
+          orderStatus: 'completed',
+          paymentStatus: 'paid',
+          codSettlementStatus: 'settled'
+        };
+      }
+      throw fail('Mã giao dịch đối soát của hãng đã được sử dụng cho đơn hàng hoặc số tiền khác.', 409);
+    }
+
+    if (shipment.orderPaymentStatus === 'paid' || shipment.cod_settlement_status === 'settled') {
+      throw fail('Đơn hàng COD này đã được đối soát thanh toán trước đó.', 409);
+    }
+
+    const received = ledger.receiptTotal ? await ledger.receiptTotal(client, orderId) : 0;
+    const remaining = Number(shipment.orderTotalVnd) - received;
+    if (amount !== remaining) {
+      throw fail(`Số tiền đối soát (${amount} ₫) không khớp số tiền COD còn phải thu (${remaining} ₫).`, 409);
+    }
+
+    const settleNote = String(note || '').trim() || `Đối soát tiền thu hộ COD ${CARRIER_NAMES[shipment.carrier_id] || shipment.carrier_id} (${txRef})`;
+    const settleActor = actor || { username: 'accountant', source: 'cod_settlement' };
+    const receiptRow = await ledger.recordFullOrderPayment(client, {
+      order: {
+        id: orderId,
+        order_number: shipment.orderNumber,
+        payment_method: 'cod',
+        total_vnd: Number(shipment.orderTotalVnd)
+      },
+      actor: settleActor,
+      options: {
+        requestKey,
+        reference: txRef,
+        method,
+        note: settleNote
+      }
+    });
+
+    await client.query(
+      `UPDATE orders
+       SET payment_status = 'paid', status = 'completed', delivered_at = COALESCE(delivered_at, now()), updated_at = now()
+       WHERE id = $1`,
+      [orderId]
+    );
+    await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [orderId]);
+    const parsedSettledAt = parseProviderEventTime(settledAt);
+    await client.query(
+      `UPDATE carrier_shipments
+       SET cod_settlement_status = 'settled',
+           cod_settled_at = COALESCE($2::timestamptz, now()),
+           cod_settlement_ref = $3,
+           updated_at = now()
+       WHERE id = $1`,
+      [shipment.id, parsedSettledAt ? parsedSettledAt.toISOString() : null, txRef]
+    );
+
+    if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+      const { earnPoints } = require('./loyalty-api');
+      await earnPoints(client, {
+        customerId: shipment.orderCustomerId,
+        orderId,
+        orderTotalVnd: Number(shipment.orderTotalVnd),
+        actor: settleActor
+      });
+    }
+
+    await appendAudit(client, {
+      actor: settleActor,
+      action: 'shipping.cod.settle',
+      entityType: 'order',
+      entityId: orderId,
+      metadata: {
+        carrierId: shipment.carrier_id,
+        trackingNumber: shipment.tracking_number,
+        providerTransactionRef: txRef,
+        settledAmountVnd: amount,
+        method,
+        receiptId: receiptRow?.id || null
+      }
+    });
+
+    return {
+      success: true,
+      replayed: false,
+      receiptId: receiptRow?.id || null,
+      orderId,
+      orderStatus: 'completed',
+      paymentStatus: 'paid',
+      codSettlementStatus: 'settled'
+    };
+  });
+}
+
+async function syncShipmentTracking(pool, config, { orderId, trackingNumber, actor, fetcher = fetch }) {
   let preQuery, preParams;
   if (orderId) {
     preQuery = `SELECT s.*, o.order_number AS "orderNumber", o.status AS "orderStatus"
@@ -321,6 +711,10 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
   if (newNormalizedStatus === 'pending') {
     return { success: false, processed: false, trackingNumber: preShipment.tracking_number, orderStatus: preShipment.orderStatus, message: 'Hãng chưa trả trạng thái hành trình được hỗ trợ. Giữ nguyên dữ liệu hiện tại.' };
   }
+  const latestHistoryEntry = Array.isArray(trackingData.history) && trackingData.history.length > 0
+    ? trackingData.history[trackingData.history.length - 1]
+    : null;
+  const incomingEventTime = parseProviderEventTime(trackingData.eventTime || latestHistoryEntry?.timestamp || null);
 
   return withTransaction(pool, async client => {
     const result = await client.query(
@@ -335,70 +729,51 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
     );
     if (!result.rows.length) throw fail('Không tìm thấy vận đơn để đồng bộ.', 404);
     const shipment = result.rows[0];
-    if (shipment.status === 'cancelled') {
-      return { success: true, processed: false, trackingNumber: shipment.tracking_number, orderStatus: shipment.orderStatus, message: 'Vận đơn đã hủy; bỏ qua đồng bộ trễ.' };
+    const transitionCheck = canAdvanceCarrierStatus(shipment.status, newNormalizedStatus, shipment.provider_event_time, incomingEventTime);
+    if (!transitionCheck.allowed) {
+      return {
+        success: true,
+        processed: false,
+        trackingNumber: shipment.tracking_number,
+        status: shipment.status,
+        orderStatus: shipment.orderStatus,
+        reason: transitionCheck.reason,
+        message: 'Bỏ qua dữ liệu đồng bộ cũ hoặc không hợp lệ so với trạng thái hiện tại.'
+      };
     }
-    const history = Array.isArray(trackingData.history) && trackingData.history.length > 0
+
+    const existingHistory = Array.isArray(shipment.tracking_history) ? shipment.tracking_history : [];
+    const history = Array.isArray(trackingData.history) && trackingData.history.length >= existingHistory.length
       ? trackingData.history
-      : Array.isArray(shipment.tracking_history) ? shipment.tracking_history : [];
+      : [...existingHistory, {
+          timestamp: (incomingEventTime || new Date()).toISOString(),
+          status: newNormalizedStatus,
+          rawStatus: String(trackingData.carrierStatusRaw || ''),
+          description: trackingData.statusDescription || ''
+        }];
 
     await client.query(
       `UPDATE carrier_shipments
-       SET status = $2, carrier_status_raw = $3, carrier_status_desc = $4,
-           tracking_history = $5, last_synced_at = now(), updated_at = now()
+       SET status = $2,
+           status_version = status_version + 1,
+           provider_event_time = COALESCE($6::timestamptz, provider_event_time),
+           carrier_status_raw = $3,
+           carrier_status_desc = $4,
+           tracking_history = $5,
+           last_synced_at = now(),
+           updated_at = now()
        WHERE id = $1`,
       [
         shipment.id,
         newNormalizedStatus,
         trackingData.carrierStatusRaw,
         trackingData.statusDescription,
-        JSON.stringify(history)
+        JSON.stringify(history),
+        incomingEventTime ? incomingEventTime.toISOString() : null
       ]
     );
 
-    // Sync status to orders safely (never resurrect cancelled/returned or unpaid non-COD orders)
-    let updatedOrderStatus = shipment.orderStatus;
-    const isTerminalBlocked = shipment.orderStatus === 'cancelled' || Boolean(shipment.orderReturnCompletedAt);
-    const canAutoComplete = !isTerminalBlocked && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid');
-    if (!isTerminalBlocked && newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus) && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid')) {
-      updatedOrderStatus = 'shipped';
-      await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
-    } else if (canAutoComplete && newNormalizedStatus === 'delivered' && shipment.orderStatus !== 'completed') {
-      updatedOrderStatus = 'completed';
-      await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'completed']);
-
-      const settleActor = actor || { username: 'carrier_sync', source: 'shipping_worker' };
-      // Auto settle COD if delivered
-      if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
-        await client.query('UPDATE orders SET payment_status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'paid']);
-        if (finance?.recordFullOrderPayment) {
-          if (finance.recordFullOrderPayment.length >= 3) {
-            await finance.recordFullOrderPayment(client, shipment.order_id, settleActor);
-          } else {
-            await finance.recordFullOrderPayment(client, {
-              order: {
-                id: shipment.order_id,
-                order_number: shipment.orderNumber,
-                payment_method: 'cod',
-                total_vnd: Number(shipment.orderTotalVnd) || 0
-              },
-              actor: settleActor
-            });
-          }
-        }
-      }
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
-        {
-          const { earnPoints } = require('./loyalty-api');
-          await earnPoints(client, {
-            customerId: shipment.orderCustomerId,
-            orderId: shipment.order_id,
-            orderTotalVnd: Number(shipment.orderTotalVnd),
-            actor: settleActor
-          });
-        }
-      }
-    }
+    const updatedOrderStatus = await applyCarrierDeliveryTransition(client, shipment, newNormalizedStatus, actor);
 
     await appendAudit(client, {
       actor,
@@ -415,6 +790,7 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
 
     return {
       success: true,
+      processed: true,
       trackingNumber: shipment.tracking_number,
       status: newNormalizedStatus,
       statusDescription: trackingData.statusDescription,
@@ -424,36 +800,33 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
   });
 }
 
-async function handleCarrierWebhook(pool, config, carrierId, payload, { headers = {}, finance, actor = { username: 'carrier_webhook', source: 'webhook' } } = {}) {
+async function handleCarrierWebhook(pool, config, carrierId, payload, { headers = {}, actor = { username: 'carrier_webhook', source: 'webhook' } } = {}) {
   if (carrierId === 'jt') throw fail('Webhook J&T Việt Nam chưa được nghiệm thu chữ ký và bảng trạng thái. Không tự cập nhật đơn hàng.', 501);
   // Never accept public delivery/payment changes without a configured credential.
-  // Configuration/decryption errors must also stop processing, not bypass auth.
   {
     const carrierRecord = await readRecord(pool, config, 'shipping_' + carrierId);
     const expectedSecret = String(carrierRecord?.data?.webhookSecret || '').trim();
     if (!expectedSecret) throw fail('Webhook vận chuyển chưa được cấu hình xác thực.', 503);
-    {
-      const crypto = require('node:crypto');
-      const authHeader = String(headers['authorization'] || headers['Authorization'] || '').replace(/^Bearer\s+/i, '').trim();
-      const candidate = String(
-        headers['x-webhook-secret'] ||
-        headers['x-carrier-token'] ||
-        headers['token'] ||
-        authHeader ||
-        ''
-      ).trim();
-      const bufA = Buffer.from(candidate, 'utf8');
-      const bufB = Buffer.from(expectedSecret, 'utf8');
-      if (!candidate || bufA.byteLength !== bufB.byteLength || !crypto.timingSafeEqual(bufA, bufB)) {
-        throw fail('Xác thực chữ ký/bí mật Webhook vận chuyển không hợp lệ.', 401);
-      }
+    const authHeader = String(headers['authorization'] || headers['Authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    const candidate = String(
+      headers['x-webhook-secret'] ||
+      headers['x-carrier-token'] ||
+      headers['token'] ||
+      authHeader ||
+      ''
+    ).trim();
+    const bufA = Buffer.from(candidate, 'utf8');
+    const bufB = Buffer.from(expectedSecret, 'utf8');
+    if (!candidate || bufA.byteLength !== bufB.byteLength || !crypto.timingSafeEqual(bufA, bufB)) {
+      throw fail('Xác thực chữ ký/bí mật Webhook vận chuyển không hợp lệ.', 401);
     }
   }
 
-  // Normalize carrier payload
   let trackingNumber = null;
   let rawStatus = null;
   let carrierOrderId = null;
+  let providerEventId = null;
+  let rawEventTime = null;
   let webhookDesc = payload.desc || payload.description || '';
 
   if (carrierId === 'viettel') {
@@ -461,13 +834,19 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
     trackingNumber = vtp.ORDER_NUMBER || vtp.order_number;
     rawStatus = vtp.ORDER_STATUS ?? vtp.status;
     webhookDesc = vtp.NOTE || vtp.STATUS_NAME || webhookDesc;
+    providerEventId = vtp.EVENT_ID || vtp.event_id || payload.event_id || null;
+    rawEventTime = vtp.ORDER_STATUSDATE || vtp.DATE || vtp.timestamp || payload.timestamp || null;
   } else if (carrierId === 'jt') {
     trackingNumber = payload.billcode || payload.mailno;
     carrierOrderId = payload.txlogisticid;
     rawStatus = payload.scantype || payload.status;
+    providerEventId = payload.event_id || payload.id || null;
+    rawEventTime = payload.scantime || payload.timestamp || null;
   } else if (carrierId === 'spx') {
     trackingNumber = payload.tracking_number;
     rawStatus = payload.status;
+    providerEventId = payload.event_id || payload.id || null;
+    rawEventTime = payload.timestamp || payload.event_time || null;
   }
 
   if (!trackingNumber && !carrierOrderId) {
@@ -476,6 +855,9 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
 
   const normalizedStatus = normalizeCarrierStatus(carrierId, rawStatus);
   if (normalizedStatus === 'pending') return { success: false, processed: false, reason: 'Trạng thái hành trình chưa được hỗ trợ; chưa cập nhật đơn hoặc thanh toán.' };
+
+  const incomingEventTime = parseProviderEventTime(rawEventTime);
+  const sanitizedPayload = sanitizeWebhookPayload(payload);
 
   return withTransaction(pool, async client => {
     const result = await client.query(
@@ -494,10 +876,55 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
     }
 
     const shipment = result.rows[0];
-    if(shipment.status==='cancelled') return {success:true,processed:false,reason:'Vận đơn đã hủy; bỏ qua cập nhật trễ của hãng.'};
-    const history = Array.isArray(shipment.tracking_history) ? shipment.tracking_history : [];
+    const fingerprintSource = providerEventId
+      ? `${carrierId}\0id\0${String(providerEventId).trim()}`
+      : `${carrierId}\0${shipment.tracking_number}\0${String(rawStatus)}\0${incomingEventTime ? incomingEventTime.toISOString() : ''}\0${String(webhookDesc || '').trim()}`;
+    const eventFingerprint = crypto.createHash('sha256').update(fingerprintSource).digest('hex');
+
+    const transitionCheck = canAdvanceCarrierStatus(shipment.status, normalizedStatus, shipment.provider_event_time, incomingEventTime);
+
+    const eventInsert = await client.query(
+      `INSERT INTO carrier_webhook_events (
+         carrier_id, tracking_number, event_fingerprint, provider_event_id,
+         provider_event_time, normalized_status, raw_status, raw_payload, applied
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (carrier_id, tracking_number, event_fingerprint) DO NOTHING
+       RETURNING id`,
+      [
+        carrierId,
+        shipment.tracking_number,
+        eventFingerprint,
+        providerEventId ? String(providerEventId) : null,
+        incomingEventTime ? incomingEventTime.toISOString() : null,
+        normalizedStatus,
+        String(rawStatus),
+        JSON.stringify(sanitizedPayload),
+        Boolean(transitionCheck.allowed)
+      ]
+    );
+
+    if (!eventInsert.rows.length) {
+      return {
+        success: true,
+        processed: false,
+        duplicate: true,
+        normalizedStatus: shipment.status,
+        reason: 'Sự kiện webhook trùng lặp đã được xử lý trước đó.'
+      };
+    }
+
+    if (!transitionCheck.allowed) {
+      return {
+        success: true,
+        processed: false,
+        normalizedStatus: shipment.status,
+        reason: `Bỏ qua sự kiện webhook cũ hoặc không hợp lệ (${transitionCheck.reason}).`
+      };
+    }
+
+    const history = Array.isArray(shipment.tracking_history) ? [...shipment.tracking_history] : [];
     history.push({
-      timestamp: new Date().toISOString(),
+      timestamp: (incomingEventTime || new Date()).toISOString(),
       status: normalizedStatus,
       rawStatus: String(rawStatus),
       description: webhookDesc || `Cập nhật từ Webhook ${CARRIER_NAMES[carrierId] || carrierId}`
@@ -505,72 +932,62 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
 
     await client.query(
       `UPDATE carrier_shipments
-       SET status = $2, carrier_status_raw = $3, carrier_status_desc = $4,
-           tracking_history = $5, last_synced_at = now(), updated_at = now()
+       SET status = $2,
+           status_version = status_version + 1,
+           provider_event_time = COALESCE($6::timestamptz, provider_event_time),
+           carrier_status_raw = $3,
+           carrier_status_desc = $4,
+           tracking_history = $5,
+           last_synced_at = now(),
+           updated_at = now()
        WHERE id = $1`,
-      [shipment.id, normalizedStatus, String(rawStatus), webhookDesc || '', JSON.stringify(history)]
+      [
+        shipment.id,
+        normalizedStatus,
+        String(rawStatus),
+        webhookDesc || '',
+        JSON.stringify(history),
+        incomingEventTime ? incomingEventTime.toISOString() : null
+      ]
     );
 
-    const isTerminalBlocked = shipment.orderStatus === 'cancelled' || Boolean(shipment.orderReturnCompletedAt);
-    const canAutoComplete = !isTerminalBlocked && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid');
-    if (!isTerminalBlocked && normalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus) && (shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid')) {
-      await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'shipped']);
-    } else if (canAutoComplete && normalizedStatus === 'delivered' && shipment.orderStatus !== 'completed') {
-      await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'completed']);
-      if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
-        await client.query('UPDATE orders SET payment_status = $2, updated_at = now() WHERE id = $1', [shipment.order_id, 'paid']);
-        if (finance?.recordFullOrderPayment) {
-          if (finance.recordFullOrderPayment.length >= 3) {
-            await finance.recordFullOrderPayment(client, shipment.order_id, actor);
-          } else {
-            await finance.recordFullOrderPayment(client, {
-              order: {
-                id: shipment.order_id,
-                order_number: shipment.orderNumber,
-                payment_method: 'cod',
-                total_vnd: Number(shipment.orderTotalVnd) || 0
-              },
-              actor
-            });
-          }
-        }
-      }
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
-        {
-          const { earnPoints } = require('./loyalty-api');
-          await earnPoints(client, {
-            customerId: shipment.orderCustomerId,
-            orderId: shipment.order_id,
-            orderTotalVnd: Number(shipment.orderTotalVnd),
-            actor
-          });
-        }
-      }
-    }
+    const updatedOrderStatus = await applyCarrierDeliveryTransition(client, shipment, normalizedStatus, actor);
 
     await appendAudit(client, {
       actor,
       action: 'shipping.webhook.receive',
       entityType: 'order',
       entityId: shipment.order_id,
-      metadata: { carrierId, trackingNumber: shipment.tracking_number, rawStatus, normalizedStatus }
+      metadata: {
+        carrierId,
+        trackingNumber: shipment.tracking_number,
+        rawStatus: String(rawStatus),
+        normalizedStatus,
+        orderStatus: updatedOrderStatus,
+        codSettlementStatus: shipment.cod_settlement_status
+      }
     });
 
-    return { success: true, processed: true, normalizedStatus };
+    return {
+      success: true,
+      processed: true,
+      normalizedStatus,
+      orderStatus: updatedOrderStatus,
+      codSettlementStatus: shipment.cod_settlement_status
+    };
   });
 }
 
-async function quoteShippingFee(pool, config, { carrierId, city, district, address, weightGrams = 500, totalVnd = 0, fetcher = fetch }) {
+async function quoteShippingFee(pool, config, { carrierId, city, district, address, weightGrams = 500, totalVnd = 0, codAmountVnd = 0, serviceCode = '', fetcher = fetch }) {
   const normCity = String(city || '').trim();
-  const cacheKey = `quote:${carrierId || 'any'}:${normCity}:${district || ''}:${Math.ceil(weightGrams / 500)}`;
+  const normDistrict = String(district || '').trim();
+  const normAddress = String(address || '').trim();
+  const normWeight = Math.max(1, Math.round(Number(weightGrams) || 500));
+  const normTotal = Math.max(0, Math.round(Number(totalVnd) || 0));
+  const normCod = Math.max(0, Math.round(Number(codAmountVnd) || 0));
 
-  if (quoteCache.has(cacheKey)) {
-    return quoteCache.get(cacheKey);
-  }
-
-  // Fallback fee provider using database rate table
   async function getFallbackFee() {
-    const rateResult = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'shipping_rates'");
+    const rateResult = await pool.query("SELECT setting_value, updated_at FROM store_settings WHERE setting_key = 'shipping_rates'");
     const rates = rateResult.rows[0]?.setting_value || {};
     const fallbackFee = require('../checkout-flow').shippingFee(rates, normCity);
     return {
@@ -585,16 +1002,34 @@ async function quoteShippingFee(pool, config, { carrierId, city, district, addre
   if (carrierId) {
     try {
       const record = await readRecord(pool, config, 'shipping_' + carrierId);
-      if (!record.data || !record.data.secretConfigured && !record.data.secret) {
+      if (!record.data || (!record.data.secretConfigured && !record.data.secret)) {
         return await getFallbackFee();
       }
+      const canonicalQuoteKey = 'quote:' + crypto.createHash('sha256').update(JSON.stringify({
+        carrierId,
+        configVersion: Number(record.version || 0),
+        defaultService: String(serviceCode || record.data.defaultService || ''),
+        pickupAddress: String(record.data.pickupAddress || ''),
+        city: normCity.toLocaleLowerCase('vi'),
+        district: normDistrict.toLocaleLowerCase('vi'),
+        address: normAddress.toLocaleLowerCase('vi'),
+        weightGrams: normWeight,
+        totalVnd: normTotal,
+        codAmountVnd: normCod
+      })).digest('hex');
+
+      if (quoteCache.has(canonicalQuoteKey)) {
+        return quoteCache.get(canonicalQuoteKey);
+      }
+
       const adapter = getAdapter(carrierId);
       const quote = await adapter.quoteShippingFee(record.data, {
         city: normCity,
-        district,
-        address,
-        weightGrams,
-        totalVnd
+        district: normDistrict,
+        address: normAddress,
+        weightGrams: normWeight,
+        totalVnd: normTotal,
+        codAmountVnd: normCod
       }, { fetcher });
 
       const responseData = {
@@ -606,17 +1041,15 @@ async function quoteShippingFee(pool, config, { carrierId, city, district, addre
         source: 'carrier_realtime'
       };
 
-      quoteCache.set(cacheKey, responseData);
+      quoteCache.set(canonicalQuoteKey, responseData);
       return responseData;
     } catch {
-      // Graceful fallback to static rate table on carrier API failure or timeout
       const fallback = await getFallbackFee();
       fallback.warning = 'Hãng vận chuyển phản hồi chậm, áp dụng bảng phí niêm yết theo tỉnh/thành.';
       return fallback;
     }
   }
 
-  // If no carrier specified, get fallback fee
   return getFallbackFee();
 }
 
@@ -690,7 +1123,7 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
   );
 
   adminRouter.post('/shipping/orders/:id/sync-tracking',
-    requirePermission('orders.read'),
+    requirePermission('orders.write'),
     requireCsrf,
     rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
@@ -704,6 +1137,37 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
         });
         res.json(result);
       } catch (e) {
+        next(e);
+      }
+    }
+  );
+
+  adminRouter.post('/shipping/orders/:id/settle-cod',
+    requirePermission('payments.write'),
+    requireCsrf,
+    rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }),
+    async (req, res, next) => {
+      try {
+        const orderId = z.string().uuid().parse(req.params.id);
+        const body = z.object({
+          providerTransactionRef: z.string().trim().min(4).max(120),
+          settledAmountVnd: z.number().int().positive().max(2_000_000_000),
+          method: z.enum(['cash', 'bank_transfer']).optional().default('bank_transfer'),
+          settledAt: z.string().trim().max(64).optional(),
+          note: z.string().trim().max(500).optional().default('')
+        }).strict().parse(req.body || {});
+        const result = await settleCarrierCod(pool, {
+          orderId,
+          ...body,
+          actor: req.admin,
+          finance
+        });
+        require('./cache').invalidateTags(['orders', `order:${orderId}`]);
+        res.json(result);
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          return res.status(400).json({ error: 'Nhập đầy đủ mã giao dịch đối soát hãng (tối thiểu 4 ký tự) và số tiền COD thực nhận.' });
+        }
         next(e);
       }
     }
@@ -733,6 +1197,9 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
           carrierStatusDesc: row.carrier_status_desc,
           shippingFeeVnd: row.shipping_fee_vnd,
           codAmountVnd: row.cod_amount_vnd,
+          codSettlementStatus: row.cod_settlement_status,
+          codSettledAt: row.cod_settled_at,
+          codSettlementRef: row.cod_settlement_ref,
           trackingHistory: row.tracking_history,
           createdAt: row.created_at,
           lastSyncedAt: row.last_synced_at
@@ -787,25 +1254,41 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     }
   );
 
-  // Authenticated Customer Tracking by Order Number
+  // Authenticated Customer or Signed Guest Token Tracking by Order Number
   publicRouter.get('/shipping/tracking/:orderNumber',
     rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
-        const customerId = req.session?.customer?.id;
-        if (!customerId) {
-          return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản khách hàng để tra cứu hành trình vận đơn.' });
-        }
         const orderNumber = String(req.params.orderNumber).trim();
-        const result = await pool.query(
-          `SELECT s.carrier_id, s.tracking_number, s.status, s.carrier_status_desc,
-                  s.tracking_history, s.last_synced_at, o.order_number, o.status AS order_status
-           FROM carrier_shipments s
-           JOIN orders o ON o.id = s.order_id
-           WHERE o.order_number = $1 AND o.customer_id = $2 AND s.status != 'cancelled'
-           ORDER BY s.created_at DESC LIMIT 1`,
-          [orderNumber, customerId]
-        );
+        const customerId = req.session?.customer?.id || null;
+        const guestToken = String(req.query?.token || req.headers['x-tracking-token'] || '').trim();
+        const hasValidGuestToken = guestToken ? verifyGuestTrackingToken(config, orderNumber, guestToken) : false;
+
+        if (!customerId && !hasValidGuestToken) {
+          return res.status(401).json({
+            error: 'Vui lòng đăng nhập tài khoản khách hàng hoặc sử dụng mục Tra cứu đơn hàng kèm xác thực Email/SĐT.'
+          });
+        }
+
+        const result = customerId && !hasValidGuestToken
+          ? await pool.query(
+              `SELECT s.carrier_id, s.tracking_number, s.status, s.carrier_status_desc,
+                      s.tracking_history, s.last_synced_at, o.order_number, o.status AS order_status
+               FROM carrier_shipments s
+               JOIN orders o ON o.id = s.order_id
+               WHERE o.order_number = $1 AND o.customer_id = $2 AND s.status != 'cancelled'
+               ORDER BY s.created_at DESC LIMIT 1`,
+              [orderNumber, customerId]
+            )
+          : await pool.query(
+              `SELECT s.carrier_id, s.tracking_number, s.status, s.carrier_status_desc,
+                      s.tracking_history, s.last_synced_at, o.order_number, o.status AS order_status
+               FROM carrier_shipments s
+               JOIN orders o ON o.id = s.order_id
+               WHERE o.order_number = $1 AND s.status != 'cancelled'
+               ORDER BY s.created_at DESC LIMIT 1`,
+              [orderNumber]
+            );
         if (!result.rows.length) {
           return res.status(404).json({ error: 'Chưa có thông tin vận đơn cho đơn hàng này.' });
         }
@@ -826,7 +1309,7 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     }
   );
 
-  return { admin: adminRouter, publicApi: publicRouter, createWaybill, cancelWaybill, syncShipmentTracking, quoteShippingFee, handleCarrierWebhook };
+  return { admin: adminRouter, publicApi: publicRouter, createWaybill, cancelWaybill, syncShipmentTracking, settleCarrierCod, quoteShippingFee, handleCarrierWebhook };
 }
 
 module.exports = {
@@ -834,7 +1317,12 @@ module.exports = {
   createWaybill,
   cancelWaybill,
   syncShipmentTracking,
+  settleCarrierCod,
   handleCarrierWebhook,
   reconcileWaybillAttempt,
-  quoteShippingFee
+  quoteShippingFee,
+  invalidateShippingQuoteCache,
+  canAdvanceCarrierStatus,
+  signGuestTrackingToken,
+  verifyGuestTrackingToken
 };

@@ -11,6 +11,7 @@ async function start(t, kind) {
   const raw = Buffer.alloc(1200 * 800 * 4);
   for (let i = 0; i < raw.length; i += 4) { raw[i] = i % 251; raw[i + 1] = (i >> 8) % 251; raw[i + 2] = (i >> 12) % 251; raw[i + 3] = i % 256; }
   const fixture = { visible: true, reads: 0, content: await sharp(raw, { raw: { width: 1200, height: 800, channels: 4 } }).png().toBuffer() };
+  await require('../src/lib/image-renditions').warmPublicImage({ content: fixture.content, mime_type: 'image/png' }, [480, 800]);
   const pool = { async query(sql) {
     assert.match(sql, /EXISTS\(SELECT 1 FROM (products|news_posts)/);
     fixture.reads++;

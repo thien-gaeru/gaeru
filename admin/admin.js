@@ -711,7 +711,10 @@ function orderPaymentControl(order) {
   const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
   if (["vnpay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
   if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
-  return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
+  const reconField = order.paymentMethod === "cod"
+    ? `<label data-reconciliation-wrap hidden>Mã đối soát / sao kê thu hộ COD<input name="reconciliationRef" type="text" maxlength="100" placeholder="VD: VTP-20261107-8899 / mã sao kê ngân hàng"></label>`
+    : "";
+  return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>${reconField}`;
 }
 
 function changeOrderControl(event){
@@ -720,15 +723,24 @@ function changeOrderControl(event){
   const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
   const paymentField = form.elements.paymentStatus;
   if (order?.paymentMethod === "cod" && paymentField) {
+    const reconWrap = form.querySelector("[data-reconciliation-wrap]");
+    const reconInput = form.elements.reconciliationRef;
+    const hasCarrierCod = Boolean(order.trackingNumber && order.carrierShipment?.status !== "cancelled");
     paymentField.disabled = event.target.value !== "completed";
     if (paymentField.disabled) {
       paymentField.value = "pending";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "pending"));
+      if (reconWrap) reconWrap.hidden = true;
+      if (reconInput) reconInput.required = false;
       form.querySelector("[data-payment-guidance]").textContent = "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng.";
     } else {
       paymentField.value = "paid";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
-      form.querySelector("[data-payment-guidance]").textContent = "Đã tự động xác nhận thu đủ tiền COD khi giao thành công.";
+      if (reconWrap) reconWrap.hidden = false;
+      if (reconInput) reconInput.required = hasCarrierCod;
+      form.querySelector("[data-payment-guidance]").textContent = hasCarrierCod
+        ? "Nhập mã đối soát / sao kê chuyển tiền thực của hãng để xác nhận thu đủ tiền COD."
+        : "Đã tự động xác nhận thu đủ tiền COD khi giao thành công.";
     }
   }
 
@@ -919,6 +931,9 @@ async function updateOrder(event) {
       paymentField.value = "paid";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
     }
+  }
+  if (form.elements.reconciliationRef && form.elements.reconciliationRef.value.trim()) {
+    payload.reconciliationRef = form.elements.reconciliationRef.value.trim();
   }
   if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
   try {

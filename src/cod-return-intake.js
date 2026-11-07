@@ -38,9 +38,10 @@ function createCodReturnIntake(pool) {
          FROM carrier_shipments s
          JOIN orders o ON o.id = s.order_id
          LEFT JOIN cod_return_intakes cri ON cri.shipment_id = s.id
-         WHERE (s.status = 'returned' OR s.carrier_status_raw ILIKE '%return%' OR s.carrier_status_raw ILIKE '%hoan%')
+         WHERE s.status = 'returned'
            AND cri.id IS NULL
-           AND o.status != 'cancelled'`
+           AND o.status != 'cancelled'
+           AND o.payment_method = 'cod'`
       );
       const total = countResult.rows[0]?.total || 0;
 
@@ -67,7 +68,7 @@ function createCodReturnIntake(pool) {
          JOIN orders o ON o.id = s.order_id
          LEFT JOIN order_items oi ON oi.order_id = o.id
          LEFT JOIN cod_return_intakes cri ON cri.shipment_id = s.id
-         WHERE (s.status = 'returned' OR s.carrier_status_raw ILIKE '%return%' OR s.carrier_status_raw ILIKE '%hoan%')
+         WHERE s.status = 'returned'
            AND cri.id IS NULL
            AND o.status != 'cancelled'
            AND o.payment_method = 'cod'
@@ -198,16 +199,10 @@ function createCodReturnIntake(pool) {
           throw fail('Đơn hàng đã hoàn tất giao hàng thành công; không thể kiểm nhận chuyển hoàn tự động.', 409);
         }
 
-        // 5. Xác minh trạng thái giao vận: Bắt buộc phải có tín hiệu xác nhận chuyển hoàn từ đối tác giao vận (GAERU COD-01)
-        const rawStatus = String(shipment.carrier_status_raw || '').toLowerCase();
-        const descStatus = String(shipment.carrier_status_desc || '').toLowerCase();
-        const isReturnSignal = shipment.status === 'returned' ||
-          /return|returning|hoan|chuyen_hoan|phat_hoan|tra_hang/i.test(rawStatus) ||
-          /chuyển hoàn|trả hàng|phát hoàn|đã hoàn|về kho|trả lại|returning to sender/i.test(descStatus) ||
-          /returning to sender/i.test(rawStatus);
-
-        if (!isReturnSignal) {
-          throw fail(`Vận đơn ${shipment.tracking_number} đang ở trạng thái "${shipment.status}". Chỉ bưu phẩm có xác nhận chuyển hoàn từ bưu cục mới được kiểm nhận hoàn kho.`, 400);
+        // 5. Xác minh trạng thái giao vận: Chỉ bưu phẩm đã hoàn tất chuyển trả về người gửi (status = 'returned', ví dụ Viettel 504)
+        // mới được mở kiểm nhận nhập lại tồn kho khả dụng (không nhập kho khi mới 505 return_requested hoặc 502 returning).
+        if (shipment.status !== 'returned') {
+          throw fail(`Vận đơn ${shipment.tracking_number} đang ở trạng thái "${shipment.status}" (chưa hoàn tất chuyển hoàn về kho người gửi). Chỉ bưu phẩm đã xác nhận hoàn trả người gửi (returned) mới được kiểm nhận hoàn kho.`, 400);
         }
 
         // Lấy danh sách sản phẩm

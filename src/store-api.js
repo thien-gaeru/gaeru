@@ -1915,8 +1915,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     if(shippingChoices&&result.rows.length){
       const selected=(await pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])',[result.rows.map(o=>o.id)])).rows;
       for(const order of result.rows)order.shippingCarrierName=selected.find(r=>r.order_id===order.id)?.carrier_name||null;
-      const shipments=(await pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled'",[result.rows.map(o=>o.id)])).rows;
-      for(const order of result.rows){const s=shipments.find(r=>r.order_id===order.id);if(s){order.carrierShipment={carrierId:s.carrier_id,trackingNumber:s.tracking_number,status:s.status,labelUrl:s.label_url};order.trackingNumber=s.tracking_number;}}
+      const shipments=(await pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url,cod_amount_vnd,cod_settlement_status FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled'",[result.rows.map(o=>o.id)])).rows;
+      for(const order of result.rows){const s=shipments.find(r=>r.order_id===order.id);if(s){order.carrierShipment={carrierId:s.carrier_id,trackingNumber:s.tracking_number,status:s.status,labelUrl:s.label_url,codAmountVnd:s.cod_amount_vnd,codSettlementStatus:s.cod_settlement_status};order.trackingNumber=s.tracking_number;}}
     }
     if (finance && result.rows.length) {
       const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
@@ -2125,6 +2125,20 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         const safeActor = (actor && actor.username) ? actor : { username: "admin", role: "owner", source: "admin", fullName: "Quản trị viên" };
         if (update.paymentStatus === "paid" && current.payment_status !== "paid") {
+          const carrierCodShipment = current.payment_method === "cod"
+            ? (await client.query(
+                "SELECT id, carrier_id, tracking_number, cod_amount_vnd FROM carrier_shipments WHERE order_id = $1 AND status <> 'cancelled' AND cod_amount_vnd > 0 ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+                [current.id]
+              )).rows[0]
+            : null;
+          const explicitRef = String(update.reconciliationRef || '').trim();
+          if (carrierCodShipment) {
+            if (explicitRef.length < 4 || explicitRef === ('COD-' + (current.order_number || current.id.slice(0, 8)))) {
+              const error = new Error("Đơn COD do hãng vận chuyển thu hộ bắt buộc nhập mã giao dịch đối soát / sao kê chuyển tiền thực tế của hãng (tối thiểu 4 ký tự) trước khi xác nhận Đã thanh toán.");
+              error.status = 409;
+              throw error;
+            }
+          }
           await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
           const ledger = finance || require('./finance-api');
           if (ledger?.recordFullOrderPayment) {
@@ -2132,10 +2146,17 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               order: { ...current, total_vnd: total },
               actor: safeActor,
               options: {
-                reference: update.reconciliationRef || ('COD-' + (current.order_number || current.id.slice(0, 8))),
-                note: update.paymentNote || 'Xác nhận thu tiền COD'
+                ...(carrierCodShipment ? { requestKey: `cod-settlement:${carrierCodShipment.carrier_id}:${explicitRef}` } : {}),
+                reference: explicitRef || ('DIRECT-COD-' + (current.order_number || current.id.slice(0, 8))),
+                note: update.paymentNote || (carrierCodShipment ? `Đối soát tiền thu hộ COD (${explicitRef})` : 'Xác nhận thu tiền COD trực tiếp')
               }
             });
+          }
+          if (carrierCodShipment) {
+            await client.query(
+              "UPDATE carrier_shipments SET cod_settlement_status = 'settled', cod_settled_at = now(), cod_settlement_ref = $2, updated_at = now() WHERE id = $1",
+              [carrierCodShipment.id, explicitRef]
+            );
           }
         }
         const updated = await client.query(
@@ -2309,6 +2330,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       }
       await audit(client, { actor: req.admin, action: "settings.update", entityType: "store_settings", after: settings });
     });
+    try { require('./shipping-management').invalidateShippingQuoteCache(); } catch (_) {}
     res.json({ settings: {
       shippingNote: settings.shipping_note,
       shippingRates: settings.shipping_rates
