@@ -1292,6 +1292,18 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
     const shipment = result.rows[0];
     const transitionCheck = canAdvanceCarrierStatus(shipment.status, newNormalizedStatus, shipment.provider_event_time, incomingEventTime);
     if (!transitionCheck.allowed) {
+      // Repair legacy records whose carrier had delivered but order remained shipped.
+      if (shipment.status === 'delivered' && shipment.orderStatus !== 'completed') {
+        const recoveredStatus = await applyCarrierDeliveryTransition(client, shipment, 'delivered', actor);
+        if (recoveredStatus === 'completed') {
+          await appendAudit(client, {
+            actor, action: 'shipping.delivery.auto_complete_recovered',
+            entityType: 'order', entityId: shipment.order_id,
+            metadata: { carrierId: shipment.carrier_id, trackingNumber: shipment.tracking_number, source: 'sync_replay' }
+          });
+          return { success: true, processed: true, recovered: true, status: shipment.status, orderStatus: recoveredStatus, trackingNumber: shipment.tracking_number };
+        }
+      }
       return {
         success: true,
         processed: false,
@@ -1465,6 +1477,18 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
     );
 
     if (!eventInsert.rows.length) {
+      // The webhook itself is duplicate, but an older delivery may need its order repaired.
+      if (shipment.status === 'delivered' && shipment.orderStatus !== 'completed') {
+        const recoveredStatus = await applyCarrierDeliveryTransition(client, shipment, 'delivered', actor);
+        if (recoveredStatus === 'completed') {
+          await appendAudit(client, {
+            actor, action: 'shipping.delivery.auto_complete_recovered',
+            entityType: 'order', entityId: shipment.order_id,
+            metadata: { carrierId, trackingNumber: shipment.tracking_number, source: 'webhook_replay' }
+          });
+          return { success: true, processed: true, recovered: true, duplicate: true, normalizedStatus: 'delivered', orderStatus: recoveredStatus };
+        }
+      }
       return {
         success: true,
         processed: false,
