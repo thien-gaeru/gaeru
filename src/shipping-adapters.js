@@ -374,9 +374,8 @@ const viettelAdapter = {
     }, { fetcher });
 
     const isAlreadyCancelled = res && (
-      (typeof res.message === 'string' && /đã hủy|da huy|already cancel|hủy đơn|huy don|không tìm thấy|khong tim thay|chưa tạo|chua tao|không tồn tại|khong ton tai/i.test(res.message)) ||
+      (typeof res.message === 'string' && /(?:đơn hàng|vận đơn)\s*(?:đã\s*(?:được\s*)?hủy|không\s*tồn\s*tại|không\s*tìm\s*thấy)|already\s*cancelled/i.test(res.message)) ||
       res.status === 205 ||
-      res.status === 201 ||
       res.error === 205
     );
     if (!carrierResponse.succeeded('viettel', res) && !isAlreadyCancelled) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
@@ -395,19 +394,7 @@ const viettelAdapter = {
       });
       if (!resp.ok) {
         if (resp.status === 405 || resp.status === 404) {
-          return {
-            response: resp,
-            parsed: {
-              status: 200,
-              error: false,
-              status_name: 'Đang theo dõi vận đơn (Tự động cập nhật qua Webhook)',
-              data: [{
-                DATE: new Date().toISOString(),
-                ORDER_STATUS: 100,
-                STATUS_NAME: 'Vận đơn đang hoạt động trên hệ thống Viettel Post. Hành trình được tự động cập nhật qua Webhook hoặc tra cứu tại viettelpost.vn.'
-              }]
-            }
-          };
+          throw fail(`Cổng API Viettel Post tạm thời không hỗ trợ tra cứu trực tiếp qua REST (HTTP ${resp.status}). Vui lòng bấm 'Tra cứu trên cổng hãng ↗' để xem chi tiết hành trình.`, 502);
         }
         throw fail(`Viettel Post tra cứu thất bại (HTTP ${resp.status}).`, 502);
       }

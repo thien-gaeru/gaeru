@@ -2175,7 +2175,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const current=(await client.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE',[expected.id])).rows[0];
           if(!current)throw Object.assign(Error('Có đơn không còn tồn tại. Tải lại danh sách.'),{status:409});
           if(current.status!==expected.expectedStatus||current.payment_status!==expected.expectedPaymentStatus||current.total_vnd!==expected.expectedTotalVnd)throw Object.assign(Error('Đơn '+current.order_number+' đã thay đổi. Tải lại trước khi xử lý hàng loạt.'),{status:409});
-          if(!transitions[current.status].includes(target))throw Object.assign(Error('Đơn '+current.order_number+' không ở bước phù hợp. Các đơn cần cùng đủ điều kiện cho thao tác đã chọn.'),{status:409});
+          const canTransition = transitions[current.status].includes(target) || (target === 'processing' && current.status === 'pending');
+          if(!canTransition)throw Object.assign(Error('Đơn '+current.order_number+' không ở bước phù hợp. Các đơn cần cùng đủ điều kiện cho thao tác đã chọn.'),{status:409});
           const update={status:target};
           if(target==='completed'&&current.payment_status!=='paid'){
             if(!data.confirmReceived)throw Object.assign(Error('Xác nhận đã thu đủ tiền trước khi hoàn tất các đơn chưa thanh toán.'),{status:409});

@@ -87,14 +87,16 @@ async function main() {
     } catch (_) {}
   });
 
-  console.log('Logging in as gaeru...');
+  console.log('Logging in to admin...');
+  const auditUser = process.env.GAERU_AUDIT_USER || process.env.ADMIN_USERNAME || 'gaeru';
+  const auditPass = process.env.GAERU_AUDIT_PASSWORD || '';
   await evalInPage(ws, `(() => {
     const u = document.querySelector('input[name="username"]');
     const p = document.querySelector('input[name="password"]');
     const f = document.querySelector('#login-form');
     if (u && p && f) {
-      u.value = 'gaeru';
-      p.value = 'GaeruSecret2026!';
+      u.value = ${JSON.stringify(auditUser)};
+      p.value = ${JSON.stringify(auditPass)};
       f.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       return true;
     }
