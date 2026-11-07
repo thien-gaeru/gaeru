@@ -2153,6 +2153,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const carrierCodShipment = (current.payment_method === "cod" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0)
             ? activeCarrierShipment
             : null;
+          if (carrierCodShipment) {
+            const error = new Error("Đơn COD hãng cần xác nhận tiền thu hộ qua chức năng đối soát hãng; không thể ghi nhận thu trực tiếp từ màn hình đơn hàng.");
+            error.status = 409;
+            throw error;
+          }
           const explicitRef = String(update.reconciliationRef || '').trim();
           const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
@@ -2166,7 +2171,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               actor: safeActor,
               options: {
                 reference: effectiveRef,
-                method: carrierCodShipment ? 'bank_transfer' : (current.payment_method === 'cod' ? 'cash' : 'bank_transfer'),
+                method: current.payment_method === 'cod' ? 'cash' : 'bank_transfer',
                 note: update.paymentNote || 'Xác nhận thu đủ tiền theo chứng từ thực tế'
               }
             });
