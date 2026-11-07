@@ -947,7 +947,7 @@ async function updateOrder(event) {
   let targetStatus = form.elements.status.value;
   let saved=false;
   const paymentField = form.elements.paymentStatus;
-  if (targetStatus === "completed") throw new Error("Hãy dùng nút Xác nhận đã giao; đơn sẽ tự hoàn thành khi có bằng chứng giao thành công.");
+  if (targetStatus === "completed") { feedback.textContent = "Hãy dùng nút Xác nhận đã giao; đơn sẽ tự hoàn thành khi có bằng chứng giao thành công."; submitButton.disabled = false; delete form.dataset.saving; submitButton.textContent = "Lưu cập nhật"; return; }
   if (targetStatus !== order.status) payload.status = targetStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
   if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
