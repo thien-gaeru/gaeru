@@ -17,6 +17,7 @@ module.exports = new Set(['footer-products.js','clean-urls.js','vietnam-address.
   "account.js",
   "action-feedback.css",
   "action-feedback.js",
+  "google-analytics.js",
   "bot-protection.css",
   "bot-protection.js",
   "brand.css",
