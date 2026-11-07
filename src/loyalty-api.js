@@ -80,7 +80,8 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
   const loyalty = await getOrCreateLoyalty(client, customerId);
   const policy = await readPolicy(client);
   const earningTier = calculateTier(loyalty.lifetimeEarned, policy);
-  const earnBasisPoints = policy.tiers.find(tier => tier.id === earningTier).earnBasisPoints;
+  const matchedTier = policy.tiers.find(tier => tier.id === earningTier) || policy.tiers[0];
+  const earnBasisPoints = matchedTier ? matchedTier.earnBasisPoints : 100;
   const ratio = pointsRatio === undefined ? earnBasisPoints / 10000 : pointsRatio;
   if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1 || !Number.isSafeInteger(Number(orderTotalVnd)) || Number(orderTotalVnd) < 0) throw fail('Dữ liệu tích Xu không hợp lệ.');
   const points = Math.floor(Number(orderTotalVnd) * ratio);

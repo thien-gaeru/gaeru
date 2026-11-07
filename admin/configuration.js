@@ -885,7 +885,7 @@ document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-config-open]');
  if(!button)return;
  const target=button.dataset.configOpen;
- await admin.activateView(paymentIds.has(target)?'payments':'settings');
+ await admin.activateView(paymentIds.has(target)?'payments':(target.startsWith('shipping_')?'shipping':'settings'));
  const panelId=target==='payments'?'config-panel-vnpay':'config-panel-'+target;
  const panel=document.getElementById(panelId);
  if(panel){

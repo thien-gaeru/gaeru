@@ -1,5 +1,5 @@
 (function(root){
-  const views={"file-library":["Thư viện tệp","Nội dung & sản phẩm","Ảnh, video và tài liệu trong kho lưu trữ của website.","M3 5h7l2 2h9v13H3z"],pages:["Quản lý trang","Nội dung & sản phẩm","Nội dung trang, trạng thái xuất bản và metadata SEO.","M3 3h16v17H3z M6 7h10 M6 11h10"],oauth:['Đăng nhập Google','Tổ chức','Thiết lập Google Client ID cho phép khách hàng đăng nhập tài khoản một chạm.','M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0'],payments:['Quản lý thanh toán','Bán hàng','Kết nối, kiểm tra và bật/tắt các kênh thanh toán của cửa hàng.','M2 6h20v12H2z M2 10h20 M6 15h4'],shipping:['Quản lý vận chuyển','Bán hàng','Thiết lập tài khoản và kho lấy hàng cho các hãng vận chuyển.','M3 6h12v12H3z M15 10h4l2 4v4h-6'],
+  const views={"file-library":["Thư viện tệp","Nội dung & sản phẩm","Ảnh, video và tài liệu trong kho lưu trữ của website.","M3 5h7l2 2h9v13H3z"],pages:["Quản lý trang","Nội dung & sản phẩm","Nội dung trang, trạng thái xuất bản và metadata SEO.","M3 3h16v17H3z M6 7h10 M6 11h10"],oauth:['Đăng nhập Google','Tổ chức','Thiết lập Google Client ID cho phép khách hàng đăng nhập tài khoản một chạm.','M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0'],logistics:['Vận chuyển và thanh toán','Bán hàng','Quản lý biểu phí toàn quốc, hãng vận chuyển (Viettel Post) và cổng thanh toán.','M3 6h12v12H3z M15 10h4l2 4v4h-6 M2 18h20'],
     'shopping-chat':['Chat trực tuyến','Bán hàng','Tư vấn mua sắm và phản hồi trực tiếp cho khách.','M4 4h16v12H9l-5 4z'],
     overview:['Trang tổng quan','Không gian vận hành','Các chỉ số kinh doanh, công việc cần xử lý và điều hành quản trị hệ thống.','M3 3h6v6H3z M13 3h6v6h-6z M3 13h6v6H3z M13 13h6v6h-6z'],
     notifications:['Thông báo','Không gian vận hành','Theo dõi cảnh báo và mở đúng hồ sơ cần xử lý.','M5 15V9a6 6 0 0 1 12 0v6l2 2H3z M9 20h4'],
@@ -27,7 +27,7 @@
     staff:['Nhân viên & quyền','Tổ chức','Tài khoản nhân viên, vai trò và trạng thái truy cập.','M7 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0 M3 20v-2a8 6 0 0 1 16 0v2'],
     departments:['Phòng ban','Tổ chức','Sắp xếp nhóm làm việc và thông tin tổ chức.','M8 2h6v5H8z M3 16h6v5H3z M15 16h6v5h-6z M11 7v5 M6 16v-4h12v4'],
     audit:['Nhật ký hoạt động','Tổ chức','Tra cứu lịch sử nghiệp vụ theo quyền được cấp.','M11 2a9 9 0 1 0 9 9 M11 5v6l4 3 M15 2h5v5'],
-    settings:['Cài đặt cửa hàng','Vận hành','Thông tin cửa hàng, phí giao hàng và cấu hình nghiệp vụ.','M3 6h16 M3 16h16 M7 3v6 M15 13v6']
+    settings:['Cài đặt cửa hàng','Vận hành','Cấu hình hệ thống, kho hàng, tiếp thị và bảo mật quản trị viên.','M3 6h16 M3 16h16 M7 3v6 M15 13v6']
   };
   const roles={owner:'Chủ doanh nghiệp',admin:'Quản trị viên',manager:'Quản lý',sales:'Kinh doanh',warehouse:'Nhân viên kho',accountant:'Kế toán',viewer:'Chỉ xem'};
   const staticImages=new Set(['assets/brand/gaeru-logo.png',...['g1-ultra','k9','m3','p01','m3-home-cutout'].map(name=>'assets/products/'+name+'.png'),...[1,2,3,4,6,7,8,9,10,11,12].map(number=>'assets/products/m3-description/'+number+'.png')]);
@@ -45,7 +45,7 @@
     const relative=pathname.startsWith('/')?pathname.slice(1):pathname;
     return staticImages.has(relative)?pathname.replace(/\.png$/,'.webp')+suffix:value;
   }
-  const api={views,imageUrl,roleName:value=>roles[value]||value,title:view=>views[view]?.[0],description:view=>views[view]?.[2]};
+  const api={views,imageUrl,roleName:value=>roles[value]||value,title:view=>views[view]?.[0]||(view==='shipping'||view==='payments'?views.logistics[0]:undefined),description:view=>views[view]?.[2]||(view==='shipping'||view==='payments'?views.logistics[2]:undefined)};
   if(typeof module!=='undefined')module.exports=api;
   if(!root.document)return;
   root.GAERUAdminUI=api;

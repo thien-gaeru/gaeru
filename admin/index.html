@@ -60,8 +60,7 @@
               <button class="nav-item" type="button" data-view="loyalty" data-permission="customers.read">GAERU XU</button>
               <button class="nav-item" type="button" data-view="products" data-permission="catalog.read">Sản phẩm</button>
               <button class="nav-item" type="button" data-view="marketing" data-permission="marketing.read">Marketing</button>
-              <button class="nav-item" type="button" data-view="shipping" data-permission="orders.read">Quản lý vận chuyển</button>
-              <button class="nav-item" type="button" data-view="payments" data-permission="orders.read">Quản lý thanh toán</button>
+              <button class="nav-item" type="button" data-view="logistics" data-permission="orders.read">Vận chuyển và thanh toán</button>
               <button class="nav-item" type="button" data-view="news" data-permission="catalog.read">Tin tức</button>
               <button class="nav-item" type="button" data-view="pages" data-permission="settings.read">Quản lý trang</button>
               <button class="nav-item" type="button" data-view="file-library" data-permission="settings.read" data-owner-only hidden>Thư viện tệp</button>
@@ -262,7 +261,7 @@
             </div>
             <div class="notice-card" id="shipping-rates-notice" hidden role="status">
               <h2>Chưa có bảng phí giao hàng</h2>
-              <p>Thêm phí theo tỉnh/thành tại Cài đặt cửa hàng. Checkout sẽ không nhận đơn nếu chưa có khu vực giao hàng hợp lệ.</p>
+              <p>Thêm phí theo tỉnh/thành tại Vận chuyển và thanh toán. Checkout sẽ không nhận đơn nếu chưa có khu vực giao hàng hợp lệ.</p>
             </div>
             <div class="notice-card">
               <h2>Vận hành cửa hàng</h2>
@@ -329,7 +328,94 @@
             </section>
           </section>
 
-          <section class="view-panel" id="payments-view" hidden><div class="logistics-payment-hub-nav" style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid #e2e8f0;padding-bottom:10px;flex-wrap:wrap;"><button type="button" class="secondary-button hub-nav-btn" data-hub-tab="rates" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;"><span aria-hidden="true">📍</span> Phí giao hàng &amp; COD toàn quốc</button><button type="button" class="secondary-button hub-nav-btn" data-hub-tab="shipping" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;"><span aria-hidden="true">🚚</span> Đơn vị vận chuyển (Viettel Post)</button><button type="button" class="secondary-button hub-nav-btn is-active" data-hub-tab="payments" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;background:#0f172a;color:#fff;border-color:#0f172a;"><span aria-hidden="true">💳</span> Phương thức thanh toán (COD, VietQR, VNPAY)</button></div><h2>Quản lý thanh toán</h2><p>Kết nối, kiểm tra và điều khiển các kênh thanh toán COD, Chuyển khoản ngân hàng, VNPAY, MoMo và ZaloPay.</p><div id="payment-configuration"></div></section><section class="view-panel" id="shipping-view" hidden><div class="logistics-payment-hub-nav" style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid #e2e8f0;padding-bottom:10px;flex-wrap:wrap;"><button type="button" class="secondary-button hub-nav-btn" data-hub-tab="rates" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;"><span aria-hidden="true">📍</span> Phí giao hàng &amp; COD toàn quốc</button><button type="button" class="secondary-button hub-nav-btn is-active" data-hub-tab="shipping" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;background:#0f172a;color:#fff;border-color:#0f172a;"><span aria-hidden="true">🚚</span> Đơn vị vận chuyển (Viettel Post)</button><button type="button" class="secondary-button hub-nav-btn" data-hub-tab="payments" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;"><span aria-hidden="true">💳</span> Phương thức thanh toán (COD, VietQR, VNPAY)</button></div><h2>Quản lý vận chuyển</h2><p>Kết nối Viettel Post, J&T Express và Shopee Express (SPX).</p><div id="shipping-configuration"></div></section><section class="view-panel" id="oauth-view" hidden><div id="oauth-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
+          <section class="view-panel" id="logistics-view" hidden>
+            <div class="view-header" style="margin-bottom:16px;">
+              <h2>Vận chuyển và thanh toán</h2>
+              <p class="help-text">Trung tâm quản lý tập trung: Biểu phí giao hàng &amp; COD toàn quốc, Đơn vị vận chuyển (Viettel Post) và Cổng thanh toán (COD, VietQR, VNPAY, ZaloPay, MoMo).</p>
+            </div>
+
+            <div class="logistics-subtab-nav" style="display:flex;gap:8px;margin-bottom:20px;border-bottom:2px solid #e2e8f0;padding-bottom:12px;flex-wrap:wrap;">
+              <button type="button" class="secondary-button logistics-subtab-btn is-active" data-logistics-tab="rates" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;background:#0f172a;color:#fff;border-color:#0f172a;">
+                <span aria-hidden="true">📍</span> Phí giao hàng &amp; COD toàn quốc
+              </button>
+              <button type="button" class="secondary-button logistics-subtab-btn" data-logistics-tab="shipping" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                <span aria-hidden="true">🚚</span> Đơn vị vận chuyển (Viettel Post)
+              </button>
+              <button type="button" class="secondary-button logistics-subtab-btn" data-logistics-tab="payments" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                <span aria-hidden="true">💳</span> Phương thức thanh toán (COD, VietQR, VNPAY, ZaloPay)
+              </button>
+            </div>
+
+            <!-- Tab 1: Phí giao hàng & COD toàn quốc -->
+            <div class="logistics-tab-content" id="logistics-tab-rates">
+              <div class="sync-hub-summary-card" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin:0 0 16px;">
+                <strong style="display:block;margin-bottom:8px;font-size:13px;color:#1e293b;">⚡ Tổng quan trạng thái Vận chuyển &amp; Thanh toán</strong>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;font-size:13px;">
+                  <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;">
+                    <span style="color:#64748b;font-size:12px;display:block;">💳 Phương thức thanh toán:</span>
+                    <strong id="sync-summary-payment-status">Đang tải…</strong>
+                    <div style="margin-top:6px;"><button type="button" class="plain-button" data-logistics-tab="payments" style="color:#0284c7;font-size:12px;font-weight:600;">Xem &amp; Bật/Tắt kênh thanh toán ↗</button></div>
+                  </div>
+                  <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;">
+                    <span style="color:#64748b;font-size:12px;display:block;">🚚 Đơn vị vận chuyển (Hãng):</span>
+                    <strong id="sync-summary-carrier-status">Đang tải…</strong>
+                    <div style="margin-top:6px;"><button type="button" class="plain-button" data-logistics-tab="shipping" style="color:#0284c7;font-size:12px;font-weight:600;">Xem &amp; Bật/Tắt Viettel Post ↗</button></div>
+                  </div>
+                  <div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;">
+                    <span style="color:#64748b;font-size:12px;display:block;">📍 Chính sách phí giao hàng:</span>
+                    <strong id="sync-summary-rates-status">Đang tải…</strong>
+                    <div style="margin-top:6px;"><small style="color:#059669;">Áp dụng cho mọi đơn đặt hàng trên website</small></div>
+                  </div>
+                </div>
+              </div>
+
+              <form class="editor-card settings-card" id="settings-form">
+                <p class="eyebrow">Biểu phí &amp; Ghi chú vận chuyển</p>
+                <h3>Phí giao hàng &amp; Ghi chú toàn quốc</h3>
+                <p class="help-text" id="payment-provider-status">Đang tải trạng thái cổng thanh toán…</p>
+                <label>Thông tin / Ghi chú giao hàng hiển thị cho khách<textarea name="shippingNote" rows="3" maxlength="1000" placeholder="Ví dụ: Miễn phí vận chuyển toàn quốc..."></textarea></label>
+                <section class="shipping-rates" style="margin-top:16px;">
+                  <div class="editor-heading">
+                    <div>
+                      <h4>Phí giao hàng theo tỉnh/thành phố</h4>
+                      <p class="help-text">Thiết lập <strong>"Toàn quốc"</strong> để áp dụng phí giao hàng COD cho tất cả các tỉnh/thành phố trên cả nước, hoặc thêm mức phí riêng cho từng tỉnh/thành.</p>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                      <button class="secondary-button" id="set-nationwide-shipping" type="button" title="Thiết lập phí giao hàng COD áp dụng cho mọi tỉnh/thành">+ Cài đặt COD toàn quốc</button>
+                      <button class="secondary-button" id="add-shipping-rate" type="button">Thêm tỉnh/thành</button>
+                    </div>
+                  </div>
+                  <div id="shipping-rate-list"></div>
+                </section>
+                <div style="margin-top:16px;">
+                  <button class="primary-button" type="submit">Lưu cài đặt phí giao hàng</button>
+                </div>
+                <p class="feedback" data-form-feedback role="alert"></p>
+              </form>
+            </div>
+
+            <!-- Tab 2: Đơn vị vận chuyển -->
+            <div class="logistics-tab-content" id="logistics-tab-shipping" hidden>
+              <div class="editor-heading" style="margin-bottom:12px;">
+                <div>
+                  <h3>Hãng vận chuyển &amp; Kết nối API</h3>
+                  <p class="help-text">Kết nối Viettel Post, J&T Express và Shopee Express (SPX) để tạo vận đơn và đồng bộ hành trình tự động.</p>
+                </div>
+              </div>
+              <div id="shipping-configuration"></div>
+            </div>
+
+            <!-- Tab 3: Phương thức thanh toán -->
+            <div class="logistics-tab-content" id="logistics-tab-payments" hidden>
+              <div class="editor-heading" style="margin-bottom:12px;">
+                <div>
+                  <h3>Cổng thanh toán &amp; Phương thức thanh toán</h3>
+                  <p class="help-text">Kết nối, kiểm tra và bật/tắt các kênh thanh toán COD, Chuyển khoản ngân hàng (VietQR), VNPAY, MoMo và ZaloPay.</p>
+                </div>
+              </div>
+              <div id="payment-configuration"></div>
+            </div>
+          </section><section class="view-panel" id="oauth-view" hidden><div id="oauth-configuration"></div></section><section class="view-panel" id="orders-view" hidden>
 <div class="orders-heading"><div class="order-export-actions"><label>Phạm vi xuất<select id="order-export-scope"><option value="page">Trang hiện tại</option><option value="all">Tất cả theo bộ lọc (tối đa 5.000 đơn)</option></select></label><button type="button" class="secondary-button" id="export-order-excel">Xuất Excel</button><button type="button" class="plain-button" id="export-order-page">CSV trang hiện tại</button></div></div>
 <nav id="order-tabs" class="order-tabs" aria-label="Lọc theo trạng thái đơn"></nav>
 <p class="help-text">Chờ gửi hàng gồm đơn đã xác nhận và đang chuẩn bị. Đã giao hàng là đã bàn giao cho hãng vận chuyển.</p>
@@ -374,19 +460,10 @@
           </section>
 
           <section class="view-panel" id="settings-view" hidden>
-            <details class="configuration-panel shipping-settings" open><summary><span>Thanh toán &amp; giao hàng</span><small>Mở để chỉnh thông tin, phí giao hàng và cấu hình các kênh</small></summary><div class="logistics-payment-hub-nav" style="display:flex;gap:8px;margin:14px 0 16px;border-bottom:2px solid #e2e8f0;padding-bottom:10px;flex-wrap:wrap;"><button type="button" class="secondary-button hub-nav-btn is-active" data-hub-tab="rates" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;background:#0f172a;color:#fff;border-color:#0f172a;"><span aria-hidden="true">📍</span> Phí giao hàng &amp; COD toàn quốc</button><button type="button" class="secondary-button hub-nav-btn" data-hub-tab="shipping" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;"><span aria-hidden="true">🚚</span> Đơn vị vận chuyển (Viettel Post)</button><button type="button" class="secondary-button hub-nav-btn" data-hub-tab="payments" style="font-weight:600;display:inline-flex;align-items:center;gap:6px;"><span aria-hidden="true">💳</span> Phương thức thanh toán (COD, VietQR, VNPAY)</button></div><div class="sync-hub-summary-card" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin:0 0 16px;"><strong style="display:block;margin-bottom:8px;font-size:13px;color:#1e293b;">⚡ Tổng quan đồng bộ Thanh toán &amp; Vận chuyển</strong><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;font-size:13px;"><div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;"><span style="color:#64748b;font-size:12px;display:block;">💳 Phương thức thanh toán:</span><strong id="sync-summary-payment-status">Đang tải…</strong><div style="margin-top:6px;"><button type="button" class="plain-button" data-hub-tab="payments" style="color:#0284c7;font-size:12px;font-weight:600;">Xem &amp; Bật/Tắt kênh thanh toán ↗</button></div></div><div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;"><span style="color:#64748b;font-size:12px;display:block;">🚚 Đơn vị vận chuyển (Hãng):</span><strong id="sync-summary-carrier-status">Đang tải…</strong><div style="margin-top:6px;"><button type="button" class="plain-button" data-hub-tab="shipping" style="color:#0284c7;font-size:12px;font-weight:600;">Xem &amp; Bật/Tắt Viettel Post ↗</button></div></div><div style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;"><span style="color:#64748b;font-size:12px;display:block;">📍 Chính sách phí giao hàng:</span><strong id="sync-summary-rates-status">Đang tải…</strong><div style="margin-top:6px;"><small style="color:#059669;">Áp dụng cho mọi đơn đặt hàng trên website</small></div></div></div></div><form class="editor-card settings-card" id="settings-form">
-              <p class="eyebrow">Cấu hình công khai</p>
-              <h2>Thanh toán &amp; giao hàng</h2>
-              <p class="help-text" id="payment-provider-status">Đang tải trạng thái cổng thanh toán…</p>
-              <label>Thông tin giao hàng<textarea name="shippingNote" rows="3" maxlength="1000"></textarea></label>
-              <section class="shipping-rates">
-                <div class="editor-heading"><div><h3>Phí giao hàng theo tỉnh/thành phố</h3><p class="help-text">Thiết lập <strong>"Toàn quốc"</strong> để áp dụng phí giao hàng COD cho tất cả các tỉnh/thành phố trên cả nước, hoặc thêm mức phí riêng cho từng tỉnh/thành.</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><button class="secondary-button" id="set-nationwide-shipping" type="button" title="Thiết lập phí giao hàng COD áp dụng cho mọi tỉnh/thành">+ Cài đặt COD toàn quốc</button><button class="secondary-button" id="add-shipping-rate" type="button">Thêm tỉnh/thành</button></div></div>
-                <div id="shipping-rate-list"></div>
-              </section>
-              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0 16px;padding:10px 14px;background:#f1f5f9;border-radius:8px;font-size:13px;"><span style="color:#475569;">Quản lý đồng bộ:</span><button type="button" class="plain-button" data-hub-tab="payments" style="color:#0284c7;font-weight:600;">💳 Kênh thanh toán (COD, VietQR, VNPAY) ↗</button><button type="button" class="plain-button" data-hub-tab="shipping" style="color:#0284c7;font-weight:600;">🚚 Đơn vị vận chuyển (Viettel Post) ↗</button></div>
-              <button class="primary-button" type="submit">Lưu cài đặt</button>
-              <p class="feedback" data-form-feedback role="alert"></p>
-            </form></details>
+            <div class="view-header" style="margin-bottom:20px;">
+              <h2>Cài đặt cửa hàng</h2>
+              <p class="help-text">Cấu hình vận hành hệ thống, kho hàng, tiếp thị và bảo mật quản trị viên.</p>
+            </div>
 <section class="editor-card" id="system-configuration" data-owner-only hidden></section>
 <section class="editor-card" id="tiktok-ads-configuration" data-owner-only hidden></section>
             <section class="editor-card settings-security-card" style="margin-top:16px;">

@@ -158,6 +158,10 @@ async function showAdmin(session) {
   if(session.mfaEnrollmentRequired){await activateView('security');showGlobal('Bắt buộc bật xác thực hai yếu tố trước khi truy cập quản trị.');return;}
   let initialView = "";
   try { initialView = decodeURIComponent(location.hash.slice(1)); } catch {}
+  if (initialView === "shipping" || initialView === "payments") {
+    switchLogisticsTab(initialView);
+    initialView = "logistics";
+  }
   const buttons = [...document.querySelectorAll('[data-view]')];
   const firstView = buttons.find(button => button.dataset.view === initialView && !button.hidden && can(button.dataset.permission)) || buttons.find(button => !button.hidden && can(button.dataset.permission));
   if (firstView) await activateView(firstView.dataset.view, { updateHistory: false });
@@ -1113,15 +1117,41 @@ async function toggleCustomer(id, active) {
   showGlobal(!active ? "Đã mở khóa tài khoản khách hàng." : "Đã khóa tài khoản khách hàng.");
 }
 
-document.querySelector('#settings-form').addEventListener('invalid',()=>{const details=document.querySelector('#settings-form').closest('details');if(details)details.open=true;},true);
+document.querySelector('#settings-form')?.addEventListener('invalid',()=>{const details=document.querySelector('#settings-form').closest('details');if(details)details.open=true;},true);
+
+function switchLogisticsTab(tab) {
+  const validTabs = ['rates', 'shipping', 'payments'];
+  if (!validTabs.includes(tab)) tab = 'rates';
+  document.querySelectorAll('.logistics-subtab-btn').forEach(btn => {
+    const isActive = btn.dataset.logisticsTab === tab;
+    btn.classList.toggle('is-active', isActive);
+    if (isActive) {
+      btn.style.background = '#0f172a';
+      btn.style.color = '#fff';
+      btn.style.borderColor = '#0f172a';
+    } else {
+      btn.style.background = '';
+      btn.style.color = '';
+      btn.style.borderColor = '';
+    }
+  });
+  document.querySelectorAll('.logistics-tab-content').forEach(content => {
+    content.hidden = content.id !== `logistics-tab-${tab}`;
+  });
+}
+
 async function loadSettings() {
-  if (!can("settings.read")) return;
+  if (!can("settings.read") && !can("orders.read")) return;
   const settings = await request("/api/gaeru_ceo/settings");
   const form = document.querySelector("#settings-form");
-  form.elements.shippingNote.value = settings.shipping_note || "";
+  if (form && form.elements.shippingNote) {
+    form.elements.shippingNote.value = settings.shipping_note || "";
+  }
   const paymentMethodsLabel = settings.paymentMethods.map((method) => method === "cod" ? "COD" : (labels[method] || method.toUpperCase())).join(", ");
-  document.querySelector("#payment-provider-status").textContent =
-    `Đang kích hoạt tại trang đặt hàng: ${paymentMethodsLabel || 'Chưa bật kênh nào'}.`;
+  const providerStatusEl = document.querySelector("#payment-provider-status");
+  if (providerStatusEl) {
+    providerStatusEl.textContent = `Đang kích hoạt tại trang đặt hàng: ${paymentMethodsLabel || 'Chưa bật kênh nào'}.`;
+  }
 
   const syncPaymentEl = document.querySelector("#sync-summary-payment-status");
   if (syncPaymentEl) syncPaymentEl.textContent = paymentMethodsLabel || "Chưa kích hoạt kênh nào";
@@ -1149,19 +1179,29 @@ async function loadSettings() {
     }
   } catch (_e) {}
 
-  renderShippingRates(rates);
+  if (document.querySelector("#shipping-rate-list")) {
+    renderShippingRates(rates);
+  }
   if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
   applyPermissions();
 }
 
 document.addEventListener('click', event => {
+  const logBtn = event.target.closest('[data-logistics-tab]');
+  if (logBtn) {
+    event.preventDefault();
+    const tab = logBtn.dataset.logisticsTab;
+    switchLogisticsTab(tab);
+    if (state.currentView !== 'logistics') activateView('logistics');
+    return;
+  }
   const hubBtn = event.target.closest('[data-hub-tab]');
-  if (!hubBtn) return;
-  event.preventDefault();
-  const tab = hubBtn.dataset.hubTab;
-  if (tab === 'rates') activateView('settings');
-  else if (tab === 'shipping') activateView('shipping');
-  else if (tab === 'payments') activateView('payments');
+  if (hubBtn) {
+    event.preventDefault();
+    const tab = hubBtn.dataset.hubTab;
+    switchLogisticsTab(tab);
+    if (state.currentView !== 'logistics') activateView('logistics');
+  }
 });
 
 function renderShippingRates(rates) {
@@ -1207,12 +1247,13 @@ async function saveSettings(event) {
         shippingRates
       })
     });
-    showGlobal("Đã lưu cài đặt cửa hàng.");
+    showGlobal("Đã lưu cài đặt phí giao hàng thành công.");
+    await loadSettings();
   } catch (error) {
     setFeedback(form, error.message);
   } finally {
     submitButton.disabled = false;
-    submitButton.textContent = "Lưu cài đặt";
+    submitButton.textContent = "Lưu cài đặt phí giao hàng";
   }
 }
 
@@ -1251,6 +1292,10 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
 
 async function activateView(view, { updateHistory = true } = {}) {
   if (view === "owner") return activateView("overview", { updateHistory });
+  if (view === "shipping" || view === "payments") {
+    switchLogisticsTab(view);
+    return activateView("logistics", { updateHistory });
+  }
   const button = [...document.querySelectorAll('[data-view]')].find(item => item.dataset.view === view);
   if (!button || button.hidden || (!can(button.dataset.permission)&&!(view==='security'&&state.session?.mfaEnrollmentRequired))) return;
   const requestId = ++state.viewRequest;
@@ -1270,12 +1315,24 @@ async function activateView(view, { updateHistory = true } = {}) {
   try {
     if (button.dataset.view === "products") { await loadProducts(document.querySelector("#product-search").value.trim()); checkProductAddedNotice(); }
     if (button.dataset.view === "orders") await Promise.all([loadOrders(), loadSummary()]);
-    if (view === "payments") await window.GAERUConfiguration.mountPayments();
+    if (view === "logistics") {
+      await loadSettings();
+      if (window.GAERUConfiguration) {
+        await Promise.all([
+          window.GAERUConfiguration.mountShipping(),
+          window.GAERUConfiguration.mountPayments()
+        ]);
+      }
+    }
+    if (view === "payments") await window.GAERUConfiguration?.mountPayments();
     if (view === "oauth" && window.GAERUConfiguration) await window.GAERUConfiguration.mountOAuth();
-    if (view === "shipping") await window.GAERUConfiguration.mountShipping();
+    if (view === "shipping") await window.GAERUConfiguration?.mountShipping();
     if (button.dataset.view === "customers") await loadCustomers();
     if(view === "loyalty")await loadLoyaltyWorkspace();
-    if (button.dataset.view === "settings") {await loadSettings();if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();}
+    if (button.dataset.view === "settings") {
+      if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();
+      if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
+    }
     if (button.dataset.view === "overview") { await loadSummary(); await loadSystemHealth(); if (window.GAERUOwner && (state.session?.role === "owner" || state.user?.role === "owner")) await window.GAERUOwner.load(); }
     if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();
     if (view === "security" && window.GAERUSecurity) await window.GAERUSecurity.render(document.querySelector("#security-view"));
@@ -1487,10 +1544,14 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
   if(button){openOrderProcessing(button.dataset.processOrder,button);return;}
   const del=event.target.closest('[data-permanent-delete-order]');
   if(del){handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder);return;}
+});
+
+async function handleCarrierWaybillAction(event) {
   const createWaybillBtn = event.target.closest('[data-create-carrier-waybill]');
   if(createWaybillBtn){
     const orderId = createWaybillBtn.dataset.createCarrierWaybill;
-    const autoShip = document.querySelector(`[data-auto-ship="${CSS.escape(orderId)}"]`)?.checked;
+    const container = createWaybillBtn.closest('dialog') || createWaybillBtn.closest('article') || document;
+    const autoShip = container.querySelector(`[data-auto-ship="${CSS.escape(orderId)}"]`)?.checked;
     createWaybillBtn.disabled = true;
     createWaybillBtn.textContent = 'Đang tạo…';
     try {
@@ -1500,6 +1561,10 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
       });
       showGlobal(res.message || 'Đã tạo vận đơn thành công.');
       await loadOrders(state.orderPage);
+      const openDialog = document.getElementById('order-processing-dialog');
+      if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
+        openOrderProcessing(orderId);
+      }
     } catch(err) {
       if (err.message && err.message.includes('đang xử lý hoặc chưa rõ kết quả')) {
         const confirmRetry = window.confirm(err.message + '\n\nNếu bạn đã kiểm tra và xác nhận hãng chưa nhận được vận đơn, bấm OK để mở khóa và thử tạo lại ngay.');
@@ -1511,6 +1576,10 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
             });
             showGlobal(retryRes.message || 'Đã tạo vận đơn thành công.');
             await loadOrders(state.orderPage);
+            const openDialog = document.getElementById('order-processing-dialog');
+            if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
+              openOrderProcessing(orderId);
+            }
             return;
           } catch(retryErr) {
             showGlobal(retryErr.message, true);
@@ -1537,6 +1606,10 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
       });
       showGlobal(res.message || 'Đã hủy vận đơn.');
       await loadOrders(state.orderPage);
+      const openDialog = document.getElementById('order-processing-dialog');
+      if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
+        openOrderProcessing(orderId);
+      }
     } catch(err) {
       showGlobal(err.message, true);
     } finally {
@@ -1555,6 +1628,10 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
       });
       showGlobal(`Đồng bộ hành trình: ${res.statusDescription || res.status}`);
       await loadOrders(state.orderPage);
+      const openDialog = document.getElementById('order-processing-dialog');
+      if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
+        openOrderProcessing(orderId);
+      }
     } catch(err) {
       showGlobal(err.message, true);
     } finally {
@@ -1563,7 +1640,9 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
     }
     return;
   }
-});
+}
+document.addEventListener('click', handleCarrierWaybillAction);
+
 
 document.querySelector("#order-list").addEventListener("change", changeOrderControl);
 document.querySelector("#customer-search").addEventListener("input", (event) => {
