@@ -1,36 +1,356 @@
-.gaeru-action-busy{cursor:wait!important;opacity:.78;position:relative}.gaeru-action-busy::before,.gaeru-input-spinner{content:'';display:inline-block;width:15px;height:15px;flex:0 0 15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:middle;animation:gaeru-action-spin .7s linear infinite}.gaeru-action-busy::before{margin-right:8px}.gaeru-input-spinner{margin-left:8px;color:#0071e3}.gaeru-action-notices{position:fixed;right:20px;bottom:20px;z-index:2147483646;display:grid;gap:10px;width:min(420px,calc(100vw - 32px));pointer-events:none;font:14px/1.6 Arial,sans-serif}.gaeru-action-notice{display:flex;align-items:start;gap:14px;padding:15px 16px;background:#fff;color:#1d1d1f;border:1px solid #cce5d8;border-left:4px solid #21804d;border-radius:12px;box-shadow:0 8px 32px #0002;pointer-events:auto;overflow-wrap:anywhere}.gaeru-action-notice>span{flex:1;min-width:0}.gaeru-action-notice.is-error{border-color:#f3cfca;border-left-color:#b42318}.gaeru-action-notice>button{border:0;background:transparent;color:#6e6e73;font:22px/1 Arial,sans-serif;padding:2px;min-width:26px;min-height:26px;width:auto;cursor:pointer}@keyframes gaeru-action-spin{to{transform:rotate(360deg)}}@media(max-width:600px){.gaeru-action-notices{right:16px;bottom:max(16px,env(safe-area-inset-bottom));font-size:13px}}@media(prefers-reduced-motion:reduce){.gaeru-action-busy::before,.gaeru-input-spinner{animation:none}}
+/* GAERU Action Feedback & Notification System (Toasts, Popups & Form Validation) */
 
-input.is-invalid,select.is-invalid,textarea.is-invalid,
-input[data-invalid="true"],select[data-invalid="true"],textarea[data-invalid="true"],
-input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{
-  border-color:#ef4444!important;
-  box-shadow:0 0 0 3px rgba(239,68,68,.18)!important;
-  background-color:#fff9f9!important;
+.gaeru-action-busy {
+  cursor: wait !important;
+  opacity: .78;
+  position: relative;
 }
-.field-error-msg{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  color:#b91c1c;
-  background:#fef2f2;
-  border:1px solid #fecaca;
-  border-radius:8px;
-  padding:6px 12px;
-  font-size:12px;
-  font-weight:600;
-  margin-top:6px;
-  line-height:1.4;
-  animation:gaeru-field-shake .25s ease-in-out;
+.gaeru-action-busy::before,
+.gaeru-input-spinner {
+  content: '';
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: gaeru-action-spin .7s linear infinite;
 }
-.field-error-msg svg{
-  flex-shrink:0;
-  color:#ef4444;
+.gaeru-action-busy::before { margin-right: 8px; }
+.gaeru-input-spinner { margin-left: 8px; color: #0071e3; }
+
+/* Toast Notifications Container */
+.gaeru-action-notices {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147483646;
+  display: grid;
+  gap: 12px;
+  width: min(440px, calc(100vw - 32px));
+  pointer-events: none;
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
-@keyframes gaeru-field-shake{
-  0%,100%{transform:translateX(0)}
-  25%{transform:translateX(-3px)}
-  75%{transform:translateX(3px)}
+
+/* Individual Toast Item */
+.gaeru-action-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #1d1d1f;
+  border: 1px solid #e5e7eb;
+  border-left: 4.5px solid #10b981;
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.05);
+  pointer-events: auto;
+  overflow-wrap: anywhere;
+  animation: gaeru-toast-slide .28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity .2s, transform .2s;
 }
+
+.gaeru-action-notice > span {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.gaeru-action-notice > button {
+  border: 0;
+  background: transparent;
+  color: #9ca3af;
+  font: 20px/1 Arial, sans-serif;
+  padding: 0;
+  margin-top: -1px;
+  min-width: 24px;
+  min-height: 24px;
+  width: auto;
+  cursor: pointer;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s, background-color .15s;
+}
+.gaeru-action-notice > button:hover {
+  color: #111827;
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Toast States */
+.gaeru-action-notice.is-success {
+  border-color: #d1fae5;
+  border-left-color: #10b981;
+  background: #f0fdf4;
+}
+.gaeru-action-notice.is-error {
+  border-color: #fee2e2;
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+.gaeru-action-notice.is-warning {
+  border-color: #fef3c7;
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+.gaeru-action-notice.is-info {
+  border-color: #e0f2fe;
+  border-left-color: #0071e3;
+  background: #f8fafc;
+}
+
+/* Animations */
+@keyframes gaeru-action-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes gaeru-toast-slide {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes gaeru-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes gaeru-modal-pop {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Form Input Validation */
+input.is-invalid, select.is-invalid, textarea.is-invalid,
+input[data-invalid="true"], select[data-invalid="true"], textarea[data-invalid="true"],
+input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, .18) !important;
+  background-color: #fff9f9 !important;
+}
+
+.field-error-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+  line-height: 1.4;
+  animation: gaeru-field-shake .25s ease-in-out;
+}
+.field-error-msg svg {
+  flex-shrink: 0;
+  color: #ef4444;
+}
+
+@keyframes gaeru-field-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+/* GAERU Center Modal Popup & Dialogs (Alert, Confirm, Prompt) */
+.gaeru-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  animation: gaeru-modal-fade .2s ease-out;
+}
+
+.gaeru-modal-card {
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22), 0 8px 24px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 480px;
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  animation: gaeru-modal-pop .25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #111827;
+}
+
+.gaeru-modal-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.gaeru-modal-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gaeru-modal-icon-info {
+  background: #eff6ff;
+  color: #0071e3;
+}
+.gaeru-modal-icon-success {
+  background: #ecfdf5;
+  color: #10b981;
+}
+.gaeru-modal-icon-warning {
+  background: #fffbeb;
+  color: #f59e0b;
+}
+.gaeru-modal-icon-error,
+.gaeru-modal-icon.is-danger {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+.gaeru-modal-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.gaeru-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 6px 0;
+  line-height: 1.35;
+}
+
+.gaeru-modal-message {
+  font-size: 14px;
+  color: #4b5563;
+  line-height: 1.55;
+  margin: 0;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.gaeru-modal-input-wrap {
+  margin-bottom: 20px;
+}
+
+.gaeru-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #111827;
+  outline: none;
+  background: #ffffff;
+  transition: border-color .15s, box-shadow .15s;
+}
+.gaeru-modal-input:focus {
+  border-color: #0071e3;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.18);
+}
+
+.gaeru-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.gaeru-modal-btn {
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  border: none;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
+.gaeru-modal-btn-cancel {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+}
+.gaeru-modal-btn-cancel:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.gaeru-modal-btn-confirm.is-primary {
+  background: #0071e3;
+  color: #ffffff;
+}
+.gaeru-modal-btn-confirm.is-primary:hover {
+  background: #0077ed;
+  box-shadow: 0 4px 12px rgba(0, 113, 227, 0.28);
+}
+
+.gaeru-modal-btn-confirm.is-danger {
+  background: #dc2626;
+  color: #ffffff;
+}
+.gaeru-modal-btn-confirm.is-danger:hover {
+  background: #b91c1c;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.28);
+}
+
+/* Responsive & Mobile Optimization */
+@media (max-width: 600px) {
+  .gaeru-action-notices {
+    right: 12px;
+    left: 12px;
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: calc(100vw - 24px);
+    margin: 0 auto;
+    font-size: 13px;
+  }
+  .gaeru-modal-card {
+    padding: 20px 18px;
+    border-radius: 18px;
+    max-width: calc(100vw - 24px);
+  }
+  .gaeru-modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .gaeru-modal-btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gaeru-action-busy::before,
+  .gaeru-input-spinner,
+  .gaeru-action-notice,
+  .gaeru-modal-card,
+  .gaeru-modal-backdrop {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* Suppress bottom action notices when center popup / modal dialog is active */
 body:has(.product-success-popup-backdrop:not([hidden])) .gaeru-action-notices,
 body:has(#product-success-popup:not([hidden])) .gaeru-action-notices,

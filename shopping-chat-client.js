@@ -353,7 +353,7 @@
 
     root.addEventListener('click',async event=>{
       const button=event.target.closest('[data-chat-delete-file]');if(!button||!admin||!window.GAERUAdmin?.can('chat.files.delete'))return;
-      if(!window.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.'))return;
+      const okDelFile=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.',{danger:true,confirmText:'Xóa tệp'}):window.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.'));if(!okDelFile)return;
       button.disabled=true;
       try{const result=await request(base+'/'+id+'/files/'+encodeURIComponent(button.dataset.chatDeleteFile),{method:'DELETE',body:JSON.stringify({confirm:true})});feedback.textContent=result.message;messages.replaceChildren();await refresh();}
       catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}

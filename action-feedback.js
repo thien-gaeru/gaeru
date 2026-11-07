@@ -21,13 +21,15 @@
     return false;
   }
 
-  function notify(message, error = false) {
+  function notify(message, typeOrError = false, options = {}) {
     if (!message || isCenterPopupActive()) {
       if (region?.isConnected && isCenterPopupActive()) {
         try { region.replaceChildren(); } catch (_) { region.innerHTML = ''; }
       }
-      return;
+      return null;
     }
+    const isErr = typeOrError === true || typeOrError === 'error' || (typeof typeOrError === 'object' && typeOrError?.error);
+    const type = isErr ? 'error' : (typeof typeOrError === 'string' && ['success', 'warning', 'info'].includes(typeOrError) ? typeOrError : 'success');
     const host = [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
     if (!region?.isConnected) {
       region = document.createElement('div');
@@ -38,7 +40,7 @@
     }
     if (region.parentElement !== host) host.append(region);
     const item = document.createElement('div');
-    item.className = 'gaeru-action-notice' + (error ? ' is-error' : '');
+    item.className = 'gaeru-action-notice' + (isErr ? ' is-error' : '') + (' is-' + type);
     const messageNode = document.createElement('span');
     messageNode.textContent = String(message).slice(0, 600);
     const close = document.createElement('button');
@@ -49,7 +51,132 @@
     item.append(messageNode, close);
     region.append(item);
     while (region.children.length > 3) region.firstElementChild.remove();
-    setTimeout(() => item.remove(), error ? 10000 : 6500);
+    const duration = options?.duration || (isErr ? 9000 : type === 'warning' ? 7500 : 5500);
+    setTimeout(() => item.remove(), duration);
+    return item;
+  }
+
+  function showModal(opts = {}) {
+    return new Promise(resolve => {
+      if (typeof document === 'undefined' || !document.body) {
+        return resolve(opts.mode === 'confirm' ? false : opts.mode === 'prompt' ? null : undefined);
+      }
+      const mode = opts.mode || 'alert'; // 'alert' | 'confirm' | 'prompt'
+      const type = opts.type || (opts.danger ? 'error' : 'info');
+      let title = opts.title;
+      if (!title) {
+        if (mode === 'confirm') title = opts.danger ? 'Xác nhận xóa / Thay đổi' : 'Xác nhận thao tác';
+        else if (mode === 'prompt') title = 'Yêu cầu xác nhận';
+        else title = type === 'error' ? 'Thông báo lỗi' : type === 'success' ? 'Thành công' : 'Thông báo';
+      }
+      const confirmText = opts.confirmText || (mode === 'alert' ? 'Đã hiểu' : opts.danger ? 'Xác nhận' : 'Đồng ý');
+      const cancelText = opts.cancelText || 'Hủy bỏ';
+      const message = opts.message || '';
+      const defaultValue = opts.defaultValue ?? '';
+      const placeholder = opts.placeholder || '';
+      const isPassword = Boolean(opts.isPassword || opts.type === 'password');
+      const danger = Boolean(opts.danger || type === 'error');
+
+      let iconSvg = '';
+      if (danger) {
+        iconSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+      } else if (type === 'warning') {
+        iconSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
+      } else if (type === 'success') {
+        iconSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+      } else {
+        iconSvg = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
+      }
+
+      const backdrop = document.createElement('div');
+      backdrop.className = 'gaeru-modal-backdrop gaeru-center-popup';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+
+      const card = document.createElement('div');
+      card.className = 'gaeru-modal-card gaeru-modal-' + type + (danger ? ' is-danger-card' : '');
+
+      let inputSection = '';
+      if (mode === 'prompt') {
+        const inputType = isPassword ? 'password' : 'text';
+        inputSection = `<div class="gaeru-modal-input-wrap"><input class="gaeru-modal-input" type="${inputType}" value="${String(defaultValue).replace(/"/g, '&quot;')}" placeholder="${String(placeholder).replace(/"/g, '&quot;')}" autocomplete="off" /></div>`;
+      }
+
+      const isAlert = mode === 'alert';
+      card.innerHTML = `
+        <div class="gaeru-modal-header">
+          <div class="gaeru-modal-icon gaeru-modal-icon-${type}${danger ? ' is-danger' : ''}">${iconSvg}</div>
+          <div class="gaeru-modal-text">
+            <h3 class="gaeru-modal-title">${String(title).replace(/</g, '&lt;')}</h3>
+            <p class="gaeru-modal-message">${String(message).replace(/</g, '&lt;')}</p>
+          </div>
+        </div>
+        ${inputSection}
+        <div class="gaeru-modal-actions">
+          ${!isAlert ? `<button type="button" class="gaeru-modal-btn gaeru-modal-btn-cancel">${String(cancelText).replace(/</g, '&lt;')}</button>` : ''}
+          <button type="button" class="gaeru-modal-btn gaeru-modal-btn-confirm ${danger ? 'is-danger' : 'is-primary'}">${String(confirmText).replace(/</g, '&lt;')}</button>
+        </div>
+      `;
+
+      backdrop.append(card);
+      document.body.append(backdrop);
+
+      const input = card.querySelector?.('.gaeru-modal-input');
+      const confirmBtn = card.querySelector?.('.gaeru-modal-btn-confirm');
+      const cancelBtn = card.querySelector?.('.gaeru-modal-btn-cancel');
+
+      let resolved = false;
+      const cleanup = (result) => {
+        if (resolved) return;
+        resolved = true;
+        document.removeEventListener('keydown', onKeyDown, true);
+        backdrop.remove();
+        resolve(result);
+      };
+
+      const handleConfirm = () => {
+        if (mode === 'prompt') cleanup(input ? input.value : '');
+        else if (mode === 'confirm') cleanup(true);
+        else cleanup(undefined);
+      };
+
+      const handleCancel = () => {
+        if (mode === 'prompt') cleanup(null);
+        else if (mode === 'confirm') cleanup(false);
+        else cleanup(undefined);
+      };
+
+      if (confirmBtn) confirmBtn.onclick = handleConfirm;
+      if (cancelBtn) cancelBtn.onclick = handleCancel;
+
+      backdrop.onclick = (e) => {
+        if (e.target === backdrop) handleCancel();
+      };
+
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCancel();
+        } else if (e.key === 'Enter') {
+          if (!input || e.target === input) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleConfirm();
+          }
+        }
+      };
+      document.addEventListener('keydown', onKeyDown, true);
+
+      setTimeout(() => {
+        if (input && typeof input.focus === 'function') {
+          input.focus();
+          try { input.select(); } catch (_) {}
+        } else if (confirmBtn && typeof confirmBtn.focus === 'function') {
+          confirmBtn.focus();
+        }
+      }, 30);
+    });
   }
 
   function context(event) {
@@ -58,9 +185,6 @@
       ? event.submitter || event.target.querySelector('button[type="submit"],button:not([type]),input[type="submit"]')
       : event.target.closest?.('button,input[type="submit"],input[type="button"]');
     if (!button || button.closest('.gaeru-action-notices') || button.hasAttribute('data-no-action-feedback') || button.form?.hasAttribute?.('data-no-action-feedback')) return null;
-    // A submit can follow an async delegated click before its settle timer.
-    // Keep the original aria snapshot for that button rather than snapshotting
-    // the busy state installed by the click and restoring it permanently.
     const existing = buttons.get(button) || [...active].find(action => action.button === button);
     if (existing) { events.set(event, existing); return existing; }
     const ctx = {
@@ -96,7 +220,6 @@
 
   function finish(ctx) {
     if (--ctx.pending) return;
-    // Keep one action across chained fetch calls and their DOM updates.
     ctx.finishTimer = setTimeout(() => settle(ctx), 0);
   }
 
@@ -111,6 +234,19 @@
       }
       ctx.spinner?.remove();
     }
+
+    // Clear leftover transient "Đang..." loading messages from status nodes in the form
+    if (ctx.form && typeof ctx.form.querySelectorAll === 'function') {
+      try {
+        const statusesInForm = ctx.form.querySelectorAll(statusSelector);
+        for (const node of statusesInForm) {
+          if (/^Đang\b/u.test(text(node))) {
+            node.textContent = '';
+          }
+        }
+      } catch (_) {}
+    }
+
     const statuses = [...document.querySelectorAll(statusSelector)]
       .filter(node => text(node) && text(node) !== ctx.before.get(node) && !/^Đang\b/u.test(text(node)));
     const local = statuses.find(node => ctx.form?.contains(node));
@@ -138,13 +274,11 @@
     const promise = Promise.resolve(result).then(value => { finish(ctx); return value; }, error => {
       ctx.error = error.message || 'Không thể thực hiện thao tác.';
       finish(ctx);
-      // The application may already have handled the request; never retry a mutation here.
       console.error('Action failed:', error.message);
     });
     return promise;
   }
 
-  
   // --- Global Form Field Validation (Phone & Email) ---
   function isPhoneInput(input) {
     if (!input || input.tagName !== 'INPUT') return false;
@@ -407,7 +541,6 @@
     }
   };
 
-
   // Bind capture listeners on document for instant feedback
   add.call(document, 'blur', event => {
     const target = event.target;
@@ -433,7 +566,22 @@
     }
   }, true);
 
+  const notifyApi = Object.freeze({
+    toast: (msg, type = 'success', opts = {}) => notify(msg, type, opts),
+    success: (msg, opts = {}) => notify(msg, 'success', opts),
+    error: (msg, opts = {}) => notify(msg, 'error', opts),
+    warning: (msg, opts = {}) => notify(msg, 'warning', opts),
+    info: (msg, opts = {}) => notify(msg, 'info', opts),
+    alert: (msg, opts = {}) => showModal({ ...opts, message: msg, mode: 'alert' }),
+    confirm: (msg, opts = {}) => showModal({ ...opts, message: msg, mode: 'confirm' }),
+    prompt: (msg, defaultValue = '', opts = {}) => showModal({ ...opts, message: msg, defaultValue, mode: 'prompt' }),
+    showModal
+  });
+
   if (typeof window !== 'undefined') {
+    window.GAERUNotify = notifyApi;
+    window.notify = (msg, err = false) => notify(msg, err ? 'error' : 'success');
+    window.showToast = (msg, type, opts) => notify(msg, type, opts);
     window.GAERUValidation = Object.freeze({
       validatePhone: validatePhoneNumber,
       validateEmail: validateEmailAddress,

@@ -757,7 +757,7 @@ async function renderCheckout() {
   const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
   const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
   let voucherRevision=0,voucherTimer;
-  const validateVoucher=async()=>{const revision=++voucherRevision,code=voucherInput.value.trim().toUpperCase();if(!code)return false;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(revision!==voucherRevision||voucherInput.value.trim().toUpperCase()!==code)return false;if(quote.subtotalVnd!==total)throw Error('Giá đã thay đổi. Tải lại trang trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;updateShippingTotal();return true;}catch(error){if(revision===voucherRevision){resetVoucher();voucherFeedback.textContent=error.message;}return false;}};
+  const validateVoucher=async()=>{const revision=++voucherRevision,code=voucherInput.value.trim().toUpperCase();if(!code)return false;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(revision!==voucherRevision||voucherInput.value.trim().toUpperCase()!==code)return false;if(quote.subtotalVnd!==total)throw Error('Giá đã thay đổi. Tải lại trang trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;if(window.GAERUNotify?.toast)window.GAERUNotify.toast(quote.message,'success');updateShippingTotal();return true;}catch(error){if(revision===voucherRevision){resetVoucher();voucherFeedback.textContent=error.message;if(window.GAERUNotify?.toast)window.GAERUNotify.toast(error.message,'error');}return false;}};
   voucherInput.addEventListener('input',()=>{voucherRevision++;clearTimeout(voucherTimer);resetVoucher();voucherFeedback.textContent='';if(voucherInput.value.trim())voucherTimer=setTimeout(()=>validateVoucher(),650);});
   voucherInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(voucherTimer);void validateVoucher();}});
   root.querySelector('[data-voucher-wallet]').addEventListener('click',event=>{window.GAERUVoucherWallet?.open({request:apiRequest,total,opener:event.currentTarget,onSelect:async code=>{voucherRevision++;clearTimeout(voucherTimer);voucherInput.value=code;resetVoucher();voucherFeedback.textContent='';if(!code)return {ok:true};const ok=await validateVoucher();return {ok,message:voucherFeedback.textContent};}});});
@@ -950,7 +950,7 @@ function bindGlobalControls() {
 
   document.addEventListener("click", (event) => {
     const buyNow=event.target.closest('[data-buy-now]');
-    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0){try{window.GAERUAnalytics?.trackAddToCart?.({variantId:row.variant.id,sku:row.variant.sku,name:row.product.name+' - '+row.variant.name,category:row.product.category,priceVnd:row.variant.priceVnd,quantity:1});}catch(_){}location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));}return;}
+    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0){location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));}return;}
     const choose=event.target.closest('[data-choose-cart]');
     if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
     const bundleBtn = event.target.closest("[data-add-bundle]");
@@ -1014,7 +1014,24 @@ function bindGlobalControls() {
     const removeButton = event.target.closest("[data-remove], [data-mini-remove]");
     if (removeButton) {
       const variantId = removeButton.dataset.remove || removeButton.dataset.miniRemove;
-      const cart = readCart().filter((item) => item.variantId !== variantId);
+      const currentCart = readCart();
+      const removedItem = currentCart.find((item) => item.variantId === variantId);
+      if (removedItem) {
+        const row = cartRows([removedItem])[0];
+        if (row) {
+          try {
+            window.GAERUAnalytics?.trackRemoveFromCart?.({
+              variantId: row.variant.id,
+              sku: row.variant.sku,
+              name: `${row.product.name} - ${row.variant.name}`,
+              category: row.product.category,
+              priceVnd: row.variant.priceVnd,
+              quantity: removedItem.quantity
+            });
+          } catch (_) {}
+        }
+      }
+      const cart = currentCart.filter((item) => item.variantId !== variantId);
       if (writeCart(cart)) renderCart();
       return;
     }

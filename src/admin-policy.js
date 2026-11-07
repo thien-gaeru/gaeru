@@ -20,7 +20,8 @@ function adminPolicy(req, res, next) {
   else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
   else if (/^\/orders(\/|$)/.test(path)) permission = "orders.read";
   else if (/^\/customers(\/|$)/.test(path)) permission = read ? "customers.read" : "customers.write";
-  else if (path === "/settings" || path === "/google-analytics") permission = read ? "settings.read" : "settings.write";
+  else if (path === "/google-analytics") return next();
+  else if (path === "/settings") permission = read ? "settings.read" : "settings.write";
   // Domain routers enforce their own operation-specific permissions.
   else if (/^\/(staff|departments|audit-logs|warehouses|inventory|suppliers|purchase-orders|goods-receipts|finance|reports|shipping|barcode|realtime-sse|marketplace|forecast|cod-returns)(\/|$)/.test(path)) return next();
   else return res.status(404).json({ error: "Không tìm thấy chức năng quản trị." });

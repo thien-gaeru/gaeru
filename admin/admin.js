@@ -78,8 +78,13 @@ async function request(url, options = {}) {
 
 function showGlobal(message, isError = false) {
   const feedback = document.querySelector("#global-feedback");
-  feedback.textContent = message;
-  feedback.classList.toggle("is-error", isError);
+  if (feedback) {
+    feedback.textContent = message;
+    feedback.classList.toggle("is-error", isError);
+  }
+  if (window.GAERUNotify?.toast) {
+    window.GAERUNotify.toast(message, isError ? "error" : "success");
+  }
 }
 
 function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành công") {
@@ -936,8 +941,12 @@ async function updateOrder(event) {
   if (form.dataset.saving) return;
   const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
   if (!order) return;
-  if (form.elements.status.value === "cancelled" && order.status !== "cancelled"
-      && !window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`)) return;
+  if (form.elements.status.value === "cancelled" && order.status !== "cancelled") {
+    const ok = await (window.GAERUNotify?.confirm
+      ? window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
+      : window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`));
+    if (!ok) return;
+  }
   const feedback = form.querySelector('[role="alert"]');
   submitButton.disabled = true;
   form.dataset.saving = "true";
@@ -1324,19 +1333,30 @@ document.addEventListener("submit", async (event) => {
   const feedback = document.querySelector("#ga-form-feedback");
   const idVal = form.elements.gaMeasurementId.value.trim();
   if (idVal && !/^G-[A-Za-z0-9]+$/i.test(idVal)) {
-    if (feedback) feedback.textContent = "Measurement ID phải có định dạng G-XXXXXXXXXX (ví dụ G-ABC1234XYZ).";
+    if (feedback) {
+      feedback.textContent = "Measurement ID phải có định dạng G-XXXXXXXXXX (ví dụ G-ABC1234XYZ).";
+      feedback.style.color = "#dc2626";
+    }
     return;
   }
   if (btn) btn.disabled = true;
-  if (feedback) feedback.textContent = "Đang lưu cấu hình Google Analytics…";
+  if (feedback) {
+    feedback.textContent = "Đang lưu cấu hình Google Analytics…";
+    feedback.style.color = "#6b7280";
+  }
   try {
     const res = await request("/api/gaeru_ceo/google-analytics", {
       method: "PUT",
       body: JSON.stringify({ gaMeasurementId: idVal })
     });
+    if (feedback) feedback.textContent = "";
     showGlobal(res.message || "Đã lưu cài đặt Google Analytics.");
-    } catch (err) {
-    if (feedback) feedback.textContent = err.message;
+    await loadGoogleAnalyticsSettings();
+  } catch (err) {
+    if (feedback) {
+      feedback.textContent = err.message || "Lỗi lưu cấu hình Google Analytics.";
+      feedback.style.color = "#dc2626";
+    }
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -1580,7 +1600,11 @@ document.querySelector("#variant-list").addEventListener("click", async (event) 
     fillVariantForm(state.currentProduct.variants.find((variant) => variant.id === edit.dataset.editVariant));
     return;
   }
-  if (remove && window.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa.")) {
+  if (remove) {
+    const ok = await (window.GAERUNotify?.confirm
+      ? window.GAERUNotify.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa.", { danger: true, confirmText: "Xóa phiên bản" })
+      : window.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa."));
+    if (!ok) return;
     if (remove.disabled) return;
     remove.disabled = true;
     try {
@@ -1706,7 +1730,10 @@ async function handleCarrierWaybillAction(event) {
   const cancelWaybillBtn = event.target.closest('[data-cancel-waybill]');
   if(cancelWaybillBtn){
     const orderId = cancelWaybillBtn.dataset.cancelWaybill;
-    if(!window.confirm('Hủy mã vận đơn này trên hệ thống của hãng?')) return;
+    const ok = await (window.GAERUNotify?.confirm
+      ? window.GAERUNotify.confirm('Hủy mã vận đơn này trên hệ thống của hãng?', { danger: true, confirmText: 'Hủy mã vận đơn' })
+      : window.confirm('Hủy mã vận đơn này trên hệ thống của hãng?'));
+    if (!ok) return;
     cancelWaybillBtn.disabled = true;
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/cancel-waybill`, {
@@ -1756,7 +1783,9 @@ async function handleCarrierWaybillAction(event) {
     const orderId = confirmDeliveredBtn ? btn.dataset.confirmCarrierDelivered : btn.dataset.confirmCarrierCancelled;
     const targetStatus = confirmDeliveredBtn ? "delivered" : "cancelled";
     const labelText = targetStatus === "delivered" ? "Đã giao hàng" : "Đã hủy vận đơn";
-    const note = window.prompt("Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):", "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase());
+    const note = await (window.GAERUNotify?.prompt
+      ? window.GAERUNotify.prompt("Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):", "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase(), { title: "Bằng chứng đối chiếu vận đơn" })
+      : window.prompt("Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):", "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase()));
     if (!note || note.trim().length < 10) {
       if (note !== null) showGlobal("Ghi chú đối chiếu cổng hãng cần ít nhất 10 ký tự.", true);
       return;
@@ -1823,13 +1852,21 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     if (toggleButton) {
       const active = toggleButton.dataset.active === "true";
-      if (active && !window.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập.")) return;
+      if (active) {
+        const ok = await (window.GAERUNotify?.confirm
+          ? window.GAERUNotify.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập.", { danger: true, confirmText: "Khóa tài khoản" })
+          : window.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập."));
+        if (!ok) return;
+      }
       await toggleCustomer(toggleButton.dataset.customerToggle, active);
       return;
     }
     const softDeleteBtn = event.target.closest("[data-customer-soft-delete]");
     if (softDeleteBtn) {
-      if (!window.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập.")) return;
+      const ok = await (window.GAERUNotify?.confirm
+        ? window.GAERUNotify.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập.", { danger: true, confirmText: "Xóa tạm thời" })
+        : window.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập."));
+      if (!ok) return;
       await request(`/api/gaeru_ceo/customers/${encodeURIComponent(softDeleteBtn.dataset.customerSoftDelete)}/soft-delete`, {
         method: "POST",
         body: JSON.stringify({ reason: "Quản trị viên xóa tạm thời" })
@@ -1850,7 +1887,9 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     const permDeleteBtn = event.target.closest("[data-customer-permanent-delete]");
     if (permDeleteBtn) {
-      const password = window.prompt("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:");
+      const password = await (window.GAERUNotify?.prompt
+        ? window.GAERUNotify.prompt("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:", "", { danger: true, isPassword: true, title: "Xác thực xóa vĩnh viễn tài khoản", confirmText: "Xác thực & Xóa" })
+        : window.prompt("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:"));
       if (!password || !password.trim()) return;
       await request(`/api/gaeru_ceo/customers/${encodeURIComponent(permDeleteBtn.dataset.customerPermanentDelete)}/permanent-delete`, {
         method: "POST",
@@ -2119,7 +2158,9 @@ async function handleOrderPermanentDeleteUI(orderId) {
   const order = state.orders.find(o => o.id === orderId) || { id: orderId, orderNumber: orderId };
   const confirmed = await confirmOrderPermanentDeletion(order);
   if (!confirmed) return;
-  const password = window.prompt("CẢNH BÁO: Xóa vĩnh viễn đơn hàng " + (order.orderNumber || orderId) + "?\nĐơn hàng và các liên kết sẽ bị xóa hoàn toàn khỏi hệ thống!\n\nNhập mật khẩu quản trị viên để xác thực:");
+  const password = await (window.GAERUNotify?.prompt
+    ? window.GAERUNotify.prompt("CẢNH BÁO: Xóa vĩnh viễn đơn hàng " + (order.orderNumber || orderId) + "?\nĐơn hàng và các liên kết sẽ bị xóa hoàn toàn khỏi hệ thống!\n\nNhập mật khẩu quản trị viên để xác thực:", "", { danger: true, isPassword: true, title: "Nhập mật khẩu quản trị", confirmText: "Xác nhận xóa đơn" })
+    : window.prompt("CẢNH BÁO: Xóa vĩnh viễn đơn hàng " + (order.orderNumber || orderId) + "?\nĐơn hàng và các liên kết sẽ bị xóa hoàn toàn khỏi hệ thống!\n\nNhập mật khẩu quản trị viên để xác thực:"));
   if (!password || !password.trim()) return;
   try {
     const csrf = await request('/api/csrf');
