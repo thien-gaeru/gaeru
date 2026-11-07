@@ -267,3 +267,9 @@ async function shutdown() {
 pool.on("error", (error) => console.error("Unexpected database pool error:", errorSummary(error)));
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection in server runtime:", errorSummary(reason));
+});
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception in server runtime:", errorSummary(error));
+});

@@ -2005,7 +2005,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         const autoApproveToProcessing = paymentStatusChanged && update.paymentStatus === "paid" && current.payment_method !== "cod" && ["pending", "confirmed"].includes(current.status) && (!update.status || ["pending", "confirmed", "processing"].includes(update.status));
-        const targetStatus = autoApproveToProcessing ? "processing" : (update.status ?? current.status);
+        let targetStatus = autoApproveToProcessing ? "processing" : (update.status ?? current.status);
         const targetPaymentStatus = update.paymentStatus ?? current.payment_status;
         const shippingFee = update.shippingFeeVnd ?? current.shipping_fee_vnd;
         const shippingFeeChanged = update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd;
@@ -2070,9 +2070,21 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           throw error;
         }
         if (update.paymentStatus === "paid" && current.payment_method === "cod" && targetStatus !== "completed") {
-          const error = new Error("Đơn COD chỉ được ghi nhận đã thanh toán sau khi giao hàng.");
-          error.status = 409;
-          throw error;
+          const activeCarrierShipmentPeek = (await client.query(
+            "SELECT id, carrier_id, tracking_number, status, cod_amount_vnd, cod_settlement_status FROM carrier_shipments WHERE order_id = $1 AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1",
+            [current.id]
+          )).rows[0] || null;
+          const hasDeliveredShipment = (activeCarrierShipmentPeek && activeCarrierShipmentPeek.status === 'delivered') || current.delivered_at;
+          const hasValidReconRef = update.reconciliationRef && String(update.reconciliationRef).trim().length >= 4;
+          if (hasDeliveredShipment && hasValidReconRef && (current.status === 'shipped' || targetStatus === 'shipped')) {
+            targetStatus = "completed";
+            update.status = "completed";
+            update.confirmReceived = true;
+          } else {
+            const error = new Error("Đơn COD chỉ được ghi nhận đã thanh toán sau khi giao hàng.");
+            error.status = 409;
+            throw error;
+          }
         }
         if (targetStatus && ["confirmed", "processing", "shipped"].includes(targetStatus) && current.status === "pending") {
           const hasAllocations = (await client.query("SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1", [current.id])).rows.length > 0;
@@ -2193,10 +2205,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
-            shipping_fee_vnd=$4, total_vnd=$5, updated_at=now()
+            shipping_fee_vnd=$4, total_vnd=$5, delivered_at=CASE WHEN $2 = 'completed' THEN COALESCE(delivered_at, now()) ELSE delivered_at END, updated_at=now()
            WHERE id=$1 RETURNING id, status, payment_status AS "paymentStatus",
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
-          [current.id, (autoApproveToProcessing ? "processing" : update.status) || null, update.paymentStatus || null, shippingFee, total]
+          [current.id, (autoApproveToProcessing ? "processing" : (update.status ?? targetStatus)) || null, update.paymentStatus || null, shippingFee, total]
         );
         await audit(client, { actor: safeActor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         if ((targetStatus === 'completed' || updated.rows[0].status === 'completed') && (targetPaymentStatus === 'paid' || updated.rows[0].paymentStatus === 'paid')) {

@@ -1756,18 +1756,25 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
           providerTransactionRef: z.string().trim().min(4).max(120),
           declaredPayoutVnd: z.number().int().positive().max(20_000_000_000),
           method: z.enum(['cash', 'bank_transfer']).optional().default('bank_transfer'),
-          payoutPeriod: z.string().trim().max(80).optional().default(''),
-          evidenceRef: z.string().trim().max(200).optional().default(''),
+          payoutPeriod: z.string().trim().max(80).optional(),
+          settlementPeriod: z.string().trim().max(80).optional(),
+          evidenceRef: z.string().trim().max(200).optional(),
+          statementReference: z.string().trim().max(200).optional(),
           settledAt: z.string().trim().max(64).optional(),
           note: z.string().trim().max(500).optional().default(''),
           allocations: z.array(z.object({
             orderId: z.string().uuid(),
             amountVnd: z.number().int().positive().max(2_000_000_000)
-          }).strict()).min(1).max(100)
-        }).strict().parse(req.body || {});
+          })).min(1).max(100)
+        }).parse(req.body || {});
+
+        const finalPayoutPeriod = (body.payoutPeriod || body.settlementPeriod || '').trim();
+        const finalEvidenceRef = (body.evidenceRef || body.statementReference || '').trim();
 
         const result = await settleCarrierCodBatch(pool, {
           ...body,
+          payoutPeriod: finalPayoutPeriod,
+          evidenceRef: finalEvidenceRef,
           actor: req.admin,
           finance
         });

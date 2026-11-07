@@ -995,10 +995,18 @@ async function updateOrder(event) {
   submitButton.textContent = "Đang cập nhật…";
   feedback.textContent = "";
   const payload = {};
-  const targetStatus = form.elements.status.value;
+  let targetStatus = form.elements.status.value;
   let saved=false;
-  if (targetStatus !== order.status) payload.status = targetStatus;
   const paymentField = form.elements.paymentStatus;
+  const reconValue = form.elements.reconciliationRef?.value.trim() || "";
+  if (order.paymentMethod === "cod" && (reconValue || paymentField?.value === "paid")) {
+    if (order.status === "shipped" && targetStatus !== "completed") {
+      targetStatus = "completed";
+      form.elements.status.value = "completed";
+      if (form.elements.status.options) [...form.elements.status.options].forEach(o => o.selected = (o.value === "completed"));
+    }
+  }
+  if (targetStatus !== order.status) payload.status = targetStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
   if (targetStatus === "completed" && order.paymentMethod === "cod" && can("payments.write")) {
     payload.confirmReceived = true;
@@ -2250,8 +2258,8 @@ document.getElementById("cod-batch-form")?.addEventListener("submit", async (eve
       providerTransactionRef: form.elements.providerTransactionRef.value.trim(),
       declaredPayoutVnd: Number(form.elements.declaredPayoutVnd.value),
       method: form.elements.method.value,
-      payoutPeriod: form.elements.payoutPeriod.value.trim(),
-      evidenceRef: form.elements.evidenceRef.value.trim(),
+      payoutPeriod: (form.elements.payoutPeriod?.value || form.elements.settlementPeriod?.value || '').trim() || undefined,
+      evidenceRef: (form.elements.evidenceRef?.value || form.elements.statementReference?.value || '').trim() || undefined,
       note: form.elements.note.value.trim(),
       allocations: chosen.map(s => ({ orderId: s.orderId, amountVnd: Number(s.orderTotalVnd) || Number(s.codAmountVnd) }))
     };

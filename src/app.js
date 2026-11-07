@@ -587,8 +587,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       message: isProd ? sanitizeErrorMessage(error.message) : error.message,
       ...(isProd ? {} : { stack: error.stack })
     });
-    const isAdminRoute = Boolean(req && ((typeof req.originalUrl === 'string' && /^\/api\/gaeru_ceo(?:\/|$)/i.test(req.originalUrl)) || (typeof req.path === 'string' && /^\/gaeru_ceo(?:\/|$)/i.test(req.path)) || req.admin));
-    res.status(500).json({ error: isAdminRoute ? ("Lỗi hệ thống: " + sanitizeErrorMessage(error.message)) : "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
+    const isAdminAuthenticated = Boolean(req && (req.admin || req.session?.admin));
+    res.status(500).json({ error: isAdminAuthenticated ? ("Lỗi hệ thống: " + sanitizeErrorMessage(error.message)) : "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
   });
 
   return app;

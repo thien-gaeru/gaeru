@@ -429,7 +429,7 @@ async function executeViettelRequest(settings, buildRequestFn, { fetcher = fetch
 
   let { response, parsed } = await buildRequestFn(activeToken);
 
-  const isInvalidToken = parsed && (parsed.status === 201 || parsed.status === 203 || parsed.status === 204 || (typeof parsed.message === 'string' && /token\s*invalid/i.test(parsed.message)));
+  const isInvalidToken = parsed && (parsed.status === 201 || parsed.status === 203 || (typeof parsed.message === 'string' && /token\s*invalid/i.test(parsed.message)));
   if (isInvalidToken && !secret.startsWith('eyJ')) {
     try {
       const loginUrl = 'https://partner.viettelpost.vn/v2/user/LoginVTP';
