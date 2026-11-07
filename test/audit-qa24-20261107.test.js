@@ -550,19 +550,37 @@ test('QA11, QA12, QA13, QA16, QA17 & QA22: COD delivery vs settlement separation
     'unsettled'
   );
 
-  // --- QA12 (P1-10 & P0-01): Finance role cannot mark carrier-COD paid without real reconciliationRef; settle-cod creates 1 receipt ---
+  // --- QA12: Finance role can mark delivered carrier-COD paid/completed freely without manual reconciliationRef ---
   currentActor = {
     username: 'finance_user',
     role: 'finance',
     source: 'staff',
     permissions: ['orders.read', 'orders.write', 'payments.write', 'finance.read']
   };
-  const missingRefPatch = await fetch(`${base}/gaeru_ceo/orders/${codOrder.id}`, {
+
+  const codOrderNoRef = (
+    await pool.query(
+      `INSERT INTO orders(order_number, customer_id, customer_name, email, phone, address, city, payment_method, payment_status, status, delivered_at, subtotal_vnd, shipping_fee_vnd, total_vnd)
+       VALUES ('GR-QA12-NO-REF', $1, 'Khách QA12', 'qa12@example.invalid', '0911000012', '88 Nguyễn Huệ', 'Hồ Chí Minh', 'cod', 'pending', 'shipped', now(), 400000, 25000, 425000)
+       RETURNING id`,
+      [cust.id]
+    )
+  ).rows[0];
+  await pool.query(
+    `INSERT INTO carrier_shipments(order_id, carrier_id, tracking_number, status, cod_amount_vnd)
+     VALUES ($1, 'viettel', 'VTP-QA12-NO-REF', 'delivered', 425000)`,
+    [codOrderNoRef.id]
+  );
+
+  const missingRefPatch = await fetch(`${base}/gaeru_ceo/orders/${codOrderNoRef.id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ status: 'completed', paymentStatus: 'paid', confirmReceived: true })
   });
-  assert.equal(missingRefPatch.status, 409, 'P1-10: Carrier COD cannot be marked paid by checkbox without real reconciliationRef');
+  assert.equal(missingRefPatch.status, 200, 'Carrier COD can be marked completed and paid freely without manual reconciliationRef');
+  const noRefJson = await missingRefPatch.json();
+  assert.equal(noRefJson.order.status, 'completed');
+  assert.equal(noRefJson.order.paymentStatus, 'paid');
 
   const wrongAmountSettle = await fetch(`${base}/gaeru_ceo/shipping/orders/${codOrder.id}/settle-cod`, {
     method: 'POST',

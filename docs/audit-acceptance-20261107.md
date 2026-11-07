@@ -34,6 +34,13 @@
    - Bổ sung nút **Tra cứu trên cổng hãng ↗** và **Đối chiếu cổng hãng (Đã giao / Đã hủy)**.
    - Xử lý thông điệp `"Đơn hàng đã hủy!"` (mã 205) từ Viettel Post là hủy thành công; loại bỏ mã 204 khỏi điều kiện `isInvalidToken` để tránh refresh token không cần thiết.
 
+4. **Gỡ bỏ bắt buộc đối soát COD thủ công (Tối ưu hóa trải nghiệm xử lý đơn hàng):**
+   - **Yêu cầu người dùng:** Không ép buộc nhập mã giao dịch/sao kê ngân hàng khi hoàn tất đơn COD; cho phép quản trị viên/chủ shop chuyển trạng thái sang "Hoàn tất" và ghi nhận "Đã thanh toán" tự do trong modal xử lý đơn hàng mà không bị chặn lỗi 409 hoặc lỗi hệ thống 500.
+   - **Xử lý:**
+     * Trong Modal "Xử lý đơn hàng" (`admin/admin.js`): Ô nhập mã đối soát chuyển thành tùy chọn (`placeholder="Tùy chọn: Nhập mã đối soát nếu có"`, `required = false`). Khi bấm "Hoàn tất" hoặc chọn "Đã thanh toán", hệ thống tự động gán `paymentStatus = "paid"` và `confirmReceived = true`, không chặn lỗi "Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng".
+     * Tại backend (`src/store-api.js`): Gỡ bỏ hoàn toàn điều kiện bắt buộc `reconciliationRef >= 4` ký tự. Nếu để trống hoặc không nhập, hệ thống tự động chuẩn hóa mã đối soát mặc định dạng `COD-${order_number}` hoặc `COD-VERIFY-${order_number}`, ghi nhận phiếu thu `sales_receipts` nguyên tử và chốt hoàn tất đơn trơn tru.
+     * Tại hàm đối soát giao vận (`src/shipping-management.js`): Tự động fallback mã đối soát an toàn nếu thiếu, bảo đảm không ném lỗi 400.
+
 ---
 
 ## 2. Các Hạng Mục Kiểm Toán Đã Xử Lý (P0-01 đến P2-05)
@@ -51,20 +58,20 @@
 - **P2-03:** Form đối soát COD dùng placeholder gợi ý, không tự động điền đè số tiền thực nhận.
 - **P2-04:** Priority query controller hỗ trợ truy vấn dạng callback `pool.query(sql, vals, cb)`.
 - **P2-05:** Toàn bộ test suite vòng đời và hồi quy đạt 100% PASS.
-- **FX-COD:** Bộ test hồi quy HTTP thực tế `test/cod-settlement-modal-regression.test.js` xác nhận 2 kịch bản trong ảnh chụp đạt HTTP 200 OK.
+- **FX-COD:** Bộ test hồi quy HTTP thực tế `test/cod-settlement-modal-regression.test.js` gồm 3 kịch bản: Đối soát lô, Cập nhật modal có mã đối soát, và Hoàn tất đơn COD tự do không cần mã đối soát đều đạt HTTP 200 OK.
 
 ---
 
 ## 3. Kết Quả Kiểm Thử Toàn Diện
 
-- **Full test suite (`npm test`):** **998 / 998 PASS (100%)**, 0 fail, 0 skipped.
+- **Full test suite (`npm test`):** **999 / 999 PASS (100%)**, 0 fail, 0 skipped.
 - **Tài nguyên tĩnh (`npm run verify:assets`):** Xác nhận đủ 20 phiên bản ảnh WebP + AVIF trên đĩa.
 - **An toàn thư viện phụ thuộc (`npm audit --omit=dev --audit-level=high`):** 0 vulnerabilities.
 - **Định dạng mã nguồn (`git diff --check`):** 0 lỗi cú pháp hoặc khoảng trắng.
 - **GitHub Actions Workflows:**
   - `Notify Mobile App on Web Changes`: **PASS**
   - `CodeQL Security Analysis`: **PASS** (0 cảnh báo bảo mật)
-  - `Node.js CI (998 Tests)`: **PASS**
+  - `Node.js CI (999 Tests)`: **PASS**
 
 ---
 

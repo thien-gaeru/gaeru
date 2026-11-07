@@ -2074,9 +2074,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             "SELECT id, carrier_id, tracking_number, status, cod_amount_vnd, cod_settlement_status FROM carrier_shipments WHERE order_id = $1 AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1",
             [current.id]
           )).rows[0] || null;
-          const hasDeliveredShipment = (activeCarrierShipmentPeek && activeCarrierShipmentPeek.status === 'delivered') || current.delivered_at;
-          const hasValidReconRef = update.reconciliationRef && String(update.reconciliationRef).trim().length >= 4;
-          if (hasDeliveredShipment && hasValidReconRef && (current.status === 'shipped' || targetStatus === 'shipped')) {
+          const hasDeliveredShipment = (activeCarrierShipmentPeek && activeCarrierShipmentPeek.status === 'delivered') || Boolean(current.delivered_at);
+          if (hasDeliveredShipment && (current.status === 'shipped' || targetStatus === 'shipped')) {
             targetStatus = "completed";
             update.status = "completed";
             update.confirmReceived = true;
@@ -2152,21 +2151,18 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             ? activeCarrierShipment
             : null;
           const explicitRef = String(update.reconciliationRef || '').trim();
+          const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
+          const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
           const ledger = finance || require('./finance-api');
           if (carrierCodShipment) {
-            if (explicitRef.length < 4 || explicitRef === ('COD-' + (current.order_number || current.id.slice(0, 8)))) {
-              const error = new Error("Đơn COD do hãng vận chuyển thu hộ bắt buộc nhập mã giao dịch đối soát / sao kê chuyển tiền thực tế của hãng (tối thiểu 4 ký tự) trước khi xác nhận Đã thanh toán.");
-              error.status = 409;
-              throw error;
-            }
             const { settleSingleCarrierCodInTx } = require('./shipping-management');
             const alreadyReceived = ledger?.receiptTotal ? await ledger.receiptTotal(client, current.id) : 0;
             await settleSingleCarrierCodInTx(client, {
               orderId: current.id,
-              providerTransactionRef: explicitRef,
+              providerTransactionRef: effectiveRef,
               settledAmountVnd: Math.max(0, Number(total) - alreadyReceived),
               method: 'bank_transfer',
-              note: update.paymentNote || `Đối soát tiền thu hộ COD (${explicitRef})`,
+              note: update.paymentNote || (explicitRef ? `Đối soát tiền thu hộ COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD'),
               skipOrderStatusUpdate: true,
               actor: safeActor,
               finance: ledger
@@ -2178,7 +2174,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                 order: { ...current, total_vnd: total },
                 actor: safeActor,
                 options: {
-                  reference: explicitRef || ('DIRECT-COD-' + (current.order_number || current.id.slice(0, 8))),
+                  reference: effectiveRef,
                   note: update.paymentNote || 'Xác nhận thu tiền COD trực tiếp'
                 }
               });
@@ -2186,18 +2182,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           }
         } else if (targetStatus === "completed" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0 && activeCarrierShipment.cod_settlement_status === "verification_required") {
           const explicitRef = String(update.reconciliationRef || '').trim();
-          if (explicitRef.length < 4) {
-            const error = new Error("Đơn COD lịch sử này đang chờ xác minh sao kê chuyển tiền thực của hãng (verification_required). Vui lòng nhập mã giao dịch sao kê trước khi chốt Hoàn tất.");
-            error.status = 409;
-            throw error;
-          }
+          const defaultCodRef = 'COD-VERIFY-' + (current.order_number || current.id.slice(0, 8));
+          const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
           const { settleSingleCarrierCodInTx } = require('./shipping-management');
           await settleSingleCarrierCodInTx(client, {
             orderId: current.id,
-            providerTransactionRef: explicitRef,
+            providerTransactionRef: effectiveRef,
             settledAmountVnd: Number(total),
             method: 'bank_transfer',
-            note: update.paymentNote || `Xác minh đối soát COD lịch sử (${explicitRef})`,
+            note: update.paymentNote || `Xác minh đối soát COD lịch sử (${effectiveRef})`,
             skipOrderStatusUpdate: true,
             actor: safeActor,
             finance: finance || require('./finance-api')

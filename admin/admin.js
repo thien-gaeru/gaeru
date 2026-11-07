@@ -786,7 +786,7 @@ function orderPaymentControl(order) {
   if (["vnpay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
   if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
   const reconField = order.paymentMethod === "cod"
-    ? `<label data-reconciliation-wrap hidden>Mã đối soát / sao kê thu hộ COD<input name="reconciliationRef" type="text" maxlength="100" placeholder="VD: VTP-20261107-8899 / mã sao kê ngân hàng"></label>`
+    ? `<label data-reconciliation-wrap hidden>Mã đối soát / sao kê thu hộ COD (tùy chọn)<input name="reconciliationRef" type="text" maxlength="100" placeholder="Tùy chọn: Nhập mã đối soát nếu có"></label>`
     : "";
   return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>${reconField}`;
 }
@@ -811,10 +811,8 @@ function changeOrderControl(event){
       paymentField.value = "paid";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
       if (reconWrap) reconWrap.hidden = false;
-      if (reconInput) reconInput.required = hasCarrierCod;
-      form.querySelector("[data-payment-guidance]").textContent = hasCarrierCod
-        ? "Nhập mã đối soát / sao kê chuyển tiền thực của hãng để xác nhận thu đủ tiền COD."
-        : "Đã tự động xác nhận thu đủ tiền COD khi giao thành công.";
+      if (reconInput) reconInput.required = false;
+      form.querySelector("[data-payment-guidance]").textContent = "Đã tự động xác nhận thu đủ tiền COD khi hoàn tất đơn hàng.";
     }
   }
 
@@ -1023,10 +1021,12 @@ async function updateOrder(event) {
   try {
     if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");
     if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") {
-      if (order.paymentMethod === "cod" && !can("payments.write")) {
-        throw new Error("Tài khoản chưa có quyền xác nhận thu tiền (payments.write). Vui lòng để kế toán xác nhận đối soát thu tiền COD trước khi hoàn tất đơn.");
+      if (order.paymentMethod === "cod") {
+        payload.confirmReceived = true;
+        payload.paymentStatus = "paid";
+      } else {
+        throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
       }
-      throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
     }
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     saved=true;closeOrderProcessing();

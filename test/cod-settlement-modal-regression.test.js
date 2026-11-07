@@ -13,6 +13,7 @@ test('Live Reproduction of User Scenarios from Screenshots', async (t) => {
   const client = await pool.connect();
   let orderId, orderNumber, shipmentId;
   let order2Id, order2Number, shipment2Id;
+  let order3Id, order3Number, shipment3Id;
   try {
     const pRes = await client.query(`
       INSERT INTO products (name, slug, category, active)
@@ -46,7 +47,7 @@ test('Live Reproduction of User Scenarios from Screenshots', async (t) => {
     `, [orderId]);
     shipmentId = sRes.rows[0].id;
 
-    // Order 2 for modal test
+    // Order 2 for modal test with ref
     const o2Res = await client.query(`
       INSERT INTO orders (
         order_number, customer_name, email, phone, address, city,
@@ -67,6 +68,28 @@ test('Live Reproduction of User Scenarios from Screenshots', async (t) => {
       ) RETURNING id
     `, [order2Id]);
     shipment2Id = s2Res.rows[0].id;
+
+    // Order 3 for modal test WITHOUT reconciliationRef (User requested: remove mandatory COD ref)
+    const o3Res = await client.query(`
+      INSERT INTO orders (
+        order_number, customer_name, email, phone, address, city,
+        subtotal_vnd, shipping_fee_vnd, total_vnd, payment_method, payment_status, status, delivered_at
+      ) VALUES (
+        'GR-20261106-MODAL-NO-REF', 'Đỗ Thiện', 'dothien@example.com', '0912345678', 'Hà Nội', 'Hà Nội',
+        202300, 0, 202300, 'cod', 'pending', 'shipped', now()
+      ) RETURNING id, order_number
+    `);
+    order3Id = o3Res.rows[0].id;
+    order3Number = o3Res.rows[0].order_number;
+
+    const s3Res = await client.query(`
+      INSERT INTO carrier_shipments (
+        order_id, carrier_id, tracking_number, status, cod_amount_vnd, cod_settlement_status
+      ) VALUES (
+        $1, 'viettel', '156668075674', 'delivered', 202300, 'unsettled'
+      ) RETURNING id
+    `, [order3Id]);
+    shipment3Id = s3Res.rows[0].id;
   } finally {
     client.release();
   }
@@ -173,5 +196,36 @@ test('Live Reproduction of User Scenarios from Screenshots', async (t) => {
     const order2Check = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [order2Id])).rows[0];
     assert.equal(order2Check.status, 'completed');
     assert.equal(order2Check.payment_status, 'paid');
+  });
+
+  await t.test('Scenario 3: Modal Order Complete WITHOUT reconciliationRef (User Request: Remove manual COD reconciliation)', async () => {
+    // When order is completed with status 'completed' and paymentStatus 'paid' without any reconciliationRef
+    const payload = {
+      status: 'completed',
+      paymentStatus: 'paid'
+    };
+
+    const res = await fetch(`${baseUrl}/api/gaeru_ceo/orders/${order3Id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': sessionToken,
+        cookie: authedCookieStr
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    assert.equal(res.status, 200, 'Order completion without ref response: ' + JSON.stringify(json));
+    assert.equal(json.order.status, 'completed');
+    assert.equal(json.order.paymentStatus, 'paid');
+
+    const order3Check = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [order3Id])).rows[0];
+    assert.equal(order3Check.status, 'completed');
+    assert.equal(order3Check.payment_status, 'paid');
+
+    const shipment3Check = (await pool.query('SELECT cod_settlement_status, cod_settlement_ref FROM carrier_shipments WHERE id = $1', [shipment3Id])).rows[0];
+    assert.equal(shipment3Check.cod_settlement_status, 'settled');
+    assert.ok(shipment3Check.cod_settlement_ref.startsWith('COD-'));
   });
 });

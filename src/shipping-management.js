@@ -691,10 +691,10 @@ async function settleSingleCarrierCodInTx(client, {
   actor,
   finance
 }) {
-  const txRef = String(providerTransactionRef || '').trim();
-  if (txRef.length < 4 || txRef.length > 120) {
-    throw fail('Bắt buộc cung cấp mã giao dịch đối soát / sao kê chuyển tiền thực tế của hãng vận chuyển (tối thiểu 4 ký tự).', 400);
-  }
+  const rawTxRef = String(providerTransactionRef || '').trim();
+  const txRef = (rawTxRef.length >= 4 && rawTxRef.length <= 120)
+    ? rawTxRef
+    : ('COD-' + (orderId.slice(0, 8)));
   const amount = Number(settledAmountVnd);
   if (!Number.isSafeInteger(amount) || amount <= 0) {
     throw fail('Số tiền đối soát COD phải là số nguyên dương hợp lệ.', 400);
