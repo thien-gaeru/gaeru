@@ -60,6 +60,13 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
       { status: 409 }
     );
   }
+  const existingCodAlloc = await client.query('SELECT id FROM cod_settlement_allocations WHERE order_id = $1 LIMIT 1', [order.id]);
+  if (existingCodAlloc.rows.length) {
+    throw Object.assign(
+      new Error('Không thể xóa cứng đơn hàng đã có bản ghi phân bổ đối soát COD bất biến.'),
+      { status: 409 }
+    );
+  }
   const paidAttempt = await client.query("SELECT id FROM payment_attempts WHERE order_id = $1 AND status = 'paid' LIMIT 1", [order.id]);
   if (paidAttempt.rows.length) {
     throw Object.assign(

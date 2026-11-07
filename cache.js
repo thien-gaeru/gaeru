@@ -52,6 +52,14 @@ const inflight = new Map();
 // GAERU P2-03: Mốc thời gian bắt đầu/kết thúc khuyến mại gần nhất để tự động hết hạn HTML/API cache đúng giây
 let nextPromotionBoundaryMs = null;
 function setNextPromotionBoundary(ms) {
+  const now = Date.now();
+  if (nextPromotionBoundaryMs && now >= nextPromotionBoundaryMs) {
+    for (const [k, v] of ramCache.entries()) {
+      if ((v?.time || v?.updatedAt || 0) < nextPromotionBoundaryMs) {
+        ramCache.delete(k);
+      }
+    }
+  }
   nextPromotionBoundaryMs = typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms : null;
 }
 function getNextPromotionBoundary() {

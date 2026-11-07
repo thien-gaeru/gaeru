@@ -138,16 +138,34 @@ function createFinanceApi(pool) {
       if (order.return_completed_at) throw fail(409, "Đơn hàng đã hoàn trả xong; không thể ghi nhận phiếu thu mới.");
       if (order.status === "cancelled" || order.payment_status === "paid" || order.total_vnd === null) throw fail(409, "Đơn đã kết thúc, đã thu đủ tiền hoặc chưa chốt tổng.");
       if (order.payment_method === "cod" && !["shipped", "completed"].includes(order.status)) throw fail(409, "Chỉ ghi nhận tiền COD sau khi giao hàng.");
+      const carrierCodShip = order.payment_method === "cod"
+        ? (await client.query("SELECT * FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' AND cod_amount_vnd>0 ORDER BY created_at DESC LIMIT 1 FOR UPDATE", [order.id])).rows[0]
+        : null;
+      if (carrierCodShip) {
+        if (carrierCodShip.status !== "delivered") {
+          throw fail(409, "Vận đơn hãng chưa xác nhận Đã giao hàng (delivered); chưa thể ghi nhận phiếu thu COD hãng.");
+        }
+        if (String(data.reference || "").trim().length < 4) {
+          throw fail(409, "Bắt buộc nhập mã sao kê / giao dịch chuyển tiền thực tế của hãng vận chuyển (tối thiểu 4 ký tự).");
+        }
+      }
       const received = await receiptTotal(client, order.id);
       if (data.amountVnd > order.total_vnd - received) throw fail(409, "Số tiền thu vượt số tiền còn phải thu.");
       const inserted = await client.query(`INSERT INTO sales_receipts (order_id,amount_vnd,method,reference,note,request_key,request_hash,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [order.id, data.amountVnd, data.method, data.reference, data.note, data.requestKey, digest(data), req.admin.username]);
       if (received + data.amountVnd === order.total_vnd) {
+        const canCompleteCod = !carrierCodShip || carrierCodShip.status === "delivered";
         const updatedOrd = (await client.query(
-          "UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' THEN 'completed' WHEN payment_method<>'cod' AND status IN ('pending','confirmed') THEN 'processing' ELSE status END,updated_at=now() WHERE id=$1 RETURNING status",
-          [order.id]
+          "UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' AND $2::boolean THEN 'completed' WHEN payment_method<>'cod' AND status IN ('pending','confirmed') THEN 'processing' ELSE status END,updated_at=now() WHERE id=$1 RETURNING status",
+          [order.id, canCompleteCod]
         )).rows[0];
         await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
-        await client.query("UPDATE carrier_shipments SET cod_settlement_status='settled', cod_settled_at=now(), cod_settlement_ref=$2, updated_at=now() WHERE order_id=$1 AND cod_amount_vnd>0 AND status<>'cancelled'", [order.id, data.reference || data.requestKey]);
+        if (carrierCodShip) {
+          const txRef = String(data.reference).trim();
+          await client.query(
+            "UPDATE carrier_shipments SET cod_settlement_status='settled', cod_settled_at=now(), cod_settlement_ref=$2, cod_attestation_level='manually_attested', cod_attested_by=$3, updated_at=now() WHERE id=$1",
+            [carrierCodShip.id, txRef, req.admin.username]
+          );
+        }
         if (updatedOrd?.status === "completed" && order.customer_id && Number(order.total_vnd) > 0) {
           const { earnPoints } = require("./loyalty-api");
           await earnPoints(client, { customerId: order.customer_id, orderId: order.id, orderTotalVnd: Number(order.total_vnd), actor: req.admin });

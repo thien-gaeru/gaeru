@@ -167,4 +167,148 @@ async function withTransaction(pool, handler) {
   }
 }
 
-module.exports = { createPool, poolOptions, inspectDatabaseTls, withTransaction };
+function createPriorityPoolController(pool, { maxLowPriorityOps = 2 } = {}) {
+  const cap = Math.max(1, Number.parseInt(maxLowPriorityOps, 10) || 2);
+  let activeHighOps = 0;
+  let activeLowOps = 0;
+  let peakHighOps = 0;
+  let peakLowOps = 0;
+  const lowWaitQueue = [];
+
+  const pumpLowQueue = () => {
+    while (activeHighOps === 0 && activeLowOps < cap && lowWaitQueue.length > 0) {
+      activeLowOps++;
+      if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
+      const resume = lowWaitQueue.shift();
+      resume();
+    }
+  };
+
+  const acquireSlot = async (priority) => {
+    if (priority === "high") {
+      activeHighOps++;
+      if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        activeHighOps = Math.max(0, activeHighOps - 1);
+        pumpLowQueue();
+      };
+    }
+    if (activeHighOps > 0 || activeLowOps >= cap) {
+      await new Promise((resolve) => lowWaitQueue.push(resolve));
+    } else {
+      activeLowOps++;
+      if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      activeLowOps = Math.max(0, activeLowOps - 1);
+      pumpLowQueue();
+    };
+  };
+
+  const wrapPool = (priority) => {
+    if (!pool || (typeof pool.query !== "function" && typeof pool.connect !== "function")) {
+      return pool;
+    }
+    return new Proxy(pool, {
+      get(target, prop) {
+        if (prop === "query" && typeof target.query === "function") {
+          return async (...args) => {
+            const releaseSlot = await acquireSlot(priority);
+            try {
+              return await target.query(...args);
+            } finally {
+              releaseSlot();
+            }
+          };
+        }
+        if (prop === "connect" && typeof target.connect === "function") {
+          return (...args) => {
+            if (typeof args[0] === "function") {
+              const callback = args[0];
+              acquireSlot(priority)
+                .then((releaseSlot) => {
+                  target.connect((err, client, done) => {
+                    if (err || !client) {
+                      releaseSlot();
+                      return callback(err, client, done);
+                    }
+                    const origRelease = typeof client.release === "function" ? client.release.bind(client) : done;
+                    const wrappedDone = (...relArgs) => {
+                      try {
+                        return origRelease ? origRelease(...relArgs) : undefined;
+                      } finally {
+                        releaseSlot();
+                      }
+                    };
+                    const clientProxy = new Proxy(client, {
+                      get(cTarget, cProp) {
+                        if (cProp === "release") return wrappedDone;
+                        const val = Reflect.get(cTarget, cProp, cTarget);
+                        return typeof val === "function" ? val.bind(cTarget) : val;
+                      }
+                    });
+                    return callback(null, clientProxy, wrappedDone);
+                  });
+                })
+                .catch((err) => callback(err));
+              return undefined;
+            }
+            return (async () => {
+              const releaseSlot = await acquireSlot(priority);
+              let client;
+              try {
+                client = await target.connect(...args);
+              } catch (err) {
+                releaseSlot();
+                throw err;
+              }
+              if (!client || typeof client !== "object") {
+                releaseSlot();
+                return client;
+              }
+              const origRelease = typeof client.release === "function" ? client.release.bind(client) : () => {};
+              return new Proxy(client, {
+                get(cTarget, cProp) {
+                  if (cProp === "release") {
+                    return (...relArgs) => {
+                      try {
+                        return origRelease(...relArgs);
+                      } finally {
+                        releaseSlot();
+                      }
+                    };
+                  }
+                  const val = Reflect.get(cTarget, cProp, cTarget);
+                  return typeof val === "function" ? val.bind(cTarget) : val;
+                }
+              });
+            })();
+          };
+        }
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+  };
+
+  return {
+    highPriorityPool: wrapPool("high"),
+    lowPriorityPool: wrapPool("low"),
+    getStats: () => ({
+      activeHighOps,
+      activeLowOps,
+      peakHighOps,
+      peakLowOps,
+      queuedLowOps: lowWaitQueue.length,
+      maxLowPriorityOps: cap
+    })
+  };
+}
+
+module.exports = { createPool, poolOptions, inspectDatabaseTls, withTransaction, createPriorityPoolController };

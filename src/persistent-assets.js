@@ -11,24 +11,45 @@ const widths=[480,800,1200];
 const snapshotCaches=new WeakMap();
 const assetCaches=new WeakMap();
 let last={state:'not-configured',files:0};
+const MAX_SNAPSHOT_CACHE_BYTES = 16 * 1024 * 1024;
+const MAX_SINGLE_SNAPSHOT_BYTES = 4 * 1024 * 1024;
+function estimateSnapshotRowBytes(row){
+ if(!row||typeof row!=='object')return 256;
+ let b=256;
+ if(Buffer.isBuffer(row.content))b+=row.content.length;
+ else if(typeof row.content==='string')b+=Buffer.byteLength(row.content,'utf8');
+ if(typeof row.sha256==='string')b+=row.sha256.length;
+ if(typeof row.mime_type==='string')b+=row.mime_type.length;
+ return b;
+}
 function clearAssetSnapshotCache(pool){
  if(pool&&typeof pool==='object'){
   const state=snapshotCaches.get(pool);
-  if(state){state.rows.clear();state.pending.clear();}
+  if(state){state.rows.clear();state.pending.clear();state.bytes=0;}
  }
 }
 async function getCachedSnapshotRow(pool,relative,loader){
  if(!pool||process.env.MEDIA_CACHE_ENABLED==='false')return loader();
  let state=snapshotCaches.get(pool);
- if(!state){state={rows:new Map(),pending:new Map()};snapshotCaches.set(pool,state);}
+ if(!state){state={rows:new Map(),pending:new Map(),bytes:0};snapshotCaches.set(pool,state);}
  const now=Date.now(),hit=state.rows.get(relative);
  if(hit&&hit.until>now){state.rows.delete(relative);state.rows.set(relative,hit);return hit.row;}
- if(hit)state.rows.delete(relative);
+ if(hit){state.bytes=Math.max(0,state.bytes-(hit.bytes||0));state.rows.delete(relative);}
  if(state.pending.has(relative))return state.pending.get(relative);
  const task=Promise.resolve().then(loader).then(row=>{
   if(row){
-   if(state.rows.size>=512)state.rows.delete(state.rows.keys().next().value);
-   state.rows.set(relative,{row,until:Date.now()+600000});
+   const rowBytes=estimateSnapshotRowBytes(row);
+   if(rowBytes<=MAX_SINGLE_SNAPSHOT_BYTES){
+    if(state.rows.has(relative)){const prev=state.rows.get(relative);state.bytes=Math.max(0,state.bytes-(prev?.bytes||0));state.rows.delete(relative);}
+    while((state.rows.size>=512||state.bytes+rowBytes>MAX_SNAPSHOT_CACHE_BYTES)&&state.rows.size>0){
+     const oldestKey=state.rows.keys().next().value;
+     const oldest=state.rows.get(oldestKey);
+     state.bytes=Math.max(0,state.bytes-(oldest?.bytes||0));
+     state.rows.delete(oldestKey);
+    }
+    state.rows.set(relative,{row,until:Date.now()+600000,bytes:rowBytes});
+    state.bytes+=rowBytes;
+   }
   }
   return row;
  }).finally(()=>state.pending.delete(relative));

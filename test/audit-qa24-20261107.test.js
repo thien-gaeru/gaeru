@@ -640,7 +640,7 @@ test('QA14, QA15 & QA18: Quote cache key isolation, 5-province & multi-weight CO
     ['Hà Nội', 1],
     ['Thành phố Hồ Chí Minh', 2],
     ['Đà Nẵng', 4],
-    ['Lai Châu', 35],
+    ['Lai Châu', 29],
     ['Cần Thơ', 5]
   ];
   for (const [city, expectedProvinceId] of fiveLocations) {
@@ -691,7 +691,7 @@ test('QA14, QA15 & QA18: Quote cache key isolation, 5-province & multi-weight CO
       }
     }
   );
-  assert.equal(capturedWaybillBody.RECEIVER_PROVINCE, 35, 'Lai Châu province code = 35');
+  assert.equal(capturedWaybillBody.RECEIVER_PROVINCE, 29, 'Lai Châu official Viettel Post province code = 29');
   assert.equal(capturedWaybillBody.PRODUCT_WEIGHT, 900, '2 items * 450g = 900g');
   assert.equal(capturedWaybillBody.MONEY_COLLECTION, 230000, 'Collect exact order total once');
   assert.equal(capturedWaybillBody.ORDER_PAYMENT, 3, 'Prevent carrier from adding MONEY_TOTAL on top of MONEY_COLLECTION');
@@ -701,7 +701,7 @@ test('QA14, QA15 & QA18: Quote cache key isolation, 5-province & multi-weight CO
   const quoteFetcher = async (_url, init) => {
     quoteCalls++;
     const body = JSON.parse(init.body);
-    const fee = body.RECEIVER_PROVINCE === 35 ? 42000 : (body.MONEY_COLLECTION > 500000 ? 35000 : 22000);
+    const fee = body.RECEIVER_PROVINCE === 29 ? 42000 : (body.MONEY_COLLECTION > 500000 ? 35000 : 22000);
     return {
       ok: true,
       status: 200,

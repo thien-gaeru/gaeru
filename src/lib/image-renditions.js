@@ -5,10 +5,29 @@ const { readMedia } = require('./stored-media');
 const { createObjectCache } = require('./object-cache');
 const { qualifiesForSelectiveAvif, encodeAvif, SAVINGS_RATIO } = require('./selective-avif');
 const widths = [480, 800, 1200];
+const MAX_ROW_CACHE_ENTRIES = 512;
+const MAX_ROW_CACHE_BYTES = 24 * 1024 * 1024;
+const MAX_SINGLE_ROW_CACHE_BYTES = 4 * 1024 * 1024;
+const DEFAULT_MAX_WARM_RSS_BYTES = Math.floor(2.2 * 1024 * 1024 * 1024);
 const cache = createObjectCache({ maxBytes: 32 * 1024 * 1024, maxEntryBytes: 4 * 1024 * 1024, ttl: 3600000, maxPending: 64 });
 const poolRowCaches = new WeakMap();
 let active = 0;
 const waiting = [];
+let getRuntimeEncodeCount = 0;
+let warmEncodeCount = 0;
+let skippedWarmByRssCount = 0;
+
+function estimateRowBytes(row) {
+  if (!row || typeof row !== 'object') return 256;
+  let bytes = 256;
+  if (Buffer.isBuffer(row.content)) bytes += row.content.length;
+  else if (typeof row.content === 'string') bytes += Buffer.byteLength(row.content, 'utf8');
+  else if (row.content?.byteLength) bytes += Number(row.content.byteLength) || 0;
+  if (typeof row.mime_type === 'string') bytes += row.mime_type.length;
+  if (typeof row._digest === 'string') bytes += row._digest.length;
+  return bytes;
+}
+
 async function bounded(work) {
   if (active >= 1) await new Promise(resolve => waiting.push(resolve));
   else active++;
@@ -21,7 +40,7 @@ function canUseRowCache(pool) {
 function getPoolState(pool) {
   let state = poolRowCaches.get(pool);
   if (!state) {
-    state = { rows: new Map(), pending: new Map() };
+    state = { rows: new Map(), pending: new Map(), bytes: 0 };
     poolRowCaches.set(pool, state);
   }
   return state;
@@ -32,6 +51,7 @@ function clearImageLookupCache(pool) {
     if (state) {
       state.rows.clear();
       state.pending.clear();
+      state.bytes = 0;
     }
   }
 }
@@ -45,15 +65,32 @@ async function getCachedImageRow(pool, key, loader) {
     state.rows.set(key, hit);
     return hit.row;
   }
-  if (hit) state.rows.delete(key);
+  if (hit) {
+    state.bytes = Math.max(0, state.bytes - (hit.bytes || 0));
+    state.rows.delete(key);
+  }
   if (state.pending.has(key)) return state.pending.get(key);
   const task = Promise.resolve().then(loader).then(row => {
     if (row) {
       if (row.content !== undefined && row.mime_type) {
         row._digest = createHash('sha256').update(row.content).update('\0').update(row.mime_type).digest('hex');
       }
-      if (state.rows.size >= 512) state.rows.delete(state.rows.keys().next().value);
-      state.rows.set(key, { row, until: Date.now() + 600000 });
+      const rowBytes = estimateRowBytes(row);
+      if (rowBytes <= MAX_SINGLE_ROW_CACHE_BYTES) {
+        if (state.rows.has(key)) {
+          const prev = state.rows.get(key);
+          state.bytes = Math.max(0, state.bytes - (prev?.bytes || 0));
+          state.rows.delete(key);
+        }
+        while ((state.rows.size >= MAX_ROW_CACHE_ENTRIES || state.bytes + rowBytes > MAX_ROW_CACHE_BYTES) && state.rows.size > 0) {
+          const oldestKey = state.rows.keys().next().value;
+          const oldest = state.rows.get(oldestKey);
+          state.bytes = Math.max(0, state.bytes - (oldest?.bytes || 0));
+          state.rows.delete(oldestKey);
+        }
+        state.rows.set(key, { row, until: Date.now() + 600000, bytes: rowBytes });
+        state.bytes += rowBytes;
+      }
     }
     return row;
   }).finally(() => state.pending.delete(key));
@@ -65,6 +102,10 @@ function computeVersion(row, width, format = 'webp') {
   return createHash('sha256').update(digest).update('\0lossless-display-v1:' + (width || 'original') + (format !== 'webp' ? ':' + format : '')).digest('hex');
 }
 let queuedWarmTasks = 0;
+function getMaxWarmRssBytes() {
+  const envCap = Number(process.env.MAX_IMAGE_WARM_RSS_BYTES);
+  return Number.isFinite(envCap) && envCap > 0 ? envCap : DEFAULT_MAX_WARM_RSS_BYTES;
+}
 async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
   if (!row || !row.content || !row.mime_type || !row.mime_type.startsWith('image/')) return;
   if (!row._digest) {
@@ -73,14 +114,26 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
   const loadOriginal = async () => rawBuffer || readMedia(row.content);
   for (const width of targetWidths) {
     if (!widths.includes(width)) continue;
+    await new Promise(resolve => setImmediate(resolve));
+    if (process.memoryUsage().rss > getMaxWarmRssBytes()) {
+      skippedWarmByRssCount++;
+      break;
+    }
     const version = computeVersion(row, width);
     const webpBuffer = await cache.get(version, () => bounded(async () => {
+      warmEncodeCount++;
       const original = await loadOriginal();
       return sharp(original, { limitInputPixels: 24000000 }).rotate().resize({ width, withoutEnlargement: true }).webp({ lossless: true, effort: 1 }).toBuffer();
     }));
     if (webpBuffer && webpBuffer.length >= 16 * 1024) {
+      await new Promise(resolve => setImmediate(resolve));
+      if (process.memoryUsage().rss > getMaxWarmRssBytes()) {
+        skippedWarmByRssCount++;
+        break;
+      }
       const avifVersion = computeVersion(row, width, 'avif');
       await cache.get(avifVersion, () => bounded(async () => {
+        warmEncodeCount++;
         const original = await loadOriginal();
         return encodeAvif(original, { width, quality: width <= 480 ? 66 : 68, effort: 2 });
       }));
@@ -90,6 +143,10 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
 function enqueueImageWarm(row, rawBuffer = null) {
   if (process.env.MEDIA_CACHE_ENABLED === 'false' || !row || !row.content || !row.mime_type?.startsWith('image/')) return;
   if (queuedWarmTasks >= 64) return;
+  if (process.memoryUsage().rss > getMaxWarmRssBytes()) {
+    skippedWarmByRssCount++;
+    return;
+  }
   queuedWarmTasks++;
   const timer = setTimeout(() => {
     void warmPublicImage(row, widths, rawBuffer)
@@ -99,7 +156,7 @@ function enqueueImageWarm(row, rawBuffer = null) {
   timer.unref?.();
 }
 // Authorization belongs to the calling route and must run before this helper.
-// GAERU P1-08: HTTP GET never invokes Sharp or AVIF runtime encoding on cache miss;
+// GAERU P1-08 & P2-06: HTTP GET never invokes Sharp or AVIF runtime encoding on cache miss;
 // it serves precomputed renditions when available or falls back to raw original bytes with true MIME.
 async function sendPublicImage(req, res, row, namespace) {
   const requested = req.query.w;
@@ -176,4 +233,34 @@ async function sendPublicImage(req, res, row, namespace) {
   if (req.fresh) return res.status(304).end();
   return res.send(webpBytes);
 }
-module.exports = { sendPublicImage, widths, getCachedImageRow, clearImageLookupCache, warmPublicImage, enqueueImageWarm, resetRenditionCache: () => cache.clear() };
+function getImageRenditionStats(pool = null) {
+  const state = pool && typeof pool === 'object' ? poolRowCaches.get(pool) : null;
+  return {
+    getRuntimeEncodeCount,
+    warmEncodeCount,
+    skippedWarmByRssCount,
+    queuedWarmTasks,
+    activeEncodes: active,
+    rowCacheEntries: state ? state.rows.size : 0,
+    rowCacheBytes: state ? state.bytes : 0,
+    maxRowCacheBytes: MAX_ROW_CACHE_BYTES,
+    maxSingleRowCacheBytes: MAX_SINGLE_ROW_CACHE_BYTES
+  };
+}
+function resetImageRenditionStats() {
+  getRuntimeEncodeCount = 0;
+  warmEncodeCount = 0;
+  skippedWarmByRssCount = 0;
+}
+module.exports = {
+  sendPublicImage,
+  widths,
+  getCachedImageRow,
+  clearImageLookupCache,
+  warmPublicImage,
+  enqueueImageWarm,
+  getImageRenditionStats,
+  resetImageRenditionStats,
+  MAX_ROW_CACHE_BYTES,
+  resetRenditionCache: () => cache.clear()
+};

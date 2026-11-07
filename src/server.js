@@ -3,7 +3,8 @@ require("dotenv").config();
 const expressSession = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
 const { loadConfig } = require("./config");
-const { createPool, inspectDatabaseTls } = require("./db");
+const dbModule = require("./db");
+const { createPool, inspectDatabaseTls } = dbModule;
 const { createApp } = require("./app");
 const { migrateDatabase } = require("./migrate");
 const { setReady, setStartupError } = require("./lib/readiness-gate");
@@ -56,39 +57,68 @@ async function start() {
   await migrateDatabase(pool);
   if (shuttingDown) return;
 
-  // GAERU P2-02: Priority DB concurrency semaphore for background workers on 2 CPU / 3 GB RAM
-  let activeHighOps = 0;
-  let activeLowOps = 0;
-  const lowWaitQueue = [];
-  const MAX_LOW_PRIORITY_OPS = 2;
-  const pumpLowQueue = () => {
-    while (activeHighOps === 0 && activeLowOps < MAX_LOW_PRIORITY_OPS && lowWaitQueue.length > 0) {
-      activeLowOps++;
-      const resume = lowWaitQueue.shift();
-      resume();
-    }
-  };
-  const createPriorityPool = (priority) => {
-    if (!pool || typeof pool.query !== 'function') return pool;
-    const proxy = Object.create(pool);
-    proxy.query = async (...args) => {
+  // GAERU P2-02: Priority DB concurrency semaphore covering BOTH pool.query() and pool.connect()
+  const buildFallbackPriorityController = (targetPool, maxLow = 2) => {
+    let activeHighOps = 0;
+    let activeLowOps = 0;
+    const lowWaitQueue = [];
+    const pumpLowQueue = () => {
+      while (activeHighOps === 0 && activeLowOps < maxLow && lowWaitQueue.length > 0) {
+        activeLowOps++;
+        const resume = lowWaitQueue.shift();
+        resume();
+      }
+    };
+    const acquireSlot = async (priority) => {
       if (priority === 'high') {
         activeHighOps++;
-        try { return await pool.query(...args); }
-        finally { activeHighOps = Math.max(0, activeHighOps - 1); pumpLowQueue(); }
+        let released = false;
+        return () => { if (!released) { released = true; activeHighOps = Math.max(0, activeHighOps - 1); pumpLowQueue(); } };
       }
-      if (activeHighOps > 0 || activeLowOps >= MAX_LOW_PRIORITY_OPS) {
+      if (activeHighOps > 0 || activeLowOps >= maxLow) {
         await new Promise(resolve => lowWaitQueue.push(resolve));
       } else {
         activeLowOps++;
       }
-      try { return await pool.query(...args); }
-      finally { activeLowOps = Math.max(0, activeLowOps - 1); pumpLowQueue(); }
+      let released = false;
+      return () => { if (!released) { released = true; activeLowOps = Math.max(0, activeLowOps - 1); pumpLowQueue(); } };
     };
-    return proxy;
+    const wrap = (priority) => {
+      if (!targetPool || (typeof targetPool.query !== 'function' && typeof targetPool.connect !== 'function')) return targetPool;
+      return new Proxy(targetPool, {
+        get(t, prop) {
+          if (prop === 'query' && typeof t.query === 'function') {
+            return async (...args) => {
+              const releaseSlot = await acquireSlot(priority);
+              try { return await t.query(...args); } finally { releaseSlot(); }
+            };
+          }
+          if (prop === 'connect' && typeof t.connect === 'function') {
+            return async (...args) => {
+              const releaseSlot = await acquireSlot(priority);
+              let client;
+              try { client = await t.connect(...args); } catch (err) { releaseSlot(); throw err; }
+              if (!client || typeof client !== 'object') { releaseSlot(); return client; }
+              const origRelease = typeof client.release === 'function' ? client.release.bind(client) : () => {};
+              return new Proxy(client, {
+                get(cTarget, cProp) {
+                  if (cProp === 'release') return (...relArgs) => { try { return origRelease(...relArgs); } finally { releaseSlot(); } };
+                  const val = Reflect.get(cTarget, cProp, cTarget);
+                  return typeof val === 'function' ? val.bind(cTarget) : val;
+                }
+              });
+            };
+          }
+          const val = Reflect.get(t, prop, t);
+          return typeof val === 'function' ? val.bind(t) : val;
+        }
+      });
+    };
+    return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low') };
   };
-  const highPriorityPool = createPriorityPool('high');
-  const lowPriorityPool = createPriorityPool('low');
+  const { highPriorityPool, lowPriorityPool } = typeof dbModule.createPriorityPoolController === 'function'
+    ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps: 2 })
+    : buildFallbackPriorityController(pool, 2);
 
   // Background workers initialization with staggered startup and priority concurrency cap (A10 / P2-02)
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';

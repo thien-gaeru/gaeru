@@ -15,91 +15,140 @@ function stripVietnameseAccents(value) {
   return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/gi, 'd')
+    .replace(/[đĐðÐ]/g, 'd')
     .toLowerCase()
     .replace(/\b(?:tinh|thanh pho|tp\.?|tp)\b/g, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
-const VIETTEL_PROVINCE_IDS = Object.freeze({
-  'ha noi': 1,
-  'ho chi minh': 2,
-  'hcm': 2,
-  'sai gon': 2,
-  'hai phong': 3,
-  'da nang': 4,
-  'can tho': 5,
-  'an giang': 6,
-  'ba ria vung tau': 7,
-  'vung tau': 7,
-  'bac giang': 8,
-  'bac kan': 9,
-  'bac lieu': 10,
-  'bac ninh': 11,
-  'ben tre': 12,
-  'binh dinh': 13,
-  'binh duong': 14,
-  'binh phuoc': 15,
-  'binh thuan': 16,
-  'ca mau': 17,
-  'cao bang': 18,
-  'dak lak': 19,
-  'dak nong': 20,
-  'dien bien': 21,
-  'dong nai': 22,
-  'dong thap': 23,
-  'gia lai': 24,
-  'ha giang': 25,
-  'ha nam': 26,
-  'ha tinh': 27,
-  'hai duong': 28,
-  'hau giang': 29,
-  'hoa binh': 30,
-  'hung yen': 31,
-  'khanh hoa': 32,
-  'kien giang': 33,
-  'kon tum': 34,
-  'lai chau': 35,
-  'lam dong': 36,
-  'lang son': 37,
-  'lao cai': 38,
-  'long an': 39,
-  'nam dinh': 40,
-  'nghe an': 41,
-  'ninh binh': 42,
-  'ninh thuan': 43,
-  'phu tho': 44,
-  'phu yen': 45,
-  'quang binh': 46,
-  'quang nam': 47,
-  'quang ngai': 48,
-  'quang ninh': 49,
-  'quang tri': 50,
-  'soc trang': 51,
-  'son la': 52,
-  'tay ninh': 53,
-  'thai binh': 54,
-  'thai nguyen': 55,
-  'thanh hoa': 56,
-  'thua thien hue': 57,
-  'hue': 57,
-  'tien giang': 58,
-  'tra vinh': 59,
-  'tuyen quang': 60,
-  'vinh long': 61,
-  'vinh phuc': 62,
-  'yen bai': 63
-});
+// Danh mục PROVINCE_ID chính thức từ https://partner.viettelpost.vn/v2/categories/listProvinceById?provinceId=-1
+// Bao phủ đầy đủ 63 mã tỉnh Viettel Post (1..6, 8..64; không tồn tại ID 7) và 34 đơn vị hành chính sau sáp nhập.
+const VIETTEL_PROVINCE_CATALOG_VERSION = '2026.11-vtp-listProvinceById-v2';
+const VIETTEL_OFFICIAL_PROVINCES = Object.freeze([
+  { id: 1, code: 'HNI', name: 'Hà Nội', aliases: ['ha noi', 'thu do ha noi'] },
+  { id: 2, code: 'HCM', name: 'Hồ Chí Minh', aliases: ['ho chi minh', 'hcm', 'sai gon', 'tphcm', 'thu duc'] },
+  { id: 3, code: 'HPG', name: 'Hải Phòng', aliases: ['hai phong'] },
+  { id: 4, code: 'DNG', name: 'Đà Nẵng', aliases: ['da nang'] },
+  { id: 5, code: 'CTO', name: 'Cần Thơ', aliases: ['can tho'] },
+  { id: 6, code: 'TGG', name: 'Tiền Giang', aliases: ['tien giang'] },
+  { id: 8, code: 'HUG', name: 'Hậu Giang', aliases: ['hau giang'] },
+  { id: 9, code: 'DKG', name: 'Đăk Nông', aliases: ['dak nong', 'dac nong'] },
+  { id: 10, code: 'VPC', name: 'Vĩnh Phúc', aliases: ['vinh phuc'] },
+  { id: 11, code: 'BNH', name: 'Bắc Ninh', aliases: ['bac ninh'] },
+  { id: 12, code: 'HDG', name: 'Hải Dương', aliases: ['hai duong'] },
+  { id: 13, code: 'HYN', name: 'Hưng Yên', aliases: ['hung yen'] },
+  { id: 14, code: 'HNM', name: 'Hà Nam', aliases: ['ha nam'] },
+  { id: 15, code: 'NDH', name: 'Nam Định', aliases: ['nam dinh'] },
+  { id: 16, code: 'TBH', name: 'Thái Bình', aliases: ['thai binh'] },
+  { id: 17, code: 'NBH', name: 'Ninh Bình', aliases: ['ninh binh'] },
+  { id: 18, code: 'HGG', name: 'Hà Giang', aliases: ['ha giang'] },
+  { id: 19, code: 'CBG', name: 'Cao Bằng', aliases: ['cao bang'] },
+  { id: 20, code: 'LCI', name: 'Lào Cai', aliases: ['lao cai'] },
+  { id: 21, code: 'BKN', name: 'Bắc Kạn', aliases: ['bac kan', 'bac can'] },
+  { id: 22, code: 'LSN', name: 'Lạng Sơn', aliases: ['lang son'] },
+  { id: 23, code: 'TQG', name: 'Tuyên Quang', aliases: ['tuyen quang'] },
+  { id: 24, code: 'YBN', name: 'Yên Bái', aliases: ['yen bai'] },
+  { id: 25, code: 'TNN', name: 'Thái Nguyên', aliases: ['thai nguyen'] },
+  { id: 26, code: 'PHO', name: 'Phú Thọ', aliases: ['phu tho'] },
+  { id: 27, code: 'BGG', name: 'Bắc Giang', aliases: ['bac giang'] },
+  { id: 28, code: 'QNH', name: 'Quảng Ninh', aliases: ['quang ninh'] },
+  { id: 29, code: 'LCU', name: 'Lai Châu', aliases: ['lai chau'] },
+  { id: 30, code: 'SLA', name: 'Sơn La', aliases: ['son la'] },
+  { id: 31, code: 'HBH', name: 'Hòa Bình', aliases: ['hoa binh'] },
+  { id: 32, code: 'THA', name: 'Thanh Hóa', aliases: ['thanh hoa'] },
+  { id: 33, code: 'NAN', name: 'Nghệ An', aliases: ['nghe an'] },
+  { id: 34, code: 'HTH', name: 'Hà Tĩnh', aliases: ['ha tinh'] },
+  { id: 35, code: 'QBH', name: 'Quảng Bình', aliases: ['quang binh'] },
+  { id: 36, code: 'QTI', name: 'Quảng Trị', aliases: ['quang tri'] },
+  { id: 37, code: 'HUE', name: 'Thừa Thiên - Huế', aliases: ['thua thien hue', 'hue'] },
+  { id: 38, code: 'QNM', name: 'Quảng Nam', aliases: ['quang nam'] },
+  { id: 39, code: 'QNI', name: 'Quảng Ngãi', aliases: ['quang ngai'] },
+  { id: 40, code: 'BDH', name: 'Bình Định', aliases: ['binh dinh'] },
+  { id: 41, code: 'PYN', name: 'Phú Yên', aliases: ['phu yen'] },
+  { id: 42, code: 'KHA', name: 'Khánh Hòa', aliases: ['khanh hoa'] },
+  { id: 43, code: 'KTM', name: 'Kon Tum', aliases: ['kon tum'] },
+  { id: 44, code: 'GLI', name: 'Gia Lai', aliases: ['gia lai'] },
+  { id: 45, code: 'DLK', name: 'Đăk Lăk', aliases: ['dak lak', 'dac lac'] },
+  { id: 46, code: 'LDG', name: 'Lâm Đồng', aliases: ['lam dong'] },
+  { id: 47, code: 'NTN', name: 'Ninh Thuận', aliases: ['ninh thuan'] },
+  { id: 48, code: 'BPC', name: 'Bình Phước', aliases: ['binh phuoc'] },
+  { id: 49, code: 'TNH', name: 'Tây Ninh', aliases: ['tay ninh'] },
+  { id: 50, code: 'BDG', name: 'Bình Dương', aliases: ['binh duong'] },
+  { id: 51, code: 'DNI', name: 'Đồng Nai', aliases: ['dong nai'] },
+  { id: 52, code: 'BTN', name: 'Bình Thuận', aliases: ['binh thuan'] },
+  { id: 53, code: 'VTU', name: 'Bà Rịa - Vũng Tàu', aliases: ['ba ria vung tau', 'vung tau', 'brvt'] },
+  { id: 54, code: 'LAN', name: 'Long An', aliases: ['long an'] },
+  { id: 55, code: 'DTP', name: 'Đồng Tháp', aliases: ['dong thap'] },
+  { id: 56, code: 'AGG', name: 'An Giang', aliases: ['an giang'] },
+  { id: 57, code: 'VLG', name: 'Vĩnh Long', aliases: ['vinh long'] },
+  { id: 58, code: 'BTE', name: 'Bến Tre', aliases: ['ben tre'] },
+  { id: 59, code: 'KGG', name: 'Kiên Giang', aliases: ['kien giang'] },
+  { id: 60, code: 'TVH', name: 'Trà Vinh', aliases: ['tra vinh'] },
+  { id: 61, code: 'STG', name: 'Sóc Trăng', aliases: ['soc trang'] },
+  { id: 62, code: 'BLU', name: 'Bạc Liêu', aliases: ['bac lieu'] },
+  { id: 63, code: 'CMU', name: 'Cà Mau', aliases: ['ca mau'] },
+  { id: 64, code: 'DBN', name: 'Điện Biên', aliases: ['dien bien'] }
+]);
 
-function resolveViettelProvinceId(city) {
-  const key = stripVietnameseAccents(city);
-  if (!key) return 1;
-  if (VIETTEL_PROVINCE_IDS[key]) return VIETTEL_PROVINCE_IDS[key];
-  for (const [name, id] of Object.entries(VIETTEL_PROVINCE_IDS)) {
-    if (key.includes(name) || name.includes(key)) return id;
+const VIETTEL_PROVINCE_IDS = (() => {
+  const map = {};
+  for (const entry of VIETTEL_OFFICIAL_PROVINCES) {
+    map[stripVietnameseAccents(entry.name)] = entry.id;
+    map[entry.code.toLowerCase()] = entry.id;
+    for (const alias of entry.aliases) {
+      map[stripVietnameseAccents(alias)] = entry.id;
+    }
   }
-  return 1;
+  return Object.freeze(map);
+})();
+
+const dynamicViettelProvinceMap = new Map();
+let viettelProvinceLastSyncedAt = null;
+
+async function syncViettelProvinceCatalog({ fetcher = fetch } = {}) {
+  const resp = await fetcher('https://partner.viettelpost.vn/v2/categories/listProvinceById?provinceId=-1', {
+    method: 'GET',
+    signal: AbortSignal.timeout(8000),
+    redirect: 'error'
+  });
+  if (!resp.ok) throw fail(`Không tải được danh mục tỉnh Viettel Post (HTTP ${resp.status}).`, 502);
+  const body = await resp.json();
+  const rows = Array.isArray(body?.data) ? body.data : (Array.isArray(body) ? body : []);
+  if (!rows.length) throw fail('Danh mục tỉnh Viettel Post trả về rỗng.', 502);
+  dynamicViettelProvinceMap.clear();
+  for (const row of rows) {
+    const id = Number(row?.PROVINCE_ID);
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const normName = stripVietnameseAccents(row.PROVINCE_NAME);
+    if (normName) dynamicViettelProvinceMap.set(normName, id);
+    if (row.PROVINCE_CODE) dynamicViettelProvinceMap.set(String(row.PROVINCE_CODE).trim().toLowerCase(), id);
+  }
+  viettelProvinceLastSyncedAt = new Date().toISOString();
+  return {
+    version: VIETTEL_PROVINCE_CATALOG_VERSION,
+    syncedCount: rows.length,
+    syncedAt: viettelProvinceLastSyncedAt
+  };
+}
+
+function resolveViettelProvinceId(city, { strict = true } = {}) {
+  const raw = String(city || '').trim();
+  const candidates = [raw, raw.split(',')[0] || '', raw.split('-').pop() || '']
+    .map(stripVietnameseAccents)
+    .filter(Boolean);
+
+  for (const key of candidates) {
+    if (dynamicViettelProvinceMap.has(key)) return dynamicViettelProvinceMap.get(key);
+    if (Object.prototype.hasOwnProperty.call(VIETTEL_PROVINCE_IDS, key)) return VIETTEL_PROVINCE_IDS[key];
+  }
+
+  if (!strict) return null;
+  throw fail(
+    `Tỉnh/thành phố nhận hàng "${raw || '(trống)'}" chưa khớp danh mục chính thức của Viettel Post. Vui lòng chọn đúng tỉnh/thành phố thay vì gửi mặc định.`,
+    400
+  );
 }
 
 function estimateItemWeightGrams(item) {
@@ -178,7 +227,7 @@ function computeCarrierShipmentPricing(orderData = {}, settings = {}) {
     carrierCodCollectionVnd,
     viettelOrderPayment,
     weightGrams,
-    receiverProvinceId: resolveViettelProvinceId(orderData.city)
+    receiverProvinceId: orderData.city ? resolveViettelProvinceId(orderData.city, { strict: false }) : null
   };
 }
 
@@ -414,8 +463,9 @@ const viettelAdapter = {
   async createWaybill(settings, orderData, { fetcher = fetch } = {}) {
     if (!settings.secret) throw fail('Cần lưu API Token của Viettel Post.', 400);
     const url = 'https://partner.viettelpost.vn/v2/order/createOrder';
+    const receiverProvinceId = resolveViettelProvinceId(orderData.city, { strict: true });
     const pricing = computeCarrierShipmentPricing(orderData, settings);
-    const { isCod, viettelOrderPayment: orderPayment, carrierCodCollectionVnd, weightGrams, receiverProvinceId, productPayableVnd } = pricing;
+    const { isCod, viettelOrderPayment: orderPayment, carrierCodCollectionVnd, weightGrams, productPayableVnd } = pricing;
     let serviceCode = orderData.carrierServiceCode || settings.defaultService || 'LCOD';
 
     const buildPayload = (srv) => ({
@@ -548,7 +598,11 @@ const viettelAdapter = {
         redirect: 'error'
       });
       if (!resp.ok) {
-        throw fail(`Viettel Post hủy đơn thất bại (HTTP ${resp.status}).`, 502);
+        const isDefinitive4xx = resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429;
+        throw Object.assign(
+          fail(`Viettel Post hủy đơn thất bại (HTTP ${resp.status}).`, 502),
+          isDefinitive4xx ? { definitiveRejection: true } : { ambiguousCancelState: true }
+        );
       }
       const data = await resp.json();
       return { response: resp, parsed: data };
@@ -566,9 +620,14 @@ const viettelAdapter = {
       res &&
       !isTokenError &&
       typeof res.message === 'string' &&
-      /^(?:đơn hàng|vận đơn)\s*đã\s*(?:được\s*)?hủy[!.]?$/i.test(res.message.trim())
+      /^(?:đơn hàng|vận đơn)(?:\s+này)?\s*đã\s*(?:được\s*|bị\s*)?hủy\s*[!.]?$/i.test(res.message.trim())
     );
-    if (!carrierResponse.succeeded('viettel', res) && !isAlreadyCancelled) throw fail(`Viettel Post từ chối hủy: ${res?.message || 'Lỗi'}`, 502);
+    if (!carrierResponse.succeeded('viettel', res) && !isAlreadyCancelled) {
+      throw Object.assign(
+        fail(`Viettel Post từ chối hủy: ${res?.message || 'Lỗi'}`, 502),
+        { definitiveRejection: true, isCarrierRejected: true }
+      );
+    }
     return { success: true, cancelled: true, message: isAlreadyCancelled ? 'Đơn hàng đã được xác nhận hủy trên hệ thống Viettel Post.' : 'Đã hủy vận đơn Viettel Post thành công.' };
   },
 
@@ -616,8 +675,15 @@ const viettelAdapter = {
 
   async quoteShippingFee(settings, { city, district, address, weightGrams = 500, totalVnd = 0, codAmountVnd = 0 }, { fetcher = fetch } = {}) {
     const url = 'https://partner.viettelpost.vn/v2/order/getPriceAllNlp';
-    const receiverAddress = [address, district, city].filter(Boolean).join(', ') || 'Hà Nội';
-    const receiverProvince = resolveViettelProvinceId(city);
+    const receiverProvince = resolveViettelProvinceId(city, { strict: true });
+    const receiverAddress = [address, district, city].filter(Boolean).join(', ');
+    const pricing = computeCarrierShipmentPricing({
+      city,
+      weightGrams,
+      subtotalVnd: totalVnd,
+      totalVnd,
+      codAmountVnd
+    }, settings);
     const { res } = await executeViettelRequest(settings, async (token) => {
       const resp = await fetcher(url, {
         method: 'POST',
@@ -627,9 +693,9 @@ const viettelAdapter = {
           RECEIVER_ADDRESS: receiverAddress,
           RECEIVER_PROVINCE: receiverProvince,
           PRODUCT_TYPE: 'HH',
-          PRODUCT_WEIGHT: Math.max(1, Math.round(Number(weightGrams) || 500)),
-          PRODUCT_PRICE: Math.max(0, Math.round(Number(totalVnd) || 0)),
-          MONEY_COLLECTION: Math.max(0, Math.round(Number(codAmountVnd) || 0)),
+          PRODUCT_WEIGHT: pricing.weightGrams,
+          PRODUCT_PRICE: pricing.productPayableVnd,
+          MONEY_COLLECTION: pricing.isCod ? pricing.carrierCodCollectionVnd : 0,
           PRODUCT_LENGTH: 0,
           PRODUCT_WIDTH: 0,
           PRODUCT_HEIGHT: 0,
@@ -712,9 +778,17 @@ const spxAdapter = {
     if (settings.partnerCode) headers['X-Client-Source'] = settings.partnerCode;
 
     const response = await fetcher(url, { method: 'POST', headers, body: JSON.stringify({ tracking_number: trackingNumber, shop_id: settings.accountId }), signal: AbortSignal.timeout(12000), redirect: 'error' });
-    if (!response.ok) throw fail(`SPX hủy đơn thất bại (HTTP ${response.status}).`, 502);
+    if (!response.ok) {
+      const isDefinitive4xx = response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
+      throw Object.assign(
+        fail(`SPX hủy đơn thất bại (HTTP ${response.status}).`, 502),
+        isDefinitive4xx ? { definitiveRejection: true } : { ambiguousCancelState: true }
+      );
+    }
     const res = await response.json();
-    if (!carrierResponse.succeeded('spx', res)) throw fail('SPX chưa xác nhận hủy vận đơn.', 502);
+    if (!carrierResponse.succeeded('spx', res)) {
+      throw Object.assign(fail('SPX chưa xác nhận hủy vận đơn.', 502), { definitiveRejection: true });
+    }
     return { success: true, cancelled: true, message: 'Đã hủy vận đơn SPX thành công.' };
   },
 
@@ -761,6 +835,9 @@ module.exports = {
   CARRIER_NAMES,
   normalizeCarrierStatus,
   resolveViettelProvinceId,
+  syncViettelProvinceCatalog,
+  VIETTEL_PROVINCE_CATALOG_VERSION,
+  VIETTEL_OFFICIAL_PROVINCES,
   computeCarrierShipmentPricing,
   getAdapter,
   adapters,

@@ -1,3 +1,4 @@
+const { createHash } = require('node:crypto');
 const { withTransaction } = require('./db');
 const { appendAudit } = require('./audit');
 
@@ -419,12 +420,15 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
     const deleteRes = await client.query('DELETE FROM customers WHERE id = $1 RETURNING id', [customerId]);
     if (!deleteRes.rowCount) return null;
 
+    const emailFingerprint = customer.email
+      ? 'sha256:' + createHash('sha256').update(String(customer.email).trim().toLowerCase()).digest('hex')
+      : null;
     await appendAudit(client, {
       actor,
       action: 'customer.account.permanently_deleted',
       entityType: 'customer',
       entityId: customerId,
-      metadata: { reason, email: customer.email }
+      metadata: { reason, emailFingerprint, piiRedacted: true }
     });
     return { id: customerId, deleted: true };
   });

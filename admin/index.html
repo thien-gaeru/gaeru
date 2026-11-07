@@ -403,6 +403,43 @@
 <p class="help-text">Chờ gửi hàng gồm đơn đã xác nhận và đang chuẩn bị. Đã giao hàng là đã bàn giao cho hãng vận chuyển.</p>
 <button type="button" class="secondary-button" id="after-sales-toggle" aria-expanded="false" aria-controls="after-sales-panel">Hồ sơ hủy & hoàn trả</button>
 <button type="button" class="secondary-button" id="cod-return-toggle" aria-expanded="false" aria-controls="cod-return-panel">📦 Kiểm nhận hàng hoàn COD <span id="cod-return-badge" style="background:#e53e3e;color:#fff;border-radius:10px;padding:2px 7px;font-size:0.75em;display:none;">0</span></button>
+<button type="button" class="secondary-button" id="cod-settlement-toggle" aria-expanded="false" aria-controls="cod-settlement-panel">💰 Đối soát thu hộ COD <span id="cod-settlement-badge" style="background:#d97706;color:#fff;border-radius:10px;padding:2px 7px;font-size:0.75em;display:none;">0</span></button>
+<section id="cod-settlement-panel" hidden aria-labelledby="cod-settlement-title" style="margin:12px 0;padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+    <div>
+      <h2 id="cod-settlement-title" style="margin:0;font-size:16px;">Đối soát tiền thu hộ COD theo lô / sao kê hãng</h2>
+      <p class="help-text" style="margin:4px 0 0;">Phân bổ một mã giao dịch chuyển tiền ngân hàng của hãng cho một hoặc nhiều vận đơn đã giao, hoặc xác minh chứng từ cho đơn COD lịch sử.</p>
+    </div>
+    <button type="button" class="secondary-button" id="cod-settlement-refresh">Tải lại danh sách COD</button>
+  </div>
+  <div id="cod-settlement-summary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">
+    <span style="padding:6px 10px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;">Chờ đối soát: <strong id="cod-summary-unsettled">0 đơn (0 ₫)</strong></span>
+    <span style="padding:6px 10px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;">Cần xác minh sao kê cũ: <strong id="cod-summary-verify">0 đơn (0 ₫)</strong></span>
+    <span style="padding:6px 10px;border-radius:8px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;">Đã đối soát: <strong id="cod-summary-settled">0 đơn (0 ₫)</strong></span>
+  </div>
+  <div class="filter-bar" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+    <label>Hãng vận chuyển<select id="cod-filter-carrier"><option value="">Tất cả hãng</option><option value="viettel">Viettel Post</option><option value="jt">J&amp;T Express</option><option value="spx">SPX Express</option></select></label>
+    <label>Trạng thái đối soát<select id="cod-filter-status"><option value="">Tất cả trạng thái</option><option value="unsettled">Chờ đối soát</option><option value="verification_required">Cần xác minh sao kê cũ</option><option value="settled">Đã đối soát</option></select></label>
+    <label>Tìm kiếm<input type="search" id="cod-filter-q" placeholder="Mã đơn / mã vận đơn / mã sao kê"></label>
+  </div>
+  <form id="cod-batch-form" style="padding:12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+      <label>Mã giao dịch ngân hàng / hãng *<input type="text" name="providerTransactionRef" required minlength="4" maxlength="120" placeholder="VD: VCB-VTP-20261107-01"></label>
+      <label>Kỳ đối soát (Payout period)<input type="text" name="payoutPeriod" maxlength="80" placeholder="VD: Kỳ 01-07/11/2026"></label>
+      <label>Tổng tiền sao kê thực nhận (₫) *<input type="number" name="declaredPayoutVnd" required min="1" step="1" placeholder="Tự cộng theo đơn chọn"></label>
+      <label>Mã chứng từ / tệp sao kê<input type="text" name="evidenceRef" maxlength="200" placeholder="VD: UNC-VCB-998812.pdf"></label>
+      <label>Phương thức nhận<select name="method"><option value="bank_transfer">Chuyển khoản ngân hàng</option><option value="cash">Tiền mặt</option></select></label>
+      <label>Ghi chú kế toán<input type="text" name="note" maxlength="500" placeholder="Ghi chú đối soát kỳ thanh toán"></label>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;">
+      <span id="cod-batch-selected-summary" style="font-size:13px;font-weight:600;color:#0f172a;">Đã chọn 0 vận đơn · Tổng phân bổ: 0 ₫</span>
+      <button type="submit" class="primary-button" id="cod-batch-submit" disabled>Xác nhận đối soát lô COD</button>
+    </div>
+    <p id="cod-batch-feedback" class="feedback" role="alert" style="margin:8px 0 0;"></p>
+  </form>
+  <div id="cod-settlement-list" style="overflow-x:auto;"></div>
+  <details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;font-size:13px;">Lịch sử các lô đối soát COD gần đây</summary><div id="cod-batches-list" style="margin-top:8px;overflow-x:auto;"></div></details>
+</section>
 <section id="after-sales-panel" hidden aria-labelledby="after-sales-title"><h2 id="after-sales-title">Hủy / trả hàng</h2><p>Ghi nhận và theo dõi yêu cầu hủy, trả hàng. Kiểm tra chứng từ hoàn tiền và nhập kho trước khi đóng yêu cầu.</p><button type="button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></section>
 <div id="order-workspace"><input type="hidden" id="order-filter" value="">
             <div class="toolbar">
