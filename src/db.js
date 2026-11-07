@@ -172,72 +172,124 @@ async function withTransaction(pool, handler) {
   }
 }
 
-function createPriorityPoolController(pool, { maxLowPriorityOps = 2, maxHighPriorityOps = 8 } = {}) {
+function createPriorityPoolController(pool, {
+  maxLowPriorityOps = 2,
+  maxHighPriorityOps = 8,
+  queueTimeoutMs = 30000,
+  starvationThresholdMs = 5000,
+  maxConsecutiveHighOps = 20
+} = {}) {
   const capLow = Math.max(1, Number.parseInt(maxLowPriorityOps, 10) || 2);
   const poolMax = Number.parseInt(pool?.options?.max || 10, 10);
   const capHigh = Math.max(1, Number.parseInt(maxHighPriorityOps, 10) || Math.max(1, poolMax - capLow));
+  const qTimeout = Number.parseInt(queueTimeoutMs, 10) || 30000;
+  const starvMs = Number.parseInt(starvationThresholdMs, 10) || 5000;
+  const maxConsecutive = Number.parseInt(maxConsecutiveHighOps, 10) || 20;
+
   let activeHighOps = 0;
   let activeLowOps = 0;
   let peakHighOps = 0;
   let peakLowOps = 0;
+  let consecutiveHighOps = 0;
   const lowWaitQueue = [];
   const highWaitQueue = [];
 
-  const pumpHighQueue = () => {
+  const pumpQueues = () => {
+    // 1. Anti-starvation check: If low priority waiters are starving, grant slot if capacity allows
+    if (lowWaitQueue.length > 0 && activeLowOps < capLow) {
+      const oldestLow = lowWaitQueue[0];
+      const isStarved = oldestLow && ((Date.now() - oldestLow.queuedAt >= starvMs) || (consecutiveHighOps >= maxConsecutive));
+      if (isStarved && (activeHighOps + activeLowOps < poolMax)) {
+        consecutiveHighOps = 0;
+        activeLowOps++;
+        if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
+        const waiter = lowWaitQueue.shift();
+        waiter.resolve();
+      }
+    }
+
+    // 2. High priority queue pumping
     while (activeHighOps < capHigh && highWaitQueue.length > 0) {
       activeHighOps++;
+      consecutiveHighOps++;
       if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
-      const resume = highWaitQueue.shift();
-      resume();
+      const waiter = highWaitQueue.shift();
+      waiter.resolve();
     }
-  };
 
-  const pumpLowQueue = () => {
-    while (activeHighOps === 0 && highWaitQueue.length === 0 && activeLowOps < capLow && lowWaitQueue.length > 0) {
-      activeLowOps++;
-      if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
-      const resume = lowWaitQueue.shift();
-      resume();
-    }
-  };
-
-  const acquireSlot = async (priority) => {
-    if (priority === "high") {
-      if (activeHighOps >= capHigh) {
-        await new Promise((resolve) => highWaitQueue.push(resolve));
-      } else {
-        activeHighOps++;
-        if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
+    // 3. Normal low priority queue pumping (when no high operations are active or queued)
+    if (activeHighOps === 0 && highWaitQueue.length === 0) {
+      consecutiveHighOps = 0;
+      while (activeLowOps < capLow && lowWaitQueue.length > 0) {
+        activeLowOps++;
+        if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
+        const waiter = lowWaitQueue.shift();
+        waiter.resolve();
       }
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        activeHighOps = Math.max(0, activeHighOps - 1);
-        if (highWaitQueue.length > 0) {
-          pumpHighQueue();
-        } else {
-          pumpLowQueue();
-        }
-      };
     }
-    if (activeHighOps > 0 || highWaitQueue.length > 0 || activeLowOps >= capLow) {
-      await new Promise((resolve) => lowWaitQueue.push(resolve));
-    } else {
-      activeLowOps++;
-      if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
-    }
+  };
+
+  const makeRelease = (priority) => {
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      activeLowOps = Math.max(0, activeLowOps - 1);
-      if (highWaitQueue.length > 0) {
-        pumpHighQueue();
+      if (priority === "high") {
+        activeHighOps = Math.max(0, activeHighOps - 1);
       } else {
-        pumpLowQueue();
+        activeLowOps = Math.max(0, activeLowOps - 1);
       }
+      pumpQueues();
     };
+  };
+
+  const acquireSlot = (priority) => {
+    return new Promise((resolve, reject) => {
+      const isHigh = priority === "high";
+
+      // Immediate acquisition without waiting
+      if (isHigh) {
+        if (activeHighOps < capHigh) {
+          activeHighOps++;
+          consecutiveHighOps++;
+          if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
+          return resolve(makeRelease("high"));
+        }
+      } else {
+        if (activeHighOps === 0 && highWaitQueue.length === 0 && activeLowOps < capLow) {
+          activeLowOps++;
+          if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
+          return resolve(makeRelease("low"));
+        }
+      }
+
+      // Wait in queue with optional timeout protection
+      const queue = isHigh ? highWaitQueue : lowWaitQueue;
+      const waiter = {
+        resolve: null,
+        reject,
+        queuedAt: Date.now(),
+        timer: null
+      };
+
+      if (qTimeout > 0 && Number.isFinite(qTimeout)) {
+        waiter.timer = setTimeout(() => {
+          const idx = queue.indexOf(waiter);
+          if (idx !== -1) {
+            queue.splice(idx, 1);
+            waiter.reject(new Error(`DB queue timeout after ${qTimeout}ms (priority: ${priority})`));
+          }
+        }, qTimeout);
+        if (waiter.timer.unref) waiter.timer.unref();
+      }
+
+      waiter.resolve = () => {
+        if (waiter.timer) clearTimeout(waiter.timer);
+        resolve(makeRelease(priority));
+      };
+
+      queue.push(waiter);
+    });
   };
 
   const wrapPool = (priority) => {

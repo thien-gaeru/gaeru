@@ -378,3 +378,166 @@ test("Google Analytics: all 32 storefront HTML files include google-analytics.js
     );
   }
 });
+
+
+test("Google Analytics: URL sanitization strips tokens and sensitive query parameters", () => {
+  const dirtyUrl1 = "https://gaeru.vn/account.html?token=super-secret-token&email=user%40example.com&ref=homepage";
+  const cleanUrl1 = GAERUAnalytics.sanitizeUrl(dirtyUrl1);
+  assert.ok(!cleanUrl1.includes("super-secret-token"), "Token must be stripped");
+  assert.ok(!cleanUrl1.includes("user%40example.com"), "Email must be stripped");
+  assert.ok(cleanUrl1.includes("token=%5BREDACTED%5D") || cleanUrl1.includes("token=[REDACTED]"), "Token replaced by [REDACTED]");
+  assert.ok(cleanUrl1.includes("ref=homepage"), "Safe params preserved");
+
+  const dirtyPath = "/tai-khoan?verify=123456&contactVerify=abcdef&action=view";
+  const cleanPath = GAERUAnalytics.sanitizeUrl(dirtyPath);
+  assert.ok(!cleanPath.includes("123456"));
+  assert.ok(!cleanPath.includes("abcdef"));
+  assert.ok(cleanPath.includes("action=view"));
+});
+
+test("Google Analytics: Enhanced Ecommerce supports trackRemoveFromCart, trackRefund, and Consent Mode v2", () => {
+  const events = [];
+  globalThis.dataLayer = [];
+  globalThis.gtag = function(...args) {
+    events.push(args);
+  };
+
+  // Test remove_from_cart
+  GAERUAnalytics.trackRemoveFromCart({
+    variantId: "k9-typec",
+    name: "GAERU K9",
+    category: "Micro",
+    priceVnd: 690000,
+    quantity: 1
+  });
+  const removeEvt = events.find(e => e[0] === "event" && e[1] === "remove_from_cart");
+  assert.ok(removeEvt, "remove_from_cart event must be emitted");
+  assert.equal(removeEvt[2].value, 690000);
+  assert.equal(removeEvt[2].items[0].item_id, "k9-typec");
+
+  // Test refund
+  GAERUAnalytics.trackRefund({
+    orderNumber: "GAERU-REFUND-101",
+    totalVnd: 690000,
+    items: [{ variantId: "k9-typec", name: "GAERU K9", priceVnd: 690000, quantity: 1 }]
+  });
+  const refundEvt = events.find(e => e[0] === "event" && e[1] === "refund");
+  assert.ok(refundEvt, "refund event must be emitted");
+  assert.equal(refundEvt[2].transaction_id, "GAERU-REFUND-101");
+  assert.equal(refundEvt[2].value, 690000);
+
+  // Test init sets consent mode default
+  globalThis.document = {
+    head: { appendChild: () => {} },
+    querySelector: () => null,
+    createElement: () => ({})
+  };
+  GAERUAnalytics.isInitialized = false;
+  GAERUAnalytics.measurementId = null;
+  GAERUAnalytics.init("G-CONSENT123");
+  delete globalThis.document;
+  const consentCall = events.find(e => e[0] === "consent" && e[1] === "default");
+  assert.ok(consentCall, "Consent Mode v2 default must be called");
+  assert.equal(consentCall[2].analytics_storage, "granted");
+  assert.equal(consentCall[2].ad_storage, "denied");
+  assert.equal(consentCall[2].ad_personalization, "denied");
+});
+
+test("Google Analytics: Order status endpoint returns items, shippingFeeVnd, and subtotalVnd", async (context) => {
+  const app = createApp({
+    config: {
+      ...baseConfig,
+      NODE_ENV: "test",
+      PORT: 0
+    },
+    pool: {
+      query: async (sql, values) => {
+        if (typeof sql === "string" && sql.includes("FROM orders WHERE order_number = $1")) {
+          return {
+            rows: [{
+              id: 999,
+              orderNumber: "GAERU-20261108-999",
+              status: "confirmed",
+              paymentMethod: "momo",
+              paymentStatus: "paid",
+              totalVnd: 720000,
+              shippingFeeVnd: 30000,
+              subtotalVnd: 690000,
+              updatedAt: new Date().toISOString()
+            }]
+          };
+        }
+        if (typeof sql === "string" && sql.includes("FROM order_items WHERE order_id = $1")) {
+          return {
+            rows: [{
+              sku: "K9-TYPEC",
+              name: "Micro GAERU K9",
+              variantName: "Type-C",
+              quantity: 1,
+              priceVnd: 690000,
+              totalVnd: 690000
+            }]
+          };
+        }
+        return { rows: [] };
+      }
+    },
+    sessionStore: new session.MemoryStore()
+  });
+
+  const server = app.listen(0, "127.0.0.1");
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const res = await fetch(`${baseUrl}/api/payments/order-status?order=GAERU-20261108-999`);
+  assert.equal(res.status, 200);
+
+  const data = await res.json();
+  assert.ok(data.order);
+  assert.equal(data.order.orderNumber, "GAERU-20261108-999");
+  assert.equal(data.order.totalVnd, 720000);
+  assert.equal(data.order.shippingFeeVnd, 30000);
+  assert.equal(data.order.subtotalVnd, 690000);
+  assert.equal(data.order.items.length, 1);
+  assert.equal(data.order.items[0].sku, "K9-TYPEC");
+  assert.equal(data.order.items[0].priceVnd, 690000);
+});
+
+test("Google Analytics: Clearing measurement ID in DB disables tracking and does NOT fallback to env", async (context) => {
+  const app = createApp({
+    config: {
+      ...baseConfig,
+      NODE_ENV: "test",
+      PORT: 0,
+      GA_MEASUREMENT_ID: "G-ENVFALLBACK88"
+    },
+    pool: {
+      query: async (sql, values) => {
+        if (typeof sql === "string" && sql.includes("store_settings")) {
+          if (Array.isArray(values?.[0]) && values[0].includes("ga_measurement_id")) {
+            return {
+              rows: [
+                { setting_key: "ga_measurement_id", setting_value: "" } // Explicitly disabled in DB
+              ]
+            };
+          }
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }
+    },
+    sessionStore: new session.MemoryStore()
+  });
+
+  const server = app.listen(0, "127.0.0.1");
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const res = await fetch(`${baseUrl}/api/settings/public`);
+  assert.equal(res.status, 200);
+
+  const data = await res.json();
+  assert.equal(data.gaMeasurementId, "", "Empty string in DB must take precedence and disable tracking");
+});

@@ -378,9 +378,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.get("/settings/public", async (req, res) => {
     const settings = await getSettings(pool, ["shipping_note", "shipping_rates", "ga_measurement_id"]);
-    const gaMeasurementId = (typeof settings.ga_measurement_id === "string" && settings.ga_measurement_id.trim())
-      ? settings.ga_measurement_id.trim()
-      : (config?.GA_MEASUREMENT_ID || "");
+    const gaMeasurementId = settings.ga_measurement_id !== undefined
+      ? (typeof settings.ga_measurement_id === "string" ? settings.ga_measurement_id.trim() : "")
+      : (config?.GA_MEASUREMENT_ID || "").trim();
     res.json({
       ...(shippingChoices ? {shippingCarriers:(await require("./shipping-choice").availableCarriers(pool)).map(({id,name})=>({id,name}))} : {}),
       shippingNote: settings.shipping_note || "",
@@ -475,13 +475,23 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const orderNumber = require("./payment-channels").extractOrderNumber(req.query.order);
       if (!orderNumber) return res.status(400).json({ error: "Thiếu mã đơn hàng." });
       const row = (await pool.query(
-        `SELECT order_number AS "orderNumber", status, payment_method AS "paymentMethod",
-          payment_status AS "paymentStatus", total_vnd AS "totalVnd", updated_at AS "updatedAt"
+        `SELECT id, order_number AS "orderNumber", status, payment_method AS "paymentMethod",
+          payment_status AS "paymentStatus", total_vnd AS "totalVnd",
+          shipping_fee_vnd AS "shippingFeeVnd", subtotal_vnd AS "subtotalVnd",
+          updated_at AS "updatedAt"
          FROM orders WHERE order_number = $1`,
         [orderNumber]
       )).rows[0];
       if (!row) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
-      res.json({ order: row });
+      const items = (await pool.query(
+        `SELECT sku, product_name AS "name", variant_name AS "variantName",
+          quantity, unit_price_vnd AS "priceVnd", line_total_vnd AS "totalVnd"
+         FROM order_items WHERE order_id = $1 ORDER BY id`,
+        [row.id]
+      )).rows;
+      const { id, ...orderData } = row;
+      orderData.items = items;
+      res.json({ order: orderData });
     } catch (error) {
       next(error);
     }
@@ -2419,11 +2429,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/gaeru_ceo/google-analytics", async (req, res) => {
+    const isOwnerBootstrap = (req.admin?.role === "owner" && req.admin?.source === "bootstrap");
+    if (!isOwnerBootstrap) {
+      return res.status(403).json({ error: "Chỉ tài khoản Chủ sở hữu hệ thống (Owner bootstrap) mới có quyền truy cập cấu hình Google Analytics." });
+    }
     const settings = await getSettings(pool, ["ga_measurement_id"]);
+    const hasDb = settings.ga_measurement_id !== undefined;
     const dbValue = typeof settings.ga_measurement_id === "string" ? settings.ga_measurement_id.trim() : "";
     const envValue = (config?.GA_MEASUREMENT_ID || "").trim();
-    const gaMeasurementId = dbValue || envValue;
-    const source = dbValue ? "database" : (envValue ? "environment" : "none");
+    const gaMeasurementId = hasDb ? dbValue : envValue;
+    const source = hasDb ? (dbValue ? "database" : "disabled") : (envValue ? "environment" : "none");
     res.json({
       gaMeasurementId,
       configured: Boolean(gaMeasurementId),
@@ -2432,6 +2447,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.put("/gaeru_ceo/google-analytics", requireCsrf, async (req, res) => {
+    const isOwnerBootstrap = (req.admin?.role === "owner" && req.admin?.source === "bootstrap");
+    if (!isOwnerBootstrap) {
+      return res.status(403).json({ error: "Chỉ tài khoản Chủ sở hữu hệ thống (Owner bootstrap) mới có quyền cập nhật cấu hình Google Analytics." });
+    }
     const gaSchema = z.object({
       gaMeasurementId: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal(""))
     });

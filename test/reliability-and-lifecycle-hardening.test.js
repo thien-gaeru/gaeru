@@ -240,10 +240,11 @@ test('Graceful Shutdown: server.close được gọi ngay lập tức và deadli
 
   // Giả lập startTask bị nghẽn mạng 10 giây
   const slowStartTask = new Promise((resolve) => {
-    setTimeout(() => {
+    const t = setTimeout(() => {
       slowStartupFinished = true;
       resolve();
-    }, 10000);
+    }, 1000);
+    if (t.unref) t.unref();
   });
 
   const shutdownStart = Date.now();
@@ -258,4 +259,98 @@ test('Graceful Shutdown: server.close được gọi ngay lập tức và deadli
   const elapsed = Date.now() - shutdownStart;
   assert.ok(elapsed < 1000, 'Shutdown không được bị giữ lại bởi tiến trình startup chậm');
   assert.equal(slowStartupFinished, false, 'Tiến trình startup chậm không được chặn quá trình dừng hệ thống');
+});
+
+
+test('DB Priority Pool: Anti-starvation đảm bảo Low-priority không bị đói khi High-priority tải liên tục', async () => {
+  const executionOrder = [];
+  const mockPool = {
+    options: { max: 10 },
+    query: async (sql) => {
+      executionOrder.push(sql);
+      await new Promise(r => setTimeout(r, 10));
+      return { rows: [] };
+    }
+  };
+
+  // Cấu hình starvationThresholdMs nhỏ (30ms) hoặc maxConsecutiveHighOps nhỏ (3)
+  const controller = createPriorityPoolController(mockPool, {
+    maxLowPriorityOps: 1,
+    maxHighPriorityOps: 1,
+    maxConsecutiveHighOps: 2,
+    starvationThresholdMs: 50
+  });
+
+  // H1 chạy, L1 vào hàng đợi
+  const h1 = controller.highPriorityPool.query('H1');
+  const l1 = controller.lowPriorityPool.query('L1');
+  const h2 = controller.highPriorityPool.query('H2');
+  const h3 = controller.highPriorityPool.query('H3');
+
+  await Promise.all([h1, l1, h2, h3]);
+
+  // Nhờ anti-starvation (maxConsecutiveHighOps = 2), L1 được chen vào chạy sau 2 high queries thay vì phải đợi hết cả 3
+  assert.ok(executionOrder.indexOf('L1') !== -1, 'L1 phải được thực thi');
+  assert.ok(executionOrder.indexOf('L1') < executionOrder.indexOf('H3'), 'L1 phải chạy trước H3 do cơ chế chống starvation');
+});
+
+test('DB Priority Pool: Hàng đợi có cơ chế queueTimeoutMs giải phóng waiter khi chờ quá hạn', async () => {
+  const mockPool = {
+    options: { max: 10 },
+    query: async () => {
+      await new Promise(r => setTimeout(r, 200));
+      return { rows: [] };
+    }
+  };
+
+  const controller = createPriorityPoolController(mockPool, {
+    maxHighPriorityOps: 1,
+    queueTimeoutMs: 50 // Timeout sau 50ms nếu không được nhận slot
+  });
+
+  const h1 = controller.highPriorityPool.query('SELECT 1'); // Chiếm slot trong 200ms
+  const h2 = controller.highPriorityPool.query('SELECT 2'); // Đợi trong hàng đợi quá 50ms
+
+  let timeoutCaught = false;
+  try {
+    await h2;
+  } catch (err) {
+    timeoutCaught = true;
+    assert.ok(err.message.includes('DB queue timeout'), 'Lỗi phải chứa thông báo DB queue timeout');
+  }
+
+  assert.equal(timeoutCaught, true, 'Waiter quá hạn phải bị reject với queue timeout error');
+  await h1;
+});
+
+test('Graceful Shutdown & SSE: closeAllSseStreams đóng lập tức tất cả kết nối SSE đang mở khi shutdown', () => {
+  const { openSseStream, closeAllSseStreams, realtimeClients, activeStreams } = require('../src/realtime-sse');
+
+  let streamEnded = false;
+  let clientWritten = '';
+
+  const handlers = {};
+  const mockRes = {
+    writeHead: () => {},
+    write: (chunk) => { clientWritten += chunk; },
+    end: () => {
+      streamEnded = true;
+      if (handlers['close']) handlers['close']();
+      if (handlers['finish']) handlers['finish']();
+    },
+    once: (ev, fn) => { handlers[ev] = fn; }
+  };
+
+  const mockReq = {
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: {}
+  };
+
+  openSseStream(mockReq, mockRes, 'test-channel');
+  assert.ok(activeStreams.has(mockRes), 'Stream phải được theo dõi trong activeStreams');
+
+  closeAllSseStreams();
+  assert.equal(streamEnded, true, 'SSE stream phải được gọi end() khi shutdown');
+  assert.ok(clientWritten.includes('event: shutdown'), 'SSE stream phải nhận thông báo event: shutdown');
+  assert.equal(activeStreams.size, 0, 'activeStreams phải được dọn sạch hoàn toàn');
 });

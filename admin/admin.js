@@ -1359,19 +1359,30 @@ document.addEventListener("submit", async (event) => {
   const feedback = document.querySelector("#ga-form-feedback");
   const idVal = form.elements.gaMeasurementId.value.trim();
   if (idVal && !/^G-[A-Za-z0-9]+$/i.test(idVal)) {
-    if (feedback) feedback.textContent = "Measurement ID phải có định dạng G-XXXXXXXXXX (ví dụ G-ABC1234XYZ).";
+    if (feedback) {
+      feedback.textContent = "Measurement ID phải có định dạng G-XXXXXXXXXX (ví dụ G-ABC1234XYZ).";
+      feedback.style.color = "#dc2626";
+    }
     return;
   }
   if (btn) btn.disabled = true;
-  if (feedback) feedback.textContent = "Đang lưu cấu hình Google Analytics…";
+  if (feedback) {
+    feedback.textContent = "Đang lưu cấu hình Google Analytics…";
+    feedback.style.color = "#6b7280";
+  }
   try {
     const res = await request("/api/gaeru_ceo/google-analytics", {
       method: "PUT",
       body: JSON.stringify({ gaMeasurementId: idVal })
     });
+    if (feedback) feedback.textContent = "";
     showGlobal(res.message || "Đã lưu cài đặt Google Analytics.");
-    } catch (err) {
-    if (feedback) feedback.textContent = err.message;
+    await loadGoogleAnalyticsSettings();
+  } catch (err) {
+    if (feedback) {
+      feedback.textContent = err.message || "Lỗi lưu cấu hình Google Analytics.";
+      feedback.style.color = "#dc2626";
+    }
   } finally {
     if (btn) btn.disabled = false;
   }

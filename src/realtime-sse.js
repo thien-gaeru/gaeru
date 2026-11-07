@@ -100,8 +100,11 @@ function acquireSseSlot(req, res) {
   return true;
 }
 
+const activeStreams = new Set();
+
 function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, checkSession = null } = {}) {
   if (!acquireSseSlot(req, res)) return;
+  activeStreams.add(res);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -135,6 +138,7 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
     }
     res.write(': ping\n\n');
   }, 20000);
+  if (heartbeatTimer.unref) heartbeatTimer.unref();
 
   let cleanedUp = false;
   const cleanup = () => {
@@ -142,6 +146,7 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
     cleanedUp = true;
     clearInterval(heartbeatTimer);
     unsubscribe();
+    activeStreams.delete(res);
   };
 
   // GAERU RT-01: Cleanup SSE subscription and timers strictly on response close/finish.
@@ -248,6 +253,7 @@ function sseHandler(req, res) {
       res.write(': keepalive\n\n');
     } catch (_) {}
   }, 25000);
+  if (heartbeat.unref) heartbeat.unref();
 
   let cleanedUp = false;
   const cleanup = () => {
@@ -275,6 +281,23 @@ cacheEvents.on('invalidated', (payload) => {
   }
 });
 
+function closeAllSseStreams() {
+  for (const client of realtimeClients) {
+    try {
+      client.write?.('event: shutdown\ndata: {"shutdown":true}\n\n');
+      client.end?.();
+    } catch (_) {}
+  }
+  realtimeClients.clear();
+  for (const stream of activeStreams) {
+    try {
+      stream.write?.('event: shutdown\ndata: {"shutdown":true}\n\n');
+      stream.end?.();
+    } catch (_) {}
+  }
+  activeStreams.clear();
+}
+
 module.exports = {
   RealtimeHub,
   defaultHub,
@@ -286,6 +309,8 @@ module.exports = {
   publishChatEvent,
   sseHandler,
   realtimeClients,
+  activeStreams,
+  closeAllSseStreams,
   getActiveSseCount,
   MAX_TOTAL_SSE,
   MAX_PER_IP_SSE

@@ -1,11 +1,11 @@
 # BIÊN BẢN NGHIỆM THU CHÍNH THỨC TOÀN DIỆN HỆ THỐNG GAERU (08/11/2026)
 
-- **Ngày nghiệm thu:** 08/11/2026 (00:15 GMT+7)
+- **Ngày nghiệm thu:** 08/11/2026 (01:35 GMT+7)
 - **Dự án:** GAERU Independent E-commerce & Enterprise Management Platform
 - **Kho lưu trữ:** `https://github.com/thien-gaeru/gaeru.git`
 - **Nhánh Git:** `gaeru`
 - **Phiên bản Node.js hỗ trợ:** `Node.js >= 22.0.0 < 26` (Đầy đủ Node 22, 23, 24, 25)
-- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, xóa hoàn toàn chức năng Đối soát COD thủ công và tự động hóa dòng tiền, cho phép Quản trị tối cao (Supreme Owner) xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo mật thông tin DLP tuyệt đối không rò rỉ dữ liệu mật, hoàn thiện 5 điểm trọng yếu về độ ổn định & vận hành, và vượt qua 100% các bộ kiểm thử tự động.
+- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, xóa hoàn toàn chức năng Đối soát COD thủ công và tự động hóa dòng tiền, cho phép Quản trị tối cao (Supreme Owner) xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo mật thông tin DLP tuyệt đối không rò rỉ dữ liệu mật, hoàn thiện 14 điểm phản biện chuyên sâu về Google Analytics 4, Enhanced Ecommerce, chu kỳ sống tiến trình, anti-starvation CSDL, khắc phục đồng bộ trạng thái thông báo form cấu hình GA4, và vượt qua 100% các bộ kiểm thử tự động.
 
 ---
 
@@ -48,9 +48,30 @@
      * **Cơ chế CSDL:** Tạo migration mới [`db/owner-order-purge-override.sql`](file:///C:/Users/imdot/gaeru/db/owner-order-purge-override.sql) nâng cấp 2 hàm trigger `protect_sales_receipt()` và `protect_cod_settlement_allocations()` cho phép xóa khi session có setting `SET LOCAL gaeru.allow_owner_order_purge = 'on'`.
      * **Nhân viên được phân quyền (`actor.role !== 'owner' && can('orders.permanent_delete')`):** Giữ nguyên 100% các chốt chặn an toàn và tính bất biến nghiêm ngặt của sổ sách kế toán, chặn HTTP 409 khi cố xóa các đơn đã phát sinh chứng từ kế toán, thuế hoặc vận đơn.
 
+5. **Khắc Phục Đồng Bộ Thông Báo Giao Diện Google Analytics 4 (Ảnh phản ánh của người dùng):**
+   - **Hiện tượng:** Dưới nút bấm *"Lưu cấu hình GA4"* vẫn treo dòng chữ *"Đang lưu cấu hình Google Analytics..."* trong khi thông báo Toast nổi góc màn hình đã hiển thị *"Đã lưu Google Analytics Measurement ID."*.
+   - **Nguyên nhân:** Sự kiện submit trong `admin/admin.js` khi thành công chỉ gọi `showGlobal` mà không dọn sạch nội dung thẻ `#ga-form-feedback`.
+   - **Xử lý:** Khi lưu thành công, lập tức đặt `feedback.textContent = ""` để dọn sạch thông báo đang lưu; tự động gọi `loadGoogleAnalyticsSettings()` cập nhật huy hiệu `#ga-status-pill` tức thời thành *"Đang hoạt động · G-..."*; nếu phát sinh lỗi thì gán màu cảnh báo `#dc2626`.
+
+6. **Hoàn Thiện 14 Điểm Rà Soát Kỹ Thuật Toàn Diện Của GAERU:**
+   - **Point 1 (Chống rò rỉ PII/Token trong URL):** Bổ sung hàm `sanitizeUrl(url)` trong `google-analytics.js` tự động khử khuẩn các tham số nhạy cảm (`token`, `email`, `verify`, `contactVerify`, `code`, `state`, `secret`, `password`, `key`, `auth`, `reset_token`, `linkRequired`, `phone`, `otp`) thành `[REDACTED]` trước khi gửi GA4.
+   - **Point 2 (Đầy đủ items & phí ship ở trang kết quả thanh toán):** Cập nhật route `/api/payments/order-status` trong `src/store-api.js` truy vấn thêm `shippingFeeVnd`, `subtotalVnd` và danh sách chi tiết các mặt hàng từ bảng `order_items`.
+   - **Point 3 (Enhanced Ecommerce purchase.value nhất quán):** Chuẩn hóa sự kiện `purchase` gửi đầy đủ `value: totalVnd`, `shipping: shippingFeeVnd`, `tax: 0`, `coupon`, và `items` có `price`, `quantity`, `discount`.
+   - **Point 4 (Tôn trọng giá trị DB khi xóa Measurement ID):** Khi cấu hình trong DB là chuỗi rỗng `""`, API `/api/settings/public` và `/api/gaeru_ceo/google-analytics` tôn trọng DB là đã tắt theo dõi, tuyệt đối không tự ý fallback về biến môi trường `GA_MEASUREMENT_ID`.
+   - **Point 5 (Khử trùng lặp purchase đa tầng):** Sử dụng kết hợp cả `localStorage` và `sessionStorage` để ngăn chặn trùng lặp giao dịch vĩnh viễn theo mã đơn hàng.
+   - **Point 6 (Google Consent Mode v2):** Khởi tạo `gtag('consent', 'default', { analytics_storage: 'granted', ad_storage: 'denied', ... })` trước khi nạp GA4; bỏ qua auto-tracking trên toàn bộ các route quản trị `/gaeru_ceo/*`.
+   - **Point 7 (Đồng nhất phân quyền UI và API):** Khóa chặt quyền truy cập và chỉnh sửa Google Analytics trong API `src/store-api.js` bắt buộc `role === 'owner' && source === 'bootstrap'`, ăn khớp 100% với điều kiện hiển thị trên UI.
+   - **Point 8 (Tự phục hồi Readiness Gate khi media khởi động trễ):** Bổ sung vòng lặp retry 10s trong `src/server.js` tự động probe lại và mở readiness gate khi ổ lưu trữ mount thành công.
+   - **Point 9 (Graceful Shutdown không treo bởi kết nối SSE):** Xuất hàm `closeAllSseStreams()` trong `src/realtime-sse.js` đóng toàn bộ luồng SSE và ngắt socket trước khi `server.close()`, bọc race deadline 2s.
+   - **Point 10 (Kiểm thử vòng đời tiến trình & isolation):** Kiểm thử trực tiếp module exports `closeAllSseStreams`, lifecycle timeout và anti-starvation.
+   - **Point 11 (Chống starvation và timeout trong DB Priority Queue):** Bổ sung cơ chế anti-starvation boost (`starvationThresholdMs = 5000ms`, `maxConsecutiveHighOps = 20`) và `queueTimeoutMs` trong `createPriorityPoolController` của `src/db.js`.
+   - **Point 12 (Mua ngay không làm lệch số liệu giỏ hàng):** Gỡ bỏ lệnh `trackAddToCart` khi click nút "Mua ngay" trong `commerce.js`, nhường cho `trackBeginCheckout` ghi nhận chính xác tại trang thanh toán.
+   - **Point 13 (Bổ sung remove_from_cart và refund):** Bổ sung `trackRemoveFromCart` và `trackRefund` vào `google-analytics.js`, liên kết với hành vi xóa giỏ hàng trong `commerce.js`.
+   - **Point 14 (Đồng bộ số liệu nghiệm thu):** Cập nhật toàn bộ tài liệu nghiệm thu với đầy đủ 1025 bài test.
+
 ---
 
-## 2. Ma Trận Nghiệm Thu 24 Tiêu Chí Kiểm Toán Toàn Diện
+## 2. Ma Trận Nghiệm Thu Kiểm Toán Toàn Diện
 
 - **QA01 & P2-05:** Công cụ thiết lập tài khoản chủ `scripts/create-local-owner.js` khóa chặt production, CI và remote DB, không in mật khẩu ra console.
 - **QA02 - QA08:** Concurrency fencing, mid-flight cancel vs delivered race, monotonic state & chống lặp 5x webhook carrier.
@@ -63,13 +84,14 @@
 - **FX-COD:** Bộ test hồi quy HTTP thực tế `test/cod-settlement-modal-regression.test.js` đạt 100% PASS.
 - **FX-NO-COD-RECON:** Bộ test `test/remove-manual-cod-reconciliation.test.js` kiểm chứng gỡ bỏ hoàn toàn UI đối soát COD thủ công và hoàn tất đơn hàng COD tự động trơn tru đạt 100% PASS.
 - **FX-OWNER-PURGE:** Bộ test `test/supreme-owner-unrestricted-order-deletion.test.js` kiểm chứng: Nhân viên bị chặn 409, Quản trị tối cao xóa sạch toàn diện đơn hàng đạt HTTP 200 OK.
-- **FX-RELIABILITY:** Bộ test `test/reliability-and-lifecycle-hardening.test.js` kiểm chứng: Hạn mức DB ưu tiên cao (`maxHighPriorityOps = 8`), timeout câu lệnh PostgreSQL, cách ly lỗi worker, readiness gate bảo vệ lưu trữ media và shutdown tức thời đạt 100% PASS.
+- **FX-RELIABILITY:** Bộ test `test/reliability-and-lifecycle-hardening.test.js` kiểm chứng: Hạn mức DB ưu tiên cao (`maxHighPriorityOps = 8`), timeout câu lệnh PostgreSQL, cách ly lỗi worker, readiness gate bảo vệ lưu trữ media, chống starvation CSDL và graceful shutdown đạt 100% PASS (11/11 tests).
+- **FX-GA4:** Bộ test `test/google-analytics.test.js` kiểm chứng: CSP Level 3, Google Consent Mode v2, URL sanitization PII/tokens, API phân quyền owner, xử lý DB rỗng không fallback env, Enhanced Ecommerce (view, add, remove, begin_checkout, purchase deduplicated, refund) đạt 100% PASS (11/11 tests).
 
 ---
 
 ## 3. Kết Quả Kiểm Thử Toàn Diện
 
-- **Full test suite (`npm test`):** **1011 / 1011 PASS (100%)**, 0 fail, 0 skipped.
+- **Full test suite (`npm test`):** **1025 / 1025 PASS (100%)**, 0 fail, 0 skipped, 0 cancelled.
 - **Cú pháp tĩnh toàn bộ dự án (`node -c`):** **462 / 462 tệp JavaScript PASSED (0 syntax error)**.
 - **Tài nguyên tĩnh (`npm run verify:assets`):** Xác nhận đủ 20 phiên bản ảnh WebP + AVIF trên đĩa.
 - **An toàn thư viện phụ thuộc (`npm audit`):** `found 0 vulnerabilities`.

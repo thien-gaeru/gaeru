@@ -24,6 +24,7 @@ const sessionStore = new PgSessionStore({
 const app = createApp({ config, pool, sessionStore });
 let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
 let resourceMonitor;
+let mediaRetryTimer = null;
 const workerTimeouts = [];
 function scheduleWorker(fn, delayMs) {
   if (shuttingDown) return;
@@ -167,6 +168,29 @@ async function start() {
       setReady(true);
     } else {
       console.log('Local media checks unverified; readiness gate remains closed until media storage is verified.');
+      if (!mediaRetryTimer && !shuttingDown && typeof setInterval !== 'undefined') {
+        mediaRetryTimer = setInterval(async () => {
+          if (shuttingDown) {
+            if (typeof clearInterval !== 'undefined') clearInterval(mediaRetryTimer);
+            return;
+          }
+          try {
+            const retryCheck = await require('./lib/filesystem-media').probe();
+            if (retryCheck.verified) {
+              if (typeof clearInterval !== 'undefined') clearInterval(mediaRetryTimer);
+              mediaRetryTimer = null;
+              console.log('Media storage verified via retry probe; opening readiness gate.');
+              setReady(true);
+              staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
+                .then(res => console.log('Static media (retry):', JSON.stringify(res)))
+                .catch(err => console.error('Static media sync failed (retry):', errorSummary(err)));
+            }
+          } catch (err) {
+            console.warn('Media probe retry error:', errorSummary(err));
+          }
+        }, 10000);
+        if (mediaRetryTimer?.unref) mediaRetryTimer.unref();
+      }
     }
   }
   if (shuttingDown) return;
@@ -239,11 +263,22 @@ async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   setStartupError(new Error('SHUTDOWN'));
+  if (mediaRetryTimer && typeof clearInterval !== 'undefined') {
+    clearInterval(mediaRetryTimer);
+    mediaRetryTimer = null;
+  }
   if (resourceMonitor) clearInterval(resourceMonitor);
   if (typeof clearTimeout !== 'undefined') workerTimeouts.forEach(t => clearTimeout(t));
 
-  // 1. Immediately close HTTP server to stop accepting new requests
-  if (server) await new Promise(resolve => server.close(resolve)).catch(() => {});
+  // 1. Immediately close long-running SSE connections and HTTP sockets
+  try { require('./realtime-sse').closeAllSseStreams?.(); } catch (_) {}
+  if (server) {
+    try { server.closeIdleConnections?.(); } catch (_) {}
+    try { server.closeAllConnections?.(); } catch (_) {}
+    const closePromise = new Promise(resolve => server.close(resolve));
+    const closeTimeout = new Promise(resolve => setTimeout(resolve, 2000).unref?.());
+    await Promise.race([closePromise, closeTimeout]).catch(() => {});
+  }
 
   // 2. Stop all background workers immediately
   stopChatFileRetention?.();
