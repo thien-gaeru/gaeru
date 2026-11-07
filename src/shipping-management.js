@@ -2091,6 +2091,7 @@ module.exports = {
   quoteShippingFee,
   invalidateShippingQuoteCache,
   canAdvanceCarrierStatus,
+  applyCarrierDeliveryTransition,
   signGuestTrackingToken,
   verifyGuestTrackingToken
 };

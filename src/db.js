@@ -43,6 +43,9 @@ function poolOptions(config) {
     connectionString = parsed.toString();
   }
   const minVersion = config.PGSSL_MIN_VERSION === "TLSv1.3" ? "TLSv1.3" : "TLSv1.2";
+  const max = Math.max(1, Number.parseInt(config?.PG_MAX_CONNECTIONS || config?.PG_POOL_SIZE || 10, 10));
+  const statementTimeout = config?.PG_STATEMENT_TIMEOUT_MS ? Number.parseInt(config.PG_STATEMENT_TIMEOUT_MS, 10) : 30000;
+  const idleInTransactionTimeout = config?.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS ? Number.parseInt(config.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS, 10) : 15000;
   return {
     connectionString,
     ssl: requireTls
@@ -56,7 +59,9 @@ function poolOptions(config) {
           ...(config.PGSSL_CA ? { ca: config.PGSSL_CA } : {})
         }
       : undefined,
-    max: 10,
+    max,
+    statement_timeout: statementTimeout,
+    idle_in_transaction_session_timeout: idleInTransactionTimeout,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000
   };
@@ -167,16 +172,28 @@ async function withTransaction(pool, handler) {
   }
 }
 
-function createPriorityPoolController(pool, { maxLowPriorityOps = 2 } = {}) {
-  const cap = Math.max(1, Number.parseInt(maxLowPriorityOps, 10) || 2);
+function createPriorityPoolController(pool, { maxLowPriorityOps = 2, maxHighPriorityOps = 8 } = {}) {
+  const capLow = Math.max(1, Number.parseInt(maxLowPriorityOps, 10) || 2);
+  const poolMax = Number.parseInt(pool?.options?.max || 10, 10);
+  const capHigh = Math.max(1, Number.parseInt(maxHighPriorityOps, 10) || Math.max(1, poolMax - capLow));
   let activeHighOps = 0;
   let activeLowOps = 0;
   let peakHighOps = 0;
   let peakLowOps = 0;
   const lowWaitQueue = [];
+  const highWaitQueue = [];
+
+  const pumpHighQueue = () => {
+    while (activeHighOps < capHigh && highWaitQueue.length > 0) {
+      activeHighOps++;
+      if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
+      const resume = highWaitQueue.shift();
+      resume();
+    }
+  };
 
   const pumpLowQueue = () => {
-    while (activeHighOps === 0 && activeLowOps < cap && lowWaitQueue.length > 0) {
+    while (activeHighOps === 0 && highWaitQueue.length === 0 && activeLowOps < capLow && lowWaitQueue.length > 0) {
       activeLowOps++;
       if (activeLowOps > peakLowOps) peakLowOps = activeLowOps;
       const resume = lowWaitQueue.shift();
@@ -186,17 +203,25 @@ function createPriorityPoolController(pool, { maxLowPriorityOps = 2 } = {}) {
 
   const acquireSlot = async (priority) => {
     if (priority === "high") {
-      activeHighOps++;
-      if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
+      if (activeHighOps >= capHigh) {
+        await new Promise((resolve) => highWaitQueue.push(resolve));
+      } else {
+        activeHighOps++;
+        if (activeHighOps > peakHighOps) peakHighOps = activeHighOps;
+      }
       let released = false;
       return () => {
         if (released) return;
         released = true;
         activeHighOps = Math.max(0, activeHighOps - 1);
-        pumpLowQueue();
+        if (highWaitQueue.length > 0) {
+          pumpHighQueue();
+        } else {
+          pumpLowQueue();
+        }
       };
     }
-    if (activeHighOps > 0 || activeLowOps >= cap) {
+    if (activeHighOps > 0 || highWaitQueue.length > 0 || activeLowOps >= capLow) {
       await new Promise((resolve) => lowWaitQueue.push(resolve));
     } else {
       activeLowOps++;
@@ -207,7 +232,11 @@ function createPriorityPoolController(pool, { maxLowPriorityOps = 2 } = {}) {
       if (released) return;
       released = true;
       activeLowOps = Math.max(0, activeLowOps - 1);
-      pumpLowQueue();
+      if (highWaitQueue.length > 0) {
+        pumpHighQueue();
+      } else {
+        pumpLowQueue();
+      }
     };
   };
 
@@ -329,8 +358,10 @@ function createPriorityPoolController(pool, { maxLowPriorityOps = 2 } = {}) {
       activeLowOps,
       peakHighOps,
       peakLowOps,
+      queuedHighOps: highWaitQueue.length,
       queuedLowOps: lowWaitQueue.length,
-      maxLowPriorityOps: cap
+      maxHighPriorityOps: capHigh,
+      maxLowPriorityOps: capLow
     })
   };
 }

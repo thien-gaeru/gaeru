@@ -27,13 +27,24 @@ let resourceMonitor;
 const workerTimeouts = [];
 function scheduleWorker(fn, delayMs) {
   if (shuttingDown) return;
+  const safeFn = () => {
+    if (shuttingDown) return;
+    try {
+      const res = fn();
+      if (res && typeof res.catch === 'function') {
+        res.catch(err => {
+          console.error('Async worker error:', errorSummary(err));
+        });
+      }
+    } catch (err) {
+      console.error('Worker failed to start:', errorSummary(err));
+    }
+  };
   if (typeof setTimeout === 'undefined' || process.env.NODE_ENV === 'test' || delayMs === 0) {
-    fn();
+    safeFn();
     return;
   }
-  const t = setTimeout(() => {
-    if (!shuttingDown) fn();
-  }, delayMs);
+  const t = setTimeout(safeFn, delayMs);
   t.unref?.();
   workerTimeouts.push(t);
 }
@@ -152,7 +163,11 @@ async function start() {
   }else{
     const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
-    setReady(true);
+    if (checkedMedia.state === 'verified') {
+      setReady(true);
+    } else {
+      console.log('Local media checks unverified; readiness gate remains closed until media storage is verified.');
+    }
   }
   if (shuttingDown) return;
 
@@ -226,8 +241,11 @@ async function shutdown() {
   setStartupError(new Error('SHUTDOWN'));
   if (resourceMonitor) clearInterval(resourceMonitor);
   if (typeof clearTimeout !== 'undefined') workerTimeouts.forEach(t => clearTimeout(t));
-  // Let any in-flight startup work settle before closing the pool it is using.
-  await startTask.catch(() => {});
+
+  // 1. Immediately close HTTP server to stop accepting new requests
+  if (server) await new Promise(resolve => server.close(resolve)).catch(() => {});
+
+  // 2. Stop all background workers immediately
   stopChatFileRetention?.();
   stopTikTokAds?.();
   stopChatCompression?.();
@@ -239,8 +257,19 @@ async function shutdown() {
   stopWarrantyEmail?.();
   stopCareEmail?.();
   stopOrderEmail?.();
-  if (server) await new Promise(resolve => server.close(resolve));
-  // Background conversion, verification and media sync bounded by a 4-second deadline (A15)
+
+  // 3. Settle in-flight startup work bounded by a 2.5-second deadline so shutdown is never hung by slow startup
+  if (typeof setTimeout !== 'undefined') {
+    const startupDeadline = new Promise(resolve => setTimeout(resolve, 2500).unref?.());
+    await Promise.race([
+      startTask.catch(() => {}),
+      startupDeadline
+    ]);
+  } else {
+    await startTask.catch(() => {});
+  }
+
+  // 4. Background conversion, verification and media sync bounded by a 4-second deadline (A15)
   if (typeof setTimeout !== 'undefined') {
     const shutdownDeadline = new Promise(resolve => setTimeout(resolve, 4000).unref?.());
     await Promise.race([
