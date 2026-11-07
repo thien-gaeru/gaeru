@@ -347,7 +347,8 @@ function renderBundlesHtml(container, bundles, currentVariantId) {
 function renderProduct() {
   const root = document.querySelector("#product-detail");
   if (!root) return;
-  const slug = (new URLSearchParams(location.search).get("id") || (location.pathname.startsWith("/san-pham/") ? decodeURIComponent(location.pathname.split("/").pop()) : null));
+  const searchParams = new URLSearchParams(location.search);
+  const slug = (searchParams.get("id") || searchParams.get("slug") || (location.pathname.startsWith("/san-pham/") ? decodeURIComponent(location.pathname.split("/").pop()) : null));
   const product = products.find((item) => item.slug === slug || item.slug === "gaeru-"+slug);
   if (!product) {
     root.innerHTML = `<section class="not-found section-wrap"><p class="eyebrow">Không tìm thấy sản phẩm</p><h1>Sản phẩm này chưa có hoặc đang được cập nhật.</h1><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></section>`;
