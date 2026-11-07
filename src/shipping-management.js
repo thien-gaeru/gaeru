@@ -43,7 +43,7 @@ async function getOrderForFulfillment(client, orderId) {
   return order;
 }
 
-async function createWaybill(pool, config, { orderId, carrierId, autoShip = false, forceRetry = false, actor, fetcher = fetch }) {
+async function createWaybill(pool, config, { orderId, carrierId, autoShip = false, actor, fetcher = fetch }) {
   const prepared = await withTransaction(pool, async client => {
     const order = await getOrderForFulfillment(client, orderId);
 
@@ -99,12 +99,7 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
 
     const unresolved = (await client.query("SELECT id,status FROM carrier_shipment_attempts WHERE order_id=$1 AND status IN ('sending','unknown') ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[orderId])).rows[0];
     if (unresolved) {
-      if (forceRetry) {
-        await client.query("UPDATE carrier_shipment_attempts SET status='reconciled',result='Quản trị viên xác nhận tạo lại sau khi kiểm tra',updated_at=now() WHERE id=$1",[unresolved.id]);
-        await appendAudit(client,{actor,action:'shipping.waybill.reconcile_retry',entityType:'order',entityId:order.id,metadata:{attemptId:unresolved.id,forced:true}});
-      } else {
-        throw fail('Yêu cầu tạo vận đơn '+unresolved.id+' đang xử lý hoặc chưa rõ kết quả. Đối chiếu trên hệ thống hãng trước khi cho phép tạo lại.',409);
-      }
+      throw fail('Yêu cầu tạo vận đơn '+unresolved.id+' đang xử lý hoặc chưa rõ kết quả. Đối chiếu trên hệ thống hãng trước khi cho phép tạo lại.',409);
     }
 
     const available = await availableCarriers(client,{lock:true});
@@ -120,10 +115,12 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
   if (prepared.existing) return prepared;
   const {order,targetCarrierId,settings,attemptId}=prepared;
   const codAmount = (order.paymentMethod === 'cod' && order.paymentStatus !== 'paid') ? Number(order.totalVnd || 0) : 0;
+  let providerAcknowledged = false;
   try {
     const waybillResult = await getAdapter(targetCarrierId).createWaybill(settings, {
       ...order, codAmountVnd:codAmount, weightGrams:500
     }, {fetcher});
+    providerAcknowledged = true;
     // Keep the provider reference even if the order transaction fails later.
     await pool.query("UPDATE carrier_shipment_attempts SET provider_result=$2,updated_at=now() WHERE id=$1 AND status='sending'",[attemptId,JSON.stringify(waybillResult)]);
     return await withTransaction(pool,async client=>{
@@ -198,64 +195,76 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     };
     });
   } catch (error) {
-    if (error.isCarrierRejected || error.status === 400 || error.status === 409) {
+    if (!providerAcknowledged && (error.isCarrierRejected || error.status === 400 || error.status === 409)) {
       await pool.query("UPDATE carrier_shipment_attempts SET status='failed',result=$2,updated_at=now() WHERE id=$1 AND status='sending'",[attemptId, error.message || 'Hãng vận chuyển từ chối tạo đơn']).catch(()=>{});
       throw error;
     }
-    await pool.query("UPDATE carrier_shipment_attempts SET status='unknown',result='Chưa xác định kết quả; đối soát tại hãng trước khi tạo lại',updated_at=now() WHERE id=$1 AND status='sending'",[attemptId]).catch(()=>{});
+    const unknownResult = providerAcknowledged
+      ? 'Hãng đã cấp mã vận đơn nhưng lỗi lưu cục bộ; cần đối soát khôi phục vận đơn đã có'
+      : 'Chưa xác định kết quả; đối soát tại hãng trước khi tạo lại';
+    await pool.query("UPDATE carrier_shipment_attempts SET status='unknown',result=$2,updated_at=now() WHERE id=$1 AND status='sending'",[attemptId, unknownResult]).catch(()=>{});
     throw fail('Chưa xác định kết quả tạo vận đơn. Yêu cầu '+attemptId+' đã khóa gửi lại; đối chiếu mã đơn '+order.orderNumber+' trên hệ thống hãng trước khi xử lý tiếp.',502);
   }
 }
 
 async function cancelWaybill(pool, config, { orderId, reason = 'Chủ shop hủy vận đơn', actor, fetcher = fetch }) {
-  return withTransaction(pool, async client => {
-    const shipmentResult = await client.query(
-      `SELECT * FROM carrier_shipments
-       WHERE order_id = $1 AND status != 'cancelled'
-       FOR UPDATE`,
-      [orderId]
-    );
+  const precheck = await pool.query(
+    `SELECT * FROM carrier_shipments
+     WHERE order_id = $1 AND status != 'cancelled'
+     ORDER BY created_at DESC LIMIT 1`,
+    [orderId]
+  );
+  if (!precheck.rows.length) {
+    throw fail('Không tìm thấy vận đơn đang hoạt động để hủy.', 404);
+  }
 
-    if (!shipmentResult.rows.length) {
+  const targetShipment = precheck.rows[0];
+  const carrierRecord = await readRecord(pool, config, 'shipping_' + targetShipment.carrier_id);
+  const adapter = getAdapter(targetShipment.carrier_id);
+
+  await adapter.cancelWaybill(carrierRecord.data, {
+    trackingNumber: targetShipment.tracking_number,
+    carrierOrderId: targetShipment.carrier_order_id,
+    reason
+  }, { fetcher });
+
+  return withTransaction(pool, async client => {
+    const locked = await client.query(
+      `SELECT * FROM carrier_shipments WHERE id = $1 FOR UPDATE`,
+      [targetShipment.id]
+    );
+    if (!locked.rows.length) {
       throw fail('Không tìm thấy vận đơn đang hoạt động để hủy.', 404);
     }
+    const shipment = locked.rows[0];
+    if (shipment.status !== 'cancelled') {
+      const history = Array.isArray(shipment.tracking_history) ? [...shipment.tracking_history] : [];
+      history.push({
+        timestamp: new Date().toISOString(),
+        status: 'cancelled',
+        rawStatus: 'cancelled_by_shop',
+        description: `Đã hủy vận đơn trên hệ thống hãng: ${reason}`
+      });
 
-    const shipment = shipmentResult.rows[0];
-    const carrierRecord = await readRecord(client, config, 'shipping_' + shipment.carrier_id);
-    const adapter = getAdapter(shipment.carrier_id);
+      await client.query(
+        `UPDATE carrier_shipments
+         SET status = 'cancelled', tracking_history = $2, updated_at = now()
+         WHERE id = $1`,
+        [shipment.id, JSON.stringify(history)]
+      );
 
-    await adapter.cancelWaybill(carrierRecord.data, {
-      trackingNumber: shipment.tracking_number,
-      carrierOrderId: shipment.carrier_order_id,
-      reason
-    }, { fetcher });
-
-    const history = Array.isArray(shipment.tracking_history) ? shipment.tracking_history : [];
-    history.push({
-      timestamp: new Date().toISOString(),
-      status: 'cancelled',
-      rawStatus: 'cancelled_by_shop',
-      description: `Đã hủy vận đơn trên hệ thống hãng: ${reason}`
-    });
-
-    await client.query(
-      `UPDATE carrier_shipments
-       SET status = 'cancelled', tracking_history = $2, updated_at = now()
-       WHERE id = $1`,
-      [shipment.id, JSON.stringify(history)]
-    );
-
-    await appendAudit(client, {
-      actor,
-      action: 'shipping.waybill.cancel',
-      entityType: 'order',
-      entityId: orderId,
-      metadata: {
-        carrierId: shipment.carrier_id,
-        trackingNumber: shipment.tracking_number,
-        reason
-      }
-    });
+      await appendAudit(client, {
+        actor,
+        action: 'shipping.waybill.cancel',
+        entityType: 'order',
+        entityId: orderId,
+        metadata: {
+          carrierId: shipment.carrier_id,
+          trackingNumber: shipment.tracking_number,
+          reason
+        }
+      });
+    }
 
     return {
       success: true,
@@ -279,42 +288,56 @@ async function reconcileWaybillAttempt(client, { attemptId, reason, actor }) {
 }
 
 async function syncShipmentTracking(pool, config, { orderId, trackingNumber, actor, fetcher = fetch, finance }) {
-  return withTransaction(pool, async client => {
-    let query, params;
-    if (orderId) {
-      query = `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
-                      o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
-                      o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
-               FROM carrier_shipments s
-               JOIN orders o ON o.id = s.order_id
-               WHERE s.order_id = $1 AND s.status != 'cancelled'
-               FOR UPDATE OF s, o`;
-      params = [orderId];
-    } else {
-      query = `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
-                      o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
-                      o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
-               FROM carrier_shipments s
-               JOIN orders o ON o.id = s.order_id
-               WHERE s.tracking_number = $1
-               FOR UPDATE OF s, o`;
-      params = [trackingNumber];
-    }
+  let preQuery, preParams;
+  if (orderId) {
+    preQuery = `SELECT s.*, o.order_number AS "orderNumber", o.status AS "orderStatus"
+                FROM carrier_shipments s
+                JOIN orders o ON o.id = s.order_id
+                WHERE s.order_id = $1 AND s.status != 'cancelled'
+                ORDER BY s.created_at DESC LIMIT 1`;
+    preParams = [orderId];
+  } else {
+    preQuery = `SELECT s.*, o.order_number AS "orderNumber", o.status AS "orderStatus"
+                FROM carrier_shipments s
+                JOIN orders o ON o.id = s.order_id
+                WHERE s.tracking_number = $1
+                ORDER BY s.created_at DESC LIMIT 1`;
+    preParams = [trackingNumber];
+  }
 
-    const result = await client.query(query, params);
+  const preResult = await pool.query(preQuery, preParams);
+  if (!preResult.rows.length) throw fail('Không tìm thấy vận đơn để đồng bộ.', 404);
+  const preShipment = preResult.rows[0];
+
+  const carrierRecord = await readRecord(pool, config, 'shipping_' + preShipment.carrier_id);
+  const adapter = getAdapter(preShipment.carrier_id);
+
+  const trackingData = await adapter.queryTracking(carrierRecord.data, {
+    trackingNumber: preShipment.tracking_number,
+    carrierOrderId: preShipment.carrier_order_id
+  }, { fetcher });
+
+  const newNormalizedStatus = trackingData.status;
+  if (newNormalizedStatus === 'pending') {
+    return { success: false, processed: false, trackingNumber: preShipment.tracking_number, orderStatus: preShipment.orderStatus, message: 'Hãng chưa trả trạng thái hành trình được hỗ trợ. Giữ nguyên dữ liệu hiện tại.' };
+  }
+
+  return withTransaction(pool, async client => {
+    const result = await client.query(
+      `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
+              o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
+              o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
+       FROM carrier_shipments s
+       JOIN orders o ON o.id = s.order_id
+       WHERE s.id = $1
+       FOR UPDATE OF s, o`,
+      [preShipment.id]
+    );
     if (!result.rows.length) throw fail('Không tìm thấy vận đơn để đồng bộ.', 404);
     const shipment = result.rows[0];
-
-    const carrierRecord = await readRecord(client, config, 'shipping_' + shipment.carrier_id);
-    const adapter = getAdapter(shipment.carrier_id);
-
-    const trackingData = await adapter.queryTracking(carrierRecord.data, {
-      trackingNumber: shipment.tracking_number,
-      carrierOrderId: shipment.carrier_order_id
-    }, { fetcher });
-
-    const newNormalizedStatus = trackingData.status;
-    if (newNormalizedStatus === 'pending') return { success: false, processed: false, trackingNumber: shipment.tracking_number, orderStatus: shipment.orderStatus, message: 'Hãng chưa trả trạng thái hành trình được hỗ trợ. Giữ nguyên dữ liệu hiện tại.' };
+    if (shipment.status === 'cancelled') {
+      return { success: true, processed: false, trackingNumber: shipment.tracking_number, orderStatus: shipment.orderStatus, message: 'Vận đơn đã hủy; bỏ qua đồng bộ trễ.' };
+    }
     const history = Array.isArray(trackingData.history) && trackingData.history.length > 0
       ? trackingData.history
       : Array.isArray(shipment.tracking_history) ? shipment.tracking_history : [];
@@ -431,10 +454,13 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
   let trackingNumber = null;
   let rawStatus = null;
   let carrierOrderId = null;
+  let webhookDesc = payload.desc || payload.description || '';
 
   if (carrierId === 'viettel') {
-    trackingNumber = payload.ORDER_NUMBER || payload.order_number;
-    rawStatus = payload.ORDER_STATUS || payload.status;
+    const vtp = payload && typeof payload.DATA === 'object' && payload.DATA !== null ? payload.DATA : payload;
+    trackingNumber = vtp.ORDER_NUMBER || vtp.order_number;
+    rawStatus = vtp.ORDER_STATUS ?? vtp.status;
+    webhookDesc = vtp.NOTE || vtp.STATUS_NAME || webhookDesc;
   } else if (carrierId === 'jt') {
     trackingNumber = payload.billcode || payload.mailno;
     carrierOrderId = payload.txlogisticid;
@@ -474,7 +500,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       timestamp: new Date().toISOString(),
       status: normalizedStatus,
       rawStatus: String(rawStatus),
-      description: payload.desc || payload.description || `Cập nhật từ Webhook ${CARRIER_NAMES[carrierId] || carrierId}`
+      description: webhookDesc || `Cập nhật từ Webhook ${CARRIER_NAMES[carrierId] || carrierId}`
     });
 
     await client.query(
@@ -482,7 +508,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
        SET status = $2, carrier_status_raw = $3, carrier_status_desc = $4,
            tracking_history = $5, last_synced_at = now(), updated_at = now()
        WHERE id = $1`,
-      [shipment.id, normalizedStatus, String(rawStatus), payload.desc || '', JSON.stringify(history)]
+      [shipment.id, normalizedStatus, String(rawStatus), webhookDesc || '', JSON.stringify(history)]
     );
 
     const isTerminalBlocked = shipment.orderStatus === 'cancelled' || Boolean(shipment.orderReturnCompletedAt);
@@ -617,17 +643,18 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     async (req, res, next) => {
       try {
         const orderId = z.string().uuid().parse(req.params.id);
-        const { carrierId, autoShip, forceRetry } = z.object({
+        if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'forceRetry') && req.body.forceRetry) {
+          throw fail('Tham số forceRetry đã bị vô hiệu hóa để bảo vệ đối soát vận đơn. Chỉ chủ doanh nghiệp được mở khóa qua quy trình đối soát có xác thực mật khẩu.', 403);
+        }
+        const { carrierId, autoShip } = z.object({
           carrierId: z.enum(['viettel', 'jt', 'spx']).optional(),
-          autoShip: z.boolean().optional(),
-          forceRetry: z.boolean().optional()
+          autoShip: z.boolean().optional()
         }).parse(req.body || {});
 
         const result = await createWaybill(pool, config, {
           orderId,
           carrierId,
           autoShip,
-          forceRetry,
           actor: req.admin,
           fetcher
         });
@@ -760,20 +787,24 @@ function createShippingManagement(pool, config, { fetcher = fetch, finance } = {
     }
   );
 
-  // Public Tracking by Order Number
+  // Authenticated Customer Tracking by Order Number
   publicRouter.get('/shipping/tracking/:orderNumber',
     rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
+        const customerId = req.session?.customer?.id;
+        if (!customerId) {
+          return res.status(401).json({ error: 'Vui lòng đăng nhập tài khoản khách hàng để tra cứu hành trình vận đơn.' });
+        }
         const orderNumber = String(req.params.orderNumber).trim();
         const result = await pool.query(
           `SELECT s.carrier_id, s.tracking_number, s.status, s.carrier_status_desc,
                   s.tracking_history, s.last_synced_at, o.order_number, o.status AS order_status
            FROM carrier_shipments s
            JOIN orders o ON o.id = s.order_id
-           WHERE o.order_number = $1 AND s.status != 'cancelled'
+           WHERE o.order_number = $1 AND o.customer_id = $2 AND s.status != 'cancelled'
            ORDER BY s.created_at DESC LIMIT 1`,
-          [orderNumber]
+          [orderNumber, customerId]
         );
         if (!result.rows.length) {
           return res.status(404).json({ error: 'Chưa có thông tin vận đơn cho đơn hàng này.' });

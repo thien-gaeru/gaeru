@@ -263,7 +263,7 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,
         if(req.fresh)return res.status(304).end();
         return res.send(preWebp.buffer);
       }
-      res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':'"'+hash(raw)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
+      res.type(mime||'application/octet-stream').set({'Cache-Control':cacheControl,'ETag':'"'+hash(raw)+'"','X-GAERU-Asset-Backend':'local-fallback','X-Content-Type-Options':'nosniff'});
       if(req.fresh)return res.status(304).end();
       return res.send(raw);
     }

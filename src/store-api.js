@@ -2123,22 +2123,19 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 400;
           throw error;
         }
+        const safeActor = (actor && actor.username) ? actor : { username: "admin", role: "owner", source: "admin", fullName: "Quản trị viên" };
         if (update.paymentStatus === "paid" && current.payment_status !== "paid") {
           await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
           const ledger = finance || require('./finance-api');
-          if (ledger) {
-            try {
-              await ledger.recordFullOrderPayment(client, {
-                order: { ...current, total_vnd: total },
-                actor: actor,
-                options: {
-                  reference: update.reconciliationRef || ('COD-' + (current.order_number || current.id.slice(0, 8))),
-                  note: update.paymentNote || 'Xác nhận thu tiền COD'
-                }
-              });
-            } catch (ledgerErr) {
-              console.warn('Finance ledger recordFullOrderPayment error for order %s: %s', current.id, ledgerErr.message);
-            }
+          if (ledger?.recordFullOrderPayment) {
+            await ledger.recordFullOrderPayment(client, {
+              order: { ...current, total_vnd: total },
+              actor: safeActor,
+              options: {
+                reference: update.reconciliationRef || ('COD-' + (current.order_number || current.id.slice(0, 8))),
+                note: update.paymentNote || 'Xác nhận thu tiền COD'
+              }
+            });
           }
         }
         const updated = await client.query(
@@ -2148,7 +2145,6 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
           [current.id, (autoApproveToProcessing ? "processing" : update.status) || null, update.paymentStatus || null, shippingFee, total]
         );
-        const safeActor = (actor && actor.username) ? actor : { username: "admin", role: "owner", source: "admin", fullName: "Quản trị viên" };
         await audit(client, { actor: safeActor, action: "order.update", entityType: "order", entityId: current.id, before: { status: current.status, paymentStatus: current.payment_status, shippingFeeVnd: current.shipping_fee_vnd }, after: updated.rows[0] });
         if ((targetStatus === 'completed' || updated.rows[0].status === 'completed') && (targetPaymentStatus === 'paid' || updated.rows[0].paymentStatus === 'paid')) {
           if (current.customer_id && updated.rows[0].totalVnd > 0) {

@@ -12,7 +12,15 @@ function fail(message, status = 502) {
 }
 
 function normalizeCarrierStatus(carrierId, rawStatus) {
-  const s = String(rawStatus || '').toLowerCase().trim();
+  const s = String(rawStatus ?? '').toLowerCase().trim();
+  if (carrierId === 'viettel' && /^-?\d+$/.test(s)) {
+    if (s === '501') return 'delivered';
+    if (['107', '503'].includes(s)) return 'cancelled';
+    if (['502', '504', '505'].includes(s)) return 'returned';
+    if (['105', '200', '202', '300', '320', '400', '500'].includes(s)) return 'delivering';
+    if (['100', '102', '103', '104'].includes(s)) return 'picking';
+    return 'pending';
+  }
   if (['delivered', 'hoanthanh', 'dagiao', 'thanh_cong'].includes(s)) {
     return 'delivered';
   }
@@ -362,23 +370,27 @@ const viettelAdapter = {
         redirect: 'error'
       });
       if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({}));
-        const combinedMsg = String(errBody?.message || errBody?.error || resp.statusText || '');
-        if (/đã hủy|da huy|already cancel|cancel|không tìm thấy|khong tim thay|chưa tạo|chua tao|không tồn tại|khong ton tai/i.test(combinedMsg)) {
-          return { response: resp, parsed: { status: 205, message: combinedMsg || 'Đơn hàng đã hủy!' } };
-        }
         throw fail(`Viettel Post hủy đơn thất bại (HTTP ${resp.status}).`, 502);
       }
       const data = await resp.json();
       return { response: resp, parsed: data };
     }, { fetcher });
 
-    const isAlreadyCancelled = res && (
-      (typeof res.message === 'string' && /(?:đơn hàng|vận đơn)\s*(?:đã\s*(?:được\s*)?hủy|không\s*tồn\s*tại|không\s*tìm\s*thấy)|already\s*cancelled/i.test(res.message)) ||
-      res.status === 205 ||
-      res.error === 205
+    const isTokenError = Boolean(
+      res && (
+        res.status === 201 ||
+        res.status === 203 ||
+        res.status === 204 ||
+        (typeof res.message === 'string' && /token\s*invalid/i.test(res.message))
+      )
     );
-    if (!carrierResponse.succeeded('viettel', res) && !isAlreadyCancelled) throw fail(`Viettel Post từ chối hủy: ${res.message || 'Lỗi'}`, 502);
+    const isAlreadyCancelled = Boolean(
+      res &&
+      !isTokenError &&
+      typeof res.message === 'string' &&
+      /^(?:đơn hàng|vận đơn)\s*đã\s*(?:được\s*)?hủy[!.]?$/i.test(res.message.trim())
+    );
+    if (!carrierResponse.succeeded('viettel', res) && !isAlreadyCancelled) throw fail(`Viettel Post từ chối hủy: ${res?.message || 'Lỗi'}`, 502);
     return { success: true, cancelled: true, message: isAlreadyCancelled ? 'Đơn hàng đã được xác nhận hủy trên hệ thống Viettel Post.' : 'Đã hủy vận đơn Viettel Post thành công.' };
   },
 

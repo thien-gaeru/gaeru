@@ -175,37 +175,45 @@ test('an acknowledged provider reference must match reconciled terminal shipment
 });
 
 
-test('createWaybill with forceRetry reconciles unresolved attempt and succeeds', async t => {
-  const f = await fixture(t), actor = { username: 'fixture', role: 'owner', source: 'bootstrap' };
-  const { createWaybill } = require('../src/shipping-management');
-  
-  // Tạo 1 attempt bị kẹt ở trạng thái unknown
-  await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status) VALUES($1,'viettel',1,'unknown')", [f.orderId]);
-  
-  // Gọi bình thường không có forceRetry -> bị chặn 409
+test('createWaybill rejects forceRetry bypass on unresolved attempts until explicit owner reconciliation', async t => {
+  const f = await fixture(t), actor = { username: 'fixture', role: 'sales', source: 'staff' };
+  const { createWaybill, reconcileWaybillAttempt } = require('../src/shipping-management');
+
+  const inserted = (await f.pool.query("INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version,status) VALUES($1,'viettel',1,'unknown') RETURNING id", [f.orderId])).rows[0];
+
+  let providerCalls = 0;
+  const mockFetcher = async () => {
+    providerCalls++;
+    return {
+      ok: true,
+      json: async () => ({ status: 200, error: false, data: { ORDER_NUMBER: 'VT-RETRY-OK', MONEY_TOTAL: 30000 } })
+    };
+  };
+
   await assert.rejects(
-    () => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'viettel', actor }),
+    () => createWaybill(f.pool, f.config, { orderId: f.orderId, carrierId: 'viettel', forceRetry: true, actor, fetcher: mockFetcher }),
     { status: 409 }
   );
+  assert.equal(providerCalls, 0, 'forceRetry must never bypass durable attempt fencing');
 
-  // Gọi có forceRetry: true -> giải phóng attempt cũ và tạo vận đơn thành công
-  const mockFetcher = async () => ({
-    ok: true,
-    json: async () => ({ status: 200, error: false, data: { ORDER_NUMBER: 'VT-RETRY-OK', MONEY_TOTAL: 30000 } })
-  });
+  await withTransaction(f.pool, client => reconcileWaybillAttempt(client, {
+    attemptId: inserted.id,
+    reason: 'Chủ doanh nghiệp đã đối chiếu tại cổng Viettel Post, chưa tạo vận đơn.',
+    actor: { username: 'owner', role: 'owner', source: 'bootstrap' }
+  }));
 
   const res = await createWaybill(f.pool, f.config, {
     orderId: f.orderId,
     carrierId: 'viettel',
-    forceRetry: true,
     actor,
     fetcher: mockFetcher
   });
 
   assert.equal(res.success, true);
   assert.equal(res.shipment.trackingNumber, 'VT-RETRY-OK');
+  assert.equal(providerCalls, 1);
 
-  const attempts = (await f.pool.query('SELECT status, result FROM carrier_shipment_attempts WHERE order_id = $1 ORDER BY created_at ASC', [f.orderId])).rows;
+  const attempts = (await f.pool.query('SELECT status FROM carrier_shipment_attempts WHERE order_id = $1 ORDER BY created_at ASC', [f.orderId])).rows;
   assert.equal(attempts.length, 2);
   assert.equal(attempts[0].status, 'reconciled');
   assert.equal(attempts[1].status, 'succeeded');

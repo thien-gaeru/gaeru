@@ -1588,40 +1588,7 @@ async function handleCarrierWaybillAction(event) {
         waybillFeedback.style.color = '#b42318';
         waybillFeedback.classList.add('is-error');
       }
-      if (err.message && err.message.includes('đang xử lý hoặc chưa rõ kết quả')) {
-        const confirmRetry = window.confirm(err.message + '\n\nNếu bạn đã kiểm tra và xác nhận hãng chưa nhận được vận đơn, bấm OK để mở khóa và thử tạo lại ngay.');
-        if (confirmRetry) {
-          try {
-            const retryRes = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/create-waybill`, {
-              method: 'POST',
-              body: JSON.stringify({ autoShip, forceRetry: true })
-            });
-            if (waybillFeedback) {
-              waybillFeedback.hidden = false;
-              waybillFeedback.textContent = retryRes.message || 'Đã tạo vận đơn thành công.';
-              waybillFeedback.style.color = '#16a34a';
-              waybillFeedback.classList.remove('is-error');
-            }
-            showGlobal(retryRes.message || 'Đã tạo vận đơn thành công.');
-            await loadOrders(state.orderPage);
-            const openDialog = document.getElementById('order-processing-dialog');
-            if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
-              openOrderProcessing(orderId);
-            }
-            return;
-          } catch(retryErr) {
-            if (waybillFeedback) {
-              waybillFeedback.hidden = false;
-              waybillFeedback.textContent = retryErr.message;
-              waybillFeedback.style.color = '#b42318';
-              waybillFeedback.classList.add('is-error');
-            }
-            showGlobal(retryErr.message, true);
-          }
-        }
-      } else {
-        showGlobal(err.message, true);
-      }
+      showGlobal(err.message || 'Không thể tạo vận đơn.', true);
     } finally {
       createWaybillBtn.disabled = false;
       createWaybillBtn.textContent = 'Tạo vận đơn thật';
