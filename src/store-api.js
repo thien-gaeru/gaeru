@@ -38,7 +38,7 @@ const orderSchema = z.object({
 
 const transitions = {
   pending: ["confirmed", "cancelled"],
-  confirmed: ["processing", "cancelled"],
+  confirmed: ["processing", "shipped", "cancelled"],
   processing: ["shipped", "cancelled"],
   shipped: ["completed"],
   completed: [],
@@ -2076,7 +2076,6 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             [current.id]
           )).rows[0] || null;
           const hasDeliveredShipment = (activeCarrierShipmentPeek && activeCarrierShipmentPeek.status === 'delivered') || Boolean(current.delivered_at);
-          const isOwner = Boolean(actor?.role === 'owner' || actor?.source === 'bootstrap' || actor?.isOwner === true);
           if (hasDeliveredShipment && (current.status === 'shipped' || targetStatus === 'shipped')) {
             targetStatus = "completed";
             update.status = "completed";
