@@ -70,25 +70,19 @@ test('the combined tabs count returned orders once and risky gateway restoration
  f.context.can=()=>true;Object.assign(f.order,{status:'cancelled',paymentMethod:'momo'});f.context.renderOrders();assert.equal(f.document.querySelector('[data-restore-order]').disabled,true);f.context.openOrderRestoration(f.order.id);assert.equal(f.document.querySelector('#order-restoration-dialog'),null);
 });
 
-test('selecting completed for a COD order automatically enables payment and updates guidance', () => {
+test('four-step order processing provides explicit delivery proof without automatically setting COD payment', () => {
   const f = fixture();
   f.context.can = () => true;
   f.order.status = 'shipped';
   f.order.paymentStatus = 'pending';
   f.order.paymentMethod = 'cod';
-  f.context.orderTransitions = { shipped: ['completed'] };
-  f.context.labels.completed = 'Hoàn tất';
+  f.context.orderTransitions = { shipped: [] };
   f.context.renderOrders();
   f.context.openOrderProcessing(f.order.id, null);
   const popup = f.document.querySelector('#order-processing-dialog');
   const paymentField = popup.querySelector('select[name="paymentStatus"]');
   assert.equal(paymentField.disabled, true);
-  assert.match(popup.querySelector('[data-payment-guidance]').textContent, /Chỉ ghi nhận thu tiền/);
-
-  const completeBtn = popup.querySelector('[data-status-choice="completed"]');
-  assert.ok(completeBtn);
-  completeBtn.click();
-
-  assert.equal(paymentField.disabled, false);
-  assert.match(popup.querySelector('[data-payment-guidance]').textContent, /Đã tự động xác nhận thu đủ tiền COD/);
+  assert.ok(popup.querySelector('[data-confirm-order-delivery]'), 'shipped local delivery has a confirm-delivery action');
+  assert.equal(popup.querySelector('[data-status-choice="completed"]'), null, 'do not let ordinary status dropdown imply payment');
+  assert.equal(paymentField.value || 'pending', 'pending');
 });
