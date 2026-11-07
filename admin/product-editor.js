@@ -619,9 +619,9 @@
  const btnSimple=document.querySelector('#btn-mode-simple');
  const btnVariants=document.querySelector('#btn-mode-variants');
  if(btnSimple&&btnVariants){
-   btnSimple.onclick=()=>{
+   btnSimple.onclick=async ()=>{
      if(model.groups.length>0&&model.variants.some(v=>v.id)){
-       if(!confirm('Sản phẩm đã có biến thể được lưu. Chuyển sang sản phẩm tiêu chuẩn sẽ đưa về 1 biến thể. Bạn có chắc không?'))return;
+       const okSimple=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Sản phẩm đã có biến thể được lưu. Chuyển sang sản phẩm tiêu chuẩn sẽ đưa về 1 biến thể. Bạn có chắc không?',{danger:true,confirmText:'Chuyển tiêu chuẩn'}):confirm('Sản phẩm đã có biến thể được lưu. Chuyển sang sản phẩm tiêu chuẩn sẽ đưa về 1 biến thể. Bạn có chắc không?'));if(!okSimple)return;
      }
      model.groups=[];
      const firstV=model.variants[0]||{};

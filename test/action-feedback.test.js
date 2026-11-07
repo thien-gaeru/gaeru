@@ -194,3 +194,79 @@ test('notify suppresses bottom action notice when center popup backdrop is open'
 
   assert.equal(f.notices().length, 0, 'No bottom action notice should be displayed when center popup is active');
 });
+
+test('GAERUNotify global API supports toast, success, error, warning, info with proper classes and content', async () => {
+  const f = fixture(async () => response(200, {}));
+  assert.ok(f.window.GAERUNotify, 'GAERUNotify should be exposed on window');
+  assert.equal(typeof f.window.GAERUNotify.toast, 'function');
+  assert.equal(typeof f.window.GAERUNotify.success, 'function');
+  assert.equal(typeof f.window.GAERUNotify.error, 'function');
+  assert.equal(typeof f.window.GAERUNotify.warning, 'function');
+  assert.equal(typeof f.window.GAERUNotify.info, 'function');
+  assert.equal(typeof f.window.GAERUNotify.alert, 'function');
+  assert.equal(typeof f.window.GAERUNotify.confirm, 'function');
+  assert.equal(typeof f.window.GAERUNotify.prompt, 'function');
+
+  f.window.GAERUNotify.success('Lưu cấu hình thành công!');
+  let list = f.notices();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].children[0].textContent, 'Lưu cấu hình thành công!');
+  assert.equal(list[0].classList.contains('is-success'), true);
+
+  f.window.GAERUNotify.error('Đã xảy ra lỗi kết nối');
+  list = f.notices();
+  assert.equal(list.length, 2);
+  assert.equal(list[1].children[0].textContent, 'Đã xảy ra lỗi kết nối');
+  assert.equal(list[1].classList.contains('is-error'), true);
+
+  f.window.GAERUNotify.warning('Cảnh báo tồn kho');
+  list = f.notices();
+  assert.equal(list.length, 3);
+  assert.equal(list[2].classList.contains('is-warning'), true);
+
+  f.window.GAERUNotify.info('Thông tin hệ thống');
+  list = f.notices();
+  assert.equal(list.length, 3, 'Notices should maintain max capacity of 3 items');
+  assert.equal(list[2].classList.contains('is-info'), true);
+});
+
+test('settle clears leftover transient loading messages from status elements in form', async () => {
+  let release; const gate = new Promise(r => release = r);
+  const f = fixture(async () => { await gate; return response(200, { message: 'Đã lưu cấu hình Google Analytics.' }); });
+  const button = new f.Element(), form = new f.Element('form'), status = new f.Element('p');
+  button.form = form; form.button = button;
+  status.className = 'feedback';
+  form.children.push(status);
+  form.querySelectorAll = (sel) => sel.includes('.feedback') || sel.includes('[role="status"]') ? [status] : [];
+  f.document.statuses.push(status);
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    status.textContent = 'Đang lưu cấu hình Google Analytics…';
+    await f.window.fetch('/api/gaeru_ceo/google-analytics', { method: 'PUT' });
+  });
+
+  const submitted = f.emit(form, 'submit', button);
+  await tick();
+  assert.equal(status.textContent, 'Đang lưu cấu hình Google Analytics…');
+
+  release();
+  await Promise.all(submitted.results);
+  await tick();
+
+  // The transient loading message should be cleared upon settle so only the toast notification displays
+  assert.equal(status.textContent, '', 'Transient loading feedback text must be emptied after settlement');
+  assert.equal(f.notices()[0].children[0].textContent, 'Đã lưu cấu hình Google Analytics.');
+});
+
+test('GAERUNotify modal helpers (alert, confirm, prompt) return promises and handle environments', async () => {
+  const f = fixture(async () => response(200, {}));
+  const alertPromise = f.window.GAERUNotify.alert('Thông báo quan trọng');
+  assert.ok(alertPromise instanceof Promise, 'alert should return a Promise');
+
+  const confirmPromise = f.window.GAERUNotify.confirm('Bạn có chắc chắn?');
+  assert.ok(confirmPromise instanceof Promise, 'confirm should return a Promise');
+
+  const promptPromise = f.window.GAERUNotify.prompt('Nhập mã xác nhận:');
+  assert.ok(promptPromise instanceof Promise, 'prompt should return a Promise');
+});

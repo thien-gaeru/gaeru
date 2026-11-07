@@ -813,7 +813,7 @@
       loadMetrics();
     } catch (err) {
       if (state.soundEnabled) playBeep("error");
-      alert(err.message);
+      if (window.GAERUNotify?.error) window.GAERUNotify.error(err.message); else alert(err.message);
       btn.disabled = false;
       btn.textContent = "🚀 Xác Nhận Xuất Kho (Dispatch)";
     }

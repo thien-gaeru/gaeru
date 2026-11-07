@@ -45,7 +45,7 @@ root.addEventListener('click',async e=>{
     if(bNew){showTab('bundles');await bundleEditor();}
     if(bEdit){showTab('bundles');await bundleEditor(bEdit.dataset.bEdit);}
     if(bDel){
-      if(!confirm('Bạn có chắc chắn muốn xóa gói combo này không?'))return;
+      const ok=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Bạn có chắc chắn muốn xóa gói combo này không?',{danger:true,confirmText:'Xóa gói combo'}):confirm('Bạn có chắc chắn muốn xóa gói combo này không?'));if(!ok)return;
       await admin.request('/api/gaeru_ceo/marketing/bundles/'+bDel.dataset.bDelete,{method:'DELETE'});
       await load();
       admin.showGlobal('Đã xóa gói combo thành công.');
@@ -57,13 +57,13 @@ root.addEventListener('click',async e=>{
   const remind=e.target.closest('[data-ac-remind]'),cancel=e.target.closest('[data-ac-cancel]');
   try{
     if(remind){
-      if(!confirm('Gửi email nhắc nhở giỏ hàng cho khách hàng ngay bây giờ?'))return;
+      const ok=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Gửi email nhắc nhở giỏ hàng cho khách hàng ngay bây giờ?',{confirmText:'Gửi nhắc nhở'}):confirm('Gửi email nhắc nhở giỏ hàng cho khách hàng ngay bây giờ?'));if(!ok)return;
       await admin.request('/api/gaeru_ceo/marketing/abandoned-carts/'+remind.dataset.acRemind+'/remind',{method:'POST'});
       await load();
       admin.showGlobal('Đã gửi email nhắc nhở giỏ hàng thành công.');
     }
     if(cancel){
-      if(!confirm('Dừng toàn bộ nhắc nhở cho giỏ hàng này?'))return;
+      const ok=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Dừng toàn bộ nhắc nhở cho giỏ hàng này?',{danger:true,confirmText:'Dừng nhắc nhở'}):confirm('Dừng toàn bộ nhắc nhở cho giỏ hàng này?'));if(!ok)return;
       await admin.request('/api/gaeru_ceo/marketing/abandoned-carts/'+cancel.dataset.acCancel+'/cancel',{method:'POST'});
       await load();
       admin.showGlobal('Đã dừng nhắc nhở cho giỏ hàng.');
