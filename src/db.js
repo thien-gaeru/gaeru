@@ -218,13 +218,37 @@ function createPriorityPoolController(pool, { maxLowPriorityOps = 2 } = {}) {
     return new Proxy(pool, {
       get(target, prop) {
         if (prop === "query" && typeof target.query === "function") {
-          return async (...args) => {
-            const releaseSlot = await acquireSlot(priority);
-            try {
-              return await target.query(...args);
-            } finally {
-              releaseSlot();
+          return (...args) => {
+            const lastArg = args[args.length - 1];
+            if (typeof lastArg === "function") {
+              const callback = lastArg;
+              acquireSlot(priority)
+                .then((releaseSlot) => {
+                  try {
+                    args[args.length - 1] = (...cbArgs) => {
+                      try {
+                        return callback(...cbArgs);
+                      } finally {
+                        releaseSlot();
+                      }
+                    };
+                    return target.query(...args);
+                  } catch (syncErr) {
+                    releaseSlot();
+                    throw syncErr;
+                  }
+                })
+                .catch(callback);
+              return;
             }
+            return (async () => {
+              const releaseSlot = await acquireSlot(priority);
+              try {
+                return await target.query(...args);
+              } finally {
+                releaseSlot();
+              }
+            })();
           };
         }
         if (prop === "connect" && typeof target.connect === "function") {

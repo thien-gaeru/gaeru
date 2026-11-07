@@ -2140,7 +2140,7 @@ function updateCodBatchSelectionUI() {
   const totalVnd = chosen.reduce((sum, s) => sum + (Number(s.orderTotalVnd) || Number(s.codAmountVnd) || 0), 0);
   summaryEl.textContent = "Đã chọn " + chosen.length + " vận đơn · Tổng phân bổ: " + formatPrice(totalVnd);
   if (chosen.length > 0 && form.elements.declaredPayoutVnd && !form.elements.declaredPayoutVnd.dataset.manualEdited) {
-    form.elements.declaredPayoutVnd.value = String(totalVnd);
+    form.elements.declaredPayoutVnd.placeholder = "Gợi ý tổng đơn: " + totalVnd + " (nhập đúng số tiền thực nhận trên sao kê)";
   }
   submitBtn.disabled = !can("payments.write") || chosen.length === 0;
 }

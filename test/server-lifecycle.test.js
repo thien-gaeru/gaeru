@@ -35,7 +35,8 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
         return {localization:{},audit:{state:'verified'}};
       },
       auditMediaStorage: async (pool, options) => { calls.auditChecks.push(options); return { state: options.probeStatus.verified ? 'verified' : 'unavailable' }; }
-    }
+    },
+    './shipping-adapters': { syncViettelProvinceCatalog: async () => {} }
   };
   const workerNames = {
     './shopping-chat-file-retention':'startChatFileRetentionWorker', './tiktok-ads':'startTikTokAdsWorker', './shopping-chat-ai-first':'startAIChatWorker',

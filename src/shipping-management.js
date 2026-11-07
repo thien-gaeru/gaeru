@@ -712,6 +712,10 @@ async function settleSingleCarrierCodInTx(client, {
     throw fail('Tài khoản cần quyền quản lý thanh toán (payments.write) để xác nhận đối soát tiền COD.', 403);
   }
 
+  // P1-06: Pre-acquire advisory lock before row locks to ensure consistent locking hierarchy and prevent deadlocks
+  const carrierPeek = expectedCarrierId || (await client.query("SELECT carrier_id FROM carrier_shipments WHERE order_id = $1 AND status != 'cancelled' LIMIT 1", [orderId])).rows[0]?.carrier_id || 'carrier';
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`cod_batch:${carrierPeek}:${txRef}`]);
+
   const result = await client.query(
     `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
             o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
@@ -761,9 +765,6 @@ async function settleSingleCarrierCodInTx(client, {
   const settleActor = actor || { username: 'accountant', source: 'cod_settlement' };
   const allocKey = buildCodScopedKey('cod-alloc', shipment.carrier_id, txRef, orderId);
   const receiptKey = buildCodScopedKey('cod-settlement', shipment.carrier_id, txRef, orderId);
-
-  // Lock batch key (carrier_id, provider_transaction_ref) to serialize multi-order allocations safely
-  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`cod_batch:${shipment.carrier_id}:${txRef}`]);
 
   // Check idempotency on cod_settlement_allocations first
   const existingAlloc = (await client.query(
@@ -1931,7 +1932,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
         if (Array.isArray(input.items) && input.items.length > 0) {
           const variantIds = [...new Set(input.items.map((i) => i.variantId))];
           const vRes = await pool.query(
-            `SELECT v.id, v.sku, v.name AS variant_name, v.price_vnd, p.name AS product_name
+            `SELECT v.id, v.sku, v.name AS variant_name, v.price_vnd AS "priceVnd", v.price_vnd, p.name AS product_name
              FROM product_variants v
              JOIN products p ON p.id = v.product_id
              WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true AND p.deleted_at IS NULL`,
@@ -1947,7 +1948,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
           const pricingItems = [];
           for (const reqItem of input.items) {
             const row = byId.get(reqItem.variantId);
-            const unitPrice = Number(row.effective_price_vnd ?? row.price_vnd) || 0;
+            const unitPrice = Number(row.priceVnd ?? row.effective_price_vnd ?? row.price_vnd) || 0;
             serverSubtotal += unitPrice * reqItem.quantity;
             pricingItems.push({
               sku: row.sku,
@@ -1962,7 +1963,8 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
             totalVnd: serverSubtotal,
             paymentMethod: input.paymentMethod || 'cod',
             paymentStatus: 'pending',
-            weightGrams: input.weightGrams,
+            // P1-03: Authoritative quote server weight derived from server items
+            weightGrams: null,
             items: pricingItems
           });
           effectiveTotalVnd = serverSubtotal;

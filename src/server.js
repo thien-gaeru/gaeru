@@ -54,7 +54,7 @@ async function start() {
   });
 
   // Phase 2: Run critical database migrations while incoming traffic is gated safely
-  await migrateDatabase(pool);
+  await migrateDatabase(pool, { lockTimeoutMs: 30000 });
   if (shuttingDown) return;
 
   // GAERU P2-02: Priority DB concurrency semaphore covering BOTH pool.query() and pool.connect()
@@ -114,11 +114,13 @@ async function start() {
         }
       });
     };
-    return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low') };
+    return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low'), getStats: () => ({ activeHighOps, activeLowOps, queuedLowOps: lowWaitQueue.length, maxLowPriorityOps: maxLow }) };
   };
-  const { highPriorityPool, lowPriorityPool } = typeof dbModule.createPriorityPoolController === 'function'
+  const priorityController = typeof dbModule.createPriorityPoolController === 'function'
     ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps: 2 })
     : buildFallbackPriorityController(pool, 2);
+  const { highPriorityPool, lowPriorityPool } = priorityController;
+
 
   // Background workers initialization with staggered startup and priority concurrency cap (A10 / P2-02)
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
@@ -134,6 +136,7 @@ async function start() {
     scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(lowPriorityPool, config); }, 22000);
     scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(lowPriorityPool); }, 26000);
     scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 30000);
+    scheduleWorker(() => { require("./shipping-adapters").syncViettelProvinceCatalog().catch(() => {}); }, 32000);
   }
 
   // Non-blocking media probe and asynchronous asset sync in the background
@@ -174,20 +177,25 @@ async function start() {
     const lag = monitorEventLoopDelay({ resolution: 20 });
     lag.enable();
     resourceMonitor = setInterval(() => {
-      const m = process.memoryUsage();
-      console.log('[GAERU_RESOURCES]', JSON.stringify({
-        rssMB: Math.round(m.rss / 1048576),
-        heapMB: Math.round(m.heapUsed / 1048576),
-        externalMB: Math.round(m.external / 1048576),
-        eventLoopP95Ms: Math.round(lag.percentile(95) / 1e6),
-        dbPoolTotal: Number(pool?.totalCount || 0),
-        dbPoolIdle: Number(pool?.idleCount || 0),
-        dbPoolWaiting: Number(pool?.waitingCount || 0),
-        bgWorkerHighActive: activeHighOps,
-        bgWorkerLowActive: activeLowOps,
-        bgWorkerLowQueued: lowWaitQueue.length
-      }));
-      lag.reset();
+      try {
+        const m = process.memoryUsage();
+        const stats = typeof priorityController?.getStats === 'function' ? priorityController.getStats() : {};
+        console.log('[GAERU_RESOURCES]', JSON.stringify({
+          rssMB: Math.round(m.rss / 1048576),
+          heapMB: Math.round(m.heapUsed / 1048576),
+          externalMB: Math.round(m.external / 1048576),
+          eventLoopP95Ms: Math.round(lag.percentile(95) / 1e6),
+          dbPoolTotal: Number(pool?.totalCount || 0),
+          dbPoolIdle: Number(pool?.idleCount || 0),
+          dbPoolWaiting: Number(pool?.waitingCount || 0),
+          bgWorkerHighActive: stats.activeHighOps ?? 0,
+          bgWorkerLowActive: stats.activeLowOps ?? 0,
+          bgWorkerLowQueued: stats.queuedLowOps ?? 0
+        }));
+        lag.reset();
+      } catch (err) {
+        console.error('Resource monitor failed:', err?.message || err);
+      }
     }, 60000);
     resourceMonitor.unref?.();
   } catch (_) {}

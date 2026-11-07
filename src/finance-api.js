@@ -161,6 +161,34 @@ function createFinanceApi(pool) {
         await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
         if (carrierCodShip) {
           const txRef = String(data.reference).trim();
+          // P1-01: Ensure finance-api customer payment writes to cod_settlement_batches & allocations
+          let batch = (await client.query(
+            'SELECT * FROM cod_settlement_batches WHERE carrier_id = $1 AND provider_transaction_ref = $2 FOR UPDATE',
+            [carrierCodShip.carrier_id, txRef]
+          )).rows[0];
+          if (!batch) {
+            batch = (await client.query(
+              `INSERT INTO cod_settlement_batches (
+                 carrier_id, provider_transaction_ref, declared_payout_vnd, allocated_total_vnd,
+                 method, payout_period, evidence_ref, note, attestation_level, created_by, settled_at
+               ) VALUES ($1, $2, $3, 0, $4, NULL, NULLIF($5, ''), NULLIF($6, ''), 'manually_attested', $7, now())
+               RETURNING *`,
+              [carrierCodShip.carrier_id, txRef, Number(order.total_vnd), data.method, txRef, String(data.note || '').trim(), req.admin.username]
+            )).rows[0];
+          }
+          const allocKey = `cod-alloc:${carrierCodShip.carrier_id}:${txRef}:${order.id}`;
+          await client.query(
+            `INSERT INTO cod_settlement_allocations (
+               batch_id, order_id, shipment_id, allocated_amount_vnd, receipt_id,
+               was_legacy_verified, request_key, created_by
+             ) VALUES ($1, $2, $3, $4, $5, false, $6, $7)
+             ON CONFLICT (order_id) DO NOTHING`,
+            [batch.id, order.id, carrierCodShip.id, data.amountVnd, inserted.rows[0].id, allocKey, req.admin.username]
+          );
+          await client.query(
+            `UPDATE cod_settlement_batches SET allocated_total_vnd = allocated_total_vnd + $2, updated_at = now() WHERE id = $1`,
+            [batch.id, data.amountVnd]
+          );
           await client.query(
             "UPDATE carrier_shipments SET cod_settlement_status='settled', cod_settled_at=now(), cod_settlement_ref=$2, cod_attestation_level='manually_attested', cod_attested_by=$3, updated_at=now() WHERE id=$1",
             [carrierCodShip.id, txRef, req.admin.username]
