@@ -541,7 +541,7 @@ test('QA11, QA12, QA13, QA16, QA17 & QA22: COD delivery vs settlement separation
   );
   assert.equal(whDelivered.processed, true);
   const afterWhOrder = (await pool.query('SELECT status, payment_status, delivered_at FROM orders WHERE id = $1', [codOrder.id])).rows[0];
-  assert.equal(afterWhOrder.status, 'shipped');
+  assert.equal(afterWhOrder.status, 'completed');
   assert.equal(afterWhOrder.payment_status, 'pending', 'QA11: Delivered COD must remain payment_status=pending until settled');
   assert.ok(afterWhOrder.delivered_at, 'delivered_at timestamp recorded');
   assert.equal(await receiptTotal(pool, codOrder.id), 0, 'QA11: Zero sales_receipts before COD settlement');
@@ -577,10 +577,13 @@ test('QA11, QA12, QA13, QA16, QA17 & QA22: COD delivery vs settlement separation
     headers,
     body: JSON.stringify({ status: 'completed', paymentStatus: 'paid', confirmReceived: true })
   });
-  assert.equal(missingRefPatch.status, 200, 'Carrier COD can be marked completed and paid freely without manual reconciliationRef');
-  const noRefJson = await missingRefPatch.json();
-  assert.equal(noRefJson.order.status, 'completed');
-  assert.equal(noRefJson.order.paymentStatus, 'paid');
+  assert.equal(missingRefPatch.status, 409, 'Unreferenced carrier COD must not be marked paid.');
+  assert.equal((await pool.query('SELECT payment_status FROM orders WHERE id=$1',[codOrderNoRef.id])).rows[0].payment_status,'pending');
+  const noRefSettle = await fetch(`${base}/gaeru_ceo/shipping/orders/${codOrderNoRef.id}/settle-cod`,{
+    method:'POST',headers,
+    body:JSON.stringify({providerTransactionRef:'VTP-QA12-REAL-RECEIPT',settledAmountVnd:425000,method:'bank_transfer'})
+  });
+  assert.equal(noRefSettle.status,200,'Actual COD bank reference settles the carrier payment.');
 
   const wrongAmountSettle = await fetch(`${base}/gaeru_ceo/shipping/orders/${codOrder.id}/settle-cod`, {
     method: 'POST',
