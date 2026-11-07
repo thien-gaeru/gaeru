@@ -216,9 +216,13 @@ test('Live Reproduction of User Scenarios from Screenshots', async (t) => {
     });
 
     const json = await res.json();
-    assert.equal(res.status, 200, 'Order completion without ref response: ' + JSON.stringify(json));
-    assert.equal(json.order.status, 'completed');
-    assert.equal(json.order.paymentStatus, 'paid');
+    assert.equal(res.status, 409, 'Carrier COD without bank reference must not be recorded paid: ' + JSON.stringify(json));
+    const settle = await fetch(`${baseUrl}/api/gaeru_ceo/shipping/orders/${order3Id}/settle-cod`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-csrf-token':sessionToken,cookie:authedCookieStr},
+      body:JSON.stringify({providerTransactionRef:'VTP-MODAL-REAL-PAYOUT',settledAmountVnd:202300})
+    });
+    assert.equal(settle.status,200,'COD settlement with real provider transaction reference succeeds');
 
     const order3Check = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [order3Id])).rows[0];
     assert.equal(order3Check.status, 'completed');
@@ -226,6 +230,6 @@ test('Live Reproduction of User Scenarios from Screenshots', async (t) => {
 
     const shipment3Check = (await pool.query('SELECT cod_settlement_status, cod_settlement_ref FROM carrier_shipments WHERE id = $1', [shipment3Id])).rows[0];
     assert.equal(shipment3Check.cod_settlement_status, 'settled');
-    assert.ok(shipment3Check.cod_settlement_ref.startsWith('COD-'));
+    assert.equal(shipment3Check.cod_settlement_ref,'VTP-MODAL-REAL-PAYOUT');
   });
 });
