@@ -1,11 +1,12 @@
 # BIÊN BẢN NGHIỆM THU CHÍNH THỨC TOÀN DIỆN HỆ THỐNG GAERU (08/11/2026)
 
-- **Ngày nghiệm thu:** 08/11/2026 (01:55 GMT+7)
+- **Ngày nghiệm thu:** 08/11/2026 (02:38 GMT+7)
 - **Dự án:** GAERU Independent E-commerce & Enterprise Management Platform
 - **Kho lưu trữ:** `https://github.com/thien-gaeru/gaeru.git`
 - **Nhánh Git:** `gaeru`
 - **Phiên bản Node.js hỗ trợ:** `Node.js >= 22.0.0 < 26` (Đầy đủ Node 22, 23, 24, 25)
-- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, xóa hoàn toàn chức năng Đối soát COD thủ công và tự động hóa dòng tiền, cho phép Quản trị tối cao (Supreme Owner) xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo mật thông tin DLP tuyệt đối không rò rỉ dữ liệu mật, hoàn thiện 14 điểm phản biện chuyên sâu về Google Analytics 4, Enhanced Ecommerce, chu kỳ sống tiến trình, anti-starvation CSDL, chuẩn hóa toàn diện hệ thống Popup / Toast / Modal Notification trên toàn bộ website đồng bộ cho cả quản trị và người dùng trên mọi loại thiết bị (Mobile, Tablet, Desktop), và vượt qua 100% các bộ kiểm thử tự động (1028/1028 PASS).
+- **Trạng thái nghiệm thu:** **CHÍNH THỨC THÔNG QUA & BÀN GIAO TOÀN DIỆN (100% SẴN SÀNG PRODUCTION)**
+- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, xóa hoàn toàn chức năng Đối soát COD thủ công và tự động hóa dòng tiền, cho phép Quản trị tối cao (Supreme Owner) xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo mật thông tin DLP tuyệt đối không rò rỉ dữ liệu mật, hoàn thiện 14 điểm phản biện chuyên sâu về Google Analytics 4, Enhanced Ecommerce, chu kỳ sống tiến trình, anti-starvation CSDL, chuẩn hóa toàn diện hệ thống Popup / Toast / Modal Notification trên toàn bộ website đồng bộ cho cả quản trị và người dùng trên mọi loại thiết bị (Mobile, Tablet, Desktop), đưa `google-analytics.js` vào whitelist phân phối tĩnh (HTTP 200 OK), và vượt qua 100% các bộ kiểm thử tự động (**1028/1028 PASS**).
 
 ---
 
@@ -23,6 +24,7 @@
      * **Mobile (< 600px):** Toast hiển thị gọn gàng ở dưới màn hình tính toán theo `env(safe-area-inset-bottom)` không che tai thỏ hay thanh điều hướng; Modal Popup tự động co giãn 95vw, cụm nút bấm hỗ trợ thao tác ngón cái (min-height 44px).
      * **Tablet & Desktop:** Toast nổi ở góc dưới bên phải màn hình không che nội dung thao tác; Modal Popup căn giữa với kích thước tối ưu 460px - 480px.
    - **Đồng bộ toàn bộ storefront:** Tích hợp Popup Toast khi thêm vào giỏ, xóa khỏi giỏ, thêm combo ưu đãi, áp dụng mã voucher thành công/thất bại và lưu sản phẩm xem sau.
+   - **Bảo đảm phân phối tĩnh GA4:** Đã bổ sung `google-analytics.js` vào whitelist `src/public-files.js`, đảm bảo trả về HTTP 200 OK trên mọi trang storefront.
 
 2. **Khắc Phục Lỗi 503 / 500 Vận Hành Hostinger & Tự Động Hóa COD:**
    - Sửa lỗi cú pháp biến trùng lặp và loại bỏ `.strict()` trên schema đối soát, đăng ký exception guard toàn cục giữ tiến trình luôn sống.
@@ -62,10 +64,11 @@
 ## 3. Kết Quả Kiểm Thử Toàn Diện
 
 - **Full test suite (`npm test`):** **1028 / 1028 PASS (100%)**, 0 fail, 0 skipped, 0 cancelled.
-- **Cú pháp tĩnh toàn bộ dự án (`node -c`):** **462 / 462 tệp JavaScript PASSED (0 syntax error)**.
+- **Cú pháp tĩnh toàn bộ dự án (`node -c`):** **464 / 464 tệp JavaScript PASSED (0 syntax error)**.
 - **Tài nguyên tĩnh (`npm run verify:assets`):** Xác nhận đủ 20 phiên bản ảnh WebP + AVIF trên đĩa.
 - **An toàn thư viện phụ thuộc (`npm audit`):** `found 0 vulnerabilities`.
 - **Định dạng mã nguồn (`git diff --check`):** 0 lỗi cú pháp hoặc khoảng trắng.
+- **Kiểm tra endpoint máy chủ daemon:** 100% các endpoint `/`, `/gaeru_ceo`, `/action-feedback.*`, `/google-analytics.js`, `/api/health` đều phản hồi **HTTP 200 OK**.
 
 ---
 
