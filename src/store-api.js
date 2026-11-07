@@ -2276,6 +2276,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           if(!canTransition)throw Object.assign(Error('Đơn '+current.order_number+' không ở bước phù hợp. Các đơn cần cùng đủ điều kiện cho thao tác đã chọn.'),{status:409});
           const update={status:target};
           if(target==='completed'){
+            // An older bulk client may still send confirmReceived=true. Preserve the
+            // payment RBAC boundary even though fulfillment no longer records money.
+            if (data.confirmReceived && current.payment_status !== 'paid' &&
+                req.admin?.role !== 'owner' &&
+                !req.admin?.permissions?.includes('payments.write')) {
+              throw Object.assign(new Error('Cần quyền payments.write để xác nhận thu tiền COD.'), {status:403});
+            }
             const activeShip=(await client.query("SELECT status, cod_amount_vnd, cod_settlement_status FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[current.id])).rows[0];
             if((activeShip && activeShip.status!=='delivered') || (!activeShip && !current.delivered_at)){
               throw Object.assign(Error('Đơn '+current.order_number+' chưa có xác nhận giao thành công.'),{status:409});
