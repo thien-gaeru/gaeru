@@ -287,11 +287,14 @@ test('Full Business Workflow Simulation: End-to-end reality test for store launc
   await admin.call(`/api/gaeru_ceo/orders/${placedOrder.id}`, 'PATCH', { status: 'shipped' });
 
   // Thu tiền COD thành công và hoàn thành đơn hàng (tự động kích hoạt hóa đơn điện tử MISA eShop)
+  const delivered = await admin.call(`/api/gaeru_ceo/orders/${placedOrder.id}/confirm-delivery`, 'POST', {
+    evidenceNote:'Khách ký nhận giao thành công, nhân viên xác minh'
+  });
+  assert.equal(delivered.status,200,'Delivery confirmation should auto-complete the order');
   const completeRes = await admin.call(`/api/gaeru_ceo/orders/${placedOrder.id}`, 'PATCH', {
-    status: 'completed',
     paymentStatus: 'paid'
   });
-  assert.equal(completeRes.status, 200, 'Order completion should succeed');
+  assert.equal(completeRes.status, 200, 'COD cash collection after delivery should succeed');
 
   // Tự động kích hoạt bảo hành điện tử chính hãng 12 tháng theo từng thiết bị
   const warrantyRow = await pool.query(
