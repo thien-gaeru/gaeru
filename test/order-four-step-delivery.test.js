@@ -101,7 +101,7 @@ test('four steps: delivery is not confirmed merely because a waybill is deliveri
   assert.doesNotMatch(calls[0].sql, /delivered_at/);
 });
 
-test('four steps: unpaid prepaid orders are not marked delivered by an unrelated event', async () => {
+test('four steps: verified delivery completes even unpaid prepaid orders without faking payment', async () => {
   const { client, calls } = mockTransaction();
   const next = await applyCarrierDeliveryTransition(client, {
     order_id: 'order-prepaid-unpaid',
@@ -109,6 +109,7 @@ test('four steps: unpaid prepaid orders are not marked delivered by an unrelated
     orderPaymentMethod: 'vnpay',
     orderPaymentStatus: 'pending'
   }, 'delivered');
-  assert.equal(next, 'shipped');
-  assert.equal(calls.length, 0);
+  assert.equal(next, 'completed');
+  assert.equal(calls.length, 1);
+  assert.doesNotMatch(calls[0].sql, /payment_status/);
 });
