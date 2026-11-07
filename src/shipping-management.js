@@ -218,6 +218,9 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     if (order.status === 'completed') {
       throw fail('Đơn hàng đã hoàn tất giao hàng.', 409);
     }
+    if (order.status === 'pending') {
+      throw fail('Cần xác nhận đơn hàng trước khi tạo vận đơn giao hàng.', 409);
+    }
     if (order.paymentMethod !== 'cod' && order.paymentStatus !== 'paid') {
       throw fail('Đơn trả trước phải hoàn tất thanh toán trước khi tạo vận đơn.', 409);
     }
@@ -1171,7 +1174,11 @@ async function confirmCarrierPortalStatus(pool, { orderId, targetStatus, evidenc
     const shipment = result.rows[0];
 
     if (shipment.status === targetStatus) {
-      return { success: true, status: shipment.status, orderStatus: shipment.orderStatus, replayed: true };
+      // Repair orders created by older versions where delivered COD remained shipped.
+      const orderStatus = targetStatus === 'delivered' && shipment.orderStatus !== 'completed'
+        ? await applyCarrierDeliveryTransition(client, shipment, 'delivered', actor)
+        : shipment.orderStatus;
+      return { success: true, status: shipment.status, orderStatus, replayed: true };
     }
     if (CARRIER_TERMINAL_STATES.has(shipment.status)) {
       throw fail(`Vận đơn đã ở trạng thái kết thúc (${shipment.status}); không thể ghi đè sang ${targetStatus}.`, 409);
