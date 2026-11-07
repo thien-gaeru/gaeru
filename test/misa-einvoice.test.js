@@ -209,7 +209,9 @@ test("MISA stays unverified after saving; order completion and approved internal
   );
 
   // Transition order to 'completed'
-  const patchRes = await api("/api/gaeru_ceo/orders/" + order.id, "PATCH", { status: "completed" });
+  const patchRes = await api("/api/gaeru_ceo/orders/" + order.id + "/confirm-delivery", "POST", {
+    evidenceNote: "Verified successful delivery of prepaid customer order"
+  });
   assert.equal(patchRes.status, 200);
 
   // Protocol is unverified: completing the order must not publish an external invoice
