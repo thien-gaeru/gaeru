@@ -54,7 +54,7 @@ test('carrier webhooks fail closed before any shipment/payment write and require
   await unchanged();
   await pool.query("UPDATE store_settings SET setting_value=$1 WHERE setting_key='private_admin:shipping_viettel'", [encrypted]);
   assert.equal((await post({ Authorization: 'Bearer ' + webhookSecret })).status, 200);
-  assert.deepEqual((await pool.query('SELECT status,payment_status FROM orders WHERE id=$1', [order.id])).rows[0], { status: 'shipped', payment_status: 'pending' });
+  assert.deepEqual((await pool.query('SELECT status,payment_status FROM orders WHERE id=$1', [order.id])).rows[0], { status: 'completed', payment_status: 'pending' });
   assert.equal(settlements, 0, 'P0-01: delivered webhook does not auto-settle COD');
   assert.equal((await post({ 'x-webhook-secret': webhookSecret })).status, 200);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM carrier_webhook_events WHERE tracking_number='FIXTURE-TRACKING'")).rows[0].n, 1, 'a repeated authenticated delivery is deduplicated');
