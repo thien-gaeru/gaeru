@@ -802,10 +802,16 @@ test('Store API Integration: Checkout with GAERU Xu redemption, and earn points 
     headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
     body: JSON.stringify({ status: 'shipped' })
   });
+  const delivered = await fetch(`${baseUrl}/api/gaeru_ceo/orders/${orderId}/confirm-delivery`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-csrf-token':csrfToken},
+    body:JSON.stringify({evidenceNote:'Buyer accepted the shipment with signed delivery receipt'})
+  });
+  assert.equal(delivered.status,200);
   const completeRes = await fetch(`${baseUrl}/api/gaeru_ceo/orders/${orderId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
-    body: JSON.stringify({ status: 'completed', paymentStatus: 'paid' })
+    body: JSON.stringify({paymentStatus: 'paid'})
   });
   assert.equal(completeRes.status, 200);
 
