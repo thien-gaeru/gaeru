@@ -1,10 +1,11 @@
-# BIÊN BẢN NGHIỆM THU MÃ NGUỒN VÀ QUY TRÌNH HỆ THỐNG GAERU (07/11/2026)
+# BIÊN BẢN NGHIỆM THU CHÍNH THỨC TOÀN DIỆN HỆ THỐNG GAERU (08/11/2026)
 
-- **Ngày nghiệm thu:** 07/11/2026 (21:30 GMT+7)
-- **Dự án:** GAERU Independent E-commerce & Admin Platform
+- **Ngày nghiệm thu:** 08/11/2026 (00:15 GMT+7)
+- **Dự án:** GAERU Independent E-commerce & Enterprise Management Platform
+- **Kho lưu trữ:** `https://github.com/thien-gaeru/gaeru.git`
 - **Nhánh Git:** `gaeru`
 - **Phiên bản Node.js hỗ trợ:** `Node.js >= 22.0.0 < 26` (Đầy đủ Node 22, 23, 24, 25)
-- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, hoàn thiện đối soát COD theo lô & đơn lẻ, cho phép quản trị tối cao xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo đảm an toàn dữ liệu và vượt qua 100% các bộ kiểm thử tự động.
+- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, xóa hoàn toàn chức năng Đối soát COD thủ công và tự động hóa dòng tiền, cho phép Quản trị tối cao (Supreme Owner) xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo mật thông tin DLP tuyệt đối không rò rỉ dữ liệu mật, hoàn thiện 5 điểm trọng yếu về độ ổn định & vận hành, và vượt qua 100% các bộ kiểm thử tự động.
 
 ---
 
@@ -62,14 +63,16 @@
 - **FX-COD:** Bộ test hồi quy HTTP thực tế `test/cod-settlement-modal-regression.test.js` đạt 100% PASS.
 - **FX-NO-COD-RECON:** Bộ test `test/remove-manual-cod-reconciliation.test.js` kiểm chứng gỡ bỏ hoàn toàn UI đối soát COD thủ công và hoàn tất đơn hàng COD tự động trơn tru đạt 100% PASS.
 - **FX-OWNER-PURGE:** Bộ test `test/supreme-owner-unrestricted-order-deletion.test.js` kiểm chứng: Nhân viên bị chặn 409, Quản trị tối cao xóa sạch toàn diện đơn hàng đạt HTTP 200 OK.
+- **FX-RELIABILITY:** Bộ test `test/reliability-and-lifecycle-hardening.test.js` kiểm chứng: Hạn mức DB ưu tiên cao (`maxHighPriorityOps = 8`), timeout câu lệnh PostgreSQL, cách ly lỗi worker, readiness gate bảo vệ lưu trữ media và shutdown tức thời đạt 100% PASS.
 
 ---
 
 ## 3. Kết Quả Kiểm Thử Toàn Diện
 
-- **Full test suite (`npm test`):** **1003 / 1003 PASS (100%)**, 0 fail, 0 skipped.
+- **Full test suite (`npm test`):** **1011 / 1011 PASS (100%)**, 0 fail, 0 skipped.
+- **Cú pháp tĩnh toàn bộ dự án (`node -c`):** **462 / 462 tệp JavaScript PASSED (0 syntax error)**.
 - **Tài nguyên tĩnh (`npm run verify:assets`):** Xác nhận đủ 20 phiên bản ảnh WebP + AVIF trên đĩa.
-- **An toàn thư viện phụ thuộc (`npm audit --omit=dev --audit-level=high`):** 0 vulnerabilities.
+- **An toàn thư viện phụ thuộc (`npm audit`):** `found 0 vulnerabilities`.
 - **Định dạng mã nguồn (`git diff --check`):** 0 lỗi cú pháp hoặc khoảng trắng.
 
 ---
