@@ -232,7 +232,7 @@ test('Shipping Carriers Acceptance: [P0] Tracking sync & Webhook automatic statu
 
   // P0-01: COD delivery leaves payment_status = 'pending' and cod_settlement_status = 'unsettled' until reconciled
   const orderAfterDelivered = await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId]);
-  assert.equal(orderAfterDelivered.rows[0].status, 'shipped');
+  assert.equal(orderAfterDelivered.rows[0].status, 'completed');
   assert.equal(orderAfterDelivered.rows[0].payment_status, 'pending');
   assert.equal(recordedPaymentOrderId, null, 'COD delivery alone must NOT record finance receipt before carrier settlement');
 
