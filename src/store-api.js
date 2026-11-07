@@ -377,7 +377,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/settings/public", async (req, res) => {
-    const settings = await getSettings(pool, ["shipping_note", "shipping_rates"]);
+    const settings = await getSettings(pool, ["shipping_note", "shipping_rates", "ga_measurement_id"]);
+    const gaMeasurementId = (typeof settings.ga_measurement_id === "string" && settings.ga_measurement_id.trim())
+      ? settings.ga_measurement_id.trim()
+      : (config?.GA_MEASUREMENT_ID || "");
     res.json({
       ...(shippingChoices ? {shippingCarriers:(await require("./shipping-choice").availableCarriers(pool)).map(({id,name})=>({id,name}))} : {}),
       shippingNote: settings.shipping_note || "",
@@ -385,7 +388,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
       ...(req.paymentChannels?.bankTransfer ? { bankTransfer: req.paymentChannels.bankTransfer } : {}),
       ...(req.paymentChannels?.cod ? { cod: req.paymentChannels.cod } : {}),
-      ordersEnabled:req.ordersEnabled
+      ordersEnabled:req.ordersEnabled,
+      gaMeasurementId
     });
   });
 
@@ -2376,8 +2380,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/gaeru_ceo/settings", async (req, res) => {
+    const settings = await getSettings(pool, ["shipping_note", "shipping_rates", "ga_measurement_id"]);
     res.json({
-      ...await getSettings(pool, ["shipping_note", "shipping_rates"]),
+      ...settings,
+      ga_measurement_id: (typeof settings.ga_measurement_id === "string" && settings.ga_measurement_id.trim())
+        ? settings.ga_measurement_id.trim()
+        : (config?.GA_MEASUREMENT_ID || ""),
       paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])]
     });
   });
@@ -2389,6 +2397,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       shipping_note: parsed.data.shippingNote,
       shipping_rates: Object.fromEntries(Object.entries(parsed.data.shippingRates).map(([k, v]) => [/^toàn\s*quốc$/iu.test(k.trim()) ? 'Toàn quốc' : k.trim(), v]))
     };
+    if (parsed.data.gaMeasurementId !== undefined) {
+      settings.ga_measurement_id = parsed.data.gaMeasurementId.trim();
+    }
     await withTransaction(pool, async (client) => {
       for (const [key, value] of Object.entries(settings)) {
         await client.query(
@@ -2402,8 +2413,44 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     try { require('./shipping-management').invalidateShippingQuoteCache(); } catch (_) {}
     res.json({ settings: {
       shippingNote: settings.shipping_note,
-      shippingRates: settings.shipping_rates
+      shippingRates: settings.shipping_rates,
+      ...(settings.ga_measurement_id !== undefined ? { gaMeasurementId: settings.ga_measurement_id } : {})
     } });
+  });
+
+  router.get("/gaeru_ceo/google-analytics", async (req, res) => {
+    const settings = await getSettings(pool, ["ga_measurement_id"]);
+    const dbValue = typeof settings.ga_measurement_id === "string" ? settings.ga_measurement_id.trim() : "";
+    const envValue = (config?.GA_MEASUREMENT_ID || "").trim();
+    const gaMeasurementId = dbValue || envValue;
+    const source = dbValue ? "database" : (envValue ? "environment" : "none");
+    res.json({
+      gaMeasurementId,
+      configured: Boolean(gaMeasurementId),
+      source
+    });
+  });
+
+  router.put("/gaeru_ceo/google-analytics", requireCsrf, async (req, res) => {
+    const gaSchema = z.object({
+      gaMeasurementId: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal(""))
+    });
+    const parsed = gaSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Measurement ID không hợp lệ (định dạng G-XXXXXXXXXX).", details: parsed.error.issues });
+    const gaMeasurementId = parsed.data.gaMeasurementId ? parsed.data.gaMeasurementId.trim() : "";
+    await withTransaction(pool, async (client) => {
+      await client.query(
+        `INSERT INTO store_settings (setting_key, setting_value, updated_at) VALUES ($1, $2, now())
+         ON CONFLICT (setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value, updated_at=now()`,
+        ["ga_measurement_id", JSON.stringify(gaMeasurementId)]
+      );
+      await audit(client, { actor: req.admin, action: "settings.analytics.update", entityType: "store_settings", after: { gaMeasurementId } });
+    });
+    res.json({
+      message: gaMeasurementId ? "Đã lưu Google Analytics Measurement ID." : "Đã gỡ Google Analytics Measurement ID.",
+      gaMeasurementId,
+      configured: Boolean(gaMeasurementId)
+    });
   });
 
   return router;
@@ -2459,7 +2506,8 @@ const settingsSchema = z.object({
       }
       provinceNames.add(normalized);
     }
-  })
+  }),
+  gaMeasurementId: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal(""))
 });
 
 function requireUuidParam(name) {

@@ -152,6 +152,14 @@
     if (order.paymentStatus === 'paid') {
       stopPolling();
       retry.hidden = true;
+      try {
+        window.GAERUAnalytics?.trackPurchase?.({
+          orderNumber: order.orderNumber,
+          totalVnd: order.totalVnd,
+          shippingFeeVnd: order.shippingFeeVnd,
+          items: order.items || []
+        });
+      } catch (_) {}
       if (order.status === 'cancelled') {
         title.textContent = 'Đơn hàng đã hủy; đã ghi nhận thanh toán.';
         detail.textContent = 'Liên hệ GAERU để đối chiếu khoản tiền và xử lý hoàn tiền nếu cần. Đơn đã hủy không được tự chuyển sang giao hàng.';

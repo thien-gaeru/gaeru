@@ -481,6 +481,10 @@ function renderProduct() {
   root.addEventListener('touchcancel',()=>{galleryTouch=null;},{passive:true});
   root.addEventListener('touchend',event=>{const start=galleryTouch;galleryTouch=null;if(!start||event.changedTouches.length!==1)return;const dx=event.changedTouches[0].clientX-start.x,dy=event.changedTouches[0].clientY-start.y;if(Math.abs(dx)<40||Math.abs(dx)<Math.abs(dy)*1.5)return;const buttons=[...root.querySelectorAll('[data-gallery-image]')];if(buttons.length<2)return;const current=buttons.findIndex(b=>b.getAttribute('aria-pressed')==='true');const next=buttons[(Math.max(0,current)+(dx<0?1:-1)+buttons.length)%buttons.length];next.click();const rail=next.parentElement;rail.scrollTo({left:Math.max(0,next.offsetLeft-rail.offsetLeft-(rail.clientWidth-next.offsetWidth)/2),behavior:'smooth'});},{passive:true});
   root.addEventListener("click",e=>{const imageButton=e.target.closest("[data-gallery-image]");if(imageButton){const mainImage=root.querySelector("[data-product-main-image]");if(window.GAERUProductArtwork?.updateImage)window.GAERUProductArtwork.updateImage(mainImage,safeProductImage(imageButton.dataset.galleryImage));else mainImage.src=safeProductImage(imageButton.dataset.galleryImage);root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(b===imageButton)));return;}const option=e.target.closest("[data-option-group]"),direct=e.target.closest("[data-visual-variant]");if(!option&&!direct)return;const current=variants.find(v=>v.id===selector.value);const next=direct?variants.find(v=>v.id===direct.dataset.visualVariant):window.GAERUVariantChoices.choose(variants,current,option.dataset.optionGroup,option.dataset.optionValue);if(next){selector.value=next.id;selector.dispatchEvent(new Event("change"));}}); window.GAERUK9Loop?.mountHome(); void loadAndRenderBundles(product, selector?.value);
+  try {
+    const curVariant = variants.find(v => v.id === selector?.value) || variants[0];
+    window.GAERUAnalytics?.trackViewItem?.(product, curVariant);
+  } catch (_) {}
 }
 
 function renderCart() {
@@ -579,6 +583,19 @@ async function renderCheckout() {
     return;
   }
   const total = rows.reduce((sum, item) => sum + item.variant.priceVnd * item.quantity, 0);
+  try {
+    window.GAERUAnalytics?.trackBeginCheckout?.(
+      rows.map(r => ({
+        variantId: r.variant.id,
+        sku: r.variant.sku,
+        name: `${r.product.name} - ${r.variant.name}`,
+        category: r.product.category,
+        priceVnd: r.variant.priceVnd,
+        quantity: r.quantity
+      })),
+      total
+    );
+  } catch (_) {}
   let settingsError = "";
   try {
     storeSettings = await apiRequest("/api/settings/public");
@@ -834,6 +851,23 @@ async function renderCheckout() {
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))
         })
       });
+      try {
+        if (result?.order) {
+          window.GAERUAnalytics?.trackPurchase?.({
+            orderNumber: result.order.orderNumber,
+            totalVnd: result.order.totalVnd,
+            shippingFeeVnd: result.order.shippingFeeVnd,
+            items: rows.map(r => ({
+              variantId: r.variant.id,
+              sku: r.variant.sku,
+              name: `${r.product.name} - ${r.variant.name}`,
+              category: r.product.category,
+              priceVnd: r.variant.priceVnd,
+              quantity: r.quantity
+            }))
+          });
+        }
+      } catch (_) {}
       if(!purchase.direct)writeCart([]);
       if (result.paymentUrl) {
         location.assign(result.paymentUrl);
@@ -916,7 +950,7 @@ function bindGlobalControls() {
 
   document.addEventListener("click", (event) => {
     const buyNow=event.target.closest('[data-buy-now]');
-    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0)location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));return;}
+    if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0){try{window.GAERUAnalytics?.trackAddToCart?.({variantId:row.variant.id,sku:row.variant.sku,name:row.product.name+' - '+row.variant.name,category:row.product.category,priceVnd:row.variant.priceVnd,quantity:1});}catch(_){}location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));}return;}
     const choose=event.target.closest('[data-choose-cart]');
     if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
     const bundleBtn = event.target.closest("[data-add-bundle]");
@@ -959,6 +993,16 @@ function bindGlobalControls() {
       if (existing) existing.quantity += 1;
       else cart.push({ variantId, quantity: 1 });
       if (!writeCart(cart)) return;
+      try {
+        window.GAERUAnalytics?.trackAddToCart?.({
+          variantId: selected.variant.id,
+          sku: selected.variant.sku,
+          name: `${selected.product.name} - ${selected.variant.name}`,
+          category: selected.product.category,
+          priceVnd: selected.variant.priceVnd,
+          quantity: 1
+        });
+      } catch (_) {}
       addButton.closest("#quick-cart-dialog")?.close();
       const feedback = document.querySelector("[data-cart-feedback]");
       if (feedback) feedback.textContent = `${selected.product.name} đã được thêm vào giỏ.`;

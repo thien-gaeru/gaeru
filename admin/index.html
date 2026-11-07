@@ -446,6 +446,29 @@
           <section class="view-panel" id="settings-view" hidden>
             <section class="editor-card" id="system-configuration" data-owner-only hidden></section>
 <section class="editor-card" id="tiktok-ads-configuration" data-owner-only hidden></section>
+            <section class="editor-card" id="google-analytics-configuration" data-owner-only hidden>
+              <div class="editor-heading">
+                <div>
+                  <p class="eyebrow">Đo lường &amp; Tiếp thị</p>
+                  <h3>Google Analytics 4 (GA4)</h3>
+                </div>
+                <span class="status-pill" id="ga-status-pill">Chưa cấu hình</span>
+              </div>
+              <p class="help-text">Tích hợp mã đo lường Google Analytics 4 (Measurement ID) để theo dõi lưu lượng truy cập và hành vi mua sắm thương mại điện tử (Enhanced Ecommerce: xem sản phẩm, thêm giỏ, đặt hàng).</p>
+              <form id="google-analytics-form" style="margin-top:16px;">
+                <div class="form-grid">
+                  <label>Google Analytics Measurement ID
+                    <input name="gaMeasurementId" type="text" placeholder="G-XXXXXXXXXX" maxlength="30" pattern="^G-[A-Za-z0-9]+$" autocomplete="off">
+                  </label>
+                </div>
+                <p class="help-text" style="font-size:12px;color:#6b7280;margin:6px 0 12px;">Định dạng chuẩn bắt đầu bằng <code>G-</code> theo sau là chữ số và chữ hoa (ví dụ: <code>G-ABC1234XYZ</code>). Để trống để gỡ bỏ.</p>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                  <button class="primary-button" type="submit" id="ga-save-btn">Lưu cấu hình GA4</button>
+                  <a class="secondary-button" id="ga-dashboard-link" href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">Mở Google Analytics ↗</a>
+                </div>
+                <p role="status" id="ga-form-feedback" aria-live="polite" style="margin-top:10px;"></p>
+              </form>
+            </section>
             <section class="editor-card settings-security-card" style="margin-top:16px;">
               <p class="eyebrow">Bảo vệ tài khoản &amp; Cửa hàng</p>
               <h3>Cài đặt bảo mật tài khoản &amp; 2FA</h3>

@@ -1,3 +1,10 @@
+if (typeof document !== 'undefined' && typeof document.createElement === 'function' && document.head && !window.GAERUAnalytics && !document.querySelector?.('script[src*="google-analytics.js"]')) {
+  const gaScript = document.createElement('script');
+  gaScript.src = '/google-analytics.js';
+  gaScript.defer = true;
+  document.head.appendChild(gaScript);
+}
+
 const headerRoot = document.querySelector("#site-header");
 const footerRoot = document.querySelector("#site-footer");
 const escapeShellHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({

@@ -31,7 +31,9 @@ const schema = z.object({
   SMTP_PASSWORD: z.string().min(1).optional(),
   SMTP_FROM: z.string().email().optional(),
   GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
-  GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional()
+  GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
+  GA_MEASUREMENT_ID: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal('').transform(() => undefined)),
+  GOOGLE_ANALYTICS_ID: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal('').transform(() => undefined))
 }).superRefine((values, context) => {
   if((values.TURNSTILE_SITE_KEY||values.TURNSTILE_SECRET_KEY)&&(!values.TURNSTILE_SITE_KEY||!values.TURNSTILE_SECRET_KEY||!values.PUBLIC_BASE_URL))context.addIssue({code:'custom',message:'TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY và PUBLIC_BASE_URL phải được cấu hình cùng nhau.'});
   const vnpayConfigured = Boolean(values.VNPAY_TMN_CODE || values.VNPAY_HASH_SECRET || values.VNPAY_PAYMENT_URL);
@@ -52,8 +54,10 @@ function loadConfig(env = process.env) {
   }
   const config = parsed.data;
   config.PUBLIC_BASE_URL=require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL);if(config.SMTP_FROM)config.SMTP_FROM=require('./primary-domain').normalizeBrandText(config.SMTP_FROM);
+  const gaId = config.GA_MEASUREMENT_ID || config.GOOGLE_ANALYTICS_ID || undefined;
   return {
     ...config,
+    GA_MEASUREMENT_ID: gaId,
     vnpay: config.VNPAY_TMN_CODE ? {
       tmnCode: config.VNPAY_TMN_CODE,
       hashSecret: config.VNPAY_HASH_SECRET,

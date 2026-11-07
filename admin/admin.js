@@ -1245,6 +1245,7 @@ async function loadSettings() {
     renderShippingRates(rates);
   }
   if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
+  await loadGoogleAnalyticsSettings();
   applyPermissions();
 }
 
@@ -1318,6 +1319,63 @@ async function saveSettings(event) {
     submitButton.textContent = "Lưu cài đặt phí giao hàng";
   }
 }
+
+async function loadGoogleAnalyticsSettings() {
+  const root = document.querySelector("#google-analytics-configuration");
+  if (!root) return;
+  const isOwner = (state.session?.role === 'owner' || state.user?.role === 'owner') && (state.session?.source === 'bootstrap' || state.user?.source === 'bootstrap');
+  root.hidden = !isOwner;
+  if (!isOwner) return;
+
+  try {
+    const data = await request("/api/gaeru_ceo/google-analytics");
+    const form = document.querySelector("#google-analytics-form");
+    const pill = document.querySelector("#ga-status-pill");
+    const feedback = document.querySelector("#ga-form-feedback");
+    if (feedback) feedback.textContent = "";
+
+    if (form && form.elements.gaMeasurementId) {
+      form.elements.gaMeasurementId.value = data.gaMeasurementId || "";
+    }
+    if (pill) {
+      if (data.configured) {
+        pill.textContent = `Đang hoạt động · ${data.gaMeasurementId}`;
+        pill.className = "status-pill status-active";
+      } else {
+        pill.textContent = "Chưa cấu hình";
+        pill.className = "status-pill";
+      }
+    }
+  } catch (err) {
+    console.warn("loadGoogleAnalyticsSettings error:", err);
+  }
+}
+
+document.addEventListener("submit", async (event) => {
+  const form = event.target.closest("#google-analytics-form");
+  if (!form) return;
+  event.preventDefault();
+  const btn = document.querySelector("#ga-save-btn");
+  const feedback = document.querySelector("#ga-form-feedback");
+  const idVal = form.elements.gaMeasurementId.value.trim();
+  if (idVal && !/^G-[A-Za-z0-9]+$/i.test(idVal)) {
+    if (feedback) feedback.textContent = "Measurement ID phải có định dạng G-XXXXXXXXXX (ví dụ G-ABC1234XYZ).";
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (feedback) feedback.textContent = "Đang lưu cấu hình Google Analytics…";
+  try {
+    const res = await request("/api/gaeru_ceo/google-analytics", {
+      method: "PUT",
+      body: JSON.stringify({ gaMeasurementId: idVal })
+    });
+    showGlobal(res.message || "Đã lưu cài đặt Google Analytics.");
+    } catch (err) {
+    if (feedback) feedback.textContent = err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+});
 
 document.querySelector("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1394,6 +1452,7 @@ async function activateView(view, { updateHistory = true } = {}) {
     if (button.dataset.view === "settings") {
       if(window.GAERUTikTokAds)await window.GAERUTikTokAds.mount();
       if(window.GAERUConfiguration)await window.GAERUConfiguration.load();
+      await loadGoogleAnalyticsSettings();
     }
     if (button.dataset.view === "overview") { await loadSummary(); await loadSystemHealth(); if (window.GAERUOwner && (state.session?.role === "owner" || state.user?.role === "owner")) await window.GAERUOwner.load(); }
     if (view === "notifications" && window.GAERUNotifications) await window.GAERUNotifications.load();
