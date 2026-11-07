@@ -838,16 +838,16 @@ test('U11: 5 provinces/regions including pre- and post-merger names resolve accu
 });
 
 // ============================================================================
-// U12: Bulk complete with 3 unsettled carrier-COD orders is blocked in UI & rejected 409 in API
+// U12: Bulk complete with 3 delivered carrier-COD orders completes seamlessly without manual COD block
 // ============================================================================
-test('U12: Bulk complete with 3 unsettled carrier-COD orders disables unverified UI submission and rejects 409 at API', async () => {
+test('U12: Bulk complete with 3 delivered carrier-COD orders completes seamlessly without manual COD block', async () => {
   const { pool, adminApi } = shared;
   const orders = [];
   for (let i = 1; i <= 3; i++) {
     const o = (
       await pool.query(
-        `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, payment_status, status, subtotal_vnd, total_vnd)
-         VALUES ($1, $2, $3, '0912000012', '12 Đống Đa', 'Hà Nội', 'cod', 'pending', 'shipped', 200000, 200000)
+        `INSERT INTO orders(order_number, customer_name, email, phone, address, city, payment_method, payment_status, status, subtotal_vnd, shipping_fee_vnd, total_vnd)
+         VALUES ($1, $2, $3, '0912000012', '12 Đống Đa', 'Hà Nội', 'cod', 'pending', 'shipped', 200000, 0, 200000)
          RETURNING id, order_number AS "orderNumber"`,
         [`GR-U12-COD-${i}`, `Khách U12 ${i}`, `u12_${i}@example.invalid`]
       )
@@ -868,7 +868,7 @@ test('U12: Bulk complete with 3 unsettled carrier-COD orders disables unverified
     });
   }
 
-  // 1. Verify Admin UI openBulkProcessing disables submit and surfaces COD reconciliation callout
+  // 1. Verify Admin UI openBulkProcessing allows seamless completion without manual COD block
   const html = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
   const js = fs.readFileSync(path.join(__dirname, '..', 'admin', 'admin.js'), 'utf8');
   const { document, window } = parseHTML(html);
@@ -897,7 +897,7 @@ test('U12: Bulk complete with 3 unsettled carrier-COD orders disables unverified
     showGlobal() {},
     loadOrders: async () => {},
     loadSummary: async () => {},
-    request: async () => { bulkApiCalled = true; return {}; }
+    request: async () => { bulkApiCalled = true; return { message: 'Đã hoàn tất 3 đơn', targetStatus: 'completed' }; }
   };
   vm.createContext(context);
   vm.runInContext(js.slice(js.indexOf('function isLiveVnpayAttempt'), js.indexOf('async function updateOrder')), context);
@@ -906,13 +906,12 @@ test('U12: Bulk complete with 3 unsettled carrier-COD orders disables unverified
   const dialog = document.getElementById('order-bulk-dialog');
   assert.ok(dialog);
   assert.equal(dialog.querySelector('[name="action"]').value || dialog.querySelector('[name="action"] option[selected]')?.getAttribute('value'), 'complete');
-  assert.equal(dialog.querySelector('[data-bulk-cod-callout]').hidden, false, 'U12: COD reconciliation callout must be visible');
-  assert.match(dialog.querySelector('[data-bulk-cod-msg]').textContent, /3 đơn COD thu hộ qua hãng chưa đối soát sao kê/);
-  assert.equal(dialog.querySelector('button[type="submit"]').disabled, true, 'U12: Submit button must be disabled for unsettled carrier-COD');
+  assert.equal(dialog.querySelector('[data-bulk-cod-callout]').hidden, true, 'U12: COD callout must be removed/hidden');
+  assert.equal(dialog.querySelector('button[type="submit"]').disabled, false, 'U12: Submit button must be enabled for delivered carrier-COD');
   dialog.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-  assert.equal(bulkApiCalled, false, 'U12: UI must never send unverified bulk complete request');
+  assert.equal(bulkApiCalled, true, 'U12: UI sends bulk complete request seamlessly');
 
-  // 2. Direct API bypass attempt must also be rejected with 409
+  // 2. Direct API bulk complete completes successfully
   const directBulk = await adminApi('/api/gaeru_ceo/orders/bulk', 'POST', {
     action: 'complete',
     confirmReceived: true,
@@ -923,23 +922,20 @@ test('U12: Bulk complete with 3 unsettled carrier-COD orders disables unverified
       expectedTotalVnd: 200000
     }))
   });
-  assert.equal(directBulk.status, 409);
+  assert.equal(directBulk.status, 200);
 });
 
 // ============================================================================
-// U13: Accounting COD batch reconciliation panel & API expose period, evidence, amounts & staff audit
+// U13: Accounting COD batch reconciliation UI removed & GET /shipping/cod-settlements exposes ledger
 // ============================================================================
-test('U13: Accounting COD batch reconciliation UI & GET /shipping/cod-settlements expose payout period, evidence, amounts, attestation & staff audit', async () => {
+test('U13: Accounting COD batch reconciliation UI removed & GET /shipping/cod-settlements exposes ledger', async () => {
   const { pool, adminApi } = shared;
   const html = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
   const { document } = parseHTML(html);
 
   const panel = document.querySelector('#cod-settlement-panel');
-  assert.ok(panel, 'U13: #cod-settlement-panel must exist in admin/index.html');
-  assert.ok(panel.querySelector('#cod-batch-form [name="providerTransactionRef"]'), 'U13: Bank reference input must exist');
-  assert.ok(panel.querySelector('#cod-batch-form [name="declaredPayoutVnd"]'), 'U13: Declared payout input must exist');
-  assert.ok(panel.querySelector('#cod-batch-form [name="payoutPeriod"]'), 'U13: Payout period input must exist');
-  assert.ok(panel.querySelector('#cod-batch-form [name="evidenceRef"]'), 'U13: Statement evidence input must exist');
+  assert.equal(panel, null, 'U13: #cod-settlement-panel must be completely deleted from admin/index.html');
+  assert.equal(document.querySelector('#cod-settlement-toggle'), null, 'U13: #cod-settlement-toggle must be completely deleted from admin/index.html');
 
   const res = await adminApi('/api/gaeru_ceo/shipping/cod-settlements?carrierId=viettel');
   assert.equal(res.status, 200);

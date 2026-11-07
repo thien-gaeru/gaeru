@@ -2160,44 +2160,29 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
           const ledger = finance || require('./finance-api');
           if (carrierCodShipment) {
-            try {
-              const { settleSingleCarrierCodInTx } = require('./shipping-management');
-              const alreadyReceived = ledger?.receiptTotal ? await ledger.receiptTotal(client, current.id) : 0;
-              await settleSingleCarrierCodInTx(client, {
-                orderId: current.id,
-                providerTransactionRef: effectiveRef,
-                settledAmountVnd: Math.max(0, Number(total) - alreadyReceived),
-                method: 'bank_transfer',
-                note: update.paymentNote || (explicitRef ? `Đối soát tiền thu hộ COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD'),
-                skipOrderStatusUpdate: true,
-                actor: safeActor,
-                finance: ledger
-              });
-            } catch (settleErr) {
-              await client.query(
-                `UPDATE carrier_shipments
-                 SET cod_settlement_status = 'settled',
-                     cod_settled_at = COALESCE(cod_settled_at, now()),
-                     cod_settlement_ref = COALESCE(cod_settlement_ref, $2),
-                     cod_attestation_level = CASE WHEN cod_attestation_level = 'statement_verified' THEN 'statement_verified' ELSE 'manually_attested' END,
-                     cod_attested_by = COALESCE(cod_attested_by, $3),
-                     updated_at = now()
-                 WHERE id = $1`,
-                [carrierCodShipment.id, effectiveRef, safeActor.username || 'admin']
-              );
-              if (ledger?.recordFullOrderPayment) {
-                try {
-                  await ledger.recordFullOrderPayment(client, {
-                    order: { ...current, total_vnd: total },
-                    actor: safeActor,
-                    options: {
-                      reference: effectiveRef,
-                      method: 'bank_transfer',
-                      note: update.paymentNote || (explicitRef ? `Thu đủ tiền COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD')
-                    }
-                  });
-                } catch (_) {}
-              }
+            await client.query(
+              `UPDATE carrier_shipments
+               SET cod_settlement_status = 'settled',
+                   cod_settled_at = COALESCE(cod_settled_at, now()),
+                   cod_settlement_ref = COALESCE(cod_settlement_ref, $2),
+                   cod_attestation_level = CASE WHEN cod_attestation_level = 'statement_verified' THEN 'statement_verified' ELSE 'manually_attested' END,
+                   cod_attested_by = COALESCE(cod_attested_by, $3),
+                   updated_at = now()
+               WHERE id = $1`,
+              [carrierCodShipment.id, effectiveRef, safeActor.username || 'admin']
+            );
+            if (ledger?.recordFullOrderPayment) {
+              try {
+                await ledger.recordFullOrderPayment(client, {
+                  order: { ...current, total_vnd: total },
+                  actor: safeActor,
+                  options: {
+                    reference: effectiveRef,
+                    method: 'bank_transfer',
+                    note: update.paymentNote || (explicitRef ? `Thu đủ tiền COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD')
+                  }
+                });
+              } catch (_) {}
             }
           } else {
             await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
@@ -2212,35 +2197,21 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               });
             }
           }
-        } else if (targetStatus === "completed" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0 && activeCarrierShipment.cod_settlement_status === "verification_required") {
+        } else if (targetStatus === "completed" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0 && activeCarrierShipment.cod_settlement_status !== "settled") {
           const explicitRef = String(update.reconciliationRef || '').trim();
-          const defaultCodRef = 'COD-VERIFY-' + (current.order_number || current.id.slice(0, 8));
+          const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
-          try {
-            const { settleSingleCarrierCodInTx } = require('./shipping-management');
-            await settleSingleCarrierCodInTx(client, {
-              orderId: current.id,
-              providerTransactionRef: effectiveRef,
-              settledAmountVnd: Number(total),
-              method: 'bank_transfer',
-              note: update.paymentNote || `Xác minh đối soát COD lịch sử (${effectiveRef})`,
-              skipOrderStatusUpdate: true,
-              actor: safeActor,
-              finance: finance || require('./finance-api')
-            });
-          } catch (_) {
-            await client.query(
-              `UPDATE carrier_shipments
-               SET cod_settlement_status = 'settled',
-                   cod_settled_at = COALESCE(cod_settled_at, now()),
-                   cod_settlement_ref = COALESCE(cod_settlement_ref, $2),
-                   cod_attestation_level = 'statement_verified',
-                   cod_attested_by = COALESCE(cod_attested_by, $3),
-                   updated_at = now()
-               WHERE id = $1`,
-              [activeCarrierShipment.id, effectiveRef, safeActor.username || 'admin']
-            );
-          }
+          await client.query(
+            `UPDATE carrier_shipments
+             SET cod_settlement_status = 'settled',
+                 cod_settled_at = COALESCE(cod_settled_at, now()),
+                 cod_settlement_ref = COALESCE(cod_settlement_ref, $2),
+                 cod_attestation_level = 'manually_attested',
+                 cod_attested_by = COALESCE(cod_attested_by, $3),
+                 updated_at = now()
+             WHERE id = $1`,
+            [activeCarrierShipment.id, effectiveRef, safeActor.username || 'admin']
+          );
         }
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
@@ -2283,9 +2254,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             if(activeShip && activeShip.status!=='delivered'){
               throw Object.assign(Error('Đơn '+current.order_number+' có vận đơn hãng chưa xác nhận Đã giao hàng (delivered).'),{status:409});
             }
-            if(activeShip && Number(activeShip.cod_amount_vnd)>0 && activeShip.cod_settlement_status!=='settled'){
-              throw Object.assign(Error('Đơn '+current.order_number+' có tiền thu hộ COD qua hãng vận chuyển chưa đối soát sao kê. Vui lòng đối soát theo lô COD trước khi hoàn tất hàng loạt.'),{status:409});
-            }
+
           }
           if(target==='completed'&&current.payment_status!=='paid'){
             if(!data.confirmReceived)throw Object.assign(Error('Xác nhận đã thu đủ tiền trước khi hoàn tất các đơn chưa thanh toán.'),{status:409});

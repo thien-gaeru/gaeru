@@ -403,34 +403,7 @@
 <p class="help-text">Chờ gửi hàng gồm đơn đã xác nhận và đang chuẩn bị. Đã giao hàng là đã bàn giao cho hãng vận chuyển.</p>
 <button type="button" class="secondary-button" id="after-sales-toggle" aria-expanded="false" aria-controls="after-sales-panel">Hồ sơ hủy & hoàn trả</button>
 <button type="button" class="secondary-button" id="cod-return-toggle" aria-expanded="false" aria-controls="cod-return-panel">📦 Kiểm nhận hàng hoàn COD <span id="cod-return-badge" style="background:#e53e3e;color:#fff;border-radius:10px;padding:2px 7px;font-size:0.75em;display:none;">0</span></button>
-<button type="button" class="secondary-button" id="cod-settlement-toggle" aria-expanded="false" aria-controls="cod-settlement-panel" hidden style="display:none!important;">💰 Đối soát thu hộ COD <span id="cod-settlement-badge" style="background:#d97706;color:#fff;border-radius:10px;padding:2px 7px;font-size:0.75em;display:none;">0</span></button>
-<section id="cod-settlement-panel" hidden style="display:none!important;" aria-labelledby="cod-settlement-title">
-  <div style="display:none;">
-    <h2 id="cod-settlement-title">Đối soát tiền thu hộ COD</h2>
-    <button type="button" id="cod-settlement-refresh">Tải lại</button>
-    <div id="cod-settlement-summary">
-      <span id="cod-summary-unsettled">0</span>
-      <span id="cod-summary-verify">0</span>
-      <span id="cod-summary-settled">0</span>
-    </div>
-    <select id="cod-filter-carrier"><option value="">Tất cả</option></select>
-    <select id="cod-filter-status"><option value="">Tất cả</option></select>
-    <input type="search" id="cod-filter-q">
-    <form id="cod-batch-form">
-      <input type="text" name="providerTransactionRef">
-      <input type="text" name="payoutPeriod">
-      <input type="number" name="declaredPayoutVnd">
-      <input type="text" name="evidenceRef">
-      <select name="method"><option value="bank_transfer">Chuyển khoản</option></select>
-      <input type="text" name="note">
-      <span id="cod-batch-selected-summary"></span>
-      <button type="submit" id="cod-batch-submit">Xác nhận</button>
-      <p id="cod-batch-feedback"></p>
-    </form>
-    <div id="cod-settlement-list"></div>
-    <div id="cod-batches-list"></div>
-  </div>
-</section>
+
 
 <section id="after-sales-panel" hidden aria-labelledby="after-sales-title"><h2 id="after-sales-title">Hủy / trả hàng</h2><p>Ghi nhận và theo dõi yêu cầu hủy, trả hàng. Kiểm tra chứng từ hoàn tiền và nhập kho trước khi đóng yêu cầu.</p><button type="button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></section>
 <div id="order-workspace"><input type="hidden" id="order-filter" value="">

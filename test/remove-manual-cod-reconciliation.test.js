@@ -9,14 +9,15 @@ const { loadConfig } = require('../src/config');
 const { createApp } = require('../src/app');
 
 test('Verification: Complete Removal of Manual COD Reconciliation UI & Seamless Auto-Completion', async (t) => {
-  // 1. Kiểm tra tĩnh trên tệp admin/index.html & admin/admin.js: chức năng đối soát thủ công bị ẩn triệt để
+  // 1. Kiểm tra tĩnh trên tệp admin/index.html & admin/admin.js: chức năng đối soát thủ công bị xóa hoàn toàn
   const indexHtml = fs.readFileSync(path.join(__dirname, '../admin/index.html'), 'utf8');
-  assert.ok(indexHtml.includes('id="cod-settlement-panel"') && indexHtml.includes('style="display:none!important;"'), 'Panel đối soát lô COD thủ công đã bị ẩn vĩnh viễn khỏi giao diện người dùng');
-  assert.ok(indexHtml.includes('id="cod-settlement-toggle"') && indexHtml.includes('style="display:none!important;"'), 'Nút "Đối soát thu hộ COD" đã bị ẩn vĩnh viễn khỏi giao diện người dùng');
+  assert.equal(indexHtml.includes('id="cod-settlement-panel"'), false, 'Panel đối soát lô COD thủ công đã bị xóa hoàn toàn');
+  assert.equal(indexHtml.includes('id="cod-settlement-toggle"'), false, 'Nút "Đối soát thu hộ COD" đã bị xóa hoàn toàn');
 
   const adminJs = fs.readFileSync(path.join(__dirname, '../admin/admin.js'), 'utf8');
   assert.equal(adminJs.includes('Đối soát COD theo lô'), false, 'Nút "Đối soát COD theo lô" đã được gỡ bỏ khỏi renderOrderWaybillCard trong admin/admin.js');
   assert.equal(adminJs.includes('name="reconciliationRef"'), false, 'Ô nhập mã đối soát COD (reconciliationRef) đã được gỡ bỏ khỏi orderPaymentControl trong admin/admin.js');
+  assert.equal(adminJs.includes('loadCodSettlementWorkspace'), false, 'Hàm loadCodSettlementWorkspace đã bị xóa hoàn toàn khỏi admin/admin.js');
 
   // 2. Kiểm tra nghiệp vụ Runtime: Đơn COD có vận đơn Viettel Post được hoàn tất và thanh toán trơn tru
   const pool = await createLocalPool();
