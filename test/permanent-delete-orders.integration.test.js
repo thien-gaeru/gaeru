@@ -304,6 +304,8 @@ test('COD carrier reconciliation reference and permissions matrix (A05, A06, A12
      RETURNING *`
   )).rows[0];
 
+  await f.pool.query('UPDATE orders SET delivered_at=now() WHERE id=$1',[codOrder.id]);
+
   // 1. Sales role without payments.write cannot confirm payment / complete COD order (A06)
   f.actor.role = 'sales'; f.actor.source = 'staff'; f.actor.permissions = ['orders.read', 'orders.write'];
   const unauthorizedComplete = await f.api(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', {
