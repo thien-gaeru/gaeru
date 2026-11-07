@@ -193,7 +193,7 @@ test('Quy tắc Vận chuyển & COD: Giao hàng thành công (delivered) trên 
 
   const nextStatus = await applyCarrierDeliveryTransition(mockClient, codShipment, 'delivered', { username: 'carrier_bot' });
 
-  assert.equal(nextStatus, 'shipped', 'Đơn COD giao thành công vẫn ở trạng thái shipped để chờ đối chiếu/thu tiền COD');
+  assert.equal(nextStatus, 'completed', 'Đơn COD giao thành công tự hoàn tất giao hàng, tiền COD vẫn chờ đối soát riêng');
   assert.ok(updates.some(u => u.sql.includes('delivered_at')), 'Phải cập nhật mốc delivered_at khi hãng giao thành công');
 });
 
