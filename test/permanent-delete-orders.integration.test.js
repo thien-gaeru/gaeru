@@ -190,10 +190,21 @@ test('Admin permanent order deletion blocks orders with immutable sales_receipts
   assert.equal(wrongPassRes.status, 403);
   assert.match(wrongPassRes.data.error, /mật khẩu/i);
 
-  // Paid order with sales_receipts is blocked with 409 and revenue remains intact!
+  // Authorized staff (non-owner) attempting to delete order with sales_receipts is blocked with 409
+  f.actor.role = 'staff';
+  f.actor.source = 'staff';
   const blockedPaidDelete = await f.api(`/api/gaeru_ceo/orders/${paidOrder.id}/permanent-delete`, 'POST', { password: f.adminPassword });
   assert.equal(blockedPaidDelete.status, 409);
   assert.equal((await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [paidOrder.id])).rows.length, 1);
+
+  // Supreme admin (owner) can permanently delete an order with sales_receipts without ANY restrictions
+  const ownerPurgeOrder = await f.createOrder({ status: 'completed', paymentStatus: 'paid', amount: 200000, quantity: 1 });
+  f.actor.role = 'owner';
+  f.actor.source = 'bootstrap';
+  const ownerPaidDelete = await f.api(`/api/gaeru_ceo/orders/${ownerPurgeOrder.id}/permanent-delete`, 'POST', { password: f.adminPassword });
+  assert.equal(ownerPaidDelete.status, 200);
+  assert.equal((await f.pool.query('SELECT * FROM orders WHERE id = $1', [ownerPurgeOrder.id])).rows.length, 0);
+  assert.equal((await f.pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [ownerPurgeOrder.id])).rows.length, 0);
 
   // 2. Unpaid draft order deletes cleanly, releasing stock while preserving paid ledger
   const unpaidOrder = await f.createOrder({ status: 'pending', paymentStatus: 'pending', amount: 150000, quantity: 3 });

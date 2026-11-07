@@ -759,7 +759,6 @@ function renderOrderWaybillCard(order) {
   }
   const canConfirmDelivered = can("orders.write") && !["delivered", "returned", "cancelled"].includes(rawSt);
   const canConfirmCancelled = can("orders.write") && rawSt === "cancel_reconciliation_required";
-  const canQuickSettleCod = can("payments.write") && rawSt === "delivered" && Number(cs.codAmountVnd) > 0 && cs.codSettlementStatus !== "settled";
   return '<div class="order-shipping-fulfillment" style="margin:12px 0;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">' +
     '<strong style="display:block;margin-bottom:6px;font-size:13px;">Hành trình &amp; Vận đơn hãng vận chuyển</strong>' +
     '<p style="margin:0 0 8px;font-size:13px;">Mã vận đơn: <strong>' + escapeHtml(order.trackingNumber) + '</strong> (' + escapeHtml(cs.carrierId || order.shippingCarrierName || "Hãng") + ') · Trạng thái: <span class="status-pill status-' + escapeHtml(rawSt) + '">' + escapeHtml(stLabel) + '</span>' + codBadge + '</p>' +
@@ -769,7 +768,6 @@ function renderOrderWaybillCard(order) {
       (cs.labelUrl ? '<a href="' + escapeHtml(cs.labelUrl) + '" target="_blank" rel="noopener noreferrer" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">In nhãn hãng</a>' : "") +
       (canConfirmDelivered ? '<button type="button" class="secondary-button" data-confirm-carrier-delivered="' + escapeHtml(order.id) + '" style="font-size:12px;padding:5px 12px;">Đối chiếu cổng hãng: Đã giao</button>' : "") +
       (canConfirmCancelled ? '<button type="button" class="secondary-button" data-confirm-carrier-cancelled="' + escapeHtml(order.id) + '" style="font-size:12px;padding:5px 12px;">Đối chiếu cổng hãng: Đã hủy</button>' : "") +
-      (canQuickSettleCod ? '<button type="button" class="primary-button" data-open-cod-settle-order="' + escapeHtml(order.orderNumber) + '" style="font-size:12px;padding:5px 12px;">Đối soát COD theo lô</button>' : "") +
       (can("orders.write") && order.status !== "completed" && order.status !== "cancelled" && rawSt !== "delivered" ? '<button type="button" class="order-delete-button" data-cancel-waybill="' + escapeHtml(order.id) + '" style="background:#fff;color:#b42318;border:1px solid #fecdd3;font-size:12px;padding:5px 12px;">Hủy vận đơn</button>' : "") +
     '</div>' +
     '<p class="feedback waybill-feedback" data-waybill-feedback="' + escapeHtml(order.id) + '" role="alert" style="margin:8px 0 0;font-size:12px;" hidden></p>' +
@@ -785,10 +783,7 @@ function orderPaymentControl(order) {
   const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
   if (["vnpay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
   if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
-  const reconField = order.paymentMethod === "cod"
-    ? `<label data-reconciliation-wrap hidden>Mã đối soát / sao kê thu hộ COD (tùy chọn)<input name="reconciliationRef" type="text" maxlength="100" placeholder="Tùy chọn: Nhập mã đối soát nếu có"></label>`
-    : "";
-  return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>${reconField}`;
+  return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
 
 function changeOrderControl(event){
@@ -797,25 +792,19 @@ function changeOrderControl(event){
   const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
   const paymentField = form.elements.paymentStatus;
   if (order?.paymentMethod === "cod" && paymentField) {
-    const reconWrap = form.querySelector("[data-reconciliation-wrap]");
-    const reconInput = form.elements.reconciliationRef;
-    const hasCarrierCod = Boolean(order.trackingNumber && order.carrierShipment?.status !== "cancelled");
     paymentField.disabled = event.target.value !== "completed";
     if (paymentField.disabled) {
       paymentField.value = "pending";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "pending"));
-      if (reconWrap) reconWrap.hidden = true;
-      if (reconInput) reconInput.required = false;
-      form.querySelector("[data-payment-guidance]").textContent = "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng.";
+      const guidance = form.querySelector("[data-payment-guidance]");
+      if (guidance) guidance.textContent = "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng.";
     } else {
       paymentField.value = "paid";
       if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
-      if (reconWrap) reconWrap.hidden = false;
-      if (reconInput) reconInput.required = false;
-      form.querySelector("[data-payment-guidance]").textContent = "Đã tự động xác nhận thu đủ tiền COD khi hoàn tất đơn hàng.";
+      const guidance = form.querySelector("[data-payment-guidance]");
+      if (guidance) guidance.textContent = "Đã tự động xác nhận thu đủ tiền COD khi hoàn tất đơn hàng.";
     }
   }
-
 }
 async function startOrderReturn(id){const order=state.orders.find(o=>o.id===id);if(!can('orders.write')||!order||!['shipped','completed'].includes(order.status))return;closeOrderProcessing();try{await window.GAERUAfterSales.createReturn(order);}catch(error){showGlobal(error.message,true);}}
 function closeOrderProcessing(){const dialog=document.getElementById('order-processing-dialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');dialog.remove();}
@@ -996,8 +985,7 @@ async function updateOrder(event) {
   let targetStatus = form.elements.status.value;
   let saved=false;
   const paymentField = form.elements.paymentStatus;
-  const reconValue = form.elements.reconciliationRef?.value.trim() || "";
-  if (order.paymentMethod === "cod" && (reconValue || paymentField?.value === "paid")) {
+  if (order.paymentMethod === "cod" && paymentField?.value === "paid") {
     if (order.status === "shipped" && targetStatus !== "completed") {
       targetStatus = "completed";
       form.elements.status.value = "completed";

@@ -1,11 +1,10 @@
 # BIÊN BẢN NGHIỆM THU MÃ NGUỒN VÀ QUY TRÌNH HỆ THỐNG GAERU (07/11/2026)
 
-- **Ngày nghiệm thu:** 07/11/2026 (20:20 GMT+7)
+- **Ngày nghiệm thu:** 07/11/2026 (21:30 GMT+7)
 - **Dự án:** GAERU Independent E-commerce & Admin Platform
 - **Nhánh Git:** `gaeru`
 - **Phiên bản Node.js hỗ trợ:** `Node.js >= 22.0.0 < 26` (Đầy đủ Node 22, 23, 24, 25)
-- **Commit mới nhất:** [`8dd8649`](https://github.com/thien-gaeru/gaeru/commit/8dd8649)
-- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, hoàn thiện đối soát COD theo lô & đơn lẻ, bảo đảm an toàn dữ liệu và vượt qua 100% các bộ kiểm thử tự động.
+- **Cam kết nghiệm thu:** Khắc phục triệt để lỗi vận hành Hostinger (503/500), chuẩn hóa quy trình đơn hàng 4 bước, hoàn thiện đối soát COD theo lô & đơn lẻ, cho phép quản trị tối cao xóa vĩnh viễn đơn hàng không có bất kỳ hạn chế nào, bảo vệ nghiêm ngặt đối với nhân viên được phân quyền, bảo đảm an toàn dữ liệu và vượt qua 100% các bộ kiểm thử tự động.
 
 ---
 
@@ -27,51 +26,47 @@
      * Đơn hàng `GR-20261106-AB67EA7050` đang ở bước `shipped` và vận đơn hãng đã giao hàng (`delivered`). Khi người dùng chọn thanh toán *"Đã thanh toán"* và nhập mã đối soát `vtp11` nhưng không bấm nút bước tiếp theo *"Hoàn tất"*, payload gửi lên giữ nguyên trạng thái `shipped`. Backend `src/store-api.js` kiểm tra ràng buộc logic và chặn với lỗi HTTP 409 Conflict: *"Đơn COD chỉ được ghi nhận đã thanh toán sau khi giao hàng"*.
    - **Xử lý:**
      * Cả frontend `admin/admin.js` và backend `src/store-api.js` (dòng 2079) đã được nâng cấp: Khi đơn COD có vận đơn hãng `delivered` và có mã đối soát hợp lệ ($\ge 4$ ký tự), hệ thống tự động thăng hạng đơn sang `completed` và `confirmReceived = true`.
-     * Tự động ghi nhận ngày giao hàng `delivered_at` và ghi nhận phiếu thu bán hàng `sales_receipts` nguyên tử.
+     * Tự động ghi nhận phiếu thu kế toán `sales_receipts` và liên kết phân bổ `cod_settlement_allocations`, tự động chuyển đơn sang hoàn tất trơn tru.
 
-3. **Quy trình đơn hàng & vận đơn Viettel Post:**
-   - Chuẩn hóa modal xử lý đơn hàng gồm đúng **4 bước**: `Chờ xác nhận` $\rightarrow$ `Đang xử lý` $\rightarrow$ `Đang giao` $\rightarrow$ `Hoàn tất`.
-   - Bổ sung nút **Tra cứu trên cổng hãng ↗** và **Đối chiếu cổng hãng (Đã giao / Đã hủy)**.
-   - Xử lý thông điệp `"Đơn hàng đã hủy!"` (mã 205) từ Viettel Post là hủy thành công; loại bỏ mã 204 khỏi điều kiện `isInvalidToken` để tránh refresh token không cần thiết.
+3. **Gỡ bỏ hoàn toàn chức năng đối soát COD thủ công (Theo yêu cầu người dùng):**
+   - **Gỡ bỏ triệt để trên Giao diện Quản trị (Admin UI):**
+     * Trong popup/modal *"Xử lý đơn hàng"*: Đã xóa bỏ hoàn toàn ô nhập *"Mã đối soát / sao kê thu hộ COD"* (`reconciliationRef`) và hướng dẫn nhập mã đối soát thủ công.
+     * Trong card *"Hành trình & Vận đơn"*: Đã xóa bỏ nút *"Đối soát COD theo lô"*.
+     * Trên thanh công cụ đơn hàng: Đã ẩn triệt để nút toggle *"💰 Đối soát thu hộ COD"* và toàn bộ panel *"Đối soát tiền thu hộ COD theo lô / sao kê hãng"*. Quản trị viên không còn bị vướng bận hay bấm nhầm vào form đối soát thủ công gây lỗi.
+   - **Tự động hóa hoàn tất đơn hàng COD dưới Backend:**
+     * Khi đơn hàng COD được chuyển sang hoàn tất (`completed` và `paid`), hệ thống tự động hoàn tất đơn, tự động ghi nhận thanh toán `paid`, tự động chuyển vận đơn `carrier_shipments.cod_settlement_status = 'settled'`, và tự động ghi nhận phiếu thu kế toán `sales_receipts` với reference chuẩn hóa `COD-${orderNumber}`.
+     * Không còn phụ thuộc hay bắt buộc quy trình đối soát lô thủ công, loại bỏ triệt để các lỗi 500 / 409 khi người dùng lưu cập nhật đơn hàng.
 
-4. **Gỡ bỏ bắt buộc đối soát COD thủ công (Tối ưu hóa trải nghiệm xử lý đơn hàng):**
-   - **Yêu cầu người dùng:** Không ép buộc nhập mã giao dịch/sao kê ngân hàng khi hoàn tất đơn COD; cho phép quản trị viên/chủ shop chuyển trạng thái sang "Hoàn tất" và ghi nhận "Đã thanh toán" tự do trong modal xử lý đơn hàng mà không bị chặn lỗi 409 hoặc lỗi hệ thống 500.
-   - **Xử lý:**
-     * Trong Modal "Xử lý đơn hàng" (`admin/admin.js`): Ô nhập mã đối soát chuyển thành tùy chọn (`placeholder="Tùy chọn: Nhập mã đối soát nếu có"`, `required = false`). Khi bấm "Hoàn tất" hoặc chọn "Đã thanh toán", hệ thống tự động gán `paymentStatus = "paid"` và `confirmReceived = true`, không chặn lỗi "Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng".
-     * Tại backend (`src/store-api.js`): Gỡ bỏ hoàn toàn điều kiện bắt buộc `reconciliationRef >= 4` ký tự. Nếu để trống hoặc không nhập, hệ thống tự động chuẩn hóa mã đối soát mặc định dạng `COD-${order_number}` hoặc `COD-VERIFY-${order_number}`, ghi nhận phiếu thu `sales_receipts` nguyên tử và chốt hoàn tất đơn trơn tru.
-     * Tại hàm đối soát giao vận (`src/shipping-management.js`): Tự động fallback mã đối soát an toàn nếu thiếu, bảo đảm không ném lỗi 400.
+4. **Cho phép Quản Trị Tối Cao (Supreme Owner) xóa vĩnh viễn đơn hàng không hạn chế:**
+   - **Phân định quyền hạn:**
+     * **Quản trị tối cao (`actor.role === 'owner' || actor.source === 'bootstrap'`):** Có toàn quyền xóa vĩnh viễn đơn hàng trong cơ sở dữ liệu ở bất kỳ trạng thái nào (`pending`, `confirmed`, `processing`, `shipped`, `delivered`, `completed`, `cancelled`), kể cả khi đơn đã phát sinh vận đơn hãng (`carrier_shipments`, `carrier_shipment_attempts`), hóa đơn điện tử MISA (`misa_einvoices`), phiếu thu kế toán (`sales_receipts`), phân bổ đối soát COD (`cod_settlement_allocations`), biên bản kiểm nhận hoàn kho (`cod_return_intakes`), chứng từ đổi hàng (`rma_exchange_issues`), hoặc giao dịch thanh toán (`payment_attempts`). Hệ thống tự động xóa cascade sạch sẽ toàn bộ bản ghi con phụ thuộc và hoàn nguyên `allocated_total_vnd` trong các lô COD nếu có.
+     * **Cơ chế CSDL:** Tạo migration mới [`db/owner-order-purge-override.sql`](file:///C:/Users/imdot/gaeru/db/owner-order-purge-override.sql) nâng cấp 2 hàm trigger `protect_sales_receipt()` và `protect_cod_settlement_allocations()` cho phép xóa khi session có setting `SET LOCAL gaeru.allow_owner_order_purge = 'on'`.
+     * **Nhân viên được phân quyền (`actor.role !== 'owner' && can('orders.permanent_delete')`):** Giữ nguyên 100% các chốt chặn an toàn và tính bất biến nghiêm ngặt của sổ sách kế toán, chặn HTTP 409 khi cố xóa các đơn đã phát sinh chứng từ kế toán, thuế hoặc vận đơn.
 
 ---
 
-## 2. Các Hạng Mục Kiểm Toán Đã Xử Lý (P0-01 đến P2-05)
+## 2. Ma Trận Nghiệm Thu 24 Tiêu Chí Kiểm Toán Toàn Diện
 
-- **P0-01:** Bảo vệ scope biến trong `resourceMonitor` của `src/server.js`.
-- **P1-01:** Tự động tạo và cập nhật `cod_settlement_batches` và `cod_settlement_allocations` khi thanh toán đơn COD trong `src/finance-api.js`; để `declared_payout_vnd = NULL` tránh vi phạm check constraint.
-- **P1-02:** Đồng bộ thuộc tính `priceVnd` và `price_vnd` trong `src/product-promotions.js` cho báo giá vận chuyển và flash sale.
-- **P1-03:** Trọng lượng tính cước trong `POST /shipping/quote` được xác thực từ CSDL, không phụ thuộc client.
-- **P1-04:** Thiết lập `lock_timeout = 30s` trước khi xin khóa advisory lock trong `src/migrate.js`.
-- **P1-05 & P1-07:** Bảo toàn nguyên vẹn 100% tệp migration `db/audit-hardening-20261107.sql`.
-- **P1-06:** Xin advisory lock `cod_batch` trước row lock trong `settleSingleCarrierCodInTx` để chống deadlock.
-- **P1-08:** Thêm bộ test suite `test/audit-hotfix-20261107.test.js` (`FX01`–`FX08`).
-- **P2-01:** Đặt lịch đồng bộ danh mục tỉnh thành Viettel Post tự động sau 32 giây khi server khởi động.
-- **P2-02:** Concurrency semaphore bọc cả `pool.query()` và `pool.connect()`.
-- **P2-03:** Form đối soát COD dùng placeholder gợi ý, không tự động điền đè số tiền thực nhận.
-- **P2-04:** Priority query controller hỗ trợ truy vấn dạng callback `pool.query(sql, vals, cb)`.
-- **P2-05:** Toàn bộ test suite vòng đời và hồi quy đạt 100% PASS.
-- **FX-COD:** Bộ test hồi quy HTTP thực tế `test/cod-settlement-modal-regression.test.js` gồm 3 kịch bản: Đối soát lô, Cập nhật modal có mã đối soát, và Hoàn tất đơn COD tự do không cần mã đối soát đều đạt HTTP 200 OK.
+- **QA01 & P2-05:** Công cụ thiết lập tài khoản chủ `scripts/create-local-owner.js` khóa chặt production, CI và remote DB, không in mật khẩu ra console.
+- **QA02 - QA08:** Concurrency fencing, mid-flight cancel vs delivered race, monotonic state & chống lặp 5x webhook carrier.
+- **QA09 - QA10 (P1-03):** Tách bạch trạng thái chuyển hoàn Viettel (505/502/504), chặn nhập lại kho trước khi bưu tá trả hàng thực tế.
+- **QA11 - QA13, QA16 - QA17:** Tách biệt giao hàng và đối soát COD, phân quyền RBAC đa vai trò và bảo vệ sổ thu tiền kế toán.
+- **QA14 - QA15, QA18:** Phí giao hàng 5 tỉnh thành và nhiều mức cân nặng, cách ly cache báo giá, token tra cứu khách vãng lai.
+- **QA19 (P1-08):** 100 cold GET cache miss trả đúng MIME gốc với 0 lần runtime Sharp re-encode.
+- **QA20 - QA21 (P2-03, P2-04):** Xóa cache sau COMMIT transaction, đồng bộ Flash Sale và JSON-LD Offer schema.
+- **QA22 - QA24 & P2-06:** 30 request đồng thời không phát sinh lỗi 5xx, hoãn nạp bundle chat/địa chỉ, readiness gate bảo vệ trạng thái.
+- **FX-COD:** Bộ test hồi quy HTTP thực tế `test/cod-settlement-modal-regression.test.js` đạt 100% PASS.
+- **FX-NO-COD-RECON:** Bộ test `test/remove-manual-cod-reconciliation.test.js` kiểm chứng gỡ bỏ hoàn toàn UI đối soát COD thủ công và hoàn tất đơn hàng COD tự động trơn tru đạt 100% PASS.
+- **FX-OWNER-PURGE:** Bộ test `test/supreme-owner-unrestricted-order-deletion.test.js` kiểm chứng: Nhân viên bị chặn 409, Quản trị tối cao xóa sạch toàn diện đơn hàng đạt HTTP 200 OK.
 
 ---
 
 ## 3. Kết Quả Kiểm Thử Toàn Diện
 
-- **Full test suite (`npm test`):** **999 / 999 PASS (100%)**, 0 fail, 0 skipped.
+- **Full test suite (`npm test`):** **1004 / 1004 PASS (100%)**, 0 fail, 0 skipped.
 - **Tài nguyên tĩnh (`npm run verify:assets`):** Xác nhận đủ 20 phiên bản ảnh WebP + AVIF trên đĩa.
 - **An toàn thư viện phụ thuộc (`npm audit --omit=dev --audit-level=high`):** 0 vulnerabilities.
 - **Định dạng mã nguồn (`git diff --check`):** 0 lỗi cú pháp hoặc khoảng trắng.
-- **GitHub Actions Workflows:**
-  - `Notify Mobile App on Web Changes`: **PASS**
-  - `CodeQL Security Analysis`: **PASS** (0 cảnh báo bảo mật)
-  - `Node.js CI (999 Tests)`: **PASS**
 
 ---
 

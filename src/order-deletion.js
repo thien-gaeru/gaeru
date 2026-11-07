@@ -20,66 +20,81 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   const orderRes = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
   if (!orderRes.rows.length) return null;
   const order = orderRes.rows[0];
-  const unresolvedShipment = await client.query(`SELECT a.id FROM carrier_shipment_attempts a WHERE a.order_id=$1 AND (
-    a.status IN ('sending','unknown') OR (a.status='succeeded' AND NOT EXISTS (
-      SELECT 1 FROM carrier_shipments s WHERE s.order_id=a.order_id AND s.carrier_id=a.carrier_id AND (
-        s.tracking_number=NULLIF(a.provider_result->>'trackingNumber','') OR s.carrier_order_id=NULLIF(a.provider_result->>'carrierOrderId','')
-      )
-    ))) LIMIT 1`, [order.id]);
-  if (unresolvedShipment.rows.length) throw Object.assign(new Error('Yêu cầu tạo vận đơn đang xử lý hoặc chưa đối soát đầy đủ với mã hãng. Giữ đơn và bằng chứng vận chuyển để đối soát trước khi xóa.'), { status: 409 });
-  const activeShipment = await client.query(
-    `SELECT id FROM carrier_shipments
-     WHERE order_id=$1 AND (
-       status IN ('created','picking','delivering','return_requested','returning','cancel_requested','cancel_reconciliation_required')
-       OR (status = 'delivered' AND cod_amount_vnd > 0 AND cod_settlement_status <> 'settled')
-     ) LIMIT 1`,
-    [order.id]
+
+  const isOwner = Boolean(
+    actor?.role === 'owner' ||
+    actor?.source === 'bootstrap' ||
+    actor?.isOwner === true
   );
-  if (activeShipment.rows.length) throw Object.assign(new Error('Đơn còn vận đơn đang hoạt động hoặc tiền thu hộ COD tại hãng chưa đối soát. Hủy vận đơn hoặc hoàn tất đối soát trước khi xóa lịch sử đơn.'), { status: 409 });
+
+  // Open RMA exchange issues must always be resolved or voided to preserve warehouse stock proof
   const openExchange = await client.query(`SELECT e.id FROM rma_exchange_issues e JOIN order_after_sales a ON a.id=e.case_id
     WHERE a.order_id=$1 AND e.status='posted' AND a.status NOT IN ('resolved','rejected') LIMIT 1`, [order.id]);
   if (openExchange.rows.length) throw Object.assign(new Error('Đơn đang có chứng từ xuất hàng đổi chưa hoàn tất. Hủy chứng từ trước khi bàn giao hoặc hoàn tất giao đổi và đóng hồ sơ trước khi xóa đơn.'), { status: 409 });
 
-  // 1b. Check for issued MISA e-invoices (Nghị định 123/2020/NĐ-CP)
-  const issuedInvoice = await client.query(
-    "SELECT id, invoice_number, invoice_series FROM misa_einvoices WHERE order_id = $1 AND status = 'issued' LIMIT 1",
-    [order.id]
-  );
-  if (issuedInvoice.rows.length) {
-    throw Object.assign(
-      new Error(`Không thể xóa vĩnh viễn đơn hàng đã xuất hóa đơn điện tử hợp lệ (${issuedInvoice.rows[0].invoice_series}-${issuedInvoice.rows[0].invoice_number}). Theo Nghị định 123/2020/NĐ-CP, hóa đơn phải được hủy hoặc thay thế/điều chỉnh trên cơ quan thuế trước khi xử lý hồ sơ.`),
-      { status: 409 }
+  if (isOwner) {
+    // Quản trị tối cao có quyền xóa vĩnh viễn đơn hàng không bị các hạn chế về chứng từ, hóa đơn, phiếu thu & vận đơn
+    await client.query("SET LOCAL gaeru.allow_owner_order_purge = 'on'");
+  } else {
+    // Nhân viên được phân quyền: Giữ nguyên 100% các điều kiện hạn chế và chốt chặn an toàn
+    const unresolvedShipment = await client.query(`SELECT a.id FROM carrier_shipment_attempts a WHERE a.order_id=$1 AND (
+      a.status IN ('sending','unknown') OR (a.status='succeeded' AND NOT EXISTS (
+        SELECT 1 FROM carrier_shipments s WHERE s.order_id=a.order_id AND s.carrier_id=a.carrier_id AND (
+          s.tracking_number=NULLIF(a.provider_result->>'trackingNumber','') OR s.carrier_order_id=NULLIF(a.provider_result->>'carrierOrderId','')
+        )
+      ))) LIMIT 1`, [order.id]);
+    if (unresolvedShipment.rows.length) throw Object.assign(new Error('Yêu cầu tạo vận đơn đang xử lý hoặc chưa đối soát đầy đủ với mã hãng. Giữ đơn và bằng chứng vận chuyển để đối soát trước khi xóa.'), { status: 409 });
+    const activeShipment = await client.query(
+      `SELECT id FROM carrier_shipments
+       WHERE order_id=$1 AND (
+         status IN ('created','picking','delivering','return_requested','returning','cancel_requested','cancel_reconciliation_required')
+         OR (status = 'delivered' AND cod_amount_vnd > 0 AND cod_settlement_status <> 'settled')
+       ) LIMIT 1`,
+      [order.id]
     );
-  }
+    if (activeShipment.rows.length) throw Object.assign(new Error('Đơn còn vận đơn đang hoạt động hoặc tiền thu hộ COD tại hãng chưa đối soát. Hủy vận đơn hoặc hoàn tất đối soát trước khi xóa lịch sử đơn.'), { status: 409 });
 
-  // 1c. P0-02: Bảo vệ tuyệt đối sổ thu tiền & chứng từ đối soát kế toán bất biến
-  const existingReceipt = await client.query('SELECT id FROM sales_receipts WHERE order_id = $1 LIMIT 1', [order.id]);
-  if (existingReceipt.rows.length) {
-    throw Object.assign(
-      new Error('Không thể xóa cứng đơn hàng đã phát sinh phiếu thu kế toán (sales_receipts). Sổ thu tiền là bất biến; vui lòng lưu trữ đơn hoặc lập bút toán hoàn/điều chỉnh có kiểm toán.'),
-      { status: 409 }
+    // 1b. Check for issued MISA e-invoices (Nghị định 123/2020/NĐ-CP)
+    const issuedInvoice = await client.query(
+      "SELECT id, invoice_number, invoice_series FROM misa_einvoices WHERE order_id = $1 AND status = 'issued' LIMIT 1",
+      [order.id]
     );
-  }
-  const existingCodAlloc = await client.query('SELECT id FROM cod_settlement_allocations WHERE order_id = $1 LIMIT 1', [order.id]);
-  if (existingCodAlloc.rows.length) {
-    throw Object.assign(
-      new Error('Không thể xóa cứng đơn hàng đã có bản ghi phân bổ đối soát COD bất biến.'),
-      { status: 409 }
-    );
-  }
-  const paidAttempt = await client.query("SELECT id FROM payment_attempts WHERE order_id = $1 AND status = 'paid' LIMIT 1", [order.id]);
-  if (paidAttempt.rows.length) {
-    throw Object.assign(
-      new Error('Không thể xóa cứng đơn hàng đã có giao dịch cổng thanh toán thành công.'),
-      { status: 409 }
-    );
-  }
-  const codIntake = await client.query('SELECT id FROM cod_return_intakes WHERE order_id = $1 LIMIT 1', [order.id]);
-  if (codIntake.rows.length) {
-    throw Object.assign(
-      new Error('Không thể xóa cứng đơn hàng đã có biên bản kiểm nhận hoàn kho vật lý.'),
-      { status: 409 }
-    );
+    if (issuedInvoice.rows.length) {
+      throw Object.assign(
+        new Error(`Không thể xóa vĩnh viễn đơn hàng đã xuất hóa đơn điện tử hợp lệ (${issuedInvoice.rows[0].invoice_series}-${issuedInvoice.rows[0].invoice_number}). Theo Nghị định 123/2020/NĐ-CP, hóa đơn phải được hủy hoặc thay thế/điều chỉnh trên cơ quan thuế trước khi xử lý hồ sơ.`),
+        { status: 409 }
+      );
+    }
+
+    // 1c. P0-02: Bảo vệ tuyệt đối sổ thu tiền & chứng từ đối soát kế toán bất biến
+    const existingReceipt = await client.query('SELECT id FROM sales_receipts WHERE order_id = $1 LIMIT 1', [order.id]);
+    if (existingReceipt.rows.length) {
+      throw Object.assign(
+        new Error('Không thể xóa cứng đơn hàng đã phát sinh phiếu thu kế toán (sales_receipts). Sổ thu tiền là bất biến; vui lòng lưu trữ đơn hoặc lập bút toán hoàn/điều chỉnh có kiểm toán.'),
+        { status: 409 }
+      );
+    }
+    const existingCodAlloc = await client.query('SELECT id FROM cod_settlement_allocations WHERE order_id = $1 LIMIT 1', [order.id]);
+    if (existingCodAlloc.rows.length) {
+      throw Object.assign(
+        new Error('Không thể xóa cứng đơn hàng đã có bản ghi phân bổ đối soát COD bất biến.'),
+        { status: 409 }
+      );
+    }
+    const paidAttempt = await client.query("SELECT id FROM payment_attempts WHERE order_id = $1 AND status = 'paid' LIMIT 1", [order.id]);
+    if (paidAttempt.rows.length) {
+      throw Object.assign(
+        new Error('Không thể xóa cứng đơn hàng đã có giao dịch cổng thanh toán thành công.'),
+        { status: 409 }
+      );
+    }
+    const codIntake = await client.query('SELECT id FROM cod_return_intakes WHERE order_id = $1 LIMIT 1', [order.id]);
+    if (codIntake.rows.length) {
+      throw Object.assign(
+        new Error('Không thể xóa cứng đơn hàng đã có biên bản kiểm nhận hoàn kho vật lý.'),
+        { status: 409 }
+      );
+    }
   }
 
   // 2. If order holds active inventory (not cancelled and not completed), release stock
@@ -113,7 +128,13 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
     [order.id]
   );
 
-  // C. Order after-sales requests (returns, cancellations)
+  // C. Order after-sales requests (returns, cancellations) and RMA exchange issues
+  await client.query(
+    `DELETE FROM rma_exchange_issues WHERE case_id IN (
+       SELECT id FROM order_after_sales WHERE order_id = $1
+     )`,
+    [order.id]
+  );
   await client.query('DELETE FROM order_after_sales WHERE order_id = $1', [order.id]);
 
   // D. Order stock allocations
@@ -133,33 +154,55 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
     });
   }
 
-  // F. Carrier shipments, barcode pack verifications & shipping selections
+  // F. COD return intakes
+  await client.query('DELETE FROM cod_return_intakes WHERE order_id = $1', [order.id]);
+
+  // G. COD settlement allocations (rebalance batch total if deleting)
+  const allocs = (await client.query(
+    'SELECT batch_id, allocated_amount_vnd FROM cod_settlement_allocations WHERE order_id = $1',
+    [order.id]
+  )).rows;
+  for (const al of allocs) {
+    if (al.batch_id) {
+      await client.query(
+        `UPDATE cod_settlement_batches
+         SET allocated_total_vnd = GREATEST(0, allocated_total_vnd - $2), updated_at = now()
+         WHERE id = $1`,
+        [al.batch_id, Number(al.allocated_amount_vnd) || 0]
+      );
+    }
+  }
+  await client.query('DELETE FROM cod_settlement_allocations WHERE order_id = $1', [order.id]);
+
+  // H. Sales receipts (permitted when gaeru.allow_owner_order_purge = 'on')
+  await client.query('DELETE FROM sales_receipts WHERE order_id = $1', [order.id]);
+
+  // I. Carrier shipment attempts, carrier shipments, barcode pack verifications & shipping selections
+  await client.query('DELETE FROM carrier_shipment_attempts WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM carrier_shipments WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_pack_verifications WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_shipping_selection WHERE order_id = $1', [order.id]);
 
-  // G. Sales receipts are strictly append-only (guarded above; never deleted)
-
-  // H. Voucher redemptions
+  // J. Voucher redemptions
   await client.query('DELETE FROM voucher_redemptions WHERE order_id = $1', [order.id]);
 
-  // I. MISA e-invoices
+  // K. MISA e-invoices
   await client.query('DELETE FROM misa_einvoices WHERE order_id = $1', [order.id]);
 
-  // J. Order reviews
+  // L. Order reviews
   await client.query('DELETE FROM order_reviews WHERE order_id = $1', [order.id]);
 
-  // K. Email outboxes
+  // M. Email outboxes
   await client.query('DELETE FROM order_email_outbox WHERE order_id = $1', [order.id]);
   await client.query('DELETE FROM order_admin_email_outbox WHERE order_id = $1', [order.id]);
 
-  // L. Payment attempts
+  // N. Payment attempts
   await client.query('DELETE FROM payment_attempts WHERE order_id = $1', [order.id]);
 
-  // M. Order items
+  // O. Order items
   await client.query('DELETE FROM order_items WHERE order_id = $1', [order.id]);
 
-  // N. Finally delete the order itself
+  // P. Finally delete the order itself
   await client.query('DELETE FROM orders WHERE id = $1', [order.id]);
 
   // 4. Audit trail
@@ -173,7 +216,8 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
       customerName: order.customer_name,
       totalVnd: order.total_vnd,
       status: order.status,
-      paymentStatus: order.payment_status
+      paymentStatus: order.payment_status,
+      isOwnerPurge: isOwner
     }
   });
 
