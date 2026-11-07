@@ -1,6 +1,6 @@
 'use strict';
 
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 let currentDay = new Date().toISOString().slice(0, 10);
 const todayVisitorHashes = new Set();

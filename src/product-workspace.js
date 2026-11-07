@@ -1,6 +1,6 @@
 const { rateLimit } = require('express-rate-limit');
 const { sendPublicImage, getCachedImageRow } = require('./lib/image-renditions');
-const {Router}=require('express'),{z}=require('zod'),multer=require('multer'),path=require('path'),fsPromises=require('fs/promises');
+const {Router}=require('express'),{z}=require('zod'),multer=require('multer'),path=require('node:path'),fsPromises=require('node:fs/promises');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
 const { readStoredImage } = require('./lib/stored-images');

@@ -1,4 +1,5 @@
 'use strict';
+try { require('node:module').enableCompileCache?.(); } catch (_) {}
 
 require('dotenv').config();
 const cluster = require('node:cluster');

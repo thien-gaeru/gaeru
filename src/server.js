@@ -1,3 +1,4 @@
+try { require('node:module').enableCompileCache?.(); } catch (_) {}
 let stopOrderEmail;let stopChatFileRetention;let stopTikTokAds;
 require("dotenv").config();
 const expressSession = require("express-session");
