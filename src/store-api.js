@@ -2343,6 +2343,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       res.json({ order: result });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
+      if (error.code === '23505') {
+        return res.status(409).json({ error: 'Đơn hàng này hoặc chứng từ đối soát đã được ghi nhận trong hệ thống.' });
+      }
+      if (error.code === '23514') {
+        return res.status(409).json({ error: 'Thông tin đối soát không thỏa mãn điều kiện an toàn.' });
+      }
       next(error);
     }
   });

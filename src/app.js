@@ -541,11 +541,34 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     maxAge: 0
   }));
 
-  app.use((error, _req, res, _next) => {
+  app.use((error, req, res, _next) => {
     if (res.headersSent) return;
     if(error.code==='IMAGE_PROCESSING_BUSY')return res.status(503).json({error:'Đang tối ưu nhiều ảnh. Vui lòng thử lại sau.'});
     if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;
+    if (error.code && typeof error.code === 'string') {
+      const isCodRelated = ['cod_settlement_allocations', 'cod_settlement_batches', 'carrier_shipments', 'sales_receipts'].includes(error.table) ||
+        (typeof error.constraint === 'string' && /cod_settlement|cap_check|sales_receipts/.test(error.constraint));
+      if (isCodRelated) {
+        if (error.code === '23505') {
+          const msg = error.table === 'cod_settlement_allocations' || (typeof error.constraint === 'string' && error.constraint.includes('cod_settlement_allocations'))
+            ? 'Đơn hàng này đã có chứng từ phân bổ đối soát COD trong hệ thống.'
+            : error.table === 'cod_settlement_batches' || (typeof error.constraint === 'string' && error.constraint.includes('cod_settlement_batches'))
+            ? 'Mã giao dịch sao kê đã được sử dụng cho một lô đối soát khác của hãng này.'
+            : 'Chứng từ thu tiền hoặc mã đối soát thanh toán đã tồn tại trong sổ quỹ.';
+          return res.status(409).json({ error: msg });
+        }
+        if (error.code === '23514') {
+          const msg = (typeof error.constraint === 'string' && error.constraint.includes('cap_check'))
+            ? 'Tổng tiền phân bổ vượt quá tổng tiền sao kê khai báo của lô đối soát.'
+            : 'Trạng thái đối soát của vận đơn không hợp lệ.';
+          return res.status(409).json({ error: msg });
+        }
+        if (error.code === '40P01' || error.code === '40001') {
+          return res.status(409).json({ error: 'Hệ thống đang xử lý đồng thời yêu cầu khác trên đơn hàng này. Vui lòng thử lại sau giây lát.' });
+        }
+      }
+    }
     if ([502,503,504].includes(status)) return res.status(status).json({ error: error.message || (status===504 ? 'Dịch vụ kết nối phản hồi quá chậm. Vui lòng thử lại.' : 'Dịch vụ kết nối chưa trả dữ liệu hợp lệ. Vui lòng thử lại.') });
     if (status >= 400 && status < 500) {
       const isSyntaxOrBody = error instanceof SyntaxError || error.type === 'entity.parse.failed' || status === 413 || !error.message;
@@ -564,7 +587,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       message: isProd ? sanitizeErrorMessage(error.message) : error.message,
       ...(isProd ? {} : { stack: error.stack })
     });
-    res.status(500).json({ error: "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
+    const isAdminRoute = Boolean(req && ((typeof req.originalUrl === 'string' && /^\/api\/gaeru_ceo(?:\/|$)/i.test(req.originalUrl)) || (typeof req.path === 'string' && /^\/gaeru_ceo(?:\/|$)/i.test(req.path)) || req.admin));
+    res.status(500).json({ error: isAdminRoute ? ("Lỗi hệ thống: " + sanitizeErrorMessage(error.message)) : "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau." });
   });
 
   return app;

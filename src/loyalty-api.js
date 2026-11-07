@@ -27,7 +27,15 @@ const policySchema = z.object({ version: z.number().int().min(0), tiers: z.array
 async function readPolicy(client) {
   const row = (await client.query("SELECT setting_value FROM store_settings WHERE setting_key='loyalty_policy'")).rows[0];
   if (!row) return DEFAULT_POLICY;
-  const parsed = policySchema.safeParse(row.setting_value);
+  let val = row.setting_value;
+  if (typeof val === 'string') {
+    try {
+      val = JSON.parse(val);
+    } catch (_) {
+      throw fail('Chính sách GAERU Xu chưa hợp lệ; vui lòng kiểm tra cấu hình.', 503);
+    }
+  }
+  const parsed = policySchema.safeParse(val);
   if (!parsed.success) throw fail('Chính sách GAERU Xu chưa hợp lệ; vui lòng kiểm tra cấu hình.', 503);
   return parsed.data;
 }

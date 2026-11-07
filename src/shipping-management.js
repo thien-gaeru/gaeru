@@ -768,7 +768,7 @@ async function settleSingleCarrierCodInTx(client, {
 
   // Check idempotency on cod_settlement_allocations first
   const existingAlloc = (await client.query(
-    'SELECT * FROM cod_settlement_allocations WHERE order_id = $1',
+    'SELECT * FROM cod_settlement_allocations WHERE order_id = $1 FOR UPDATE',
     [orderId]
   )).rows[0];
   if (existingAlloc) {
@@ -806,7 +806,7 @@ async function settleSingleCarrierCodInTx(client, {
       `INSERT INTO cod_settlement_batches (
          carrier_id, provider_transaction_ref, declared_payout_vnd, allocated_total_vnd,
          method, payout_period, evidence_ref, note, attestation_level, created_by, settled_at
-       ) VALUES ($1, $2, $3, 0, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), $8, $9, COALESCE($10::timestamptz, now()))
+       ) VALUES ($1, $2, $3, 0, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10)
        RETURNING *`,
       [
         shipment.carrier_id,
@@ -818,7 +818,7 @@ async function settleSingleCarrierCodInTx(client, {
         String(note || '').trim(),
         candidateAttestation,
         settleActor.username || 'accountant',
-        parsedSettledAt ? parsedSettledAt.toISOString() : null
+        parsedSettledAt ? parsedSettledAt.toISOString() : new Date().toISOString()
       ]
     )).rows[0];
   } else if (requestedDeclared !== null) {
@@ -954,7 +954,7 @@ async function settleSingleCarrierCodInTx(client, {
   await client.query(
     `UPDATE carrier_shipments
      SET cod_settlement_status = 'settled',
-         cod_settled_at = COALESCE($2::timestamptz, now()),
+         cod_settled_at = $2,
          cod_settlement_ref = $3,
          cod_attestation_level = $4,
          cod_attested_by = $5,
@@ -964,7 +964,7 @@ async function settleSingleCarrierCodInTx(client, {
      WHERE id = $1`,
     [
       shipment.id,
-      parsedSettledAt ? parsedSettledAt.toISOString() : null,
+      parsedSettledAt ? parsedSettledAt.toISOString() : new Date().toISOString(),
       txRef,
       attestationLevel,
       settleActor.username || 'accountant',
@@ -1776,6 +1776,15 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
       } catch (e) {
         if (e instanceof z.ZodError) {
           return res.status(400).json({ error: 'Nhập đầy đủ mã giao dịch sao kê, tổng tiền chứng từ và danh sách đơn phân bổ hợp lệ.' });
+        }
+        if (e.status) {
+          return res.status(e.status).json({ error: e.message });
+        }
+        if (e.code === '23505') {
+          return res.status(409).json({ error: 'Đơn hàng này hoặc mã giao dịch sao kê đã được đối soát trong một lô khác.' });
+        }
+        if (e.code === '23514') {
+          return res.status(409).json({ error: 'Tổng tiền phân bổ vượt quá tổng tiền sao kê khai báo của lô đối soát.' });
         }
         next(e);
       }
