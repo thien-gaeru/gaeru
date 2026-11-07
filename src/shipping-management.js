@@ -627,40 +627,19 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
   }
 
   if (newNormalizedStatus === 'delivered') {
-    // P0-01: delivered chứng minh giao hàng thành công, KHÔNG chứng minh tiền COD đã chuyển về tài khoản GAERU.
-    if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
-      if (['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
-        updatedOrderStatus = 'shipped';
-        await client.query(
-          'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-          [shipment.order_id, 'shipped']
-        );
-      } else {
-        await client.query(
-          'UPDATE orders SET delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-          [shipment.order_id]
-        );
-      }
-      return updatedOrderStatus;
-    }
-
-    // Đơn trả trước đã paid (hoặc COD đã đối soát paid trước đó): chuyển thẳng sang completed và cộng Xu
-    if (shipment.orderPaymentStatus === 'paid' && shipment.orderStatus !== 'completed') {
-      updatedOrderStatus = 'completed';
-      await client.query(
-        'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-        [shipment.order_id, 'completed']
-      );
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
-        const { earnPoints } = require('./loyalty-api');
-        await earnPoints(client, {
-          customerId: shipment.orderCustomerId,
-          orderId: shipment.order_id,
-          orderTotalVnd: Number(shipment.orderTotalVnd),
-          actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
-        });
-      }
-    }
+    // A carrier delivery event is proof of fulfillment, NOT proof of cash collection.
+    // COD settlement and payment_status remain independent until funds are reconciled.
+    const { completeDeliveredOrder } = require('./order-delivery');
+    const result = await completeDeliveredOrder(client, {
+      id: shipment.order_id,
+      orderStatus: shipment.orderStatus,
+      orderPaymentMethod: shipment.orderPaymentMethod,
+      orderPaymentStatus: shipment.orderPaymentStatus,
+      orderCustomerId: shipment.orderCustomerId,
+      orderTotalVnd: shipment.orderTotalVnd,
+      orderReturnCompletedAt: shipment.orderReturnCompletedAt
+    }, { actor });
+    updatedOrderStatus = result.orderStatus;
   }
 
   return updatedOrderStatus;
