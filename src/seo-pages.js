@@ -144,19 +144,24 @@ const postFields=postCardFields+',body,updated_at AS "updatedAt"';
 function createSeoPages(pool,base='https://gaeru.com'){
  const origin=new URL(normalizePublicBase(base||'https://gaeru.com')).origin,router=Router({caseSensitive:true,strict:true}),limit=rateLimit({windowMs:60000,limit:120,standardHeaders:'draft-8',legacyHeaders:false});
  router.get('/index.html',(_req,res)=>res.redirect(301,'/'+(_req.originalUrl.includes('?')?_req.originalUrl.slice(_req.originalUrl.indexOf('?')):'')));
- router.get(['/','/shop.html','/product.html','/news.html','/news-article.html','/story.html'],limit,async(req,res,next)=>{
+ router.get(['/','/shop.html','/product.html','/news.html','/news-article.html','/story.html','/support.html'],limit,async(req,res,next)=>{
   res.set('Cache-Control','no-cache');
   try{
-   const file=({'/':'index.html','/shop.html':'shop.html','/product.html':'product.html','/news.html':'news.html','/news-article.html':'news-article.html','/story.html':'story.html'})[req.path];if(!file)return next();const {document:doc}=parseHTML(require('./clean-routes').readHtmlTemplate(file));
+   const file=({'/':'index.html','/shop.html':'shop.html','/product.html':'product.html','/news.html':'news.html','/news-article.html':'news-article.html','/story.html':'story.html','/support.html':'support.html'})[req.path];if(!file)return next();const {document:doc}=parseHTML(require('./clean-routes').readHtmlTemplate(file));
    if(req.path==='/')await require('./home-banner').applyHomeBanner(doc,pool);
    let canonical=origin+(req.path==='/'?'/':req.path),structured=null,status=200,socialImage=origin+'/assets/brand/gaeru-logo.webp';
    const setMeta=(selector,attrs)=>{let node=doc.head.querySelector(selector);if(!node){node=doc.createElement(selector.startsWith('link')?'link':'meta');doc.head.append(node);}for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);};
    const fail=message=>{status=404;doc.querySelector('main').innerHTML='<section class="section-wrap"><h1>'+escape(message)+'</h1><a href="/shop.html">Cửa hàng GAERU</a> · <a href="/news.html">Tin tức GAERU</a></section>';doc.title=message+' — GAERU';res.set('X-Robots-Tag','noindex');};
-   if(['/','/shop.html','/product.html'].includes(req.path)){
+   if(['/','/shop.html','/product.html','/support.html'].includes(req.path)){
     const products=decoratePublicProductImages(await loadProducts(pool));
     if(req.path==='/')require('./brand-story').applyP185(doc,products);
     const bootstrap=doc.createElement('script');bootstrap.type='application/json';bootstrap.id='store-bootstrap';bootstrap.textContent=JSON.stringify({products}).replace(/</g,'\\u003c');doc.head.append(bootstrap);
-    if(req.path==='/product.html'){
+    if(req.path==='/support.html'){
+     const supportNav=doc.querySelector('.support-products');
+     if(supportNav&&products.length){
+      supportNav.innerHTML='<h2 class="visually-hidden">Sản phẩm GAERU đang bán</h2>'+products.map(p=>'<a class="support-product" href="/huong-dan/'+encodeURIComponent(p.slug)+'" data-support-searchable data-support-terms="'+escape((p.category||'')+' '+(p.descriptor||''))+'"><span class="support-product-image"><img src="'+escape(safeUrl(artwork.image(p)))+'" alt="'+escape(p.imageAlt||p.name)+'" loading="lazy"></span><span class="support-product-name">'+escape(p.name)+'</span><span class="support-product-link">Hướng dẫn sử dụng <span aria-hidden="true">›</span></span></a>').join('');
+     }
+    }else if(req.path==='/product.html'){
      const id=typeof req.query.id==='string'?req.query.id:'';const p=products.find(p=>p.slug===id||p.slug==='gaeru-'+id);
      if(!p)fail('Không tìm thấy sản phẩm');else if(p.slug!==id)return res.redirect(301,productUrl(p));else{
       canonical=origin+productUrl(p);const descriptor=plain(p.descriptor||'Thiết bị sáng tạo GAERU').toLocaleLowerCase('vi').replace(/\bai\b/g,'AI'),seoLabel=descriptor.charAt(0).toLocaleUpperCase('vi')+descriptor.slice(1);doc.title=p.name+' — '+seoLabel;setMeta('meta[name="description"]',{name:'description',content:plain(p.name+'. '+seoLabel+'. Giá '+price(p)+'. Chọn phiên bản, kết nối và hướng dẫn sử dụng tại GAERU.')});socialImage=new URL(safeUrl(p.imageUrl),origin).href;doc.querySelector('#breadcrumb-product').textContent=p.name;const root=doc.querySelector('#product-detail');root.innerHTML=productBody(p);root.dataset.ssr='true';

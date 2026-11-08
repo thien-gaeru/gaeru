@@ -15,7 +15,7 @@ function normalizeSupportText(value) {
 }
 
 function filterSupportTopics() {
-  const query = normalizeSupportText(supportSearchInput.value);
+  const query = normalizeSupportText(supportSearchInput?.value || "");
   const terms = query.split(/\s+/).filter(Boolean);
   let visibleCount = 0;
   searchableSupportItems = [...document.querySelectorAll("[data-support-searchable]")];
@@ -27,6 +27,7 @@ function filterSupportTopics() {
     if (matches) visibleCount += 1;
   }
 
+  if (!supportSearchStatus) return;
   if (!terms.length) {
     supportSearchStatus.textContent = "";
   } else if (visibleCount) {
@@ -36,21 +37,75 @@ function filterSupportTopics() {
   }
 }
 
-function renderSupportProducts() {
-  const products = window.GAERUStore?.products || [];
+function renderSupportProducts(customProducts) {
+  const products = (Array.isArray(customProducts) && customProducts.length) ? customProducts : (window.GAERUStore?.products || []);
   if (!products.length) {
-    supportProductsStatus.textContent = "Chưa có sản phẩm đang bán. Hãy xem lại sau hoặc liên hệ GAERU.";
+    if (supportProductsStatus) {
+      supportProductsStatus.textContent = "Chưa có sản phẩm đang bán. Hãy xem lại sau hoặc liên hệ GAERU.";
+    }
     return;
   }
 
-  supportProducts.innerHTML = `<h2 class="visually-hidden">Sản phẩm GAERU đang bán</h2>${products.map((product) => `
-    <a class="support-product" href="/huong-dan/${encodeURIComponent(product.slug)}" data-support-searchable data-support-terms="${escapeHtml(`${product.category} ${product.descriptor}`)}">
-      <span class="support-product-image"><img src="${escapeHtml(window.GAERUProductArtwork?.image(product)||product.imageUrl)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy"></span>
-      <span class="support-product-name">${escapeHtml(product.name)}</span>
-      <span class="support-product-link">Hướng dẫn sử dụng <span aria-hidden="true">›</span></span>
-    </a>
-  `).join("")}`;
+  if (supportProducts) {
+    supportProducts.innerHTML = `<h2 class="visually-hidden">Sản phẩm GAERU đang bán</h2>${products.map((product) => `
+      <a class="support-product" href="/huong-dan/${encodeURIComponent(product.slug)}" data-support-searchable data-support-terms="${escapeHtml(`${product.category || ''} ${product.descriptor || ''}`)}">
+        <span class="support-product-image"><img src="${escapeHtml(window.GAERUProductArtwork?.image(product) || product.imageUrl)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy"></span>
+        <span class="support-product-name">${escapeHtml(product.name)}</span>
+        <span class="support-product-link">Hướng dẫn sử dụng <span aria-hidden="true">›</span></span>
+      </a>
+    `).join("")}`;
+  }
   filterSupportTopics();
+}
+
+async function initSupportProducts() {
+  // 1. Nếu đã có sản phẩm rendered từ SSR trong HTML
+  if (supportProducts && supportProducts.querySelectorAll('.support-product').length > 0) {
+    filterSupportTopics();
+    return;
+  }
+
+  // 2. Kiểm tra thẻ bootstrap JSON
+  const embedded = document.querySelector('#store-bootstrap');
+  if (embedded) {
+    try {
+      const data = JSON.parse(embedded.textContent);
+      if (data?.products?.length) {
+        renderSupportProducts(data.products);
+        return;
+      }
+    } catch (_) {}
+  }
+
+  // 3. Kiểm tra window.GAERUStore
+  if (window.GAERUStore?.products?.length) {
+    renderSupportProducts(window.GAERUStore.products);
+    return;
+  }
+
+  // 4. Tự chủ fetch ngầm fallback
+  try {
+    const promise = (typeof window === "object" && window)
+      ? (window.__gaeruProductsPromise ||= fetch('/api/products', { cache: 'no-store' }).then(r => {
+          if (!r.ok) throw new Error('Catalog unavailable');
+          return r.json();
+        }).catch(err => {
+          delete window.__gaeruProductsPromise;
+          throw err;
+        }))
+      : fetch('/api/products').then(r => r.json());
+
+    const data = await promise;
+    if (data?.products?.length) {
+      renderSupportProducts(data.products);
+    } else if (supportProductsStatus) {
+      supportProductsStatus.textContent = "Chưa có sản phẩm đang bán. Hãy xem lại sau hoặc liên hệ GAERU.";
+    }
+  } catch (_) {
+    if (supportProductsStatus && !supportProducts?.querySelectorAll('.support-product').length) {
+      supportProductsStatus.textContent = "Không thể tải sản phẩm lúc này. Vui lòng tải lại trang hoặc liên hệ GAERU.";
+    }
+  }
 }
 
 supportSearchInput?.addEventListener("input", filterSupportTopics);
@@ -58,8 +113,15 @@ supportSearch?.addEventListener("submit", (event) => event.preventDefault());
 supportSearch?.addEventListener("reset", () => {
   requestAnimationFrame(filterSupportTopics);
 });
-document.addEventListener("gaeru:products-loaded", renderSupportProducts);
-document.addEventListener("gaeru:products-load-error", () => {
-  supportProductsStatus.textContent = "Không thể tải sản phẩm lúc này. Vui lòng tải lại trang hoặc liên hệ GAERU.";
+document.addEventListener("gaeru:products-loaded", () => {
+  if (window.GAERUStore?.products?.length) {
+    renderSupportProducts(window.GAERUStore.products);
+  }
 });
-if (window.GAERUStore?.products.length) renderSupportProducts();
+document.addEventListener("gaeru:products-load-error", () => {
+  if (!supportProducts?.querySelectorAll('.support-product').length && supportProductsStatus) {
+    supportProductsStatus.textContent = "Không thể tải sản phẩm lúc này. Vui lòng tải lại trang hoặc liên hệ GAERU.";
+  }
+});
+
+initSupportProducts();
