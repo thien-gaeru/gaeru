@@ -173,7 +173,12 @@ async function accountRequest(url, body) {
     body: JSON.stringify(body)
   });
   const result = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new Error(result?.error || "Không thể hoàn tất yêu cầu. Vui lòng thử lại.");
+  if (!response.ok) {
+    const error = new Error(result?.error || "Không thể hoàn tất yêu cầu. Vui lòng thử lại.");
+    error.status = response.status;
+    error.data = result;
+    throw error;
+  }
   return result;
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('Máy chủ phản hồi quá lâu. Chưa xác nhận được kết quả; hãy kiểm tra hộp thư trước khi thử lại.');
@@ -249,8 +254,11 @@ async function showInitialOAuthFeedback() {
         }
       } catch (_) {}
     }
+    activateAccountPanel('login');
     const identifier = document.querySelector('[data-account-form="login"] [name="identifier"]');
     if (identifier && email) identifier.value = email;
+    const passwordInput = document.querySelector('[data-account-form="login"] [name="password"]');
+    if (passwordInput) setTimeout(() => passwordInput.focus(), 150);
     const emailMsg = email ? ' (' + email + ')' : '';
     setAccountFeedback('Tài khoản GAERU với email này' + emailMsg + ' đã tồn tại. Vui lòng đăng nhập bằng mật khẩu của tài khoản để liên kết Google an toàn.', true);
   } else setAccountFeedback(initialOauthError, true);
@@ -667,7 +675,21 @@ async function initGoogleOAuth(interactive = false) {
             showCustomerProfile(result.customer);
             history.replaceState(null,'',window.location.pathname+'#customer-account');
             setAccountFeedback('Đăng nhập Google thành công.');
-          } catch(error) { setAccountFeedback(error.message||'Không thể đăng nhập Google lúc này.',true); }
+          } catch(error) {
+            if (error.status === 409 && (error.data?.linkRequired || error.data?.email)) {
+              const email = error.data?.email || '';
+              activateAccountPanel('login');
+              history.replaceState(null, '', window.location.pathname + '#login');
+              const identifier = document.querySelector('[data-account-form="login"] [name="identifier"]');
+              if (identifier && email) identifier.value = email;
+              const passwordInput = document.querySelector('[data-account-form="login"] [name="password"]');
+              if (passwordInput) setTimeout(() => passwordInput.focus(), 150);
+              const emailMsg = email ? ' (' + email + ')' : '';
+              setAccountFeedback('Tài khoản GAERU với email này' + emailMsg + ' đã tồn tại. Vui lòng đăng nhập bằng mật khẩu của tài khoản để liên kết Google an toàn.', true);
+              return;
+            }
+            setAccountFeedback(error.message||'Không thể đăng nhập Google lúc này.',true);
+          }
         }
       });
       googleGsiInitialized=true;

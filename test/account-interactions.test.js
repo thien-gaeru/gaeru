@@ -48,6 +48,23 @@ test('Google login completes the second factor before publishing the customer pr
   assert.equal(challengeCalls,1);assert.equal(published.id,'fixture');
 });
 
+test('Google login popup 409 linkRequired switches to login form, fills email and prompts password entry',async()=>{
+  const ui=await accountPage('#register');let callback;
+  ui.window.google={accounts:{id:{initialize(options){callback=options.callback;},renderButton(){}}}};
+  ui.context.fetch=async url=>{
+    if(url==='/api/customer-auth/oauth/config')return {ok:true,status:200,json:async()=>({google:{clientId:'fixture-client'}})};
+    if(url==='/api/csrf')return {ok:true,status:200,json:async()=>({csrfToken:'test-csrf'})};
+    if(url==='/api/customer-auth/oauth/google')return {ok:false,status:409,json:async()=>({linkRequired:true,email:'google.user@example.com',error:'Email này đã tồn tại tài khoản GAERU. Vui lòng đăng nhập mật khẩu trước để liên kết Google an toàn.'})};
+    return {ok:false,status:404,json:async()=>({})};
+  };
+  await vm.runInNewContext('initGoogleOAuth()',ui.context);
+  assert.equal(typeof callback,'function');
+  await callback({credential:'google-test-token'});
+  assert.equal(ui.document.querySelector('[data-account-panel="login"]').hidden,false);
+  assert.equal(ui.document.querySelector('[data-account-form="login"] [name="identifier"]').value,'google.user@example.com');
+  assert.match(ui.document.querySelector('[data-account-feedback]').textContent,/đăng nhập bằng mật khẩu/);
+});
+
 test('security deep links open account settings after the workspace is mounted',async()=>{
   const ui=await accountPage('#security');assert.equal(ui.opens,1);
   ui.listeners['gaeru:workspace-ready']();assert.equal(ui.opens,2);
