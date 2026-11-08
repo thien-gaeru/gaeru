@@ -5,7 +5,7 @@ module.exports = new Set(['footer-products.js','clean-urls.js','vietnam-address.
   "product-art.js", "store-media.css", "sitemap.css",
   "k9-loop.js", "home-responsive.css",
   "product-services.js", "shopping-chat-client.js", "shopping-chat.css",
-  "product-purchase.css",
+  "product-purchase.css", "product-experience.css", "product-experience.js",
   "typography.css",
   "customer-marketing.js",
   "marketing.css",
