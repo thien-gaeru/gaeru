@@ -13,7 +13,7 @@ function renderK9() {
     ['Khoảng cách truyền', 'Lên đến 20 mét (không gian mở, tầm nhìn thẳng)'],
     ['Khử ồn & Chống rè', 'Chip DSP lọc ồn thông minh kết hợp mút xốp mật độ cao'],
     ['Cơ chế kết nối', 'Cắm là dùng (Plug & Play), không cần Bluetooth hay cài đặt ứng dụng'],
-    ['Thời lượng pin micro', 'Lên đến 6 – 8 giờ sử dụng liên tục sau mỗi lần sạc đầy'],
+    ['Thời lượng pin micro', 'Khoảng 2,5 giờ cho 1 micro (Pin 2,5h cho 1 mic, sạc nhanh Type-C)'],
     ['Dung lượng pin micro', 'Pin sạc Lithium Polymer dung lượng cao'],
     ['Cổng sạc micro', 'Type-C tiêu chuẩn (nguồn sạc 5V/1A)'],
     ['Đầu thu tín hiệu (RX)', 'Cổng Type-C (Android / iPhone 15+ / iPad) hoặc Lightning (iPhone)'],
@@ -113,7 +113,7 @@ renderK9.content = function () {
     'Trợ thủ livestream đắc lực. Tối ưu cho bán hàng và sáng tạo nội dung.\nÂm thanh rõ ràng quyết định thành công của một buổi bán hàng trực tiếp hay sản xuất video ngắn. GAERU K9 giúp người dẫn live tự do tương tác, di chuyển và giới thiệu sản phẩm mà giọng nói vẫn truyền đến người xem to rõ và sống động. Tương thích hoàn hảo với các nền tảng phát sóng trực tiếp phổ biến hiện nay.',
     'Thu âm & Livestream ngoài trời tiện lợi. Sóng xa 20 mét, tự tin sải bước.\nThiết kế siêu nhẹ chỉ khoảng 7 gram cùng khả năng truyền sóng ổn định trong phạm vi 20 mét (tầm nhìn thẳng không vật cản) giúp bạn thoải mái sáng tạo nội dung ngoài trời, quay vlog dã ngoại, du lịch hay phỏng vấn dạo. Tần số 2.4 GHz chống nhiễu hiệu quả, đảm bảo tín hiệu liền mạch suốt buổi ghi hình.',
     'Ứng dụng mọi tình huống. Đáp ứng trọn vẹn mọi nhu cầu thu âm thực tế.\nDù bạn là nhà sáng tạo nội dung, người bán hàng online, phóng viên, giáo viên hay người yêu thích ghi lại nhật ký video, GAERU K9 đều đáp ứng linh hoạt: từ livestream ngoài trời, phát sóng trực tiếp tại studio, phỏng vấn ghi hình hai người, đến quay vlog cá nhân hay dạy học trực tuyến.',
-    'Thông số kỹ thuật GAERU K9\nThu âm đa hướng 360° · Sóng không dây 2.4 GHz · Độ trễ < 15ms · Khoảng cách xa 20m.\nLọc ồn thông minh DSP & mút xốp mật độ cao · Pin 6-8 giờ · Cổng sạc Type-C · Trọng lượng ~7g.\nĐầu thu Type-C hoặc Lightning tùy chọn theo cổng điện thoại. Phù hợp cho 1 hoặc 2 người nói.'
+    'Thông số kỹ thuật GAERU K9\nThu âm đa hướng 360° · Sóng không dây 2.4 GHz · Độ trễ < 15ms · Khoảng cách xa 20m.\nLọc ồn thông minh DSP & mút xốp mật độ cao · Pin 2,5h cho 1 mic · Cổng sạc Type-C · Trọng lượng ~7g.\nĐầu thu Type-C hoặc Lightning tùy chọn theo cổng điện thoại. Phù hợp cho 1 hoặc 2 người nói.'
   ];
 
   const entries = [

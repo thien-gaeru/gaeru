@@ -9,7 +9,7 @@ test('K9 story includes all 8 supplied infographics and qualified range and feat
   const files=[...html.matchAll(/src="(\/assets\/products\/k9-description\/\d+\.webp)"/g)].map(m=>m[1]);
   assert.equal(files.length,8);assert.equal(new Set(files).size,8);
   for(const file of files)assert.ok(require('node:fs').existsSync(require('node:path').join(__dirname,'..',file)));
-  assert.match(html,/Cắm là dùng/);assert.match(html,/20 mét/);assert.match(html,/360°/);assert.match(html,/id="product-specs"/);
+  assert.match(html,/Cắm là dùng/);assert.match(html,/20 mét/);assert.match(html,/360°/);assert.match(html,/id="product-specs"/);assert.match(html,/2,5/);
 });
 
 test('M3 story includes all supplied artwork and qualified battery and range data',()=>{
