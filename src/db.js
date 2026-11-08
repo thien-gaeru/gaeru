@@ -26,6 +26,15 @@ function isLocalDatabaseHost(hostname) {
   return !h || h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
 }
 
+function resolveCa(raw) {
+  if (!raw) return undefined;
+  if (typeof raw === 'string' && raw.includes('-----BEGIN CERTIFICATE-----')) return raw;
+  try {
+    if (typeof raw === 'string' && require('fs').existsSync(raw)) return require('fs').readFileSync(raw, 'utf8');
+  } catch {}
+  return raw;
+}
+
 function poolOptions(config) {
   let connectionString = config.DATABASE_URL;
   const parsed = URL.canParse(connectionString) ? new URL(connectionString) : null;
@@ -56,7 +65,7 @@ function poolOptions(config) {
           ciphersuites: SECURE_TLS13_CIPHERSUITES,
           ciphers: SECURE_TLS12_CIPHERS,
           honorCipherOrder: true,
-          ...(config.PGSSL_CA ? { ca: config.PGSSL_CA } : {})
+          ...(config.PGSSL_CA ? { ca: resolveCa(config.PGSSL_CA) } : {})
         }
       : undefined,
     max,
