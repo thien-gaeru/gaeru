@@ -86,47 +86,26 @@ function matchArticleProduct(post) {
   return RECOMMEND_PRODUCTS['gaeru-m3'];
 }
 function renderArticleProductRecommendation(prod) {
-  const highlights = (prod.highlights || []).map(h => '<li>' + escape(h) + '</li>').join('');
-  return '<aside class="article-product-card" aria-label="Gợi ý thiết bị GAERU">' +
-    '<div class="article-product-badge">' +
-      '<span class="badge-tag">GỢI Ý THIẾT BỊ PHÙ HỢP</span>' +
-      '<span class="badge-sub">Chính hãng GAERU · Bảo hành 1 đổi 1 · Freeship toàn quốc</span>' +
+  return '<div class="article-product-recommend" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin:32px 0;padding:14px 22px;background:#f5f5f7;border:1px solid #e5e5ea;border-radius:14px;box-sizing:border-box;">' +
+    '<div class="recommend-info" style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:#1d1d1f;">' +
+      '<span class="recommend-badge" style="display:inline-flex;align-items:center;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#0071e3;background:#0071e314;padding:4px 10px;border-radius:999px;">GỢI Ý THIẾT BỊ</span>' +
+      '<span>Phù hợp cho chủ đề này: <strong>' + escape(prod.name) + '</strong> <span style="color:#6e6e73;font-size:14px;">(' + escape(prod.priceText) + ')</span></span>' +
     '</div>' +
-    '<div class="article-product-content">' +
-      '<a class="article-product-thumb" href="/san-pham/' + escape(prod.slug) + '" aria-label="Xem sản phẩm ' + escape(prod.name) + '">' +
-        '<img src="' + escape(prod.imageUrl) + '" alt="' + escape(prod.name) + '" loading="lazy" decoding="async" width="240" height="200">' +
-      '</a>' +
-      '<div class="article-product-info">' +
-        '<p class="article-product-descriptor">' + escape(prod.descriptor) + '</p>' +
-        '<h3 class="article-product-title">' +
-          '<a href="/san-pham/' + escape(prod.slug) + '">' + escape(prod.name) + '</a>' +
-        '</h3>' +
-        '<ul class="article-product-highlights">' + highlights + '</ul>' +
-        '<div class="article-product-footer">' +
-          '<div class="article-product-pricing">' +
-            '<span class="article-product-price-label">Giá niêm yết</span>' +
-            '<span class="article-product-price">' + escape(prod.priceText) + '</span>' +
-          '</div>' +
-          '<div class="article-product-actions">' +
-            '<a class="button button-outline article-btn-detail" href="/san-pham/' + escape(prod.slug) + '">Xem chi tiết</a>' +
-            '<a class="button button-blue article-btn-buy" href="/san-pham/' + escape(prod.slug) + '#product-detail">Mua ngay ↗</a>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
+    '<div class="recommend-actions" style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<a class="button button-outline" href="/san-pham/' + escape(prod.slug) + '" style="display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 18px;border-radius:999px;border:1px solid #0071e3;color:#0071e3;background:#fff;text-decoration:none;font-size:13px;font-weight:600;">Xem chi tiết</a>' +
+      '<a class="button button-blue" href="/san-pham/' + escape(prod.slug) + '#product-detail" style="display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 18px;border-radius:999px;border:1px solid #0071e3;color:#fff;background:#0071e3;text-decoration:none;font-size:13px;font-weight:600;">Mua ngay ↗</a>' +
     '</div>' +
-  '</aside>';
+  '</div>';
 }
 function renderArticleConclusionCta(prod) {
-  return '<div class="article-bottom-cta">' +
-    '<div class="article-bottom-cta-inner">' +
-      '<div class="article-bottom-cta-text">' +
-        '<h4>Bắt đầu sáng tạo nội dung chuyên nghiệp cùng ' + escape(prod.name) + '</h4>' +
-        '<p>Trang bị ngay thiết bị chính hãng GAERU với chính sách bảo hành 1 đổi 1 trong 30 ngày, đổi trả miễn phí và hỗ trợ kỹ thuật trọn đời.</p>' +
-      '</div>' +
-      '<div class="article-bottom-cta-actions">' +
-        '<a class="button button-blue" href="/san-pham/' + escape(prod.slug) + '#product-detail">Đặt mua ' + escape(prod.name) + ' ngay</a>' +
-        '<a class="button button-outline" href="/san-pham/' + escape(prod.slug) + '">Xem chi tiết sản phẩm</a>' +
-      '</div>' +
+  return '<div class="article-bottom-cta" style="margin:44px 0 28px;padding:22px 26px;background:linear-gradient(135deg,#f5f5f7,#edf2f7);border:1px solid #e5e5ea;border-radius:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;box-sizing:border-box;">' +
+    '<div class="cta-info" style="display:flex;flex-direction:column;gap:6px;">' +
+      '<span class="cta-badge" style="display:inline-flex;align-items:center;width:fit-content;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#0071e3;background:#0071e314;padding:4px 10px;border-radius:999px;">GỢI Ý THIẾT BỊ PHÙ HỢP</span>' +
+      '<p class="cta-title" style="margin:0;font-size:17px;font-weight:600;color:#1d1d1f;">Trải nghiệm sáng tạo nội dung cùng <strong>' + escape(prod.name) + '</strong> <span style="font-weight:500;color:#6e6e73;font-size:15px;">(' + escape(prod.priceText) + ')</span></p>' +
+    '</div>' +
+    '<div class="cta-actions" style="display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<a class="button button-outline" href="/san-pham/' + escape(prod.slug) + '" style="display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 20px;border-radius:999px;border:1px solid #d2d2d7;color:#1d1d1f;background:#fff;text-decoration:none;font-size:14px;font-weight:600;">Xem chi tiết sản phẩm</a>' +
+      '<a class="button button-blue" href="/san-pham/' + escape(prod.slug) + '#product-detail" style="display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 22px;border-radius:999px;border:1px solid #0071e3;color:#fff;background:#0071e3;text-decoration:none;font-size:14px;font-weight:600;">Mua ngay chính hãng ↗</a>' +
     '</div>' +
   '</div>';
 }
@@ -136,7 +115,7 @@ function articleBody(p,relatedRows=[]){
   const midCard = renderArticleProductRecommendation(prod);
   const bottomCta = renderArticleConclusionCta(prod);
   const paragraphs = normalizeBrandText(p.body).split(/\n\s*\n/).filter(Boolean);
-  const insertIndex = paragraphs.length >= 3 ? 2 : paragraphs.length;
+  const insertIndex = paragraphs.length >= 4 ? 3 : (paragraphs.length >= 3 ? 2 : paragraphs.length);
   let bodyHtml = '';
   for (let i = 0; i < paragraphs.length; i++) {
     bodyHtml += '<p>' + paragraph(paragraphs[i]) + '</p>';
