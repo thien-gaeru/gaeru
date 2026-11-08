@@ -17,9 +17,9 @@ cacheEvents.setMaxListeners(1000);
 const BOOT_ID = Date.now().toString(36);
 
 // GAERU PERF-02: Dynamic L1 RAM Cache Configuration
-// Reads from CACHE_RAM_MAX_ENTRIES (default 10,000) and CACHE_RAM_MAX_MB (default 256 MB)
-const cacheMaxEntries = Math.max(500, Number.parseInt(process.env.CACHE_RAM_MAX_ENTRIES, 10) || 10000);
-const cacheMaxMb = Math.max(16, Number.parseInt(process.env.CACHE_RAM_MAX_MB, 10) || 256);
+// Reads from CACHE_RAM_MAX_ENTRIES (default 20,000) and CACHE_RAM_MAX_MB (default 512 MB)
+const cacheMaxEntries = Math.max(500, Number.parseInt(process.env.CACHE_RAM_MAX_ENTRIES, 10) || 20000);
+const cacheMaxMb = Math.max(16, Number.parseInt(process.env.CACHE_RAM_MAX_MB, 10) || 512);
 
 const ramCache = new LRUCache({
   max: cacheMaxEntries,
