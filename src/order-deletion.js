@@ -202,6 +202,12 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   // O. Order items
   await client.query('DELETE FROM order_items WHERE order_id = $1', [order.id]);
 
+  // P0. Cleanup any linked checkout intents, idempotency keys, einvoice queue or abandoned carts
+  await client.query('UPDATE abandoned_carts SET order_id = NULL WHERE order_id = $1', [order.id]).catch(() => {});
+  await client.query('UPDATE checkout_payment_intents SET order_id = NULL WHERE order_id = $1', [order.id]).catch(() => {});
+  await client.query('DELETE FROM misa_einvoice_retry_queue WHERE order_id = $1', [order.id]).catch(() => {});
+  await client.query('DELETE FROM order_idempotency_keys WHERE order_id = $1', [order.id]).catch(() => {});
+
   // P. Finally delete the order itself
   await client.query('DELETE FROM orders WHERE id = $1', [order.id]);
 

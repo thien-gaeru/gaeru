@@ -2171,13 +2171,33 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         if (update.status === "cancelled" && current.status !== "cancelled") {
           const activeWaybill = await client.query(
-            "SELECT 1 FROM carrier_shipments WHERE order_id = $1 AND status <> 'cancelled' LIMIT 1",
+            "SELECT id, carrier_id, tracking_number FROM carrier_shipments WHERE order_id = $1 AND status <> 'cancelled' LIMIT 1",
             [current.id]
           );
           if (activeWaybill.rows.length) {
-            const error = new Error("Đơn hàng đã có vận đơn đang hoạt động. Cần hủy vận đơn trước khi hủy đơn hàng.");
-            error.status = 409;
-            throw error;
+            if (update.cancelActiveWaybill === true) {
+              await client.query(
+                "UPDATE carrier_shipments SET status = 'cancelled', status_version = status_version + 1, updated_at = now() WHERE order_id = $1 AND status <> 'cancelled'",
+                [current.id]
+              );
+              if (audit) {
+                await audit(client, {
+                  actor: actor || { username: 'admin', source: 'order_update' },
+                  action: 'shipping.waybill.cancel_with_order',
+                  entityType: 'order',
+                  entityId: current.id,
+                  metadata: {
+                    orderNumber: current.order_number,
+                    trackingNumber: activeWaybill.rows[0].tracking_number,
+                    carrierId: activeWaybill.rows[0].carrier_id
+                  }
+                }).catch(() => {});
+              }
+            } else {
+              const error = new Error("Đơn hàng đã có vận đơn đang hoạt động. Cần hủy vận đơn trước khi hủy đơn hàng.");
+              error.status = 409;
+              throw error;
+            }
           }
           await client.query("UPDATE payment_attempts SET status = 'failed', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
           if(current.voucher_code)await client.query('UPDATE voucher_redemptions SET released=true WHERE order_id=$1 AND released=false',[current.id]);
@@ -2390,6 +2410,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       );
       if (!deleted) return res.status(404).json({ error: 'Không tìm thấy đơn hàng.' });
       invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
+      try {
+        require('./realtime-sse').publishAdminEvent('order:delete', {
+          orderId: req.params.id,
+          orderNumber: deleted.order_number
+        });
+      } catch (_) {}
       res.json({
         id: req.params.id,
         orderNumber: deleted.order_number,
@@ -2557,6 +2583,7 @@ const orderUpdateSchema = z.object({
   shippingFeeVnd: z.number().int().min(0).max(1_000_000_000).optional(),
   warehouseId: z.string().uuid().optional(),
   confirmReceived: z.boolean().optional(),
+  cancelActiveWaybill: z.boolean().optional(),
   reconciliationRef: z.string().trim().max(100).optional(),
   paymentNote: z.string().trim().max(255).optional()
 }).refine((value) => Object.keys(value).length > 0);

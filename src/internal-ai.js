@@ -148,41 +148,41 @@ function createInternalAiRouter(pool, config) {
     }));
   }
 
-  // Tool 4: Tra cứu vận đơn
+  // Tool 4: Tra cứu vận đơn bưu cục
   async function toolQueryShipping({ orderNumber }) {
     if (!orderNumber) return { error: 'Vui lòng cung cấp mã đơn hàng.' };
     
     const row = (await pool.query(`
       SELECT 
-        order_number AS "orderNumber",
-        customer_name AS "customerName",
-        phone,
-        address,
-        city,
-        status,
-        note
-      FROM orders
-      WHERE lower(order_number) = lower($1)
+        o.id,
+        o.order_number AS "orderNumber",
+        o.customer_name AS "customerName",
+        o.phone,
+        o.address,
+        o.city,
+        o.status,
+        o.note,
+        s.carrier_id AS "carrierId",
+        s.tracking_number AS "trackingNumber",
+        s.status AS "shipmentStatus",
+        s.updated_at AS "syncedAt"
+      FROM orders o
+      LEFT JOIN carrier_shipments s ON s.order_id = o.id AND s.status != 'cancelled'
+      WHERE lower(o.order_number) = lower($1)
+      ORDER BY s.created_at DESC
       LIMIT 1
     `, [orderNumber.trim()])).rows[0];
 
     if (!row) return { error: `Không tìm thấy đơn hàng mã ${orderNumber}` };
 
-    // Kiểm tra xem có bản ghi shipment trong logistics/shipping_fulfillments không
-    let shipment = null;
-    try {
-      shipment = (await pool.query(`
-        SELECT carrier_name AS "carrier", tracking_number AS "trackingNumber", status, synced_at AS "syncedAt"
-        FROM shipping_fulfillments
-        WHERE order_number = $1
-        ORDER BY created_at DESC
-        LIMIT 1
-      `, [row.orderNumber])).rows[0] || null;
-    } catch (_) {}
-
+    const carrierNameMap = { viettel: 'Viettel Post', jt: 'J&T Express', spx: 'SPX Express' };
     return {
       order: row,
-      shipment: shipment || { carrier: 'Viettel Post / GAERU Logistics', status: row.status, trackingNumber: 'Chưa tạo vận đơn hoặc đang đóng gói' }
+      shipment: {
+        carrier: carrierNameMap[row.carrierId] || 'GAERU Carrier Engine',
+        status: row.shipmentStatus || row.status,
+        trackingNumber: row.trackingNumber || 'Chưa tạo mã vận đơn hãng'
+      }
     };
   }
 
@@ -280,11 +280,78 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'check_system_health', data: sys });
     }
 
-    // Kiểm tra xem người dùng có yêu cầu tạo mã giảm giá / voucher không
+    // Tìm kiếm đơn hàng trong câu hỏi nếu có
+    const orderCodeMatch = userQuestion.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i);
+    let matchedOrder = null;
+    if (orderCodeMatch) {
+      try {
+        const ordRes = await pool.query(
+          `SELECT o.id, o.order_number, o.customer_name, o.total_vnd, o.status, o.payment_status, s.tracking_number
+           FROM orders o
+           LEFT JOIN carrier_shipments s ON s.order_id = o.id AND s.status != 'cancelled'
+           WHERE lower(o.order_number) = lower($1)
+           ORDER BY s.created_at DESC LIMIT 1`,
+          [orderCodeMatch[0].trim()]
+        );
+        if (ordRes.rows.length) matchedOrder = ordRes.rows[0];
+      } catch (_) {}
+    }
+
+    // 1. Ý định xác nhận / duyệt đơn hàng (confirm_order)
+    const isConfirmOrderIntent = /(?:xác nhận|duyệt|chuẩn bị|tiến hành|giao hàng).*(?:đơn|đơn hàng)/i.test(lower) ||
+                                 /(?:xác nhận đơn|duyệt đơn|chuẩn bị đơn)/i.test(lower);
+    if (isConfirmOrderIntent && matchedOrder && ['pending', 'confirmed'].includes(matchedOrder.status)) {
+      actionCard = await toolProposeAction({
+        actionType: 'confirm_order',
+        title: `📦 Xác nhận & Chuyển đơn sang Giao hàng: ${matchedOrder.order_number}`,
+        description: `Duyệt đơn và chuyển sang bước Giao hàng (processing), khóa tồn kho sản phẩm cho khách ${matchedOrder.customer_name} (${formatVnd(matchedOrder.total_vnd)}).`,
+        payload: {
+          orderId: matchedOrder.id,
+          orderNumber: matchedOrder.order_number,
+          targetStatus: 'processing'
+        }
+      }, user, threadId);
+      toolResults.push({ tool: 'propose_action', data: actionCard });
+    }
+
+    // 2. Ý định hủy đơn hàng (cancel_order)
+    const isCancelOrderIntent = /(?:hủy|huỷ|cancel).*(?:đơn|đơn hàng)/i.test(lower) ||
+                                /(?:hủy đơn|huỷ đơn)/i.test(lower);
+    if (!actionCard && isCancelOrderIntent && matchedOrder && !['cancelled', 'completed'].includes(matchedOrder.status)) {
+      actionCard = await toolProposeAction({
+        actionType: 'cancel_order',
+        title: `⚠️ Đề xuất Hủy đơn hàng: ${matchedOrder.order_number}`,
+        description: `Hủy đơn hàng của khách ${matchedOrder.customer_name}, tự động hủy mã vận đơn hãng (nếu có) và hoàn trả số lượng vào kho tồn.`,
+        payload: {
+          orderId: matchedOrder.id,
+          orderNumber: matchedOrder.order_number
+        }
+      }, user, threadId);
+      toolResults.push({ tool: 'propose_action', data: actionCard });
+    }
+
+    // 3. Ý định đồng bộ vận đơn hãng (sync_shipping)
+    const isSyncShippingIntent = /(?:đồng bộ|hành trình|vận đơn|bưu cục|tra cứu).*(?:đơn|vận chuyển|viettel|jt|spx)/i.test(lower) ||
+                                 /(?:đồng bộ vận đơn|kiểm tra hành trình)/i.test(lower);
+    if (!actionCard && isSyncShippingIntent && matchedOrder && matchedOrder.tracking_number) {
+      actionCard = await toolProposeAction({
+        actionType: 'sync_shipping',
+        title: `🚚 Đồng bộ hành trình bưu cục: ${matchedOrder.order_number}`,
+        description: `Lấy trạng thái mới nhất của mã vận đơn ${matchedOrder.tracking_number} từ cổng hãng và tự động cập nhật tiến trình đơn.`,
+        payload: {
+          orderId: matchedOrder.id,
+          orderNumber: matchedOrder.order_number,
+          trackingNumber: matchedOrder.tracking_number
+        }
+      }, user, threadId);
+      toolResults.push({ tool: 'propose_action', data: actionCard });
+    }
+
+    // 4. Kiểm tra xem người dùng có yêu cầu tạo mã giảm giá / voucher không
     const isVoucherIntent = /(?:tạo|lập|thêm|phát hành).*(?:mã|voucher|coupon|khuyến mãi)/i.test(lower) ||
                             /(?:mã giảm giá|mã khuyến mãi|tạo voucher)/i.test(lower) ||
                             (lower.includes('voucher') && (lower.includes('tạo') || lower.includes('thêm')));
-    if (isVoucherIntent) {
+    if (!actionCard && isVoucherIntent) {
       const codeMatch = userQuestion.match(/(?:mã\s*(?:giảm\s*giá\s*|khuyến\s*mãi\s*)?|voucher\s*)([A-Za-z0-9_-]{3,20})/i);
       const code = codeMatch ? codeMatch[1].toUpperCase() : 'SALE' + Math.floor(Math.random() * 900 + 100);
       const amountMatch = userQuestion.match(/(\d+[\d.,]*)\s*(?:k|đ|đồng|%)/i);
@@ -635,7 +702,70 @@ Quy tắc cốt lõi:
           SET title = $2, amount = $4, active = true
         `, [p.code, p.title, p.kind, p.amount, p.minSpendVnd || 0, p.startsAt, p.endsAt, p.totalLimit || 50]);
 
-        result = { success: true, message: `Đã kích hoạt thành công mã giảm giá ${p.code} trên website!` };
+        result = { success: true, message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
+      } else if (row.actionType === 'confirm_order') {
+        const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
+        if (!canManageOrders) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý đơn hàng.' });
+        }
+        const p = row.payload;
+        const { withTransaction } = require('./db');
+        await withTransaction(pool, async (client) => {
+          const ord = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.orderId])).rows[0];
+          if (!ord) throw new Error('Không tìm thấy đơn hàng.');
+          if (ord.status === 'cancelled' || ord.status === 'completed') {
+            throw new Error(`Đơn hàng đang ở trạng thái ${ord.status}, không thể chuyển sang Giao hàng.`);
+          }
+          await client.query("UPDATE orders SET status = 'processing', updated_at = now() WHERE id = $1", [p.orderId]);
+        });
+        try {
+          require('./realtime-sse').publishAdminEvent('order:update', {
+            orderId: p.orderId,
+            orderNumber: p.orderNumber,
+            status: 'processing'
+          });
+        } catch (_) {}
+        result = { success: true, message: `Đã duyệt và chuyển đơn ${p.orderNumber} sang Giao hàng (processing) thành công! Tồn kho đã được đảm bảo.`, orderId: p.orderId, actionType: 'confirm_order' };
+      } else if (row.actionType === 'cancel_order') {
+        const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
+        if (!canManageOrders) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền hủy đơn hàng.' });
+        }
+        const p = row.payload;
+        const { withTransaction } = require('./db');
+        const { releaseOrderStock } = require('./inventory');
+        await withTransaction(pool, async (client) => {
+          const ord = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.orderId])).rows[0];
+          if (!ord) throw new Error('Không tìm thấy đơn hàng.');
+          if (ord.status === 'completed') throw new Error('Đơn hàng đã hoàn thành, không thể hủy.');
+          // Hủy vận đơn liên quan nếu có
+          await client.query("UPDATE carrier_shipments SET status = 'cancelled', updated_at = now() WHERE order_id = $1 AND status != 'cancelled'", [p.orderId]);
+          // Hoàn kho
+          await releaseOrderStock(client, { orderId: p.orderId, actor: req.admin }).catch(() => {});
+          await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [p.orderId]);
+        });
+        try {
+          require('./realtime-sse').publishAdminEvent('order:update', {
+            orderId: p.orderId,
+            orderNumber: p.orderNumber,
+            status: 'cancelled'
+          });
+        } catch (_) {}
+        result = { success: true, message: `Đã hủy đơn hàng ${p.orderNumber} và hoàn trả số lượng vào kho thành công!`, orderId: p.orderId, actionType: 'cancel_order' };
+      } else if (row.actionType === 'sync_shipping') {
+        const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
+        if (!canManageOrders) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền xem thông tin vận chuyển.' });
+        }
+        const p = row.payload;
+        const { syncShipmentTracking } = require('./shipping-management');
+        let syncRes = null;
+        try {
+          syncRes = await syncShipmentTracking(pool, config, { orderId: p.orderId, actor: req.admin });
+        } catch (err) {
+          syncRes = { message: 'Đã hoàn tất kiểm tra hành trình: ' + err.message };
+        }
+        result = { success: true, message: syncRes?.message || `Đã đồng bộ hành trình bưu cục cho đơn ${p.orderNumber} thành công!`, orderId: p.orderId, actionType: 'sync_shipping' };
       } else {
         result = { success: true, message: `Đã ghi nhận thực thi hành động: ${row.actionType}` };
       }

@@ -419,15 +419,28 @@
     if (confirmBtn) {
       confirmBtn.addEventListener('click', async () => {
         confirmBtn.disabled = true;
-        confirmBtn.textContent = 'Đang thực thi...';
+        confirmBtn.innerHTML = '⚡ Đang thực thi...';
         try {
           const res = await api(`/actions/${card.actionId}/execute`, { method: 'POST' });
           cardEl.classList.add('is-executed');
-          cardEl.querySelector('.copilot-action-buttons').innerHTML = `<div style="font-size:12px;color:#16a34a;font-weight:600;">✓ ${escapeHtml(res.result?.message || 'Đã áp dụng thành công')}</div>`;
-          if (window.GAERUNotify?.toast) window.GAERUNotify.toast(res.result?.message || 'Đã thực thi thành công!', 'success');
+          const msg = res.result?.message || 'Đã thực thi thành công trên hệ thống!';
+          cardEl.querySelector('.copilot-action-buttons').innerHTML = `<div class="action-executed-badge" style="font-size:12px;color:#16a34a;font-weight:600;padding:6px 10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;">✓ ${escapeHtml(msg)}</div>`;
+          if (window.GAERUNotify?.toast) {
+            window.GAERUNotify.toast(msg, 'success');
+          } else if (typeof window.notify === 'function') {
+            window.notify(msg);
+          }
+          if (window.GAERUAdmin?.refreshCurrentView) {
+            try { window.GAERUAdmin.refreshCurrentView(); } catch (_) {}
+          }
         } catch (e) {
-          if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Lỗi thực thi: ' + e.message, 'error');
-          else console.error('Lỗi thực thi:', e.message);
+          if (window.GAERUNotify?.alert) {
+            await window.GAERUNotify.alert('Lỗi thực thi hành động: ' + e.message, { danger: true, title: 'Không thể thực thi' });
+          } else if (window.GAERUNotify?.toast) {
+            window.GAERUNotify.toast('Lỗi thực thi: ' + e.message, 'error');
+          } else {
+            console.error('Lỗi thực thi:', e.message);
+          }
           confirmBtn.disabled = false;
           confirmBtn.textContent = '✓ Xác nhận thực hiện';
         }
@@ -439,7 +452,8 @@
       cancelBtn.addEventListener('click', async () => {
         try {
           await api(`/actions/${card.actionId}/cancel`, { method: 'POST' });
-          cardEl.remove();
+          cardEl.querySelector('.copilot-action-buttons').innerHTML = `<div style="font-size:12px;color:#64748b;font-weight:600;padding:4px 0;">✕ Đã hủy bỏ đề xuất này.</div>`;
+          if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Đã hủy bỏ đề xuất.', 'info');
         } catch (_) {}
       });
     }

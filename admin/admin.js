@@ -168,6 +168,14 @@ function handleRealtimeEvent(event, data = {}) {
     if (window.GAERUNotify?.toast) {
       window.GAERUNotify.toast(`🔔 Đơn hàng #${data.orderNumber || ''} vừa cập nhật trạng thái.`, 'info');
     }
+  } else if (event === 'order:delete') {
+    if (data.orderId) {
+      state.orders = state.orders.filter(o => o.id !== data.orderId);
+      renderOrders();
+    }
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast(`🗑️ Đơn hàng #${data.orderNumber || ''} đã được xóa vĩnh viễn khỏi hệ thống.`, 'warning');
+    }
   } else if (event === 'care:message' || event === 'care:update') {
     if (window.GAERUNotify?.toast) {
       window.GAERUNotify.toast('💬 GAERU CARE+: Tin nhắn hỗ trợ mới từ khách hàng.', 'info');
@@ -233,7 +241,7 @@ function initAdminRealtime() {
     };
 
     const sseEvents = [
-      'order:new', 'order:update', 'inventory:update', 'stock:update',
+      'order:new', 'order:update', 'order:delete', 'inventory:update', 'stock:update',
       'care:update', 'care:message', 'chat:message', 'shopping_chat:message',
       'notification:refresh', 'cache:invalidated', 'config:update'
     ];
@@ -1144,11 +1152,20 @@ async function updateOrder(event) {
   if (form.dataset.saving) return;
   const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
   if (!order) return;
+  let cancelActiveWaybill = false;
   if (form.elements.status.value === "cancelled" && order.status !== "cancelled") {
-    const ok = await (window.GAERUNotify?.confirm
-      ? window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
-      : window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`));
-    if (!ok) return;
+    if (hasUndeliveredActiveWaybill(order)) {
+      const ok = await (window.GAERUNotify?.confirm
+        ? window.GAERUNotify.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng (${order.trackingNumber || ''}). Bạn có muốn tự động hủy mã vận đơn trên hãng và hủy đơn hàng ngay lập tức không?`, { danger: true, title: 'Hủy đơn & Hủy vận đơn hãng', confirmText: 'Hủy vận đơn và Đơn hàng' })
+        : window.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng. Tự động hủy mã vận đơn và hủy đơn hàng?`));
+      if (!ok) return;
+      cancelActiveWaybill = true;
+    } else {
+      const ok = await (window.GAERUNotify?.confirm
+        ? window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
+        : window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`));
+      if (!ok) return;
+    }
   }
   const feedback = form.querySelector('[role="alert"]');
   submitButton.disabled = true;
@@ -1156,6 +1173,7 @@ async function updateOrder(event) {
   submitButton.textContent = "Đang cập nhật…";
   feedback.textContent = "";
   const payload = {};
+  if (cancelActiveWaybill) payload.cancelActiveWaybill = true;
   let targetStatus = form.elements.status.value;
   let saved=false;
   const paymentField = form.elements.paymentStatus;
@@ -1191,9 +1209,26 @@ async function updateOrder(event) {
     saved=true;closeOrderProcessing();
     if(targetStatus!==order.status)document.querySelector("#order-filter").value=(["confirmed","processing"].includes(targetStatus)?"ready_to_ship":targetStatus);
     await Promise.all([loadOrders(1), loadSummary()]);
-    showGlobal("Đã cập nhật đơn hàng.");
+    if (targetStatus === 'cancelled') {
+      if (window.GAERUNotify?.alert) {
+        await window.GAERUNotify.alert(`Đã hủy đơn hàng #${order.orderNumber}${cancelActiveWaybill ? ' và hủy mã vận đơn hãng' : ''} thành công. Số lượng sản phẩm đã được hoàn lại vào kho tồn.`, { title: 'Hủy đơn hàng thành công', icon: 'success' });
+      } else {
+        showGlobal("Đã hủy đơn hàng.");
+      }
+    } else {
+      showGlobal("Đã cập nhật đơn hàng.");
+    }
   } catch (error) {
-    if(saved)showGlobal("Đã lưu đơn hàng nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent = error.message;
+    if (saved) {
+      showGlobal("Đã lưu đơn hàng nhưng chưa tải lại được danh sách. Nhấn Tải lại.", true);
+    } else {
+      if (window.GAERUNotify?.alert) {
+        await window.GAERUNotify.alert('Không thể cập nhật đơn hàng: ' + error.message, { danger: true, title: 'Lỗi cập nhật đơn hàng' });
+      } else {
+        showGlobal(error.message, true);
+      }
+      feedback.textContent = error.message;
+    }
   } finally {
     submitButton.disabled = false;
     delete form.dataset.saving;
@@ -1940,21 +1975,31 @@ async function handleCarrierWaybillAction(event) {
       : window.confirm('Hủy mã vận đơn này trên hệ thống của hãng?'));
     if (!ok) return;
     cancelWaybillBtn.disabled = true;
+    cancelWaybillBtn.textContent = 'Đang hủy...';
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/cancel-waybill`, {
         method: 'POST',
         body: JSON.stringify({})
       });
-      showGlobal(res.message || 'Đã hủy vận đơn.');
+      if (window.GAERUNotify?.alert) {
+        await window.GAERUNotify.alert(res.message || 'Đã hủy mã vận đơn trên hệ thống hãng thành công.', { title: 'Hủy vận đơn', icon: 'success' });
+      } else {
+        showGlobal(res.message || 'Đã hủy vận đơn.');
+      }
       await loadOrders(state.orderPage);
       const openDialog = document.getElementById('order-processing-dialog');
       if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
         openOrderProcessing(orderId);
       }
     } catch(err) {
-      showGlobal(err.message, true);
+      if (window.GAERUNotify?.alert) {
+        await window.GAERUNotify.alert('Không thể hủy vận đơn trên hãng: ' + err.message + '\n\nNếu mã đã được bưu cục hủy thủ công, bạn có thể bấm "Đối chiếu cổng hãng: Đã hủy".', { danger: true, title: 'Lỗi hủy vận đơn' });
+      } else {
+        showGlobal(err.message, true);
+      }
     } finally {
       cancelWaybillBtn.disabled = false;
+      cancelWaybillBtn.textContent = 'Hủy vận đơn';
     }
     return;
   }
@@ -2297,9 +2342,9 @@ function confirmOrderPermanentDeletion(order) {
 
     dialog.innerHTML = '<h2 id="order-delete-title" style="color:#b42318;margin-top:0">Xác nhận xóa vĩnh viễn đơn hàng</h2>' +
       '<div style="background:#fef3f2;border:1px solid #fecdca;border-radius:10px;padding:12px;margin:12px 0;font-size:13px;color:#b42318;line-height:1.5">' +
-        '<strong>⚠️ CẢNH BÁO QUAN TRỌNG:</strong><br>' +
+        '<strong>⚠️ CẢNH BÁO QUẢN TRỊ TỐI CAO:</strong><br>' +
         'Đơn hàng sẽ bị xóa hoàn toàn khỏi hệ thống, giải phóng tồn kho (nếu đơn chưa hủy), và các khoản thu liên quan sẽ <strong>tự động loại khỏi dữ liệu doanh số và lịch sử đơn hàng</strong>.<br>' +
-        'Thao tác này <strong>KHÔNG THỂ hoàn tác</strong>.' +
+        'Thao tác này <strong>KHÔNG THỂ HOÀN TÁC</strong>.' +
       '</div>' +
       '<div style="margin:12px 0;font-size:13px;line-height:1.6">' +
         '<div><strong>Mã đơn hàng:</strong> <code style="font-weight:700;color:#0055b8">' + escapeHtml(orderNumber) + '</code></div>' +
@@ -2307,8 +2352,12 @@ function confirmOrderPermanentDeletion(order) {
         (total ? '<div><strong>Tổng tiền:</strong> ' + escapeHtml(total) + '</div>' : '') +
       '</div>' +
       '<label style="display:block;margin:14px 0 6px;font-size:13px;font-weight:600">' +
-        'Nhập chính xác mã đơn <span style="color:#b42318">' + escapeHtml(orderNumber) + '</span> để xác nhận:' +
+        'Nhập chính xác mã đơn <span style="color:#b42318">' + escapeHtml(orderNumber) + '</span> để kích hoạt xóa:' +
         '<input type="text" data-order-delete-input autocomplete="off" placeholder="' + escapeHtml(orderNumber) + '" style="margin-top:6px;width:100%;box-sizing:border-box">' +
+      '</label>' +
+      '<label style="display:block;margin:14px 0 6px;font-size:13px;font-weight:600">' +
+        'Mật khẩu quản trị viên để xác thực:' +
+        '<input type="password" data-order-delete-password autocomplete="current-password" placeholder="Nhập mật khẩu quản trị viên..." style="margin-top:6px;width:100%;box-sizing:border-box">' +
       '</label>' +
       '<div class="enterprise-confirm-actions" style="margin-top:20px;display:flex;justify-content:flex-end;gap:10px">' +
         '<button type="button" data-order-delete-cancel autofocus>Quay lại</button>' +
@@ -2326,6 +2375,7 @@ function confirmOrderPermanentDeletion(order) {
     }
 
     const input = dialog.querySelector('[data-order-delete-input]');
+    const passInput = dialog.querySelector('[data-order-delete-password]');
     const acceptBtn = dialog.querySelector('[data-order-delete-accept]');
     const cancelBtn = dialog.querySelector('[data-order-delete-cancel]');
 
@@ -2336,7 +2386,10 @@ function confirmOrderPermanentDeletion(order) {
         acceptBtn.disabled = Boolean(!typed || typed !== expected);
       });
       acceptBtn.onclick = () => {
-        if (!acceptBtn.disabled) finish(true);
+        if (!acceptBtn.disabled) {
+          confirmOrderPermanentDeletion.lastPassword = passInput?.value?.trim() || '';
+          finish(true);
+        }
       };
     }
     if (cancelBtn) cancelBtn.onclick = () => finish(false);
@@ -2363,21 +2416,49 @@ async function handleOrderPermanentDeleteUI(orderId) {
   const order = state.orders.find(o => o.id === orderId) || { id: orderId, orderNumber: orderId };
   const confirmed = await confirmOrderPermanentDeletion(order);
   if (!confirmed) return;
-  const password = await (window.GAERUNotify?.prompt
-    ? window.GAERUNotify.prompt("CẢNH BÁO: Xóa vĩnh viễn đơn hàng " + (order.orderNumber || orderId) + "?\nĐơn hàng và các liên kết sẽ bị xóa hoàn toàn khỏi hệ thống!\n\nNhập mật khẩu quản trị viên để xác thực:", "", { danger: true, isPassword: true, title: "Nhập mật khẩu quản trị", confirmText: "Xác nhận xóa đơn" })
-    : window.prompt("CẢNH BÁO: Xóa vĩnh viễn đơn hàng " + (order.orderNumber || orderId) + "?\nĐơn hàng và các liên kết sẽ bị xóa hoàn toàn khỏi hệ thống!\n\nNhập mật khẩu quản trị viên để xác thực:"));
-  if (!password || !password.trim()) return;
+
+  let password = confirmOrderPermanentDeletion.lastPassword || '';
+  if (!password) {
+    if (window.GAERUNotify?.prompt) {
+      password = await window.GAERUNotify.prompt('Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:');
+    } else {
+      password = window.prompt('Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:');
+    }
+  }
+  if (!password || !password.trim()) {
+    if (window.GAERUNotify?.alert) {
+      await window.GAERUNotify.alert('Đã hủy thao tác: Cần nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng.', { danger: true, title: 'Hủy thao tác' });
+    } else {
+      showGlobal('Cần nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn.', true);
+    }
+    return;
+  }
+
   try {
     const csrf = await request('/api/csrf');
     state.csrfToken = csrf.csrfToken;
     const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/permanent-delete', {
       method: 'POST',
-      body: JSON.stringify({ password: password.trim(), reason: 'Quản trị viên xác nhận xóa vĩnh viễn đơn ' + (order.orderNumber || orderId) })
+      body: JSON.stringify({
+        password: password.trim(),
+        reason: 'Quản trị tối cao xác nhận xóa vĩnh viễn đơn ' + (order.orderNumber || orderId)
+      })
     });
+    // Gỡ thẻ đơn ngay lập tức khỏi state để phản hồi trực quan không có độ trễ
+    state.orders = state.orders.filter(o => o.id !== orderId);
+    renderOrders();
     await Promise.all([loadOrders(state.orderPage), loadSummary()]);
-    showGlobal(res.message || 'Đã xóa vĩnh viễn đơn hàng và loại khỏi dữ liệu doanh số.');
+    if (window.GAERUNotify?.alert) {
+      await window.GAERUNotify.alert(res.message || ('Đã xóa vĩnh viễn đơn hàng ' + (order.orderNumber || orderId) + ' khỏi hệ thống và loại khỏi dữ liệu doanh số thành công.'), { title: 'Xóa vĩnh viễn đơn hàng', icon: 'success' });
+    } else {
+      showGlobal(res.message || 'Đã xóa vĩnh viễn đơn hàng và loại khỏi dữ liệu doanh số.');
+    }
   } catch (error) {
-    showGlobal(error.message, true);
+    if (window.GAERUNotify?.alert) {
+      await window.GAERUNotify.alert('Không thể xóa vĩnh viễn đơn hàng: ' + error.message, { danger: true, title: 'Lỗi xóa đơn hàng' });
+    } else {
+      showGlobal(error.message, true);
+    }
   }
 }
 
