@@ -1377,7 +1377,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
   if (carrierId === 'jt') throw fail('Webhook J&T Việt Nam chưa được nghiệm thu chữ ký và bảng trạng thái. Không tự cập nhật đơn hàng.', 501);
   // Never accept public delivery/payment changes without a configured credential.
   {
-    const carrierRecord = await readRecord(pool, config, 'shipping_' + carrierId);
+    const carrierRecord = await readRecord(pool, config, 'shipping_' + carrierId, { strict: true });
     const expectedSecret = String(carrierRecord?.data?.webhookSecret || '').trim();
     if (!expectedSecret) throw fail('Webhook vận chuyển chưa được cấu hình xác thực.', 503);
     const authHeader = String(headers['authorization'] || headers['Authorization'] || '').replace(/^Bearer\s+/i, '').trim();
