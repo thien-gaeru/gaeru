@@ -251,7 +251,7 @@ let signalTimer = null;
 function spawnServer() {
   if (isShuttingDown) return;
 
-  const serverScript = path.join(ROOT_DIR, 'src', 'server.js');
+  const serverScript = path.join(ROOT_DIR, 'src', 'cluster-master.js');
   const nodeArgs = [
     '--max-old-space-size=4096',
     '--no-warnings',
@@ -374,11 +374,16 @@ function recycleServer() {
 function checkSignals() {
   if (isShuttingDown) return;
 
-  // 1. Kiểm tra yêu cầu reload
+  // 1. Kiểm tra yêu cầu reload (Zero-Downtime Rolling Reload do Cluster Master xử lý)
   if (fs.existsSync(RELOAD_FILE)) {
-    try { fs.unlinkSync(RELOAD_FILE); } catch (_) {}
-    log('Nhận tín hiệu RELOAD. Đang tái sinh server con...');
-    recycleServer();
+    // Nếu tiến trình con đang sống bình thường, để Cluster Master tự đọc và xoay tua workers (Zero Downtime)
+    if (childProcess && isPidAlive(childProcess.pid)) {
+      log('Phát hiện tín hiệu RELOAD. Cluster Master đang thực hiện Zero-Downtime Rolling Reload luân phiên...', 'INFO');
+    } else {
+      try { fs.unlinkSync(RELOAD_FILE); } catch (_) {}
+      log('Tiến trình con không hoạt động. Khởi tạo lại Cluster Master...', 'WARN');
+      recycleServer();
+    }
     return;
   }
 

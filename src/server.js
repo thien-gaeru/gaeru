@@ -167,6 +167,9 @@ async function start() {
   if(mediaCheck.verified){
     // GAERU F-06 & OPS-01: Mark Readiness Gate as READY once DB migrations and filesystem probe succeed; run static media sync asynchronously
     setReady(true);
+    if (typeof process.send === 'function') {
+      try { process.send({ type: 'WORKER_READY', workerIndex: process.env.WORKER_INDEX || '0' }); } catch (_) {}
+    }
     staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
       .then(res => console.log('Static media:', JSON.stringify(res)))
       .catch(err => console.error('Static media sync failed:', errorSummary(err)));
@@ -175,6 +178,9 @@ async function start() {
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
     if (checkedMedia.state === 'verified') {
       setReady(true);
+      if (typeof process.send === 'function') {
+        try { process.send({ type: 'WORKER_READY', workerIndex: process.env.WORKER_INDEX || '0' }); } catch (_) {}
+      }
     } else {
       console.log('Local media checks unverified; readiness gate remains closed until media storage is verified.');
       if (!mediaRetryTimer && !shuttingDown && typeof setInterval !== 'undefined') {
@@ -190,6 +196,9 @@ async function start() {
               mediaRetryTimer = null;
               console.log('Media storage verified via retry probe; opening readiness gate.');
               setReady(true);
+              if (typeof process.send === 'function') {
+                try { process.send({ type: 'WORKER_READY', workerIndex: process.env.WORKER_INDEX || '0' }); } catch (_) {}
+              }
               staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
                 .then(res => console.log('Static media (retry):', JSON.stringify(res)))
                 .catch(err => console.error('Static media sync failed (retry):', errorSummary(err)));

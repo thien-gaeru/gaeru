@@ -163,11 +163,11 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", require('./speculation-policy').cspHash, "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://www.googletagmanager.com", "https://*.googletagmanager.com"],
+        scriptSrc: ["'self'", require('./speculation-policy').cspHash, "'sha256-WikgKY9oGvw1tmT0FTW+IXpDEVQS7+62LaajKhnujEg='", "https://challenges.cloudflare.com", "https://static.cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://www.googletagmanager.com", "https://*.googletagmanager.com"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.googletagmanager.com"],
-        connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://*.googleapis.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com"],
+        connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://*.googleapis.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com"],
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
