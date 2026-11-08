@@ -204,6 +204,35 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         customer.regEmailWarningMessage = regEmailStatus.warningMessage;
       }
 
+      if (req.session?.pendingOAuthLink) {
+        const pending = req.session.pendingOAuthLink;
+        if (pending.provider === 'google' && pending.googleSub && (pending.email?.toLowerCase() === customer.email?.toLowerCase())) {
+          try {
+            await pool.query(
+              `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
+               VALUES ($1, 'google', 'https://accounts.google.com', $2, $3)
+               ON CONFLICT (provider, issuer, provider_subject)
+               DO UPDATE SET customer_id = $1, email_at_link = $3, linked_at = now()`,
+              [customer.id, pending.googleSub, customer.email]
+            );
+            await pool.query(
+              `UPDATE customers
+               SET google_id = COALESCE(google_id, $1),
+                   avatar_url = COALESCE(avatar_url, $2),
+                   email_verified_at = COALESCE(email_verified_at, now()),
+                   updated_at = now()
+               WHERE id = $3`,
+              [pending.googleSub, pending.picture || null, customer.id]
+            );
+            customer.googleId = pending.googleSub;
+            customer.emailVerified = true;
+            delete req.session.pendingOAuthLink;
+          } catch (linkErr) {
+            console.warn('Auto-linking pending OAuth failed:', linkErr.message);
+          }
+        }
+      }
+
       if(accountSecurity&&await accountSecurity.beginLogin(req,res,"customer:"+customer.id,parsed.data.password))return;
       startCustomerSession(req, res, next, customer,accountSecurity);
     } catch (error) {

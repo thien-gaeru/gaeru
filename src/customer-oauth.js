@@ -195,13 +195,45 @@ async function resolveGoogleIdentity(pool, googleUser) {
     // 2. CHỐNG ACCOUNT TAKEOVER (OWASP SC03 & G050)
     // Kiểm tra xem email có thuộc tài khoản GAERU nào khác không:
     const collision = (await client.query(
-      `SELECT id, email, full_name AS "fullName" FROM customers WHERE lower(email) = $1 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT id, email, full_name AS "fullName", phone,
+              email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
+       FROM customers WHERE lower(email) = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
       [email]
     )).rows[0];
 
     if (collision) {
-      // TUYỆT ĐỐI KHÔNG AUTO-LINK THEO EMAIL!
-      // Bắt buộc khách đăng nhập mật khẩu tài khoản cũ trước khi link Google
+      if (collision.deletedAt) {
+        throw Object.assign(new Error('Vui lòng liên hệ GAERU để khôi phục tài khoản: business@gaeru.com hoặc 082 919 1080.'), { status: 403 });
+      }
+      if (collision.active === false) {
+        throw Object.assign(new Error('Tài khoản đã bị khóa. Vui lòng liên hệ GAERU để được hỗ trợ.'), { status: 403 });
+      }
+
+      // NẾU CẢ TÀI KHOẢN GAERU VÀ GOOGLE ĐỀU ĐÃ XÁC THỰC EMAIL:
+      // Cả hai bên đều đã xác thực quyền sở hữu email chính chủ -> Tự động liên kết Google identity an toàn tuyệt đối
+      if (googleUser.emailVerified && collision.emailVerified) {
+        await client.query(
+          `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
+           VALUES ($1, 'google', $2, $3, $4)
+           ON CONFLICT (provider, issuer, provider_subject)
+           DO UPDATE SET customer_id = $1, email_at_link = $4, linked_at = now()`,
+          [collision.id, issuer, subject, email]
+        );
+        await client.query(
+          `UPDATE customers
+           SET google_id = COALESCE(google_id, $1),
+               avatar_url = COALESCE(avatar_url, $2),
+               email_verified_at = COALESCE(email_verified_at, now()),
+               updated_at = now()
+           WHERE id = $3`,
+          [subject, googleUser.picture || null, collision.id]
+        );
+        collision.emailVerified = true;
+        return { kind: 'existing', customer: collision };
+      }
+
+      // TUYỆT ĐỐI CHỐNG ACCOUNT TAKEOVER (OWASP SC03 & G050):
+      // Nếu tài khoản GAERU chưa xác thực email, bắt buộc khách đăng nhập mật khẩu tài khoản cũ trước khi link Google
       return {
         kind: 'link_required',
         email: collision.email,
@@ -269,6 +301,22 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     return true;
   };
 
+  // Pending link info endpoint for frontend feedback
+  router.get('/pending-link', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const pending = req.session?.pendingOAuthLink;
+    if (!pending) return res.json({ pending: false });
+    if (Date.now() - pending.createdAt > 15 * 60 * 1000) {
+      delete req.session.pendingOAuthLink;
+      return res.json({ pending: false });
+    }
+    return res.json({
+      pending: true,
+      email: pending.email,
+      provider: pending.provider
+    });
+  });
+
   // Public config endpoint so client can initialize Google SDK button
   router.get('/config', async (_req, res) => {
     try {
@@ -315,6 +363,15 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       const outcome = await resolveGoogleIdentity(pool, googleUser);
 
       if (outcome.kind === 'link_required') {
+        if (req.session) {
+          req.session.pendingOAuthLink = {
+            email: outcome.email,
+            provider: 'google',
+            googleSub: googleUser.sub,
+            picture: googleUser.picture,
+            createdAt: Date.now()
+          };
+        }
         return res.status(409).json({
           linkRequired: true,
           email: outcome.email,

@@ -295,6 +295,82 @@ test('POST /api/customer-auth/oauth/google prevents account takeover on existing
   assert.equal(data.email, 'existing@gmail.com');
 });
 
+test('POST /api/customer-auth/oauth/google automatically links verified customer with verified Google email', async (context) => {
+  let linked = false;
+  let identityInserted = false;
+  const verifiedCustomer = {
+    id: '44444444-4444-4444-8444-444444444444',
+    fullName: 'Verified Customer',
+    email: 'verified@gmail.com',
+    phone: '0829191080',
+    emailVerified: true,
+    active: true,
+    deletedAt: null
+  };
+
+  const pool = {
+    query: async (sql) => {
+      if (sql.includes('auth_identities') && sql.includes('INSERT INTO')) {
+        identityInserted = true;
+        return { rowCount: 1 };
+      }
+      if (sql.includes('auth_identities')) return { rows: [] };
+      if (sql.includes('customers WHERE google_id = ')) return { rows: [] };
+      if (sql.includes('lower(email) = ')) return { rows: [{ ...verifiedCustomer }] };
+      if (sql.includes('UPDATE customers')) {
+        linked = true;
+        return { rowCount: 1 };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const baseUrl = await startApp(context, { pool });
+  const csrf = await getCsrf(baseUrl);
+
+  const googleJwt = makeJwt({
+    iss: 'accounts.google.com',
+    aud: 'test-google-client-id.apps.googleusercontent.com',
+    sub: 'google-user-verified',
+    email: 'verified@gmail.com',
+    email_verified: true,
+    name: 'Verified Customer',
+    exp: Math.floor(Date.now() / 1000) + 3600
+  });
+
+  const res = await fetch(`${baseUrl}/api/customer-auth/oauth/google`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrf.token,
+      Cookie: csrf.cookie
+    },
+    body: JSON.stringify({ credential: googleJwt })
+  });
+
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(identityInserted, true);
+  assert.equal(linked, true);
+  assert.equal(data.customer.fullName, 'Verified Customer');
+  assert.equal(data.customer.email, 'verified@gmail.com');
+  assert.equal(data.customer.emailVerified, true);
+  assert.ok(data.csrfToken);
+});
+
+test('GET /api/customer-auth/oauth/pending-link returns pending OAuth state', async (context) => {
+  const pool = { query: async () => ({ rows: [] }) };
+  const baseUrl = await startApp(context, { pool });
+  const csrf = await getCsrf(baseUrl);
+
+  const res = await fetch(`${baseUrl}/api/customer-auth/oauth/pending-link`, {
+    headers: { Cookie: csrf.cookie }
+  });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.pending, false);
+});
+
 test('POST /api/customer-auth/oauth/google rejects blocked or deleted accounts', async (context) => {
   const pool = {
     query: async (sql) => {
