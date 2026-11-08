@@ -16,17 +16,25 @@ function isValidMarketplaceUrl(val, provider) {
   if (!trimmed) return true;
   let parsed;
   try {
-    parsed = new URL(trimmed.startsWith('http') ? trimmed : 'https://' + trimmed);
+    parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : 'https://' + trimmed);
   } catch (_) {
     return false;
   }
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return false;
+  if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.username || parsed.password) return false;
   const host = parsed.hostname.toLowerCase();
   if (provider === 'shopee') {
-    return host === 'shopee.vn' || host.endsWith('.shopee.vn') || host === 'shopee.com' || host.endsWith('.shopee.com') || host === 's.shopee.vn';
+    return (
+      host === 'shopee.vn' || host.endsWith('.shopee.vn') ||
+      host === 'shopee.com' || host.endsWith('.shopee.com') ||
+      host === 'shp.ee' || host.endsWith('.shp.ee') ||
+      host === 'shope.ee' || host.endsWith('.shope.ee')
+    );
   }
   if (provider === 'tiktok') {
-    return host === 'tiktok.com' || host.endsWith('.tiktok.com') || host === 'tiktokshop.com' || host.endsWith('.tiktokshop.com');
+    return (
+      host === 'tiktok.com' || host.endsWith('.tiktok.com') ||
+      host === 'tiktokshop.com' || host.endsWith('.tiktokshop.com')
+    );
   }
   return false;
 }
@@ -34,7 +42,7 @@ function isValidMarketplaceUrl(val, provider) {
 const uuid=z.string().uuid(),image=z.string().regex(/^(?:\/assets\/products\/(?:[a-zA-Z0-9._-]+|m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)\.(?:png|webp))|\/api\/catalog-images\/[0-9a-f-]{36})$/).refine(v=>v.startsWith('/assets/')||uuid.safeParse(v.split('/').at(-1)).success);
 const group=z.object({name:z.string().trim().min(1).max(50),values:z.array(z.string().trim().min(1).max(80)).min(1).max(20)}).strict();
 const media=z.object({type:z.enum(["image","video"]),url:z.string(),alt:z.string().trim().min(3).max(250),caption:z.string().max(300).default(""),afterParagraph:z.number().int().min(0).max(100).nullable().default(null)}).strict().refine(m=>m.type==="image"?image.safeParse(m.url).success:/^\/api\/catalog-videos\/[0-9a-f-]{36}$/.test(m.url)&&uuid.safeParse(m.url.split("/").at(-1)).success);
-const schema=z.object({inTrash:z.literal(true).optional(),descriptionMedia:z.array(media).max(12).default([]),id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),product:z.object({name:z.string().trim().min(2).max(160),slug:z.string().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),category:z.enum(['audio','video','accessory']),descriptor:z.string().trim().max(160),cardTitle:z.string().trim().max(100).default(''),cardSummary:z.string().trim().max(240).default(''),description:z.string().trim().max(3000),imageUrl:image,imageAlt:z.string().max(250),active:z.boolean(),sortOrder:z.number().int().min(-1000).max(10000),shopeeUrl:z.string().trim().max(1000).nullish().transform(v=>v||'').refine(v=>isValidMarketplaceUrl(v,'shopee'),{message:'Đường dẫn Shopee không hợp lệ.'}).default(''),tiktokShopUrl:z.string().trim().max(1000).nullish().transform(v=>v||'').refine(v=>isValidMarketplaceUrl(v,'tiktok'),{message:'Đường dẫn TikTok Shop không hợp lệ.'}).default('')}).strict(),gallery:z.array(image).min(1).max(9),groups:z.array(group).max(3),variants:z.array(z.object({id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),sku:z.string().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/),name:z.string().min(1).max(160),options:z.record(z.string().min(1).max(50),z.string().min(1).max(80)),priceVnd:z.number().int().min(0).max(20000000),stockQuantity:z.number().int().min(0).max(1000000),active:z.boolean(),imageUrl:z.union([image,z.literal('')])}).strict()).max(100)}).strict();
+const schema=z.object({inTrash:z.literal(true).optional(),descriptionMedia:z.array(media).max(12).default([]),id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),product:z.object({name:z.string().trim().min(2).max(160),slug:z.string().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),category:z.enum(['audio','video','accessory']),descriptor:z.string().trim().max(160),cardTitle:z.string().trim().max(100).default(''),cardSummary:z.string().trim().max(240).default(''),description:z.string().trim().max(3000),imageUrl:image,imageAlt:z.string().max(250),active:z.boolean(),sortOrder:z.number().int().min(-1000).max(10000),shopeeUrl:z.string().trim().max(1000).nullish().transform(v=>!v?'':(v.trim().startsWith('http://')?'https://'+v.trim().slice(7):(v.trim().startsWith('https://')?v.trim():'https://'+v.trim()))).refine(v=>isValidMarketplaceUrl(v,'shopee'),{message:'Đường dẫn Shopee không hợp lệ.'}).default(''),tiktokShopUrl:z.string().trim().max(1000).nullish().transform(v=>!v?'':(v.trim().startsWith('http://')?'https://'+v.trim().slice(7):(v.trim().startsWith('https://')?v.trim():'https://'+v.trim()))).refine(v=>isValidMarketplaceUrl(v,'tiktok'),{message:'Đường dẫn TikTok Shop không hợp lệ.'}).default('')}).strict(),gallery:z.array(image).min(1).max(9),groups:z.array(group).max(3),variants:z.array(z.object({id:uuid.optional(),updatedAt:z.string().optional(),version:z.number().int().positive().optional(),sku:z.string().min(1).max(80).regex(/^[a-zA-Z0-9._-]+$/),name:z.string().min(1).max(160),options:z.record(z.string().min(1).max(50),z.string().min(1).max(80)),priceVnd:z.number().int().min(0).max(20000000),stockQuantity:z.number().int().min(0).max(1000000),active:z.boolean(),imageUrl:z.union([image,z.literal('')])}).strict()).max(100)}).strict();
 const fail=(message,status=409)=>Object.assign(Error(message),{status});
 const signature=o=>JSON.stringify(Object.entries(o).sort(([a],[b])=>a.localeCompare(b)));
 async function read(client,id,inTrash=false){const product=(await client.query('SELECT deleted_at,deleted_variant_state,id,name,slug,category,descriptor,description,card_title AS "cardTitle",card_summary AS "cardSummary",image_url AS "imageUrl",image_alt AS "imageAlt",active,sort_order AS "sortOrder",COALESCE(shopee_url,\'\') AS "shopeeUrl",COALESCE(tiktok_shop_url,\'\') AS "tiktokShopUrl",updated_at AS "updatedAt",edit_version AS version FROM products WHERE id=$1 AND (deleted_at IS NOT NULL)=$2',[id,inTrash])).rows[0];if(!product)return null;product.updatedAt=new Date(product.updatedAt).toISOString();const variants=(await client.query('SELECT id,sku,name,options,price_vnd AS "priceVnd",stock_quantity AS "stockQuantity",active,image_url AS "imageUrl",updated_at AS "updatedAt",edit_version AS version FROM product_variants WHERE product_id=$1 ORDER BY name,id',[id])).rows.map(v=>({...v,updatedAt:new Date(v.updatedAt).toISOString()}));if(inTrash){const states=new Map(product.deleted_variant_state.map(v=>[v.id,v.active]));for(const v of variants)if(states.has(v.id))v.active=states.get(v.id)===true;}const meta=(await client.query('SELECT gallery,option_groups AS groups,description_media AS "descriptionMedia" FROM product_presentations WHERE product_id=$1',[id])).rows[0];const {deleted_at,deleted_variant_state,id:productId,updatedAt:productDate,version,...fields}=product;return {...(inTrash?{inTrash:true}:{}),id,updatedAt:product.updatedAt,version,product:fields,variants,gallery:meta?.gallery?.length?meta.gallery:[product.imageUrl],groups:meta?.groups||[],descriptionMedia:meta?.descriptionMedia||[]};}

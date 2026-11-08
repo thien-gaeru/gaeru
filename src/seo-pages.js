@@ -22,9 +22,9 @@ function isTrustedMarketplaceUrl(url, provider) {
   if (!url || typeof url !== 'string') return false;
   try {
     const parsed = new URL(url.startsWith('http') ? url : 'https://' + url);
-    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return false;
+    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.username || parsed.password) return false;
     const host = parsed.hostname.toLowerCase();
-    if (provider === 'shopee') return host === 'shopee.vn' || host.endsWith('.shopee.vn') || host === 'shopee.com' || host.endsWith('.shopee.com') || host === 's.shopee.vn';
+    if (provider === 'shopee') return host === 'shopee.vn' || host.endsWith('.shopee.vn') || host === 'shopee.com' || host.endsWith('.shopee.com') || host === 'shp.ee' || host.endsWith('.shp.ee') || host === 'shope.ee' || host.endsWith('.shope.ee');
     if (provider === 'tiktok') return host === 'tiktok.com' || host.endsWith('.tiktok.com') || host === 'tiktokshop.com' || host.endsWith('.tiktokshop.com');
     return false;
   } catch (_) { return false; }

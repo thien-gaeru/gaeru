@@ -198,11 +198,57 @@ test('Product marketplace purchase links (Shopee & TikTok Shop) lifecycle and re
   assert.ok(!ssrNone.includes('Mua ở Shopee'));
   assert.ok(!ssrNone.includes('Mua ở TikTok Shop'));
 
-  // Update product to change TikTok URL and clear Shopee URL
-  const updatePayload = {
+  // Update product with official Shopee shortlink (vn.shp.ee/hgiewft2) and TikTok vt link
+  const updateShortPayload = {
     ...readRes.data,
     product: {
       ...readRes.data.product,
+      shopeeUrl: 'https://vn.shp.ee/hgiewft2',
+      tiktokShopUrl: 'https://vt.tiktok.com/ZSj123abc/'
+    }
+  };
+
+  const updateShortRes = await api('/api/gaeru_ceo/product-workspace', 'POST', updateShortPayload);
+  assert.equal(updateShortRes.status, 200, 'Saving official vn.shp.ee short link must succeed');
+  assert.equal(updateShortRes.data.product.shopeeUrl, 'https://vn.shp.ee/hgiewft2');
+  assert.equal(updateShortRes.data.product.tiktokShopUrl, 'https://vt.tiktok.com/ZSj123abc/');
+
+  // Verify SSR renders the vn.shp.ee link properly
+  const ssrShort = productBody({ ...publicProduct, shopeeUrl: 'https://vn.shp.ee/hgiewft2', tiktokShopUrl: 'https://vt.tiktok.com/ZSj123abc/' });
+  assert.ok(ssrShort.includes('https://vn.shp.ee/hgiewft2'), 'SSR must include official vn.shp.ee Shopee link');
+  assert.ok(ssrShort.includes('https://vt.tiktok.com/ZSj123abc/'), 'SSR must include vt.tiktok.com TikTok link');
+
+  // Verify normalization: inputting without https:// prefix auto-normalizes
+  const updateNoPrefixPayload = {
+    ...updateShortRes.data,
+    product: {
+      ...updateShortRes.data.product,
+      shopeeUrl: 'vn.shp.ee/hgiewft2',
+      tiktokShopUrl: 'vt.tiktok.com/ZSj123abc/'
+    }
+  };
+  const updateNoPrefixRes = await api('/api/gaeru_ceo/product-workspace', 'POST', updateNoPrefixPayload);
+  assert.equal(updateNoPrefixRes.status, 200, 'Unprefixed link must auto-normalize to https://');
+  assert.equal(updateNoPrefixRes.data.product.shopeeUrl, 'https://vn.shp.ee/hgiewft2');
+  assert.equal(updateNoPrefixRes.data.product.tiktokShopUrl, 'https://vt.tiktok.com/ZSj123abc/');
+
+  // Verify invalid phishing/attacker domain is strictly rejected
+  const invalidShopeePayload = {
+    ...updateNoPrefixRes.data,
+    product: {
+      ...updateNoPrefixRes.data.product,
+      shopeeUrl: 'https://fake-shopee.com/phishing'
+    }
+  };
+  const invalidShopeeRes = await api('/api/gaeru_ceo/product-workspace', 'POST', invalidShopeePayload);
+  assert.equal(invalidShopeeRes.status, 400, 'Untrusted marketplace domain must return 400');
+  assert.match(invalidShopeeRes.data.error, /Đường dẫn Shopee không hợp lệ/);
+
+  // Update product to change TikTok URL and clear Shopee URL
+  const updatePayload = {
+    ...updateNoPrefixRes.data,
+    product: {
+      ...updateNoPrefixRes.data.product,
       shopeeUrl: '',
       tiktokShopUrl: 'https://shop.tiktok.com/view/product/999'
     }
