@@ -16,3 +16,6 @@ certs/
 scripts/*.ps1
 scripts/*.bat
 scripts/*.vbs
+logs/
+*.log
+
