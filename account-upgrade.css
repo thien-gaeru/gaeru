@@ -1346,7 +1346,7 @@
   overflow-x: hidden !important;
 }
 
-/* Lớp nền mờ Apple-style */
+/* Lớp nền mờ chuẩn GAERU Studio (Glassmorphism) */
 .security-modal-backdrop {
   position: fixed !important;
   inset: 0 !important;

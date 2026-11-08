@@ -15,7 +15,7 @@
 1. **Chuẩn Hóa Toàn Diện Hệ Thống Thông Báo Bằng Popup / Toast / Modal (`window.GAERUNotify`):**
    - **Xử lý triệt để xung đột thông báo (Lỗi ảnh minh họa):** Khi lưu cấu hình Google Analytics hoặc submit các biểu mẫu trong trang quản trị và cửa hàng, hệ thống tự động dọn sạch các thông điệp tải tạm thời (như *"Đang lưu cấu hình..."*, *"Đang xử lý..."*) trong form tại thời điểm settle, chuyển toàn bộ việc thông báo sang Popup / Toast thống nhất, không để dòng chữ xám lơ lửng xung đột với toast xanh ở góc màn hình.
    - **Loại bỏ hoàn toàn hộp thoại hệ điều hành nguyên thủy (`alert`, `confirm`, `prompt`):** Thay thế toàn bộ các lời gọi `window.confirm`, `window.prompt`, `window.alert` thô ráp trên toàn bộ mã nguồn (hủy đơn hàng, xóa phiên bản, hủy mã vận đơn, đối chiếu carrier, khóa tài khoản khách, xóa tạm thời tài khoản, xác thực mật khẩu xóa vĩnh viễn khách, xóa vĩnh viễn đơn, xóa gói combo marketing, dừng nhắc giỏ hàng, xóa mapping sàn TMĐT, xác nhận đồng bộ tồn kho sàn, chuyển chế độ phiên bản sản phẩm, gửi yêu cầu đổi/trả khách hàng, xóa tệp tin chat hỗ trợ).
-   - **Thiết kế Modal Popup hiện đại (Apple / GAERU Design System):**
+   - **Thiết kế Modal Popup hiện đại (GAERU Design System):**
      * Nền mờ kính cao cấp (`backdrop-filter: blur(10px)`), thẻ card bo góc tròn mềm mại (`border-radius: 20px`), bóng đổ 3D sâu tinh tế.
      * Biểu tượng SVG chuyên biệt theo từng trạng thái (Success xanh lá, Warning hổ phách, Error/Danger đỏ san hô, Info xanh lam GAERU).
      * Hỗ trợ đầy đủ phím `Escape` để hủy/đóng, `Enter` để xác nhận, tự động focus vào input/nút bấm, bẫy focus không làm mất ngữ cảnh.

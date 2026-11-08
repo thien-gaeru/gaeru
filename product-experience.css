@@ -1,6 +1,6 @@
 /* ==============================================================================
-   GAERU PRODUCT EXPERIENCE — APPLE-STYLE SMOOTH SCROLLING, TYPOGRAPHY & COLOR
-   Inspired by Apple.com Product Architecture & Human Interface Guidelines
+   GAERU PRODUCT EXPERIENCE — STUDIO SMOOTH SCROLLING, TYPOGRAPHY & COLOR
+   Proprietary GAERU Studio Design System
    ProMotion 60fps/120fps Hardware Acceleration · Eye-Catching Luxury Aesthetics
    ============================================================================== */
 
@@ -21,9 +21,9 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   2. APPLE-STYLE STICKY LOCAL NAVIGATION BAR (SUBNAV)
+   2. STICKY LOCAL NAVIGATION BAR (SUBNAV)
    ------------------------------------------------------------------------------ */
-.apple-local-nav {
+.product-local-subnav {
   position: sticky;
   top: 52px;
   z-index: 18;
@@ -38,13 +38,13 @@ body.product-page {
   pointer-events: none;
 }
 
-.apple-local-nav.is-visible {
+.product-local-subnav.is-visible {
   transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
 }
 
-.apple-local-nav-inner {
+.product-local-subnav-inner {
   width: min(1240px, calc(100% - 64px));
   height: 52px;
   margin-inline: auto;
@@ -54,7 +54,7 @@ body.product-page {
   gap: 20px;
 }
 
-.apple-local-nav-title {
+.product-local-subnav-title {
   font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -66,7 +66,7 @@ body.product-page {
   gap: 8px;
 }
 
-.apple-local-nav-title .apple-nav-badge {
+.product-local-subnav-title .product-subnav-badge {
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
@@ -76,7 +76,7 @@ body.product-page {
   letter-spacing: 0.02em;
 }
 
-.apple-local-nav-links {
+.product-local-subnav-links {
   display: flex;
   align-items: center;
   gap: clamp(12px, 2.5vw, 28px);
@@ -85,7 +85,7 @@ body.product-page {
   padding: 0;
 }
 
-.apple-local-nav-links a {
+.product-local-subnav-links a {
   font-size: 13.5px;
   font-weight: 500;
   color: #6e6e73;
@@ -96,25 +96,25 @@ body.product-page {
   letter-spacing: -0.01em;
 }
 
-.apple-local-nav-links a:hover {
+.product-local-subnav-links a:hover {
   color: #1d1d1f;
   background: rgba(0, 0, 0, 0.04);
 }
 
-.apple-local-nav-links a.is-active {
+.product-local-subnav-links a.is-active {
   color: #0071e3;
   font-weight: 600;
   background: rgba(0, 113, 227, 0.08);
 }
 
-.apple-local-nav-cta {
+.product-local-subnav-cta {
   display: flex;
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
 }
 
-.apple-local-nav-price {
+.product-local-subnav-price {
   font-size: 15px;
   font-weight: 700;
   color: #1d1d1f;
@@ -122,7 +122,7 @@ body.product-page {
   font-variant-numeric: tabular-nums;
 }
 
-.apple-local-nav-btn {
+.product-local-subnav-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -140,18 +140,18 @@ body.product-page {
   border: 1px solid transparent;
 }
 
-.apple-local-nav-btn:hover {
+.product-local-subnav-btn:hover {
   background: #0077ed;
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(0, 113, 227, 0.36);
 }
 
-.apple-local-nav-btn:active {
+.product-local-subnav-btn:active {
   transform: translateY(0);
 }
 
 /* Scroll progress indicator bar */
-.apple-nav-progress {
+.product-subnav-progress {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -162,7 +162,7 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   3. APPLE SCROLL REVEAL ANIMATIONS (ProMotion 60fps/120fps)
+   3. SCROLL REVEAL ANIMATIONS (ProMotion 60fps/120fps)
    ------------------------------------------------------------------------------ */
 .product-reveal-ready {
   opacity: 0;
@@ -181,10 +181,10 @@ body.product-page {
 .product-reveal-ready:nth-child(4) { transition-delay: 0.24s; }
 
 /* ------------------------------------------------------------------------------
-   4. APPLE TYPOGRAPHY SYSTEM — HEADINGS, EYEBROWS & EDITORIAL HIERARCHY
+   4. TYPOGRAPHY SYSTEM — HEADINGS, EYEBROWS & EDITORIAL HIERARCHY
    ------------------------------------------------------------------------------ */
 
-/* Eyebrow: Dòng nhãn dẫn phong cách Apple Keynote với dải màu Gradient sang trọng */
+/* Eyebrow: Dòng nhãn dẫn phong cách Studio Keynote với dải màu Gradient sang trọng */
 .product-page .eyebrow,
 .product-feature-intro .eyebrow,
 .m3-intro .eyebrow,
@@ -218,7 +218,7 @@ body.product-page {
   letter-spacing: 0.06em !important;
 }
 
-/* Display Headline: Chữ tiêu đề lớn với chiều sâu quang học chuẩn Apple */
+/* Display Headline: Chữ tiêu đề lớn với chiều sâu quang học */
 .product-feature-intro h3,
 .m3-intro h3,
 .product-information>header h2 {
@@ -287,7 +287,7 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   5. APPLE BENTO GRID CARDS (HIGHLIGHTS & KEY METRICS)
+   5. BENTO GRID CARDS (HIGHLIGHTS & KEY METRICS)
    ------------------------------------------------------------------------------ */
 .product-feature-highlights,
 .m3-highlights {
@@ -433,7 +433,7 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   7. APPLE GALLERY HERO & ARTWORK CONTAINER
+   7. GALLERY HERO & ARTWORK CONTAINER
    ------------------------------------------------------------------------------ */
 .product-page .product-detail-art {
   box-shadow: 0 8px 36px -4px rgba(0, 0, 0, 0.05), 0 2px 10px rgba(0, 0, 0, 0.02);
@@ -476,7 +476,7 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   8. APPLE TECH SPECS TABLE (MINIMALIST LUXURY)
+   8. MINIMALIST LUXURY TECH SPECS TABLE
    ------------------------------------------------------------------------------ */
 .product-feature-specs,
 .m3-specs {
@@ -547,7 +547,7 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   9. DARK MODE SUPPORT (APPLE SPACE BLACK / PRO MIDNIGHT)
+   9. DARK MODE SUPPORT (PRO MIDNIGHT / SPACE BLACK)
    ------------------------------------------------------------------------------ */
 @media(prefers-color-scheme: dark) {
   body.product-page {
@@ -555,30 +555,30 @@ body.product-page {
     color: #f5f5f7;
   }
 
-  .apple-local-nav {
+  .product-local-subnav {
     background: rgba(18, 18, 20, 0.88);
     border-bottom-color: rgba(255, 255, 255, 0.1);
   }
 
-  .apple-local-nav-title {
+  .product-local-subnav-title {
     color: #f5f5f7;
   }
 
-  .apple-local-nav-links a {
+  .product-local-subnav-links a {
     color: #a1a1a6;
   }
 
-  .apple-local-nav-links a:hover {
+  .product-local-subnav-links a:hover {
     color: #f5f5f7;
     background: rgba(255, 255, 255, 0.08);
   }
 
-  .apple-local-nav-links a.is-active {
+  .product-local-subnav-links a.is-active {
     color: #2997ff;
     background: rgba(41, 151, 255, 0.16);
   }
 
-  .apple-local-nav-price {
+  .product-local-subnav-price {
     color: #f5f5f7;
   }
 
@@ -704,29 +704,29 @@ body.product-page {
     scroll-padding-top: 104px;
   }
 
-  .apple-local-nav {
+  .product-local-subnav {
     top: 50px;
   }
 
-  .apple-local-nav-inner {
+  .product-local-subnav-inner {
     width: calc(100% - 32px);
     height: 48px;
     gap: 12px;
   }
 
-  .apple-local-nav-title {
+  .product-local-subnav-title {
     font-size: 16px;
   }
 
-  .apple-local-nav-links {
+  .product-local-subnav-links {
     display: none; /* Hide text tabs on small mobile to give room for price + CTA */
   }
 
-  .apple-local-nav-price {
+  .product-local-subnav-price {
     font-size: 14px;
   }
 
-  .apple-local-nav-btn {
+  .product-local-subnav-btn {
     padding: 6px 14px;
     font-size: 12px;
   }
@@ -765,8 +765,8 @@ body.product-page {
   }
 
   .product-reveal-ready,
-  .apple-local-nav,
-  .apple-local-nav-btn,
+  .product-local-subnav,
+  .product-local-subnav-btn,
   .product-feature-highlights>div,
   .m3-highlights>div,
   .m3-highlights>span,

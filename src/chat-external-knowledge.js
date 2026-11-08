@@ -8,11 +8,11 @@ const MAX_CACHE_ENTRIES = 300;
 // Curated technical compatibility & audio ecosystem knowledge
 const TECH_ECOSYSTEM_KNOWLEDGE = [
   {
-    category: 'iphone_apple',
-    triggers: ['iphone', 'apple', 'ios', 'lightning', 'type c iphone', 'ipad', 'macbook'],
+    category: 'iphone_ios_devices',
+    triggers: ['iphone', 'ios', 'lightning', 'type c iphone', 'ipad', 'macbook'],
     facts: [
       'iPhone 15, 15 Plus, 15 Pro, 15 Pro Max và toàn bộ dòng iPhone 16 series đã chuyển sang cổng Type-C (USB-C) chuẩn quốc tế: Cắm đầu thu Type-C trực tiếp vào đáy máy là nhận mic ngay, không cần bất kỳ đầu chuyển nào.',
-      'Dòng iPhone 14 trở xuống (iPhone 14, 13, 12, 11, XS, XR, X, 8, 7): Sử dụng chân cắm Lightning. Khi mua mic GAERU, khách nên chọn phân loại chân Lightning (hoặc dùng cáp OTG Lightning sang Type-C chính hãng chuẩn Apple).',
+      'Dòng iPhone 14 trở xuống (iPhone 14, 13, 12, 11, XS, XR, X, 8, 7): Sử dụng chân cắm Lightning. Khi mua mic GAERU, khách nên chọn phân loại chân Lightning (hoặc dùng cáp OTG Lightning sang Type-C chính hãng đạt chuẩn tương thích iOS).',
       'iPad Type-C (iPad Pro M1/M2/M4, iPad Air 4/5/6, iPad mini 6, iPad Gen 10) và máy tính MacBook: Cắm đầu thu Type-C nhận ngay làm micro thu âm mặc định.'
     ]
   },

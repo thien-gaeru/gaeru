@@ -15,7 +15,7 @@
 - Điều hướng giữ hash, hỗ trợ quay lại và mở trực tiếp mục được cấp quyền. Chỉ tải dữ liệu mục đang mở; trạng thái tải và lỗi hiển thị rõ.
 - Giữ nghiệp vụ phân quyền, lịch sử bất biến, kiểm soát phiên bản cập nhật đồng thời, tồn kho, thanh toán và bảo hành đã có kiểm tra hồi quy.
 - Giá trị tiền chưa có dữ liệu hiển thị Chưa xác định; không tự chuyển thành 0 tại bộ định dạng chung.
-- Giao diện dùng hệ chữ hệ thống, icon nét tự vẽ, nền sáng, nhóm chức năng, tiêu đề rõ, khoảng cách và trạng thái thống nhất. Lấy cảm hứng từ phân cấp/sidebar của Apple, giữ thương hiệu GAERU và không sử dụng tài sản Apple.
+- Giao diện dùng hệ chữ hệ thống, icon nét tự vẽ, nền sáng, nhóm chức năng, tiêu đề rõ, khoảng cách và trạng thái thống nhất theo chuẩn GAERU Design System, 100% tự chủ sở hữu trí tuệ thương hiệu GAERU.
 
 ## Mã hóa và việc chưa xác minh
 - Mật khẩu: bcrypt cost 12; đây là băm một chiều.
@@ -28,7 +28,7 @@
 - https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
 - https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
 - https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
-- https://developer.apple.com/design/human-interface-guidelines/sidebars
+- GAERU Design System & Enterprise UI Guidelines
 
 ## TLS — xác minh ngày 24/10/2026
 Kết nối thử riêng trên hosting xác nhận stream.encrypted=true và stream.authorized=true. pg_stat_ssl đồng thời báo false; vì vậy không dùng riêng pg_stat_ssl để kết luận TLS của ứng dụng. Có thể có điểm kết nối trung gian; mã hóa chặng phía sau cần nhà cung cấp xác minh. Production bắt buộc TLS 1.2 trở lên, kiểm tra chứng chỉ và không cho query string sslmode ghi đè. Nếu không xác minh được TLS, không tự hạ xuống kết nối không mã hóa. Có thể cung cấp PGSSL_CA nếu nhà cung cấp dùng CA riêng. Giao diện chủ hiển thị riêng TLS ứng dụng/chứng chỉ và trạng thái pg_stat_ssl. Không thay toàn bộ biến môi trường vì API hosting chỉ đọc lại giá trị đã che.

@@ -1339,7 +1339,7 @@
 
 /* ==========================================================================
    Homepage Banner Admin Component (.home-banner-panel)
-   Apple-standard layout, responsive grid, iOS switch & live preview simulator
+   GAERU Studio standard layout, responsive grid, mobile toggle & live preview simulator
    ========================================================================== */
 .configuration-panel[data-home-banner] {
   border: 1px solid #e5e5ea;

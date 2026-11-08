@@ -1,6 +1,7 @@
 /**
  * GAERU Product Experience Module
- * Apple-style Smooth Scrolling, Scroll Reveal, Sticky Local Navigation & Micro-Interactions
+ * Premium Smooth Scrolling, Scroll Reveal, Sticky Local Navigation & Micro-Interactions
+ * 100% Proprietary GAERU Studio Experience Design System
  */
 (function() {
   'use strict';
@@ -17,7 +18,7 @@
         requestAnimationFrame(checkProductRendered);
         return;
       }
-      setupAppleLocalNav();
+      setupProductLocalNav();
       setupScrollReveal();
       setupGalleryCrossfade();
     };
@@ -26,10 +27,10 @@
   }
 
   /**
-   * 1. Apple-Style Sticky Local Navigation Bar
+   * 1. Sticky Local Navigation Bar (Subnav)
    */
-  function setupAppleLocalNav() {
-    if (document.querySelector('.apple-local-nav')) return;
+  function setupProductLocalNav() {
+    if (document.querySelector('.product-local-subnav')) return;
 
     const heading = document.querySelector('.product-purchase-heading h1');
     const productName = heading ? heading.textContent.replace(/^Mua\s+/i, '').trim() : 'Sản phẩm GAERU';
@@ -37,25 +38,25 @@
     const currentPrice = priceNode ? priceNode.textContent : '';
 
     const nav = document.createElement('nav');
-    nav.className = 'apple-local-nav';
+    nav.className = 'product-local-subnav';
     nav.setAttribute('aria-label', `Điều hướng nhanh ${productName}`);
     nav.innerHTML = `
-      <div class="apple-local-nav-inner">
-        <div class="apple-local-nav-title">
+      <div class="product-local-subnav-inner">
+        <div class="product-local-subnav-title">
           <span>${escapeHtml(productName)}</span>
-          <span class="apple-nav-badge">Chính hãng</span>
+          <span class="product-subnav-badge">Chính hãng</span>
         </div>
-        <ul class="apple-local-nav-links">
+        <ul class="product-local-subnav-links">
           <li><a href="#product-detail" class="is-active" data-nav-target="overview">Tổng quan</a></li>
           <li><a href="#product-information" data-nav-target="features">Tính năng</a></li>
           <li><a href="#product-specs" data-nav-target="specs">Thông số</a></li>
         </ul>
-        <div class="apple-local-nav-cta">
-          <span class="apple-local-nav-price" data-local-nav-price>${escapeHtml(currentPrice)}</span>
-          <a href="#product-detail" class="apple-local-nav-btn" data-local-nav-buy>Mua ngay</a>
+        <div class="product-local-subnav-cta">
+          <span class="product-local-subnav-price" data-local-nav-price>${escapeHtml(currentPrice)}</span>
+          <a href="#product-detail" class="product-local-subnav-btn" data-local-nav-buy>Mua ngay</a>
         </div>
       </div>
-      <div class="apple-nav-progress" aria-hidden="true"></div>
+      <div class="product-subnav-progress" aria-hidden="true"></div>
     `;
 
     // Insert right after #site-header or at top of body
@@ -82,9 +83,9 @@
     }
 
     // Scroll Visibility & Progress Tracking
-    const progressBar = nav.querySelector('.apple-nav-progress');
+    const progressBar = nav.querySelector('.product-subnav-progress');
     const heroSection = document.querySelector('.product-detail');
-    const links = nav.querySelectorAll('.apple-local-nav-links a');
+    const links = nav.querySelectorAll('.product-local-subnav-links a');
 
     const handleScroll = () => {
       // 1. Visibility toggle
@@ -142,7 +143,7 @@
   }
 
   /**
-   * 2. Apple-Style Scroll Reveal Animation with IntersectionObserver
+   * 2. Smooth Scroll Reveal Animation with IntersectionObserver
    */
   function setupScrollReveal() {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
