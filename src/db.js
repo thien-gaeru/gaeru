@@ -52,7 +52,7 @@ function poolOptions(config) {
     connectionString = parsed.toString();
   }
   const minVersion = config.PGSSL_MIN_VERSION === "TLSv1.3" ? "TLSv1.3" : "TLSv1.2";
-  const max = Math.max(1, Number.parseInt(config?.PG_MAX_CONNECTIONS || config?.PG_POOL_SIZE || 10, 10));
+  const max = Math.max(1, Number.parseInt(config?.PG_MAX_CONNECTIONS || config?.PG_POOL_SIZE || 30, 10));
   const statementTimeout = config?.PG_STATEMENT_TIMEOUT_MS ? Number.parseInt(config.PG_STATEMENT_TIMEOUT_MS, 10) : 30000;
   const idleInTransactionTimeout = config?.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS ? Number.parseInt(config.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS, 10) : 15000;
   return {

@@ -461,7 +461,7 @@ function startAbandonedCartWorker(pool, config, { mailer = makeMailer(config), i
     if (running || stopped) return;
     running = true;
     try {
-      for (let i = 0; i < 5 && !stopped; i++) {
+      for (let i = 0; i < 8 && !stopped; i++) {
         const handled = await processAbandonedCartReminders(pool, config, mailer);
         if (!handled) break;
       }

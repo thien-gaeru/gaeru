@@ -6,7 +6,11 @@ const { LRUCache } = require('lru-cache');
 
 // Zero-Copy L1 RAM Cache with Pre-compressed Brotli & Gzip Buffers
 class RamCache {
-  constructor({ maxEntries = 1000, maxByteSize = 64 * 1024 * 1024, defaultTtlMs = 60 * 60 * 1000 } = {}) {
+  constructor({
+    maxEntries = Number(process.env.RAM_CACHE_MAX_ENTRIES) || 5000,
+    maxByteSize = Number(process.env.RAM_CACHE_MAX_BYTES) || 256 * 1024 * 1024,
+    defaultTtlMs = 60 * 60 * 1000
+  } = {}) {
     this.defaultTtlMs = defaultTtlMs;
     this.lru = new LRUCache({
       max: maxEntries,

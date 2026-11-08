@@ -44,9 +44,9 @@ function checkAdminSessionValid(req) {
 }
 
 
-// GAERU-14: Ngân sách kiểm soát kết nối SSE đồng thời cho Hostinger (2 CPU / 3 GB RAM)
-const MAX_TOTAL_SSE = Number(process.env.MAX_SSE_CONNECTIONS) || 500;
-const MAX_PER_IP_SSE = Number(process.env.MAX_PER_IP_SSE) || (process.env.NODE_ENV === 'test' ? 60 : 30);
+// GAERU High-Performance Realtime Connection Budget
+const MAX_TOTAL_SSE = Number(process.env.MAX_SSE_CONNECTIONS) || 1000;
+const MAX_PER_IP_SSE = Number(process.env.MAX_PER_IP_SSE) || (process.env.NODE_ENV === 'test' ? 60 : 50);
 
 const activeSseConnections = new Set();
 const ipSseCounts = new Map();

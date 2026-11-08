@@ -515,14 +515,17 @@ async function processEmailQueue(pool, config, mailer) {
   return true;
 }
 
-function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalMs = 5000 } = {}) {
+function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalMs = 3000 } = {}) {
   let running = false;
   let stopped = false;
   async function run() {
     if (running || stopped) return;
     running = true;
     try {
-      await processEmailQueue(pool, config, mailer);
+      for (let i = 0; i < 10 && !stopped; i++) {
+        const handled = await processEmailQueue(pool, config, mailer);
+        if (!handled) break;
+      }
     } catch {
       console.error('Marketing email queue temporarily unavailable');
     } finally {

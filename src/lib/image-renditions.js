@@ -29,7 +29,8 @@ function estimateRowBytes(row) {
 }
 
 async function bounded(work) {
-  if (active >= 1) await new Promise(resolve => waiting.push(resolve));
+  const maxConcurrentEncodes = Math.max(4, Number(process.env.MAX_CONCURRENT_IMAGE_ENCODES) || (typeof require('node:os').cpus === 'function' ? require('node:os').cpus().length : 4));
+  if (active >= maxConcurrentEncodes) await new Promise(resolve => waiting.push(resolve));
   else active++;
   try { return await work(); }
   finally { const resume = waiting.shift(); if (resume) resume(); else active--; }

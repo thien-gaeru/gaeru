@@ -228,7 +228,7 @@ function spawnServer() {
 
   const serverScript = path.join(ROOT_DIR, 'src', 'server.js');
   const nodeArgs = [
-    '--max-old-space-size=2048',
+    '--max-old-space-size=4096',
     '--no-warnings',
     serverScript
   ];
@@ -243,6 +243,7 @@ function spawnServer() {
     cwd: ROOT_DIR,
     env: {
       ...process.env,
+      UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || String(Math.max(8, (require('node:os').cpus?.().length || 4) * 2)),
       SUPERVISED_BY_WATCHDOG: '1',
       PORT: String(SERVER_PORT)
     },

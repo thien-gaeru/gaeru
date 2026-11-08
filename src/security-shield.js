@@ -111,7 +111,7 @@ function createHoneypotShield() {
 function createDdosShield(config = {}) {
   const isTest = config.NODE_ENV === 'test' || process.env.NODE_ENV === 'test';
   const customLimit = Number(config?.DDOS_RATE_LIMIT || process.env.DDOS_RATE_LIMIT);
-  const defaultLimit = Number.isFinite(customLimit) && customLimit > 0 ? customLimit : 1200;
+  const defaultLimit = Number.isFinite(customLimit) && customLimit > 0 ? customLimit : 3000;
   return rateLimit({
     windowMs: 60000, // 1 minute
     limit: isTest ? 10000 : defaultLimit, // Generous limit for high-traffic browsing and polling

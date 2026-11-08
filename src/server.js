@@ -134,9 +134,9 @@ async function start() {
     };
     return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low'), getStats: () => ({ activeHighOps, activeLowOps, queuedLowOps: lowWaitQueue.length, maxLowPriorityOps: maxLow }) };
   };
-  const poolMax = Number.parseInt(pool?.options?.max || 10, 10);
-  const maxLowPriorityOps = Math.max(2, Math.floor(poolMax * 0.15));
-  const maxHighPriorityOps = Math.max(8, poolMax - maxLowPriorityOps);
+  const poolMax = Number.parseInt(pool?.options?.max || 30, 10);
+  const maxLowPriorityOps = Math.max(4, Math.floor(poolMax * 0.20));
+  const maxHighPriorityOps = Math.max(16, poolMax - maxLowPriorityOps);
   const priorityController = typeof dbModule.createPriorityPoolController === 'function'
     ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps, maxHighPriorityOps })
     : buildFallbackPriorityController(pool, maxLowPriorityOps);
@@ -147,17 +147,17 @@ async function start() {
   const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
   if (isBackgroundWorker) {
     scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(highPriorityPool, config); }, 0);
-    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(highPriorityPool, config); }, 2000);
-    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(highPriorityPool, config); }, 4000);
-    scheduleWorker(() => { stopAIChat = require('./shopping-chat-ai-first').startAIChatWorker(lowPriorityPool, config); }, 6000);
-    scheduleWorker(() => { stopChatEmail = require('./shopping-chat-email').startChatEmailWorker(lowPriorityPool, config); }, 8000);
-    scheduleWorker(() => { stopChatCompression = require('./shopping-chat-compression').startChatCompressionWorker(lowPriorityPool); }, 10000);
-    scheduleWorker(() => { stopTikTokAds = require('./tiktok-ads').startTikTokAdsWorker(lowPriorityPool, config); }, 14000);
-    scheduleWorker(() => { stopAbandonedCart = require("./abandoned-cart").startAbandonedCartWorker(lowPriorityPool, config); }, 18000);
-    scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(lowPriorityPool, config); }, 22000);
-    scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(lowPriorityPool); }, 26000);
-    scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 30000);
-    scheduleWorker(() => { require("./shipping-adapters").syncViettelProvinceCatalog().catch(() => {}); }, 32000);
+    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(highPriorityPool, config); }, 500);
+    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(highPriorityPool, config); }, 1000);
+    scheduleWorker(() => { stopAIChat = require('./shopping-chat-ai-first').startAIChatWorker(lowPriorityPool, config); }, 1500);
+    scheduleWorker(() => { stopChatEmail = require('./shopping-chat-email').startChatEmailWorker(lowPriorityPool, config); }, 2000);
+    scheduleWorker(() => { stopChatCompression = require('./shopping-chat-compression').startChatCompressionWorker(lowPriorityPool); }, 2500);
+    scheduleWorker(() => { stopTikTokAds = require('./tiktok-ads').startTikTokAdsWorker(lowPriorityPool, config); }, 3000);
+    scheduleWorker(() => { stopAbandonedCart = require("./abandoned-cart").startAbandonedCartWorker(lowPriorityPool, config); }, 3500);
+    scheduleWorker(() => { stopEmail = require("./email-marketing").startEmailWorker(lowPriorityPool, config); }, 4000);
+    scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(lowPriorityPool); }, 4500);
+    scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 5000);
+    scheduleWorker(() => { require("./shipping-adapters").syncViettelProvinceCatalog().catch(() => {}); }, 5500);
   }
 
   // Non-blocking media probe and asynchronous asset sync in the background

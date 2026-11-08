@@ -3,9 +3,10 @@ const {Router}=require('express'),multer=require('multer'),{rateLimit}=require('
 const {randomUUID,createHash}=require('node:crypto');
 const disk=require('./lib/file-library-storage'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const TABLES={catalog_images:'Ảnh sản phẩm',news_images:'Ảnh bài viết',marketing_banner_images:'Banner',catalog_videos:'Video sản phẩm',shopping_chat_files:'Tệp hội thoại'};
-const thumbnails=require('./lib/object-cache').createObjectCache({maxBytes:16*1024*1024,maxEntryBytes:512*1024,maxPending:10});
+const thumbnails=require('./lib/object-cache').createObjectCache({maxBytes:64*1024*1024,maxEntryBytes:1024*1024,maxPending:64});
 let thumbnailActive=0;const thumbnailWaiting=[];
-async function thumbnail(bytes){if(thumbnailActive>=2){if(thumbnailWaiting.length>=8)throw disk.fail('Đang tạo ảnh thu nhỏ. Thử lại sau.',503);await new Promise(resolve=>thumbnailWaiting.push(resolve));}thumbnailActive++;try{return await require('sharp')(bytes,{limitInputPixels:24000000,failOn:'error'}).rotate().resize(400,300,{fit:'inside',withoutEnlargement:true}).webp({quality:82}).toBuffer();}finally{thumbnailActive--;thumbnailWaiting.shift()?.();}}
+const maxThumbnails = Math.max(8, Number(process.env.MAX_CONCURRENT_THUMBNAILS) || 8);
+async function thumbnail(bytes){if(thumbnailActive>=maxThumbnails){if(thumbnailWaiting.length>=64)throw disk.fail('Đang tạo ảnh thu nhỏ. Thử lại sau.',503);await new Promise(resolve=>thumbnailWaiting.push(resolve));}thumbnailActive++;try{return await require('sharp')(bytes,{limitInputPixels:24000000,failOn:'error'}).rotate().resize(400,300,{fit:'inside',withoutEnlargement:true}).webp({quality:82}).toBuffer();}finally{thumbnailActive--;thumbnailWaiting.shift()?.();}}
 const sha=b=>createHash('sha256').update(b).digest('hex');
 function owner(req,res,next){return req.admin?.role==='owner'&&req.admin?.source==='bootstrap'?next():res.status(403).json({error:'Chỉ chủ doanh nghiệp được quản lý toàn bộ kho tệp.'});}
 function cleanName(value){return String(value||'').replace(/[\x00-\x1f\x7f/\\]/g,' ').trim().slice(0,160);}
