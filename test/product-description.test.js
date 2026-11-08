@@ -4,6 +4,14 @@ test('older media with no paragraph stays at end and an edited shorter descripti
 
 test('bold product text renders without exposing HTML markup',()=>{const html=render({description:'**Clear sound** and **<script>bad</script>**',descriptionMedia:[]});assert.ok(html.includes('<strong>Clear sound</strong>'));assert.ok(html.includes('<strong>&lt;script&gt;bad&lt;/script&gt;</strong>'));assert.ok(!html.includes('<script>'));});
 
+test('K9 story includes all 8 supplied infographics and qualified range and features',()=>{
+  const html=render({slug:'gaeru-k9',...require('../k9-description').content()});
+  const files=[...html.matchAll(/src="(\/assets\/products\/k9-description\/\d+\.webp)"/g)].map(m=>m[1]);
+  assert.equal(files.length,8);assert.equal(new Set(files).size,8);
+  for(const file of files)assert.ok(require('node:fs').existsSync(require('node:path').join(__dirname,'..',file)));
+  assert.match(html,/Cắm là dùng/);assert.match(html,/20 mét/);assert.match(html,/360°/);assert.match(html,/id="product-specs"/);
+});
+
 test('M3 story includes all supplied artwork and qualified battery and range data',()=>{
   const html=render({slug:'gaeru-m3',...require('../m3-description').content()});
   const files=[...html.matchAll(/src="(\/assets\/products\/m3-description\/\d+\.webp)"/g)].map(m=>m[1]);

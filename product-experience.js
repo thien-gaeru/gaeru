@@ -34,8 +34,26 @@
 
     const heading = document.querySelector('.product-purchase-heading h1');
     const productName = heading ? heading.textContent.replace(/^Mua\s+/i, '').trim() : 'Sản phẩm GAERU';
+    function formatSubnavPrice(nodeOrStr) {
+      if (!nodeOrStr) return '';
+      let text = '';
+      if (typeof nodeOrStr === 'string') {
+        text = nodeOrStr;
+      } else if (nodeOrStr && typeof nodeOrStr === 'object') {
+        const compactNode = nodeOrStr.querySelector?.('.price-text-compact');
+        if (compactNode && compactNode.textContent) {
+          text = compactNode.textContent;
+        } else {
+          const fullNode = nodeOrStr.querySelector?.('.price-text-full');
+          text = (fullNode ? fullNode.textContent : nodeOrStr.textContent) || '';
+        }
+      }
+      const trimmed = text.trim();
+      return trimmed.replace(/^Từ\s+/i, '').replace(/\s+đến\s+/i, ' – ');
+    }
+
     const priceNode = document.querySelector('[data-selected-price]');
-    const currentPrice = priceNode ? priceNode.textContent : '';
+    const currentPrice = priceNode ? formatSubnavPrice(priceNode) : '';
 
     const nav = document.createElement('nav');
     nav.className = 'product-local-subnav';
@@ -106,10 +124,12 @@
 
     // Price synchronization
     if (priceNode) {
-      const observer = new MutationObserver(() => {
+      const syncSubnavPrice = () => {
         const localPrice = nav.querySelector('[data-local-nav-price]');
-        if (localPrice) localPrice.textContent = priceNode.textContent;
-      });
+        if (localPrice) localPrice.textContent = formatSubnavPrice(priceNode);
+      };
+      syncSubnavPrice();
+      const observer = new MutationObserver(syncSubnavPrice);
       observer.observe(priceNode, { childList: true, characterData: true, subtree: true });
     }
 

@@ -28,6 +28,9 @@ body.product-page {
   top: 52px;
   z-index: 18;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
@@ -188,10 +191,13 @@ body.product-page {
 .product-page .eyebrow,
 .product-feature-intro .eyebrow,
 .m3-intro .eyebrow,
+.k9-intro .eyebrow,
 .product-feature-chapter .eyebrow,
 .product-story-copy .eyebrow,
+.k9-chapter .eyebrow,
 .product-feature-specs .eyebrow,
 .m3-specs .eyebrow,
+.k9-specs .eyebrow,
 .product-information>header .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -221,6 +227,7 @@ body.product-page {
 /* Display Headline: Chữ tiêu đề lớn với chiều sâu quang học */
 .product-feature-intro h3,
 .m3-intro h3,
+.k9-intro h3,
 .product-information>header h2 {
   font-size: clamp(34px, 4.6vw, 56px) !important;
   line-height: 1.07 !important;
@@ -243,8 +250,10 @@ body.product-page {
 .product-feature-chapter>div h3,
 .product-story-copy h3,
 .m3-chapter h3,
+.k9-chapter h3,
 .product-feature-specs h3,
-.m3-specs h3 {
+.m3-specs h3,
+.k9-specs h3 {
   font-size: clamp(26px, 3.2vw, 40px) !important;
   line-height: 1.15 !important;
   letter-spacing: -0.025em !important;
@@ -256,6 +265,7 @@ body.product-page {
 /* Lead Paragraphs: Đoạn văn mở đầu thoáng đãng, lôi cuốn */
 .product-feature-intro>p:not(.eyebrow),
 .m3-intro>p:not(.eyebrow),
+.k9-intro>p:not(.eyebrow),
 .product-purchase-intro {
   font-size: clamp(19px, 2.2vw, 22px) !important;
   line-height: 1.55 !important;
@@ -270,6 +280,7 @@ body.product-page {
 .product-feature-chapter p:not(.eyebrow),
 .product-story-copy p:not(.eyebrow),
 .m3-chapter p:not(.eyebrow),
+.k9-chapter p:not(.eyebrow),
 .product-information .detail-description {
   font-size: 17.5px !important;
   line-height: 1.68 !important;
@@ -290,7 +301,8 @@ body.product-page {
    5. BENTO GRID CARDS (HIGHLIGHTS & KEY METRICS)
    ------------------------------------------------------------------------------ */
 .product-feature-highlights,
-.m3-highlights {
+.m3-highlights,
+.k9-highlights {
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)) !important;
   gap: 20px !important;
@@ -300,7 +312,9 @@ body.product-page {
 
 .product-feature-highlights>div,
 .m3-highlights>div,
-.m3-highlights>span {
+.m3-highlights>span,
+.k9-highlights>div,
+.k9-highlights>span {
   background: linear-gradient(180deg, #ffffff 0%, #f9fafd 100%) !important;
   border: 1px solid rgba(0, 0, 0, 0.07) !important;
   border-radius: 22px !important;
@@ -318,7 +332,9 @@ body.product-page {
 /* Thẻ bento có vạch sáng nhẹ nhàng khi di chuột */
 .product-feature-highlights>div::before,
 .m3-highlights>div::before,
-.m3-highlights>span::before {
+.m3-highlights>span::before,
+.k9-highlights>div::before,
+.k9-highlights>span::before {
   content: '';
   position: absolute;
   top: 0;
@@ -332,7 +348,9 @@ body.product-page {
 
 .product-feature-highlights>div:hover,
 .m3-highlights>div:hover,
-.m3-highlights>span:hover {
+.m3-highlights>span:hover,
+.k9-highlights>div:hover,
+.k9-highlights>span:hover {
   transform: translateY(-5px) !important;
   box-shadow: 0 18px 42px -4px rgba(0, 113, 227, 0.12), 0 4px 16px rgba(0, 0, 0, 0.04) !important;
   border-color: rgba(0, 113, 227, 0.3) !important;
@@ -340,12 +358,15 @@ body.product-page {
 
 .product-feature-highlights>div:hover::before,
 .m3-highlights>div:hover::before,
-.m3-highlights>span:hover::before {
+.m3-highlights>span:hover::before,
+.k9-highlights>div:hover::before,
+.k9-highlights>span:hover::before {
   opacity: 1;
 }
 
 .product-feature-highlights strong,
-.m3-highlights strong {
+.m3-highlights strong,
+.k9-highlights strong {
   font-size: 28px !important;
   line-height: 1.18 !important;
   letter-spacing: -0.03em !important;
@@ -357,7 +378,8 @@ body.product-page {
 }
 
 .product-feature-highlights span,
-.m3-highlights span {
+.m3-highlights span,
+.k9-highlights span {
   font-size: 14.5px !important;
   line-height: 1.5 !important;
   color: #6e6e73 !important;
@@ -369,7 +391,8 @@ body.product-page {
    ------------------------------------------------------------------------------ */
 .product-feature-chapter,
 .product-story-chapter,
-.m3-chapter {
+.m3-chapter,
+.k9-chapter {
   position: relative;
   margin-top: 84px !important;
   padding-top: 64px !important;
@@ -383,14 +406,16 @@ body.product-page {
 
 /* Ambient glow cho hero figure của phần giới thiệu */
 .product-feature-intro figure,
-.m3-intro figure {
+.m3-intro figure,
+.k9-intro-artwork figure {
   position: relative;
   max-width: 880px;
   margin: 36px auto 0;
 }
 
 .product-feature-intro figure::before,
-.m3-intro figure::before {
+.m3-intro figure::before,
+.k9-intro-artwork figure::before {
   content: '';
   position: absolute;
   inset: 10% 15%;
@@ -404,7 +429,8 @@ body.product-page {
 .product-feature-chapter figure,
 .product-story-art figure,
 .description-figure,
-.m3-story figure {
+.m3-story figure,
+.k9-story figure {
   position: relative;
   z-index: 1;
   overflow: hidden;
@@ -418,7 +444,8 @@ body.product-page {
 .product-feature-chapter figure:hover,
 .product-story-art figure:hover,
 .description-figure:hover,
-.m3-story figure:hover {
+.m3-story figure:hover,
+.k9-story figure:hover {
   transform: scale(1.015);
   box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.09), 0 4px 16px rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 113, 227, 0.18);
@@ -427,7 +454,8 @@ body.product-page {
 .product-feature-chapter figure img,
 .product-story-art figure img,
 .description-figure img,
-.m3-story figure img {
+.m3-story figure img,
+.k9-story figure img {
   border-radius: 24px !important;
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
@@ -479,7 +507,8 @@ body.product-page {
    8. MINIMALIST LUXURY TECH SPECS TABLE
    ------------------------------------------------------------------------------ */
 .product-feature-specs,
-.m3-specs {
+.m3-specs,
+.k9-specs {
   margin-top: 84px !important;
   padding: 48px 36px !important;
   background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
@@ -489,12 +518,14 @@ body.product-page {
 }
 
 .product-feature-specs dl,
-.m3-specs dl {
+.m3-specs dl,
+.k9-specs dl {
   margin: 28px 0 !important;
 }
 
 .product-feature-specs dl>div,
-.m3-specs dl>div {
+.m3-specs dl>div,
+.k9-specs dl>div {
   border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
   padding: 20px 14px !important;
   border-radius: 12px;
@@ -502,13 +533,15 @@ body.product-page {
 }
 
 .product-feature-specs dl>div:hover,
-.m3-specs dl>div:hover {
+.m3-specs dl>div:hover,
+.k9-specs dl>div:hover {
   background: rgba(0, 113, 227, 0.04);
   transform: translateX(4px);
 }
 
 .product-feature-specs dt,
-.m3-specs dt {
+.m3-specs dt,
+.k9-specs dt {
   color: #1d1d1f !important;
   font-weight: 700 !important;
   font-size: 16.5px !important;
@@ -516,7 +549,8 @@ body.product-page {
 }
 
 .product-feature-specs dd,
-.m3-specs dd {
+.m3-specs dd,
+.k9-specs dd {
   color: #48484a !important;
   font-size: 16.5px !important;
   line-height: 1.6 !important;
@@ -585,6 +619,7 @@ body.product-page {
   /* Dark mode Typography Headings */
   .product-feature-intro h3,
   .m3-intro h3,
+  .k9-intro h3,
   .product-information>header h2 {
     background: linear-gradient(180deg, #ffffff 0%, #a1a1a6 100%);
     -webkit-background-clip: text;
@@ -598,17 +633,21 @@ body.product-page {
   .product-feature-chapter>div h3,
   .product-story-copy h3,
   .m3-chapter h3,
+  .k9-chapter h3,
   .product-feature-specs h3,
-  .m3-specs h3 {
+  .m3-specs h3,
+  .k9-specs h3 {
     color: #f5f5f7 !important;
   }
 
   .product-feature-intro>p:not(.eyebrow),
   .m3-intro>p:not(.eyebrow),
+  .k9-intro>p:not(.eyebrow),
   .product-purchase-intro,
   .product-feature-chapter p:not(.eyebrow),
   .product-story-copy p:not(.eyebrow),
   .m3-chapter p:not(.eyebrow),
+  .k9-chapter p:not(.eyebrow),
   .product-information .detail-description {
     color: #a1a1a6 !important;
   }
@@ -622,7 +661,9 @@ body.product-page {
   /* Dark mode Bento Grid */
   .product-feature-highlights>div,
   .m3-highlights>div,
-  .m3-highlights>span {
+  .m3-highlights>span,
+  .k9-highlights>div,
+  .k9-highlights>span {
     background: linear-gradient(180deg, #18181b 0%, #121214 100%) !important;
     border-color: rgba(255, 255, 255, 0.1) !important;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
@@ -630,20 +671,24 @@ body.product-page {
 
   .product-feature-highlights>div:hover,
   .m3-highlights>div:hover,
-  .m3-highlights>span:hover {
+  .m3-highlights>span:hover,
+  .k9-highlights>div:hover,
+  .k9-highlights>span:hover {
     box-shadow: 0 18px 42px -4px rgba(41, 151, 255, 0.2), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
     border-color: rgba(41, 151, 255, 0.4) !important;
   }
 
   .product-feature-highlights strong,
-  .m3-highlights strong {
+  .m3-highlights strong,
+  .k9-highlights strong {
     background: linear-gradient(135deg, #ffffff 0%, #2997ff 140%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 
   .product-feature-highlights span,
-  .m3-highlights span {
+  .m3-highlights span,
+  .k9-highlights span {
     color: #86868b !important;
   }
 
@@ -652,6 +697,7 @@ body.product-page {
   .product-story-art figure,
   .description-figure,
   .m3-story figure,
+  .k9-story figure,
   .product-page .product-detail-art {
     background: #141417;
     border-color: rgba(255, 255, 255, 0.08);
@@ -660,34 +706,40 @@ body.product-page {
 
   .product-feature-chapter,
   .product-story-chapter,
-  .m3-chapter {
+  .m3-chapter,
+  .k9-chapter {
     background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1) 20%, rgba(255, 255, 255, 0.1) 80%, transparent);
   }
 
   /* Dark mode Tech specs */
   .product-feature-specs,
-  .m3-specs {
+  .m3-specs,
+  .k9-specs {
     background: linear-gradient(180deg, #141416 0%, #0d0d0f 100%);
     border-color: rgba(255, 255, 255, 0.08);
   }
 
   .product-feature-specs dl>div,
-  .m3-specs dl>div {
+  .m3-specs dl>div,
+  .k9-specs dl>div {
     border-bottom-color: rgba(255, 255, 255, 0.08) !important;
   }
 
   .product-feature-specs dl>div:hover,
-  .m3-specs dl>div:hover {
+  .m3-specs dl>div:hover,
+  .k9-specs dl>div:hover {
     background: rgba(41, 151, 255, 0.08);
   }
 
   .product-feature-specs dt,
-  .m3-specs dt {
+  .m3-specs dt,
+  .k9-specs dt {
     color: #f5f5f7 !important;
   }
 
   .product-feature-specs dd,
-  .m3-specs dd {
+  .m3-specs dd,
+  .k9-specs dd {
     color: #a1a1a6 !important;
   }
 
@@ -706,33 +758,62 @@ body.product-page {
 
   .product-local-subnav {
     top: 50px;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
   }
 
   .product-local-subnav-inner {
-    width: calc(100% - 32px);
+    width: 100%;
+    padding-inline: 12px;
+    box-sizing: border-box;
     height: 48px;
-    gap: 12px;
+    gap: 8px;
   }
 
   .product-local-subnav-title {
-    font-size: 16px;
+    font-size: 15px;
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+  }
+
+  .product-local-subnav-title span:first-child {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+
+  .product-local-subnav-title .product-subnav-badge {
+    display: none !important;
   }
 
   .product-local-subnav-links {
     display: none; /* Hide text tabs on small mobile to give room for price + CTA */
   }
 
+  .product-local-subnav-cta {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   .product-local-subnav-price {
-    font-size: 14px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    letter-spacing: -0.02em;
+    font-weight: 700;
   }
 
   .product-local-subnav-btn {
-    padding: 6px 14px;
+    padding: 6px 12px;
     font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .product-feature-highlights,
-  .m3-highlights {
+  .m3-highlights,
+  .k9-highlights {
     grid-template-columns: 1fr !important;
     gap: 14px !important;
     margin: 28px auto !important;
@@ -740,13 +821,15 @@ body.product-page {
 
   .product-feature-chapter,
   .product-story-chapter,
-  .m3-chapter {
+  .m3-chapter,
+  .k9-chapter {
     margin-top: 52px !important;
     padding-top: 40px !important;
   }
 
   .product-feature-specs,
-  .m3-specs {
+  .m3-specs,
+  .k9-specs {
     padding: 32px 20px !important;
     margin-top: 52px !important;
   }
@@ -770,10 +853,13 @@ body.product-page {
   .product-feature-highlights>div,
   .m3-highlights>div,
   .m3-highlights>span,
+  .k9-highlights>div,
+  .k9-highlights>span,
   .product-feature-chapter figure,
   .product-story-art figure,
   .description-figure,
   .m3-story figure,
+  .k9-story figure,
   .product-page [data-product-main-image],
   .product-page .product-gallery-thumbnails button {
     transition: none !important;
@@ -786,6 +872,7 @@ body.product-page {
 #product-specs,
 .product-feature-specs,
 .m3-specs,
+.k9-specs,
 .product-story-specs {
   scroll-margin-top: 120px;
 }
