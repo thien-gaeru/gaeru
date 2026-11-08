@@ -781,3 +781,11 @@ body.product-page {
     opacity: 1 !important;
   }
 }
+
+/* Smooth scroll anchor offset for specs section */
+#product-specs,
+.product-feature-specs,
+.m3-specs,
+.product-story-specs {
+  scroll-margin-top: 120px;
+}

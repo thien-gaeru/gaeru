@@ -67,11 +67,42 @@
       document.body.prepend(nav);
     }
 
-    // Connect Specs anchor if not present
-    const specsSection = document.querySelector('.product-feature-specs, .m3-specs, .product-story-specs');
-    if (specsSection && !specsSection.id) {
-      specsSection.id = 'product-specs';
+    // Robust Specs element finder & anchor connector
+    function findSpecsElement() {
+      let el = document.querySelector('#product-specs');
+      if (el) return el;
+      el = document.querySelector('.product-feature-specs, .m3-specs, .product-story-specs, [data-specs-section]');
+      if (el) return el;
+      const info = document.querySelector('#product-information');
+      if (info) {
+        const candidates = info.querySelectorAll('h2, h3, h4, p, details, dl, table, figure');
+        for (const node of candidates) {
+          const text = (node.textContent || '').toLowerCase();
+          if (text.includes('th\u00f4ng s\u1ed1')) {
+            return node;
+          }
+          const alt = (node.querySelector?.('img')?.getAttribute('alt') || '').toLowerCase();
+          if (alt.includes('th\u00f4ng s\u1ed1')) {
+            return node;
+          }
+        }
+        return info.querySelector('.product-description-media, .detail-description') || info;
+      }
+      return null;
     }
+
+    function ensureSpecsAnchor() {
+      let specs = document.querySelector('#product-specs');
+      if (!specs) {
+        specs = findSpecsElement();
+        if (specs && !specs.id) {
+          specs.id = 'product-specs';
+        }
+      }
+      return specs;
+    }
+
+    ensureSpecsAnchor();
 
     // Price synchronization
     if (priceNode) {
@@ -105,15 +136,15 @@
 
       // 3. ScrollSpy Active Indicator
       const infoEl = document.querySelector('#product-information');
-      const specsEl = document.querySelector('#product-specs');
+      const specsEl = document.querySelector('#product-specs') || ensureSpecsAnchor();
 
       const infoTop = infoEl ? infoEl.getBoundingClientRect().top : 9999;
       const specsTop = specsEl ? specsEl.getBoundingClientRect().top : 9999;
 
       let current = 'overview';
-      if (specsTop <= 160) {
+      if (specsTop <= 200) {
         current = 'specs';
-      } else if (infoTop <= 160) {
+      } else if (infoTop <= 200) {
         current = 'features';
       }
 
@@ -129,15 +160,55 @@
     window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll();
 
-    // Smooth Scroll Click Handlers
+    // Smooth Scroll Click Handlers with precise sticky offset calculation
     nav.addEventListener('click', (e) => {
       const link = e.target.closest('a[href^="#"]');
       if (!link) return;
       e.preventDefault();
       const targetId = link.getAttribute('href');
-      const target = document.querySelector(targetId);
+
+      if (targetId === '#product-detail') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        links.forEach(l => l.classList.remove('is-active'));
+        const overviewLink = nav.querySelector('[data-nav-target="overview"]');
+        if (overviewLink) overviewLink.classList.add('is-active');
+        return;
+      }
+
+      let target = document.querySelector(targetId);
+      if (!target && targetId === '#product-specs') {
+        target = ensureSpecsAnchor();
+      }
+
       if (target) {
-        target.scrollIntoView({ behavior: 'smooth' });
+        const parentDetails = target.closest('details');
+        if (parentDetails && !parentDetails.open) {
+          parentDetails.open = true;
+        }
+
+        const navHeight = nav.offsetHeight || 52;
+        const siteHeader = document.querySelector('#site-header');
+        const headerHeight = siteHeader ? (siteHeader.offsetHeight || 52) : 52;
+        const totalOffset = navHeight + headerHeight + 16;
+
+        const targetRect = target.getBoundingClientRect();
+        const absoluteTargetTop = window.scrollY + targetRect.top - totalOffset;
+
+        window.scrollTo({
+          top: Math.max(0, absoluteTargetTop),
+          behavior: 'smooth'
+        });
+
+        links.forEach(l => l.classList.remove('is-active'));
+        link.classList.add('is-active');
+
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      } else if (targetId === '#product-specs') {
+        const info = document.querySelector('#product-information');
+        if (info) {
+          info.scrollIntoView({ behavior: 'smooth' });
+        }
       }
     });
   }
