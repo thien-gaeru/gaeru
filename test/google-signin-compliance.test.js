@@ -406,8 +406,8 @@ test('TC024: Anti-Account Takeover redirects to /account/link-required when emai
 
   assert.equal(res.status, 303);
   const loc = res.headers.get('location');
-  assert.ok(loc.includes('/account/link-required'));
-  assert.ok(decodeURIComponent(loc).includes('oldcustomer@gmail.com'));
+  assert.equal(loc, '/account/link-required');
+  assert.ok(!loc.includes('oldcustomer@gmail.com'), 'Email PII must NOT be leaked in redirect URL query');
 });
 
 // GET /account/link-required endpoint
@@ -420,7 +420,7 @@ test('GET /account/link-required redirects to storefront account.html with linkR
   });
   assert.equal(res.status, 303);
   const loc = res.headers.get('location');
-  assert.equal(loc, '/account.html?linkRequired=1&email=test%40gmail.com');
+  assert.equal(loc, '/account.html?linkRequired=1', 'Redirect URL must not expose email query parameter');
 });
 
 // TC030: POST /api/auth/link-google prevents hijacking another customer Google subject

@@ -31,6 +31,7 @@ const HEALTH_CHECK_INTERVAL_MS = 5000;
 const HEALTH_CHECK_TIMEOUT_MS = 6000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const SERVER_PORT = parseInt(process.env.PORT || '3000', 10);
 
 if (!fs.existsSync(LOGS_DIR)) {
   fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -132,12 +133,12 @@ function checkStatus() {
   console.log(`Server Child: ${srvAlive ? `RUNNING (PID: ${srvPid})` : 'NOT FOUND / STOPPED'}`);
 
   // Test local HTTP health
-  const req = http.get('http://127.0.0.1:3000/healthz', { timeout: 2000 }, (res) => {
-    console.log(`HTTP Health (/healthz): ${res.statusCode} ${res.statusMessage} (Port 3000 OK)`);
+  const req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: 2000 }, (res) => {
+    console.log(`HTTP Health (/healthz): ${res.statusCode} ${res.statusMessage} (Port ${SERVER_PORT} OK)`);
     process.exit(0);
   });
   req.on('error', (err) => {
-    console.log(`HTTP Health (/healthz): ERROR (${err.message}) - Port 3000 not responding!`);
+    console.log(`HTTP Health (/healthz): ERROR (${err.message}) - Port ${SERVER_PORT} not responding!`);
     process.exit(1);
   });
   req.on('timeout', () => {
@@ -243,7 +244,7 @@ function spawnServer() {
     env: {
       ...process.env,
       SUPERVISED_BY_WATCHDOG: '1',
-      PORT: process.env.PORT || '3000'
+      PORT: String(SERVER_PORT)
     },
     stdio: ['ignore', outStream, errStream],
     detached: false
@@ -291,7 +292,7 @@ function checkHttpHealth() {
   if (isShuttingDown || !childProcess || !childProcess.pid) return;
 
   try {
-    const req = http.get('http://127.0.0.1:3000/healthz', { timeout: HEALTH_CHECK_TIMEOUT_MS }, (res) => {
+    const req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: HEALTH_CHECK_TIMEOUT_MS }, (res) => {
       res.resume();
       if (res.statusCode === 200) {
         if (consecutiveFailures > 0) {

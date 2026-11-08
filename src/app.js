@@ -255,8 +255,14 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   }
   app.get('/account/link-required', (req, res) => {
     res.set('Cache-Control', 'no-store');
-    const emailParam = req.query.email ? '&email=' + encodeURIComponent(req.query.email) : '';
-    res.redirect(303, '/account.html?linkRequired=1' + emailParam);
+    if (req.query.email && req.session) {
+      req.session.pendingOAuthLink = {
+        email: String(req.query.email).trim(),
+        provider: 'google',
+        createdAt: Date.now()
+      };
+    }
+    res.redirect(303, '/account.html?linkRequired=1');
   });
   app.post('/api/auth/link-google', requireCsrf, customerOAuthRouter.handleLinkGoogle);
   app.post('/api/auth/unlink-google', requireCsrf, customerOAuthRouter.handleUnlinkGoogle);

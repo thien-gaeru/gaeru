@@ -234,12 +234,24 @@ const initialOauthError = initialAccountQuery.get('oauthError');
 const linkRequired = initialAccountQuery.get('linkRequired');
 const linkEmail = initialAccountQuery.get('email');
 
-function showInitialOAuthFeedback() {
+async function showInitialOAuthFeedback() {
   if (!initialOauthError && !linkRequired) return;
   if (linkRequired) {
+    let email = linkEmail;
+    if (!email) {
+      try {
+        const res = await fetch('/api/customer-auth/oauth/pending-link', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.pending && data?.email) {
+            email = data.email;
+          }
+        }
+      } catch (_) {}
+    }
     const identifier = document.querySelector('[data-account-form="login"] [name="identifier"]');
-    if (identifier && linkEmail) identifier.value = linkEmail;
-    const emailMsg = linkEmail ? ' (' + linkEmail + ')' : '';
+    if (identifier && email) identifier.value = email;
+    const emailMsg = email ? ' (' + email + ')' : '';
     setAccountFeedback('Tài khoản GAERU với email này' + emailMsg + ' đã tồn tại. Vui lòng đăng nhập bằng mật khẩu của tài khoản để liên kết Google an toàn.', true);
   } else setAccountFeedback(initialOauthError, true);
   const query = new URLSearchParams(window.location.search);

@@ -356,7 +356,7 @@ test("Google Analytics: client helper formats events and deduplicates purchases"
   GAERUAnalytics.trackPurchase(order);
   assert.equal(events[4][1], "purchase");
   assert.equal(events[4][2].transaction_id, "GAERU-TEST-9999");
-  assert.equal(events[4][2].value, 1410000);
+  assert.equal(events[4][2].value, 1380000);
   assert.equal(events[4][2].shipping, 30000);
 
   // Second track call with same order -> deduplicated, does NOT fire
@@ -490,7 +490,14 @@ test("Google Analytics: Order status endpoint returns items, shippingFeeVnd, and
   await new Promise((resolve) => server.once("listening", resolve));
 
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const res = await fetch(`${baseUrl}/api/payments/order-status?order=GAERU-20261108-999`);
+  // Unauthenticated / unsigned query is rejected with 401
+  const unauthRes = await fetch(`${baseUrl}/api/payments/order-status?order=GAERU-20261108-999`);
+  assert.equal(unauthRes.status, 401);
+
+  // Signed guest tracking token succeeds with 200
+  const { signGuestTrackingToken } = require("../src/shipping-management");
+  const guestToken = signGuestTrackingToken(baseConfig, "GAERU-20261108-999");
+  const res = await fetch(`${baseUrl}/api/payments/order-status?order=GAERU-20261108-999&token=${encodeURIComponent(guestToken)}`);
   assert.equal(res.status, 200);
 
   const data = await res.json();

@@ -400,11 +400,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       return res.redirect("/payment-result.html?result=invalid");
     }
     const successful = parameters.vnp_ResponseCode === "00" && parameters.vnp_TransactionStatus === "00";
+    const { signGuestTrackingToken } = require("./shipping-management");
+    const vnpOrder = parameters.vnp_TxnRef || "";
+    const token = vnpOrder ? signGuestTrackingToken(config, vnpOrder) : "";
     const query = new URLSearchParams({
       result: successful ? "processing" : "failed",
       provider: "vnpay",
-      order: parameters.vnp_TxnRef || "",
-      code: parameters.vnp_ResponseCode || ""
+      order: vnpOrder,
+      code: parameters.vnp_ResponseCode || "",
+      ...(token ? { token } : {})
     });
     res.redirect(`/payment-result.html?${query}`);
   });
@@ -475,7 +479,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const orderNumber = require("./payment-channels").extractOrderNumber(req.query.order);
       if (!orderNumber) return res.status(400).json({ error: "Thiếu mã đơn hàng." });
       const row = (await pool.query(
-        `SELECT id, order_number AS "orderNumber", status, payment_method AS "paymentMethod",
+        `SELECT id, order_number AS "orderNumber", customer_id AS "customerId", status, payment_method AS "paymentMethod",
           payment_status AS "paymentStatus", total_vnd AS "totalVnd",
           shipping_fee_vnd AS "shippingFeeVnd", subtotal_vnd AS "subtotalVnd",
           updated_at AS "updatedAt"
@@ -483,13 +487,25 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         [orderNumber]
       )).rows[0];
       if (!row) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
+
+      const { verifyGuestTrackingToken } = require("./shipping-management");
+      const guestToken = String(req.query?.token || req.headers["x-tracking-token"] || req.headers["x-order-token"] || "").trim();
+      const hasValidToken = guestToken ? verifyGuestTrackingToken(config, orderNumber, guestToken) : false;
+      const isSessionOwner = (req.session?.customer?.id && row.customerId === req.session.customer.id) ||
+                             (Array.isArray(req.session?.placedOrders) && req.session.placedOrders.includes(orderNumber)) ||
+                             Boolean(req.session?.admin?.id);
+
+      if (!hasValidToken && !isSessionOwner) {
+        return res.status(401).json({ error: "Yêu cầu mã xác thực đơn hàng hoặc phiên đăng nhập hợp lệ." });
+      }
+
       const items = (await pool.query(
         `SELECT sku, product_name AS "name", variant_name AS "variantName",
           quantity, unit_price_vnd AS "priceVnd", line_total_vnd AS "totalVnd"
          FROM order_items WHERE order_id = $1 ORDER BY id`,
         [row.id]
       )).rows;
-      const { id, ...orderData } = row;
+      const { id, customerId, ...orderData } = row;
       orderData.items = items;
       res.json({ order: orderData });
     } catch (error) {
@@ -504,7 +520,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const verified=require('./payment-channels').verifyGatewayPayload(provider,req.query,channelConfig);
     const order=require('./payment-channels').extractOrderNumber(verified.orderNumber||req.query.orderId||req.query.apptransid||req.query.app_trans_id||req.query.order||'');
     // Browser-controlled navigation is display only. IPN/query is authoritative.
-    const query=new URLSearchParams({result:verified.valid?(verified.successful?'processing':'failed'):'pending',provider,order,code:verified.responseCode||req.query.resultCode||''});
+    const { signGuestTrackingToken: signProviderToken } = require("./shipping-management");
+    const pToken = order ? signProviderToken(config, order) : "";
+    const query=new URLSearchParams({
+      result:verified.valid?(verified.successful?'processing':'failed'):'pending',
+      provider,
+      order,
+      code:verified.responseCode||req.query.resultCode||'',
+      ...(pToken ? { token: pToken } : {})
+    });
     res.redirect('/payment-result.html?'+query);
   });
 
@@ -892,16 +916,23 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         idempotencyClaimed = true;
       }
 
-      const checkoutResponse = (result) => ({
-        order: result.order,
-        paymentUrl: result.paymentUrl,
-        ...(result.bankTransfer ? { bankTransfer: result.bankTransfer } : {}),
-        message: parsed.data.paymentMethod === "cod"
-          ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
-          : parsed.data.paymentMethod === "bank_transfer"
-            ? "Đã tiếp nhận đơn chuyển khoản. Sau khi giao dịch được xác nhận khớp số tiền và mã đơn, đơn hàng sẽ tự động chuyển sang trạng thái Chờ gửi hàng."
-            : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
-      });
+      const { signGuestTrackingToken: signOrderToken } = require("./shipping-management");
+      const checkoutResponse = (result) => {
+        if (!result.trackingToken && result.order?.orderNumber) {
+          result.trackingToken = signOrderToken(config, result.order.orderNumber);
+        }
+        return {
+          order: result.order,
+          paymentUrl: result.paymentUrl,
+          trackingToken: result.trackingToken,
+          ...(result.bankTransfer ? { bankTransfer: result.bankTransfer } : {}),
+          message: parsed.data.paymentMethod === "cod"
+            ? "Đã tiếp nhận đơn hàng COD. GAERU sẽ xác nhận đơn và thu tiền khi giao hàng."
+            : parsed.data.paymentMethod === "bank_transfer"
+              ? "Đã tiếp nhận đơn chuyển khoản. Sau khi giao dịch được xác nhận khớp số tiền và mã đơn, đơn hàng sẽ tự động chuyển sang trạng thái Chờ gửi hàng."
+              : `Đã tạo phiên thanh toán ${parsed.data.paymentMethod.toUpperCase()}. Sau khi thanh toán thành công, đơn hàng sẽ tự động duyệt sang trạng thái Chờ gửi hàng.`
+        };
+      };
       async function completeCheckout(client, result) {
         if (idempotencyClaimed && scopeKey && idempotencyKey) {
           const completedClaim = await client.query(
@@ -1402,7 +1433,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       }
 
       invalidateTags(['orders', `order:${order.id}`, 'stock']);
-
+      if (req.session) {
+        req.session.placedOrders = Array.isArray(req.session.placedOrders)
+          ? [...new Set([...req.session.placedOrders, order.order.orderNumber])]
+          : [order.order.orderNumber];
+      }
       const responsePayload = checkoutResponse(order);
 
       res.status(201).json(responsePayload);

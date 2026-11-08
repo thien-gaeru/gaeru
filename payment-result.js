@@ -3,6 +3,7 @@
   const content = document.querySelector('#payment-result');
   if (!content) return;
   const orderNumber = result.get('order');
+  const trackingToken = result.get('token') || result.get('trackingToken') || '';
   const providerNames = { vnpay:'VNPAY',  momo:'MoMo', zalopay:'ZaloPay', bank_transfer:'Chuyển khoản ngân hàng' };
   const waiting = {
     title:'Đang kiểm tra trạng thái thanh toán.',
@@ -202,7 +203,8 @@
       requestTimer = timeout;
       let body;
       try {
-        const response = await fetch(`/api/payments/order-status?order=${encodeURIComponent(orderNumber)}`,{credentials:'same-origin',cache:'no-store',signal:request.signal});
+        const tokenParam = trackingToken ? `&token=${encodeURIComponent(trackingToken)}` : '';
+        const response = await fetch(`/api/payments/order-status?order=${encodeURIComponent(orderNumber)}${tokenParam}`,{credentials:'same-origin',cache:'no-store',signal:request.signal});
         if (response.ok) body = await response.json();
       } catch {
         // An unavailable network is unknown, never a successful or failed payment.

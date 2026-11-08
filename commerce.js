@@ -853,23 +853,6 @@ async function renderCheckout() {
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))
         })
       });
-      try {
-        if (result?.order) {
-          window.GAERUAnalytics?.trackPurchase?.({
-            orderNumber: result.order.orderNumber,
-            totalVnd: result.order.totalVnd,
-            shippingFeeVnd: result.order.shippingFeeVnd,
-            items: rows.map(r => ({
-              variantId: r.variant.id,
-              sku: r.variant.sku,
-              name: `${r.product.name} - ${r.variant.name}`,
-              category: r.product.category,
-              priceVnd: r.variant.priceVnd,
-              quantity: r.quantity
-            }))
-          });
-        }
-      } catch (_) {}
       if(!purchase.direct)writeCart([]);
       if (result.paymentUrl) {
         location.assign(result.paymentUrl);
@@ -882,10 +865,27 @@ async function renderCheckout() {
           const liveNode = root.querySelector("[data-prepaid-live-status]");
           if (!liveNode) { clearInterval(pollTimer); return; }
           try {
-            const check = await apiRequest(`/api/payments/order-status?order=${encodeURIComponent(result.order.orderNumber)}`);
+            const tokenParam = result.trackingToken ? `&token=${encodeURIComponent(result.trackingToken)}` : '';
+            const check = await apiRequest(`/api/payments/order-status?order=${encodeURIComponent(result.order.orderNumber)}${tokenParam}`);
             if (check.order?.paymentStatus === "paid") {
               liveNode.textContent = "Đã so khớp giao dịch thành công! Đơn hàng đã tự động duyệt sang trạng thái Chờ gửi hàng.";
               clearInterval(pollTimer);
+              try {
+                window.GAERUAnalytics?.trackPurchase?.({
+                  orderNumber: check.order.orderNumber,
+                  totalVnd: check.order.totalVnd,
+                  shippingFeeVnd: check.order.shippingFeeVnd,
+                  subtotalVnd: check.order.subtotalVnd,
+                  items: check.order.items || rows.map(r => ({
+                    variantId: r.variant.id,
+                    sku: r.variant.sku,
+                    name: `${r.product.name} - ${r.variant.name}`,
+                    category: r.product.category,
+                    priceVnd: r.variant.priceVnd,
+                    quantity: r.quantity
+                  }))
+                });
+              } catch (_) {}
             }
           } catch {}
         }, 4000);

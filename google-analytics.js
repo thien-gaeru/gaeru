@@ -270,16 +270,33 @@
         }
       } catch (_) {}
 
-      const total = Number(order.totalVnd);
-      const shipping = Number(order.shippingFeeVnd ?? 0);
+      const shipping = Number(order.shippingFeeVnd ?? order.shipping ?? 0);
+      const tax = Number(order.taxVnd ?? order.tax ?? 0);
+      const validShipping = Number.isFinite(shipping) && shipping >= 0 ? shipping : 0;
+      const validTax = Number.isFinite(tax) && tax >= 0 ? tax : 0;
+
+      const rawTotal = Number(order.totalVnd ?? order.total);
+      let itemRevenue;
+      if (order.value !== undefined && Number.isFinite(Number(order.value))) {
+        itemRevenue = Number(order.value);
+      } else if (order.subtotalVnd !== undefined && Number.isFinite(Number(order.subtotalVnd))) {
+        itemRevenue = Math.max(0, Number(order.subtotalVnd) - (Number(order.discountVnd) || 0));
+      } else if (Number.isFinite(rawTotal) && rawTotal >= 0) {
+        itemRevenue = Math.max(0, rawTotal - validShipping - validTax);
+      } else {
+        const items = sanitizeItems(order.items);
+        itemRevenue = items.reduce((sum, it) => sum + (it.price * it.quantity), 0);
+      }
+
+      const value = Number.isFinite(itemRevenue) && itemRevenue >= 0 ? itemRevenue : 0;
       const sanitizedItems = sanitizeItems(order.items);
 
       this.trackEvent('purchase', {
         transaction_id: orderNumber,
-        value: Number.isFinite(total) && total >= 0 ? total : 0,
+        value,
         currency: 'VND',
-        shipping: Number.isFinite(shipping) && shipping >= 0 ? shipping : 0,
-        tax: Number(order.taxVnd ?? 0) || 0,
+        shipping: validShipping,
+        tax: validTax,
         coupon: order.coupon || order.voucherCode || undefined,
         items: sanitizedItems
       });

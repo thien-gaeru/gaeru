@@ -366,10 +366,18 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       const outcome = await resolveGoogleIdentity(pool, googleUser);
 
       if (outcome.kind === 'link_required') {
-        if (req.path === '/auth/google') {
-          return res.redirect(303, '/account/link-required?email=' + encodeURIComponent(outcome.email));
+        if (req.session) {
+          req.session.pendingOAuthLink = {
+            email: outcome.email,
+            provider: 'google',
+            googleSub: googleUser.sub,
+            createdAt: Date.now()
+          };
         }
-        return res.redirect(303, '/account.html?linkRequired=1&email=' + encodeURIComponent(outcome.email));
+        if (req.path === '/auth/google') {
+          return res.redirect(303, '/account/link-required');
+        }
+        return res.redirect(303, '/account.html?linkRequired=1');
       }
 
       if (outcome.customer.active === false || outcome.customer.deletedAt) {
@@ -446,6 +454,9 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
           [subject, googleUser.picture, customerId]
         );
 
+        if (req.session?.pendingOAuthLink) {
+          delete req.session.pendingOAuthLink;
+        }
         return { success: true, message: 'Đã liên kết tài khoản Google thành công.' };
       });
 
@@ -502,6 +513,19 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   router.post('/google-callback', express.urlencoded({ extended: false, limit: '32kb' }), handleRedirectCallback);
   router.post('/link-google', requireCsrf, handleLinkGoogle);
   router.post('/unlink-google', requireCsrf, handleUnlinkGoogle);
+
+  router.get('/pending-link', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const pending = req.session?.pendingOAuthLink;
+    if (!pending || !pending.email || (Date.now() - pending.createdAt > 15 * 60 * 1000)) {
+      return res.json({ pending: false });
+    }
+    res.json({
+      pending: true,
+      provider: pending.provider || 'google',
+      email: pending.email
+    });
+  });
 
   router.handleRedirectCallback = handleRedirectCallback;
   router.handleGisRedirect = handleRedirectCallback;
