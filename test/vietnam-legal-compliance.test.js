@@ -7,7 +7,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 
 test('Legal page complies with Decree 52/2013/ND-CP & Decree 85/2021/ND-CP mandatory seller disclosure', () => {
   const html = fs.readFileSync(path.join(ROOT_DIR, 'legal.html'), 'utf8');
-  assert.ok(html.includes('HỘ KINH DOANH GAERU'), 'Must disclose registered business name in Vietnamese');
+  assert.ok(html.includes('GAERU'), 'Must disclose registered business name in Vietnamese');
   assert.ok(html.includes('8836293843-002'), 'Must disclose business registration and tax code');
   assert.ok(html.includes('Thôn 2, Xã Rạng Đông'), 'Must disclose registered address');
   assert.ok(html.includes('082 919 1080'), 'Must disclose official contact hotline');

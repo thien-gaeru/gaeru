@@ -50,7 +50,7 @@ const SITE_FOOTER_HTML = `<footer class="site-footer">
       <div class="footer-bottom">
         <span class="footer-region">Việt Nam</span>
         <div class="footer-legal">
-          <span>Bản quyền GAERU © 2026 · GAERU HOUSEHOLD BUSINESS (GAERU)</span>
+          <span>Bản quyền GAERU © 2026 · GAERU</span>
           <nav aria-label="Chính sách và pháp lý">
             <a href="/chinh-sach/quyen-rieng-tu">Chính sách quyền riêng tư</a>
             <a href="/chinh-sach/dieu-khoan">Điều khoản sử dụng</a>
@@ -63,7 +63,7 @@ const SITE_FOOTER_HTML = `<footer class="site-footer">
           </nav>
         </div>
         <p class="footer-business-info">
-          HỘ KINH DOANH GAERU (GAERU HOUSEHOLD BUSINESS) · Mã số đăng ký &amp; Mã số thuế: 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
+          GAERU · Mã số đăng ký &amp; Mã số thuế: 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
           Địa chỉ: Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình · Hotline: 082 919 1080 · Email: business@gaeru.com<br>
           Website thương mại điện tử bán hàng tuân thủ Nghị định 52/2013/NĐ-CP và Nghị định 85/2021/NĐ-CP.
         </p>
