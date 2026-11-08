@@ -372,7 +372,7 @@
   gap: 8px;
   box-shadow: 0 8px 24px rgba(2, 132, 199, 0.35);
   cursor: pointer;
-  z-index: 999;
+  z-index: 9999;
   font-family: inherit;
   font-size: 13.5px;
   font-weight: 700;
@@ -396,5 +396,142 @@
   }
   .copilot-sidebar {
     display: none; /* Trên mobile ưu tiên khung chat chính */
+  }
+}
+
+/* Tránh che khuất nút nổi GAERU AI và ẩn toast khi mở modal */
+.gaeru-action-notices {
+  bottom: 84px !important;
+}
+
+body:has(#gaeru-ai-modal:not([hidden])) .gaeru-action-notices {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* GAERU AI Modal Dialog */
+.gaeru-ai-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: gaeruAiFadeIn 0.2s ease-out;
+}
+
+.gaeru-ai-modal-backdrop[hidden] {
+  display: none !important;
+}
+
+.gaeru-ai-modal-dialog {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 1100px;
+  height: 85vh;
+  max-height: 820px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: gaeruAiSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gaeru-ai-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.gaeru-ai-modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gaeru-ai-modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gaeru-ai-modal-close {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.gaeru-ai-modal-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.gaeru-ai-modal-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  position: relative;
+  background: #ffffff;
+}
+
+.gaeru-ai-modal-body .copilot-container {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.copilot-container.in-modal .copilot-header-info {
+  display: none;
+}
+
+.copilot-container.in-modal .copilot-chat-header {
+  padding: 8px 16px;
+  background: #fafbfc;
+  justify-content: flex-end;
+}
+
+@keyframes gaeruAiFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes gaeruAiSlideUp {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 768px) {
+  .gaeru-ai-modal-backdrop {
+    padding: 0;
+  }
+  .gaeru-ai-modal-dialog {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
   }
 }

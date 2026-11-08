@@ -20,7 +20,7 @@ if (!fs.existsSync(SCREENSHOT_DIR)) {
 }
 
 async function runCopilotVerification() {
-  console.log('=== KHỞI ĐỘNG KIỂM THỬ GIAO DIỆN GAERU COPILOT VÀ CHỤP ẢNH MINH CHỨNG ===');
+  console.log('=== KHỞI ĐỘNG KIỂM THỬ GIAO DIỆN GAERU AI VÀ CHỤP ẢNH MINH CHỨNG ===');
 
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const originalQuery = pool.query.bind(pool);
@@ -98,21 +98,44 @@ async function runCopilotVerification() {
     }, { timeout: 10000 });
     console.log('✓ Đăng nhập thành công, Dashboard quản trị đã kích hoạt.');
 
-    // 2. Kiểm tra nút nổi Floating Copilot Button (#floating-copilot-btn)
+    // 2. Kiểm tra nút nổi Floating GAERU AI Button (#floating-copilot-btn)
     await page.waitForSelector('#floating-copilot-btn', { timeout: 5000 });
-    console.log('✓ Nút nổi Floating Copilot Button (#floating-copilot-btn) đã sẵn sàng.');
+    console.log('✓ Nút nổi Floating GAERU AI Button (#floating-copilot-btn) đã sẵn sàng.');
 
-    // Bấm mở Copilot View từ floating button
-    console.log('2. Bấm mở GAERU Copilot từ floating button...');
+    // Bấm mở GAERU AI Modal từ floating button
+    console.log('2. Bấm mở GAERU AI Modal từ floating button...');
     await page.click('#floating-copilot-btn');
     await new Promise(r => setTimeout(r, 600));
 
-    // Kiểm tra view #internal-ai-view hiển thị
-    const isVisible = await page.evaluate(() => {
-      const panel = document.getElementById('internal-ai-view');
-      return panel && !panel.hidden && window.getComputedStyle(panel).display !== 'none';
+    // Kiểm tra modal #gaeru-ai-modal hiển thị
+    const isModalVisible = await page.evaluate(() => {
+      const modal = document.getElementById('gaeru-ai-modal');
+      return modal && !modal.hidden && window.getComputedStyle(modal).display !== 'none';
     });
-    console.log('✓ Internal AI View hiển thị:', isVisible);
+    console.log('✓ GAERU AI Modal hiển thị:', isModalVisible);
+
+    // Kiểm tra đóng modal bằng nút [✕]
+    await page.click('#btn-close-ai-modal');
+    await new Promise(r => setTimeout(r, 400));
+    const isModalClosed = await page.evaluate(() => {
+      const modal = document.getElementById('gaeru-ai-modal');
+      return modal && modal.hidden;
+    });
+    console.log('✓ GAERU AI Modal đóng thành công bằng nút [✕]:', isModalClosed);
+
+    // Mở lại modal bằng nút floating button
+    await page.click('#floating-copilot-btn');
+    await new Promise(r => setTimeout(r, 400));
+    const isModalReopened = await page.evaluate(() => {
+      const modal = document.getElementById('gaeru-ai-modal');
+      return modal && !modal.hidden;
+    });
+    console.log('✓ GAERU AI Modal mở lại thành công:', isModalReopened);
+
+    // Chụp ảnh Modal vừa mở
+    const shotModalOpen = path.join(SCREENSHOT_DIR, '56_Admin_GAERU_AI_Modal_Open.png');
+    await page.screenshot({ path: shotModalOpen });
+    console.log(`✓ Đã chụp ảnh màn hình Modal mở: ${shotModalOpen}`);
 
     // 3. Kiểm tra Quick Prompts và bấm hỏi doanh thu
     console.log('3. Bấm Quick Prompt hỏi doanh thu...');
@@ -126,14 +149,35 @@ async function runCopilotVerification() {
     }
 
     // Đợi phản hồi xuất hiện
-    console.log('Đang chờ Copilot phản hồi...');
+    console.log('Đang chờ GAERU AI phản hồi...');
     await page.waitForFunction(() => {
       const messages = document.querySelectorAll('.copilot-msg-row.assistant');
       return messages.length > 0;
     }, { timeout: 15000 });
     await new Promise(r => setTimeout(r, 1200));
 
-    // Chụp ảnh màn hình 1: Giao diện Chat Copilot và Phân tích Doanh thu
+    // Kiểm tra đồng bộ GAERU AI trên báo cáo
+    const reportText = await page.evaluate(() => {
+      const msgs = document.querySelectorAll('.copilot-msg-row.assistant');
+      return Array.from(msgs).map(m => m.textContent).join('\n');
+    });
+    const hasLegacyCopilot = /GAERU Copilot/i.test(reportText);
+    console.log('✓ Kiểm tra báo cáo chứa "GAERU AI":', /GAERU AI/i.test(reportText));
+    console.log('✓ Báo cáo không chứa "GAERU Copilot":', !hasLegacyCopilot);
+
+    // Cuộn lên đầu để chụp rõ tiêu đề Báo cáo từ GAERU AI
+    await page.evaluate(() => {
+      const container = document.getElementById('copilot-messages');
+      if (container) container.scrollTop = 0;
+      document.querySelectorAll('.toast, [role="alert"], .notification-toast').forEach(t => t.remove());
+    });
+    await new Promise(r => setTimeout(r, 400));
+
+    // Chụp ảnh màn hình: Giao diện Báo cáo GAERU AI đã đồng bộ thương hiệu
+    const shotReport = path.join(SCREENSHOT_DIR, '57_Admin_GAERU_AI_Report_Synchronized.png');
+    await page.screenshot({ path: shotReport });
+    console.log(`✓ Đã chụp ảnh màn hình Báo cáo đồng bộ: ${shotReport}`);
+
     const shotOverview = path.join(SCREENSHOT_DIR, '34_Admin_Copilot_Overview_Chat.png');
     await page.screenshot({ path: shotOverview });
     console.log(`✓ Đã chụp ảnh màn hình 1: ${shotOverview}`);

@@ -379,6 +379,10 @@ Quy tắc cốt lõi:
       aiResponseText = synthesizeDeterministicResponse(userQuestion, toolResults, actionCard, user);
     }
 
+    if (aiResponseText) {
+      aiResponseText = aiResponseText.replace(/GAERU Copilot/gi, 'GAERU AI').replace(/Copilot/gi, 'GAERU AI');
+    }
+
     return {
       content: aiResponseText,
       toolResults,

@@ -1,4 +1,4 @@
--- Bảng lưu trữ phiên trò chuyện AI nội bộ GAERU Copilot
+-- Bảng lưu trữ phiên trò chuyện AI nội bộ GAERU AI
 CREATE TABLE IF NOT EXISTS internal_ai_threads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id VARCHAR(128) NOT NULL,

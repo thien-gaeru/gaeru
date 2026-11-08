@@ -79,12 +79,24 @@
         });
       }
 
-      // Floating Button
+      // Quản lý GAERU AI Modal Popup
+      const modal = document.getElementById('gaeru-ai-modal');
+      const closeBtn = document.getElementById('btn-close-ai-modal');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', closeGaeruAiModal);
+      }
+      if (modal) {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) closeGaeruAiModal();
+        });
+      }
+
+      // Floating Button - Mở Modal GAERU AI
       const floatingBtn = document.getElementById('floating-copilot-btn');
       if (floatingBtn) {
-        floatingBtn.addEventListener('click', () => {
-          const navBtn = document.querySelector('[data-view="internal-ai"]');
-          if (navBtn) navBtn.click();
+        floatingBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          openGaeruAiModal();
         });
       }
 
@@ -92,8 +104,17 @@
       window.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.code === 'Space') {
           e.preventDefault();
-          const navBtn = document.querySelector('[data-view="internal-ai"]');
-          if (navBtn) navBtn.click();
+          const modalEl = document.getElementById('gaeru-ai-modal');
+          if (modalEl && !modalEl.hidden) {
+            closeGaeruAiModal();
+          } else {
+            openGaeruAiModal();
+          }
+        } else if (e.key === 'Escape') {
+          const modalEl = document.getElementById('gaeru-ai-modal');
+          if (modalEl && !modalEl.hidden) {
+            closeGaeruAiModal();
+          }
         }
       });
 
@@ -101,21 +122,80 @@
       const navBtn = document.querySelector('[data-view="internal-ai"]');
       if (navBtn) {
         navBtn.addEventListener('click', () => {
+          closeGaeruAiModal();
           loadQuickPrompts();
           if (!currentThreadId) loadThreads();
         });
       }
+
+      // Đóng modal nếu người dùng điều hướng sang view khác từ menu
+      document.querySelectorAll('.admin-nav .nav-item').forEach(btn => {
+        if (btn !== navBtn) {
+          btn.addEventListener('click', () => {
+            const modalEl = document.getElementById('gaeru-ai-modal');
+            if (modalEl && !modalEl.hidden) closeGaeruAiModal();
+          });
+        }
+      });
     }
 
     if (session) {
       // Cập nhật role badge
       const roleBadge = document.getElementById('copilot-user-role');
+      const modalRoleBadge = document.getElementById('modal-copilot-user-role');
       if (roleBadge) {
         const isOwner = session?.isOwner || session?.role === 'owner' || document.querySelector('[data-view="owner"]:not([hidden])');
-        roleBadge.textContent = isOwner ? 'Role: CEO / Owner' : 'Role: Staff / Management';
+        const roleText = isOwner ? 'Role: CEO / Owner' : 'Role: Staff / Management';
+        roleBadge.textContent = roleText;
+        if (modalRoleBadge) modalRoleBadge.textContent = roleText;
       }
       loadQuickPrompts();
       loadThreads();
+    }
+  }
+
+  // Quản lý Modal Popup GAERU AI
+  function openGaeruAiModal() {
+    const modal = document.getElementById('gaeru-ai-modal');
+    const modalBody = document.getElementById('gaeru-ai-modal-body');
+    const container = document.querySelector('.copilot-container');
+    if (!modal || !modalBody || !container) return;
+
+    if (!modalBody.contains(container)) {
+      modalBody.appendChild(container);
+    }
+    container.classList.add('in-modal');
+    modal.hidden = false;
+
+    // Đồng bộ role badge trên modal header
+    const modalRoleBadge = document.getElementById('modal-copilot-user-role');
+    const roleBadge = document.getElementById('copilot-user-role');
+    if (modalRoleBadge && roleBadge) {
+      modalRoleBadge.textContent = roleBadge.textContent;
+    }
+
+    loadQuickPrompts();
+    if (!currentThreadId) loadThreads();
+
+    const input = document.getElementById('copilot-input');
+    if (input) {
+      setTimeout(() => input.focus(), 100);
+    }
+    scrollMessagesBottom();
+  }
+
+  function closeGaeruAiModal() {
+    const modal = document.getElementById('gaeru-ai-modal');
+    const view = document.getElementById('internal-ai-view');
+    const container = document.querySelector('.copilot-container');
+    if (!modal) return;
+
+    modal.hidden = true;
+    if (view && container && !view.contains(container)) {
+      view.appendChild(container);
+    }
+    if (container) {
+      container.classList.remove('in-modal');
     }
   }
 
@@ -383,7 +463,8 @@
   // Trình render Markdown cơ bản an toàn (Bảng, Đậm, Nghiêng, Danh sách, Tiêu đề)
   function renderMarkdown(md) {
     if (!md) return '';
-    let html = escapeHtml(md);
+    let sanitized = String(md).replace(/GAERU Copilot/gi, 'GAERU AI').replace(/Copilot/gi, 'GAERU AI');
+    let html = escapeHtml(sanitized);
 
     // Bảng Markdown
     html = html.replace(/\n\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g, (match, header, rows) => {

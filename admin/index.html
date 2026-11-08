@@ -536,6 +536,21 @@
       </div>
     </main>
     <div id="config-popup-modal" class="config-modal-backdrop" hidden></div>
+    <div id="gaeru-ai-modal" class="gaeru-ai-modal-backdrop" hidden>
+      <div class="gaeru-ai-modal-dialog" role="dialog" aria-modal="true" aria-label="Trợ lý GAERU AI">
+        <header class="gaeru-ai-modal-header">
+          <div class="gaeru-ai-modal-header-left">
+            <span class="copilot-badge">🤖 GAERU AI</span>
+            <span class="copilot-model-badge">Gemini 2.5 Flash</span>
+            <span class="copilot-rbac-badge" id="modal-copilot-user-role">Role: Management</span>
+          </div>
+          <div class="gaeru-ai-modal-header-actions">
+            <button type="button" class="gaeru-ai-modal-close" id="btn-close-ai-modal" aria-label="Đóng GAERU AI" title="Đóng (Esc)">✕</button>
+          </div>
+        </header>
+        <div class="gaeru-ai-modal-body" id="gaeru-ai-modal-body"></div>
+      </div>
+    </div>
     <button type="button" id="floating-copilot-btn" class="floating-copilot-trigger" title="Mở GAERU AI (Ctrl + Space)" aria-label="Mở GAERU AI">
       <span class="floating-copilot-icon">🤖</span>
       <span class="floating-copilot-label">GAERU AI</span>
