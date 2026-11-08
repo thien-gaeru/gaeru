@@ -6,6 +6,10 @@ function enrich(html,original,origin,override){if(typeof html==='string'&&html.i
  require('./responsive-images').apply(doc);
  if(override){doc.title=normalizeBrandText(override.title);let description=doc.head.querySelector('meta[name=description]');if(!description){description=doc.createElement('meta');description.name='description';doc.head.append(description)}description.content=normalizeBrandText(override.description)}
  doc.documentElement.setAttribute('lang','vi');let base=doc.head.querySelector('base');if(!base){base=doc.createElement('base');base.setAttribute('href','/');doc.head.prepend(base)}
+ const footerNode=doc.getElementById('site-footer')||doc.querySelector('#site-footer');
+ if(footerNode&&!footerNode.querySelector('.site-footer')){
+  footerNode.innerHTML=require('./site-footer').SITE_FOOTER_HTML;
+ }
  for(const el of doc.querySelectorAll('[href],[action],[src],[poster]'))for(const key of ['href','action','src','poster'])if(el.hasAttribute(key))el.setAttribute(key,clean(el.getAttribute(key),origin));
  if(!doc.querySelector('script[src^="/clean-urls.js"]')){const script=doc.createElement('script');script.src='/clean-urls.js?v=20261027-gaeru-com';script.defer=true;doc.head.append(script)}
  const u=new URL(original,origin);for(const a of doc.querySelectorAll('a[href^="#"]'))a.setAttribute('href',u.pathname+u.search+a.getAttribute('href'));
