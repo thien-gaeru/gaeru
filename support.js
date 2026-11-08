@@ -1,5 +1,9 @@
-const escapeHtml = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const supportSearch = document.querySelector("[data-support-search]");
+(function () {
+  'use strict';
+  const escapeHtml = typeof window.escapeHtml === 'function'
+    ? window.escapeHtml
+    : (v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
+  const supportSearch = document.querySelector("[data-support-search]");
 const supportSearchInput = document.querySelector("#support-search-input");
 const supportSearchStatus = document.querySelector("[data-support-search-status]");
 let searchableSupportItems = [...document.querySelectorAll("[data-support-searchable]")];
@@ -125,3 +129,4 @@ document.addEventListener("gaeru:products-load-error", () => {
 });
 
 initSupportProducts();
+})();
