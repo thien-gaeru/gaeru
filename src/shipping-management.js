@@ -627,31 +627,22 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
   }
 
   if (newNormalizedStatus === 'delivered') {
-    // P0-01: delivered chứng minh giao hàng thành công, KHÔNG chứng minh tiền COD đã chuyển về tài khoản GAERU.
-    if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
-      if (['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
-        updatedOrderStatus = 'shipped';
+    // Tự động xác nhận hoàn thành nghiệm thu đơn hàng cho đơn đã giao thành công sau khi nhận phản hồi từ bên vận chuyển
+    if (shipment.orderStatus !== 'completed') {
+      updatedOrderStatus = 'completed';
+      if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
         await client.query(
-          'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-          [shipment.order_id, 'shipped']
+          'UPDATE orders SET status = $2, payment_status = $3, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+          [shipment.order_id, 'completed', 'paid']
         );
       } else {
         await client.query(
-          'UPDATE orders SET delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-          [shipment.order_id]
+          'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+          [shipment.order_id, 'completed']
         );
       }
-      return updatedOrderStatus;
-    }
 
-    // Đơn trả trước đã paid (hoặc COD đã đối soát paid trước đó): chuyển thẳng sang completed và cộng Xu
-    if (shipment.orderPaymentStatus === 'paid' && shipment.orderStatus !== 'completed') {
-      updatedOrderStatus = 'completed';
-      await client.query(
-        'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-        [shipment.order_id, 'completed']
-      );
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+      if (shipment.orderPaymentMethod !== 'cod' && shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
         const { earnPoints } = require('./loyalty-api');
         await earnPoints(client, {
           customerId: shipment.orderCustomerId,
@@ -660,6 +651,21 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
           actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
         });
       }
+
+      try {
+        const { publishAdminEvent } = require('./realtime-sse');
+        publishAdminEvent('order:update', {
+          orderId: shipment.order_id,
+          orderNumber: shipment.orderNumber,
+          status: 'completed',
+          paymentStatus: 'paid'
+        });
+      } catch (_) {}
+    } else {
+      await client.query(
+        'UPDATE orders SET delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
+        [shipment.order_id]
+      );
     }
   }
 
@@ -867,7 +873,7 @@ async function settleSingleCarrierCodInTx(client, {
     receiptId = existingOrderReceipt?.id || null;
     wasLegacyVerified = true;
   } else {
-    if (shipment.cod_settlement_status === 'settled' || (!isLegacyVerification && shipment.orderPaymentStatus === 'paid')) {
+    if (shipment.cod_settlement_status === 'settled') {
       throw fail('Đơn hàng COD này đã được đối soát thanh toán trước đó.', 409);
     }
     const remaining = Number(shipment.orderTotalVnd) - received;

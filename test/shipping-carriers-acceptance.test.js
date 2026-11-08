@@ -230,10 +230,10 @@ test('Shipping Carriers Acceptance: [P0] Tracking sync & Webhook automatic statu
   assert.equal(webhookRes2.success, true);
   assert.equal(webhookRes2.normalizedStatus, 'delivered');
 
-  // P0-01: COD delivery leaves payment_status = 'pending' and cod_settlement_status = 'unsettled' until reconciled
+  // Tự động xác nhận hoàn thành nghiệm thu đơn hàng cho đơn đã giao thành công sau khi nhận phản hồi giao thành công từ bên vận chuyển
   const orderAfterDelivered = await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId]);
-  assert.equal(orderAfterDelivered.rows[0].status, 'shipped');
-  assert.equal(orderAfterDelivered.rows[0].payment_status, 'pending');
+  assert.equal(orderAfterDelivered.rows[0].status, 'completed');
+  assert.equal(orderAfterDelivered.rows[0].payment_status, 'paid');
   assert.equal(recordedPaymentOrderId, null, 'COD delivery alone must NOT record finance receipt before carrier settlement');
 
   const { settleCarrierCod } = require('../src/shipping-management');

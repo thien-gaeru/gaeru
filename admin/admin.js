@@ -30,9 +30,9 @@ const state = {
 const labels = {
   pending: "Chờ xác nhận",
   confirmed: "Đã xác nhận",
-  processing: "Đang xử lý",
-  shipped: "Đang giao",
-  completed: "Hoàn tất",
+  processing: "Giao hàng",
+  shipped: "Đang giao hàng",
+  completed: "Hoàn thành",
   cancelled: "Đã hủy",
   cod: "Thanh toán khi nhận hàng",
   bank_transfer: "Chuyển khoản thủ công",
@@ -42,7 +42,7 @@ const labels = {
 };
 const categoryLabels = { audio: "Thu âm", video: "Ghi hình", accessory: "Phụ kiện" };
 const orderTransitions = {
-  pending: ["processing", "cancelled"], confirmed: ["processing", "shipped", "cancelled"],
+  pending: ["confirmed", "processing", "cancelled"], confirmed: ["processing", "shipped", "cancelled"],
   processing: ["shipped", "cancelled"], shipped: ["completed"], completed: [], cancelled: []
 };
 const paymentAttemptLabels = {
@@ -952,8 +952,42 @@ function openOrderProcessing(id,opener){
  const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
  if(order.returnStatus==='returned'||order.returnedAt)return showGlobal('Đơn đã hoàn trả xong; không thể xử lý lại.',true);
  closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
- const steps=['pending','processing','shipped','completed'],current=order.status==='confirmed'?1:steps.indexOf(order.status);
- dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
+ const fulfillmentSteps = [
+   { key: 'confirmed', label: '1. Xác nhận' },
+   { key: 'processing', label: '2. Giao hàng' },
+   { key: 'shipped', label: '3. Đang giao hàng' },
+   { key: 'completed', label: '4. Hoàn thành (Nhận phản hồi từ vận chuyển)' }
+ ];
+ let currentStep = -1;
+ if (order.status === 'pending' || order.status === 'confirmed') currentStep = 0;
+ else if (order.status === 'processing') currentStep = 1;
+ else if (order.status === 'shipped') currentStep = 2;
+ else if (order.status === 'completed') currentStep = 3;
+ const stepsHtml = fulfillmentSteps.map((step, index) => {
+   let cls = '';
+   if (order.status === 'completed') {
+     cls = 'done' + (index === 3 ? ' current' : '');
+   } else if (currentStep >= 0) {
+     if (index === currentStep) cls = 'current';
+     else if (index < currentStep) cls = 'done';
+   }
+   return '<li class="' + cls + '">' + escapeHtml(step.label) + '</li>';
+ }).join('');
+ dialog.innerHTML='<header><div><p>Quy trình kiểm soát thực hiện đơn hàng (4 bước)</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+stepsHtml+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
+ if (order.status === 'completed') {
+   const banner = document.createElement('div');
+   banner.className = 'order-step4-completed-callout';
+   banner.style.cssText = 'background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:13px;color:#166534;display:flex;align-items:center;gap:10px;';
+   const deliveredClock = order.deliveredAt ? (' · Thời điểm giao: ' + new Date(order.deliveredAt).toLocaleString('vi-VN')) : '';
+   banner.innerHTML = '<span>✅ <strong>Bước 4: Hoàn thành (nhận phản hồi từ vận chuyển)</strong> — Đơn hàng đã tự động xác nhận hoàn thành nghiệm thu sau khi nhận phản hồi giao thành công từ bên vận chuyển' + escapeHtml(deliveredClock) + '.</span>';
+   dialog.querySelector('.order-processing-content').prepend(banner);
+ } else if (order.status === 'shipped') {
+   const banner = document.createElement('div');
+   banner.className = 'order-step3-shipped-callout';
+   banner.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:10px;';
+   banner.innerHTML = '<span>🚚 <strong>Bước 3: Đang giao hàng</strong> — Hệ thống sẽ tự động xác nhận hoàn thành nghiệm thu (Bước 4) ngay khi nhận phản hồi giao thành công từ bên vận chuyển.</span>';
+   dialog.querySelector('.order-processing-content').prepend(banner);
+ }
  if(order.reviewReason){
    const callout=document.createElement('div');
    callout.className='order-review-callout';
@@ -997,7 +1031,7 @@ function openOrderProcessing(id,opener){
 function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
  document.getElementById("order-bulk-dialog")?.remove();const dialog=document.createElement("dialog");dialog.id="order-bulk-dialog";dialog.className="order-processing-dialog";
- dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="prepare">Xác nhận &amp; chuẩn bị hàng → Đang xử lý</option><option value="ship">Bàn giao vận chuyển → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><div data-bulk-cod-callout hidden style="display:none!important;"><span data-bulk-cod-msg></span></div><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ tiền mặt trực tiếp của các đơn COD nội bộ (không qua hãng thu hộ).</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
+ dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="prepare">Bước 1 &amp; 2: Xác nhận &amp; Giao hàng</option><option value="ship">Bước 3: Bàn giao vận chuyển → Đang giao hàng</option><option value="complete">Bước 4: Hoàn thành (Nghiệm thu nhận phản hồi từ vận chuyển)</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><div data-bulk-cod-callout hidden style="display:none!important;"><span data-bulk-cod-msg></span></div><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ tiền mặt trực tiếp của các đơn COD nội bộ (không qua hãng thu hộ).</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
  document.body.append(dialog);const form=dialog.querySelector("form"),actionEl=form.querySelector('[name="action"]'),confirmEl=form.querySelector('[name="confirmReceived"]'),hint=dialog.querySelector("[data-bulk-hint]"),codCallout=dialog.querySelector("[data-bulk-cod-callout]"),codMsg=dialog.querySelector("[data-bulk-cod-msg]");
  const getActionVal=()=>{const selOpt=actionEl.querySelector("option[selected]");return actionEl.value||selOpt?.getAttribute("value")||selOpt?.value||"prepare";};
  const refresh=()=>{

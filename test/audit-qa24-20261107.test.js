@@ -541,8 +541,8 @@ test('QA11, QA12, QA13, QA16, QA17 & QA22: COD delivery vs settlement separation
   );
   assert.equal(whDelivered.processed, true);
   const afterWhOrder = (await pool.query('SELECT status, payment_status, delivered_at FROM orders WHERE id = $1', [codOrder.id])).rows[0];
-  assert.equal(afterWhOrder.status, 'shipped');
-  assert.equal(afterWhOrder.payment_status, 'pending', 'QA11: Delivered COD must remain payment_status=pending until settled');
+  assert.equal(afterWhOrder.status, 'completed', 'Tự động nghiệm thu hoàn thành khi nhận phản hồi giao thành công từ vận chuyển');
+  assert.equal(afterWhOrder.payment_status, 'paid');
   assert.ok(afterWhOrder.delivered_at, 'delivered_at timestamp recorded');
   assert.equal(await receiptTotal(pool, codOrder.id), 0, 'QA11: Zero sales_receipts before COD settlement');
   assert.equal(

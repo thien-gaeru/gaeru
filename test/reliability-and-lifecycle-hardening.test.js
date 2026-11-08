@@ -170,7 +170,7 @@ test('Readiness Gate: Media chưa xác minh giữ cổng readiness ở trạng t
 // -----------------------------------------------------------------------------
 // 4. Quy tắc thống nhất: Giao hàng, Thu tiền COD và Thanh toán
 // -----------------------------------------------------------------------------
-test('Quy tắc Vận chuyển & COD: Giao hàng thành công (delivered) trên đơn COD chưa thanh toán giữ mốc delivered_at và chờ thu tiền', async () => {
+test('Quy tắc Vận chuyển: Giao hàng thành công (delivered) tự động xác nhận hoàn thành nghiệm thu đơn hàng (kể cả COD)', async () => {
   const { applyCarrierDeliveryTransition } = require('../src/shipping-management');
 
   const updates = [];
@@ -193,8 +193,10 @@ test('Quy tắc Vận chuyển & COD: Giao hàng thành công (delivered) trên 
 
   const nextStatus = await applyCarrierDeliveryTransition(mockClient, codShipment, 'delivered', { username: 'carrier_bot' });
 
-  assert.equal(nextStatus, 'shipped', 'Đơn COD giao thành công vẫn ở trạng thái shipped để chờ đối chiếu/thu tiền COD');
+  assert.equal(nextStatus, 'completed', 'Đơn COD giao thành công tự động chuyển sang completed để nghiệm thu');
   assert.ok(updates.some(u => u.sql.includes('delivered_at')), 'Phải cập nhật mốc delivered_at khi hãng giao thành công');
+  assert.ok(updates.some(u => u.params && u.params.includes('completed')), 'Phải cập nhật status = completed');
+  assert.ok(updates.some(u => u.params && u.params.includes('paid')), 'Đơn COD giao thành công tự động cập nhật payment_status = paid');
 });
 
 test('Quy tắc Vận chuyển & Trả trước: Giao hàng thành công (delivered) trên đơn trả trước (paid) chuyển thẳng sang completed', async () => {
