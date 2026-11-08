@@ -16,10 +16,14 @@ cacheEvents.setMaxListeners(1000);
 // Đổi mới mỗi khi sửa code và restart server -> Ép trình duyệt bỏ bản HTML cũ ngay lập tức
 const BOOT_ID = Date.now().toString(36);
 
-// GAERU PERF-02: L1 RAM Cache capped at 2000 entries and 48 MiB max byte limit to prevent memory bloat on 3GB RAM
+// GAERU PERF-02: Dynamic L1 RAM Cache Configuration
+// Reads from CACHE_RAM_MAX_ENTRIES (default 10,000) and CACHE_RAM_MAX_MB (default 256 MB)
+const cacheMaxEntries = Math.max(500, Number.parseInt(process.env.CACHE_RAM_MAX_ENTRIES, 10) || 10000);
+const cacheMaxMb = Math.max(16, Number.parseInt(process.env.CACHE_RAM_MAX_MB, 10) || 256);
+
 const ramCache = new LRUCache({
-  max: 2000,
-  maxSize: 48 * 1024 * 1024,
+  max: cacheMaxEntries,
+  maxSize: cacheMaxMb * 1024 * 1024,
   sizeCalculation: (entry) => {
     if (!entry) return 1;
     const rawLen = typeof entry.raw === 'string' ? Buffer.byteLength(entry.raw, 'utf8') : (entry.raw?.length || 0);
@@ -505,9 +509,21 @@ function seedStock(skuOrId, qty) {
   }
 }
 
+function getCacheMetrics() {
+  return {
+    maxEntries: ramCache.max,
+    maxSizeBytes: ramCache.maxSize,
+    maxSizeMb: Math.round(ramCache.maxSize / (1024 * 1024)),
+    currentEntries: ramCache.size,
+    currentSizeBytes: ramCache.calculatedSize || 0,
+    currentSizeMb: +( (ramCache.calculatedSize || 0) / (1024 * 1024) ).toFixed(2)
+  };
+}
+
 module.exports = {
   BOOT_ID,
   ramCache,
+  getCacheMetrics,
   stockMap,
   inflight,
   getFreshData,

@@ -36,7 +36,9 @@ const schema = z.object({
   GOOGLE_ANALYTICS_ID: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal('').transform(() => undefined)),
   PG_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(200).optional(),
   PG_POOL_SIZE: z.coerce.number().int().min(1).max(200).optional(),
-  DDOS_RATE_LIMIT: z.coerce.number().int().min(100).max(100000).optional()
+  DDOS_RATE_LIMIT: z.coerce.number().int().min(100).max(100000).optional(),
+  CACHE_RAM_MAX_ENTRIES: z.coerce.number().int().min(100).max(100000).optional(),
+  CACHE_RAM_MAX_MB: z.coerce.number().int().min(16).max(4096).optional()
 }).superRefine((values, context) => {
   if((values.TURNSTILE_SITE_KEY||values.TURNSTILE_SECRET_KEY)&&(!values.TURNSTILE_SITE_KEY||!values.TURNSTILE_SECRET_KEY||!values.PUBLIC_BASE_URL))context.addIssue({code:'custom',message:'TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY và PUBLIC_BASE_URL phải được cấu hình cùng nhau.'});
   const vnpayConfigured = Boolean(values.VNPAY_TMN_CODE || values.VNPAY_HASH_SECRET || values.VNPAY_PAYMENT_URL);
