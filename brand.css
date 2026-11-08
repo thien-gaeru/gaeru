@@ -1,7 +1,7 @@
-/* One original PNG shared across the storefront, service pages and administration. */
-.brand-window{display:inline-block;position:relative;overflow:hidden;width:100px;height:32px;vertical-align:middle;flex-shrink:0}
+/* Official GAERU transparent brand assets shared across storefront, service pages and administration. */
+.brand-window{display:inline-block;position:relative;overflow:hidden;width:100px;height:32px;vertical-align:middle;flex-shrink:0;background:transparent}
 .brand-window picture{display:contents}
-.brand-window .brand-logo{display:block;position:absolute;left:50%;top:50%;width:160px!important;height:160px!important;max-width:none!important;max-height:none!important;object-fit:contain;transform:translate(-50%,-50%)!important;mix-blend-mode:multiply}
+.brand-window .brand-logo{display:block;position:absolute;left:50%;top:50%;width:160px!important;height:160px!important;max-width:none!important;max-height:none!important;object-fit:contain;transform:translate(-50%,-50%)!important}
 .wordmark:has(.brand-window){display:inline-flex;align-items:center;letter-spacing:normal;line-height:1}
 .admin-wordmark:has(.brand-window){display:flex;align-items:center;gap:8px}
 .admin-wordmark>.brand-window{padding:0;background:transparent;border-radius:0;font-size:inherit;color:inherit}
@@ -14,8 +14,6 @@
 .care-emblem .brand-window{margin-top:12px;letter-spacing:normal}
 @media(max-width:600px){.site-header .brand-window{width:90px;height:30px}.site-header .brand-logo{width:144px!important;height:144px!important}}
 
-/* Blend the complete logo group with translucent navigation, including opaque PNG white. */
-.site-header .wordmark,.site-header .brand-window{mix-blend-mode:multiply;background:transparent}
-
-.site-header .brand-window .brand-logo{opacity:1;mix-blend-mode:multiply}
-
+/* Native transparent brand logo rendering on translucent header */
+.site-header .wordmark,.site-header .brand-window{background:transparent}
+.site-header .brand-window .brand-logo{opacity:1}
