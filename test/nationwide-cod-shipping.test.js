@@ -172,15 +172,17 @@ test('PATCH /api/gaeru_ceo/orders/:id completing COD order records sales_receipt
     RETURNING *
   `)).rows[0];
 
-  // Send PATCH request like the admin UI does
+  // Confirm physical delivery first, then record COD cash collection independently.
+  const confirm = await fetch(`http://127.0.0.1:${port}/api/gaeru_ceo/orders/${order.id}/confirm-delivery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-token' },
+    body: JSON.stringify({ evidenceNote:'Buyer signed for local COD delivery in person' })
+  });
+  assert.equal(confirm.status,200);
   const res = await fetch(`http://127.0.0.1:${port}/api/gaeru_ceo/orders/${order.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'test-token' },
-    body: JSON.stringify({
-      status: 'completed',
-      paymentStatus: 'paid',
-      confirmReceived: true
-    })
+    body: JSON.stringify({paymentStatus: 'paid'})
   });
 
   assert.equal(res.status, 200);

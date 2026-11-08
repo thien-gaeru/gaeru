@@ -335,12 +335,15 @@ test('Comprehensive Deep Audit & Real-World Simulation: Full End-to-End Business
   const shipRes = await admin.call(`/api/gaeru_ceo/orders/${order.id}`, 'PATCH', { status: 'shipped' });
   assert.equal(shipRes.status, 200, 'Bàn giao vận chuyển SPX thành công');
 
-  // Hoàn tất đơn hàng và thu tiền COD thành công
-  const completeRes = await admin.call(`/api/gaeru_ceo/orders/${order.id}`, 'PATCH', {
-    status: 'completed',
+  // Xác nhận giao hàng trước, hệ thống tự hoàn tất; ghi nhận tiền COD riêng
+  const deliveryResult = await admin.call('/api/gaeru_ceo/orders/' + order.id + '/confirm-delivery', 'POST', {
+    evidenceNote: 'Khách xác nhận đã nhận đủ hàng và ký nhận theo chứng từ giao hàng'
+  });
+  assert.equal(deliveryResult.status, 200);
+  const completeRes = await admin.call('/api/gaeru_ceo/orders/' + order.id, 'PATCH', {
     paymentStatus: 'paid'
   });
-  assert.equal(completeRes.status, 200, 'Hoàn tất giao hàng và thanh toán thành công');
+  assert.equal(completeRes.status, 200, 'Đã đối soát tiền COD sau giao thành công');
 
   // Kiểm tra tự động tạo thẻ bảo hành điện tử chính hãng GAERU CARE+ 12 tháng
   const warrantyRecord = await pool.query(

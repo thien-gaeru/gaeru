@@ -38,7 +38,7 @@ const orderSchema = z.object({
 
 const transitions = {
   pending: ["confirmed", "cancelled"],
-  confirmed: ["processing", "cancelled"],
+  confirmed: ["processing", "shipped", "cancelled"],
   processing: ["shipped", "cancelled"],
   shipped: ["completed"],
   completed: [],
@@ -2063,11 +2063,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           error.status = 409;
           throw error;
         }
-        if (targetStatus === "completed" && targetPaymentStatus !== "paid") {
-          const error = new Error("Chỉ hoàn tất đơn sau khi xác nhận đã thu đủ tiền.");
-          error.status = 409;
-          throw error;
-        }
+        // Fulfillment is independent of money received. A delivered COD order can be completed
+        // with payment_status='pending'; financial settlement is handled by finance/COD endpoints.
         if (current.payment_method !== "cod" && ["processing", "shipped"].includes(targetStatus) && targetPaymentStatus !== "paid") {
           const error = new Error("Đơn thanh toán trả trước cần xác nhận đã thanh toán trước khi chuẩn bị gửi hoặc giao hàng.");
           error.status = 409;
@@ -2089,15 +2086,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             [current.id]
           )).rows[0] || null;
           const hasDeliveredShipment = (activeCarrierShipmentPeek && activeCarrierShipmentPeek.status === 'delivered') || Boolean(current.delivered_at);
-          const isOwner = Boolean(actor?.role === 'owner' || actor?.source === 'bootstrap' || actor?.isOwner === true);
           if (hasDeliveredShipment && (current.status === 'shipped' || targetStatus === 'shipped')) {
             targetStatus = "completed";
             update.status = "completed";
-            update.confirmReceived = true;
-          } else if (isOwner) {
-            targetStatus = "completed";
-            update.status = "completed";
-            update.confirmReceived = true;
+            // Do not infer a COD cash receipt from carrier delivery.
           } else {
             const error = new Error("Đơn COD chỉ được ghi nhận đã thanh toán sau khi giao hàng.");
             error.status = 409;
@@ -2159,8 +2151,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           [current.id]
         )).rows[0] || null;
 
-        if (targetStatus === "completed" && activeCarrierShipment && activeCarrierShipment.status !== "delivered") {
-          const error = new Error(`Vận đơn hãng chưa ở trạng thái Đã giao hàng (hiện tại: ${activeCarrierShipment.status}). Vui lòng đồng bộ hành trình hoặc đối chiếu cổng hãng Đã giao trước khi hoàn tất đơn hàng.`);
+        if (targetStatus === "completed" && current.status !== "completed" &&
+            ((activeCarrierShipment && activeCarrierShipment.status !== "delivered") ||
+             (!activeCarrierShipment && !current.delivered_at))) {
+          const error = new Error("Chỉ hoàn thành đơn sau khi đã xác nhận giao thành công. Đối chiếu hãng vận chuyển hoặc dùng nút Xác nhận đã giao cho đơn tự giao.");
           error.status = 409;
           throw error;
         }
@@ -2169,63 +2163,29 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           const carrierCodShipment = (current.payment_method === "cod" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0)
             ? activeCarrierShipment
             : null;
+          if (carrierCodShipment) {
+            const error = new Error("Đơn COD hãng cần xác nhận tiền thu hộ qua chức năng đối soát hãng; không thể ghi nhận thu trực tiếp từ màn hình đơn hàng.");
+            error.status = 409;
+            throw error;
+          }
           const explicitRef = String(update.reconciliationRef || '').trim();
           const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
           const ledger = finance || require('./finance-api');
-          if (carrierCodShipment) {
-            await client.query(
-              `UPDATE carrier_shipments
-               SET cod_settlement_status = 'settled',
-                   cod_settled_at = COALESCE(cod_settled_at, now()),
-                   cod_settlement_ref = COALESCE(cod_settlement_ref, $2),
-                   cod_attestation_level = CASE WHEN cod_attestation_level = 'statement_verified' THEN 'statement_verified' ELSE 'manually_attested' END,
-                   cod_attested_by = COALESCE(cod_attested_by, $3),
-                   updated_at = now()
-               WHERE id = $1`,
-              [carrierCodShipment.id, effectiveRef, safeActor.username || 'admin']
-            );
-            if (ledger?.recordFullOrderPayment) {
-              try {
-                await ledger.recordFullOrderPayment(client, {
-                  order: { ...current, total_vnd: total },
-                  actor: safeActor,
-                  options: {
-                    reference: effectiveRef,
-                    method: 'bank_transfer',
-                    note: update.paymentNote || (explicitRef ? `Thu đủ tiền COD (${explicitRef})` : 'Xác nhận thu đủ tiền COD')
-                  }
-                });
-              } catch (_) {}
-            }
-          } else {
-            await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
-            if (ledger?.recordFullOrderPayment) {
-              await ledger.recordFullOrderPayment(client, {
-                order: { ...current, total_vnd: total },
-                actor: safeActor,
-                options: {
-                  reference: effectiveRef,
-                  note: update.paymentNote || 'Xác nhận thu tiền COD trực tiếp'
-                }
-              });
-            }
+          // A payment confirmation records a receipt atomically. It does NOT imply
+          // the carrier remitted COD funds; settlement requires separate reconciliation.
+          await client.query("UPDATE payment_attempts SET status = 'paid', updated_at = now() WHERE order_id = $1 AND status = 'pending'", [current.id]);
+          if (ledger?.recordFullOrderPayment) {
+            await ledger.recordFullOrderPayment(client, {
+              order: { ...current, total_vnd: total },
+              actor: safeActor,
+              options: {
+                reference: effectiveRef,
+                method: current.payment_method === 'cod' ? 'cash' : 'bank_transfer',
+                note: update.paymentNote || 'Xác nhận thu đủ tiền theo chứng từ thực tế'
+              }
+            });
           }
-        } else if (targetStatus === "completed" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0 && activeCarrierShipment.cod_settlement_status !== "settled") {
-          const explicitRef = String(update.reconciliationRef || '').trim();
-          const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
-          const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;
-          await client.query(
-            `UPDATE carrier_shipments
-             SET cod_settlement_status = 'settled',
-                 cod_settled_at = COALESCE(cod_settled_at, now()),
-                 cod_settlement_ref = COALESCE(cod_settlement_ref, $2),
-                 cod_attestation_level = 'manually_attested',
-                 cod_attested_by = COALESCE(cod_attested_by, $3),
-                 updated_at = now()
-             WHERE id = $1`,
-            [activeCarrierShipment.id, effectiveRef, safeActor.username || 'admin']
-          );
         }
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
@@ -2249,6 +2209,58 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         return updated.rows[0];
   }
 
+  // Explicit delivery proof for self-delivered orders. Carrier orders must be verified
+  // via authenticated tracking/webhook or the existing carrier-portal reconciliation route.
+  router.post('/gaeru_ceo/orders/:id/confirm-delivery',
+    requirePermission('orders.write'), requireUuidParam('id'), requireCsrf,
+    rateLimit({ windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
+    async (req, res, next) => {
+      try {
+        const evidence = z.object({
+          evidenceNote: z.string().trim().min(10).max(500)
+        }).strict().parse(req.body || {});
+        const result = await withTransaction(pool, async client => {
+          const row = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+          if (!row) throw Object.assign(new Error('Không tìm thấy đơn hàng.'), { status: 404 });
+          if (row.status === 'cancelled' || row.return_completed_at) {
+            throw Object.assign(new Error('Không thể xác nhận giao hàng cho đơn đã hủy hoặc hoàn trả.'), { status: 409 });
+          }
+          if (!['shipped', 'completed'].includes(row.status)) {
+            throw Object.assign(new Error('Cần xác nhận đơn và chuyển sang Đang giao trước khi xác nhận giao thành công.'), { status: 409 });
+          }
+          const ship = (await client.query(
+            "SELECT status FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+            [row.id]
+          )).rows[0];
+          if (ship && ship.status !== 'delivered') {
+            throw Object.assign(new Error('Vận đơn hãng chưa xác nhận giao thành công. Hãy đồng bộ hành trình hoặc đối chiếu trên cổng hãng.'), { status: 409 });
+          }
+          const { completeDeliveredOrder } = require('./order-delivery');
+          const outcome = await completeDeliveredOrder(client, row, { actor: req.admin });
+          if (outcome.changed) {
+            await audit(client, {
+              actor: req.admin,
+              action: 'order.delivery_confirmed',
+              entityType: 'order',
+              entityId: row.id,
+              metadata: {
+                evidenceNote: evidence.evidenceNote,
+                proofSource: ship ? 'carrier_delivered' : 'staff_manual_delivery',
+                paymentStatus: row.payment_status
+              }
+            });
+          }
+          return { id: row.id, status: outcome.orderStatus, paymentStatus: row.payment_status, replayed: !outcome.changed };
+        });
+        invalidateTags(['orders', `order:${req.params.id}`]);
+        res.json({ ...result, message: result.replayed ? 'Đơn đã xác nhận giao thành công trước đó.' : 'Đã xác nhận giao thành công. Đơn tự động hoàn thành; tiền COD vẫn theo trạng thái thanh toán riêng.' });
+      } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ error: 'Nhập bằng chứng giao hàng tối thiểu 10 ký tự.' });
+        next(error);
+      }
+    }
+  );
+
   router.post('/gaeru_ceo/orders/bulk',requirePermission('orders.write'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{
       const parsed=z.object({action:z.enum(['confirm','prepare','ship','complete','cancel']),confirmReceived:z.boolean().default(false),orders:z.array(z.object({id:z.string().uuid(),expectedStatus:z.enum(['pending','confirmed','processing','shipped','completed','cancelled']),expectedPaymentStatus:z.enum(['pending','paid']),expectedTotalVnd:z.number().int().min(0).max(2000000000).nullable()}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(o=>o.id)).size===rows.length)}).strict().safeParse(req.body);
@@ -2264,15 +2276,28 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           if(!canTransition)throw Object.assign(Error('Đơn '+current.order_number+' không ở bước phù hợp. Các đơn cần cùng đủ điều kiện cho thao tác đã chọn.'),{status:409});
           const update={status:target};
           if(target==='completed'){
-            const activeShip=(await client.query("SELECT status, cod_amount_vnd, cod_settlement_status FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' ORDER BY created_at DESC LIMIT 1",[current.id])).rows[0];
-            if(activeShip && activeShip.status!=='delivered'){
-              throw Object.assign(Error('Đơn '+current.order_number+' có vận đơn hãng chưa xác nhận Đã giao hàng (delivered).'),{status:409});
+            // An older bulk client may still send confirmReceived=true. Preserve the
+            // payment RBAC boundary even though fulfillment no longer records money.
+            if (data.confirmReceived && current.payment_status !== 'paid' &&
+                req.admin?.role !== 'owner' &&
+                !req.admin?.permissions?.includes('payments.write')) {
+              throw Object.assign(new Error('Cần quyền payments.write để xác nhận thu tiền COD.'), {status:403});
             }
-
-          }
-          if(target==='completed'&&current.payment_status!=='paid'){
-            if(!data.confirmReceived)throw Object.assign(Error('Xác nhận đã thu đủ tiền trước khi hoàn tất các đơn chưa thanh toán.'),{status:409});
-            update.paymentStatus='paid';
+            const activeShip=(await client.query("SELECT status, cod_amount_vnd, cod_settlement_status FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[current.id])).rows[0];
+            if((activeShip && activeShip.status!=='delivered') || (!activeShip && !current.delivered_at)){
+              throw Object.assign(Error('Đơn '+current.order_number+' chưa có xác nhận giao thành công.'),{status:409});
+            }
+            // Backwards-compatible bulk completion for already delivered shipments.
+            // Fulfillment completes without creating a COD receipt or changing payment status.
+            const { completeDeliveredOrder } = require('./order-delivery');
+            const done = await completeDeliveredOrder(client,current,{actor:req.admin});
+            if(done.changed) await audit(client,{
+              actor:req.admin,action:'order.delivery_confirmed',entityType:'order',entityId:current.id,
+              metadata:{source:'bulk_delivered_reconciliation',paymentStatus:current.payment_status}
+            });
+            changed.push({id:current.id,status:done.orderStatus,paymentStatus:current.payment_status,
+              shippingFeeVnd:current.shipping_fee_vnd,totalVnd:current.total_vnd});
+            continue;
           }
           changed.push(await applyOrderUpdate(client,expected.id,update,req.admin));
         }
@@ -2363,9 +2388,41 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const parsed = orderUpdateSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Cập nhật đơn hàng chưa hợp lệ.", details: parsed.error.issues });
       const update = parsed.data;
-      const result = await withTransaction(pool, async (client) => {
-        return applyOrderUpdate(client,req.params.id,update,req.admin);
-      });
+      let result;
+      // Compatibility for historical admin clients: an explicitly referenced, already
+      // delivered carrier-COD payment is routed through the SAME audited COD ledger
+      // as the dedicated settlement endpoint. Never infer remittance from delivery.
+      if (update.paymentStatus === 'paid' && update.reconciliationRef?.trim().length >= 4 &&
+          (update.status === undefined || update.status === 'completed') &&
+          update.shippingFeeVnd === undefined && update.warehouseId === undefined) {
+        const probe = (await pool.query(
+          `SELECT o.id,o.payment_method,o.payment_status,o.status,o.total_vnd,
+                  s.id AS shipment_id,s.status AS shipment_status,s.cod_amount_vnd
+           FROM orders o LEFT JOIN LATERAL (
+             SELECT id,status,cod_amount_vnd FROM carrier_shipments
+             WHERE order_id=o.id AND status<>'cancelled'
+             ORDER BY created_at DESC LIMIT 1
+           ) s ON true WHERE o.id=$1`, [req.params.id])).rows[0];
+        if (probe?.payment_method === 'cod' && probe.shipment_id && Number(probe.cod_amount_vnd) > 0) {
+          if (!req.admin || (req.admin.role !== 'owner' &&
+              !req.admin.permissions?.includes('payments.write'))) {
+            return res.status(403).json({error:'Cần quyền payments.write để đối soát COD hãng.'});
+          }
+          const { settleCarrierCod } = require('./shipping-management');
+          const settlement = await settleCarrierCod(pool,{
+            orderId:req.params.id,providerTransactionRef:update.reconciliationRef.trim(),
+            settledAmountVnd:Number(probe.total_vnd),method:'bank_transfer',
+            note:update.paymentNote || '',actor:req.admin,finance
+          });
+          result={id:req.params.id,status:settlement.orderStatus,
+            paymentStatus:settlement.paymentStatus,shippingFeeVnd:null,totalVnd:Number(probe.total_vnd)};
+        }
+      }
+      if (!result) {
+        result = await withTransaction(pool, async (client) => {
+          return applyOrderUpdate(client,req.params.id,update,req.admin);
+        });
+      }
       if (!result) return res.status(404).json({ error: "Không tìm thấy đơn hàng." });
       invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
       if (result.status === 'completed' && result.paymentStatus === 'paid') {

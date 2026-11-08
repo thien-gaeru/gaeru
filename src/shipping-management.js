@@ -218,6 +218,9 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     if (order.status === 'completed') {
       throw fail('Đơn hàng đã hoàn tất giao hàng.', 409);
     }
+    if (order.status === 'pending') {
+      throw fail('Cần xác nhận đơn hàng trước khi tạo vận đơn giao hàng.', 409);
+    }
     if (order.paymentMethod !== 'cod' && order.paymentStatus !== 'paid') {
       throw fail('Đơn trả trước phải hoàn tất thanh toán trước khi tạo vận đơn.', 409);
     }
@@ -618,7 +621,9 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
   if (isTerminalBlocked) return updatedOrderStatus;
 
   const canAdvanceFulfillment = shipment.orderPaymentMethod === 'cod' || shipment.orderPaymentStatus === 'paid';
-  if (!canAdvanceFulfillment) return updatedOrderStatus;
+  // Once delivery is verified, fulfillment completes regardless of whether finance is paid.
+  // An unpaid prepaid order is an exception to investigate, but shipping proof must be preserved.
+  if (!canAdvanceFulfillment && newNormalizedStatus !== 'delivered') return updatedOrderStatus;
 
   if (newNormalizedStatus === 'delivering' && ['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
     updatedOrderStatus = 'shipped';
@@ -627,40 +632,19 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
   }
 
   if (newNormalizedStatus === 'delivered') {
-    // P0-01: delivered chứng minh giao hàng thành công, KHÔNG chứng minh tiền COD đã chuyển về tài khoản GAERU.
-    if (shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
-      if (['pending', 'confirmed', 'processing'].includes(shipment.orderStatus)) {
-        updatedOrderStatus = 'shipped';
-        await client.query(
-          'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-          [shipment.order_id, 'shipped']
-        );
-      } else {
-        await client.query(
-          'UPDATE orders SET delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-          [shipment.order_id]
-        );
-      }
-      return updatedOrderStatus;
-    }
-
-    // Đơn trả trước đã paid (hoặc COD đã đối soát paid trước đó): chuyển thẳng sang completed và cộng Xu
-    if (shipment.orderPaymentStatus === 'paid' && shipment.orderStatus !== 'completed') {
-      updatedOrderStatus = 'completed';
-      await client.query(
-        'UPDATE orders SET status = $2, delivered_at = COALESCE(delivered_at, now()), updated_at = now() WHERE id = $1',
-        [shipment.order_id, 'completed']
-      );
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
-        const { earnPoints } = require('./loyalty-api');
-        await earnPoints(client, {
-          customerId: shipment.orderCustomerId,
-          orderId: shipment.order_id,
-          orderTotalVnd: Number(shipment.orderTotalVnd),
-          actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
-        });
-      }
-    }
+    // A carrier delivery event is proof of fulfillment, NOT proof of cash collection.
+    // COD settlement and payment_status remain independent until funds are reconciled.
+    const { completeDeliveredOrder } = require('./order-delivery');
+    const result = await completeDeliveredOrder(client, {
+      id: shipment.order_id,
+      orderStatus: shipment.orderStatus,
+      orderPaymentMethod: shipment.orderPaymentMethod,
+      orderPaymentStatus: shipment.orderPaymentStatus,
+      orderCustomerId: shipment.orderCustomerId,
+      orderTotalVnd: shipment.orderTotalVnd,
+      orderReturnCompletedAt: shipment.orderReturnCompletedAt
+    }, { actor });
+    updatedOrderStatus = result.orderStatus;
   }
 
   return updatedOrderStatus;
@@ -1192,7 +1176,11 @@ async function confirmCarrierPortalStatus(pool, { orderId, targetStatus, evidenc
     const shipment = result.rows[0];
 
     if (shipment.status === targetStatus) {
-      return { success: true, status: shipment.status, orderStatus: shipment.orderStatus, replayed: true };
+      // Repair orders created by older versions where delivered COD remained shipped.
+      const orderStatus = targetStatus === 'delivered' && shipment.orderStatus !== 'completed'
+        ? await applyCarrierDeliveryTransition(client, shipment, 'delivered', actor)
+        : shipment.orderStatus;
+      return { success: true, status: shipment.status, orderStatus, replayed: true };
     }
     if (CARRIER_TERMINAL_STATES.has(shipment.status)) {
       throw fail(`Vận đơn đã ở trạng thái kết thúc (${shipment.status}); không thể ghi đè sang ${targetStatus}.`, 409);
@@ -1304,6 +1292,18 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
     const shipment = result.rows[0];
     const transitionCheck = canAdvanceCarrierStatus(shipment.status, newNormalizedStatus, shipment.provider_event_time, incomingEventTime);
     if (!transitionCheck.allowed) {
+      // Repair legacy records whose carrier had delivered but order remained shipped.
+      if (shipment.status === 'delivered' && shipment.orderStatus !== 'completed') {
+        const recoveredStatus = await applyCarrierDeliveryTransition(client, shipment, 'delivered', actor);
+        if (recoveredStatus === 'completed') {
+          await appendAudit(client, {
+            actor, action: 'shipping.delivery.auto_complete_recovered',
+            entityType: 'order', entityId: shipment.order_id,
+            metadata: { carrierId: shipment.carrier_id, trackingNumber: shipment.tracking_number, source: 'sync_replay' }
+          });
+          return { success: true, processed: true, recovered: true, status: shipment.status, orderStatus: recoveredStatus, trackingNumber: shipment.tracking_number };
+        }
+      }
       return {
         success: true,
         processed: false,
@@ -1477,6 +1477,18 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
     );
 
     if (!eventInsert.rows.length) {
+      // The webhook itself is duplicate, but an older delivery may need its order repaired.
+      if (shipment.status === 'delivered' && shipment.orderStatus !== 'completed') {
+        const recoveredStatus = await applyCarrierDeliveryTransition(client, shipment, 'delivered', actor);
+        if (recoveredStatus === 'completed') {
+          await appendAudit(client, {
+            actor, action: 'shipping.delivery.auto_complete_recovered',
+            entityType: 'order', entityId: shipment.order_id,
+            metadata: { carrierId, trackingNumber: shipment.tracking_number, source: 'webhook_replay' }
+          });
+          return { success: true, processed: true, recovered: true, duplicate: true, normalizedStatus: 'delivered', orderStatus: recoveredStatus };
+        }
+      }
       return {
         success: true,
         processed: false,

@@ -268,6 +268,7 @@ test("admin can complete a COD delivery and record collection in the same update
   const currentOrder = {
     id: "4b4cfca4-96cd-47b1-a851-ed6f9944359f",
     status: "shipped",
+    delivered_at: "2026-11-08T00:00:00Z",
     payment_status: "pending",
     payment_method: "cod",
     shipping_fee_vnd: 0,

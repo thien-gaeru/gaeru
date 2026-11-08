@@ -42,8 +42,8 @@ const labels = {
 };
 const categoryLabels = { audio: "Thu âm", video: "Ghi hình", accessory: "Phụ kiện" };
 const orderTransitions = {
-  pending: ["processing", "cancelled"], confirmed: ["processing", "shipped", "cancelled"],
-  processing: ["shipped", "cancelled"], shipped: ["completed"], completed: [], cancelled: []
+  pending: ["confirmed", "cancelled"], confirmed: ["shipped", "cancelled"],
+  processing: ["shipped", "cancelled"], shipped: [], completed: [], cancelled: []
 };
 const paymentAttemptLabels = {
   pending: "Đang chờ VNPAY xác nhận giao dịch.",
@@ -766,29 +766,13 @@ function canEditShipping(order) {
 function orderPaymentControl(order) {
   const paymentLabel = order.paymentStatus === "paid" ? "Đã thanh toán" : Number(order.receivedVnd) > 0 ? "Đã thu một phần" : "Chưa thanh toán";
   if (["vnpay", "momo", "zalopay"].includes(order.paymentMethod)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>Trạng thái được cập nhật tự động từ cổng thanh toán.</small></div>`;
-  if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : "Trạng thái hiện tại của đơn hàng."}</small></div>`;
+  if (!can("payments.write") || order.paymentStatus === "paid" || ["cancelled", "completed"].includes(order.status)) return `<div class="order-payment-readonly"><span>Thanh toán</span><strong>${paymentLabel}</strong><small>${order.paymentStatus === "paid" ? "Đã ghi nhận thu tiền." : (order.paymentMethod === "cod" && order.status === "completed" ? "Đã giao xong; tiền COD vẫn chờ đối soát riêng." : "Trạng thái hiện tại của đơn hàng.")}</small></div>`;
   return `<label>Thanh toán<select name="paymentStatus" ${order.paymentMethod === "cod" ? "disabled" : ""}><option value="pending">Chưa thanh toán</option><option value="paid">Đã thanh toán</option></select><span class="help-text" data-payment-guidance>${order.paymentMethod === "cod" ? "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng." : "Chỉ xác nhận khi đã đối soát và nhận đủ tiền."}</span></label>`;
 }
 
 function changeOrderControl(event){
   if (!event.target.matches('select[name="status"]')) return;
-  const form = event.target.closest("[data-order-form]");
-  const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
-  const paymentField = form.elements.paymentStatus;
-  if (order?.paymentMethod === "cod" && paymentField) {
-    paymentField.disabled = event.target.value !== "completed";
-    if (paymentField.disabled) {
-      paymentField.value = "pending";
-      if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "pending"));
-      const guidance = form.querySelector("[data-payment-guidance]");
-      if (guidance) guidance.textContent = "Chỉ ghi nhận thu tiền khi hoàn tất giao hàng.";
-    } else {
-      paymentField.value = "paid";
-      if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
-      const guidance = form.querySelector("[data-payment-guidance]");
-      if (guidance) guidance.textContent = "Đã tự động xác nhận thu đủ tiền COD khi hoàn tất đơn hàng.";
-    }
-  }
+  // Payment status stays independent from order delivery. Never auto-select paid for COD.
 }
 async function startOrderReturn(id){const order=state.orders.find(o=>o.id===id);if(!can('orders.write')||!order||!['shipped','completed'].includes(order.status))return;closeOrderProcessing();try{await window.GAERUAfterSales.createReturn(order);}catch(error){showGlobal(error.message,true);}}
 function closeOrderProcessing(){const dialog=document.getElementById('order-processing-dialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');dialog.remove();}
@@ -796,7 +780,7 @@ function openOrderProcessing(id,opener){
  const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
  if(order.returnStatus==='returned'||order.returnedAt)return showGlobal('Đơn đã hoàn trả xong; không thể xử lý lại.',true);
  closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
- const steps=['pending','processing','shipped','completed'],current=order.status==='confirmed'?1:steps.indexOf(order.status);
+ const steps=['pending','confirmed','shipped','completed'],current=order.status==='processing'?1:steps.indexOf(order.status);
  dialog.innerHTML='<header><div><p>Xử lý đơn hàng</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></header><ol class="order-process-steps">'+steps.map((key,index)=>'<li class="'+(index===current?'current':index<current?'done':'')+'">'+escapeHtml(labels[key])+'</li>').join('')+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
  if(order.reviewReason){
    const callout=document.createElement('div');
@@ -841,25 +825,25 @@ function openOrderProcessing(id,opener){
 function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
  document.getElementById("order-bulk-dialog")?.remove();const dialog=document.createElement("dialog");dialog.id="order-bulk-dialog";dialog.className="order-processing-dialog";
- dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="prepare">Xác nhận &amp; chuẩn bị hàng → Đang xử lý</option><option value="ship">Bàn giao vận chuyển → Đang giao</option><option value="complete">Hoàn tất giao hàng → Hoàn tất</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><div data-bulk-cod-callout hidden style="display:none!important;"><span data-bulk-cod-msg></span></div><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ tiền mặt trực tiếp của các đơn COD nội bộ (không qua hãng thu hộ).</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
+ dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="confirm">Xác nhận đơn → Đã xác nhận</option><option value="ship">Bàn giao vận chuyển → Đang giao</option><option value="complete">Đã giao thành công → Tự hoàn thành (không ghi nhận tiền)</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><div data-bulk-cod-callout hidden style="display:none!important;"><span data-bulk-cod-msg></span></div><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ tiền mặt trực tiếp của các đơn COD nội bộ (không qua hãng thu hộ).</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
  document.body.append(dialog);const form=dialog.querySelector("form"),actionEl=form.querySelector('[name="action"]'),confirmEl=form.querySelector('[name="confirmReceived"]'),hint=dialog.querySelector("[data-bulk-hint]"),codCallout=dialog.querySelector("[data-bulk-cod-callout]"),codMsg=dialog.querySelector("[data-bulk-cod-msg]");
  const getActionVal=()=>{const selOpt=actionEl.querySelector("option[selected]");return actionEl.value||selOpt?.getAttribute("value")||selOpt?.value||"prepare";};
  const refresh=()=>{
-  const actionVal=getActionVal();const target={confirm:"processing",prepare:"processing",ship:"shipped",complete:"completed",cancel:"cancelled"}[actionVal];
+  const actionVal=getActionVal();const target={confirm:"confirmed",prepare:"processing",ship:"shipped",complete:"completed",cancel:"cancelled"}[actionVal];
   const blockedUndelivered=target==="completed"?orders.filter(o=>hasUndeliveredActiveWaybill(o)):[];
-  const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=="confirmed"||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=="completed"||(!hasUndeliveredActiveWaybill(o)&&(o.paymentStatus==="paid"||(can("payments.write")&&!["vnpay","momo","zalopay"].includes(o.paymentMethod))))));
+  const eligible=orders.filter(o=>(target==="completed"?(o.status==="shipped"&&(o.carrierShipment?.status==="delivered"||(!o.carrierShipment&&Boolean(o.deliveredAt)))):(orderTransitions[o.status]||[]).includes(target))&&(target!=="confirmed"||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o)));
   hint.textContent=eligible.length+"/"+orders.length+" đơn đủ điều kiện cho bước đã chọn.";
   if(target==="completed"&&blockedUndelivered.length>0){
    codCallout.hidden=false;
    codMsg.textContent="Không thể hoàn tất: "+blockedUndelivered.length+" đơn có vận đơn hãng chưa xác nhận Đã giao hàng.";
   }else{codCallout.hidden=true;codMsg.textContent="";}
-  const needDirectCashConfirm=target==="completed"&&eligible.length===orders.length&&orders.some(o=>o.paymentStatus!=="paid");
+  const needDirectCashConfirm=false;
   dialog.querySelector("[data-bulk-money]").hidden=!needDirectCashConfirm;
   confirmEl.required=needDirectCashConfirm;
   confirmEl.checked=false;
   form.querySelector("[type=submit]").disabled=eligible.length!==orders.length;
  };
- const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:"prepare",confirmed:"prepare",processing:"ship",shipped:"complete"}[common];if(next){actionEl.value=next;const opts=[...actionEl.querySelectorAll("option")];opts.forEach(o=>o.removeAttribute("selected"));const opt=opts.find(o=>(o.getAttribute("value")||o.value)===next);if(opt){opt.selected=true;opt.setAttribute("selected","");}}actionEl.addEventListener("change",refresh);
+ const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:"confirm",confirmed:"ship",processing:"ship",shipped:"complete"}[common];if(next){actionEl.value=next;const opts=[...actionEl.querySelectorAll("option")];opts.forEach(o=>o.removeAttribute("selected"));const opt=opts.find(o=>(o.getAttribute("value")||o.value)===next);if(opt){opt.selected=true;opt.setAttribute("selected","");}}actionEl.addEventListener("change",refresh);
  
  dialog.querySelector("[data-close-bulk]").addEventListener("click",()=>{if(typeof dialog.close==="function")dialog.close();dialog.remove();});dialog.addEventListener("close",()=>dialog.remove());
  form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector("[type=submit]"),feedback=form.querySelector("[role=alert]");if(button.disabled)return;button.disabled=true;feedback.textContent="Đang kiểm tra và xử lý…";let saved=false;try{const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==="function")dialog.close();dialog.remove();document.querySelector("#order-filter").value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal("Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent=error.message;button.disabled=false;}});
@@ -938,6 +922,9 @@ function renderOrders() {
         <label>Trạng thái đơn<select name="status" ${allowed.length ? "" : "disabled"}>${optionMarkup}</select></label>
         <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${canEditShipping(order) ? "" : "disabled"}></label>
         ${orderPaymentControl(order)}
+        ${can("orders.write") && order.status === "shipped" && (!order.carrierShipment || order.carrierShipment.status === "delivered")
+          ? '<button type="button" class="primary-button" data-confirm-order-delivery="' + escapeHtml(order.id) + '">3. Xác nhận đã giao → Tự hoàn thành</button>'
+          : ''}
         ${['completed', 'cancelled'].includes(order.status) ? '' : `<button class="primary-button" type="submit" ${submitDisabled ? "disabled" : ""}>Lưu cập nhật</button>`}
         <p class="feedback order-feedback" role="alert"></p>
       </form>
@@ -969,34 +956,12 @@ async function updateOrder(event) {
   let targetStatus = form.elements.status.value;
   let saved=false;
   const paymentField = form.elements.paymentStatus;
-  if (order.paymentMethod === "cod" && paymentField?.value === "paid") {
-    if (order.status === "shipped" && targetStatus !== "completed") {
-      targetStatus = "completed";
-      form.elements.status.value = "completed";
-      if (form.elements.status.options) [...form.elements.status.options].forEach(o => o.selected = (o.value === "completed"));
-    }
-  }
+  if (targetStatus === "completed") { feedback.textContent = "Hãy dùng nút Xác nhận đã giao; đơn sẽ tự hoàn thành khi có bằng chứng giao thành công."; submitButton.disabled = false; delete form.dataset.saving; submitButton.textContent = "Lưu cập nhật"; return; }
   if (targetStatus !== order.status) payload.status = targetStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
-  if (targetStatus === "completed" && order.paymentMethod === "cod" && can("payments.write")) {
-    payload.confirmReceived = true;
-    payload.paymentStatus = "paid";
-    if (paymentField) {
-      paymentField.value = "paid";
-      if (paymentField.options) [...paymentField.options].forEach(o => o.selected = (o.value === "paid"));
-    }
-  }
   if (!form.elements.shippingFeeVnd.disabled && form.elements.shippingFeeVnd.value !== "" && Number(form.elements.shippingFeeVnd.value) !== order.shippingFeeVnd) payload.shippingFeeVnd = Number(form.elements.shippingFeeVnd.value);
   try {
     if (!Object.keys(payload).length) throw new Error("Chưa có thay đổi để lưu.");
-    if (targetStatus === "completed" && (payload.paymentStatus || order.paymentStatus) !== "paid") {
-      if (order.paymentMethod === "cod") {
-        payload.confirmReceived = true;
-        payload.paymentStatus = "paid";
-      } else {
-        throw new Error("Xác nhận đã thu đủ tiền trước khi hoàn tất đơn hàng.");
-      }
-    }
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     saved=true;closeOrderProcessing();
     if(targetStatus!==order.status)document.querySelector("#order-filter").value=(["confirmed","processing"].includes(targetStatus)?"ready_to_ship":targetStatus);
@@ -1692,6 +1657,31 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
 });
 
 async function handleCarrierWaybillAction(event) {
+  const deliveryBtn = event.target.closest('[data-confirm-order-delivery]');
+  if (deliveryBtn) {
+    const orderId = deliveryBtn.dataset.confirmOrderDelivery;
+    const note = window.prompt('Ghi chú/bằng chứng xác nhận khách đã nhận hàng (ít nhất 10 ký tự):', 'Người nhận đã ký nhận hàng thành công');
+    if (note === null) return;
+    if (note.trim().length < 10) return showGlobal('Ghi chú giao hàng cần ít nhất 10 ký tự.', true);
+    deliveryBtn.disabled = true;
+    try {
+      const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/confirm-delivery', {
+        method: 'POST', body: JSON.stringify({ evidenceNote: note.trim() })
+      });
+      showGlobal(res.message || 'Đã giao thành công và tự động hoàn tất đơn hàng.');
+      await Promise.all([loadOrders(state.orderPage), loadSummary()]);
+      const currentDialog = document.getElementById('order-processing-dialog');
+      if (currentDialog) {
+        const opener = document.querySelector('[data-process-order="' + CSS.escape(orderId) + '"]');
+        if (opener) openOrderProcessing(orderId, opener);
+      }
+    } catch (err) {
+      showGlobal(err.message, true);
+    } finally {
+      deliveryBtn.disabled = false;
+    }
+    return;
+  }
   const createWaybillBtn = event.target.closest('[data-create-carrier-waybill]');
   if(createWaybillBtn){
     const orderId = createWaybillBtn.dataset.createCarrierWaybill;

@@ -61,6 +61,7 @@ test('admin cancellation rolls back reserved inventory and order status when loy
 
 test('admin completion keeps COD receipt and status atomic with loyalty policy validation', async t => {
   const f = await fixture(t), order = await f.order('shipped');
+  await f.query('UPDATE orders SET delivered_at=now() WHERE id=$1',[order.id]);
   await f.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('loyalty_policy','{}')");
   const failed = await callOrderHandler(f.pool, f.actor, '/gaeru_ceo/orders/:id', 'patch', { status: 'completed', paymentStatus: 'paid' }, order.id);
   assert.equal(failed.status, 503, 'invalid loyalty policy must fail the whole completion');
@@ -139,6 +140,7 @@ test('checkout persists idempotent response with the order and rolls back when r
 
 test('finance COD settlement rolls back the receipt and completion when loyalty policy is invalid', async t => {
   const f = await fixture(t), order = await f.order('shipped');
+  await f.query('UPDATE orders SET delivered_at=now() WHERE id=$1',[order.id]);
   await f.query("INSERT INTO store_settings(setting_key,setting_value) VALUES('loyalty_policy','{}')");
   const router = finance.createFinanceApi(f.pool);
   const handler = router.stack.find(layer => layer.route?.path === '/finance/customer-payments' && layer.route.methods.post).route.stack.at(-1).handle;
@@ -188,6 +190,7 @@ test('replacement shipment metadata cannot claim stock dispatch without a linked
 
 test('admin completion with confirmReceived automatically settles COD and completes order', async t => {
   const f = await fixture(t), order = await f.order('shipped');
+  await f.query('UPDATE orders SET delivered_at=now() WHERE id=$1',[order.id]);
   const res = await callOrderHandler(f.pool, f.actor, '/gaeru_ceo/orders/:id', 'patch', { status: 'completed', confirmReceived: true }, order.id);
   assert.equal(res.status, 200);
   assert.deepEqual(await f.state(order.id), { status: 'completed', payment_status: 'paid' });

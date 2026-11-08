@@ -144,80 +144,57 @@ function getCarrierTrackingUrl(carrierId, trackingNumber) {
  * Build progressive order status timeline for customer UI.
  */
 function buildOrderTimeline(order, shipment) {
-  const isCancelled = order.status === 'cancelled';
-  const timeline = [
-    {
-      step: 'placed',
-      title: 'Đặt hàng thành công',
-      description: `Đơn hàng ${order.order_number} đã được tiếp nhận trên hệ thống GAERU.`,
-      timestamp: order.created_at,
-      status: 'completed'
-    }
-  ];
-
-  if (isCancelled) {
-    timeline.push({
-      step: 'cancelled',
-      title: 'Đơn hàng đã hủy',
-      description: order.cancellation_reason ? `Lý do: ${order.cancellation_reason}` : 'Đơn hàng đã được xác nhận hủy.',
-      timestamp: order.updated_at,
-      status: 'cancelled'
-    });
-    return timeline;
+  if (order.status === 'cancelled') {
+    return [
+      { step: 'received', title: 'Đã tiếp nhận đơn', description: 'Hệ thống GAERU đã tiếp nhận đơn hàng.', timestamp: order.created_at, status: 'completed' },
+      { step: 'cancelled', title: 'Đơn hàng đã hủy', description: order.cancellation_reason ? `Lý do: ${order.cancellation_reason}` : 'Đơn hàng đã được xác nhận hủy.', timestamp: order.updated_at, status: 'cancelled' }
+    ];
   }
 
-  // Step 2: Confirmed
-  const isConfirmed = ['confirmed', 'processing', 'shipped', 'completed'].includes(order.status);
-  timeline.push({
-    step: 'confirmed',
-    title: 'Xác nhận đơn hàng',
-    description: order.payment_status === 'paid'
-      ? 'Đơn hàng đã được xác nhận và thanh toán thành công.'
-      : (order.payment_method === 'cod' ? 'Đơn hàng COD đã xác nhận thông tin giao nhận.' : 'Đang chờ xác nhận giao dịch thanh toán.'),
-    status: isConfirmed ? 'completed' : 'in_progress',
-    timestamp: isConfirmed ? order.updated_at : null
-  });
+  const confirmed = ['confirmed', 'processing', 'shipped', 'completed'].includes(order.status);
+  const shipping = ['shipped', 'completed'].includes(order.status) ||
+    Boolean(shipment && ['picking', 'delivering', 'in_transit', 'out_for_delivery', 'delivered'].includes(shipment.status));
+  const delivered = Boolean(order.delivered_at || shipment?.status === 'delivered' || order.status === 'completed');
+  const complete = order.status === 'completed';
+  const carrierName = shipment?.carrierName || 'đối tác vận chuyển';
+  const deliveredAt = shipment?.deliveredAt || order.delivered_at || shipment?.lastSyncedAt || null;
 
-  // Step 3: Processing / Packing
-  const isProcessing = ['processing', 'shipped', 'completed'].includes(order.status);
-  timeline.push({
-    step: 'processing',
-    title: 'Đóng gói & Chuẩn bị kiện hàng',
-    description: isProcessing
-      ? 'Kho hàng GAERU đã kiểm tra tiêu chuẩn chất lượng và hoàn tất đóng gói.'
-      : 'Kho hàng đang chuẩn bị sản phẩm để đóng gói.',
-    status: isProcessing ? 'completed' : (order.status === 'confirmed' ? 'in_progress' : 'pending'),
-    timestamp: null
-  });
-
-  // Step 4: Shipping
-  const isShipped = ['shipped', 'completed'].includes(order.status) || (shipment && ['delivering', 'picking', 'in_transit', 'out_for_delivery', 'delivered'].includes(shipment.status));
-  const carrierName = shipment?.carrierName || 'Đối tác vận chuyển';
-  timeline.push({
-    step: 'shipping',
-    title: 'Đang vận chuyển',
-    description: isShipped
-      ? `Kiện hàng đã bàn giao cho ${carrierName}${shipment?.trackingNumber ? ` (Mã vận đơn: ${shipment.trackingNumber})` : ''}.`
-      : 'Kiện hàng chuẩn bị bàn giao cho đối tác vận chuyển.',
-    status: order.status === 'completed' || shipment?.status === 'delivered'
-      ? 'completed'
-      : (isShipped ? 'in_progress' : 'pending'),
-    timestamp: shipment?.createdAt || null
-  });
-
-  // Step 5: Completed
-  const isDelivered = order.status === 'completed' || shipment?.status === 'delivered';
-  timeline.push({
-    step: 'completed',
-    title: 'Giao hàng thành công',
-    description: isDelivered
-      ? 'Kiện hàng đã được giao đến tay người nhận an toàn.'
-      : 'Khách hàng đồng kiểm và ký nhận hàng theo quy định.',
-    status: isDelivered ? 'completed' : 'pending',
-    timestamp: isDelivered ? (shipment?.deliveredAt || order.delivered_at || shipment?.lastSyncedAt || order.updated_at) : null
-  });
-
-  return timeline;
+  return [
+    {
+      step: 'confirmed',
+      title: '1. Xác nhận đơn hàng',
+      description: confirmed ? 'GAERU đã xác nhận đơn và chuẩn bị giao hàng.' : 'GAERU đã tiếp nhận đơn, đang chờ xác nhận.',
+      timestamp: confirmed ? order.updated_at : null,
+      status: confirmed ? 'completed' : 'in_progress'
+    },
+    {
+      step: 'shipping',
+      title: '2. Giao hàng',
+      description: shipping
+        ? `Đơn đã bàn giao cho ${carrierName}${shipment?.trackingNumber ? ` (mã vận đơn: ${shipment.trackingNumber})` : ''}.`
+        : 'Kiện hàng đang chờ bàn giao vận chuyển.',
+      timestamp: shipment?.createdAt || null,
+      status: shipping ? 'completed' : (confirmed ? 'in_progress' : 'pending')
+    },
+    {
+      step: 'delivered',
+      title: '3. Xác nhận đã giao',
+      description: delivered ? 'Đã có xác nhận giao thành công.' : 'Chờ xác nhận người nhận đã nhận hàng.',
+      timestamp: delivered ? deliveredAt : null,
+      status: delivered ? 'completed' : (shipping ? 'in_progress' : 'pending')
+    },
+    {
+      step: 'completed',
+      title: '4. Tự động hoàn thành',
+      description: complete
+        ? (order.payment_method === 'cod' && order.payment_status !== 'paid'
+          ? 'Đơn đã hoàn tất giao hàng. Tiền thu hộ COD đang được đối soát riêng.'
+          : 'Đơn đã tự động hoàn thành sau khi giao thành công.')
+        : 'Hệ thống tự hoàn thành khi xác nhận giao thành công.',
+      timestamp: complete ? (order.delivered_at || order.updated_at) : null,
+      status: complete ? 'completed' : 'pending'
+    }
+  ];
 }
 
 /**

@@ -295,8 +295,11 @@ test('Real Order Flow: Complete testing of COD, VietQR, VNPAY, MoMo, ZaloPay & S
   await admin.call(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', { status: 'confirmed' });
   await admin.call(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', { status: 'processing' });
   await admin.call(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', { status: 'shipped' });
-  const completeCodRes = await admin.call(`/api/gaeru_ceo/orders/${codOrder.id}`, 'PATCH', {
-    status: 'completed',
+  const deliveryConfirmation = await admin.call('/api/gaeru_ceo/orders/' + codOrder.id + '/confirm-delivery','POST',{
+    evidenceNote:'Buyer accepted the parcel and signed the delivery confirmation'
+  });
+  assert.equal(deliveryConfirmation.status,200,'Verified delivery triggers automatic fulfillment');
+  const completeCodRes = await admin.call('/api/gaeru_ceo/orders/' + codOrder.id, 'PATCH', {
     paymentStatus: 'paid'
   });
   assert.equal(completeCodRes.status, 200);

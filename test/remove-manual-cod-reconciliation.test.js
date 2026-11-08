@@ -105,9 +105,13 @@ test('Verification: Complete Removal of Manual COD Reconciliation UI & Seamless 
   });
 
   const patchBody = await patchRes.json();
-  assert.equal(patchRes.status, 200, 'Cập nhật đơn hàng phải thành công 200 OK, không được có lỗi hệ thống 500: ' + JSON.stringify(patchBody));
-  assert.equal(patchBody.order.status, 'completed');
-  assert.equal(patchBody.order.paymentStatus, 'paid');
+  assert.equal(patchRes.status, 409, 'Giao thành công không chứng minh hãng đã chuyển tiền: ' + JSON.stringify(patchBody));
+  const settlement = await fetch(`${baseUrl}/api/gaeru_ceo/shipping/orders/${orderId}/settle-cod`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-csrf-token':authJson.csrfToken,cookie:authCookie},
+    body:JSON.stringify({providerTransactionRef:'VTP-REAL-PAYOUT-20261108',settledAmountVnd:202300})
+  });
+  assert.equal(settlement.status,200,'Chỉ xác nhận tiền COD bằng mã giao dịch thực');
 
   // Kiểm tra CSDL
   const finalOrder = (await pool.query('SELECT status, payment_status FROM orders WHERE id = $1', [orderId])).rows[0];
@@ -116,7 +120,7 @@ test('Verification: Complete Removal of Manual COD Reconciliation UI & Seamless 
 
   const finalShipment = (await pool.query('SELECT cod_settlement_status, cod_settlement_ref FROM carrier_shipments WHERE order_id = $1', [orderId])).rows[0];
   assert.equal(finalShipment.cod_settlement_status, 'settled');
-  assert.ok(finalShipment.cod_settlement_ref.startsWith('COD-'));
+  assert.equal(finalShipment.cod_settlement_ref,'VTP-REAL-PAYOUT-20261108');
 
   const receipt = (await pool.query('SELECT * FROM sales_receipts WHERE order_id = $1', [orderId])).rows[0];
   assert.ok(receipt, 'Phiếu thu kế toán tự động được ghi nhận đầy đủ');
