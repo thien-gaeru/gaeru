@@ -139,16 +139,31 @@
     const links = nav.querySelectorAll('.product-local-subnav-links a');
 
     const handleScroll = () => {
-      // 1. Subtle elevation shadow when scrolled
-      const scrolled = window.scrollY || window.pageYOffset || 0;
-      if (scrolled > 8) {
-        nav.classList.add('is-scrolled');
+      // 1. Visibility toggle: Chỉ hiển thị khi trượt qua nội dung nút "Thêm vào giỏ"
+      const addToCartBtn = document.querySelector('.detail-actions [data-add-to-cart], [data-add-to-cart], .detail-actions');
+      const siteHeader = document.querySelector('#site-header');
+      const headerThreshold = siteHeader ? (siteHeader.offsetHeight || 50) : 50;
+
+      if (addToCartBtn) {
+        const btnRect = addToCartBtn.getBoundingClientRect();
+        // Trượt qua nút thêm vào giỏ (đáy nút vượt lên trên thanh menu header)
+        if (btnRect.bottom <= headerThreshold) {
+          nav.classList.add('is-visible');
+        } else {
+          nav.classList.remove('is-visible');
+        }
       } else {
-        nav.classList.remove('is-scrolled');
+        const triggerTop = heroSection ? heroSection.getBoundingClientRect().bottom : 500;
+        if (triggerTop <= headerThreshold) {
+          nav.classList.add('is-visible');
+        } else {
+          nav.classList.remove('is-visible');
+        }
       }
 
       // 2. Progress Bar
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const scrolled = window.scrollY || window.pageYOffset || 0;
       const progress = docHeight > 0 ? (scrolled / docHeight) * 100 : 0;
       if (progressBar) {
         progressBar.style.width = Math.min(100, Math.max(0, progress)) + '%';
@@ -188,12 +203,15 @@
       const targetId = link.getAttribute('href');
 
       if (targetId === '#product-detail') {
-        const isBuyClick = link.hasAttribute('data-local-nav-buy');
-        const choiceGroup = document.querySelector('.product-choice-group, .product-choice-buttons, .product-detail-copy');
-        if (isBuyClick && choiceGroup && (window.scrollY || 0) < 180) {
-          const navOffset = (nav.offsetHeight || 48) + 50 + 12;
-          const rect = choiceGroup.getBoundingClientRect();
-          window.scrollTo({ top: window.scrollY + rect.top - navOffset, behavior: 'smooth' });
+        const targetElement = document.querySelector('.detail-actions, .product-choice-group, .product-detail-copy');
+        if (targetElement) {
+          const siteHeader = document.querySelector('#site-header');
+          const headerHeight = siteHeader ? (siteHeader.offsetHeight || 50) : 50;
+          const targetRect = targetElement.getBoundingClientRect();
+          window.scrollTo({
+            top: Math.max(0, window.scrollY + targetRect.top - headerHeight - 16),
+            behavior: 'smooth'
+          });
         } else {
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }

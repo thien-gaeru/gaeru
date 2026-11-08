@@ -24,27 +24,31 @@ body.product-page {
    2. STICKY LOCAL NAVIGATION BAR (SUBNAV)
    ------------------------------------------------------------------------------ */
 .product-local-subnav {
-  position: -webkit-sticky;
-  position: sticky;
+  position: fixed;
   top: 52px;
+  left: 0;
+  right: 0;
   z-index: 38;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
-  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-  transform: none;
-  opacity: 1;
-  pointer-events: auto;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, visibility 0.32s;
+  transform: translateY(-100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.product-local-subnav.is-scrolled,
 .product-local-subnav.is-visible {
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+  transform: translateY(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .product-local-subnav-inner {
