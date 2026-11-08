@@ -60,6 +60,11 @@ async function start() {
   server = app.listen(port, host, () => {
     console.log(`GAERU standalone store listening on ${host}:${port}`);
   });
+  // High-concurrency socket tuning & Cloudflare reverse proxy keep-alive alignment
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+  server.requestTimeout = 30000;
+  server.maxHeadersCount = 2000;
   server.on('error', (error) => {
     console.error('GAERU listener failed:', errorSummary(error));
     process.exitCode = 1;
@@ -129,9 +134,12 @@ async function start() {
     };
     return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low'), getStats: () => ({ activeHighOps, activeLowOps, queuedLowOps: lowWaitQueue.length, maxLowPriorityOps: maxLow }) };
   };
+  const poolMax = Number.parseInt(pool?.options?.max || 10, 10);
+  const maxLowPriorityOps = Math.max(2, Math.floor(poolMax * 0.15));
+  const maxHighPriorityOps = Math.max(8, poolMax - maxLowPriorityOps);
   const priorityController = typeof dbModule.createPriorityPoolController === 'function'
-    ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps: 2 })
-    : buildFallbackPriorityController(pool, 2);
+    ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps, maxHighPriorityOps })
+    : buildFallbackPriorityController(pool, maxLowPriorityOps);
   const { highPriorityPool, lowPriorityPool } = priorityController;
 
 
