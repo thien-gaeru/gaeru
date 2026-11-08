@@ -79,7 +79,6 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
   const settings=decisionFn?null:await require('./chat-ai-provider').getChatAIConfig(pool,config);
   try{
     if(requestsHuman(job.question)){reason='customer_request';result={handoff:true,answer:''};}
-    else if(!decisionFn&&(!settings.enabled||!settings.apiKey)){reason='ai_unavailable';result={handoff:true,answer:'AI hiện chưa kết nối được.'};}
     else{
       const [usageRes,catalog,historyRes]=await Promise.all([
         pool.query("SELECT count(*)::int AS total FROM shopping_chat_ai_jobs WHERE thread_id=$1 AND status IN ('done','running') AND created_at>now()-interval '1 hour'",[job.thread_id]),
@@ -97,12 +96,22 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
           ?{...facts(selected),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}}
           :{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
         const history=historyRes.rows.reverse();
-        const run=decisionFn||require('./shopping-chat-extras').answerAI;
-        result=await run({config:{...config,chatAI:settings},product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});
+        if(decisionFn){
+          result=await decisionFn({config:{...config,chatAI:settings},product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});
+        }else{
+          result=await require('./gaeru-ai-customer').answerCustomerChat({pool,config,thread:job.thread,question:job.question,history,product,settings,transport});
+        }
         if(typeof result?.handoff!=='boolean'||typeof result.answer!=='string'||(!result.handoff&&!result.answer.trim()))throw Error('Invalid AI decision');
       }
     }
-  }catch{reason='ai_unavailable';result={handoff:true,answer:'AI hiện chưa thể trả lời chính xác câu hỏi này.'};}
+  }catch{
+    try{
+      result=await require('./gaeru-ai-customer').generateGaeruAiResponse({pool,thread:job.thread,question:job.question});
+      reason='gaeru_ai_resolved';
+    }catch(_){
+      reason='ai_unavailable';result={handoff:true,answer:'AI hiện chưa thể trả lời chính xác câu hỏi này.'};
+    }
+  }
   await withTransaction(pool,async c=>{
     const row=(await c.query('SELECT status,handling_mode FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[job.thread_id])).rows[0];
     const latest=(await c.query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 ORDER BY id DESC LIMIT 1',[job.thread_id])).rows[0];

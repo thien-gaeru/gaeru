@@ -110,7 +110,7 @@
     function scheduleFastAIRefresh(){
       if(admin||stopped)return;
       clearFastAiTimers();
-      if(aiCapabilities?.aiConfigured&&thread?.handlingMode!=='human'&&!thread?.handoffOffered&&thread?.status!=='closed'){
+      if((aiCapabilities?.aiConfigured||aiCapabilities?.gaeruAi)&&thread?.handlingMode!=='human'&&!thread?.handoffOffered&&thread?.status!=='closed'){
         syncAiTypingIndicator(true);
       }
       for(const delayMs of [160,380,700,1150,1750,2500,3500]){
@@ -340,7 +340,7 @@
           if(gotAiOrStaffReply||!thread?.aiPending||thread?.handlingMode==='human'||thread?.handoffOffered||thread?.status==='closed'){
             syncAiTypingIndicator(false);
             if(gotAiOrStaffReply||!thread?.aiPending)clearFastAiTimers();
-          }else if(thread?.aiPending&&aiCapabilities?.aiConfigured){
+          }else if(thread?.aiPending&&(aiCapabilities?.aiConfigured||aiCapabilities?.gaeruAi)){
             syncAiTypingIndicator(true);
           }
         }

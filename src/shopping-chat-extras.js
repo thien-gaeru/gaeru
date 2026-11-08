@@ -273,7 +273,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     });
     try{require('./realtime-sse').publishChatEvent(req.chatThread.id,'chat:update',{threadId:req.chatThread.id,status:'closed'});}catch(_){} res.json({message:'Đã kết thúc phiên chat.',status:'closed'});
   }));
-  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),provider:settings.enabled?settings.provider:null,maxFileBytes:uploadRules.MAX_FILE_BYTES,unlimitedFileSize:true,chunkSizeBytes:4194304,backgroundCompression:true});}));
+  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),gaeruAi:true,gaeruAiVersion:'2.0',provider:settings.enabled?settings.provider:'gaeru-ai',maxFileBytes:uploadRules.MAX_FILE_BYTES,unlimitedFileSize:true,chunkSizeBytes:4194304,backgroundCompression:true});}));
   publicApi.post('/threads/:id/ai',requireCsrf,limit,authorize(false),(_req,res)=>res.status(409).json({error:'AI đang trả lời tự động. Bạn có thể chọn Gặp nhân viên để chuyển hỗ trợ.'}));
 }
 module.exports={attachShoppingChat,fileType,answerAI};
