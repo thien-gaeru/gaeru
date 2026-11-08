@@ -80,7 +80,6 @@ async function mergeCartWithServer() {
       localStorage.setItem(cartStorageKey, JSON.stringify(merged));
       updateCartBadge(merged);
       document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
-    syncCartToServer(cart);
       renderCart();
       renderMiniCart();
       renderCheckout();
@@ -468,7 +467,7 @@ function renderProduct() {
     if (priceBox?.classList) priceBox.classList.toggle("is-flash", isFlash);
     if (priceNode?.classList) priceNode.classList.toggle("detail-price-flash", isFlash);
     const promoNote = root.querySelector("[data-selected-promotion]");
-    if (promoNote) promoNote.innerHTML = variant.promotion ? `<strong class="promotion-badge">${variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi'}</strong> · Giá bán: <span class="promotion-sale-price">${formatPrice(variant.priceVnd)}</span> (Giá gốc: <del>${formatPrice(variant.originalPriceVnd)}</del>) · Kết thúc ${new Date(variant.promotion.endsAt).toLocaleString('vi-VN')}` : '';
+    if (promoNote) { promoNote.innerHTML = variant.promotion ? `<strong class="promotion-badge">${variant.promotion.type==='flash'?'Flash Sale':'Ưu đãi'}</strong> · Giá bán: <span class="promotion-sale-price">${formatPrice(variant.priceVnd)}</span> (Giá gốc: <del>${formatPrice(variant.originalPriceVnd)}</del>) · Kết thúc ${new Date(variant.promotion.endsAt).toLocaleString('vi-VN')}` : ''; promoNote.hidden = !variant.promotion; }
     root.querySelector("[data-stock-note]").textContent = Number(variant.stockQuantity) > 0 ? "Còn hàng" : "Hết hàng";
     const button = root.querySelector("[data-add-to-cart]");
     button.dataset.addToCart = variant.id;
@@ -486,7 +485,8 @@ function renderProduct() {
   try {
     const curVariant = variants.find(v => v.id === selector?.value) || variants[0];
     window.GAERUAnalytics?.trackViewItem?.(product, curVariant);
-  } catch (_) {}
+  } catch (_) {  try { document.dispatchEvent(new CustomEvent("gaeru:products-rendered", { detail: { product } })); } catch (_) {}
+}
 }
 
 function renderCart() {

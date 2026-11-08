@@ -36,8 +36,8 @@
       <div class="chat-actions" id="${admin?'admin':'customer'}-chat-actions" hidden>
       <button type="button" data-pick="media">${ICONS.mediaFile}<span>Tệp, Ảnh / Video<small>Ảnh, video, tài liệu · Tự động nén ngầm</small></span></button>
       ${admin?(
-        (window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:activeAdminCan('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:'')+
-        (window.GAERUAdmin?.can('orders.read')?`<button type="button" data-offer="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Tra cứu và gửi thông tin đơn</small></span></button>`:activeAdminCan('orders.read')?`<button type="button" data-offer="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Tra cứu và gửi thông tin đơn</small></span></button>`:'')
+        (window.GAERUAdmin?.can('marketing.read')?`<button type="button" data-offer="vouchers">${ICONS.voucher}<span>Gửi voucher<small>Chọn ưu đãi đang có hiệu lực</small></span></button><button type="button" data-offer="campaigns">${ICONS.campaign}<span>Chiến dịch<small>Chọn thông báo khuyến mại</small></span></button>`:'')+
+        (window.GAERUAdmin?.can('orders.read')?`<button type="button" data-offer="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Tra cứu và gửi thông tin đơn</small></span></button>`:'')
       ):`<button type="button" data-reference="orders">${ICONS.orders}<span>Lịch sử đơn hàng<small>Chọn đơn của bạn</small></span></button><button type="button" data-reference="vouchers">${ICONS.voucher}<span>Voucher<small>Ưu đãi trong ví của bạn</small></span></button><button type="button" data-chat-human>${ICONS.human}<span>Gặp nhân viên<small>Yêu cầu hỗ trợ trực tiếp</small></span></button><button type="button" data-chat-end>${ICONS.endChat}<span>Kết thúc phiên chat<small>Đóng cuộc trò chuyện hiện tại</small></span></button>`}
       <div data-chat-reference class="chat-reference" hidden></div>
       </div>
@@ -595,8 +595,9 @@
             insertOptimisticBubble(item.key,new Date().toLocaleString('vi-VN'),'',fileContent);
           }catch(fileErr){
             feedback.textContent='Chưa tải được tệp "'+item.file.name+'": '+fileErr.message;
-            const errContent='<div class="chat-file-wrap" data-file-wrap><div class="chat-file-chip"><span class="chat-file-chip-icon">⚠️</span><div class="chat-file-chip-info"><strong>'+escape(item.file.name)+'</strong><small class="chat-upload-err-text">Lỗi: '+escape(fileErr.message)+'</small></div></div><button type="button" class="chat-retry-upload" data-retry-file="'+escape(item.key)+'" data-no-action-feedback>Thử lại</button></div>';
-            insertOptimisticBubble(item.key,new Date().toLocaleString('vi-VN'),'',errContent);
+            const errContent='<div class="chat-file-wrap" data-file-wrap><div class="chat-file-chip"><span class="chat-file-chip-icon">⚠️</span><div class="chat-file-chip-info"><strong>'+escape(item.file.name)+'</strong><div data-file-err><small class="chat-upload-err-text">Lỗi: '+escape(fileErr.message)+'</small> <button type="button" class="chat-retry-upload" data-retry-file="'+escape(item.key)+'" data-no-action-feedback>Thử lại</button></div></div></div></div>';
+            const errNode=insertOptimisticBubble(item.key,new Date().toLocaleString('vi-VN'),'',errContent);
+            pendingUploads.set(item.key,{item,node:errNode});
           }
         }
         await refresh();
@@ -617,7 +618,7 @@
       dispatchInstantSend(bodyText,queued);
     };
 
-    async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
+    async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;poll?.setStreamUrl?.(base+'/'+id+'/realtime-sse');}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
     async function endChatSession(){
       if(admin||sending||thread?.status==='closed')return;
       actions.hidden=true;plus.setAttribute('aria-expanded','false');collapseQuickReplies();

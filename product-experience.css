@@ -30,7 +30,7 @@ body.product-page {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  overflow-x: hidden;
+  overflow-x: clip;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
@@ -276,22 +276,74 @@ body.product-page {
   font-weight: 400;
 }
 
-/* Editorial Body Copy: Từng dòng mô tả trau chuốt như tạp chí thời trang công nghệ */
-.product-feature-chapter p:not(.eyebrow),
-.product-story-copy p:not(.eyebrow),
-.m3-chapter p:not(.eyebrow),
-.k9-chapter p:not(.eyebrow),
-.product-information .detail-description {
-  font-size: 17.5px !important;
-  line-height: 1.68 !important;
-  color: #515154 !important;
-  letter-spacing: -0.01em !important;
-  margin-bottom: 18px !important;
+/* ------------------------------------------------------------------------------
+   APPLE-STYLE SCANNABLE EDITORIAL TYPOGRAPHY & VISUAL HIERARCHY
+   Phân cấp thị giác: Câu statement to bản, đoạn giải thích xám dịu, badge công nghệ
+   ------------------------------------------------------------------------------ */
+
+/* Lead Statement / Hero Sentence: Câu chốt ý to bản, tương phản cao, dẫn dắt chương */
+.chapter-statement,
+.k9-lead-text,
+.m3-lead-text,
+.product-story-copy .chapter-statement,
+.k9-chapter-copy .chapter-statement,
+.m3-chapter header .chapter-statement,
+.detail-description.statement-lead {
+  display: block !important;
+  font-size: clamp(18.5px, 2.2vw, 22.5px) !important;
+  line-height: 1.45 !important;
+  font-weight: 600 !important;
+  color: #1d1d1f !important;
+  letter-spacing: -0.016em !important;
+  margin-bottom: 14px !important;
 }
 
+/* Detail Body: Đoạn văn giải thích chi tiết, màu xám thanh lịch, line-height thoáng đãng */
+.chapter-body-text,
+.k9-body-text,
+.m3-body-text,
+.product-story-copy p:not(.eyebrow):not(.chapter-statement),
+.k9-chapter p:not(.eyebrow):not(.chapter-statement),
+.m3-chapter p:not(.eyebrow):not(.chapter-statement),
+.product-information .detail-description:not(.statement-lead) {
+  font-size: clamp(15px, 1.8vw, 16.5px) !important;
+  line-height: 1.72 !important;
+  color: #515154 !important;
+  letter-spacing: -0.01em !important;
+  margin-bottom: 16px !important;
+}
+
+/* Tech Highlight & Badges: Nhấn mạnh thông số cốt lõi (chip DSP, 2.4 GHz, 20m, 2,5h...) */
+.tech-highlight,
+.tech-pill,
+.k9-spec-tag,
+.m3-spec-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  margin: 0 2px;
+  border-radius: 6px;
+  background: rgba(0, 113, 227, 0.08);
+  color: #0071e3 !important;
+  font-weight: 600 !important;
+  font-size: 0.94em;
+  letter-spacing: -0.01em;
+  vertical-align: baseline;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tech-highlight:hover,
+.tech-pill:hover {
+  background: rgba(0, 113, 227, 0.14);
+}
+
+/* In-text strong emphasis */
 .product-information .detail-description strong,
 .product-feature-chapter p strong,
-.product-story-copy strong {
+.product-story-copy strong,
+.k9-chapter p strong,
+.m3-chapter p strong {
   font-weight: 700 !important;
   color: #1d1d1f !important;
   letter-spacing: -0.015em;
@@ -654,8 +706,38 @@ body.product-page {
 
   .product-information .detail-description strong,
   .product-feature-chapter p strong,
-  .product-story-copy strong {
+  .product-story-copy strong,
+  .k9-chapter p strong,
+  .m3-chapter p strong {
     color: #f5f5f7 !important;
+  }
+
+  .chapter-statement,
+  .k9-lead-text,
+  .m3-lead-text,
+  .product-story-copy .chapter-statement,
+  .k9-chapter-copy .chapter-statement,
+  .m3-chapter header .chapter-statement,
+  .detail-description.statement-lead {
+    color: #f5f5f7 !important;
+  }
+
+  .chapter-body-text,
+  .k9-body-text,
+  .m3-body-text,
+  .product-story-copy p:not(.eyebrow):not(.chapter-statement),
+  .k9-chapter p:not(.eyebrow):not(.chapter-statement),
+  .m3-chapter p:not(.eyebrow):not(.chapter-statement),
+  .product-information .detail-description:not(.statement-lead) {
+    color: #a1a1a6 !important;
+  }
+
+  .tech-highlight,
+  .tech-pill,
+  .k9-spec-tag,
+  .m3-spec-tag {
+    background: rgba(41, 151, 255, 0.16) !important;
+    color: #2997ff !important;
   }
 
   /* Dark mode Bento Grid */
@@ -760,7 +842,7 @@ body.product-page {
     top: 50px;
     max-width: 100%;
     box-sizing: border-box;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   .product-local-subnav-inner {

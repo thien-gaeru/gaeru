@@ -163,6 +163,7 @@ async function warmStaticAssets(pool){
  const cache=assetCaches.get(pool);
  if(!cache)return;
  const m3Paths=[12,1,2,3,4,6,7,8,10,11,9].map(n=>'products/m3-description/'+n+'.webp');
+ const k9Paths=[1,2,3,4,5,6,7,8].map(n=>'products/k9-description/'+n+'.webp');
  const hotSnapshots=[
   'brand/gaeru-logo.webp',
   'products/k9.webp',
@@ -192,7 +193,7 @@ async function warmStaticAssets(pool){
    }catch{}
   }
  }
- for(const rel of m3Paths){
+ for(const rel of [...m3Paths,...k9Paths]){
   try{
    if(filesystem.configured()){
     const row=await getCachedSnapshotRow(pool,rel,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[rel])).rows[0]);

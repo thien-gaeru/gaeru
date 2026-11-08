@@ -248,10 +248,10 @@ document.addEventListener("submit", async (e) => {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Không thể đăng ký lúc này. Vui lòng thử lại sau.");
-    feedback.innerHTML = '<span style="color:#2e7d32;font-weight:600;">' + (data.message || "Vui lòng kiểm tra hộp thư để xác nhận đăng ký.") + '</span>';
+    feedback.innerHTML = '<span style="color:#2e7d32;font-weight:600;">' + (typeof escapeHtml === "function" ? escapeHtml(data.message || "Vui lòng kiểm tra hộp thư để xác nhận đăng ký.") : (data.message || "Vui lòng kiểm tra hộp thư để xác nhận đăng ký.")) + '</span>';
     form.reset();
   } catch (err) {
-    feedback.innerHTML = '<span style="color:#d32f2f;">' + err.message + '</span>';
+    feedback.innerHTML = '<span style="color:#d32f2f;">' + (typeof escapeHtml === "function" ? escapeHtml(err.message) : err.message) + '</span>';
   } finally {
     btn.disabled = false;
   }

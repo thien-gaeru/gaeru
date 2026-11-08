@@ -89,7 +89,7 @@
     function findSpecsElement() {
       let el = document.querySelector('#product-specs');
       if (el) return el;
-      el = document.querySelector('.product-feature-specs, .m3-specs, .product-story-specs, [data-specs-section]');
+      el = document.querySelector('.product-feature-specs, .m3-specs, .k9-specs, .product-story-specs, [data-specs-section]');
       if (el) return el;
       const info = document.querySelector('#product-information');
       if (info) {
@@ -247,10 +247,16 @@
       '.product-story-chapter',
       '.m3-intro',
       '.m3-chapter',
+      '.k9-intro',
+      '.k9-chapter',
       '.product-feature-highlights>div',
       '.m3-highlights>div',
+      '.m3-highlights>span',
+      '.k9-highlights>div',
+      '.k9-highlights>span',
       '.product-feature-specs',
       '.m3-specs',
+      '.k9-specs',
       '.description-figure',
       '.product-bundle-cross-sell'
     ];

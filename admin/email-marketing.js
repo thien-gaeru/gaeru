@@ -291,7 +291,7 @@
             </div>
             <div class="marketing-email-preview-body">${h(f.elements.body.value || 'Chưa có nội dung thư.')}</div>
             <div class="marketing-email-preview-footer">
-              <span>GAERU Store · <a href="#unsubscribe" onclick="return false;">Ngừng nhận email khuyến mại (One-Click Unsubscribe)</a></span>
+              <span>GAERU Store · <a href="#unsubscribe" class="marketing-preview-unsub" role="button" aria-disabled="true" style="pointer-events:none;">Ngừng nhận email khuyến mại (One-Click Unsubscribe)</a></span>
             </div>
           </div>
         `;

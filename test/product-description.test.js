@@ -45,3 +45,41 @@ test('K9, P185 and G1 legacy descriptions become model-specific chapters while c
   const custom=render({...product,description:'Bản mô tả mới của cửa hàng',descriptionMedia:[{type:'image',url:'/custom.webp',alt:'Ảnh riêng',afterParagraph:1}]});assert.match(custom,/Bản mô tả mới/);assert.match(custom,/custom.webp/);assert.ok(!custom.includes('product-feature-story'));
  }
 });
+
+test('Apple-style typography hierarchy and scannability elements exist in K9 and M3 stories', () => {
+  const k9Html = require('../k9-description')();
+  assert.ok(k9Html.includes('chapter-statement'), 'K9 should feature punchy statement leads');
+  assert.ok(k9Html.includes('chapter-body-text'), 'K9 should have readable body copy');
+  assert.ok(k9Html.includes('tech-highlight'), 'K9 should highlight core specs');
+
+  const m3Html = require('../m3-description')();
+  assert.ok(m3Html.includes('chapter-statement'), 'M3 should feature statement leads');
+  assert.ok(m3Html.includes('chapter-body-text'), 'M3 should have readable body copy');
+  assert.ok(m3Html.includes('tech-highlight'), 'M3 should highlight core specs');
+});
+
+test('k9-description.js is registered in public files, product.html and admin editor', () => {
+  const publicFiles = require('../src/public-files');
+  assert.ok(publicFiles.has('k9-description.js'), 'k9-description.js must be in publicFiles Set');
+
+  const fsNode = require('node:fs');
+  const pathNode = require('node:path');
+  const prodHtml = fsNode.readFileSync(pathNode.join(__dirname, '../product.html'), 'utf8');
+  assert.match(prodHtml, /k9-description\.js/);
+
+  const editorHtml = fsNode.readFileSync(pathNode.join(__dirname, '../admin/product-editor.html'), 'utf8');
+  assert.match(editorHtml, /k9-description\.js/);
+});
+
+test('M3 fallback story handles jsonb key reordering gracefully', () => {
+  const defaults = require('../m3-description').content();
+  const reorderedMedia = defaults.descriptionMedia.map(m => ({
+    afterParagraph: m.afterParagraph,
+    caption: m.caption,
+    alt: m.alt,
+    url: m.url,
+    type: m.type
+  }));
+  const html = render({ slug: 'gaeru-m3', description: defaults.description, descriptionMedia: reorderedMedia });
+  assert.match(html, /m3-story/);
+});
