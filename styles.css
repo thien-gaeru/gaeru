@@ -15,8 +15,8 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 64px; overflow-x: hidden; overflow-x: clip; max-width: 100%; }
-body { margin: 0; color: var(--ink); background: #fff; overflow-x: hidden; overflow-x: clip; max-width: 100%; position: relative; }
+html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+body { margin: 0; color: var(--ink); background: #fff; position: relative; }
 a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
@@ -29,8 +29,8 @@ img { display: block; max-width: 100%; }
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 .skip-link:focus { clip: auto; width: auto; height: auto; margin: 0; left: 12px; top: 12px; padding: 12px 16px; background: #fff; z-index: 100; }
-#site-header { position: sticky; z-index: 20; top: 0; }
-.site-header { position: relative; z-index: 20; background: rgb(250 250 252 / 88%); backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgb(0 0 0 / 6%); }
+#site-header { position: -webkit-sticky; position: sticky; z-index: 50; top: 0; width: 100%; display: block; }
+.site-header { position: relative; z-index: 50; height: 52px; background: rgb(250 250 252 / 88%); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgb(0 0 0 / 6%); }
 .nav-wrap { width: min(100% - 40px, 1024px); height: 52px; margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
 .wordmark { font-size: 23px; font-weight: 800; letter-spacing: -.075em; line-height: 1; }
 .primary-nav { display: flex; justify-content: center; align-items: center; gap: clamp(20px, 3vw, 42px); flex: 1; }
@@ -228,6 +228,7 @@ img { display: block; max-width: 100%; }
 }
 @media (max-width: 760px) {
   html { scroll-padding-top: 54px; }
+  .site-header { height: 50px; }
   .nav-wrap { width: calc(100% - 32px); height: 50px; gap: 10px; }
   .menu-toggle { display: inline-flex; order: 3; width: 34px; }
   .nav-actions { margin-left: auto; gap: 6px; }
@@ -696,7 +697,7 @@ img { display: block; max-width: 100%; }
 
 /* Product-story presentation and restrained, scroll-driven motion */
 html { scroll-behavior: smooth; }
-body { overflow-x: hidden; overflow-x: clip; max-width: 100%; }
+/* body overflow-x removed to preserve WebKit position: sticky */
 .scroll-progress {
   position: fixed;
   z-index: 100;

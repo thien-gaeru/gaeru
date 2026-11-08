@@ -139,17 +139,17 @@
     const links = nav.querySelectorAll('.product-local-subnav-links a');
 
     const handleScroll = () => {
-      // 1. Visibility toggle
-      const triggerTop = heroSection ? heroSection.getBoundingClientRect().top : 300;
-      if (triggerTop <= 50) {
-        nav.classList.add('is-visible');
+      // 1. Subtle elevation shadow when scrolled
+      const scrolled = window.scrollY || window.pageYOffset || 0;
+      if (scrolled > 8) {
+        nav.classList.add('is-scrolled');
       } else {
-        nav.classList.remove('is-visible');
+        nav.classList.remove('is-scrolled');
       }
 
       // 2. Progress Bar
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const progress = docHeight > 0 ? (window.scrollY / docHeight) * 100 : 0;
+      const progress = docHeight > 0 ? (scrolled / docHeight) * 100 : 0;
       if (progressBar) {
         progressBar.style.width = Math.min(100, Math.max(0, progress)) + '%';
       }
@@ -188,7 +188,15 @@
       const targetId = link.getAttribute('href');
 
       if (targetId === '#product-detail') {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        const isBuyClick = link.hasAttribute('data-local-nav-buy');
+        const choiceGroup = document.querySelector('.product-choice-group, .product-choice-buttons, .product-detail-copy');
+        if (isBuyClick && choiceGroup && (window.scrollY || 0) < 180) {
+          const navOffset = (nav.offsetHeight || 48) + 50 + 12;
+          const rect = choiceGroup.getBoundingClientRect();
+          window.scrollTo({ top: window.scrollY + rect.top - navOffset, behavior: 'smooth' });
+        } else {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         links.forEach(l => l.classList.remove('is-active'));
         const overviewLink = nav.querySelector('[data-nav-target="overview"]');
         if (overviewLink) overviewLink.classList.add('is-active');
