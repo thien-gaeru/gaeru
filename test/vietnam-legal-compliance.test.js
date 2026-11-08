@@ -69,3 +69,13 @@ test('Store footer shell contains registered business info under Article 29 of D
   assert.ok(js.includes('Thôn 2, Xã Rạng Đông'), 'Footer must contain registered address');
   assert.ok(js.includes('Nghị định 52/2013/NĐ-CP'), 'Footer must state Decree 52 compliance');
 });
+
+test('GAERU Xu policy complies with Decree 81/2018/ND-CP, Decree 52/2024/ND-CP & Consumer Protection standards', () => {
+  const html = fs.readFileSync(path.join(ROOT_DIR, 'gaeru-xu.html'), 'utf8');
+  assert.ok(html.includes('Nghị định số 81/2018/NĐ-CP') || html.includes('Nghị định 81/2018/NĐ-CP'), 'Must cite Trade Promotion Decree 81/2018/ND-CP');
+  assert.ok(html.includes('50%'), 'Must enforce maximum 50% discount cap under Article 8 of Decree 81');
+  assert.ok(html.includes('Nghị định số 52/2024/NĐ-CP') || html.includes('Nghị định 52/2024/NĐ-CP'), 'Must cite Non-cash Payment Decree 52/2024/ND-CP');
+  assert.ok(html.includes('không phải là tiền pháp định') || html.includes('không phải tiền pháp định') || html.includes('không phải là tiền tệ'), 'Must state GAERU Xu is non-currency reward point');
+  assert.ok(html.includes('hoàn tiền') || html.includes('hoàn trả') || html.includes('Hủy đơn hàng'), 'Must define refund and reversal policy for customer protection');
+  assert.ok(html.includes('Luật Bảo vệ quyền lợi người tiêu dùng'), 'Must cite Consumer Protection Law');
+});

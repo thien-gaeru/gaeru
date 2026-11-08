@@ -368,7 +368,7 @@ test("Google Analytics: client helper formats events and deduplicates purchases"
 test("Google Analytics: all 32 storefront HTML files include google-analytics.js", () => {
   const dir = path.resolve(__dirname, "..");
   const htmlFiles = fs.readdirSync(dir).filter(f => f.endsWith(".html"));
-  assert.equal(htmlFiles.length, 32, "Should have 32 storefront HTML files");
+  assert.equal(htmlFiles.length, 33, "Should have 33 storefront HTML files");
 
   for (const file of htmlFiles) {
     const content = fs.readFileSync(path.join(dir, file), "utf8");

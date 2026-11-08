@@ -1,7 +1,7 @@
 const fs=require('node:fs'),path=require('node:path'),{Router}=require('express'),{rateLimit}=require('express-rate-limit');
 const publicFiles=require('./public-files'),dates=require('../seo-page-dates.json');
 const excluded=new Set(['sitemap.html','product.html','product-support.html','news-article.html','account.html','cart.html','checkout.html','payment-result.html']);
-const titles={'index.html':'Trang chủ GAERU','shop.html':'Cửa hàng','story.html':'Câu chuyện GAERU','support.html':'Trung tâm hỗ trợ','care.html':'GAERU Care+','guides.html':'Hướng dẫn sử dụng','news.html':'Góc GAERU','warranty-activation.html':'Kích hoạt bảo hành','privacy.html':'Chính sách quyền riêng tư','terms.html':'Điều khoản sử dụng','pricing.html':'Chính sách giá','payment.html':'Chính sách thanh toán','delivery-returns.html':'Giao hàng và đổi trả','legal.html':'Thông tin pháp lý','complaints.html':'Tiếp nhận khiếu nại'};
+const titles={'index.html':'Trang chủ GAERU','shop.html':'Cửa hàng','story.html':'Câu chuyện GAERU','support.html':'Trung tâm hỗ trợ','care.html':'GAERU Care+','guides.html':'Hướng dẫn sử dụng','news.html':'Góc GAERU','warranty-activation.html':'Kích hoạt bảo hành','privacy.html':'Chính sách quyền riêng tư','terms.html':'Điều khoản sử dụng','pricing.html':'Chính sách giá','payment.html':'Chính sách thanh toán','delivery-returns.html':'Giao hàng và đổi trả','legal.html':'Thông tin pháp lý','complaints.html':'Tiếp nhận khiếu nại','gaeru-xu.html':'Chính sách GAERU Xu'};
 const {clean}=require('../clean-urls');
 const escape=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iso=v=>v&&!Number.isNaN(new Date(v).getTime())?new Date(v).toISOString():null;
