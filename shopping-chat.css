@@ -76,20 +76,23 @@
    line 1 = "Trợ giúp GAERU" + close, line 2 = Gọi hotline + Kết thúc phiên chat. */
 .shopping-chat-dialog>header{align-items:center;gap:8px;padding:0;margin:0;border:0;background:transparent!important}
 .chat-header-main{display:flex;flex-direction:column;flex:1;min-width:0}
-.chat-header-title-row{display:flex;align-items:center;gap:8px}
-.chat-live-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;line-height:1;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:3px 8px;vertical-align:middle;user-select:none}
-.chat-live-badge.is-fallback{color:#854d0e;background:#fefce8;border-color:#fef08a}
-.chat-live-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2px rgba(34,197,94,0.25);animation:chatLivePulse 2s cubic-bezier(0.4,0,0.6,1) infinite}
-.chat-live-badge.is-fallback .chat-live-dot{background:#eab308;box-shadow:0 0 0 2px rgba(234,179,8,0.25);animation:none}
-.chat-live-badge.is-offline{color:#b91c1c;background:#fef2f2;border-color:#fecaca}
-.chat-live-badge.is-offline .chat-live-dot{background:#ef4444;box-shadow:0 0 0 2px rgba(239,68,68,0.25);animation:none}
-@keyframes chatLivePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.85)}}
-.chat-header-main h2,.shopping-chat-dialog .chat-header-main h2{margin:0;font-size:18px;line-height:1.25}
+.chat-header-title-row{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}
+.chat-live-badge{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:transparent;border:none;padding:0;vertical-align:middle;user-select:none;cursor:help;position:relative;flex-shrink:0}
+.chat-live-badge [data-chat-live-text]{display:none!important}
+.chat-live-badge.is-fallback{background:transparent;border:none}
+.chat-live-dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2.5px rgba(34,197,94,0.25);animation:chatLivePulse 2s cubic-bezier(0.4,0,0.6,1) infinite;transition:background-color 0.2s ease,box-shadow 0.2s ease}
+.chat-live-badge.is-fallback .chat-live-dot{background:#eab308;box-shadow:0 0 0 2.5px rgba(234,179,8,0.25);animation:chatLivePulse 2s cubic-bezier(0.4,0,0.6,1) infinite}
+.chat-live-badge.is-offline{background:transparent;border:none}
+.chat-live-badge.is-offline .chat-live-dot{background:#ef4444;box-shadow:0 0 0 2.5px rgba(239,68,68,0.25);animation:none}
+@keyframes chatLivePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.55;transform:scale(0.88)}}
+.chat-header-main h2,.shopping-chat-dialog .chat-header-main h2{margin:0;font-size:17px;line-height:1.25;white-space:nowrap}
+.chat-hotline-header{margin-left:2px}
 .shopping-chat-dialog>header [data-chat-close]{min-width:34px;min-height:34px;width:34px;height:34px;font-size:22px;line-height:1;padding:0}
-.shopping-chat-dialog .chat-state-bar{margin:4px 0 8px;padding:0 0 8px;border-bottom:1px solid #f0f0f3;flex-wrap:nowrap;flex-shrink:0}
+.shopping-chat-dialog .chat-state-bar{margin:0;padding:0;border-bottom:none;flex-wrap:nowrap;flex-shrink:0}
 .shopping-chat-dialog .chat-state-bar .chat-state{display:none}
 .shopping-chat-dialog .chat-state-bar .chat-live-badge{display:none!important}
-.shopping-chat-dialog .chat-session-actions{flex-wrap:wrap}
+.shopping-chat-dialog .chat-state-bar .chat-hotline-session{display:none!important}
+.shopping-chat-dialog .chat-session-actions{flex-wrap:wrap;margin:4px 0 6px}
 .shopping-chat-dialog.chat-keyboard-open .chat-state-bar{display:none}
 .shopping-chat-dialog.chat-keyboard-open .chat-header-main h2{font-size:16px}
 /* Composer textarea: 1 row at rest, grows with content up to 3 rows. */

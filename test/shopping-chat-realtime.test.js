@@ -161,3 +161,17 @@ test('Chat ngay realtime: publishChatEvent broadcasts to thread and admin channe
   assert.equal(threadEvents[1].event, 'chat:update');
   assert.equal(adminEvents.length, 5); // 2 previous + chat:message, shopping_chat:message, chat:update
 });
+
+test('Chat ngay realtime: hotline button is placed on the same line right after the connection dot', () => {
+  const productServicesJs = fs.readFileSync(path.join(__dirname, '../product-services.js'), 'utf8');
+  assert.ok(productServicesJs.includes('chat-header-title-row'), 'Dialog header must render chat-header-title-row');
+  assert.ok(productServicesJs.includes('chat-hotline-header'), 'Dialog header must include chat-hotline-header on title row');
+
+  const headerHtmlMatch = productServicesJs.match(/<div class="chat-header-title-row">(.*?)<\/div>/);
+  assert.ok(headerHtmlMatch, 'chat-header-title-row must exist');
+  const innerHtml = headerHtmlMatch[1];
+  const dotIndex = innerHtml.indexOf('data-chat-live-badge');
+  const hotlineIndex = innerHtml.indexOf('chat-hotline-header');
+  assert.ok(dotIndex !== -1 && hotlineIndex !== -1, 'Both dot and hotline must be inside title row');
+  assert.ok(hotlineIndex > dotIndex, 'Hotline must be positioned after (to the right of) the live dot');
+});
