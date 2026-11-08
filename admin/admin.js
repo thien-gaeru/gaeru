@@ -77,13 +77,14 @@ async function request(url, options = {}) {
 }
 
 function showGlobal(message, isError = false) {
+  const text = typeof message === 'string' ? message : (message?.message || message?.error || (message ? String(message) : ''));
   const feedback = document.querySelector("#global-feedback");
   if (feedback) {
-    feedback.textContent = message;
+    feedback.textContent = text;
     feedback.classList.toggle("is-error", isError);
   }
   if (window.GAERUNotify?.toast) {
-    window.GAERUNotify.toast(message, isError ? "error" : "success");
+    window.GAERUNotify.toast(text, isError ? "error" : "success");
   }
 }
 
