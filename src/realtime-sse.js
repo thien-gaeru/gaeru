@@ -45,8 +45,8 @@ function checkAdminSessionValid(req) {
 
 
 // GAERU-14: Ngân sách kiểm soát kết nối SSE đồng thời cho Hostinger (2 CPU / 3 GB RAM)
-const MAX_TOTAL_SSE = Number(process.env.MAX_SSE_CONNECTIONS) || 120;
-const MAX_PER_IP_SSE = Number(process.env.MAX_PER_IP_SSE) || (process.env.NODE_ENV === 'test' ? 60 : 10);
+const MAX_TOTAL_SSE = Number(process.env.MAX_SSE_CONNECTIONS) || 500;
+const MAX_PER_IP_SSE = Number(process.env.MAX_PER_IP_SSE) || (process.env.NODE_ENV === 'test' ? 60 : 30);
 
 const activeSseConnections = new Set();
 const ipSseCounts = new Map();
@@ -105,11 +105,16 @@ const activeStreams = new Set();
 function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, checkSession = null } = {}) {
   if (!acquireSseSlot(req, res)) return;
   activeStreams.add(res);
+  try {
+    req.socket?.setNoDelay?.(true);
+    req.socket?.setKeepAlive?.(true, 10000);
+  } catch (_) {}
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
+    'X-Accel-Buffering': 'no',
+    'X-Content-Type-Options': 'nosniff'
   });
 
   res.write(': connected\n\n');
@@ -137,7 +142,7 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
       }
     }
     res.write(': ping\n\n');
-  }, 20000);
+  }, 15000);
   if (heartbeatTimer.unref) heartbeatTimer.unref();
 
   let cleanedUp = false;
@@ -234,11 +239,16 @@ const realtimeClients = new Set();
 
 function sseHandler(req, res) {
   if (!acquireSseSlot(req, res)) return;
+  try {
+    req.socket?.setNoDelay?.(true);
+    req.socket?.setKeepAlive?.(true, 10000);
+  } catch (_) {}
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no' // Tắt buffer trên Nginx/Cloudflare để đẩy tin tức thời
+    'X-Accel-Buffering': 'no',
+    'X-Content-Type-Options': 'nosniff'
   });
 
   res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
@@ -252,7 +262,7 @@ function sseHandler(req, res) {
     try {
       res.write(': keepalive\n\n');
     } catch (_) {}
-  }, 25000);
+  }, 15000);
   if (heartbeat.unref) heartbeat.unref();
 
   let cleanedUp = false;

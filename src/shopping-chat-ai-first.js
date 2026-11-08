@@ -62,7 +62,7 @@ async function resumeTimedOutHumanThreads(pool){
 }
 async function processAIChat(pool,config,{decisionFn,transport}={}){
   const job=await withTransaction(pool,async c=>{
-    const stale=(await c.query("UPDATE shopping_chat_ai_jobs SET status='failed' WHERE status='running' AND started_at<now()-interval '2 minutes' RETURNING thread_id")).rows;
+    const stale=(await c.query("UPDATE shopping_chat_ai_jobs SET status='failed' WHERE status='running' AND started_at<now()-interval '45 seconds' RETURNING thread_id")).rows;
     for(const row of stale)await offerHandoff(c,row.thread_id,'ai_interrupted','AI hiện chưa thể tiếp tục trả lời. Chọn Gặp nhân viên để được hỗ trợ.');
     const row=(await c.query("SELECT * FROM shopping_chat_ai_jobs WHERE status='pending' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
     if(!row)return null;
@@ -127,7 +127,7 @@ function startAIChatWorker(pool,config){
       do{
         pendingKick=false;
         await resumeTimedOutHumanThreads(pool).catch(()=>{});
-        for(let i=0;i<8&&!stopped;i++){
+        for(let i=0;i<12&&!stopped;i++){
           if(!await processAIChat(pool,config))break;
         }
       }while(pendingKick&&!stopped);

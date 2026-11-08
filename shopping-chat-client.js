@@ -711,7 +711,23 @@
     });
     const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
     if(!admin)void loadCapabilities();
-    const updateLiveStatus=(text)=>{const isRealtime=String(text||'').includes('SSE')||String(text||'').includes('Thời gian thực');const badges=[...root.querySelectorAll('[data-chat-live-badge]'),...(root.closest('dialog')?[...root.closest('dialog').querySelectorAll('[data-chat-live-badge]')]:[])];const labels=[...root.querySelectorAll('[data-chat-live-text]'),...(root.closest('dialog')?[...root.closest('dialog').querySelectorAll('[data-chat-live-text]')]:[])];badges.forEach(b=>{b.classList.toggle('is-fallback',!isRealtime);b.title=isRealtime?'Thời gian thực (SSE 0ms)':(text||'Tự cập nhật');});labels.forEach(l=>{l.textContent=isRealtime?'Trực tuyến':(String(text||'').includes('Mất')?'Mất mạng':'Đang kết nối');});};
+    const updateLiveStatus=(text)=>{
+      const statusStr=String(text||'');
+      const isRealtime=statusStr.includes('SSE')||statusStr.includes('Thời gian thực');
+      const isOffline=statusStr.includes('Mất')||(typeof navigator==='object'&&navigator.onLine===false);
+      const isReconnecting=statusStr.includes('Đang tự kết nối')||statusStr.includes('Chưa cập nhật');
+      const isOnline=isRealtime||statusStr.includes('Tự cập nhật')||(!isOffline&&!isReconnecting);
+      const badges=[...root.querySelectorAll('[data-chat-live-badge]'),...(root.closest('dialog')?[...root.closest('dialog').querySelectorAll('[data-chat-live-badge]')]:[])];
+      const labels=[...root.querySelectorAll('[data-chat-live-text]'),...(root.closest('dialog')?[...root.closest('dialog').querySelectorAll('[data-chat-live-text]')]:[])];
+      badges.forEach(b=>{
+        b.classList.toggle('is-fallback',!isOnline||isReconnecting);
+        b.classList.toggle('is-offline',isOffline);
+        b.title=isRealtime?'Thời gian thực (SSE 0ms)':(isOffline?'Mất kết nối mạng':(isReconnecting?'Đang kết nối lại...':'Sẵn sàng kết nối'));
+      });
+      labels.forEach(l=>{
+        l.textContent=isOffline?'Mất mạng':(isReconnecting?'Đang kết nối':(isOnline?'Trực tuyến':'Đang kết nối'));
+      });
+    };
     const poll=window.GAERUCareLive.poll({streamUrl:id?base+'/'+id+'/realtime-sse':null,delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:updateLiveStatus});
     if(id)refresh().catch(e=>feedback.textContent=e.message);
     return {refresh,stop(){stopped=true;clearFastAiTimers();clearPickerTimers();activePicker=null;window.removeEventListener?.('focus',onPickerReturn);document.removeEventListener?.('visibilitychange',onPickerReturn);poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};

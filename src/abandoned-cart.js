@@ -461,7 +461,10 @@ function startAbandonedCartWorker(pool, config, { mailer = makeMailer(config), i
     if (running || stopped) return;
     running = true;
     try {
-      await processAbandonedCartReminders(pool, config, mailer);
+      for (let i = 0; i < 5 && !stopped; i++) {
+        const handled = await processAbandonedCartReminders(pool, config, mailer);
+        if (!handled) break;
+      }
     } catch (e) {
       console.error('Abandoned cart reminder worker temporarily unavailable:', e.message);
     } finally {
