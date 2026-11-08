@@ -28,7 +28,7 @@ const RELOAD_FILE = path.join(LOGS_DIR, 'reload.signal');
 const STOP_FILE = path.join(LOGS_DIR, 'stop.signal');
 
 const HEALTH_CHECK_INTERVAL_MS = 5000;
-const HEALTH_CHECK_TIMEOUT_MS = 3000;
+const HEALTH_CHECK_TIMEOUT_MS = 6000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -292,6 +292,7 @@ function checkHttpHealth() {
 
   try {
     const req = http.get('http://127.0.0.1:3000/healthz', { timeout: HEALTH_CHECK_TIMEOUT_MS }, (res) => {
+      res.resume();
       if (res.statusCode === 200) {
         if (consecutiveFailures > 0) {
           log(`Server đã khôi phục trạng thái hoạt động bình thường (200 OK) sau ${consecutiveFailures} lần cảnh báo.`);
