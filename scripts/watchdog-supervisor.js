@@ -17,6 +17,7 @@ const { spawn, execSync } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const LOGS_DIR = path.join(ROOT_DIR, 'logs');
@@ -43,6 +44,30 @@ if (process.stdout && typeof process.stdout.on === 'function') {
 }
 if (process.stderr && typeof process.stderr.on === 'error') {
   process.stderr.on('error', () => {});
+}
+
+function preventSystemSleep() {
+  if (process.platform !== 'win32') return;
+  try {
+    execSync('powercfg /change standby-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
+    execSync('powercfg /change hibernate-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
+  } catch (_) {}
+}
+
+function tuneProcessPriorities(childPid) {
+  try {
+    os.setPriority(process.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL);
+  } catch (_) {}
+  if (childPid) {
+    try {
+      os.setPriority(childPid, os.constants.priority.PRIORITY_ABOVE_NORMAL);
+    } catch (_) {}
+  }
+  if (process.platform === 'win32') {
+    try {
+      execSync('powershell -NoProfile -NonInteractive -Command "Get-Process -Name cloudflared -ErrorAction SilentlyContinue | ForEach-Object { if ($_.PriorityClass -ne [System.Diagnostics.ProcessPriorityClass]::AboveNormal) { $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal } }"', { stdio: 'ignore', timeout: 3000 });
+    } catch (_) {}
+  }
 }
 
 function rotateLogIfNeeded(filePath) {
@@ -253,7 +278,8 @@ function spawnServer() {
 
   const childPid = childProcess.pid;
   fs.writeFileSync(SERVER_PID_FILE, String(childPid), 'utf8');
-  log(`GAERU Server đã khởi chạy thành công (PID: ${childPid})`);
+  tuneProcessPriorities(childPid);
+  log(`GAERU Server đã khởi chạy thành công (PID: ${childPid}, Priority: AboveNormal)`);
 
   childProcess.on('error', (err) => {
     log(`Lỗi khởi tạo child process: ${err.message}`, 'ERROR');
@@ -394,8 +420,15 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Khởi chạy
+preventSystemSleep();
 spawnServer();
 healthTimer = setInterval(checkHttpHealth, HEALTH_CHECK_INTERVAL_MS);
 signalTimer = setInterval(checkSignals, 1000);
+// Duy trì ưu tiên tài nguyên và chống nghẽn bộ nhớ định kỳ mỗi 30s
+setInterval(() => {
+  if (childProcess && childProcess.pid) {
+    tuneProcessPriorities(childProcess.pid);
+  }
+}, 30000);
 // Giữ event loop luôn hoạt động 24/7 (không unref) để tiến trình supervisor không bao giờ tự thoát
 setInterval(() => {}, 60000);
