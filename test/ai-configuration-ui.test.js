@@ -1,24 +1,45 @@
-const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-async function fixture({failProbe=false}={}){
- const records=Object.fromEntries(['profile','security','operations','chat_ai','vnpay','misa','shopee','tiktok'].map(id=>[id,{version:0,data:{}}]));records.chat_ai={version:7,data:{provider:'gemini',enabled:true,profiles:{openai:{model:'fixture-gpt',secretConfigured:true},gemini:{model:'fixture-gemini',secretConfigured:true},claude:{model:'fixture-claude',secretConfigured:true}}}};
- const fields={provider:{value:'gemini'},aiEnabled:{checked:true},password:{value:'owner-password',focus(){this.focused=true;}},factorCode:{value:'fixture-code'}};
- for(const p of ['openai','gemini','claude']){fields[p+'Model']={value:records.chat_ai.data.profiles[p].model};fields[p+'Key']={value:''};}
- const status={textContent:''},button={disabled:false},save={disabled:false},form={elements:fields,dataset:{configForm:'chat_ai',version:'7',challenge:'fixture-challenge'},querySelector:s=>s==='[type=submit]'?save:status,querySelectorAll:()=>[fields.password,fields.factorCode,...['openai','gemini','claude'].map(p=>fields[p+'Key'])]};button.closest=()=>form;
- const listeners={},root={innerHTML:''},panel={open:false,querySelector:()=>status},requests=[];
- const admin={user:{role:'owner',source:'bootstrap'},showGlobal(){},request:async(path,options={})=>{if(path==='/api/gaeru_ceo/owner/configuration'&&!options.method)return {records:structuredClone(records),services:{},callbacks:{}};const body=JSON.parse(options.body);requests.push({path,body});if(options.method==='PUT'){records.chat_ai={version:8,data:{provider:body.data.provider,enabled:body.data.enabled,profiles:Object.fromEntries(Object.entries(body.data.profiles).map(([p,v])=>[p,{model:v.model,secretConfigured:true}]))}};return {version:8,message:'Đã lưu Chat AI.'};}if(failProbe)throw Object.assign(Error('Khóa API không hợp lệ.'),{status:503,stage:'provider',diagnostic:{provider:'gemini',model:'fixture-gemini',code:'KEY_INVALID',upstreamStatus:400,requestId:'req_fixture'}});return {compatible:true,provider:body.expectedProvider,model:body.expectedModel,message:'Kết nối thành công.'};}};
- const context={window:{GAERUAdmin:admin},document:{addEventListener:(type,fn)=>(listeners[type]||=[]).push(fn),querySelector:()=>root,getElementById:()=>panel}};
- vm.runInNewContext(fs.readFileSync(require.resolve('../admin/configuration.js'),'utf8'),context);await context.window.GAERUConfiguration.load();
- return {fields,status,button,panel,requests,form,async click(){for(const fn of listeners.click)await fn({target:{closest:s=>s==='[data-chat-ai-test]'?button:null}});},async save(){for(const fn of listeners.submit)await fn({preventDefault(){},target:{closest:s=>s==='[data-config-form]'?form:null}});}};
-}
-test('AI probe refuses unsaved provider, model or key before any request',async()=>{
- for(const change of [f=>f.fields.provider.value='claude',f=>f.fields.geminiModel.value='new-model',f=>f.fields.geminiKey.value='new-private-key']){const f=await fixture();change(f);await f.click();assert.equal(f.requests.length,0);assert.match(f.status.textContent,/chưa lưu/);assert.equal(f.button.disabled,false);}
-});
-test('AI probe requires fresh password and names the exact saved provider/model',async()=>{
- const f=await fixture();f.fields.password.value='';await f.click();assert.equal(f.requests.length,0);assert.equal(f.fields.password.focused,true);assert.match(f.status.textContent,/mật khẩu/);f.fields.password.value='owner-password';await f.click();assert.equal(f.requests.length,1);assert.equal(f.requests[0].body.expectedProvider,'gemini');assert.equal(f.requests[0].body.expectedModel,'fixture-gemini');assert.equal(f.requests[0].body.version,7);assert.equal(f.fields.password.value,'');assert.equal(f.fields.factorCode.value,'');assert.equal(f.form.dataset.challenge,undefined);assert.match(f.status.textContent,/Kết nối thành công/);
-});
-test('AI provider failures retain actionable diagnostics and clear consumed authentication fields',async()=>{
- const f=await fixture({failProbe:true});await f.click();assert.match(f.status.textContent,/Google Gemini.*fixture-gemini/);assert.match(f.status.textContent,/KEY_INVALID.*HTTP 400.*req_fixture/);assert.equal(f.fields.password.value,'');assert.equal(f.fields.factorCode.value,'');assert.equal(f.button.disabled,false);
-});
-test('saving AI keeps panel open and requires reauthentication before checking the newly saved model',async()=>{
- const f=await fixture();f.fields.geminiModel.value='saved-new-model';await f.save();assert.equal(f.panel.open,true);assert.match(f.status.textContent,/Nhập lại mật khẩu/);assert.equal(f.fields.password.value,'');await f.click();assert.equal(f.requests.length,1);f.fields.password.value='owner-password';await f.click();assert.equal(f.requests.length,2);assert.equal(f.requests[1].body.version,8);assert.equal(f.requests[1].body.expectedModel,'saved-new-model');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+
+test('External Chat AI configuration is completely removed from admin configuration UI', async () => {
+  const records = Object.fromEntries(['profile', 'security', 'operations', 'vnpay', 'misa', 'shopee', 'tiktok'].map(id => [id, { version: 0, data: {} }]));
+  const listeners = {};
+  const root = { innerHTML: '', isConnected: true };
+  const panel = { open: false, querySelector: () => ({ textContent: '' }) };
+  const admin = {
+    user: { role: 'owner', source: 'bootstrap' },
+    showGlobal() {},
+    request: async (path) => {
+      if (path === '/api/gaeru_ceo/owner/configuration') {
+        return { records: structuredClone(records), services: { turnstileConfigured: true, smtpConfigured: true }, callbacks: {} };
+      }
+      return {};
+    }
+  };
+  const context = {
+    window: { GAERUAdmin: admin },
+    document: {
+      addEventListener: (type, fn) => (listeners[type] ||= []).push(fn),
+      querySelector: (s) => (s === '#system-configuration' ? root : null),
+      getElementById: () => panel
+    }
+  };
+
+  vm.runInNewContext(fs.readFileSync(require.resolve('../admin/configuration.js'), 'utf8'), context);
+  await context.window.GAERUConfiguration.load();
+
+  // Kiểm tra không còn bất kỳ thành phần nào của Chat AI bên ngoài trong giao diện cấu hình
+  assert.ok(!root.innerHTML.includes('Chat AI · GPT, Gemini, Claude'), 'Should not render external Chat AI heading');
+  assert.ok(!root.innerHTML.includes('Model OpenAI / GPT'), 'Should not render OpenAI configuration input');
+  assert.ok(!root.innerHTML.includes('Model Gemini'), 'Should not render Gemini configuration input');
+  assert.ok(!root.innerHTML.includes('Model Claude'), 'Should not render Claude configuration input');
+  assert.ok(!root.innerHTML.includes('data-chat-ai-test'), 'Should not render external AI test button');
+  assert.ok(!root.innerHTML.includes('config-panel-chat_ai'), 'Should not render chat_ai config panel');
+
+  // Kiểm tra các panel vận hành và bảo mật chuẩn vẫn hoạt động nguyên vẹn
+  assert.ok(root.innerHTML.includes('config-panel-security'), 'Should retain security panel');
+  assert.ok(root.innerHTML.includes('config-panel-oauth'), 'Should retain oauth panel');
+  assert.ok(root.innerHTML.includes('config-panel-misa'), 'Should retain misa panel');
 });

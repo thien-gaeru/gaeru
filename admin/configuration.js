@@ -14,7 +14,6 @@ const titles={
  vnpay:'Cổng thanh toán VNPAY',
  payment_momo:'Ví điện tử MoMo',
  payment_zalopay:'Ví điện tử ZaloPay',
- chat_ai:'Chat AI · GPT, Gemini, Claude',
  operations:'Vận hành cửa hàng',
  profile:'Hồ sơ chủ doanh nghiệp',
  security:'Bảo mật hệ thống',
@@ -57,7 +56,6 @@ const fieldPlaceholders={
 };
 
 const fields={
- chat_ai:[],
  operations:[],
  profile:[['fullName','Họ và tên'],['company','Tên doanh nghiệp'],['position','Chức danh'],['taxCode','Mã số thuế'],['address','Địa chỉ doanh nghiệp']],
  security:[['idleMinutes','Tự đăng xuất khi không hoạt động (phút)','number'],['absoluteHours','Thời hạn tối đa mỗi phiên (giờ)','number']],
@@ -111,7 +109,6 @@ const configModalMeta={
  shipping_viettel:{title:'Cấu hình & Khóa API · Viettel Post',sub:'Mã đối tác, API Token và thông tin kho lấy hàng',icon:shippingMeta.shipping_viettel.icon},
  shipping_jt:{title:'Cấu hình & Khóa API · J&T Việt Nam',sub:'Open Platform: customerCode, apiAccount, privateKey và password nghiệp vụ',icon:shippingMeta.shipping_jt.icon},
  shipping_spx:{title:'Cấu hình & Khóa API · Shopee Express (SPX)',sub:'Mã khách hàng / Shop ID, API Key / Token SPX và thông tin kho lấy hàng',icon:shippingMeta.shipping_spx.icon},
- chat_ai:{title:'Cấu hình & Khóa · Chat AI (GPT, Gemini, Claude)',sub:'Model AI, API Keys và kích hoạt trợ lý tư vấn bán hàng',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M9 13v2M15 13v2"></path></svg>'},
  oauth:{title:'Cấu hình & Khóa · Đăng nhập Google',sub:'Google Client ID cho phép khách hàng đăng nhập nhanh qua Google',icon:'<svg width="26" height="26" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg>'},
  operations:{title:'Cấu hình · Vận hành & Tiếp nhận đơn',sub:'Bật / tắt tiếp nhận đơn đặt hàng trực tuyến trên hệ thống GAERU',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>'},
  security:{title:'Cấu hình · Chính sách phiên & Bảo mật',sub:'Thời hạn phiên làm việc và bảo vệ tài khoản quản trị',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'},
@@ -494,23 +491,18 @@ document.addEventListener('click',async event=>{
 function owner(){return Boolean(admin.user?.role==='owner'||admin.user?.role==='admin'||admin.user?.source==='bootstrap');}
 async function read(){data=await admin.request('/api/gaeru_ceo/owner/configuration');return data;}
 
-function chatAIFields(v){
- return '<label>AI đang sử dụng<select name="provider">'+[['openai','OpenAI / GPT'],['gemini','Google Gemini'],['claude','Anthropic Claude']].map(([id,label])=>'<option value="'+id+'" '+(v.provider===id?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label><input type="checkbox" name="aiEnabled" '+(v.enabled?'checked':'')+'> Bật Chat AI</label>'+[['openai','OpenAI / GPT'],['gemini','Gemini'],['claude','Claude']].map(([id,label])=>'<label>Model '+label+'<input name="'+id+'Model" value="'+esc(v.profiles?.[id]?.model)+'" maxlength="120" pattern="[a-zA-Z0-9._-]*" placeholder="ID model trong tài khoản nhà cung cấp"></label><label>API key '+label+'<input name="'+id+'Key" type="password" autocomplete="new-password" maxlength="2000" placeholder="'+(v.profiles?.[id]?.secretConfigured?'Đã lưu · để trống để giữ khóa':'Nhập khóa API riêng')+'"></label>').join('');
-}
 
 function form(id){
  const record=data?.records?.[id]||{version:0,data:{}},v=record.data||{};
  const values=id==='security'?{idleMinutes:30,absoluteHours:8,...v}:id==='payment_cod'?{maxAmountVnd:50000000,instructions:'Thanh toán tiền mặt trực tiếp cho bưu tá khi nhận hàng.',enabled:true,...v}:id==='payment_bank_transfer'?{transferSyntax:'GAERU {MA_DON}',enabled:false,...v}:id==='misa'?{templateCode:'1/001',series:'C26TGA',environment:'sandbox',autoIssue:true,enabled:false,...v}:v;
  
- const testBtnHtml=id==='chat_ai'
-  ?'<button type="button" class="secondary-button" data-chat-ai-test>Kiểm tra chat AI đã lưu</button>'
-  :id==='misa'?'<button type="button" class="secondary-button" data-misa-test disabled>Kiểm tra MISA chưa được hỗ trợ</button><p>Phát hành hóa đơn điện tử đang khóa; hồ sơ nội bộ vẫn được giữ.</p>':id.startsWith('shipping_')
+ const testBtnHtml=id==='misa'?'<button type="button" class="secondary-button" data-misa-test disabled>Kiểm tra MISA chưa được hỗ trợ</button><p>Phát hành hóa đơn điện tử đang khóa; hồ sơ nội bộ vẫn được giữ.</p>':id.startsWith('shipping_')
   ?'<button type="button" class="secondary-button" data-shipping-test="'+id.slice(9)+'">Kiểm tra kết nối đã lưu</button>'
   :paymentIds.has(id)&&id!=='payments'
   ?'<button type="button" class="secondary-button" data-payment-test="'+(id==='vnpay'?'vnpay':id.slice(8))+'">Kiểm tra kết nối đã lưu</button>'
   :'';
 
- const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='chat_ai'?chatAIFields(v):'')+(id==='payment_cod'?'<div style="grid-column:1/-1;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:10px 14px;border-radius:10px;font-size:12.5px;line-height:1.6;margin-bottom:6px;"><strong>✓ COD Toàn quốc:</strong> GAERU chấp nhận thanh toán khi nhận hàng trên toàn quốc. Cấu hình mức phí hoặc miễn phí COD toàn quốc tại mục <strong>Thanh toán &amp; giao hàng</strong>.</div>':'')+(fields[id]||[]).map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+((name==='webhookSecret'?v.webhookSecretConfigured:name==='customerPassword'?v.customerPasswordConfigured:v.secretConfigured)?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='shipping_jt'?'<label>Môi trường J&T<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label>Người trả cước theo hợp đồng<select name="payType"><option value="">Chọn theo hợp đồng J&T</option>'+[['PP_PM','Người gửi · trả theo kỳ'],['PP_CASH','Người gửi · trả ngay'],['CC_CASH','Người nhận · trả ngay']].map(([key,label])=>'<option value="'+key+'" '+(v.payType===key?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label>Hình thức gửi<select name="serviceType"><option value="1">Lấy tại kho</option><option value="6" '+(v.serviceType===6?'selected':'')+'>Gửi tại bưu cục</option></select></label>':'')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Lưu tùy chọn xuất tự động (chưa hoạt động)</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Lưu yêu cầu bật MISA (chưa xác minh, chưa phát hành)</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(id==='chat_ai'?'Chat AI':titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
+ const markup='<form class="configuration-form" data-config-form="'+id+'" data-version="'+record.version+'"><div class="form-grid">'+(id==='payment_cod'?'<div style="grid-column:1/-1;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:10px 14px;border-radius:10px;font-size:12.5px;line-height:1.6;margin-bottom:6px;"><strong>✓ COD Toàn quốc:</strong> GAERU chấp nhận thanh toán khi nhận hàng trên toàn quốc. Cấu hình mức phí hoặc miễn phí COD toàn quốc tại mục <strong>Thanh toán &amp; giao hàng</strong>.</div>':'')+(fields[id]||[]).map(([name,label,type])=>'<label>'+label+'<input name="'+name+'" type="'+(type||'text')+'" maxlength="'+(type==='password'?2000:500)+'" '+(type==='password'?'autocomplete="new-password" placeholder="'+((name==='webhookSecret'?v.webhookSecretConfigured:name==='customerPassword'?v.customerPasswordConfigured:v.secretConfigured)?'Đã lưu · để trống để giữ khóa':'Nhập khóa bí mật')+'"':'value="'+esc(values[name])+'"'+(fieldPlaceholders[id]?.[name]?' placeholder="'+esc(fieldPlaceholders[id][name])+'"':''))+(id==='security'?(name==='idleMinutes'?' min="5" max="60"':' min="1" max="8"'):id==='payment_cod'&&name==='maxAmountVnd'?' min="100000" max="2000000000"':'')+'></label>').join('')+(id==='shipping_jt'?'<label>Môi trường J&T<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label>Người trả cước theo hợp đồng<select name="payType"><option value="">Chọn theo hợp đồng J&T</option>'+[['PP_PM','Người gửi · trả theo kỳ'],['PP_CASH','Người gửi · trả ngay'],['CC_CASH','Người nhận · trả ngay']].map(([key,label])=>'<option value="'+key+'" '+(v.payType===key?'selected':'')+'>'+label+'</option>').join('')+'</select></label><label>Hình thức gửi<select name="serviceType"><option value="1">Lấy tại kho</option><option value="6" '+(v.serviceType===6?'selected':'')+'>Gửi tại bưu cục</option></select></label>':'')+(id==='operations'?'<label class="operation-switch"><input type="checkbox" name="ordersEnabled" '+(values.ordersEnabled?'checked':'')+'> Tiếp nhận đơn đặt hàng trực tuyến</label>':'')+(['vnpay','payment_momo','payment_zalopay'].includes(id)?'<label>Môi trường<select name="environment"><option value="sandbox">Thử nghiệm</option><option value="production" '+(v.environment==='production'?'selected':'')+'>Chính thức</option></select></label><label><input type="checkbox" name="enabled" '+(v.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(['payment_cod','payment_bank_transfer'].includes(id)?'<label><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Cho phép sử dụng '+titles[id]+'</label>':'')+(id==='misa'?'<label>Môi trường kết nối<select name="environment"><option value="sandbox" '+(values.environment!=='production'?'selected':'')+'>Thử nghiệm (Sandbox)</option><option value="production" '+(values.environment==='production'?'selected':'')+'>Chính thức (Production)</option></select></label><label class="operation-switch"><input type="checkbox" name="autoIssue" '+(values.autoIssue?'checked':'')+'> Lưu tùy chọn xuất tự động (chưa hoạt động)</label><label class="operation-switch"><input type="checkbox" name="enabled" '+(values.enabled?'checked':'')+'> Lưu yêu cầu bật MISA (chưa xác minh, chưa phát hành)</label>':'')+'</div>'+(id!=='profile'?'<div class="configuration-reauth"><p>Xác nhận bằng mật khẩu và mã xác thực hiện tại của chủ doanh nghiệp.</p><div class="form-grid"><label>Mật khẩu hiện tại<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label><label>Mã xác thực / mã dự phòng<input name="factorCode" autocomplete="one-time-code" maxlength="32"></label></div><button type="button" data-config-email>Gửi mã qua email</button></div>':'<p class="help-text">Thông tin hồ sơ không thay đổi tên đăng nhập hoặc liên hệ khôi phục đã xác minh.</p>')+'<div class="configuration-actions">'+testBtnHtml+'<button type="submit" class="primary-button">Lưu '+esc(titles[id].toLowerCase())+'</button><p role="status" aria-live="polite"></p></div></form>';
  return markup;
 }
 
@@ -527,7 +519,7 @@ async function load(){
  const root=document.querySelector('#system-configuration');
  if(!root)return;
  const services=data.services;
- root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối, AI và bảo mật</h2></div></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi cấu hình quan trọng cần mật khẩu và xác thực hai yếu tố bảo vệ tài khoản quản trị.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" class="secondary-button" data-media-storage-probe style="min-height:38px;padding:8px 18px;border-radius:999px;font-weight:600;">Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['chat_ai','oauth','misa','shopee','tiktok','lazada','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='chat_ai'?(data.records.chat_ai.data.enabled?'Đã bật · kiểm tra model trước khi sử dụng':'Chưa bật'):id==='oauth'?(data.records.oauth?.data?.googleClientId?'Đã lưu Client ID · Sẵn sàng':'Chưa cấu hình'):id==='misa'?(data.records.misa?.version?'Đã lưu · Chưa xác minh, phát hành đang khóa':'Chưa cấu hình'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='oauth'?'<p class="help-text">Nhập Google Client ID để kích hoạt đăng nhập một chạm. Hướng dẫn lấy mã: Truy cập Google Cloud Console ➔ APIs & Services ➔ Credentials ➔ OAuth Client ID (Web Application) ➔ thêm redirect URI: <code>https://gaeru.com/api/customer-auth/oauth/google-callback</code> (hoặc <code>http://localhost:3000/account.html</code>).</p>':id==='chat_ai'?'<p class="help-text">Chọn AI, nhập ID model và khóa tương ứng rồi lưu. Có thể giữ khóa riêng cho cả ba nhà cung cấp. Kiểm tra chat AI gửi một câu thử, có thể tính phí API theo tài khoản của bạn. Chỉ câu hỏi, tin nhắn gần đây và dữ liệu sản phẩm được gửi cho AI; tệp đính kèm dành cho nhân viên.</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Với sàn TMĐT, nhập Access Token đã được sàn cấp quyền và Shop Cipher nếu dùng TikTok. Token được mã hóa, không trả lại trình duyệt. Kiểm tra quyền đọc và thao tác đồng bộ tại Quản lý Sàn TMĐT. Khi token hết hạn, cập nhật token mới; hệ thống không tự suy đoán OAuth thành công.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
+ root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối và bảo mật</h2></div></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi cấu hình quan trọng cần mật khẩu và xác thực hai yếu tố bảo vệ tài khoản quản trị.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" class="secondary-button" data-media-storage-probe style="min-height:38px;padding:8px 18px;border-radius:999px;font-weight:600;">Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['oauth','misa','shopee','tiktok','lazada','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='oauth'?(data.records.oauth?.data?.googleClientId?'Đã lưu Client ID · Sẵn sàng':'Chưa cấu hình'):id==='misa'?(data.records.misa?.version?'Đã lưu · Chưa xác minh, phát hành đang khóa':'Chưa cấu hình'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='oauth'?'<p class="help-text">Nhập Google Client ID để kích hoạt đăng nhập một chạm. Hướng dẫn lấy mã: Truy cập Google Cloud Console ➔ APIs & Services ➔ Credentials ➔ OAuth Client ID (Web Application) ➔ thêm redirect URI: <code>https://gaeru.com/api/customer-auth/oauth/google-callback</code> (hoặc <code>http://localhost:3000/account.html</code>).</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Với sàn TMĐT, nhập Access Token đã được sàn cấp quyền và Shop Cipher nếu dùng TikTok. Token được mã hóa, không trả lại trình duyệt. Kiểm tra quyền đọc và thao tác đồng bộ tại Quản lý Sàn TMĐT. Khi token hết hạn, cập nhật token mới; hệ thống không tự suy đoán OAuth thành công.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
 }
 
 document.addEventListener('click',async e=>{
@@ -607,18 +599,7 @@ document.addEventListener('submit',async e=>{
    if(name==='tokenExpiresAt'){values[name]=value.trim()?new Date(value.trim()).toISOString():null;continue;}
    values[name]=type==='number'?Number(value):value;
   }
-  if(id==='chat_ai'){
-   values.enabled=f.elements.aiEnabled?f.elements.aiEnabled.checked:false;
-   values.provider=f.elements.provider?f.elements.provider.value:'openai';
-   values.profiles=Object.fromEntries(['openai','gemini','claude'].map(provider=>[
-    provider,
-    {
-     model:f.elements[provider+'Model']?f.elements[provider+'Model'].value.trim():'',
-     ...(f.elements[provider+'Key']&&f.elements[provider+'Key'].value.trim()?{apiKey:f.elements[provider+'Key'].value.trim()}:{})
-    }
-   ]));
-  }
-  if(id==='shipping_jt'){
+    if(id==='shipping_jt'){
    values.protocol='jt-vn-open-platform-v1';values.environment=f.elements.environment.value;
    values.serviceType=Number(f.elements.serviceType.value);if(f.elements.payType.value)values.payType=f.elements.payType.value;
   }
@@ -737,15 +718,7 @@ document.addEventListener('submit',async e=>{
    admin.showGlobal(result.message);
   }else if(id!=='profile'){
    await load();
-   if(id==='chat_ai'){
-    const panel=document.getElementById('config-panel-chat_ai');
-    if(panel){
-     panel.open=true;
-     const panelStatus=panel.querySelector('[role=status]');
-     if(panelStatus)panelStatus.textContent=result.message+' Nhập lại mật khẩu và mã xác thực mới để kiểm tra kết nối.';
-    }
-   }
-   admin.showGlobal(result.message);
+      admin.showGlobal(result.message);
   }else{
    await window.GAERUOwner?.load();
    admin.showGlobal(result.message);
@@ -760,62 +733,10 @@ document.addEventListener('submit',async e=>{
  }
 });
 
-function savedAISelection(form){
- const record=data.records.chat_ai,v=record.data,provider=form.elements.provider.value,model=form.elements[provider+'Model'].value.trim();
- if(!record.version||provider!==v.provider||model!==(v.profiles?.[provider]?.model||'')||form.elements.aiEnabled.checked!==Boolean(v.enabled)||form.elements[provider+'Key'].value.trim())throw Error('Có cấu hình AI chưa lưu. Bấm Lưu Chat AI trước, rồi nhập lại thông tin xác thực để kiểm tra.');
- return {provider,model};
-}
 
-function probeFailure(error){
- const d=error.diagnostic;
- if(!d)return error.message;
- const names={openai:'OpenAI / GPT',gemini:'Google Gemini',claude:'Anthropic Claude'};
- return (names[d.provider]||'AI')+' · '+d.model+': '+error.message+'\nMã chẩn đoán: '+d.code+(d.upstreamStatus?' · HTTP '+d.upstreamStatus:'')+(d.requestId?' · Mã hỗ trợ: '+d.requestId:'');
-}
 
-document.addEventListener('click',async event=>{
- const button=event.target.closest('[data-chat-ai-test]');
- if(!button||button.disabled)return;
- const f=button.closest('form'),status=f.querySelector('[role=status]'),modal=typeof button.closest==='function'?button.closest('.config-modal-dialog'):null,modalStatus=modal?.querySelector('[data-modal-status]');
- try{
-  const selected=savedAISelection(f);
-  if(!f.elements.password.value){
-   f.elements.password.focus();
-   throw Error('Nhập lại mật khẩu hiện tại trước khi kiểm tra. Nếu đã bật xác thực hai yếu tố, dùng mã mới chưa sử dụng.');
-  }
-  const pwd=f.elements.password.value;
-  button.disabled=true;
-  const testingMsg='Đang kiểm tra '+selected.provider+' · '+selected.model+' đã lưu…';
-  if(status)status.textContent=testingMsg;
-  if(modalStatus){modalStatus.textContent='⏳ '+testingMsg;modalStatus.className='config-modal-status is-visible';}
-  const result=await admin.request('/api/gaeru_ceo/owner/configuration/chat_ai/test',{
-   method:'POST',
-   body:JSON.stringify({
-    version:Number(f.dataset.version),
-    expectedProvider:selected.provider,
-    expectedModel:selected.model,
-    password:pwd,
-    factorCode:f.elements.factorCode.value,
-    factorChallengeId:f.dataset.challenge
-   })
-  });
-  const succMsg=result.message+' '+result.provider+' · '+result.model;
-  if(status)status.textContent=succMsg;
-  if(modalStatus){modalStatus.textContent='✅ '+succMsg;modalStatus.className='config-modal-status is-visible is-success';}
-  for(const input of f.querySelectorAll('input[type=password],[name=factorCode]'))input.value='';
-  delete f.dataset.challenge;
- }catch(error){
-  const failMsg=probeFailure(error)+(error.stage==='provider'?' Nhập lại thông tin xác thực mới nếu cần kiểm tra lại.':'');
-  if(status)status.textContent=failMsg;
-  if(modalStatus){modalStatus.textContent='❌ '+failMsg;modalStatus.className='config-modal-status is-visible is-error';}
-  if(error.stage==='provider'){
-   for(const input of f.querySelectorAll('input[type=password],[name=factorCode]'))input.value='';
-   delete f.dataset.challenge;
-  }
- }finally{
-  button.disabled=false;
- }
-});
+
+
 
 document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-misa-test]');

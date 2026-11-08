@@ -76,7 +76,6 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
   });
   if(!job)return false;if(job.skipped)return true;
   let result,reason='outside_capability';
-  const settings=decisionFn?null:await require('./chat-ai-provider').getChatAIConfig(pool,config);
   try{
     if(requestsHuman(job.question)){reason='customer_request';result={handoff:true,answer:''};}
     else{
@@ -97,9 +96,9 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
           :{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
         const history=historyRes.rows.reverse();
         if(decisionFn){
-          result=await decisionFn({config:{...config,chatAI:settings},product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});
+          result=await decisionFn({config,product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});
         }else{
-          result=await require('./gaeru-ai-customer').answerCustomerChat({pool,config,thread:job.thread,question:job.question,history,product,settings,transport});
+          result=await require('./gaeru-ai-customer').answerCustomerChat({pool,config,thread:job.thread,question:job.question,history,product});
         }
         if(typeof result?.handoff!=='boolean'||typeof result.answer!=='string'||(!result.handoff&&!result.answer.trim()))throw Error('Invalid AI decision');
       }

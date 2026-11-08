@@ -318,9 +318,9 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
 }
 
 /**
- * Trình xử lý chính giải đáp chat khách hàng bằng GAERU AI
+ * Trình xử lý chính giải đáp chat khách hàng bằng GAERU AI (Hoàn toàn độc lập, không phụ thuộc AI bên ngoài)
  */
-async function answerCustomerChat({ pool, config, thread, question, history = [], product = null, settings = null, transport = fetch }) {
+async function answerCustomerChat({ pool, config, thread, question, history = [], product = null }) {
   // Đảm bảo có danh sách sản phẩm thực tế từ DB
   let catalog = [];
   try {
@@ -329,27 +329,7 @@ async function answerCustomerChat({ pool, config, thread, question, history = []
     }
   } catch (_) {}
 
-  // 1. Thử gọi upstream LLM nếu có API key hợp lệ được cấu hình
-  if (settings && settings.enabled && settings.apiKey && settings.model) {
-    try {
-      const upstreamResult = await require('./chat-ai-provider').generate({
-        settings,
-        product: product || { name: 'Hỗ trợ GAERU' },
-        question: { current: question, recentMessages: history },
-        decision: true,
-        transport
-      });
-
-      if (upstreamResult && typeof upstreamResult.handoff === 'boolean' && typeof upstreamResult.answer === 'string' && upstreamResult.answer.trim()) {
-        return upstreamResult;
-      }
-    } catch (upstreamErr) {
-      // Khi API bên ngoài lỗi, timeout hoặc hết hạn key, GAERU AI tự động tiếp quản mà không bao giờ báo lỗi
-      console.warn('[GAERU-AI-Customer] Upstream external AI failed/timed out, automatically seamlessly resolved by internal GAERU AI:', upstreamErr.message);
-    }
-  }
-
-  // 2. Chạy Lõi Trí Tuệ Nhân Tạo Nội Bộ GAERU AI (Hoàn toàn độc lập, tốc độ cao, zero hallucination)
+  // Chạy Lõi Trí Tuệ Nhân Tạo Nội Bộ GAERU AI (Tốc độ cao, zero hallucination, thấu hiểu ngữ cảnh nghiệp vụ)
   return generateGaeruAiResponse({
     pool,
     thread,

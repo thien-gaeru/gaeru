@@ -13,7 +13,6 @@
  */
 
 const express = require('express');
-const { getChatAIConfig } = require('./chat-ai-provider');
 const { getSystemHealth } = require('./security-shield');
 
 function createInternalAiRouter(pool, config) {
@@ -331,53 +330,8 @@ Quy tắc cốt lõi:
       hasActionCard: Boolean(actionCard)
     };
 
-    // 3. Gọi LLM sinh phản hồi
-    let aiResponseText = '';
-    const promptForLLM = `NGỮ CẢNH HỆ THỐNG VÀ DỮ LIỆU THỰC TẾ TRUY VẤN ĐƯỢC:\n` + JSON.stringify(contextPayload, null, 2) + `\n\nCÂU HỎI CỦA NGƯỜI DÙNG: "${userQuestion}"\n\nHãy trả lời bằng tiếng Việt chuyên nghiệp, định dạng Markdown rõ ràng, giải đáp đầy đủ câu hỏi và tóm tắt số liệu.`;
-
-    if (aiConfig.enabled && aiConfig.apiKey) {
-      try {
-        if (aiConfig.provider === 'gemini') {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(aiConfig.model || 'gemini-2.5-flash')}:generateContent`;
-          const resp = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiConfig.apiKey },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: promptForLLM }] }],
-              generationConfig: { maxOutputTokens: 2048, temperature: 0.2 }
-            }),
-            signal: AbortSignal.timeout(15000)
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            aiResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          }
-        } else if (aiConfig.provider === 'openai') {
-          const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiConfig.apiKey}` },
-            body: JSON.stringify({
-              model: aiConfig.model || 'gpt-4o-mini',
-              messages: [{ role: 'system', content: SYSTEM_INSTRUCTION }, { role: 'user', content: promptForLLM }],
-              max_tokens: 2048,
-              temperature: 0.2
-            }),
-            signal: AbortSignal.timeout(15000)
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            aiResponseText = data.choices?.[0]?.message?.content || '';
-          }
-        }
-      } catch (e) {
-        console.warn('[GAERU-AI] Upstream AI call failed, falling back to deterministic synthesis:', e.message);
-      }
-    }
-
-    // Fallback tổng hợp thông minh nếu chưa cấu hình AI API key hoặc API lỗi mạng
-    if (!aiResponseText) {
-      aiResponseText = synthesizeDeterministicResponse(userQuestion, toolResults, actionCard, user);
-    }
+    // 3. Tổng hợp phản hồi thông minh GAERU AI dựa trên dữ liệu hệ thống thực tế (Hoàn toàn độc lập, không phụ thuộc AI bên ngoài)
+    let aiResponseText = synthesizeDeterministicResponse(userQuestion, toolResults, actionCard, user);
 
     if (aiResponseText) {
       aiResponseText = aiResponseText.replace(/GAERU Copilot/gi, 'GAERU AI').replace(/Copilot/gi, 'GAERU AI');
@@ -552,16 +506,12 @@ Quy tắc cốt lõi:
         LIMIT 10
       `, [threadId])).rows;
 
-      // Lấy cấu hình AI
-      const aiConfig = await getChatAIConfig(pool, config);
-
-      // Thực thi Agent Turn
+      // Thực thi Agent Turn GAERU AI
       const turnResult = await executeAgentTurn({
         userQuestion: question,
         history,
         user: req.admin,
-        threadId,
-        aiConfig
+        threadId
       });
 
       // Lưu phản hồi của Assistant
@@ -619,12 +569,10 @@ Quy tắc cốt lõi:
         VALUES ($1, $2, $3)
       `, [threadId, 'user', question]);
 
-      const aiConfig = await getChatAIConfig(pool, config);
       const turnResult = await executeAgentTurn({
         userQuestion: question,
         user: req.admin,
-        threadId,
-        aiConfig
+        threadId
       });
 
       sendEvent('tools', { toolResults: turnResult.toolResults });
