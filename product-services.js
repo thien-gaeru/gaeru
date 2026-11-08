@@ -2,7 +2,49 @@
 function saved(){try{const v=JSON.parse(localStorage.getItem(storage)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.slug==='string'&&/^[a-z0-9-]+$/.test(x.slug)).slice(0,100):[];}catch{return [];}}
 window.GAERUSavedProducts={has:slug=>saved().some(x=>x.slug===slug)};
 function update(){document.querySelectorAll('[data-save-product]').forEach(b=>{const active=window.GAERUSavedProducts.has(b.dataset.saveProduct);b.setAttribute('aria-pressed',String(active));const text=active?'Đã lưu · Bỏ lưu':'Lưu để xem lại sau';if(b.textContent!==text)b.textContent=text;});document.querySelectorAll('[data-saved-count]').forEach(a=>{const text='Đã lưu ('+saved().length+')';if(a.textContent!==text)a.textContent=text;});}
-async function request(path,options={}){const headers=new Headers(options.headers||{});if(options.method&&options.method!=='GET'){const csrf=await fetch('/api/csrf',{credentials:'same-origin',cache:'no-store'});if(!csrf.ok)throw Error('Chưa khởi tạo được phiên bảo mật.');headers.set('X-CSRF-Token',(await csrf.json()).csrfToken);if(!(options.body instanceof FormData))headers.set('Content-Type','application/json');}const r=await fetch(path,{...options,headers,credentials:'same-origin',cache:'no-store'}),d=await r.json();if(!r.ok)throw Object.assign(Error(d.error||'Chưa kết nối được. Vui lòng thử lại.'),{status:r.status});return d;}
+let activeCsrfToken = null;
+async function fetchCsrfWithRetry(attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch('/api/csrf', { credentials: 'same-origin', cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.csrfToken) {
+          activeCsrfToken = json.csrfToken;
+          return activeCsrfToken;
+        }
+      }
+    } catch (_) {}
+    if (i < attempts - 1) await new Promise(r => setTimeout(r, 300 * (i + 1)));
+  }
+  if (activeCsrfToken) return activeCsrfToken;
+  throw Error('Chưa khởi tạo được phiên bảo mật.');
+}
+async function request(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const isWrite = options.method && options.method !== 'GET';
+  if (isWrite) {
+    const token = await fetchCsrfWithRetry();
+    headers.set('X-CSRF-Token', token);
+    if (!(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  }
+  let r, d;
+  try {
+    r = await fetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
+    if (isWrite && r.status === 403) {
+      activeCsrfToken = null;
+      const freshToken = await fetchCsrfWithRetry();
+      headers.set('X-CSRF-Token', freshToken);
+      r = await fetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
+    }
+    d = await r.json();
+  } catch (netErr) {
+    if (netErr.status) throw netErr;
+    throw Object.assign(Error('Kết nối mạng gián đoạn. Vui lòng thử lại.'), { status: 0 });
+  }
+  if (!r.ok) throw Object.assign(Error(d?.error || 'Chưa kết nối được. Vui lòng thử lại.'), { status: r.status });
+  return d;
+}
 let chat=null,chatOpenVersion=0,chatAssetsPromise=null,checkoutFlowPromise=null;
 function loadStylesheetOnce(href){if(document.querySelector(`link[href^="${href.split('?')[0]}"]`))return;const l=document.createElement('link');l.rel='stylesheet';l.href=href;document.head.append(l);}
 function loadScriptOnce(src,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const existing=document.querySelector(`script[src^="${src.split('?')[0]}"]`);if(existing){existing.addEventListener('load',()=>resolve(),{once:true});existing.addEventListener('error',()=>reject(Error('Chưa tải được thành phần trang.')),{once:true});if(check())resolve();return;}const s=document.createElement('script');s.src=src;s.defer=true;s.onload=()=>resolve();s.onerror=()=>reject(Error('Chưa tải được thành phần trang.'));document.head.append(s);});}

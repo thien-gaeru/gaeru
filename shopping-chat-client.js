@@ -567,7 +567,7 @@
         }catch(error){
           syncAiTypingIndicator(false);
           if(textNode){
-            textNode.insertAdjacentHTML('beforeend','<small class="chat-bg-status chat-bg-error">Chưa gửi được: '+escape(error.message)+'</small>');
+            textNode.insertAdjacentHTML('beforeend','<small class="chat-bg-status chat-bg-error">Chưa gửi được: '+escape(error.message)+' <button type="button" class="chat-retry-upload" data-retry-msg="true" data-retry-body="'+escape(textBody)+'" data-no-action-feedback>Thử lại</button></small>');
           }
           feedback.textContent=error.message;
           return;
@@ -689,6 +689,15 @@
       if(typeof window!=='undefined'&&window.location)window.location.href='tel:0829191080';
     }
     root.addEventListener('click',event=>{
+      const retryMsgBtn=event.target.closest('[data-retry-msg]');
+      if(retryMsgBtn){
+        event.preventDefault();
+        const retryBody=retryMsgBtn.dataset.retryBody;
+        const msgNode=retryMsgBtn.closest('.shopping-message');
+        if(msgNode)msgNode.remove();
+        if(retryBody)dispatchInstantSend(retryBody,[]);
+        return;
+      }
       const retryBtn=event.target.closest('[data-retry-file]');
       if(retryBtn){
         event.preventDefault();
