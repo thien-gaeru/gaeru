@@ -45,7 +45,7 @@
           <button class="sidebar-toggle secondary-button" type="button" aria-controls="admin-navigation" aria-expanded="false">Menu quản lý <span aria-hidden="true">☰</span></button>
           <nav id="admin-navigation" aria-label="Quản trị">
             <div class="nav-group"><button class="nav-item is-active" type="button" data-view="overview" data-permission="dashboard.read">Trang tổng quan</button></div><div class="nav-group"><button class="nav-item" type="button" data-view="notifications" data-permission="dashboard.read">Thông báo <span class="notice-count" data-notice-count hidden>0</span></button></div>
-            <div class="nav-group"><button class="nav-item" type="button" data-view="internal-ai" data-permission="dashboard.read" style="color:#0284c7;font-weight:600;"><span style="font-size:14px;margin-right:4px;">🤖</span> GAERU Copilot</button></div>
+            <div class="nav-group"><button class="nav-item" type="button" data-view="internal-ai" data-permission="dashboard.read" style="color:#0284c7;font-weight:600;"><span style="font-size:14px;margin-right:4px;">🤖</span> GAERU AI</button></div>
             <button class="nav-item" type="button" data-view="owner" data-permission="dashboard.read" data-owner-only hidden style="display:none !important;" aria-hidden="true" tabindex="-1">Quản trị tối cao</button>
             <div class="nav-group" data-nav-group="sales">
               <button class="nav-group-label nav-group-toggle" type="button" aria-expanded="true" data-toggle-nav-group="sales">
@@ -509,7 +509,7 @@
               <div class="copilot-main">
                 <div class="copilot-chat-header">
                   <div class="copilot-header-info">
-                    <span class="copilot-badge">🤖 GAERU Copilot</span>
+                    <span class="copilot-badge">🤖 GAERU AI</span>
                     <span class="copilot-model-badge">Gemini 2.5 Flash</span>
                     <span class="copilot-rbac-badge" id="copilot-user-role">Role: Management</span>
                   </div>
@@ -520,13 +520,13 @@
                 <div class="copilot-messages" id="copilot-messages" aria-live="polite">
                   <div class="copilot-welcome">
                     <div class="copilot-avatar">🤖</div>
-                    <h2>Xin chào! Tôi là GAERU Copilot</h2>
+                    <h2>Xin chào! Tôi là GAERU AI</h2>
                     <p>Trợ lý Điều hành Doanh nghiệp AI thông minh 24/7. Tôi có thể giúp bạn phân tích doanh thu, kiểm tra tồn kho, đối soát đơn hàng và tự động hóa các tác vụ quản trị.</p>
                   </div>
                 </div>
                 <div class="copilot-quick-prompts" id="copilot-quick-prompts"></div>
                 <form class="copilot-input-form" id="copilot-chat-form">
-                  <textarea id="copilot-input" placeholder="Hỏi GAERU Copilot về doanh thu, đơn hàng, tồn kho, mã giảm giá..." rows="1" required></textarea>
+                  <textarea id="copilot-input" placeholder="Hỏi GAERU AI về doanh thu, đơn hàng, tồn kho, mã giảm giá..." rows="1" required></textarea>
                   <button type="submit" class="primary-button" id="btn-send-copilot">Gửi ➔</button>
                 </form>
               </div>
@@ -536,9 +536,9 @@
       </div>
     </main>
     <div id="config-popup-modal" class="config-modal-backdrop" hidden></div>
-    <button type="button" id="floating-copilot-btn" class="floating-copilot-trigger" title="Mở GAERU Copilot (Ctrl + Space)" aria-label="Mở GAERU Copilot">
+    <button type="button" id="floating-copilot-btn" class="floating-copilot-trigger" title="Mở GAERU AI (Ctrl + Space)" aria-label="Mở GAERU AI">
       <span class="floating-copilot-icon">🤖</span>
-      <span class="floating-copilot-label">Copilot</span>
+      <span class="floating-copilot-label">GAERU AI</span>
     </button>
   </body>
 </html>

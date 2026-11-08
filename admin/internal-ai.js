@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * GAERU Copilot Admin Frontend Controller
+ * GAERU AI Admin Frontend Controller
  */
 (function () {
   let currentThreadId = null;
@@ -207,7 +207,7 @@
         messagesEl.innerHTML = `
           <div class="copilot-welcome">
             <div class="copilot-avatar">🤖</div>
-            <h2>Xin chào! Tôi là GAERU Copilot</h2>
+            <h2>Xin chào! Tôi là GAERU AI</h2>
             <p>Trợ lý Điều hành Doanh nghiệp AI thông minh 24/7. Tôi có thể giúp bạn phân tích doanh thu, kiểm tra tồn kho, đối soát đơn hàng và tự động hóa các tác vụ quản trị.</p>
           </div>
         `;
@@ -261,7 +261,7 @@
     scrollMessagesBottom();
 
     // Tạo placeholder của assistant
-    const assistantBubble = appendMessageUI('assistant', '<span class="copilot-loading">🤖 GAERU Copilot đang truy vấn dữ liệu...</span>');
+    const assistantBubble = appendMessageUI('assistant', '<span class="copilot-loading">🤖 GAERU AI đang truy vấn dữ liệu...</span>');
     scrollMessagesBottom();
 
     try {
@@ -340,7 +340,8 @@
           cardEl.querySelector('.copilot-action-buttons').innerHTML = `<div style="font-size:12px;color:#16a34a;font-weight:600;">✓ ${escapeHtml(res.result?.message || 'Đã áp dụng thành công')}</div>`;
           if (window.GAERUNotify?.toast) window.GAERUNotify.toast(res.result?.message || 'Đã thực thi thành công!', 'success');
         } catch (e) {
-          window.alert('Lỗi thực thi: ' + e.message);
+          if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Lỗi thực thi: ' + e.message, 'error');
+          else console.error('Lỗi thực thi:', e.message);
           confirmBtn.disabled = false;
           confirmBtn.textContent = '✓ Xác nhận thực hiện';
         }

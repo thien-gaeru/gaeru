@@ -77,6 +77,11 @@ async function runCopilotVerification() {
       }
     });
 
+    page.on('dialog', async d => {
+      console.log('[Browser Dialog]', d.message());
+      await d.dismiss();
+    });
+
     // 1. Đăng nhập vào Cổng Quản trị /gaeru_ceo
     console.log('1. Đang truy cập /gaeru_ceo để đăng nhập...');
     await page.goto(`${baseUrl}/gaeru_ceo`, { waitUntil: 'networkidle2' });
@@ -136,7 +141,8 @@ async function runCopilotVerification() {
     // 4. Gửi câu hỏi tạo voucher để kiểm tra Thẻ Hành Động Action Card
     console.log('4. Gửi yêu cầu tạo voucher VIP50K để kích hoạt Action Card...');
     await page.focus('#copilot-input');
-    await page.keyboard.type('Tạo cho tôi mã giảm giá VIP50K giảm 50000đ');
+    const vCode = 'VIP' + Math.floor(1000 + Math.random() * 9000);
+    await page.keyboard.type(`Tạo cho tôi mã giảm giá ${vCode} giảm 50000đ`);
     await new Promise(r => setTimeout(r, 300));
     await page.keyboard.press('Enter');
 

@@ -6,7 +6,7 @@ const http = require('node:http');
 const express = require('express');
 const { createInternalAiRouter } = require('../src/internal-ai');
 
-test('GAERU Copilot Internal AI Test Suite', async (t) => {
+test('GAERU AI Internal Test Suite', async (t) => {
   // Mock PostgreSQL Pool
   const mockOrders = [
     { order_number: 'GAE-261028-1001', customer_name: 'Nguyễn Văn A', phone: '0912345678', city: 'Hà Nội', status: 'pending', payment_status: 'pending', payment_method: 'cod', total_vnd: 450000, created_at: new Date() },

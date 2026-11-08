@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * GAERU Enterprise AI Copilot (Trợ lý điều hành doanh nghiệp nội bộ 24/7)
+ * GAERU Enterprise AI (Trợ lý điều hành doanh nghiệp nội bộ 24/7)
  * 
  * Tính năng chính:
  * 1. Business Intelligence qua ngôn ngữ tự nhiên: Doanh thu, đơn hàng, khách hàng, tỷ lệ chuyển đổi.
@@ -229,7 +229,7 @@ function createInternalAiRouter(pool, config) {
   // DISPATCHER & SYSTEM PROMPT
   // ==========================================================================
 
-  const SYSTEM_INSTRUCTION = `Bạn là GAERU Copilot - Trợ lý Điều hành Doanh nghiệp AI nội bộ cao cấp của GAERU (dành riêng cho Ban Giám Đốc và Đội ngũ Quản trị).
+  const SYSTEM_INSTRUCTION = `Bạn là GAERU AI - Trợ lý Điều hành Doanh nghiệp nội bộ cao cấp của GAERU (dành riêng cho Ban Giám Đốc và Đội ngũ Quản trị).
 Văn phong: Chuyên nghiệp, nhã nhặn, rành mạch, số liệu chính xác tuyệt đối, hỗ trợ tiếng Việt chuẩn mực.
 
 Quy tắc cốt lõi:
@@ -307,7 +307,7 @@ Quy tắc cốt lõi:
         description: `Tạo mã giảm giá ${kind === 'percent' ? amount + '%' : formatVnd(amount)} cho khách hàng.`,
         payload: {
           code,
-          title: `Ưu đãi GAERU Copilot: ${code}`,
+          title: `Ưu đãi GAERU AI: ${code}`,
           kind,
           amount,
           minSpendVnd: 200000,
@@ -370,7 +370,7 @@ Quy tắc cốt lõi:
           }
         }
       } catch (e) {
-        console.warn('[GAERU-COPILOT] Upstream AI call failed, falling back to deterministic synthesis:', e.message);
+        console.warn('[GAERU-AI] Upstream AI call failed, falling back to deterministic synthesis:', e.message);
       }
     }
 
@@ -388,7 +388,7 @@ Quy tắc cốt lõi:
 
   // Bộ tổng hợp deterministic phản hồi nhanh khi không có API key
   function synthesizeDeterministicResponse(question, toolResults, actionCard, user) {
-    let out = `### 🤖 Báo cáo từ GAERU Copilot\n\n`;
+    let out = `### 🤖 Báo cáo từ GAERU AI\n\n`;
 
     const overview = toolResults.find(t => t.tool === 'get_business_overview')?.data;
     if (overview) {
@@ -441,7 +441,7 @@ Quy tắc cốt lõi:
     }
 
     if (!toolResults.length) {
-      out += `Tôi đã ghi nhận yêu cầu: *"${question}"*. Hệ thống GAERU Copilot luôn sẵn sàng hỗ trợ bạn quản lý doanh thu, tra cứu đơn hàng, kiểm tra tồn kho và tự động hóa quy trình quản trị. Bạn có thể chọn các câu hỏi nhanh bên dưới!`;
+      out += `Tôi đã ghi nhận yêu cầu: *"${question}"*. Hệ thống GAERU AI luôn sẵn sàng hỗ trợ bạn quản lý doanh thu, tra cứu đơn hàng, kiểm tra tồn kho và tự động hóa quy trình quản trị. Bạn có thể chọn các câu hỏi nhanh bên dưới!`;
     }
 
     return out;
