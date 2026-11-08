@@ -1,24 +1,37 @@
 /* ==============================================================================
-   GAERU PRODUCT EXPERIENCE — APPLE-STYLE SMOOTH SCROLLING & VISUAL TRANSITIONS
-   Inspired by Apple.com Product Architecture (ProMotion 60fps/120fps Ready)
+   GAERU PRODUCT EXPERIENCE — APPLE-STYLE SMOOTH SCROLLING, TYPOGRAPHY & COLOR
+   Inspired by Apple.com Product Architecture & Human Interface Guidelines
+   ProMotion 60fps/120fps Hardware Acceleration · Eye-Catching Luxury Aesthetics
    ============================================================================== */
 
-/* 1. Global Smooth Scrolling with Dynamic Sticky Offset */
+/* ------------------------------------------------------------------------------
+   1. GLOBAL SMOOTH SCROLLING & ROOT TYPOGRAPHY STACK
+   ------------------------------------------------------------------------------ */
 html {
   scroll-behavior: smooth !important;
   scroll-padding-top: 110px;
 }
 
-/* 2. Apple-Style Sticky Local Navigation Bar (Subnav) */
+body.product-page {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  color: #1d1d1f;
+  background-color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ------------------------------------------------------------------------------
+   2. APPLE-STYLE STICKY LOCAL NAVIGATION BAR (SUBNAV)
+   ------------------------------------------------------------------------------ */
 .apple-local-nav {
   position: sticky;
   top: 52px;
   z-index: 18;
   width: 100%;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, background 0.3s ease;
   transform: translateY(-100%);
   opacity: 0;
@@ -44,7 +57,7 @@ html {
 .apple-local-nav-title {
   font-size: 19px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: #1d1d1f;
   margin: 0;
   white-space: nowrap;
@@ -58,7 +71,7 @@ html {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(0, 113, 227, 0.1);
+  background: rgba(0, 113, 227, 0.09);
   color: #0071e3;
   letter-spacing: 0.02em;
 }
@@ -77,7 +90,7 @@ html {
   font-weight: 500;
   color: #6e6e73;
   text-decoration: none;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: 999px;
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   letter-spacing: -0.01em;
@@ -105,7 +118,8 @@ html {
   font-size: 15px;
   font-weight: 700;
   color: #1d1d1f;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
 }
 
 .apple-local-nav-btn {
@@ -147,7 +161,9 @@ html {
   transition: width 0.08s linear;
 }
 
-/* 3. Apple Scroll Reveal Animations */
+/* ------------------------------------------------------------------------------
+   3. APPLE SCROLL REVEAL ANIMATIONS (ProMotion 60fps/120fps)
+   ------------------------------------------------------------------------------ */
 .product-reveal-ready {
   opacity: 0;
   transform: translateY(32px);
@@ -160,50 +176,184 @@ html {
   transform: translateY(0);
 }
 
-/* Stagger delay for card grids */
 .product-reveal-ready:nth-child(2) { transition-delay: 0.08s; }
 .product-reveal-ready:nth-child(3) { transition-delay: 0.16s; }
 .product-reveal-ready:nth-child(4) { transition-delay: 0.24s; }
 
-/* 4. Apple Bento Grid Cards (Highlights & Features) */
+/* ------------------------------------------------------------------------------
+   4. APPLE TYPOGRAPHY SYSTEM — HEADINGS, EYEBROWS & EDITORIAL HIERARCHY
+   ------------------------------------------------------------------------------ */
+
+/* Eyebrow: Dòng nhãn dẫn phong cách Apple Keynote với dải màu Gradient sang trọng */
+.product-page .eyebrow,
+.product-feature-intro .eyebrow,
+.m3-intro .eyebrow,
+.product-feature-chapter .eyebrow,
+.product-story-copy .eyebrow,
+.product-feature-specs .eyebrow,
+.m3-specs .eyebrow,
+.product-information>header .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  background: linear-gradient(90deg, #0071e3 0%, #6366f1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 14px;
+}
+
+.product-feature-chapter .eyebrow,
+.product-story-copy .eyebrow {
+  background: none;
+  -webkit-text-fill-color: initial;
+  color: #0071e3 !important;
+  background: rgba(0, 113, 227, 0.07);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px !important;
+  letter-spacing: 0.06em !important;
+}
+
+/* Display Headline: Chữ tiêu đề lớn với chiều sâu quang học chuẩn Apple */
+.product-feature-intro h3,
+.m3-intro h3,
+.product-information>header h2 {
+  font-size: clamp(34px, 4.6vw, 56px) !important;
+  line-height: 1.07 !important;
+  letter-spacing: -0.032em !important;
+  font-weight: 700 !important;
+  margin: 0 0 20px !important;
+  background: linear-gradient(180deg, #1d1d1f 0%, #434346 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.product-information>header h2 span {
+  font-weight: 500 !important;
+  color: #6e6e73 !important;
+  background: none;
+  -webkit-text-fill-color: #6e6e73;
+}
+
+/* Chapter Headings: Tiêu đề từng chương kể chuyện sản phẩm */
+.product-feature-chapter>div h3,
+.product-story-copy h3,
+.m3-chapter h3,
+.product-feature-specs h3,
+.m3-specs h3 {
+  font-size: clamp(26px, 3.2vw, 40px) !important;
+  line-height: 1.15 !important;
+  letter-spacing: -0.025em !important;
+  font-weight: 700 !important;
+  color: #1d1d1f !important;
+  margin: 0 0 16px !important;
+}
+
+/* Lead Paragraphs: Đoạn văn mở đầu thoáng đãng, lôi cuốn */
+.product-feature-intro>p:not(.eyebrow),
+.m3-intro>p:not(.eyebrow),
+.product-purchase-intro {
+  font-size: clamp(19px, 2.2vw, 22px) !important;
+  line-height: 1.55 !important;
+  color: #515154 !important;
+  max-width: 740px !important;
+  margin-inline: auto !important;
+  letter-spacing: -0.012em !important;
+  font-weight: 400;
+}
+
+/* Editorial Body Copy: Từng dòng mô tả trau chuốt như tạp chí thời trang công nghệ */
+.product-feature-chapter p:not(.eyebrow),
+.product-story-copy p:not(.eyebrow),
+.m3-chapter p:not(.eyebrow),
+.product-information .detail-description {
+  font-size: 17.5px !important;
+  line-height: 1.68 !important;
+  color: #515154 !important;
+  letter-spacing: -0.01em !important;
+  margin-bottom: 18px !important;
+}
+
+.product-information .detail-description strong,
+.product-feature-chapter p strong,
+.product-story-copy strong {
+  font-weight: 700 !important;
+  color: #1d1d1f !important;
+  letter-spacing: -0.015em;
+}
+
+/* ------------------------------------------------------------------------------
+   5. APPLE BENTO GRID CARDS (HIGHLIGHTS & KEY METRICS)
+   ------------------------------------------------------------------------------ */
 .product-feature-highlights,
 .m3-highlights {
   display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
-  gap: 18px !important;
-  margin: 36px auto !important;
-  max-width: 960px !important;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)) !important;
+  gap: 20px !important;
+  margin: 40px auto !important;
+  max-width: 980px !important;
 }
 
 .product-feature-highlights>div,
-.m3-highlights>div {
-  background: #ffffff !important;
+.m3-highlights>div,
+.m3-highlights>span {
+  background: linear-gradient(180deg, #ffffff 0%, #f9fafd 100%) !important;
   border: 1px solid rgba(0, 0, 0, 0.07) !important;
-  border-radius: 20px !important;
-  padding: 24px 22px !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+  border-radius: 22px !important;
+  padding: 26px 24px !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02) !important;
   transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s ease, border-color 0.3s ease !important;
   display: flex !important;
   flex-direction: column !important;
   justify-content: center !important;
   text-align: left !important;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Thẻ bento có vạch sáng nhẹ nhàng khi di chuột */
+.product-feature-highlights>div::before,
+.m3-highlights>div::before,
+.m3-highlights>span::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #0071e3, #6366f1);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .product-feature-highlights>div:hover,
-.m3-highlights>div:hover {
-  transform: translateY(-4px) !important;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.08) !important;
-  border-color: rgba(0, 113, 227, 0.25) !important;
+.m3-highlights>div:hover,
+.m3-highlights>span:hover {
+  transform: translateY(-5px) !important;
+  box-shadow: 0 18px 42px -4px rgba(0, 113, 227, 0.12), 0 4px 16px rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 113, 227, 0.3) !important;
+}
+
+.product-feature-highlights>div:hover::before,
+.m3-highlights>div:hover::before,
+.m3-highlights>span:hover::before {
+  opacity: 1;
 }
 
 .product-feature-highlights strong,
 .m3-highlights strong {
-  font-size: 26px !important;
-  line-height: 1.2 !important;
-  letter-spacing: -0.025em !important;
-  color: #1d1d1f !important;
+  font-size: 28px !important;
+  line-height: 1.18 !important;
+  letter-spacing: -0.03em !important;
+  background: linear-gradient(135deg, #1d1d1f 0%, #0071e3 140%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   margin-bottom: 8px !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
 }
 
 .product-feature-highlights span,
@@ -211,59 +361,91 @@ html {
   font-size: 14.5px !important;
   line-height: 1.5 !important;
   color: #6e6e73 !important;
+  font-weight: 500;
 }
 
-/* 5. Apple Chapters & Editorial Layouts */
+/* ------------------------------------------------------------------------------
+   6. EDITORIAL CHAPTERS & AMBIENT VISUAL DEPTH
+   ------------------------------------------------------------------------------ */
 .product-feature-chapter,
 .product-story-chapter,
 .m3-chapter {
   position: relative;
+  margin-top: 84px !important;
+  padding-top: 64px !important;
+  border-top: 1px solid transparent !important;
+  background-image: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.08) 20%, rgba(0, 0, 0, 0.08) 80%, transparent);
+  background-position: top;
+  background-size: 100% 1px;
+  background-repeat: no-repeat;
   transition: all 0.4s ease;
 }
 
-.product-feature-chapter>div h3,
-.product-story-copy h3,
-.m3-chapter h3 {
-  letter-spacing: -0.025em;
-  font-weight: 700;
+/* Ambient glow cho hero figure của phần giới thiệu */
+.product-feature-intro figure,
+.m3-intro figure {
+  position: relative;
+  max-width: 880px;
+  margin: 36px auto 0;
 }
 
-/* Figure styling & Image depth */
+.product-feature-intro figure::before,
+.m3-intro figure::before {
+  content: '';
+  position: absolute;
+  inset: 10% 15%;
+  background: radial-gradient(circle, rgba(0, 113, 227, 0.1) 0%, rgba(99, 102, 241, 0.05) 50%, transparent 75%);
+  filter: blur(48px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Khung hình ảnh nghệ thuật & đổ bóng nổi khối */
 .product-feature-chapter figure,
 .product-story-art figure,
 .description-figure,
 .m3-story figure {
+  position: relative;
+  z-index: 1;
   overflow: hidden;
-  border-radius: 22px;
-  background: #f5f5f7;
-  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s ease;
+  border-radius: 24px;
+  background: #fbfbfd;
+  box-shadow: 0 10px 32px -6px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s ease, border-color 0.3s ease;
 }
 
 .product-feature-chapter figure:hover,
 .product-story-art figure:hover,
 .description-figure:hover,
 .m3-story figure:hover {
-  transform: scale(1.012);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
+  transform: scale(1.015);
+  box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.09), 0 4px 16px rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 113, 227, 0.18);
 }
 
 .product-feature-chapter figure img,
 .product-story-art figure img,
 .description-figure img,
 .m3-story figure img {
-  border-radius: 22px !important;
+  border-radius: 24px !important;
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
-/* 6. Apple Gallery Crossfade & Artwork Hero */
+/* ------------------------------------------------------------------------------
+   7. APPLE GALLERY HERO & ARTWORK CONTAINER
+   ------------------------------------------------------------------------------ */
 .product-page .product-detail-art {
-  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  box-shadow: 0 8px 36px -4px rgba(0, 0, 0, 0.05), 0 2px 10px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
+  border-radius: 24px;
+  transition: box-shadow 0.35s ease, border-color 0.35s ease;
 }
 
 .product-page .product-detail-art:hover {
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.07);
+  box-shadow: 0 16px 48px -6px rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 113, 227, 0.15);
 }
 
 .product-page [data-product-main-image] {
@@ -279,6 +461,7 @@ html {
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
   background: #ffffff;
   border: 2px solid transparent !important;
+  border-radius: 12px !important;
 }
 
 .product-page .product-gallery-thumbnails button:hover {
@@ -292,130 +475,301 @@ html {
   box-shadow: 0 4px 14px rgba(0, 113, 227, 0.3) !important;
 }
 
-/* 7. Apple Tech Specs Refinements */
+/* ------------------------------------------------------------------------------
+   8. APPLE TECH SPECS TABLE (MINIMALIST LUXURY)
+   ------------------------------------------------------------------------------ */
+.product-feature-specs,
+.m3-specs {
+  margin-top: 84px !important;
+  padding: 48px 36px !important;
+  background: linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 100%);
+  border-radius: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+}
+
+.product-feature-specs dl,
+.m3-specs dl {
+  margin: 28px 0 !important;
+}
+
 .product-feature-specs dl>div,
 .m3-specs dl>div {
-  border-bottom: 1px solid #e5e5e8;
-  padding: 18px 12px !important;
-  border-radius: 10px;
-  transition: background 0.2s ease;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  padding: 20px 14px !important;
+  border-radius: 12px;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
 .product-feature-specs dl>div:hover,
 .m3-specs dl>div:hover {
-  background: rgba(0, 113, 227, 0.03);
+  background: rgba(0, 113, 227, 0.04);
+  transform: translateX(4px);
 }
 
 .product-feature-specs dt,
 .m3-specs dt {
-  color: #1d1d1f;
-  font-weight: 600;
+  color: #1d1d1f !important;
+  font-weight: 700 !important;
+  font-size: 16.5px !important;
+  letter-spacing: -0.015em;
 }
 
-/* 8. Dark Mode Support */
+.product-feature-specs dd,
+.m3-specs dd {
+  color: #48484a !important;
+  font-size: 16.5px !important;
+  line-height: 1.6 !important;
+}
+
+.product-feature-specs>p {
+  font-size: 13.5px !important;
+  color: #86868b !important;
+  line-height: 1.6 !important;
+  margin-top: 24px !important;
+}
+
+.product-feature-specs .text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0071e3;
+  text-decoration: none;
+  margin-top: 16px;
+  transition: gap 0.2s ease;
+}
+
+.product-feature-specs .text-link:hover {
+  gap: 10px;
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------------------
+   9. DARK MODE SUPPORT (APPLE SPACE BLACK / PRO MIDNIGHT)
+   ------------------------------------------------------------------------------ */
 @media(prefers-color-scheme: dark) {
-  .apple-local-nav {
-    background: rgba(29, 29, 31, 0.85);
-    border-bottom-color: rgba(255, 255, 255, 0.12);
+  body.product-page {
+    background-color: #09090b;
+    color: #f5f5f7;
   }
+
+  .apple-local-nav {
+    background: rgba(18, 18, 20, 0.88);
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+
   .apple-local-nav-title {
     color: #f5f5f7;
   }
+
   .apple-local-nav-links a {
     color: #a1a1a6;
   }
+
   .apple-local-nav-links a:hover {
     color: #f5f5f7;
     background: rgba(255, 255, 255, 0.08);
   }
+
   .apple-local-nav-links a.is-active {
     color: #2997ff;
-    background: rgba(41, 151, 255, 0.15);
+    background: rgba(41, 151, 255, 0.16);
   }
+
   .apple-local-nav-price {
     color: #f5f5f7;
   }
-  .product-feature-highlights>div,
-  .m3-highlights>div {
-    background: #1c1c1e !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+
+  /* Dark mode Typography Headings */
+  .product-feature-intro h3,
+  .m3-intro h3,
+  .product-information>header h2 {
+    background: linear-gradient(180deg, #ffffff 0%, #a1a1a6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
   }
-  .product-feature-highlights strong,
-  .m3-highlights strong {
+
+  .product-information>header h2 span {
+    -webkit-text-fill-color: #86868b;
+  }
+
+  .product-feature-chapter>div h3,
+  .product-story-copy h3,
+  .m3-chapter h3,
+  .product-feature-specs h3,
+  .m3-specs h3 {
     color: #f5f5f7 !important;
   }
-  .product-feature-highlights span,
-  .m3-highlights span {
+
+  .product-feature-intro>p:not(.eyebrow),
+  .m3-intro>p:not(.eyebrow),
+  .product-purchase-intro,
+  .product-feature-chapter p:not(.eyebrow),
+  .product-story-copy p:not(.eyebrow),
+  .m3-chapter p:not(.eyebrow),
+  .product-information .detail-description {
     color: #a1a1a6 !important;
   }
+
+  .product-information .detail-description strong,
+  .product-feature-chapter p strong,
+  .product-story-copy strong {
+    color: #f5f5f7 !important;
+  }
+
+  /* Dark mode Bento Grid */
+  .product-feature-highlights>div,
+  .m3-highlights>div,
+  .m3-highlights>span {
+    background: linear-gradient(180deg, #18181b 0%, #121214 100%) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .product-feature-highlights>div:hover,
+  .m3-highlights>div:hover,
+  .m3-highlights>span:hover {
+    box-shadow: 0 18px 42px -4px rgba(41, 151, 255, 0.2), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    border-color: rgba(41, 151, 255, 0.4) !important;
+  }
+
+  .product-feature-highlights strong,
+  .m3-highlights strong {
+    background: linear-gradient(135deg, #ffffff 0%, #2997ff 140%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .product-feature-highlights span,
+  .m3-highlights span {
+    color: #86868b !important;
+  }
+
+  /* Dark mode figures & art */
   .product-feature-chapter figure,
   .product-story-art figure,
   .description-figure,
-  .m3-story figure {
-    background: #1c1c1e;
+  .m3-story figure,
+  .product-page .product-detail-art {
+    background: #141417;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
+
+  .product-feature-chapter,
+  .product-story-chapter,
+  .m3-chapter {
+    background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1) 20%, rgba(255, 255, 255, 0.1) 80%, transparent);
+  }
+
+  /* Dark mode Tech specs */
+  .product-feature-specs,
+  .m3-specs {
+    background: linear-gradient(180deg, #141416 0%, #0d0d0f 100%);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
   .product-feature-specs dl>div,
   .m3-specs dl>div {
-    border-bottom-color: #38383a;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
   }
+
   .product-feature-specs dl>div:hover,
   .m3-specs dl>div:hover {
-    background: rgba(41, 151, 255, 0.06);
+    background: rgba(41, 151, 255, 0.08);
   }
+
   .product-feature-specs dt,
   .m3-specs dt {
-    color: #f5f5f7;
+    color: #f5f5f7 !important;
+  }
+
+  .product-feature-specs dd,
+  .m3-specs dd {
+    color: #a1a1a6 !important;
+  }
+
+  .product-feature-specs>p {
+    color: #6e6e73 !important;
   }
 }
 
-/* 9. Mobile Responsiveness */
+/* ------------------------------------------------------------------------------
+   10. MOBILE RESPONSIVENESS & TOUCH OPTIMIZATION
+   ------------------------------------------------------------------------------ */
 @media(max-width: 800px) {
   html {
     scroll-padding-top: 104px;
   }
+
   .apple-local-nav {
     top: 50px;
   }
+
   .apple-local-nav-inner {
     width: calc(100% - 32px);
     height: 48px;
     gap: 12px;
   }
+
   .apple-local-nav-title {
     font-size: 16px;
   }
+
   .apple-local-nav-links {
     display: none; /* Hide text tabs on small mobile to give room for price + CTA */
   }
+
   .apple-local-nav-price {
     font-size: 14px;
   }
+
   .apple-local-nav-btn {
     padding: 6px 14px;
     font-size: 12px;
   }
+
   .product-feature-highlights,
   .m3-highlights {
     grid-template-columns: 1fr !important;
-    gap: 12px !important;
-    margin: 24px auto !important;
+    gap: 14px !important;
+    margin: 28px auto !important;
   }
+
+  .product-feature-chapter,
+  .product-story-chapter,
+  .m3-chapter {
+    margin-top: 52px !important;
+    padding-top: 40px !important;
+  }
+
+  .product-feature-specs,
+  .m3-specs {
+    padding: 32px 20px !important;
+    margin-top: 52px !important;
+  }
+
   .product-reveal-ready {
     transform: translateY(20px);
   }
 }
 
-/* 10. Accessibility: Honor prefers-reduced-motion */
+/* ------------------------------------------------------------------------------
+   11. ACCESSIBILITY: HONOR PREFERS-REDUCED-MOTION
+   ------------------------------------------------------------------------------ */
 @media(prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto !important;
   }
+
   .product-reveal-ready,
   .apple-local-nav,
   .apple-local-nav-btn,
   .product-feature-highlights>div,
   .m3-highlights>div,
+  .m3-highlights>span,
   .product-feature-chapter figure,
   .product-story-art figure,
   .description-figure,
