@@ -12,3 +12,7 @@ npm-debug.log*
 artifacts/
 screenshots/
 audit-screenshots/
+certs/
+scripts/*.ps1
+scripts/*.bat
+scripts/*.vbs
