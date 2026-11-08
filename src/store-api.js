@@ -944,6 +944,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           );
           if (completedClaim.rowCount !== 1) throw Object.assign(Error('Yêu cầu đặt hàng đã thay đổi hoặc hết hạn. Vui lòng kiểm tra đơn trước khi thử lại.'), { status: 409 });
         }
+        try {
+          const { publishAdminEvent } = require('./realtime-sse');
+          publishAdminEvent('order:new', {
+            orderId: result.order?.id,
+            orderNumber: result.order?.orderNumber,
+            totalVnd: result.order?.totalVnd,
+            customerName: result.order?.customerName
+          });
+          publishAdminEvent('notification:refresh', {});
+        } catch (_) {}
         return result;
       }
 
@@ -2411,6 +2421,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           console.error('MISA auto-issue error for order %s: %s', req.params.id, misaErr.message);
         }
       }
+      try {
+        require('./realtime-sse').publishAdminEvent('order:update', {
+          orderId: req.params.id,
+          orderNumber: result?.orderNumber,
+          status: result?.status,
+          paymentStatus: result?.paymentStatus
+        });
+      } catch (_) {}
       res.json({ order: result });
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });

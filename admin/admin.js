@@ -83,8 +83,12 @@ function showGlobal(message, isError = false) {
     feedback.textContent = text;
     feedback.classList.toggle("is-error", isError);
   }
-  if (window.GAERUNotify?.toast) {
-    window.GAERUNotify.toast(text, isError ? "error" : "success");
+  if (text) {
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast(text, isError ? "error" : "success");
+    } else if (typeof window.notify === "function") {
+      window.notify(text, isError);
+    }
   }
 }
 
@@ -130,6 +134,156 @@ function checkProductAddedNotice() {
   } catch (_) {}
 }
 
+// --- GAERU Admin Realtime & 100% Popup Notification System ---
+let adminRealtimeStream = null;
+let realtimeReconnectTimer = null;
+let realtimeDebounceTimer = null;
+
+function setRealtimeBadge(status, label) {
+  const badge = document.getElementById('admin-realtime-badge');
+  if (!badge) return;
+  badge.classList.toggle('is-live', status === 'live');
+  badge.classList.toggle('is-reconnecting', status !== 'live');
+  const labelEl = badge.querySelector('.realtime-label');
+  if (labelEl) labelEl.textContent = label || (status === 'live' ? 'Realtime LIVE' : 'Đang kết nối lại...');
+}
+
+function stopAdminRealtime() {
+  clearTimeout(realtimeReconnectTimer);
+  clearTimeout(realtimeDebounceTimer);
+  if (adminRealtimeStream) {
+    try { adminRealtimeStream.close(); } catch (_) {}
+    adminRealtimeStream = null;
+  }
+}
+
+function handleRealtimeEvent(event, data = {}) {
+  // 1. Popup toast for important live events
+  if (event === 'order:new') {
+    const amountStr = data.totalVnd ? ' · ' + Number(data.totalVnd).toLocaleString('vi-VN') + ' ₫' : '';
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast(`🔔 Có đơn hàng mới #${data.orderNumber || ''}${amountStr}!`, 'info');
+    }
+  } else if (event === 'order:update') {
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast(`🔔 Đơn hàng #${data.orderNumber || ''} vừa cập nhật trạng thái.`, 'info');
+    }
+  } else if (event === 'care:message' || event === 'care:update') {
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast('💬 GAERU CARE+: Tin nhắn hỗ trợ mới từ khách hàng.', 'info');
+    }
+  } else if (event === 'chat:message' || event === 'shopping_chat:message') {
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast('💬 Chat ngay: Khách hàng vừa gửi tin nhắn mới.', 'info');
+    }
+  } else if (event === 'inventory:update') {
+    if (data.lowStock && window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast(`⚠️ Cảnh báo: Tồn kho SKU ${data.sku || ''} đã xuống mức tối thiểu!`, 'warning');
+    }
+  }
+
+  // 2. Instant live refresh of data without any full page reload
+  clearTimeout(realtimeDebounceTimer);
+  realtimeDebounceTimer = setTimeout(async () => {
+    try {
+      if (!state.session) return;
+      loadSummary().catch(() => {});
+      if (window.GAERUNotifications?.load) window.GAERUNotifications.load().catch(() => {});
+
+      const activeBtn = document.querySelector('[data-view].is-active');
+      const currentView = activeBtn?.dataset?.view;
+      if (currentView === 'overview') {
+        loadSummary().catch(() => {});
+        loadSystemHealth().catch(() => {});
+      } else if (currentView === 'orders' && (event.startsWith('order:') || event === 'cache:invalidated')) {
+        loadOrders(state.orderPage).catch(() => {});
+      } else if (currentView === 'inventory' && (event.startsWith('inventory:') || event === 'cache:invalidated')) {
+        if (window.GAERUEnterprise?.loadView) window.GAERUEnterprise.loadView('inventory').catch(() => {});
+      } else if (currentView === 'care' && (event.startsWith('care:') || event === 'cache:invalidated')) {
+        if (window.GAERUCare?.load) window.GAERUCare.load().catch(() => {});
+      } else if (currentView === 'shopping-chat' && (event.includes('chat') || event === 'cache:invalidated')) {
+        if (window.GAERUShoppingChat?.load) window.GAERUShoppingChat.load().catch(() => {});
+      } else if (currentView === 'products' && (event.startsWith('product:') || event === 'cache:invalidated')) {
+        const query = document.querySelector('#product-search')?.value?.trim() || '';
+        loadProducts(query).catch(() => {});
+      }
+    } catch (_) {}
+  }, 250);
+}
+
+function initAdminRealtime() {
+  if (!state.session || typeof window === 'undefined') return;
+  stopAdminRealtime();
+
+  if (typeof EventSource !== 'function') {
+    setRealtimeBadge('live', 'Tự cập nhật Live');
+    return;
+  }
+
+  try {
+    adminRealtimeStream = new EventSource('/api/gaeru_ceo/realtime-sse');
+    adminRealtimeStream.onopen = () => {
+      setRealtimeBadge('live', 'Realtime LIVE');
+    };
+    adminRealtimeStream.onmessage = (e) => {
+      try {
+        const payload = JSON.parse(e.data || '{}');
+        handleRealtimeEvent('message', payload);
+      } catch (_) {}
+    };
+
+    const sseEvents = [
+      'order:new', 'order:update', 'inventory:update', 'stock:update',
+      'care:update', 'care:message', 'chat:message', 'shopping_chat:message',
+      'notification:refresh', 'cache:invalidated', 'config:update'
+    ];
+
+    for (const ev of sseEvents) {
+      adminRealtimeStream.addEventListener(ev, (e) => {
+        try {
+          const payload = JSON.parse(e.data || '{}');
+          handleRealtimeEvent(ev, payload);
+        } catch (_) {
+          handleRealtimeEvent(ev, {});
+        }
+      });
+    }
+
+    adminRealtimeStream.onerror = () => {
+      setRealtimeBadge('reconnecting', 'Đang kết nối lại...');
+      if (adminRealtimeStream) {
+        try { adminRealtimeStream.close(); } catch (_) {}
+        adminRealtimeStream = null;
+      }
+      clearTimeout(realtimeReconnectTimer);
+      realtimeReconnectTimer = setTimeout(() => {
+        if (state.session) initAdminRealtime();
+      }, 5000);
+    };
+  } catch (err) {
+    setRealtimeBadge('reconnecting', 'Đang kết nối lại...');
+    clearTimeout(realtimeReconnectTimer);
+    realtimeReconnectTimer = setTimeout(() => {
+      if (state.session) initAdminRealtime();
+    }, 8000);
+  }
+}
+
+async function refreshCurrentView() {
+  const activeBtn = document.querySelector('[data-view].is-active');
+  if (activeBtn) await activateView(activeBtn.dataset.view, { updateHistory: false });
+}
+
+// 100% Popup Dialog Override: Ensures all alerts, confirms and prompts in admin use modal popups
+if (typeof window !== 'undefined') {
+  const _nativeAlert = window.alert;
+  window.alert = function(msg) {
+    if (window.GAERUNotify?.alert) return window.GAERUNotify.alert(msg);
+    if (window.GAERUNotify?.toast) return window.GAERUNotify.toast(msg, 'info');
+    if (_nativeAlert) _nativeAlert.call(window, msg);
+  };
+}
+
 
 function setFeedback(form, message) {
   form.querySelector('[role="alert"]')?.replaceChildren(document.createTextNode(message));
@@ -161,6 +315,7 @@ async function showAdmin(session) {
   if(session.mfaEnrollmentRequired){document.querySelectorAll('[data-view]').forEach(b=>{b.hidden=b.dataset.view!=='security';});document.querySelectorAll('.nav-group').forEach(g=>{g.hidden=![...g.querySelectorAll('[data-view]')].some(b=>!b.hidden);});}
 
   document.dispatchEvent(new CustomEvent("gaeru:admin-ready", { detail: session }));
+  initAdminRealtime();
   if(session.mfaEnrollmentRequired){await activateView('security');showGlobal('Bắt buộc bật xác thực hai yếu tố trước khi truy cập quản trị.');return;}
   let initialView = "";
   try { initialView = decodeURIComponent(location.hash.slice(1)); } catch {}
@@ -1425,9 +1580,14 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
 document.querySelector("#logout-button").addEventListener("click", async () => {
   try {
     await request("/api/auth/logout", { method: "POST", body: "{}" });
-    location.reload();
   } catch (error) {
     showGlobal(error.message, true);
+  } finally {
+    state.session = null;
+    stopAdminRealtime();
+    document.querySelector("#admin-app").hidden = true;
+    document.querySelector("#login-panel").hidden = false;
+    showGlobal("Đã đăng xuất an toàn khỏi Cổng Quản trị.");
   }
 });
 
@@ -1997,7 +2157,7 @@ document.querySelector("#btn-refresh-health")?.addEventListener("click", async (
   }
 });
 
-window.GAERUAdmin = Object.freeze({ loadSettings, loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ loadSettings, loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, refreshCurrentView, initAdminRealtime, stopAdminRealtime, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});

@@ -280,6 +280,9 @@ function sseHandler(req, res) {
 
 // Khi có Cache Tag bị xóa, thông báo ngay tới mọi trình duyệt đang mở trang
 cacheEvents.on('invalidated', (payload) => {
+  try {
+    defaultHub.publish('admin', 'cache:invalidated', payload);
+  } catch (_) {}
   if (realtimeClients.size === 0) return;
   const message = `data: ${JSON.stringify({ type: 'CACHE_INVALIDATED', ...payload })}\n\n`;
   for (const client of realtimeClients) {

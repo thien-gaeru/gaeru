@@ -269,7 +269,8 @@
       threads.unshift(data.thread);
       selectThread(data.thread.id);
     } catch (e) {
-      window.alert('Không thể tạo phiên mới: ' + e.message);
+      if (window.GAERUNotify?.error) window.GAERUNotify.error('Không thể tạo phiên mới: ' + e.message);
+      else if (window.GAERUAdmin?.showGlobal) window.GAERUAdmin.showGlobal('Không thể tạo phiên mới: ' + e.message, true);
     }
   }
 
@@ -306,18 +307,23 @@
   // 5. Xóa thread hiện tại
   async function deleteCurrentThread() {
     if (!currentThreadId) return;
-    if (!window.confirm('Bạn có chắc muốn xóa phiên hội thoại này?')) return;
+    const ok = await (window.GAERUNotify?.confirm
+      ? window.GAERUNotify.confirm('Bạn có chắc muốn xóa phiên hội thoại này? Dữ liệu lịch sử sẽ không thể phục hồi.', { danger: true, confirmText: 'Xóa hội thoại' })
+      : Promise.resolve(true));
+    if (!ok) return;
     try {
       await api(`/threads/${currentThreadId}`, { method: 'DELETE' });
       threads = threads.filter(t => t.id !== currentThreadId);
       currentThreadId = null;
+      if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Đã xóa phiên hội thoại thành công.', 'success');
       if (threads.length > 0) {
         selectThread(threads[0].id);
       } else {
         createNewThread();
       }
     } catch (e) {
-      window.alert('Lỗi xóa hội thoại: ' + e.message);
+      if (window.GAERUNotify?.error) window.GAERUNotify.error('Lỗi xóa hội thoại: ' + e.message);
+      else if (window.GAERUAdmin?.showGlobal) window.GAERUAdmin.showGlobal('Lỗi xóa hội thoại: ' + e.message, true);
     }
   }
 
