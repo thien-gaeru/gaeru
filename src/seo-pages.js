@@ -17,7 +17,136 @@ function productCard(p,home=false){
  return '<article class="product-card is-visible" id="'+escape(p.slug)+'" data-category="'+escape(p.category)+'" data-href="'+url+'" tabindex="0" role="link" aria-label="'+escape(p.cardTitle||p.name)+'"><div class="product-copy">'+copy+'<p class="price">'+amount+'</p></div>'+art+'<div class="card-actions"><button type="button" class="button button-blue" data-choose-cart="'+escape(p.slug)+'" '+(p.variants.some(v=>v.active&&v.stockQuantity>0)?'':'disabled')+'>Thêm vào giỏ hàng</button><a class="button button-outline" href="'+url+'">Mua ngay</a></div></article>';
 }
 function newsCards(rows){return rows.map(p=>'<a class="news-card is-visible" href="'+postUrl(p)+'"><img src="/api/news-images/'+escape(p.coverId)+'" alt="'+escape(normalizeBrandText(p.imageAlt))+'" loading="lazy" decoding="async" width="480" height="300"><div><time datetime="'+escape(new Date(p.publishedAt).toISOString())+'">'+escape(new Date(p.publishedAt).toLocaleDateString('vi-VN'))+'</time><h3>'+escape(normalizeBrandText(p.title))+'</h3><p>'+escape(normalizeBrandText(p.excerpt))+'</p><span>Đọc bài viết ↗</span></div></a>').join('');}
-function articleBody(p,relatedRows=[]){const relatedHtml=relatedRows.length?'<section class="news-related-section"><h2 class="news-related-title">Bài viết liên quan</h2><div class="news-grid news-related-grid">'+newsCards(relatedRows)+'</div></section>':'';return '<header><p class="eyebrow">TIN TỨC GAERU</p><h1>'+escape(normalizeBrandText(p.title))+'</h1><time datetime="'+escape(new Date(p.publishedAt).toISOString())+'">'+escape(new Date(p.publishedAt).toLocaleDateString('vi-VN'))+'</time><p class="news-intro">'+escape(normalizeBrandText(p.excerpt))+'</p></header><img class="news-cover" src="/api/news-images/'+escape(p.coverId)+'" alt="'+escape(normalizeBrandText(p.imageAlt))+'" width="1200" height="750" fetchpriority="high" decoding="async"><div class="news-body">'+normalizeBrandText(p.body).split(/\n\s*\n/).filter(Boolean).map(text=>'<p>'+paragraph(text)+'</p>').join('')+'</div>'+relatedHtml+'<a class="text-link" href="/news.html">Xem các bài viết khác ↗</a>';}
+const RECOMMEND_PRODUCTS = {
+  'gaeru-m3': {
+    slug: 'gaeru-m3',
+    name: 'GAERU M3',
+    descriptor: 'Micro thu âm không dây có hộp sạc cao cấp',
+    priceText: '1.200.000 ₫',
+    badge: 'Bán chạy nhất · Đề xuất biên tập viên',
+    imageUrl: '/assets/products/m3-home-cutout.webp',
+    highlights: ['Hộp sạc hiển thị pin', 'Thu âm 360° đa hướng', 'Khử ồn AI thông minh']
+  },
+  'gaeru-k9': {
+    slug: 'gaeru-k9',
+    name: 'GAERU K9',
+    descriptor: 'Micro không dây cài áo hỗ trợ giảm ồn tạp âm',
+    priceText: 'Từ 289.000 ₫',
+    badge: 'Nhỏ gọn dễ dùng · Tiết kiệm chi phí',
+    imageUrl: '/assets/products/k9.webp',
+    highlights: ['Cắm là thu ngay', 'Không cần Bluetooth/app', 'Khoảng cách thu sóng 20m']
+  },
+  'gaeru-p01': {
+    slug: 'gaeru-p01',
+    name: 'GAERU P01',
+    descriptor: 'Gimbal AI tự động quay theo người',
+    priceText: 'Từ 550.000 ₫',
+    badge: 'Gimbal thông minh · Xoay 360° rảnh tay',
+    imageUrl: '/assets/products/p01.webp',
+    highlights: ['Nhận diện khuôn mặt & dáng người AI', 'Tự xoay theo người không cần app', 'Pin dùng 6–8 tiếng']
+  },
+  'gaeru-p185': {
+    slug: 'gaeru-p185',
+    name: 'GAERU P185',
+    descriptor: 'Gậy chụp hình selfie 4 chân kéo dài 1m8',
+    priceText: '450.000 ₫',
+    badge: 'Gậy 4 chân xoay 360° · Kéo dài 1.8m',
+    imageUrl: '/assets/products/p185-cutout-1cc9dfde9fa3.webp',
+    highlights: ['Kéo dài tới 1m8 siêu tầm với', '4 chân đỡ hợp kim siêu vững', 'Remote Bluetooth điều khiển từ xa']
+  },
+  'gaeru-g1-ultra': {
+    slug: 'gaeru-g1-ultra',
+    name: 'GAERU G1 ULTRA',
+    descriptor: 'Micro thu âm chuyên nghiệp kết nối đa thiết bị',
+    priceText: '2.100.000 ₫',
+    badge: 'Flagship chuyên nghiệp · Đa thiết bị',
+    imageUrl: '/assets/products/g1-ultra-clean.webp',
+    highlights: ['Kết nối máy ảnh, điện thoại & PC', 'Màn hình OLED & tai nghe kiểm âm', 'Hỗ trợ nhạc nền Bluetooth']
+  }
+};
+function matchArticleProduct(post) {
+  const slug = String(post?.slug || '').toLowerCase();
+  const title = String(post?.title || '').toLowerCase();
+  const st = slug + ' ' + title;
+  const full = (st + ' ' + String(post?.excerpt || '') + ' ' + String(post?.body || '')).toLowerCase();
+  if (st.includes('p185')) return RECOMMEND_PRODUCTS['gaeru-p185'];
+  if (st.includes('p01')) return RECOMMEND_PRODUCTS['gaeru-p01'];
+  if (st.includes('g1-ultra') || st.includes('g1 ultra') || st.includes('g1')) return RECOMMEND_PRODUCTS['gaeru-g1-ultra'];
+  if (st.includes('k9')) return RECOMMEND_PRODUCTS['gaeru-k9'];
+  if (st.includes('m3')) return RECOMMEND_PRODUCTS['gaeru-m3'];
+  if (st.includes('tripod') || st.includes('gậy') || st.includes('selfie') || st.includes('chân đỡ')) return RECOMMEND_PRODUCTS['gaeru-p185'];
+  if (st.includes('gimbal') || st.includes('quay theo') || st.includes('vùng theo dõi') || st.includes('khung hình') || st.includes('theo dõi')) return RECOMMEND_PRODUCTS['gaeru-p01'];
+  if (st.includes('32-bit') || st.includes('auracast') || st.includes('le audio') || st.includes('kiểm âm') || st.includes('máy ảnh') || st.includes('phòng thu') || st.includes('podcast') || st.includes('đa thiết bị')) return RECOMMEND_PRODUCTS['gaeru-g1-ultra'];
+  if (st.includes('hai người') || st.includes('cặp đôi') || st.includes('2 micro') || st.includes('tiết kiệm') || st.includes('nhập môn')) return RECOMMEND_PRODUCTS['gaeru-k9'];
+  if (full.includes('p185') || full.includes('gậy chụp hình') || full.includes('gậy selfie')) return RECOMMEND_PRODUCTS['gaeru-p185'];
+  if (full.includes('p01') || full.includes('gimbal') || full.includes('xoay 360')) return RECOMMEND_PRODUCTS['gaeru-p01'];
+  if (full.includes('g1 ultra') || full.includes('máy ảnh') || full.includes('kiểm âm trực tiếp') || full.includes('32-bit float')) return RECOMMEND_PRODUCTS['gaeru-g1-ultra'];
+  if (full.includes('k9') || full.includes('2 micro')) return RECOMMEND_PRODUCTS['gaeru-k9'];
+  if (full.includes('m3') || full.includes('hộp sạc') || full.includes('chống ồn') || full.includes('dsp') || full.includes('lọc âm') || full.includes('tạp âm')) return RECOMMEND_PRODUCTS['gaeru-m3'];
+  return RECOMMEND_PRODUCTS['gaeru-m3'];
+}
+function renderArticleProductRecommendation(prod) {
+  const highlights = (prod.highlights || []).map(h => '<li>' + escape(h) + '</li>').join('');
+  return '<aside class="article-product-card" aria-label="Gợi ý thiết bị GAERU">' +
+    '<div class="article-product-badge">' +
+      '<span class="badge-tag">GỢI Ý THIẾT BỊ PHÙ HỢP</span>' +
+      '<span class="badge-sub">Chính hãng GAERU · Bảo hành 1 đổi 1 · Freeship toàn quốc</span>' +
+    '</div>' +
+    '<div class="article-product-content">' +
+      '<a class="article-product-thumb" href="/san-pham/' + escape(prod.slug) + '" aria-label="Xem sản phẩm ' + escape(prod.name) + '">' +
+        '<img src="' + escape(prod.imageUrl) + '" alt="' + escape(prod.name) + '" loading="lazy" decoding="async" width="240" height="200">' +
+      '</a>' +
+      '<div class="article-product-info">' +
+        '<p class="article-product-descriptor">' + escape(prod.descriptor) + '</p>' +
+        '<h3 class="article-product-title">' +
+          '<a href="/san-pham/' + escape(prod.slug) + '">' + escape(prod.name) + '</a>' +
+        '</h3>' +
+        '<ul class="article-product-highlights">' + highlights + '</ul>' +
+        '<div class="article-product-footer">' +
+          '<div class="article-product-pricing">' +
+            '<span class="article-product-price-label">Giá niêm yết</span>' +
+            '<span class="article-product-price">' + escape(prod.priceText) + '</span>' +
+          '</div>' +
+          '<div class="article-product-actions">' +
+            '<a class="button button-outline article-btn-detail" href="/san-pham/' + escape(prod.slug) + '">Xem chi tiết</a>' +
+            '<a class="button button-blue article-btn-buy" href="/san-pham/' + escape(prod.slug) + '#product-detail">Mua ngay ↗</a>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</aside>';
+}
+function renderArticleConclusionCta(prod) {
+  return '<div class="article-bottom-cta">' +
+    '<div class="article-bottom-cta-inner">' +
+      '<div class="article-bottom-cta-text">' +
+        '<h4>Bắt đầu sáng tạo nội dung chuyên nghiệp cùng ' + escape(prod.name) + '</h4>' +
+        '<p>Trang bị ngay thiết bị chính hãng GAERU với chính sách bảo hành 1 đổi 1 trong 30 ngày, đổi trả miễn phí và hỗ trợ kỹ thuật trọn đời.</p>' +
+      '</div>' +
+      '<div class="article-bottom-cta-actions">' +
+        '<a class="button button-blue" href="/san-pham/' + escape(prod.slug) + '#product-detail">Đặt mua ' + escape(prod.name) + ' ngay</a>' +
+        '<a class="button button-outline" href="/san-pham/' + escape(prod.slug) + '">Xem chi tiết sản phẩm</a>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+function articleBody(p,relatedRows=[]){
+  const relatedHtml=relatedRows.length?'<section class="news-related-section"><h2 class="news-related-title">Bài viết liên quan</h2><div class="news-grid news-related-grid">'+newsCards(relatedRows)+'</div></section>':'';
+  const prod = matchArticleProduct(p);
+  const midCard = renderArticleProductRecommendation(prod);
+  const bottomCta = renderArticleConclusionCta(prod);
+  const paragraphs = normalizeBrandText(p.body).split(/\n\s*\n/).filter(Boolean);
+  const insertIndex = paragraphs.length >= 3 ? 2 : paragraphs.length;
+  let bodyHtml = '';
+  for (let i = 0; i < paragraphs.length; i++) {
+    bodyHtml += '<p>' + paragraph(paragraphs[i]) + '</p>';
+    if (i + 1 === insertIndex) {
+      bodyHtml += midCard;
+    }
+  }
+  bodyHtml += bottomCta;
+  return '<header><p class="eyebrow">TIN TỨC GAERU</p><h1>'+escape(normalizeBrandText(p.title))+'</h1><time datetime="'+escape(new Date(p.publishedAt).toISOString())+'">'+escape(new Date(p.publishedAt).toLocaleDateString('vi-VN'))+'</time><p class="news-intro">'+escape(normalizeBrandText(p.excerpt))+'</p></header><img class="news-cover" src="/api/news-images/'+escape(p.coverId)+'" alt="'+escape(normalizeBrandText(p.imageAlt))+'" width="1200" height="750" fetchpriority="high" decoding="async"><div class="news-body">'+bodyHtml+'</div>'+relatedHtml+'<a class="text-link" href="/news.html">Xem các bài viết khác ↗</a>';
+}
 function isTrustedMarketplaceUrl(url, provider) {
   if (!url || typeof url !== 'string') return false;
   try {
@@ -81,4 +210,4 @@ function createSeoPages(pool,base='https://gaeru.com'){
   }catch(error){console.error('Public SSR temporarily unavailable',{name:error.name||'Error',code:error.code||'INTERNAL_ERROR'});res.set('Retry-After','60').status(503).type('html').send('<!doctype html><html lang="vi"><meta charset="utf-8"><title>Tạm thời chưa tải được nội dung — GAERU</title><main><h1>Tạm thời chưa tải được nội dung.</h1><p>Vui lòng thử lại sau hoặc <a href="tel:0829191080">gọi GAERU 082 919 1080</a> để được tư vấn.</p></main></html>');}
  });return router;
 }
-module.exports={createSeoPages,productBody,newsCards,articleBody,productCard};
+module.exports={createSeoPages,productBody,newsCards,articleBody,productCard,matchArticleProduct,renderArticleProductRecommendation};
