@@ -55,6 +55,7 @@ function preventSystemSleep() {
   try {
     execSync('powercfg /change standby-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
     execSync('powercfg /change hibernate-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
+    execSync('powercfg /change disk-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
   } catch (_) {}
 }
 
