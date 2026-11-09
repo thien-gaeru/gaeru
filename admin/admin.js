@@ -1219,6 +1219,10 @@ async function updateOrder(event) {
       showGlobal("Đã cập nhật đơn hàng.");
     }
   } catch (error) {
+    feedback.textContent = error.message;
+    submitButton.disabled = false;
+    delete form.dataset.saving;
+    submitButton.textContent = "Lưu cập nhật";
     if (saved) {
       showGlobal("Đã lưu đơn hàng nhưng chưa tải lại được danh sách. Nhấn Tải lại.", true);
     } else {
@@ -1227,7 +1231,6 @@ async function updateOrder(event) {
       } else {
         showGlobal(error.message, true);
       }
-      feedback.textContent = error.message;
     }
   } finally {
     submitButton.disabled = false;

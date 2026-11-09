@@ -13,6 +13,8 @@ const { decoratePublicProductImages } = require("./lib/public-image-urls");
 const { checkCustomerPhoneStatus, checkCustomerRegEmailStatus } = require("./customer-lifecycle");
 const { getFreshData, stockMap, isValidOrderQuantity, reserveStock, releaseStock, seedStock, flushAllCache, invalidateTags } = require("./cache");
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const orderSchema = z.object({
   customer: z.object({
     name: z.string().trim().min(2).max(120),
@@ -2316,7 +2318,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.post('/gaeru_ceo/orders/bulk',requirePermission('orders.write'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{
-      const parsed=z.object({action:z.enum(['confirm','prepare','ship','complete','cancel']),confirmReceived:z.boolean().default(false),orders:z.array(z.object({id:z.string().uuid(),expectedStatus:z.enum(['pending','confirmed','processing','shipped','completed','cancelled']),expectedPaymentStatus:z.enum(['pending','paid']),expectedTotalVnd:z.number().int().min(0).max(2000000000).nullable()}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(o=>o.id)).size===rows.length)}).strict().safeParse(req.body);
+      const parsed=z.object({action:z.enum(['confirm','prepare','ship','complete','cancel']),confirmReceived:z.boolean().default(false),orders:z.array(z.object({id:z.string().regex(uuidPattern),expectedStatus:z.enum(['pending','confirmed','processing','shipped','completed','cancelled']),expectedPaymentStatus:z.enum(['pending','paid']),expectedTotalVnd:z.number().int().min(0).max(2000000000).nullable()}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(o=>o.id)).size===rows.length)}).strict().safeParse(req.body);
       if(!parsed.success)return res.status(400).json({error:'Chọn từ 1 đến 100 đơn khác nhau và bước xử lý hợp lệ.'});
       const data=parsed.data,target={confirm:'confirmed',prepare:'processing',ship:'shipped',complete:'completed',cancel:'cancelled'}[data.action];
       const result=await withTransaction(pool,async client=>{
@@ -2611,7 +2613,8 @@ const settingsSchema = z.object({
 
 function requireUuidParam(name) {
   return (req, res, next) => {
-    if (!z.string().uuid().safeParse(req.params[name]).success) {
+    const val = req.params[name];
+    if (typeof val !== "string" || !uuidPattern.test(val)) {
       return res.status(400).json({ error: "Mã định danh không hợp lệ." });
     }
     next();

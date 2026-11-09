@@ -119,7 +119,9 @@
       `;
 
       backdrop.append(card);
-      document.body.append(backdrop);
+      const activeDialog = typeof document.querySelector === 'function' ? document.querySelector('dialog[open]') : null;
+      const mountTarget = activeDialog || document.body;
+      mountTarget?.append?.(backdrop);
 
       const input = card.querySelector?.('.gaeru-modal-input');
       const confirmBtn = card.querySelector?.('.gaeru-modal-btn-confirm');
