@@ -215,6 +215,7 @@ function createInternalAiRouter(pool, config) {
 
     const action = res.rows[0];
     return {
+      id: action.id,
       actionId: action.id,
       actionType,
       title: title || 'Hành động quản trị đề xuất',
@@ -384,6 +385,69 @@ Quy tắc cốt lõi:
       }, user, threadId);
 
       toolResults.push({ tool: 'propose_action', data: actionCard });
+    }
+
+    // 5. Ý định Hủy / Dừng hoặc Xóa Voucher
+    const isCancelVoucherIntent = /(?:hủy|huỷ|dừng|tắt).*(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
+                                 /(?:hủy voucher|huỷ voucher|dừng voucher|tắt voucher)/i.test(lower);
+    const isDeleteVoucherIntent = /(?:xóa|xoá|gỡ).*(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
+                                 /(?:xóa voucher|xoá voucher)/i.test(lower);
+    if (!actionCard && (isCancelVoucherIntent || isDeleteVoucherIntent)) {
+      const vCodeMatch = userQuestion.match(/(?:voucher|mã|code)?\s*([A-Za-z0-9_-]{3,20})/i);
+      let targetVoucher = null;
+      if (vCodeMatch && vCodeMatch[1]) {
+        try {
+          const vRes = await pool.query('SELECT id, code, title, amount, kind, active FROM marketing_vouchers WHERE lower(code) = lower($1) OR id::text = $1 LIMIT 1', [vCodeMatch[1].trim()]);
+          if (vRes.rows.length) targetVoucher = vRes.rows[0];
+        } catch (_) {}
+      }
+      if (!targetVoucher) {
+        const vRes = await pool.query('SELECT id, code, title, amount, kind, active FROM marketing_vouchers ORDER BY created_at DESC LIMIT 1');
+        if (vRes.rows.length) targetVoucher = vRes.rows[0];
+      }
+      if (targetVoucher) {
+        const isDelete = isDeleteVoucherIntent;
+        actionCard = await toolProposeAction({
+          actionType: isDelete ? 'delete_voucher' : 'cancel_voucher',
+          title: isDelete ? `🗑️ Xác nhận XÓA VĨNH VIỄN Voucher: ${targetVoucher.code}` : `🛑 Xác nhận DỪNG Voucher: ${targetVoucher.code}`,
+          description: isDelete ? `Xóa vĩnh viễn voucher ${targetVoucher.code} khỏi cơ sở dữ liệu. Thao tác không thể hoàn tác.` : `Dừng kích hoạt voucher ${targetVoucher.code} (chuyển trạng thái sang Tạm tắt).`,
+          payload: {
+            voucherId: targetVoucher.id,
+            code: targetVoucher.code,
+            title: targetVoucher.title
+          }
+        }, user, threadId);
+        toolResults.push({ tool: 'propose_action', data: actionCard });
+      }
+    }
+
+    // 6. Ý định Hủy / Dừng hoặc Xóa Chiến dịch Marketing
+    const isCancelCampaignIntent = /(?:hủy|huỷ|dừng|tắt).*(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
+    const isDeleteCampaignIntent = /(?:xóa|xoá|gỡ).*(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
+    if (!actionCard && (isCancelCampaignIntent || isDeleteCampaignIntent)) {
+      let targetCampaign = null;
+      try {
+        const cRes = await pool.query('SELECT id, title, active FROM marketing_campaigns ORDER BY created_at DESC LIMIT 1');
+        if (cRes.rows.length) targetCampaign = { ...cRes.rows[0], type: 'campaign' };
+        if (!targetCampaign) {
+          const pRes = await pool.query('SELECT id, title, active FROM product_promotions ORDER BY created_at DESC LIMIT 1');
+          if (pRes.rows.length) targetCampaign = { ...pRes.rows[0], type: 'promotion' };
+        }
+      } catch (_) {}
+      if (targetCampaign) {
+        const isDelete = isDeleteCampaignIntent;
+        actionCard = await toolProposeAction({
+          actionType: isDelete ? 'delete_campaign' : 'cancel_campaign',
+          title: isDelete ? `🗑️ Xác nhận XÓA VĨNH VIỄN Chiến dịch: ${targetCampaign.title}` : `🛑 Xác nhận DỪNG Chiến dịch: ${targetCampaign.title}`,
+          description: isDelete ? `Xóa vĩnh viễn chiến dịch "${targetCampaign.title}" khỏi hệ thống.` : `Dừng kích hoạt chiến dịch "${targetCampaign.title}".`,
+          payload: {
+            campaignId: targetCampaign.id,
+            title: targetCampaign.title,
+            type: targetCampaign.type
+          }
+        }, user, threadId);
+        toolResults.push({ tool: 'propose_action', data: actionCard });
+      }
     }
 
     // 2. Chuẩn bị ngữ cảnh cho LLM
@@ -766,6 +830,65 @@ Quy tắc cốt lõi:
           syncRes = { message: 'Đã hoàn tất kiểm tra hành trình: ' + err.message };
         }
         result = { success: true, message: syncRes?.message || `Đã đồng bộ hành trình bưu cục cho đơn ${p.orderNumber} thành công!`, orderId: p.orderId, actionType: 'sync_shipping' };
+      } else if (row.actionType === 'cancel_voucher') {
+        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
+        if (!canManageMarketing) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
+        }
+        const p = row.payload;
+        await pool.query('UPDATE marketing_vouchers SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.voucherId]);
+        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, active: false }); } catch (_) {}
+        try { require('./cache').flushAllCache(); } catch (_) {}
+        result = { success: true, message: `Đã dừng kích hoạt mã voucher ${p.code} thành công!`, voucherId: p.voucherId, actionType: 'cancel_voucher' };
+      } else if (row.actionType === 'delete_voucher') {
+        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
+        if (!canManageMarketing) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
+        }
+        const p = row.payload;
+        const { withTransaction } = require('./db');
+        await withTransaction(pool, async (c) => {
+          await c.query('UPDATE marketing_campaigns SET voucher_id=NULL WHERE voucher_id=$1', [p.voucherId]);
+          await c.query('DELETE FROM customer_vouchers WHERE voucher_id=$1', [p.voucherId]);
+          await c.query('DELETE FROM voucher_redemptions WHERE voucher_id=$1', [p.voucherId]);
+          await c.query('DELETE FROM marketing_vouchers WHERE id=$1', [p.voucherId]);
+        });
+        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, deleted: true }); } catch (_) {}
+        try { require('./cache').flushAllCache(); } catch (_) {}
+        result = { success: true, message: `Đã xóa vĩnh viễn mã voucher ${p.code} khỏi cơ sở dữ liệu!`, voucherId: p.voucherId, actionType: 'delete_voucher' };
+      } else if (row.actionType === 'cancel_campaign') {
+        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
+        if (!canManageMarketing) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
+        }
+        const p = row.payload;
+        if (p.type === 'promotion') {
+          await pool.query('UPDATE product_promotions SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
+        } else {
+          await pool.query('UPDATE marketing_campaigns SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
+        }
+        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, active: false }); } catch (_) {}
+        try { require('./cache').flushAllCache(); } catch (_) {}
+        result = { success: true, message: `Đã dừng kích hoạt chiến dịch "${p.title}" thành công!`, campaignId: p.campaignId, actionType: 'cancel_campaign' };
+      } else if (row.actionType === 'delete_campaign') {
+        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
+        if (!canManageMarketing) {
+          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
+        }
+        const p = row.payload;
+        const { withTransaction } = require('./db');
+        await withTransaction(pool, async (c) => {
+          if (p.type === 'promotion') {
+            await c.query('DELETE FROM product_promotion_variants WHERE promotion_id=$1', [p.campaignId]);
+            await c.query('DELETE FROM product_promotions WHERE id=$1', [p.campaignId]);
+          } else {
+            await c.query('DELETE FROM customer_campaign_reads WHERE campaign_id=$1', [p.campaignId]);
+            await c.query('DELETE FROM marketing_campaigns WHERE id=$1', [p.campaignId]);
+          }
+        });
+        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, deleted: true }); } catch (_) {}
+        try { require('./cache').flushAllCache(); } catch (_) {}
+        result = { success: true, message: `Đã xóa vĩnh viễn chiến dịch "${p.title}" khỏi hệ thống!`, campaignId: p.campaignId, actionType: 'delete_campaign' };
       } else {
         result = { success: true, message: `Đã ghi nhận thực thi hành động: ${row.actionType}` };
       }

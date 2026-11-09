@@ -417,6 +417,32 @@ function mountBundles({ admin, publicRouter }, pool) {
     });
   }
 
+  // Admin cancel (deactivate)
+  admin.post('/marketing/bundles/:id/cancel', requirePermission('marketing.write'), requireCsrf, async (req, res, next) => {
+    try {
+      const id = z.string().uuid().parse(req.params.id);
+      const item = await withTransaction(pool, async c => {
+        const old = (await c.query('SELECT * FROM product_bundles WHERE id = $1 FOR UPDATE', [id])).rows[0];
+        if (!old) throw fail('Combo không tồn tại hoặc đã bị xóa.', 404);
+        const r = await c.query('UPDATE product_bundles SET active = false, version = version + 1, updated_at = now() WHERE id = $1 RETURNING *', [id]);
+        await appendAudit(c, {
+          actor: req.admin,
+          action: 'marketing.product_bundle.cancel',
+          entityType: 'marketing',
+          entityId: id,
+          before: { active: old.active },
+          after: { active: false }
+        });
+        return r.rows[0];
+      });
+      try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'bundles', id, active: false }); } catch (_) {}
+      try { require('./cache').flushAllCache(); } catch (_) {}
+      res.json({ success: true, item, message: 'Đã dừng gói combo thành công.' });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // Admin delete
   admin.delete('/marketing/bundles/:id', requirePermission('marketing.write'), requireCsrf, async (req, res, next) => {
     try {
@@ -433,6 +459,7 @@ function mountBundles({ admin, publicRouter }, pool) {
           before: old
         });
       });
+      try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'bundles', id, deleted: true }); } catch (_) {}
       try { require('./cache').flushAllCache(); } catch (_) {}
       res.json({ success: true, message: 'Đã xóa combo.' });
     } catch (e) {

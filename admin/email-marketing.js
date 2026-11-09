@@ -88,6 +88,7 @@
               <div class="marketing-email-actions">
                 <button type="button" class="secondary-button" data-email-view="${c.id}">${c.status === 'draft' && admin.can('marketing.write') ? 'Mở bản nháp' : 'Xem nội dung'}</button>
                 ${admin.can('marketing.write') && ['draft', 'scheduled', 'sending'].includes(c.status) ? `<button type="button" class="secondary-button" data-email-cancel="${c.id}">${c.status === 'draft' ? 'Hủy bản nháp' : 'Dừng chiến dịch'}</button>` : ''}
+                ${admin.can('marketing.write') && ['draft', 'cancelled', 'completed'].includes(c.status) ? `<button type="button" class="row-button row-button-danger" data-email-delete="${c.id}" style="color:#d32f2f;">Xóa</button>` : ''}
               </div>
               <div data-email-confirm="${c.id}"></div>
             </article>
@@ -394,6 +395,18 @@
         });
         await load();
         admin.showGlobal(r.message);
+      }
+
+      // Delete campaign
+      if (b.dataset.emailDelete) {
+        const c = data.campaigns.find(x => x.id === b.dataset.emailDelete);
+        const ok = await (window.GAERUNotify?.confirm ? window.GAERUNotify.confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn chiến dịch email "${c?.title || ''}" không? Thao tác không thể hoàn tác.`, { danger: true, confirmText: 'Xóa chiến dịch' }) : confirm('Bạn có chắc chắn muốn xóa chiến dịch này không?'));
+        if (!ok) return;
+        b.disabled = true;
+        await admin.request('/api/gaeru_ceo/marketing/emails/' + c.id, { method: 'DELETE' });
+        await load();
+        if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Đã xóa chiến dịch email thành công.', { type: 'success' });
+        else admin.showGlobal('Đã xóa chiến dịch email thành công.');
       }
     } catch (error) {
       b.disabled = false;

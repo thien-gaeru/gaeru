@@ -214,7 +214,24 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
       await c.query("UPDATE marketing_email_recipients SET status='skipped',result='Chiến dịch đã hủy',finished_at=now() WHERE campaign_id=$1 AND status='pending'", [id]);
       await appendAudit(c, { actor: req.admin, action: 'marketing.email.cancel', entityType: 'marketing', entityId: id });
     });
+    try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'emails', id, status: 'cancelled' }); } catch (_) {}
     res.json({ message: 'Đã dừng hàng đợi. Thư đang chuyển giao có thể vẫn được gửi.' });
+  }));
+
+  admin.delete('/marketing/emails/:id', requirePermission('marketing.write'), requireCsrf, wrap(async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    await withTransaction(pool, async c => {
+      const old = (await c.query('SELECT * FROM marketing_email_campaigns WHERE id=$1 FOR UPDATE', [id])).rows[0];
+      if (!old) throw fail('Chiến dịch email không tồn tại hoặc đã bị xóa.', 404);
+      if (['scheduled', 'sending'].includes(old.status)) {
+        throw fail('Vui lòng dừng chiến dịch email trước khi xóa.', 400);
+      }
+      await c.query('DELETE FROM marketing_email_recipients WHERE campaign_id=$1', [id]);
+      await c.query('DELETE FROM marketing_email_campaigns WHERE id=$1', [id]);
+      await appendAudit(c, { actor: req.admin, action: 'marketing.email.delete', entityType: 'marketing', entityId: id, before: old });
+    });
+    try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'emails', id, deleted: true }); } catch (_) {}
+    res.json({ success: true, message: 'Đã xóa chiến dịch email thành công.' });
   }));
 
   admin.post('/marketing/emails/test-send', requirePermission('marketing.write'), requireCsrf, wrap(async (req, res) => {
