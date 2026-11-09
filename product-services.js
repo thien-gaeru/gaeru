@@ -89,8 +89,37 @@ async function request(path, options = {}) {
 
 let chat=null,chatOpenVersion=0,chatAssetsPromise=null,checkoutFlowPromise=null;
 function loadStylesheetOnce(href){if(document.querySelector(`link[href^="${href.split('?')[0]}"]`))return;const l=document.createElement('link');l.rel='stylesheet';l.href=href;document.head.append(l);}
-function loadScriptOnce(src,check){if(check())return Promise.resolve();return new Promise((resolve,reject)=>{const existing=document.querySelector(`script[src^="${src.split('?')[0]}"]`);if(existing){existing.addEventListener('load',()=>resolve(),{once:true});existing.addEventListener('error',()=>reject(Error('Chưa tải được thành phần trang.')),{once:true});if(check())resolve();return;}const s=document.createElement('script');s.src=src;s.defer=true;s.onload=()=>resolve();s.onerror=()=>reject(Error('Chưa tải được thành phần trang.'));document.head.append(s);});}
-function ensureChatAssets(){loadStylesheetOnce('/shopping-chat.css?v=20261105-helpdesk-v1');if(window.GAERUChatClient)return Promise.resolve();return chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261103-complete',()=>Boolean(window.GAERUChatClient)).catch(e=>{chatAssetsPromise=null;throw e;});}
+function loadScriptOnce(src,check){
+  if(check&&check())return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    const existing=document.querySelector(`script[src^="${src.split('?')[0]}"]`);
+    if(existing){
+      if(check&&check())return resolve();
+      existing.addEventListener('load',()=>resolve(),{once:true});
+      existing.addEventListener('error',()=>reject(Error('Chưa tải được thành phần trang.')),{once:true});
+      const timer=setInterval(()=>{if(check&&check()){clearInterval(timer);resolve();}},50);
+      setTimeout(()=>clearInterval(timer),4000);
+      return;
+    }
+    const s=document.createElement('script');
+    s.src=src;
+    s.async=false;
+    s.onload=()=>resolve();
+    s.onerror=()=>reject(Error('Chưa tải được thành phần trang.'));
+    document.head.append(s);
+  });
+}
+async function ensureChatAssets(){
+  loadStylesheetOnce('/shopping-chat.css?v=20261109-v3');
+  if(typeof window.GAERUChatClient?.mount==='function')return true;
+  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261109-v3',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
+  for(let i=0;i<40;i++){
+    if(typeof window.GAERUChatClient?.mount==='function')return true;
+    await new Promise(r=>setTimeout(r,50));
+  }
+  if(typeof window.GAERUChatClient?.mount!=='function')throw Error('Hệ thống tư vấn đang bận. Vui lòng thử lại sau giây lát hoặc gọi 082 919 1080.');
+  return true;
+}
 function ensureCheckoutFlow(){if(window.GAERUCheckout)return Promise.resolve();return checkoutFlowPromise||=loadScriptOnce('/checkout-flow.js?v=20261026-ward-picker',()=>Boolean(window.GAERUCheckout)).catch(()=>{checkoutFlowPromise=null;});}
 
 async function openChat(slug){
@@ -108,7 +137,15 @@ async function openChat(slug){
   const content=dialog.querySelector('[data-chat-content]');content.innerHTML='<p role="status">Đang mở hỗ trợ…</p>';
   const fit=()=>{if(!dialog.open)return;const viewport=window.visualViewport;dialog.style.setProperty('--chat-viewport-height',(viewport?.height||window.innerHeight)+'px');dialog.style.setProperty('--chat-viewport-top',(viewport?.offsetTop||0)+'px');const editing=dialog.contains(document.activeElement)&&document.activeElement.matches('textarea,input');dialog.classList.toggle('chat-keyboard-open',editing&&((viewport?.height||innerHeight)<window.innerHeight*.8||(viewport?.height||innerHeight)<500));};
   if(!dialog.dataset.viewportBound){dialog.dataset.viewportBound='true';window.visualViewport?.addEventListener('resize',fit);window.visualViewport?.addEventListener('scroll',fit);window.addEventListener('resize',fit);dialog.addEventListener('focusin',fit);dialog.addEventListener('focusout',()=>requestAnimationFrame(fit));}fit();
-  try{const [,d]=await Promise.all([ensureChatAssets(),request('/api/shopping-chat/threads')]);if(!dialog.open||version!==chatOpenVersion)return;const existing=d.threads.find(t=>t.product_slug===slug&&t.status==='open');chat?.stop();chat=window.GAERUChatClient.mount(content,{base:'/api/shopping-chat/threads',request,id:existing?.id||null,productSlug:slug});fit();}
+  try{
+    const [,d]=await Promise.all([ensureChatAssets(),request('/api/shopping-chat/threads')]);
+    if(!dialog.open||version!==chatOpenVersion)return;
+    if(typeof window.GAERUChatClient?.mount!=='function')throw Error('Hệ thống tư vấn chưa sẵn sàng. Vui lòng bấm thử lại hoặc gọi hotline 082 919 1080.');
+    const existing=d.threads.find(t=>t.product_slug===slug&&t.status==='open');
+    chat?.stop();
+    chat=window.GAERUChatClient.mount(content,{base:'/api/shopping-chat/threads',request,id:existing?.id||null,productSlug:slug});
+    fit();
+  }
   catch(e){if(dialog.open&&version===chatOpenVersion)content.innerHTML='<p role="status">'+h(e.message)+'</p>';}
 }
 
