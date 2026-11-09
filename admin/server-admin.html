@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bảng Điều Khiển Máy Chủ GAERU — Server Management Portal</title>
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
+  <link rel="stylesheet" href="/server_admin/server-admin.css">
+  <script src="/server_admin/server-admin.js" defer></script>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="server-icon">⚡</div>
+      <div>
+        <div class="brand-title">GAERU SERVER CONSOLE</div>
+        <div class="brand-subtitle" id="top-device-badge">LG G7 ThinQ · Snapdragon 845</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div class="live-indicator">
+        <span class="live-dot"></span>
+        <span id="live-text">ONLINE · 24/7</span>
+      </div>
+      <button type="button" class="btn btn-secondary" id="btn-refresh" title="Làm mới tức thì">🔄 Làm mới</button>
+      <a href="/gaeru_ceo" class="btn btn-secondary" title="Mở trang Quản trị Doanh nghiệp">🏢 GAERU CEO</a>
+      <button type="button" class="btn btn-danger" id="btn-logout" title="Đăng xuất">⎋ Đăng xuất</button>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="nav-tabs" aria-label="Các mục quản trị">
+    <button type="button" class="nav-tab active" data-tab="tab-hardware">📊 Tổng quan Phần cứng</button>
+    <button type="button" class="nav-tab" data-tab="tab-services">⚡ Dịch vụ &amp; Tiến trình</button>
+    <button type="button" class="nav-tab" data-tab="tab-database">🗄️ Cơ sở dữ liệu</button>
+    <button type="button" class="nav-tab" data-tab="tab-logs">📜 Nhật ký Máy chủ</button>
+    <button type="button" class="nav-tab" data-tab="tab-maintenance">🛠️ Bảo trì &amp; Tối ưu</button>
+  </nav>
+
+  <!-- Main View Area -->
+  <main class="main-content">
+    <div id="action-banner" style="display:none;" class="alert-banner alert-success">
+      <span id="action-banner-text">Thao tác thành công.</span>
+      <button type="button" class="btn btn-secondary" style="padding:2px 8px;" data-dismiss-alert>✕</button>
+    </div>
+
+    <!-- TAB 1: HARDWARE & SYSTEM OVERVIEW -->
+    <div id="tab-hardware" class="tab-pane">
+      <div class="metrics-grid">
+        <!-- CPU Card -->
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Vi Xử Lý (CPU)</span>
+            <span class="card-badge badge-cyan" id="cpu-governor">PERFORMANCE</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-huge" id="cpu-percent">0%</span>
+            <span class="metric-sub" id="cpu-cores-text">8 Nhân Kryo 385</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill fill-cyan" id="cpu-progress" style="width: 0%;"></div>
+          </div>
+          <div class="metric-details">
+            <span>Load Avg: <strong id="cpu-loadavg">0.00, 0.00, 0.00</strong></span>
+            <span>Uptime: <strong id="sys-uptime">0h 0m</strong></span>
+          </div>
+          <div class="cores-grid" id="cores-container">
+            <!-- 8 cores rendered by JS -->
+          </div>
+        </article>
+
+        <!-- Memory Card -->
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Bộ Nhớ RAM &amp; ZRAM</span>
+            <span class="card-badge badge-emerald">LPDDR4X DUAL</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-huge" id="ram-used">0 MB</span>
+            <span class="metric-sub" id="ram-total">/ 0 MB</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill fill-emerald" id="ram-progress" style="width: 0%;"></div>
+          </div>
+          <div class="metric-details">
+            <span>RAM khả dụng: <strong id="ram-free">0 MB</strong></span>
+            <span>ZRAM Swap: <strong id="zram-usage">0 / 1600 MB</strong></span>
+            <span>Buffers/Cache: <strong id="ram-cached">0 MB</strong></span>
+            <span>Mức tiêu thụ: <strong id="ram-percent">0%</strong></span>
+          </div>
+        </article>
+
+        <!-- Storage Card -->
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Bộ Lưu Trữ (UFS 2.1)</span>
+            <span class="card-badge badge-cyan">ROM 64GB</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-huge" id="disk-used">0 GB</span>
+            <span class="metric-sub" id="disk-total">/ 0 GB</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill fill-cyan" id="disk-progress" style="width: 0%;"></div>
+          </div>
+          <div class="metric-details">
+            <span>Dung lượng trống: <strong id="disk-free">0 GB</strong></span>
+            <span>I/O Scheduler: <strong>mq-deadline</strong></span>
+            <span>Tỷ lệ lấp đầy: <strong id="disk-percent">0%</strong></span>
+            <span>Read-ahead: <strong>2048 KB</strong></span>
+          </div>
+        </article>
+
+        <!-- Battery & Thermals Card -->
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Nguồn Điện &amp; Nhiệt Độ</span>
+            <span class="card-badge badge-emerald" id="batt-status-badge">ONLINE</span>
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-huge" id="batt-temp">0°C</span>
+            <span class="metric-sub" id="batt-level">Pin: 100%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill fill-emerald" id="batt-progress" style="width: 100%;"></div>
+          </div>
+          <div class="metric-details">
+            <span>Trạng thái: <strong id="batt-status">Cắm sạc liên tục</strong></span>
+            <span>Điện áp: <strong id="batt-voltage">4.15 V</strong></span>
+            <span>Cảm biến CPU: <strong id="soc-temp">0°C</strong></span>
+            <span>An toàn nhiệt: <strong style="color:var(--emerald);">Tối ưu 24/7</strong></span>
+          </div>
+        </article>
+      </div>
+
+      <!-- System Hardware Specifications Table -->
+      <article class="table-card">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th colspan="2">Thông số Kỹ thuật Chi tiết của Thiết bị Máy chủ (LG G7 ThinQ)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="width: 30%; color: var(--text-muted);">Thiết bị &amp; Bo mạch</td>
+              <td><strong id="spec-device">LG G7 ThinQ (LM-G710, Codename: judyln)</strong></td>
+            </tr>
+            <tr>
+              <td style="color: var(--text-muted);">Vi xử lý (SoC)</td>
+              <td>Qualcomm Snapdragon 845 (Octa-Core: 4x Gold 2.80GHz + 4x Silver 1.77GHz)</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text-muted);">Hệ điều hành &amp; Kernel</td>
+              <td id="spec-os">LineageOS 22.2 (Android 15) · Linux Kernel 4.9.337</td>
+            </tr>
+            <tr>
+              <td style="color: var(--text-muted);">Địa chỉ IP Máy chủ (LAN &amp; WAN)</td>
+              <td>LAN: <code id="spec-ip" style="color:var(--cyan);">192.168.31.7:8080</code> · Public: <code style="color:var(--emerald);">https://gaeru.org</code></td>
+            </tr>
+            <tr>
+              <td style="color: var(--text-muted);">Cổng quản trị từ xa</td>
+              <td>SSH: <code>Port 8022 (u0_a184)</code> · Nginx: <code>Port 8080/8443</code> · Postgres: <code>5432</code> · Redis: <code>6379</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+
+    <!-- TAB 2: SERVICES & PROCESSES -->
+    <div id="tab-services" class="tab-pane" style="display: none;">
+      <div class="services-grid">
+        <!-- Nginx -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>Nginx Web Server</h3>
+              <p>Port 8080 / 8443 (8 Workers, epoll)</p>
+            </div>
+            <span class="card-badge badge-emerald" id="svc-nginx-status">RUNNING</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);">Reverse Proxy tốc độ cao, phục vụ tệp tĩnh và điều phối tải đồng thời 10.000 kết nối.</p>
+          <div class="service-actions">
+            <button type="button" class="btn btn-primary" data-server-action="reload-nginx">⚡ Nạp lại (Reload)</button>
+            <button type="button" class="btn btn-secondary" data-server-action="test-nginx">Kiểm tra cú pháp (nginx -t)</button>
+          </div>
+        </article>
+
+        <!-- Node.js App -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>Node.js Backend</h3>
+              <p>Port 3000 · PID: <span id="node-pid">—</span></p>
+            </div>
+            <span class="card-badge badge-emerald" id="svc-node-status">RUNNING</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);">Xử lý API đơn hàng, giỏ hàng, thanh toán, hỗ trợ trực tuyến và logic thương mại điện tử.</p>
+          <div class="service-actions">
+            <button type="button" class="btn btn-danger" data-server-action="restart-node" data-confirm="Khởi động lại tiến trình Node.js? Server Watchdog sẽ tự động bật lại trong 3 giây.">Khởi động lại</button>
+            <button type="button" class="btn btn-secondary" data-server-action="drop-caches">Giải phóng RAM</button>
+          </div>
+        </article>
+
+        <!-- PostgreSQL -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>PostgreSQL Database</h3>
+              <p>Port 5432 · Phiên bản 18.6</p>
+            </div>
+            <span class="card-badge badge-emerald" id="svc-pg-status">RUNNING</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);" id="pg-summary-text">Cơ sở dữ liệu quan hệ doanh nghiệp. 123 bảng dữ liệu.</p>
+          <div class="service-actions">
+            <button type="button" class="btn btn-primary" data-server-action="vacuum-db">Tối ưu CSDL (VACUUM)</button>
+            <a href="/server_admin/api/db-backup" class="btn btn-secondary" download>📥 Sao lưu (Backup)</a>
+          </div>
+        </article>
+
+        <!-- Redis -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>Redis In-Memory Cache</h3>
+              <p>Port 6379 · Phiên bản 8.10.3</p>
+            </div>
+            <span class="card-badge badge-emerald" id="svc-redis-status">RUNNING</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);">Bộ nhớ đệm siêu tốc (56.000 req/s, 0.5ms) cho phiên làm việc và caching.</p>
+          <div class="service-actions">
+            <button type="button" class="btn btn-danger" data-server-action="flush-redis" data-confirm="Xóa sạch cache Redis?">Xóa toàn bộ Cache</button>
+          </div>
+        </article>
+
+        <!-- Cloudflare Tunnel -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>Cloudflare Tunnel (cloudflared)</h3>
+              <p>Kết nối: gaeru.org ➔ localhost:8080</p>
+            </div>
+            <span class="card-badge badge-emerald" id="svc-cf-status">CONNECTED</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);">Đường hầm mã hóa bảo mật toàn cầu, cấp chứng chỉ SSL A+ và chống DDoS.</p>
+          <div class="service-actions">
+            <a href="https://gaeru.org" target="_blank" class="btn btn-secondary">Mở Website công khai ↗</a>
+          </div>
+        </article>
+
+        <!-- OpenSSH -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>OpenSSH Terminal Server</h3>
+              <p>Port 8022 · User: u0_a184</p>
+            </div>
+            <span class="card-badge badge-emerald" id="svc-ssh-status">LISTENING</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);">Truy cập dòng lệnh máy chủ: <code>ssh -p 8022 u0_a184@192.168.31.7</code></p>
+        </article>
+
+        <!-- Watchdog -->
+        <article class="service-card">
+          <div class="service-top">
+            <div class="service-info">
+              <h3>Self-Healing Watchdog</h3>
+              <p>Tự động phục hồi định kỳ 15s</p>
+            </div>
+            <span class="card-badge badge-emerald">ACTIVE</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted);">Giám sát và tự động bật lại Nginx, PostgreSQL, Redis, Node.js khi phát hiện sự cố.</p>
+        </article>
+      </div>
+    </div>
+
+    <!-- TAB 3: DATABASE & STORAGE -->
+    <div id="tab-database" class="tab-pane" style="display: none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <div>
+          <h2 style="font-size:18px; font-weight:700;">Danh sách Bảng Cơ Sở Dữ Liệu PostgreSQL (Top Tables)</h2>
+          <p style="font-size:12px; color:var(--text-muted);">Thống kê số lượng bản ghi và dung lượng đĩa thực tế.</p>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-primary" data-server-action="vacuum-db">⚡ Tối ưu (VACUUM ANALYZE)</button>
+          <a href="/server_admin/api/db-backup" class="btn btn-secondary" download>📥 Xuất dữ liệu Sao lưu (JSON)</a>
+        </div>
+      </div>
+
+      <article class="table-card">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Tên bảng</th>
+              <th>Số lượng bản ghi ước tính</th>
+              <th>Dung lượng trên đĩa</th>
+            </tr>
+          </thead>
+          <tbody id="db-tables-body">
+            <tr><td colspan="3" style="text-align:center; color:var(--text-muted);">Đang tải bảng...</td></tr>
+          </tbody>
+        </table>
+      </article>
+    </div>
+
+    <!-- TAB 4: LIVE LOGS VIEWER -->
+    <div id="tab-logs" class="tab-pane" style="display: none;">
+      <article class="terminal-card">
+        <div class="terminal-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <select id="log-source" class="btn btn-secondary" style="font-family:var(--font-mono); font-size:12px;">
+              <option value="app">Node.js App (gaeru.log)</option>
+              <option value="nginx-error">Nginx Lỗi (error.log)</option>
+              <option value="nginx-access">Nginx Truy cập (access.log)</option>
+              <option value="cloudflared">Cloudflare Tunnel (cloudflared.log)</option>
+              <option value="postgres">PostgreSQL (server.log)</option>
+            </select>
+            <input type="text" id="log-filter" placeholder="Lọc từ khóa (Ctrl+F)..." class="form-input" style="height:32px; width:220px; font-size:12px;">
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:4px; cursor:pointer;">
+              <input type="checkbox" id="log-autoscroll" checked> Cuộn tự động
+            </label>
+            <button type="button" class="btn btn-secondary" data-reload-logs>🔄 Tải lại</button>
+            <button type="button" class="btn btn-secondary" data-clear-logs>✕ Xóa màn hình</button>
+          </div>
+        </div>
+        <div class="terminal-body" id="terminal-view">Đang kết nối nhật ký hệ thống...</div>
+      </article>
+    </div>
+
+    <!-- TAB 5: MAINTENANCE & QUICK ACTIONS -->
+    <div id="tab-maintenance" class="tab-pane" style="display: none;">
+      <div class="metrics-grid">
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Giải Phóng Bộ Nhớ RAM</span>
+            <span class="card-badge badge-cyan">DROP_CACHES</span>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+            Thu hồi toàn bộ PageCache, dentries và inodes không hoạt động trong kernel Linux, giúp tối ưu dung lượng RAM trống cho LPDDR4x.
+          </p>
+          <button type="button" class="btn btn-primary" data-server-action="drop-caches">🧹 Thu hồi Cache RAM ngay</button>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Khởi Động Lại Nginx</span>
+            <span class="card-badge badge-emerald">ZERO DOWNTIME</span>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+            Nạp lại toàn bộ file cấu hình và chứng chỉ bảo mật của Nginx mà không làm ngắt kết nối các client đang truy cập.
+          </p>
+          <button type="button" class="btn btn-primary" data-server-action="reload-nginx">⚡ Nạp lại Nginx</button>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <span class="card-title">Làm Sạch Bộ Nhớ Đệm Redis</span>
+            <span class="card-badge badge-amber">FLUSHDB</span>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+            Xóa sạch toàn bộ key tạm thời và bộ nhớ đệm in-memory, buộc hệ thống nạp lại dữ liệu mới nhất từ PostgreSQL.
+          </p>
+          <button type="button" class="btn btn-danger" data-server-action="flush-redis" data-confirm="Xóa sạch cache Redis?">🗑️ Xóa toàn bộ Cache Redis</button>
+        </article>
+      </div>
+    </div>
+  </main>
+
+  <!-- Login Overlay Modal (Shown if not authenticated) -->
+  <div id="login-modal" class="login-overlay" style="display: flex;">
+    <div class="login-box">
+      <div class="login-header">
+        <div class="login-icon">⚡</div>
+        <h1 class="login-title">Đăng Nhập Máy Chủ</h1>
+        <p class="login-desc">Bảng điều khiển hệ thống LG G7 ThinQ (LineageOS 22.2)</p>
+      </div>
+      <div id="login-error-box" class="login-error"></div>
+      <form id="server-login-form">
+        <div class="form-group">
+          <label class="form-label" for="login-username">Tên đăng nhập máy chủ</label>
+          <input type="text" id="login-username" name="username" class="form-input" placeholder="admin" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login-password">Mật khẩu máy chủ (Root / Owner)</label>
+          <input type="password" id="login-password" name="password" class="form-input" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary login-btn" id="btn-login-submit">Xác thực &amp; Vào Bảng Điều Khiển</button>
+      </form>
+      <div class="login-footer-links">
+        <a href="/gaeru_ceo">Hoặc đăng nhập vào Bảng điều khiển Doanh nghiệp CEO ↗</a>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

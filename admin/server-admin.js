@@ -1,0 +1,309 @@
+'use strict';
+
+let currentCsrfToken = null;
+let refreshTimer = null;
+let allLogs = [];
+
+// Fetch CSRF Token
+async function ensureCsrf() {
+  try {
+    const res = await fetch('/server_admin/api/csrf');
+    const data = await res.json();
+    currentCsrfToken = data.csrfToken;
+  } catch (_) {}
+}
+
+// Check Current Authentication State
+async function checkAuth() {
+  try {
+    const res = await fetch('/server_admin/api/me');
+    const data = await res.json();
+    if (data.authenticated) {
+      document.getElementById('login-modal').style.display = 'none';
+      document.getElementById('top-device-badge').textContent = `${data.user.username} (${data.user.role}) · LG G7 ThinQ`;
+      startTelemetry();
+      fetchDbSummary();
+    } else {
+      document.getElementById('login-modal').style.display = 'flex';
+      stopTelemetry();
+    }
+  } catch (e) {
+    document.getElementById('login-modal').style.display = 'flex';
+  }
+}
+
+// Login Form Submit
+document.getElementById('server-login-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errBox = document.getElementById('login-error-box');
+  const submitBtn = document.getElementById('btn-login-submit');
+  errBox.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Đang xác thực...';
+
+  try {
+    await ensureCsrf();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    const res = await fetch('/server_admin/api/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': currentCsrfToken || ''
+      },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('login-modal').style.display = 'none';
+      document.getElementById('top-device-badge').textContent = `${data.user.username} · LG G7 ThinQ`;
+      startTelemetry();
+      fetchDbSummary();
+    } else {
+      errBox.textContent = data.error || 'Đăng nhập không thành công.';
+      errBox.style.display = 'block';
+    }
+  } catch (err) {
+    errBox.textContent = 'Lỗi kết nối máy chủ: ' + err.message;
+    errBox.style.display = 'block';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Xác thực & Vào Bảng Điều Khiển';
+  }
+});
+
+// Logout
+document.getElementById('btn-logout')?.addEventListener('click', async () => {
+  if (!confirm('Đăng xuất khỏi Bảng điều khiển Máy chủ?')) return;
+  try {
+    await ensureCsrf();
+    await fetch('/server_admin/api/logout', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': currentCsrfToken || '' }
+    });
+  } catch (_) {}
+  checkAuth();
+});
+
+// Tab Navigation
+document.querySelectorAll('.nav-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
+    tab.classList.add('active');
+    const targetId = tab.dataset.tab;
+    const targetPane = document.getElementById(targetId);
+    if (targetPane) targetPane.style.display = 'block';
+
+    if (targetId === 'tab-logs') fetchLogs();
+    if (targetId === 'tab-database') fetchDbSummary();
+  });
+});
+
+// Realtime Telemetry Fetcher
+async function fetchStats() {
+  try {
+    const res = await fetch('/server_admin/api/stats');
+    if (res.status === 401) {
+      checkAuth();
+      return;
+    }
+    const data = await res.json();
+    if (!data.ok) return;
+
+    // 1. CPU
+    const cpuPctEl = document.getElementById('cpu-percent');
+    if (cpuPctEl) cpuPctEl.textContent = data.cpu.percent + '%';
+    const cpuProgEl = document.getElementById('cpu-progress');
+    if (cpuProgEl) cpuProgEl.style.width = data.cpu.percent + '%';
+    const cpuLoadEl = document.getElementById('cpu-loadavg');
+    if (cpuLoadEl) cpuLoadEl.textContent = data.system.loadAvg.join(', ');
+    const upHours = Math.floor(data.system.uptimeSec / 3600);
+    const upMins = Math.floor((data.system.uptimeSec % 3600) / 60);
+    const uptimeEl = document.getElementById('sys-uptime');
+    if (uptimeEl) uptimeEl.textContent = `${upHours}h ${upMins}m`;
+
+    // Cores rendering
+    const coresBox = document.getElementById('cores-container');
+    if (coresBox && coresBox.children.length === 0) {
+      coresBox.innerHTML = Array.from({ length: 8 }, (_, i) => `
+        <div class="core-item">
+          <div class="core-label">Core ${i} ${i >= 4 ? 'Gold' : 'Silver'}</div>
+          <div class="core-bar"><div class="core-fill" id="core-fill-${i}" style="width: 20%;"></div></div>
+          <div class="core-freq">${i >= 4 ? '2.80 GHz' : '1.77 GHz'}</div>
+        </div>
+      `).join('');
+    }
+    for (let i = 0; i < 8; i++) {
+      const fill = document.getElementById(`core-fill-${i}`);
+      if (fill) fill.style.width = Math.min(100, Math.max(5, (data.cpu.percent + (i * 3)) % 100)) + '%';
+    }
+
+    // 2. RAM
+    document.getElementById('ram-used').textContent = data.memory.usedMb + ' MB';
+    document.getElementById('ram-total').textContent = '/ ' + data.memory.totalMb + ' MB';
+    document.getElementById('ram-progress').style.width = data.memory.percent + '%';
+    document.getElementById('ram-free').textContent = data.memory.freeMb + ' MB';
+    document.getElementById('ram-cached').textContent = data.memory.cachedMb + ' MB';
+    document.getElementById('ram-percent').textContent = data.memory.percent + '%';
+    document.getElementById('zram-usage').textContent = `${data.memory.zram.usedMb} / ${data.memory.zram.totalMb} MB`;
+
+    // 3. Storage
+    document.getElementById('disk-used').textContent = data.storage.usedGb + ' GB';
+    document.getElementById('disk-total').textContent = '/ ' + data.storage.totalGb + ' GB';
+    document.getElementById('disk-free').textContent = data.storage.freeGb + ' GB';
+    document.getElementById('disk-percent').textContent = data.storage.percent + '%';
+    document.getElementById('disk-progress').style.width = data.storage.percent + '%';
+
+    // 4. Battery & Thermals
+    document.getElementById('batt-temp').textContent = data.battery.temperature + '°C';
+    document.getElementById('batt-level').textContent = `Pin: ${data.battery.level}%`;
+    document.getElementById('batt-progress').style.width = data.battery.level + '%';
+    document.getElementById('batt-status').textContent = data.battery.status;
+    document.getElementById('batt-voltage').textContent = (data.battery.voltage / 1000).toFixed(2) + ' V';
+    if (data.thermals && data.thermals.length > 0) {
+      document.getElementById('soc-temp').textContent = data.thermals[0].temp + '°C';
+    }
+
+    // 5. Services Pills & Node info
+    document.getElementById('node-pid').textContent = data.services.node.pid;
+    document.getElementById('pg-summary-text').textContent = `CSDL: ${data.services.postgres.dbSize} · ${data.services.postgres.totalTables} bảng · ${data.services.postgres.activeConnections} kết nối`;
+
+  } catch (e) {
+    console.error('Stats poll error:', e);
+  }
+}
+
+function startTelemetry() {
+  fetchStats();
+  if (!refreshTimer) {
+    refreshTimer = setInterval(fetchStats, 3000);
+  }
+}
+
+function stopTelemetry() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+document.getElementById('btn-refresh')?.addEventListener('click', fetchStats);
+
+// Trigger Actions (Reload Nginx, Drop Caches, etc.)
+window.triggerAction = async function(action) {
+  const banner = document.getElementById('action-banner');
+  const text = document.getElementById('action-banner-text');
+  banner.className = 'alert-banner alert-success';
+  text.textContent = 'Đang thực thi lệnh máy chủ...';
+  banner.style.display = 'flex';
+
+  try {
+    await ensureCsrf();
+    const res = await fetch('/server_admin/api/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': currentCsrfToken || ''
+      },
+      body: JSON.stringify({ action })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      text.textContent = data.message + (data.detail ? ` (${data.detail})` : '');
+    } else {
+      banner.className = 'alert-banner alert-danger';
+      text.textContent = 'Lỗi thực thi: ' + (data.error || 'Không thể chạy lệnh');
+    }
+  } catch (err) {
+    banner.className = 'alert-banner alert-danger';
+    text.textContent = 'Lỗi kết nối: ' + err.message;
+  }
+  setTimeout(fetchStats, 1000);
+};
+
+// Fetch Database Tables Summary
+async function fetchDbSummary() {
+  try {
+    const res = await fetch('/server_admin/api/db-summary');
+    const data = await res.json();
+    if (!data.ok || !data.tables) return;
+    const tbody = document.getElementById('db-tables-body');
+    if (tbody) {
+      tbody.innerHTML = data.tables.map(t => `
+        <tr>
+          <td><code style="color:var(--cyan); font-weight:600;">${t.table_name}</code></td>
+          <td style="font-family:var(--font-mono);">${Number(t.row_estimate).toLocaleString('vi-VN')} bản ghi</td>
+          <td style="font-family:var(--font-mono); font-weight:600;">${t.total_size}</td>
+        </tr>
+      `).join('');
+    }
+  } catch (_) {}
+}
+
+// Fetch Logs
+window.fetchLogs = async function() {
+  const source = document.getElementById('log-source')?.value || 'app';
+  const view = document.getElementById('terminal-view');
+  if (!view) return;
+  try {
+    const res = await fetch(`/server_admin/api/logs?source=${source}&lines=120`);
+    const data = await res.json();
+    if (data.ok && Array.isArray(data.lines)) {
+      allLogs = data.lines;
+      renderLogs();
+    }
+  } catch (e) {
+    view.textContent = 'Lỗi khi tải log: ' + e.message;
+  }
+};
+
+function renderLogs() {
+  const filter = (document.getElementById('log-filter')?.value || '').toLowerCase();
+  const view = document.getElementById('terminal-view');
+  if (!view) return;
+  const filtered = filter ? allLogs.filter(l => l.toLowerCase().includes(filter)) : allLogs;
+  view.textContent = filtered.join('\n') || '[Không có bản ghi log nào]';
+  if (document.getElementById('log-autoscroll')?.checked) {
+    view.scrollTop = view.scrollHeight;
+  }
+}
+
+document.getElementById('log-source')?.addEventListener('change', window.fetchLogs);
+document.getElementById('log-filter')?.addEventListener('input', renderLogs);
+
+
+// Action & Event Delegation (CSP-Compliant)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-server-action]');
+  if (btn) {
+    const action = btn.dataset.serverAction;
+    const confirmMsg = btn.dataset.confirm;
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    if (typeof window.triggerAction === 'function') {
+      window.triggerAction(action);
+    }
+    return;
+  }
+  const reloadLogs = e.target.closest('[data-reload-logs]');
+  if (reloadLogs) {
+    if (typeof window.fetchLogs === 'function') window.fetchLogs();
+    return;
+  }
+  const clearLogs = e.target.closest('[data-clear-logs]');
+  if (clearLogs) {
+    const terminal = document.getElementById('terminal-view');
+    if (terminal) terminal.textContent = '';
+    return;
+  }
+  const dismissAlert = e.target.closest('[data-dismiss-alert]');
+  if (dismissAlert && dismissAlert.parentElement) {
+    dismissAlert.parentElement.style.display = 'none';
+    return;
+  }
+});
+
+// Initial Bootstrap
+ensureCsrf();
+checkAuth();

@@ -152,8 +152,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       res.vary('Cookie');
       if (!/^\/api(?:\/|$)/.test(req.path) || (/^\/api\/gaeru_ceo(?:\/|$)/i.test(req.path) && !/^\/api\/gaeru_ceo(?:\/|$)/.test(req.path))) return res.sendStatus(404);
     }
-    if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
-    if (/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|gaeru_ceo)(?:\/|$)/i.test(req.path)||/^\/(?:account|checkout|cart|payment-result)\.(?:html|js)$/i.test(req.path)) {
+    if (/^\/(?:gaeru_ceo|server_admin|server)(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
+    if (/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|gaeru_ceo|server_admin|server)(?:\/|$)/i.test(req.path)||/^\/(?:account|checkout|cart|payment-result)\.(?:html|js)$/i.test(req.path)) {
       res.set({'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store','Cloudflare-CDN-Cache-Control':'no-store','Surrogate-Control':'no-store','Pragma':'no-cache','Expires':'0'});res.vary('Cookie');
     }
     res.set('Permissions-Policy',/^\/gaeru_ceo(?:\/|$)/.test(req.path)?'camera=(self), microphone=(), geolocation=()':'camera=(), microphone=(), geolocation=()');
@@ -234,6 +234,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
 
   const { sseHandler } = require("./realtime-sse");
   app.get("/api/realtime", sseHandler);
+
+  const { createServerAdminRouter } = require("./server-admin");
+  app.use(createServerAdminRouter(config, pool));
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer/cart", require("./customer-cart").createCustomerCartRouter(pool));
