@@ -686,7 +686,8 @@ Quy tắc cốt lõi:
 
       res.json({
         answer: assistantMsg.content,
-        message: assistantMsg,
+        messageRecord: assistantMsg,
+        message: null,
         toolResults: turnResult.toolResults,
         actionCard: turnResult.actionCard
       });

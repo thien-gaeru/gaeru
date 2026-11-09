@@ -316,3 +316,18 @@ test('Async click action dispatching explicit toast does not get duplicated by s
   assert.equal(list[0].children[0].textContent, msg);
 });
 
+test('Object or complex JSON in API response message never produces [object Object] toast', async () => {
+  const f = fixture(async () => response(200, { ok: true, message: { id: 123, role: 'assistant', content: 'test' } }));
+  const button = new f.Element('button');
+  button.addEventListener('click', async () => {
+    await f.window.fetch('/api/chat', { method: 'POST' });
+  });
+  const clicked = f.emit(button, 'click');
+  await Promise.all(clicked.results);
+  await tick();
+  const list = f.notices();
+  for (const n of list) {
+    assert.notEqual(n.textContent.trim(), '[object Object]', 'No toast must ever display [object Object]');
+  }
+});
+

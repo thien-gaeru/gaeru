@@ -43,8 +43,8 @@
       }
       return null;
     }
-    const cleanMsg = String(message).trim();
-    if (!cleanMsg) return null;
+    const cleanMsg = typeof message === 'string' ? message.trim() : (typeof message?.message === 'string' ? message.message.trim() : '');
+    if (!cleanMsg || cleanMsg === '[object Object]') return null;
 
     if (current) current.notified = true;
     for (const c of active) c.notified = true;
@@ -339,7 +339,10 @@
       const error = /error|danger|invalid/.test(messageNode.className || '') || (!last?.ok && /không thể|không đúng|không hợp lệ|chưa thể|chưa .*được|thất bại|đã hủy|^(?:nhập |vui lòng|chọn |hãy )|chưa cấu hình/i.test(message));
       return notify(message, error);
     }
-    if (last?.ok) notify(last.message || (last.mfaRequired ? 'Vui lòng hoàn tất bước xác thực tiếp theo.' : 'Đã hoàn tất thao tác.'));
+    if (last?.ok) {
+      const msg = typeof last.message === 'string' ? last.message : (last.mfaRequired ? 'Vui lòng hoàn tất bước xác thực tiếp theo.' : 'Đã hoàn tất thao tác.');
+      if (typeof msg === 'string' && msg !== '[object Object]') notify(msg);
+    }
   }
 
   function invoke(event, callback) {
@@ -617,7 +620,12 @@
         if (response.headers.get('content-type')?.includes('application/json')) {
           try { data = await response.clone().json(); } catch { /* Keep the original response intact. */ }
         }
-        if (mutation || !response.ok) ctx.responses.push({ok: response.ok, error: data.error, message: data.message, mfaRequired: data.mfaRequired});
+        if (mutation || !response.ok) ctx.responses.push({
+          ok: response.ok,
+          error: typeof data.error === 'string' ? data.error : (typeof data.error?.message === 'string' ? data.error.message : null),
+          message: typeof data.message === 'string' ? data.message : null,
+          mfaRequired: Boolean(data.mfaRequired)
+        });
       }
       return response;
     } catch (error) {

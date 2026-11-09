@@ -206,7 +206,7 @@
       const container = document.getElementById('copilot-quick-prompts');
       if (!container || !prompts) return;
       container.innerHTML = prompts.map(p => `
-        <button type="button" class="copilot-prompt-chip" data-prompt="${escapeAttr(p.prompt)}">
+        <button type="button" class="copilot-prompt-chip" data-prompt="${escapeAttr(p.prompt)}" data-no-action-feedback>
           ${escapeHtml(p.label)}
         </button>
       `).join('');
