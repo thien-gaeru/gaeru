@@ -138,6 +138,32 @@ function checkProductAddedNotice() {
 let adminRealtimeStream = null;
 let realtimeReconnectTimer = null;
 let realtimeDebounceTimer = null;
+const recentRealtimeEvents = new Map();
+const recentLocalOrderActions = new Map();
+
+function markLocalOrderAction(orderRef) {
+  if (orderRef) recentLocalOrderActions.set(String(orderRef), Date.now());
+}
+
+function isRecentLocalOrderAction(orderRef) {
+  if (!orderRef) return false;
+  const t = recentLocalOrderActions.get(String(orderRef));
+  return Boolean(t && (Date.now() - t < 5000));
+}
+
+function isDuplicateRealtimeEvent(key, ttlMs = 3500) {
+  const now = Date.now();
+  if (recentRealtimeEvents.has(key) && (now - recentRealtimeEvents.get(key) < ttlMs)) {
+    return true;
+  }
+  recentRealtimeEvents.set(key, now);
+  if (recentRealtimeEvents.size > 100) {
+    for (const [k, t] of recentRealtimeEvents.entries()) {
+      if (now - t > 15000) recentRealtimeEvents.delete(k);
+    }
+  }
+  return false;
+}
 
 function setRealtimeBadge(status, label) {
   const badge = document.getElementById('admin-realtime-badge');
@@ -158,6 +184,9 @@ function stopAdminRealtime() {
 }
 
 function handleRealtimeEvent(event, data = {}) {
+  const dedupeKey = `${event}:${data.orderNumber || data.orderId || data.sku || data.careId || data.threadId || ''}`;
+  if (isDuplicateRealtimeEvent(dedupeKey)) return;
+
   // 1. Popup toast for important live events
   if (event === 'order:new') {
     const amountStr = data.totalVnd ? ' · ' + Number(data.totalVnd).toLocaleString('vi-VN') + ' ₫' : '';
@@ -165,7 +194,8 @@ function handleRealtimeEvent(event, data = {}) {
       window.GAERUNotify.toast(`🔔 Có đơn hàng mới #${data.orderNumber || ''}${amountStr}!`, 'info');
     }
   } else if (event === 'order:update') {
-    if (window.GAERUNotify?.toast) {
+    const isLocal = isRecentLocalOrderAction(data.orderNumber) || isRecentLocalOrderAction(data.orderId);
+    if (!isLocal && window.GAERUNotify?.toast) {
       window.GAERUNotify.toast(`🔔 Đơn hàng #${data.orderNumber || ''} vừa cập nhật trạng thái.`, 'info');
     }
   } else if (event === 'order:delete') {
@@ -173,7 +203,8 @@ function handleRealtimeEvent(event, data = {}) {
       state.orders = state.orders.filter(o => o.id !== data.orderId);
       renderOrders();
     }
-    if (window.GAERUNotify?.toast) {
+    const isLocal = isRecentLocalOrderAction(data.orderNumber) || isRecentLocalOrderAction(data.orderId);
+    if (!isLocal && window.GAERUNotify?.toast) {
       window.GAERUNotify.toast(`🗑️ Đơn hàng #${data.orderNumber || ''} đã được xóa vĩnh viễn khỏi hệ thống.`, 'warning');
     }
   } else if (event === 'care:message' || event === 'care:update') {
@@ -1060,7 +1091,7 @@ function openBulkProcessing(){
  const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:"prepare",confirmed:"prepare",processing:"ship",shipped:"complete"}[common];if(next){actionEl.value=next;const opts=[...actionEl.querySelectorAll("option")];opts.forEach(o=>o.removeAttribute("selected"));const opt=opts.find(o=>(o.getAttribute("value")||o.value)===next);if(opt){opt.selected=true;opt.setAttribute("selected","");}}actionEl.addEventListener("change",refresh);
  
  dialog.querySelector("[data-close-bulk]").addEventListener("click",()=>{if(typeof dialog.close==="function")dialog.close();dialog.remove();});dialog.addEventListener("click",event=>{if(event.target===dialog&&!form.dataset.saving){if(typeof dialog.close==="function")dialog.close();dialog.remove();}});dialog.addEventListener("close",()=>dialog.remove());
- form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector("[type=submit]"),feedback=form.querySelector("[role=alert]");if(button.disabled)return;button.disabled=true;feedback.textContent="Đang kiểm tra và xử lý…";let saved=false;try{const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==="function")dialog.close();dialog.remove();document.querySelector("#order-filter").value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal("Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent=error.message;button.disabled=false;}});
+ form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector("[type=submit]"),feedback=form.querySelector("[role=alert]");if(button.disabled)return;button.disabled=true;feedback.textContent="Đang kiểm tra và xử lý…";let saved=false;try{const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==="function")dialog.close();dialog.remove();orders.forEach(o=>{markLocalOrderAction(o.id);markLocalOrderAction(o.orderNumber);});document.querySelector("#order-filter").value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal("Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent=error.message;button.disabled=false;}});
  refresh();if(typeof dialog.showModal==="function")dialog.showModal();else dialog.setAttribute("open","");
 }
 
@@ -1080,7 +1111,7 @@ function openOrderRestoration(id){
  dialog.querySelector('[data-close-restoration]').addEventListener('click',()=>{if(!form.dataset.saving){dialog.close();dialog.remove();}});dialog.addEventListener('click',event=>{if(event.target===dialog&&!form.dataset.saving){dialog.close();dialog.remove();}});
  dialog.addEventListener('cancel',event=>{if(form.dataset.saving)event.preventDefault();});
  form.addEventListener('submit',async event=>{event.preventDefault();if(form.dataset.saving)return;const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');form.dataset.saving='true';button.disabled=true;let saved=false;
-  try{const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});saved=true;dialog.close();dialog.remove();document.querySelector('#order-filter').value='pending';await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}
+  try{const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});saved=true;dialog.close();dialog.remove();markLocalOrderAction(order.id);markLocalOrderAction(order.orderNumber);document.querySelector('#order-filter').value='pending';await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}
   catch(error){if(saved)showGlobal('Đã khôi phục nhưng chưa tải lại danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;}
   finally{delete form.dataset.saving;button.disabled=false;}
  });
@@ -1207,6 +1238,7 @@ async function updateOrder(event) {
     }
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     saved=true;closeOrderProcessing();
+    markLocalOrderAction(order.orderNumber); markLocalOrderAction(order.id);
     if(targetStatus!==order.status)document.querySelector("#order-filter").value=(["confirmed","processing"].includes(targetStatus)?"ready_to_ship":targetStatus);
     await Promise.all([loadOrders(1), loadSummary()]);
     if (targetStatus === 'cancelled') {
@@ -1950,6 +1982,7 @@ async function handleCarrierWaybillAction(event) {
         waybillFeedback.style.color = '#16a34a';
         waybillFeedback.classList.remove('is-error');
       }
+      markLocalOrderAction(orderId);
       showGlobal(res.message || 'Đã tạo vận đơn thành công.');
       await loadOrders(state.orderPage);
       const openDialog = document.getElementById('order-processing-dialog');
@@ -1984,6 +2017,7 @@ async function handleCarrierWaybillAction(event) {
         method: 'POST',
         body: JSON.stringify({})
       });
+      markLocalOrderAction(orderId);
       if (window.GAERUNotify?.alert) {
         await window.GAERUNotify.alert(res.message || 'Đã hủy mã vận đơn trên hệ thống hãng thành công.', { title: 'Hủy vận đơn', icon: 'success' });
       } else {
@@ -2447,6 +2481,8 @@ async function handleOrderPermanentDeleteUI(orderId) {
         reason: 'Quản trị tối cao xác nhận xóa vĩnh viễn đơn ' + (order.orderNumber || orderId)
       })
     });
+    markLocalOrderAction(orderId);
+    markLocalOrderAction(order.orderNumber);
     // Gỡ thẻ đơn ngay lập tức khỏi state để phản hồi trực quan không có độ trễ
     state.orders = state.orders.filter(o => o.id !== orderId);
     renderOrders();

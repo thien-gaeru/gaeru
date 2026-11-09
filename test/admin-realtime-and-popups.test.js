@@ -47,4 +47,10 @@ test('Admin Realtime & 100% Popup Notification Integration Suite', async (t) => 
     assert.ok(!internalAiJs.includes("window.confirm("), 'internal-ai.js must not call native window.confirm');
     assert.ok(internalAiJs.includes("window.GAERUNotify?.confirm"), 'internal-ai.js must use GAERUNotify.confirm');
   });
+
+  await t.test('7. Realtime events deduplicate and suppress local echo toasts', () => {
+    assert.ok(adminJs.includes('isDuplicateRealtimeEvent'), 'admin.js must provide isDuplicateRealtimeEvent');
+    assert.ok(adminJs.includes('isRecentLocalOrderAction'), 'admin.js must provide isRecentLocalOrderAction');
+    assert.ok(adminJs.includes('markLocalOrderAction'), 'admin.js must mark local order actions to avoid double-toasting');
+  });
 });

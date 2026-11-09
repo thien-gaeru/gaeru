@@ -287,6 +287,10 @@ test('Duplicate toast notifications within debounce window are automatically sup
   // Third call with helper .success
   f.window.GAERUNotify.success(msg);
   assert.equal(f.notices().length, 1, 'Success helper with identical text must also be debounced');
+
+  // Fourth call with minor punctuation variant (no period)
+  f.window.GAERUNotify.toast('Đã làm mới dữ liệu bộ đếm truy cập tự động');
+  assert.equal(f.notices().length, 1, 'Notice with minor punctuation variant must be deduplicated');
 });
 
 test('Async click action dispatching explicit toast does not get duplicated by settle()', async () => {

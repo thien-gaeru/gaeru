@@ -53,28 +53,29 @@
     const type = isErr ? 'error' : (typeof typeOrError === 'string' && ['success', 'warning', 'info'].includes(typeOrError) ? typeOrError : 'success');
 
     // 1. Check if an identical notification is currently visible in the DOM region
+    const normClean = cleanMsg.replace(/^×|×$/g, '').trim().replace(/[\.\!\,\s]+$/g, '').toLowerCase();
     if (region?.children) {
       const children = Array.from(region.children);
       const existing = children.find(node => {
         const span = node.children ? node.children[0] : null;
-        const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim();
-        return txt === cleanMsg;
+        const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim().replace(/[\.\!\,\s]+$/g, '').toLowerCase();
+        return txt === normClean;
       });
       if (existing) {
         return existing;
       }
     }
 
-    // 2. Debounce identical messages within 2000ms
+    // 2. Debounce identical messages within 2500ms
     const now = Date.now();
-    const noticeKey = type + ':' + cleanMsg;
-    if (recentNotices.has(noticeKey) && (now - recentNotices.get(noticeKey) < 2000)) {
+    const noticeKey = type + ':' + normClean;
+    if (recentNotices.has(noticeKey) && (now - recentNotices.get(noticeKey) < 2500)) {
       if (region?.children) {
         const children = Array.from(region.children);
         const existing = children.find(node => {
           const span = node.children ? node.children[0] : null;
-          const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim();
-          return txt === cleanMsg;
+          const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim().replace(/[\.\!\,\s]+$/g, '').toLowerCase();
+          return txt === normClean;
         });
         if (existing) return existing;
       }
