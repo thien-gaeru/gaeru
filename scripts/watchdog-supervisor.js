@@ -27,6 +27,10 @@ const SUPERVISOR_LOG = path.join(LOGS_DIR, 'supervisor.log');
 const SERVER_LOG = path.join(LOGS_DIR, 'server.log');
 const RELOAD_FILE = path.join(LOGS_DIR, 'reload.signal');
 const STOP_FILE = path.join(LOGS_DIR, 'stop.signal');
+const CLOUDFLARED_EXE = 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe';
+const CLOUDFLARED_CONFIG = path.join(os.homedir(), '.cloudflared', 'config.yml');
+const CLOUDFLARED_PID_FILE = path.join(LOGS_DIR, 'cloudflared.pid');
+const CLOUDFLARED_LOG = path.join(LOGS_DIR, 'cloudflared.log');
 
 const HEALTH_CHECK_INTERVAL_MS = 5000;
 const HEALTH_CHECK_TIMEOUT_MS = 6000;
@@ -118,6 +122,32 @@ function killProcessTree(pid) {
   } catch (_) {}
 }
 
+let cloudflaredProcess = null;
+
+function getCloudflaredPid() {
+  if (cloudflaredProcess && cloudflaredProcess.pid && isPidAlive(cloudflaredProcess.pid)) {
+    return cloudflaredProcess.pid;
+  }
+  if (fs.existsSync(CLOUDFLARED_PID_FILE)) {
+    try {
+      const pid = parseInt(fs.readFileSync(CLOUDFLARED_PID_FILE, 'utf8').trim(), 10);
+      if (isPidAlive(pid)) return pid;
+    } catch (_) {}
+  }
+  if (process.platform === 'win32') {
+    try {
+      const output = execSync('powershell -NoProfile -Command "(Get-Process -Name cloudflared -ErrorAction SilentlyContinue).Id"', { encoding: 'utf8', timeout: 3000 });
+      const pids = output.trim().split(/\r?\n/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
+      if (pids.length > 0) return pids[0];
+    } catch (_) {}
+  }
+  return null;
+}
+
+function isCloudflaredRunning() {
+  return Boolean(getCloudflaredPid());
+}
+
 // ============================================================================
 // CLI COMMAND HANDLING
 // ============================================================================
@@ -156,6 +186,9 @@ function checkStatus() {
     srvAlive = isPidAlive(srvPid);
   }
   console.log(`Server Child: ${srvAlive ? `RUNNING (PID: ${srvPid})` : 'NOT FOUND / STOPPED'}`);
+
+  const cfPid = getCloudflaredPid();
+  console.log(`Cloudflare Tunnel: ${cfPid ? `RUNNING (PID: ${cfPid}, Connected to Cloudflare Edge)` : 'STOPPED'}`);
 
   // Test local HTTP health
   const req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: 2000 }, (res) => {
@@ -371,6 +404,68 @@ function recycleServer() {
   }
 }
 
+function spawnCloudflared() {
+  if (isShuttingDown) return;
+  if (!fs.existsSync(CLOUDFLARED_EXE) || !fs.existsSync(CLOUDFLARED_CONFIG)) {
+    log('Không tìm thấy cloudflared.exe hoặc config.yml. Bỏ qua khởi chạy Cloudflare Tunnel.', 'WARN');
+    return;
+  }
+  const existingPid = getCloudflaredPid();
+  if (existingPid) {
+    tuneProcessPriorities(existingPid);
+    return;
+  }
+
+  log(`Khởi chạy tiến trình Cloudflare Tunnel (cloudflared)...`);
+  rotateLogIfNeeded(CLOUDFLARED_LOG);
+  const outStream = fs.openSync(CLOUDFLARED_LOG, 'a');
+  const errStream = fs.openSync(CLOUDFLARED_LOG, 'a');
+
+  try {
+    cloudflaredProcess = spawn(CLOUDFLARED_EXE, ['--config', CLOUDFLARED_CONFIG, 'tunnel', 'run'], {
+      cwd: ROOT_DIR,
+      stdio: ['ignore', outStream, errStream],
+      detached: false
+    });
+
+    const cfPid = cloudflaredProcess.pid;
+    fs.writeFileSync(CLOUDFLARED_PID_FILE, String(cfPid), 'utf8');
+    tuneProcessPriorities(cfPid);
+    log(`Cloudflare Tunnel đã khởi chạy thành công (PID: ${cfPid})`);
+
+    cloudflaredProcess.on('error', (err) => {
+      log(`Lỗi khởi tạo cloudflared process: ${err.message}`, 'ERROR');
+    });
+
+    cloudflaredProcess.on('exit', (code, signal) => {
+      try { fs.closeSync(outStream); } catch (_) {}
+      try { fs.closeSync(errStream); } catch (_) {}
+      try { if (fs.existsSync(CLOUDFLARED_PID_FILE)) fs.unlinkSync(CLOUDFLARED_PID_FILE); } catch (_) {}
+      cloudflaredProcess = null;
+
+      if (isShuttingDown) {
+        log(`Cloudflare Tunnel (PID ${cfPid}) đã dừng an toàn theo yêu cầu.`);
+        return;
+      }
+
+      log(`Cloudflare Tunnel (PID ${cfPid}) đã dừng đột ngột (code: ${code}, signal: ${signal}). TỰ ĐỘNG KHỞI ĐỘNG LẠI TRONG 2s...`, 'WARN');
+      setTimeout(() => {
+        if (!isShuttingDown) spawnCloudflared();
+      }, 2000);
+    });
+  } catch (err) {
+    log(`Không thể khởi chạy cloudflared: ${err.message}`, 'ERROR');
+  }
+}
+
+function checkCloudflaredHealth() {
+  if (isShuttingDown) return;
+  if (!isCloudflaredRunning()) {
+    log('Phát hiện Cloudflare Tunnel chưa chạy hoặc bị ngắt kết nối. Đang tự động kích hoạt lại...', 'WARN');
+    spawnCloudflared();
+  }
+}
+
 function checkSignals() {
   if (isShuttingDown) return;
 
@@ -408,8 +503,14 @@ function shutdownGracefully() {
     killProcessTree(childProcess.pid);
   }
 
+  if (cloudflaredProcess && cloudflaredProcess.pid) {
+    log(`Dừng Cloudflare Tunnel PID ${cloudflaredProcess.pid}...`);
+    killProcessTree(cloudflaredProcess.pid);
+  }
+
   try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch (_) {}
   try { if (fs.existsSync(SERVER_PID_FILE)) fs.unlinkSync(SERVER_PID_FILE); } catch (_) {}
+  try { if (fs.existsSync(CLOUDFLARED_PID_FILE)) fs.unlinkSync(CLOUDFLARED_PID_FILE); } catch (_) {}
 
   log('Supervisor đã dừng hoàn tất.');
   process.exit(0);
@@ -427,8 +528,10 @@ process.on('unhandledRejection', (reason) => {
 // Khởi chạy
 preventSystemSleep();
 spawnServer();
+spawnCloudflared();
 healthTimer = setInterval(checkHttpHealth, HEALTH_CHECK_INTERVAL_MS);
 signalTimer = setInterval(checkSignals, 1000);
+setInterval(checkCloudflaredHealth, 10000);
 // Duy trì ưu tiên tài nguyên và chống nghẽn bộ nhớ định kỳ mỗi 30s
 setInterval(() => {
   if (childProcess && childProcess.pid) {
