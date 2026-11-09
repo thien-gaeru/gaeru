@@ -4,6 +4,7 @@
   const listeners = new WeakMap(), events = new WeakMap(), buttons = new WeakMap();
   const active = new Set();
   let current = null, region;
+  const recentNotices = new Map();
   const statusSelector = '[role="status"],.feedback,.security-feedback,.workspace-status,[data-global-feedback]';
   const text = node => (node.textContent || '').trim();
 
@@ -42,8 +43,50 @@
       }
       return null;
     }
+    const cleanMsg = String(message).trim();
+    if (!cleanMsg) return null;
+
+    if (current) current.notified = true;
+    for (const c of active) c.notified = true;
+
     const isErr = typeOrError === true || typeOrError === 'error' || (typeof typeOrError === 'object' && typeOrError?.error);
     const type = isErr ? 'error' : (typeof typeOrError === 'string' && ['success', 'warning', 'info'].includes(typeOrError) ? typeOrError : 'success');
+
+    // 1. Check if an identical notification is currently visible in the DOM region
+    if (region?.children) {
+      const children = Array.from(region.children);
+      const existing = children.find(node => {
+        const span = node.children ? node.children[0] : null;
+        const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim();
+        return txt === cleanMsg;
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
+    // 2. Debounce identical messages within 2000ms
+    const now = Date.now();
+    const noticeKey = type + ':' + cleanMsg;
+    if (recentNotices.has(noticeKey) && (now - recentNotices.get(noticeKey) < 2000)) {
+      if (region?.children) {
+        const children = Array.from(region.children);
+        const existing = children.find(node => {
+          const span = node.children ? node.children[0] : null;
+          const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim();
+          return txt === cleanMsg;
+        });
+        if (existing) return existing;
+      }
+      return null;
+    }
+    recentNotices.set(noticeKey, now);
+    if (recentNotices.size > 50) {
+      for (const [k, t] of recentNotices.entries()) {
+        if (now - t > 10000) recentNotices.delete(k);
+      }
+    }
+
     const host = [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
     if (!region?.isConnected) {
       region = document.createElement('div');
@@ -56,7 +99,7 @@
     const item = document.createElement('div');
     item.className = 'gaeru-action-notice' + (isErr ? ' is-error' : '') + (' is-' + type);
     const messageNode = document.createElement('span');
-    messageNode.textContent = String(message).slice(0, 600);
+    messageNode.textContent = cleanMsg.slice(0, 600);
     const close = document.createElement('button');
     close.type = 'button';
     close.textContent = '×';
@@ -280,6 +323,9 @@
       } catch (_) {}
     }
 
+    // If an explicit notification was already dispatched during this action, skip automatic toast
+    if (ctx.notified) return;
+
     const statuses = [...document.querySelectorAll(statusSelector)]
       .filter(node => text(node) && text(node) !== ctx.before.get(node) && !/^Đang\b/u.test(text(node)));
     const local = statuses.find(node => ctx.form?.contains(node));
@@ -301,10 +347,19 @@
     let result;
     try { result = callback(); }
     catch (error) { if (ctx) notify(error.message || 'Không thể thực hiện thao tác.', true); throw error; }
-    finally { current = previous; }
+    finally {
+      if (!result || typeof result.then !== 'function') {
+        current = previous;
+      }
+    }
     if (!ctx || !result || typeof result.then !== 'function') return result;
     begin(ctx);
-    const promise = Promise.resolve(result).then(value => { finish(ctx); return value; }, error => {
+    const promise = Promise.resolve(result).then(value => {
+      current = previous;
+      finish(ctx);
+      return value;
+    }, error => {
+      current = previous;
       ctx.error = error.message || 'Không thể thực hiện thao tác.';
       finish(ctx);
       console.error('Action failed:', error.message);

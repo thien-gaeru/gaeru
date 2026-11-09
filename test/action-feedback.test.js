@@ -270,3 +270,45 @@ test('GAERUNotify modal helpers (alert, confirm, prompt) return promises and han
   const promptPromise = f.window.GAERUNotify.prompt('Nhập mã xác nhận:');
   assert.ok(promptPromise instanceof Promise, 'prompt should return a Promise');
 });
+
+test('Duplicate toast notifications within debounce window are automatically suppressed', async () => {
+  const f = fixture(async () => response(200, {}));
+  const msg = 'Đã làm mới dữ liệu bộ đếm truy cập tự động.';
+
+  // First notification call
+  f.window.GAERUNotify.toast(msg);
+  assert.equal(f.notices().length, 1);
+  assert.equal(f.notices()[0].children[0].textContent, msg);
+
+  // Immediate second duplicate notification call
+  f.window.GAERUNotify.toast(msg);
+  assert.equal(f.notices().length, 1, 'Duplicate toast must not create a second notice in the DOM');
+
+  // Third call with helper .success
+  f.window.GAERUNotify.success(msg);
+  assert.equal(f.notices().length, 1, 'Success helper with identical text must also be debounced');
+});
+
+test('Async click action dispatching explicit toast does not get duplicated by settle()', async () => {
+  const f = fixture(async () => response(200, { count: 5 }));
+  const button = new f.Element('button');
+  const globalStatus = new f.Element('div');
+  globalStatus.className = 'global-feedback';
+  f.document.statuses.push(globalStatus);
+
+  const msg = 'Đã làm mới dữ liệu bộ đếm truy cập tự động.';
+  button.addEventListener('click', async () => {
+    await f.window.fetch('/api/traffic');
+    globalStatus.textContent = msg;
+    f.window.GAERUNotify.toast(msg);
+  });
+
+  const clicked = f.emit(button, 'click');
+  await Promise.all(clicked.results);
+  await tick();
+
+  const list = f.notices();
+  assert.equal(list.length, 1, 'Only exactly 1 toast notice should exist, not duplicated by settle');
+  assert.equal(list[0].children[0].textContent, msg);
+});
+
