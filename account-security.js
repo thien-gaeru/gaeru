@@ -1,7 +1,7 @@
 (()=>{
 
   function showCenterPopup({ type = 'info', title = '', message = '' } = {}) {
-    document.querySelectorAll?.('.gaeru-center-popup')?.forEach(p => {
+    document.querySelectorAll?.('dialog.gaeru-center-popup, .gaeru-center-popup:not(.gaeru-modal-backdrop)')?.forEach(p => {
       try { p.close?.(); } catch(e) {}
       p.remove();
     });
@@ -33,7 +33,7 @@
     const close = () => {
       if (isClosing) return;
       isClosing = true;
-      dialog.classList.add('is-closing');
+      dialog.style.pointerEvents = 'none'; dialog.classList.add('is-closing');
       setTimeout(() => {
         try { dialog.close?.(); } catch(e) {}
         dialog.remove();

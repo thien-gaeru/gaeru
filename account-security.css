@@ -155,15 +155,22 @@
   margin: 0 !important;
   padding: 16px !important;
   border: none !important;
-  background: transparent !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   z-index: 999999 !important;
   box-sizing: border-box !important;
 }
-.gaeru-center-popup:not([open]) {
+dialog.gaeru-center-popup {
+  background: transparent !important;
+}
+dialog.gaeru-center-popup:not([open]),
+.gaeru-center-popup[hidden] {
   display: none !important;
+  pointer-events: none !important;
+}
+.gaeru-center-popup.is-closing {
+  pointer-events: none !important;
 }
 .center-popup-backdrop {
   position: fixed !important;

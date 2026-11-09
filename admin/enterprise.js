@@ -53,6 +53,7 @@
       };
       dialog.querySelector("[data-confirm-cancel]").addEventListener("click", () => finish(false));
       dialog.querySelector("[data-confirm-accept]").addEventListener("click", () => finish(true));
+      dialog.addEventListener("click", (event) => { if (event.target === dialog) finish(false); });
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       dialog.addEventListener("close", () => finish(false));
       document.body.append(dialog);
@@ -136,6 +137,7 @@
     let editor = root(view).querySelector('[data-e-editor]');
     if (editor.tagName !== 'DIALOG') {
       const dialog = document.createElement('dialog');dialog.setAttribute('data-e-editor','');dialog.className='enterprise-editor-dialog';editor.replaceWith(dialog);editor=dialog;
+      editor.addEventListener('click', event => { if (event.target === editor) closeEditor(editor); });
       editor.addEventListener('cancel', event => { event.preventDefault();closeEditor(editor); });
       editor.addEventListener('close', () => { if(!editor.hasAttribute('open')){editor.hidden=true;if(activeEditor===editor){activeEditor=null;document.body.classList.remove('enterprise-editor-open');}} });
     }
@@ -187,7 +189,7 @@
     if (!section) return;
     section.hidden = false;
     let dialog=root('inventory').querySelector('[data-forecast-dialog]');
-    if(!dialog){dialog=document.createElement('dialog');dialog.className='inventory-forecast-dialog';dialog.dataset.forecastDialog='';dialog.setAttribute('aria-label','Dự báo và điểm đặt hàng');const close=document.createElement('button');close.type='button';close.className='secondary-button';close.textContent='Đóng';close.onclick=()=>dialog.close();dialog.append(close);root('inventory').append(dialog);dialog.append(section);}
+    if(!dialog){dialog=document.createElement('dialog');dialog.className='inventory-forecast-dialog';dialog.dataset.forecastDialog='';dialog.setAttribute('aria-label','Dự báo và điểm đặt hàng');dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});const close=document.createElement('button');close.type='button';close.className='secondary-button';close.textContent='Đóng';close.onclick=()=>dialog.close();dialog.append(close);root('inventory').append(dialog);dialog.append(section);}
     if(!dialog.open)dialog.showModal();
     const target = section.querySelector("#forecast-content");
     target.textContent = "Đang tính toán dự báo nhu cầu & điểm đặt hàng lại…";

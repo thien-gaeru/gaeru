@@ -10,6 +10,7 @@
 
 const { getRelevantWebKnowledge } = require('./chat-web-knowledge');
 const { getExternalWebKnowledge } = require('./chat-external-knowledge');
+const { matchLearnedKnowledge, learnFromInteraction } = require('./ai-self-learning');
 
 function formatVnd(num) {
   return new Intl.NumberFormat('vi-VN').format(Math.round(num || 0)) + ' ₫';
@@ -146,7 +147,24 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     }
   }
 
-  // 3. Tư vấn tương thích thiết bị & Hướng dẫn kỹ thuật
+  // 3. Tra cứu tri thức tự học tích lũy từ các cuộc hội thoại trước (Autonomous Continuous Learning)
+  try {
+    const learnedMatch = await matchLearnedKnowledge(pool, raw, { minScore: 0.65 });
+    if (learnedMatch && learnedMatch.entry) {
+      const e = learnedMatch.entry;
+      return {
+        handoff: false,
+        answer: e.learned_facts || e.sample_answer,
+        learnedKnowledge: {
+          id: e.id,
+          topic: e.topic,
+          confidence: e.confidence_score
+        }
+      };
+    }
+  } catch (_) {}
+
+  // 4. Tư vấn tương thích thiết bị & Hướng dẫn kỹ thuật
   const isIphone = norm.includes('iphone') || norm.includes('ios') || norm.includes('apple') || norm.includes('lightning') || norm.includes('ipad');
   const isAndroid = norm.includes('android') || norm.includes('samsung') || norm.includes('oppo') || norm.includes('xiaomi') || norm.includes('vivo') || norm.includes('realme') || norm.includes('redmi') || norm.includes('otg');
   const isPc = norm.includes('may tinh') || norm.includes('laptop') || norm.includes('pc') || norm.includes('macbook') || norm.includes('windows');
@@ -330,13 +348,29 @@ async function answerCustomerChat({ pool, config, thread, question, history = []
   } catch (_) {}
 
   // Chạy Lõi Trí Tuệ Nhân Tạo Nội Bộ GAERU AI (Tốc độ cao, zero hallucination, thấu hiểu ngữ cảnh nghiệp vụ)
-  return generateGaeruAiResponse({
+  const result = await generateGaeruAiResponse({
     pool,
     thread,
     question,
     catalog,
     history
   });
+
+  // Tự động ghi nhớ và củng cố tri thức từ cuộc hội thoại nếu có giá trị thông tin
+  try {
+    const raw = String(question || '').trim();
+    if (pool && !result.handoff && result.answer && raw && raw.length >= 6) {
+      void learnFromInteraction(pool, {
+        sourceType: 'customer_chat',
+        question: raw,
+        answer: result.answer,
+        confidence: 0.85,
+        metadata: { threadId: thread?.id, productId: thread?.product_id }
+      }).catch?.(() => {});
+    }
+  } catch (_) {}
+
+  return result;
 }
 
 module.exports = {

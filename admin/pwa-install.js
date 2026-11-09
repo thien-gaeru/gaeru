@@ -152,6 +152,7 @@
       };
     }
 
+    dialog.addEventListener('click', e => { if (e.target === dialog) { if (typeof dialog.close === 'function') dialog.close(); dialog.remove(); } });
     document.body.append(dialog);
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');

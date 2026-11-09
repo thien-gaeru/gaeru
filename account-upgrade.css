@@ -1139,6 +1139,7 @@
 }
 
 /* Modal Overlay & Backdrop */
+.security-accordion-item:not([open]) > .security-accordion-body, .security-accordion-item:not([open]) .security-modal-backdrop, .security-accordion-item[hidden] > .security-accordion-body { display: none !important; pointer-events: none !important; }
 .security-accordion-item[open] > .security-accordion-body {
   position: fixed !important;
   inset: 0 !important;
@@ -1325,6 +1326,7 @@
    =================================================== */
 
 /* Container phủ toàn màn hình */
+.security-accordion-item:not([open]) > .security-accordion-body, .security-accordion-item:not([open]) .security-modal-backdrop, .security-accordion-item[hidden] > .security-accordion-body { display: none !important; pointer-events: none !important; }
 .security-accordion-item[open] > .security-accordion-body {
   position: fixed !important;
   inset: 0 !important;
@@ -1535,7 +1537,8 @@
    MÀN HÌNH ĐIỆN THOẠI (<= 640px) GIỮ NGUYÊN KÍCH THƯỚC
    =================================================== */
 @media (max-width: 640px) {
-  .security-accordion-item[open] > .security-accordion-body {
+  .security-accordion-item:not([open]) > .security-accordion-body, .security-accordion-item:not([open]) .security-modal-backdrop, .security-accordion-item[hidden] > .security-accordion-body { display: none !important; pointer-events: none !important; }
+.security-accordion-item[open] > .security-accordion-body {
     padding: 12px 10px !important;
     align-items: center !important;
     justify-content: center !important;

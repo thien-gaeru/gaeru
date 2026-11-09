@@ -102,7 +102,7 @@ function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành c
   if (!popup) {
     popup = document.createElement("div");
     popup.id = "product-added-popup";
-    popup.className = "product-success-popup-backdrop gaeru-center-popup";
+    popup.className = "product-success-popup-backdrop gaeru-center-popup"; popup.setAttribute?.("open", "");
     popup.setAttribute("role", "dialog");
     popup.setAttribute("aria-modal", "true");
     popup.innerHTML = '<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2>' + escapeHtml(message) + '</h2><p class="product-success-sub">Sản phẩm đã được lưu và cập nhật vào danh sách quản lý sản phẩm.</p><div class="product-success-actions"><button type="button" class="primary-button product-success-btn" data-close-product-popup>Đóng thông báo</button></div></div>';
@@ -114,7 +114,7 @@ function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành c
     const container = document.body || document.querySelector("body") || document.documentElement || document;
     if (container && typeof container.appendChild === "function") container.appendChild(popup);
   } else {
-    popup.classList.add("gaeru-center-popup");
+    popup.classList.add("gaeru-center-popup"); popup.setAttribute?.("open", "");
     popup.hidden = false;
     const h2 = popup.querySelector("h2");
     if (h2) h2.textContent = message;
@@ -1034,7 +1034,7 @@ function openOrderProcessing(id,opener){
   statusSelect.closest('label').hidden=true;statusSelect.closest('label').after(choices);
   choices.addEventListener('click',event=>{const button=event.target.closest('[data-status-choice]');if(!button||statusSelect.closest('form').dataset.saving)return;statusSelect.value=button.dataset.statusChoice;if(statusSelect.options)[...statusSelect.options].forEach(o=>o.selected=(o.value===button.dataset.statusChoice));const changeEv = typeof Event === 'function' ? new Event('change',{bubbles:true}) : (typeof window !== 'undefined' && window.Event ? new window.Event('change',{bubbles:true}) : null); if (changeEv) statusSelect.dispatchEvent(changeEv);choices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
  }
- dialog.addEventListener('submit',updateOrder);dialog.addEventListener('change',changeOrderControl);dialog.querySelector('[data-close-order]').addEventListener('click',closeOrderProcessing);dialog.addEventListener('close',()=>{dialog.remove();opener?.isConnected&&opener.focus();});document.body.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+ dialog.addEventListener('submit',updateOrder);dialog.addEventListener('change',changeOrderControl);dialog.querySelector('[data-close-order]').addEventListener('click',closeOrderProcessing);dialog.addEventListener('click',event=>{if(event.target===dialog&&!dialog.querySelector('form[data-saving]'))closeOrderProcessing();});dialog.addEventListener('close',()=>{dialog.remove();opener?.isConnected&&opener.focus();});document.body.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
 }
 function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
@@ -1059,7 +1059,7 @@ function openBulkProcessing(){
  };
  const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:"prepare",confirmed:"prepare",processing:"ship",shipped:"complete"}[common];if(next){actionEl.value=next;const opts=[...actionEl.querySelectorAll("option")];opts.forEach(o=>o.removeAttribute("selected"));const opt=opts.find(o=>(o.getAttribute("value")||o.value)===next);if(opt){opt.selected=true;opt.setAttribute("selected","");}}actionEl.addEventListener("change",refresh);
  
- dialog.querySelector("[data-close-bulk]").addEventListener("click",()=>{if(typeof dialog.close==="function")dialog.close();dialog.remove();});dialog.addEventListener("close",()=>dialog.remove());
+ dialog.querySelector("[data-close-bulk]").addEventListener("click",()=>{if(typeof dialog.close==="function")dialog.close();dialog.remove();});dialog.addEventListener("click",event=>{if(event.target===dialog&&!form.dataset.saving){if(typeof dialog.close==="function")dialog.close();dialog.remove();}});dialog.addEventListener("close",()=>dialog.remove());
  form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector("[type=submit]"),feedback=form.querySelector("[role=alert]");if(button.disabled)return;button.disabled=true;feedback.textContent="Đang kiểm tra và xử lý…";let saved=false;try{const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==="function")dialog.close();dialog.remove();document.querySelector("#order-filter").value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal("Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent=error.message;button.disabled=false;}});
  refresh();if(typeof dialog.showModal==="function")dialog.showModal();else dialog.setAttribute("open","");
 }
@@ -1077,7 +1077,7 @@ function openOrderRestoration(id){
  const dialog=document.createElement('dialog');dialog.id='order-restoration-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-restoration-title');
  dialog.innerHTML='<header><h2 id="order-restoration-title">Khôi phục '+escapeHtml(order.orderNumber)+'</h2><button type="button" class="secondary-button" data-close-restoration aria-label="Đóng khôi phục đơn">×</button></header><form><p>Đơn sẽ về Chờ xác nhận. Máy chủ kiểm tra lại tồn kho và voucher trước khi giữ hàng; không tự ghi nhận tiền hoặc gửi hàng.</p><label>Lý do khôi phục<textarea name="reason" required minlength="5" maxlength="1000"></textarea></label><label><input type="checkbox" name="confirmedUnpaid" required> Tôi đã đối chiếu chưa nhận tiền và khách vẫn muốn tiếp tục đơn hàng.</label><button type="submit" class="primary-button">Kiểm tra & khôi phục đơn</button><p role="alert"></p></form>';
  document.body.append(dialog);const form=dialog.querySelector('form'),requestKey=crypto.randomUUID();
- dialog.querySelector('[data-close-restoration]').addEventListener('click',()=>{if(!form.dataset.saving){dialog.close();dialog.remove();}});
+ dialog.querySelector('[data-close-restoration]').addEventListener('click',()=>{if(!form.dataset.saving){dialog.close();dialog.remove();}});dialog.addEventListener('click',event=>{if(event.target===dialog&&!form.dataset.saving){dialog.close();dialog.remove();}});
  dialog.addEventListener('cancel',event=>{if(form.dataset.saving)event.preventDefault();});
  form.addEventListener('submit',async event=>{event.preventDefault();if(form.dataset.saving)return;const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');form.dataset.saving='true';button.disabled=true;let saved=false;
   try{const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});saved=true;dialog.close();dialog.remove();document.querySelector('#order-filter').value='pending';await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}

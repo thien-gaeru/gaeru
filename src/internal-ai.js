@@ -281,6 +281,14 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'check_system_health', data: sys });
     }
 
+    if (lower.includes('tự học') || lower.includes('học hỏi') || lower.includes('tri thức') || lower.includes('learned') || lower.includes('khách hàng hỏi gì') || lower.includes('kiến thức')) {
+      try {
+        const { getLearnedKnowledgeStats } = require('./ai-self-learning');
+        const learned = await getLearnedKnowledgeStats(pool);
+        toolResults.push({ tool: 'get_learned_knowledge', data: learned });
+      } catch (_) {}
+    }
+
     // Tìm kiếm đơn hàng trong câu hỏi nếu có
     const orderCodeMatch = userQuestion.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i);
     let matchedOrder = null;
@@ -523,6 +531,22 @@ Quy tắc cốt lõi:
       out += `- **Thời gian hoạt động (Uptime):** ${Math.round(sys.uptimeSeconds / 60)} phút\n`;
       out += `- **Bộ nhớ RSS:** ${sys.memoryRssMb} MB (Heap used: ${sys.heapUsedMb} MB)\n`;
       out += `- **Mối đe dọa WAF đã chặn:** ${sys.threatsBlocked} cuộc tấn công\n\n`;
+    }
+
+    const learned = toolResults.find(t => t.tool === 'get_learned_knowledge')?.data;
+    if (learned) {
+      out += `#### 🧠 Tri Thức Tự Học từ Hội Thoại (Autonomous Continuous Learning):\n`;
+      out += `- **Tổng số tri thức đã tích lũy:** **${learned.stats?.total || 0}** bài học\n`;
+      out += `- **Đang kích hoạt phục vụ khách:** **${learned.stats?.active_count || 0}** bài\n`;
+      out += `- **Tổng lượt tương tác học hỏi:** **${learned.stats?.total_interactions || 0}** lượt\n`;
+      out += `- **Độ tin cậy trung bình:** **${Math.round((learned.stats?.avg_confidence || 0.85) * 100)}%**\n`;
+      if (learned.topEntries && learned.topEntries.length) {
+        out += `\n**Top tri thức đúc kết gần đây:**\n`;
+        for (const e of learned.topEntries.slice(0, 5)) {
+          out += `- **${e.topic}** (Từ khóa: \`${(e.triggers || []).slice(0, 3).join(', ')}\`) · Lặp lại: ${e.occurrence_count} lần · Tin cậy: ${Math.round(e.confidence_score * 100)}%\n`;
+        }
+      }
+      out += `\n`;
     }
 
     if (actionCard) {

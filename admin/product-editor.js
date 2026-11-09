@@ -55,6 +55,7 @@
       popup=document.createElement('div');
       popup.id='product-success-popup';
       popup.className='product-success-popup-backdrop gaeru-center-popup';
+      popup.setAttribute?.('open','');
       popup.setAttribute('role','dialog');
       popup.setAttribute('aria-modal','true');
       popup.setAttribute('aria-labelledby','product-success-title');
@@ -63,6 +64,7 @@
       if(container&&typeof container.appendChild==='function')container.appendChild(popup);
     }else{
       popup.classList.add('gaeru-center-popup');
+      popup.setAttribute?.('open','');
       const titleEl = popup.querySelector('#product-success-title') || popup.querySelector('h2');
       if(titleEl)titleEl.textContent = title;
       popup.hidden=false;

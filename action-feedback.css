@@ -30,8 +30,13 @@
   display: grid;
   gap: 12px;
   width: min(440px, calc(100vw - 32px));
-  pointer-events: none;
+  pointer-events: none !important;
   font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.gaeru-action-notices:empty,
+.gaeru-action-notices[hidden] {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 /* Individual Toast Item */
@@ -161,7 +166,7 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .gaeru-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.55) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   z-index: 2147483647;
@@ -171,6 +176,10 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
   padding: 16px;
   box-sizing: border-box;
   animation: gaeru-modal-fade .2s ease-out;
+}
+.gaeru-modal-backdrop[hidden] {
+  display: none !important;
+  pointer-events: none !important;
 }
 
 .gaeru-modal-card {

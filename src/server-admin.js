@@ -347,7 +347,7 @@ function createServerAdminRouter(config, pool) {
       ]);
 
       // 3. PostgreSQL Database Summary
-      let dbSummary = { activeConnections: 0, dbSize: 'Chưa xác định', totalTables: 123 };
+      let dbSummary = { activeConnections: 0, dbSize: 'Chưa xác định', totalTables: 0 };
       if (pool) {
         try {
           const [connRes, sizeRes, tblRes] = await Promise.all([
@@ -356,9 +356,9 @@ function createServerAdminRouter(config, pool) {
             pool.query("SELECT count(*)::int as count FROM pg_tables WHERE schemaname = 'public'")
           ]);
           dbSummary = {
-            activeConnections: connRes.rows[0]?.count || 1,
-            dbSize: sizeRes.rows[0]?.size || '32 MB',
-            totalTables: tblRes.rows[0]?.count || 123
+            activeConnections: connRes.rows[0]?.count ?? 1,
+            dbSize: sizeRes.rows[0]?.size || '0 MB',
+            totalTables: tblRes.rows[0]?.count ?? 0
           };
         } catch (_) {}
       }
@@ -413,7 +413,7 @@ function createServerAdminRouter(config, pool) {
           hostname: os.hostname(),
           device: 'LG G7 ThinQ (LM-G710 - judyln)',
           soc: 'Qualcomm Snapdragon 845 (Octa-Core Kryo 385: 4x Gold 2.80GHz + 4x Silver 1.77GHz)',
-          os: `${os.type()} ${os.release()} (LineageOS 22.2 / Android 15)`,
+          os: `Ubuntu 24.04.5 LTS (Noble Numbat) ARM64 • Kernel ${os.release()}`,
           arch: os.arch(),
           uptimeSec: Math.round(os.uptime()),
           loadAvg: loadAvg.map(l => l.toFixed(2)),

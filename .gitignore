@@ -18,4 +18,8 @@ scripts/*.bat
 scripts/*.vbs
 logs/
 *.log
+backups/
+deploy-mi6/
+*.dump
+mi6-standalone-test-results.json
 

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Run Ubuntu-26 Node.js directly on the host filesystem (using Ubuntu's loader+libs).
+U=/storage/ubuntu
+exec $U/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 \
+  --library-path $U/usr/lib/aarch64-linux-gnu:$U/lib/aarch64-linux-gnu \
+  $U/usr/local/bin/node "$@"

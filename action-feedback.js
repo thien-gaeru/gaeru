@@ -7,15 +7,29 @@
   const statusSelector = '[role="status"],.feedback,.security-feedback,.workspace-status,[data-global-feedback]';
   const text = node => (node.textContent || '').trim();
 
+  function isElementVisiblyActive(el) {
+    if (!el || el.hidden || el.hasAttribute?.('hidden') || el.classList?.contains?.('is-closing')) return false;
+    if (el.tagName === 'DIALOG' && !el.open && !el.hasAttribute?.('open')) return false;
+    if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+      try {
+        const st = window.getComputedStyle(el);
+        if (st && (st.display === 'none' || st.visibility === 'hidden')) return false;
+      } catch (_) {}
+    }
+    return true;
+  }
+
   function isCenterPopupActive() {
     if (typeof document === 'undefined') return false;
     try {
       if (typeof document.querySelectorAll === 'function') {
         const dialogs = document.querySelectorAll('dialog[open]');
-        if (Array.isArray(dialogs) ? dialogs.some(d => d.classList?.contains?.('gaeru-center-popup')) : [...(dialogs || [])].some(d => d.classList?.contains?.('gaeru-center-popup'))) return true;
+        const dialogList = Array.isArray(dialogs) ? dialogs : [...(dialogs || [])];
+        if (dialogList.some(d => d.classList?.contains?.('gaeru-center-popup') && isElementVisiblyActive(d))) return true;
       }
       if (typeof document.querySelector === 'function') {
-        if (document.querySelector('.product-success-popup-backdrop:not([hidden]), #product-success-popup:not([hidden]), #product-added-popup:not([hidden]), .gaeru-center-popup:not([hidden])')) return true;
+        const el = document.querySelector('.product-success-popup-backdrop:not([hidden]), #product-success-popup:not([hidden]), #product-added-popup:not([hidden]), .gaeru-center-popup:not([hidden])');
+        if (isElementVisiblyActive(el)) return true;
       }
     } catch (_) {}
     return false;
@@ -48,6 +62,9 @@
     close.textContent = '×';
     close.setAttribute('aria-label', 'Đóng thông báo');
     add.call(close, 'click', () => item.remove());
+    add.call(item, 'click', (e) => {
+      if (e.target !== close && !window.getSelection?.()?.toString()) item.remove();
+    });
     item.append(messageNode, close);
     region.append(item);
     while (region.children.length > 3) region.firstElementChild.remove();
@@ -90,6 +107,7 @@
 
       const backdrop = document.createElement('div');
       backdrop.className = 'gaeru-modal-backdrop gaeru-center-popup';
+      backdrop.setAttribute('open', '');
       backdrop.setAttribute('role', 'dialog');
       backdrop.setAttribute('aria-modal', 'true');
 
@@ -119,9 +137,17 @@
       `;
 
       backdrop.append(card);
-      const activeDialog = typeof document.querySelector === 'function' ? document.querySelector('dialog[open]') : null;
+      const rawActiveDialog = typeof document.querySelector === 'function' ? document.querySelector('dialog[open]') : null;
+      const activeDialog = rawActiveDialog && !rawActiveDialog.classList?.contains?.('gaeru-center-popup') ? rawActiveDialog : null;
       const mountTarget = activeDialog || document.body;
       mountTarget?.append?.(backdrop);
+      if (activeDialog && typeof activeDialog.addEventListener === 'function') {
+        activeDialog.addEventListener('close', () => {
+          if (!resolved && backdrop.parentElement === activeDialog) {
+            document.body?.append?.(backdrop);
+          }
+        }, { once: true });
+      }
 
       const input = card.querySelector?.('.gaeru-modal-input');
       const confirmBtn = card.querySelector?.('.gaeru-modal-btn-confirm');
@@ -132,6 +158,7 @@
         if (resolved) return;
         resolved = true;
         document.removeEventListener('keydown', onKeyDown, true);
+        try { backdrop.removeAttribute('open'); } catch (_) {}
         backdrop.remove();
         resolve(result);
       };
@@ -156,6 +183,10 @@
       };
 
       const onKeyDown = (e) => {
+        if (backdrop.isConnected === false) {
+          handleCancel();
+          return;
+        }
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();

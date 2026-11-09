@@ -1,0 +1,6 @@
+#!/bin/bash
+if [ "$EUID" -ne 0 ]; then
+  exec sudo /usr/local/bin/u26 "$@"
+fi
+/usr/local/sbin/ubuntu-mount.sh >/dev/null 2>&1
+exec chroot /storage/ubuntu /bin/bash -l "$@"

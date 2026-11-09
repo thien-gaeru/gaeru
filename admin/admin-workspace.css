@@ -373,6 +373,7 @@
   pointer-events: none;
   transition: opacity 0.22s ease;
 }
+.config-modal-backdrop[hidden] { display: none !important; opacity: 0 !important; pointer-events: none !important; }
 .config-modal-backdrop:not([hidden]) {
   opacity: 1;
   pointer-events: auto;

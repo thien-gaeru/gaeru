@@ -1,7 +1,7 @@
 (() => {
 
   function showCenterPopup({ type = 'info', title = '', message = '' } = {}) {
-    document.querySelectorAll('.gaeru-center-popup').forEach(p => {
+    document.querySelectorAll('dialog.gaeru-center-popup, .gaeru-center-popup:not(.gaeru-modal-backdrop)').forEach(p => {
       try { p.close?.(); } catch(e) {}
       p.remove();
     });
@@ -33,7 +33,7 @@
     const close = () => {
       if (isClosing) return;
       isClosing = true;
-      dialog.classList.add('is-closing');
+      dialog.style.pointerEvents = 'none'; dialog.classList.add('is-closing');
       setTimeout(() => {
         try { dialog.close?.(); } catch(e) {}
         dialog.remove();
@@ -75,7 +75,7 @@
     dialog.innerHTML='<form><h2>Yêu cầu đổi / trả hàng</h2><label>Hình thức<select name="returnType"><option value="exchange">Đổi sản phẩm</option><option value="refund">Trả hàng và hoàn tiền</option></select></label><label>Lý do<textarea name="reason" required minlength="5" maxlength="2000" rows="4"></textarea></label><fieldset data-return-bank hidden><legend>Tài khoản nhận hoàn tiền</legend><label>Ngân hàng<input name="bankName" maxlength="100"></label><label>Số tài khoản<input name="accountNumber" maxlength="50"></label><label>Chủ tài khoản<input name="accountHolder" maxlength="100"></label></fieldset><p role="status"></p><div style="display:flex;gap:12px;flex-wrap:wrap"><button class="button button-blue" type="submit">Gửi yêu cầu</button><button class="button button-outline" type="button" data-cancel>Quay lại</button></div></form>';
     dialog.querySelectorAll('label').forEach(e=>e.style.cssText='display:grid;gap:7px;margin:12px 0');dialog.querySelectorAll('input,select,textarea').forEach(e=>e.style.cssText='width:100%;box-sizing:border-box;min-height:44px;padding:10px;border:1px solid #c8ced8;border-radius:10px;font:inherit');
     const previous=document.activeElement;document.body.append(dialog);dialog.showModal();
-    return new Promise(resolve=>{let done=false;const finish=value=>{if(done)return;done=true;dialog.close();dialog.remove();previous?.focus();resolve(value);};dialog.oncancel=e=>{e.preventDefault();finish(false);};dialog.querySelector('[data-cancel]').onclick=()=>finish(false);
+    return new Promise(resolve=>{let done=false;const finish=value=>{if(done)return;done=true;dialog.close();dialog.remove();previous?.focus();resolve(value);};dialog.oncancel=e=>{e.preventDefault();finish(false);};dialog.querySelector('[data-cancel]').onclick=()=>finish(false);dialog.addEventListener('click',e=>{if(e.target===dialog&&!dialog.querySelector('[type=submit]')?.disabled)finish(false);});
       const form=dialog.querySelector('form');form.elements.returnType.onchange=()=>{dialog.querySelector('[data-return-bank]').hidden=form.elements.returnType.value!=='refund';};
       form.onsubmit=async e=>{e.preventDefault();const button=form.querySelector('[type=submit]');button.disabled=true;try{await request('/orders/'+orderId+'/after-sales','POST',{returnType:form.elements.returnType.value,reason:form.elements.reason.value.trim(),bankInfo:{bankName:form.elements.bankName.value.trim(),accountNumber:form.elements.accountNumber.value.trim(),accountHolder:form.elements.accountHolder.value.trim()}},isCurrent);finish(true);}catch(error){form.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}};
     });
@@ -176,7 +176,7 @@
       target.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
       (target.querySelector('input:not([type=hidden]),select')||target).focus?.({preventScroll:true});
     }
-    settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
+    settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('click',e=>{if(e.target===settingsDialog)settingsDialog.close();});settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
     document.addEventListener('click',event=>{const button=event.target.closest('[data-settings-jump]');if(button)jumpToSettings(button.dataset.settingsJump);});
     window.addEventListener('gaeru:security-rendered',()=>{if(pendingSettingsJump)jumpToSettings(pendingSettingsJump);});
     window.GAERUAccountSettings={open:openSettings,close:()=>settingsDialog.close()};
@@ -227,7 +227,7 @@
     const closeAddress=()=>addressDialog.close?.();
     const addAddress=()=>{cancelEdit.click();addressDialog.querySelector('[role=status]').textContent='';openAddress();};
     const opener=overviewCard.querySelector('[data-add-address]'),closer=addressDialog.querySelector('[data-address-close]');
-    opener.addEventListener('click',addAddress);closer.addEventListener('click',closeAddress);
+    opener.addEventListener('click',addAddress);closer.addEventListener('click',closeAddress);addressDialog.addEventListener('click',e=>{if(e.target===addressDialog&&!addressSaving)closeAddress();});
     const status=profile.querySelector('[data-address-status]');status.textContent='';
     profile.querySelector('[data-address-list]').replaceChildren();
     async function addresses(){const data=await workspaceRequest('/addresses');if(!isCurrent())return;savedAddresses=data.addresses;profile.querySelector('[data-address-list]').innerHTML=data.addresses.map(a=>`<article><strong>${escape(a.label)}${a.isDefault?' · Mặc định':''}</strong><p>${escape(a.fullName)} · ${escape(a.phone)}<br>${escape(a.address)}, ${escape(a.city)}</p><button type="button" data-edit-address="${a.id}">Sửa địa chỉ</button> ${a.isDefault?'':`<button type="button" data-default="${a.id}">Chọn mặc định</button>`} <button type="button" data-remove="${a.id}">Xóa địa chỉ</button></article>`).join('')||'<div class="account-empty-state"><strong>Chưa có địa chỉ giao hàng</strong><p>Thêm địa chỉ thường dùng để đặt hàng nhanh hơn.</p></div>';}
