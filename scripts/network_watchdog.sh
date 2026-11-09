@@ -30,6 +30,9 @@ log "System & Network Watchdog started 24/7 (Monitoring Network, PG18, Node26, N
 iw dev wlan1 set power_save off 2>/dev/null || true
 iw dev wlan0 set power_save off 2>/dev/null || true
 
+# Ensure big CPU cores run at peak performance without frequency ramping delay
+echo performance > /sys/devices/system/cpu/cpufreq/policy4/scaling_governor 2>/dev/null || true
+
 while true; do
   rotate_log
 
