@@ -1,5 +1,5 @@
 const {createHash}=require('node:crypto');
-const required=config=>config.NODE_ENV==='production'||config.SECURITY_HARDENING===true;
+const required = config => config.SECURITY_HARDENING === true || config.MFA_MANDATORY === true || process.env.MFA_MANDATORY === 'true';
 class PgRateLimitStore {
  constructor(pool,prefix){this.pool=pool;this.prefix=prefix;this.localKeys=false;this.operations=0;}
  init(options){this.windowMs=options.windowMs;}
