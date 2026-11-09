@@ -2,7 +2,11 @@
 
 const crypto = require('node:crypto');
 
-let currentDay = new Date().toISOString().slice(0, 10);
+function getVietnamDateString() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+}
+
+let currentDay = getVietnamDateString();
 const todayVisitorHashes = new Set();
 let cacheInitialized = false;
 const initializedPools = new WeakSet();
@@ -31,7 +35,7 @@ function cleanRealtimeIfOld(pool) {
 }
 
 function computeVisitDelta({ path, ip, userAgent }, pool) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getVietnamDateString();
   if (today !== currentDay) {
     currentDay = today;
     todayVisitorHashes.clear();
@@ -226,6 +230,6 @@ module.exports = {
   _testReset() {
     todayVisitorHashes.clear();
     cacheInitialized = false;
-    currentDay = new Date().toISOString().slice(0, 10);
+    currentDay = getVietnamDateString();
   }
 };

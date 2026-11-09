@@ -149,8 +149,40 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 4: Tra cứu vận đơn bưu cục
-  async function toolQueryShipping({ orderNumber }) {
-    if (!orderNumber) return { error: 'Vui lòng cung cấp mã đơn hàng.' };
+  async function toolQueryShipping({ orderNumber } = {}) {
+    const carrierNameMap = { viettel: 'Viettel Post', jt: 'J&T Express', spx: 'SPX Express' };
+    if (!orderNumber) {
+      const rows = (await pool.query(`
+        SELECT 
+          o.id,
+          o.order_number AS "orderNumber",
+          o.customer_name AS "customerName",
+          o.phone,
+          o.city,
+          o.status,
+          s.carrier_id AS "carrierId",
+          s.tracking_number AS "trackingNumber",
+          s.status AS "shipmentStatus",
+          s.updated_at AS "syncedAt"
+        FROM orders o
+        LEFT JOIN carrier_shipments s ON s.order_id = o.id AND s.status != 'cancelled'
+        WHERE o.status IN ('shipped', 'processing', 'confirmed') OR s.tracking_number IS NOT NULL
+        ORDER BY o.created_at DESC
+        LIMIT 5
+      `)).rows;
+      return {
+        shipments: rows.map(r => ({
+          orderNumber: r.orderNumber,
+          customerName: r.customerName,
+          phone: r.phone,
+          city: r.city,
+          orderStatus: r.status,
+          carrier: carrierNameMap[r.carrierId] || 'Viettel Post',
+          trackingNumber: r.trackingNumber || 'Đang cấp mã vận đơn',
+          shipmentStatus: r.shipmentStatus || r.status
+        }))
+      };
+    }
     
     const row = (await pool.query(`
       SELECT 
@@ -175,7 +207,6 @@ function createInternalAiRouter(pool, config) {
 
     if (!row) return { error: `Không tìm thấy đơn hàng mã ${orderNumber}` };
 
-    const carrierNameMap = { viettel: 'Viettel Post', jt: 'J&T Express', spx: 'SPX Express' };
     return {
       order: row,
       shipment: {
@@ -268,12 +299,10 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'check_inventory', data: stock });
     }
 
-    if (lower.includes('vận đơn') || lower.includes('viettel') || lower.includes('giao hàng') || lower.includes('vận chuyển')) {
+    if (lower.includes('vận đơn') || lower.includes('viettel') || lower.includes('giao hàng') || lower.includes('vận chuyển') || lower.includes('lộ trình')) {
       const orderMatch = lower.match(/gae-[a-z0-9-]+/i);
-      if (orderMatch) {
-        const shipping = await toolQueryShipping({ orderNumber: orderMatch[0] });
-        toolResults.push({ tool: 'query_shipping', data: shipping });
-      }
+      const shipping = await toolQueryShipping({ orderNumber: orderMatch ? orderMatch[0] : '' });
+      toolResults.push({ tool: 'query_shipping', data: shipping });
     }
 
     if (lower.includes('hệ thống') || lower.includes('máy chủ') || lower.includes('server') || lower.includes('cluster') || lower.includes('bảo mật') || lower.includes('cpu') || lower.includes('ram')) {
@@ -502,7 +531,11 @@ Quy tắc cốt lõi:
       out += `\n`;
     }
 
-    const orders = toolResults.find(t => t.tool === 'query_orders')?.data;
+    const ordersTool = toolResults.find(t => t.tool === 'query_orders');
+    const orders = ordersTool?.data;
+    const shippingTool = toolResults.find(t => t.tool === 'query_shipping');
+    const shipping = shippingTool?.data;
+
     if (orders && orders.length) {
       out += `#### 📦 Danh sách đơn hàng phù hợp:\n`;
       out += `| Mã đơn | Khách hàng | SĐT | Trạng thái | Thanh toán | Tổng tiền |\n`;
@@ -511,9 +544,38 @@ Quy tắc cốt lõi:
         out += `| **${o.orderNumber}** | ${o.customerName} | ${o.phone} | \`${o.status}\` | \`${o.paymentStatus}\` | ${o.totalFormatted} |\n`;
       }
       out += `\n`;
+    } else if (ordersTool && Array.isArray(orders) && orders.length === 0 && !overview && !shippingTool) {
+      out += `#### 📦 Tra cứu Đơn hàng:\n`;
+      out += `- Hiện tại **không có đơn hàng nào** đang ở trạng thái chờ xử lý hoặc khớp với điều kiện tra cứu. Tất cả đơn hàng đã được xử lý hoàn tất! ✅\n\n`;
     }
 
-    const inventory = toolResults.find(t => t.tool === 'check_inventory')?.data;
+    if (shipping) {
+      if (shipping.error) {
+        out += `#### 🚚 Tra cứu Vận chuyển:\n`;
+        out += `- ⚠️ ${shipping.error}\n\n`;
+      } else if (shipping.shipment && shipping.order) {
+        out += `#### 🚚 Thông tin Vận đơn (${shipping.order.orderNumber}):\n`;
+        out += `- **Đơn vị vận chuyển:** ${shipping.shipment.carrier}\n`;
+        out += `- **Mã vận đơn:** \`${shipping.shipment.trackingNumber}\`\n`;
+        out += `- **Trạng thái vận chuyển:** \`${shipping.shipment.status}\`\n`;
+        out += `- **Khách hàng:** ${shipping.order.customerName} (${shipping.order.phone})\n\n`;
+      } else if (Array.isArray(shipping.shipments)) {
+        out += `#### 🚚 Lộ trình Vận chuyển & Vận đơn:\n`;
+        if (shipping.shipments.length > 0) {
+          out += `| Mã đơn | Khách hàng | Đơn vị VC | Mã vận đơn | Trạng thái |\n`;
+          out += `|:---|:---|:---|:---|:---:|\n`;
+          for (const s of shipping.shipments) {
+            out += `| **${s.orderNumber}** | ${s.customerName} | ${s.carrier} | \`${s.trackingNumber}\` | \`${s.shipmentStatus}\` |\n`;
+          }
+          out += `\n`;
+        } else {
+          out += `- Hiện tại **không có đơn hàng nào đang trong lộ trình vận chuyển** hoặc chờ bưu cục Viettel Post lấy hàng. ✅\n\n`;
+        }
+      }
+    }
+
+    const inventoryTool = toolResults.find(t => t.tool === 'check_inventory');
+    const inventory = inventoryTool?.data;
     if (inventory && inventory.length) {
       out += `#### 📋 Báo cáo Tồn kho:\n`;
       out += `| Sản phẩm | Biến thể | SKU | Tồn kho | Tình trạng |\n`;
@@ -522,6 +584,9 @@ Quy tắc cốt lõi:
         out += `| ${it.productName} | ${it.variantName} | \`${it.sku}\` | **${it.stockQuantity}** | ${it.isLowStock ? '⚠️ ' + it.stockStatus : '✅ ' + it.stockStatus} |\n`;
       }
       out += `\n`;
+    } else if (inventoryTool && Array.isArray(inventory) && inventory.length === 0) {
+      out += `#### 📋 Báo cáo Tồn kho:\n`;
+      out += `- Hiện tại **không có sản phẩm nào sắp hết hàng** (tất cả mặt hàng đều đảm bảo định mức tồn kho an toàn > 5 sản phẩm). ✅\n\n`;
     }
 
     const sys = toolResults.find(t => t.tool === 'check_system_health')?.data;

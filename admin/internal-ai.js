@@ -407,8 +407,8 @@
       <p class="copilot-action-desc">${escapeHtml(card.description)}</p>
       ${card.status === 'pending' ? `
         <div class="copilot-action-buttons">
-          <button type="button" class="btn-confirm-action" data-action-id="${card.actionId}">✓ Xác nhận thực hiện</button>
-          <button type="button" class="btn-cancel-action" data-action-id="${card.actionId}">✕ Hủy bỏ</button>
+          <button type="button" class="btn-confirm-action" data-action-id="${card.actionId}" data-no-action-feedback>✓ Xác nhận thực hiện</button>
+          <button type="button" class="btn-cancel-action" data-action-id="${card.actionId}" data-no-action-feedback>✕ Hủy bỏ</button>
         </div>
       ` : `
         <div style="font-size:12px;color:#16a34a;font-weight:600;">✓ Đã thực thi thành công trên hệ thống</div>
