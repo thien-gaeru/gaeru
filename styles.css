@@ -1076,13 +1076,12 @@ body.panel-active .site-header {
   .nav-panel { top: 0; width: 100%; height: 100dvh; max-height: 100dvh; }
   .panel-inner { width: calc(100% - 40px); }
   .menu-inner { width: 83%; padding-top: 66px; }
-  .menu-panel-close { display: none !important; }
+  .panel-close, .menu-panel-close, .search-inner > .panel-close, .cart-panel-inner > .panel-close { display: none !important; }
   .menu-link-list a { min-height: 50px; font-size: clamp(23px, 5.8vw, 34px); }
   .menu-link-list .menu-store-link { min-height: 54px; }
   .search-panel { top: 0; height: 100dvh; max-height: 100dvh; }
   .search-inner { width: min(83%, 980px); padding-top: 66px; }
-  .search-inner > .panel-close { position: absolute; top: 70px; right: 0; width: 38px; height: 38px; font-size: 26px; }
-  .search-form { gap: 14px; padding-right: 48px; }
+  .search-form { gap: 14px; padding-right: 0; }
   .search-form > svg { flex-basis: 23px; width: 23px; height: 23px; }
   .search-form input { font-size: clamp(25px, 6vw, 34px); }
   .search-suggestions { padding-top: 40px; }
@@ -1093,8 +1092,7 @@ body.panel-active .site-header {
   .cart-panel.is-open { transform: translateY(0); clip-path: inset(0 0 0 0); opacity: 1; }
   .cart-panel-inner { width: 100%; padding: 66px 20px 20px; }
   .cart-signin-message { font-size: 17px; }
-  .cart-panel-inner > .panel-close { position: absolute; top: 70px; right: 20px; width: 38px; height: 38px; font-size: 26px; }
-  .cart-panel-heading { padding-bottom: 17px; padding-right: 46px; }
+  .cart-panel-heading { padding-bottom: 17px; padding-right: 0; }
   .cart-panel-heading h2 { font-size: 28px; }
   .cart-panel-heading.is-empty { padding-bottom: 0; }
   .mini-cart-empty { padding-top: 20px; }

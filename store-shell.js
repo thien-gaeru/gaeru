@@ -287,6 +287,10 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
     trigger.setAttribute("aria-expanded", "false");
     if (trigger.dataset.openLabel) trigger.setAttribute("aria-label", trigger.dataset.openLabel);
   }
+  if (menuToggle && menuToggle !== trigger) {
+    menuToggle.setAttribute("aria-expanded", "false");
+    menuToggle.setAttribute("aria-label", menuToggle.dataset.openLabel || "Mở menu");
+  }
   if (immediate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     panel.hidden = true;
     panelScrim.hidden = true;
@@ -320,7 +324,10 @@ function openPanel(panel, trigger) {
   if (trigger.dataset.closeLabel) {
     trigger.setAttribute("aria-label", trigger.dataset.closeLabel);
   }
-  if (trigger.dataset.closeLabel) trigger.setAttribute("aria-label", trigger.dataset.closeLabel);
+  if (menuToggle && menuToggle !== trigger) {
+    menuToggle.setAttribute("aria-expanded", "true");
+    menuToggle.setAttribute("aria-label", "Đóng");
+  }
   panelScrim.hidden = false;
   panel.hidden = false;
   void panel.offsetWidth;
@@ -335,7 +342,13 @@ function openPanel(panel, trigger) {
   document.dispatchEvent(new CustomEvent("gaeru:cart-panel-open"));
 }
 
-menuToggle?.addEventListener("click", () => openPanel(document.querySelector("#menu-panel"), menuToggle));
+menuToggle?.addEventListener("click", () => {
+  if (activePanel) {
+    closeActivePanel();
+  } else {
+    openPanel(document.querySelector("#menu-panel"), menuToggle);
+  }
+});
 menuNavTrigger?.addEventListener("click", () => openPanel(document.querySelector("#menu-panel"), menuNavTrigger));
 searchToggle?.addEventListener("click", () => openPanel(document.querySelector("#search-panel"), searchToggle));
 bagToggle?.addEventListener("click", () => openPanel(document.querySelector("#cart-panel"), bagToggle));

@@ -144,6 +144,8 @@ function readTailLines(filePath, maxLines = 100) {
 
 function createServerAdminRouter(config, pool) {
   const router = Router();
+  const { getFailoverSync } = require('./failover-sync');
+  const failoverSync = getFailoverSync(config, pool);
   const adminDir = path.join(__dirname, '..', 'admin');
   const adminHtmlPath = path.join(adminDir, 'server-admin.html');
   const adminCssPath = path.join(adminDir, 'server-admin.css');
@@ -439,6 +441,7 @@ function createServerAdminRouter(config, pool) {
         storage: diskInfo,
         battery,
         thermals,
+        failover: failoverSync.getStatus(),
         services: {
           nginx: { name: 'Nginx Web Server', port: 8080, status: nginxRunning ? 'online' : 'stopped', workers: 8 },
           node: { name: 'Node.js Gaeru App', port: 3000, status: 'online', ...nodeSummary },
@@ -485,6 +488,29 @@ function createServerAdminRouter(config, pool) {
           } else {
             result = { message: 'Cơ sở dữ liệu đang chạy độc lập.' };
           }
+          break;
+        }
+        case 'sync-primary': {
+          const syncRes = await failoverSync.syncFromPrimary();
+          result = syncRes;
+          break;
+        }
+        case 'check-primary': {
+          const health = await failoverSync.checkPrimaryHealth();
+          result = {
+            message: health.online
+              ? `Máy chủ chính ${failoverSync.primaryDomain} đang hoạt động bình thường (Độ trễ: ${health.latencyMs}ms).`
+              : `Cảnh báo: Không thể kết nối tới máy chủ chính ${failoverSync.primaryDomain} (${health.error || health.statusCode}).`,
+            health
+          };
+          break;
+        }
+        case 'promote-primary': {
+          result = failoverSync.promoteToPrimary();
+          break;
+        }
+        case 'demote-standby': {
+          result = failoverSync.demoteToStandby();
           break;
         }
         case 'drop-caches': {

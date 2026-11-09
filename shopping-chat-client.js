@@ -728,7 +728,9 @@
         l.textContent=isOffline?'Mất mạng':(isReconnecting?'Đang kết nối':(isOnline?'Trực tuyến':'Đang kết nối'));
       });
     };
-    const poll=window.GAERUCareLive.poll({streamUrl:id?base+'/'+id+'/realtime-sse':null,delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:updateLiveStatus});
+    const poll = (window.GAERUCareLive && typeof window.GAERUCareLive.poll === 'function')
+      ? window.GAERUCareLive.poll({streamUrl:id?base+'/'+id+'/realtime-sse':null,delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:updateLiveStatus})
+      : { stop(){} };
     if(id)refresh().catch(e=>feedback.textContent=e.message);
     return {refresh,stop(){stopped=true;clearFastAiTimers();clearPickerTimers();activePicker=null;window.removeEventListener?.('focus',onPickerReturn);document.removeEventListener?.('visibilitychange',onPickerReturn);poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};
   }};

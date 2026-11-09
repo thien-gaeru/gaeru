@@ -109,7 +109,11 @@ function loadScriptOnce(src,check){
         resolve();
       }else if(checks>80){
         clearInterval(timer);
-        resolve();
+        if(check&&!check()){
+          reject(Error('Hệ thống tư vấn đang kết nối. Vui lòng bấm thử lại hoặc gọi 082 919 1080.'));
+        }else{
+          resolve();
+        }
       }
     },50);
     s.addEventListener('load',()=>{if(check&&check()){clearInterval(timer);resolve();}},{once:true});
@@ -117,12 +121,12 @@ function loadScriptOnce(src,check){
   });
 }
 async function ensureChatAssets(){
-  loadStylesheetOnce('/shopping-chat.css?v=20261109-v5');
+  loadStylesheetOnce('/shopping-chat.css?v=20261109-v6');
   if(!window.GAERUCareLive){
     await loadScriptOnce('/care-live.js?v=20261024-chat',()=>Boolean(window.GAERUCareLive)).catch(()=>{});
   }
   if(typeof window.GAERUChatClient?.mount==='function')return true;
-  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261109-v5',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
+  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261109-v6',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
   for(let i=0;i<40;i++){
     if(typeof window.GAERUChatClient?.mount==='function')return true;
     await new Promise(r=>setTimeout(r,50));
@@ -153,8 +157,8 @@ async function openChat(slug){
     if(!window.GAERUChatClient||typeof window.GAERUChatClient.mount!=='function')throw Error('Hệ thống tư vấn đang kết nối. Vui lòng bấm thử lại hoặc gọi hotline 082 919 1080.');
     const threads=Array.isArray(d?.threads)?d.threads:[];
     const existing=threads.find(t=>t.product_slug===slug&&t.status==='open');
-    chat?.stop();
-    chat=window.GAERUChatClient.mount(content,{base:'/api/shopping-chat/threads',request,id:existing?.id||null,productSlug:slug});
+    chat?.stop?.();
+    chat=window.GAERUChatClient?.mount ? window.GAERUChatClient.mount(content,{base:'/api/shopping-chat/threads',request,id:existing?.id||null,productSlug:slug}) : null;
     fit();
   }
   catch(e){

@@ -235,6 +235,23 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   const { sseHandler } = require("./realtime-sse");
   app.get("/api/realtime", sseHandler);
 
+  const { getFailoverSync } = require("./failover-sync");
+  const failoverSync = getFailoverSync(config, pool);
+
+  app.get(["/health", "/api/health"], async (_req, res) => {
+    res.set({ 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
+    res.json({
+      status: "healthy",
+      node: "LG-G7-ThinQ-Failover",
+      ...failoverSync.getStatus()
+    });
+  });
+
+  app.get("/api/failover-status", (_req, res) => {
+    res.set({ 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
+    res.json(failoverSync.getStatus());
+  });
+
   const { createServerAdminRouter } = require("./server-admin");
   app.use(createServerAdminRouter(config, pool));
 
