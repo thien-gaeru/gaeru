@@ -11,9 +11,9 @@
 <script src="/commerce.js?v=20261103-experience" defer></script>
 <link rel="stylesheet" href="/typography.css?v=20261025-mobile-delete">
 <script src="/care-live.js?v=20261024-support-email" defer></script>
-<script src="/shopping-chat-client.js?v=20261103-complete" defer></script>
-<script src="/product-services.js?v=20261109-v3" defer></script>
-<link rel="stylesheet" href="/shopping-chat.css?v=20261105-helpdesk-v1">
+<script src="/shopping-chat-client.js?v=20261109-v4" defer></script>
+<script src="/product-services.js?v=20261109-v4" defer></script>
+<link rel="stylesheet" href="/shopping-chat.css?v=20261109-v4">
 <script src="/vietnam-address.js?v=20261026-unified-ui" defer></script>
 <link rel="stylesheet" href="/vietnam-address.css?v=20261026-unified-ui">
 <a class="skip-link" href="#main">Bỏ qua điều hướng</a>
