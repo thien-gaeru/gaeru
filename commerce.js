@@ -478,9 +478,7 @@ function renderProduct() {
     const image=root.querySelector("[data-product-main-image]"),art=window.GAERUProductArtwork?.variantImage?.(product,variant)||{url:variant.imageUrl||product.imageUrl};if(window.GAERUProductArtwork?.updateImage)window.GAERUProductArtwork.updateImage(image,safeProductImage(art.url),{micCount:art.micCount});else image.src=safeProductImage(art.url);image.alt=variant.name+" · "+product.name;root.querySelectorAll("[data-gallery-image]").forEach(b=>b.setAttribute("aria-pressed",String(art.micCount!==1&&b.dataset.galleryImage===art.url))); updateAllBundleCards(variant.id);
   });
   const targetVariantId = searchParams.get("variant");
-  const initialVariant = (targetVariantId ? variants.find(v => v.id === targetVariantId) : null)
-    || variants.find(v => v.stockQuantity > 0)
-    || variants[0];
+  const initialVariant = targetVariantId ? variants.find(v => v.id === targetVariantId) : null;
   if (initialVariant && selector && typeof selector.dispatchEvent === 'function') {
     selector.value = initialVariant.id;
     try {
