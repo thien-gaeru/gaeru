@@ -244,6 +244,29 @@ test('GAERU AI Internal Test Suite', async (t) => {
       assert.ok(text.includes('event: tools'));
       assert.ok(text.includes('event: done'));
     });
+
+    await t.test('9. Flexible diacritic-insensitive NLU, traffic tool and content drafting', async () => {
+      mockAdmin = { id: 'admin-01', username: 'ceo_gaeru', role: 'owner', isOwner: true, permissions: ['dashboard.read', 'finance.read'] };
+      const res1 = await fetch(`${baseUrl}/threads/${threadId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: 'doanh thu 14 ngay qua va co bao nhieu khach dang online?' })
+      });
+      assert.equal(res1.status, 200);
+      const data1 = await res1.json();
+      assert.ok(data1.toolResults.some(t => t.tool === 'get_business_overview' && t.data.periodDays === 14));
+      assert.ok(data1.toolResults.some(t => t.tool === 'get_traffic_analytics'));
+      assert.ok(data1.answer.includes('14 ngày qua'));
+
+      const res2 = await fetch(`${baseUrl}/threads/${threadId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: 'Viết mẫu tin nhắn xin lỗi khách vì giao hàng trễ' })
+      });
+      assert.equal(res2.status, 200);
+      const data2 = await res2.json();
+      assert.ok(data2.answer.includes('Viettel Post'));
+    });
   } finally {
     await new Promise(r => server.close(r));
   }

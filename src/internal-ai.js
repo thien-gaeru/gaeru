@@ -21,6 +21,31 @@ function createInternalAiRouter(pool, config) {
   // Helper định dạng tiền tệ VNĐ
   const formatVnd = (num) => new Intl.NumberFormat('vi-VN').format(Math.round(num || 0)) + ' ₫';
 
+  // Helper chuẩn hóa văn bản tiếng Việt (hỗ trợ cả gõ có dấu và không dấu)
+  const normalizeVi = (str) => String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase()
+    .trim();
+
+  // Helper nhận diện khung thời gian linh hoạt từ câu hỏi tự nhiên
+  function parseFlexibleDays(text) {
+    const norm = normalizeVi(text);
+    const numMatch = norm.match(/(\d+)\s*(?:ngay|hom)/);
+    if (numMatch) return Math.max(1, Math.min(90, parseInt(numMatch[1], 10)));
+    const weekMatch = norm.match(/(\d+)\s*tuan/);
+    if (weekMatch) return Math.max(7, Math.min(90, parseInt(weekMatch[1], 10) * 7));
+    const monthMatch = norm.match(/(\d+)\s*thang/);
+    if (monthMatch) return Math.max(30, Math.min(90, parseInt(monthMatch[1], 10) * 30));
+    if (norm.includes('quy') || norm.includes('3 thang')) return 90;
+    if (norm.includes('thang')) return 30;
+    if (norm.includes('tuan')) return 7;
+    if (norm.includes('hom qua')) return 2;
+    return 1;
+  }
+
   // ==========================================================================
   // BỘ CÔNG CỤ TRUY VẤN NỘI BỘ (INTERNAL ENTERPRISE GROUNDING TOOLS)
   // ==========================================================================
@@ -256,6 +281,72 @@ function createInternalAiRouter(pool, config) {
     };
   }
 
+  // Tool 7: Thống kê lưu lượng truy cập Storefront (Traffic & Online Visitors)
+  async function toolGetTrafficAnalytics() {
+    try {
+      const { getTrafficSummary } = require('./traffic-tracker');
+      return await getTrafficSummary(pool);
+    } catch (_) {
+      return { todayPageviews: 0, todayVisitors: 0, totalPageviews: 0, totalVisitors: 0, activeNow: 0 };
+    }
+  }
+
+  // Tool 8: Kiểm tra chương trình khuyến mãi & mã Voucher đang hoạt động
+  async function toolGetMarketingOverview() {
+    try {
+      const vouchersRes = await pool.query(`
+        SELECT code, title, kind, amount, min_spend_vnd AS "minSpendVnd", total_limit AS "totalLimit", active, ends_at AS "endsAt"
+        FROM marketing_vouchers
+        ORDER BY active DESC, created_at DESC
+        LIMIT 8
+      `);
+      let campaigns = [];
+      try {
+        const campRes = await pool.query(`
+          SELECT title, active, starts_at AS "startsAt", ends_at AS "endsAt"
+          FROM marketing_campaigns
+          ORDER BY active DESC, created_at DESC
+          LIMIT 5
+        `);
+        campaigns = campRes.rows || [];
+      } catch (_) {}
+      return {
+        vouchers: (vouchersRes.rows || []).map(v => ({
+          ...v,
+          discountFormatted: v.kind === 'percent' ? `${v.amount}%` : formatVnd(v.amount),
+          minSpendFormatted: formatVnd(v.minSpendVnd || 0)
+        })),
+        campaigns
+      };
+    } catch (_) {
+      return { vouchers: [], campaigns: [] };
+    }
+  }
+
+  // Tool 9: Tổng quan CSKH, Tin nhắn chờ & Bảo hành / Đổi trả
+  async function toolGetCustomerCareOverview() {
+    const out = { openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingReturns: 0 };
+    try {
+      const chatRes = await pool.query(`
+        SELECT 
+          COUNT(*) FILTER (WHERE status <> 'closed')::int AS open_chats,
+          COUNT(*) FILTER (WHERE status <> 'closed' AND awaiting_admin = true)::int AS awaiting_admin
+        FROM shopping_chat_threads
+      `);
+      out.openChats = chatRes.rows[0]?.open_chats || 0;
+      out.awaitingAdminChats = chatRes.rows[0]?.awaiting_admin || 0;
+    } catch (_) {}
+    try {
+      const warRes = await pool.query(`SELECT COUNT(*)::int AS total FROM warranty_registrations`);
+      out.activeWarranties = warRes.rows[0]?.total || 0;
+    } catch (_) {}
+    try {
+      const retRes = await pool.query(`SELECT COUNT(*)::int AS total FROM after_sales_cases WHERE status NOT IN ('completed', 'rejected', 'cancelled')`);
+      out.pendingReturns = retRes.rows[0]?.total || 0;
+    } catch (_) {}
+    return out;
+  }
+
   // ==========================================================================
   // DISPATCHER & SYSTEM PROMPT
   // ==========================================================================
@@ -272,45 +363,111 @@ Quy tắc cốt lõi:
 
   // Thực thi Function Calling logic
   async function executeAgentTurn({ userQuestion, history = [], user, threadId, aiConfig }) {
-    // 1. Phân tích câu hỏi xem cần gọi tool nào (Heuristic / Fast Grounding)
+    // 1. Phân tích câu hỏi xem cần gọi tool nào (Heuristic / Fast Grounding + Multi-turn Context)
     const lower = userQuestion.toLowerCase();
+    const norm = normalizeVi(userQuestion);
     const toolResults = [];
     let actionCard = null;
 
-    if (lower.includes('doanh thu') || lower.includes('tổng quan') || lower.includes('bán được bao nhiêu') || lower.includes('hôm nay thế nào') || lower.includes('báo cáo')) {
-      const days = lower.includes('tuần') ? 7 : lower.includes('tháng') ? 30 : 1;
+    // Trích xuất ngữ cảnh từ các lượt hội thoại trước (Multi-turn Memory)
+    const prevUserMsgs = (Array.isArray(history) ? history : [])
+      .filter(m => m && m.role === 'user' && m.content !== userQuestion)
+      .map(m => String(m.content || ''));
+    const prevAssistantMsgs = (Array.isArray(history) ? history : [])
+      .filter(m => m && m.role === 'assistant')
+      .map(m => String(m.content || ''));
+    const lastContextText = [...prevUserMsgs.slice(-2), ...prevAssistantMsgs.slice(-1)].join(' ');
+    const normHistory = normalizeVi(lastContextText);
+
+    // Nhận diện câu hỏi tiếp nối ngắn (ví dụ: "còn 7 ngày qua thì sao?", "thế còn tháng này?", "còn K9?")
+    const isFollowUpTime = /^(?:con|the con|vay con|xem|neu)\s+.*(?:ngay|tuan|thang|hom qua|quy)/i.test(norm);
+    const isFollowUpProduct = /^(?:con|the con|vay con|kiem tra)\s+.*(?:p01|k9|m3|p185|g1)/i.test(norm);
+
+    // A. Doanh thu & Tổng quan kinh doanh
+    if (
+      norm.includes('doanh thu') || norm.includes('tong quan') || norm.includes('ban duoc bao nhieu') ||
+      norm.includes('hom nay the nao') || norm.includes('bao cao') || norm.includes('tinh hinh kinh doanh') ||
+      norm.includes('ket qua kinh doanh') || norm.includes('doanh so') ||
+      (isFollowUpTime && (normHistory.includes('doanh thu') || normHistory.includes('kinh doanh')))
+    ) {
+      const days = parseFlexibleDays(userQuestion);
       const overview = await toolGetBusinessOverview({ days }, user);
       toolResults.push({ tool: 'get_business_overview', data: overview });
     }
 
-    if (lower.includes('đơn hàng') || lower.includes('tra cứu đơn') || lower.includes('chờ xử lý') || lower.includes('gae-') || /\b0\d{9}\b/.test(lower)) {
-      const status = lower.includes('chờ') ? 'pending' : lower.includes('đang giao') ? 'shipped' : lower.includes('hoàn thành') ? 'completed' : '';
+    // B. Tra cứu Đơn hàng
+    if (
+      norm.includes('don hang') || norm.includes('tra cuu don') || norm.includes('cho xu ly') ||
+      norm.includes('cho xac nhan') || norm.includes('gae-') || /\b0\d{9}\b/.test(lower) ||
+      norm.includes('don moi') || norm.includes('don chua thanh toan') || norm.includes('don huy')
+    ) {
+      const status = (norm.includes('cho') || norm.includes('pending') || norm.includes('moi')) ? 'pending'
+        : (norm.includes('dang dong goi') || norm.includes('processing')) ? 'processing'
+        : (norm.includes('dang giao') || norm.includes('shipped')) ? 'shipped'
+        : (norm.includes('hoan thanh') || norm.includes('completed')) ? 'completed'
+        : (norm.includes('da huy') || norm.includes('don huy') || norm.includes('cancelled')) ? 'cancelled' : '';
       const orderMatch = lower.match(/gae-[a-z0-9-]+/i);
       const phoneMatch = lower.match(/\b0\d{9}\b/);
       const kw = orderMatch ? orderMatch[0] : phoneMatch ? phoneMatch[0] : '';
-      const orders = await toolQueryOrders({ keyword: kw, status, limit: 5 });
+      const orders = await toolQueryOrders({ keyword: kw, status, limit: 6 });
       toolResults.push({ tool: 'query_orders', data: orders });
     }
 
-    if (lower.includes('tồn kho') || lower.includes('hết hàng') || lower.includes('sắp hết') || lower.includes('kho hàng') || lower.includes('p01') || lower.includes('k9') || lower.includes('m3')) {
-      const lowStockOnly = lower.includes('hết') || lower.includes('sắp hết') || lower.includes('cảnh báo');
-      const kw = lower.includes('p01') ? 'P01' : lower.includes('k9') ? 'K9' : lower.includes('m3') ? 'M3' : '';
+    // C. Kiểm tra Tồn kho & Sản phẩm
+    if (
+      norm.includes('ton kho') || norm.includes('het hang') || norm.includes('sap het') ||
+      norm.includes('kho hang') || norm.includes('con bao nhieu') || norm.includes('so luong kho') ||
+      norm.includes('p01') || norm.includes('k9') || norm.includes('m3') || norm.includes('p185') || norm.includes('g1') ||
+      (isFollowUpProduct && normHistory.includes('ton kho'))
+    ) {
+      const lowStockOnly = (norm.includes('het') || norm.includes('sap het') || norm.includes('canh bao') || norm.includes('thap')) &&
+                           !norm.includes('p01') && !norm.includes('k9') && !norm.includes('m3') && !norm.includes('p185') && !norm.includes('g1');
+      const kw = norm.includes('p01') ? 'P01'
+        : norm.includes('k9') ? 'K9'
+        : norm.includes('m3') ? 'M3'
+        : norm.includes('p185') ? 'P185'
+        : norm.includes('g1') ? 'G1' : '';
       const stock = await toolCheckInventory({ keyword: kw, lowStockOnly });
       toolResults.push({ tool: 'check_inventory', data: stock });
     }
 
-    if (lower.includes('vận đơn') || lower.includes('viettel') || lower.includes('giao hàng') || lower.includes('vận chuyển') || lower.includes('lộ trình')) {
-      const orderMatch = lower.match(/gae-[a-z0-9-]+/i);
-      const shipping = await toolQueryShipping({ orderNumber: orderMatch ? orderMatch[0] : '' });
+    // D. Vận đơn & Lộ trình giao hàng
+    if (norm.includes('van don') || norm.includes('viettel') || norm.includes('giao hang') || norm.includes('van chuyen') || norm.includes('lo trinh') || norm.includes('buu cuc')) {
+      const orderMatch = lower.match(/gae-[a-z0-9-]+/i) || lastContextText.match(/gae-[a-z0-9-]+/i);
+      const isSpecificOrderRef = Boolean(lower.match(/gae-[a-z0-9-]+/i)) || (/(?:don nay|don do|ma nay)/i.test(norm) && Boolean(orderMatch));
+      const shipping = await toolQueryShipping({ orderNumber: isSpecificOrderRef && orderMatch ? orderMatch[0] : '' });
       toolResults.push({ tool: 'query_shipping', data: shipping });
     }
 
-    if (lower.includes('hệ thống') || lower.includes('máy chủ') || lower.includes('server') || lower.includes('cluster') || lower.includes('bảo mật') || lower.includes('cpu') || lower.includes('ram')) {
+    // E. Lưu lượng truy cập Website (Traffic & Online Visitors)
+    if (norm.includes('truy cap') || norm.includes('traffic') || norm.includes('luot xem') || norm.includes('pageview') || norm.includes('khach online') || norm.includes('dang online') || norm.includes('ghe tham')) {
+      const traffic = await toolGetTrafficAnalytics();
+      toolResults.push({ tool: 'get_traffic_analytics', data: traffic });
+    }
+
+    // F. Chương trình Khuyến mãi & Danh sách Voucher
+    if (
+      (norm.includes('khuyen mai') || norm.includes('voucher') || norm.includes('ma giam gia') || norm.includes('chien dich') || norm.includes('flash sale')) &&
+      !/(?:tao|lap|them|phat hanh|huy|dung|tat|xoa|go)/.test(norm)
+    ) {
+      const mkt = await toolGetMarketingOverview();
+      toolResults.push({ tool: 'get_marketing_overview', data: mkt });
+    }
+
+    // G. Chăm sóc khách hàng, Tin nhắn chờ & Bảo hành / Đổi trả
+    if (norm.includes('cskh') || norm.includes('tin nhan khach') || norm.includes('chat khach') || norm.includes('bao hanh') || norm.includes('doi tra') || norm.includes('hau mai') || norm.includes('khieu nai')) {
+      const care = await toolGetCustomerCareOverview();
+      toolResults.push({ tool: 'get_customer_care', data: care });
+    }
+
+    // H. Sức khỏe Hệ thống & Hạ tầng Máy chủ
+    if (norm.includes('he thong') || norm.includes('may chu') || norm.includes('server') || norm.includes('cluster') || norm.includes('bao mat') || norm.includes('cpu') || norm.includes('ram') || norm.includes('waf')) {
       const sys = await toolCheckSystemHealth();
       toolResults.push({ tool: 'check_system_health', data: sys });
     }
 
-    if (lower.includes('tự học') || lower.includes('học hỏi') || lower.includes('tri thức') || lower.includes('learned') || lower.includes('khách hàng hỏi gì') || lower.includes('kiến thức')) {
+    // I. Tri thức Tự học (Self-Learning Knowledge)
+    if (norm.includes('tu hoc') || norm.includes('hoc hoi') || norm.includes('tri thuc') || norm.includes('learned') || norm.includes('khach hang hoi gi') || norm.includes('kien thuc')) {
       try {
         const { getLearnedKnowledgeStats } = require('./ai-self-learning');
         const learned = await getLearnedKnowledgeStats(pool);
@@ -318,8 +475,9 @@ Quy tắc cốt lõi:
       } catch (_) {}
     }
 
-    // Tìm kiếm đơn hàng trong câu hỏi nếu có
-    const orderCodeMatch = userQuestion.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i);
+    // Tìm kiếm đơn hàng trong câu hỏi hiện tại hoặc tham chiếu từ câu trước ("đơn này", "đơn đó")
+    const orderCodeMatch = userQuestion.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i) ||
+                           ((/(?:don nay|don do|don vua roi)/i.test(norm)) ? lastContextText.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i) : null);
     let matchedOrder = null;
     if (orderCodeMatch) {
       try {
@@ -512,13 +670,56 @@ Quy tắc cốt lõi:
     };
   }
 
-  // Bộ tổng hợp deterministic phản hồi nhanh khi không có API key
+  // Bộ tổng hợp phản hồi thông minh, tự nhiên và giàu ngữ cảnh điều hành của GAERU AI
   function synthesizeDeterministicResponse(question, toolResults, actionCard, user) {
-    let out = `### 🤖 Báo cáo từ GAERU AI\n\n`;
+    const norm = normalizeVi(question);
+    const userTitle = user?.isOwner ? 'Chủ doanh nghiệp (CEO)' : (user?.username || 'Quản trị viên');
+    const statusLabelMap = {
+      pending: '⏳ Chờ xác nhận',
+      confirmed: '✅ Đã xác nhận',
+      processing: '📦 Đang đóng gói',
+      shipped: '🚚 Đang giao hàng',
+      completed: '🎉 Hoàn thành',
+      cancelled: '❌ Đã hủy'
+    };
+    const payLabelMap = {
+      paid: 'Đã thanh toán',
+      pending: 'Chờ thanh toán',
+      refunded: 'Đã hoàn tiền',
+      failed: 'Thất bại'
+    };
 
     const overview = toolResults.find(t => t.tool === 'get_business_overview')?.data;
+    const ordersTool = toolResults.find(t => t.tool === 'query_orders');
+    const orders = ordersTool?.data;
+    const shippingTool = toolResults.find(t => t.tool === 'query_shipping');
+    const shipping = shippingTool?.data;
+    const inventoryTool = toolResults.find(t => t.tool === 'check_inventory');
+    const inventory = inventoryTool?.data;
+    const traffic = toolResults.find(t => t.tool === 'get_traffic_analytics')?.data;
+    const marketing = toolResults.find(t => t.tool === 'get_marketing_overview')?.data;
+    const care = toolResults.find(t => t.tool === 'get_customer_care')?.data;
+    const sys = toolResults.find(t => t.tool === 'check_system_health')?.data;
+    const learned = toolResults.find(t => t.tool === 'get_learned_knowledge')?.data;
+
+    let out = '';
+
+    // 1. Tổng hợp Tình hình Kinh doanh & Doanh thu với lời dẫn tự nhiên
     if (overview) {
-      out += `#### 📊 Tình hình Kinh doanh (${overview.periodDays} ngày qua)\n`;
+      const periodText = overview.periodDays === 1 ? 'hôm nay (24 giờ qua)' : `${overview.periodDays} ngày qua`;
+      out += `### 📊 Báo cáo Điều hành Kinh doanh (${periodText})\n\n`;
+      if (overview.totalOrders > 0) {
+        const revSentence = overview.revenue?.paidFormatted
+          ? `, mang về **Doanh thu thực thu ${overview.revenue.paidFormatted}** (Tổng giá trị đơn hàng: **${overview.revenue.grossFormatted}**)`
+          : '';
+        out += `Chào **${userTitle}**, trong ${periodText} hệ thống GAERU ghi nhận **${overview.totalOrders} đơn hàng**${revSentence}. Dưới đây là chi tiết tiến độ vận hành:\n\n`;
+      } else {
+        const revSentence = overview.revenue?.paidFormatted
+          ? ` Doanh thu thực thu hiện tại là **${overview.revenue.paidFormatted}** (Tổng giá trị đơn: ${overview.revenue.grossFormatted}).`
+          : '';
+        out += `Chào **${userTitle}**, tính trong ${periodText} hiện chưa có đơn hàng mới nào phát sinh.${revSentence} Toàn bộ cổng thanh toán và hệ thống đón khách vẫn đang trực tuyến ổn định:\n\n`;
+      }
+
       out += `- **Tổng đơn hàng ghi nhận:** **${overview.totalOrders}** đơn\n`;
       out += `- **Đơn chờ xác nhận (Pending):** ${overview.pendingOrders} đơn\n`;
       out += `- **Đơn đang đóng gói (Processing):** ${overview.processingOrders} đơn\n`;
@@ -527,99 +728,190 @@ Quy tắc cốt lõi:
       out += `- **Khách hàng mới đăng ký:** ${overview.newCustomers} người\n`;
       if (overview.revenue && overview.revenue.paidFormatted) {
         out += `- **Doanh thu thực thu:** **${overview.revenue.paidFormatted}** (Tổng giá trị đơn: ${overview.revenue.grossFormatted})\n`;
+      } else if (overview.revenue && overview.revenue.note) {
+        out += `- **Doanh thu:** *${overview.revenue.note}*\n`;
+      }
+
+      // Gợi ý điều hành chủ động dựa trên số liệu thực
+      if (overview.pendingOrders > 0) {
+        out += `\n> 💡 **Gợi ý điều hành:** Hiện có **${overview.pendingOrders} đơn hàng đang chờ xác nhận**. Bạn có thể nhắn *"Đơn hàng đang chờ xử lý"* để kiểm tra và duyệt đơn ngay.\n`;
       }
       out += `\n`;
     }
 
-    const ordersTool = toolResults.find(t => t.tool === 'query_orders');
-    const orders = ordersTool?.data;
-    const shippingTool = toolResults.find(t => t.tool === 'query_shipping');
-    const shipping = shippingTool?.data;
-
+    // 2. Danh sách & Tra cứu Đơn hàng
     if (orders && orders.length) {
-      out += `#### 📦 Danh sách đơn hàng phù hợp:\n`;
+      if (!out) out += `### 📦 Kết quả Tra cứu Đơn hàng\n\n`;
+      else out += `#### 📦 Danh sách đơn hàng phù hợp (${orders.length} đơn gần nhất):\n`;
       out += `| Mã đơn | Khách hàng | SĐT | Trạng thái | Thanh toán | Tổng tiền |\n`;
-      out += `|:---|:---|:---|:---:|:---:|---:|\n`;
+      out += `|:---|:---|:---|:---|:---|---:|\n`;
       for (const o of orders) {
-        out += `| **${o.orderNumber}** | ${o.customerName} | ${o.phone} | \`${o.status}\` | \`${o.paymentStatus}\` | ${o.totalFormatted} |\n`;
+        out += `| **${o.orderNumber}** | ${o.customerName} | ${o.phone} | ${statusLabelMap[o.status] || o.status} | ${payLabelMap[o.paymentStatus] || o.paymentStatus} | **${o.totalFormatted}** |\n`;
+      }
+      const firstPending = orders.find(o => o.status === 'pending');
+      if (firstPending && !actionCard) {
+        out += `\n> 💡 *Mẹo nhanh: Nhắn \`Duyệt đơn ${firstPending.orderNumber}\` hoặc \`Hủy đơn ${firstPending.orderNumber}\` để tôi tạo thẻ thao tác nhanh cho bạn.*\n`;
       }
       out += `\n`;
     } else if (ordersTool && Array.isArray(orders) && orders.length === 0 && !overview && !shippingTool) {
-      out += `#### 📦 Tra cứu Đơn hàng:\n`;
-      out += `- Hiện tại **không có đơn hàng nào** đang ở trạng thái chờ xử lý hoặc khớp với điều kiện tra cứu. Tất cả đơn hàng đã được xử lý hoàn tất! ✅\n\n`;
+      out += `### 📦 Tra cứu Đơn hàng\n\n`;
+      out += `Hiện tại hệ thống **không có đơn hàng nào** đang ở trạng thái chờ xử lý hoặc khớp với điều kiện bạn vừa tìm kiếm. Tất cả các đơn hàng trước đó đều đã được giải quyết gọn gàng! ✅\n\n`;
     }
 
+    // 3. Lộ trình Vận chuyển & Vận đơn
     if (shipping) {
+      if (!out) out += `### 🚚 Báo cáo Lộ trình Vận chuyển\n\n`;
       if (shipping.error) {
         out += `#### 🚚 Tra cứu Vận chuyển:\n`;
-        out += `- ⚠️ ${shipping.error}\n\n`;
+        out += `- ⚠️ ${shipping.error}. Bạn vui lòng kiểm tra lại mã đơn (dạng \`GAE-xxxxxx\`) nhé.\n\n`;
       } else if (shipping.shipment && shipping.order) {
-        out += `#### 🚚 Thông tin Vận đơn (${shipping.order.orderNumber}):\n`;
-        out += `- **Đơn vị vận chuyển:** ${shipping.shipment.carrier}\n`;
+        out += `#### 🚚 Thông tin Vận đơn chi tiết (${shipping.order.orderNumber}):\n`;
+        out += `- **Đơn vị vận chuyển:** **${shipping.shipment.carrier}**\n`;
         out += `- **Mã vận đơn:** \`${shipping.shipment.trackingNumber}\`\n`;
-        out += `- **Trạng thái vận chuyển:** \`${shipping.shipment.status}\`\n`;
-        out += `- **Khách hàng:** ${shipping.order.customerName} (${shipping.order.phone})\n\n`;
+        out += `- **Trạng thái vận chuyển:** ${statusLabelMap[shipping.shipment.status] || shipping.shipment.status}\n`;
+        out += `- **Người nhận:** ${shipping.order.customerName} (${shipping.order.phone}) — ${shipping.order.address ? shipping.order.address + ', ' : ''}${shipping.order.city || ''}\n\n`;
       } else if (Array.isArray(shipping.shipments)) {
-        out += `#### 🚚 Lộ trình Vận chuyển & Vận đơn:\n`;
         if (shipping.shipments.length > 0) {
-          out += `| Mã đơn | Khách hàng | Đơn vị VC | Mã vận đơn | Trạng thái |\n`;
-          out += `|:---|:---|:---|:---|:---:|\n`;
+          out += `Hiện có **${shipping.shipments.length} đơn hàng** đang trong luồng điều phối giao vận:\n\n`;
+          out += `| Mã đơn | Khách hàng | Khu vực | Đơn vị VC | Mã vận đơn | Trạng thái |\n`;
+          out += `|:---|:---|:---|:---|:---|:---|\n`;
           for (const s of shipping.shipments) {
-            out += `| **${s.orderNumber}** | ${s.customerName} | ${s.carrier} | \`${s.trackingNumber}\` | \`${s.shipmentStatus}\` |\n`;
+            out += `| **${s.orderNumber}** | ${s.customerName} | ${s.city || '—'} | ${s.carrier} | \`${s.trackingNumber}\` | ${statusLabelMap[s.shipmentStatus] || s.shipmentStatus} |\n`;
           }
           out += `\n`;
         } else {
-          out += `- Hiện tại **không có đơn hàng nào đang trong lộ trình vận chuyển** hoặc chờ bưu cục Viettel Post lấy hàng. ✅\n\n`;
+          out += `Hiện tại **không có đơn hàng nào đang tồn đọng trên lộ trình vận chuyển** hoặc chờ bưu cục Viettel Post lấy hàng. Mọi vận đơn trước đó đều đã hoàn tất! ✅\n\n`;
         }
       }
     }
 
-    const inventoryTool = toolResults.find(t => t.tool === 'check_inventory');
-    const inventory = inventoryTool?.data;
+    // 4. Báo cáo Tồn kho & Sản phẩm
     if (inventory && inventory.length) {
-      out += `#### 📋 Báo cáo Tồn kho:\n`;
-      out += `| Sản phẩm | Biến thể | SKU | Tồn kho | Tình trạng |\n`;
-      out += `|:---|:---|:---|:---:|:---:|\n`;
+      if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
+      else out += `#### 📋 Báo cáo Tồn kho chi tiết:\n`;
+      const lowItems = inventory.filter(i => i.isLowStock);
+      if (lowItems.length > 0) {
+        out += `Phát hiện **${lowItems.length} phân loại sản phẩm** đang ở mức tồn kho thấp (≤ 5 sản phẩm) cần lưu ý:\n\n`;
+      } else {
+        out += `Tất cả **${inventory.length} phân loại sản phẩm** tra cứu đều đang có lượng tồn kho dồi dào, sẵn sàng phục vụ đơn mới:\n\n`;
+      }
+      out += `| Sản phẩm | Biến thể | SKU | Giá bán | Tồn kho | Tình trạng |\n`;
+      out += `|:---|:---|:---|---:|:---:|:---|\n`;
       for (const it of inventory) {
-        out += `| ${it.productName} | ${it.variantName} | \`${it.sku}\` | **${it.stockQuantity}** | ${it.isLowStock ? '⚠️ ' + it.stockStatus : '✅ ' + it.stockStatus} |\n`;
+        out += `| **${it.productName}** | ${it.variantName} | \`${it.sku}\` | ${it.priceFormatted} | **${it.stockQuantity}** | ${it.isLowStock ? '⚠️ ' + it.stockStatus : '✅ ' + it.stockStatus} |\n`;
       }
       out += `\n`;
     } else if (inventoryTool && Array.isArray(inventory) && inventory.length === 0) {
-      out += `#### 📋 Báo cáo Tồn kho:\n`;
-      out += `- Hiện tại **không có sản phẩm nào sắp hết hàng** (tất cả mặt hàng đều đảm bảo định mức tồn kho an toàn > 5 sản phẩm). ✅\n\n`;
+      if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
+      else out += `#### 📋 Báo cáo Tồn kho:\n`;
+      out += `Tin vui! Hiện tại **không có sản phẩm nào sắp hết hàng**. Toàn bộ các mẫu micro và thiết bị thu âm trong kho đều đảm bảo định mức an toàn (> 5 sản phẩm/SKU). ✅\n\n`;
     }
 
-    const sys = toolResults.find(t => t.tool === 'check_system_health')?.data;
+    // 5. Lưu lượng Truy cập Website (Traffic)
+    if (traffic) {
+      if (!out) out += `### 📈 Thống kê Lưu lượng Truy cập Storefront\n\n`;
+      else out += `#### 📈 Lưu lượng Truy cập Storefront:\n`;
+      out += `- **Khách đang trực tuyến (15 phút qua):** **${traffic.activeNow}** người đang xem web 🟢\n`;
+      out += `- **Lượt xem trang hôm nay (Pageviews):** **${new Intl.NumberFormat('vi-VN').format(traffic.todayPageviews)}** lượt\n`;
+      out += `- **Khách truy cập hôm nay (Unique Visitors):** **${new Intl.NumberFormat('vi-VN').format(traffic.todayVisitors)}** khách\n`;
+      out += `- **Tổng lượt xem tích lũy toàn hệ thống:** **${new Intl.NumberFormat('vi-VN').format(traffic.totalPageviews)}** lượt\n\n`;
+    }
+
+    // 6. Chương trình Khuyến mãi & Voucher
+    if (marketing) {
+      if (!out) out += `### 🎁 Tổng quan Khuyến mãi & Mã Giảm giá\n\n`;
+      else out += `#### 🎁 Chương trình Khuyến mãi & Voucher:\n`;
+      if (marketing.vouchers && marketing.vouchers.length > 0) {
+        out += `| Mã Voucher | Chương trình | Mức giảm | Đơn tối thiểu | Trạng thái |\n`;
+        out += `|:---|:---|:---:|---:|:---:|\n`;
+        for (const v of marketing.vouchers) {
+          out += `| \`${v.code}\` | ${v.title} | **${v.discountFormatted}** | ${v.minSpendFormatted} | ${v.active ? '🟢 Đang bật' : '⚪ Tạm tắt'} |\n`;
+        }
+        out += `\n`;
+      } else {
+        out += `- Hiện chưa có mã giảm giá nào trong danh sách. Bạn có thể nhắn *"Tạo mã giảm giá SALE50K giảm 50000đ"* để tôi khởi tạo ngay!\n\n`;
+      }
+    }
+
+    // 7. Tình hình CSKH & Bảo hành / Đổi trả
+    if (care) {
+      if (!out) out += `### 💬 Tình hình Chăm sóc Khách hàng & Hậu mãi\n\n`;
+      else out += `#### 💬 Chăm sóc Khách hàng & Hậu mãi:\n`;
+      out += `- **Hội thoại tư vấn đang mở:** **${care.openChats}** cuộc trò chuyện (${care.awaitingAdminChats > 0 ? `⚠️ **${care.awaitingAdminChats}** hội thoại đang chờ nhân viên phản hồi` : '✅ 0 hội thoại chờ — GAERU AI đã phản hồi đầy đủ'})\n`;
+      out += `- **Hồ sơ đổi trả / hậu mãi đang xử lý:** **${care.pendingReturns}** hồ sơ\n`;
+      out += `- **Tổng thiết bị đã kích hoạt bảo hành điện tử:** **${care.activeWarranties}** thiết bị\n\n`;
+    }
+
+    // 8. Sức khỏe Hệ thống & Hạ tầng
     if (sys) {
-      out += `#### 🛡️ Sức khỏe Hệ thống & Hạ tầng:\n`;
-      out += `- **Chế độ máy chủ:** ${sys.clusterMode}\n`;
-      out += `- **Thời gian hoạt động (Uptime):** ${Math.round(sys.uptimeSeconds / 60)} phút\n`;
-      out += `- **Bộ nhớ RSS:** ${sys.memoryRssMb} MB (Heap used: ${sys.heapUsedMb} MB)\n`;
-      out += `- **Mối đe dọa WAF đã chặn:** ${sys.threatsBlocked} cuộc tấn công\n\n`;
+      if (!out) out += `### 🛡️ Báo cáo Sức khỏe Hệ thống & An ninh\n\n`;
+      else out += `#### 🛡️ Sức khỏe Hệ thống & Hạ tầng:\n`;
+      out += `Hệ thống máy chủ GAERU đang vận hành ở trạng thái **tối ưu (${sys.status.toUpperCase()})**:\n\n`;
+      out += `- **Kiến trúc vận hành:** ${sys.clusterMode}\n`;
+      out += `- **Thời gian hoạt động liên tục (Uptime):** ${Math.max(1, Math.round(sys.uptimeSeconds / 60))} phút\n`;
+      out += `- **Tài nguyên bộ nhớ:** RSS **${sys.memoryRssMb} MB** (Heap đang dùng: **${sys.heapUsedMb} MB**)\n`;
+      out += `- **Độ trễ Cơ sở dữ liệu (PostgreSQL):** **${sys.dbLatencyMs} ms**\n`;
+      out += `- **Tường lửa WAF & Chống Bot:** Đã chặn đứng **${sys.threatsBlocked}** cuộc tấn công/truy cập bất thường\n\n`;
     }
 
-    const learned = toolResults.find(t => t.tool === 'get_learned_knowledge')?.data;
+    // 9. Tri thức Tự học (Self-Learning)
     if (learned) {
-      out += `#### 🧠 Tri Thức Tự Học từ Hội Thoại (Autonomous Continuous Learning):\n`;
-      out += `- **Tổng số tri thức đã tích lũy:** **${learned.stats?.total || 0}** bài học\n`;
-      out += `- **Đang kích hoạt phục vụ khách:** **${learned.stats?.active_count || 0}** bài\n`;
-      out += `- **Tổng lượt tương tác học hỏi:** **${learned.stats?.total_interactions || 0}** lượt\n`;
-      out += `- **Độ tin cậy trung bình:** **${Math.round((learned.stats?.avg_confidence || 0.85) * 100)}%**\n`;
+      if (!out) out += `### 🧠 Báo cáo Tri thức Tự học (Autonomous Learning)\n\n`;
+      else out += `#### 🧠 Tri Thức Tự Học từ Hội Thoại:\n`;
+      const counts = learned.stats || learned.counts || {};
+      out += `- **Tổng số tri thức đã tích lũy:** **${counts.total || 0}** bài học nghiệp vụ\n`;
+      out += `- **Đang kích hoạt phục vụ khách hàng:** **${counts.active_count || 0}** bài\n`;
+      out += `- **Tổng lượt tương tác đã học hỏi:** **${counts.total_interactions || 0}** lượt\n`;
+      out += `- **Độ tin cậy trung bình:** **${Math.round((counts.avg_confidence || 0.85) * 100)}%**\n`;
       if (learned.topEntries && learned.topEntries.length) {
-        out += `\n**Top tri thức đúc kết gần đây:**\n`;
+        out += `\n**Các chủ đề khách hàng quan tâm nhiều nhất:**\n`;
         for (const e of learned.topEntries.slice(0, 5)) {
-          out += `- **${e.topic}** (Từ khóa: \`${(e.triggers || []).slice(0, 3).join(', ')}\`) · Lặp lại: ${e.occurrence_count} lần · Tin cậy: ${Math.round(e.confidence_score * 100)}%\n`;
+          out += `- **${e.topic}** (Từ khóa: \`${(e.triggers || []).slice(0, 3).join(', ')}\`) · Tần suất: ${e.occurrence_count} lần · Tin cậy: ${Math.round(e.confidence_score * 100)}%\n`;
         }
       }
       out += `\n`;
     }
 
+    // 10. Thẻ hành động quản trị (Action Card)
     if (actionCard) {
-      out += `> 💡 **Đề xuất thao tác:** Tôi đã tạo thẻ hành động phía dưới. Vui lòng bấm **[Xác nhận]** để hệ thống chính thức áp dụng.\n\n`;
+      if (!out) out += `### ⚡ Đề xuất Thao tác Quản trị\n\n`;
+      out += `> 💡 **Xác nhận thao tác:** Tôi đã chuẩn bị sẵn thẻ hành động **${actionCard.title}** phía dưới theo yêu cầu của bạn. Vui lòng kiểm tra thông tin và bấm **[✓ Xác nhận thực hiện]** để hệ thống chính thức áp dụng.\n\n`;
     }
 
-    if (!toolResults.length) {
-      out += `Tôi đã ghi nhận yêu cầu: *"${question}"*. Hệ thống GAERU AI luôn sẵn sàng hỗ trợ bạn quản lý doanh thu, tra cứu đơn hàng, kiểm tra tồn kho và tự động hóa quy trình quản trị. Bạn có thể chọn các câu hỏi nhanh bên dưới!`;
+    // 11. Xử lý linh hoạt các yêu cầu Soạn thảo nội dung, Tư vấn chiến lược hoặc Chào hỏi tự nhiên khi không gọi Tool cứng
+    if (!toolResults.length && !actionCard) {
+      if (/^(?:xin chao|chao|hello|hi|alo|ban la ai|giup gi|co the lam gi)/i.test(norm)) {
+        out += `### 👋 Xin chào ${userTitle}! Tôi là GAERU AI\n\n`;
+        out += `Tôi là Trợ lý Điều hành Doanh nghiệp thông minh hoạt động 24/7 của GAERU. Bạn có thể trò chuyện tự nhiên với tôi để:\n\n`;
+        out += `1. 📊 **Phân tích Doanh thu & Traffic:** *"Doanh thu hôm nay thế nào?"*, *"Báo cáo 7 ngày qua"*, *"Có bao nhiêu khách đang online?"*\n`;
+        out += `2. 📦 **Điều phối Đơn hàng & Vận đơn:** *"Đơn hàng đang chờ xử lý"*, *"Lộ trình vận chuyển"*, *"Duyệt đơn GAE-..."*\n`;
+        out += `3. 📋 **Kiểm soát Tồn kho:** *"Cảnh báo tồn kho thấp"*, *"Kiểm tra kho P01, K9, M3"*\n`;
+        out += `4. 🎫 **Tự động hóa Khuyến mãi:** *"Tạo mã giảm giá VIP50K giảm 50k"*, *"Danh sách voucher đang chạy"*\n`;
+        out += `5. ✍️ **Soạn thảo Nội dung & CSKH:** *"Viết mẫu tin nhắn xin lỗi khách giao trễ"*, *"Soạn bài đăng giới thiệu GAERU P01"*\n\n`;
+        out += `Bạn muốn tôi kiểm tra số liệu hay thực hiện tác vụ nào ngay bây giờ?`;
+      } else if (norm.includes('viet') || norm.includes('soan') || norm.includes('mau tin nhan') || norm.includes('caption') || norm.includes('kich ban') || norm.includes('xin loi khach')) {
+        out += `### ✍️ Đề xuất Nội dung Soạn thảo từ GAERU AI\n\n`;
+        if (norm.includes('xin loi') || norm.includes('giao tre') || norm.includes('cham')) {
+          out += `Dưới đây là mẫu phản hồi chăm sóc khách hàng chuyên nghiệp, tận tâm mà bạn có thể gửi ngay:\n\n`;
+          out += `> *"Chào anh/chị ạ, GAERU thành thật xin lỗi anh/chị vì sự chậm trễ trong quá trình giao đơn hàng lần này. Hiện bộ phận Điều vận của GAERU đã làm việc trực tiếp với bưu cục Viettel Post để ưu tiên phát hàng sớm nhất tới mình. Để bày tỏ thiện chí, GAERU xin gửi tặng anh/chị mã ưu đãi giảm giá cho lần mua tiếp theo. Cảm ơn anh/chị đã luôn thông cảm và đồng hành cùng GAERU ạ!"*\n`;
+        } else {
+          out += `Dưới đây là bản thảo nội dung truyền thông chuẩn phong cách thương hiệu **GAERU** dành cho yêu cầu *"${question}"*:\n\n`;
+          out += `> **🎙️ THU ÂM CHUYÊN NGHIỆP MỌI LÚC MỌI NƠI CÙNG GAERU**\n>\n`;
+          out += `> Không còn nỗi lo tạp âm ngoài trời hay tiếng ồn gió khi quay TikTok, Livestream bán hàng!\n`;
+          out += `> - ✨ **Chip DSP & Khử ồn chủ động ANC 3 cấp độ:** Giữ trọn giọng nói ấm, trong trẻo.\n`;
+          out += `> - 🔋 **Pin bền bỉ tới 32 giờ kèm hộp sạc:** Thoải mái quay chụp cả ngày dài.\n`;
+          out += `> - 📱 **Cắm là chạy (Plug & Play):** Tương thích hoàn hảo iPhone 15/16, Lightning, Android & Laptop.\n`;
+          out += `> - 🛡️ **Bảo hành chính hãng 12 tháng — 1 đổi 1 trong 30 ngày — Freeship toàn quốc!**\n`;
+        }
+      } else {
+        out += `### 🤖 Phản hồi từ GAERU AI\n\n`;
+        out += `Tôi đã tiếp nhận câu hỏi của bạn: *"${question}"*.\n\n`;
+        out += `Để tôi cung cấp số liệu chính xác nhất từ cơ sở dữ liệu thời gian thực, bạn có thể nói rõ hơn nội dung cần tra cứu, ví dụ:\n`;
+        out += `- **Về doanh số:** *"Doanh thu hôm nay"* hoặc *"Báo cáo kinh doanh 7 ngày qua"*\n`;
+        out += `- **Về đơn hàng & vận chuyển:** *"Đơn hàng chờ xử lý"*, *"Lộ trình vận chuyển"* hoặc nhập mã đơn \`GAE-...\`\n`;
+        out += `- **Về kho hàng & website:** *"Cảnh báo tồn kho thấp"*, *"Tồn kho P01"*, *"Có mấy khách đang online?"*\n`;
+        out += `- **Về thao tác nhanh:** *"Tạo mã giảm giá SALE50K giảm 50000đ"*`;
+      }
     }
 
     return out;
