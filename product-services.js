@@ -92,35 +92,42 @@ function loadStylesheetOnce(href){if(document.querySelector(`link[href^="${href.
 function loadScriptOnce(src,check){
   if(check&&check())return Promise.resolve();
   return new Promise((resolve,reject)=>{
-    const existing=document.querySelector(`script[src^="${src.split('?')[0]}"]`);
-    if(existing){
-      if(check&&check())return resolve();
-      existing.addEventListener('load',()=>resolve(),{once:true});
-      existing.addEventListener('error',()=>reject(Error('Chưa tải được thành phần trang.')),{once:true});
-      const timer=setInterval(()=>{if(check&&check()){clearInterval(timer);resolve();}},50);
-      setTimeout(()=>clearInterval(timer),4000);
-      return;
+    const baseSrc=src.split('?')[0];
+    let s=document.querySelector(`script[src^="${baseSrc}"]`);
+    if(!s){
+      s=document.createElement('script');
+      s.src=src;
+      s.async=false;
+      document.head.append(s);
     }
-    const s=document.createElement('script');
-    s.src=src;
-    s.async=false;
-    s.onload=()=>resolve();
-    s.onerror=()=>reject(Error('Chưa tải được thành phần trang.'));
-    document.head.append(s);
+    if(check&&check())return resolve();
+    let checks=0;
+    const timer=setInterval(()=>{
+      checks++;
+      if(check&&check()){
+        clearInterval(timer);
+        resolve();
+      }else if(checks>80){
+        clearInterval(timer);
+        resolve();
+      }
+    },50);
+    s.addEventListener('load',()=>{if(check&&check()){clearInterval(timer);resolve();}},{once:true});
+    s.addEventListener('error',()=>{clearInterval(timer);reject(Error('Chưa tải được thành phần trang.'));},{once:true});
   });
 }
 async function ensureChatAssets(){
-  loadStylesheetOnce('/shopping-chat.css?v=20261109-v4');
+  loadStylesheetOnce('/shopping-chat.css?v=20261109-v5');
   if(!window.GAERUCareLive){
     await loadScriptOnce('/care-live.js?v=20261024-chat',()=>Boolean(window.GAERUCareLive)).catch(()=>{});
   }
   if(typeof window.GAERUChatClient?.mount==='function')return true;
-  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261109-v4',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
+  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261109-v5',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
   for(let i=0;i<40;i++){
     if(typeof window.GAERUChatClient?.mount==='function')return true;
     await new Promise(r=>setTimeout(r,50));
   }
-  if(typeof window.GAERUChatClient?.mount!=='function')throw Error('Hệ thống tư vấn đang bận. Vui lòng thử lại sau giây lát hoặc gọi 082 919 1080.');
+  if(typeof window.GAERUChatClient?.mount!=='function')throw Error('Hệ thống tư vấn đang kết nối. Vui lòng bấm thử lại hoặc gọi 082 919 1080.');
   return true;
 }
 function ensureCheckoutFlow(){if(window.GAERUCheckout)return Promise.resolve();return checkoutFlowPromise||=loadScriptOnce('/checkout-flow.js?v=20261026-ward-picker',()=>Boolean(window.GAERUCheckout)).catch(()=>{checkoutFlowPromise=null;});}
@@ -141,15 +148,20 @@ async function openChat(slug){
   const fit=()=>{if(!dialog.open)return;const viewport=window.visualViewport;dialog.style.setProperty('--chat-viewport-height',(viewport?.height||window.innerHeight)+'px');dialog.style.setProperty('--chat-viewport-top',(viewport?.offsetTop||0)+'px');const editing=dialog.contains(document.activeElement)&&document.activeElement.matches('textarea,input');dialog.classList.toggle('chat-keyboard-open',editing&&((viewport?.height||innerHeight)<window.innerHeight*.8||(viewport?.height||innerHeight)<500));};
   if(!dialog.dataset.viewportBound){dialog.dataset.viewportBound='true';window.visualViewport?.addEventListener('resize',fit);window.visualViewport?.addEventListener('scroll',fit);window.addEventListener('resize',fit);dialog.addEventListener('focusin',fit);dialog.addEventListener('focusout',()=>requestAnimationFrame(fit));}fit();
   try{
-    const [,d]=await Promise.all([ensureChatAssets(),request('/api/shopping-chat/threads')]);
+    const [,d]=await Promise.all([ensureChatAssets(),request('/api/shopping-chat/threads').catch(()=>({threads:[]}))]);
     if(!dialog.open||version!==chatOpenVersion)return;
-    if(typeof window.GAERUChatClient?.mount!=='function')throw Error('Hệ thống tư vấn chưa sẵn sàng. Vui lòng bấm thử lại hoặc gọi hotline 082 919 1080.');
-    const existing=d.threads.find(t=>t.product_slug===slug&&t.status==='open');
+    if(!window.GAERUChatClient||typeof window.GAERUChatClient.mount!=='function')throw Error('Hệ thống tư vấn đang kết nối. Vui lòng bấm thử lại hoặc gọi hotline 082 919 1080.');
+    const threads=Array.isArray(d?.threads)?d.threads:[];
+    const existing=threads.find(t=>t.product_slug===slug&&t.status==='open');
     chat?.stop();
     chat=window.GAERUChatClient.mount(content,{base:'/api/shopping-chat/threads',request,id:existing?.id||null,productSlug:slug});
     fit();
   }
-  catch(e){if(dialog.open&&version===chatOpenVersion)content.innerHTML='<p role="status">'+h(e.message)+'</p>';}
+  catch(e){
+    if(dialog.open&&version===chatOpenVersion){
+      content.innerHTML='<div style="padding:28px 16px;text-align:center;"><p role="status" style="font-size:15px;color:#6e6e73;margin-bottom:18px;">'+h(e.message||'Chưa thể kết nối tư vấn lúc này.')+'</p><button type="button" class="button button-blue" onclick="openChat('+(slug?`'${h(slug)}'`:'null')+')" style="display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 22px;border-radius:999px;background:#0071e3;color:#fff;border:0;font-weight:600;font-size:14px;cursor:pointer;">Thử lại</button></div>';
+    }
+  }
 }
 
 document.addEventListener('click',async e=>{const save=e.target.closest('[data-save-product]'),chatButton=e.target.closest('[data-product-chat]');if(save){const feedback=save.parentElement.querySelector('[role=status]');try{const rows=saved(),slug=save.dataset.saveProduct,exists=rows.some(x=>x.slug===slug);if(!exists&&rows.length>=100)throw Error('Đã lưu tối đa 100 sản phẩm. Bỏ bớt sản phẩm trước khi lưu thêm.');localStorage.setItem(storage,JSON.stringify(exists?rows.filter(x=>x.slug!==slug):[...rows,{slug,variantId:document.querySelector('#product-variant')?.value||null}]));update();const msg=exists?'Đã bỏ lưu sản phẩm.':'Đã lưu sản phẩm trên trình duyệt này.';feedback.textContent=msg;if(window.GAERUNotify?.toast)window.GAERUNotify.toast(msg,exists?'info':'success');}catch(error){feedback.textContent=error.message;}}if(chatButton)try{await openChat(chatButton.dataset.productChat||null);}catch(error){if(window.GAERUNotify?.error)window.GAERUNotify.error(error.message);else window.alert(error.message);}});

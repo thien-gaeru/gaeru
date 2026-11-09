@@ -294,7 +294,7 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
     closeTimer = window.setTimeout(() => {
       panel.hidden = true;
       panelScrim.hidden = true;
-    }, 700);
+    }, 750);
   }
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
@@ -323,6 +323,7 @@ function openPanel(panel, trigger) {
   if (trigger.dataset.closeLabel) trigger.setAttribute("aria-label", trigger.dataset.closeLabel);
   panelScrim.hidden = false;
   panel.hidden = false;
+  void panel.offsetWidth;
   requestAnimationFrame(() => {
     panel.classList.add("is-open");
     panelScrim.classList.add("is-visible");
