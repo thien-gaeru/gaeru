@@ -958,15 +958,17 @@ Quy tắc cốt lõi:
     }
   });
 
-  // 3. Lấy chi tiết tin nhắn trong hội thoại
+  // 3. Lấy chi tiết tin nhắn trong hội thoại (Bảo mật F02: Chỉ chủ sở hữu hoặc Owner)
   router.get('/threads/:id', async (req, res, next) => {
     try {
       const threadId = req.params.id;
+      const userId = req.admin?.id || 'admin';
+      const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
       const thread = (await pool.query(`
         SELECT id, title, user_role AS "userRole", created_at AS "createdAt", updated_at AS "updatedAt"
         FROM internal_ai_threads
-        WHERE id = $1
-      `, [threadId])).rows[0];
+        WHERE id = $1 AND (user_id = $2 OR $3 = true)
+      `, [threadId, userId, isOwner])).rows[0];
 
       if (!thread) return res.status(404).json({ error: 'Không tìm thấy phiên hội thoại.' });
 
@@ -983,25 +985,40 @@ Quy tắc cốt lõi:
     }
   });
 
-  // 4. Xóa phiên hội thoại
+  // 4. Xóa phiên hội thoại (Bảo mật F02: Chỉ chủ sở hữu hoặc Owner)
   router.delete('/threads/:id', async (req, res, next) => {
     try {
       const threadId = req.params.id;
-      await pool.query(`DELETE FROM internal_ai_threads WHERE id = $1`, [threadId]);
+      const userId = req.admin?.id || 'admin';
+      const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
+      const delRes = await pool.query(`
+        DELETE FROM internal_ai_threads 
+        WHERE id = $1 AND (user_id = $2 OR $3 = true)
+      `, [threadId, userId, isOwner]);
+
+      if (!delRes.rowCount) {
+        return res.status(404).json({ error: 'Không tìm thấy phiên hội thoại để xóa.' });
+      }
       res.json({ success: true, message: 'Đã xóa phiên hội thoại.' });
     } catch (e) {
       next(e);
     }
   });
 
-  // 5. Gửi câu hỏi và chat với AI (Standard JSON)
+  // 5. Gửi câu hỏi và chat với AI (Standard JSON - Bảo mật F02: Phân quyền phiên)
   router.post('/threads/:id/chat', async (req, res, next) => {
     try {
       const threadId = req.params.id;
       const question = String(req.body?.question || '').trim();
       if (!question) return res.status(400).json({ error: 'Nội dung câu hỏi không được để trống.' });
 
-      const thread = (await pool.query(`SELECT id, title FROM internal_ai_threads WHERE id = $1`, [threadId])).rows[0];
+      const userId = req.admin?.id || 'admin';
+      const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
+      const thread = (await pool.query(`
+        SELECT id, title 
+        FROM internal_ai_threads 
+        WHERE id = $1 AND (user_id = $2 OR $3 = true)
+      `, [threadId, userId, isOwner])).rows[0];
       if (!thread) return res.status(404).json({ error: 'Không tìm thấy phiên hội thoại.' });
 
       // Lưu câu hỏi của user
@@ -1062,6 +1079,19 @@ Quy tắc cốt lõi:
       return res.status(400).send('Câu hỏi không được để trống');
     }
 
+    // Bảo mật F02: Xác thực quyền sở hữu thread trước khi stream
+    const userId = req.admin?.id || 'admin';
+    const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
+    const thread = (await pool.query(`
+      SELECT id, title 
+      FROM internal_ai_threads 
+      WHERE id = $1 AND (user_id = $2 OR $3 = true)
+    `, [threadId, userId, isOwner])).rows[0];
+
+    if (!thread) {
+      return res.status(404).send('Không tìm thấy phiên hội thoại hoặc không có quyền truy cập');
+    }
+
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -1090,13 +1120,14 @@ Quy tắc cốt lõi:
 
       sendEvent('tools', { toolResults: turnResult.toolResults });
 
-      // Phát từng từ mô phỏng streaming mượt mà
+      // Sửa F11: Phát đầy đủ 100% các từ qua sự kiện SSE token (theo nhóm 3 từ để mượt mà, không rơi từ)
       const words = turnResult.content.split(' ');
-      let buffer = '';
+      let chunk = '';
       for (let i = 0; i < words.length; i++) {
-        buffer += (i === 0 ? '' : ' ') + words[i];
-        if (i % 3 === 0 || i === words.length - 1) {
-          sendEvent('token', { text: words[i] + ' ' });
+        chunk += (chunk ? ' ' : '') + words[i];
+        if ((i + 1) % 3 === 0 || i === words.length - 1) {
+          sendEvent('token', { text: chunk + (i === words.length - 1 ? '' : ' ') });
+          chunk = '';
           await new Promise(r => setTimeout(r, 20));
         }
       }
@@ -1159,11 +1190,16 @@ Quy tắc cốt lõi:
         await withTransaction(pool, async (client) => {
           const ord = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.orderId])).rows[0];
           if (!ord) throw new Error('Không tìm thấy đơn hàng.');
-          if (ord.status === 'cancelled' || ord.status === 'completed') {
-            throw new Error(`Đơn hàng đang ở trạng thái ${ord.status}, không thể chuyển sang Giao hàng.`);
+          // F04: Chỉ cho phép xác nhận khi đơn đang ở trạng thái pending hoặc confirmed
+          if (ord.status !== 'pending' && ord.status !== 'confirmed') {
+            throw new Error(`Đơn hàng đang ở trạng thái "${ord.status}", không thể chuyển sang Đóng gói (processing).`);
           }
           await client.query("UPDATE orders SET status = 'processing', updated_at = now() WHERE id = $1", [p.orderId]);
         });
+        try {
+          const { invalidateTags } = require('./cache');
+          invalidateTags(['orders', `order:${p.orderId}`, 'stock']);
+        } catch (_) {}
         try {
           require('./realtime-sse').publishAdminEvent('order:update', {
             orderId: p.orderId,
@@ -1171,7 +1207,7 @@ Quy tắc cốt lõi:
             status: 'processing'
           });
         } catch (_) {}
-        result = { success: true, message: `Đã duyệt và chuyển đơn ${p.orderNumber} sang Giao hàng (processing) thành công! Tồn kho đã được đảm bảo.`, orderId: p.orderId, actionType: 'confirm_order' };
+        result = { success: true, message: `Đã duyệt và chuyển đơn ${p.orderNumber} sang Đóng gói (processing) thành công! Tồn kho đã được đảm bảo.`, orderId: p.orderId, actionType: 'confirm_order' };
       } else if (row.actionType === 'cancel_order') {
         const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
         if (!canManageOrders) {
@@ -1183,13 +1219,22 @@ Quy tắc cốt lõi:
         await withTransaction(pool, async (client) => {
           const ord = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.orderId])).rows[0];
           if (!ord) throw new Error('Không tìm thấy đơn hàng.');
-          if (ord.status === 'completed') throw new Error('Đơn hàng đã hoàn thành, không thể hủy.');
+          if (ord.status === 'completed') throw new Error('Đơn hàng đã hoàn thành thành công, không thể hủy.');
+          if (ord.status === 'shipped') throw new Error('Đơn hàng đã xuất kho và đang trên đường giao, không thể hủy qua trợ lý AI.');
+          if (ord.status === 'cancelled') throw new Error('Đơn hàng này vốn đã bị hủy trước đó.');
+          if (ord.payment_status === 'paid') {
+            throw new Error('Đơn hàng đã thanh toán. Để bảo vệ sổ sách kế toán, vui lòng xử lý hoàn tiền tại màn hình Quản lý đơn hàng trước khi hủy.');
+          }
           // Hủy vận đơn liên quan nếu có
           await client.query("UPDATE carrier_shipments SET status = 'cancelled', updated_at = now() WHERE order_id = $1 AND status != 'cancelled'", [p.orderId]);
-          // Hoàn kho
-          await releaseOrderStock(client, { orderId: p.orderId, actor: req.admin }).catch(() => {});
+          // Hoàn kho - F04: KHÔNG nuốt lỗi, bảo đảm hoàn kho thành công hoặc rollback transaction
+          await releaseOrderStock(client, { orderId: p.orderId, actor: req.admin });
           await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [p.orderId]);
         });
+        try {
+          const { invalidateTags } = require('./cache');
+          invalidateTags(['orders', `order:${p.orderId}`, 'stock']);
+        } catch (_) {}
         try {
           require('./realtime-sse').publishAdminEvent('order:update', {
             orderId: p.orderId,

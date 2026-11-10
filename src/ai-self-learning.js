@@ -42,6 +42,10 @@ function sanitizePii(text) {
     .replace(/\b\d{8,19}\b/g, '[SỐ_TÀI_KHOẢN_ĐÃ_ẨN]')
     // Mã vận đơn
     .replace(/\b(?:VTP|SPX|VNPOST|GHTK|GHN)[A-Z0-9]{8,18}\b/gi, '[MÃ_VẬN_ĐƠN]')
+    // Họ tên khách hàng qua nhãn
+    .replace(/(?:khách hàng|người nhận|chủ đơn)\s*:\s*[^\n,]+/gi, '[KHÁCH_HÀNG_ĐÃ_ẨN]')
+    // Địa chỉ giao hàng
+    .replace(/(?:địa chỉ(?:\s*giao hàng)?|địa chỉ nhận hàng)\s*:\s*[^\n]+/gi, '[ĐỊA_CHỈ_ĐÃ_ẨN]')
     // Chuẩn hóa khoảng trắng
     .replace(/\s+/g, ' ')
     .trim();
@@ -216,6 +220,13 @@ async function learnFromInteraction(pool, {
   // Lọc bỏ câu chào hỏi xã giao hoặc xác nhận ngắn
   const normQ = normalizeText(cleanQ);
   if (/^(alo|chao|hi|hello|ok|da|vang|cam on|roi|duoc|nhe)$/i.test(normQ)) return null;
+
+  // Bảo vệ Zero-Trust F10: Tuyệt đối không tự học từ các câu hỏi liên quan tới đơn hàng, mã vận đơn, thông tin cá nhân
+  const normBoth = normQ + ' ' + normalizeText(cleanA);
+  if (/\[(?:sdt|email|ma_don|so_tai_khoan|ma_van_don|khach_hang|dia_chi)_da_an\]|\[ma_don_hang\]|\[ma_van_don\]/i.test(cleanQ + ' ' + cleanA) ||
+      /(?:don hang|tra cuu don|van don|dia chi giao|phi ship cua don|hoan tien|huy don|chuyen khoan)/i.test(normBoth)) {
+    return null;
+  }
 
   const triggers = extractTriggers(cleanQ + ' ' + cleanA);
   // Cần ít nhất 1 từ khóa định danh cụ thể để tránh học tạp âm

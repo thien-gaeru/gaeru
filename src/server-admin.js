@@ -234,7 +234,7 @@ function createServerAdminRouter(config, pool) {
     res.json({ authenticated: false });
   });
 
-  // 5. Login: POST /server_admin/api/login
+  // 5. Login: POST /server_admin/api/login (F03: Đồng bộ mật khẩu DB & MFA trung tâm)
   router.post('/server_admin/api/login', loginLimiter, async (req, res) => {
     try {
       const { username, password } = req.body || {};
@@ -247,22 +247,31 @@ function createServerAdminRouter(config, pool) {
 
       let authorized = false;
       let adminRole = 'Server Administrator';
+      let securityKey = 'owner';
 
-      // Compare with config master admin
+      // 1. Lấy cấu hình bảo mật mới nhất từ DB qua accountSecurity (nếu có)
+      const effectiveConfig = config?.accountSecurity ? await config.accountSecurity.ownerConfig() : config;
+
+      // 2. Xác thực tài khoản Quản trị viên tối cao (Master Owner)
       const masterUser = config.ADMIN_USERNAME || 'admin';
-      if (inputUser === masterUser || inputUser === 'owner' || inputUser === 'u0_a184') {
-        if (config.ADMIN_PASSWORD_HASH) {
-          authorized = await bcrypt.compare(inputPass, config.ADMIN_PASSWORD_HASH);
-        } else if (inputPass === 'Anhthien1!') {
-          authorized = true;
+      const isMaster = (inputUser === masterUser || inputUser === 'owner' || inputUser === 'u0_a184');
+
+      if (isMaster) {
+        const hash = effectiveConfig.ADMIN_PASSWORD_HASH || config.ADMIN_PASSWORD_HASH;
+        if (hash) {
+          authorized = await bcrypt.compare(inputPass, hash);
         }
+        securityKey = 'owner';
+        adminRole = 'Server Administrator / Owner';
       }
 
-      // If not authorized, check staff / owner in database
+      // 3. Nếu không phải Master, kiểm tra tài khoản nhân viên quản trị trong bảng staff_accounts
       if (!authorized && pool) {
         try {
           const staffRes = await pool.query(
-            "SELECT id, username, password_hash, role, active FROM staff WHERE (username = $1 OR email = $1) AND active = true",
+            `SELECT id, username, password_hash, role, active 
+             FROM staff_accounts 
+             WHERE (username = $1 OR email = $1) AND active = true`,
             [inputUser]
           );
           if (staffRes.rows.length > 0) {
@@ -271,6 +280,7 @@ function createServerAdminRouter(config, pool) {
             if (match) {
               authorized = true;
               adminRole = staff.role || 'Administrator';
+              securityKey = 'staff:' + staff.id;
             }
           }
         } catch (_) {}
@@ -280,13 +290,30 @@ function createServerAdminRouter(config, pool) {
         return res.status(401).json({ ok: false, error: 'Tên đăng nhập hoặc mật khẩu máy chủ không đúng.' });
       }
 
-      // Establish server admin session
+      // 4. Kiểm tra MFA / TOTP 2FA trung tâm qua accountSecurity (F03)
+      if (config?.accountSecurity && typeof config.accountSecurity.beginLogin === 'function') {
+        const mfaIntercepted = await config.accountSecurity.beginLogin(req, res, securityKey, inputPass);
+        if (mfaIntercepted) return;
+      }
+
+      // 5. Tái sinh phiên làm việc và bảo đảm an toàn CSRF
+      if (typeof req.session.regenerate === 'function') {
+        await new Promise((resolve) => req.session.regenerate(resolve));
+      }
+
       req.session.serverAdmin = {
         username: inputUser,
         role: adminRole,
         loginAt: new Date().toISOString(),
         ip: req.ip
       };
+
+      if (config?.accountSecurity && typeof config.accountSecurity.stamp === 'function') {
+        await config.accountSecurity.stamp(req, securityKey);
+      }
+
+      const crypto = require('node:crypto');
+      req.session.csrfToken = crypto.randomBytes(32).toString('hex');
 
       req.session.save((err) => {
         if (err) return res.status(500).json({ ok: false, error: 'Không thể lưu phiên đăng nhập.' });
@@ -296,7 +323,8 @@ function createServerAdminRouter(config, pool) {
             username: inputUser,
             role: adminRole,
             loginAt: req.session.serverAdmin.loginAt
-          }
+          },
+          csrfToken: req.session.csrfToken
         });
       });
     } catch (e) {
@@ -616,9 +644,11 @@ function createServerAdminRouter(config, pool) {
       const tablesRes = await pool.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename");
       const backupData = {
         meta: {
-          server: 'LG G7 ThinQ (LineageOS 22.2)',
+          server: os.hostname(),
           database: 'gaeru',
-          exportedAt: new Date().toISOString()
+          exportedAt: new Date().toISOString(),
+          truncated: false,
+          tableCounts: {}
         },
         tables: {}
       };
@@ -626,8 +656,10 @@ function createServerAdminRouter(config, pool) {
       for (const row of tablesRes.rows) {
         const tbl = row.tablename;
         try {
-          const dataRes = await pool.query(`SELECT * FROM "${tbl}" LIMIT 1000`);
+          // F08: Bỏ LIMIT 1000 ngầm để trích xuất đầy đủ 100% dữ liệu các bảng
+          const dataRes = await pool.query(`SELECT * FROM "${tbl}"`);
           backupData.tables[tbl] = dataRes.rows;
+          backupData.meta.tableCounts[tbl] = dataRes.rowCount ?? dataRes.rows.length;
         } catch (_) {}
       }
 

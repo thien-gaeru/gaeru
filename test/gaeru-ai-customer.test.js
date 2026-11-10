@@ -127,4 +127,78 @@ test('GAERU AI Customer Assistant Test Suite', async (t) => {
     assert.ok(res.answer.length > 50);
     assert.ok(res.answer.includes('GAERU AI'));
   });
+
+  await t.test('9. F01 Security: Tra cứu bằng SĐT mà không phải chủ đơn sẽ từ chối tiết lộ thông tin', async () => {
+    const mockPool = {
+      async query(sql) {
+        if (sql.includes('FROM orders')) {
+          return {
+            rows: [{
+              id: 'ord-123',
+              order_number: 'GAE-20261109-001',
+              customer_id: 'cust-real-owner',
+              customer_name: 'Nguyễn Văn A',
+              phone: '0988123456',
+              address: 'Số 99 Phố Bí Mật',
+              city: 'Hà Nội',
+              status: 'shipped',
+              payment_method: 'cod',
+              payment_status: 'pending',
+              total_vnd: 1250000,
+              created_at: new Date()
+            }]
+          };
+        }
+        return { rows: [] };
+      }
+    };
+
+    // Anonymous thread
+    const res = await generateGaeruAiResponse({
+      pool: mockPool,
+      thread: { customer_id: null },
+      question: 'Kiểm tra đơn hàng của số điện thoại 0988123456 giúp mình'
+    });
+
+    assert.equal(res.handoff, false);
+    assert.ok(res.answer.includes('bảo vệ quyền riêng tư'));
+    assert.ok(!res.answer.includes('Số 99 Phố Bí Mật'), 'Không được tiết lộ địa chỉ nhà!');
+    assert.ok(!res.answer.includes('Nguyễn Văn A'), 'Không được tiết lộ họ tên khách!');
+  });
+
+  await t.test('10. F01 Security: Khách tra cứu qua mã đơn nhưng chưa đăng nhập sẽ bị ẩn địa chỉ chi tiết', async () => {
+    const mockPool = {
+      async query(sql) {
+        if (sql.includes('FROM orders')) {
+          return {
+            rows: [{
+              id: 'ord-123',
+              order_number: 'GAE-20261109-001',
+              customer_id: 'cust-real-owner',
+              customer_name: 'Nguyễn Văn A',
+              phone: '0988123456',
+              address: 'Số 99 Phố Bí Mật',
+              city: 'Hà Nội',
+              status: 'shipped',
+              payment_method: 'cod',
+              payment_status: 'pending',
+              total_vnd: 1250000,
+              created_at: new Date()
+            }]
+          };
+        }
+        return { rows: [] };
+      }
+    };
+
+    const res = await generateGaeruAiResponse({
+      pool: mockPool,
+      thread: { customer_id: 'cust-another-user' },
+      question: 'Kiểm tra đơn GAE-20261109-001'
+    });
+
+    assert.equal(res.handoff, false);
+    assert.ok(res.answer.includes('Đã ẩn địa chỉ chi tiết'));
+    assert.ok(!res.answer.includes('Số 99 Phố Bí Mật'));
+  });
 });

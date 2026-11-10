@@ -123,7 +123,9 @@ class FailoverSyncManager {
         syncedAt: new Date().toISOString()
       };
 
-      // 1. Fetch public products from primary gaeru.com
+      // 1. Fetch public products from primary gaeru.com (F07 Schema Fix)
+      let productsSynced = 0;
+      let productSyncError = null;
       try {
         const prodRes = await fetch(`${this.primaryApiBase}/api/products`, {
           signal: AbortSignal.timeout(10000)
@@ -134,24 +136,71 @@ class FailoverSyncManager {
           if (this.pool && products.length > 0) {
             for (const p of products) {
               if (p.slug && p.name) {
-                await this.pool.query(`
-                  INSERT INTO products (slug, name, price, active, updated_at)
-                  VALUES ($1, $2, $3, true, NOW())
+                const category = ['audio', 'video', 'accessory'].includes(p.category) ? p.category : 'audio';
+                const prodRow = (await this.pool.query(`
+                  INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, updated_at)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
                   ON CONFLICT (slug) DO UPDATE
                   SET name = EXCLUDED.name,
-                      price = EXCLUDED.price,
-                      updated_at = NOW();
-                `, [p.slug, p.name, p.price || 0]).catch(() => {});
+                      category = EXCLUDED.category,
+                      descriptor = EXCLUDED.descriptor,
+                      description = EXCLUDED.description,
+                      image_url = EXCLUDED.image_url,
+                      image_alt = EXCLUDED.image_alt,
+                      active = true,
+                      updated_at = NOW()
+                  RETURNING id;
+                `, [
+                  p.slug,
+                  p.name,
+                  category,
+                  p.descriptor || '',
+                  p.description || '',
+                  p.imageUrl || p.image_url || '',
+                  p.imageAlt || p.image_alt || ''
+                ])).rows[0];
+
+                const productId = prodRow?.id;
+                // F07: Ghi giá và tồn kho chuẩn vào bảng product_variants
+                if (productId && Array.isArray(p.variants) && p.variants.length > 0) {
+                  for (const v of p.variants) {
+                    if (v.sku && v.name) {
+                      await this.pool.query(`
+                        INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
+                        ON CONFLICT (sku) DO UPDATE
+                        SET name = EXCLUDED.name,
+                            options = EXCLUDED.options,
+                            price_vnd = EXCLUDED.price_vnd,
+                            stock_quantity = EXCLUDED.stock_quantity,
+                            active = true,
+                            updated_at = NOW();
+                      `, [
+                        productId,
+                        v.sku,
+                        v.name,
+                        JSON.stringify(v.options || {}),
+                        Math.max(0, parseInt(v.priceVnd ?? v.price_vnd ?? 0, 10)),
+                        Math.max(0, parseInt(v.stockQuantity ?? v.stock_quantity ?? 0, 10))
+                      ]);
+                    }
+                  }
+                }
+                productsSynced++;
               }
             }
-            stats.productsCount = products.length;
+            stats.productsCount = productsSynced;
           }
+        } else {
+          productSyncError = `HTTP ${prodRes.status}`;
         }
       } catch (errProd) {
+        productSyncError = errProd.message;
         console.warn('[FailoverSync] Product sync notice:', errProd.message);
       }
 
-      // 2. Fetch public store settings from primary gaeru.com
+      // 2. Fetch public store settings from primary gaeru.com (F07 Schema Fix)
+      let settingsSyncError = null;
       try {
         const setRes = await fetch(`${this.primaryApiBase}/api/settings/public`, {
           signal: AbortSignal.timeout(8000)
@@ -160,16 +209,31 @@ class FailoverSyncManager {
           const settings = await setRes.json();
           if (this.pool && typeof settings === 'object') {
             await this.pool.query(`
-              INSERT INTO store_settings (key, value, updated_at)
-              VALUES ('public_config', $1, NOW())
-              ON CONFLICT (key) DO UPDATE
-              SET value = EXCLUDED.value, updated_at = NOW();
-            `, [JSON.stringify(settings)]).catch(() => {});
+              INSERT INTO store_settings (setting_key, setting_value, updated_at)
+              VALUES ('public_config', $1::jsonb, NOW())
+              ON CONFLICT (setting_key) DO UPDATE
+              SET setting_value = EXCLUDED.setting_value, updated_at = NOW();
+            `, [JSON.stringify(settings)]);
             stats.settingsSynced = true;
           }
+        } else {
+          settingsSyncError = `HTTP ${setRes.status}`;
         }
       } catch (errSet) {
+        settingsSyncError = errSet.message;
         console.warn('[FailoverSync] Settings sync notice:', errSet.message);
+      }
+
+      // F07: Nếu xảy ra lỗi và không có bất kỳ dữ liệu nào được đồng bộ, báo lỗi chính xác thay vì báo thành công giả
+      if ((productSyncError || settingsSyncError) && stats.productsCount === 0 && !stats.settingsSynced) {
+        this.state.status = 'error';
+        this.state.lastError = `Đồng bộ thất bại: ${productSyncError || settingsSyncError}`;
+        this.saveState();
+        return {
+          ok: false,
+          error: this.state.lastError,
+          stats
+        };
       }
 
       this.state.status = 'idle';

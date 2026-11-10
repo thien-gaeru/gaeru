@@ -65,14 +65,20 @@ test('GAERU AI Internal Test Suite', async (t) => {
       // Threads
       if (q.includes('insert into internal_ai_threads')) {
         const id = '11111111-1111-4111-8111-111111111111';
-        const row = { id, title: params[3] || 'Hội thoại mới', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        const row = { id, user_id: params[0] || 'admin', title: params[3] || 'Hội thoại mới', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         threadsDb.set(id, row);
         return { rows: [row] };
       }
-      if (q.includes('select id, title') && q.includes('from internal_ai_threads')) {
+      if (q.includes('from internal_ai_threads')) {
         if (q.includes('where id = $1')) {
           const row = threadsDb.get(params[0]);
-          return { rows: row ? [row] : [] };
+          if (row) {
+            if (params[1] && row.user_id !== params[1] && params[2] !== true) {
+              return { rows: [] };
+            }
+            return { rows: [row] };
+          }
+          return { rows: [] };
         }
         return { rows: Array.from(threadsDb.values()) };
       }
@@ -80,8 +86,15 @@ test('GAERU AI Internal Test Suite', async (t) => {
         return { rowCount: 1 };
       }
       if (q.includes('delete from internal_ai_threads')) {
-        threadsDb.delete(params[0]);
-        return { rowCount: 1 };
+        const row = threadsDb.get(params[0]);
+        if (row) {
+          if (params[1] && row.user_id !== params[1] && params[2] !== true) {
+            return { rowCount: 0 };
+          }
+          threadsDb.delete(params[0]);
+          return { rowCount: 1 };
+        }
+        return { rowCount: 0 };
       }
 
       // Messages
@@ -222,9 +235,17 @@ test('GAERU AI Internal Test Suite', async (t) => {
     });
 
     await t.test('7. RBAC Protection: Staff role hides sensitive finance figures', async () => {
-      // Switch mock user to staff without finance permission
+      // Switch mock user to staff without finance permission and create a thread for this user
       mockAdmin = { id: 'staff-02', username: 'cskh_01', role: 'support', isOwner: false, permissions: ['dashboard.read', 'orders.read'] };
-      const res = await fetch(`${baseUrl}/threads/${threadId}/chat`, {
+      const staffThreadRes = await fetch(`${baseUrl}/threads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Hội thoại CSKH' })
+      });
+      assert.equal(staffThreadRes.status, 201);
+      const staffThread = (await staffThreadRes.json()).thread;
+
+      const res = await fetch(`${baseUrl}/threads/${staffThread.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: 'Báo cáo doanh thu hôm nay' })
@@ -237,6 +258,7 @@ test('GAERU AI Internal Test Suite', async (t) => {
     });
 
     await t.test('8. GET /threads/:id/chat/stream streams SSE events smoothly', async () => {
+      mockAdmin = { id: 'admin-01', username: 'ceo_gaeru', role: 'owner', isOwner: true, permissions: ['dashboard.read', 'finance.read'] };
       const res = await fetch(`${baseUrl}/threads/${threadId}/chat/stream?question=${encodeURIComponent('Tình hình kho thế nào')}`);
       assert.equal(res.status, 200);
       assert.ok(res.headers.get('content-type').includes('text/event-stream'));
@@ -266,6 +288,19 @@ test('GAERU AI Internal Test Suite', async (t) => {
       assert.equal(res2.status, 200);
       const data2 = await res2.json();
       assert.ok(data2.answer.includes('Viettel Post'));
+    });
+
+    await t.test('10. F02 RBAC: Không cho phép nhân viên khác xem hoặc xóa thread của người khác', async () => {
+      // Switch to a different staff user without owner privileges
+      mockAdmin = { id: 'staff-other', username: 'staff_guest', role: 'staff', isOwner: false, permissions: [] };
+
+      // Attempt to view thread belonging to admin-01
+      const resView = await fetch(`${baseUrl}/threads/${threadId}`);
+      assert.equal(resView.status, 404, 'Nhân viên khác xem thread phải nhận 404');
+
+      // Attempt to delete thread belonging to admin-01
+      const resDel = await fetch(`${baseUrl}/threads/${threadId}`, { method: 'DELETE' });
+      assert.equal(resDel.status, 404, 'Nhân viên khác xóa thread phải nhận 404');
     });
   } finally {
     await new Promise(r => server.close(r));

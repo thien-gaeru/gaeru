@@ -29,7 +29,7 @@ function normalize(text) {
 /**
  * Tra cứu thông tin đơn hàng từ database nếu khách cung cấp mã đơn hoặc số điện thoại
  */
-async function lookupOrderInfo(pool, text) {
+async function lookupOrderInfo(pool, text, thread = null) {
   if (!pool || typeof pool.query !== 'function') return null;
 
   const orderMatch = text.match(/gae-[a-z0-9-]+/i);
@@ -39,17 +39,20 @@ async function lookupOrderInfo(pool, text) {
 
   try {
     let row = null;
+    let queryType = null;
     if (orderMatch) {
+      queryType = 'order_number';
       row = (await pool.query(
-        `SELECT order_number, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at 
+        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at 
          FROM orders 
          WHERE lower(order_number) = lower($1) 
          LIMIT 1`,
         [orderMatch[0].trim()]
       )).rows[0];
     } else if (phoneMatch) {
+      queryType = 'phone';
       row = (await pool.query(
-        `SELECT order_number, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at 
+        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at 
          FROM orders 
          WHERE phone = $1 
          ORDER BY created_at DESC 
@@ -58,7 +61,12 @@ async function lookupOrderInfo(pool, text) {
       )).rows[0];
     }
 
-    if (!row) return { searched: true, found: false, query: orderMatch ? orderMatch[0] : phoneMatch[0] };
+    if (!row) return { searched: true, found: false, query: orderMatch ? orderMatch[0] : phoneMatch[0], queryType };
+
+    // Kiểm tra tính xác thực chủ sở hữu (Verified Owner)
+    const isOwner = Boolean(
+      thread?.customer_id && row.customer_id && String(thread.customer_id) === String(row.customer_id)
+    );
 
     // Tra cứu thông tin vận chuyển
     let shipment = null;
@@ -77,7 +85,10 @@ async function lookupOrderInfo(pool, text) {
       searched: true,
       found: true,
       order: row,
-      shipment
+      shipment,
+      isOwner,
+      queryType,
+      query: orderMatch ? orderMatch[0] : phoneMatch[0]
     };
   } catch (err) {
     return null;
@@ -102,12 +113,22 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     };
   }
 
-  // 2. Tra cứu đơn hàng nếu có mã đơn hoặc số điện thoại
-  const orderLookup = await lookupOrderInfo(pool, raw);
+  // 2. Tra cứu đơn hàng nếu có mã đơn hoặc số điện thoại (Bảo mật Zero-Trust)
+  const orderLookup = await lookupOrderInfo(pool, raw, thread);
   if (orderLookup && orderLookup.searched) {
     if (orderLookup.found) {
       const o = orderLookup.order;
       const s = orderLookup.shipment;
+
+      // Nếu chỉ tra cứu qua SĐT mà không phải chủ đơn đã xác thực: từ chối tiết lộ PII
+      if (orderLookup.queryType === 'phone' && !orderLookup.isOwner) {
+        return {
+          handoff: false,
+          answer: 'Để bảo vệ quyền riêng tư và thông tin đơn hàng của bạn, GAERU AI chỉ hỗ trợ xem chi tiết khi bạn đăng nhập tài khoản mua hàng hoặc cung cấp chính xác **Mã đơn hàng (dạng GAE-xxxxxx)**. Nếu bạn cần hỗ trợ gấp, vui lòng liên hệ hotline **082 919 1080** nhé!',
+          orderLookup: { found: true, protected: true }
+        };
+      }
+
       const statusMap = {
         pending: 'Chờ xác nhận',
         confirmed: 'Đã xác nhận đơn hàng',
@@ -124,12 +145,18 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
         zalopay: 'Ví ZaloPay'
       };
 
+      // Bảo vệ địa chỉ: Nếu khách vãng lai chỉ có mã đơn mà chưa đăng nhập tài khoản chủ đơn:
+      // Không tiết lộ địa chỉ nhà chi tiết
+      const displayAddress = orderLookup.isOwner
+        ? `${o.address}, ${o.city}`
+        : `*** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật), ${o.city || 'Việt Nam'}`;
+
       let answer = `Chào bạn! GAERU AI đã tra cứu thông tin đơn hàng **${o.order_number}** của bạn:\n\n` +
                    `- **Khách hàng:** ${o.customer_name}\n` +
                    `- **Trạng thái đơn hàng:** ${statusMap[o.status] || o.status}\n` +
                    `- **Hình thức thanh toán:** ${payMap[o.payment_method] || o.payment_method} (${o.payment_status === 'paid' ? 'Đã thanh toán' : 'Chờ thanh toán'})\n` +
                    `- **Tổng giá trị:** **${formatVnd(o.total_vnd)}**\n` +
-                   `- **Địa chỉ giao hàng:** ${o.address}, ${o.city}\n`;
+                   `- **Địa chỉ giao hàng:** ${displayAddress}\n`;
 
       if (s && s.tracking_number) {
         answer += `- **Vận chuyển:** ${s.carrier_name || 'Viettel Post'} · Mã vận đơn: \`${s.tracking_number}\` (Trạng thái: ${s.status || 'Đang giao'})\n`;
@@ -138,11 +165,12 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       }
 
       answer += `\nNếu bạn cần thay đổi địa chỉ hoặc hỗ trợ gấp về đơn hàng, bạn có thể nhắn ngay tại đây hoặc gọi hotline **082 919 1080** nhé!`;
-      return { handoff: false, answer };
+      return { handoff: false, answer, orderLookup: { found: true, isOwner: orderLookup.isOwner } };
     } else {
       return {
         handoff: false,
-        answer: `Dạ GAERU AI chưa tìm thấy đơn hàng với thông tin "${orderLookup.query}". Bạn vui lòng kiểm tra lại chính xác mã đơn hàng (dạng GAE-xxxxxx) hoặc số điện thoại dùng khi đặt hàng để mình tra cứu ngay giúp bạn nhé!`
+        answer: `Dạ GAERU AI chưa tìm thấy đơn hàng với thông tin "${orderLookup.query}". Bạn vui lòng kiểm tra lại chính xác mã đơn hàng (dạng GAE-xxxxxx) hoặc số điện thoại dùng khi đặt hàng để mình tra cứu ngay giúp bạn nhé!`,
+        orderLookup: { found: false }
       };
     }
   }
@@ -470,9 +498,11 @@ async function answerCustomerChat({ pool, config, thread, question, history = []
   });
 
   // Tự động ghi nhớ và củng cố tri thức từ cuộc hội thoại nếu có giá trị thông tin
+  // Bảo mật Zero-Trust: Tuyệt đối không tự học từ các câu hỏi tra cứu đơn hàng, cá nhân hoặc PII
   try {
     const raw = String(question || '').trim();
-    if (pool && !result.handoff && result.answer && raw && raw.length >= 6) {
+    const isOrderOrPersonal = result.orderLookup || /gae-|[0-9]{9,}|tra cuu|don hang|dia chi|van don|so dien thoai/i.test(normalize(raw));
+    if (pool && !result.handoff && result.answer && raw && raw.length >= 6 && !isOrderOrPersonal) {
       void learnFromInteraction(pool, {
         sourceType: 'customer_chat',
         question: raw,

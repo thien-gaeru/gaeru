@@ -59,24 +59,7 @@ function tuneWorkerPriority(childPid) {
   } catch (_) {}
 }
 
-function spawnWorker(workerIndex) {
-  if (isShuttingDown) return null;
-
-  const env = {
-    ...process.env,
-    CLUSTER_WORKER: '1',
-    CLUSTER_ENABLED: 'true',
-    WORKER_INDEX: String(workerIndex),
-    PORT: String(SERVER_PORT)
-  };
-
-  const worker = cluster.fork(env);
-  worker.workerIndex = workerIndex;
-  activeWorkers.set(workerIndex, worker);
-
-  const pid = worker.process?.pid;
-  if (pid) tuneWorkerPriority(pid);
-
+function attachWorkerSupervision(worker, workerIndex) {
   worker.on('message', (msg) => {
     if (!msg || typeof msg !== 'object') return;
 
@@ -112,6 +95,28 @@ function spawnWorker(workerIndex) {
       }
     }, delay);
   });
+}
+
+function spawnWorker(workerIndex) {
+  if (isShuttingDown) return null;
+
+  const env = {
+    ...process.env,
+    CLUSTER_WORKER: '1',
+    CLUSTER_ENABLED: 'true',
+    WORKER_INDEX: String(workerIndex),
+    PORT: String(SERVER_PORT)
+  };
+
+  const worker = cluster.fork(env);
+  worker.workerIndex = workerIndex;
+  activeWorkers.set(workerIndex, worker);
+
+  const pid = worker.process?.pid;
+  if (pid) tuneWorkerPriority(pid);
+
+  // F06: Gắn giám sát IPC và tự phục hồi
+  attachWorkerSupervision(worker, workerIndex);
 
   return worker;
 }
@@ -148,26 +153,54 @@ async function executeRollingReload() {
       newWorker.workerIndex = i;
       if (newWorker.process?.pid) tuneWorkerPriority(newWorker.process.pid);
 
-      // 2. Wait for replacement worker to emit 'listening' or 'WORKER_READY'
+      // 2. F05: Chờ worker mới phát tín hiệu WORKER_READY thật sự (readiness gate)
+      // Nếu timeout hoặc exit sớm -> coi là thất bại (false), KHÔNG ngắt worker cũ
       const ready = await new Promise((resolve) => {
-        let resolved = false;
-        const done = () => { if (!resolved) { resolved = true; resolve(true); } };
+        let settled = false;
+        const cleanup = () => {
+          newWorker.removeListener('message', onMsg);
+          newWorker.removeListener('exit', onExit);
+          clearTimeout(timer);
+        };
+        const onMsg = (msg) => {
+          if (msg?.type === 'WORKER_READY' && !settled) {
+            settled = true;
+            cleanup();
+            resolve(true);
+          }
+        };
+        const onExit = () => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(false);
+          }
+        };
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(false);
+          }
+        }, 30000);
+        timer.unref?.();
 
-        newWorker.on('listening', done);
-        newWorker.on('message', (msg) => {
-          if (msg?.type === 'WORKER_READY') done();
-        });
-        newWorker.on('exit', () => { if (!resolved) { resolved = true; resolve(false); } });
-
-        // Timeout fallback after 20s
-        const t = setTimeout(done, 20000);
-        t.unref?.();
+        newWorker.on('message', onMsg);
+        newWorker.on('exit', onExit);
       });
 
       if (!ready) {
-        log(`Worker #${i} mới không thể khởi động. Giữ lại Worker cũ để đảm bảo 100% không gián đoạn.`, 'ERROR');
+        log(`Worker #${i} mới không thể hoàn tất WORKER_READY. Giữ lại Worker cũ để đảm bảo 100% không gián đoạn.`, 'ERROR');
+        try {
+          if (newWorker.process && !newWorker.isDead()) {
+            newWorker.kill('SIGKILL');
+          }
+        } catch (_) {}
         continue;
       }
+
+      // F06: Gắn đầy đủ giám sát tự phục hồi (self-healing, message fanout, exit respawn) cho worker mới
+      attachWorkerSupervision(newWorker, i);
 
       // Update active map to point to new worker
       activeWorkers.set(i, newWorker);
