@@ -96,9 +96,9 @@ function createAdminNotifications(pool,config){
             {endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},
             {
               title:'✉️ GAERU Mail · Thông báo đẩy đã bật',
-              body:'Thiết bị đã sẵn sàng nhận thông báo đẩy tức thì khi có email mới gửi đến @gaeru.com.',
+              body:'Thiết bị đã sẵn sàng nhận thông báo cho hộp thư tên miền @gaeru.com (iCloud+ Mail).',
               target:'webmail',
-              url:'https://mail.gaeru.com/?_task=mail&_mbox=INBOX',
+              url:'https://www.icloud.com/mail',
               tag:'gaeru-mail-test-'+Date.now()
             },
             vapid
@@ -112,10 +112,14 @@ function createAdminNotifications(pool,config){
   });
 
   const mailAccountActionSchema=z.object({
-    action:z.enum(['add','passwd','del']),
-    username:z.string().trim().min(1).max(64),
-    password:z.string().min(6).max(128).optional(),
+    action:z.enum(['add','passwd','del','icloud-smtp']),
+    username:z.string().trim().min(1).max(64).optional(),
+    password:z.string().min(4).max(160).optional(),
     displayName:z.string().trim().max(80).optional(),
+    smtpHost:z.string().trim().max(120).optional(),
+    smtpPort:z.coerce.number().int().min(1).max(65535).optional(),
+    smtpUser:z.string().trim().max(160).optional(),
+    smtpPassword:z.string().min(4).max(160).optional(),
     adminPassword:z.string().min(1).max(200).optional(),
     factorCode:z.string().max(64).optional(),
     factorChallengeId:z.string().max(128).optional()

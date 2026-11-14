@@ -12,12 +12,11 @@ $sshCommonArgs = @("-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=$StrictHo
 
 $pgDir = Join-Path $BackupRoot "pg"
 $mediaDir = Join-Path $BackupRoot "media"
-$mailDir = Join-Path $BackupRoot "mail"
 $kitDir = Join-Path $BackupRoot "recovery-kit"
 $logFile = Join-Path $BackupRoot "pull.log"
 $statusFile = Join-Path $BackupRoot "backup-status.json"
 
-foreach ($d in @($BackupRoot, $pgDir, $mediaDir, $mailDir, $kitDir)) {
+foreach ($d in @($BackupRoot, $pgDir, $mediaDir, $kitDir)) {
     if (-not (Test-Path -LiteralPath $d)) {
         New-Item -ItemType Directory -Path $d -Force | Out-Null
     }
@@ -116,7 +115,6 @@ $newestPg = Sync-RemoteDirectory -RemoteDir "/userdata/storage/gaeru-pg-backups"
 $newestPgSql = Sync-RemoteDirectory -RemoteDir "/userdata/storage/gaeru-pg-backups" -Pattern "gaeru_store-*.sql.gz.gpg" -LocalDir $pgDir -Label "PG-SQL" -MaxFiles 6
 $null = Sync-RemoteDirectory -RemoteDir "/userdata/storage/gaeru-pg-backups" -Pattern "gaeru_store-globals-*.sql.gz.gpg" -LocalDir $pgDir -Label "PG-GLOBALS" -MaxFiles 6
 $newestMedia = Sync-RemoteDirectory -RemoteDir "/userdata/storage/gaeru-media-backups" -Pattern "gaeru-media-config-*.tar.gz.gpg" -LocalDir $mediaDir -Label "MEDIA" -MaxFiles 3
-$newestMail = Sync-RemoteDirectory -RemoteDir "/userdata/storage/gaeru-mail-backups" -Pattern "gaeru-mail-v04-*.tar.gz.gpg" -LocalDir $mailDir -Label "MAIL" -MaxFiles 4
 
 # Verify OpenPGP SQL.GZ dump envelope (and full decrypted completion footer when PC private key is unlocked)
 $pgRestoreVerified = $false
@@ -189,16 +187,6 @@ if ($newestPgSql -and (Test-Path -LiteralPath $newestPgSql)) {
     }
 }
 
-# Copy newest encrypted mail archive to legacy C:\Users\imdot\GAERU-Encrypted-Backups as well
-$legacyMailDir = Join-Path $env:USERPROFILE "GAERU-Encrypted-Backups"
-if ($newestMail -and (Test-Path -LiteralPath $newestMail)) {
-    New-Item -ItemType Directory -Path $legacyMailDir -Force | Out-Null
-    Copy-Item -LiteralPath $newestMail -Destination (Join-Path $legacyMailDir ([IO.Path]::GetFileName($newestMail))) -Force
-    if (Test-Path -LiteralPath "${newestMail}.sha256") {
-        Copy-Item -LiteralPath "${newestMail}.sha256" -Destination (Join-Path $legacyMailDir "$([IO.Path]::GetFileName($newestMail)).sha256") -Force
-    }
-}
-
 # Keep recovery kit scripts in E:\GAERU_Backups\mi6\recovery-kit
 foreach ($relPath in @(
     "mi6-backup\gaeru-gpg-common.sh",
@@ -206,7 +194,6 @@ foreach ($relPath in @(
     "mi6-backup\gaeru-gdrive-sync.sh",
     "mi6-backup\gaeru-pg-backup.sh",
     "mi6-backup\gaeru-media-backup.sh",
-    "mi6-backup\gaeru-mail-backup-v04.sh",
     "failover-restore-to-pc.ps1"
 )) {
     $f = Join-Path $scriptRoot $relPath
@@ -217,7 +204,7 @@ foreach ($relPath in @(
 
 if ($KeepDays -gt 0) {
     $cutoff = (Get-Date).AddDays(-$KeepDays)
-    foreach ($d in @($pgDir, $mediaDir, $mailDir)) {
+    foreach ($d in @($pgDir, $mediaDir)) {
         Get-ChildItem -LiteralPath $d -File | Where-Object { $_.LastWriteTime -lt $cutoff } | ForEach-Object {
             Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
             Write-PullLog "Pruned old local copy: $($_.FullName)"
@@ -232,7 +219,7 @@ $statusObj = [ordered]@{
     newestPg          = $(if ($newestPg) { [IO.Path]::GetFileName($newestPg) } else { $null })
     pgTocVerified     = $pgRestoreVerified
     newestMedia       = $(if ($newestMedia) { [IO.Path]::GetFileName($newestMedia) } else { $null })
-    newestMail        = $(if ($newestMail) { [IO.Path]::GetFileName($newestMail) } else { $null })
+    mailProvider      = "iCloud+ Custom Email Domain"
     status            = $(if ($pgRestoreVerified) { "verified" } else { "envelope_verified" })
 }
 $statusObj | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $statusFile -Encoding UTF8

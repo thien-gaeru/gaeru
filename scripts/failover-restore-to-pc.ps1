@@ -24,7 +24,6 @@ function Assert-SafeTarArchive([string]$ArchivePath) {
 
 $pgDir = Join-Path $BackupRoot "pg"
 $mediaDir = Join-Path $BackupRoot "media"
-$mailDir = Join-Path $BackupRoot "mail"
 
 function Find-PgTool([string]$ExeName) {
     $found = Get-ChildItem -LiteralPath "C:\Program Files\PostgreSQL" -Filter $ExeName -Recurse -ErrorAction SilentlyContinue |
@@ -64,7 +63,7 @@ if ($Mode -eq "PullFromGoogleDrive") {
     }
     if (-not $rclone) { throw "rclone.exe not found" }
     Write-Output "=== Pulling Latest Backups from Google Drive (gdrive:GAERU_Backups) -> $BackupRoot ==="
-    foreach ($sub in @("pg", "media", "mail")) {
+    foreach ($sub in @("pg", "media")) {
         & $rclone copy "gdrive:GAERU_Backups/$sub" (Join-Path $BackupRoot $sub) --transfers 2
         if ($LASTEXITCODE -ne 0) { throw "rclone copy failed for $sub" }
     }
@@ -74,7 +73,6 @@ if ($Mode -eq "PullFromGoogleDrive") {
 $newestPg = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.dump.gpg"
 $newestPgSql = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.sql.gz.gpg"
 $newestMedia = Get-NewestBackupFile -Dir $mediaDir -Filter "gaeru-media-config-*.tar.gz.gpg"
-$newestMail = Get-NewestBackupFile -Dir $mailDir -Filter "gaeru-mail-v04-*.tar.gz.gpg"
 
 function Protect-TempPath([string]$Path) {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
@@ -125,7 +123,7 @@ function Expand-GzipToTempSql([string]$GzPath) {
 }
 
 if ($Mode -eq "Verify") {
-    Write-Output "=== [1/3] Verifying PostgreSQL Backups (.dump.gpg + portable .sql.gz.gpg) on PC ==="
+    Write-Output "=== [1/2] Verifying PostgreSQL Backups (.dump.gpg + portable .sql.gz.gpg) on PC ==="
     $pgHash = Assert-Sha256Companion -FilePath $newestPg
     $pgSqlHash = Assert-Sha256Companion -FilePath $newestPgSql
     $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
@@ -141,7 +139,7 @@ if ($Mode -eq "Verify") {
     Write-Output "OK: $([IO.Path]::GetFileName($newestPg)) (sha256=$pgHash)"
     Write-Output "OK: $([IO.Path]::GetFileName($newestPgSql)) (sha256=$pgSqlHash | COPY tables=$copyCount)"
 
-    Write-Output "=== [2/3] Verifying Media + Codebase + Server Config Encrypted Archive on PC ==="
+    Write-Output "=== [2/2] Verifying Media + Codebase + Server Config Encrypted Archive on PC ==="
     $mediaHash = Assert-Sha256Companion -FilePath $newestMedia
     $tmpMediaTar = Invoke-GpgDecryptToTemp -SourcePath $newestMedia -Suffix ".tar.gz"
     try {
@@ -150,14 +148,11 @@ if ($Mode -eq "Verify") {
         Remove-Item -LiteralPath $tmpMediaTar -Force -ErrorAction SilentlyContinue
     }
     Write-Output "OK: $([IO.Path]::GetFileName($newestMedia)) | sha256=$mediaHash | Archive entries=$($tarEntries.Count)"
-
-    Write-Output "=== [3/3] Verifying Encrypted Mail + Webmail GPG Archive on PC ==="
-    $mailHash = Assert-Sha256Companion -FilePath $newestMail
     $gpgExe = "C:\Program Files\GnuPG\bin\gpg.exe"
     $secKeys = & $gpgExe --batch --with-colons --list-secret-keys 46927A8544DF70FBEE48928F69240E0EB1FF3925 2>$null
     $hasSecretKey = ($secKeys -match '^sec:')
-    Write-Output "OK: $([IO.Path]::GetFileName($newestMail)) | sha256=$mailHash | Windows Secret Key Present=$([bool]$hasSecretKey)"
-    Write-Output "=== ALL 3 PC OFFSITE BACKUPS VERIFIED 100% READY FOR RESTORE ==="
+    Write-Output "OK: Windows Secret Key Present=$([bool]$hasSecretKey) (Mail hosted on iCloud+ Custom Domain)"
+    Write-Output "=== ALL PC OFFSITE BACKUPS VERIFIED 100% READY FOR RESTORE ==="
 }
 elseif ($Mode -eq "TestDatabaseRestore") {
     Write-Output "=== Running Isolated Dry-Run PostgreSQL Restore Test on PC ==="
@@ -189,6 +184,8 @@ elseif ($Mode -eq "TestDatabaseRestore") {
     }
 }
 elseif ($Mode -eq "DecryptMailArchive") {
+    $mailDir = Join-Path $BackupRoot "mail"
+    $newestMail = Get-NewestBackupFile -Dir $mailDir -Filter "gaeru-mail-v04-*.tar.gz.gpg"
     Assert-Sha256Companion -FilePath $newestMail | Out-Null
     New-Item -ItemType Directory -Path $DecryptOutDir -Force | Out-Null
     $outTarGz = Join-Path $DecryptOutDir ([IO.Path]::GetFileNameWithoutExtension($newestMail))

@@ -21,18 +21,19 @@ self.addEventListener('notificationclick', event => {
   if (typeof data.url === 'string' && data.url) {
     try {
       const candidate = new URL(data.url);
-      if (candidate.protocol === 'https:' && candidate.hostname.toLowerCase() === 'mail.gaeru.com') {
+      const host = candidate.hostname.toLowerCase();
+      if (candidate.protocol === 'https:' && (host === 'www.icloud.com' || host === 'mail.gaeru.com')) {
         parsedDataUrl = candidate.toString();
       }
     } catch (_) {}
   }
   if (target === 'webmail' || parsedDataUrl) {
-    const mailUrl = parsedDataUrl || 'https://mail.gaeru.com/?_task=mail&_mbox=INBOX';
+    const mailUrl = parsedDataUrl || 'https://www.icloud.com/mail';
     event.waitUntil(
       clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
         for (const client of windowClients) {
           try {
-            if (new URL(client.url).hostname.toLowerCase() === 'mail.gaeru.com' && 'focus' in client) {
+            if (new URL(client.url).hostname.toLowerCase() === 'www.icloud.com' && 'focus' in client) {
               return client.focus();
             }
           } catch (_) {}

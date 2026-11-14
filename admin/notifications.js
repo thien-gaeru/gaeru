@@ -112,42 +112,43 @@
     if(!admin.can('settings.read'))return '';
     const isOwner=admin.user?.role==='owner'||admin.user?.source==='bootstrap'||admin.user?.isOwner;
     const canWrite=admin.can('settings.write')&&isOwner;
-    const rows=mailAccounts.map(acc=>{
+    const list=mailAccounts.length?mailAccounts:[{username:'business',email:'business@gaeru.com',displayName:'GAERU',isPrimary:true}];
+    const rows=list.map(acc=>{
       const badge=acc.isPrimary
-        ?'<span class="notice-level" style="background:#065f46;color:#d1fae5">Hộp thư Quản trị · Nhận toàn bộ *@gaeru.com</span>'
-        :'<span class="notice-level">Hộp thư phụ</span>';
+        ?'<span class="notice-level" style="background:#065f46;color:#d1fae5">iCloud+ Custom Domain · Hộp thư chính</span>'
+        :'<span class="notice-level">Địa chỉ alias iCloud+</span>';
       return `<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid rgba(148,163,184,.25);border-radius:8px;margin-top:8px">
         <div>
           <strong>${esc(acc.email)}</strong> ${badge}
-          <div style="font-size:12px;opacity:.8;margin-top:3px">Tên người gửi: <b>${esc(acc.displayName||'GAERU')}</b> · Tổng: <b>${Number(acc.totalCount||0)}</b> thư (${Number(acc.unreadCount||0)} chưa đọc)</div>
+          <div style="font-size:12px;opacity:.8;margin-top:3px">Tên gửi: <b>${esc(acc.displayName||'GAERU')}</b> · Vận hành qua <b>iCloud+ Mail</b> (<code>mx01/mx02.mail.icloud.com</code>)</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button type="button" data-mail-open="${esc(acc.email)}">Mở Webmail</button>
-          ${canWrite?`<button type="button" data-mail-passwd="${esc(acc.username)}">Đổi mật khẩu</button>`:''}
-          ${canWrite&&!acc.isPrimary?`<button type="button" data-mail-del="${esc(acc.username)}">Xóa & gộp về business</button>`:''}
+          <button type="button" data-mail-open="${esc(acc.email)}">Mở iCloud Mail ↗</button>
+          ${canWrite?`<button type="button" data-mail-passwd="${esc(acc.username)}">Cập nhật App Password SMTP</button>`:''}
+          ${canWrite&&!acc.isPrimary?`<button type="button" data-mail-del="${esc(acc.username)}">Xóa alias</button>`:''}
         </div>
       </div>`;
     }).join('');
     const createForm=canWrite?`<form data-mail-create-form style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed rgba(148,163,184,.25)">
-      <input type="text" name="username" placeholder="tên-hộp-thư (vd: cskh)" required pattern="[a-zA-Z0-9._-]+" style="min-width:160px">
+      <input type="text" name="username" placeholder="alias (vd: cskh)" required pattern="[a-zA-Z0-9._-]+" style="min-width:150px">
       <span>@gaeru.com</span>
-      <input type="password" name="password" placeholder="Mật khẩu (tối thiểu 6 ký tự)" required minlength="6" style="min-width:180px">
+      <input type="password" name="password" placeholder="App Password Apple (tuỳ chọn)" minlength="6" style="min-width:190px">
       <input type="text" name="displayName" placeholder="Tên gửi (mặc định: GAERU)" value="GAERU" style="min-width:150px">
-      <button type="submit">+ Tạo hộp thư mới</button>
+      <button type="submit">+ Lưu địa chỉ / alias</button>
     </form>`:'';
     return `<section class="notice-preferences" style="margin-top:12px">
       <div>
-        <strong>Quản lý Hộp thư tên miền @gaeru.com</strong>
-        <p>Mọi email gửi tới bất kỳ địa chỉ <code>...@gaeru.com</code> đều được nhận đầy đủ tại hộp thư quản trị duy nhất <b>business@gaeru.com</b> (Tên hiển thị: <b>GAERU</b>). Quản trị có thể tạo thêm hộp thư phụ tuỳ ý bên dưới.</p>
+        <strong>Hệ thống Email Tên miền @gaeru.com · Kết nối iCloud+ Mail</strong>
+        <p>Mail tên miền <code>@gaeru.com</code> đã chuyển hoàn toàn sang <b>iCloud+ Custom Email Domain</b> (<code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, DKIM <code>sig1._domainkey.gaeru.com</code>, SPF <code>include:icloud.com</code>) để tối ưu 100% tài nguyên Mi 6 cho web server. Hộp thư chính: <b>business@gaeru.com</b>.</p>
       </div>
-      <div data-mail-accounts-list>${rows||(mailLoading?'<p>Đang tải danh sách hộp thư...</p>':'<p>Hộp thư chính: <b>business@gaeru.com</b></p>')}</div>
+      <div data-mail-accounts-list>${rows}</div>
       ${createForm}
       <p data-mail-accounts-status role="status"></p>
     </section>`;
   }
 
   function render(){
-    root.innerHTML=controls()+mailAccountsSection()+'<div class="notice-toolbar"><p>Cảnh báo công việc & hộp thư hiện tại. Chỉ hiển thị nội dung bạn có quyền xem.</p><button type="button" data-notice-all>Đánh dấu tất cả đã đọc</button></div><div class="notice-list">'+(items.map((n,i)=>`<article class="notice-card ${n.read?'is-read':''}"><span class="notice-level">${n.level==='warning'?'Cần chú ý':(n.target==='webmail'?'Hộp thư':'Thông báo')}</span><h3>${esc(n.title)}</h3><p>${esc(n.detail)}</p><div><button type="button" data-notice-open="${i}">${n.target==='webmail'?'Mở Webmail':'Mở mục xử lý'}</button>${!n.read?`<button type="button" data-notice-read="${i}">Đánh dấu đã đọc</button>`:''}</div></article>`).join('')||'<div class="notice-empty">Chưa có công việc cần chú ý.</div>')+'</div>';
+    root.innerHTML=controls()+mailAccountsSection()+'<div class="notice-toolbar"><p>Cảnh báo công việc & hộp thư hiện tại. Chỉ hiển thị nội dung bạn có quyền xem.</p><button type="button" data-notice-all>Đánh dấu tất cả đã đọc</button></div><div class="notice-list">'+(items.map((n,i)=>`<article class="notice-card ${n.read?'is-read':''}"><span class="notice-level">${n.level==='warning'?'Cần chú ý':(n.target==='webmail'?'iCloud Mail':'Thông báo')}</span><h3>${esc(n.title)}</h3><p>${esc(n.detail)}</p><div><button type="button" data-notice-open="${i}">${n.target==='webmail'?'Mở iCloud Mail ↗':'Mở mục xử lý'}</button>${!n.read?`<button type="button" data-notice-read="${i}">Đánh dấu đã đọc</button>`:''}</div></article>`).join('')||'<div class="notice-empty">Chưa có công việc cần chú ý.</div>')+'</div>';
   }
 
   async function loadMailAccounts(){
@@ -192,17 +193,19 @@
     try{
       const fd=new FormData(form);
       const username=String(fd.get('username')||'').trim().toLowerCase().split('@')[0];
-      const password=String(fd.get('password')||'');
+      const rawPassword=String(fd.get('password')||'').trim();
       const displayName=String(fd.get('displayName')||'GAERU').trim()||'GAERU';
-      const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác hộp thư @gaeru.com:');
+      const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác mail iCloud @gaeru.com:');
       if(!adminPassword)return;
+      const payload={action:'add',username,displayName,adminPassword};
+      if(rawPassword)payload.password=rawPassword;
       const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
         method:'POST',
-        body:JSON.stringify({action:'add',username,password,displayName,adminPassword})
+        body:JSON.stringify(payload)
       });
       form.reset();
       await loadMailAccounts();
-      if(st)st.textContent=res.message||(`Đã tạo hộp thư ${username}@gaeru.com.`);
+      if(st)st.textContent=res.message||(`Đã lưu địa chỉ ${username}@gaeru.com cho iCloud+ Mail.`);
     }catch(error){
       if(st)st.textContent=error.message;
     }
@@ -216,34 +219,34 @@
     const st=root.querySelector('[data-mail-accounts-status]');
     try{
       if(openBtn){
-        window.open('https://mail.gaeru.com/?_task=mail&_mbox=INBOX','_blank','noopener');
+        window.open('https://www.icloud.com/mail','_blank','noopener');
         return;
       }
       if(passBtn){
         const username=passBtn.dataset.mailPasswd;
-        const password=window.prompt(`Nhập mật khẩu mới cho hộp thư ${username}@gaeru.com (tối thiểu 6 ký tự):`);
+        const password=window.prompt(`Nhập App-Specific Password Apple ID (dùng cho smtp.mail.me.com) cho ${username}@gaeru.com:`);
         if(!password)return;
-        const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác hộp thư @gaeru.com:');
+        const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác mail iCloud @gaeru.com:');
         if(!adminPassword)return;
         const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
           method:'POST',
           body:JSON.stringify({action:'passwd',username,password,adminPassword})
         });
         await loadMailAccounts();
-        if(st)st.textContent=res.message||(`Đã cập nhật mật khẩu cho ${username}@gaeru.com.`);
+        if(st)st.textContent=res.message||(`Đã cập nhật cấu hình SMTP iCloud Mail cho ${username}@gaeru.com.`);
         return;
       }
       if(delBtn){
         const username=delBtn.dataset.mailDel;
-        if(!window.confirm(`Xóa hộp thư ${username}@gaeru.com? Toàn bộ thư trong hộp thư này sẽ được chuyển tự động về hộp thư chính business@gaeru.com.`))return;
-        const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác hộp thư @gaeru.com:');
+        if(!window.confirm(`Xóa alias ${username}@gaeru.com khỏi danh sách quản trị?`))return;
+        const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác mail iCloud @gaeru.com:');
         if(!adminPassword)return;
         const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
           method:'POST',
           body:JSON.stringify({action:'del',username,adminPassword})
         });
         await loadMailAccounts();
-        if(st)st.textContent=res.message||(`Đã xóa ${username}@gaeru.com và gộp thư về business@gaeru.com.`);
+        if(st)st.textContent=res.message||(`Đã xóa alias ${username}@gaeru.com.`);
       }
     }catch(error){
       if(st)st.textContent=error.message;
@@ -302,7 +305,7 @@
         await admin.request('/api/gaeru_ceo/notifications/read',{method:'POST',body:JSON.stringify(all?{all:true}:{key:n.key,version:n.version})});
         await load();
         if(open){
-          if(n.target==='webmail')window.open('https://mail.gaeru.com/?_task=mail&_mbox=INBOX','_blank','noopener');
+          if(n.target==='webmail')window.open('https://www.icloud.com/mail','_blank','noopener');
           else await admin.activateView(n.target);
         }
       }

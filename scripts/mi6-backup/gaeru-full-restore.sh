@@ -108,13 +108,16 @@ verify_all() {
   verify_gpg_envelope "$media_file"
   say "Media+Codebase Backup OK: $(basename "$media_file") ($(stat -c%s "$media_file") bytes)"
 
-  say "=== 3. Verifying Latest Encrypted Mail & Webmail Backup ==="
+  say "=== 3. Checking Optional Legacy Mail Backup (iCloud+ Mail active) ==="
   local mail_file
   mail_file=$(ls -1t "$MAIL_DIR"/gaeru-mail-v04-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
-  [ -n "$mail_file" ] || die "No Mail GPG archive found in $MAIL_DIR"
-  verify_gpg_envelope "$mail_file"
-  say "Encrypted Mail Backup OK: $(basename "$mail_file") ($(stat -c%s "$mail_file") bytes)"
-  say "=== ALL 3 ENCRYPTED BACKUP LAYERS VERIFIED INTACT ==="
+  if [ -n "$mail_file" ]; then
+    verify_gpg_envelope "$mail_file"
+    say "Legacy Mail Backup OK: $(basename "$mail_file") ($(stat -c%s "$mail_file") bytes)"
+  else
+    say "Mail archive directory empty or decommissioned (iCloud Mail active) — skipping mail archive check."
+  fi
+  say "=== ALL ACTIVE ENCRYPTED BACKUP LAYERS VERIFIED INTACT ==="
 }
 
 pull_from_gdrive() {
@@ -128,7 +131,7 @@ pull_from_gdrive() {
   env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
     copy "gdrive:GAERU_Backups/pg" "/storage/gaeru-pg-backups" --max-age 48h --transfers 2
   env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
-    copy "gdrive:GAERU_Backups/mail" "/storage/gaeru-mail-backups" --max-age 7d --transfers 2
+    copy "gdrive:GAERU_Backups/mail" "/storage/gaeru-mail-backups" --max-age 7d --transfers 2 || true
   env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
     copy "gdrive:GAERU_Backups/media" "/storage/gaeru-media-backups" --max-age 7d --transfers 2
   verify_all
