@@ -82,6 +82,9 @@ async function installOnPool(pool, name) {
 }
 
 async function main() {
+  if (process.env.ALLOW_LEGACY_DUAL_MASTER_TRIGGERS !== 'true') {
+    throw new Error('Legacy dual-master sync triggers (_gaeru_sync_queue) are deprecated because Mi 6 is now the standalone production server. Set ALLOW_LEGACY_DUAL_MASTER_TRIGGERS=true to override.');
+  }
   const pcUrl = process.env.PC_DB_URL || process.env.DATABASE_URL;
   if (!pcUrl || !process.env.MI6_DB_URL) throw new Error('Configure both database connections before installing triggers.');
   const p1 = new Pool(connectionOptions(pcUrl));

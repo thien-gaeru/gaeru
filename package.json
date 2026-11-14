@@ -18,7 +18,8 @@
     "test": "node --test test/*.test.js test/*.test.cjs",
     "benchmark:cache": "node scripts/run-experiments.js",
     "build:images": "node scripts/build-responsive-images.js",
-    "verify:assets": "node scripts/verify-assets.js"
+    "verify:assets": "node scripts/verify-assets.js",
+    "deploy:mi6": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sync-to-mi6.ps1"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",

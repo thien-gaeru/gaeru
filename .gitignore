@@ -5,6 +5,9 @@ scratch/
 .env
 .env.*
 !.env.example
+/app.env
+/app.env.*
+/media/
 coverage/
 public/uploads/*
 !public/uploads/.gitkeep
@@ -17,6 +20,7 @@ scripts/*.ps1
 !scripts/backup-db.ps1
 !scripts/backup-db-15m.ps1
 !scripts/database-backup.ps1
+!scripts/sync-to-mi6.ps1
 scripts/*.bat
 scripts/*.vbs
 logs/

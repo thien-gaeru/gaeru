@@ -16,7 +16,11 @@ REMOTE_RETENTION_AGE="60d"
 
 log() {
   local msg="[$(date -Is)] [GDRIVE-SYNC] $*"
-  echo "$msg" | tee -a "$LOG_FILE"
+  if [ /proc/self/fd/1 -ef "$LOG_FILE" ]; then
+    echo "$msg"
+  else
+    echo "$msg" | tee -a "$LOG_FILE"
+  fi
 }
 
 run_rclone() {
@@ -71,13 +75,13 @@ sync_pg() {
   local src_chroot="/storage/gaeru-pg-backups"
   [ -d "$src_host" ] || return 0
   log "Pushing encrypted PostgreSQL backups to ${REMOTE_ROOT}/pg ..."
-  local include_args=(
-    --include "gaeru_store-latest.sql.gz.gpg"
-    --include "gaeru_store-latest.sql.gz.gpg.sha256"
-    --include "gaeru_store-latest.dump.gpg"
-    --include "gaeru_store-latest.dump.gpg.sha256"
-    --include "gaeru_store-globals-latest.sql.gz.gpg"
-    --include "gaeru_store-globals-latest.sql.gz.gpg.sha256"
+  local filter_args=(
+    --filter "+ gaeru_store-latest.sql.gz.gpg"
+    --filter "+ gaeru_store-latest.sql.gz.gpg.sha256"
+    --filter "+ gaeru_store-latest.dump.gpg"
+    --filter "+ gaeru_store-latest.dump.gpg.sha256"
+    --filter "+ gaeru_store-globals-latest.sql.gz.gpg"
+    --filter "+ gaeru_store-globals-latest.sql.gz.gpg.sha256"
   )
   local current_hour
   current_hour=$(date +%H)
@@ -86,14 +90,14 @@ sync_pg() {
     newest=$(ls -1t "$src_host"/gaeru_store-20*.dump.gpg 2>/dev/null | head -n 1 || true)
     newest_sql=$(ls -1t "$src_host"/gaeru_store-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
     newest_globals=$(ls -1t "$src_host"/gaeru_store-globals-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
-    [ -n "$newest" ] && include_args+=(--include "$(basename "$newest")" --include "$(basename "$newest").sha256")
-    [ -n "$newest_sql" ] && include_args+=(--include "$(basename "$newest_sql")" --include "$(basename "$newest_sql").sha256")
-    [ -n "$newest_globals" ] && include_args+=(--include "$(basename "$newest_globals")" --include "$(basename "$newest_globals").sha256")
+    [ -n "$newest" ] && filter_args+=(--filter "+ $(basename "$newest")" --filter "+ $(basename "$newest").sha256")
+    [ -n "$newest_sql" ] && filter_args+=(--filter "+ $(basename "$newest_sql")" --filter "+ $(basename "$newest_sql").sha256")
+    [ -n "$newest_globals" ] && filter_args+=(--filter "+ $(basename "$newest_globals")" --filter "+ $(basename "$newest_globals").sha256")
   fi
-  include_args+=(--exclude "*")
+  filter_args+=(--filter "- *")
 
-  run_rclone copy "$src_chroot" "${REMOTE_ROOT}/pg" "${include_args[@]}" "${COMMON_FLAGS[@]}"
-  prune_remote_subdir "pg" --exclude "*-latest.*" --exclude "*-latest.*.*"
+  run_rclone copy "$src_chroot" "${REMOTE_ROOT}/pg" "${filter_args[@]}" "${COMMON_FLAGS[@]}"
+  prune_remote_subdir "pg" --filter "- *-latest.*" --filter "- *-latest.*.*"
   log "Encrypted PostgreSQL backup push to Google Drive OK."
 }
 
@@ -112,9 +116,9 @@ sync_mail() {
   newest=$(ls -1t "$src_host"/gaeru-mail-v04-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
   if [ -n "$newest" ]; then
     run_rclone copy "$src_chroot" "${REMOTE_ROOT}/mail" \
-      --include "$(basename "$newest")" \
-      --include "$(basename "$newest").sha256" \
-      --exclude "*" \
+      --filter "+ $(basename "$newest")" \
+      --filter "+ $(basename "$newest").sha256" \
+      --filter "- *" \
       "${COMMON_FLAGS[@]}"
   fi
   prune_remote_subdir "mail"
@@ -130,9 +134,9 @@ sync_media() {
   newest=$(ls -1t "$src_host"/gaeru-media-config-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
   if [ -n "$newest" ]; then
     run_rclone copy "$src_chroot" "${REMOTE_ROOT}/media" \
-      --include "$(basename "$newest")" \
-      --include "$(basename "$newest").sha256" \
-      --exclude "*" \
+      --filter "+ $(basename "$newest")" \
+      --filter "+ $(basename "$newest").sha256" \
+      --filter "- *" \
       "${COMMON_FLAGS[@]}"
   fi
   prune_remote_subdir "media"
