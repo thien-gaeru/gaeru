@@ -112,11 +112,16 @@
     if(!admin.can('settings.read'))return '';
     const isOwner=admin.user?.role==='owner'||admin.user?.source==='bootstrap'||admin.user?.isOwner;
     const canWrite=admin.can('settings.write')&&isOwner;
-    const list=mailAccounts.length?mailAccounts:[{username:'business',email:'business@gaeru.com',displayName:'GAERU',isPrimary:true}];
+    const list=mailAccounts.length?mailAccounts:[
+      {username:'noreply',email:'noreply@gaeru.com',displayName:'GAERU',isSender:true},
+      {username:'business',email:'business@gaeru.com',displayName:'GAERU',isPrimary:true}
+    ];
     const rows=list.map(acc=>{
-      const badge=acc.isPrimary
-        ?'<span class="notice-level" style="background:#065f46;color:#d1fae5">iCloud+ Custom Domain · Hộp thư chính</span>'
-        :'<span class="notice-level">Địa chỉ alias iCloud+</span>';
+      const badge=acc.isSender||acc.username==='noreply'
+        ?'<span class="notice-level" style="background:#1e3a8a;color:#dbeafe">Mail gửi thông báo người dùng (SMTP_FROM)</span>'
+        :(acc.isPrimary
+          ?'<span class="notice-level" style="background:#065f46;color:#d1fae5">Mail nhận thông báo quản trị (ADMIN_DOMAIN_EMAIL)</span>'
+          :'<span class="notice-level">Địa chỉ alias iCloud+</span>');
       return `<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid rgba(148,163,184,.25);border-radius:8px;margin-top:8px">
         <div>
           <strong>${esc(acc.email)}</strong> ${badge}
@@ -125,7 +130,7 @@
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button type="button" data-mail-open="${esc(acc.email)}">Mở iCloud Mail ↗</button>
           ${canWrite?`<button type="button" data-mail-passwd="${esc(acc.username)}">Cập nhật App Password SMTP</button>`:''}
-          ${canWrite&&!acc.isPrimary?`<button type="button" data-mail-del="${esc(acc.username)}">Xóa alias</button>`:''}
+          ${canWrite&&!acc.isPrimary&&!acc.isSender&&acc.username!=='noreply'?`<button type="button" data-mail-del="${esc(acc.username)}">Xóa alias</button>`:''}
         </div>
       </div>`;
     }).join('');
@@ -139,7 +144,7 @@
     return `<section class="notice-preferences" style="margin-top:12px">
       <div>
         <strong>Hệ thống Email Tên miền @gaeru.com · Kết nối iCloud+ Mail</strong>
-        <p>Mail tên miền <code>@gaeru.com</code> đã chuyển hoàn toàn sang <b>iCloud+ Custom Email Domain</b> (<code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, DKIM <code>sig1._domainkey.gaeru.com</code>, SPF <code>include:icloud.com</code>) để tối ưu 100% tài nguyên Mi 6 cho web server. Hộp thư chính: <b>business@gaeru.com</b>.</p>
+        <p>Mail gửi thông báo cho người dùng: <b>noreply@gaeru.com</b> · Mail nhận thông báo cho quản trị &amp; phản hồi: <b>business@gaeru.com</b> (vận hành qua <b>iCloud+ Custom Email Domain</b>: <code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, DKIM <code>sig1._domainkey.gaeru.com</code>, SPF <code>include:icloud.com</code>).</p>
       </div>
       <div data-mail-accounts-list>${rows}</div>
       ${createForm}

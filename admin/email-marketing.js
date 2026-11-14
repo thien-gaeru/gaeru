@@ -286,7 +286,7 @@
           <div class="marketing-email-preview-box">
             <div class="marketing-email-preview-header">
               <span class="marketing-email-preview-badge">Xem trước hiển thị email</span>
-              <p class="marketing-email-preview-meta"><strong>Từ:</strong> GAERU &lt;business@gaeru.com&gt;</p>
+              <p class="marketing-email-preview-meta"><strong>Từ:</strong> GAERU &lt;noreply@gaeru.com&gt;</p>
               <p class="marketing-email-preview-meta"><strong>Đến:</strong> {{email_khach_hang}}</p>
               <h4 class="marketing-email-preview-subject">${h(f.elements.subject.value || 'Tiêu đề thư')}</h4>
             </div>

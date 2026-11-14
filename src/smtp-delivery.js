@@ -69,12 +69,12 @@ function resolveFrom(config) {
     config?.smtp?.from ||
     config?.SMTP_FROM ||
     (typeof config?.from === 'string' ? config.from : undefined) ||
-    'business@gaeru.com';
+    'noreply@gaeru.com';
   const str = String(candidate).trim();
   const match = str.match(/<([^>]+)>/);
   const emailCandidate = match ? match[1].trim() : str;
   const parsed = emailSchema.safeParse(emailCandidate);
-  const addr = parsed.success ? parsed.data.toLowerCase() : 'business@gaeru.com';
+  const addr = parsed.success ? parsed.data.toLowerCase() : 'noreply@gaeru.com';
   return `GAERU <${addr}>`;
 }
 
