@@ -11,7 +11,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[character]));
 const normalizeSearchText = (value) => value.toLocaleLowerCase("vi").replace(/\bmic\b/g, "micro");
-const normalizeExternalUrl = (url) => { if (!url) return ""; const trimmed = String(url).trim(); return /^https?:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed; };
+const normalizeExternalUrl = (url) => { if (!url) return ""; const trimmed = String(url).trim(); if (!trimmed) return ""; try { const u = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed); if (u.protocol !== "https:" && u.protocol !== "http:") return ""; if (u.username || u.password) return ""; const h = u.hostname.toLowerCase(); const ok = h === "shopee.vn" || h.endsWith(".shopee.vn") || h === "shopee.com" || h.endsWith(".shopee.com") || h === "shp.ee" || h.endsWith(".shp.ee") || h === "shope.ee" || h.endsWith(".shope.ee") || h === "tiktok.com" || h.endsWith(".tiktok.com") || h === "tiktokshop.com" || h.endsWith(".tiktokshop.com"); if (!ok) return ""; if (u.protocol === "http:") u.protocol = "https:"; return u.href; } catch (_) { return ""; } };
 
 function searchProducts(query) {
   const normalized = normalizeSearchText(query.trim());
@@ -494,8 +494,8 @@ function renderProduct() {
   try {
     const curVariant = variants.find(v => v.id === selector?.value) || variants[0];
     window.GAERUAnalytics?.trackViewItem?.(product, curVariant);
-  } catch (_) {  try { document.dispatchEvent(new CustomEvent("gaeru:products-rendered", { detail: { product } })); } catch (_) {}
-}
+  } catch (_) {}
+  try { document.dispatchEvent(new CustomEvent("gaeru:products-rendered", { detail: { product } })); } catch (_) {}
 }
 
 function renderCart() {
@@ -661,7 +661,7 @@ async function renderCheckout() {
         <h2>Thông tin liên hệ</h2>
         <label>Họ và tên<input name="name" autocomplete="name" required maxlength="120"></label>
         <div class="form-row">
-          <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: hotro@gaeru.com"></label>
+          <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: business@gaeru.com"></label>
           <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)"></label>
         </div>
 
@@ -864,7 +864,29 @@ async function renderCheckout() {
       });
       if(!purchase.direct)writeCart([]);
       if (result.paymentUrl) {
-        location.assign(result.paymentUrl);
+        const rawPayUrl = String(result.paymentUrl).trim();
+        let safePayUrl = null;
+        if (/^\/(?!\/)[^\s\\]*$/.test(rawPayUrl)) {
+          safePayUrl = rawPayUrl;
+        } else {
+          try {
+            const baseOrigin = (typeof location !== "undefined" && location.origin && location.origin !== "null") ? location.origin : "https://gaeru.com";
+            const parsed = new URL(rawPayUrl, baseOrigin);
+            const allowedHosts = new Set([
+              "pay.vnpay.vn", "sandbox.vnpayment.vn",
+              "payment.momo.vn", "test-payment.momo.vn",
+              "gateway.zalopay.vn", "qcgateway.zalopay.vn", "sbgateway.zalopay.vn"
+            ]);
+            if ((parsed.origin === baseOrigin && (parsed.protocol === "http:" || parsed.protocol === "https:")) ||
+                (parsed.protocol === "https:" && allowedHosts.has(parsed.hostname.toLowerCase()))) {
+              safePayUrl = parsed.toString();
+            }
+          } catch (_) {}
+        }
+        if (!safePayUrl) {
+          throw new Error("Liên kết cổng thanh toán không hợp lệ.");
+        }
+        location.assign(safePayUrl);
         return;
       }
       const bt = result.bankTransfer;
@@ -1068,7 +1090,23 @@ function bindGlobalControls() {
         const dist = Math.hypot(event.clientX - pointerStartX, event.clientY - pointerStartY);
         if (dist > 12) return;
       }
-      const targetUrl = card.dataset.href || card.querySelector('a.button-outline, a.button-blue, a[href*="/san-pham/"], a[href*="product.html?id="]')?.getAttribute("href");
+      const isSafeCardUrl = (raw) => {
+        const val = String(raw || "").trim();
+        if (!val || /[\u0000-\u001f\u007f\\]/.test(val)) return false;
+        if (/^\/(?!\/)/.test(val)) return true;
+        if (/^[a-z0-9._-]+\.html(?:[?#]|$)/i.test(val)) return true;
+        try {
+          const baseOrigin = (typeof location !== "undefined" && location.origin && location.origin !== "null") ? location.origin : "https://gaeru.com";
+          const u = new URL(val, baseOrigin);
+          if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+          const host = u.hostname.toLowerCase();
+          return u.origin === baseOrigin || host === "gaeru.com" || host.endsWith(".gaeru.com") || host === "gaeru.org" || host.endsWith(".gaeru.org");
+        } catch (_) {
+          return false;
+        }
+      };
+      const rawTargetUrl = card.dataset.href || card.querySelector('a.button-outline, a.button-blue, a[href*="/san-pham/"], a[href*="product.html?id="]')?.getAttribute("href");
+      const targetUrl = isSafeCardUrl(rawTargetUrl) ? String(rawTargetUrl).trim() : null;
       if (targetUrl) {
         if (event.button === 1 || event.ctrlKey || event.metaKey) {
           window.open(targetUrl, "_blank", "noopener,noreferrer");
@@ -1086,7 +1124,8 @@ function bindGlobalControls() {
     if (!card || event.target.closest("button, a, input, select, textarea")) return;
     if (event.target === card) {
       if (event.key === " ") event.preventDefault();
-      const targetUrl = card.dataset.href;
+      const rawKeyUrl = String(card.dataset.href || "").trim();
+      const targetUrl = rawKeyUrl && (/^\/(?!\/)/.test(rawKeyUrl) || /^[a-z0-9._-]+\.html(?:[?#]|$)/i.test(rawKeyUrl)) ? rawKeyUrl : null;
       if (targetUrl) {
         if (event.ctrlKey || event.metaKey) {
           window.open(targetUrl, "_blank", "noopener,noreferrer");

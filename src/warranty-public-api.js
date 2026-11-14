@@ -5,6 +5,7 @@ const {createHash,randomBytes}=require('node:crypto');
 const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
+const {enqueueAdminDomainNotification}=require('./smtp-delivery');
 const contactSchema=z.object({
  fullName:z.string().trim().min(2).max(120),
  phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).refine(value=>/^\+?\d{8,15}$/.test(value.replace(/[().\-\s]/g,''))),
@@ -49,6 +50,13 @@ function createWarrantyPublicApi(pool){
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id,status`,
      [customerId,a.channel,a.externalOrderNumber,a.productName,a.serial.toUpperCase()||null,a.requestKey,hash,guestHash,a.contact.fullName,a.contact.phone,a.contact.address,a.contact.city,a.purchaseDate||null,a.contact.email||'',managementToken?createHash('sha256').update(managementToken).digest('hex'):null])).rows[0];
     await appendAudit(client,{actor:{username:customerId||'guest',source:customerId?'customer':'guest'},action:'warranty.request',entityType:'warranty',entityId:activation.id,metadata:{channel:a.channel}});
+    await enqueueAdminDomainNotification(client,{
+      eventType:'warranty_external_new',
+      entityId:activation.id,
+      dedupeKey:'warranty_ext:'+activation.id,
+      subject:`GAERU Bảo hành · Đăng ký mới từ ${a.channel.toUpperCase()} (${a.externalOrderNumber})`,
+      bodyText:`Khách hàng: ${a.contact.fullName}\nSĐT: ${a.contact.phone}\nEmail: ${a.contact.email||'N/A'}\nKênh: ${a.channel}\nMã đơn: ${a.externalOrderNumber}\nSản phẩm: ${a.productName}${a.serial?' · Serial: '+a.serial.toUpperCase():''}\nĐịa chỉ: ${a.contact.address}, ${a.contact.city}`
+    });
     return {status:201,activation,managementToken};
    });
    res.status(result.status).json(result.error?{error:result.error}:{activation:result.activation,...(result.managementToken?{managementToken:result.managementToken}:{})});

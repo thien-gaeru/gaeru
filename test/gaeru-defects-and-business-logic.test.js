@@ -99,6 +99,9 @@ async function startTestServer(t, pool, configOverrides = {}) {
     STORE_ORDERS_ENABLED: true,
     GOOGLE_CLIENT_ID: TEST_GOOGLE_CLIENT_ID,
     oauthClient: createTestGoogleOAuthClient(),
+    ...(configOverrides.NODE_ENV === 'production' && !configOverrides.AUTH_ENCRYPTION_KEY
+      ? { AUTH_ENCRYPTION_KEY: 'gaeru-acceptance-auth-enc-key-at-least-32-chars!!' }
+      : {}),
     ...configOverrides
   };
   const sessionStore = new session.MemoryStore();

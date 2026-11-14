@@ -33,7 +33,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
    });
    const send=async(to,token,step)=>{
     const link=new URL('/tai-khoan',smtpConfig.publicBaseUrl);link.searchParams.set('contactVerify',token);
-    await mailer.sendMail({from:`GAERU Support <${smtpConfig.from}>`,to,subject:'Xác nhận thay đổi thông tin tài khoản GAERU',text:`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`});
+    await mailer.sendMail({from:require('./smtp-delivery').resolveFrom({smtp:smtpConfig}),replyTo:require('./smtp-delivery').resolveReplyTo({smtp:smtpConfig}),to,subject:'Xác nhận thay đổi thông tin tài khoản GAERU',text:`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`});
    };
    await send(owner.email,oldToken,'Xác nhận từ email hiện tại.');
    if(newToken)await send(a.email,newToken,'Xác minh hộp thư email mới.');
@@ -64,10 +64,23 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer}={}){
     await client.query('UPDATE customer_contact_changes SET applied_at=now() WHERE id=$1',[row.id]);
     await client.query('DELETE FROM customer_password_reset_tokens WHERE customer_id=$1',[req.customerId]);
     await client.query('DELETE FROM customer_email_verification_tokens WHERE customer_id=$1',[req.customerId]);
+    await client.query('INSERT INTO account_security(account_key) VALUES($1) ON CONFLICT DO NOTHING',['customer:'+req.customerId]);
+    const secRow=(await client.query('UPDATE account_security SET version=version+1,updated_at=now() WHERE account_key=$1 RETURNING version',['customer:'+req.customerId])).rows[0];
     await appendAudit(client,{actor:{username:req.customerId,source:'customer'},action:'customer.contact.confirmed',entityType:'customer',entityId:req.customerId,metadata:{emailChanged:row.old_email!==row.new_email,phoneChanged:row.old_phone!==row.new_phone}});
-    return {customer,message:'Đã xác nhận và cập nhật thông tin tài khoản.'};
+    return {customer,securityVersion:secRow?.version||1,message:'Đã xác nhận và cập nhật thông tin tài khoản.'};
    });
-   if(result.customer)req.session.customer=result.customer;
+   if(result.customer){
+    const shoppingChatOwner=req.session?.shoppingChatOwner||null;
+    const abandonedCartIds=req.session?.abandonedCartIds||null;
+    await new Promise((resolve,reject)=>req.session.regenerate(err=>err?reject(err):resolve()));
+    if(shoppingChatOwner)req.session.shoppingChatOwner=shoppingChatOwner;
+    if(abandonedCartIds)req.session.abandonedCartIds=abandonedCartIds;
+    req.session.customer=result.customer;
+    req.session.securityVersion=result.securityVersion;
+    req.session.csrfToken=randomBytes(32).toString('hex');
+    await new Promise((resolve,reject)=>req.session.save(err=>err?reject(err):resolve()));
+    return res.json({customer:result.customer,message:result.message,csrfToken:req.session.csrfToken});
+   }
    res.json(result);
   }catch(error){if(error.status)return res.status(error.status).json({error:error.message});if(error.code==='23505')return res.status(409).json({error:'Email không còn khả dụng. Vui lòng tạo yêu cầu thay đổi mới.'});next(error);}
  });

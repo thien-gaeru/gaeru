@@ -5,7 +5,8 @@ function stampAdminSession(session, now = Date.now()) {
   session.adminLastSeenAt = now;
 }
 function adminSessionPolicy(req, _res, next) {
-  if (!req.session?.admin || !req.path.startsWith('/api/')) return next();
+  const pathname = req.path.toLowerCase();
+  if (!req.session?.admin || !(pathname.startsWith('/api/') || pathname.startsWith('/server_admin/api/'))) return next();
   const now = Date.now();
   const idleMs=(req.adminSessionLimits?.idleMinutes || 30)*60000;
   const absoluteMs=(req.adminSessionLimits?.absoluteHours || 8)*3600000;
@@ -18,7 +19,7 @@ function adminSessionPolicy(req, _res, next) {
   }
   // Background refreshes must not count as a person's activity. The UI sends
   // /api/auth/activity for real keyboard and click interactions.
-  const passive = req.method === 'GET' && /^\/api\/gaeru_ceo\/(?:notifications|care-requests|orders|summary|traffic-summary|shopping-chat|realtime-sse|realtime)(?:\/|$)/.test(req.path);
+  const passive = req.method === 'GET' && (pathname.startsWith('/server_admin/api/') || /^\/api\/gaeru_ceo\/(?:notifications|care-requests|orders|summary|traffic-summary|shopping-chat|realtime-sse|realtime)(?:\/|$)/.test(pathname));
   if (!passive) req.session.adminLastSeenAt = now;
   next();
 }

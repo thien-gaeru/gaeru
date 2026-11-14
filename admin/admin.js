@@ -2341,7 +2341,16 @@ document.querySelector('#order-bulk-actions').addEventListener('click',async eve
     if(!response.ok){const data=await response.json().catch(()=>({}));throw Error(data.error||'Không thể chuẩn bị bản in. Tải lại danh sách và thử lại.');}
     const html=await response.text();
     if(printWindow.closed)throw Error('Cửa sổ in đã đóng. Chọn In đơn hoặc In tem để mở lại.');
-    printWindow.document.open();printWindow.document.write(html);printWindow.document.close();
+    if(typeof DOMParser==='function'&&typeof printWindow.document?.importNode==='function'&&printWindow.document.documentElement){
+      const parsed=new DOMParser().parseFromString(html,'text/html');
+      parsed.querySelectorAll('script').forEach(el=>el.remove());
+      printWindow.document.replaceChild(printWindow.document.importNode(parsed.documentElement,true),printWindow.document.documentElement);
+      printWindow.document.addEventListener('click',event=>{
+        if(event.target?.closest?.('[data-print-document], [data-print-button], [data-print-orders], #print-order-document'))printWindow.print();
+      });
+    }else{
+      printWindow.document.open();printWindow.document.write(html);printWindow.document.close();
+    }
   }catch(error){if(!printWindow.closed)printWindow.close();showGlobal(error.message,true);}
   finally{updateOrderSelection();}
 });
@@ -2368,6 +2377,7 @@ document.addEventListener("click", (event) => {
 });
 
 function confirmOrderPermanentDeletion(order) {
+  const onPassword = typeof arguments[1] === 'function' ? arguments[1] : null;
   return new Promise(resolve => {
     const previous = document.activeElement;
     const dialog = document.createElement('dialog');
@@ -2405,6 +2415,8 @@ function confirmOrderPermanentDeletion(order) {
     function finish(value) {
       if (done) return;
       done = true;
+      const pwdField = typeof dialog.querySelector === 'function' ? dialog.querySelector('[data-order-delete-password]') : null;
+      if (pwdField) pwdField.value = '';
       if (typeof dialog.close === 'function') dialog.close();
       dialog.remove();
       previous?.focus();
@@ -2424,7 +2436,9 @@ function confirmOrderPermanentDeletion(order) {
       });
       acceptBtn.onclick = () => {
         if (!acceptBtn.disabled) {
-          confirmOrderPermanentDeletion.lastPassword = passInput?.value?.trim() || '';
+          const typedPassword = passInput?.value?.trim() || '';
+          if (passInput) passInput.value = '';
+          if (typeof onPassword === 'function') onPassword(typedPassword);
           finish(true);
         }
       };
@@ -2451,18 +2465,28 @@ function confirmOrderPermanentDeletion(order) {
 async function handleOrderPermanentDeleteUI(orderId) {
   if (!can('orders.permanent_delete')) return;
   const order = state.orders.find(o => o.id === orderId) || { id: orderId, orderNumber: orderId };
-  const confirmed = await confirmOrderPermanentDeletion(order);
-  if (!confirmed) return;
+  let password = '';
+  const confirmed = await confirmOrderPermanentDeletion(order, value => { password = value; });
+  if (!confirmed) {
+    password = '';
+    return;
+  }
 
-  let password = confirmOrderPermanentDeletion.lastPassword || '';
   if (!password) {
     if (window.GAERUNotify?.prompt) {
-      password = await window.GAERUNotify.prompt('Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:');
+      password = await window.GAERUNotify.prompt(
+        'Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:',
+        '',
+        { isPassword: true, title: 'Xác thực xóa đơn hàng', danger: true }
+      );
     } else {
-      password = window.prompt('Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:');
+      password = '';
+      showGlobal('Không thể mở hộp thoại nhập mật khẩu bảo mật. Vui lòng tải lại trang.', true);
+      return;
     }
   }
   if (!password || !password.trim()) {
+    password = '';
     if (window.GAERUNotify?.alert) {
       await window.GAERUNotify.alert('Đã hủy thao tác: Cần nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng.', { danger: true, title: 'Hủy thao tác' });
     } else {
@@ -2497,6 +2521,8 @@ async function handleOrderPermanentDeleteUI(orderId) {
     } else {
       showGlobal(error.message, true);
     }
+  } finally {
+    password = '';
   }
 }
 

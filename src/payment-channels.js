@@ -1,6 +1,6 @@
 'use strict';
 const {Router}=require('express');
-const {randomUUID,createHmac,timingSafeEqual}=require('node:crypto');
+const {randomUUID,createHmac,createHash,timingSafeEqual}=require('node:crypto');
 const {rateLimit}=require('express-rate-limit');
 const {z}=require('zod');
 const {withTransaction}=require('./db');
@@ -228,6 +228,25 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    }
    const headers=options.headers||{};
    const header=name=>typeof headers[name]==='string'?headers[name]:'';
+   const rawTimestamp=(
+    header('x-webhook-timestamp')||
+    header('x-timestamp')||
+    header('x-payos-timestamp')||
+    header('x-casso-timestamp')||
+    header('x-vietqr-timestamp')
+   ).trim();
+   if(rawTimestamp){
+    let tsMs=Number(rawTimestamp);
+    if(Number.isFinite(tsMs)){
+     if(tsMs<1e12)tsMs*=1000;
+    }else{
+     tsMs=Date.parse(rawTimestamp);
+    }
+    const skewMs=Date.now()-tsMs;
+    if(!Number.isFinite(tsMs)||skewMs>5*60*1000||skewMs<-60*1000){
+     return {valid:false,reason:'Expired or invalid bank webhook timestamp'};
+    }
+   }
    const incomingToken=(
     header('x-payos-token')||
     header('x-vietqr-token')||
@@ -240,13 +259,16 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
     ''
    ).trim();
    const incomingSignature=header('x-signature').trim();
+   const hasRawBody=Buffer.isBuffer(options.rawBody)||(typeof options.rawBody==='string'&&options.rawBody.length>0);
+   const rawPayload=hasRawBody?options.rawBody:(typeof payload==='object'?JSON.stringify(payload):String(payload));
+   const computeHmac=()=>createHmac('sha256',configuredSecret).update(rawPayload,hasRawBody?undefined:'utf8').digest('hex');
    let tokenValid=false;
-   if(incomingToken&&safeTokenEqual(incomingToken,configuredSecret)){
-    tokenValid=true;
+   if(incomingToken&&incomingSignature){
+    tokenValid=safeTokenEqual(incomingToken,configuredSecret)&&safeHexEqual(incomingSignature,computeHmac());
+   }else if(incomingToken){
+    tokenValid=safeTokenEqual(incomingToken,configuredSecret);
    }else if(incomingSignature){
-    const payloadStr=typeof payload==='object'?JSON.stringify(payload):String(payload);
-    const expectedHmac=createHmac('sha256',configuredSecret).update(payloadStr,'utf8').digest('hex');
-    if(safeHexEqual(incomingSignature,expectedHmac))tokenValid=true;
+    tokenValid=safeHexEqual(incomingSignature,computeHmac());
    }
    if(!tokenValid){
     return {valid:false,reason:'Invalid or missing bank transfer webhook credentials'};
@@ -284,7 +306,15 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
      }
      continue;
     }
-    const txnId=txn.tid||txn.id||txn.reference||txn.reference_number||txn.referenceNumber||txn.transactionId||txn.ref||('BANK_'+Date.now()+'_'+matchedTransactions.length);
+    const deterministicSeed=JSON.stringify([
+     orderNumber,
+     numAmount,
+     txn.when||txn.transactionDate||txn.transactionDateTime||txn.createdAt||'',
+     txn.description||txn.content||txn.transferContent||txn.transfer_content||'',
+     txn.accountNumber||txn.account_number||''
+    ]);
+    const fallbackTxnId='BANK_'+createHash('sha256').update(deterministicSeed).digest('hex').slice(0,24);
+    const txnId=txn.tid||txn.id||txn.reference||txn.reference_number||txn.referenceNumber||txn.transactionId||txn.ref||fallbackTxnId;
     matchedTransactions.push({
      orderNumber,
      amountVnd:numAmount,

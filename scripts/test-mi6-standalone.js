@@ -10,10 +10,13 @@
 const { Pool } = require('pg');
 const { execFileSync } = require('child_process');
 
-const MI6_HOST = '192.168.31.59';
+const MI6_HOST = process.env.MI6_HOST || '192.168.31.59';
 const MI6_BASE_URL = `http://${MI6_HOST}:3000`;
-const PC_DB_URL = process.env.PC_DB_URL || 'postgres://gaeru:Anhthien1!@localhost:5433/gaeru_store';
-const MI6_DB_URL = process.env.MI6_DB_URL || `postgres://webuser:Anhthien1!@${MI6_HOST}:5432/gaeru_store`;
+const PC_DB_URL = process.env.PC_DB_URL || process.env.DATABASE_URL;
+const MI6_DB_URL = process.env.MI6_DB_URL;
+if (!PC_DB_URL || !MI6_DB_URL) {
+  throw new Error('Set PC_DB_URL (or DATABASE_URL) and MI6_DB_URL before running test-mi6-standalone.js');
+}
 
 const poolPC = new Pool({ connectionString: PC_DB_URL, max: 5 });
 const poolMi6 = new Pool({ connectionString: MI6_DB_URL, max: 5 });
@@ -377,49 +380,92 @@ async function runStandaloneTests() {
     results.checkout.error = err.message;
     results.summary.failed++;
   } finally {
-    // Dọn dẹp đơn hàng test an toàn
+    // Dọn dẹp đơn hàng test an toàn, tôn trọng các bảng sổ cái append-only (inventory_movements, audit_events)
     const cleanOrder = async (pool, targetName) => {
+      const client = await pool.connect();
       try {
-        const tables = [
+        await client.query('BEGIN');
+        await client.query("SET LOCAL gaeru.allow_owner_order_purge = 'on'");
+
+        const orderIdSet = new Set();
+        if (createdOrderId) {
+          orderIdSet.add(createdOrderId);
+        }
+        const leftoverOrders = await client.query(
+          `SELECT id FROM orders
+            WHERE email LIKE 'test.standalone.%'
+               OR customer_id IN (SELECT id FROM customers WHERE email LIKE 'test.standalone.%')`
+        );
+        for (const row of leftoverOrders.rows) {
+          orderIdSet.add(row.id);
+        }
+
+        const dependentTables = [
           'order_stock_allocations',
           'carrier_shipment_attempts',
           'carrier_shipments',
           'order_email_outbox',
+          'order_admin_email_outbox',
           'order_shipping_selection',
-          'sales_receipts'
+          'sales_receipts',
+          'payment_attempts',
+          'voucher_redemptions',
+          'order_idempotency_keys'
         ];
-        if (createdOrderId) {
-          for (const tbl of tables) {
-            await pool.query(`DELETE FROM ${tbl} WHERE order_id = $1`, [createdOrderId]);
+
+        for (const orderId of orderIdSet) {
+          await client.query(
+            `UPDATE warehouse_stock ws
+                SET quantity = ws.quantity + osa.qty,
+                    updated_at = now()
+               FROM (
+                 SELECT warehouse_id, variant_id, SUM(quantity)::int AS qty
+                   FROM order_stock_allocations
+                  WHERE order_id = $1 AND released_at IS NULL
+                  GROUP BY warehouse_id, variant_id
+               ) osa
+              WHERE ws.warehouse_id = osa.warehouse_id
+                AND ws.variant_id = osa.variant_id`,
+            [orderId]
+          );
+          await client.query(
+            `DELETE FROM warranty_email_outbox
+              WHERE order_id = $1
+                 OR warranty_id IN (
+                   SELECT id FROM warranty_activations
+                    WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)
+                 )`,
+            [orderId]
+          );
+          await client.query(
+            'DELETE FROM warranty_activations WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)',
+            [orderId]
+          );
+          for (const tbl of dependentTables) {
+            await client.query(`DELETE FROM ${tbl} WHERE order_id = $1`, [orderId]);
           }
-          await pool.query('DELETE FROM warranty_activations WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)', [createdOrderId]);
-          await pool.query('DELETE FROM order_items WHERE order_id = $1', [createdOrderId]);
-          await pool.query('DELETE FROM orders WHERE id = $1', [createdOrderId]);
+          await client.query('DELETE FROM order_items WHERE order_id = $1', [orderId]);
+          await client.query('DELETE FROM orders WHERE id = $1', [orderId]);
         }
-        // Xóa mọi đơn hàng test sót lại nếu có
-        await pool.query(`
-          DO $$
-          DECLARE
-            rec RECORD;
-          BEGIN
-            FOR rec IN (SELECT id FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE email LIKE 'test.standalone.%')) LOOP
-              DELETE FROM order_stock_allocations WHERE order_id = rec.id;
-              DELETE FROM carrier_shipment_attempts WHERE order_id = rec.id;
-              DELETE FROM carrier_shipments WHERE order_id = rec.id;
-              DELETE FROM warranty_activations WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = rec.id);
-              DELETE FROM order_email_outbox WHERE order_id = rec.id;
-              DELETE FROM order_shipping_selection WHERE order_id = rec.id;
-              DELETE FROM sales_receipts WHERE order_id = rec.id;
-              DELETE FROM order_items WHERE order_id = rec.id;
-              DELETE FROM orders WHERE id = rec.id;
-            END LOOP;
-          END $$;
-        `);
-        await pool.query("DELETE FROM customers WHERE email LIKE 'test.standalone.%'");
-        await pool.query('UPDATE product_variants SET stock_quantity = 501 WHERE id = $1', [testVariantId]);
+
+        await client.query("DELETE FROM customers WHERE email LIKE 'test.standalone.%'");
+        await client.query(
+          `UPDATE product_variants pv
+              SET stock_quantity = COALESCE(
+                    (SELECT SUM(ws.quantity)::int FROM warehouse_stock ws WHERE ws.variant_id = pv.id),
+                    pv.stock_quantity
+                  ),
+                  updated_at = now()
+            WHERE pv.id = $1`,
+          [testVariantId]
+        );
+        await client.query('COMMIT');
         console.log(`    - Đã dọn dẹp an toàn trên ${targetName}`);
       } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
         console.warn(`    ! Lỗi dọn dẹp ${targetName}:`, e.message);
+      } finally {
+        client.release();
       }
     };
 

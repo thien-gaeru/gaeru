@@ -37,7 +37,7 @@
             <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
             <label>Số điện thoại<input name="phone" type="tel" minlength="10" maxlength="20" autocomplete="tel" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
           </div>
-          <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="Ví dụ: hotro@gaeru.com" required></label>
+          <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="Ví dụ: business@gaeru.com" required></label>
           <div class="warranty-contact-row">
             <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã" required></label>
             <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" aria-describedby="warranty-city-note" required><option value="">Chọn tỉnh / thành phố</option>${provinces.map(name=>`<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
@@ -63,8 +63,8 @@
   const form=section.querySelector('form'),feedback=section.querySelector('[data-w-status]');
   window.GAERUAddress?.enhance?.(form);
   let page=1,orderPage=1,sequence=0,key=null,serialized=null,customer=null,editing=null,rows=[];
-  let guestTokens={};try{const saved=JSON.parse(localStorage.getItem('gaeru-warranty-tokens')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))guestTokens=Object.fromEntries(Object.entries(saved).filter(([id,token])=>/^[a-f0-9-]{36}$/.test(id)&&typeof token==='string'&&/^[a-f0-9]{64}$/.test(token)));}catch{}
-  function storeToken(id,token){guestTokens[id]=token;try{localStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}}
+  let guestTokens={};try{localStorage?.removeItem?.('gaeru-warranty-tokens');}catch{}try{const saved=JSON.parse(sessionStorage.getItem('gaeru-warranty-tokens')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))guestTokens=Object.fromEntries(Object.entries(saved).filter(([id,token])=>/^[a-f0-9-]{36}$/.test(id)&&typeof token==='string'&&/^[a-f0-9]{64}$/.test(token)));}catch{}
+  function storeToken(id,token){guestTokens[id]=token;try{sessionStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}}
 
   async function api(url,method='GET',body) {
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
@@ -165,7 +165,7 @@
     if(event.target.closest('[data-w-cancel-edit]')){editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;form.querySelector('[type=submit]').textContent='Đăng ký kích hoạt';feedback.textContent='Đã hủy chỉnh sửa.';return;}
     if(edit){const row=rows.find(w=>w.id===edit.dataset.wEdit);if(!row)return;form.elements.source.value=row.channel;changeSource();editing=row;form.elements.source.disabled=true;form.elements.externalOrderNumber.value=row.orderNumber;form.elements.productName.value=row.productName;if(form.elements.serial)form.elements.serial.value=row.serial||'';form.elements.purchaseDate.value=row.claimedPurchaseDate||'';for(const name of ['fullName','phone','address','city','email'])if(form.elements[name])form.elements[name].value='';fillContact({fullName:row.contactName,phone:row.contactPhone,address:row.contactAddress,city:row.contactCity,email:row.contactEmail||customer?.email});form.querySelector('[type=submit]').textContent='Gửi lại hồ sơ';section.querySelector('[data-w-cancel-edit]').hidden=false;feedback.textContent='Cập nhật thông tin rồi gửi lại để GAERU đối chiếu.';openActivation();form.scrollIntoView({block:'start',behavior:'smooth'});}
     if(remove){section.querySelector('[data-w-delete-confirm="'+remove.dataset.wDelete+'"]').innerHTML='<p>Yêu cầu chưa kích hoạt sẽ được xóa khỏi danh sách. Bạn có thể tạo đăng ký mới.</p><button class="care-plain" type="button" data-w-delete-yes="'+escape(remove.dataset.wDelete)+'">Xác nhận xóa yêu cầu</button>';}
-    if(confirm){const row=rows.find(w=>w.id===confirm.dataset.wDeleteYes);if(!row)return;confirm.disabled=true;try{await api('/api/warranty-requests/'+row.id,'DELETE',{version:row.version,confirmation:'DELETE_WARRANTY_REQUEST'});delete guestTokens[row.id];try{localStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}if(editing?.id===row.id){editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;}await list();feedback.textContent='Đã xóa yêu cầu.';}catch(error){feedback.textContent=error.message;confirm.disabled=false;}}
+    if(confirm){const row=rows.find(w=>w.id===confirm.dataset.wDeleteYes);if(!row)return;confirm.disabled=true;try{await api('/api/warranty-requests/'+row.id,'DELETE',{version:row.version,confirmation:'DELETE_WARRANTY_REQUEST'});delete guestTokens[row.id];try{sessionStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}if(editing?.id===row.id){editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;}await list();feedback.textContent='Đã xóa yêu cầu.';}catch(error){feedback.textContent=error.message;confirm.disabled=false;}}
   });
   section.addEventListener('click',async event=>{
     const button=event.target.closest('[data-w-page],[data-w-orders]');if(!button)return;

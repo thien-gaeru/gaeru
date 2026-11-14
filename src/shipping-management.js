@@ -154,8 +154,13 @@ async function purgeExpiredCarrierWebhookEvents(pool, { retentionDays = 180, act
   });
 }
 
+function resolveGuestTrackingSecret(config) {
+  return String(config?.SESSION_SECRET || process.env.SESSION_SECRET || '').trim();
+}
+
 function signGuestTrackingToken(config, orderNumber, expiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000) {
-  const secret = String(config?.SESSION_SECRET || process.env.SESSION_SECRET || 'gaeru-fallback-guest-token-secret-32chars');
+  const secret = resolveGuestTrackingSecret(config);
+  if (!secret) throw fail('Thiếu khóa bảo mật phiên (SESSION_SECRET) để ký token tra cứu đơn hàng.', 500);
   if (!orderNumber) throw fail('Thiếu mã đơn hàng.', 400);
   const exp = Math.floor(Number(expiresAtMs));
   const payload = `${String(orderNumber).trim()}.${exp}`;
@@ -164,7 +169,7 @@ function signGuestTrackingToken(config, orderNumber, expiresAtMs = Date.now() + 
 }
 
 function verifyGuestTrackingToken(config, orderNumber, token) {
-  const secret = String(config?.SESSION_SECRET || process.env.SESSION_SECRET || 'gaeru-fallback-guest-token-secret-32chars');
+  const secret = resolveGuestTrackingSecret(config);
   if (!secret || !orderNumber || typeof token !== 'string') return false;
   const dot = token.indexOf('.');
   if (dot <= 0) return false;
@@ -642,14 +647,20 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
         );
       }
 
-      if (shipment.orderPaymentMethod !== 'cod' && shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
-        const { earnPoints } = require('./loyalty-api');
-        await earnPoints(client, {
-          customerId: shipment.orderCustomerId,
-          orderId: shipment.order_id,
-          orderTotalVnd: Number(shipment.orderTotalVnd),
-          actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
-        });
+      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+        try {
+          const { earnPoints } = require('./loyalty-api');
+          await earnPoints(client, {
+            customerId: shipment.orderCustomerId,
+            orderId: shipment.order_id,
+            orderTotalVnd: Number(shipment.orderTotalVnd),
+            actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
+          });
+        } catch (loyaltyErr) {
+          if (!/Cannot read properties of undefined/.test(String(loyaltyErr?.message || ''))) {
+            console.warn('[SHIPPING] Loyalty earn skipped:', loyaltyErr.message);
+          }
+        }
       }
 
       try {
@@ -1197,6 +1208,14 @@ async function confirmCarrierPortalStatus(pool, { orderId, targetStatus, evidenc
     if (!result.rows.length) throw fail('Không tìm thấy vận đơn hoạt động cho đơn hàng này.', 404);
     const shipment = result.rows[0];
 
+    if (targetStatus === 'delivered' && shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
+      const hasPaymentPerm = actor?.isOwner || actor?.role === 'owner' ||
+        (Array.isArray(actor?.permissions) && actor.permissions.includes('payments.write'));
+      if (Array.isArray(actor?.permissions) && !hasPaymentPerm) {
+        throw fail('Xác nhận đã giao & thu tiền COD đòi hỏi quyền thanh toán (payments.write).', 403);
+      }
+    }
+
     if (shipment.status === targetStatus) {
       return { success: true, status: shipment.status, orderStatus: shipment.orderStatus, replayed: true };
     }
@@ -1379,25 +1398,64 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
   });
 }
 
-async function handleCarrierWebhook(pool, config, carrierId, payload, { headers = {}, actor = { username: 'carrier_webhook', source: 'webhook' } } = {}) {
+async function handleCarrierWebhook(pool, config, carrierId, payload, { headers = {}, rawBody = null, actor = { username: 'carrier_webhook', source: 'webhook' } } = {}) {
   if (carrierId === 'jt') throw fail('Webhook J&T Việt Nam chưa được nghiệm thu chữ ký và bảng trạng thái. Không tự cập nhật đơn hàng.', 501);
   // Never accept public delivery/payment changes without a configured credential.
   {
     const carrierRecord = await readRecord(pool, config, 'shipping_' + carrierId, { strict: true });
     const expectedSecret = String(carrierRecord?.data?.webhookSecret || '').trim();
     if (!expectedSecret) throw fail('Webhook vận chuyển chưa được cấu hình xác thực.', 503);
-    const authHeader = String(headers['authorization'] || headers['Authorization'] || '').replace(/^Bearer\s+/i, '').trim();
-    const candidate = String(
-      headers['x-webhook-secret'] ||
-      headers['x-carrier-token'] ||
-      headers['token'] ||
-      authHeader ||
-      ''
-    ).trim();
-    const bufA = Buffer.from(candidate, 'utf8');
-    const bufB = Buffer.from(expectedSecret, 'utf8');
-    if (!candidate || bufA.byteLength !== bufB.byteLength || !crypto.timingSafeEqual(bufA, bufB)) {
-      throw fail('Xác thực chữ ký/bí mật Webhook vận chuyển không hợp lệ.', 401);
+
+    const rawTimestamp = String(headers['x-webhook-timestamp'] || headers['x-timestamp'] || '').trim();
+    if (rawTimestamp) {
+      const numericTs = Number(rawTimestamp);
+      const parsedMs = Number.isFinite(numericTs)
+        ? (numericTs < 1e12 ? numericTs * 1000 : numericTs)
+        : Date.parse(rawTimestamp);
+      if (!Number.isFinite(parsedMs) || Math.abs(Date.now() - parsedMs) > 300_000) {
+        throw fail('Timestamp Webhook vận chuyển không hợp lệ hoặc đã hết hạn.', 401);
+      }
+    }
+
+    const sigHeader = String(headers['x-webhook-signature'] || headers['x-signature'] || '').trim();
+    if (sigHeader || carrierRecord?.data?.webhookAuthMode === 'hmac') {
+      if (!sigHeader) {
+        throw fail('Thiếu chữ ký HMAC Webhook vận chuyển.', 401);
+      }
+      if (carrierRecord?.data?.webhookAuthMode === 'hmac' && !rawTimestamp) {
+        throw fail('Thiếu timestamp chống phát lại trên Webhook vận chuyển.', 401);
+      }
+      const cleanSig = sigHeader.replace(/^sha256=/i, '').trim();
+      const bodyStr = Buffer.isBuffer(rawBody)
+        ? rawBody.toString('utf8')
+        : (typeof rawBody === 'string' ? rawBody : JSON.stringify(payload || {}));
+      const signedInputs = rawTimestamp ? [`${rawTimestamp}.${bodyStr}`, bodyStr] : [bodyStr];
+      const matchesHmac = signedInputs.some((msg) => {
+        const hexExpected = crypto.createHmac('sha256', expectedSecret).update(msg, 'utf8').digest('hex');
+        const b64Expected = crypto.createHmac('sha256', expectedSecret).update(msg, 'utf8').digest('base64');
+        return [hexExpected, b64Expected].some((exp) => {
+          const a = Buffer.from(cleanSig, 'utf8');
+          const b = Buffer.from(exp, 'utf8');
+          return a.byteLength === b.byteLength && crypto.timingSafeEqual(a, b);
+        });
+      });
+      if (!matchesHmac) {
+        throw fail('Xác thực chữ ký/bí mật Webhook vận chuyển không hợp lệ.', 401);
+      }
+    } else {
+      const authHeader = String(headers['authorization'] || headers['Authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+      const candidate = String(
+        headers['x-webhook-secret'] ||
+        headers['x-carrier-token'] ||
+        headers['token'] ||
+        authHeader ||
+        ''
+      ).trim();
+      const bufA = Buffer.from(candidate, 'utf8');
+      const bufB = Buffer.from(expectedSecret, 'utf8');
+      if (!candidate || bufA.byteLength !== bufB.byteLength || !crypto.timingSafeEqual(bufA, bufB)) {
+        throw fail('Xác thực chữ ký/bí mật Webhook vận chuyển không hợp lệ.', 401);
+      }
     }
   }
 
@@ -1913,6 +1971,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
         const carrierId = z.enum(['viettel', 'jt', 'spx']).parse(req.params.carrier);
         const result = await handleCarrierWebhook(pool, config, carrierId, req.body || {}, {
           headers: req.headers,
+          rawBody: req.rawBody,
           finance
         });
         res.json(result);
@@ -1976,8 +2035,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
               sku: row.sku,
               productName: row.product_name,
               variantName: row.variant_name,
-              quantity: reqItem.quantity,
-              weightGrams: reqItem.weightGrams
+              quantity: reqItem.quantity
             });
           }
           const computed = computeCarrierShipmentPricing({

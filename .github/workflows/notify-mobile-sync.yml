@@ -10,22 +10,30 @@ on:
       - 'src/**'
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   dispatch-to-mobile:
     name: Dispatch Event to gaeru-mobile
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Mobile App Real-time Sync
+        env:
+          DISPATCH_TOKEN: ${{ secrets.MOBILE_SYNC_PAT || secrets.GH_PAT || '' }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_REF: ${{ github.ref }}
         run: |
           echo "Kiểm tra quyền dispatch sang thien-gaeru/gaeru-mobile..."
-          DISPATCH_TOKEN="${{ secrets.MOBILE_SYNC_PAT || secrets.GH_PAT || '' }}"
           if [ -n "$DISPATCH_TOKEN" ]; then
             echo "Đang phát tín hiệu repository_dispatch [gaeru_web_updated] sang gaeru-mobile..."
-            curl -X POST \
+            payload=$(jq -n --arg commit "$EVENT_SHA" --arg ref "$EVENT_REF" '{"event_type":"gaeru_web_updated","client_payload":{"commit":$commit,"ref":$ref}}')
+            printf 'header = "Authorization: token %s"\n' "$DISPATCH_TOKEN" | curl --fail --silent --show-error --location --max-time 15 \
+              -X POST \
+              --config - \
               -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: token $DISPATCH_TOKEN" \
+              -H "Content-Type: application/json" \
               https://api.github.com/repos/thien-gaeru/gaeru-mobile/dispatches \
-              -d '{"event_type": "gaeru_web_updated", "client_payload": {"commit": "${{ github.sha }}", "ref": "${{ github.ref }}"}}'
+              -d "$payload"
             echo "✅ Đã phát tín hiệu thành công!"
           else
             echo "ℹ️ MOBILE_SYNC_PAT chưa được cấu hình trong Secrets. Mobile app vẫn tự động đồng bộ theo chu kỳ 2 giờ và Realtime SSE / ETag."

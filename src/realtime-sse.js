@@ -4,14 +4,15 @@ const { requirePermission } = require('./staff-access');
 const { cacheEvents } = require('../cache');
 
 class RealtimeHub {
-  constructor() {
+  constructor({ clusterSync = false } = {}) {
     this.bus = new EventEmitter();
     this.bus.setMaxListeners(1000);
+    this.clusterSync = Boolean(clusterSync);
   }
 
-  publish(channel, event, payload = {}) {
-    const id = String(Date.now());
-    const timestamp = new Date().toISOString();
+  emitLocal(channel, event, payload = {}, meta = {}) {
+    const id = meta.id || String(Date.now());
+    const timestamp = meta.timestamp || new Date().toISOString();
     this.bus.emit(channel, {
       event,
       data: payload,
@@ -20,13 +21,54 @@ class RealtimeHub {
     });
   }
 
+  publish(channel, event, payload = {}) {
+    const id = String(Date.now());
+    const timestamp = new Date().toISOString();
+    this.emitLocal(channel, event, payload, { id, timestamp });
+    if (this.clusterSync && typeof process.send === 'function') {
+      try {
+        process.send({
+          type: 'REALTIME_SSE_EVENT',
+          channel,
+          event,
+          payload,
+          id,
+          timestamp
+        });
+      } catch (_) {}
+    }
+  }
+
   subscribe(channel, listener) {
     this.bus.on(channel, listener);
     return () => this.bus.off(channel, listener);
   }
 }
 
-const defaultHub = new RealtimeHub();
+const defaultHub = new RealtimeHub({ clusterSync: true });
+
+const SSE_IPC_LISTENER_KEY = Symbol.for('gaeru.realtimeSse.ipcRegistered');
+if (typeof process.on === 'function' && !process[SSE_IPC_LISTENER_KEY]) {
+  process[SSE_IPC_LISTENER_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg && msg.type === 'REALTIME_SSE_EVENT' && typeof msg.channel === 'string' && typeof msg.event === 'string') {
+      defaultHub.emitLocal(msg.channel, msg.event, msg.payload ?? {}, {
+        id: msg.id,
+        timestamp: msg.timestamp
+      });
+    }
+  });
+}
+
+function configureSseSocket(req, res) {
+  try {
+    req?.setTimeout?.(0);
+    res?.setTimeout?.(0);
+    req?.socket?.setTimeout?.(0);
+    req?.socket?.setNoDelay?.(true);
+    req?.socket?.setKeepAlive?.(true, 10000);
+  } catch (_) {}
+}
 
 function checkAdminSessionValid(req) {
   if (!req.session?.admin) return false;
@@ -105,10 +147,7 @@ const activeStreams = new Set();
 function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, checkSession = null } = {}) {
   if (!acquireSseSlot(req, res)) return;
   activeStreams.add(res);
-  try {
-    req.socket?.setNoDelay?.(true);
-    req.socket?.setKeepAlive?.(true, 10000);
-  } catch (_) {}
+  configureSseSocket(req, res);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -239,10 +278,7 @@ const realtimeClients = new Set();
 
 function sseHandler(req, res) {
   if (!acquireSseSlot(req, res)) return;
-  try {
-    req.socket?.setNoDelay?.(true);
-    req.socket?.setKeepAlive?.(true, 10000);
-  } catch (_) {}
+  configureSseSocket(req, res);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',

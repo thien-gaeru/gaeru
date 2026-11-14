@@ -88,6 +88,24 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
     throw err;
   }
 
+  let pendingAttempts = { rows: [] };
+  await client.query('SAVEPOINT cancel_check_attempts');
+  try {
+    pendingAttempts = await client.query(
+      "SELECT 1 FROM carrier_shipment_attempts WHERE order_id = $1 AND status IN ('sending', 'unknown') LIMIT 1",
+      [order.id]
+    );
+    await client.query('RELEASE SAVEPOINT cancel_check_attempts');
+  } catch (err) {
+    await client.query('ROLLBACK TO SAVEPOINT cancel_check_attempts');
+    if (err?.code !== '42P01') throw err;
+  }
+  if (pendingAttempts.rows.length > 0) {
+    const err = new Error('Đơn hàng đang có yêu cầu tạo vận đơn chưa hoàn tất; vui lòng kiểm tra lại hoặc liên hệ CSKH.');
+    err.status = 409;
+    throw err;
+  }
+
   const receiptCheck = await client.query(
     'SELECT COALESCE(SUM(amount_vnd), 0)::bigint AS received FROM sales_receipts WHERE order_id = $1',
     [order.id]

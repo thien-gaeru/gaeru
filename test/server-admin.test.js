@@ -19,15 +19,12 @@ test('Server Admin Portal - full authentication & endpoints flow', async () => {
     cookie: { secure: false }
   }));
 
+  const testAdminPassword = `Test-${require('node:crypto').randomBytes(12).toString('hex')}!`;
+  const bcrypt = require('bcryptjs');
   const mockConfig = {
     ADMIN_USERNAME: 'admin',
-    // Hash for Anhthien1!
-    ADMIN_PASSWORD_HASH: '$2b$10$wE9mHlPcfiUaM7.gS94W8OqQk4E93i7GvI6m7s9gQ1tQ7E7r7G9gW'
+    ADMIN_PASSWORD_HASH: await bcrypt.hash(testAdminPassword, 10)
   };
-
-  // Generate real bcrypt hash for test verification
-  const bcrypt = require('bcryptjs');
-  mockConfig.ADMIN_PASSWORD_HASH = await bcrypt.hash('Anhthien1!', 10);
 
   app.use(createServerAdminRouter(mockConfig, null));
 
@@ -102,18 +99,18 @@ test('Server Admin Portal - full authentication & endpoints flow', async () => {
         'content-type': 'application/json',
         'x-csrf-token': csrfToken
       },
-      body: JSON.stringify({ username: 'admin', password: 'WrongPassword' })
+      body: JSON.stringify({ username: 'admin', password: 'WrongPassword!' })
     });
     assert.equal(rLoginFail.status, 401);
 
-    // 9. Login success (Anhthien1!)
+    // 9. Login success (ephemeral test credential)
     const rLoginSuccess = await api('/server_admin/api/login', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-csrf-token': csrfToken
       },
-      body: JSON.stringify({ username: 'admin', password: 'Anhthien1!' })
+      body: JSON.stringify({ username: 'admin', password: testAdminPassword })
     });
     assert.equal(rLoginSuccess.status, 200);
     const loginData = await rLoginSuccess.json();
@@ -147,7 +144,7 @@ test('Server Admin Portal - full authentication & endpoints flow', async () => {
     // 13. Logout
     const rLogout = await api('/server_admin/api/logout', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken }
+      headers: { 'content-type': 'application/json', 'x-csrf-token': loginData.csrfToken }
     });
     assert.equal(rLogout.status, 200);
 

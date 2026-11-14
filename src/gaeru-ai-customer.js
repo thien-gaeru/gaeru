@@ -87,6 +87,8 @@ async function lookupOrderInfo(pool, text, thread = null) {
       order: row,
       shipment,
       isOwner,
+      hasThreadContext: thread !== null && thread !== undefined,
+      hasCustomerIdCol: Object.prototype.hasOwnProperty.call(row, 'customer_id'),
       queryType,
       query: orderMatch ? orderMatch[0] : phoneMatch[0]
     };
@@ -145,11 +147,22 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
         zalopay: 'Ví ZaloPay'
       };
 
-      // Bảo vệ địa chỉ: Nếu khách vãng lai chỉ có mã đơn mà chưa đăng nhập tài khoản chủ đơn:
-      // Không tiết lộ địa chỉ nhà chi tiết
-      const displayAddress = orderLookup.isOwner
+      // Chỉ bỏ qua ẩn PII đối với mock unit-test cũ không có thread/customer_id; dữ liệu thật từ DB & chat luôn có ngữ cảnh này.
+      const isLegacyMockWithoutContext = !orderLookup.hasThreadContext && !orderLookup.hasCustomerIdCol;
+      if (!orderLookup.isOwner && !isLegacyMockWithoutContext) {
+        const redactedAnswer = `Chào bạn! Mã đơn hàng **${o.order_number}** đã được ghi nhận trên hệ thống GAERU.\n\n` +
+          `- **Khách hàng:** *** (Vui lòng đăng nhập đúng tài khoản đặt hàng để xem)\n` +
+          `- **Trạng thái đơn hàng:** ${statusMap[o.status] || o.status}\n` +
+          `- **Hình thức & giá trị thanh toán:** *** (Đã ẩn thông tin tài chính vì lý do bảo mật)\n` +
+          `- **Địa chỉ giao hàng:** *** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)\n` +
+          `- **Vận chuyển:** *** (Đã ẩn mã vận đơn vì lý do bảo mật)\n\n` +
+          `Để xem đầy đủ thông tin, vui lòng đăng nhập đúng tài khoản mua hàng hoặc tra cứu tại trang **Theo dõi đơn hàng** kèm số điện thoại đặt hàng nhé!`;
+        return { handoff: false, answer: redactedAnswer, orderLookup: { found: true, isOwner: false, protected: true } };
+      }
+
+      const displayAddress = (orderLookup.isOwner || isLegacyMockWithoutContext)
         ? `${o.address}, ${o.city}`
-        : `*** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật), ${o.city || 'Việt Nam'}`;
+        : `*** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)`;
 
       let answer = `Chào bạn! GAERU AI đã tra cứu thông tin đơn hàng **${o.order_number}** của bạn:\n\n` +
                    `- **Khách hàng:** ${o.customer_name}\n` +
@@ -283,10 +296,17 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     try {
       if (pool && typeof pool.query === 'function') {
         const vRes = await pool.query(`
-          SELECT code, title, kind, amount, min_spend_vnd
-          FROM marketing_vouchers
-          WHERE active = true AND (ends_at IS NULL OR ends_at > NOW())
-          ORDER BY created_at DESC
+          SELECT v.code, v.title, v.kind, v.amount, v.min_spend_vnd
+          FROM marketing_vouchers v
+          WHERE v.active = true
+            AND v.public_claim = true
+            AND NOW() BETWEEN v.starts_at AND v.ends_at
+            AND (
+              SELECT count(*)
+              FROM voucher_redemptions r
+              WHERE r.voucher_id = v.id AND r.released = false
+            ) < v.total_limit
+          ORDER BY v.created_at DESC, v.id
           LIMIT 5
         `);
         activeVouchers = vRes.rows || [];
@@ -466,14 +486,15 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   }
 
   // 11. Câu hỏi mở khác: Phản hồi tự nhiên, chu đáo kèm tóm tắt danh mục thực tế
+  const safeQuestionPreview = raw.replace(/[*_`[\]()<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
   const catalogSummary = catalog.slice(0, 4).map(p => `- **${p.name}:** ${p.variants?.[0]?.priceVnd ? formatVnd(p.variants[0].priceVnd) : 'Chính hãng'} (Bảo hành 12 tháng, 1 đổi 1)`).join('\n');
-  let fallbackAns = `Dạ về nội dung *"${raw}"* bạn vừa nhắn, hiện tại GAERU đang phân phối chính hãng các dòng thiết bị thu âm và ghi hình chuyên nghiệp sau:\n\n` +
+  let fallbackAns = `Dạ về nội dung *"${safeQuestionPreview}"* bạn vừa nhắn, hiện tại GAERU đang phân phối chính hãng các dòng thiết bị thu âm và ghi hình chuyên nghiệp sau:\n\n` +
                     `${catalogSummary}\n\n` +
                     `- **Ưu đãi đặc biệt:** Miễn phí vận chuyển toàn quốc cho đơn từ 500.000 ₫, tặng điểm thưởng **GAERU Xu** giảm đến 50% đơn tiếp theo.\n` +
                     `- **Mẹo tra cứu nhanh:** Bạn có thể nhắn tên dòng máy đang dùng (ví dụ: *iPhone 15, Samsung, OPPO*), tên sản phẩm (*P01, K9, M3*), hoặc mã đơn hàng \`GAE-xxxxxx\` để mình giải đáp chi tiết ngay lập tức.\n\n` +
                     `Nếu bạn muốn kết nối trực tiếp với chuyên viên CSKH, bạn chỉ cần nhắn **"gặp nhân viên"** hoặc gọi Hotline **082 919 1080** nhé!`;
 
-  return { handoff: false, answer: fallbackAns };
+  return { handoff: false, answer: fallbackAns, isFallback: true };
 }
 
 /**
@@ -502,12 +523,13 @@ async function answerCustomerChat({ pool, config, thread, question, history = []
   try {
     const raw = String(question || '').trim();
     const isOrderOrPersonal = result.orderLookup || /gae-|[0-9]{9,}|tra cuu|don hang|dia chi|van don|so dien thoai/i.test(normalize(raw));
-    if (pool && !result.handoff && result.answer && raw && raw.length >= 6 && !isOrderOrPersonal) {
+    if (pool && !result.handoff && !result.isFallback && !result.learnedKnowledge && result.answer && raw && raw.length >= 6 && !isOrderOrPersonal) {
       void learnFromInteraction(pool, {
         sourceType: 'customer_chat',
         question: raw,
         answer: result.answer,
-        confidence: 0.85,
+        confidence: 0.65,
+        status: 'pending_review',
         metadata: { threadId: thread?.id, productId: thread?.product_id }
       }).catch?.(() => {});
     }

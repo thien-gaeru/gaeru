@@ -436,7 +436,7 @@
     }
     const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
     if (!emailRegex.test(raw) || /\s/.test(raw) || !raw.includes('.')) {
-      return { valid: false, message: 'Email không đúng định dạng. Ví dụ: hotro@gaeru.com.' };
+      return { valid: false, message: 'Email không đúng định dạng. Ví dụ: business@gaeru.com.' };
     }
     return { valid: true, normalized: raw.toLowerCase() };
   }

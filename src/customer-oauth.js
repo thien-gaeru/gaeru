@@ -152,7 +152,8 @@ async function resolveGoogleIdentity(pool, googleUser) {
     // 1. Tìm tài khoản theo auth_identities
     let identity = (await client.query(
       `SELECT ai.customer_id, c.id, c.full_name AS "fullName", c.email, c.phone,
-              c.email_verified_at IS NOT NULL AS "emailVerified", c.active, c.deleted_at AS "deletedAt"
+              c.email_verified_at IS NOT NULL AS "emailVerified", c.active, c.deleted_at AS "deletedAt",
+              c.phone_invalid_at AS "phoneInvalidAt", c.created_at AS "createdAt"
        FROM auth_identities ai
        JOIN customers c ON c.id = ai.customer_id
        WHERE ai.provider = 'google' AND (ai.issuer = $1 OR ai.issuer = 'accounts.google.com') AND ai.provider_subject = $2
@@ -164,7 +165,8 @@ async function resolveGoogleIdentity(pool, googleUser) {
     if (!identity) {
       const legacy = (await client.query(
         `SELECT id, full_name AS "fullName", email, phone,
-                email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
+                email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt",
+                phone_invalid_at AS "phoneInvalidAt", created_at AS "createdAt"
          FROM customers WHERE google_id = $1 FOR UPDATE`,
         [subject]
       )).rows[0];
@@ -196,7 +198,8 @@ async function resolveGoogleIdentity(pool, googleUser) {
     // Kiểm tra xem email có thuộc tài khoản GAERU nào khác không:
     const collision = (await client.query(
       `SELECT id, email, full_name AS "fullName", phone,
-              email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
+              email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt",
+              phone_invalid_at AS "phoneInvalidAt", created_at AS "createdAt"
        FROM customers WHERE lower(email) = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
       [email]
     )).rows[0];
@@ -245,7 +248,8 @@ async function resolveGoogleIdentity(pool, googleUser) {
     const inserted = (await client.query(
       `INSERT INTO customers (full_name, email, phone, google_id, avatar_url, active, email_verified_at)
        VALUES ($1, $2, '', $3, $4, true, now())
-       RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
+       RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified",
+                 phone_invalid_at AS "phoneInvalidAt", created_at AS "createdAt"`,
       [googleUser.name, email, subject, googleUser.picture]
     )).rows[0];
 
@@ -275,16 +279,30 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     try {
       const row = (await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'private_admin:oauth'")).rows[0];
       if (row?.setting_value?.cipher) {
-        const secretKey = process.env.AUTH_ENCRYPTION_KEY || config.SESSION_SECRET;
-        const data = JSON.parse(require('./totp').open(row.setting_value.cipher, secretKey));
+        const encKeys = require('./audit-fixes/encryption-key').resolveEncryptionKeys(config);
+        const data = JSON.parse(require('./audit-fixes/encryption-key').openWithKeyFallback(row.setting_value.cipher, encKeys));
         return data || {};
+      }
+      if (row?.setting_value && typeof row.setting_value === 'object') {
+        return row.setting_value;
       }
     } catch {}
     return {};
   };
 
-  const getGoogleClientId = async () => {
-    const dbOAuth = await getOAuthSettings();
+  const isGoogleLoginEnabled = (dbOAuth = null) => {
+    if (dbOAuth && (dbOAuth.enabled === false || dbOAuth.googleEnabled === false)) {
+      return false;
+    }
+    if (config.GOOGLE_LOGIN_ENABLED === false || process.env.GOOGLE_LOGIN_ENABLED === 'false') {
+      return false;
+    }
+    return true;
+  };
+
+  const getGoogleClientId = async (dbOAuthArg = null) => {
+    const dbOAuth = dbOAuthArg || await getOAuthSettings();
+    if (!isGoogleLoginEnabled(dbOAuth)) return '';
     if (dbOAuth.googleClientId && String(dbOAuth.googleClientId).trim()) {
       return String(dbOAuth.googleClientId).trim();
     }
@@ -292,13 +310,6 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       return String(config.GOOGLE_CLIENT_ID || '').trim();
     }
     return String(process.env.GOOGLE_CLIENT_ID || '').trim();
-  };
-
-  const isGoogleLoginEnabled = () => {
-    if (config.GOOGLE_LOGIN_ENABLED === false || process.env.GOOGLE_LOGIN_ENABLED === 'false') {
-      return false;
-    }
-    return true;
   };
 
   // Pending link info endpoint for frontend feedback
@@ -320,9 +331,10 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   // Public config endpoint so client can initialize Google SDK button
   router.get('/config', async (_req, res) => {
     try {
-      const googleId = await getGoogleClientId();
+      const dbOAuth = await getOAuthSettings();
+      const googleId = await getGoogleClientId(dbOAuth);
       const configured = Boolean(googleId);
-      const enabled = isGoogleLoginEnabled() && configured;
+      const enabled = isGoogleLoginEnabled(dbOAuth) && configured;
       res.json({
         google: {
           enabled,
@@ -340,11 +352,12 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   // Google Login / AJAX One Tap Handler
   router.post('/google', oauthLimit, requireCsrf, async (req, res, next) => {
     try {
-      if (!isGoogleLoginEnabled()) {
+      const dbOAuth = await getOAuthSettings();
+      if (!isGoogleLoginEnabled(dbOAuth)) {
         return res.status(404).json({ error: 'Tính năng đăng nhập Google hiện đang tạm đóng.' });
       }
 
-      const googleClientId = await getGoogleClientId();
+      const googleClientId = await getGoogleClientId(dbOAuth);
       if (!googleClientId) {
         return res.status(503).json({ error: 'Đăng nhập Google chưa được cấu hình trên máy chủ.' });
       }
@@ -379,6 +392,32 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         });
       }
 
+      const { checkCustomerPhoneStatus } = require('./customer-lifecycle');
+      const phoneStatus = checkCustomerPhoneStatus({
+        phone: outcome.customer.phone,
+        phone_invalid_at: outcome.customer.phoneInvalidAt,
+        created_at: outcome.customer.createdAt
+      });
+      if (phoneStatus.isExpired) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
+            [outcome.customer.id]
+          );
+        } catch (_) {}
+        return res.status(403).json({ error: 'Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ. Vui lòng liên hệ GAERU để mở khóa.' });
+      }
+      if (phoneStatus.isWarning) {
+        outcome.customer.phoneWarning = true;
+        outcome.customer.phoneWarningRemainingHours = phoneStatus.remainingHours;
+        outcome.customer.phoneWarningExpiresAt = phoneStatus.warningExpiresAt;
+        outcome.customer.phoneWarningMessage = phoneStatus.warningMessage;
+      }
+
+      if (accountSecurity && typeof accountSecurity.beginExternalLogin === 'function') {
+        const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, { sendJson: true });
+        if (mfaStarted) return;
+      }
       startCustomerSession(req, res, next, outcome.customer, accountSecurity);
     } catch (error) {
       if (error.status) return res.status(error.status).json({ error: error.message });
@@ -391,7 +430,8 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
     try {
       res.set('Cache-Control', 'no-store');
 
-      if (!isGoogleLoginEnabled()) {
+      const dbOAuth = await getOAuthSettings();
+      if (!isGoogleLoginEnabled(dbOAuth)) {
         return res.status(404).send('Tính năng đăng nhập Google hiện đang tạm đóng.');
       }
 
@@ -404,7 +444,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         return res.status(403).type('html').send('<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thử lại đăng nhập Google | GAERU</title><main><h1>Phiên đăng nhập Google chưa hợp lệ</h1><p>Kiểm tra CSRF không thành công. Vui lòng quay lại trang tài khoản và chọn nút Đăng nhập bằng Google để thử lại.</p><a href="/tai-khoan#login">Quay lại đăng nhập GAERU</a></main></html>');
       }
 
-      const googleClientId = await getGoogleClientId();
+      const googleClientId = await getGoogleClientId(dbOAuth);
       if (!googleClientId) {
         return res.status(503).send('Đăng nhập Google chưa được cấu hình trên máy chủ.');
       }
@@ -441,7 +481,36 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         return res.status(403).send('Tài khoản đã bị khóa hoặc không còn hoạt động.');
       }
 
+      const { checkCustomerPhoneStatus } = require('./customer-lifecycle');
+      const phoneStatus = checkCustomerPhoneStatus({
+        phone: outcome.customer.phone,
+        phone_invalid_at: outcome.customer.phoneInvalidAt,
+        created_at: outcome.customer.createdAt
+      });
+      if (phoneStatus.isExpired) {
+        try {
+          await pool.query(
+            "UPDATE customers SET active = false, lock_reason = 'invalid_phone_timeout', locked_at = now(), updated_at = now() WHERE id = $1",
+            [outcome.customer.id]
+          );
+        } catch (_) {}
+        return res.status(403).send('Tài khoản đã bị tự động khóa do chưa cập nhật số điện thoại hợp lệ trong vòng 12 giờ.');
+      }
+      if (phoneStatus.isWarning) {
+        outcome.customer.phoneWarning = true;
+        outcome.customer.phoneWarningRemainingHours = phoneStatus.remainingHours;
+        outcome.customer.phoneWarningExpiresAt = phoneStatus.warningExpiresAt;
+        outcome.customer.phoneWarningMessage = phoneStatus.warningMessage;
+      }
+
       const targetUrl = req.path === '/auth/google' ? '/account' : '/account.html#customer-account';
+      if (accountSecurity && typeof accountSecurity.beginExternalLogin === 'function') {
+        const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, { sendJson: false });
+        if (mfaStarted) {
+          const mfaTarget = req.path === '/auth/google' ? '/account?mfaRequired=1#login' : '/account.html?mfaRequired=1#login';
+          return res.redirect(302, mfaTarget);
+        }
+      }
       startCustomerSession(req, res, next, outcome.customer, accountSecurity, {
         redirectUrl: targetUrl
       });
@@ -492,6 +561,39 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
           throw Object.assign(new Error('Tài khoản Google này đã được liên kết với một tài khoản GAERU khác.'), { status: 409 });
         }
 
+        if (!googleUser.emailVerified) {
+          throw Object.assign(new Error('Email Google chưa được xác minh.'), { status: 403 });
+        }
+
+        const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+        const custRes = await client.query(
+          `SELECT id, email, email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt"
+           FROM customers
+           WHERE id = $1
+           FOR UPDATE`,
+          [customerId]
+        );
+        const cust = custRes.rows[0] || null;
+        if (cust) {
+          if (cust.deletedAt || cust.active === false) {
+            throw Object.assign(new Error('Tài khoản đã bị khóa hoặc không khả dụng.'), { status: 403 });
+          }
+          const sameEmail = Boolean(cust.email) && normalizeEmail(cust.email) === normalizeEmail(googleUser.email);
+          if (!sameEmail && !cust.emailVerified) {
+            throw Object.assign(new Error('Tài khoản chưa xác minh email chỉ được liên kết với Google có cùng địa chỉ email.'), { status: 403 });
+          }
+          if (!sameEmail) {
+            throw Object.assign(new Error('Email tài khoản Google phải trùng với email tài khoản GAERU đang đăng nhập.'), { status: 403 });
+          }
+        } else if (req.session?.customer?.email && normalizeEmail(req.session.customer.email) !== normalizeEmail(googleUser.email)) {
+          throw Object.assign(new Error('Email tài khoản Google phải trùng với email tài khoản GAERU đang đăng nhập.'), { status: 403 });
+        }
+
+        const canMarkEmailVerified = Boolean(
+          googleUser.emailVerified &&
+          (cust ? normalizeEmail(cust.email) === normalizeEmail(googleUser.email) : normalizeEmail(req.session?.customer?.email) === normalizeEmail(googleUser.email))
+        );
+
         // Link identity atomically
         await client.query(
           `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
@@ -505,10 +607,10 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
           `UPDATE customers
            SET google_id = $1,
                avatar_url = COALESCE(avatar_url, $2),
-               email_verified_at = COALESCE(email_verified_at, now()),
+               email_verified_at = CASE WHEN $4 THEN COALESCE(email_verified_at, now()) ELSE email_verified_at END,
                updated_at = now()
            WHERE id = $3`,
-          [subject, googleUser.picture, customerId]
+          [subject, googleUser.picture, customerId, canMarkEmailVerified]
         );
 
         if (req.session?.pendingOAuthLink) {
@@ -570,19 +672,6 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   router.post('/google-callback', express.urlencoded({ extended: false, limit: '32kb' }), handleRedirectCallback);
   router.post('/link-google', requireCsrf, handleLinkGoogle);
   router.post('/unlink-google', requireCsrf, handleUnlinkGoogle);
-
-  router.get('/pending-link', (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    const pending = req.session?.pendingOAuthLink;
-    if (!pending || !pending.email || (Date.now() - pending.createdAt > 15 * 60 * 1000)) {
-      return res.json({ pending: false });
-    }
-    res.json({
-      pending: true,
-      provider: pending.provider || 'google',
-      email: pending.email
-    });
-  });
 
   router.handleRedirectCallback = handleRedirectCallback;
   router.handleGisRedirect = handleRedirectCallback;

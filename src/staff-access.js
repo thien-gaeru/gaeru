@@ -46,7 +46,7 @@ function principalFromStaff(row) {
 function bootstrapPrincipal(config) {
   return {
     id: null, username: config.ADMIN_USERNAME, fullName: "Chủ doanh nghiệp",
-    role: "owner", permissions: [...PERMISSIONS], source: "bootstrap"
+    role: "owner", isOwner: true, permissions: [...PERMISSIONS], source: "bootstrap"
   };
 }
 

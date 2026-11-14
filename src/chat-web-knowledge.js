@@ -1,14 +1,22 @@
 const { getExternalWebKnowledge } = require('./chat-external-knowledge');
 const fs = require('node:fs');
+const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 const { parseHTML } = require('linkedom');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const EXCLUDED_HTML = new Set(['cart.html', 'checkout.html', 'payment-result.html', 'sitemap.html']);
+const MAX_WEB_KNOWLEDGE_FILES = 100;
 
 let cachedPages = null;
 let cachedPagesAt = 0;
+let pendingPagesLoad = null;
 const PAGE_CACHE_TTL_MS = 300000;
+
+function clearWebKnowledgeCache() {
+  cachedPages = null;
+  cachedPagesAt = 0;
+}
 
 const liveDbCache = new WeakMap();
 const LIVE_DB_TTL_MS = 30000;
@@ -59,13 +67,19 @@ function extractPageKnowledge(fileName, html) {
   };
 }
 
+function selectKnowledgeHtmlFiles(entries) {
+  return (entries || [])
+    .filter(f => typeof f === 'string' && f.endsWith('.html') && !EXCLUDED_HTML.has(f))
+    .slice(0, MAX_WEB_KNOWLEDGE_FILES);
+}
+
 function loadWebPagesIndex() {
   if (cachedPages && Date.now() - cachedPagesAt < PAGE_CACHE_TTL_MS) {
     return cachedPages;
   }
   const pages = [];
   try {
-    const files = fs.readdirSync(ROOT_DIR).filter(f => f.endsWith('.html') && !EXCLUDED_HTML.has(f));
+    const files = selectKnowledgeHtmlFiles(fs.readdirSync(ROOT_DIR));
     for (const fileName of files) {
       try {
         const fullPath = path.join(ROOT_DIR, fileName);
@@ -78,6 +92,41 @@ function loadWebPagesIndex() {
   cachedPages = pages;
   cachedPagesAt = Date.now();
   return pages;
+}
+
+async function loadWebPagesIndexAsync() {
+  if (cachedPages && Date.now() - cachedPagesAt < PAGE_CACHE_TTL_MS) {
+    return cachedPages;
+  }
+  if (pendingPagesLoad) return pendingPagesLoad;
+  pendingPagesLoad = (async () => {
+    const pages = [];
+    try {
+      const files = selectKnowledgeHtmlFiles(await fsPromises.readdir(ROOT_DIR));
+      const CONCURRENCY = 16;
+      for (let i = 0; i < files.length; i += CONCURRENCY) {
+        const batch = files.slice(i, i + CONCURRENCY);
+        const parsedBatch = await Promise.all(batch.map(async (fileName) => {
+          try {
+            const raw = await fsPromises.readFile(path.join(ROOT_DIR, fileName), 'utf8');
+            const page = extractPageKnowledge(fileName, raw);
+            return page.content.length > 20 ? page : null;
+          } catch {
+            return null;
+          }
+        }));
+        for (const page of parsedBatch) {
+          if (page) pages.push(page);
+        }
+      }
+    } catch {}
+    cachedPages = pages;
+    cachedPagesAt = Date.now();
+    return pages;
+  })().finally(() => {
+    pendingPagesLoad = null;
+  });
+  return pendingPagesLoad;
 }
 
 async function loadLiveSiteFacts(pool) {
@@ -127,7 +176,7 @@ async function loadLiveSiteFacts(pool) {
 }
 
 async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = null, transport = fetch } = {}) {
-  const pages = loadWebPagesIndex();
+  const pages = await loadWebPagesIndexAsync();
   const qNorm = normalizeText(typeof question === 'string' ? question : JSON.stringify(question || ''));
   const tokens = qNorm.split(/[^a-z0-9]+/).filter(t => t.length >= 2);
   const productNorm = selectedProduct ? normalizeText(`${selectedProduct.slug || ''} ${selectedProduct.name || ''}`) : '';
@@ -184,6 +233,8 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
 module.exports = {
   extractPageKnowledge,
   loadWebPagesIndex,
+  loadWebPagesIndexAsync,
+  clearWebKnowledgeCache,
   loadLiveSiteFacts,
   getRelevantWebKnowledge
 };

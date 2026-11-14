@@ -8,48 +8,128 @@ const http = require('http');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
-require('dotenv').config();
+const { PGlite } = require('@electric-sql/pglite');
 
 const { createApp } = require('../src/app');
+const { migrateDatabase } = require('../src/migrate');
 
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const SCREENSHOT_DIR = process.env.GAERU_SCREENSHOT_DIR || path.join(os.homedir(), '.gemini', 'antigravity', 'brain', '470c3e88-af2f-4c7e-9f97-1ee26cfc045b', 'screenshots');
 
-if (!fs.existsSync(SCREENSHOT_DIR)) {
-  fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+async function createIsolatedPglitePool() {
+  const db = await PGlite.create();
+  let queue = Promise.resolve();
+  async function lock() {
+    const previous = queue;
+    let release;
+    queue = new Promise((resolve) => { release = resolve; });
+    await previous;
+    return release;
+  }
+  async function execQuery(sql, values) {
+    const result = !values && sql.includes(';')
+      ? (await db.exec(sql)).at(-1)
+      : await db.query(sql, values);
+    return {
+      ...result,
+      rows: result?.rows || [],
+      rowCount: result?.affectedRows ?? result?.rows?.length ?? 0,
+    };
+  }
+  return {
+    async query(sql, values) {
+      const release = await lock();
+      try {
+        return await execQuery(sql, values);
+      } finally {
+        release();
+      }
+    },
+    async connect() {
+      const release = await lock();
+      return { query: execQuery, release };
+    },
+    end: () => db.close(),
+  };
+}
+
+async function cleanupTestOrder(pool, orderId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SET LOCAL gaeru.allow_owner_order_purge = 'on'");
+    await client.query(
+      `DELETE FROM warranty_email_outbox
+        WHERE order_id = $1
+           OR warranty_id IN (
+             SELECT id FROM warranty_activations
+              WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)
+           )`,
+      [orderId]
+    );
+    await client.query(
+      'DELETE FROM warranty_activations WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)',
+      [orderId]
+    );
+    await client.query('DELETE FROM sales_receipts WHERE order_id = $1', [orderId]);
+    await client.query('DELETE FROM order_email_outbox WHERE order_id = $1', [orderId]);
+    await client.query('DELETE FROM order_admin_email_outbox WHERE order_id = $1', [orderId]);
+    await client.query('DELETE FROM order_items WHERE order_id = $1', [orderId]);
+    await client.query('DELETE FROM orders WHERE id = $1', [orderId]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function verifyOrderCompleteUI() {
+  require('dotenv').config({ quiet: true });
   console.log('=== KIỂM TRA QUY TRÌNH HOÀN THÀNH ĐƠN HÀNG TRÊN UI GAERU CEO ===');
 
-  const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/gaeru_store'
-  });
+  if (!fs.existsSync(SCREENSHOT_DIR)) {
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+  }
 
-  const originalQuery = pool.query.bind(pool);
-  pool.query = function (sql, params, callback) {
-    const q = typeof sql === 'string' ? sql.toLowerCase() : (sql && typeof sql.text === 'string' ? sql.text.toLowerCase() : '');
-    if (q.includes('account_security')) {
-      const emptyResult = { rows: [], rowCount: 0 };
-      if (typeof params === 'function') return params(null, emptyResult);
-      if (typeof callback === 'function') return callback(null, emptyResult);
-      return Promise.resolve(emptyResult);
-    }
-    return originalQuery(sql, params, callback);
-  };
+  const useLiveDb = process.env.GAERU_UI_TEST_LIVE_DB === '1';
+  const pool = useLiveDb
+    ? new Pool({
+        connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/gaeru_store'
+      })
+    : await createIsolatedPglitePool();
+
+  if (!useLiveDb) {
+    await migrateDatabase(pool);
+  }
 
   const TEST_ORDER_ID = '99999999-8888-7777-6666-555555555555';
   const TEST_ORDER_CODE = 'GAERU-TEST-COMPLETE';
 
   try {
     // 1. Tạo hoặc reset đơn hàng test ở trạng thái 'shipped' (đang giao hàng)
-    await pool.query('DELETE FROM warranty_activations WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)', [TEST_ORDER_ID]);
-    await pool.query('DELETE FROM sales_receipts WHERE order_id = $1', [TEST_ORDER_ID]);
-    await pool.query('DELETE FROM order_items WHERE order_id = $1', [TEST_ORDER_ID]);
-    await pool.query('DELETE FROM orders WHERE id = $1', [TEST_ORDER_ID]);
+    await cleanupTestOrder(pool, TEST_ORDER_ID);
 
-    const variant = (await pool.query('SELECT id, price_vnd FROM product_variants WHERE active = true LIMIT 1')).rows[0];
-    const variantId = variant ? variant.id : '00000000-0000-0000-0000-000000000001';
+    let variant = (await pool.query('SELECT id, price_vnd FROM product_variants WHERE active = true LIMIT 1')).rows[0];
+    if (!variant) {
+      const seedProductId = '99999999-8888-7777-6666-444444444444';
+      const seedVariantId = '99999999-8888-7777-6666-333333333333';
+      await pool.query(
+        `INSERT INTO products (id, slug, name, category, descriptor, description, image_url, image_alt, active, sort_order)
+         VALUES ($1, 'gaeru-ui-test-product', 'Tai nghe Gaeru Air Max (Test)', 'audio', 'Test', 'Test seed', '/assets/products/k9.webp', 'Test', true, 1)
+         ON CONFLICT (id) DO NOTHING`,
+        [seedProductId]
+      );
+      await pool.query(
+        `INSERT INTO product_variants (id, product_id, sku, name, options, price_vnd, stock_quantity, active)
+         VALUES ($1, $2, 'GAERU-AIRMAX-TEST', 'Bản Tiêu Chuẩn', '{}'::jsonb, 650000, 10, true)
+         ON CONFLICT (id) DO NOTHING`,
+        [seedVariantId, seedProductId]
+      );
+      variant = (await pool.query('SELECT id, price_vnd FROM product_variants WHERE id = $1', [seedVariantId])).rows[0];
+    }
+    const variantId = variant.id;
 
     await pool.query(`
       INSERT INTO orders (
@@ -237,11 +317,24 @@ async function verifyOrderCompleteUI() {
       await new Promise(r => server.close(r));
     }
   } finally {
+    try {
+      await cleanupTestOrder(pool, TEST_ORDER_ID);
+    } catch (cleanupErr) {
+      console.warn('Cảnh báo dọn dẹp TEST_ORDER_ID:', cleanupErr.message);
+    }
     await pool.end();
   }
 }
 
-verifyOrderCompleteUI().catch(err => {
-  console.error('LỖI KIỂM TRA:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  verifyOrderCompleteUI().catch(err => {
+    console.error('LỖI KIỂM TRA:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  verifyOrderCompleteUI,
+  cleanupTestOrder,
+  createIsolatedPglitePool
+};

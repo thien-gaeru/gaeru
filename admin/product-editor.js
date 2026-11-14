@@ -59,7 +59,8 @@
       popup.setAttribute('role','dialog');
       popup.setAttribute('aria-modal','true');
       popup.setAttribute('aria-labelledby','product-success-title');
-      popup.innerHTML='<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2 id="product-success-title">'+title+'</h2><p class="product-success-sub">Đang tự động chuyển hướng về trang quản lý sản phẩm…</p><div class="product-success-actions"><a href="'+redirectUrl+'" class="primary-button product-success-btn">Về trang quản lý sản phẩm</a></div></div>';
+      const safeRedirect=/^\/(?!\/|\\)[^\r\n<>"']*$/.test(String(redirectUrl||''))?String(redirectUrl):'/gaeru_ceo#products';
+      popup.innerHTML='<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2 id="product-success-title">'+esc(title)+'</h2><p class="product-success-sub">Đang tự động chuyển hướng về trang quản lý sản phẩm…</p><div class="product-success-actions"><a href="'+esc(safeRedirect)+'" class="primary-button product-success-btn">Về trang quản lý sản phẩm</a></div></div>';
       const container=document.body||document.querySelector('body')||document.documentElement||document;
       if(container&&typeof container.appendChild==='function')container.appendChild(popup);
     }else{
@@ -74,9 +75,10 @@
       document.querySelectorAll('.gaeru-action-notice, .gaeru-action-notices').forEach(el => el.remove());
     }catch(_){}
     setTimeout(()=>{
+      const safeTarget=/^\/(?!\/|\\)[^\r\n<>"']*$/.test(String(redirectUrl||''))?String(redirectUrl):'/gaeru_ceo#products';
       if(typeof location!=='undefined'){
-        if(typeof location.assign==='function')location.assign(redirectUrl);
-        else location.href=redirectUrl;
+        if(typeof location.assign==='function')location.assign(safeTarget);
+        else location.href=safeTarget;
       }
     },1000);
   }

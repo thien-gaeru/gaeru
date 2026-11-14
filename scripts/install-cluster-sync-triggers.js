@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const { connectionOptions } = require('./realtime-cluster-sync');
 
 async function installOnPool(pool, name) {
   console.log(`Installing cluster sync triggers on ${name}...`);
@@ -81,8 +82,10 @@ async function installOnPool(pool, name) {
 }
 
 async function main() {
-  const p1 = new Pool({ connectionString: 'postgres://gaeru:Anhthien1!@localhost:5433/gaeru_store' });
-  const p2 = new Pool({ connectionString: 'postgres://webuser:Anhthien1!@192.168.31.59:5432/gaeru_store' });
+  const pcUrl = process.env.PC_DB_URL || process.env.DATABASE_URL;
+  if (!pcUrl || !process.env.MI6_DB_URL) throw new Error('Configure both database connections before installing triggers.');
+  const p1 = new Pool(connectionOptions(pcUrl));
+  const p2 = new Pool(connectionOptions(process.env.MI6_DB_URL));
 
   await installOnPool(p1, 'PC (localhost:5433)');
   await installOnPool(p2, 'Mi 6 (192.168.31.59:5432)');

@@ -1,21 +1,80 @@
 'use strict';
-const { createHash } = require('node:crypto');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { createHash, randomUUID } = require('node:crypto');
 const sharp = require('sharp');
 const { readMedia } = require('./stored-media');
 const { createObjectCache } = require('./object-cache');
 const { qualifiesForSelectiveAvif, encodeAvif, SAVINGS_RATIO } = require('./selective-avif');
+
 const widths = [480, 800, 1200];
 const MAX_ROW_CACHE_ENTRIES = 512;
 const MAX_ROW_CACHE_BYTES = 24 * 1024 * 1024;
 const MAX_SINGLE_ROW_CACHE_BYTES = 4 * 1024 * 1024;
-const DEFAULT_MAX_WARM_RSS_BYTES = Math.floor(2.2 * 1024 * 1024 * 1024);
-const cache = createObjectCache({ maxBytes: 32 * 1024 * 1024, maxEntryBytes: 4 * 1024 * 1024, ttl: 3600000, maxPending: 64 });
+const DEFAULT_MAX_WARM_RSS_BYTES = process.arch === 'arm64'
+  ? 600 * 1024 * 1024
+  : Math.floor(2.2 * 1024 * 1024 * 1024);
+const cache = createObjectCache({
+  maxBytes: 48 * 1024 * 1024,
+  maxEntryBytes: 4 * 1024 * 1024,
+  ttl: 24 * 3600000,
+  maxPending: 64
+});
 const poolRowCaches = new WeakMap();
+const trackedPools = new Set();
 let active = 0;
 const waiting = [];
 let getRuntimeEncodeCount = 0;
 let warmEncodeCount = 0;
 let skippedWarmByRssCount = 0;
+let diskCacheHits = 0;
+
+function isDiskRenditionCacheEnabled() {
+  if (process.env.RENDITION_DISK_CACHE === 'false' || process.env.MEDIA_CACHE_ENABLED === 'false') return false;
+  if (process.env.RENDITION_DISK_CACHE === 'true') return true;
+  return process.env.NODE_ENV === 'production' && typeof process.env.MEDIA_ROOT === 'string' && process.env.MEDIA_ROOT.trim().length > 0;
+}
+
+function getRenditionFilePath(version) {
+  const baseDir = process.env.RENDITION_CACHE_DIR || path.join(process.cwd(), '.local-data', 'renditions');
+  return path.join(baseDir, version.slice(0, 2), version + '.bin');
+}
+
+async function readDiskRendition(version) {
+  if (!isDiskRenditionCacheEnabled() || !/^[0-9a-f]{64}$/.test(version)) return null;
+  try {
+    const filePath = getRenditionFilePath(version);
+    const bytes = await fs.readFile(filePath);
+    if (bytes && bytes.length > 0 && bytes.length <= 4 * 1024 * 1024) {
+      diskCacheHits++;
+      return bytes;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function writeDiskRendition(version, bytes) {
+  if (!isDiskRenditionCacheEnabled() || !Buffer.isBuffer(bytes) || !bytes.length || !/^[0-9a-f]{64}$/.test(version)) return;
+  try {
+    const filePath = getRenditionFilePath(version);
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    const tempPath = path.join(dir, '.' + version.slice(0, 12) + '-' + process.pid + '-' + randomUUID().slice(0, 8) + '.tmp');
+    await fs.writeFile(tempPath, bytes, { mode: 0o600 });
+    await fs.rename(tempPath, filePath).catch(async () => {
+      await fs.unlink(tempPath).catch(() => {});
+    });
+  } catch (_) {}
+}
+
+async function loadDiskRenditionIntoCache(version) {
+  if (!isDiskRenditionCacheEnabled()) return null;
+  const hit = cache.peek(version);
+  if (hit) return hit;
+  const diskBytes = await readDiskRendition(version);
+  if (!diskBytes) return null;
+  return cache.get(version, () => diskBytes);
+}
 
 function estimateRowBytes(row) {
   if (!row || typeof row !== 'object') return 256;
@@ -29,7 +88,8 @@ function estimateRowBytes(row) {
 }
 
 async function bounded(work) {
-  const maxConcurrentEncodes = Math.max(4, Number(process.env.MAX_CONCURRENT_IMAGE_ENCODES) || (typeof require('node:os').cpus === 'function' ? require('node:os').cpus().length : 4));
+  const defaultConc = process.arch === 'arm64' ? 1 : 2;
+  const maxConcurrentEncodes = Math.max(1, Number(process.env.MAX_CONCURRENT_IMAGE_ENCODES) || defaultConc);
   if (active >= maxConcurrentEncodes) await new Promise(resolve => waiting.push(resolve));
   else active++;
   try { return await work(); }
@@ -43,10 +103,14 @@ function getPoolState(pool) {
   if (!state) {
     state = { rows: new Map(), pending: new Map(), bytes: 0 };
     poolRowCaches.set(pool, state);
+    if (!pool.__gaeruRenditionTracked) {
+      trackedPools.add(new WeakRef(pool));
+      Object.defineProperty(pool, '__gaeruRenditionTracked', { value: true });
+    }
   }
   return state;
 }
-function clearImageLookupCache(pool) {
+function clearImageLookupCache(pool, { broadcast = true } = {}) {
   if (pool && typeof pool === 'object') {
     const state = poolRowCaches.get(pool);
     if (state) {
@@ -55,6 +119,30 @@ function clearImageLookupCache(pool) {
       state.bytes = 0;
     }
   }
+  if (broadcast && typeof process.send === 'function') {
+    try {
+      process.send({ type: 'RENDITION_CACHE_INVALIDATE', timestamp: Date.now() });
+    } catch (_) {}
+  }
+}
+function clearAllImageLookupCaches() {
+  for (const ref of trackedPools) {
+    const p = ref.deref();
+    if (!p) {
+      trackedPools.delete(ref);
+      continue;
+    }
+    clearImageLookupCache(p, { broadcast: false });
+  }
+}
+const RENDITION_IPC_KEY = Symbol.for('gaeru.imageRenditions.ipcRegistered');
+if (typeof process.on === 'function' && !process[RENDITION_IPC_KEY]) {
+  process[RENDITION_IPC_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg && msg.type === 'RENDITION_CACHE_INVALIDATE') {
+      clearAllImageLookupCaches();
+    }
+  });
 }
 async function getCachedImageRow(pool, key, loader) {
   if (!canUseRowCache(pool)) return loader();
@@ -112,7 +200,11 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
   if (!row._digest) {
     row._digest = createHash('sha256').update(row.content).update('\0').update(row.mime_type).digest('hex');
   }
-  const loadOriginal = async () => rawBuffer || readMedia(row.content);
+  let cachedOriginal = rawBuffer;
+  const loadOriginal = async () => {
+    if (!cachedOriginal) cachedOriginal = await readMedia(row.content);
+    return cachedOriginal;
+  };
   for (const width of targetWidths) {
     if (!widths.includes(width)) continue;
     await new Promise(resolve => setImmediate(resolve));
@@ -121,11 +213,17 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
       break;
     }
     const version = computeVersion(row, width);
-    const webpBuffer = await cache.get(version, () => bounded(async () => {
-      warmEncodeCount++;
-      const original = await loadOriginal();
-      return sharp(original, { limitInputPixels: 24000000 }).rotate().resize({ width, withoutEnlargement: true }).webp({ lossless: true, effort: 1 }).toBuffer();
-    }));
+    const webpBuffer = await cache.get(version, async () => {
+      const diskWebp = await readDiskRendition(version);
+      if (diskWebp) return diskWebp;
+      return bounded(async () => {
+        warmEncodeCount++;
+        const original = await loadOriginal();
+        const encoded = await sharp(original, { limitInputPixels: 24000000 }).rotate().resize({ width, withoutEnlargement: true }).webp({ lossless: true, effort: 1 }).toBuffer();
+        await writeDiskRendition(version, encoded);
+        return encoded;
+      });
+    });
     if (webpBuffer && webpBuffer.length >= 16 * 1024) {
       await new Promise(resolve => setImmediate(resolve));
       if (process.memoryUsage().rss > getMaxWarmRssBytes()) {
@@ -133,11 +231,17 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
         break;
       }
       const avifVersion = computeVersion(row, width, 'avif');
-      await cache.get(avifVersion, () => bounded(async () => {
-        warmEncodeCount++;
-        const original = await loadOriginal();
-        return encodeAvif(original, { width, quality: width <= 480 ? 66 : 68, effort: 2 });
-      }));
+      await cache.get(avifVersion, async () => {
+        const diskAvif = await readDiskRendition(avifVersion);
+        if (diskAvif) return diskAvif;
+        return bounded(async () => {
+          warmEncodeCount++;
+          const original = await loadOriginal();
+          const encoded = await encodeAvif(original, { width, quality: width <= 480 ? 66 : 68 });
+          await writeDiskRendition(avifVersion, encoded);
+          return encoded;
+        });
+      });
     }
   }
 }
@@ -170,7 +274,8 @@ async function sendPublicImage(req, res, row, namespace) {
   if (!width) {
     if (req.query?.format === 'avif' && row.mime_type.startsWith('image/')) {
       const avifVersion = computeVersion(row, null, 'avif');
-      const avifBytes = cache.peek(avifVersion);
+      let avifBytes = cache.peek(avifVersion);
+      if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
       if (avifBytes) {
         const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
         res.type('image/avif').set({
@@ -195,8 +300,10 @@ async function sendPublicImage(req, res, row, namespace) {
   }
 
   const version = computeVersion(row, width);
-  const webpBytes = cache.peek(version);
+  let webpBytes = cache.peek(version);
+  if (!webpBytes) webpBytes = await loadDiskRenditionIntoCache(version);
   if (!webpBytes) {
+    if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
     const missCacheControl = 'private, max-age=30, stale-while-revalidate=60, must-revalidate';
     res.type(row.mime_type).set({
       'Cache-Control': missCacheControl,
@@ -211,7 +318,8 @@ async function sendPublicImage(req, res, row, namespace) {
 
   if (qualifiesForSelectiveAvif(req, webpBytes.length)) {
     const avifVersion = computeVersion(row, width, 'avif');
-    const avifBytes = cache.peek(avifVersion);
+    let avifBytes = cache.peek(avifVersion);
+    if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
     if (avifBytes && avifBytes.length <= webpBytes.length * SAVINGS_RATIO) {
       const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
       res.type('image/avif').set({
@@ -240,6 +348,7 @@ function getImageRenditionStats(pool = null) {
     getRuntimeEncodeCount,
     warmEncodeCount,
     skippedWarmByRssCount,
+    diskCacheHits,
     queuedWarmTasks,
     activeEncodes: active,
     rowCacheEntries: state ? state.rows.size : 0,
@@ -252,12 +361,14 @@ function resetImageRenditionStats() {
   getRuntimeEncodeCount = 0;
   warmEncodeCount = 0;
   skippedWarmByRssCount = 0;
+  diskCacheHits = 0;
 }
 module.exports = {
   sendPublicImage,
   widths,
   getCachedImageRow,
   clearImageLookupCache,
+  clearAllImageLookupCaches,
   warmPublicImage,
   enqueueImageWarm,
   getImageRenditionStats,

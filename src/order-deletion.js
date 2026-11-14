@@ -203,10 +203,22 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   await client.query('DELETE FROM order_items WHERE order_id = $1', [order.id]);
 
   // P0. Cleanup any linked checkout intents, idempotency keys, einvoice queue or abandoned carts
-  await client.query('UPDATE abandoned_carts SET order_id = NULL WHERE order_id = $1', [order.id]).catch(() => {});
-  await client.query('UPDATE checkout_payment_intents SET order_id = NULL WHERE order_id = $1', [order.id]).catch(() => {});
-  await client.query('DELETE FROM misa_einvoice_retry_queue WHERE order_id = $1', [order.id]).catch(() => {});
-  await client.query('DELETE FROM order_idempotency_keys WHERE order_id = $1', [order.id]).catch(() => {});
+  async function runOptionalCleanup(spName, sql) {
+    await client.query(`SAVEPOINT ${spName}`);
+    try {
+      await client.query(sql, [order.id]);
+      await client.query(`RELEASE SAVEPOINT ${spName}`);
+    } catch (err) {
+      await client.query(`ROLLBACK TO SAVEPOINT ${spName}`);
+      if (err?.code !== '42P01' && err?.code !== '42703') {
+        throw err;
+      }
+    }
+  }
+  await runOptionalCleanup('sp_opt_abandoned_carts', 'UPDATE abandoned_carts SET order_id = NULL WHERE order_id = $1');
+  await runOptionalCleanup('sp_opt_payment_intents', 'UPDATE checkout_payment_intents SET order_id = NULL WHERE order_id = $1');
+  await runOptionalCleanup('sp_opt_einvoice_queue', 'DELETE FROM misa_einvoice_retry_queue WHERE order_id = $1');
+  await runOptionalCleanup('sp_opt_idempotency_keys', 'DELETE FROM order_idempotency_keys WHERE order_id = $1');
 
   // P. Finally delete the order itself
   await client.query('DELETE FROM orders WHERE id = $1', [order.id]);
@@ -244,7 +256,7 @@ async function deleteCustomerOrdersPermanently(client, customerId, customerEmail
   // Only query orders where customer_id strictly matches the account being deleted.
   // Never match guest orders by email, preserving independent buyer records (A03).
   const rows = (await client.query(
-    `SELECT id FROM orders WHERE customer_id = $1 FOR UPDATE`,
+    `SELECT id FROM orders WHERE customer_id = $1 ORDER BY id FOR UPDATE`,
     [customerId]
   )).rows;
   const orderIds = rows.map(r => r.id);
@@ -269,7 +281,7 @@ async function deleteCustomerOrdersPermanently(client, customerId, customerEmail
 async function anonymizeCustomerOrders(client, customerId, { actor = { username: 'system', source: 'order_anonymization' } } = {}) {
   if (!customerId) return 0;
   const rows = (await client.query(
-    `SELECT id, order_number, total_vnd FROM orders WHERE customer_id = $1 FOR UPDATE`,
+    `SELECT id, order_number, total_vnd FROM orders WHERE customer_id = $1 ORDER BY id FOR UPDATE`,
     [customerId]
   )).rows;
   if (!rows.length) return 0;

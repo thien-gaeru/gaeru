@@ -7,6 +7,8 @@
   <meta name="robots" content="noindex, nofollow, noarchive">
   <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
   <link rel="stylesheet" href="/server_admin/server-admin.css">
+  <link rel="stylesheet" href="/account-security.css">
+  <script src="/account-security.js" defer></script>
   <script src="/server_admin/server-admin.js" defer></script>
 </head>
 <body>
@@ -17,7 +19,7 @@
       <div class="server-icon">⚡</div>
       <div>
         <div class="brand-title">GAERU SERVER CONSOLE</div>
-        <div class="brand-subtitle" id="top-device-badge">LG G7 ThinQ · Snapdragon 845</div>
+        <div class="brand-subtitle" id="top-device-badge">Hệ thống Máy chủ Quản trị Nội bộ</div>
       </div>
     </div>
     <div class="topbar-actions">
@@ -141,29 +143,29 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th colspan="2">Thông số Kỹ thuật Chi tiết của Thiết bị Máy chủ (LG G7 ThinQ)</th>
+              <th colspan="2">Thông số Kỹ thuật Chi tiết của Thiết bị Máy chủ</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td style="width: 30%; color: var(--text-muted);">Thiết bị &amp; Bo mạch</td>
-              <td><strong id="spec-device">LG G7 ThinQ (LM-G710, Codename: judyln)</strong></td>
+              <td><strong id="spec-device">Đang tải sau khi đăng nhập...</strong></td>
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Vi xử lý (SoC)</td>
-              <td>Qualcomm Snapdragon 845 (Octa-Core: 4x Gold 2.80GHz + 4x Silver 1.77GHz)</td>
+              <td>Đang ẩn cho tới khi xác thực quản trị</td>
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Hệ điều hành &amp; Kernel</td>
-              <td id="spec-os">LineageOS 22.2 (Android 15) · Linux Kernel 4.9.337</td>
+              <td id="spec-os">Đang tải sau khi đăng nhập...</td>
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Địa chỉ IP Máy chủ (LAN &amp; WAN)</td>
-              <td>LAN: <code id="spec-ip" style="color:var(--cyan);">192.168.31.7:8080</code> · Public: <code style="color:var(--emerald);">https://gaeru.org</code></td>
+              <td>Nội bộ: <code id="spec-ip" style="color:var(--cyan);">Chỉ hiển thị khi đã xác thực</code> · Public: <code style="color:var(--emerald);">https://gaeru.org</code></td>
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Cổng quản trị từ xa</td>
-              <td>SSH: <code>Port 8022 (u0_a184)</code> · Nginx: <code>Port 8080/8443</code> · Postgres: <code>5432</code> · Redis: <code>6379</code></td>
+              <td>Các dịch vụ hệ thống chỉ hiển thị chi tiết cổng kết nối sau khi đăng nhập quản trị.</td>
             </tr>
           </tbody>
         </table>
@@ -210,7 +212,7 @@
           <div class="service-top">
             <div class="service-info">
               <h3>PostgreSQL Database</h3>
-              <p>Port 5432 · Phiên bản 18.6</p>
+              <p>Dịch vụ cơ sở dữ liệu chính · Hiển thị chi tiết sau đăng nhập</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-pg-status">RUNNING</span>
           </div>
@@ -226,7 +228,7 @@
           <div class="service-top">
             <div class="service-info">
               <h3>Redis In-Memory Cache</h3>
-              <p>Port 6379 · Phiên bản 8.10.3</p>
+              <p>Dịch vụ bộ nhớ đệm · Hiển thị chi tiết sau đăng nhập</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-redis-status">RUNNING</span>
           </div>
@@ -241,13 +243,13 @@
           <div class="service-top">
             <div class="service-info">
               <h3>Cloudflare Tunnel (cloudflared)</h3>
-              <p>Kết nối: gaeru.org ➔ localhost:8080</p>
+              <p>Kết nối: gaeru.org (reverse tunnel)</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-cf-status">CONNECTED</span>
           </div>
           <p style="font-size:12px; color:var(--text-muted);">Đường hầm mã hóa bảo mật toàn cầu, cấp chứng chỉ SSL A+ và chống DDoS.</p>
           <div class="service-actions">
-            <a href="https://gaeru.org" target="_blank" class="btn btn-secondary">Mở Website công khai ↗</a>
+            <a href="https://gaeru.org" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Mở Website công khai ↗</a>
           </div>
         </article>
 
@@ -256,11 +258,11 @@
           <div class="service-top">
             <div class="service-info">
               <h3>OpenSSH Terminal Server</h3>
-              <p>Port 8022 · User: u0_a184</p>
+              <p>Truy cập quản trị dòng lệnh nội bộ</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-ssh-status">LISTENING</span>
           </div>
-          <p style="font-size:12px; color:var(--text-muted);">Truy cập dòng lệnh máy chủ: <code>ssh -p 8022 u0_a184@192.168.31.7</code></p>
+          <p style="font-size:12px; color:var(--text-muted);">Truy cập dòng lệnh máy chủ: <code>ssh &lt;server-admin-host&gt;</code></p>
         </article>
 
         <!-- Watchdog -->
@@ -377,7 +379,7 @@
       <div class="login-header">
         <div class="login-icon">⚡</div>
         <h1 class="login-title">Đăng Nhập Máy Chủ</h1>
-        <p class="login-desc">Bảng điều khiển hệ thống LG G7 ThinQ (LineageOS 22.2)</p>
+        <p class="login-desc">Bảng điều khiển vận hành hạ tầng máy chủ GAERU</p>
       </div>
       <div id="login-error-box" class="login-error"></div>
       <form id="server-login-form">

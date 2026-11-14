@@ -1,5 +1,7 @@
-const {storeUpload,readMedia}=require('./lib/stored-media');
-const {processChatCompression}=require('./shopping-chat-compression');
+const {pipeline}=require('node:stream/promises');
+const mediaFilesystem=require('./lib/filesystem-media');
+const {storeUpload,storeStagedMedia,readMedia,readMediaRange,openMediaStream}=require('./lib/stored-media');
+const {processChatCompression,triggerManualChatCompression}=require('./shopping-chat-compression');
 const multer = require('multer');
 const uploadRules = require('./audit-fixes/upload-state');
 const { receiveChunk } = require('./audit-fixes/upload-session');
@@ -9,22 +11,101 @@ const { requirePermission } = require('./staff-access');
 const { withTransaction } = require('./db');
 const fail = (message, status = 400) => Object.assign(Error(message), { status });
 
+function hasPdfMagic(b) {
+  const probe = b.subarray(0, Math.min(b.length, 64)).toString('latin1').replace(/^(?:\xEF\xBB\xBF|[\s\0])+/, '');
+  return probe.startsWith('%PDF-');
+}
+function hasMp3Magic(b) {
+  if (b.subarray(0, 2).toString('ascii') === 'MZ') return false;
+  if (b.length >= 3 && b.toString('ascii', 0, 3) === 'ID3') return true;
+  const maxScan = Math.min(b.length - 3, 4096);
+  for (let i = 0; i <= maxScan; i++) {
+    if (b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0 && (b[i + 1] & 0x18) !== 0x08 && (b[i + 1] & 0x06) !== 0x00 && (b[i + 2] & 0xf0) !== 0xf0) {
+      return true;
+    }
+  }
+  return false;
+}
+function isSafePlainText(b) {
+  if (!b?.length) return false;
+  if ((b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff)) return true; // UTF-16 BOM
+  if (b.includes(0)) return false;
+  if (b.subarray(0, 2).toString('ascii') === 'MZ' || b.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) return false;
+  const sample = b.subarray(0, Math.min(b.length, 4096));
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample[i];
+    if (c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) return false;
+  }
+  return true;
+}
+function detectSafeImageMagic(b) {
+  if (!b?.length) return null;
+  if (b[0] === 255 && b[1] === 216 && b[2] === 255) return 'image/jpeg';
+  if (b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
+  if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (['GIF87a', 'GIF89a'].includes(b.toString('ascii', 0, 6))) return 'image/gif';
+  if (b[0] === 66 && b[1] === 77) return 'image/bmp';
+  if (b.subarray(0, 4).equals(Buffer.from([73, 73, 42, 0])) || b.subarray(0, 4).equals(Buffer.from([77, 77, 0, 42]))) return 'image/tiff';
+  if (b.toString('ascii', 4, 8) === 'ftyp') {
+    const brand = b.toString('ascii', 8, 12);
+    if (['avif', 'avis'].includes(brand)) return 'image/avif';
+    if (['heic', 'heix', 'hevc', 'hevx', 'heif', 'mif1', 'mif2', 'msf1', 'heim', 'heis', 'hevm', 'hevs', 'miaf', 'avci', 'avcs'].includes(brand)) return 'image/heic';
+  }
+  return null;
+}
 function fileType(file) {
   const b = file?.buffer;
   if (!b?.length) return null;
-  const ext = String(file.originalname || '').split('.').pop().toLowerCase();
-  if (['jpg','jpeg'].includes(ext) && b[0] === 255 && b[1] === 216 && b[2] === 255) return 'image/jpeg';
-  if (ext === 'png' && b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) return 'image/png';
-  if (ext === 'webp' && b.toString('ascii',0,4) === 'RIFF' && b.toString('ascii',8,12) === 'WEBP') return 'image/webp';
-  if (ext === 'gif' && ['GIF87a','GIF89a'].includes(b.toString('ascii',0,6))) return 'image/gif';
-  if (ext === 'pdf' && b.toString('ascii',0,5) === '%PDF-') return 'application/pdf';
-  if (['mp4','mov','m4v'].includes(ext) && b.toString('ascii',4,8) === 'ftyp') return ext === 'mov' ? 'video/quicktime' : 'video/mp4';
-  if (['heic','heif'].includes(ext) && b.toString('ascii',4,8) === 'ftyp' && ['heic','heix','hevc','hevx','mif1','msf1'].includes(b.toString('ascii',8,12))) return 'image/heic';
-  if (['webm','mkv'].includes(ext) && b.subarray(0,4).equals(Buffer.from([26,69,223,163]))) return 'video/webm';
-  if (ext === 'avi' && b.toString('ascii',0,4) === 'RIFF' && b.toString('ascii',8,11) === 'AVI') return 'video/mp4';
-  if (['docx','xlsx','pptx','zip'].includes(ext) && b.subarray(0,4).equals(Buffer.from([80,75,3,4]))) return 'application/octet-stream';
-  if (['doc','xls','ppt'].includes(ext) && b.subarray(0,8).equals(Buffer.from([208,207,17,224,161,177,26,225]))) return 'application/octet-stream';
-  if (['txt','csv'].includes(ext) && !b.includes(0) && !b.toString('utf8').includes('\uFFFD')) return 'text/plain';
+  const name = String(file.originalname || '').trim();
+  const dot = name.lastIndexOf('.');
+  const hasExt = dot > 0 && dot < name.length - 1;
+  const ext = hasExt ? name.slice(dot + 1).toLowerCase() : '';
+  if (!hasExt) {
+    const imgMime = detectSafeImageMagic(b);
+    if (imgMime) return imgMime;
+    if (hasPdfMagic(b)) return 'application/pdf';
+    if (b.toString('ascii', 4, 8) === 'ftyp') {
+      const brand = b.toString('ascii', 8, 12);
+      if (['avif', 'avis', 'mif1'].includes(brand)) return 'image/avif';
+      if (['heic', 'heix', 'hevc', 'hevx', 'heif', 'mif2', 'msf1', 'heim', 'heis', 'hevm', 'hevs', 'miaf', 'avci', 'avcs'].includes(brand)) return 'image/heic';
+      if (brand === 'qt  ') return 'video/quicktime';
+      if (brand === 'M4A ') return 'audio/mp4';
+      return 'video/mp4';
+    }
+    if (b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/webm';
+    if (b.toString('ascii', 0, 4) === 'OggS') return 'audio/ogg';
+    if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WAVE') return 'audio/wav';
+    return null;
+  }
+  if (['jpg', 'jpeg', 'jfif', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff', 'avif', 'heic', 'heif'].includes(ext)) {
+    const imgMime = detectSafeImageMagic(b);
+    if (imgMime) {
+      if (ext === 'avif' && b.toString('ascii', 4, 8) === 'ftyp' && b.toString('ascii', 8, 12) === 'mif1') return 'image/avif';
+      return imgMime;
+    }
+  }
+  if (ext === 'pdf' && hasPdfMagic(b)) return 'application/pdf';
+  if (['mp4', 'mov', 'm4v', '3gp', 'webm', 'mkv'].includes(ext)) {
+    const atom = b.length >= 8 ? b.toString('ascii', 4, 8) : '';
+    const boxSize = b.length >= 4 ? b.readUInt32BE(0) : 0;
+    if (atom === 'ftyp' || (['mov', 'mp4', 'm4v'].includes(ext) && boxSize >= 8 && ['wide', 'free', 'moov', 'mdat', 'skip'].includes(atom))) {
+      return ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+    }
+    if (b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/webm';
+  }
+  if (ext === 'weba' && b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'audio/webm';
+  if (ext === 'avi' && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 11) === 'AVI') return 'video/mp4';
+  if (ext === 'mp3' && hasMp3Magic(b)) return 'audio/mpeg';
+  if (['m4a', 'aac'].includes(ext) && (b.toString('ascii', 4, 8) === 'ftyp' || hasMp3Magic(b) || (b.length >= 2 && b[0] === 0xff && (b[1] & 0xf0) === 0xf0))) return 'audio/mp4';
+  if (ext === 'wav' && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WAVE') return 'audio/wav';
+  if (['ogg', 'opus', 'oga'].includes(ext) && b.toString('ascii', 0, 4) === 'OggS') return 'audio/ogg';
+  if (['docx', 'xlsx', 'pptx', 'zip'].includes(ext) && (b.subarray(0, 4).equals(Buffer.from([80, 75, 3, 4])) || b.subarray(0, 4).equals(Buffer.from([80, 75, 5, 6])) || b.subarray(0, 4).equals(Buffer.from([80, 75, 7, 8])))) return 'application/octet-stream';
+  if (['doc', 'xls', 'ppt'].includes(ext) && b.subarray(0, 8).equals(Buffer.from([208, 207, 17, 224, 161, 177, 26, 225]))) return 'application/octet-stream';
+  if (ext === 'rar' && b.subarray(0, 6).equals(Buffer.from([0x52, 0x61, 0x72, 0x21, 0x1a, 0x07]))) return 'application/octet-stream';
+  if (ext === '7z' && b.subarray(0, 6).equals(Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]))) return 'application/octet-stream';
+  if (['txt', 'csv', 'log', 'md'].includes(ext) && isSafePlainText(b)) return 'text/plain';
+  if (ext === 'json' && !b.includes(0) && !b.toString('utf8').includes('\uFFFD') && /^[\s\uFEFF]*[{[]/.test(b.toString('utf8', 0, Math.min(b.length, 512)))) return 'application/json';
+  if (ext === 'xml' && !b.includes(0) && !b.toString('utf8').includes('\uFFFD') && /^[\s\uFEFF]*</.test(b.toString('utf8', 0, Math.min(b.length, 512)))) return 'application/xml';
   return null;
 }
 
@@ -33,10 +114,12 @@ async function answerAI({config,product,question,decision=false,transport=fetch}
   return require('./chat-ai-provider').generate({settings,product,question,decision,transport});
 }
 
-async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,originalName,buffer,mime,client=null}) {
-  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > uploadRules.MAX_FILE_BYTES) throw fail("File exceeds upload limit (" + Math.round(uploadRules.MAX_FILE_BYTES / 1048576) + " MiB).", 413);
+async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,originalName,buffer=null,mime,client=null,staged=null,rollbackTasks=null,commitTasks=null}) {
+  const originalSize = staged ? staged.totalBytes : (Buffer.isBuffer(buffer) ? buffer.length : 0);
+  if (!Number.isSafeInteger(originalSize) || originalSize < 1 || originalSize > uploadRules.MAX_FILE_BYTES) {
+    throw fail("File exceeds upload limit (" + Math.round(uploadRules.MAX_FILE_BYTES / 1048576) + " MiB).", 413);
+  }
   let safeName = String(originalName || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
-  const originalSize = buffer.length;
   let fileRecord = null;
   const persist = async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(hashtext('shopping-chat-storage'))");
@@ -49,10 +132,17 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
     if (row.status === 'closed') throw fail('Hội thoại đã đóng.', 409);
     const quota = (await c.query("SELECT COALESCE(SUM(COALESCE(original_byte_size,byte_size)),0)::bigint AS bytes FROM shopping_chat_files WHERE thread_id=$1", [chatThread.id])).rows[0];
     if (Number(quota.bytes) + originalSize > uploadRules.MAX_THREAD_BYTES) throw fail("Chat file quota exceeded.", 413);
-    const uploaded = await storeUpload('chat', buffer, mime);
+    const uploaded = staged
+      ? await storeStagedMedia('chat', staged.stageId, staged.mime || mime, originalSize)
+      : await storeUpload('chat', buffer, mime);
+    if (staged) {
+      if (Array.isArray(rollbackTasks) && typeof uploaded.rollback === 'function') rollbackTasks.push(uploaded.rollback);
+      if (Array.isArray(commitTasks) && typeof uploaded.finish === 'function') commitTasks.push(uploaded.finish);
+    }
     const finalMime = uploaded.mimeType;
     if (finalMime === 'image/webp') safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
-    const initialStatus = uploaded.byteSize < originalSize ? 'compressed' : 'pending';
+    const skipBgCompress = /^(video|audio)\//i.test(finalMime) || (originalSize > 25 * 1024 * 1024 && !['image/jpeg', 'image/png', 'image/heic', 'image/avif'].includes(finalMime));
+    const initialStatus = uploaded.byteSize < originalSize ? 'compressed' : (skipBgCompress ? 'optimal' : 'pending');
     if (!isAdmin) {
       await require('./shopping-chat-ai-first').offerHandoff(c, chatThread.id, 'attachment', 'Nhân viên GAERU có thể xem tệp và hỗ trợ bạn. Chọn Gặp nhân viên để kết nối.');
     }
@@ -85,26 +175,79 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   return fileRecord;
 }
 
-function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
-  const uploadGate = uploadRules.createUploadGate(2);
+function logUploadReject(stage, req, detail = {}) {
+  try {
+    console.warn('[shopping-chat-upload-reject]', JSON.stringify({
+      stage,
+      method: req?.method || '',
+      path: req?.originalUrl || req?.url || '',
+      threadId: req?.params?.id || null,
+      isAdmin: Boolean(req?.admin || req?.session?.admin),
+      ua: String(req?.get?.('user-agent') || '').slice(0, 80),
+      ...detail
+    }));
+  } catch (_) {}
+}
+
+function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit,chunkLimit}) {
+  const uploadLimit = chunkLimit || limit;
+  const uploadGate = uploadRules.createUploadGate(4);
   const uploadWrap = handler => uploadRules.withUploadWork(wrap(handler));
+  const chatCsrf = (req, res, next) => requireCsrf(req, {
+    status(code) {
+      if (code === 403) logUploadReject('csrf', req, {
+        hasSessionCsrf: Boolean(req.session?.csrfToken),
+        hasHeaderCsrf: Boolean(req.get?.('x-csrf-token')),
+        hasCookie: Boolean(req.headers?.cookie),
+        hasOwner: Boolean(req.session?.shoppingChatOwner)
+      });
+      res.status(code);
+      return this;
+    },
+    json: body => res.json(body)
+  }, next);
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: uploadRules.MAX_FILE_BYTES, files: 1, fields: 8, fieldSize: 2048 }
+    limits: { fileSize: Math.min(uploadRules.MAX_FILE_BYTES, 25 * 1024 * 1024), files: 1, fields: 12, fieldSize: 8192 }
   }).single('file');
-  const parseUpload = (req,res,next)=>upload(req,res,error=>error?res.status(400).json({error:'Không thể đọc tệp tải lên. Vui lòng thử lại.'}):next());
+  const parseUpload = (req,res,next)=>upload(req,res,error=>{
+    if(error){
+      logUploadReject('multer', req, { code: error.code || null, field: error.field || null, message: error.message || null });
+      if(error.code === 'LIMIT_FILE_SIZE'){
+        return res.status(413).json({error:'Tệp gửi một lần vượt quá 25 MiB. Vui lòng gửi theo từng phần (/files/chunk).'});
+      }
+      return res.status(400).json({error:'Không thể đọc tệp tải lên. Vui lòng thử lại.'});
+    }
+    next();
+  });
   const authorize = isAdmin => wrap(async(req,res,next)=>{
     const id=z.string().uuid().parse(req.params.id);
     const row=isAdmin?(await pool.query('SELECT * FROM shopping_chat_threads WHERE id=$1',[id])).rows[0]:(await owns(req,id)).rows[0];
-    if(!row)throw fail('Không tìm thấy hội thoại.',404);
+    if(!row){
+      logUploadReject('authorize_not_found', req, { isAdmin, hasOwner: Boolean(req.session?.shoppingChatOwner), hasCustomer: Boolean(req.session?.customer?.id) });
+      throw fail('Không tìm thấy hội thoại.',404);
+    }
     req.chatThread=row;
     next();
   });
 
   const save = isAdmin => uploadWrap(async(req,res)=>{
-    const key=z.string().uuid().parse(req.body.requestKey);
+    let key;
+    try{ key=z.string().uuid().parse(req.body.requestKey); }
+    catch(e){
+      logUploadReject('save_schema', req, { requestKey: String(req.body?.requestKey||'').slice(0, 40) });
+      throw e;
+    }
     const mime=fileType(req.file);
-    if(!mime)throw fail('Chỉ nhận JPG, PNG, WebP, GIF, HEIC, MP4, MOV, WebM, MKV, AVI, PDF, Word, Excel, PowerPoint, ZIP, TXT hoặc CSV hợp lệ.');
+    if(!mime){
+      logUploadReject('unsupported_mime', req, {
+        fileName: String(req.file?.originalname || '').slice(0, 120),
+        mimetype: String(req.file?.mimetype || ''),
+        size: req.file?.buffer?.length || 0,
+        magicHex: req.file?.buffer ? req.file.buffer.subarray(0, 16).toString('hex') : ''
+      });
+      throw fail('Chỉ nhận JPG, PNG, WebP, GIF, AVIF, HEIC, MP4, MOV, WebM, MKV, AVI, MP3, M4A, WAV, OGG, PDF, Word, Excel, PowerPoint, ZIP, RAR, 7Z, TXT, CSV, JSON hoặc XML hợp lệ.');
+    }
     const fileRecord = await persistChatFile({
       pool,
       chatThread: req.chatThread,
@@ -138,15 +281,54 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
   });
 
   const saveChunk = isAdmin => uploadWrap(async(req,res)=>{
-    const meta = chunkSchema.parse(req.body);
-    const result = await withTransaction(pool, client => receiveChunk(client, {
-      thread: req.chatThread, isAdmin, meta, buffer: req.file?.buffer, detectType: fileType,
-      persist: (transaction, buffer, mime) => persistChatFile({
-        pool, client: transaction, chatThread: req.chatThread, isAdmin,
-        adminActor: req.admin, requestKey: meta.requestKey,
-        originalName: meta.fileName, buffer, mime
-      })
-    }));
+    let meta;
+    try{
+      meta = chunkSchema.parse(req.body);
+    }catch(err){
+      logUploadReject('chunk_schema', req, {
+        fileName: String(req.body?.fileName || '').slice(0, 120),
+        chunkIndex: req.body?.chunkIndex,
+        totalChunks: req.body?.totalChunks,
+        totalBytes: req.body?.totalBytes
+      });
+      throw err;
+    }
+    let result;
+    const rollbackTasks = [];
+    const commitTasks = [];
+    try{
+      result = await withTransaction(pool, client => receiveChunk(client, {
+        thread: req.chatThread, isAdmin, meta, buffer: req.file?.buffer, detectType: fileType,
+        stageToDisk: mediaFilesystem.configured(),
+        rollbackTasks,
+        commitTasks,
+        persist: (transaction, buffer, mime) => persistChatFile({
+          pool, client: transaction, chatThread: req.chatThread, isAdmin,
+          adminActor: req.admin, requestKey: meta.requestKey,
+          originalName: meta.fileName, buffer, mime
+        }),
+        persistStaged: (transaction, staged) => persistChatFile({
+          pool, client: transaction, chatThread: req.chatThread, isAdmin,
+          adminActor: req.admin, requestKey: meta.requestKey,
+          originalName: meta.fileName, mime: staged.mime, staged, rollbackTasks, commitTasks
+        })
+      }));
+    }catch(err){
+      for (const fn of rollbackTasks) await fn().catch(() => {});
+      logUploadReject('chunk_reject', req, {
+        status: err?.status || 500,
+        reason: err?.message || 'unknown',
+        fileName: meta.fileName,
+        chunkIndex: meta.chunkIndex,
+        totalChunks: meta.totalChunks,
+        totalBytes: meta.totalBytes,
+        mimetype: String(req.file?.mimetype || ''),
+        chunkSize: req.file?.buffer?.length || 0,
+        magicHex: meta.chunkIndex === 0 && req.file?.buffer ? req.file.buffer.subarray(0, 16).toString('hex') : ''
+      });
+      throw err;
+    }
+    for (const fn of commitTasks) await fn().catch(() => {});
     const file = result.file;
     res.status(result.status === 'completed' ? 201 : 202).json({
       ...result,
@@ -154,9 +336,12 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     });
   });
 
-  const compressRoute = uploadWrap(async(_req,res)=>{
-    const processed = await processChatCompression(pool);
-    res.json({ processed });
+  const compressRoute = wrap(async(req,res)=>{
+    const result = await triggerManualChatCompression(pool, {
+      threadId: req.chatThread?.id || null,
+      limit: 2
+    });
+    res.json(result);
   });
 
   const download = wrap(async(req,res)=>{
@@ -165,27 +350,45 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     if(!file)throw fail('Không tìm thấy tệp.',404);
     if(file.deleted_at||file.expired)throw fail('Tệp đã bị xóa hoặc đã hết hạn lưu trữ 30 ngày.',410);
     if(req.query.original==='1'&&file.original_content){file.content=file.original_content;file.mime=file.original_mime||file.mime;file.name=file.original_name||file.name;}
-    const inline=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/quicktime','video/webm'].includes(file.mime)&&req.query.download!=='1';
-    const content=await readMedia(file.content),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Type':file.mime,'Content-Disposition':(inline?'inline':'attachment')+"; filename=download; filename*=UTF-8''"+encodeURIComponent(file.name),'Content-Security-Policy':"sandbox; default-src 'none'"};
-    if(inline&&file.mime.startsWith('video/')){
-      headers['Accept-Ranges']='bytes';const range=req.headers.range;
-      if(range){const match=/^bytes=(\d*)-(\d*)$/.exec(range);let start,end;
-        if(match&&(match[1]||match[2])){start=match[1]?Number(match[1]):Math.max(0,content.length-Number(match[2]));end=match[1]?(match[2]?Number(match[2]):content.length-1):content.length-1;}
-        if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||end<start||start>=content.length)return res.set({...headers,'Content-Range':'bytes */'+content.length}).status(416).end();
-        end=Math.min(end,content.length-1);return res.set({...headers,'Content-Range':`bytes ${start}-${end}/${content.length}`,'Content-Length':String(end-start+1)}).status(206).send(content.subarray(start,end+1));
+    const inline=(['image/jpeg','image/png','image/webp','image/gif','image/avif','video/mp4','video/quicktime','video/webm','audio/mpeg','audio/mp4','audio/wav','audio/ogg','audio/webm'].includes(file.mime)||(file.mime==='application/pdf'&&req.query.preview==='1'))&&req.query.download!=='1';
+    const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Type':file.mime,'Content-Disposition':(inline?'inline':'attachment')+"; filename=download; filename*=UTF-8''"+encodeURIComponent(file.name),'Content-Security-Policy':"sandbox; default-src 'none'"};
+    const isMediaStream = inline&&(file.mime.startsWith('video/')||file.mime.startsWith('audio/'));
+    if(isMediaStream) headers['Accept-Ranges']='bytes';
+    const range = isMediaStream ? req.headers.range : null;
+    const streamInfo = await openMediaStream(file.content, range || null);
+    if(streamInfo){
+      if(streamInfo.invalidRange){
+        return res.set({...headers,'Content-Range':'bytes */'+streamInfo.totalSize}).status(416).end();
+      }
+      if(!streamInfo.compressed && streamInfo.stream){
+        if(streamInfo.totalSize > 10 * 1024 * 1024){ req.setTimeout?.(0); res.setTimeout?.(0); }
+        if(range){
+          res.set({...headers,'Content-Range':`bytes ${streamInfo.start}-${streamInfo.end}/${streamInfo.totalSize}`,'Content-Length':String(streamInfo.end-streamInfo.start+1)}).status(206);
+        }else{
+          res.set({...headers,'Content-Length':String(streamInfo.totalSize)}).status(200);
+        }
+        try{ await pipeline(streamInfo.stream, res); }
+        catch(err){ if(err?.code!=='ERR_STREAM_PREMATURE_CLOSE'&&err?.code!=='ECONNRESET') throw err; }
+        return;
       }
     }
+    if(isMediaStream&&range){
+      const slice=await readMediaRange(file.content,range);
+      if(slice.invalidRange)return res.set({...headers,'Content-Range':'bytes */'+slice.totalSize}).status(416).end();
+      return res.set({...headers,'Content-Range':`bytes ${slice.start}-${slice.end}/${slice.totalSize}`,'Content-Length':String(slice.buffer.length)}).status(206).send(slice.buffer);
+    }
+    const content=await readMedia(file.content);
     res.set(headers).send(content);
   });
 
-  publicApi.post('/threads/:id/files',requireCsrf,limit,authorize(false),uploadGate,parseUpload,save(false));
-  publicApi.post('/threads/:id/files/chunk',requireCsrf,limit,authorize(false),uploadGate,parseUpload,saveChunk(false));
-  publicApi.post('/threads/:id/files/compress',requireCsrf,limit,authorize(false),uploadGate,compressRoute);
+  publicApi.post('/threads/:id/files',chatCsrf,limit,authorize(false),uploadGate,parseUpload,save(false));
+  publicApi.post('/threads/:id/files/chunk',chatCsrf,uploadLimit,authorize(false),uploadGate,parseUpload,saveChunk(false));
+  publicApi.post('/threads/:id/files/compress',chatCsrf,limit,authorize(false),compressRoute);
   publicApi.get('/threads/:id/files/:fileId',authorize(false),download);
 
-  admin.post('/shopping-chat/:id/files',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,parseUpload,save(true));
-  admin.post('/shopping-chat/:id/files/chunk',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,parseUpload,saveChunk(true));
-  admin.post('/shopping-chat/:id/files/compress',requirePermission('customers.write'),requireCsrf,limit,authorize(true),uploadGate,compressRoute);
+  admin.post('/shopping-chat/:id/files',requirePermission('customers.write'),chatCsrf,limit,authorize(true),uploadGate,parseUpload,save(true));
+  admin.post('/shopping-chat/:id/files/chunk',requirePermission('customers.write'),chatCsrf,uploadLimit,authorize(true),uploadGate,parseUpload,saveChunk(true));
+  admin.post('/shopping-chat/:id/files/compress',requirePermission('customers.write'),chatCsrf,limit,authorize(true),compressRoute);
   admin.get('/shopping-chat/:id/files/:fileId',authorize(true),download);
   admin.delete('/shopping-chat/:id/files/:fileId',requirePermission('chat.files.delete'),requireCsrf,authorize(true),wrap(async(req,res)=>{
     const fileId=z.string().uuid().parse(req.params.fileId);
@@ -217,26 +420,26 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
       items=rows.map(c=>({id:c.id,title:c.title,text:'Chương trình: '+c.title+'\n'+c.body.slice(0,2400)+'\nHiệu lực đến '+date(c.ends_at)+' (giờ Việt Nam).\nXem chương trình trong Tài khoản → Ví voucher & ưu đãi.'}));
     }else{
       const customerId=req.chatThread.customer_id;
-      const rows=customerId
-        ?(await pool.query(
-            `SELECT o.id, o.order_number, o.customer_name, o.phone, o.email, o.address, o.city,
+      const isBootstrapOwner=Boolean(req.admin?.source==='bootstrap'&&(req.admin?.isOwner||req.admin?.role==='owner'));
+      const orderSelect=`SELECT o.id, o.order_number, o.customer_name, o.phone, o.email, o.address, o.city,
                o.status, o.payment_method, o.payment_status, o.total_vnd, o.created_at,
                COALESCE((SELECT jsonb_agg(jsonb_build_object('name', i.product_name, 'variant', i.variant_name, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
                  FROM order_items i WHERE i.order_id = o.id), '[]'::jsonb) AS items
-             FROM orders o
+             FROM orders o`;
+      const rows=customerId
+        ?(await pool.query(
+            `${orderSelect}
              WHERE o.customer_id = $1
              ORDER BY o.created_at DESC, o.id DESC LIMIT 25 OFFSET $2`,
             [customerId, (page - 1) * 25]
           )).rows
-        :(await pool.query(
-            `SELECT o.id, o.order_number, o.customer_name, o.phone, o.email, o.address, o.city,
-               o.status, o.payment_method, o.payment_status, o.total_vnd, o.created_at,
-               COALESCE((SELECT jsonb_agg(jsonb_build_object('name', i.product_name, 'variant', i.variant_name, 'quantity', i.quantity, 'lineTotalVnd', i.line_total_vnd))
-                 FROM order_items i WHERE i.order_id = o.id), '[]'::jsonb) AS items
-             FROM orders o
-             ORDER BY o.created_at DESC, o.id DESC LIMIT 25 OFFSET $1`,
-            [(page - 1) * 25]
-          )).rows;
+        :isBootstrapOwner
+          ?(await pool.query(
+              `${orderSelect}
+               ORDER BY o.created_at DESC, o.id DESC LIMIT 25 OFFSET $1`,
+              [(page - 1) * 25]
+            )).rows
+          :[];
 
       const statusLabels={pending:'Chờ xác nhận',confirmed:'Đã xác nhận',processing:'Đang chuẩn bị',shipped:'Đang giao hàng',completed:'Hoàn tất',cancelled:'Đã hủy'};
       const paymentLabels={pending:'Chưa thanh toán',paid:'Đã thanh toán'};
@@ -273,7 +476,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit}) {
     });
     try{require('./realtime-sse').publishChatEvent(req.chatThread.id,'chat:update',{threadId:req.chatThread.id,status:'closed'});}catch(_){} res.json({message:'Đã kết thúc phiên chat.',status:'closed'});
   }));
-  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),gaeruAi:true,gaeruAiVersion:'2.0',provider:settings.enabled?settings.provider:'gaeru-ai',maxFileBytes:uploadRules.MAX_FILE_BYTES,unlimitedFileSize:true,chunkSizeBytes:4194304,backgroundCompression:true});}));
+  publicApi.get('/capabilities',wrap(async(_req,res)=>{const settings=await require('./chat-ai-provider').getChatAIConfig(pool,config);res.json({aiConfigured:Boolean(settings.enabled&&settings.apiKey),gaeruAi:true,gaeruAiVersion:'2.0',provider:settings.enabled?settings.provider:'gaeru-ai',maxFileBytes:uploadRules.MAX_FILE_BYTES,maxChunkBytes:uploadRules.MAX_CHUNK_BYTES,maxChunks:uploadRules.MAX_CHUNKS,unlimitedFileSize:true,chunkSizeBytes:2097152,backgroundCompression:true});}));
   publicApi.post('/threads/:id/ai',requireCsrf,limit,authorize(false),(_req,res)=>res.status(409).json({error:'AI đang trả lời tự động. Bạn có thể chọn Gặp nhân viên để chuyển hỗ trợ.'}));
 }
 module.exports={attachShoppingChat,fileType,answerAI};

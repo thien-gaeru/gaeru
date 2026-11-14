@@ -5,6 +5,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
+  AUTH_ENCRYPTION_KEY: z.string().min(32).optional(),
   ADMIN_USERNAME: z.string().min(3).max(100),
   ADMIN_PASSWORD_HASH: z.string().regex(/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/),
   PGSSL_CA: z.string().min(1).optional(),
@@ -30,6 +31,11 @@ const schema = z.object({
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASSWORD: z.string().min(1).optional(),
   SMTP_FROM: z.string().email().optional(),
+  SMTP_REPLY_TO: z.string().trim().email().optional().or(z.literal('').transform(() => undefined)),
+  ADMIN_DOMAIN_EMAIL: z.string().trim().email().optional().or(z.literal('').transform(() => undefined)),
+  VAPID_PUBLIC_KEY: z.string().trim().min(1).optional(),
+  VAPID_PRIVATE_KEY: z.string().trim().min(1).optional(),
+  VAPID_SUBJECT: z.string().trim().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().trim().min(1).optional(),
   GOOGLE_CLIENT_SECRET: z.string().trim().min(1).optional(),
   GA_MEASUREMENT_ID: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal('').transform(() => undefined)),
@@ -49,6 +55,11 @@ const schema = z.object({
   if (smtpConfigured && (!values.SMTP_HOST || !values.SMTP_PORT || !values.SMTP_USER || !values.SMTP_PASSWORD || !values.SMTP_FROM || !values.PUBLIC_BASE_URL)) {
     context.addIssue({ code: "custom", message: "SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM và PUBLIC_BASE_URL phải được cấu hình cùng nhau." });
   }
+  if (values.NODE_ENV === "production" && !process.env.ALLOW_LEGACY_SESSION_ENCRYPTION) {
+    if (!values.AUTH_ENCRYPTION_KEY || values.AUTH_ENCRYPTION_KEY === values.SESSION_SECRET) {
+      context.addIssue({ code: "custom", path: ["AUTH_ENCRYPTION_KEY"], message: "AUTH_ENCRYPTION_KEY (>= 32 chars) phải được cấu hình riêng trong production và khác SESSION_SECRET." });
+    }
+  }
 });
 
 function loadConfig(env = process.env) {
@@ -58,7 +69,7 @@ function loadConfig(env = process.env) {
     throw new Error(`Invalid environment configuration: ${details}`);
   }
   const config = parsed.data;
-  config.PUBLIC_BASE_URL=require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL);if(config.SMTP_FROM)config.SMTP_FROM=require('./primary-domain').normalizeBrandText(config.SMTP_FROM);
+  const normalizeBrand=require('./primary-domain').normalizeBrandText;config.PUBLIC_BASE_URL=require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL);if(config.SMTP_FROM)config.SMTP_FROM=normalizeBrand(config.SMTP_FROM);if(config.SMTP_REPLY_TO)config.SMTP_REPLY_TO=normalizeBrand(config.SMTP_REPLY_TO).toLowerCase();if(config.ADMIN_DOMAIN_EMAIL)config.ADMIN_DOMAIN_EMAIL=normalizeBrand(config.ADMIN_DOMAIN_EMAIL).toLowerCase();
   const gaId = config.GA_MEASUREMENT_ID || config.GOOGLE_ANALYTICS_ID || undefined;
   return {
     ...config,
@@ -76,6 +87,8 @@ function loadConfig(env = process.env) {
       user: config.SMTP_USER,
       password: config.SMTP_PASSWORD,
       from: config.SMTP_FROM,
+      replyTo: config.SMTP_REPLY_TO || 'business@gaeru.com',
+      adminDomainEmail: config.ADMIN_DOMAIN_EMAIL || undefined,
       publicBaseUrl: config.PUBLIC_BASE_URL
     } : null
   };

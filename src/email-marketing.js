@@ -244,7 +244,8 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
     const testSubject = '[THỬ NGHIỆM] ' + d.subject;
     const dummyUnsubUrl = new URL('/api/marketing-email/unsubscribe/test-preview', normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
     await currentMailer.sendMail({
-      from: config.smtp.from,
+      from: require('./smtp-delivery').resolveFrom(config),
+      replyTo: require('./smtp-delivery').resolveReplyTo(config),
       to: d.to,
       subject: testSubject,
       text: d.body + '\n\nGAERU · Thư thử nghiệm marketing (Liên kết ngừng nhận mẫu: ' + dummyUnsubUrl + ')',
@@ -298,7 +299,8 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
       const confirmUrl = new URL('/api/marketing-email/confirm/' + token, normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
       try {
         await currentMailer.sendMail({
-          from: config.smtp.from,
+          from: require('./smtp-delivery').resolveFrom(config),
+      replyTo: require('./smtp-delivery').resolveReplyTo(config),
           to: email,
           subject: 'Xác nhận đăng ký nhận tin từ GAERU',
           text: `Chào bạn,\n\nCảm ơn bạn đã quan tâm đến GAERU. Vui lòng bấm vào liên kết dưới đây để xác nhận đăng ký nhận thông tin về sản phẩm microphone, phụ kiện và ưu đãi:\n${confirmUrl}\n\nLiên kết có hiệu lực trong 24 giờ. Nếu bạn không yêu cầu đăng ký này, vui lòng bỏ qua email này.\n\nTrân trọng,\nĐội ngũ GAERU`,
@@ -492,7 +494,8 @@ async function processEmailQueue(pool, config, mailer) {
     }
 
     const sent = await mailer.sendMail({
-      from: config.smtp.from,
+      from: require('./smtp-delivery').resolveFrom(config),
+      replyTo: require('./smtp-delivery').resolveReplyTo(config),
       to: row.email,
       subject: campaign.subject,
       text: campaign.body + '\n\nGAERU · Ngừng nhận email khuyến mại: ' + url,

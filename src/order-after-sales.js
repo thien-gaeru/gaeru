@@ -81,7 +81,7 @@ function checkReturnEligibility(order, activeCase = null, completedCase = null, 
     };
   }
 
-  if (order.return_completed_at || completedCase) {
+  if (order.return_completed_at || (completedCase && completedCase.return_type !== 'exchange')) {
     return {
       eligible: false,
       reason: 'Đơn hàng đã hoàn tất thủ tục đổi/trả trước đó.',
@@ -170,7 +170,7 @@ async function createCustomerReturnRequest(client, {
   )).rows[0];
 
   const completedCase = (await client.query(
-    "SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved'",
+    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND (return_type IS NULL OR return_type <> 'exchange') AND status = 'resolved'",
     [orderId]
   )).rows[0];
 
@@ -190,26 +190,37 @@ async function createCustomerReturnRequest(client, {
   }
 
   const { generateRmaNumber, generateRmaToken } = require('./rma-tickets');
-  const rmaNumber = generateRmaNumber();
   const rmaToken = generateRmaToken();
-
-  const row = (await client.query(
-    `INSERT INTO order_after_sales (
-      order_id, kind, status, reason, requested_by, return_type, reason_category, bank_info, evidence_urls, rma_number, rma_token
-    ) VALUES ($1, 'return', 'requested', $2, $3, $4, $5, $6, $7, $8, $9)
-    RETURNING *`,
-    [
-      orderId,
-      cleanReason,
-      requestedBy,
-      returnType,
-      reasonCategory,
-      JSON.stringify(bankInfo || {}),
-      JSON.stringify(evidenceUrls || []),
-      rmaNumber,
-      rmaToken
-    ]
-  )).rows[0];
+  let row = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const rmaNumber = generateRmaNumber();
+    await client.query('SAVEPOINT rma_insert');
+    try {
+      row = (await client.query(
+        `INSERT INTO order_after_sales (
+          order_id, kind, status, reason, requested_by, return_type, reason_category, bank_info, evidence_urls, rma_number, rma_token
+        ) VALUES ($1, 'return', 'requested', $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *`,
+        [
+          orderId,
+          cleanReason,
+          requestedBy,
+          returnType,
+          reasonCategory,
+          JSON.stringify(bankInfo || {}),
+          JSON.stringify(evidenceUrls || []),
+          rmaNumber,
+          rmaToken
+        ]
+      )).rows[0];
+      await client.query('RELEASE SAVEPOINT rma_insert');
+      break;
+    } catch (err) {
+      await client.query('ROLLBACK TO SAVEPOINT rma_insert');
+      if (err?.code === '23505' && attempt < 2) continue;
+      throw err;
+    }
+  }
 
   if (audit) {
     await audit(client, {
@@ -282,7 +293,7 @@ function afterSalesRouter(pool) {
         if (data.kind === 'return' && !['shipped', 'completed'].includes(order.status)) {
           throw fail('Chỉ tạo trả hàng khi đơn đang giao hoặc đã hoàn tất.');
         }
-        if (data.kind === 'return' && (order.return_completed_at || (await c.query("SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved'", [id])).rows.length)) {
+        if (data.kind === 'return' && (order.return_completed_at || (await c.query("SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' AND (return_type IS NULL OR return_type <> 'exchange')", [id])).rows.length)) {
           throw fail('Đơn đã hoàn trả xong; không tạo lại hồ sơ xử lý.');
         }
         if ((await c.query("SELECT id FROM order_after_sales WHERE order_id = $1 AND status NOT IN ('resolved', 'rejected')", [id])).rows.length) {

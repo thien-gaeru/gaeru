@@ -38,6 +38,16 @@ async function setupTestApp(t) {
 
   await migrateDatabase(pool);
 
+  const carrierAdapter = require('../src/shipping-adapters').getAdapter('viettel');
+  const originalCancel = carrierAdapter.cancelWaybill;
+  let carrierCancelCalls = 0;
+  carrierAdapter.cancelWaybill = async (_settings, request) => {
+    carrierCancelCalls++;
+    assert.equal(request.trackingNumber, 'VT9988776655');
+    return { success: true };
+  };
+  t.after(() => { carrierAdapter.cancelWaybill = originalCancel; });
+
   const ownerActor = {
     username: 'admin',
     role: 'owner',
@@ -91,11 +101,11 @@ async function setupTestApp(t) {
     return { status: res.status, data };
   }
 
-  return { pool, api, ownerActor };
+  return { pool, api, ownerActor, carrierCancelCalls: () => carrierCancelCalls };
 }
 
 test('GAERU AI & Quản trị: Đề xuất hành động thông minh, Xóa vĩnh viễn đơn & Hủy đơn liền mạch vận chuyển', async (t) => {
-  const { pool, api, ownerActor } = await setupTestApp(t);
+  const { pool, api, ownerActor, carrierCancelCalls } = await setupTestApp(t);
 
   let testOrderId = null;
   const orderNum = 'GAE-' + randomUUID().slice(0, 8).toUpperCase();
@@ -114,8 +124,8 @@ test('GAERU AI & Quản trị: Đề xuất hành động thông minh, Xóa vĩn
     await withTransaction(pool, c => inventory.initializeVariantStock(c, { variantId: variant.id, quantity: 15, actor: ownerActor }));
 
     const ord = (await pool.query(`
-      INSERT INTO orders (order_number, customer_name, email, phone, address, city, subtotal_vnd, total_vnd, status, payment_method, payment_status)
-      VALUES ($1, 'Nguyễn Văn A', 'a@example.com', '0912345678', '123 Phố Huế', 'Hà Nội', 250000, 250000, 'pending', 'cod', 'pending')
+      INSERT INTO orders (order_number, customer_name, email, phone, address, city, subtotal_vnd, shipping_fee_vnd, total_vnd, status, payment_method, payment_status)
+      VALUES ($1, 'Nguyễn Văn A', 'a@example.com', '0912345678', '123 Phố Huế', 'Hà Nội', 250000, 0, 250000, 'pending', 'cod', 'pending')
       RETURNING id, order_number
     `, [orderNum])).rows[0];
     testOrderId = ord.id;
@@ -196,6 +206,7 @@ test('GAERU AI & Quản trị: Đề xuất hành động thông minh, Xóa vĩn
     });
     assert.equal(okRes.status, 200, 'Hủy đơn kèm hủy vận đơn phải thành công 200');
     assert.equal(okRes.data.order.status, 'cancelled');
+    assert.equal(carrierCancelCalls(), 1, 'Must receive carrier cancellation confirmation before finalizing');
 
     // Kiểm tra vận đơn trong DB: đã chuyển sang cancelled
     const shipRow = (await pool.query('SELECT status FROM carrier_shipments WHERE order_id = $1', [testOrderId])).rows[0];

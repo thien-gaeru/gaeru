@@ -247,15 +247,16 @@ function createRmaApi(pool, _config = {}) {
         return res.status(404).json({ error: 'Không tìm thấy phiếu RMA.' });
       }
 
-      // Check access permission: valid capability token, matching phone, order owner, or admin
+      // Check access permission: capability token, guest phone suffix (guest orders only), order owner session, or admin
+      res.set('Cache-Control', 'no-store');
       const { normalizePhone } = require('./tracking-api');
       const tokenMatches = safeTokenEqual(token, item.rma_token);
       const inputPhone = normalizePhone(phone), orderPhone = normalizePhone(item.phone);
-      const phoneMatches = Boolean(inputPhone.length >= 9 && orderPhone.length >= 9 && inputPhone.slice(-9) === orderPhone.slice(-9));
+      const phoneMatches = Boolean(!item.customer_id && inputPhone.length >= 9 && orderPhone.length >= 9 && inputPhone.slice(-9) === orderPhone.slice(-9));
       const ownerMatches = Boolean(req.session?.customer?.id && item.customer_id && req.session.customer.id === item.customer_id);
 
       if (!tokenMatches && !phoneMatches && !ownerMatches && !req.admin) {
-        return res.status(403).json({ error: 'Vui lòng cung cấp mã bảo mật RMA (Token) hoặc số điện thoại để tra cứu.' });
+        return res.status(403).json({ error: 'Vui lòng cung cấp mã bảo mật RMA (Token) hoặc đăng nhập tài khoản để tra cứu.' });
       }
 
       const { maskName, maskPhone } = require('./tracking-api');
@@ -300,7 +301,7 @@ function createRmaApi(pool, _config = {}) {
   });
 
   // 2. POST /api/rma/:rmaNumber/inbound (Customer submits inbound waybill tracking code)
-  router.post('/rma/:rmaNumber/inbound', rmaLimiter, (req,res,next)=>{if(req.session?.customer&&!req.body?.token&&!req.headers['x-rma-token']&&!req.query.token)return require('./security').requireCsrf(req,res,next);next();}, async (req, res, next) => {
+  router.post('/rma/:rmaNumber/inbound', rmaLimiter, (req,res,next)=>{const rawToken=String(req.body?.token||req.headers['x-rma-token']||req.query?.token||'').trim();if(req.session?.customer&&!rawToken)return require('./security').requireCsrf(req,res,next);next();}, async (req, res, next) => {
     try {
       const rmaNumber = String(req.params.rmaNumber).trim().toUpperCase();
       const token = String(req.body.token || req.headers['x-rma-token'] || req.query.token || '').trim();
@@ -354,7 +355,7 @@ function createRmaApi(pool, _config = {}) {
       } catch (err) { if (err instanceof z.ZodError) return res.status(400).json({ error: 'Kiểm tra phiên bản, kho, hàng thay thế và xác nhận đã nhận đủ hàng.' }); next(err); }
     });
   }
-  adminRouter.patch('/orders/after-sales/:id/logistics', requirePermission('orders.write'), async (req, res, next) => {
+  adminRouter.patch('/orders/after-sales/:id/logistics', requirePermission('orders.write'), require('./security').requireCsrf, async (req, res, next) => {
     try {
       const caseId = z.string().uuid().parse(req.params.id);
       const schema = z.object({

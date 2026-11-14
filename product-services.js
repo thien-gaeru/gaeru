@@ -69,7 +69,7 @@ async function request(path, options = {}) {
     headers.set('X-CSRF-Token', token);
     if (!(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   }
-  let r, d;
+  let r, d = {}, rawText = '';
   try {
     r = await fetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
     if (isWrite && r.status === 403) {
@@ -78,12 +78,14 @@ async function request(path, options = {}) {
       headers.set('X-CSRF-Token', freshToken);
       r = await fetch(path, { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
     }
-    d = await r.json();
+    rawText = await r.text().catch(() => '');
+    try { d = rawText ? JSON.parse(rawText) : {}; } catch (_) { d = {}; }
   } catch (netErr) {
-    if (netErr.status) throw netErr;
+    if (netErr?.name === 'AbortError') throw netErr;
+    if (netErr?.status) throw netErr;
     throw Object.assign(Error('Kết nối mạng gián đoạn. Vui lòng thử lại.'), { status: 0 });
   }
-  if (!r.ok) throw Object.assign(Error(d?.error || 'Chưa kết nối được. Vui lòng thử lại.'), { status: r.status });
+  if (!r.ok) throw Object.assign(Error(d?.error || (r.status >= 500 ? `Máy chủ tạm bận (${r.status}). Vui lòng thử lại.` : `Yêu cầu chưa thành công (${r.status}). Vui lòng thử lại.`)), { status: r.status });
   return d;
 }
 
@@ -121,12 +123,12 @@ function loadScriptOnce(src,check){
   });
 }
 async function ensureChatAssets(){
-  loadStylesheetOnce('/shopping-chat.css?v=20261109-v6');
+  loadStylesheetOnce('/shopping-chat.css?v=20261114-v9');
   if(!window.GAERUCareLive){
     await loadScriptOnce('/care-live.js?v=20261024-chat',()=>Boolean(window.GAERUCareLive)).catch(()=>{});
   }
   if(typeof window.GAERUChatClient?.mount==='function')return true;
-  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261109-v6',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
+  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261114-v9',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
   for(let i=0;i<40;i++){
     if(typeof window.GAERUChatClient?.mount==='function')return true;
     await new Promise(r=>setTimeout(r,50));
@@ -164,7 +166,8 @@ async function openChat(slug){
   }
   catch(e){
     if(dialog.open&&version===chatOpenVersion){
-      content.innerHTML='<div style="padding:28px 16px;text-align:center;"><p role="status" style="font-size:15px;color:#6e6e73;margin-bottom:18px;">'+h(e.message||'Chưa thể kết nối tư vấn lúc này.')+'</p><button type="button" class="button button-blue" onclick="openChat('+(slug?`'${h(slug)}'`:'null')+')" style="display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 22px;border-radius:999px;background:#0071e3;color:#fff;border:0;font-weight:600;font-size:14px;cursor:pointer;">Thử lại</button></div>';
+      content.innerHTML='<div style="padding:28px 16px;text-align:center;"><p role="status" style="font-size:15px;color:#6e6e73;margin-bottom:18px;">'+h(e.message||'Chưa thể kết nối tư vấn lúc này.')+'</p><button type="button" class="button button-blue" data-retry-chat style="display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 22px;border-radius:999px;background:#0071e3;color:#fff;border:0;font-weight:600;font-size:14px;cursor:pointer;">Thử lại</button></div>';
+      content.querySelector('[data-retry-chat]')?.addEventListener('click',()=>openChat(slug));
     }
   }
 }

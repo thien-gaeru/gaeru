@@ -204,37 +204,13 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         customer.regEmailWarningMessage = regEmailStatus.warningMessage;
       }
 
-      if (req.session?.pendingOAuthLink) {
-        const pending = req.session.pendingOAuthLink;
-        if (pending.provider === 'google' && pending.googleSub && (pending.email?.toLowerCase() === customer.email?.toLowerCase())) {
-          try {
-            await pool.query(
-              `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
-               VALUES ($1, 'google', 'https://accounts.google.com', $2, $3)
-               ON CONFLICT (provider, issuer, provider_subject)
-               DO UPDATE SET customer_id = $1, email_at_link = $3, linked_at = now()`,
-              [customer.id, pending.googleSub, customer.email]
-            );
-            await pool.query(
-              `UPDATE customers
-               SET google_id = COALESCE(google_id, $1),
-                   avatar_url = COALESCE(avatar_url, $2),
-                   email_verified_at = COALESCE(email_verified_at, now()),
-                   updated_at = now()
-               WHERE id = $3`,
-              [pending.googleSub, pending.picture || null, customer.id]
-            );
-            customer.googleId = pending.googleSub;
-            customer.emailVerified = true;
-            delete req.session.pendingOAuthLink;
-          } catch (linkErr) {
-            console.warn('Auto-linking pending OAuth failed:', linkErr.message);
-          }
-        }
+      const pendingOAuthLink = req.session?.pendingOAuthLink || null;
+      if (accountSecurity && await accountSecurity.beginLogin(req, res, "customer:" + customer.id, parsed.data.password, { pendingOAuthLink })) return;
+      if (pendingOAuthLink) {
+        await require("./audit-fixes/oauth-link-helper").applyPendingOAuthLink(pool, customer, pendingOAuthLink);
+        delete req.session.pendingOAuthLink;
       }
-
-      if(accountSecurity&&await accountSecurity.beginLogin(req,res,"customer:"+customer.id,parsed.data.password))return;
-      startCustomerSession(req, res, next, customer,accountSecurity);
+      startCustomerSession(req, res, next, customer, accountSecurity);
     } catch (error) {
       if(error.status)return res.status(error.status).json({error:error.message});
       next(error);
@@ -347,7 +323,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       }
 
       const customerResult = await pool.query(
-        "SELECT id, email FROM customers WHERE email = $1 AND phone = $2",
+        "SELECT id, email FROM customers WHERE email = $1 AND phone = $2 AND active = true AND deleted_at IS NULL",
         [parsed.data.email, parsed.data.phone]
       );
       const customer = customerResult.rows[0];
@@ -376,7 +352,8 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       resetUrl.searchParams.set("token", token);
       try {
         await mailer.sendMail({
-          from: `GAERU Support <${smtpConfig.from}>`,
+          from: require("./smtp-delivery").resolveFrom({ smtp: smtpConfig }),
+          replyTo: require("./smtp-delivery").resolveReplyTo({ smtp: smtpConfig }),
           to: customer.email,
           subject: "Khôi phục mật khẩu tài khoản GAERU",
           text: `GAERU nhận được yêu cầu đặt lại mật khẩu. Mở liên kết dùng một lần trong vòng 30 phút: ${resetUrl.toString()}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`,
@@ -416,7 +393,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
 
         const updateResult = await client.query(
           `UPDATE customers SET password_hash = $2, checkout_pending=false, updated_at = now()
-           WHERE id = $1`,
+           WHERE id = $1 AND active = true AND deleted_at IS NULL`,
           [resetToken.customerId, passwordHash]
         );
         if (updateResult.rowCount !== 1) return false;
@@ -491,7 +468,8 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
       verificationUrl.searchParams.set("verify", token);
       try {
         await mailer.sendMail({
-          from: `GAERU Support <${smtpConfig.from}>`,
+          from: require("./smtp-delivery").resolveFrom({ smtp: smtpConfig }),
+          replyTo: require("./smtp-delivery").resolveReplyTo({ smtp: smtpConfig }),
           to: customer.email,
           subject: "Xác minh tài khoản GAERU",
           text: `Xin chào ${customer.fullName}, hãy mở liên kết sau để xác minh email tài khoản GAERU. Liên kết chỉ dùng một lần và có hiệu lực trong 30 phút: ${verificationUrl.toString()}\n\nNếu bạn không yêu cầu xác minh, hãy bỏ qua email này.`,
@@ -588,8 +566,10 @@ function escapeHtml(value) {
 }
 
 function startCustomerSession(req, res, next, customer, accountSecurity, { redirectUrl } = {}) {
+  const shoppingChatOwner = req.session?.shoppingChatOwner || null;
   req.session.regenerate(async(error) => {
     if (error) return next(error);
+    if (shoppingChatOwner) req.session.shoppingChatOwner = shoppingChatOwner;
     const sessionCustomer = {
       id: customer.id,
       fullName: customer.fullName,

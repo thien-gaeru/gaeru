@@ -12,9 +12,12 @@ async function serveChatFile(pool,req,res,key,cleanName){
  const chat=(await pool.query(`SELECT name,mime,content,original_name,original_mime,original_content FROM shopping_chat_files
    WHERE deleted_at IS NULL AND (CASE WHEN substring(content from 1 for 12)=convert_to('GAERU_FS_V1:','UTF8') THEN convert_from(substring(content from 13),'UTF8')::jsonb->>'key' END=$1
      OR CASE WHEN substring(original_content from 1 for 12)=convert_to('GAERU_FS_V1:','UTF8') THEN convert_from(substring(original_content from 13),'UTF8')::jsonb->>'key' END=$1) LIMIT 1`,[key])).rows[0];
+ const care=!chat&&key.startsWith('care/')?(await pool.query(`SELECT name,mime,content FROM care_message_files
+   WHERE octet_length(content)<=2048 AND substring(content from 1 for 12)=convert_to('GAERU_FS_V1:','UTF8') AND convert_from(substring(content from 13),'UTF8')::jsonb->>'key'=$1 LIMIT 1`,[key])).rows[0]:null;
+ const record=chat||care;
  const original=chat&&metadata(chat.original_content)?.key===key;
- const pointer=chat?metadata(original?chat.original_content:chat.content):null;
- const registered=!chat?(await pool.query('SELECT name,mime_type,byte_size,sha256 FROM media_library_files WHERE storage_key=$1',[key])).rows[0]:null;
+ const pointer=record?metadata(original?chat.original_content:record.content):null;
+ const registered=!record?(await pool.query('SELECT name,mime_type,byte_size,sha256 FROM media_library_files WHERE storage_key=$1',[key])).rows[0]:null;
  const limit=require('../audit-fixes/upload-state').MAX_FILE_BYTES;
  const {handle,stat}=await disk.openRead(key,limit);
  try{
@@ -28,9 +31,9 @@ async function serveChatFile(pool,req,res,key,cleanName){
    if(decoded.alg!=='gzip'||!Number.isSafeInteger(decoded.rawSize)||decoded.rawSize<1||decoded.rawSize>limit||!/^[a-f0-9]{64}$/.test(decoded.sha256))throw disk.fail('Tệp nén không hợp lệ.',409);
    offset=newline+1;
   }
-  const name=cleanName(original?chat.original_name||chat.name:chat?.name||registered?.name||key.split('/').at(-1));
-  const fallback={jpg:'image/jpeg',png:'image/png',webp:'image/webp',gif:'image/gif',mp4:'video/mp4',mov:'video/quicktime',webm:'video/webm',txt:'text/plain',csv:'text/csv',pdf:'application/pdf'};
-  const mime=(original?chat.original_mime||chat.mime:chat?.mime||registered?.mime_type)||fallback[key.split('.').at(-1)]||'application/octet-stream';
+  const name=cleanName(original?chat.original_name||chat.name:record?.name||registered?.name||key.split('/').at(-1));
+  const fallback=disk.mimes;
+  const mime=(original?chat.original_mime||chat.mime:record?.mime||registered?.mime_type)||fallback[key.split('.').at(-1)]||'application/octet-stream';
   const inline=req.query.preview==='1'&&/^(image\/(jpeg|png|webp)|video\/(mp4|webm|quicktime))$/.test(mime);
   res.type(mime).set({'Content-Disposition':(inline?'inline':'attachment')+"; filename*=UTF-8''"+encodeURIComponent(name),'Content-Security-Policy':"default-src 'none'; sandbox"});
   if(!decoded){

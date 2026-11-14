@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
+const { withTransaction } = require('./db');
+const inventory = require('./inventory');
 
 class FailoverSyncManager {
   constructor(config = {}, pool = null) {
@@ -30,8 +31,13 @@ class FailoverSyncManager {
       }
     };
 
-    // Load persisted state if exists
-    this.stateFilePath = path.join(__dirname, '..', '.failover-state.json');
+    // Persist failover state outside repo root (DATA_DIR / MEDIA_ROOT parent / OS temp)
+    const stateDir = config.DATA_DIR || process.env.DATA_DIR
+      || (process.env.MEDIA_ROOT ? path.dirname(process.env.MEDIA_ROOT) : null)
+      || require('node:os').tmpdir();
+    this.stateFilePath = config.FAILOVER_STATE_PATH || process.env.FAILOVER_STATE_PATH
+      || path.join(stateDir, 'gaeru-failover-state.json');
+    try { fs.mkdirSync(path.dirname(this.stateFilePath), { recursive: true, mode: 0o700 }); } catch (_) {}
     this.loadState();
   }
 
@@ -108,7 +114,7 @@ class FailoverSyncManager {
     }
   }
 
-  async syncFromPrimary() {
+  async syncFromPrimary({ fetcher = fetch } = {}) {
     if (this.state.status === 'syncing') {
       return { ok: false, error: 'Tiến trình đồng bộ đang chạy.' };
     }
@@ -123,118 +129,88 @@ class FailoverSyncManager {
         syncedAt: new Date().toISOString()
       };
 
-      // 1. Fetch public products from primary gaeru.com (F07 Schema Fix)
-      let productsSynced = 0;
-      let productSyncError = null;
-      try {
-        const prodRes = await fetch(`${this.primaryApiBase}/api/products`, {
+      if (!this.pool) throw new Error('Chưa có cơ sở dữ liệu để đồng bộ.');
+      // Read both snapshots before opening a transaction. No partial catalog or
+      // stock update is committed if either request or any inventory check fails.
+      const [prodRes, setRes] = await Promise.all([
+        fetcher(`${this.primaryApiBase}/api/products`, {
           signal: AbortSignal.timeout(10000)
-        });
-        if (prodRes.ok) {
-          const prodData = await prodRes.json();
-          const products = Array.isArray(prodData) ? prodData : (prodData.products || []);
-          if (this.pool && products.length > 0) {
-            for (const p of products) {
-              if (p.slug && p.name) {
-                const category = ['audio', 'video', 'accessory'].includes(p.category) ? p.category : 'audio';
-                const prodRow = (await this.pool.query(`
-                  INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, updated_at)
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
-                  ON CONFLICT (slug) DO UPDATE
-                  SET name = EXCLUDED.name,
-                      category = EXCLUDED.category,
-                      descriptor = EXCLUDED.descriptor,
-                      description = EXCLUDED.description,
-                      image_url = EXCLUDED.image_url,
-                      image_alt = EXCLUDED.image_alt,
-                      active = true,
-                      updated_at = NOW()
-                  RETURNING id;
-                `, [
-                  p.slug,
-                  p.name,
-                  category,
-                  p.descriptor || '',
-                  p.description || '',
-                  p.imageUrl || p.image_url || '',
-                  p.imageAlt || p.image_alt || ''
-                ])).rows[0];
-
-                const productId = prodRow?.id;
-                // F07: Ghi giá và tồn kho chuẩn vào bảng product_variants
-                if (productId && Array.isArray(p.variants) && p.variants.length > 0) {
-                  for (const v of p.variants) {
-                    if (v.sku && v.name) {
-                      await this.pool.query(`
-                        INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
-                        ON CONFLICT (sku) DO UPDATE
-                        SET name = EXCLUDED.name,
-                            options = EXCLUDED.options,
-                            price_vnd = EXCLUDED.price_vnd,
-                            stock_quantity = EXCLUDED.stock_quantity,
-                            active = true,
-                            updated_at = NOW();
-                      `, [
-                        productId,
-                        v.sku,
-                        v.name,
-                        JSON.stringify(v.options || {}),
-                        Math.max(0, parseInt(v.priceVnd ?? v.price_vnd ?? 0, 10)),
-                        Math.max(0, parseInt(v.stockQuantity ?? v.stock_quantity ?? 0, 10))
-                      ]);
-                    }
-                  }
-                }
-                productsSynced++;
-              }
-            }
-            stats.productsCount = productsSynced;
-          }
-        } else {
-          productSyncError = `HTTP ${prodRes.status}`;
-        }
-      } catch (errProd) {
-        productSyncError = errProd.message;
-        console.warn('[FailoverSync] Product sync notice:', errProd.message);
-      }
-
-      // 2. Fetch public store settings from primary gaeru.com (F07 Schema Fix)
-      let settingsSyncError = null;
-      try {
-        const setRes = await fetch(`${this.primaryApiBase}/api/settings/public`, {
+        }),
+        fetcher(`${this.primaryApiBase}/api/settings/public`, {
           signal: AbortSignal.timeout(8000)
-        });
-        if (setRes.ok) {
-          const settings = await setRes.json();
-          if (this.pool && typeof settings === 'object') {
-            await this.pool.query(`
-              INSERT INTO store_settings (setting_key, setting_value, updated_at)
-              VALUES ('public_config', $1::jsonb, NOW())
-              ON CONFLICT (setting_key) DO UPDATE
-              SET setting_value = EXCLUDED.setting_value, updated_at = NOW();
-            `, [JSON.stringify(settings)]);
-            stats.settingsSynced = true;
-          }
-        } else {
-          settingsSyncError = `HTTP ${setRes.status}`;
-        }
-      } catch (errSet) {
-        settingsSyncError = errSet.message;
-        console.warn('[FailoverSync] Settings sync notice:', errSet.message);
+        })
+      ]);
+      if (!prodRes.ok || !setRes.ok) throw new Error(`Đồng bộ thất bại: HTTP ${!prodRes.ok ? prodRes.status : setRes.status}`);
+      const [prodData, settings] = await Promise.all([prodRes.json(), setRes.json()]);
+      const products = Array.isArray(prodData) ? prodData : prodData?.products;
+      if (!Array.isArray(products) || !settings || typeof settings !== 'object' || Array.isArray(settings)) {
+        throw new Error('Dữ liệu đồng bộ từ máy chủ chính không hợp lệ.');
       }
+      const actor = { username: 'failover-sync', source: 'system', fullName: 'Đồng bộ máy chủ dự phòng' };
+      await withTransaction(this.pool, async client => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:failover-catalog-sync'))");
+        for (const p of [...products].sort((a, b) => String(a?.slug).localeCompare(String(b?.slug)))) {
+          if (!p?.slug || !p.name || !Array.isArray(p.variants)) throw new Error('Sản phẩm đồng bộ không hợp lệ.');
+          const category = ['audio', 'video', 'accessory'].includes(p.category) ? p.category : 'audio';
+          const prodRow = (await client.query(`
+            INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
+            ON CONFLICT (slug) DO UPDATE
+            SET name = EXCLUDED.name,
+                category = EXCLUDED.category,
+                descriptor = EXCLUDED.descriptor,
+                description = EXCLUDED.description,
+                image_url = EXCLUDED.image_url,
+                image_alt = EXCLUDED.image_alt,
+                active = true,
+                updated_at = NOW()
+            RETURNING id;
+          `, [
+            p.slug,
+            p.name,
+            category,
+            p.descriptor || '',
+            p.description || '',
+            p.imageUrl || p.image_url || '',
+            p.imageAlt || p.image_alt || ''
+          ])).rows[0];
 
-      // F07: Nếu xảy ra lỗi và không có bất kỳ dữ liệu nào được đồng bộ, báo lỗi chính xác thay vì báo thành công giả
-      if ((productSyncError || settingsSyncError) && stats.productsCount === 0 && !stats.settingsSynced) {
-        this.state.status = 'error';
-        this.state.lastError = `Đồng bộ thất bại: ${productSyncError || settingsSyncError}`;
-        this.saveState();
-        return {
-          ok: false,
-          error: this.state.lastError,
-          stats
-        };
-      }
+          const productId = prodRow.id;
+          for (const v of [...p.variants].sort((a, b) => String(a?.sku).localeCompare(String(b?.sku)))) {
+            const quantity = Number(v?.stockQuantity ?? v?.stock_quantity ?? 0);
+            const price = Number(v?.priceVnd ?? v?.price_vnd ?? 0);
+            if (!v?.sku || !v.name || !Number.isSafeInteger(quantity) || quantity < 0 || quantity > 1_000_000_000 ||
+                !Number.isSafeInteger(price) || price < 0 || price > 2_000_000_000) {
+              throw new Error('Giá hoặc tồn kho đồng bộ không hợp lệ.');
+            }
+            const variant = (await client.query(`
+              INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active, updated_at)
+              VALUES ($1, $2, $3, $4, $5, 0, true, NOW())
+              ON CONFLICT (sku) DO UPDATE
+              SET name = EXCLUDED.name,
+                  options = EXCLUDED.options,
+                  price_vnd = EXCLUDED.price_vnd,
+                  active = true,
+                  updated_at = NOW()
+              RETURNING id, product_id, stock_quantity;
+            `, [productId, v.sku, v.name, JSON.stringify(v.options || {}), price])).rows[0];
+            if (variant.product_id !== productId) throw new Error('SKU đồng bộ thuộc sản phẩm khác; cần đối soát trước khi đồng bộ.');
+            // Preserve local IDs and inventory history. Initialize new (or legacy
+            // unallocated) stock, then record a normal ledger adjustment so the
+            // aggregate and warehouse balances agree.
+            await inventory.initializeVariantStock(client, { variantId: variant.id, quantity: variant.stock_quantity, actor });
+            await inventory.setVariantStock(client, { variantId: variant.id, quantity, actor, reason: 'Đối chiếu tồn khả dụng từ máy chủ chính' });
+          }
+        }
+        await client.query(`
+          INSERT INTO store_settings (setting_key, setting_value, updated_at)
+          VALUES ('public_config', $1::jsonb, NOW())
+          ON CONFLICT (setting_key) DO UPDATE
+          SET setting_value = EXCLUDED.setting_value, updated_at = NOW();
+        `, [JSON.stringify(settings)]);
+      });
+      stats.productsCount = products.length;
+      stats.settingsSynced = true;
 
       this.state.status = 'idle';
       this.state.lastSyncTime = stats.syncedAt;

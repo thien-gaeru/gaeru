@@ -4,21 +4,25 @@ const { getFreshData, stockMap } = require('../cache');
 const { loadProducts } = require('../store-api');
 const { getCachedImageRow, warmPublicImage } = require('./image-renditions');
 const { warmStaticAssets } = require('../persistent-assets');
-try { require('sharp').concurrency(1); } catch (_) {}
+try { require('sharp').concurrency(Math.max(1, Number(process.env.SHARP_CONCURRENCY) || (process.arch === 'arm64' ? 1 : 2))); } catch (_) {}
 
 async function warmHotImagesInBackground(pool, products) {
   if (!pool || !pool.__gaeruCacheHooked || process.env.MEDIA_CACHE_ENABLED === 'false') return;
   try {
     await warmStaticAssets(pool);
+    const shouldWarmRenditions = process.env.RENDITION_DISK_CACHE === 'true' || process.env.NODE_ENV === 'production';
     const catalogIds = new Set();
     for (const p of products || []) {
-      const urls = [p.imageUrl, ...(p.gallery || []), ...(p.variants || []).map(v => v.imageUrl)].filter(Boolean);
+      const mediaUrls = Array.isArray(p.descriptionMedia)
+        ? p.descriptionMedia.filter(m => m && m.type === 'image').map(m => m.url)
+        : [];
+      const urls = [p.imageUrl, ...(p.gallery || []), ...(p.variants || []).map(v => v.imageUrl), ...mediaUrls].filter(Boolean);
       for (const rawUrl of urls) {
         const match = /^\/api\/catalog-images\/([0-9a-f-]{36})(?:\?|$)/i.exec(String(rawUrl));
         if (match) catalogIds.add(match[1]);
       }
     }
-    for (const id of [...catalogIds].slice(0, 16)) {
+    for (const id of [...catalogIds].slice(0, 64)) {
       const canonical = '/api/catalog-images/' + id;
       const row = await getCachedImageRow(
         pool,
@@ -28,9 +32,11 @@ async function warmHotImagesInBackground(pool, products) {
           [id, canonical, JSON.stringify([canonical]), JSON.stringify([{ type: 'image', url: canonical }])]
         )).rows[0]
       );
-      // GAERU-09: Row content is cached in LRU; heavy Sharp/AVIF re-encoding skipped at boot
+      if (row && shouldWarmRenditions) {
+        await warmPublicImage(row);
+      }
     }
-    const newsRows = (await pool.query("SELECT cover_id FROM news_posts WHERE status='published' AND cover_id IS NOT NULL ORDER BY published_at DESC, id LIMIT 12")).rows;
+    const newsRows = (await pool.query("SELECT cover_id FROM news_posts WHERE status='published' AND cover_id IS NOT NULL ORDER BY published_at DESC, id LIMIT 24")).rows;
     for (const { cover_id: coverId } of newsRows) {
       if (!coverId) continue;
       const row = await getCachedImageRow(
@@ -41,7 +47,9 @@ async function warmHotImagesInBackground(pool, products) {
           [coverId]
         )).rows[0]
       );
-      // GAERU-09: Cover image row is cached in LRU; heavy Sharp/AVIF re-encoding skipped at boot
+      if (row && shouldWarmRenditions) {
+        await warmPublicImage(row);
+      }
     }
   } catch (_) {}
 }

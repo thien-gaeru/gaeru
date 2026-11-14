@@ -117,11 +117,27 @@
               </span>
             ` : ''}
           </div>
-          ${shipment.trackingUrl ? `
-            <a href="${escapeHtml(shipment.trackingUrl)}" target="_blank" rel="noopener noreferrer" class="carrier-link">
+          ${(() => {
+            const rawUrl = String(shipment.trackingUrl || '').trim();
+            let isSafeCarrierUrl = false;
+            if (rawUrl) {
+              const hostPattern = /^https:\/\/(?:[a-z0-9-]+\.)?(?:viettelpost\.vn|viettelpost\.com\.vn|jtexpress\.vn|spx\.vn)(?:[/?#:]|$)/i;
+              if (typeof URL === 'function') {
+                try {
+                  const u = new URL(rawUrl);
+                  const h = u.hostname.toLowerCase();
+                  isSafeCarrierUrl = u.protocol === 'https:' && ['viettelpost.vn', 'viettelpost.com.vn', 'jtexpress.vn', 'spx.vn'].some(d => h === d || h.endsWith('.' + d));
+                } catch (_) {}
+              } else {
+                isSafeCarrierUrl = hostPattern.test(rawUrl);
+              }
+            }
+            return isSafeCarrierUrl ? `
+            <a href="${escapeHtml(rawUrl)}" target="_blank" rel="noopener noreferrer" class="carrier-link">
               Tra cứu trên website hãng ↗
             </a>
-          ` : ''}
+          ` : '';
+          })()}
         </div>
         ${shipment.statusDescription ? `<div><strong>Trạng thái vận chuyển:</strong> ${escapeHtml(shipment.statusDescription)}</div>` : ''}
         ${historyHtml}

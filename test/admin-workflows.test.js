@@ -30,6 +30,7 @@ async function startAdminApi(context, pool) {
   app.use(express.json());
   app.use((req, _res, next) => {
     req.session = { admin: { username: "manager" }, csrfToken: "valid-token" };
+    req.admin = { username: "manager", role: "sales", source: "staff", permissions: ["dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve", "orders.read", "orders.write", "payments.write"] };
     next();
   });
   app.use("/api", createStoreApi(pool));

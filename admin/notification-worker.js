@@ -15,8 +15,34 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const target = String(event.notification.data?.target || 'notifications');
-  const hash = /^[a-z]+$/.test(target) ? target : 'notifications';
+  const data = event.notification.data || {};
+  const target = String(data.target || 'notifications');
+  let parsedDataUrl = null;
+  if (typeof data.url === 'string' && data.url) {
+    try {
+      const candidate = new URL(data.url);
+      if (candidate.protocol === 'https:' && candidate.hostname.toLowerCase() === 'mail.gaeru.com') {
+        parsedDataUrl = candidate.toString();
+      }
+    } catch (_) {}
+  }
+  if (target === 'webmail' || parsedDataUrl) {
+    const mailUrl = parsedDataUrl || 'https://mail.gaeru.com/?_task=mail&_mbox=INBOX';
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+        for (const client of windowClients) {
+          try {
+            if (new URL(client.url).hostname.toLowerCase() === 'mail.gaeru.com' && 'focus' in client) {
+              return client.focus();
+            }
+          } catch (_) {}
+        }
+        if (clients.openWindow) return clients.openWindow(mailUrl);
+      })
+    );
+    return;
+  }
+  const hash = /^[a-z-]+$/.test(target) ? target : 'notifications';
   const url = '/gaeru_ceo#' + hash;
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
@@ -43,9 +69,9 @@ self.addEventListener('push', event => {
       body: data.body,
       icon: '/assets/brand/gaeru-app-192.png',
       badge: '/assets/brand/gaeru-app-192.png',
-      tag: 'gaeru-admin-push',
+      tag: data.tag || 'gaeru-admin-push',
       renotify: true,
-      data: { target: data.target || 'notifications' }
+      data: { target: data.target || 'notifications', url: data.url || '' }
     })
   );
 });

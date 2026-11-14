@@ -242,7 +242,8 @@ async function sendRegistrationNotificationEmail({ mailer, smtpConfig, to, fullN
   const safeName = String(fullName || 'Khách hàng').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   try {
     await mailer.sendMail({
-      from: `GAERU Support <${smtpConfig.from}>`,
+      from: require('./smtp-delivery').resolveFrom({ smtp: smtpConfig }),
+      replyTo: require('./smtp-delivery').resolveReplyTo({ smtp: smtpConfig }),
       to,
       subject: 'Thông báo đăng ký tài khoản GAERU thành công',
       text: `Xin chào ${fullName},\n\nChúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: ${to}.\n\nBạn có thể đăng nhập và theo dõi đơn hàng, ưu đãi tại: ${accountUrl}\n\nTrân trọng,\nĐội ngũ GAERU`,

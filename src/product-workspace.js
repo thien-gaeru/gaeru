@@ -1,6 +1,6 @@
 const { rateLimit } = require('express-rate-limit');
 const { sendPublicImage, getCachedImageRow } = require('./lib/image-renditions');
-const {Router}=require('express'),{z}=require('zod'),multer=require('multer'),path=require('node:path'),fsPromises=require('node:fs/promises');
+const {Router}=require('express'),{z}=require('zod'),multer=require('multer');
 const {requireCsrf}=require('./security'),{requirePermission}=require('./staff-access'),{withTransaction}=require('./db'),{appendAudit}=require('./audit');
 const inventory=require('./inventory');
 const { readStoredImage } = require('./lib/stored-images');
@@ -39,6 +39,20 @@ function isValidMarketplaceUrl(val, provider) {
   return false;
 }
 
+function parseSquareFlag(v) { return v === true || v === 'true' || v === '1'; }
+function boundedBackgroundOptions(src = {}) {
+  const rawCanvas = Number(src.canvasSize);
+  const canvasSize = Number.isFinite(rawCanvas) && rawCanvas > 0 ? Math.min(4096, Math.max(128, Math.round(rawCanvas))) : 1000;
+  const rawPadding = Number(src.paddingRatio);
+  const paddingRatio = Number.isFinite(rawPadding) ? Math.min(0.4, Math.max(0, rawPadding)) : 0.08;
+  return {
+    whiteThreshold: src.threshold || src.whiteThreshold,
+    tolerance: src.tolerance,
+    minHoleArea: src.minHoleArea,
+    canvasSize,
+    paddingRatio
+  };
+}
 const uuid=z.string().uuid(),image=z.string().regex(/^(?:\/assets\/products\/(?:[a-zA-Z0-9._-]+|(?:m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)|k9-description\/[1-8])\.(?:png|webp))|\/api\/catalog-images\/[0-9a-f-]{36})$/).refine(v=>v.startsWith('/assets/')||uuid.safeParse(v.split('/').at(-1)).success);
 const group=z.object({name:z.string().trim().min(1).max(50),values:z.array(z.string().trim().min(1).max(80)).min(1).max(20)}).strict();
 const media=z.object({type:z.enum(["image","video"]),url:z.string(),alt:z.string().trim().min(3).max(250),caption:z.string().max(300).default(""),afterParagraph:z.number().int().min(0).max(100).nullable().default(null)}).strict().refine(m=>m.type==="image"?image.safeParse(m.url).success:/^\/api\/catalog-videos\/[0-9a-f-]{36}$/.test(m.url)&&uuid.safeParse(m.url.split("/").at(-1)).success);
@@ -82,8 +96,8 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
    const id=uuid.parse(req.params.id),source=(await pool.query('SELECT content,mime_type FROM catalog_images WHERE id=$1',[id])).rows[0];if(!source)return res.sendStatus(404);
    const parseSquare=v=>v===true||v==='true'||v==='1';
    const autoCenterSquare=req.body?.autoCenterSquare!==undefined?parseSquare(req.body.autoCenterSquare):(req.query?.autoCenterSquare!==undefined?parseSquare(req.query.autoCenterSquare):false);
-   const canvasSize=Number(req.body?.canvasSize||req.query?.canvasSize)||1000;
-   const paddingRatio=Number(req.body?.paddingRatio||req.query?.paddingRatio)||0.08;
+   const canvasSize = boundedBackgroundOptions({ canvasSize: req.body?.canvasSize ?? req.query?.canvasSize }).canvasSize;
+   const paddingRatio = boundedBackgroundOptions({ paddingRatio: req.body?.paddingRatio ?? req.query?.paddingRatio }).paddingRatio;
    const enableShadow=req.body?.enableShadow!==undefined?parseSquare(req.body.enableShadow):(req.query?.enableShadow!==undefined?parseSquare(req.query.enableShadow):true);
    const bgOpts={whiteThreshold:req.body?.threshold||req.body?.whiteThreshold||req.query?.threshold||req.query?.whiteThreshold,tolerance:req.body?.tolerance||req.query?.tolerance,minHoleArea:req.body?.minHoleArea||req.query?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio,enableShadow};
    const buffer=await readStoredImage(source.content),cutout=await require('./lib/image-optimizer').optimizeImage(buffer,source.mime_type,{removeBackground:true,...bgOpts});
@@ -133,8 +147,8 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
    try {
      const parseSquare = v => v === true || v === 'true' || v === '1';
      const autoCenterSquare = req.query?.autoCenterSquare !== undefined ? parseSquare(req.query.autoCenterSquare) : (req.body?.autoCenterSquare !== undefined ? parseSquare(req.body.autoCenterSquare) : true);
-     const canvasSize = Number(req.query?.canvasSize || req.body?.canvasSize) || 1000;
-     const paddingRatio = Number(req.query?.paddingRatio || req.body?.paddingRatio) || 0.08;
+     const canvasSize = boundedBackgroundOptions({ canvasSize: req.query?.canvasSize || req.body?.canvasSize }).canvasSize;
+     const paddingRatio = boundedBackgroundOptions({ paddingRatio: req.query?.paddingRatio ?? req.body?.paddingRatio }).paddingRatio;
      const enableShadow = req.query?.enableShadow !== undefined ? parseSquare(req.query.enableShadow) : (req.body?.enableShadow !== undefined ? parseSquare(req.body.enableShadow) : true);
      const removeBackground = req.query?.background !== 'keep' && req.body?.background !== 'keep';
 
@@ -148,8 +162,8 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
        enableShadow
      };
 
-     const uploadDir = path.join(__dirname, '..', 'public', 'uploads');
-     try { await fsPromises.mkdir(uploadDir, { recursive: true }); } catch (_) {}
+     // Product catalog images are stored exclusively in MEDIA_ROOT / PostgreSQL via stored-media.js.
+     // No local public/uploads directory write.
 
      // Concurrency bounded runner: process at most 3 images simultaneously to protect RAM/CPU
      const results = new Array(files.length);
@@ -178,26 +192,7 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
            thumbUrl = '/api/catalog-images/' + thumbRow.id;
          }
 
-         const timestamp = Date.now();
-         const safeName = (f.originalname || `product-${i}`).replace(/[^a-zA-Z0-9.-]/g, '_');
-         const mainFileName = `product-${timestamp}-${i}-${safeName}.webp`;
-         const thumbFileName = `product-${timestamp}-${i}-thumb.webp`;
-         try {
-           const mainBuf = await require('./lib/stored-media').readMedia(content);
-           await fsPromises.writeFile(path.join(uploadDir, mainFileName), mainBuf);
-           if (optimized.thumbBuffer) {
-             await fsPromises.writeFile(path.join(uploadDir, thumbFileName), optimized.thumbBuffer);
-           }
-         } catch (_) {}
-
-         results[i] = {
-           originalName: f.originalname || `image-${i + 1}`,
-           imageUrl: '/api/catalog-images/' + row.id,
-           thumbUrl,
-           publicUrl: `/public/uploads/${mainFileName}`,
-           publicThumbUrl: `/public/uploads/${thumbFileName}`,
-           backgroundRemoved: Boolean(optimized.backgroundRemoved)
-         };
+         results[i] = { originalName: f.originalname || `image-${i + 1}`, imageUrl: '/api/catalog-images/' + row.id, thumbUrl, backgroundRemoved: Boolean(optimized.backgroundRemoved) };
        }
      });
      await Promise.all(workers);

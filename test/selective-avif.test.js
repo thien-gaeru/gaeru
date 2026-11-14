@@ -163,4 +163,74 @@ test('persistent assets serve pre-generated AVIF Ultra with X-GAERU-AVIF-Source:
   assert.match(res.headers.get('content-type'), /image\/avif/);
   assert.equal(res.headers.get('x-gaeru-avif-source'), 'avif-ultra-pregen');
   assert.ok(Number(res.headers.get('content-length')) < 20 * 1024, 'Pre-generated AVIF is extremely compact');
+
+  // Verify m3-description, k9-description, and news assets also serve pre-generated AVIF Ultra
+  for (const pathItem of [
+    '/assets/products/m3-description/1.webp?w=480',
+    '/assets/products/k9-description/1.webp',
+    '/assets/products/k9-description/1.webp?w=480',
+    '/assets/news/affiliate-bo-tai-nguyen-so.webp'
+  ]) {
+    const r = await fetch(`${base}${pathItem}`, {
+      headers: { Accept: 'image/avif,image/webp,*/*' }
+    });
+    assert.equal(r.status, 200, pathItem);
+    assert.match(r.headers.get('content-type'), /image\/avif/, pathItem);
+    assert.equal(r.headers.get('x-gaeru-avif-source'), 'avif-ultra-pregen', pathItem);
+  }
+});
+
+test('persistent disk rendition cache shares pre-encoded AVIF across cluster workers and restarts with zero runtime Sharp encodes', async (t) => {
+  const os = require('node:os');
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'gaeru-renditions-disk-'));
+  const prevDiskFlag = process.env.RENDITION_DISK_CACHE;
+  const prevDiskDir = process.env.RENDITION_CACHE_DIR;
+  process.env.RENDITION_DISK_CACHE = 'true';
+  process.env.RENDITION_CACHE_DIR = tempDir;
+
+  const {
+    warmPublicImage,
+    sendPublicImage,
+    resetRenditionCache,
+    resetImageRenditionStats,
+    getImageRenditionStats
+  } = require('../src/lib/image-renditions');
+
+  t.after(async () => {
+    if (prevDiskFlag === undefined) delete process.env.RENDITION_DISK_CACHE;
+    else process.env.RENDITION_DISK_CACHE = prevDiskFlag;
+    if (prevDiskDir === undefined) delete process.env.RENDITION_CACHE_DIR;
+    else process.env.RENDITION_CACHE_DIR = prevDiskDir;
+    resetRenditionCache();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  const inputBuffer = await fs.readFile(path.join(__dirname, '..', 'assets', 'products', 'k9.webp'));
+  const row = { content: inputBuffer, mime_type: 'image/webp' };
+
+  resetRenditionCache();
+  resetImageRenditionStats();
+  await warmPublicImage(row, [480]);
+  const encodesAfterFirstWarm = getImageRenditionStats().warmEncodeCount;
+  assert.ok(encodesAfterFirstWarm >= 2, 'First warm encodes WebP and AVIF');
+
+  // Clear in-memory cache to simulate a fresh cluster worker or process restart
+  resetRenditionCache();
+  resetImageRenditionStats();
+
+  const app = express();
+  app.get('/api/catalog-images/:id', (req, res, next) => sendPublicImage(req, res, row, 'catalog').catch(next));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/api/catalog-images/test-id?w=480`, {
+    headers: { Accept: 'image/avif,image/webp,*/*' }
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /image\/avif/);
+  const stats = getImageRenditionStats();
+  assert.equal(stats.getRuntimeEncodeCount, 0, 'Zero runtime encodes');
+  assert.equal(stats.warmEncodeCount, 0, 'Zero warm encodes when loading from disk cache');
+  assert.ok(stats.diskCacheHits >= 2, 'Loaded both WebP and AVIF renditions from persistent disk cache');
 });

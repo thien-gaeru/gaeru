@@ -466,7 +466,10 @@
         return;
       }
 
-      const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/scan/${encodeURIComponent(code)}`);
+      const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/scan`, {
+        method: "POST",
+        body: JSON.stringify({ code })
+      });
       if (state.soundEnabled) playBeep("success");
 
       if (res.type === "sku") {
@@ -894,12 +897,39 @@
 
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/render?code=${encodeURIComponent(code)}&height=70&moduleWidth=2`);
-      container.innerHTML = `
-        <div id="barcode-printable-area" style="background:#ffffff; padding:16px; border:1px solid #e5e7eb; border-radius:6px; display:inline-block; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
-          ${res.svg}
-        </div>
-        <p style="margin-top:12px; font-size:13px; color:#6b7280;">Chuẩn Code 128 (Subset B) · Phù hợp tem nhiệt 50×30mm / 40×30mm</p>
-      `;
+      let safeSvg = null;
+      try {
+        const parser = typeof DOMParser === 'function' ? new DOMParser() : null;
+        const parsedDoc = parser?.parseFromString(String(res?.svg || ''), 'image/svg+xml');
+        const svgRoot = parsedDoc?.documentElement;
+        if (svgRoot && svgRoot.tagName && svgRoot.tagName.toLowerCase() === 'svg' && !parsedDoc.querySelector('parsererror')) {
+          svgRoot.querySelectorAll('script,foreignObject,iframe,object,embed,a,use').forEach(el => el.remove());
+          [svgRoot, ...svgRoot.querySelectorAll('*')].forEach(el => {
+            for (const attr of [...el.attributes]) {
+              const attrName = attr.name.toLowerCase();
+              const attrVal = String(attr.value || '').trim().toLowerCase();
+              if (attrName.startsWith('on') || ((attrName === 'href' || attrName === 'xlink:href') && !attrVal.startsWith('#'))) {
+                el.removeAttribute(attr.name);
+              }
+            }
+          });
+          safeSvg = document.importNode(svgRoot, true);
+        }
+      } catch (_) {}
+      container.textContent = '';
+      const area = document.createElement('div');
+      area.id = 'barcode-printable-area';
+      area.style.cssText = 'background:#ffffff; padding:16px; border:1px solid #e5e7eb; border-radius:6px; display:inline-block; box-shadow:0 2px 8px rgba(0,0,0,0.06);';
+      if (safeSvg) {
+        area.appendChild(safeSvg);
+      } else {
+        area.textContent = 'Không thể hiển thị mã vạch an toàn.';
+      }
+      const note = document.createElement('p');
+      note.style.cssText = 'margin-top:12px; font-size:13px; color:#6b7280;';
+      note.textContent = 'Chuẩn Code 128 (Subset B) · Phù hợp tem nhiệt 50×30mm / 40×30mm';
+      container.appendChild(area);
+      container.appendChild(note);
       printBtn.disabled = false;
     } catch (err) {
       container.innerHTML = `<span style="color:#dc2626;">❌ ${escape(err.message)}</span>`;

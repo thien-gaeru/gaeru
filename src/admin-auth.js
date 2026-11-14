@@ -74,7 +74,9 @@ function createAdminAuthRouter(config, pool) {
       const securityKey=identity.source==="bootstrap"?"owner":"staff:"+identity.id;
       if(config.accountSecurity&&await config.accountSecurity.beginLogin(req,res,securityKey,parsed.data.password))return;
       if (pool) await appendAudit(pool, { actor: principal, action: "auth.login", entityType: "staff", entityId: principal.id || principal.username });
+      const shoppingChatOwner = req.session?.shoppingChatOwner || null;
       await regenerateSession(req);
+      if (shoppingChatOwner) req.session.shoppingChatOwner = shoppingChatOwner;
       req.session.admin = identity;
       require('./admin-session-policy').stampAdminSession(req.session);
       if(config.accountSecurity)await config.accountSecurity.stamp(req,securityKey);

@@ -46,6 +46,8 @@ const activeWorkers = new Map(); // workerIndex -> worker
 let isRollingReloading = false;
 let isShuttingDown = false;
 const workerCrashHistory = new Map(); // workerIndex -> [timestamps]
+const reloadingSlots = new Set();
+const respawnTimers = new Map();
 
 function log(msg, level = 'INFO') {
   const ts = new Date().toISOString();
@@ -57,6 +59,17 @@ function tuneWorkerPriority(childPid) {
   try {
     os.setPriority(childPid, os.constants.priority.PRIORITY_ABOVE_NORMAL);
   } catch (_) {}
+}
+
+function scheduleRespawn(workerIndex) {
+  if (isShuttingDown || activeWorkers.has(workerIndex) || reloadingSlots.has(workerIndex) || respawnTimers.has(workerIndex)) return;
+  const history = workerCrashHistory.get(workerIndex) || [];
+  const delay = history.filter(t => Date.now() - t < 30000).length >= 5 ? 5000 : 200;
+  log(`Tự động hồi sinh Worker #${workerIndex} trong ${delay}ms...`, 'WARN');
+  respawnTimers.set(workerIndex, setTimeout(() => {
+    respawnTimers.delete(workerIndex);
+    if (!isShuttingDown && !activeWorkers.has(workerIndex) && !reloadingSlots.has(workerIndex)) spawnWorker(workerIndex);
+  }, delay));
 }
 
 function attachWorkerSupervision(worker, workerIndex) {
@@ -75,11 +88,11 @@ function attachWorkerSupervision(worker, workerIndex) {
 
   worker.on('exit', (code, signal) => {
     log(`Worker #${workerIndex} (PID ${worker.process?.pid}) đã dừng (code: ${code}, signal: ${signal || 'none'}).`);
-    if (activeWorkers.get(workerIndex) === worker) {
-      activeWorkers.delete(workerIndex);
-    }
-
-    if (isShuttingDown || isRollingReloading) return;
+    // An old worker retired by a reload no longer owns the slot. Only a crash
+    // of the active worker should create a replacement (including during reload).
+    if (activeWorkers.get(workerIndex) !== worker) return;
+    activeWorkers.delete(workerIndex);
+    if (isShuttingDown) return;
 
     // Self-healing: Check crash history for dampening
     const now = Date.now();
@@ -87,18 +100,17 @@ function attachWorkerSupervision(worker, workerIndex) {
     history.push(now);
     workerCrashHistory.set(workerIndex, history);
 
-    const delay = history.length >= 5 ? 5000 : 200;
-    log(`Tự động hồi sinh Worker #${workerIndex} trong ${delay}ms...`, 'WARN');
-    setTimeout(() => {
-      if (!isShuttingDown && !activeWorkers.has(workerIndex)) {
-        spawnWorker(workerIndex);
-      }
-    }, delay);
+    scheduleRespawn(workerIndex);
   });
 }
 
 function spawnWorker(workerIndex) {
   if (isShuttingDown) return null;
+  if (activeWorkers.has(workerIndex)) return activeWorkers.get(workerIndex);
+  if (respawnTimers.has(workerIndex)) {
+    clearTimeout(respawnTimers.get(workerIndex));
+    respawnTimers.delete(workerIndex);
+  }
 
   const env = {
     ...process.env,
@@ -139,93 +151,100 @@ async function executeRollingReload() {
 
   try {
     for (let i = 0; i < NUM_WORKERS; i++) {
-      const oldWorker = activeWorkers.get(i);
-      log(`Đang nâng cấp Worker #${i}...`, 'INFO');
+      if (isShuttingDown) break;
+      reloadingSlots.add(i);
+      try {
+        const oldWorker = activeWorkers.get(i);
+        log(`Đang nâng cấp Worker #${i}...`, 'INFO');
 
-      // 1. Spawn replacement worker
-      const newWorker = cluster.fork({
-        ...process.env,
-        CLUSTER_WORKER: '1',
-        CLUSTER_ENABLED: 'true',
-        WORKER_INDEX: String(i),
-        PORT: String(SERVER_PORT)
-      });
-      newWorker.workerIndex = i;
-      if (newWorker.process?.pid) tuneWorkerPriority(newWorker.process.pid);
+        // 1. Spawn replacement worker
+        const newWorker = cluster.fork({
+          ...process.env,
+          CLUSTER_WORKER: '1',
+          CLUSTER_ENABLED: 'true',
+          WORKER_INDEX: String(i),
+          PORT: String(SERVER_PORT)
+        });
+        newWorker.workerIndex = i;
+        if (newWorker.process?.pid) tuneWorkerPriority(newWorker.process.pid);
 
-      // 2. F05: Chờ worker mới phát tín hiệu WORKER_READY thật sự (readiness gate)
-      // Nếu timeout hoặc exit sớm -> coi là thất bại (false), KHÔNG ngắt worker cũ
-      const ready = await new Promise((resolve) => {
-        let settled = false;
-        const cleanup = () => {
-          newWorker.removeListener('message', onMsg);
-          newWorker.removeListener('exit', onExit);
-          clearTimeout(timer);
-        };
-        const onMsg = (msg) => {
-          if (msg?.type === 'WORKER_READY' && !settled) {
-            settled = true;
-            cleanup();
-            resolve(true);
-          }
-        };
-        const onExit = () => {
-          if (!settled) {
-            settled = true;
-            cleanup();
-            resolve(false);
-          }
-        };
-        const timer = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            cleanup();
-            resolve(false);
-          }
-        }, 30000);
-        timer.unref?.();
+        // 2. F05: Chờ worker mới phát tín hiệu WORKER_READY thật sự (readiness gate)
+        // Nếu timeout hoặc exit sớm -> coi là thất bại (false), KHÔNG ngắt worker cũ
+        const ready = await new Promise((resolve) => {
+          let settled = false;
+          const cleanup = () => {
+            newWorker.removeListener('message', onMsg);
+            newWorker.removeListener('exit', onExit);
+            clearTimeout(timer);
+          };
+          const onMsg = (msg) => {
+            if (msg?.type === 'WORKER_READY' && !settled) {
+              settled = true;
+              cleanup();
+              resolve(true);
+            }
+          };
+          const onExit = () => {
+            if (!settled) {
+              settled = true;
+              cleanup();
+              resolve(false);
+            }
+          };
+          const timer = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              cleanup();
+              resolve(false);
+            }
+          }, 30000);
+          timer.unref?.();
 
-        newWorker.on('message', onMsg);
-        newWorker.on('exit', onExit);
-      });
+          newWorker.on('message', onMsg);
+          newWorker.on('exit', onExit);
+        });
 
-      if (!ready) {
-        log(`Worker #${i} mới không thể hoàn tất WORKER_READY. Giữ lại Worker cũ để đảm bảo 100% không gián đoạn.`, 'ERROR');
-        try {
-          if (newWorker.process && !newWorker.isDead()) {
-            newWorker.kill('SIGKILL');
-          }
-        } catch (_) {}
-        continue;
-      }
-
-      // F06: Gắn đầy đủ giám sát tự phục hồi (self-healing, message fanout, exit respawn) cho worker mới
-      attachWorkerSupervision(newWorker, i);
-
-      // Update active map to point to new worker
-      activeWorkers.set(i, newWorker);
-      log(`Worker #${i} mới (PID ${newWorker.process?.pid}) đã trực tuyến và cùng chia sẻ cổng ${SERVER_PORT}.`, 'INFO');
-
-      // 3. Gracefully disconnect old worker with drain window
-      if (oldWorker && oldWorker.isConnected()) {
-        log(`Tiến hành rút Worker cũ (PID ${oldWorker.process?.pid}) sau khi đã có Worker mới thay thế an toàn...`);
-        try {
-          oldWorker.disconnect();
-        } catch (_) {}
-
-        // Safety timeout to force-kill if worker fails to drain within 10s
-        const drainTimeout = setTimeout(() => {
+        if (!ready || newWorker.isDead() || isShuttingDown) {
+          log(`Worker #${i} mới không thể hoàn tất WORKER_READY. Giữ lại Worker cũ để đảm bảo 100% không gián đoạn.`, 'ERROR');
           try {
-            if (oldWorker.process && !oldWorker.isDead()) {
-              oldWorker.kill('SIGKILL');
+            if (newWorker.process && !newWorker.isDead()) {
+              newWorker.kill('SIGKILL');
             }
           } catch (_) {}
-        }, 10000);
-        drainTimeout.unref?.();
-      }
+          continue;
+        }
 
-      // Small pause between workers for load balancing stabilization
-      await new Promise(r => setTimeout(r, 1000));
+        // F06: Gắn đầy đủ giám sát tự phục hồi (self-healing, message fanout, exit respawn) cho worker mới
+        attachWorkerSupervision(newWorker, i);
+
+        // Update active map to point to new worker
+        activeWorkers.set(i, newWorker);
+        log(`Worker #${i} mới (PID ${newWorker.process?.pid}) đã trực tuyến và cùng chia sẻ cổng ${SERVER_PORT}.`, 'INFO');
+
+        // 3. Gracefully disconnect old worker with drain window
+        if (oldWorker && oldWorker.isConnected()) {
+          log(`Tiến hành rút Worker cũ (PID ${oldWorker.process?.pid}) sau khi đã có Worker mới thay thế an toàn...`);
+          try {
+            oldWorker.disconnect();
+          } catch (_) {}
+
+          // Safety timeout to force-kill if worker fails to drain within 10s
+          const drainTimeout = setTimeout(() => {
+            try {
+              if (oldWorker.process && !oldWorker.isDead()) {
+                oldWorker.kill('SIGKILL');
+              }
+            } catch (_) {}
+          }, 10000);
+          drainTimeout.unref?.();
+        }
+
+        // Small pause between workers for load balancing stabilization
+        await new Promise(r => setTimeout(r, 1000));
+      } finally {
+        reloadingSlots.delete(i);
+        scheduleRespawn(i);
+      }
     }
 
     log('Zero-Downtime Rolling Reload hoàn thành mỹ mãn! 100% cổng kết nối không gián đoạn.', 'INFO');
@@ -233,6 +252,9 @@ async function executeRollingReload() {
     log(`Lỗi trong quá trình Rolling Reload: ${err.message}`, 'ERROR');
   } finally {
     isRollingReloading = false;
+    // A failed candidate or an active worker lost between slots must not leave
+    // the fleet permanently smaller after a rolling reload.
+    for (let i = 0; i < NUM_WORKERS; i++) scheduleRespawn(i);
   }
 }
 
@@ -260,6 +282,8 @@ process.on('SIGINT', () => void gracefulShutdown());
 async function gracefulShutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  for (const timer of respawnTimers.values()) clearTimeout(timer);
+  respawnTimers.clear();
   log('Đang thực hiện dừng hệ thống Cluster an toàn...');
 
   try { if (fs.existsSync(CLUSTER_PID_FILE)) fs.unlinkSync(CLUSTER_PID_FILE); } catch (_) {}

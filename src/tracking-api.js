@@ -289,7 +289,7 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
   )).rows[0];
 
   const completedCase = (await pool.query(
-    "SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' LIMIT 1",
+    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND (return_type IS NULL OR return_type <> 'exchange') AND status = 'resolved' LIMIT 1",
     [order.id]
   )).rows[0];
 
@@ -397,6 +397,7 @@ function createTrackingApi(pool, _config = {}) {
       }
 
       const result = await getOrderTrackingDetails(pool, parsed.data);
+      res.set('Cache-Control', 'no-store');
       if (!result.found) {
         return res.status(404).json({ error: result.error });
       }
@@ -421,7 +422,16 @@ function createTrackingApi(pool, _config = {}) {
       accountNumber: z.string().trim().max(50).optional(),
       accountHolder: z.string().trim().max(100).optional()
     }).optional().default({}),
-    evidenceUrls: z.array(z.string().trim().max(500)).max(5).optional().default([])
+    evidenceUrls: z.array(
+      z.string().trim().max(500).refine((u) => {
+        try {
+          require('./audit-fixes/push-url-guard').assertHttpsUrlWithoutCredentials(u);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }, 'URL minh chứng phải là liên kết HTTPS hợp lệ và không chứa thông tin đăng nhập.')
+    ).max(5).optional().default([])
   });
 
   router.post('/tracking/return-request', lookupLimiter, async (req, res, next) => {
@@ -430,6 +440,7 @@ function createTrackingApi(pool, _config = {}) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Thông tin yêu cầu chưa hợp lệ.' });
     }
     try {
+      res.set('Cache-Control', 'no-store');
       const orderRes = await pool.query(
         'SELECT * FROM orders WHERE UPPER(TRIM(order_number)) = UPPER(TRIM($1)) LIMIT 1',
         [parsed.data.orderNumber]
@@ -438,19 +449,30 @@ function createTrackingApi(pool, _config = {}) {
       if (!order || !verifyOrderChallenge(order, parsed.data.challenge)) {
         return res.status(404).json({ error: 'Không tìm thấy đơn hàng hoặc thông tin xác thực không khớp.' });
       }
+      if (order.customer_id && req.session?.customer?.id !== order.customer_id) {
+        return res.status(403).json({ error: 'Đơn hàng thuộc tài khoản thành viên; vui lòng đăng nhập đúng tài khoản để yêu cầu đổi/trả.' });
+      }
+      if (order.customer_id && req.session?.customer?.id === order.customer_id) {
+        const { requireCsrf } = require('./security');
+        let csrfPassed = false;
+        requireCsrf(req, res, () => { csrfPassed = true; });
+        if (!csrfPassed) return;
+      }
 
       const { createCustomerReturnRequest } = require('./order-after-sales');
       const { withTransaction } = require('./db');
       const result = await withTransaction(pool, async (client) => {
         return await createCustomerReturnRequest(client, {
           orderId: order.id,
-          requestedBy: 'guest',
+          requestedBy: order.customer_id ? 'customer' : 'guest',
           returnType: parsed.data.returnType,
           reasonCategory: parsed.data.reasonCategory,
           reason: parsed.data.reason,
           bankInfo: parsed.data.bankInfo,
           evidenceUrls: parsed.data.evidenceUrls,
-          actor: { username: order.email || 'guest', source: 'guest' }
+          actor: order.customer_id
+            ? { id: req.session.customer.id, username: req.session.customer.email || order.email, source: 'customer' }
+            : { username: order.email || 'guest', source: 'guest' }
         });
       });
 

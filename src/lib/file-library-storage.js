@@ -1,10 +1,10 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path'),{constants}=require('node:fs');
 const {randomUUID,createHash}=require('node:crypto');
-const scopes=Object.freeze({'site-assets':'Ảnh giao diện (chỉ đọc)',products:'Sản phẩm',news:'Bài viết',articles:'Tài liệu bài viết',banners:'Banner',videos:'Video',chat:'Tệp hội thoại',documents:'Tài liệu',thumbnails:'Ảnh thu nhỏ'});
+const scopes=Object.freeze({'site-assets':'Ảnh giao diện (chỉ đọc)',products:'Sản phẩm',news:'Bài viết',articles:'Tài liệu bài viết',banners:'Banner',videos:'Video',chat:'Tệp hội thoại',care:'Tệp CARE+',documents:'Tài liệu',thumbnails:'Ảnh thu nhỏ'});
 const uuid='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const pattern=new RegExp('^('+Object.keys(scopes).join('|')+')/(?:'+uuid+'/)?'+uuid+'\\.(jpg|png|webp|gif|heic|mp4|mov|webm|pdf|bin|txt|csv)$');
-const mimes={jpg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',mp4:'video/mp4',mov:'video/quicktime',webm:'video/webm',pdf:'application/pdf',txt:'text/plain',csv:'text/csv'};
+const pattern=new RegExp('^('+Object.keys(scopes).join('|')+')/(?:'+uuid+'/)?'+uuid+'\\.(jpg|png|webp|gif|bmp|tiff|heic|avif|mp4|mov|webm|mp3|m4a|wav|ogg|pdf|bin|txt|csv|json|xml)$');
+const mimes={jpg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',bmp:'image/bmp',tiff:'image/tiff',heic:'image/heic',avif:'image/avif',mp4:'video/mp4',mov:'video/quicktime',webm:'video/webm',mp3:'audio/mpeg',m4a:'audio/mp4',wav:'audio/wav',ogg:'audio/ogg',pdf:'application/pdf',json:'application/json',xml:'application/xml',txt:'text/plain',csv:'text/csv'};
 const fail=(message,status=400)=>Object.assign(Error(message),{status});
 function checkKey(key){if(typeof key!=='string'||!(pattern.test(key)||/^site-assets\/[a-f0-9]{64}\.(png|jpe?g|webp|gif|avif|ico|mp4)$/.test(key)))throw fail('Đường dẫn tệp không hợp lệ.');return key;}
 async function directory(scope,folder='',create=false){if(!Object.hasOwn(scopes,scope)||folder&&!new RegExp('^'+uuid+'$').test(folder))throw fail('Thư mục không hợp lệ.');const root=await require('./filesystem-media').rootPath();let dir=root;for(const part of [scope,folder].filter(Boolean)){dir=path.join(dir,part);if(create)await fs.mkdir(dir,{mode:0o700}).catch(e=>{if(e.code!=='EEXIST')throw e;});const st=await fs.lstat(dir);if(!st.isDirectory()||st.isSymbolicLink()||await fs.realpath(dir)!==dir)throw fail('Không truy cập liên kết thư mục.',409);}return dir;}
@@ -24,4 +24,4 @@ async function upload(scope,folder,buffer,mime,name){if(!Buffer.isBuffer(buffer)
 async function remove(key){await fs.unlink(await locate(key));}
 async function stageDelete(key){const original=await locate(key),temporary=path.join(path.dirname(original),'.'+randomUUID()+'.deleting');await fs.rename(original,temporary);return {undo:()=>fs.rename(temporary,original),finish:()=>fs.unlink(temporary)};}
 async function move(key,folder){checkKey(key);const scope=key.split('/')[0],destination=await directory(scope,folder,true),next=[scope,folder,key.split('/').at(-1)].filter(Boolean).join('/');if(next===key)return key;const target=path.join(destination,key.split('/').at(-1));await fs.link(await locate(key),target);try{await fs.unlink(await locate(key));}catch(e){await fs.unlink(target);throw e;}return next;}
-module.exports={scopes,checkKey,directory,list,read,openRead,upload,remove,stageDelete,move,fail};
+module.exports={scopes,mimes,checkKey,directory,list,read,openRead,upload,remove,stageDelete,move,fail};

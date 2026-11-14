@@ -31,7 +31,7 @@ function makeMailer(config) {
 /**
  * Capture or update an abandoned cart from checkout or cart interactions
  */
-async function captureAbandonedCart(pool, { email, customerName = null, phone = null, items = [], recoveryConsent = false, customerId = null }) {
+async function captureAbandonedCart(pool, { email, customerName = null, phone = null, items = [], recoveryConsent = false, customerId = null, allowedCartIds = null, enforceCustomerOwnership = false }) {
   const normEmail = String(email || '').trim().toLowerCase();
   if (!normEmail || !items.length) return null;
 
@@ -85,11 +85,28 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
   return await withTransaction(pool, async client => {
     // Check if an existing abandoned cart exists for this email
     const existing = (await client.query(
-      `SELECT id, status FROM abandoned_carts
+      `SELECT id, status, customer_id FROM abandoned_carts
        WHERE lower(trim(email)) = $1 AND status IN ('abandoned', 'recovering')
        ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
       [normEmail]
     )).rows[0];
+
+    if (existing) {
+      if (existing.customer_id && existing.customer_id !== customerId) {
+        throw fail('Không có quyền cập nhật giỏ hàng của tài khoản khác.', 403);
+      }
+      if (!customerId && Array.isArray(allowedCartIds) && !allowedCartIds.includes(existing.id)) {
+        throw fail('Không có quyền ghi đè giỏ hàng đã tồn tại của phiên khác.', 403);
+      }
+    } else if (enforceCustomerOwnership && !customerId) {
+      const registeredCustomer = (await client.query(
+        'SELECT id FROM customers WHERE lower(trim(email)) = $1 AND deleted_at IS NULL LIMIT 1',
+        [normEmail]
+      )).rows[0];
+      if (registeredCustomer) {
+        throw fail('Email này thuộc tài khoản đã đăng ký; vui lòng đăng nhập để đồng bộ giỏ hàng.', 403);
+      }
+    }
 
     let cart;
     if (existing) {
@@ -215,11 +232,15 @@ async function listAbandonedCarts(pool, { page = 1, pageSize = 25, status = null
   const p = Math.max(1, Number(page) || 1);
   const offset = (p - 1) * pageSize;
 
-  const whereClause = status ? 'WHERE status = $3' : '';
+  const whereClause = status ? 'WHERE ac.status = $3' : '';
   const params = status ? [pageSize, offset, status] : [pageSize, offset];
 
   const rows = (await pool.query(
-    `SELECT ac.*, o.order_number
+    `SELECT ac.id, ac.customer_id, ac.email, ac.customer_name, ac.phone,
+            ac.items, ac.subtotal_vnd, ac.recovery_consent, ac.status,
+            ac.reminder_count, ac.max_reminders, ac.last_reminded_at,
+            ac.next_reminder_at, ac.recovered_at, ac.order_id, ac.version,
+            ac.created_at, ac.updated_at, o.order_number
      FROM abandoned_carts ac
      LEFT JOIN orders o ON o.id = ac.order_id
      ${whereClause}
@@ -359,7 +380,8 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
 
   try {
     const result = await mailer.sendMail({
-      from: config.smtp.from,
+      from: require('./smtp-delivery').resolveFrom(config),
+      replyTo: require('./smtp-delivery').resolveReplyTo(config),
       to: normEmail,
       subject,
       text,
@@ -555,6 +577,9 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
     try {
       const parsed = captureSchema.parse(req.body);
       const customerId = req.session?.customer?.id || null;
+      const allowedCartIds = !customerId
+        ? (Array.isArray(req.session?.abandonedCartIds) ? req.session.abandonedCartIds : [])
+        : null;
 
       const result = await captureAbandonedCart(pool, {
         email: parsed.email,
@@ -562,14 +587,25 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
         phone: parsed.phone,
         items: parsed.items,
         recoveryConsent: parsed.recoveryConsent,
-        customerId
+        customerId,
+        allowedCartIds,
+        enforceCustomerOwnership: true
       });
 
       if (!result) return res.status(400).json({ error: 'Không thể ghi nhận giỏ hàng.' });
+      if (req.session) {
+        const owned = Array.isArray(req.session.abandonedCartIds) ? req.session.abandonedCartIds : [];
+        if (!owned.includes(result.cart.id)) {
+          req.session.abandonedCartIds = [...owned, result.cart.id].slice(-20);
+        }
+      }
       res.status(201).json({ success: true, cartId: result.cart.id });
     } catch (e) {
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: 'Thông tin liên hệ hoặc giỏ hàng chưa hợp lệ.' });
+      }
+      if (e?.status) {
+        return res.status(e.status).json({ error: e.message });
       }
       next(e);
     }
@@ -604,7 +640,11 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
 
   // Public: Opt out of recovery reminders
   publicApi.get('/opt-out/:token', async (req, res) => {
-    const token = req.params.token;
+    const parsedToken = z.string().trim().min(20).max(128).safeParse(req.params.token);
+    if (!parsedToken.success) {
+      return res.status(400).set('Cache-Control', 'no-store').type('text').send('Liên kết hủy nhận nhắc nhở không hợp lệ.');
+    }
+    const token = parsedToken.data;
     res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html>
 <html lang="vi">
 <head>
@@ -632,7 +672,10 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
   });
 
   publicApi.post('/opt-out/:token', async (req, res) => {
-    const token = req.params.token;
+    const token = typeof req.params.token === 'string' ? req.params.token.trim() : '';
+    if (token.length < 20 || token.length > 128 || /\s/.test(token)) {
+      return res.status(400).json({ ok: false, error: 'Token không hợp lệ.' });
+    }
     await optOutAbandonedCart(pool, token);
     res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html>
 <html lang="vi">

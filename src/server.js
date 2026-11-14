@@ -63,7 +63,7 @@ async function start() {
   // High-concurrency socket tuning & Cloudflare reverse proxy keep-alive alignment
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
-  server.requestTimeout = 30000;
+  server.requestTimeout = 300000;
   server.maxHeadersCount = 2000;
   server.on('error', (error) => {
     console.error('GAERU listener failed:', errorSummary(error));
@@ -144,7 +144,10 @@ async function start() {
 
 
   // Background workers initialization with staggered startup and priority concurrency cap (A10 / P2-02)
-  const isBackgroundWorker = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
+  // Replicated outboxes must have one designated processing host. Disabling jobs
+  // leaves HTTP requests, database migrations and media readiness operational.
+  const backgroundJobsEnabled = String(process.env.BACKGROUND_JOBS_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+  const isBackgroundWorker = backgroundJobsEnabled && (!process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0');
   if (isBackgroundWorker) {
     scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(highPriorityPool, config); }, 0);
     scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(highPriorityPool, config); }, 500);
@@ -159,6 +162,7 @@ async function start() {
     scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 5000);
     scheduleWorker(() => { require("./shipping-adapters").syncViettelProvinceCatalog().catch(() => {}); }, 5500);
   }
+  if (!backgroundJobsEnabled) console.log('Background jobs disabled on this host; HTTP serving remains enabled.');
 
   // Non-blocking media probe and asynchronous asset sync in the background
   const mediaCheck=await require('./lib/filesystem-media').probe();
@@ -280,6 +284,21 @@ startTask.catch(async (error) => {
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  // A cluster worker keeps its IPC channel alive even after HTTP and PostgreSQL
+  // have closed. Bound cleanup (including a stuck pool.end()) so the master can
+  // replace a worker instead of retaining a permanently stopped listener.
+  const exitAfterShutdown = () => {
+    if (process.connected && typeof process.disconnect === 'function') {
+      try { process.disconnect(); } catch (_) {}
+    }
+    if (typeof process.exit === 'function') process.exit(process.exitCode || 0);
+  };
+  const shutdownTimer = typeof setTimeout === 'function' ? setTimeout(() => {
+    process.exitCode = 1;
+    console.error('GAERU shutdown deadline exceeded; exiting for supervisor recovery.');
+    exitAfterShutdown();
+  }, 15000) : null;
+  shutdownTimer?.unref?.();
   setStartupError(new Error('SHUTDOWN'));
   if (mediaRetryTimer && typeof clearInterval !== 'undefined') {
     clearInterval(mediaRetryTimer);
@@ -344,6 +363,8 @@ async function shutdown() {
     console.error("Database shutdown failed:", errorSummary(error));
     process.exitCode = 1;
   }
+  if (shutdownTimer && typeof clearTimeout === 'function') clearTimeout(shutdownTimer);
+  exitAfterShutdown();
 }
 
 pool.on("error", (error) => console.error("Unexpected database pool error:", errorSummary(error)));

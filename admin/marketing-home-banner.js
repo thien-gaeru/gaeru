@@ -187,7 +187,11 @@
     if(type==='live')badgeClass='home-banner-status-badge is-live';
     else if(type==='busy')badgeClass='home-banner-status-badge is-busy';
     else if(type==='error')badgeClass='home-banner-status-badge is-error';
-    statusEl.innerHTML='<span class="'+badgeClass+'">'+msg+'</span>';
+    statusEl.textContent='';
+    const badgeEl=document.createElement('span');
+    badgeEl.className=badgeClass;
+    badgeEl.textContent=String(msg??'');
+    statusEl.appendChild(badgeEl);
 
     if(summaryStatus){
       if(value?.enabled){

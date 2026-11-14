@@ -174,7 +174,7 @@ if (typeof process.on === 'function') {
   process.on('message', (msg) => {
     if (msg?.type === 'CACHE_INVALIDATE_TAGS' && Array.isArray(msg.tags)) {
       purgeTagsLocal(msg.tags);
-      cacheEvents.emit('invalidated', { tags: msg.tags, timestamp: Date.now() });
+      cacheEvents.emit('invalidated', { tags: msg.tags, timestamp: Date.now(), fromIpc: true });
     } else if (msg?.type === 'STOCK_SYNC' && msg.skuOrId !== undefined && msg.qty !== undefined) {
       stockMap.set(msg.skuOrId, Number(msg.qty) || 0);
     }

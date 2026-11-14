@@ -1,12 +1,63 @@
 const { Router } = require("express");
 const { z } = require("zod");
+const crypto = require("node:crypto");
 const { withTransaction } = require("./db");
 const { requirePermission } = require("./staff-access");
 const { requireCsrf } = require("./security");
 const { appendAudit } = require("./audit");
 const { rateLimit } = require("express-rate-limit");
 
+const MAX_STOCK = 1_000_000_000;
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+async function verifyWarehouseBalance(client, variantId, stockQuantity) {
+  const balancesRes = await client.query(
+    `SELECT warehouse_id, quantity FROM warehouse_stock WHERE variant_id = $1 ORDER BY warehouse_id FOR UPDATE`,
+    [variantId]
+  );
+  if (balancesRes.rows.length > 0) {
+    const sum = balancesRes.rows.reduce((acc, row) => acc + Number(row.quantity), 0);
+    if (sum !== Number(stockQuantity)) {
+      throw fail("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi.", 409);
+    }
+  }
+  return balancesRes.rows;
+}
+
+async function beginInventoryRequest(client, { requestKey, operationType, payload, actor }) {
+  const normKey = requestKey ? String(requestKey).trim() : "";
+  if (!normKey) return { cachedResult: null, normKey: null };
+  const requestHash = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  const actorUsername = actor?.username || "scanner";
+  const ins = await client.query(
+    `INSERT INTO inventory_requests (request_key, operation_type, request_hash, actor_username)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (request_key) DO NOTHING
+     RETURNING request_key`,
+    [normKey, operationType, requestHash, actorUsername]
+  );
+  if (ins.rowCount === 0) {
+    const existing = (await client.query(
+      `SELECT operation_type, request_hash, result FROM inventory_requests WHERE request_key = $1 FOR UPDATE`,
+      [normKey]
+    )).rows[0];
+    if (existing && (existing.operation_type !== operationType || existing.request_hash !== requestHash)) {
+      throw fail("Khóa yêu cầu kho đã được dùng cho dữ liệu khác.", 409);
+    }
+    if (existing?.result) {
+      return { cachedResult: existing.result, normKey };
+    }
+  }
+  return { cachedResult: null, normKey };
+}
+
+async function completeInventoryRequest(client, normKey, result) {
+  if (!normKey) return;
+  await client.query(
+    `UPDATE inventory_requests SET result = $2::jsonb WHERE request_key = $1`,
+    [normKey, JSON.stringify(result)]
+  );
+}
 
 // -------------------------------------------------------------
 // Pure JavaScript Code 128 (Subset B) Barcode Generator
@@ -106,7 +157,7 @@ function generateCode128Svg(rawText, options = {}) {
 // -------------------------------------------------------------
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function resolveBarcode(pool, rawCode, { actor = null, logScan = true } = {}) {
+async function resolveBarcode(pool, rawCode, { actor = null, logScan = true, ensureVerification = true } = {}) {
   const code = String(rawCode || "").trim();
   if (!code) throw fail("Mã vạch quét vào không được để trống", 400);
 
@@ -117,7 +168,8 @@ async function resolveBarcode(pool, rawCode, { actor = null, logScan = true } = 
            p.name AS product_name, p.slug, p.image_url, p.active AS product_active
     FROM product_variants pv
     JOIN products p ON p.id = pv.product_id
-    WHERE pv.sku = $1 OR pv.barcode = $1 ${isUuid ? "OR pv.id = $2" : ""}
+    WHERE (pv.sku = $1 OR pv.barcode = $1 ${isUuid ? "OR pv.id = $2" : ""})
+      AND p.deleted_at IS NULL
     LIMIT 1
   `;
   const variantParams = isUuid ? [code, code] : [code];
@@ -204,7 +256,7 @@ async function resolveBarcode(pool, rawCode, { actor = null, logScan = true } = 
       ORDER BY oi.sku
     `, [o.id]);
 
-    // Ensure pack verification record exists
+    // Ensure pack verification record exists (skip DB writes during read-only GET lookups)
     let verRes = await pool.query(`SELECT * FROM order_pack_verifications WHERE order_id = $1`, [o.id]);
     if (verRes.rows.length === 0) {
       const totalItems = itemsRes.rows.reduce((sum, it) => sum + it.quantity, 0);
@@ -218,12 +270,25 @@ async function resolveBarcode(pool, rawCode, { actor = null, logScan = true } = 
         scannedQuantity: 0
       }));
 
-      verRes = await pool.query(`
-        INSERT INTO order_pack_verifications (order_id, status, total_items, scanned_items, items_checklist)
-        VALUES ($1, 'packing', $2, 0, $3)
-        ON CONFLICT (order_id) DO UPDATE SET updated_at = order_pack_verifications.updated_at
-        RETURNING *
-      `, [o.id, totalItems, JSON.stringify(checklist)]);
+      if (ensureVerification) {
+        verRes = await pool.query(`
+          INSERT INTO order_pack_verifications (order_id, status, total_items, scanned_items, items_checklist)
+          VALUES ($1, 'packing', $2, 0, $3)
+          ON CONFLICT (order_id) DO UPDATE SET updated_at = order_pack_verifications.updated_at
+          RETURNING *
+        `, [o.id, totalItems, JSON.stringify(checklist)]);
+      } else {
+        verRes = {
+          rows: [{
+            order_id: o.id,
+            status: 'packing',
+            total_items: totalItems,
+            scanned_items: 0,
+            items_checklist: checklist,
+            transient: true
+          }]
+        };
+      }
     }
 
     const carrierRes = await pool.query(`
@@ -320,20 +385,30 @@ async function resolveBarcode(pool, rawCode, { actor = null, logScan = true } = 
 // -------------------------------------------------------------
 // Quick Inbound Receive by Barcode (Nhập kho nhanh)
 // -------------------------------------------------------------
-async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "Nhập kho nhanh qua máy quét mã vạch", actor = null }) {
+async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "Nhập kho nhanh qua máy quét mã vạch", actor = null, requestKey = null }) {
   const normCode = String(code || "").trim();
   const qty = parseInt(quantity, 10);
   if (!normCode) throw fail("Mã vạch / SKU không được để trống", 400);
   if (!Number.isSafeInteger(qty) || qty <= 0) throw fail("Số lượng nhập kho phải là số nguyên dương", 400);
+  if (qty > MAX_STOCK) throw fail("Số lượng tồn kho vượt giới hạn an toàn.", 400);
 
-  return await withTransaction(pool, async (client) => {
+  const result = await withTransaction(pool, async (client) => {
+    const reqState = await beginInventoryRequest(client, {
+      requestKey,
+      operationType: "barcode_inbound_receive",
+      payload: { code: normCode, warehouseId: warehouseId || null, quantity: qty, reason },
+      actor
+    });
+    if (reqState.cachedResult) return reqState.cachedResult;
+
     // 1. Find variant
     const isUuid = UUID_REGEX.test(normCode);
     const varRes = await client.query(`
       SELECT pv.id, pv.sku, pv.barcode, pv.name AS variant_name, pv.stock_quantity, p.name AS product_name
       FROM product_variants pv
       JOIN products p ON p.id = pv.product_id
-      WHERE pv.sku = $1 OR pv.barcode = $1 ${isUuid ? "OR pv.id = $2" : ""}
+      WHERE (pv.sku = $1 OR pv.barcode = $1 ${isUuid ? "OR pv.id = $2" : ""})
+        AND p.deleted_at IS NULL
       FOR UPDATE OF pv
     `, isUuid ? [normCode, normCode] : [normCode]);
 
@@ -341,6 +416,8 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
       throw fail(`Không tìm thấy sản phẩm có mã vạch / SKU: ${normCode}`, 404);
     }
     const variant = varRes.rows[0];
+
+    await verifyWarehouseBalance(client, variant.id, variant.stock_quantity);
 
     // 2. Resolve warehouse
     let targetWhId = warehouseId;
@@ -372,6 +449,9 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
     const beforeBalance = balRes.rows[0].quantity;
     const afterBalance = beforeBalance + qty;
     const newStock = variant.stock_quantity + qty;
+    if (afterBalance > MAX_STOCK || newStock > MAX_STOCK) {
+      throw fail("Số lượng tồn kho vượt giới hạn an toàn.", 400);
+    }
 
     // 4. Update warehouse stock and aggregate
     await client.query(`
@@ -417,8 +497,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
       metadata: { sku: variant.sku, delta: qty, reason }
     });
 
-    try { require('../cache').flushAllCache(); } catch {}
-    return {
+    const payloadResult = {
       ok: true,
       variantId: variant.id,
       sku: variant.sku,
@@ -430,25 +509,39 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
       newQuantity: afterBalance,
       aggregateQuantity: newStock
     };
+    await completeInventoryRequest(client, reqState.normKey, payloadResult);
+    return payloadResult;
   });
+  try { require('../cache').flushAllCache(); } catch {}
+  return result;
 }
 
 // -------------------------------------------------------------
 // Cycle Count Adjustment by Barcode (Kiểm kê kho thực tế)
 // -------------------------------------------------------------
-async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason = "Kiểm kê kho qua máy quét mã vạch", actor = null }) {
+async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason = "Kiểm kê kho qua máy quét mã vạch", actor = null, requestKey = null }) {
   const normCode = String(code || "").trim();
   const actual = parseInt(actualQuantity, 10);
   if (!normCode) throw fail("Mã vạch / SKU không được để trống", 400);
   if (!Number.isSafeInteger(actual) || actual < 0) throw fail("Số lượng kiểm kê thực tế phải lớn hơn hoặc bằng 0", 400);
+  if (actual > MAX_STOCK) throw fail("Số lượng tồn kho vượt giới hạn an toàn.", 400);
 
-  return await withTransaction(pool, async (client) => {
+  const result = await withTransaction(pool, async (client) => {
+    const reqState = await beginInventoryRequest(client, {
+      requestKey,
+      operationType: "barcode_cycle_count",
+      payload: { code: normCode, warehouseId: warehouseId || null, actualQuantity: actual, reason },
+      actor
+    });
+    if (reqState.cachedResult) return reqState.cachedResult;
+
     const isUuid = UUID_REGEX.test(normCode);
     const varRes = await client.query(`
       SELECT pv.id, pv.sku, pv.barcode, pv.name AS variant_name, pv.stock_quantity, p.name AS product_name
       FROM product_variants pv
       JOIN products p ON p.id = pv.product_id
-      WHERE pv.sku = $1 OR pv.barcode = $1 ${isUuid ? "OR pv.id = $2" : ""}
+      WHERE (pv.sku = $1 OR pv.barcode = $1 ${isUuid ? "OR pv.id = $2" : ""})
+        AND p.deleted_at IS NULL
       FOR UPDATE OF pv
     `, isUuid ? [normCode, normCode] : [normCode]);
 
@@ -456,6 +549,8 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
       throw fail(`Không tìm thấy sản phẩm có mã vạch / SKU: ${normCode}`, 404);
     }
     const variant = varRes.rows[0];
+
+    await verifyWarehouseBalance(client, variant.id, variant.stock_quantity);
 
     let targetWhId = warehouseId;
     if (!targetWhId) {
@@ -486,6 +581,7 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
     const delta = actual - beforeBalance;
     const newStock = variant.stock_quantity + delta;
     if (newStock < 0) throw fail("Tổng tồn kho toàn hệ thống không thể âm sau kiểm kê", 400);
+    if (newStock > MAX_STOCK) throw fail("Số lượng tồn kho vượt giới hạn an toàn.", 400);
 
     if (delta !== 0) {
       await client.query(`
@@ -499,7 +595,6 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
       `, [variant.id, newStock]);
 
       const eventKey = `barcode_cycle_count:${variant.id}:${targetWhId}:${Date.now()}:${require('node:crypto').randomUUID().slice(0, 8)}`;
-      try { require('../cache').flushAllCache(); } catch {}
       await client.query(`
         INSERT INTO inventory_movements (
           event_key, warehouse_id, variant_id, sku, product_name, variant_name,
@@ -531,7 +626,7 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
       metadata: { sku: variant.sku, delta, reason }
     });
 
-    return {
+    const payloadResult = {
       ok: true,
       variantId: variant.id,
       sku: variant.sku,
@@ -542,7 +637,13 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
       delta,
       aggregateQuantity: newStock
     };
+    await completeInventoryRequest(client, reqState.normKey, payloadResult);
+    return payloadResult;
   });
+  if (result.delta !== 0) {
+    try { require('../cache').flushAllCache(); } catch {}
+  }
+  return result;
 }
 
 // -------------------------------------------------------------
@@ -676,7 +777,7 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
 
   return await withTransaction(pool, async (client) => {
     const ordRes = await client.query(
-      `SELECT id, order_number, status, payment_method, payment_status, return_completed_at FROM orders WHERE id = $1 FOR UPDATE`,
+      `SELECT id, order_number, status, payment_method, payment_status, shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd", return_completed_at FROM orders WHERE id = $1 FOR UPDATE`,
       [normOrderId]
     );
     if (ordRes.rows.length === 0) throw fail("Không tìm thấy đơn hàng", 404);
@@ -686,6 +787,9 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
     }
     if (order.payment_method !== "cod" && order.payment_status !== "paid") {
       throw fail("Đơn trả trước chưa thanh toán; không thể xuất kho.", 409);
+    }
+    if (order.totalVnd === null || (order.status === "pending" && order.shippingFeeVnd === null)) {
+      throw fail("Đơn hàng chưa chốt phí giao hàng hoặc tổng tiền; không thể xuất kho.", 409);
     }
     const openRev = await client.query(
       "SELECT 1 FROM order_reviews WHERE order_id = $1 AND resolved_at IS NULL LIMIT 1",
@@ -698,6 +802,32 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
     const verRes = await client.query(`SELECT * FROM order_pack_verifications WHERE order_id = $1 FOR UPDATE`, [normOrderId]);
     if (verRes.rows.length === 0 || verRes.rows[0].status !== "verified") {
       throw fail("Đơn hàng chưa hoàn tất kiểm tra đóng gói đủ món! Vui lòng quét kiểm tra trước khi xuất kho.", 400);
+    }
+
+    if (order.status === "pending") {
+      const existingAlloc = await client.query(
+        "SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1",
+        [normOrderId]
+      );
+      if (existingAlloc.rows.length === 0) {
+        const { reserveStock } = require("./inventory");
+        const itemsRes = await client.query(
+          `SELECT variant_id AS "variantId", SUM(quantity)::int AS quantity
+           FROM order_items
+           WHERE order_id = $1 AND variant_id IS NOT NULL
+           GROUP BY variant_id
+           ORDER BY variant_id`,
+          [normOrderId]
+        );
+        for (const item of itemsRes.rows) {
+          await reserveStock(client, {
+            variantId: item.variantId,
+            quantity: item.quantity,
+            orderId: normOrderId,
+            actor
+          });
+        }
+      }
     }
 
     const updatedVer = await client.query(`
@@ -717,7 +847,7 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
       await client.query(`
         UPDATE carrier_shipments
         SET status = 'delivering', updated_at = now()
-        WHERE order_id = $1 AND tracking_number = $2 AND status <> 'cancelled'
+        WHERE order_id = $1 AND tracking_number = $2 AND status IN ('created', 'picking')
       `, [normOrderId, trackingCode]);
     }
 
@@ -756,7 +886,11 @@ async function bindBarcode(pool, { variantId, barcode, actor = null }) {
 
   return await withTransaction(pool, async (client) => {
     const check = await client.query(`
-      SELECT id, sku, name FROM product_variants WHERE id = $1 FOR UPDATE
+      SELECT pv.id, pv.sku, pv.name
+      FROM product_variants pv
+      JOIN products p ON p.id = pv.product_id
+      WHERE pv.id = $1 AND p.deleted_at IS NULL
+      FOR UPDATE OF pv
     `, [normVarId]);
     if (check.rows.length === 0) throw fail("Không tìm thấy phiên bản sản phẩm", 404);
 
@@ -862,25 +996,35 @@ function createBarcodeApi(pool, config = {}) {
     return res.status(403).json({ error: "Tài khoản không có quyền truy cập nghiệp vụ mã vạch kho." });
   };
 
-  // 1. Unified scan resolver
+  // 1. Unified scan resolver (GET is strictly read-only; POST logs scans & initializes packing records)
   admin.get("/barcode/scan/:code", standardLimit, requireWarehouseAccess, async (req, res, next) => {
     try {
-      const result = await resolveBarcode(pool, req.params.code, { actor: req.admin, logScan: true });
+      const result = await resolveBarcode(pool, req.params.code, { actor: req.admin, logScan: false, ensureVerification: false });
       res.json(result);
     } catch (err) {
       next(err);
     }
   });
 
-  // 2. Quick inbound receive
-  admin.post("/barcode/receive", standardLimit, requirePermission("inventory.write"), requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/scan", standardLimit, requireWarehouseAccess, requireCsrf, async (req, res, next) => {
     try {
-      const { code, warehouseId, quantity, reason } = req.body || {};
+      const result = await resolveBarcode(pool, req.body?.code, { actor: req.admin, logScan: true, ensureVerification: true });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // 2. Quick inbound receive (requires inventory.approve matching manual stock adjustment policy)
+  admin.post("/barcode/receive", standardLimit, requirePermission("inventory.approve"), requireCsrf, async (req, res, next) => {
+    try {
+      const { code, warehouseId, quantity, reason, requestKey } = req.body || {};
       const result = await receiveByBarcode(pool, {
         code,
         warehouseId,
         quantity,
         reason,
+        requestKey,
         actor: req.admin
       });
       res.json(result);
@@ -889,15 +1033,16 @@ function createBarcodeApi(pool, config = {}) {
     }
   });
 
-  // 3. Cycle count adjustment
-  admin.post("/barcode/cycle-count", standardLimit, requirePermission("inventory.write"), requireCsrf, async (req, res, next) => {
+  // 3. Cycle count adjustment (requires inventory.approve matching manual stock adjustment policy)
+  admin.post("/barcode/cycle-count", standardLimit, requirePermission("inventory.approve"), requireCsrf, async (req, res, next) => {
     try {
-      const { code, warehouseId, actualQuantity, reason } = req.body || {};
+      const { code, warehouseId, actualQuantity, reason, requestKey } = req.body || {};
       const result = await countByBarcode(pool, {
         code,
         warehouseId,
         actualQuantity,
         reason,
+        requestKey,
         actor: req.admin
       });
       res.json(result);

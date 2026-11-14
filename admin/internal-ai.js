@@ -347,7 +347,10 @@
     scrollMessagesBottom();
 
     // Tạo placeholder của assistant
-    const assistantBubble = appendMessageUI('assistant', '<span class="copilot-loading">🤖 GAERU AI đang truy vấn dữ liệu...</span>');
+    const assistantBubble = appendMessageUI('assistant', '');
+    if (assistantBubble) {
+      assistantBubble.innerHTML = '<span class="copilot-loading">🤖 GAERU AI đang truy vấn dữ liệu...</span>';
+    }
     scrollMessagesBottom();
 
     try {

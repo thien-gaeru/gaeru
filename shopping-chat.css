@@ -1506,3 +1506,285 @@
     color: #ffffff !important;
   }
 }
+
+/* ==========================================================================
+   UPGRADED FILE SENDING UX:
+   - Smart HD Toggle & Preview Toolbar
+   - Real-Time Upload Progress Bar (0-100%, Speed, Cancel)
+   - Inline Voice Note Recorder & Audio Player
+   - Drag & Drop Visual Dropzone (.is-dragover)
+   - Built-in Chat Media Lightbox (dialog.chat-media-lightbox)
+   ========================================================================== */
+.chat-selected-toolbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: #f2f6ff;
+  border: 1px solid #cce0ff;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+.chat-hd-toggle {
+  border: 1px solid #0071e3 !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #0066cc !important;
+  padding: 4px 10px !important;
+  font: inherit !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all .15s ease;
+}
+.chat-hd-toggle.is-active {
+  background: #0071e3 !important;
+  color: #ffffff !important;
+}
+.chat-selected-count {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #4b5563;
+}
+.chat-upload-progress {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+}
+.chat-upload-progress[hidden],
+.chat-voice-recorder[hidden] {
+  display: none !important;
+}
+.chat-upload-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.chat-upload-progress-label {
+  font-weight: 600;
+  color: #1e3a8a;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-upload-progress-meta {
+  font-weight: 700;
+  color: #0066cc;
+  white-space: nowrap;
+}
+.chat-upload-cancel {
+  border: 1px solid #fca5a5;
+  background: #fff1f2;
+  color: #dc2626;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chat-upload-progress-track {
+  width: 100%;
+  height: 6px;
+  background: #dbeafe;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.chat-upload-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0071e3, #38bdf8);
+  border-radius: 999px;
+  transition: width .18s ease;
+}
+.chat-voice-recorder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 12px;
+  font-size: 12.5px;
+}
+.chat-voice-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: chatLivePulse 1s infinite;
+  flex-shrink: 0;
+}
+.chat-voice-time {
+  font-weight: 700;
+  color: #be123c;
+  flex: 1;
+}
+.chat-voice-cancel,
+.chat-voice-done {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chat-voice-cancel {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+}
+.chat-voice-done {
+  border: 1px solid #0071e3;
+  background: #0071e3;
+  color: #ffffff;
+}
+.chat-inline-audio {
+  display: block;
+  width: min(300px, 100%);
+  height: 40px;
+  margin: 6px 0;
+  border-radius: 999px;
+}
+.chat-pdf-preview-link {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  margin: 4px 6px 4px 0;
+}
+.is-dragover {
+  outline: 2px dashed #0071e3 !important;
+  outline-offset: -4px !important;
+  background-color: rgba(0, 113, 227, 0.04) !important;
+}
+img[data-chat-lightbox-src] {
+  cursor: zoom-in;
+}
+dialog.chat-media-lightbox {
+  width: min(92vw, 1080px);
+  max-height: 92dvh;
+  padding: 14px;
+  border: 1px solid #38383a;
+  border-radius: 18px;
+  background: rgba(20, 20, 22, 0.96);
+  color: #f5f5f7;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.75);
+}
+dialog.chat-media-lightbox::backdrop {
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(4px);
+}
+.chat-lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.chat-lightbox-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chat-lightbox-actions button,
+.chat-lightbox-actions a {
+  border: 1px solid #48484a;
+  background: #2c2c2e;
+  color: #f5f5f7;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.chat-lightbox-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: calc(92dvh - 70px);
+  overflow: auto;
+}
+.chat-lightbox-img {
+  max-width: 100%;
+  max-height: calc(92dvh - 80px);
+  object-fit: contain;
+  border-radius: 10px;
+  transition: transform .2s ease;
+}
+.chat-lightbox-img.is-zoomed {
+  transform: scale(1.85);
+  transform-origin: center center;
+  cursor: zoom-out;
+}
+.chat-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid #48484a;
+  background: rgba(44, 44, 46, 0.85);
+  color: #ffffff;
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 2;
+}
+.chat-lightbox-nav.is-prev { left: 10px; }
+.chat-lightbox-nav.is-next { right: 10px; }
+@media (prefers-color-scheme: dark) {
+  .chat-selected-toolbar {
+    background: #1c2838 !important;
+    border-color: #2b4566 !important;
+  }
+  .chat-selected-count {
+    color: #9ca3af !important;
+  }
+  .chat-upload-progress {
+    background: #152538 !important;
+    border-color: #254266 !important;
+  }
+  .chat-upload-progress-label {
+    color: #dbeafe !important;
+  }
+  .chat-upload-progress-meta {
+    color: #60a5fa !important;
+  }
+  .chat-voice-recorder {
+    background: #2b1417 !important;
+    border-color: #5c1d24 !important;
+  }
+  .chat-voice-time {
+    color: #fda4af !important;
+  }
+  .chat-pdf-preview-link {
+    background: #15293d !important;
+    border-color: #1d4ed8 !important;
+  }
+}
+

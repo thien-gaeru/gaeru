@@ -15,7 +15,7 @@ const { createCustomerAuthRouter } = require("./customer-auth");
 const { createContactChangeApi } = require("./contact-change-api");
 const { createStoreApi } = require("./store-api");
 const { getCsrfToken, requireCsrf } = require("./security");
-const { createAdminAccess } = require("./staff-access");
+const { createAdminAccess, requirePermission } = require("./staff-access");
 const { createStaffApi } = require("./staff-api");
 const { createOperationsApi } = require("./operations-api");
 const { createFinanceApi, receiptTotal, recordFullOrderPayment } = require("./finance-api");
@@ -31,17 +31,39 @@ const { createBusinessApi } = require("./business-api");
 
 function attachTransactionalCacheInvalidation(pool) {
   if (!pool || typeof pool.query !== 'function' || pool.__gaeruCacheHooked) return pool;
-  const isCatalogOrPageMutation = sql => typeof sql === 'string' && /^\s*(?:INSERT|UPDATE|DELETE)\b[\s\S]*\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i.test(sql);
+  const CATALOG_TABLES_RE = /\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i;
+  const isCatalogOrPageMutation = sql => {
+    if (typeof sql !== 'string') return false;
+    const trimmed = sql.trimStart();
+    if (!/^(?:INSERT|UPDATE|DELETE)\b/i.test(trimmed) && !(/^WITH\b/i.test(trimmed) && /\b(?:INSERT|UPDATE|DELETE)\b/i.test(trimmed))) {
+      return false;
+    }
+    return CATALOG_TABLES_RE.test(trimmed);
+  };
   const isBeginSql = sql => typeof sql === 'string' && /^\s*(?:BEGIN|START\s+TRANSACTION)\b/i.test(sql);
   const isCommitSql = sql => typeof sql === 'string' && /^\s*(?:COMMIT|END)\b/i.test(sql);
   const isRollbackSql = sql => typeof sql === 'string' && /^\s*ROLLBACK\b(?!\s+TO\b)/i.test(sql);
+  const clearLocalDerivedCatalogCaches = () => {
+    require('./cache').ramCache.delete('data:catalog');
+    require('./site-pages').clearSitePagesCache(pool);
+    require('./lib/image-renditions').clearImageLookupCache(pool, { broadcast: false });
+    require('./persistent-assets').clearAssetSnapshotCache(pool);
+    require('./chat-web-knowledge').clearWebKnowledgeCache?.();
+  };
+  try {
+    require('./cache').cacheEvents.on('invalidated', (payload) => {
+      if (payload?.fromIpc && Array.isArray(payload.tags) && payload.tags.some(t => t === '*' || t === 'products' || t === 'catalog' || t === 'promotions')) {
+        clearLocalDerivedCatalogCaches();
+      }
+    });
+  } catch (_) {}
   const flushCatalogCaches = () => {
     const cacheMod = require('./cache');
     cacheMod.clearHtmlCacheOnly();
-    cacheMod.ramCache.delete('data:catalog');
+    clearLocalDerivedCatalogCaches();
     cacheMod.invalidateTags(['products', 'catalog', 'promotions'], { immediate: true });
     require('./site-pages').clearSitePagesCache(pool);
-    require('./lib/image-renditions').clearImageLookupCache(pool);
+    // derived image/site/asset/knowledge caches already cleared via clearLocalDerivedCatalogCaches()
     require('./persistent-assets').clearAssetSnapshotCache(pool);
   };
   const extractSqlText = sql => (typeof sql === 'object' && sql !== null ? sql.text : sql);
@@ -156,7 +178,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if (/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|gaeru_ceo|server_admin|server)(?:\/|$)/i.test(req.path)||/^\/(?:account|checkout|cart|payment-result)\.(?:html|js)$/i.test(req.path)) {
       res.set({'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store','Cloudflare-CDN-Cache-Control':'no-store','Surrogate-Control':'no-store','Pragma':'no-cache','Expires':'0'});res.vary('Cookie');
     }
-    res.set('Permissions-Policy',/^\/gaeru_ceo(?:\/|$)/.test(req.path)?'camera=(self), microphone=(), geolocation=()':'camera=(), microphone=(), geolocation=()');
+    res.set('Permissions-Policy',/^\/gaeru_ceo(?:\/|$)/.test(req.path)?'camera=(self), microphone=(self), geolocation=()':'camera=(), microphone=(self), geolocation=()');
     next();
   });
   app.use(helmet({
@@ -166,7 +188,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
         scriptSrc: ["'self'", require('./speculation-policy').cspHash, "'sha256-WikgKY9oGvw1tmT0FTW+IXpDEVQS7+62LaajKhnujEg='", "https://challenges.cloudflare.com", "https://static.cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://www.googletagmanager.com", "https://*.googletagmanager.com"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
-        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.googletagmanager.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://img.vietqr.io", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.googletagmanager.com"],
         connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://*.googleapis.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com"],
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
@@ -193,7 +215,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/pages", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/marketing/emails",express.json({limit:"64kb"}));
-  app.use(express.json({ limit: "32kb" }));
+  app.use(express.json({
+    limit: "32kb",
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    }
+  }));
   app.use(createHoneypotShield());
   app.use(session({
     name: "gaeru.sid",
@@ -210,7 +237,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     }
   }));
 
-  app.use(async(req,res,next)=>{try{if(req.session?.admin&&req.path.startsWith('/api/')){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
+  app.use(async(req,res,next)=>{try{const pathname=req.path.toLowerCase();if(req.session?.admin&&(pathname.startsWith('/api/')||pathname.startsWith('/server_admin/api/'))){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
   app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
@@ -224,7 +251,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
 
   app.get('/api/bot-protection',(_req,res)=>res.set('Cache-Control','no-store').json({enabled:Boolean(config.TURNSTILE_SITE_KEY&&config.TURNSTILE_SECRET_KEY&&config.PUBLIC_BASE_URL)}));
-  app.get("/api/csrf", (req, res) => {
+  app.get("/api/csrf", (req, res) => { req.session.shoppingChatOwner ||= require("node:crypto").randomUUID();
     const csrfToken = getCsrfToken(req);
     req.session.save((error) => {
       if (error) return res.status(500).json({ error: "Không thể khởi tạo phiên bảo mật." });
@@ -238,17 +265,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   const { getFailoverSync } = require("./failover-sync");
   const failoverSync = getFailoverSync(config, pool);
 
-  app.get(["/health", "/api/health"], async (_req, res) => {
-    res.set({ 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
-    res.json({
-      status: "healthy",
-      node: "LG-G7-ThinQ-Failover",
-      ...failoverSync.getStatus()
-    });
+  app.get("/health", (_req, res) => {
+    res.set({ 'Cache-Control': 'no-store' }).json({ status: "ok" });
   });
 
-  app.get("/api/failover-status", (_req, res) => {
-    res.set({ 'Cache-Control': 'no-store', 'Content-Type': 'application/json' });
+  app.get("/api/failover-status", createAdminAccess(pool, config), requirePermission('dashboard.read'), (_req, res) => {
+    res.set({ 'Cache-Control': 'no-store' });
     res.json(failoverSync.getStatus());
   });
 
@@ -260,7 +282,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/customer", createCustomerExperience(pool, { inventory, audit: appendAudit }));
   app.use("/api/customer/care", createCareCustomerApi(pool, config));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
-  app.use("/api/warranty-requests", createWarrantyPublicApi(pool));
+  app.use("/api/warranty-requests", createWarrantyPublicApi(pool, config));
   app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool));
   app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
   const customerOAuthRouter = require("./customer-oauth").createCustomerOAuthRouter(pool, {
@@ -275,14 +297,16 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   }
   app.get('/account/link-required', (req, res) => {
     res.set('Cache-Control', 'no-store');
-    if (req.query.email && req.session) {
+    const email = typeof req.query.email === 'string' ? req.query.email.trim().slice(0, 254) : '';
+    if (req.session && email && !req.session.pendingOAuthLink?.googleSub) {
       req.session.pendingOAuthLink = {
-        email: String(req.query.email).trim(),
+        email,
         provider: 'google',
         createdAt: Date.now()
       };
+      return req.session.save(() => res.redirect(303, '/account.html?linkRequired=1'));
     }
-    res.redirect(303, '/account.html?linkRequired=1');
+    return res.redirect(303, '/account.html?linkRequired=1');
   });
   app.post('/api/auth/link-google', requireCsrf, customerOAuthRouter.handleLinkGoogle);
   app.post('/api/auth/unlink-google', requireCsrf, customerOAuthRouter.handleUnlinkGoogle);
@@ -418,7 +442,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/gaeru_ceo", createStaffApi(pool, config));
   app.use("/api/gaeru_ceo", createOperationsApi(pool));
   app.use("/api/gaeru_ceo", require("./inventory-forecast").createInventoryForecastApi(pool));
-  app.use("/api/gaeru_ceo/inventory", require("./inventory-forecast").createInventoryForecastApi(pool));
+  // /api/gaeru_ceo mount above already registers both /forecast* and /inventory/forecast* routes.
   app.use("/api/gaeru_ceo", createFinanceApi(pool));
   app.use("/api/gaeru_ceo", createCareAdminApi(pool, config));
   app.use("/api/gaeru_ceo", createOwnerApi(pool, config));
@@ -495,19 +519,22 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.get('/gaeru_ceo/pwa-qr.png',async(req,res,next)=>{
     try{
       const QRCode=require('qrcode');
-      let target=`${req.protocol}://${req.get('host')||'gaeru.com'}/gaeru_ceo`;
+      const baseOrigin=(()=>{try{return new URL(config.PUBLIC_BASE_URL||'https://gaeru.com');}catch{return new URL('https://gaeru.com');}})();
+      const isTrustedQrHost=h=>{const v=String(h||'').toLowerCase();return Boolean(v&&(v===baseOrigin.hostname.toLowerCase()||v==='gaeru.com'||v.endsWith('.gaeru.com')||v==='localhost'||v==='127.0.0.1'));};
+      const reqHostUrl=(()=>{try{return new URL('http://'+String(req.get('host')||'').trim());}catch{return null;}})();
+      let target=(reqHostUrl&&isTrustedQrHost(reqHostUrl.hostname))?`${req.protocol}://${reqHostUrl.host}/gaeru_ceo`:`${baseOrigin.origin}/gaeru_ceo`;
       if(typeof req.query.url==='string'&&/^https?:\/\//i.test(req.query.url)){
         try{
           const parsed=new URL(req.query.url);
           const host=parsed.hostname.toLowerCase();
           const currentHost=(req.get('host')||'gaeru.com').split(':')[0].toLowerCase();
-          if(host===currentHost||host==='gaeru.com'||host.endsWith('.gaeru.com')||host==='localhost'||host==='127.0.0.1'){
+          if(isTrustedQrHost(host)){
             target=parsed.href;
           }
         }catch(_){}
       }
       const buf=await QRCode.toBuffer(target,{width:280,margin:1,errorCorrectionLevel:'M',color:{dark:'#0f172a',light:'#ffffff'}});
-      res.set({'Content-Type':'image/png','Cache-Control':'public, max-age=86400'}).send(buf);
+      res.set({'Content-Type':'image/png','Cache-Control':'private, max-age=300','Vary':'Host'}).send(buf);
     }catch(err){next(err);}
   });
   app.get('/gaeru_ceo/assets/zxing-browser.min.js',(_req,res)=>res.set('Cache-Control','no-store').sendFile('zxing-browser.min.js',{root:path.join(projectRoot,'node_modules','@zxing','browser','umd')}));

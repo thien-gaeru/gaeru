@@ -1,43 +1,78 @@
-/* GAERU type scale: 17px reading text; 56/48/32px responsive display headings.
-   Original GAERU styling with system fonts; no third-party font download. */
-:root{--type-body:1.0625rem;--type-small:.875rem;--type-caption:.75rem;--type-display:3.5rem;--type-section:3rem;--type-subhead:1.75rem}
-html{font-size:100%;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-body{font-size:var(--type-body);line-height:1.4706;letter-spacing:-.012em}
-button,input,select,textarea{font-family:inherit}
-h1,h2,h3{font-weight:600;letter-spacing:-.022em}
-.hero h1,.story-page-hero h1,.discover-hero h1{font-size:var(--type-display);line-height:1.08;letter-spacing:-.02em}
-.hero-lead,.discover-hero>p:not(.eyebrow){font-size:var(--type-subhead);line-height:1.25;letter-spacing:0}
+/* GAERU type scale: 17px desktop / 16px mobile reading text; fluid responsive display headings.
+   Optimized for Vietnamese diacritics across iOS, Android, macOS, and Windows. */
+:root{
+  --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --type-body:1.0625rem;
+  --type-small:.875rem;
+  --type-caption:.75rem;
+  --type-display:clamp(2.125rem,4.5vw + .85rem,3.5rem);
+  --type-section:clamp(1.85rem,3.6vw + .75rem,3rem);
+  --type-subhead:clamp(1.1875rem,1.4vw + .8rem,1.6875rem);
+}
+html{
+  font-size:100%;
+  font-family:var(--font-sans);
+  font-kerning:normal;
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  text-rendering:optimizeLegibility;
+}
+body{
+  font-family:var(--font-sans);
+  font-size:var(--type-body);
+  line-height:1.52;
+  letter-spacing:-.01em;
+}
+button,input,select,textarea{font-family:inherit;letter-spacing:normal}
+h1,h2,h3,h4{font-weight:650;letter-spacing:-.022em;line-height:1.16;text-wrap:balance}
+p,li,dd{text-wrap:pretty}
+.price,.shop-page .catalog-price,.detail-price,.cart-line-total,.cart-summary .summary-total,.mini-cart-price,.mini-line-total{font-variant-numeric:tabular-nums}
+.hero h1,.story-page-hero h1,.discover-hero h1{font-size:var(--type-display);line-height:1.12;letter-spacing:-.022em}
+.hero-lead,.discover-hero>p:not(.eyebrow){font-size:var(--type-subhead);line-height:1.38;letter-spacing:-.008em}
 .hero-lead{max-width:42rem}
-.section-heading h2,.story-copy h2,.care-intro h2,.closing-banner h2,.story-page-intro h2,.story-product-copy h2,.story-support h2,.discover-section h2,.shop-page .store-welcome h1{font-size:var(--type-section);line-height:1.12;letter-spacing:-.02em}
-.section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:1.3125rem;line-height:1.4}
-.product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:2.5rem;line-height:1.1;letter-spacing:-.02em}
-.story-copy>p:not(.eyebrow),.story-product-copy>p:not(.eyebrow),.story-support>div:last-child>p,.care-card>p:not(.eyebrow),.shop-page .catalog-description,.store-benefit-grid p,.store-story p{font-size:var(--type-body);line-height:1.5}
-.button,.card-actions .button,.hero-actions .text-link,.card-actions .text-link,.care-card .text-link,.shop-page .catalog-actions .button,.detail-actions .text-link,.continue-shopping{font-size:var(--type-body);line-height:1.3}
+.section-heading h2,.story-copy h2,.care-intro h2,.closing-banner h2,.story-page-intro h2,.story-product-copy h2,.story-support h2,.discover-section h2,.shop-page .store-welcome h1{font-size:var(--type-section);line-height:1.14;letter-spacing:-.02em}
+.section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:clamp(1.0625rem,1vw + .8rem,1.3125rem);line-height:1.48}
+.product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:clamp(1.75rem,2.6vw + .85rem,2.5rem);line-height:1.14;letter-spacing:-.02em}
+.story-copy>p:not(.eyebrow),.story-product-copy>p:not(.eyebrow),.story-support>div:last-child>p,.care-card>p:not(.eyebrow),.shop-page .catalog-description,.store-benefit-grid p,.store-story p{font-size:var(--type-body);line-height:1.56}
+.button,.card-actions .button,.hero-actions .text-link,.card-actions .text-link,.care-card .text-link,.shop-page .catalog-actions .button,.detail-actions .text-link,.continue-shopping{font-size:var(--type-body);line-height:1.35}
 .button,.card-actions .button,.shop-page .catalog-actions .button{min-height:44px}
-.announcement,.eyebrow,.filter-chip,.filter-status,.breadcrumb,.stock-note,.cart-feedback,.detail-benefits p,.store-price-note,.store-promotion-note,.checkout-notice,.checkout-privacy-notice,.form-section label,.payment-placeholder,.cart-item-info>p,.remove-item,.mini-cart-name,.mini-cart-total,.mini-cart-footer .prototype-note,.store-concierge,.store-category{font-size:var(--type-small);line-height:1.5}
-.price,.shop-page .catalog-price,.detail-price,.cart-line-total,.cart-summary>p:not(.prototype-note){font-size:var(--type-body);line-height:1.5}
+.announcement,.eyebrow,.filter-chip,.filter-status,.breadcrumb,.stock-note,.cart-feedback,.detail-benefits p,.store-price-note,.store-promotion-note,.checkout-notice,.checkout-privacy-notice,.form-section label,.payment-placeholder,.cart-item-info>p,.remove-item,.mini-cart-name,.mini-cart-total,.mini-cart-footer .prototype-note,.store-concierge,.store-category{font-size:var(--type-small);line-height:1.52}
+.price,.shop-page .catalog-price,.detail-price,.cart-line-total,.cart-summary>p:not(.prototype-note){font-size:var(--type-body);line-height:1.52}
 .cart-summary .summary-total{font-size:1.3125rem!important}
 .form-section input,.form-section select,.form-section textarea{font-size:1rem;line-height:1.5}
-.footer-brand p,.footer-column p,.footer-column summary,.footer-column a,.footer-help,.footer-bottom,.footer-business-info{font-size:var(--type-caption);line-height:1.5}
-.hero-caption,.mini-cart-price,.mini-line-total,.mini-checkout{font-size:var(--type-small);line-height:1.5}
+.footer-brand p,.footer-column p,.footer-column summary,.footer-column a,.footer-help,.footer-bottom,.footer-business-info{font-size:var(--type-caption);line-height:1.55}
+.hero-caption,.mini-cart-price,.mini-line-total,.mini-checkout{font-size:var(--type-small);line-height:1.52}
 .hero-actions,.card-actions,.detail-actions{flex-wrap:wrap}
 .hero h1,.section-heading h2,.product-card h3,.product-detail-copy h1{overflow-wrap:break-word}
-.page-intro h1,.account-copy h1,.is-authenticated .account-copy h1{font-size:var(--type-section);line-height:1.12;letter-spacing:-.02em}
-.shop-page .catalog-card h2{font-size:1.75rem;line-height:1.15;letter-spacing:-.015em}
-.account-page .account-form .button,.customer-workspace article p,.customer-workspace ul,.account-copy>p:last-of-type,.is-authenticated .account-copy>p:last-of-type{font-size:var(--type-body);line-height:1.5}
-.account-hub-nav a,.customer-workspace [role=status],.prototype-note,.catalog-toolbar p,.catalog-card .eyebrow{font-size:var(--type-small);line-height:1.5}
+.page-intro h1,.account-copy h1,.is-authenticated .account-copy h1{font-size:var(--type-section);line-height:1.15;letter-spacing:-.02em}
+.shop-page .catalog-card h2{font-size:clamp(1.375rem,1.8vw + .8rem,1.75rem);line-height:1.2;letter-spacing:-.015em}
+.account-page .account-form .button,.customer-workspace article p,.customer-workspace ul,.account-copy>p:last-of-type,.is-authenticated .account-copy>p:last-of-type{font-size:var(--type-body);line-height:1.55}
+.account-hub-nav a,.customer-workspace [role=status],.prototype-note,.catalog-toolbar p,.catalog-card .eyebrow{font-size:var(--type-small);line-height:1.52}
 .catalog-toolbar input{font-size:1rem}
-@media(min-width:735px) and (max-width:1068px){:root{--type-display:3rem;--type-section:2.5rem;--type-subhead:1.5rem}}
-@media(max-width:734px){:root{--type-display:2rem;--type-section:2rem;--type-subhead:1.1875rem}
- .product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:2rem;line-height:1.125}
- .section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:1.1875rem}
- .hero-actions{gap:16px}.hero-lead{max-width:30rem}
- .primary-nav a{font-size:var(--type-body)}
+@media(min-width:735px) and (max-width:1068px){
+  :root{--type-display:2.875rem;--type-section:2.375rem;--type-subhead:1.4375rem}
+}
+@media(max-width:734px){
+  :root{
+    --type-body:1rem;
+    --type-display:2rem;
+    --type-section:1.875rem;
+    --type-subhead:1.125rem;
+  }
+  body{line-height:1.55;letter-spacing:-.006em}
+  h1,h2,h3{letter-spacing:-.016em;line-height:1.18}
+  input:not([type=checkbox]):not([type=radio]),select,textarea{font-size:16px!important}
+  .product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:1.875rem;line-height:1.16}
+  .section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:1.125rem;line-height:1.5}
+  .hero-actions{gap:16px}.hero-lead{max-width:30rem}
+  .primary-nav a{font-size:var(--type-body)}
 }
 
 /* Visual review: keep browsing cards compact when catalog copy is long. */
-.shop-page .catalog-description,.product-card .product-copy>p:not(.eyebrow):not(.price):not(.store-promotion-note){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;max-height:4.5em}
-.product-detail-copy .detail-description{font-size:var(--type-body);line-height:1.55;letter-spacing:0}
+.shop-page .catalog-description,.product-card .product-copy>p:not(.eyebrow):not(.price):not(.store-promotion-note){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;max-height:4.68em}
+.product-detail-copy .detail-description{font-size:var(--type-body);line-height:1.58;letter-spacing:0}
 .product-detail-copy .eyebrow{font-size:.75rem;letter-spacing:.06em;line-height:1.5}
 .shop-page .store-search input{font-size:1rem}
 @media(max-width:734px){.hero .eyebrow{font-size:.75rem;letter-spacing:.08em}.shop-page .catalog-actions{gap:12px}.shop-page .catalog-actions .button{padding-inline:12px}.hero-content{padding-top:44px}}

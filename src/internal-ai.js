@@ -14,9 +14,46 @@
 
 const express = require('express');
 const { getSystemHealth } = require('./security-shield');
+const { withTransaction } = require('./db');
+const { appendAudit } = require('./audit');
+
+const ACTION_PERMISSION_MAP = Object.freeze({
+  create_voucher: 'marketing.write',
+  cancel_voucher: 'marketing.write',
+  delete_voucher: 'marketing.write',
+  cancel_campaign: 'marketing.write',
+  delete_campaign: 'marketing.write',
+  confirm_order: 'orders.write',
+  cancel_order: 'orders.write',
+  sync_shipping: 'orders.write'
+});
+
+function hasActionPermission(admin, actionType) {
+  if (!admin) return false;
+  if (admin.isOwner || admin.role === 'owner' || admin.source === 'bootstrap') return true;
+  const required = ACTION_PERMISSION_MAP[actionType];
+  if (!required) return false;
+  return Array.isArray(admin.permissions) && admin.permissions.includes(required);
+}
+
+function hasReadPermission(admin, perm) {
+  if (!admin) return false;
+  if (admin.isOwner || admin.role === 'owner' || admin.source === 'bootstrap') return true;
+  const perms = Array.isArray(admin.permissions) ? admin.permissions : [];
+  if (Array.isArray(perm)) return perm.some((p) => perms.includes(p));
+  return perms.includes(perm);
+}
+
+async function runAtomic(pool, fn) {
+  if (typeof pool?.connect === 'function') {
+    return withTransaction(pool, fn);
+  }
+  return fn(pool);
+}
 
 function createInternalAiRouter(pool, config) {
   const router = express.Router();
+  const {updateOrder} = require('./order-workflow').createOrderWorkflow({config});
 
   // Helper định dạng tiền tệ VNĐ
   const formatVnd = (num) => new Intl.NumberFormat('vi-VN').format(Math.round(num || 0)) + ' ₫';
@@ -96,7 +133,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 2: Tra cứu đơn hàng chi tiết
-  async function toolQueryOrders({ keyword = '', status = '', limit = 5 }) {
+  async function toolQueryOrders({ keyword = '', status = '', limit = 5 }, user) {
+    if (!hasReadPermission(user, ['orders.read', 'orders.write'])) {
+      return { error: 'Bạn không có quyền tra cứu danh sách đơn hàng (cần quyền orders.read).', orders: [] };
+    }
     const lim = Math.max(1, Math.min(20, parseInt(limit || 5, 10)));
     const params = [];
     const where = [];
@@ -138,7 +178,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 3: Kiểm tra tồn kho & cảnh báo mức an toàn
-  async function toolCheckInventory({ keyword = '', lowStockOnly = false }) {
+  async function toolCheckInventory({ keyword = '', lowStockOnly = false }, user) {
+    if (!hasReadPermission(user, ['inventory.read', 'inventory.write', 'catalog.read', 'catalog.write'])) {
+      return { error: 'Bạn không có quyền xem dữ liệu tồn kho (cần quyền inventory.read hoặc catalog.read).', items: [] };
+    }
     const params = [];
     const where = ['p.deleted_at IS NULL', 'v.active = true'];
 
@@ -174,7 +217,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 4: Tra cứu vận đơn bưu cục
-  async function toolQueryShipping({ orderNumber } = {}) {
+  async function toolQueryShipping({ orderNumber } = {}, user) {
+    if (!hasReadPermission(user, ['shipping.read', 'shipping.write', 'orders.read', 'orders.write'])) {
+      return { error: 'Bạn không có quyền tra cứu vận đơn (cần quyền shipping.read hoặc orders.read).', shipments: [] };
+    }
     const carrierNameMap = { viettel: 'Viettel Post', jt: 'J&T Express', spx: 'SPX Express' };
     if (!orderNumber) {
       const rows = (await pool.query(`
@@ -263,6 +309,9 @@ function createInternalAiRouter(pool, config) {
 
   // Tool 6: Đề xuất hành động quản trị (Action Card Creation)
   async function toolProposeAction({ actionType, title, description, payload }, user, threadId) {
+    if (!hasActionPermission(user, actionType)) {
+      throw Object.assign(new Error('Bạn không có quyền đề xuất hoặc thực thi thao tác quản trị này.'), { status: 403 });
+    }
     const res = await pool.query(`
       INSERT INTO internal_ai_action_logs (thread_id, action_type, payload, created_by)
       VALUES ($1, $2, $3, $4)
@@ -292,7 +341,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 8: Kiểm tra chương trình khuyến mãi & mã Voucher đang hoạt động
-  async function toolGetMarketingOverview() {
+  async function toolGetMarketingOverview(user) {
+    if (!hasReadPermission(user, ['marketing.read', 'marketing.write'])) {
+      return { error: 'Bạn không có quyền xem chương trình khuyến mãi và mã giảm giá (cần quyền marketing.read).', vouchers: [], campaigns: [] };
+    }
     try {
       const vouchersRes = await pool.query(`
         SELECT code, title, kind, amount, min_spend_vnd AS "minSpendVnd", total_limit AS "totalLimit", active, ends_at AS "endsAt"
@@ -324,7 +376,10 @@ function createInternalAiRouter(pool, config) {
   }
 
   // Tool 9: Tổng quan CSKH, Tin nhắn chờ & Bảo hành / Đổi trả
-  async function toolGetCustomerCareOverview() {
+  async function toolGetCustomerCareOverview(user) {
+    if (!hasReadPermission(user, ['care.read', 'care.write', 'customers.read', 'warranty.read', 'orders.read'])) {
+      return { error: 'Bạn không có quyền xem dữ liệu CSKH và bảo hành.', openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingReturns: 0 };
+    }
     const out = { openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingReturns: 0 };
     try {
       const chatRes = await pool.query(`
@@ -362,7 +417,7 @@ Quy tắc cốt lõi:
 5. Luôn tôn trọng phân quyền RBAC: Nếu người dùng không có quyền xem tài chính, hãy thông báo lịch sự rằng họ cần tài khoản Owner/Finance.`;
 
   // Thực thi Function Calling logic
-  async function executeAgentTurn({ userQuestion, history = [], user, threadId, aiConfig }) {
+  async function executeAgentTurn({ userQuestion, history = [], user, threadId, aiConfig, readOnly = false }) {
     // 1. Phân tích câu hỏi xem cần gọi tool nào (Heuristic / Fast Grounding + Multi-turn Context)
     const lower = userQuestion.toLowerCase();
     const norm = normalizeVi(userQuestion);
@@ -409,7 +464,7 @@ Quy tắc cốt lõi:
       const orderMatch = lower.match(/gae-[a-z0-9-]+/i);
       const phoneMatch = lower.match(/\b0\d{9}\b/);
       const kw = orderMatch ? orderMatch[0] : phoneMatch ? phoneMatch[0] : '';
-      const orders = await toolQueryOrders({ keyword: kw, status, limit: 6 });
+      const orders = await toolQueryOrders({ keyword: kw, status, limit: 6 }, user);
       toolResults.push({ tool: 'query_orders', data: orders });
     }
 
@@ -427,7 +482,7 @@ Quy tắc cốt lõi:
         : norm.includes('m3') ? 'M3'
         : norm.includes('p185') ? 'P185'
         : norm.includes('g1') ? 'G1' : '';
-      const stock = await toolCheckInventory({ keyword: kw, lowStockOnly });
+      const stock = await toolCheckInventory({ keyword: kw, lowStockOnly }, user);
       toolResults.push({ tool: 'check_inventory', data: stock });
     }
 
@@ -435,7 +490,7 @@ Quy tắc cốt lõi:
     if (norm.includes('van don') || norm.includes('viettel') || norm.includes('giao hang') || norm.includes('van chuyen') || norm.includes('lo trinh') || norm.includes('buu cuc')) {
       const orderMatch = lower.match(/gae-[a-z0-9-]+/i) || lastContextText.match(/gae-[a-z0-9-]+/i);
       const isSpecificOrderRef = Boolean(lower.match(/gae-[a-z0-9-]+/i)) || (/(?:don nay|don do|ma nay)/i.test(norm) && Boolean(orderMatch));
-      const shipping = await toolQueryShipping({ orderNumber: isSpecificOrderRef && orderMatch ? orderMatch[0] : '' });
+      const shipping = await toolQueryShipping({ orderNumber: isSpecificOrderRef && orderMatch ? orderMatch[0] : '' }, user);
       toolResults.push({ tool: 'query_shipping', data: shipping });
     }
 
@@ -448,15 +503,15 @@ Quy tắc cốt lõi:
     // F. Chương trình Khuyến mãi & Danh sách Voucher
     if (
       (norm.includes('khuyen mai') || norm.includes('voucher') || norm.includes('ma giam gia') || norm.includes('chien dich') || norm.includes('flash sale')) &&
-      !/(?:tao|lap|them|phat hanh|huy|dung|tat|xoa|go)/.test(norm)
+      !/\b(?:tao|lap|them|phat hanh|huy|dung|tat|xoa|go)\b/.test(norm)
     ) {
-      const mkt = await toolGetMarketingOverview();
+      const mkt = await toolGetMarketingOverview(user);
       toolResults.push({ tool: 'get_marketing_overview', data: mkt });
     }
 
     // G. Chăm sóc khách hàng, Tin nhắn chờ & Bảo hành / Đổi trả
     if (norm.includes('cskh') || norm.includes('tin nhan khach') || norm.includes('chat khach') || norm.includes('bao hanh') || norm.includes('doi tra') || norm.includes('hau mai') || norm.includes('khieu nai')) {
-      const care = await toolGetCustomerCareOverview();
+      const care = await toolGetCustomerCareOverview(user);
       toolResults.push({ tool: 'get_customer_care', data: care });
     }
 
@@ -479,7 +534,7 @@ Quy tắc cốt lõi:
     const orderCodeMatch = userQuestion.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i) ||
                            ((/(?:don nay|don do|don vua roi)/i.test(norm)) ? lastContextText.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i) : null);
     let matchedOrder = null;
-    if (orderCodeMatch) {
+    if (orderCodeMatch && hasReadPermission(user, ['orders.read', 'orders.write', 'shipping.read'])) {
       try {
         const ordRes = await pool.query(
           `SELECT o.id, o.order_number, o.customer_name, o.total_vnd, o.status, o.payment_status, s.tracking_number
@@ -496,7 +551,7 @@ Quy tắc cốt lõi:
     // 1. Ý định xác nhận / duyệt đơn hàng (confirm_order)
     const isConfirmOrderIntent = /(?:xác nhận|duyệt|chuẩn bị|tiến hành|giao hàng).*(?:đơn|đơn hàng)/i.test(lower) ||
                                  /(?:xác nhận đơn|duyệt đơn|chuẩn bị đơn)/i.test(lower);
-    if (isConfirmOrderIntent && matchedOrder && ['pending', 'confirmed'].includes(matchedOrder.status)) {
+    if (!readOnly && hasActionPermission(user, 'confirm_order') && isConfirmOrderIntent && matchedOrder && ['pending', 'confirmed'].includes(matchedOrder.status)) {
       actionCard = await toolProposeAction({
         actionType: 'confirm_order',
         title: `📦 Xác nhận & Chuyển đơn sang Giao hàng: ${matchedOrder.order_number}`,
@@ -513,7 +568,7 @@ Quy tắc cốt lõi:
     // 2. Ý định hủy đơn hàng (cancel_order)
     const isCancelOrderIntent = /(?:hủy|huỷ|cancel).*(?:đơn|đơn hàng)/i.test(lower) ||
                                 /(?:hủy đơn|huỷ đơn)/i.test(lower);
-    if (!actionCard && isCancelOrderIntent && matchedOrder && !['cancelled', 'completed'].includes(matchedOrder.status)) {
+    if (!readOnly && hasActionPermission(user, 'cancel_order') && !actionCard && isCancelOrderIntent && matchedOrder && !['cancelled', 'completed'].includes(matchedOrder.status)) {
       actionCard = await toolProposeAction({
         actionType: 'cancel_order',
         title: `⚠️ Đề xuất Hủy đơn hàng: ${matchedOrder.order_number}`,
@@ -529,7 +584,7 @@ Quy tắc cốt lõi:
     // 3. Ý định đồng bộ vận đơn hãng (sync_shipping)
     const isSyncShippingIntent = /(?:đồng bộ|hành trình|vận đơn|bưu cục|tra cứu).*(?:đơn|vận chuyển|viettel|jt|spx)/i.test(lower) ||
                                  /(?:đồng bộ vận đơn|kiểm tra hành trình)/i.test(lower);
-    if (!actionCard && isSyncShippingIntent && matchedOrder && matchedOrder.tracking_number) {
+    if (!readOnly && hasActionPermission(user, 'sync_shipping') && !actionCard && isSyncShippingIntent && matchedOrder && matchedOrder.tracking_number) {
       actionCard = await toolProposeAction({
         actionType: 'sync_shipping',
         title: `🚚 Đồng bộ hành trình bưu cục: ${matchedOrder.order_number}`,
@@ -547,7 +602,7 @@ Quy tắc cốt lõi:
     const isVoucherIntent = /(?:tạo|lập|thêm|phát hành).*(?:mã|voucher|coupon|khuyến mãi)/i.test(lower) ||
                             /(?:mã giảm giá|mã khuyến mãi|tạo voucher)/i.test(lower) ||
                             (lower.includes('voucher') && (lower.includes('tạo') || lower.includes('thêm')));
-    if (!actionCard && isVoucherIntent) {
+    if (!readOnly && hasActionPermission(user, 'create_voucher') && !actionCard && isVoucherIntent) {
       const codeMatch = userQuestion.match(/(?:mã\s*(?:giảm\s*giá\s*|khuyến\s*mãi\s*)?|voucher\s*)([A-Za-z0-9_-]{3,20})/i);
       const code = codeMatch ? codeMatch[1].toUpperCase() : 'SALE' + Math.floor(Math.random() * 900 + 100);
       const amountMatch = userQuestion.match(/(\d+[\d.,]*)\s*(?:k|đ|đồng|%)/i);
@@ -587,18 +642,19 @@ Quy tắc cốt lõi:
                                  /(?:hủy voucher|huỷ voucher|dừng voucher|tắt voucher)/i.test(lower);
     const isDeleteVoucherIntent = /(?:xóa|xoá|gỡ).*(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
                                  /(?:xóa voucher|xoá voucher)/i.test(lower);
-    if (!actionCard && (isCancelVoucherIntent || isDeleteVoucherIntent)) {
-      const vCodeMatch = userQuestion.match(/(?:voucher|mã|code)?\s*([A-Za-z0-9_-]{3,20})/i);
+    if (!readOnly && !actionCard && (isCancelVoucherIntent || isDeleteVoucherIntent) && hasActionPermission(user, isDeleteVoucherIntent ? 'delete_voucher' : 'cancel_voucher')) {
+      const vCodeMatch = userQuestion.match(/(?:voucher|mã(?:\s+giảm(?:\s+giá)?)?|mã\s+khuyến\s+mãi|code)\s+([A-Za-z0-9_-]{3,40})/i);
       let targetVoucher = null;
       if (vCodeMatch && vCodeMatch[1]) {
         try {
           const vRes = await pool.query('SELECT id, code, title, amount, kind, active FROM marketing_vouchers WHERE lower(code) = lower($1) OR id::text = $1 LIMIT 1', [vCodeMatch[1].trim()]);
           if (vRes.rows.length) targetVoucher = vRes.rows[0];
         } catch (_) {}
-      }
-      if (!targetVoucher) {
-        const vRes = await pool.query('SELECT id, code, title, amount, kind, active FROM marketing_vouchers ORDER BY created_at DESC LIMIT 1');
-        if (vRes.rows.length) targetVoucher = vRes.rows[0];
+      } else {
+        try {
+          const vRes = await pool.query('SELECT id, code, title, amount, kind, active FROM marketing_vouchers WHERE (SELECT count(*) FROM marketing_vouchers) = 1 LIMIT 1');
+          if (vRes.rows.length) targetVoucher = vRes.rows[0];
+        } catch (_) {}
       }
       if (targetVoucher) {
         const isDelete = isDeleteVoucherIntent;
@@ -619,14 +675,26 @@ Quy tắc cốt lõi:
     // 6. Ý định Hủy / Dừng hoặc Xóa Chiến dịch Marketing
     const isCancelCampaignIntent = /(?:hủy|huỷ|dừng|tắt).*(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
     const isDeleteCampaignIntent = /(?:xóa|xoá|gỡ).*(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
-    if (!actionCard && (isCancelCampaignIntent || isDeleteCampaignIntent)) {
+    if (!readOnly && !actionCard && (isCancelCampaignIntent || isDeleteCampaignIntent) && hasActionPermission(user, isDeleteCampaignIntent ? 'delete_campaign' : 'cancel_campaign')) {
+      const campNameMatch = userQuestion.match(/(?:chiến\s+dịch(?:\s+khuyến\s+mại|\s+khuyến\s+mãi)?|campaign|flash\s+sale)\s+([^\n,.!?]{2,80})/i);
+      const rawCampName = campNameMatch ? campNameMatch[1].trim() : '';
+      const requestedName = /^(?:khuyến\s+mại|khuyến\s+mãi)$/i.test(rawCampName) ? '' : rawCampName;
       let targetCampaign = null;
       try {
-        const cRes = await pool.query('SELECT id, title, active FROM marketing_campaigns ORDER BY created_at DESC LIMIT 1');
-        if (cRes.rows.length) targetCampaign = { ...cRes.rows[0], type: 'campaign' };
-        if (!targetCampaign) {
-          const pRes = await pool.query('SELECT id, title, active FROM product_promotions ORDER BY created_at DESC LIMIT 1');
-          if (pRes.rows.length) targetCampaign = { ...pRes.rows[0], type: 'promotion' };
+        if (requestedName) {
+          const cRes = await pool.query("SELECT id, title, active FROM marketing_campaigns WHERE lower(title) LIKE '%' || lower($1) || '%' OR id::text = $1 ORDER BY created_at DESC LIMIT 1", [requestedName]);
+          if (cRes.rows.length) targetCampaign = { ...cRes.rows[0], type: 'campaign' };
+          if (!targetCampaign) {
+            const pRes = await pool.query("SELECT id, title, active FROM product_promotions WHERE lower(title) LIKE '%' || lower($1) || '%' OR id::text = $1 ORDER BY created_at DESC LIMIT 1", [requestedName]);
+            if (pRes.rows.length) targetCampaign = { ...pRes.rows[0], type: 'promotion' };
+          }
+        } else {
+          const cRes = await pool.query('SELECT id, title, active FROM marketing_campaigns ORDER BY created_at DESC LIMIT 1');
+          if (cRes.rows.length) targetCampaign = { ...cRes.rows[0], type: 'campaign' };
+          if (!targetCampaign) {
+            const pRes = await pool.query('SELECT id, title, active FROM product_promotions ORDER BY created_at DESC LIMIT 1');
+            if (pRes.rows.length) targetCampaign = { ...pRes.rows[0], type: 'promotion' };
+          }
         }
       } catch (_) {}
       if (targetCampaign) {
@@ -740,7 +808,10 @@ Quy tắc cốt lõi:
     }
 
     // 2. Danh sách & Tra cứu Đơn hàng
-    if (orders && orders.length) {
+    if (orders?.error) {
+      if (!out) out += `### 📦 Tra cứu Đơn hàng\n\n`;
+      out += `- ⚠️ ${orders.error}\n\n`;
+    } else if (orders && orders.length) {
       if (!out) out += `### 📦 Kết quả Tra cứu Đơn hàng\n\n`;
       else out += `#### 📦 Danh sách đơn hàng phù hợp (${orders.length} đơn gần nhất):\n`;
       out += `| Mã đơn | Khách hàng | SĐT | Trạng thái | Thanh toán | Tổng tiền |\n`;
@@ -786,7 +857,10 @@ Quy tắc cốt lõi:
     }
 
     // 4. Báo cáo Tồn kho & Sản phẩm
-    if (inventory && inventory.length) {
+    if (inventory?.error) {
+      if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
+      out += `- ⚠️ ${inventory.error}\n\n`;
+    } else if (inventory && inventory.length) {
       if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
       else out += `#### 📋 Báo cáo Tồn kho chi tiết:\n`;
       const lowItems = inventory.filter(i => i.isLowStock);
@@ -821,7 +895,9 @@ Quy tắc cốt lõi:
     if (marketing) {
       if (!out) out += `### 🎁 Tổng quan Khuyến mãi & Mã Giảm giá\n\n`;
       else out += `#### 🎁 Chương trình Khuyến mãi & Voucher:\n`;
-      if (marketing.vouchers && marketing.vouchers.length > 0) {
+      if (marketing.error) {
+        out += `- ⚠️ ${marketing.error}\n\n`;
+      } else if (marketing.vouchers && marketing.vouchers.length > 0) {
         out += `| Mã Voucher | Chương trình | Mức giảm | Đơn tối thiểu | Trạng thái |\n`;
         out += `|:---|:---|:---:|---:|:---:|\n`;
         for (const v of marketing.vouchers) {
@@ -837,9 +913,13 @@ Quy tắc cốt lõi:
     if (care) {
       if (!out) out += `### 💬 Tình hình Chăm sóc Khách hàng & Hậu mãi\n\n`;
       else out += `#### 💬 Chăm sóc Khách hàng & Hậu mãi:\n`;
-      out += `- **Hội thoại tư vấn đang mở:** **${care.openChats}** cuộc trò chuyện (${care.awaitingAdminChats > 0 ? `⚠️ **${care.awaitingAdminChats}** hội thoại đang chờ nhân viên phản hồi` : '✅ 0 hội thoại chờ — GAERU AI đã phản hồi đầy đủ'})\n`;
-      out += `- **Hồ sơ đổi trả / hậu mãi đang xử lý:** **${care.pendingReturns}** hồ sơ\n`;
-      out += `- **Tổng thiết bị đã kích hoạt bảo hành điện tử:** **${care.activeWarranties}** thiết bị\n\n`;
+      if (care.error) {
+        out += `- ⚠️ ${care.error}\n\n`;
+      } else {
+        out += `- **Hội thoại tư vấn đang mở:** **${care.openChats}** cuộc trò chuyện (${care.awaitingAdminChats > 0 ? `⚠️ **${care.awaitingAdminChats}** hội thoại đang chờ nhân viên phản hồi` : '✅ 0 hội thoại chờ — GAERU AI đã phản hồi đầy đủ'})\n`;
+        out += `- **Hồ sơ đổi trả / hậu mãi đang xử lý:** **${care.pendingReturns}** hồ sơ\n`;
+        out += `- **Tổng thiết bị đã kích hoạt bảo hành điện tử:** **${care.activeWarranties}** thiết bị\n\n`;
+      }
     }
 
     // 8. Sức khỏe Hệ thống & Hạ tầng
@@ -1029,10 +1109,14 @@ Quy tắc cốt lõi:
 
       // Lấy lịch sử hội thoại gần nhất
       const history = (await pool.query(`
-        SELECT role, content FROM internal_ai_messages
-        WHERE thread_id = $1
-        ORDER BY created_at ASC
-        LIMIT 10
+        SELECT role, content FROM (
+          SELECT role, content, created_at, id
+          FROM internal_ai_messages
+          WHERE thread_id = $1
+          ORDER BY created_at DESC, id DESC
+          LIMIT 10
+        ) recent
+        ORDER BY created_at ASC, id ASC
       `, [threadId])).rows;
 
       // Thực thi Agent Turn GAERU AI
@@ -1070,18 +1154,22 @@ Quy tắc cốt lõi:
     }
   });
 
-  // 6. Gửi câu hỏi và nhận câu trả lời dạng Streaming SSE (Realtime typing)
-  router.get('/threads/:id/chat/stream', async (req, res) => {
-    const threadId = req.params.id;
-    const question = String(req.query?.question || '').trim();
+  function isSameOriginSseRequest(req) {
+    const secFetchSite = String(req.headers?.['sec-fetch-site'] || '').trim().toLowerCase();
+    return !secFetchSite || secFetchSite === 'same-origin' || secFetchSite === 'none';
+  }
 
-    if (!question) {
+  async function streamAgentConversation(req, res, { question, readOnly }) {
+    const threadId = req.params.id;
+    const cleanQuestion = String(question || '').trim();
+
+    if (!cleanQuestion) {
       return res.status(400).send('Câu hỏi không được để trống');
     }
 
     // Bảo mật F02: Xác thực quyền sở hữu thread trước khi stream
     const userId = req.admin?.id || 'admin';
-    const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
+    const isOwner = Boolean(req.admin?.isOwner || req.admin?.role === 'owner' || req.admin?.source === 'bootstrap');
     const thread = (await pool.query(`
       SELECT id, title 
       FROM internal_ai_threads 
@@ -1106,16 +1194,32 @@ Quy tắc cốt lõi:
     try {
       sendEvent('status', { message: 'Đang kết nối cơ sở dữ liệu và phân tích...' });
 
-      // Lưu câu hỏi user
-      await pool.query(`
-        INSERT INTO internal_ai_messages (thread_id, role, content)
-        VALUES ($1, $2, $3)
-      `, [threadId, 'user', question]);
+      let history = [];
+      if (!readOnly) {
+        // Chỉ lưu DB trên POST (GET SSE giữ read-only tuyệt đối, tránh CSRF đột biến)
+        await pool.query(`
+          INSERT INTO internal_ai_messages (thread_id, role, content)
+          VALUES ($1, $2, $3)
+        `, [threadId, 'user', cleanQuestion]);
+
+        history = (await pool.query(`
+          SELECT role, content FROM (
+            SELECT id, role, content, created_at
+            FROM internal_ai_messages
+            WHERE thread_id = $1
+            ORDER BY created_at DESC, id DESC
+            LIMIT 10
+          ) recent
+          ORDER BY created_at ASC, id ASC
+        `, [threadId]))?.rows || [];
+      }
 
       const turnResult = await executeAgentTurn({
-        userQuestion: question,
+        userQuestion: cleanQuestion,
+        history,
         user: req.admin,
-        threadId
+        threadId,
+        readOnly
       });
 
       sendEvent('tools', { toolResults: turnResult.toolResults });
@@ -1132,20 +1236,58 @@ Quy tắc cốt lõi:
         }
       }
 
-      // Lưu tin nhắn trợ lý
-      const assistantMsg = (await pool.query(`
-        INSERT INTO internal_ai_messages (thread_id, role, content, tool_results, action_card)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, role, content, tool_results AS "toolResults", action_card AS "actionCard", created_at AS "createdAt"
-      `, [threadId, 'assistant', turnResult.content, JSON.stringify(turnResult.toolResults || []), turnResult.actionCard ? JSON.stringify(turnResult.actionCard) : null])).rows[0];
+      if (readOnly) {
+        sendEvent('done', {
+          message: {
+            role: 'assistant',
+            content: turnResult.content,
+            toolResults: turnResult.toolResults || [],
+            actionCard: null,
+            readOnly: true
+          },
+          actionCard: null
+        });
+      } else {
+        const assistantMsg = (await pool.query(`
+          INSERT INTO internal_ai_messages (thread_id, role, content, tool_results, action_card)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, role, content, tool_results AS "toolResults", action_card AS "actionCard", created_at AS "createdAt"
+        `, [threadId, 'assistant', turnResult.content, JSON.stringify(turnResult.toolResults || []), turnResult.actionCard ? JSON.stringify(turnResult.actionCard) : null])).rows[0];
 
-      await pool.query(`UPDATE internal_ai_threads SET updated_at = NOW() WHERE id = $1`, [threadId]);
+        await pool.query(`UPDATE internal_ai_threads SET updated_at = NOW() WHERE id = $1`, [threadId]);
 
-      sendEvent('done', { message: assistantMsg, actionCard: turnResult.actionCard });
+        sendEvent('done', { message: assistantMsg, actionCard: turnResult.actionCard });
+      }
       res.end();
     } catch (err) {
       sendEvent('error', { error: err.message });
       res.end();
+    }
+  }
+
+  // 6. Gửi câu hỏi và nhận câu trả lời dạng Streaming SSE (GET chỉ đọc an toàn, POST ghi lịch sử + action)
+  router.get('/threads/:id/chat/stream', async (req, res, next) => {
+    try {
+      if (!isSameOriginSseRequest(req)) {
+        return res.status(403).send('Yêu cầu cross-site SSE không được phép.');
+      }
+      return await streamAgentConversation(req, res, {
+        question: req.query?.question,
+        readOnly: true
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/threads/:id/chat/stream', async (req, res, next) => {
+    try {
+      return await streamAgentConversation(req, res, {
+        question: req.body?.question ?? req.query?.question,
+        readOnly: false
+      });
+    } catch (e) {
+      next(e);
     }
   });
 
@@ -1153,180 +1295,181 @@ Quy tắc cốt lõi:
   router.post('/actions/:actionId/execute', async (req, res, next) => {
     try {
       const actionId = req.params.actionId;
-      const row = (await pool.query(`
-        SELECT id, action_type AS "actionType", payload, status, created_by AS "createdBy"
-        FROM internal_ai_action_logs
-        WHERE id = $1
-      `, [actionId])).rows[0];
+      const actor = {
+        ...(req.admin || {}),
+        username: req.admin?.username || req.admin?.id || 'admin'
+      };
+      const isOwner = Boolean(actor.isOwner || actor.role === 'owner' || actor.source === 'bootstrap');
+      const externalActions = new Set(['confirm_order', 'cancel_order', 'sync_shipping']);
 
-      if (!row) return res.status(404).json({ error: 'Không tìm thấy thẻ hành động.' });
-      if (row.status !== 'pending') return res.status(400).json({ error: `Hành động này đã ở trạng thái: ${row.status}.` });
+      const phase1 = await runAtomic(pool, async (client) => {
+        const row = (await client.query(`
+          SELECT id, action_type AS "actionType", payload, status, created_by AS "createdBy"
+          FROM internal_ai_action_logs
+          WHERE id = $1
+          FOR UPDATE
+        `, [actionId])).rows[0];
 
-      let result = null;
-
-      // Thực thi tạo mã giảm giá voucher
-      if (row.actionType === 'create_voucher') {
-        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
-        if (!canManageMarketing) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền tạo mã khuyến mãi.' });
+        if (!row) return { status: 404, body: { error: 'Không tìm thấy thẻ hành động.' } };
+        if (row.createdBy && !isOwner && row.createdBy !== actor.username) {
+          return { status: 403, body: { error: 'Bạn không có quyền thực thi thẻ hành động do nhân sự khác tạo.' } };
+        }
+        if (!hasActionPermission(req.admin, row.actionType)) {
+          return { status: 403, body: { error: 'Tài khoản của bạn không có quyền thực thi hành động này.' } };
+        }
+        if (row.status !== 'pending') {
+          return { status: 400, body: { error: `Hành động này đã ở trạng thái: ${row.status}.` } };
         }
 
-        const p = row.payload;
-        await pool.query(`
-          INSERT INTO marketing_vouchers (code, title, kind, amount, min_spend_vnd, starts_at, ends_at, total_limit, active)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
-          ON CONFLICT (code) DO UPDATE
-          SET title = $2, amount = $4, active = true
-        `, [p.code, p.title, p.kind, p.amount, p.minSpendVnd || 0, p.startsAt, p.endsAt, p.totalLimit || 50]);
+        if (externalActions.has(row.actionType)) {
+          // Giải phóng kết nối/lock DB trước khi gọi updateOrder/syncShipmentTracking (tránh deadlock kết nối lồng nhau)
+          await client.query(`
+            UPDATE internal_ai_action_logs
+            SET status = 'executing'
+            WHERE id = $1 AND status = 'pending'
+          `, [actionId]);
+          return { pendingExternal: true, row };
+        }
 
-        result = { success: true, message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
-      } else if (row.actionType === 'confirm_order') {
-        const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
-        if (!canManageOrders) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý đơn hàng.' });
-        }
-        const p = row.payload;
-        const { withTransaction } = require('./db');
-        await withTransaction(pool, async (client) => {
-          const ord = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.orderId])).rows[0];
-          if (!ord) throw new Error('Không tìm thấy đơn hàng.');
-          // F04: Chỉ cho phép xác nhận khi đơn đang ở trạng thái pending hoặc confirmed
-          if (ord.status !== 'pending' && ord.status !== 'confirmed') {
-            throw new Error(`Đơn hàng đang ở trạng thái "${ord.status}", không thể chuyển sang Đóng gói (processing).`);
-          }
-          await client.query("UPDATE orders SET status = 'processing', updated_at = now() WHERE id = $1", [p.orderId]);
-        });
-        try {
-          const { invalidateTags } = require('./cache');
-          invalidateTags(['orders', `order:${p.orderId}`, 'stock']);
-        } catch (_) {}
-        try {
-          require('./realtime-sse').publishAdminEvent('order:update', {
-            orderId: p.orderId,
-            orderNumber: p.orderNumber,
-            status: 'processing'
-          });
-        } catch (_) {}
-        result = { success: true, message: `Đã duyệt và chuyển đơn ${p.orderNumber} sang Đóng gói (processing) thành công! Tồn kho đã được đảm bảo.`, orderId: p.orderId, actionType: 'confirm_order' };
-      } else if (row.actionType === 'cancel_order') {
-        const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
-        if (!canManageOrders) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền hủy đơn hàng.' });
-        }
-        const p = row.payload;
-        const { withTransaction } = require('./db');
-        const { releaseOrderStock } = require('./inventory');
-        await withTransaction(pool, async (client) => {
-          const ord = (await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.orderId])).rows[0];
-          if (!ord) throw new Error('Không tìm thấy đơn hàng.');
-          if (ord.status === 'completed') throw new Error('Đơn hàng đã hoàn thành thành công, không thể hủy.');
-          if (ord.status === 'shipped') throw new Error('Đơn hàng đã xuất kho và đang trên đường giao, không thể hủy qua trợ lý AI.');
-          if (ord.status === 'cancelled') throw new Error('Đơn hàng này vốn đã bị hủy trước đó.');
-          if (ord.payment_status === 'paid') {
-            throw new Error('Đơn hàng đã thanh toán. Để bảo vệ sổ sách kế toán, vui lòng xử lý hoàn tiền tại màn hình Quản lý đơn hàng trước khi hủy.');
-          }
-          // Hủy vận đơn liên quan nếu có
-          await client.query("UPDATE carrier_shipments SET status = 'cancelled', updated_at = now() WHERE order_id = $1 AND status != 'cancelled'", [p.orderId]);
-          // Hoàn kho - F04: KHÔNG nuốt lỗi, bảo đảm hoàn kho thành công hoặc rollback transaction
-          await releaseOrderStock(client, { orderId: p.orderId, actor: req.admin });
-          await client.query("UPDATE orders SET status = 'cancelled', updated_at = now() WHERE id = $1", [p.orderId]);
-        });
-        try {
-          const { invalidateTags } = require('./cache');
-          invalidateTags(['orders', `order:${p.orderId}`, 'stock']);
-        } catch (_) {}
-        try {
-          require('./realtime-sse').publishAdminEvent('order:update', {
-            orderId: p.orderId,
-            orderNumber: p.orderNumber,
-            status: 'cancelled'
-          });
-        } catch (_) {}
-        result = { success: true, message: `Đã hủy đơn hàng ${p.orderNumber} và hoàn trả số lượng vào kho thành công!`, orderId: p.orderId, actionType: 'cancel_order' };
-      } else if (row.actionType === 'sync_shipping') {
-        const canManageOrders = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('orders.write'));
-        if (!canManageOrders) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền xem thông tin vận chuyển.' });
-        }
-        const p = row.payload;
-        const { syncShipmentTracking } = require('./shipping-management');
-        let syncRes = null;
-        try {
-          syncRes = await syncShipmentTracking(pool, config, { orderId: p.orderId, actor: req.admin });
-        } catch (err) {
-          syncRes = { message: 'Đã hoàn tất kiểm tra hành trình: ' + err.message };
-        }
-        result = { success: true, message: syncRes?.message || `Đã đồng bộ hành trình bưu cục cho đơn ${p.orderNumber} thành công!`, orderId: p.orderId, actionType: 'sync_shipping' };
-      } else if (row.actionType === 'cancel_voucher') {
-        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
-        if (!canManageMarketing) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
-        }
-        const p = row.payload;
-        await pool.query('UPDATE marketing_vouchers SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.voucherId]);
-        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, active: false }); } catch (_) {}
-        try { require('./cache').flushAllCache(); } catch (_) {}
-        result = { success: true, message: `Đã dừng kích hoạt mã voucher ${p.code} thành công!`, voucherId: p.voucherId, actionType: 'cancel_voucher' };
-      } else if (row.actionType === 'delete_voucher') {
-        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
-        if (!canManageMarketing) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
-        }
-        const p = row.payload;
-        const { withTransaction } = require('./db');
-        await withTransaction(pool, async (c) => {
-          await c.query('UPDATE marketing_campaigns SET voucher_id=NULL WHERE voucher_id=$1', [p.voucherId]);
-          await c.query('DELETE FROM customer_vouchers WHERE voucher_id=$1', [p.voucherId]);
-          await c.query('DELETE FROM voucher_redemptions WHERE voucher_id=$1', [p.voucherId]);
-          await c.query('DELETE FROM marketing_vouchers WHERE id=$1', [p.voucherId]);
-        });
-        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, deleted: true }); } catch (_) {}
-        try { require('./cache').flushAllCache(); } catch (_) {}
-        result = { success: true, message: `Đã xóa vĩnh viễn mã voucher ${p.code} khỏi cơ sở dữ liệu!`, voucherId: p.voucherId, actionType: 'delete_voucher' };
-      } else if (row.actionType === 'cancel_campaign') {
-        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
-        if (!canManageMarketing) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
-        }
-        const p = row.payload;
-        if (p.type === 'promotion') {
-          await pool.query('UPDATE product_promotions SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
-        } else {
-          await pool.query('UPDATE marketing_campaigns SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
-        }
-        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, active: false }); } catch (_) {}
-        try { require('./cache').flushAllCache(); } catch (_) {}
-        result = { success: true, message: `Đã dừng kích hoạt chiến dịch "${p.title}" thành công!`, campaignId: p.campaignId, actionType: 'cancel_campaign' };
-      } else if (row.actionType === 'delete_campaign') {
-        const canManageMarketing = req.admin?.isOwner || (Array.isArray(req.admin?.permissions) && req.admin.permissions.includes('marketing.write'));
-        if (!canManageMarketing) {
-          return res.status(403).json({ error: 'Tài khoản của bạn không có quyền quản lý marketing.' });
-        }
-        const p = row.payload;
-        const { withTransaction } = require('./db');
-        await withTransaction(pool, async (c) => {
+        let result = null;
+        const p = row.payload || {};
+
+        if (row.actionType === 'create_voucher') {
+          await client.query(`
+            INSERT INTO marketing_vouchers (code, title, kind, amount, min_spend_vnd, starts_at, ends_at, total_limit, active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+            ON CONFLICT (code) DO UPDATE
+            SET title = $2, kind = $3, amount = $4, min_spend_vnd = $5, starts_at = $6, ends_at = $7, total_limit = $8, active = true
+          `, [p.code, p.title, p.kind, p.amount, p.minSpendVnd || 0, p.startsAt, p.endsAt, p.totalLimit || 50]);
+
+          result = { success: true, message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
+        } else if (row.actionType === 'cancel_voucher') {
+          await client.query('UPDATE marketing_vouchers SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.voucherId]);
+          try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, active: false }); } catch (_) {}
+          try { require('./cache').flushAllCache(); } catch (_) {}
+          result = { success: true, message: `Đã dừng kích hoạt mã voucher ${p.code} thành công!`, voucherId: p.voucherId, actionType: 'cancel_voucher' };
+        } else if (row.actionType === 'delete_voucher') {
+          await client.query('UPDATE marketing_campaigns SET voucher_id=NULL WHERE voucher_id=$1', [p.voucherId]);
+          await client.query('DELETE FROM customer_vouchers WHERE voucher_id=$1', [p.voucherId]);
+          await client.query('DELETE FROM voucher_redemptions WHERE voucher_id=$1', [p.voucherId]);
+          await client.query('DELETE FROM marketing_vouchers WHERE id=$1', [p.voucherId]);
+          try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, deleted: true }); } catch (_) {}
+          try { require('./cache').flushAllCache(); } catch (_) {}
+          result = { success: true, message: `Đã xóa vĩnh viễn mã voucher ${p.code} khỏi cơ sở dữ liệu!`, voucherId: p.voucherId, actionType: 'delete_voucher' };
+        } else if (row.actionType === 'cancel_campaign') {
           if (p.type === 'promotion') {
-            await c.query('DELETE FROM product_promotion_variants WHERE promotion_id=$1', [p.campaignId]);
-            await c.query('DELETE FROM product_promotions WHERE id=$1', [p.campaignId]);
+            await client.query('UPDATE product_promotions SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
           } else {
-            await c.query('DELETE FROM customer_campaign_reads WHERE campaign_id=$1', [p.campaignId]);
-            await c.query('DELETE FROM marketing_campaigns WHERE id=$1', [p.campaignId]);
+            await client.query('UPDATE marketing_campaigns SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
           }
+          try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, active: false }); } catch (_) {}
+          try { require('./cache').flushAllCache(); } catch (_) {}
+          result = { success: true, message: `Đã dừng kích hoạt chiến dịch "${p.title}" thành công!`, campaignId: p.campaignId, actionType: 'cancel_campaign' };
+        } else if (row.actionType === 'delete_campaign') {
+          if (p.type === 'promotion') {
+            await client.query('DELETE FROM product_promotion_variants WHERE promotion_id=$1', [p.campaignId]);
+            await client.query('DELETE FROM product_promotions WHERE id=$1', [p.campaignId]);
+          } else {
+            await client.query('DELETE FROM customer_campaign_reads WHERE campaign_id=$1', [p.campaignId]);
+            await client.query('DELETE FROM marketing_campaigns WHERE id=$1', [p.campaignId]);
+          }
+          try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, deleted: true }); } catch (_) {}
+          try { require('./cache').flushAllCache(); } catch (_) {}
+          result = { success: true, message: `Đã xóa vĩnh viễn chiến dịch "${p.title}" khỏi hệ thống!`, campaignId: p.campaignId, actionType: 'delete_campaign' };
+        } else {
+          return { status: 400, body: { error: `Loại hành động không được hỗ trợ: ${row.actionType}` } };
+        }
+
+        await client.query(`
+          UPDATE internal_ai_action_logs
+          SET status = 'executed', executed_at = NOW(), result = $1
+          WHERE id = $2
+        `, [JSON.stringify(result), actionId]);
+
+        await appendAudit(client, {
+          actor,
+          action: `internal_ai.execute.${row.actionType}`,
+          entityType: 'internal_ai_action',
+          entityId: actionId,
+          after: { status: 'executed', actionType: row.actionType, result }
         });
-        try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, deleted: true }); } catch (_) {}
-        try { require('./cache').flushAllCache(); } catch (_) {}
-        result = { success: true, message: `Đã xóa vĩnh viễn chiến dịch "${p.title}" khỏi hệ thống!`, campaignId: p.campaignId, actionType: 'delete_campaign' };
-      } else {
-        result = { success: true, message: `Đã ghi nhận thực thi hành động: ${row.actionType}` };
+
+        return { status: 200, body: { success: true, actionId, status: 'executed', result } };
+      });
+
+      if (!phase1.pendingExternal) {
+        return res.status(phase1.status).json(phase1.body);
       }
 
-      await pool.query(`
-        UPDATE internal_ai_action_logs
-        SET status = 'executed', executed_at = NOW(), result = $1
-        WHERE id = $2
-      `, [JSON.stringify(result), actionId]);
+      const { row } = phase1;
+      const p = row.payload || {};
+      let result = null;
+      try {
+        if (row.actionType === 'confirm_order') {
+          const updated = await updateOrder(pool, p.orderId, { status: 'processing' }, req.admin, { expectedStatuses: ['pending', 'confirmed'] });
+          if (!updated) throw Object.assign(new Error('Không tìm thấy đơn hàng.'), { status: 404 });
+          try {
+            const { invalidateTags } = require('./cache');
+            invalidateTags(['orders', `order:${p.orderId}`, 'stock']);
+          } catch (_) {}
+          try {
+            require('./realtime-sse').publishAdminEvent('order:update', {
+              orderId: p.orderId,
+              orderNumber: p.orderNumber,
+              status: 'processing'
+            });
+          } catch (_) {}
+          result = { success: true, message: `Đã duyệt và chuyển đơn ${p.orderNumber} sang Đóng gói (processing) thành công! Tồn kho đã được đảm bảo.`, orderId: p.orderId, actionType: 'confirm_order' };
+        } else if (row.actionType === 'cancel_order') {
+          const updated = await updateOrder(pool, p.orderId, { status: 'cancelled', cancelActiveWaybill: true }, req.admin, { expectedStatuses: ['pending', 'confirmed', 'processing'] });
+          if (!updated) throw Object.assign(new Error('Không tìm thấy đơn hàng.'), { status: 404 });
+          try {
+            const { invalidateTags } = require('./cache');
+            invalidateTags(['orders', `order:${p.orderId}`, 'stock']);
+          } catch (_) {}
+          try {
+            require('./realtime-sse').publishAdminEvent('order:update', {
+              orderId: p.orderId,
+              orderNumber: p.orderNumber,
+              status: 'cancelled'
+            });
+          } catch (_) {}
+          result = { success: true, message: `Đã hủy đơn hàng ${p.orderNumber} và hoàn trả số lượng vào kho thành công!`, orderId: p.orderId, actionType: 'cancel_order' };
+        } else if (row.actionType === 'sync_shipping') {
+          const { syncShipmentTracking } = require('./shipping-management');
+          let syncRes = null;
+          try {
+            syncRes = await syncShipmentTracking(pool, config, { orderId: p.orderId, actor: req.admin });
+          } catch (err) {
+            syncRes = { message: 'Đã hoàn tất kiểm tra hành trình: ' + err.message };
+          }
+          result = { success: true, message: syncRes?.message || `Đã đồng bộ hành trình bưu cục cho đơn ${p.orderNumber} thành công!`, orderId: p.orderId, actionType: 'sync_shipping' };
+        }
+      } catch (execErr) {
+        await pool.query(
+          "UPDATE internal_ai_action_logs SET status = 'pending' WHERE id = $1 AND status = 'executing'",
+          [actionId]
+        ).catch(() => {});
+        throw execErr;
+      }
 
-      res.json({ success: true, actionId, status: 'executed', result });
+      await runAtomic(pool, async (client) => {
+        await client.query(`
+          UPDATE internal_ai_action_logs
+          SET status = 'executed', executed_at = NOW(), result = $1
+          WHERE id = $2
+        `, [JSON.stringify(result), actionId]);
+
+        await appendAudit(client, {
+          actor,
+          action: `internal_ai.execute.${row.actionType}`,
+          entityType: 'internal_ai_action',
+          entityId: actionId,
+          after: { status: 'executed', actionType: row.actionType, result }
+        });
+      });
+
+      return res.json({ success: true, actionId, status: 'executed', result });
     } catch (e) {
       next(e);
     }
@@ -1336,13 +1479,49 @@ Quy tắc cốt lõi:
   router.post('/actions/:actionId/cancel', async (req, res, next) => {
     try {
       const actionId = req.params.actionId;
-      await pool.query(`
-        UPDATE internal_ai_action_logs
-        SET status = 'cancelled', executed_at = NOW()
-        WHERE id = $1 AND status = 'pending'
-      `, [actionId]);
+      const actor = {
+        ...(req.admin || {}),
+        username: req.admin?.username || req.admin?.id || 'admin'
+      };
+      const isOwner = Boolean(actor.isOwner || actor.role === 'owner' || actor.source === 'bootstrap');
 
-      res.json({ success: true, actionId, status: 'cancelled', message: 'Đã hủy bỏ hành động.' });
+      const out = await runAtomic(pool, async (client) => {
+        const row = (await client.query(`
+          SELECT id, action_type AS "actionType", status, created_by AS "createdBy"
+          FROM internal_ai_action_logs
+          WHERE id = $1
+          FOR UPDATE
+        `, [actionId])).rows[0];
+
+        if (!row) return { status: 404, body: { error: 'Không tìm thấy thẻ hành động.' } };
+        if (row.createdBy && !isOwner && row.createdBy !== actor.username) {
+          return { status: 403, body: { error: 'Bạn không có quyền hủy thẻ hành động do nhân sự khác tạo.' } };
+        }
+        if (!hasActionPermission(req.admin, row.actionType)) {
+          return { status: 403, body: { error: 'Tài khoản của bạn không có quyền hủy hành động này.' } };
+        }
+        if (row.status !== 'pending') {
+          return { status: 400, body: { error: `Hành động này đã ở trạng thái: ${row.status}.` } };
+        }
+
+        await client.query(`
+          UPDATE internal_ai_action_logs
+          SET status = 'cancelled', executed_at = NOW()
+          WHERE id = $1 AND status = 'pending'
+        `, [actionId]);
+
+        await appendAudit(client, {
+          actor,
+          action: `internal_ai.cancel.${row.actionType}`,
+          entityType: 'internal_ai_action',
+          entityId: actionId,
+          after: { status: 'cancelled', actionType: row.actionType }
+        });
+
+        return { status: 200, body: { success: true, actionId, status: 'cancelled', message: 'Đã hủy bỏ hành động.' } };
+      });
+
+      return res.status(out.status).json(out.body);
     } catch (e) {
       next(e);
     }

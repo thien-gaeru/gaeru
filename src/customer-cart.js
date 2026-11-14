@@ -38,10 +38,19 @@ function createCustomerCartRouter(pool) {
     }
   });
 
-  // POST /api/customer/cart/check-prices: Đối chiếu giá niêm yết hiện hành với giá giỏ hàng
-  router.post('/check-prices', async (req, res, next) => {
+  // GET / POST /api/customer/cart/check-prices: Đối chiếu giá niêm yết hiện hành (kèm promo + combo) với giá giỏ hàng
+  const handleCheckPrices = async (req, res, next) => {
     try {
-      const itemsToCheck = Array.isArray(req.body?.items) ? req.body.items : [];
+      const itemsSchema = z.array(z.object({
+        variantId: z.string().uuid().optional(),
+        expectedPriceVnd: z.number().finite().min(0).max(2000000000).optional()
+      }).passthrough()).max(100);
+      const rawItems = req.body?.items;
+      const parsedItems = rawItems === undefined ? [] : itemsSchema.safeParse(rawItems);
+      if (rawItems !== undefined && !parsedItems.success) {
+        return res.status(400).json({ error: 'Danh sách kiểm tra giá không hợp lệ.' });
+      }
+      const itemsToCheck = rawItems === undefined ? [] : parsedItems.data;
       const cartQuery = await pool.query(
         `SELECT c.variant_id AS "variantId", c.quantity,
                 pv.stock_quantity AS "stockQuantity", pv.price_vnd AS "priceVnd",
@@ -52,12 +61,12 @@ function createCustomerCartRouter(pool) {
          WHERE c.customer_id = $1 AND pv.active = true AND p.active = true AND p.deleted_at IS NULL`,
         [req.customerId]
       );
-      const dbItems = cartQuery.rows;
+      const rawItemsWithId = cartQuery.rows.map((r) => ({ ...r, id: r.variantId }));
+      const dbItems = await require('./product-promotions').applyPromotions(pool, rawItemsWithId);
+      const bundlePricing = await require('./product-bundles').calculateCartBundleDiscount(pool, dbItems);
       const priceChanges = [];
-      let totalCurrentVnd = 0;
 
       for (const item of dbItems) {
-        totalCurrentVnd += item.priceVnd * item.quantity;
         const expected = itemsToCheck.find((i) => i.variantId === item.variantId);
         if (expected && expected.expectedPriceVnd !== undefined && Number(expected.expectedPriceVnd) !== item.priceVnd) {
           priceChanges.push({
@@ -74,11 +83,15 @@ function createCustomerCartRouter(pool) {
       res.json({
         hasPriceChanges: priceChanges.length > 0,
         priceChanges,
-        currentSubtotalVnd: totalCurrentVnd,
+        currentSubtotalVnd: bundlePricing.finalSubtotalVnd,
+        bundleDiscountVnd: bundlePricing.bundleDiscountVnd,
+        appliedBundles: bundlePricing.appliedBundles,
         items: dbItems.map((r) => ({
           variantId: r.variantId,
           quantity: r.quantity,
           priceVnd: r.priceVnd,
+          originalPriceVnd: r.originalPriceVnd,
+          promotion: r.promotion || null,
           stockQuantity: r.stockQuantity,
           productName: r.productName,
           variantName: r.variantName
@@ -87,7 +100,9 @@ function createCustomerCartRouter(pool) {
     } catch (e) {
       next(e);
     }
-  });
+  };
+  router.get('/check-prices', handleCheckPrices);
+  router.post('/check-prices', (req, res, next) => (req.session?.csrfToken ? requireCsrf(req, res, next) : next()), handleCheckPrices);
 
   // GET /api/customer/cart: Lấy toàn bộ sản phẩm trong giỏ hàng trên máy chủ
   router.get('/', async (req, res, next) => {
@@ -103,12 +118,18 @@ function createCustomerCartRouter(pool) {
          ORDER BY c.updated_at DESC`,
         [req.customerId]
       );
+      const promoted = await require('./product-promotions').applyPromotions(
+        pool,
+        result.rows.map((r) => ({ ...r, id: r.variantId }))
+      );
       res.json({
-        items: result.rows.map(r => ({
+        items: promoted.map(r => ({
           variantId: r.variantId,
           quantity: r.quantity,
           stockQuantity: r.stockQuantity,
           priceVnd: r.priceVnd,
+          originalPriceVnd: r.originalPriceVnd,
+          promotion: r.promotion || null,
           variantName: r.variantName,
           productName: r.productName,
           productSlug: r.productSlug

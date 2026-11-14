@@ -5,7 +5,16 @@ const { requireCsrf } = require('./security');
 const { requirePermission } = require('./staff-access');
 const { withTransaction } = require('./db');
 const { appendAudit } = require('./audit');
-const { storeUpload, readMedia } = require('./lib/stored-media');
+const { pipeline } = require('node:stream/promises');
+const { storeUpload, readMedia, readMediaRange, openMediaStream } = require('./lib/stored-media');
+const {
+  resolveReplyTo,
+  resolveFrom,
+  failureStatus,
+  retryDelaySeconds,
+  enqueueAdminDomainNotification,
+  processAdminDomainEmailOutbox
+} = require('./smtp-delivery');
 
 const fields = 'c.id,c.order_id AS "orderId",COALESCE(o.order_number,c.external_order_number) AS "orderNumber",c.channel,c.subject,c.description,c.status,c.response,c.version,c.created_at AS "createdAt",c.updated_at AS "updatedAt"';
 
@@ -14,7 +23,7 @@ const createSchema = z.object({
   channel: z.enum(['website', 'shopee', 'tiktok', 'lazada']).default('website'),
   externalOrderNumber: z.string().trim().min(3).max(100).optional(),
   requestKey: z.string().uuid(),
-  subject: z.string().trim().min(5).max(160),
+  subject: z.string().trim().min(5).max(160).refine(v => !/[\r\n]/.test(v), 'Tiêu đề yêu cầu không hợp lệ.'),
   description: z.string().trim().min(15).max(3000)
 }).strict().superRefine((a, c) => {
   if (a.channel === 'website' ? (!a.orderId || a.externalOrderNumber !== undefined) : (!a.externalOrderNumber || a.orderId !== undefined)) {
@@ -53,7 +62,6 @@ const parseUpload = (req, res, next) => upload(req, res, error => {
 
 async function serveCareFile(res, req, file) {
   const inline = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/quicktime', 'video/webm'].includes(file.mime) && req.query.download !== '1';
-  const content = await readMedia(file.content);
   const headers = {
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
@@ -61,23 +69,33 @@ async function serveCareFile(res, req, file) {
     'Content-Disposition': (inline ? 'inline' : 'attachment') + "; filename=download; filename*=UTF-8''" + encodeURIComponent(file.name),
     'Content-Security-Policy': "sandbox; default-src 'none'"
   };
-  if (inline && file.mime.startsWith('video/')) {
-    headers['Accept-Ranges'] = 'bytes';
-    const range = req.headers.range;
-    if (range) {
-      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
-      let start, end;
-      if (match && (match[1] || match[2])) {
-        start = match[1] ? Number(match[1]) : Math.max(0, content.length - Number(match[2]));
-        end = match[1] ? (match[2] ? Number(match[2]) : content.length - 1) : content.length - 1;
+  const isVideo = inline && file.mime.startsWith('video/');
+  if (isVideo) headers['Accept-Ranges'] = 'bytes';
+  const range = isVideo ? req.headers.range : null;
+  const streamInfo = await openMediaStream(file.content, range || null);
+  if (streamInfo) {
+    if (streamInfo.invalidRange) {
+      return res.set({ ...headers, 'Content-Range': 'bytes */' + streamInfo.totalSize }).status(416).end();
+    }
+    if (!streamInfo.compressed && streamInfo.stream) {
+      if (range) {
+        res.set({ ...headers, 'Content-Range': `bytes ${streamInfo.start}-${streamInfo.end}/${streamInfo.totalSize}`, 'Content-Length': String(streamInfo.end - streamInfo.start + 1) }).status(206);
+      } else {
+        res.set({ ...headers, 'Content-Length': String(streamInfo.totalSize) }).status(200);
       }
-      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= content.length) {
-        return res.set({ ...headers, 'Content-Range': 'bytes */' + content.length }).status(416).end();
-      }
-      end = Math.min(end, content.length - 1);
-      return res.set({ ...headers, 'Content-Range': `bytes ${start}-${end}/${content.length}`, 'Content-Length': String(end - start + 1) }).status(206).send(content.subarray(start, end + 1));
+      try { await pipeline(streamInfo.stream, res); }
+      catch (err) { if (err?.code !== 'ERR_STREAM_PREMATURE_CLOSE' && err?.code !== 'ECONNRESET') throw err; }
+      return;
     }
   }
+  if (isVideo && range) {
+    const slice = await readMediaRange(file.content, range);
+    if (slice.invalidRange) {
+      return res.set({ ...headers, 'Content-Range': 'bytes */' + slice.totalSize }).status(416).end();
+    }
+    return res.set({ ...headers, 'Content-Range': `bytes ${slice.start}-${slice.end}/${slice.totalSize}`, 'Content-Length': String(slice.buffer.length) }).status(206).send(slice.buffer);
+  }
+  const content = await readMedia(file.content);
   res.set(headers).send(content);
 }
 
@@ -98,7 +116,8 @@ async function enqueueCareEmailNotification(client, careId, messageId, responseT
 
     const base = (config?.PUBLIC_BASE_URL || config?.smtp?.publicBaseUrl || 'https://gaeru.com').replace(/\/+$/, '');
     const careUrl = base + '/care#care-request';
-    const subject = `[GAERU CARE+] Phản hồi mới cho yêu cầu: ${reqRow.subject}`;
+    const cleanSubject = String(reqRow.subject || '').replace(/[\r\n]+/g, ' ').trim();
+    const subject = `[GAERU CARE+] Phản hồi mới cho yêu cầu: ${cleanSubject}`;
     const bodyText = `Xin chào ${reqRow.full_name},\n\nĐội ngũ GAERU CARE+ vừa gửi phản hồi cho yêu cầu hỗ trợ của bạn (Đơn hàng: ${reqRow.order_number || 'N/A'}, Mã yêu cầu: ${careId}):\n"${reqRow.subject}"\n\nNội dung phản hồi:\n${responseText}\n\nĐể xem toàn bộ lịch sử trao đổi hoặc gửi trả lời, bạn vui lòng truy cập trang CARE+:\n${careUrl}\n\nTrân trọng,\nĐội ngũ GAERU CARE+`;
 
     await client.query(`
@@ -205,8 +224,15 @@ function createCareCustomerApi(pool, config = {}) {
         if (!row.response) return { status: 409, error: 'Vui lòng chờ phản hồi đầu tiên từ GAERU.' };
         const count = Number((await client.query("SELECT count(*) total FROM care_messages WHERE care_id=$1 AND sender='customer' AND created_at>now()-interval '1 hour'", [row.id])).rows[0].total);
         if (count >= 30) return { status: 429, error: 'Bạn đã gửi nhiều tin nhắn. Vui lòng thử lại sau.' };
-        await client.query("INSERT INTO care_messages(care_id,sender,body) VALUES($1,'customer',$2)", [row.id, parsed.data.body]);
+        const msg = (await client.query("INSERT INTO care_messages(care_id,sender,body) VALUES($1,'customer',$2) RETURNING id", [row.id, parsed.data.body])).rows[0];
         await client.query("UPDATE care_requests SET status='reviewing',version=version+1,updated_at=now() WHERE id=$1", [row.id]);
+        await enqueueAdminDomainNotification(client, {
+          eventType: 'care_customer_reply',
+          entityId: row.id,
+          dedupeKey: `care_reply:${row.id}:${msg.id}`,
+          subject: `GAERU CARE+ · Khách hàng vừa phản hồi: ${row.subject}`,
+          bodyText: `Khách hàng đã gửi tin nhắn mới trong yêu cầu CARE+ "${row.subject}" (Mã: ${row.id}).\n\nNội dung:\n${parsed.data.body.slice(0, 500)}`
+        });
         await appendAudit(client, { actor: { username: req.customerId, source: 'customer' }, action: 'care.reply', entityType: 'care', entityId: row.id });
         return { status: 201 };
       });
@@ -225,6 +251,7 @@ function createCareCustomerApi(pool, config = {}) {
         const row = (await client.query('SELECT * FROM care_requests WHERE id=$1 AND customer_id=$2 FOR UPDATE', [req.params.id, req.customerId])).rows[0];
         if (!row) return { status: 404, error: 'Không tìm thấy yêu cầu.' };
         if (row.status === 'closed') return { status: 409, error: 'Yêu cầu đã đóng. Vui lòng tạo yêu cầu mới.' };
+        if (!row.response) return { status: 409, error: 'Vui lòng chờ phản hồi đầu tiên từ GAERU.' };
         const count = Number((await client.query("SELECT count(*) total FROM care_messages WHERE care_id=$1 AND sender='customer' AND created_at>now()-interval '1 hour'", [row.id])).rows[0].total);
         if (count >= 30) return { status: 429, error: 'Bạn đã gửi nhiều tệp. Vui lòng thử lại sau.' };
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
@@ -239,6 +266,13 @@ function createCareCustomerApi(pool, config = {}) {
           [row.id, msg.id, safeName, uploaded.mimeType, uploaded.content, uploaded.byteSize]
         )).rows[0];
         await client.query("UPDATE care_requests SET status='reviewing',version=version+1,updated_at=now() WHERE id=$1", [row.id]);
+        await enqueueAdminDomainNotification(client, {
+          eventType: 'care_customer_reply',
+          entityId: row.id,
+          dedupeKey: `care_reply:${row.id}:${msg.id}`,
+          subject: `GAERU CARE+ · Khách gửi tệp đính kèm: ${row.subject}`,
+          bodyText: `Khách hàng đã gửi tệp "${safeName}" trong yêu cầu CARE+ "${row.subject}" (Mã: ${row.id}).\n\nGhi chú: ${bodyText.slice(0, 400)}`
+        });
         await appendAudit(client, {
           actor: { username: req.customerId, source: 'customer' },
           action: 'care.file',
@@ -289,18 +323,25 @@ function createCareCustomerApi(pool, config = {}) {
     try {
       const result = await withTransaction(pool, async client => {
         const a = parsed.data;
-        await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
+        const custRow = (await client.query('SELECT id, full_name, email FROM customers WHERE id=$1 FOR UPDATE', [req.customerId])).rows[0];
         const existing = (await client.query('SELECT * FROM care_requests WHERE customer_id=$1 AND request_key=$2', [req.customerId, a.requestKey])).rows[0];
         if (existing) {
           if ((existing.order_id || null) !== (a.orderId || null) || existing.channel !== a.channel || (existing.external_order_number || null) !== (a.externalOrderNumber || null) || existing.subject !== a.subject || existing.description !== a.description)
             return { status: 409, error: 'Mã yêu cầu đã được dùng cho nội dung khác.' };
           return { status: 200, request: existing };
         }
-        const owned = a.channel === 'website' ? (await client.query('SELECT id FROM orders WHERE id=$1 AND customer_id=$2', [a.orderId, req.customerId])).rows[0] : true;
+        const owned = a.channel === 'website' ? (await client.query('SELECT id, order_number FROM orders WHERE id=$1 AND customer_id=$2', [a.orderId, req.customerId])).rows[0] : true;
         if (!owned) return { status: 404, error: 'Không tìm thấy đơn hàng trong tài khoản.' };
         const count = Number((await client.query("SELECT count(*) AS total FROM care_requests WHERE customer_id=$1 AND created_at>now()-interval '1 day'", [req.customerId])).rows[0].total);
         if (count >= 10) return { status: 429, error: 'Bạn đã gửi nhiều yêu cầu trong ngày. Vui lòng liên hệ GAERU.' };
         const created = (await client.query('INSERT INTO care_requests(customer_id,order_id,request_key,subject,description,channel,external_order_number) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,status', [req.customerId, a.orderId || null, a.requestKey, a.subject, a.description, a.channel, a.externalOrderNumber || null])).rows[0];
+        await enqueueAdminDomainNotification(client, {
+          eventType: 'care_new',
+          entityId: created.id,
+          dedupeKey: `care_new:${created.id}`,
+          subject: `GAERU CARE+ · Yêu cầu hỗ trợ mới: ${a.subject}`,
+          bodyText: `Khách hàng: ${custRow?.full_name || 'N/A'} (${custRow?.email || 'N/A'})\nKênh: ${a.channel}\nMã đơn: ${owned?.order_number || a.externalOrderNumber || 'N/A'}\nTiêu đề: ${a.subject}\n\nMô tả:\n${a.description.slice(0, 600)}`
+        });
         await appendAudit(client, { actor: { username: req.customerId, source: 'customer' }, action: 'care.create', entityType: 'care', entityId: created.id, metadata: { orderId: a.orderId || null, channel: a.channel } });
         return { status: 201, request: created };
       });
@@ -392,7 +433,7 @@ function createCareAdminApi(pool, config = {}) {
         await appendAudit(client, { actor: req.admin, action: 'care.file', entityType: 'care', entityId: before.id, metadata: { fileName: safeName, size: uploaded.byteSize } });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };
       });
-      if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', file: result.file }); } catch (_) {} }
+      if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'staff', file: result.file }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
     } catch (e) { next(e); }
   });
@@ -437,7 +478,8 @@ async function processCareEmailOutbox(pool, config, mailer) {
 
   try {
     const result = await mailer.sendMail({
-      from: config.smtp.from,
+      from: resolveFrom(config),
+      replyTo: resolveReplyTo(config),
       to: job.recipient_email,
       subject: job.subject,
       text: job.body_text,
@@ -450,18 +492,25 @@ async function processCareEmailOutbox(pool, config, mailer) {
       accepted ? 'SMTP đã tiếp nhận' : result?.rejected?.length ? 'SMTP từ chối người nhận' : 'Chưa xác định kết quả SMTP'
     ]);
   } catch (error) {
-    const safeRetry = (Number(error.responseCode) >= 400 && Number(error.responseCode) < 500) || ['CONN', 'EHLO', 'STARTTLS', 'AUTH', 'MAIL FROM', 'RCPT TO'].includes(error.command);
-    const retry = safeRetry && job.attempts < 5;
-    await pool.query("UPDATE care_email_outbox SET status=$2,next_attempt_at=now()+interval '5 minutes',finished_at=CASE WHEN $2='pending' THEN NULL ELSE now() END,result=$3 WHERE id=$1 AND status='sending'", [
+    const state = failureStatus(error, job.attempts, 5);
+    const retry = state === 'pending';
+    const delaySec = retryDelaySeconds(job.attempts);
+    await pool.query("UPDATE care_email_outbox SET status=$2,next_attempt_at=now()+($4::text||' seconds')::interval,finished_at=CASE WHEN $2='pending' THEN NULL ELSE now() END,result=$3 WHERE id=$1 AND status='sending'", [
       job.id,
-      retry ? 'pending' : 'failed',
-      retry ? 'Chờ thử lại kết nối gửi thư' : (error.message || 'Lỗi gửi email')
+      state,
+      retry ? 'Chờ thử lại kết nối gửi thư' : state === 'failed' ? (error.message || 'Lỗi gửi email') : 'Chưa xác định kết quả SMTP; không tự gửi trùng',
+      delaySec
     ]);
   }
   return true;
 }
 
-function startCareEmailWorker(pool, config, { mailer = null, intervalMs = 15000 } = {}) {
+let activeCareNudge = null;
+function nudgeCareEmailWorker() {
+  if (typeof activeCareNudge === 'function') setImmediate(activeCareNudge);
+}
+
+function startCareEmailWorker(pool, config, { mailer = null, intervalMs = 4000 } = {}) {
   const activeMailer = mailer || (config.smtp ? require('nodemailer').createTransport(require('./smtp-security').smtpOptions(config.smtp)) : null);
   let stopped = false, running = false;
   async function run() {
@@ -471,16 +520,20 @@ function startCareEmailWorker(pool, config, { mailer = null, intervalMs = 15000 
       for (let i = 0; i < 10 && !stopped; i++) {
         if (!await processCareEmailOutbox(pool, config, activeMailer)) break;
       }
+      for (let i = 0; i < 10 && !stopped; i++) {
+        if (!await processAdminDomainEmailOutbox(pool, config, activeMailer)) break;
+      }
     } catch (e) {
       console.error('Care email queue temporarily unavailable:', e.message);
     } finally {
       running = false;
     }
   }
+  activeCareNudge = run;
   const timer = setInterval(run, intervalMs);
   timer.unref?.();
   void run();
-  return () => { stopped = true; clearInterval(timer); };
+  return () => { stopped = true; if (activeCareNudge === run) activeCareNudge = null; clearInterval(timer); };
 }
 
 module.exports = {
@@ -488,6 +541,7 @@ module.exports = {
   createCareAdminApi,
   processCareEmailOutbox,
   startCareEmailWorker,
+  nudgeCareEmailWorker,
   readMessages,
   fileType
 };

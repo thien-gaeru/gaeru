@@ -3,9 +3,11 @@ const {ipKeyGenerator,rateLimit}=require('express-rate-limit');
 function createBotProtection(pool,config,{fetchImpl=fetch}={}){
  const enabled=Boolean(config.TURNSTILE_SITE_KEY&&config.TURNSTILE_SECRET_KEY&&config.PUBLIC_BASE_URL);
  const limited=rateLimit({windowMs:900000,limit:300,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Quá nhiều yêu cầu. Vui lòng thử lại sau.'}});
+ const chunkLimited=rateLimit({windowMs:900000,limit:1500,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Quá nhiều yêu cầu. Vui lòng thử lại sau.'}});
  return function botProtection(req,res,next){
   if(!enabled||!req.path.startsWith('/api/')||!['POST','PUT','PATCH','DELETE'].includes(req.method)||req.path.startsWith('/api/payments/')||req.path==='/api/auth/activity')return next();
-  return limited(req,res,()=>handle(req,res,next));
+  const limiter=/\/files\/chunk$/.test(req.path)?chunkLimited:limited;
+  return limiter(req,res,()=>handle(req,res,next));
  };
  async function handle(req,res,next){
   const key=createHmac('sha256',config.SESSION_SECRET).update(ipKeyGenerator(req.ip||'unknown')).digest('hex');

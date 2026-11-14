@@ -1,11 +1,12 @@
 'use strict';
 const { createHash } = require('node:crypto');
-const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const MAX_FILE_BYTES = 500 * 1024 * 1024;
 const MAX_CHUNK_BYTES = 5 * 1024 * 1024;
 const MAX_CHUNKS = 256;
-const MAX_THREAD_BYTES = 500 * 1024 * 1024;
-const MAX_PENDING_BYTES = 1024 * 1024 * 1024;
-const MAX_PENDING_SESSIONS = 128;
+const MAX_MEMORY_FALLBACK_BYTES = 25 * 1024 * 1024;
+const MAX_THREAD_BYTES = 2048 * 1024 * 1024;
+const MAX_PENDING_BYTES = 16 * 1024 * 1024 * 1024;
+const MAX_PENDING_SESSIONS = 512;
 const MAX_ACTIVE_PER_THREAD = 2;
 const sha256 = data => createHash('sha256').update(data).digest('hex');
 const failure = (message, status = 409) => Object.assign(new Error(message), { status });
@@ -24,8 +25,8 @@ function validateMeta(meta, buffer) {
   if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_CHUNK_BYTES || buffer.length > totalBytes)
     throw failure('Invalid upload chunk size.', 413);
 }
-/** Pure state transition. Retries are checked by content hash, never appended. */
-function appendChunk(state, meta, buffer) {
+/** Validate chunk transition and compute next hash receipts without forcing full-file concatenation in RAM. */
+function planChunkTransition(state, meta, buffer, previousBytes) {
   validateMeta(meta, buffer);
   if (state.file_name !== meta.fileName || Number(state.total_bytes) !== meta.totalBytes || Number(state.total_chunks) !== meta.totalChunks)
     throw failure('Upload metadata changed; use a new request key.');
@@ -35,29 +36,53 @@ function appendChunk(state, meta, buffer) {
       !receipts || typeof receipts !== 'object' || Array.isArray(receipts) || Object.keys(receipts).length !== receivedBefore)
     throw failure('Upload state is from an older version or is invalid. Start a new upload.');
   if (state.completed_file_id && receivedBefore !== meta.totalChunks) throw failure('Invalid completed upload state.');
-  if (!state.completed_file_id && Buffer.from(state.content || []).length > meta.totalBytes)
+  if (!state.completed_file_id && previousBytes > meta.totalBytes)
     throw failure('Stored upload exceeds its declared size.');
   const hash = sha256(buffer);
   const oldReceipt = receipts[String(meta.chunkIndex)];
   if (oldReceipt) {
     if (oldReceipt.hash !== hash || oldReceipt.bytes !== buffer.length)
       throw failure('A retried chunk has different bytes.');
-    return { duplicate: true, content: Buffer.from(state.content || []), receipts,
-      received: Number(state.received_chunks), complete: Number(state.received_chunks) === meta.totalChunks };
+    return {
+      duplicate: true,
+      receipts,
+      received: Number(state.received_chunks),
+      complete: Number(state.received_chunks) === meta.totalChunks,
+      length: previousBytes
+    };
   }
   if (state.completed_file_id) throw failure('This upload has already completed.');
   if (meta.chunkIndex !== Number(state.received_chunks))
     throw failure('Chunk is out of order; retry the expected chunk.');
-  const previous = Buffer.from(state.content || []);
-  if (previous.length + buffer.length > meta.totalBytes)
+  if (previousBytes + buffer.length > meta.totalBytes)
     throw failure('Received bytes exceed the declared file length.');
   const received = Number(state.received_chunks) + 1;
   const complete = received === meta.totalChunks;
-  const length = previous.length + buffer.length;
+  const length = previousBytes + buffer.length;
   if ((complete && length !== meta.totalBytes) || (!complete && length >= meta.totalBytes))
     throw failure('Chunk count and file length do not match.');
-  return { duplicate: false, content: Buffer.concat([previous, buffer], length),
-    receipts: { ...receipts, [String(meta.chunkIndex)]: { hash, bytes: buffer.length } }, received, complete };
+  return {
+    duplicate: false,
+    receipts: { ...receipts, [String(meta.chunkIndex)]: { hash, bytes: buffer.length } },
+    received,
+    complete,
+    length
+  };
+}
+/** Pure state transition. Retries are checked by content hash, never appended. */
+function appendChunk(state, meta, buffer) {
+  const previous = Buffer.from(state.content || []);
+  const plan = planChunkTransition(state, meta, buffer, previous.length);
+  if (plan.duplicate) {
+    return { duplicate: true, content: previous, receipts: plan.receipts, received: plan.received, complete: plan.complete };
+  }
+  return {
+    duplicate: false,
+    content: Buffer.concat([previous, buffer], plan.length),
+    receipts: plan.receipts,
+    received: plan.received,
+    complete: plan.complete
+  };
 }
 /** Bound concurrent buffers in each Node process. Call before multer.
  * A disconnected client must not free a slot while a database/storage task still
@@ -89,6 +114,6 @@ function withUploadWork(handler) {
     finally { if (lease) { lease.working = false; lease.release(); } }
   };
 }
-module.exports = { MAX_FILE_BYTES, MAX_CHUNK_BYTES, MAX_CHUNKS, MAX_THREAD_BYTES,
+module.exports = { MAX_FILE_BYTES, MAX_CHUNK_BYTES, MAX_CHUNKS, MAX_MEMORY_FALLBACK_BYTES, MAX_THREAD_BYTES,
   MAX_PENDING_BYTES, MAX_PENDING_SESSIONS, MAX_ACTIVE_PER_THREAD,
-  validateMeta, appendChunk, createUploadGate, withUploadWork };
+  validateMeta, planChunkTransition, appendChunk, createUploadGate, withUploadWork };

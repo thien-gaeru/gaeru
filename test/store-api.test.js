@@ -210,6 +210,7 @@ test("variant deletion preserves variants referenced by historical orders", asyn
   const app = express();
   app.use((req, _res, next) => {
     req.session = { admin: { username: "manager" }, csrfToken: "valid-token" };
+    req.admin = { username: "manager", role: "sales", source: "staff", permissions: ["dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve", "orders.read", "orders.write", "payments.write"] };
     next();
   });
   app.use("/api", createStoreApi({ connect: async () => client }));
@@ -296,6 +297,7 @@ test("admin can complete a COD delivery and record collection in the same update
   app.use(express.json());
   app.use((req, _res, next) => {
     req.session = { admin: { username: "manager" }, csrfToken: "valid-token" };
+    req.admin = { username: "manager", role: "sales", source: "staff", permissions: ["dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve", "orders.read", "orders.write", "payments.write"] };
     next();
   });
   app.use("/api", createStoreApi({ connect: async () => client }));
@@ -335,6 +337,7 @@ test("admin cannot mark COD as paid before completing delivery", async (context)
   app.use(express.json());
   app.use((req, _res, next) => {
     req.session = { admin: { username: "manager" }, csrfToken: "valid-token" };
+    req.admin = { username: "manager", role: "sales", source: "staff", permissions: ["dashboard.read", "catalog.read", "catalog.write", "inventory.read", "inventory.write", "inventory.approve", "orders.read", "orders.write", "payments.write"] };
     next();
   });
   app.use("/api", createStoreApi({ connect: async () => client }));

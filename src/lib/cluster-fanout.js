@@ -48,6 +48,40 @@ class IpcFanoutHub {
       return { fannedCount };
     }
 
+    if (action === 'AI_KNOWLEDGE_INVALIDATE') {
+      const fannedCount = this.broadcast(
+        { type: 'AI_KNOWLEDGE_INVALIDATE', timestamp: message.timestamp || Date.now() },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
+    if (action === 'RENDITION_CACHE_INVALIDATE') {
+      const fannedCount = this.broadcast(
+        { type: 'RENDITION_CACHE_INVALIDATE', timestamp: message.timestamp || Date.now() },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
+    if (action === 'REALTIME_SSE_EVENT' && typeof message.channel === 'string' && typeof message.event === 'string') {
+      const fannedCount = this.broadcast(
+        {
+          type: 'REALTIME_SSE_EVENT',
+          channel: message.channel,
+          event: message.event,
+          payload: message.payload ?? {},
+          id: message.id,
+          timestamp: message.timestamp
+        },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
     // 2. Điều phối đồng bộ tồn kho tức thời (Stock Synchronization Fan-out)
     if (action === 'STOCK_SYNC') {
       const { skuOrId, qty } = message;

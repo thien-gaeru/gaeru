@@ -13,7 +13,16 @@
  * 6. Tự động xoay vòng log (log rotation) để bảo vệ dung lượng ổ cứng.
  */
 
-const { spawn, execSync } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
+const winPath = require('node:path');
+
+function runWinTool(cmd, args, opts = {}) {
+  return execFileSync(cmd, args, { shell: false, ...opts });
+}
+
+function sleepSyncMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, Number(ms) || 0));
+}
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -27,7 +36,7 @@ const SUPERVISOR_LOG = path.join(LOGS_DIR, 'supervisor.log');
 const SERVER_LOG = path.join(LOGS_DIR, 'server.log');
 const RELOAD_FILE = path.join(LOGS_DIR, 'reload.signal');
 const STOP_FILE = path.join(LOGS_DIR, 'stop.signal');
-const CLOUDFLARED_EXE = 'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe';
+const CLOUDFLARED_EXE = process.env.CLOUDFLARED_EXE || winPath.join(process.env['ProgramFiles(x86)'] || process.env.ProgramFiles || 'C:\\Program Files (x86)', 'cloudflared', 'cloudflared.exe');
 const CLOUDFLARED_CONFIG = path.join(os.homedir(), '.cloudflared', 'config.yml');
 const CLOUDFLARED_PID_FILE = path.join(LOGS_DIR, 'cloudflared.pid');
 const CLOUDFLARED_LOG = path.join(LOGS_DIR, 'cloudflared.log');
@@ -49,16 +58,16 @@ if (!fs.existsSync(LOGS_DIR)) {
 if (process.stdout && typeof process.stdout.on === 'function') {
   process.stdout.on('error', () => {});
 }
-if (process.stderr && typeof process.stderr.on === 'error') {
+if (process.stderr && typeof process.stderr.on === 'function') {
   process.stderr.on('error', () => {});
 }
 
 function preventSystemSleep() {
   if (process.platform !== 'win32') return;
   try {
-    execSync('powercfg /change standby-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
-    execSync('powercfg /change hibernate-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
-    execSync('powercfg /change disk-timeout-ac 0', { stdio: 'ignore', timeout: 2000 });
+    for (const setting of ['standby-timeout-ac', 'hibernate-timeout-ac', 'disk-timeout-ac']) {
+      runWinTool('powercfg', ['/change', setting, '0'], { stdio: 'ignore', timeout: 2000 });
+    }
   } catch (_) {}
 }
 
@@ -73,7 +82,12 @@ function tuneProcessPriorities(childPid) {
   }
   if (process.platform === 'win32') {
     try {
-      execSync('powershell -NoProfile -NonInteractive -Command "Get-Process -Name cloudflared -ErrorAction SilentlyContinue | ForEach-Object { if ($_.PriorityClass -ne [System.Diagnostics.ProcessPriorityClass]::AboveNormal) { $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal } }"', { stdio: 'ignore', timeout: 3000 });
+      runWinTool('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-Process -Name cloudflared -ErrorAction SilentlyContinue | ForEach-Object { if ($_.PriorityClass -ne [System.Diagnostics.ProcessPriorityClass]::AboveNormal) { $_.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::AboveNormal } }',
+      ], { stdio: 'ignore', timeout: 3000 });
     } catch (_) {}
   }
 }
@@ -119,7 +133,10 @@ function killProcessTree(pid) {
   if (!pid || pid <= 0) return;
   try {
     if (process.platform === 'win32') {
-      execSync(`taskkill /F /PID ${pid} /T`, { stdio: 'ignore' });
+      const numericPid = Number(pid);
+      if (Number.isInteger(numericPid) && numericPid > 0) {
+        runWinTool('taskkill', ['/F', '/PID', String(numericPid), '/T'], { stdio: 'ignore' });
+      }
     } else {
       process.kill(pid, 'SIGKILL');
     }
@@ -154,7 +171,12 @@ function getCloudflaredPid() {
   }
   if (process.platform === 'win32') {
     try {
-      const output = execSync('powershell -NoProfile -Command "(Get-Process -Name cloudflared -ErrorAction SilentlyContinue).Id"', { encoding: 'utf8', timeout: 3000 });
+      const output = runWinTool('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '(Get-Process -Name cloudflared -ErrorAction SilentlyContinue).Id',
+      ], { encoding: 'utf8', timeout: 3000 });
       const pids = output.trim().split(/\r?\n/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0);
       if (pids.length > 0) return pids[0];
     } catch (_) {}
@@ -209,7 +231,7 @@ function checkStatus() {
   console.log(`Cloudflare Tunnel: ${cfPid ? `RUNNING (PID: ${cfPid}, Connected to Cloudflare Edge)` : 'STOPPED'}`);
 
   const syncPid = getSyncPid();
-  console.log(`Cluster Realtime Sync: ${syncPid ? `RUNNING (PID: ${syncPid}, PC <-> Mi 6 Active-Active)` : 'STOPPED'}`);
+  console.log(`Two-way Cluster Sync: ${syncPid ? `RUNNING (PID: ${syncPid}, PC <-> Mi 6 parallel servers)` : 'STOPPED'}`);
 
   // Test local HTTP health
   const req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: 2000 }, (res) => {
@@ -237,7 +259,7 @@ function stopSupervisor() {
         console.log(`Đã gửi tín hiệu dừng tới Supervisor (PID ${supPid}). Đang đợi thoát an toàn...`);
         let count = 0;
         while (isPidAlive(supPid) && count < 10) {
-          execSync('powershell -Command "Start-Sleep -Milliseconds 500"', { stdio: 'ignore' });
+          sleepSyncMs(500);
           count++;
         }
         if (isPidAlive(supPid)) {
@@ -271,7 +293,7 @@ function restartServer() {
   console.log('Supervisor chưa chạy. Tiến hành khởi động Supervisor mới...');
   const vbsPath = path.join(ROOT_DIR, 'scripts', 'start-server-bg.vbs');
   if (fs.existsSync(vbsPath)) {
-    execSync(`wscript.exe "${vbsPath}"`, { stdio: 'ignore' });
+    runWinTool('wscript.exe', [vbsPath], { stdio: 'ignore' });
     console.log('Đã kích hoạt Supervisor ngầm thành công.');
   }
 }
@@ -298,6 +320,7 @@ log(`GAERU Watchdog Supervisor khởi động với PID ${process.pid}`);
 let childProcess = null;
 let isShuttingDown = false;
 let consecutiveFailures = 0;
+let healthCheckInFlight = false;
 let crashTimestamps = [];
 let healthTimer = null;
 let signalTimer = null;
@@ -370,39 +393,48 @@ function spawnServer() {
 }
 
 function checkHttpHealth() {
-  if (isShuttingDown || !childProcess || !childProcess.pid) return;
+  if (isShuttingDown || !childProcess || !childProcess.pid || healthCheckInFlight) return;
+  healthCheckInFlight = true;
+  const probedPid = childProcess.pid;
+  let settled = false;
+  let deadline;
+  let req;
+  const finish = (failure) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(deadline);
+    healthCheckInFlight = false;
+    // A response from a replaced process must not affect its replacement's health.
+    if (isShuttingDown || childProcess?.pid !== probedPid) return;
+    if (!failure) {
+      if (consecutiveFailures > 0) {
+        log(`Server đã khôi phục trạng thái hoạt động bình thường (200 OK) sau ${consecutiveFailures} lần cảnh báo.`);
+      }
+      consecutiveFailures = 0;
+      return;
+    }
+    consecutiveFailures++;
+    log(`${failure} (Lần ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, 'WARN');
+    evaluateHealthFailures();
+  };
+  const onTimeout = () => {
+    // Settle first: destroying a timed-out request also emits an error.
+    finish(`Health check timeout quá ${HEALTH_CHECK_TIMEOUT_MS}ms`);
+    try { req?.destroy(); } catch (_) {}
+  };
 
   try {
-    const req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: HEALTH_CHECK_TIMEOUT_MS }, (res) => {
+    req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: HEALTH_CHECK_TIMEOUT_MS }, (res) => {
       res.resume();
-      if (res.statusCode === 200) {
-        if (consecutiveFailures > 0) {
-          log(`Server đã khôi phục trạng thái hoạt động bình thường (200 OK) sau ${consecutiveFailures} lần cảnh báo.`);
-        }
-        consecutiveFailures = 0;
-      } else {
-        consecutiveFailures++;
-        log(`Health check trả về HTTP ${res.statusCode} (Lần ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, 'WARN');
-        evaluateHealthFailures();
-      }
+      finish(res.statusCode === 200 ? null : `Health check trả về HTTP ${res.statusCode}`);
     });
-
-    req.on('error', (err) => {
-      consecutiveFailures++;
-      log(`Health check kết nối thất bại: ${err.message} (Lần ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, 'WARN');
-      evaluateHealthFailures();
-    });
-
-    req.on('timeout', () => {
-      try { req.destroy(); } catch (_) {}
-      consecutiveFailures++;
-      log(`Health check timeout quá ${HEALTH_CHECK_TIMEOUT_MS}ms (Lần ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, 'WARN');
-      evaluateHealthFailures();
-    });
+    req.on('error', (err) => finish(`Health check kết nối thất bại: ${err.message}`));
+    req.on('timeout', onTimeout);
+    // Bound the entire probe, including connection setup, not only socket inactivity.
+    deadline = setTimeout(onTimeout, HEALTH_CHECK_TIMEOUT_MS);
+    if (settled) clearTimeout(deadline);
   } catch (err) {
-    consecutiveFailures++;
-    log(`Lỗi gọi health check: ${err.message}`, 'WARN');
-    evaluateHealthFailures();
+    finish(`Lỗi gọi health check: ${err.message}`);
   }
 }
 
@@ -491,7 +523,7 @@ function spawnClusterSync() {
   if (isShuttingDown) return;
   if (getSyncPid()) return;
 
-  log(`Khởi chạy tiến trình Realtime Cluster Synchronizer (PC <-> Mi 6)...`);
+  log(`Khởi chạy tiến trình Two-way Cluster Synchronizer (PC <-> Mi 6 phục vụ song song)...`);
   rotateLogIfNeeded(SYNC_LOG);
   const outStream = fs.openSync(SYNC_LOG, 'a');
   const errStream = fs.openSync(SYNC_LOG, 'a');
@@ -506,7 +538,7 @@ function spawnClusterSync() {
     const syncPid = syncProcess.pid;
     fs.writeFileSync(SYNC_PID_FILE, String(syncPid), 'utf8');
     tuneProcessPriorities(syncPid);
-    log(`Realtime Cluster Synchronizer đã khởi chạy thành công (PID: ${syncPid})`);
+    log(`Two-way Cluster Synchronizer đã khởi chạy thành công (PID: ${syncPid})`);
 
     syncProcess.on('error', (err) => {
       log(`Lỗi khởi tạo Cluster Synchronizer: ${err.message}`, 'ERROR');

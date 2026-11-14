@@ -154,7 +154,7 @@ async function getApplicableBundles(client, { slug = null, variantId = null } = 
     const vRows = (await client.query(
       `SELECT v.id FROM product_variants v
        JOIN products p ON p.id = v.product_id
-       WHERE (p.slug = $1 OR p.slug = $2) AND v.active = true AND p.active = true`,
+       WHERE (p.slug = $1 OR p.slug = $2) AND v.active = true AND p.active = true AND p.deleted_at IS NULL`,
       [slug, `gaeru-${slug}`]
     )).rows;
     targetVariantIds = vRows.map(r => r.id);
@@ -493,7 +493,7 @@ function mountBundles({ admin, publicRouter }, pool) {
         const vRows = (await pool.query(
           `SELECT v.id, v.price_vnd AS "priceVnd" FROM product_variants v
            JOIN products p ON p.id = v.product_id
-           WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true`,
+           WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true AND p.deleted_at IS NULL`,
           [vIds]
         )).rows;
 

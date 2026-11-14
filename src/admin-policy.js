@@ -2,11 +2,11 @@ const { requirePermission } = require("./staff-access");
 
 function adminPolicy(req, res, next) {
   const path = req.path.toLowerCase().replace(/\/$/, "");
+  const method = String(req.method || "GET").toUpperCase();
+  const read = method === "GET" || method === "HEAD";
   if (/^\/notifications(\/|$)/.test(path)) return next();
   if (/^\/shopping-chat(\/|$)/.test(path)) return next();
   if (/^\/ai-knowledge(?:\/|$)/.test(path)) return next();
-  if (/^\/internal-ai(?:\/|$)/.test(path)) return next();
-  const read = req.method === "GET";
   if (/^\/file-library(\/|$)/.test(path)) return next();
   if (/^\/marketing(\/|$)/.test(path)) return next();
   if (/^\/care-requests(\/|$)/.test(path)) return next();
@@ -15,16 +15,19 @@ function adminPolicy(req, res, next) {
   if (/^\/business(\/|$)/.test(path)) return next();
   if (/^\/(news|news-images)(\/|$)/.test(path)) return next();
   if (/^\/(product-workspace|catalog-images|catalog-videos|upload-batch-products)(\/|$)/.test(path)) return next();
-  let permission;
   if (/^\/pages(\/|$)/.test(path)) return next();
-  if (path === "/summary" || path === "/system-health" || path === "/traffic-summary") permission = "dashboard.read";
+  // Domain routers enforce their own operation-specific permissions.
+  if (/^\/(staff|departments|audit-logs|warehouses|inventory|suppliers|purchase-orders|goods-receipts|finance|reports|shipping|barcode|realtime-sse|marketplace|forecast|cod-returns)(\/|$)/.test(path)) return next();
+
+  let permission;
+  if (/^\/internal-ai(?:\/|$)/.test(path)) permission = "dashboard.read";
+  else if (path === "/summary" || path === "/system-health" || path === "/traffic-summary") permission = "dashboard.read";
   else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
-  else if (/^\/orders(\/|$)/.test(path)) permission = "orders.read";
+  else if (/^\/orders\/[^/]+\/permanent-delete$/.test(path) || (method === "DELETE" && /^\/orders\/[^/]+$/.test(path))) permission = "orders.permanent_delete";
+  else if (/^\/orders(\/|$)/.test(path)) permission = read ? "orders.read" : "orders.write";
   else if (/^\/customers(\/|$)/.test(path)) permission = read ? "customers.read" : "customers.write";
   else if (path === "/google-analytics") return next();
   else if (path === "/settings") permission = read ? "settings.read" : "settings.write";
-  // Domain routers enforce their own operation-specific permissions.
-  else if (/^\/(staff|departments|audit-logs|warehouses|inventory|suppliers|purchase-orders|goods-receipts|finance|reports|shipping|barcode|realtime-sse|marketplace|forecast|cod-returns)(\/|$)/.test(path)) return next();
   else return res.status(404).json({ error: "Không tìm thấy chức năng quản trị." });
   return requirePermission(permission)(req, res, next);
 }

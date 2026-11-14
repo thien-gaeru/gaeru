@@ -103,23 +103,37 @@ class ByteCappedLruCache {
   }
 }
 const preAvifCache = new ByteCappedLruCache(16 * 1024 * 1024);
+const preWebpCache = new ByteCappedLruCache(12 * 1024 * 1024);
 
 async function getPreGeneratedWebp(relative, width = null) {
   if (!width) return null;
+  const cacheKey = relative + ':w=' + width;
+  if (preWebpCache.has(cacheKey)) {
+    return preWebpCache.get(cacheKey);
+  }
+  let buffer = null;
   const map = getResponsiveMap();
   const variants = map['/assets/' + relative];
   const match = variants?.find(v => v.width === width || v.url.includes('-display-' + width + '-'));
   if (match?.url) {
     try {
       const diskFile = path.join(__dirname, '..', match.url.replace(/^\//, ''));
-      const buffer = await fs.readFile(diskFile);
-      if (buffer) {
-        return {
-          buffer,
-          etag: '"' + hash(buffer) + '-w' + width + '"'
-        };
-      }
+      buffer = await fs.readFile(diskFile);
     } catch (_) {}
+  }
+  if (!buffer && relative && relative.endsWith('.webp')) {
+    try {
+      const directWebp = path.join(__dirname, '..', 'assets', relative.replace(/\.webp$/, '-w' + width + '.webp'));
+      buffer = await fs.readFile(directWebp);
+    } catch (_) {}
+  }
+  if (buffer) {
+    const entry = {
+      buffer,
+      etag: '"' + hash(buffer) + '-w' + width + '"'
+    };
+    preWebpCache.set(cacheKey, entry);
+    return entry;
   }
   return null;
 }
@@ -138,6 +152,12 @@ async function getPreGeneratedAvif(relative, width = null) {
       try {
         const diskFile = path.join(__dirname, '..', match.avifUrl.replace(/^\//, ''));
         buffer = await fs.readFile(diskFile);
+      } catch (_) {}
+    }
+    if (!buffer && relative && relative.endsWith('.webp')) {
+      try {
+        const directSizedAvif = path.join(__dirname, '..', 'assets', relative.replace(/\.webp$/, '-w' + width + '.avif'));
+        buffer = await fs.readFile(directSizedAvif);
       } catch (_) {}
     }
     if (!buffer) return null;
@@ -190,8 +210,15 @@ async function warmStaticAssets(pool){
     if(row){
      await cache.get(row.storage_key,async()=>disk.read(row.storage_key));
     }
+    await getPreGeneratedAvif(rel,null);
    }catch{}
   }
+ }
+ for(const rel of ['products/k9.webp','products/m3-home-cutout.webp','products/p01.webp','products/g1-ultra-874bf1d3db77.webp','products/p185-cutout-1cc9dfde9fa3.webp']){
+  try{
+   await getPreGeneratedAvif(rel,480);
+   await getPreGeneratedAvif(rel,800);
+  }catch{}
  }
  for(const rel of [...m3Paths,...k9Paths]){
   try{
@@ -203,6 +230,9 @@ async function warmStaticAssets(pool){
     const raw=await fs.readFile(path.join(__dirname,'..','assets',rel));
     await cache.get('local:'+rel,()=>raw);
    }
+   await getPreGeneratedAvif(rel,null);
+   await getPreGeneratedAvif(rel,480);
+   await getPreGeneratedAvif(rel,800);
   }catch{}
  }
 }

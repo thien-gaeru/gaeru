@@ -3,6 +3,8 @@
 let currentCsrfToken = null;
 let refreshTimer = null;
 let allLogs = [];
+let serverAuthenticated = false;
+let lastActivityAt = 0;
 
 // Fetch CSRF Token
 async function ensureCsrf() {
@@ -18,7 +20,14 @@ async function checkAuth() {
   try {
     const res = await fetch('/server_admin/api/me');
     const data = await res.json();
-    if (data.authenticated) {
+    if (data.code === 'MFA_SETUP_REQUIRED') {
+      serverAuthenticated = false;
+      stopTelemetry();
+      window.location.assign('/gaeru_ceo#security');
+      return;
+    }
+    serverAuthenticated = res.ok && data.authenticated === true;
+    if (serverAuthenticated) {
       document.getElementById('login-modal').style.display = 'none';
       document.getElementById('top-device-badge').textContent = `${data.user.username} (${data.user.role}) · LG G7 ThinQ`;
       startTelemetry();
@@ -28,9 +37,24 @@ async function checkAuth() {
       stopTelemetry();
     }
   } catch (e) {
+    serverAuthenticated = false;
+    stopTelemetry();
     document.getElementById('login-modal').style.display = 'flex';
   }
 }
+
+// Telemetry polling is passive; only actual interaction refreshes the idle clock.
+async function recordActivity() {
+  if (!serverAuthenticated || Date.now() - lastActivityAt < 60000) return;
+  lastActivityAt = Date.now();
+  try {
+    await ensureCsrf();
+    const response = await fetch('/api/auth/activity', { method: 'POST', headers: { 'X-CSRF-Token': currentCsrfToken || '' } });
+    if (response.status === 401) await checkAuth();
+  } catch (_) {}
+}
+document.addEventListener('pointerdown', recordActivity, { passive: true });
+document.addEventListener('keydown', recordActivity);
 
 // Login Form Submit
 document.getElementById('server-login-form')?.addEventListener('submit', async (e) => {
@@ -54,12 +78,18 @@ document.getElementById('server-login-form')?.addEventListener('submit', async (
       },
       body: JSON.stringify({ username, password })
     });
-    const data = await res.json();
-    if (data.ok) {
-      document.getElementById('login-modal').style.display = 'none';
-      document.getElementById('top-device-badge').textContent = `${data.user.username} · LG G7 ThinQ`;
-      startTelemetry();
-      fetchDbSummary();
+    let data = await res.json();
+    if (data.csrfToken) currentCsrfToken = data.csrfToken;
+    if (data.mfaEnrollmentRequired) {
+      window.location.assign('/gaeru_ceo#security');
+      return;
+    }
+    if (data.mfaRequired) {
+      data = await window.GAERUSecurity.loginChallenge(data);
+      if (data.csrfToken) currentCsrfToken = data.csrfToken;
+      await checkAuth();
+    } else if (res.ok && data.ok) {
+      await checkAuth();
     } else {
       errBox.textContent = data.error || 'Đăng nhập không thành công.';
       errBox.style.display = 'block';
@@ -105,7 +135,7 @@ document.querySelectorAll('.nav-tab').forEach((tab) => {
 async function fetchStats() {
   try {
     const res = await fetch('/server_admin/api/stats');
-    if (res.status === 401) {
+    if (res.status === 401 || res.status === 403) {
       checkAuth();
       return;
     }
@@ -231,13 +261,28 @@ async function fetchDbSummary() {
     if (!data.ok || !data.tables) return;
     const tbody = document.getElementById('db-tables-body');
     if (tbody) {
-      tbody.innerHTML = data.tables.map(t => `
-        <tr>
-          <td><code style="color:var(--cyan); font-weight:600;">${t.table_name}</code></td>
-          <td style="font-family:var(--font-mono);">${Number(t.row_estimate).toLocaleString('vi-VN')} bản ghi</td>
-          <td style="font-family:var(--font-mono); font-weight:600;">${t.total_size}</td>
-        </tr>
-      `).join('');
+      tbody.textContent = '';
+      for (const t of (Array.isArray(data.tables) ? data.tables : [])) {
+        const tr = document.createElement('tr');
+        const tdName = document.createElement('td');
+        const code = document.createElement('code');
+        code.style.cssText = 'color:var(--cyan); font-weight:600;';
+        code.textContent = String(t.table_name ?? '');
+        tdName.appendChild(code);
+
+        const tdRows = document.createElement('td');
+        tdRows.style.fontFamily = 'var(--font-mono)';
+        tdRows.textContent = `${Number(t.row_estimate || 0).toLocaleString('vi-VN')} bản ghi`;
+
+        const tdSize = document.createElement('td');
+        tdSize.style.cssText = 'font-family:var(--font-mono); font-weight:600;';
+        tdSize.textContent = String(t.total_size ?? '');
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdRows);
+        tr.appendChild(tdSize);
+        tbody.appendChild(tr);
+      }
     }
   } catch (_) {}
 }

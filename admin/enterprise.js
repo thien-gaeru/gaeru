@@ -364,14 +364,17 @@
     renderRolePermissions(form);
   }
   function renderRolePermissions(form) {
-    const role = Array.isArray(e.roles) ? e.roles.find((item) => item.id === form.elements.role.value) : null;
-    const scopes = { dashboard: "Tổng quan", catalog: "Sản phẩm", inventory: "Kho hàng", orders: "Đơn bán", payments: "Thu tiền khách", customers: "Khách hàng", suppliers: "Nhà cung cấp", purchases: "Mua hàng", finance: "Tài chính", reports: "Báo cáo", staff: "Nhân viên", audit: "Nhật ký", settings: "Cài đặt", warranty: "Bảo hành", payroll: "Tiền lương", tax: "Thuế", invoice: "Hóa đơn", marketplace: "Sàn TMĐT" };
+    const roleKey = (item) => (typeof item === "string" ? item : item?.key || item?.role || item?.id || item?.name || "");
+    const role = Array.isArray(e.roles) ? e.roles.find((item) => roleKey(item) === form.elements.role.value) : null;
+    const scopes = { dashboard: "Tổng quan", catalog: "Sản phẩm", inventory: "Kho hàng", orders: "Đơn bán", payments: "Thu tiền khách", customers: "Khách hàng", suppliers: "Nhà cung cấp", purchases: "Mua hàng", finance: "Tài chính", reports: "Báo cáo", staff: "Nhân viên", audit: "Nhật ký", settings: "Cài đặt", warranty: "Bảo hành", payroll: "Tiền lương", tax: "Thuế", invoice: "Hóa đơn", marketplace: "Sàn TMĐT", chat: "Tư vấn" };
+    const actionLabels = { read: "xem", write: "thao tác", approve: "duyệt", permanent_delete: "xóa vĩnh viễn", "files.delete": "xóa tệp" };
     const grouped = {};
     for (const permission of role?.permissions || []) {
-      const [scope, action] = permission.split(".");
-      (grouped[scope] ||= []).push(({ read: "xem", write: "thao tác", approve: "duyệt" })[action]);
+      const [scope, ...rest] = String(permission || "").split(".");
+      const action = rest.join(".");
+      (grouped[scope] ||= []).push(actionLabels[action] || action);
     }
-    form.querySelector("[data-role-permissions]").innerHTML = `<strong>Quyền của vai trò</strong><div>${Object.entries(grouped).map(([scope, actions]) => `<span>${scopes[scope] || "Nghiệp vụ"}: ${actions.join(", ")}</span>`).join("")}</div>`;
+    form.querySelector("[data-role-permissions]").innerHTML = `<strong>Quyền của vai trò</strong><div>${Object.entries(grouped).map(([scope, actions]) => `<span>${h(scopes[scope] || "Nghiệp vụ")}: ${h(actions.join(", "))}</span>`).join("")}</div>`;
   }
 
   function advertisingCoverage(entry) {

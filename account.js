@@ -238,9 +238,32 @@ const initialAccountQuery = new URLSearchParams(window.location.search);
 const initialOauthError = initialAccountQuery.get('oauthError');
 const linkRequired = initialAccountQuery.get('linkRequired');
 const linkEmail = initialAccountQuery.get('email');
+const initialMfaRequired = initialAccountQuery.get('mfaRequired');
 
 async function showInitialOAuthFeedback() {
-  if (!initialOauthError && !linkRequired) return;
+  if (!initialOauthError && !linkRequired && !initialMfaRequired) return;
+  if (initialMfaRequired && window.GAERUSecurity?.loginChallenge) {
+    const query = new URLSearchParams(window.location.search);
+    query.delete('mfaRequired');
+    history.replaceState(null, '', window.location.pathname + (query.size ? '?' + query : '') + (window.location.hash || '#login'));
+    try {
+      const pendingRes = await fetch('/api/account-security/login/pending', { credentials: 'same-origin', cache: 'no-store' });
+      const pendingData = pendingRes.ok ? await pendingRes.json() : null;
+      if (pendingData?.mfaRequired) {
+        if (pendingData.csrfToken) accountCsrfToken = pendingData.csrfToken;
+        const complete = await window.GAERUSecurity.loginChallenge(pendingData);
+        if (complete?.csrfToken) accountCsrfToken = complete.csrfToken;
+        if (complete?.customer) {
+          showCustomerProfile(complete.customer);
+          history.replaceState(null, '', window.location.pathname + '#customer-account');
+          await confirmContactChangeFromUrl();
+        }
+      }
+    } catch (error) {
+      setAccountFeedback(error?.message || 'Phiên xác thực đã hết hạn. Vui lòng đăng nhập lại.', true);
+    }
+    return;
+  }
   if (linkRequired) {
     let email = linkEmail;
     if (!email) {

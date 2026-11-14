@@ -9,6 +9,10 @@ const path = require('path');
 const net = require('net');
 const { exec, execFile } = require('child_process');
 const { getCsrfToken, requireCsrf } = require('./security');
+const { createAdminAccess, bootstrapPrincipal, bootstrapCredentialVersion, principalFromStaff } = require('./staff-access');
+const { resolveLogin } = require('./admin-login-identity');
+const { adminSessionPolicy, stampAdminSession } = require('./admin-session-policy');
+const { enrollment, sharedStore } = require('./security-hardening');
 
 function checkTcpPort(port, host = '127.0.0.1', timeout = 400) {
   return new Promise((resolve) => {
@@ -138,7 +142,7 @@ function readTailLines(filePath, maxLines = 100) {
     const lines = str.split(/\r?\n/).filter(Boolean);
     return lines.slice(-maxLines);
   } catch (e) {
-    return [`[Lỗi khi đọc log: ${e.message}]`];
+    return ['[Không thể đọc log máy chủ.]'];
   }
 }
 
@@ -150,6 +154,26 @@ function createServerAdminRouter(config, pool) {
   const adminHtmlPath = path.join(adminDir, 'server-admin.html');
   const adminCssPath = path.join(adminDir, 'server-admin.css');
   const adminJsPath = path.join(adminDir, 'server-admin.js');
+
+  // The server console uses the same revocable identity as the store admin.
+  // Legacy serverAdmin sessions deliberately require a fresh login.
+  router.use(async (req, res, next) => {
+    if (!req.path.toLowerCase().startsWith('/server_admin/api/')) return next();
+    try {
+      if (req.session) delete req.session.serverAdmin;
+      if (req.session?.admin) {
+        if (pool && !req.adminSessionLimits) req.adminSessionLimits = (await require('./admin-configuration').readRecord(pool, config, 'security')).data;
+        adminSessionPolicy(req, res, () => {});
+        const identity = req.session?.admin;
+        if (identity && config.accountSecurity) {
+          const key = identity.source === 'bootstrap' ? 'owner' : 'staff:' + identity.id;
+          const current = await config.accountSecurity.version(key);
+          if (current !== (req.session.securityVersion || 1)) delete req.session.admin;
+        }
+      }
+      next();
+    } catch (error) { next(error); }
+  });
 
   // Serve static assets for server admin
   router.get('/server_admin/server-admin.css', (_req, res) => {
@@ -170,6 +194,7 @@ function createServerAdminRouter(config, pool) {
 
   // Rate limiter for server admin login
   const loginLimiter = rateLimit({
+    ...sharedStore(pool, config, 'server-admin-login'),
     windowMs: 15 * 60 * 1000,
     limit: 15,
     standardHeaders: 'draft-8',
@@ -177,15 +202,11 @@ function createServerAdminRouter(config, pool) {
     message: { ok: false, error: 'Quá nhiều lần thử đăng nhập. Vui lòng chờ 15 phút.' }
   });
 
-  // Authentication check helper
-  function isServerAdmin(req) {
-    return Boolean(req.session?.serverAdmin || (req.session?.admin && (req.session.admin.role === 'owner' || req.session.admin.source === 'bootstrap' || req.session.admin.username === config.ADMIN_USERNAME)));
-  }
-
-  function requireServerAdmin(req, res, next) {
-    if (isServerAdmin(req)) return next();
-    return res.status(401).json({ ok: false, error: 'Yêu cầu đăng nhập quản trị viên máy chủ.' });
-  }
+  const canManageServer = principal => principal && ['owner', 'admin'].includes(principal.role);
+  const requireServerAdmin = [createAdminAccess(pool, config), (req, res, next) => {
+    if (!canManageServer(req.admin)) return res.status(403).json({ ok: false, error: 'Chỉ chủ doanh nghiệp và quản trị viên được quản lý máy chủ.' });
+    next();
+  }];
 
   // 1. Redirect /server -> /server_admin
   router.get(['/server', '/server/'], (_req, res) => res.redirect(302, '/server_admin'));
@@ -215,80 +236,47 @@ function createServerAdminRouter(config, pool) {
   });
 
   // 4. Session Info: GET /server_admin/api/me
-  router.get('/server_admin/api/me', (req, res) => {
-    if (isServerAdmin(req)) {
-      const user = req.session.serverAdmin || {
-        username: req.session.admin?.username || config.ADMIN_USERNAME || 'admin',
-        role: 'Server Administrator / Owner',
-        source: req.session.admin?.source || 'direct'
-      };
-      return res.json({
-        authenticated: true,
-        user: {
-          username: user.username,
-          role: user.role || 'Quản trị viên Hệ thống (Root / Owner)',
-          loginAt: user.loginAt || new Date().toISOString()
-        }
-      });
-    }
-    res.json({ authenticated: false });
-  });
+  router.get('/server_admin/api/me', (req, res, next) => {
+    if (!req.session?.admin) return res.json({ authenticated: false });
+    next();
+  }, requireServerAdmin, (req, res) => res.json({
+    authenticated: true,
+    user: { username: req.admin.username, role: req.admin.role, loginAt: new Date(req.session.adminAuthenticatedAt).toISOString() }
+  }));
 
   // 5. Login: POST /server_admin/api/login (F03: Đồng bộ mật khẩu DB & MFA trung tâm)
-  router.post('/server_admin/api/login', loginLimiter, async (req, res) => {
+  router.post('/server_admin/api/login', loginLimiter, requireCsrf, async (req, res, next) => {
     try {
       const { username, password } = req.body || {};
-      if (!username || !password) {
+      if (typeof username !== 'string' || !username.trim() || username.length > 254 || typeof password !== 'string' || !password || password.length > 200 || Buffer.byteLength(password, 'utf8') > 72) {
         return res.status(400).json({ ok: false, error: 'Vui lòng nhập tên đăng nhập và mật khẩu.' });
       }
 
       const inputUser = String(username).trim();
       const inputPass = String(password);
 
-      let authorized = false;
-      let adminRole = 'Server Administrator';
-      let securityKey = 'owner';
-
-      // 1. Lấy cấu hình bảo mật mới nhất từ DB qua accountSecurity (nếu có)
       const effectiveConfig = config?.accountSecurity ? await config.accountSecurity.ownerConfig() : config;
-
-      // 2. Xác thực tài khoản Quản trị viên tối cao (Master Owner)
-      const masterUser = config.ADMIN_USERNAME || 'admin';
-      const isMaster = (inputUser === masterUser || inputUser === 'owner' || inputUser === 'u0_a184');
-
-      if (isMaster) {
-        const hash = effectiveConfig.ADMIN_PASSWORD_HASH || config.ADMIN_PASSWORD_HASH;
-        if (hash) {
-          authorized = await bcrypt.compare(inputPass, hash);
+      const resolved = await resolveLogin(pool, config, inputUser);
+      let principal = null;
+      let identity;
+      if (resolved?.source === 'bootstrap') {
+        if (await bcrypt.compare(inputPass, effectiveConfig.ADMIN_PASSWORD_HASH)) {
+          principal = bootstrapPrincipal(effectiveConfig);
+          identity = { source: 'bootstrap', username: config.ADMIN_USERNAME, credentialVersion: bootstrapCredentialVersion(effectiveConfig) };
         }
-        securityKey = 'owner';
-        adminRole = 'Server Administrator / Owner';
+      } else {
+        const employee = resolved?.staff;
+        const matches = await bcrypt.compare(inputPass, employee?.passwordHash || effectiveConfig.ADMIN_PASSWORD_HASH);
+        if (matches) {
+          principal = principalFromStaff(employee);
+          if (principal) identity = { source: 'staff', id: employee.id, username: employee.username, authVersion: employee.authVersion };
+        }
       }
-
-      // 3. Nếu không phải Master, kiểm tra tài khoản nhân viên quản trị trong bảng staff_accounts
-      if (!authorized && pool) {
-        try {
-          const staffRes = await pool.query(
-            `SELECT id, username, password_hash, role, active 
-             FROM staff_accounts 
-             WHERE (username = $1 OR email = $1) AND active = true`,
-            [inputUser]
-          );
-          if (staffRes.rows.length > 0) {
-            const staff = staffRes.rows[0];
-            const match = await bcrypt.compare(inputPass, staff.password_hash);
-            if (match) {
-              authorized = true;
-              adminRole = staff.role || 'Administrator';
-              securityKey = 'staff:' + staff.id;
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (!authorized) {
+      if (!principal) {
         return res.status(401).json({ ok: false, error: 'Tên đăng nhập hoặc mật khẩu máy chủ không đúng.' });
       }
+      if (!canManageServer(principal)) return res.status(403).json({ ok: false, error: 'Chỉ chủ doanh nghiệp và quản trị viên được quản lý máy chủ.' });
+      const securityKey = identity.source === 'bootstrap' ? 'owner' : 'staff:' + identity.id;
 
       // 4. Kiểm tra MFA / TOTP 2FA trung tâm qua accountSecurity (F03)
       if (config?.accountSecurity && typeof config.accountSecurity.beginLogin === 'function') {
@@ -297,16 +285,13 @@ function createServerAdminRouter(config, pool) {
       }
 
       // 5. Tái sinh phiên làm việc và bảo đảm an toàn CSRF
+      const shoppingChatOwner = req.session?.shoppingChatOwner || null;
       if (typeof req.session.regenerate === 'function') {
-        await new Promise((resolve) => req.session.regenerate(resolve));
+        await new Promise((resolve, reject) => req.session.regenerate(error => error ? reject(error) : resolve()));
       }
-
-      req.session.serverAdmin = {
-        username: inputUser,
-        role: adminRole,
-        loginAt: new Date().toISOString(),
-        ip: req.ip
-      };
+      if (shoppingChatOwner) req.session.shoppingChatOwner = shoppingChatOwner;
+      req.session.admin = identity;
+      stampAdminSession(req.session);
 
       if (config?.accountSecurity && typeof config.accountSecurity.stamp === 'function') {
         await config.accountSecurity.stamp(req, securityKey);
@@ -314,29 +299,31 @@ function createServerAdminRouter(config, pool) {
 
       const crypto = require('node:crypto');
       req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+      const mfaEnrollmentRequired = await enrollment(config, req, principal);
 
       req.session.save((err) => {
         if (err) return res.status(500).json({ ok: false, error: 'Không thể lưu phiên đăng nhập.' });
         res.json({
-          ok: true,
+          ok: !mfaEnrollmentRequired,
+          mfaEnrollmentRequired,
           user: {
-            username: inputUser,
-            role: adminRole,
-            loginAt: req.session.serverAdmin.loginAt
+            username: principal.username,
+            role: principal.role,
+            loginAt: new Date(req.session.adminAuthenticatedAt).toISOString()
           },
           csrfToken: req.session.csrfToken
         });
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      next(e);
     }
   });
 
   // 6. Logout: POST /server_admin/api/logout
-  router.post('/server_admin/api/logout', (req, res) => {
-    delete req.session.serverAdmin;
-    req.session.save((err) => {
+  router.post('/server_admin/api/logout', requireCsrf, (req, res) => {
+    req.session.destroy((err) => {
       if (err) return res.status(500).json({ ok: false, error: 'Không thể hủy phiên.' });
+      res.clearCookie('gaeru.sid');
       res.json({ ok: true });
     });
   });
@@ -481,12 +468,13 @@ function createServerAdminRouter(config, pool) {
         }
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      console.error('[server-admin] internal error:', e);
+      res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ.' });
     }
   });
 
   // 8. Service Action Controls: POST /server_admin/api/action
-  router.post('/server_admin/api/action', requireServerAdmin, async (req, res) => {
+  router.post('/server_admin/api/action', requireServerAdmin, requireCsrf, async (req, res) => {
     try {
       const { action } = req.body || {};
       if (!action) return res.status(400).json({ ok: false, error: 'Thiếu tham số hành động.' });
@@ -542,8 +530,8 @@ function createServerAdminRouter(config, pool) {
           break;
         }
         case 'drop-caches': {
-          const out = await runCommand('su -c "sync; echo 3 > /proc/sys/vm/drop_caches" || sync');
-          result = { message: 'Đã gửi tín hiệu giải phóng PageCache & Dentry/Inode Cache.', detail: out.stdout || 'OK' };
+          try { require('./cache').flushAllCache(); } catch (_) {}
+          result = { message: 'Đã xóa bộ nhớ đệm ứng dụng (in-memory cache). Can thiệp /proc kernel drop_caches đã bị vô hiệu hóa để bảo đảm an toàn hệ thống.', detail: 'app-cache-flushed' };
           break;
         }
         case 'restart-node': {
@@ -559,7 +547,8 @@ function createServerAdminRouter(config, pool) {
 
       res.json({ ok: true, ...result });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      console.error('[server-admin] internal error:', e);
+      res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ.' });
     }
   });
 
@@ -597,12 +586,12 @@ function createServerAdminRouter(config, pool) {
       res.json({
         ok: true,
         source,
-        path: logPath,
         lineCount: lines.length,
         lines
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      console.error('[server-admin] internal error:', e);
+      res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ.' });
     }
   });
 
@@ -629,13 +618,17 @@ function createServerAdminRouter(config, pool) {
         tables: result.rows
       });
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      console.error('[server-admin] internal error:', e);
+      res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ.' });
     }
   });
 
   // 11. Database Backup (Export schema & table data as JSON/SQL): GET /server_admin/api/db-backup
-  router.get('/server_admin/api/db-backup', requireServerAdmin, async (_req, res) => {
+  router.get('/server_admin/api/db-backup', requireServerAdmin, async (req, res) => {
     try {
+      if (req.admin?.role !== 'owner' || req.admin?.source !== 'bootstrap') {
+        return res.status(403).json({ ok: false, error: 'Chỉ chủ doanh nghiệp mới có quyền sao lưu dữ liệu.' });
+      }
       if (!pool) return res.status(503).json({ ok: false, error: 'Database pool không khả dụng.' });
 
       res.setHeader('Content-Type', 'application/json');
@@ -653,19 +646,59 @@ function createServerAdminRouter(config, pool) {
         tables: {}
       };
 
+      const EXCLUDED_BACKUP_TABLES = new Set([
+        'sessions', 'staff_accounts', 'account_security', 'security_challenges',
+        'admin_configuration', 'web_push_subscriptions', 'email_outbox'
+      ]);
+      const REDACT_COLS = new Set([
+        'password_hash', 'totp_secret', 'recovery_codes_hash',
+        'recovery_token', 'recovery_token_hash', 'sess'
+      ]);
+      const sanitizeRow = (row) => {
+        const clean = { ...row };
+        for (const col of REDACT_COLS) {
+          if (Object.prototype.hasOwnProperty.call(clean, col)) clean[col] = '[REDACTED]';
+        }
+        return clean;
+      };
+      const BATCH_SIZE = 500;
+      const MAX_ROWS_PER_TABLE = 50000;
+      if (!res.getHeader('Content-Type')) res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.write('{\n  "meta": ' + JSON.stringify({ ...backupData.meta, truncatedAt: MAX_ROWS_PER_TABLE }) + ',\n  "tables": {\n');
+      let firstTable = true;
       for (const row of tablesRes.rows) {
         const tbl = row.tablename;
+        if (EXCLUDED_BACKUP_TABLES.has(tbl)) continue;
         try {
-          // F08: Bỏ LIMIT 1000 ngầm để trích xuất đầy đủ 100% dữ liệu các bảng
-          const dataRes = await pool.query(`SELECT * FROM "${tbl}"`);
-          backupData.tables[tbl] = dataRes.rows;
-          backupData.meta.tableCounts[tbl] = dataRes.rowCount ?? dataRes.rows.length;
+          const firstBatch = await pool.query(`SELECT * FROM "${tbl}" LIMIT $1 OFFSET $2`, [BATCH_SIZE, 0]);
+          if (!firstTable) res.write(',\n');
+          firstTable = false;
+          res.write(`    ${JSON.stringify(tbl)}: [`);
+          let offset = 0;
+          let count = 0;
+          let batchRows = firstBatch.rows || [];
+          while (count < MAX_ROWS_PER_TABLE) {
+            for (let i = 0; i < batchRows.length && count < MAX_ROWS_PER_TABLE; i++) {
+              if (count > 0) res.write(',');
+              res.write(JSON.stringify(sanitizeRow(batchRows[i])));
+              count++;
+            }
+            if (batchRows.length < BATCH_SIZE || count >= MAX_ROWS_PER_TABLE) break;
+            offset += batchRows.length;
+            const nextLimit = Math.min(BATCH_SIZE, MAX_ROWS_PER_TABLE - count);
+            const nextRes = await pool.query(`SELECT * FROM "${tbl}" LIMIT $1 OFFSET $2`, [nextLimit, offset]);
+            batchRows = nextRes.rows || [];
+          }
+          res.write(']');
+          backupData.meta.tableCounts[tbl] = count;
         } catch (_) {}
       }
-
-      res.send(JSON.stringify(backupData, null, 2));
+      res.write('\n  },\n  "tableCounts": ' + JSON.stringify(backupData.meta.tableCounts) + '\n}');
+      return res.end();
     } catch (e) {
-      res.status(500).json({ ok: false, error: e.message });
+      console.error('[server-admin] db-backup error:', e);
+      if (res.headersSent) return res.end();
+      res.status(500).json({ ok: false, error: 'Lỗi máy chủ nội bộ.' });
     }
   });
 

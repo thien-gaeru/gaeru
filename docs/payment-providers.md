@@ -28,6 +28,8 @@ Tắt kênh chỉ chặn đơn mới; callback tiếp tục dùng cấu hình me
 
 Chỉ IPN có chữ ký hợp lệ hoặc thao tác đối soát được chủ xác thực ghi nhận tiền. Browser return chỉ hiển thị; tham số `result`, `status` hoặc URL không làm đơn thành đã thanh toán. Trang kết quả đọc trạng thái máy chủ tối đa 6 lần trong 30 giây, có timeout và kiểm tra lại thủ công. Đơn đã hủy nhận thanh toán muộn vẫn giữ trạng thái hủy và cần đối chiếu; không tự chuyển sang giao hàng.
 
+Return của MoMo/ZaloPay chỉ cấp token xem đơn khi chữ ký của nhà cung cấp hợp lệ. URL thiếu hoặc sai chữ ký không cấp quyền xem dữ liệu đơn; khách vẫn có thể xem bằng phiên đặt hàng hiện có. ZaloPay kiểm tra riêng checksum chuyển hướng bằng Key 2 trên các trường `appid|apptransid|pmcid|bankcode|amount|discountamount|status`, khác với MAC của callback JSON. Chữ ký chuyển hướng hợp lệ cũng không tự ghi nhận thanh toán.
+
 Callback lặp không ghi thêm phiếu thu. Lỗi tạo phiên làm rollback giao dịch cục bộ gồm đơn, giữ kho và hàng đợi email. Client không tự retry API tạo phiên khi kết quả nhà cung cấp chưa rõ. Lời gọi tạo phiên được giới hạn 30 giây/64 KiB; hiện còn nằm trong giao dịch tạo đơn, nên thời gian giữ khóa DB phụ thuộc độ trễ nhà cung cấp. Kiểm thử tải và cải tiến điều phối giao dịch là việc riêng trước khi mở rộng lưu lượng.
 
 ## Migration và điều kiện phát hành
@@ -44,3 +46,4 @@ Kiểm thử dùng PGlite và phản hồi provider mô phỏng theo đặc tả
 - [ZaloPay tạo đơn](https://docs.zalopay.vn/vi/docs/specs/order-create/)
 - [ZaloPay truy vấn](https://docs.zalopay.vn/vi/docs/specs/order-query/)
 - [ZaloPay callback](https://docs.zalopay.vn/vi/docs/specs/callback-api/)
+- [ZaloPay checksum chuyển hướng](https://developer.zalopay.vn/v2/docs/gateway/api.html#redirect)

@@ -282,6 +282,21 @@ function createCodReturnIntake(pool) {
           [shipment.orderId, cancelReason]
         );
 
+        await client.query(
+          `UPDATE payment_attempts
+           SET status = 'failed',
+               updated_at = now()
+           WHERE order_id = $1 AND status = 'pending'`,
+          [shipment.orderId]
+        );
+
+        await client.query(
+          `UPDATE voucher_redemptions
+           SET released = true
+           WHERE order_id = $1 AND released = false`,
+          [shipment.orderId]
+        );
+
         // Cập nhật hành trình vận đơn
         const history = Array.isArray(shipment.tracking_history) ? shipment.tracking_history : [];
         history.push({

@@ -2,7 +2,7 @@
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
 const disk=require('./lib/file-library-storage');
-const TABLES=['catalog_images','news_images','marketing_banner_images','catalog_videos','shopping_chat_files'];
+const TABLES=['catalog_images','news_images','marketing_banner_images','catalog_videos','shopping_chat_files','care_message_files'];
 const RETENTION_DAYS=30;
 const fail=(message,status=400)=>Object.assign(Error(message),{status});
 function storageKey(content){

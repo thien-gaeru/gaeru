@@ -19,9 +19,28 @@ let learnedKnowledgeCache = null;
 let cacheExpiresAt = 0;
 const CACHE_TTL_MS = 60000;
 
-function invalidateCache() {
+function clearLocalCache() {
   learnedKnowledgeCache = null;
   cacheExpiresAt = 0;
+}
+
+function invalidateCache() {
+  clearLocalCache();
+  if (typeof process.send === 'function') {
+    try {
+      process.send({ type: 'AI_KNOWLEDGE_INVALIDATE', timestamp: Date.now() });
+    } catch (_) {}
+  }
+}
+
+const IPC_LISTENER_KEY = Symbol.for('gaeru.aiSelfLearning.ipcRegistered');
+if (typeof process.on === 'function' && !process[IPC_LISTENER_KEY]) {
+  process[IPC_LISTENER_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg && msg.type === 'AI_KNOWLEDGE_INVALIDATE') {
+      clearLocalCache();
+    }
+  });
 }
 
 /**
@@ -206,7 +225,8 @@ async function learnFromInteraction(pool, {
   sourceType = 'customer_chat',
   question,
   answer,
-  confidence = 0.85,
+  confidence = 0.70,
+  status: requestedStatus = null,
   metadata = {}
 }) {
   if (!pool || typeof pool.query !== 'function') return null;
@@ -223,7 +243,8 @@ async function learnFromInteraction(pool, {
 
   // Bảo vệ Zero-Trust F10: Tuyệt đối không tự học từ các câu hỏi liên quan tới đơn hàng, mã vận đơn, thông tin cá nhân
   const normBoth = normQ + ' ' + normalizeText(cleanA);
-  if (/\[(?:sdt|email|ma_don|so_tai_khoan|ma_van_don|khach_hang|dia_chi)_da_an\]|\[ma_don_hang\]|\[ma_van_don\]/i.test(cleanQ + ' ' + cleanA) ||
+  // Placeholder do sanitizePii() sinh ra có dấu (VD: [SĐT_ĐÃ_ẨN]) nên phải so khớp trên văn bản đã bỏ dấu
+  if (/\[(?:sdt_da_an|email_da_an|ma_don_hang|so_tai_khoan_da_an|ma_van_don|khach_hang_da_an|dia_chi_da_an)\]/i.test(normalizeText(cleanQ + ' ' + cleanA)) ||
       /(?:don hang|tra cuu don|van don|dia chi giao|phi ship cua don|hoan tien|huy don|chuyen khoan)/i.test(normBoth)) {
     return null;
   }
@@ -234,10 +255,14 @@ async function learnFromInteraction(pool, {
 
   const topic = synthesizeTopic(triggers, cleanQ);
 
+  const harvestedKey = metadata && typeof metadata === 'object'
+    ? (metadata.harvestedKey || (metadata.harvestedAt && metadata.threadId ? `${metadata.threadId}:${cleanQ}:${cleanA}` : null))
+    : null;
+
   try {
-    // 1. Kiểm tra xem đã có tri thức tương tự chưa (dựa trên tập triggers trùng lặp >= 70%)
+    // 1. Kiểm tra xem đã có tri thức tương tự chưa (siết tỷ lệ trùng trigger để tránh gộp nhầm chủ đề khác)
     const existingRes = await pool.query(`
-      SELECT id, topic, triggers, learned_facts, confidence_score, occurrence_count
+      SELECT id, source_type, topic, triggers, learned_facts, sample_question, sample_answer, confidence_score, occurrence_count, status, metadata
       FROM ai_learned_knowledge
       WHERE triggers && $1::text[]
       ORDER BY occurrence_count DESC
@@ -248,19 +273,63 @@ async function learnFromInteraction(pool, {
     for (const row of existingRes.rows) {
       const rowTrigs = new Set((row.triggers || []).map(normalizeText));
       const common = triggers.filter(t => rowTrigs.has(normalizeText(t)));
-      if (common.length >= Math.min(2, triggers.length)) {
+      const minRequiredCommon = triggers.length >= 3
+        ? Math.max(2, Math.ceil(Math.min(triggers.length, rowTrigs.size) * 0.5))
+        : Math.min(2, triggers.length);
+      if (common.length >= minRequiredCommon) {
         matchedExisting = row;
         break;
       }
     }
 
     if (matchedExisting) {
-      // Củng cố tri thức đã có: Tăng số lần xuất hiện và nâng độ tin cậy
+      let existingMeta = {};
+      if (matchedExisting.metadata && typeof matchedExisting.metadata === 'object' && !Array.isArray(matchedExisting.metadata)) {
+        existingMeta = matchedExisting.metadata;
+      } else if (typeof matchedExisting.metadata === 'string') {
+        try {
+          const parsedMeta = JSON.parse(matchedExisting.metadata);
+          if (parsedMeta && typeof parsedMeta === 'object' && !Array.isArray(parsedMeta)) existingMeta = parsedMeta;
+        } catch (_) {}
+      }
+      const existingKeys = Array.isArray(existingMeta.harvestedKeys) ? existingMeta.harvestedKeys : [];
+      const existingConf = parseFloat(matchedExisting.confidence_score) || 0.70;
+      const isDuplicateHarvest = Boolean(
+        (harvestedKey && existingKeys.includes(harvestedKey)) ||
+        (metadata?.harvestedAt && metadata?.threadId && existingMeta.threadId === metadata.threadId &&
+          matchedExisting.sample_question === cleanQ && matchedExisting.sample_answer === cleanA)
+      );
+      if (isDuplicateHarvest) {
+        return {
+          action: 'duplicate',
+          id: matchedExisting.id,
+          topic: matchedExisting.topic,
+          count: matchedExisting.occurrence_count || 1,
+          confidence: existingConf
+        };
+      }
+
+      // Củng cố tri thức đã có: Không để hội thoại khách hàng hay quét lặp lại tự ý ghi đè mẫu chuẩn hoặc bơm điểm quá ngưỡng
+      const isBatchHarvest = requestedStatus === 'pending_review' || Boolean(metadata?.harvestedAt);
+      const isTrustedSource = !isBatchHarvest && (sourceType === 'staff_guidance' || sourceType === 'manual');
       const newCount = (matchedExisting.occurrence_count || 1) + 1;
-      const newScore = Math.min(1.00, (parseFloat(matchedExisting.confidence_score) || 0.85) + 0.03);
-      
+      const bump = isTrustedSource ? 0.03 : 0.01;
+      const cap = isTrustedSource ? 1.00 : (isBatchHarvest ? Math.max(existingConf, 0.85) : Math.max(existingConf, 0.84));
+      const newScore = Math.min(cap, Math.min(1.00, existingConf + bump));
+      const canUpdateSample = isTrustedSource || ((matchedExisting.source_type === sourceType || !matchedExisting.source_type) && confidence >= existingConf);
+      const nextSampleQ = canUpdateSample ? cleanQ : (matchedExisting.sample_question || cleanQ);
+      const nextSampleA = canUpdateSample ? cleanA : (matchedExisting.sample_answer || cleanA);
+
       // Hợp nhất thêm triggers mới nếu có
       const mergedTriggers = Array.from(new Set([...(matchedExisting.triggers || []), ...triggers]));
+      const nextKeys = harvestedKey
+        ? Array.from(new Set([...existingKeys, harvestedKey])).slice(-200)
+        : existingKeys;
+      const nextMeta = {
+        ...existingMeta,
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        ...(nextKeys.length ? { harvestedKeys: nextKeys } : {})
+      };
 
       await pool.query(`
         UPDATE ai_learned_knowledge
@@ -269,9 +338,10 @@ async function learnFromInteraction(pool, {
             triggers = $3,
             sample_question = $4,
             sample_answer = $5,
+            metadata = $7::jsonb,
             updated_at = NOW()
         WHERE id = $6
-      `, [newCount, newScore, mergedTriggers, cleanQ, cleanA, matchedExisting.id]);
+      `, [newCount, newScore, mergedTriggers, nextSampleQ, nextSampleA, matchedExisting.id, JSON.stringify(nextMeta)]);
 
       invalidateCache();
       return {
@@ -282,9 +352,15 @@ async function learnFromInteraction(pool, {
         confidence: newScore
       };
     } else {
-      // Thêm tri thức tự học hoàn toàn mới
+      // Thêm tri thức tự học hoàn toàn mới (hội thoại khách hàng / AI tự động cần duyệt qua pending_review)
       const newId = randomUUID();
-      const status = confidence >= 0.80 ? 'active' : 'pending_review';
+      const explicitStatus = ['active', 'pending_review', 'archived'].includes(requestedStatus) ? requestedStatus : null;
+      const autoActiveThreshold = (sourceType === 'customer_chat' || sourceType === 'internal_copilot') ? 0.88 : 0.80;
+      const status = explicitStatus || (confidence >= autoActiveThreshold ? 'active' : 'pending_review');
+      const initialMeta = {
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        ...(harvestedKey ? { harvestedKeys: [harvestedKey] } : {})
+      };
 
       await pool.query(`
         INSERT INTO ai_learned_knowledge (
@@ -303,7 +379,7 @@ async function learnFromInteraction(pool, {
         cleanA,
         confidence,
         status,
-        JSON.stringify(metadata)
+        JSON.stringify(initialMeta)
       ]);
 
       invalidateCache();
@@ -349,10 +425,15 @@ async function scanAndHarvestPastChats(pool, { limit = 100 } = {}) {
   try {
     // Tìm các luồng chat có sự tham gia của khách hàng và phản hồi của nhân viên hoặc câu trả lời hữu ích
     const messagesRes = await pool.query(`
-      SELECT m.id, m.thread_id, m.sender, m.body, m.created_at
-      FROM shopping_chat_messages m
-      ORDER BY m.thread_id, m.created_at ASC
-      LIMIT $1
+      WITH recent_msgs AS (
+        SELECT m.id, m.thread_id, m.sender, m.body, m.created_at
+        FROM shopping_chat_messages m
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT $1
+      )
+      SELECT id, thread_id, sender, body, created_at
+      FROM recent_msgs
+      ORDER BY thread_id ASC, created_at ASC, id ASC
     `, [Math.max(10, Math.min(500, limit))]);
 
     const threads = new Map();
@@ -369,18 +450,20 @@ async function scanAndHarvestPastChats(pool, { limit = 100 } = {}) {
         const curr = msgs[i];
         const next = msgs[i + 1];
 
-        // Khách hỏi và Nhân viên/AI trả lời bài bản
+        // Khách hỏi và Nhân viên/AI trả lời bài bản (luôn qua hàng đợi pending_review trước khi kích hoạt)
         if (curr.sender === 'customer' && (next.sender === 'admin' || next.sender === 'staff' || next.sender === 'ai')) {
           processedCount++;
+          const harvestedKey = `${threadId}:${curr.id || i}:${next.id || (i + 1)}`;
           const result = await learnFromInteraction(pool, {
             sourceType: next.sender === 'ai' ? 'customer_chat' : 'staff_guidance',
             question: curr.body,
             answer: next.body,
-            confidence: next.sender === 'ai' ? 0.85 : 0.95,
-            metadata: { threadId, harvestedAt: new Date().toISOString() }
+            confidence: next.sender === 'ai' ? 0.65 : 0.85,
+            status: 'pending_review',
+            metadata: { threadId, questionMessageId: curr.id, answerMessageId: next.id, harvestedKey, harvestedAt: new Date().toISOString() }
           });
 
-          if (result) learnedCount++;
+          if (result && result.action !== 'duplicate') learnedCount++;
         }
       }
     }

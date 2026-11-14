@@ -5,9 +5,9 @@ const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const source = fs.readFileSync(require.resolve('../src/server'), 'utf8');
 
-function fixture({ migrationError, pendingMigration = false, mediaCheck = { verified: true }, pendingMediaAudit = false, mediaAuditError } = {}) {
+function fixture({ migrationError, pendingMigration = false, mediaCheck = { verified: true }, pendingMediaAudit = false, mediaAuditError, env = {} } = {}) {
   const events = new EventEmitter();
-  const calls = { poolClosed: 0, storeClosed: 0, listening: 0, listenerClosed: 0, workersStopped: 0, copiedAssets: 0, localizedMedia: 0, auditChecks: [], auditStartedAfterListen: [], logs: [], errors: [] };
+  const calls = { poolClosed: 0, storeClosed: 0, listening: 0, listenerClosed: 0, workersStopped: 0, workersStarted: [], catalogSyncs: 0, readyMessages: [], copiedAssets: 0, localizedMedia: 0, auditChecks: [], auditStartedAfterListen: [], logs: [], errors: [] };
   let resolveMigration, resolveMediaAudit;
   const migration = pendingMigration ? new Promise(resolve => { resolveMigration = resolve; }) : Promise.resolve();
   const mediaAudit = pendingMediaAudit ? new Promise(resolve => { resolveMediaAudit = resolve; }) : Promise.resolve();
@@ -36,7 +36,7 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
       },
       auditMediaStorage: async (pool, options) => { calls.auditChecks.push(options); return { state: options.probeStatus.verified ? 'verified' : 'unavailable' }; }
     },
-    './shipping-adapters': { syncViettelProvinceCatalog: async () => {} }
+    './shipping-adapters': { syncViettelProvinceCatalog: async () => { calls.catalogSyncs++; } }
   };
   const workerNames = {
     './shopping-chat-file-retention':'startChatFileRetentionWorker', './tiktok-ads':'startTikTokAdsWorker', './shopping-chat-ai-first':'startAIChatWorker',
@@ -45,8 +45,8 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
     './care-api':'startCareEmailWorker',
     './email-marketing':'startEmailWorker', './abandoned-cart':'startAbandonedCartWorker', './account-retention':'startRetentionWorker'
   };
-  for (const [module, method] of Object.entries(workerNames)) modules[module] = { [method]: () => () => calls.workersStopped++ };
-  const fakeProcess = { env: {}, on: events.on.bind(events), exitCode: 0 };
+  for (const [module, method] of Object.entries(workerNames)) modules[module] = { [method]: () => { calls.workersStarted.push(method); return () => calls.workersStopped++; } };
+  const fakeProcess = { env, on: events.on.bind(events), exitCode: 0, send(message) { calls.readyMessages.push(message); } };
   vm.runInNewContext(source, {
     require(name) { assert.ok(modules[name], `Unexpected import ${name}`); return modules[name]; },
     console: { log(...args) { calls.logs.push(args); }, error(...args) { calls.errors.push(args); } }, process: fakeProcess
@@ -54,6 +54,42 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
   return { calls, events, server, fakeProcess, resolveMigration, resolveMediaAudit };
 }
 const settle = async () => { for (let i=0;i<5;i++) await new Promise(resolve => setImmediate(resolve)); };
+
+test('a host with background jobs disabled still becomes ready and serves HTTP without starting outbox consumers', async () => {
+  for (const env of [{ BACKGROUND_JOBS_ENABLED: 'false' }, { CLUSTER_WORKER: 'true', WORKER_INDEX: '0', BACKGROUND_JOBS_ENABLED: 'false' }]) {
+    const f = fixture({ env });
+    await settle();
+    assert.equal(f.calls.listening, 1);
+    assert.equal(f.calls.readyMessages.filter(m => m.type === 'WORKER_READY').length, 1);
+    assert.deepEqual(f.calls.workersStarted, []);
+    assert.equal(f.calls.catalogSyncs, 0);
+    assert.equal(f.calls.copiedAssets, 1);
+    assert.equal(f.calls.localizedMedia, 1);
+    assert.equal(f.fakeProcess.exitCode, 0);
+    f.events.emit('SIGTERM');
+    await settle();
+    assert.equal(f.calls.workersStopped, 0);
+    assert.equal(f.calls.poolClosed, 1);
+    assert.equal(f.calls.storeClosed, 1);
+  }
+});
+
+test('background processing remains enabled by default and explicit true still respects the cluster worker slot', async () => {
+  for (const [env, expected] of [
+    [{}, 11],
+    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '0' }, 11],
+    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '0', BACKGROUND_JOBS_ENABLED: 'true' }, 11],
+    [{ CLUSTER_WORKER: 'true', WORKER_INDEX: '1', BACKGROUND_JOBS_ENABLED: 'true' }, 0]
+  ]) {
+    const f = fixture({ env });
+    await settle();
+    assert.equal(f.calls.workersStarted.length, expected);
+    assert.equal(f.calls.catalogSyncs, expected ? 1 : 0);
+    f.events.emit('SIGTERM');
+    await settle();
+    assert.equal(f.calls.workersStopped, expected);
+  }
+});
 
 test('startup failure closes database/session resources and redacts error details', async () => {
   const error = Object.assign(new Error('postgres://user:private-password@example.test/db'), { code: 'ECONNREFUSED' });

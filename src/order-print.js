@@ -30,6 +30,26 @@ function renderOrderPrint(orders, format) {
   }).join('');
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>GAERU · ${label ? 'Tem giao hàng' : 'Phiếu đơn hàng'}</title><style>@page{size:${label ? '100mm 150mm' : 'A4'};margin:${label ? '0' : '12mm'}}*{box-sizing:border-box}body{margin:0;background:#eceff2;font-family:Arial,sans-serif;color:#111}.print-toolbar{position:sticky;top:0;background:#fff;padding:14px;text-align:center;border-bottom:1px solid #ccc}.print-toolbar button{padding:10px 24px;font:inherit}.sheet{background:#fff;margin:16px auto;break-after:page;page-break-after:always;overflow-wrap:anywhere}.sheet:last-child{break-after:auto;page-break-after:auto}.invoice{width:186mm;padding:8mm}.label{width:100mm;min-height:150mm;padding:5mm;font-size:11px}.sheet header{display:flex;justify-content:space-between;gap:12px;border-bottom:2px solid #111;padding-bottom:8px}.sheet header strong{font-size:22px}h1{font-size:${label ? '16px' : '24px'};margin:12px 0}h2{font-size:11px;margin:14px 0 6px}p{line-height:1.5}.recipient{font-size:12px;line-height:1.35}.carrier{font-size:10px}.contact{display:grid;grid-template-columns:1fr 1fr;gap:20px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:10px 7px;text-align:left;border-bottom:1px solid #ccc}th:last-child,td:last-child{text-align:right}tr{break-inside:avoid}thead{display:table-header-group}dl{margin:20px 0 20px auto;max-width:340px}dl div{display:flex;justify-content:space-between;gap:16px;padding:5px}dd{margin:0}ul{padding-left:16px;line-height:1.5}.cod{border:2px solid #111;padding:10px;margin:12px 0;display:flex;justify-content:space-between;gap:8px;align-items:center}.cod strong{font-size:20px}.sheet footer{border-top:1px solid #999;padding-top:8px;font-size:10px;line-height:1.4;margin-top:14px}.label header{padding-bottom:4px}.label header strong{font-size:18px}.label h1{margin:4px 0;line-height:1.2}.label h2{font-size:9px;margin:6px 0 3px}.label p{margin:3px 0;line-height:1.2}.label .recipient{font-size:12px}.label ul{font-size:10px;margin:3px 0;padding-left:14px;line-height:1.3}.label .cod{padding:6px;margin:4px 0}.label .cod strong{font-size:16px}.label footer{font-size:9px;line-height:1.1;padding-top:3px;margin-top:5px}@media print{body{background:white}.print-toolbar{display:none}.sheet{margin:0}.invoice{padding:0;width:auto}.label{height:150mm;min-height:0}.sheet a{color:inherit;text-decoration:none}}</style><script src="/gaeru_ceo/assets/order-print.js" defer></script></head><body><div class="print-toolbar"><button type="button" data-print-orders>In ${orders.length} ${label ? 'tem giao hàng' : 'phiếu đơn hàng'}</button><p>Kiểm tra nội dung và chọn đúng khổ giấy trước khi in.</p></div>${pages}</body></html>`;
 }
+const CARRIER_LABEL_HOSTS = Object.freeze({
+  viettel: ['viettelpost.vn', 'viettelpost.com.vn'],
+  spx: ['spx.vn', 'shp.ee'],
+  jt: ['jtexpress.vn']
+});
+const ALL_CARRIER_LABEL_HOSTS = Object.freeze(Object.values(CARRIER_LABEL_HOSTS).flat());
+
+function isAllowedCarrierLabelUrl(rawUrl, carrierId) {
+  let parsed;
+  try {
+    parsed = new URL(String(rawUrl || ''));
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return false;
+  const host = parsed.hostname.toLowerCase();
+  const allowedDomains = CARRIER_LABEL_HOSTS[carrierId] || ALL_CARRIER_LABEL_HOSTS;
+  return allowedDomains.some(domain => host === domain || host.endsWith('.' + domain));
+}
+
 function createOrderPrint(pool) {
   const router = Router();
   router.post('/orders/print',requirePermission('orders.read'),requireCsrf,rateLimit({windowMs:60000,limit:15,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
@@ -58,7 +78,11 @@ function createOrderPrint(pool) {
       if(!result.rows.length||!result.rows[0].label_url){
         return res.status(404).json({error:'Đơn hàng chưa có nhãn in từ hãng vận chuyển. Vui lòng tạo vận đơn trước.'});
       }
-      res.redirect(result.rows[0].label_url);
+      const labelRow = result.rows[0];
+      if (!isAllowedCarrierLabelUrl(labelRow.label_url, labelRow.carrier_id)) {
+        return res.status(400).json({error:'URL nhãn vận chuyển không thuộc tên miền hãng vận chuyển hợp lệ.'});
+      }
+      res.redirect(labelRow.label_url);
     }catch(error){next(error);}
   });
   return router;

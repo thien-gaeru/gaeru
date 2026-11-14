@@ -14,12 +14,22 @@ screenshots/
 audit-screenshots/
 certs/
 scripts/*.ps1
+!scripts/backup-db.ps1
+!scripts/backup-db-15m.ps1
+!scripts/database-backup.ps1
 scripts/*.bat
 scripts/*.vbs
 logs/
 *.log
 backups/
 deploy-mi6/
+deploy-mi6/*.tar.gz
+deploy-mi6/*_pass
+deploy-mi6/mi6-sync-key*
+*.tar.gz
+*.sql.gpg
+*.dump.gpg
+.tmp-test/
 *.dump
 mi6-standalone-test-results.json
 

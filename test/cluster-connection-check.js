@@ -3,8 +3,11 @@
 const { Client } = require('pg');
 
 async function checkSync() {
-  const pc = new Client({ connectionString: 'postgres://gaeru:Anhthien1!@localhost:5433/gaeru_store' });
-  const mi6 = new Client({ connectionString: 'postgres://webuser:Anhthien1!@192.168.31.59:5432/gaeru_store' });
+  const pcUrl = process.env.PC_DB_URL || process.env.DATABASE_URL;
+  const mi6Url = process.env.MI6_DB_URL;
+  if (!pcUrl || !mi6Url) throw new Error('Missing PC_DB_URL/DATABASE_URL or MI6_DB_URL');
+  const pc = new Client({ connectionString: pcUrl });
+  const mi6 = new Client({ connectionString: mi6Url });
 
   await pc.connect();
   await mi6.connect();

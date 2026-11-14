@@ -390,3 +390,8 @@
     min-height: 38px !important;
   }
 }
+
+/* Vietnamese typography & tabular numeric alignment across mobile and desktop */
+.admin-shell h1,.admin-shell h2,.admin-shell h3{line-height:1.22;letter-spacing:-.02em;text-wrap:balance}
+.admin-shell p,.admin-shell li,.admin-shell dd{text-wrap:pretty}
+.admin-shell .stat-card strong,.admin-shell .catalog-summary>article>strong,.admin-shell .order-totals dd,.admin-shell .order-summary-end>strong,.admin-shell .enterprise-table td,.admin-shell .metric-card strong{font-variant-numeric:tabular-nums}
