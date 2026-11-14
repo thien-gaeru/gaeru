@@ -96,19 +96,26 @@ else
   : > "$OLD_LIST"
 fi
 
-tar --no-same-owner -xzf "$CODE_TAR" -C "$APP_DIR"
+tar --warning=no-unknown-keyword --no-same-owner -xzf "$CODE_TAR" -C "$APP_DIR"
 rm -rf "$APP_DIR/.git"
-tar --no-same-owner -xzf "$GIT_TAR" -C "$APP_DIR"
+tar --warning=no-unknown-keyword --no-same-owner -xzf "$GIT_TAR" -C "$APP_DIR"
 
 git -C "$APP_DIR" config core.filemode false
 git -C "$APP_DIR" config core.autocrlf false
 git -C "$APP_DIR" config core.ignorecase false
+git -C "$APP_DIR" checkout -f HEAD >/dev/null
 git -C "$APP_DIR" reset --mixed HEAD >/dev/null
 
 git -C "$APP_DIR" ls-files | sort > "$NEW_LIST"
 comm -23 "$OLD_LIST" "$NEW_LIST" | while IFS= read -r obsolete; do
   [ -n "$obsolete" ] || continue
   rm -f -- "$APP_DIR/$obsolete"
+done
+
+for legacy in scripts/mi6-connect.js scripts/mi6-setup-tunnel.js; do
+  if [ -e "$APP_DIR/$legacy" ] && ! git -C "$APP_DIR" ls-files --error-unmatch "$legacy" >/dev/null 2>&1; then
+    rm -f -- "$APP_DIR/$legacy"
+  fi
 done
 
 chown -R www-data:www-data "$APP_DIR/.git"
@@ -157,11 +164,11 @@ echo "GIT_HEAD_VERIFIED=$ACTUAL_SHA"
 
 DIRTY_OUT=$(git -C "$APP_DIR" status --porcelain)
 if [ -n "$DIRTY_OUT" ]; then
-  echo "GIT_STATUS_DIRTY:"
-  printf '%s\n' "$DIRTY_OUT"
-else
-  echo "GIT_STATUS_CLEAN=true"
+  echo "ERROR: Unclean git status on Mi 6:" >&2
+  printf '%s\n' "$DIRTY_OUT" >&2
+  exit 1
 fi
+echo "GIT_STATUS_CLEAN=true"
 
 NEW_NODE_CONF_SHA=$(sha256sum /etc/init/node-app.conf 2>/dev/null | awk '{print $1}' || true)
 NEW_MASTER_SHA=$(sha256sum "$APP_DIR/src/cluster-master.js" 2>/dev/null | awk '{print $1}' || true)
@@ -175,10 +182,19 @@ if [ "$RELOAD_MODE" != "skip" ]; then
      [ "$OLD_CLUSTER_SHA" != "$NEW_CLUSTER_SHA" ]; then
     echo "Restarting node-app (gaeru)..."
     initctl stop node-app APP=gaeru 2>/dev/null || true
-    sleep 2
+    if [ -n "$MASTER_PID" ]; then
+      w=0
+      while [ "$w" -lt 12 ] && kill -0 "$MASTER_PID" 2>/dev/null; do
+        sleep 0.5
+        w=$((w + 1))
+      done
+    else
+      sleep 2
+    fi
     pkill -f '/storage/apps/gaeru/src/' 2>/dev/null || true
     sleep 1
-    initctl start node-app APP=gaeru
+    initctl start node-app APP=gaeru 2>/dev/null || true
+    initctl status node-app APP=gaeru | grep -q 'start/running'
   else
     echo "Triggering zero-downtime rolling reload (SIGHUP -> PID $MASTER_PID)..."
     kill -HUP "$MASTER_PID"
