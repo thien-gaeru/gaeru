@@ -155,6 +155,18 @@ tr -d '\r' < "$APP_DIR/scripts/node-app.conf" > /etc/init/node-app.conf
 chown root:root /etc/init/node-app.conf
 chmod 0644 /etc/init/node-app.conf
 
+if [ -f "$APP_DIR/scripts/network_watchdog.sh" ]; then
+  OLD_WATCHDOG_SHA=$(sha256sum /usr/local/bin/network_watchdog.sh 2>/dev/null | awk '{print $1}' || true)
+  tr -d '\r' < "$APP_DIR/scripts/network_watchdog.sh" > /usr/local/bin/network_watchdog.sh
+  chown root:root /usr/local/bin/network_watchdog.sh
+  chmod 0755 /usr/local/bin/network_watchdog.sh
+  bash -n /usr/local/bin/network_watchdog.sh
+  NEW_WATCHDOG_SHA=$(sha256sum /usr/local/bin/network_watchdog.sh 2>/dev/null | awk '{print $1}' || true)
+  if [ "$OLD_WATCHDOG_SHA" != "$NEW_WATCHDOG_SHA" ]; then
+    initctl restart network-watchdog 2>/dev/null || (initctl stop network-watchdog 2>/dev/null || true; initctl start network-watchdog 2>/dev/null || true)
+  fi
+fi
+
 ACTUAL_SHA=$(git -C "$APP_DIR" rev-parse HEAD)
 if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
   echo "ERROR: Mi 6 HEAD ($ACTUAL_SHA) != expected ($EXPECTED_SHA)" >&2
@@ -226,11 +238,14 @@ fi
 
   Write-Host "[deploy:mi6] Applying synced release on $Mi6Host ..."
   $prevPref = $ErrorActionPreference
+  $prevOutEnc = $OutputEncoding
   $ErrorActionPreference = "Continue"
+  $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
   try {
-    $remoteScript | & ssh -o BatchMode=yes -o ConnectTimeout=10 $Mi6Host "tr -d '\r' | bash -s"
+    $remoteScript | & ssh -o BatchMode=yes -o ConnectTimeout=10 $Mi6Host "sed '1s/^\xEF\xBB\xBF//' | tr -d '\r' | bash -s"
     $sshCode = $LASTEXITCODE
   } finally {
+    $OutputEncoding = $prevOutEnc
     $ErrorActionPreference = $prevPref
   }
   if ($sshCode -ne 0) {

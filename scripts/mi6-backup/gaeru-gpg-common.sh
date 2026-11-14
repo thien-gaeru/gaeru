@@ -1,6 +1,8 @@
 #!/bin/bash
 # Shared OpenPGP (public-key-only) encryption helpers for GAERU Mi 6 autonomous backups.
 # Secret keys MUST NOT reside on the phone; only the public recipient key is loaded.
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
+unset LANGUAGE 2>/dev/null || true
 
 GAERU_GPG_CONFIG_PRIMARY="/etc/gaeru-backup-gpg.conf"
 GAERU_GPG_CONFIG_MAIL="/etc/gaeru-mail-backup-v04.conf"

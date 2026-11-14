@@ -4,6 +4,8 @@
 # Only OpenPGP-encrypted (*.gpg + *.sha256) archives are ever uploaded off-device.
 set -euo pipefail
 unset LD_PRELOAD 2>/dev/null || true
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
+unset LANGUAGE 2>/dev/null || true
 
 MODE="${1:-all}"
 RCLONE_CONF_CHROOT="/etc/gaeru-rclone/rclone.conf"
@@ -52,17 +54,17 @@ if [ ! -s "$RCLONE_CONF_HOST" ] || ! grep -q "^\[${REMOTE_NAME}\]" "$RCLONE_CONF
 fi
 
 exec 205>/run/gaeru-gdrive-sync.lock
-if ! flock -w 300 205; then
-  log "WARN ($MODE): Timed out after 300s waiting for Google Drive sync lock."
+if ! flock -w 900 205; then
+  log "WARN ($MODE): Timed out after 900s waiting for Google Drive sync lock."
   exit 1
 fi
 
 COMMON_FLAGS=(
   --transfers 1
   --checkers 2
-  --tpslimit 2
-  --tpslimit-burst 2
-  --drive-chunk-size 32M
+  --tpslimit 4
+  --tpslimit-burst 4
+  --drive-chunk-size 64M
   --contimeout 15s
   --timeout 180s
   --retries 5
@@ -111,16 +113,15 @@ sync_mail() {
   local src_host="/userdata/storage/gaeru-mail-backups"
   local src_chroot="/storage/gaeru-mail-backups"
   [ -d "$src_host" ] || return 0
-  log "Pushing Encrypted Mail & Webmail backups to ${REMOTE_ROOT}/mail ..."
   local newest
   newest=$(ls -1t "$src_host"/gaeru-mail-v04-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
-  if [ -n "$newest" ]; then
-    run_rclone copy "$src_chroot" "${REMOTE_ROOT}/mail" \
-      --filter "+ $(basename "$newest")" \
-      --filter "+ $(basename "$newest").sha256" \
-      --filter "- *" \
-      "${COMMON_FLAGS[@]}"
-  fi
+  [ -n "$newest" ] || return 0
+  log "Pushing Encrypted Mail & Webmail backups to ${REMOTE_ROOT}/mail ..."
+  run_rclone copy "$src_chroot" "${REMOTE_ROOT}/mail" \
+    --filter "+ $(basename "$newest")" \
+    --filter "+ $(basename "$newest").sha256" \
+    --filter "- *" \
+    "${COMMON_FLAGS[@]}"
   prune_remote_subdir "mail"
   log "Encrypted Mail backup push to Google Drive OK."
 }

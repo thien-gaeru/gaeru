@@ -43,11 +43,14 @@ CONFIG_CANDIDATES=(
   etc/gaeru-mail-backup-v04.conf
   etc/gaeru-backup-gpg.conf
   etc/init/node-app.conf
+  etc/init/node-apps.conf
   etc/init/postgresql-chroot.conf
   etc/init/network-watchdog.conf
   etc/init/gaeru-health.conf
   etc/init/server-dashboard.conf
+  etc/init/server-hardware-tuning.conf
   etc/init/battery-limiter.conf
+  etc/battery_limiter.conf
   etc/init/gaeru-mail.conf
   etc/init/gaeru-mail-sync.conf
   etc/init/gaeru-webmail-fpm.conf

@@ -36,14 +36,14 @@ mkdir -p "$DEST" && chmod 700 "$DEST"
 /usr/local/sbin/ubuntu-mount.sh
 
 # 1. Custom format dump (-Fc) for native pg_restore, encrypted before resting in DEST
-chroot /storage/ubuntu su - postgres -c "pg_dump -Fc -Z 6 $DB" > "$TMP_RAW"
+chroot /storage/ubuntu runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_dump -Fc -Z 6 "$DB" > "$TMP_RAW"
 [ -s "$TMP_RAW" ] || { echo "$(date -Is) FAIL empty dump"; exit 1; }
-chroot /storage/ubuntu /usr/bin/pg_restore -l < "$TMP_RAW" >/dev/null
+chroot /storage/ubuntu /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 /usr/bin/pg_restore -l < "$TMP_RAW" >/dev/null
 gaeru_gpg_encrypt_and_wipe "$TMP_RAW" "$OUT_GPG"
 gaeru_copy_latest_encrypted "$OUT_GPG" "$DEST/${DB}-latest.dump.gpg"
 
 # 2. Universal portable SQL.GZ dump (PostgreSQL 14-18), encrypted at rest
-chroot /storage/ubuntu su - postgres -c "pg_dump --clean --if-exists --no-owner --no-privileges $DB" | \
+chroot /storage/ubuntu runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_dump --clean --if-exists --no-owner --no-privileges "$DB" | \
   sed '/^SET transaction_timeout =/d' | gzip -6 > "$SQL_TMP_RAW"
 [ -s "$SQL_TMP_RAW" ] || { echo "$(date -Is) FAIL empty sql.gz"; exit 1; }
 gzip -t "$SQL_TMP_RAW"
@@ -52,7 +52,7 @@ gaeru_gpg_encrypt_and_wipe "$SQL_TMP_RAW" "$SQL_GPG"
 gaeru_copy_latest_encrypted "$SQL_GPG" "$DEST/${DB}-latest.sql.gz.gpg"
 
 # 3. Cluster globals (roles/grants), encrypted at rest
-chroot /storage/ubuntu su - postgres -c "pg_dumpall --globals-only --no-role-passwords" | gzip -6 > "$GLOBALS_TMP_RAW"
+chroot /storage/ubuntu runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_dumpall --globals-only --no-role-passwords | gzip -6 > "$GLOBALS_TMP_RAW"
 [ -s "$GLOBALS_TMP_RAW" ] || { echo "$(date -Is) FAIL empty globals sql.gz"; exit 1; }
 gzip -t "$GLOBALS_TMP_RAW"
 gaeru_gpg_encrypt_and_wipe "$GLOBALS_TMP_RAW" "$GLOBALS_GPG"

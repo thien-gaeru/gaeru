@@ -251,3 +251,18 @@ test('readiness gate rejects business traffic with 503 while initializing and pa
 
   resetReadinessForTesting();
 });
+
+test('cluster worker disconnect triggers graceful shutdown cleanly once', async () => {
+  const f = fixture({ env: { CLUSTER_WORKER: '1', WORKER_INDEX: '1' } });
+  await settle();
+  assert.equal(f.calls.listening, 1);
+  assert.equal(f.calls.readyMessages.filter(m => m.type === 'WORKER_READY').length, 1);
+  assert.equal(f.calls.copiedAssets, 0, 'non-primary worker skips duplicate syncAssets');
+  assert.equal(f.calls.localizedMedia, 0, 'non-primary worker skips duplicate runLocalMediaAudit');
+
+  f.events.emit('disconnect');
+  await settle();
+  assert.equal(f.calls.listenerClosed, 1);
+  assert.equal(f.calls.poolClosed, 1);
+  assert.equal(f.calls.storeClosed, 1);
+});

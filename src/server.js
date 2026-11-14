@@ -15,12 +15,13 @@ setReady(false);
 
 const config = loadConfig();
 const pool = createPool(config);
+const isPrimaryWorkerSlot = !process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0';
 const PgSessionStore = connectPgSimple(expressSession);
 const sessionStore = new PgSessionStore({
   pool,
   tableName: "user_sessions",
-  createTableIfMissing: true,
-  pruneSessionInterval: 15 * 60
+  createTableIfMissing: isPrimaryWorkerSlot,
+  pruneSessionInterval: isPrimaryWorkerSlot ? 15 * 60 : false
 });
 const app = createApp({ config, pool, sessionStore });
 let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
@@ -174,9 +175,11 @@ async function start() {
     if (typeof process.send === 'function') {
       try { process.send({ type: 'WORKER_READY', workerIndex: process.env.WORKER_INDEX || '0' }); } catch (_) {}
     }
-    staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
-      .then(res => console.log('Static media:', JSON.stringify(res)))
-      .catch(err => console.error('Static media sync failed:', errorSummary(err)));
+    if (isPrimaryWorkerSlot) {
+      staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
+        .then(res => console.log('Static media:', JSON.stringify(res)))
+        .catch(err => console.error('Static media sync failed:', errorSummary(err)));
+    }
   }else{
     const checkedMedia=await mediaAudit.auditMediaStorage(pool,{probeStatus:mediaCheck});
     console.log('Local media checks:',JSON.stringify({state:checkedMedia.state,failedChecks:checkedMedia.failedChecks,legacyReferences:checkedMedia.legacyReferences}));
@@ -203,9 +206,11 @@ async function start() {
               if (typeof process.send === 'function') {
                 try { process.send({ type: 'WORKER_READY', workerIndex: process.env.WORKER_INDEX || '0' }); } catch (_) {}
               }
-              staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
-                .then(res => console.log('Static media (retry):', JSON.stringify(res)))
-                .catch(err => console.error('Static media sync failed (retry):', errorSummary(err)));
+              if (isPrimaryWorkerSlot) {
+                staticMediaSyncTask = require('./persistent-assets').syncAssets(pool)
+                  .then(res => console.log('Static media (retry):', JSON.stringify(res)))
+                  .catch(err => console.error('Static media sync failed (retry):', errorSummary(err)));
+              }
             }
           } catch (err) {
             console.warn('Media probe retry error:', errorSummary(err));
@@ -217,7 +222,7 @@ async function start() {
   }
   if (shuttingDown) return;
 
-  if(mediaCheck.verified&&!shuttingDown){
+  if(mediaCheck.verified&&!shuttingDown&&isPrimaryWorkerSlot){
     mediaAuditTask=mediaAudit.runLocalMediaAudit(pool)
       .then(({localization,audit})=>{
         console.log('Local media:',JSON.stringify(localization));
@@ -240,19 +245,27 @@ async function start() {
     resourceMonitor = setInterval(() => {
       try {
         const m = process.memoryUsage();
-        const stats = typeof priorityController?.getStats === 'function' ? priorityController.getStats() : {};
-        console.log('[GAERU_RESOURCES]', JSON.stringify({
-          rssMB: Math.round(m.rss / 1048576),
-          heapMB: Math.round(m.heapUsed / 1048576),
-          externalMB: Math.round(m.external / 1048576),
-          eventLoopP95Ms: Math.round(lag.percentile(95) / 1e6),
-          dbPoolTotal: Number(pool?.totalCount || 0),
-          dbPoolIdle: Number(pool?.idleCount || 0),
-          dbPoolWaiting: Number(pool?.waitingCount || 0),
-          bgWorkerHighActive: stats.activeHighOps ?? 0,
-          bgWorkerLowActive: stats.activeLowOps ?? 0,
-          bgWorkerLowQueued: stats.queuedLowOps ?? 0
-        }));
+        const rssMB = Math.round(m.rss / 1048576);
+        const heapMB = Math.round(m.heapUsed / 1048576);
+        const externalMB = Math.round(m.external / 1048576);
+        const eventLoopP95Ms = Math.round(lag.percentile(95) / 1e6);
+        const dbPoolWaiting = Number(pool?.waitingCount || 0);
+        if (isPrimaryWorkerSlot || rssMB > 512 || eventLoopP95Ms > 100 || dbPoolWaiting > 0) {
+          const stats = typeof priorityController?.getStats === 'function' ? priorityController.getStats() : {};
+          console.log('[GAERU_RESOURCES]', JSON.stringify({
+            worker: process.env.WORKER_INDEX || '0',
+            rssMB,
+            heapMB,
+            externalMB,
+            eventLoopP95Ms,
+            dbPoolTotal: Number(pool?.totalCount || 0),
+            dbPoolIdle: Number(pool?.idleCount || 0),
+            dbPoolWaiting,
+            bgWorkerHighActive: stats.activeHighOps ?? 0,
+            bgWorkerLowActive: stats.activeLowOps ?? 0,
+            bgWorkerLowQueued: stats.queuedLowOps ?? 0
+          }));
+        }
         lag.reset();
       } catch (err) {
         console.error('Resource monitor failed:', err?.message || err);
@@ -311,10 +324,21 @@ async function shutdown() {
   try { require('./realtime-sse').closeAllSseStreams?.(); } catch (_) {}
   if (server) {
     try { server.closeIdleConnections?.(); } catch (_) {}
-    try { server.closeAllConnections?.(); } catch (_) {}
     const closePromise = new Promise(resolve => server.close(resolve));
-    const closeTimeout = new Promise(resolve => setTimeout(resolve, 2000).unref?.());
-    await Promise.race([closePromise, closeTimeout]).catch(() => {});
+    if (typeof setTimeout !== 'undefined') {
+      let closeTimer;
+      const closeTimeout = new Promise(resolve => {
+        closeTimer = setTimeout(() => {
+          try { server.closeAllConnections?.(); } catch (_) {}
+          resolve();
+        }, 2000);
+        closeTimer?.unref?.();
+      });
+      await Promise.race([closePromise, closeTimeout]).catch(() => {});
+      if (typeof clearTimeout !== 'undefined' && closeTimer) clearTimeout(closeTimer);
+    } else {
+      await closePromise.catch(() => {});
+    }
   }
 
   // 2. Stop all background workers immediately
@@ -370,6 +394,7 @@ async function shutdown() {
 pool.on("error", (error) => console.error("Unexpected database pool error:", errorSummary(error)));
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+process.on("disconnect", shutdown);
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection in server runtime:", errorSummary(reason));
 });

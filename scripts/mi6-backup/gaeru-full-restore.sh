@@ -4,6 +4,8 @@
 # failing closed on missing/mismatched SHA-256 companions, and restoring DB, Media+Code, and Mail.
 set -euo pipefail
 unset LD_PRELOAD 2>/dev/null || true
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
+unset LANGUAGE 2>/dev/null || true
 umask 077
 
 PG_DIR="/userdata/storage/gaeru-pg-backups"
@@ -162,9 +164,9 @@ restore_db() {
   initctl stop node-app 2>/dev/null || true
 
   say "Restoring database gaeru_store from $dump_file ..."
-  chroot "$chroot_dir" su - postgres -c "pg_restore --clean --if-exists --no-owner --no-privileges -v -d gaeru_store" < "$dump_file"
+  chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_restore --clean --if-exists --no-owner --no-privileges -v -d gaeru_store < "$dump_file"
   local stats
-  stats=$(chroot "$chroot_dir" su - postgres -c "psql -tA -d gaeru_store -c \"SELECT 'public_tables=' || count(*) FROM pg_tables WHERE schemaname='public' UNION ALL SELECT 'products=' || count(*) FROM products UNION ALL SELECT 'orders=' || count(*) FROM orders UNION ALL SELECT 'media_upload_originals=' || count(*) FROM media_upload_originals;\"" | tr '\n' ' ')
+  stats=$(chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -tA -d gaeru_store -c "SELECT 'public_tables=' || count(*) FROM pg_tables WHERE schemaname='public' UNION ALL SELECT 'products=' || count(*) FROM products UNION ALL SELECT 'orders=' || count(*) FROM orders UNION ALL SELECT 'media_upload_originals=' || count(*) FROM media_upload_originals;" | tr '\n' ' ')
   say "Starting node-app..."
   initctl start node-app 2>/dev/null || true
   say "Database restore completed successfully: $stats"
