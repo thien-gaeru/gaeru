@@ -150,6 +150,10 @@ async function executeRollingReload() {
   log('Bắt đầu quy trình Zero-Downtime Rolling Reload...', 'INFO');
 
   try {
+    try {
+      require('dotenv').config({ path: path.join(ROOT_DIR, '.env'), override: true });
+    } catch (_) {}
+
     for (let i = 0; i < NUM_WORKERS; i++) {
       if (isShuttingDown) break;
       reloadingSlots.add(i);

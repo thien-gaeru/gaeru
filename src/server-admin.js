@@ -353,13 +353,18 @@ function createServerAdminRouter(config, pool) {
       const ramUsedMb = Math.max(0, ramTotalMb - ramFreeMb);
       const ramPercent = Math.min(100, Math.round((ramUsedMb / ramTotalMb) * 100));
 
-      // 2. Services TCP Checks
-      const [nginxRunning, pgRunning, redisRunning, sshRunning] = await Promise.all([
+      // 2. Services TCP & Process Checks
+      const [http80, dashRunning, pgRunning, ssh22, ssh8022, cfProc] = await Promise.all([
+        checkTcpPort(80),
         checkTcpPort(8080),
         checkTcpPort(5432),
-        checkTcpPort(6379),
-        checkTcpPort(8022)
+        checkTcpPort(22),
+        checkTcpPort(8022),
+        process.platform === 'linux' ? runCommand('pgrep -x cloudflared >/dev/null 2>&1') : Promise.resolve({ ok: true })
       ]);
+      const nginxRunning = http80 || dashRunning;
+      const sshRunning = ssh22 || ssh8022;
+      const cfRunning = Boolean(cfProc && cfProc.ok);
 
       // 3. PostgreSQL Database Summary
       let dbSummary = { activeConnections: 0, dbSize: 'Chưa xác định', totalTables: 0 };
@@ -395,7 +400,7 @@ function createServerAdminRouter(config, pool) {
       // 6. Disk Space
       let diskInfo = { totalGb: '58.2', usedGb: '18.4', freeGb: '39.8', percent: 32 };
       try {
-        const dfOut = await runCommand('df -k /data || df -k .');
+        const dfOut = await runCommand('df -k /userdata 2>/dev/null || df -k /data 2>/dev/null || df -k .');
         if (dfOut.ok && dfOut.stdout) {
           const lines = dfOut.stdout.split('\n');
           if (lines.length > 1) {
@@ -426,14 +431,14 @@ function createServerAdminRouter(config, pool) {
         timestamp: new Date().toISOString(),
         system: {
           hostname: os.hostname(),
-          device: 'LG G7 ThinQ (LM-G710 - judyln)',
-          soc: 'Qualcomm Snapdragon 845 (Octa-Core Kryo 385: 4x Gold 2.80GHz + 4x Silver 1.77GHz)',
-          os: `Ubuntu 24.04.5 LTS (Noble Numbat) ARM64 • Kernel ${os.release()}`,
+          device: 'Xiaomi Mi 6 (MSM8998 - sagit)',
+          soc: 'Qualcomm Snapdragon 835 (8 nhân Kryo 280: 4x 2.45GHz + 4x 1.90GHz)',
+          os: `Ubuntu 26.04 ARM64 • Kernel ${os.release()}`,
           arch: os.arch(),
           uptimeSec: Math.round(os.uptime()),
           loadAvg: loadAvg.map(l => l.toFixed(2)),
-          localIp: '192.168.31.7',
-          publicDomain: 'gaeru.org'
+          localIp: '192.168.31.59',
+          publicDomain: 'gaeru.com'
         },
         cpu: {
           coresCount: cpuCount,
@@ -458,13 +463,14 @@ function createServerAdminRouter(config, pool) {
         thermals,
         failover: failoverSync.getStatus(),
         services: {
-          nginx: { name: 'Nginx Web Server', port: 8080, status: nginxRunning ? 'online' : 'stopped', workers: 8 },
-          node: { name: 'Node.js Gaeru App', port: 3000, status: 'online', ...nodeSummary },
-          postgres: { name: 'PostgreSQL Database', port: 5432, status: pgRunning ? 'online' : 'stopped', ...dbSummary },
-          redis: { name: 'Redis Cache', port: 6379, status: redisRunning ? 'online' : 'stopped', memory: '12.4 MB' },
-          cloudflared: { name: 'Cloudflare Tunnel', status: 'online', domain: 'gaeru.org' },
-          sshd: { name: 'OpenSSH Server', port: 8022, status: sshRunning ? 'online' : 'stopped', user: 'u0_a184' },
-          watchdog: { name: 'Server Watchdog Daemon', status: 'online', interval: '15s' }
+          nginx: { name: 'Nginx Web Server', port: 80, status: nginxRunning ? 'online' : 'stopped', workers: 2 },
+          node: { name: 'Node.js Gaeru Cluster', port: 3000, status: 'online', ...nodeSummary },
+          postgres: { name: 'PostgreSQL 18 Database', port: 5432, status: pgRunning ? 'online' : 'stopped', ...dbSummary },
+          redis: { name: 'RAM Cache (In-Memory LRU)', port: 3000, status: 'online', mode: 'in-memory-lru-pg18' },
+          cloudflared: { name: 'Cloudflare Tunnel', status: cfRunning ? 'online' : 'stopped', domain: 'gaeru.com' },
+          dashboard: { name: 'GAERU Server Console', port: 8080, status: dashRunning ? 'online' : 'stopped' },
+          sshd: { name: 'OpenSSH Server', port: 22, status: sshRunning ? 'online' : 'stopped', user: 'root' },
+          watchdog: { name: 'Network Watchdog & Healthcheck', status: 'online', interval: '30s' }
         }
       });
     } catch (e) {
@@ -483,18 +489,18 @@ function createServerAdminRouter(config, pool) {
 
       switch (action) {
         case 'reload-nginx': {
-          const out = await runCommand('/data/data/com.termux/files/usr/bin/nginx -s reload || nginx -s reload');
+          const out = await runCommand('nginx -s reload || /storage/ubuntu/usr/sbin/nginx -s reload');
           result = { message: 'Nginx đã nạp lại cấu hình thành công (Zero-Downtime Reload).', detail: out.stdout || out.stderr };
           break;
         }
         case 'test-nginx': {
-          const out = await runCommand('/data/data/com.termux/files/usr/bin/nginx -t || nginx -t');
+          const out = await runCommand('nginx -t || /storage/ubuntu/usr/sbin/nginx -t');
           result = { message: 'Kiểm tra cú pháp Nginx hoàn tất.', detail: out.stderr || out.stdout };
           break;
         }
         case 'flush-redis': {
-          const out = await runCommand('redis-cli flushdb || true');
-          result = { message: 'Đã xóa trắng bộ nhớ đệm Redis (FLUSHDB hoàn tất).', detail: out.stdout };
+          try { require('./cache').flushAllCache(); } catch (_) {}
+          result = { message: 'Đã làm sạch bộ nhớ đệm RAM (In-Memory Cache) trên Worker.', detail: 'in-memory-cache-flushed' };
           break;
         }
         case 'vacuum-db': {
@@ -535,8 +541,18 @@ function createServerAdminRouter(config, pool) {
           break;
         }
         case 'restart-node': {
-          result = { message: 'Đang gửi tín hiệu khởi động lại Node.js backend. Watchdog sẽ tự động phục hồi trong 3 giây.' };
+          result = { message: 'Đang gửi tín hiệu Rolling Reload (0s Downtime) cho GAERU Web Cluster...' };
           setTimeout(() => {
+            try {
+              const pidFile = '/storage/apps/gaeru/logs/cluster.pid';
+              if (fs.existsSync(pidFile)) {
+                const masterPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+                if (Number.isInteger(masterPid) && masterPid > 1) {
+                  process.kill(masterPid, 'SIGHUP');
+                  return;
+                }
+              }
+            } catch (_) {}
             process.exit(0);
           }, 600);
           break;
@@ -557,29 +573,37 @@ function createServerAdminRouter(config, pool) {
     try {
       const source = String(req.query.source || 'app');
       const maxLines = Math.min(300, Math.max(10, parseInt(req.query.lines, 10) || 100));
+      const pickLog = (...candidates) => candidates.find((p) => fs.existsSync(p)) || candidates[0];
 
-      let logPath = '/data/data/com.termux/files/home/gaeru.log';
-      const home = '/data/data/com.termux/files/home';
-      const usr = '/data/data/com.termux/files/usr';
-
+      let logPath;
       switch (source) {
         case 'app':
-          logPath = fs.existsSync(`${home}/gaeru.log`) ? `${home}/gaeru.log` : path.join(__dirname, '..', 'gaeru.log');
+          logPath = pickLog(
+            '/var/log/upstart/node-app-gaeru.log',
+            '/storage/apps/gaeru/logs/server.out.log',
+            path.join(__dirname, '..', 'logs', 'server.out.log'),
+            path.join(__dirname, '..', 'gaeru.log')
+          );
           break;
         case 'nginx-error':
-          logPath = `${usr}/var/log/nginx/error.log`;
+          logPath = pickLog('/var/log/nginx/error.log', '/storage/ubuntu/var/log/nginx/error.log');
           break;
         case 'nginx-access':
-          logPath = `${usr}/var/log/nginx/access.log`;
+          logPath = pickLog('/var/log/nginx/access.log', '/storage/ubuntu/var/log/nginx/access.log');
           break;
         case 'cloudflared':
-          logPath = `${home}/cloudflared.log`;
+          logPath = pickLog('/var/log/cloudflared.err', '/var/log/upstart/cloudflared.log');
           break;
         case 'postgres':
-          logPath = `${usr}/var/lib/postgresql/server.log`;
+        case 'postgresql':
+          logPath = pickLog('/storage/ubuntu/var/log/postgresql/postgresql-18-main.log', '/var/log/postgresql/postgresql-18-main.log');
           break;
         default:
-          logPath = `${home}/gaeru.log`;
+          logPath = pickLog(
+            '/var/log/upstart/node-app-gaeru.log',
+            '/storage/apps/gaeru/logs/server.out.log',
+            path.join(__dirname, '..', 'gaeru.log')
+          );
       }
 
       const lines = readTailLines(logPath, maxLines);

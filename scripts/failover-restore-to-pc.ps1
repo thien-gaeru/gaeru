@@ -246,6 +246,17 @@ elseif ($Mode -eq "FailoverToPC") {
     }
 
     Write-Output "[3/3] Starting GAERU server & Cloudflare tunnel on PC..."
+    $envPath = Join-Path $repoRoot ".env"
+    if (Test-Path -LiteralPath $envPath) {
+        $envRaw = Get-Content -LiteralPath $envPath -Raw -Encoding UTF8
+        if ($envRaw -match '(?m)^ALLOW_PC_SUPERVISOR=') {
+            $envRaw = $envRaw -replace '(?m)^ALLOW_PC_SUPERVISOR=.*', 'ALLOW_PC_SUPERVISOR=true'
+        } else {
+            $envRaw = $envRaw.TrimEnd() + "`nALLOW_PC_SUPERVISOR=true`n"
+        }
+        [System.IO.File]::WriteAllText($envPath, $envRaw, [System.Text.UTF8Encoding]::new($false))
+    }
+    $env:ALLOW_PC_SUPERVISOR = "true"
     Enable-ScheduledTask -TaskName "GAERU_Server_AutoStart" -ErrorAction SilentlyContinue | Out-Null
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $scriptRoot "restart-server.ps1")
     if ($LASTEXITCODE -ne 0) { throw "restart-server.ps1 failed with exit code $LASTEXITCODE" }

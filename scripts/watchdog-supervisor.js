@@ -29,6 +29,9 @@ const path = require('node:path');
 const os = require('node:os');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+try {
+  require('dotenv').config({ path: path.join(ROOT_DIR, '.env') });
+} catch (_) {}
 const LOGS_DIR = path.join(ROOT_DIR, 'logs');
 const PID_FILE = path.join(LOGS_DIR, 'supervisor.pid');
 const SERVER_PID_FILE = path.join(LOGS_DIR, 'server.pid');
@@ -646,11 +649,13 @@ if (process.env.ALLOW_PC_SUPERVISOR !== 'true') {
 preventSystemSleep();
 spawnServer();
 spawnCloudflared();
-spawnClusterSync();
+if (process.env.ENABLE_CLUSTER_SYNC === 'true' && fs.existsSync(path.join(ROOT_DIR, 'scripts', 'cluster-media-sync.js'))) {
+  spawnClusterSync();
+  setInterval(checkClusterSyncHealth, 10000);
+}
 healthTimer = setInterval(checkHttpHealth, HEALTH_CHECK_INTERVAL_MS);
 signalTimer = setInterval(checkSignals, 1000);
 setInterval(checkCloudflaredHealth, 10000);
-setInterval(checkClusterSyncHealth, 10000);
 // Duy trì ưu tiên tài nguyên và chống nghẽn bộ nhớ định kỳ mỗi 30s
 setInterval(() => {
   if (childProcess && childProcess.pid) {

@@ -71,6 +71,13 @@ function loadConfig(env = process.env) {
   const config = parsed.data;
   const normalizeBrand=require('./primary-domain').normalizeBrandText;config.PUBLIC_BASE_URL=require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL);if(config.SMTP_FROM)config.SMTP_FROM=normalizeBrand(config.SMTP_FROM);if(config.SMTP_REPLY_TO)config.SMTP_REPLY_TO=normalizeBrand(config.SMTP_REPLY_TO).toLowerCase();if(config.ADMIN_DOMAIN_EMAIL)config.ADMIN_DOMAIN_EMAIL=normalizeBrand(config.ADMIN_DOMAIN_EMAIL).toLowerCase();
   const gaId = config.GA_MEASUREMENT_ID || config.GOOGLE_ANALYTICS_ID || undefined;
+  const smtpHostNormalized = String(config.SMTP_HOST || '').trim().toLowerCase();
+  const smtpPassValue = String(config.SMTP_PASSWORD || '').trim();
+  const smtpDisabledOrPlaceholder =
+    !smtpHostNormalized ||
+    smtpHostNormalized === 'smtp.resend.com' ||
+    smtpPassValue === 'ICLOUD_APP_PASSWORD_REQUIRED' ||
+    (smtpHostNormalized === 'smtp.mail.me.com' && smtpPassValue.startsWith('re_'));
   return {
     ...config,
     GA_MEASUREMENT_ID: gaId,
@@ -80,7 +87,7 @@ function loadConfig(env = process.env) {
       paymentUrl: config.VNPAY_PAYMENT_URL,
       returnUrl: new URL("/api/payments/vnpay/return", config.PUBLIC_BASE_URL).toString()
     } : null,
-    smtp: config.SMTP_HOST ? {
+    smtp: (config.SMTP_HOST && !smtpDisabledOrPlaceholder) ? {
       host: config.SMTP_HOST,
       port: config.SMTP_PORT,
       secure: config.SMTP_SECURE,

@@ -47,6 +47,14 @@ if ($RegisterPullTask) {
 }
 
 Write-Output "=== [3/6] Dung supervisor va PC cloudflared de chuyen 100% traffic sang Mi 6 ==="
+$envPath = Join-Path $RepoRoot ".env"
+if (Test-Path -LiteralPath $envPath) {
+    $envRaw = Get-Content -LiteralPath $envPath -Raw -Encoding UTF8
+    if ($envRaw -match '(?m)^ALLOW_PC_SUPERVISOR=') {
+        $envRaw = $envRaw -replace '(?m)^ALLOW_PC_SUPERVISOR=.*', 'ALLOW_PC_SUPERVISOR=false'
+        [System.IO.File]::WriteAllText($envPath, $envRaw, [System.Text.UTF8Encoding]::new($false))
+    }
+}
 foreach ($pidFile in @("supervisor.pid", "cloudflared.pid")) {
     $p = Join-Path $LogsDir $pidFile
     if (Test-Path -LiteralPath $p) {

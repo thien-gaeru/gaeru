@@ -38,9 +38,6 @@ CONFIG_CANDIDATES=(
   etc/cloudflared
   etc/init.d/cloudflared
   etc/nginx
-  etc/gaeru-webmail
-  etc/gaeru-mail
-  etc/gaeru-mail-backup-v04.conf
   etc/gaeru-backup-gpg.conf
   etc/init/node-app.conf
   etc/init/node-apps.conf
@@ -51,20 +48,13 @@ CONFIG_CANDIDATES=(
   etc/init/server-hardware-tuning.conf
   etc/init/battery-limiter.conf
   etc/battery_limiter.conf
-  etc/init/gaeru-mail.conf
-  etc/init/gaeru-mail-sync.conf
-  etc/init/gaeru-webmail-fpm.conf
-  etc/init/gaeru-webmail-nginx.conf
   usr/local/bin/network_watchdog.sh
   usr/local/bin/hw_tune.sh
   usr/local/bin/battery_limiter.py
-  usr/local/bin/gaeru-mail-sync.py
-  usr/local/bin/gaeru-mail-account
   usr/local/bin/gaeru-media-sync.py
   usr/local/sbin/gaeru-gpg-common.sh
   usr/local/sbin/gaeru-pg-backup.sh
   usr/local/sbin/gaeru-media-backup.sh
-  usr/local/sbin/gaeru-mail-backup-v04.sh
   usr/local/sbin/gaeru-gdrive-sync.sh
   usr/local/sbin/gaeru-full-restore.sh
   usr/local/sbin/gaeru-healthcheck.sh

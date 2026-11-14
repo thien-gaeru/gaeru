@@ -29,7 +29,7 @@ async function checkAuth() {
     serverAuthenticated = res.ok && data.authenticated === true;
     if (serverAuthenticated) {
       document.getElementById('login-modal').style.display = 'none';
-      document.getElementById('top-device-badge').textContent = `${data.user.username} (${data.user.role}) · LG G7 ThinQ`;
+      document.getElementById('top-device-badge').textContent = `${data.user.username} (${data.user.role}) · Xiaomi Mi 6`;
       startTelemetry();
       fetchDbSummary();
     } else {
@@ -161,7 +161,7 @@ async function fetchStats() {
         <div class="core-item">
           <div class="core-label">Core ${i} ${i >= 4 ? 'Gold' : 'Silver'}</div>
           <div class="core-bar"><div class="core-fill" id="core-fill-${i}" style="width: 20%;"></div></div>
-          <div class="core-freq">${i >= 4 ? '2.80 GHz' : '1.77 GHz'}</div>
+          <div class="core-freq">${i >= 4 ? '2.45 GHz' : '1.90 GHz'}</div>
         </div>
       `).join('');
     }
@@ -196,7 +196,30 @@ async function fetchStats() {
       document.getElementById('soc-temp').textContent = data.thermals[0].temp + '°C';
     }
 
-    // 5. Services Pills & Node info
+    // 5. System specs & Services Pills & Node info
+    const specDeviceEl = document.getElementById('spec-device');
+    if (specDeviceEl && data.system?.device) specDeviceEl.textContent = data.system.device;
+    const specSocEl = document.getElementById('spec-soc');
+    if (specSocEl && data.system?.soc) specSocEl.textContent = data.system.soc;
+    const specOsEl = document.getElementById('spec-os');
+    if (specOsEl && data.system?.os) specOsEl.textContent = data.system.os;
+    const specIpEl = document.getElementById('spec-ip');
+    if (specIpEl && data.system?.localIp) specIpEl.textContent = data.system.localIp;
+
+    const setSvcBadge = (id, svc, onlineLabel = 'RUNNING') => {
+      const el = document.getElementById(id);
+      if (!el || !svc) return;
+      const isUp = svc.status === 'online';
+      el.textContent = isUp ? onlineLabel : 'STOPPED';
+      el.className = `card-badge ${isUp ? 'badge-emerald' : 'badge-danger'}`;
+    };
+    setSvcBadge('svc-nginx-status', data.services?.nginx, 'RUNNING');
+    setSvcBadge('svc-node-status', data.services?.node, 'RUNNING');
+    setSvcBadge('svc-pg-status', data.services?.postgres, 'RUNNING');
+    setSvcBadge('svc-redis-status', data.services?.redis, 'ACTIVE');
+    setSvcBadge('svc-cf-status', data.services?.cloudflared, 'CONNECTED');
+    setSvcBadge('svc-ssh-status', data.services?.sshd, 'LISTENING');
+
     document.getElementById('node-pid').textContent = data.services.node.pid;
     document.getElementById('pg-summary-text').textContent = `CSDL: ${data.services.postgres.dbSize} · ${data.services.postgres.totalTables} bảng · ${data.services.postgres.activeConnections} kết nối`;
 

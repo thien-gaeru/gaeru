@@ -60,7 +60,7 @@
           </div>
           <div class="metric-value-row">
             <span class="metric-huge" id="cpu-percent">0%</span>
-            <span class="metric-sub" id="cpu-cores-text">8 Nhân Kryo 385</span>
+            <span class="metric-sub" id="cpu-cores-text">8 Nhân Kryo 280</span>
           </div>
           <div class="progress-bar">
             <div class="progress-fill fill-cyan" id="cpu-progress" style="width: 0%;"></div>
@@ -153,7 +153,7 @@
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Vi xử lý (SoC)</td>
-              <td>Đang ẩn cho tới khi xác thực quản trị</td>
+              <td id="spec-soc">Đang ẩn cho tới khi xác thực quản trị</td>
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Hệ điều hành &amp; Kernel</td>
@@ -161,7 +161,7 @@
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Địa chỉ IP Máy chủ (LAN &amp; WAN)</td>
-              <td>Nội bộ: <code id="spec-ip" style="color:var(--cyan);">Chỉ hiển thị khi đã xác thực</code> · Public: <code style="color:var(--emerald);">https://gaeru.org</code></td>
+              <td>Nội bộ: <code id="spec-ip" style="color:var(--cyan);">Chỉ hiển thị khi đã xác thực</code> · Public: <code style="color:var(--emerald);">https://gaeru.com</code></td>
             </tr>
             <tr>
               <td style="color: var(--text-muted);">Cổng quản trị từ xa</td>
@@ -180,11 +180,11 @@
           <div class="service-top">
             <div class="service-info">
               <h3>Nginx Web Server</h3>
-              <p>Port 8080 / 8443 (8 Workers, epoll)</p>
+              <p>HTTP Reverse Proxy (2 Workers, epoll)</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-nginx-status">RUNNING</span>
           </div>
-          <p style="font-size:12px; color:var(--text-muted);">Reverse Proxy tốc độ cao, phục vụ tệp tĩnh và điều phối tải đồng thời 10.000 kết nối.</p>
+          <p style="font-size:12px; color:var(--text-muted);">Reverse Proxy tốc độ cao, phục vụ tệp tĩnh, nén nội dung và điều phối kết nối tới Node.js Cluster.</p>
           <div class="service-actions">
             <button type="button" class="btn btn-primary" data-server-action="reload-nginx">⚡ Nạp lại (Reload)</button>
             <button type="button" class="btn btn-secondary" data-server-action="test-nginx">Kiểm tra cú pháp (nginx -t)</button>
@@ -195,15 +195,15 @@
         <article class="service-card">
           <div class="service-top">
             <div class="service-info">
-              <h3>Node.js Backend</h3>
-              <p>Port 3000 · PID: <span id="node-pid">—</span></p>
+              <h3>Node.js GAERU Cluster</h3>
+              <p>Cluster 4 Workers · PID: <span id="node-pid">—</span></p>
             </div>
             <span class="card-badge badge-emerald" id="svc-node-status">RUNNING</span>
           </div>
-          <p style="font-size:12px; color:var(--text-muted);">Xử lý API đơn hàng, giỏ hàng, thanh toán, hỗ trợ trực tuyến và logic thương mại điện tử.</p>
+          <p style="font-size:12px; color:var(--text-muted);">Xử lý API đơn hàng, giỏ hàng, thanh toán, hỗ trợ trực tuyến và thương mại điện tử 24/7.</p>
           <div class="service-actions">
-            <button type="button" class="btn btn-danger" data-server-action="restart-node" data-confirm="Khởi động lại tiến trình Node.js? Server Watchdog sẽ tự động bật lại trong 3 giây.">Khởi động lại</button>
-            <button type="button" class="btn btn-secondary" data-server-action="drop-caches">Giải phóng RAM</button>
+            <button type="button" class="btn btn-danger" data-server-action="restart-node" data-confirm="Thực hiện Rolling Reload không gián đoạn (0s downtime) cho Node.js Cluster?">⚡ Rolling Reload</button>
+            <button type="button" class="btn btn-secondary" data-server-action="drop-caches">Giải phóng RAM Cache</button>
           </div>
         </article>
 
@@ -211,30 +211,30 @@
         <article class="service-card">
           <div class="service-top">
             <div class="service-info">
-              <h3>PostgreSQL Database</h3>
+              <h3>PostgreSQL 18 Database</h3>
               <p>Dịch vụ cơ sở dữ liệu chính · Hiển thị chi tiết sau đăng nhập</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-pg-status">RUNNING</span>
           </div>
-          <p style="font-size:12px; color:var(--text-muted);" id="pg-summary-text">Cơ sở dữ liệu quan hệ doanh nghiệp. 123 bảng dữ liệu.</p>
+          <p style="font-size:12px; color:var(--text-muted);" id="pg-summary-text">Cơ sở dữ liệu quan hệ doanh nghiệp (PostgreSQL 18).</p>
           <div class="service-actions">
             <button type="button" class="btn btn-primary" data-server-action="vacuum-db">Tối ưu CSDL (VACUUM)</button>
             <a href="/server_admin/api/db-backup" class="btn btn-secondary" download>📥 Sao lưu (Backup)</a>
           </div>
         </article>
 
-        <!-- Redis -->
+        <!-- RAM Cache -->
         <article class="service-card">
           <div class="service-top">
             <div class="service-info">
-              <h3>Redis In-Memory Cache</h3>
-              <p>Dịch vụ bộ nhớ đệm · Hiển thị chi tiết sau đăng nhập</p>
+              <h3>RAM Cache (In-Memory LRU)</h3>
+              <p>Bộ nhớ đệm nội bộ · Không tốn tiến trình phụ</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-redis-status">RUNNING</span>
           </div>
-          <p style="font-size:12px; color:var(--text-muted);">Bộ nhớ đệm siêu tốc (56.000 req/s, 0.5ms) cho phiên làm việc và caching.</p>
+          <p style="font-size:12px; color:var(--text-muted);">Bộ nhớ đệm siêu tốc trên RAM của các Node.js Worker giúp phản hồi tức thì.</p>
           <div class="service-actions">
-            <button type="button" class="btn btn-danger" data-server-action="flush-redis" data-confirm="Xóa sạch cache Redis?">Xóa toàn bộ Cache</button>
+            <button type="button" class="btn btn-danger" data-server-action="flush-redis" data-confirm="Xóa sạch bộ nhớ đệm RAM (In-Memory Cache)?">Xóa toàn bộ Cache</button>
           </div>
         </article>
 
@@ -243,13 +243,13 @@
           <div class="service-top">
             <div class="service-info">
               <h3>Cloudflare Tunnel (cloudflared)</h3>
-              <p>Kết nối: gaeru.org (reverse tunnel)</p>
+              <p>Kết nối: gaeru.com (reverse tunnel)</p>
             </div>
             <span class="card-badge badge-emerald" id="svc-cf-status">CONNECTED</span>
           </div>
           <p style="font-size:12px; color:var(--text-muted);">Đường hầm mã hóa bảo mật toàn cầu, cấp chứng chỉ SSL A+ và chống DDoS.</p>
           <div class="service-actions">
-            <a href="https://gaeru.org" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Mở Website công khai ↗</a>
+            <a href="https://gaeru.com" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Mở Website công khai ↗</a>
           </div>
         </article>
 
@@ -269,12 +269,12 @@
         <article class="service-card">
           <div class="service-top">
             <div class="service-info">
-              <h3>Self-Healing Watchdog</h3>
-              <p>Tự động phục hồi định kỳ 15s</p>
+              <h3>Self-Healing Watchdog &amp; Healthcheck</h3>
+              <p>Tự động kiểm tra &amp; phục hồi 24/7</p>
             </div>
             <span class="card-badge badge-emerald">ACTIVE</span>
           </div>
-          <p style="font-size:12px; color:var(--text-muted);">Giám sát và tự động bật lại Nginx, PostgreSQL, Redis, Node.js khi phát hiện sự cố.</p>
+          <p style="font-size:12px; color:var(--text-muted);">Giám sát và tự động phục hồi Nginx, PostgreSQL 18, Node.js Cluster và Cloudflare Tunnel khi có sự cố.</p>
         </article>
       </div>
     </div>
@@ -314,11 +314,11 @@
         <div class="terminal-header">
           <div style="display:flex; align-items:center; gap:8px;">
             <select id="log-source" class="btn btn-secondary" style="font-family:var(--font-mono); font-size:12px;">
-              <option value="app">Node.js App (gaeru.log)</option>
+              <option value="app">Node.js Cluster (node-app-gaeru.log)</option>
               <option value="nginx-error">Nginx Lỗi (error.log)</option>
               <option value="nginx-access">Nginx Truy cập (access.log)</option>
-              <option value="cloudflared">Cloudflare Tunnel (cloudflared.log)</option>
-              <option value="postgres">PostgreSQL (server.log)</option>
+              <option value="cloudflared">Cloudflare Tunnel (cloudflared.err)</option>
+              <option value="postgres">PostgreSQL 18 (postgresql-18-main.log)</option>
             </select>
             <input type="text" id="log-filter" placeholder="Lọc từ khóa (Ctrl+F)..." class="form-input" style="height:32px; width:220px; font-size:12px;">
           </div>
@@ -361,13 +361,13 @@
 
         <article class="card">
           <div class="card-header">
-            <span class="card-title">Làm Sạch Bộ Nhớ Đệm Redis</span>
-            <span class="card-badge badge-amber">FLUSHDB</span>
+            <span class="card-title">Làm Sạch Bộ Nhớ Đệm RAM (LRU)</span>
+            <span class="card-badge badge-amber">CACHE FLUSH</span>
           </div>
           <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
-            Xóa sạch toàn bộ key tạm thời và bộ nhớ đệm in-memory, buộc hệ thống nạp lại dữ liệu mới nhất từ PostgreSQL.
+            Xóa sạch toàn bộ dữ liệu đệm tạm thời trên RAM, buộc hệ thống nạp lại dữ liệu mới nhất từ PostgreSQL 18.
           </p>
-          <button type="button" class="btn btn-danger" data-server-action="flush-redis" data-confirm="Xóa sạch cache Redis?">🗑️ Xóa toàn bộ Cache Redis</button>
+          <button type="button" class="btn btn-danger" data-server-action="flush-redis" data-confirm="Xóa sạch bộ nhớ đệm RAM (In-Memory Cache)?">🗑️ Xóa toàn bộ RAM Cache</button>
         </article>
       </div>
     </div>
