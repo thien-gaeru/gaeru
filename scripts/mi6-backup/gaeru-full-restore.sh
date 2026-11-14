@@ -42,8 +42,11 @@ verify_gpg_envelope() {
   if command -v gpg >/dev/null 2>&1; then
     (
       set +o pipefail
-      gpg --batch --no-tty --pinentry-mode cancel --list-only --list-packets "$gpg_file" 2>/dev/null | \
-        grep -qE 'pubkey enc packet|encrypted data packet'
+      if gpg --batch --no-tty --help 2>/dev/null | grep -q -- '--pinentry-mode'; then
+        gpg --batch --no-tty --pinentry-mode cancel --list-only --list-packets "$gpg_file" 2>/dev/null
+      else
+        gpg --batch --no-tty --list-only --list-packets "$gpg_file" 2>/dev/null
+      fi | grep -qE 'pubkey enc packet|encrypted data packet'
     ) || die "File is not a valid OpenPGP encrypted archive: $gpg_file"
   fi
 }
