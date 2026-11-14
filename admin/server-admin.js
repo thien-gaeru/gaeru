@@ -195,6 +195,20 @@ async function fetchStats() {
     if (data.thermals && data.thermals.length > 0) {
       document.getElementById('soc-temp').textContent = data.thermals[0].temp + '°C';
     }
+    if (data.brightness) {
+      const briSlider = document.getElementById('screen-brightness-slider');
+      const briLabel = document.getElementById('screen-brightness-label');
+      const maxBri = data.brightness.max || 4095;
+      const valBri = Math.max(0, Math.min(maxBri, Number(data.brightness.value) || 0));
+      const pctBri = Math.round((valBri / maxBri) * 100);
+      if (briLabel) {
+        briLabel.textContent = valBri === 0 ? '0% (Đã tắt đèn nền)' : `${pctBri}% (${valBri}/${maxBri})`;
+      }
+      if (briSlider && document.activeElement !== briSlider) {
+        briSlider.max = String(maxBri);
+        briSlider.value = String(valBri);
+      }
+    }
 
     // 5. System specs & Services Pills & Node info
     const specDeviceEl = document.getElementById('spec-device');
@@ -370,6 +384,54 @@ document.addEventListener('click', (e) => {
     dismissAlert.parentElement.style.display = 'none';
     return;
   }
+  const briBtn = e.target.closest('[data-brightness-val]');
+  if (briBtn) {
+    const val = Math.max(0, Math.min(4095, Number(briBtn.dataset.brightnessVal) || 0));
+    setScreenBrightness(val);
+    return;
+  }
+});
+
+async function setScreenBrightness(value) {
+  const slider = document.getElementById('screen-brightness-slider');
+  const label = document.getElementById('screen-brightness-label');
+  const max = Number(slider?.max) || 4095;
+  const val = Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
+  const pct = Math.round((val / max) * 100);
+  if (slider) slider.value = String(val);
+  if (label) label.textContent = val === 0 ? '0% (Đã tắt đèn nền)' : `${pct}% (${val}/${max})`;
+  try {
+    await ensureCsrf();
+    const res = await fetch('/server_admin/api/action', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': currentCsrfToken || ''
+      },
+      body: JSON.stringify({ action: 'set-brightness', value: val })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast(data.message || `Đã đặt độ sáng: ${pct}%`);
+    } else {
+      showToast(data.error || 'Không thể chỉnh độ sáng màn hình.', true);
+    }
+  } catch (err) {
+    showToast('Lỗi kết nối khi chỉnh độ sáng: ' + err.message, true);
+  }
+}
+
+document.getElementById('screen-brightness-slider')?.addEventListener('input', (e) => {
+  const slider = e.target;
+  const label = document.getElementById('screen-brightness-label');
+  const max = Number(slider.max) || 4095;
+  const val = Math.max(0, Math.min(max, Math.round(Number(slider.value) || 0)));
+  const pct = Math.round((val / max) * 100);
+  if (label) label.textContent = val === 0 ? '0% (Đã tắt đèn nền)' : `${pct}% (${val}/${max})`;
+});
+
+document.getElementById('screen-brightness-slider')?.addEventListener('change', (e) => {
+  setScreenBrightness(e.target.value);
 });
 
 // Initial Bootstrap

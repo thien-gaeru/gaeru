@@ -135,6 +135,24 @@
             <span>Cảm biến CPU: <strong id="soc-temp">0°C</strong></span>
             <span>An toàn nhiệt: <strong style="color:var(--emerald);">Tối ưu 24/7</strong></span>
           </div>
+          <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 6px;">
+              <span style="color: var(--text-muted);">Độ sáng màn hình (LCD Backlight)</span>
+              <strong id="screen-brightness-label" style="color: var(--cyan);">4% (180/4095)</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+              <span style="font-size: 11px; color: var(--text-muted);">0%</span>
+              <input type="range" id="screen-brightness-slider" min="0" max="4095" step="1" value="180" style="flex: 1; accent-color: var(--cyan); cursor: pointer;">
+              <span style="font-size: 11px; color: var(--text-muted);">100%</span>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" data-brightness-val="0">Tắt (0%)</button>
+              <button type="button" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" data-brightness-val="205">5%</button>
+              <button type="button" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" data-brightness-val="1024">25%</button>
+              <button type="button" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" data-brightness-val="2048">50%</button>
+              <button type="button" class="btn btn-secondary" style="padding: 3px 8px; font-size: 11px;" data-brightness-val="4095">100%</button>
+            </div>
+          </div>
         </article>
       </div>
 

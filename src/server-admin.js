@@ -461,6 +461,19 @@ function createServerAdminRouter(config, pool) {
         storage: diskInfo,
         battery,
         thermals,
+        brightness: (() => {
+          let val = 180;
+          let max = 4095;
+          try {
+            if (fs.existsSync('/sys/class/leds/lcd-backlight/brightness')) {
+              val = parseInt(fs.readFileSync('/sys/class/leds/lcd-backlight/brightness', 'utf8').trim(), 10) || 0;
+            }
+            if (fs.existsSync('/sys/class/leds/lcd-backlight/max_brightness')) {
+              max = parseInt(fs.readFileSync('/sys/class/leds/lcd-backlight/max_brightness', 'utf8').trim(), 10) || 4095;
+            }
+          } catch (_) {}
+          return { value: val, max, percent: Math.round((val / max) * 100) };
+        })(),
         failover: failoverSync.getStatus(),
         services: {
           nginx: { name: 'Nginx Web Server', port: 80, status: nginxRunning ? 'online' : 'stopped', workers: 2 },
@@ -538,6 +551,22 @@ function createServerAdminRouter(config, pool) {
         case 'drop-caches': {
           try { require('./cache').flushAllCache(); } catch (_) {}
           result = { message: 'Đã xóa bộ nhớ đệm ứng dụng (in-memory cache). Can thiệp /proc kernel drop_caches đã bị vô hiệu hóa để bảo đảm an toàn hệ thống.', detail: 'app-cache-flushed' };
+          break;
+        }
+        case 'set-brightness': {
+          const rawVal = Number(req.body?.value);
+          const val = Math.max(0, Math.min(4095, Number.isFinite(rawVal) ? Math.round(rawVal) : 0));
+          try {
+            if (fs.existsSync('/sys/class/leds/lcd-backlight/brightness')) {
+              fs.writeFileSync('/sys/class/leds/lcd-backlight/brightness', String(val));
+            }
+            try { fs.writeFileSync('/etc/screen_brightness.conf', String(val) + '\n'); } catch (_) {}
+          } catch (_) {}
+          const pct = Math.round((val / 4095) * 100);
+          result = {
+            message: val === 0 ? 'Đã tắt đèn nền màn hình máy chủ (0%).' : `Đã điều chỉnh độ sáng màn hình máy chủ: ${pct}% (${val}/4095).`,
+            brightness: { value: val, max: 4095, percent: pct }
+          };
           break;
         }
         case 'restart-node': {
