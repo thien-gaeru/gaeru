@@ -639,6 +639,10 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Khởi chạy
+if (process.env.ALLOW_PC_SUPERVISOR !== 'true') {
+  log('Server Mi 6 là server chính thức vận hành độc lập. Server PC đã ngừng hoạt động hoàn toàn (đặt ALLOW_PC_SUPERVISOR=true nếu cần bật khẩn cấp).', 'WARN');
+  process.exit(0);
+}
 preventSystemSleep();
 spawnServer();
 spawnCloudflared();

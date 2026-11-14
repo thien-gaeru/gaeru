@@ -21,6 +21,9 @@ scripts/*.ps1
 !scripts/backup-db-15m.ps1
 !scripts/database-backup.ps1
 !scripts/sync-to-mi6.ps1
+!scripts/pull-mi6-backups.ps1
+!scripts/failover-restore-to-pc.ps1
+!scripts/finalize-pc-cutover.ps1
 scripts/*.bat
 scripts/*.vbs
 logs/
