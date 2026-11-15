@@ -17,21 +17,32 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
+run_t() {
+  local secs="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  else
+    "$@"
+  fi
+}
+
 # Ensure log doesn't grow unbounded (> 2MB)
 rotate_log() {
   if [ -f "$LOG_FILE" ]; then
     local sz=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
     if [ "$sz" -gt 2097152 ]; then
-      tail -n 2000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+      tail -n 2000 "$LOG_FILE" > "$LOG_FILE.tmp.$$" && mv -f "$LOG_FILE.tmp.$$" "$LOG_FILE"
     fi
   fi
 }
 
 reconnect_wifi() {
-  nmcli dev wifi rescan ifname wlan1 >/dev/null 2>&1 || true
-  nmcli connection up uuid "$WIFI_UUID" >> "$LOG_FILE" 2>&1 || \
-    nmcli connection up id "$SSID" >> "$LOG_FILE" 2>&1 || true
+  run_t 15 nmcli dev wifi rescan ifname wlan1 >/dev/null 2>&1 || true
+  run_t 20 nmcli connection up uuid "$WIFI_UUID" >> "$LOG_FILE" 2>&1 || \
+    run_t 20 nmcli connection up id "$SSID" >> "$LOG_FILE" 2>&1 || true
   iw dev wlan1 set power_save off 2>/dev/null || true
+  iw dev wlan0 set power_save off 2>/dev/null || true
 }
 
 ensure_upstart() {
@@ -41,9 +52,9 @@ ensure_upstart() {
   if [ -f "$ov" ] && grep -qE '^[[:space:]]*manual[[:space:]]*$' "$ov"; then
     return 0
   fi
-  if ! initctl status "$svc" 2>/dev/null | grep -q "start/running"; then
+  if ! run_t 10 initctl status "$svc" 2>/dev/null | grep -q "start/running"; then
     log "[AUTO-HEAL] $svc is stopped! Restarting now..."
-    start "$svc" >> "$LOG_FILE" 2>&1 || true
+    run_t 25 start "$svc" >> "$LOG_FILE" 2>&1 || true
   fi
 }
 
@@ -77,9 +88,9 @@ while true; do
         FAIL_COUNT=0
       else
         log "Soft reconnect failed. Recycling Wi-Fi radio..."
-        nmcli radio wifi off 2>/dev/null || true
+        run_t 10 nmcli radio wifi off 2>/dev/null || true
         sleep 2
-        nmcli radio wifi on 2>/dev/null || true
+        run_t 10 nmcli radio wifi on 2>/dev/null || true
         sleep 5
         reconnect_wifi
         FAIL_COUNT=0
@@ -91,9 +102,9 @@ while true; do
   ensure_upstart postgresql-chroot
 
   # 3. Ubuntu 26 Node.js (gaeru) Service Check
-  if ! initctl status node-app APP=gaeru 2>/dev/null | grep -q "start/running"; then
+  if ! run_t 10 initctl status node-app APP=gaeru 2>/dev/null | grep -q "start/running"; then
     log "[AUTO-HEAL] node-app (gaeru) is stopped! Restarting now..."
-    start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
+    run_t 30 start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
     HTTP_FAIL_COUNT=0
   else
     if curl -fsS --max-time 5 http://127.0.0.1:3000/health >/dev/null 2>&1; then
@@ -106,9 +117,9 @@ while true; do
       log "node-app HTTP health check FAILED ($HTTP_FAIL_COUNT/$HTTP_MAX_FAILS)"
       if [ "$HTTP_FAIL_COUNT" -ge "$HTTP_MAX_FAILS" ]; then
         log "[AUTO-HEAL] node-app HTTP health check failed 3x! Restarting node-app (gaeru)..."
-        restart node-app APP=gaeru >> "$LOG_FILE" 2>&1 || {
-          stop node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
-          start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
+        run_t 30 restart node-app APP=gaeru >> "$LOG_FILE" 2>&1 || {
+          run_t 15 stop node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
+          run_t 30 start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
         }
         HTTP_FAIL_COUNT=0
       fi
@@ -122,7 +133,7 @@ while true; do
   # 5. Cloudflare Tunnel Check
   if ! pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1; then
     log "[AUTO-HEAL] cloudflared is not running! Starting cloudflared..."
-    /etc/init.d/cloudflared start >> "$LOG_FILE" 2>&1 || true
+    run_t 20 /etc/init.d/cloudflared start >> "$LOG_FILE" 2>&1 || true
   fi
 
   # 6. Battery Limiter & Cron Check

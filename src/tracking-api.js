@@ -289,7 +289,7 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
   )).rows[0];
 
   const completedCase = (await pool.query(
-    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND (return_type IS NULL OR return_type <> 'exchange') AND status = 'resolved' LIMIT 1",
+    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' ORDER BY created_at DESC LIMIT 1",
     [order.id]
   )).rows[0];
 
@@ -370,10 +370,12 @@ async function getOrderTrackingDetails(pool, { orderNumber, challenge }) {
 /**
  * Express Router factory for public order tracking API.
  */
-function createTrackingApi(pool, _config = {}) {
+function createTrackingApi(pool, config = {}) {
   const router = express.Router();
+  const { sharedStore } = require('./security-hardening');
 
   const lookupLimiter = rateLimit({
+    ...sharedStore(pool, config, 'tracking-lookup'),
     windowMs: 60 * 1000,
     limit: 20,
     standardHeaders: 'draft-8',

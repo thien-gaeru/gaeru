@@ -420,7 +420,9 @@ async function loadSystemHealth() {
         overallBadge.innerHTML = '<span class="status-indicator"></span> Cơ sở dữ liệu đang phản hồi';
       } else {
         overallBadge.className = "health-overall-badge tag-warning";
-        overallBadge.innerHTML = '<span class="status-indicator"></span> Cảnh báo: ' + (health.status || 'Chậm');
+        const dot = document.createElement("span");
+        dot.className = "status-indicator";
+        overallBadge.replaceChildren(dot, document.createTextNode(" Cảnh báo: " + String(health.status || "Chậm")));
       }
     }
     const dbStatus = document.querySelector("#health-db-status");
@@ -2349,7 +2351,8 @@ document.querySelector('#order-bulk-actions').addEventListener('click',async eve
         if(event.target?.closest?.('[data-print-document], [data-print-button], [data-print-orders], #print-order-document'))printWindow.print();
       });
     }else{
-      printWindow.document.open();printWindow.document.write(html);printWindow.document.close();
+      const safeText=String(html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+      printWindow.document.body.textContent=safeText;
     }
   }catch(error){if(!printWindow.closed)printWindow.close();showGlobal(error.message,true);}
   finally{updateOrderSelection();}

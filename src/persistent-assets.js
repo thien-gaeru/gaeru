@@ -11,7 +11,8 @@ const widths=[480,800,1200];
 const snapshotCaches=new WeakMap();
 const assetCaches=new WeakMap();
 let last={state:'not-configured',files:0};
-const MAX_SNAPSHOT_CACHE_BYTES = 16 * 1024 * 1024;
+const IS_ARM64 = process.arch === 'arm64';
+const MAX_SNAPSHOT_CACHE_BYTES = IS_ARM64 ? 8 * 1024 * 1024 : 16 * 1024 * 1024;
 const MAX_SINGLE_SNAPSHOT_BYTES = 4 * 1024 * 1024;
 function estimateSnapshotRowBytes(row){
  if(!row||typeof row!=='object')return 256;
@@ -102,8 +103,8 @@ class ByteCappedLruCache {
     this.currentBytes = 0;
   }
 }
-const preAvifCache = new ByteCappedLruCache(16 * 1024 * 1024);
-const preWebpCache = new ByteCappedLruCache(12 * 1024 * 1024);
+const preAvifCache = new ByteCappedLruCache(IS_ARM64 ? 4 * 1024 * 1024 : 16 * 1024 * 1024);
+const preWebpCache = new ByteCappedLruCache(IS_ARM64 ? 4 * 1024 * 1024 : 12 * 1024 * 1024);
 
 async function getPreGeneratedWebp(relative, width = null) {
   if (!width) return null;
@@ -258,7 +259,7 @@ async function syncAssets(pool,{source=path.join(__dirname,'..','assets')}={}){
  }
  try{await scan(source);clearAssetSnapshotCache(pool);return last={state:'verified',files:count,bytes:total};}catch(e){clearAssetSnapshotCache(pool);last={state:'failed',files:count};throw e;}
 }
-function serveAssets(pool){const cache=createObjectCache({maxBytes:96*1024*1024,maxEntryBytes:12*1024*1024,ttl:3600000,maxPending:64});if(pool&&typeof pool==='object')assetCaches.set(pool,cache);return async(req,res,next)=>{
+function serveAssets(pool){const cache=createObjectCache({maxBytes:IS_ARM64?24*1024*1024:96*1024*1024,maxEntryBytes:IS_ARM64?6*1024*1024:12*1024*1024,ttl:3600000,maxPending:64});if(pool&&typeof pool==='object')assetCaches.set(pool,cache);return async(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method))return next();
  let relative;try{relative=decodeURIComponent(req.path).replace(/^\//,'');}catch{return res.sendStatus(400);}
  if(!valid(relative))return next();

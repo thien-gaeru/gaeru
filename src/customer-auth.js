@@ -48,9 +48,12 @@ function createMailer(smtpConfig) {
   return nodemailer.createTransport(require('./smtp-security').smtpOptions(smtpConfig));
 }
 
-function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig), accountSecurity, isTest = false } = {}) {
+function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMailer(smtpConfig), accountSecurity, isTest = false, config = null } = {}) {
   const router = Router();
+  const { sharedStore } = require("./security-hardening");
+  const storeConfig = config || { NODE_ENV: isTest ? "test" : process.env.NODE_ENV };
   const authLimit = rateLimit({
+    ...sharedStore(pool, storeConfig, "customer-auth"),
     windowMs: 15 * 60 * 1000,
     limit: (isTest || process.env.NODE_ENV === "test") ? 100 : 10,
     standardHeaders: "draft-8",
@@ -58,6 +61,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
     message: { error: "Quá nhiều yêu cầu tài khoản. Vui lòng thử lại sau." }
   });
   const resetLimit = rateLimit({
+    ...sharedStore(pool, storeConfig, "customer-reset"),
     windowMs: 60 * 60 * 1000,
     limit: 5,
     standardHeaders: "draft-8",
@@ -65,6 +69,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
     message: { error: "Quá nhiều yêu cầu khôi phục mật khẩu. Vui lòng thử lại sau." }
   });
   const verificationLimit = rateLimit({
+    ...sharedStore(pool, storeConfig, "customer-verify"),
     windowMs: 60 * 60 * 1000,
     limit: 5,
     standardHeaders: "draft-8",

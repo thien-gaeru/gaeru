@@ -333,7 +333,7 @@ async function listBundles(pool, page = 1, pageSize = 25) {
  */
 function mountBundles({ admin, publicRouter }, pool) {
   // Admin list
-  admin.get('/marketing/bundles', async (req, res, next) => {
+  admin.get('/marketing/bundles', requirePermission('marketing.read'), async (req, res, next) => {
     try {
       const page = Math.max(1, Number(req.query.page) || 1);
       const data = await listBundles(pool, page);

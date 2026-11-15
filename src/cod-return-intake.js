@@ -19,7 +19,14 @@ const intakeSchema = z.object({
   }),
   warehouseId: z.string().uuid('Mã kho không hợp lệ.').optional(),
   inspectionNotes: z.string().trim().max(1000).optional().default(''),
-  evidenceUrls: z.array(z.string().url('Đường dẫn hình ảnh bằng chứng không hợp lệ.')).optional().default([]),
+  evidenceUrls: z.array(z.string().trim().max(500).url('Đường dẫn hình ảnh bằng chứng không hợp lệ.').refine((u) => {
+    try {
+      const p = new URL(u).protocol;
+      return p === 'https:' || p === 'http:';
+    } catch (_) {
+      return false;
+    }
+  }, 'Đường dẫn hình ảnh phải dùng giao thức http hoặc https.')).max(10).optional().default([]),
   carrierFault: z.boolean().optional().default(false)
 }).strict();
 
@@ -329,7 +336,7 @@ function createCodReturnIntake(pool) {
             });
           } catch (loyaltyErr) {
             console.error(`[COD-INTAKE] Lỗi khi hoàn điểm loyalty cho đơn ${shipment.orderNumber}:`, loyaltyErr);
-            throw fail('Lỗi khi hoàn điểm tích lũy của khách hàng: ' + loyaltyErr.message, 500);
+            throw fail('Không thể hoàn điểm tích lũy của khách hàng. Vui lòng thử lại hoặc kiểm tra sổ Xu.', 500);
           }
         }
 

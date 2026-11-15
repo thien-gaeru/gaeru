@@ -1,5 +1,16 @@
 const jtVietnam = require('./jt-vietnam');
 const carrierResponse = require('./carrier-response');
+const { readBoundedJson, readBoundedText } = require('./lib/http-response');
+
+async function readViettelJson(resp, errorMessage = 'Phản hồi từ Viettel Post không đúng định dạng JSON.') {
+  try {
+    const raw = await readBoundedText(resp, { label: 'Viettel Post' });
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (err) {
+    if (err?.status === 502 && /exceeded/.test(err.message || '')) throw err;
+    throw fail(errorMessage, 502);
+  }
+}
 
 const CARRIER_NAMES = Object.freeze({
   viettel: 'Viettel Post',
@@ -114,7 +125,7 @@ async function syncViettelProvinceCatalog({ fetcher = fetch } = {}) {
     redirect: 'error'
   });
   if (!resp.ok) throw fail(`Không tải được danh mục tỉnh Viettel Post (HTTP ${resp.status}).`, 502);
-  const body = await resp.json();
+  const body = await readBoundedJson(resp, { label: 'Viettel Post' });
   const rows = Array.isArray(body?.data) ? body.data : (Array.isArray(body) ? body : []);
   if (!rows.length) throw fail('Danh mục tỉnh Viettel Post trả về rỗng.', 502);
   dynamicViettelProvinceMap.clear();
@@ -396,13 +407,7 @@ async function getViettelActiveToken(settings, { fetcher = fetch, forceRefresh =
     throw fail('Viettel Post từ chối kết nối LoginVTP (mã HTTP ' + loginRes.status + '). Kiểm tra token bí mật và thử lại.', 502);
   }
 
-  let loginData;
-  try {
-    const raw = typeof loginRes.text === 'function' ? await loginRes.text() : await loginRes.json();
-    loginData = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  } catch (_e) {
-    throw fail('Phản hồi từ Viettel Post LoginVTP không đúng định dạng JSON.', 502);
-  }
+  const loginData = await readViettelJson(loginRes, 'Phản hồi từ Viettel Post LoginVTP không đúng định dạng JSON.');
 
   if (!carrierResponse.succeeded('viettel', loginData) || !loginData.data?.token) {
     const detail = loginData?.message || (loginData?.status ? `Mã phản hồi ${loginData.status}` : 'Mã token bí mật không hợp lệ');
@@ -441,8 +446,7 @@ async function executeViettelRequest(settings, buildRequestFn, { fetcher = fetch
         redirect: 'error'
       });
       if (loginRes.ok) {
-        const raw = typeof loginRes.text === 'function' ? await loginRes.text() : await loginRes.json();
-        const loginData = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const loginData = await readViettelJson(loginRes);
         if (carrierResponse.succeeded('viettel', loginData) && loginData.data?.token) {
           const jwtToken = loginData.data.token;
           const expiresAt = Number(loginData.data.expired) || (Date.now() + 24 * 60 * 60 * 1000);
@@ -499,7 +503,7 @@ const viettelAdapter = {
         redirect: 'error'
       });
       if (!resp.ok) throw fail(`Viettel Post từ chối kết nối (HTTP ${resp.status}).`, 502);
-      const data = await resp.json();
+      const data = await readBoundedJson(resp, { label: 'Viettel Post' });
       return { response: resp, parsed: data };
     }, { fetcher });
 
@@ -533,7 +537,7 @@ const viettelAdapter = {
             redirect: 'error'
           });
           if (!resp.ok) throw fail('Không thể kiểm tra dịch vụ NLP Viettel Post.', 502);
-          const parsedData = await resp.json();
+          const parsedData = await readBoundedJson(resp, { label: 'Viettel Post' });
           return { response: resp, parsed: parsedData };
         }, { fetcher });
 
@@ -551,7 +555,7 @@ const viettelAdapter = {
               redirect: 'error'
             });
             if (!resp.ok) throw fail(`Viettel Post từ chối kết nối thử lại (HTTP ${resp.status}).`, 502);
-            const data = await resp.json();
+            const data = await readBoundedJson(resp, { label: 'Viettel Post' });
             return { response: resp, parsed: data };
           }, { fetcher });
           res = retryResult.res;
@@ -604,7 +608,7 @@ const viettelAdapter = {
           isDefinitive4xx ? { definitiveRejection: true } : { ambiguousCancelState: true }
         );
       }
-      const data = await resp.json();
+      const data = await readBoundedJson(resp, { label: 'Viettel Post' });
       return { response: resp, parsed: data };
     }, { fetcher });
 
@@ -647,7 +651,7 @@ const viettelAdapter = {
         }
         throw fail(`Viettel Post tra cứu thất bại (HTTP ${resp.status}).`, 502);
       }
-      const data = await resp.json();
+      const data = await readBoundedJson(resp, { label: 'Viettel Post' });
       return { response: resp, parsed: data };
     }, { fetcher });
 
@@ -705,7 +709,7 @@ const viettelAdapter = {
         redirect: 'error'
       });
       if (!resp.ok) throw fail('Viettel Post không phản hồi cước phí.', 502);
-      const data = await resp.json();
+      const data = await readBoundedJson(resp, { label: 'Viettel Post' });
       return { response: resp, parsed: data };
     }, { fetcher });
 
@@ -751,7 +755,7 @@ const spxAdapter = {
 
     const response = await fetcher(url, { method: 'POST', headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(15000), redirect: 'error' });
     if (!response.ok) throw fail(`SPX từ chối kết nối (HTTP ${response.status}).`, 502);
-    const res = await response.json();
+    const res = await readBoundedJson(response, { label: 'SPX' });
     const ok = carrierResponse.succeeded('spx', res);
     if (!ok) throw fail(`SPX báo lỗi tạo đơn: ${res.message || 'Lỗi SPX'}`, 502);
 
@@ -785,7 +789,7 @@ const spxAdapter = {
         isDefinitive4xx ? { definitiveRejection: true } : { ambiguousCancelState: true }
       );
     }
-    const res = await response.json();
+    const res = await readBoundedJson(response, { label: 'SPX' });
     if (!carrierResponse.succeeded('spx', res)) {
       throw Object.assign(fail('SPX chưa xác nhận hủy vận đơn.', 502), { definitiveRejection: true });
     }
@@ -799,7 +803,7 @@ const spxAdapter = {
 
     const response = await fetcher(url, { headers, signal: AbortSignal.timeout(12000), redirect: 'error' });
     if (!response.ok) throw fail(`SPX tra cứu thất bại (HTTP ${response.status}).`, 502);
-    const res = await response.json();
+    const res = await readBoundedJson(response, { label: 'SPX' });
     if (!carrierResponse.succeeded('spx', res)) throw fail('SPX chưa xác nhận kết quả tra cứu.', 502);
     const rawStatus = res.data?.status || 'pending';
 

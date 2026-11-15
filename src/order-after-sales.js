@@ -81,7 +81,7 @@ function checkReturnEligibility(order, activeCase = null, completedCase = null, 
     };
   }
 
-  if (order.return_completed_at || (completedCase && completedCase.return_type !== 'exchange')) {
+  if (order.return_completed_at || completedCase) {
     return {
       eligible: false,
       reason: 'Đơn hàng đã hoàn tất thủ tục đổi/trả trước đó.',
@@ -170,7 +170,7 @@ async function createCustomerReturnRequest(client, {
   )).rows[0];
 
   const completedCase = (await client.query(
-    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND (return_type IS NULL OR return_type <> 'exchange') AND status = 'resolved'",
+    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' ORDER BY created_at DESC LIMIT 1",
     [orderId]
   )).rows[0];
 

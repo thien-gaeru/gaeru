@@ -141,7 +141,8 @@ function createAdminNotifications(pool,config){
         'Content-Type':'application/json',
         'X-Gaeru-Internal-Mail':secret
       },
-      ...(body?{body:JSON.stringify(body)}:{})
+      ...(body?{body:JSON.stringify(body)}:{}),
+      signal:AbortSignal.timeout(5000)
     });
     const data=await res.json().catch(()=>({}));
     if(!res.ok||data.error){
@@ -152,7 +153,7 @@ function createAdminNotifications(pool,config){
     return data;
   }
 
-  router.get('/notifications/mail-accounts',requirePermission('settings.read'),async(_req,res,next)=>{
+  router.get('/notifications/mail-accounts',ownerOnly,requirePermission('settings.read'),async(_req,res,next)=>{
     try{
       const data=await callLocalMailAccountApi('GET');
       res.set('Cache-Control','no-store').json(data);

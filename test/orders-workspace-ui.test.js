@@ -37,7 +37,7 @@ test('bulk print opens window before network and sends only current selected ord
  window.open=()=>{opened=true;return printWindow;};context.request=async()=>{assert.equal(opened,true);return {csrfToken:'test-token'};};
  context.fetch=async(url,options)=>{called=true;assert.equal(url,'/api/gaeru_ceo/orders/print');assert.equal(options.headers['X-CSRF-Token'],'test-token');assert.deepEqual(JSON.parse(options.body),{ids:[order.id],format:'invoice'});return {ok:true,text:async()=>'<html>fixture print</html>'};};
  state.selectedOrders.add(order.id);state.selectedOrders.add('stale-id');context.updateOrderSelection();document.querySelector('[data-print-orders="invoice"]').dispatchEvent(new window.Event('click',{bubbles:true}));
- await new Promise(resolve=>setImmediate(resolve));assert.equal(called,true);assert.equal(printWindow.opener,null);assert.equal(written,'<html>fixture print</html>');
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(called,true);assert.equal(printWindow.opener,null);assert.equal(written,'');assert.equal(printWindow.document.body.textContent,'fixture print');
 });
 
 test('processing offers only valid next states and omits the current state button',()=>{const f=fixture();f.context.can=()=>true;f.context.orderTransitions={pending:['confirmed','cancelled']};f.context.labels.confirmed='Đã xác nhận';f.context.labels.cancelled='Đã hủy';f.context.renderOrders();f.context.openOrderProcessing(f.order.id,null);const popup=f.document.querySelector('#order-processing-dialog');const values=[...popup.querySelectorAll('[data-status-choice]')].map(b=>b.dataset.statusChoice);assert.deepEqual(values,['confirmed','cancelled']);assert.equal(popup.querySelector('[data-status-choice="pending"]'),null);});

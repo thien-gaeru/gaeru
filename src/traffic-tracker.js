@@ -7,10 +7,21 @@ function getVietnamDateString() {
 }
 
 let currentDay = getVietnamDateString();
+const MAX_VISITOR_HASHES = 100_000;
 const todayVisitorHashes = new Set();
 let cacheInitialized = false;
 const initializedPools = new WeakSet();
 const batchQueues = new WeakMap();
+
+function trackVisitorHash(hash) {
+  if (!hash || todayVisitorHashes.has(hash)) return false;
+  if (todayVisitorHashes.size >= MAX_VISITOR_HASHES) {
+    const oldest = todayVisitorHashes.values().next().value;
+    if (oldest !== undefined) todayVisitorHashes.delete(oldest);
+  }
+  todayVisitorHashes.add(hash);
+  return true;
+}
 
 const BOT_USER_AGENT_PATTERN = /bot|crawler|spider|googlebot|bingbot|slurp|duckduckbot|baiduspider|yandexbot|sogou|exabot|facebot|ia_archiver|lighthouse|chrome-lighthouse/i;
 
@@ -21,9 +32,9 @@ async function ensureCache(pool) {
   cacheInitialized = true;
   if (pool && typeof pool === 'object') initializedPools.add(pool);
   try {
-    const res = await pool.query("SELECT visitor_hash FROM site_traffic_realtime WHERE last_seen_at >= CURRENT_DATE");
+    const res = await pool.query("SELECT visitor_hash FROM site_traffic_realtime WHERE last_seen_at >= CURRENT_DATE ORDER BY last_seen_at DESC LIMIT 100000");
     for (const row of res.rows) {
-      todayVisitorHashes.add(row.visitor_hash);
+      trackVisitorHash(row.visitor_hash);
     }
   } catch {
     // Graceful fallback if table is not yet created
@@ -43,10 +54,7 @@ function computeVisitDelta({ path, ip, userAgent }, pool) {
   }
   const rawId = (ip || '127.0.0.1') + '::' + (userAgent || '');
   const visitorHash = crypto.createHash('sha256').update(rawId).digest('hex').slice(0, 32);
-  const isNewToday = !todayVisitorHashes.has(visitorHash);
-  if (isNewToday) {
-    todayVisitorHashes.add(visitorHash);
-  }
+  const isNewToday = trackVisitorHash(visitorHash);
   return {
     visitorHash,
     path: (path || '/').slice(0, 255),
@@ -134,6 +142,11 @@ function enqueueVisit(pool, visit, delayMs = 120) {
     batchQueues.set(pool, state);
   }
   state.items.push(visit);
+  if (state.items.length > 2000) state.items.shift();
+  if (state.items.length >= 200) {
+    flushPendingVisits(pool).catch(() => {});
+    return;
+  }
   if (!state.timer) {
     state.timer = setTimeout(() => {
       flushPendingVisits(pool).catch(() => {});

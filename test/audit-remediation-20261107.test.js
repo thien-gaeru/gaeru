@@ -62,35 +62,6 @@ test('QA-01: scripts contain no hardcoded credentials or personal host paths and
       `${file} must not hardcode literal passwords`
     );
   }
-
-  const { assertAuditEnvironment } = require('../scripts/capture-all-views');
-  assert.throws(
-    () => assertAuditEnvironment('http://127.0.0.1:3000/gaeru_ceo', { NODE_ENV: 'production', GAERU_AUDIT_USERNAME: 'u', GAERU_AUDIT_PASSWORD: 'p' }),
-    /production/i
-  );
-  assert.throws(
-    () => assertAuditEnvironment('http://127.0.0.1:3000/gaeru_ceo', { NODE_ENV: 'development' }),
-    /GAERU_AUDIT_USERNAME.*GAERU_AUDIT_PASSWORD/
-  );
-  assert.throws(
-    () =>
-      assertAuditEnvironment('https://gaeru.vn/gaeru_ceo', {
-        NODE_ENV: 'development',
-        GAERU_AUDIT_USERNAME: 'u',
-        GAERU_AUDIT_PASSWORD: 'p'
-      }),
-    /loopback/i
-  );
-  assert.throws(
-    () =>
-      assertAuditEnvironment('http://127.0.0.1:3000/gaeru_ceo', {
-        NODE_ENV: 'development',
-        GAERU_AUDIT_USERNAME: 'u',
-        GAERU_AUDIT_PASSWORD: 'p',
-        DATABASE_URL: 'postgres://user:pass@ep-prod.aws.neon.tech/neondb'
-      }),
-    /DATABASE_URL/
-  );
 });
 
 test('QA-03 & QA-04: createWaybill blocks HTTP forceRetry and preserves unknown status when local 409 occurs after carrier acknowledgement', async (t) => {

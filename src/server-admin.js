@@ -687,67 +687,103 @@ function createServerAdminRouter(config, pool) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename="gaeru_backup_${new Date().toISOString().slice(0, 10)}.json"`);
 
-      const tablesRes = await pool.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename");
-      const backupData = {
-        meta: {
-          server: os.hostname(),
-          database: 'gaeru',
-          exportedAt: new Date().toISOString(),
-          truncated: false,
-          tableCounts: {}
-        },
-        tables: {}
-      };
+      const tablesRes = { rows: [] };
+      const client = await pool.connect();
+      let txActive = false;
+      try {
+        await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        txActive = true;
+        const tblQ = await client.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename");
+        tablesRes.rows = tblQ.rows || [];
+        const backupData = {
+          meta: {
+            server: os.hostname(),
+            database: 'gaeru',
+            exportedAt: new Date().toISOString(),
+            snapshotIsolation: 'REPEATABLE READ READ ONLY',
+            truncated: false,
+            tableCounts: {},
+            tableErrors: {}
+          },
+          tables: {}
+        };
 
-      const EXCLUDED_BACKUP_TABLES = new Set([
-        'sessions', 'staff_accounts', 'account_security', 'security_challenges',
-        'admin_configuration', 'web_push_subscriptions', 'email_outbox'
-      ]);
-      const REDACT_COLS = new Set([
-        'password_hash', 'totp_secret', 'recovery_codes_hash',
-        'recovery_token', 'recovery_token_hash', 'sess'
-      ]);
-      const sanitizeRow = (row) => {
-        const clean = { ...row };
-        for (const col of REDACT_COLS) {
-          if (Object.prototype.hasOwnProperty.call(clean, col)) clean[col] = '[REDACTED]';
-        }
-        return clean;
-      };
-      const BATCH_SIZE = 500;
-      const MAX_ROWS_PER_TABLE = 50000;
-      if (!res.getHeader('Content-Type')) res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.write('{\n  "meta": ' + JSON.stringify({ ...backupData.meta, truncatedAt: MAX_ROWS_PER_TABLE }) + ',\n  "tables": {\n');
-      let firstTable = true;
-      for (const row of tablesRes.rows) {
-        const tbl = row.tablename;
-        if (EXCLUDED_BACKUP_TABLES.has(tbl)) continue;
-        try {
-          const firstBatch = await pool.query(`SELECT * FROM "${tbl}" LIMIT $1 OFFSET $2`, [BATCH_SIZE, 0]);
-          if (!firstTable) res.write(',\n');
-          firstTable = false;
-          res.write(`    ${JSON.stringify(tbl)}: [`);
-          let offset = 0;
-          let count = 0;
-          let batchRows = firstBatch.rows || [];
-          while (count < MAX_ROWS_PER_TABLE) {
-            for (let i = 0; i < batchRows.length && count < MAX_ROWS_PER_TABLE; i++) {
-              if (count > 0) res.write(',');
-              res.write(JSON.stringify(sanitizeRow(batchRows[i])));
-              count++;
-            }
-            if (batchRows.length < BATCH_SIZE || count >= MAX_ROWS_PER_TABLE) break;
-            offset += batchRows.length;
-            const nextLimit = Math.min(BATCH_SIZE, MAX_ROWS_PER_TABLE - count);
-            const nextRes = await pool.query(`SELECT * FROM "${tbl}" LIMIT $1 OFFSET $2`, [nextLimit, offset]);
-            batchRows = nextRes.rows || [];
+        const EXCLUDED_BACKUP_TABLES = new Set([
+          'sessions', 'session', 'user_sessions', 'staff_accounts', 'auth_identities',
+          'account_security', 'security_challenges', 'security_rate_limits', 'bot_failures',
+          'admin_configuration', 'admin_push_subscriptions', 'web_push_subscriptions',
+          'email_outbox', 'admin_domain_email_outbox', 'care_email_outbox',
+          'order_email_outbox', 'order_admin_email_outbox', 'shopping_chat_email_outbox',
+          'warranty_email_outbox', 'customer_account_setup_tokens',
+          'customer_password_reset_tokens', 'customer_email_verification_tokens',
+          'account_deletion_requests', 'customer_contact_changes', 'order_deletion_sessions'
+        ]);
+        const REDACT_COLS = new Set([
+          'password_hash', 'totp_secret', 'recovery_codes_hash',
+          'recovery_token', 'recovery_token_hash', 'sess',
+          'token_hash', 'capability_token_hash', 'password_fingerprint',
+          'credential_fingerprint', 'old_token_hash', 'new_token_hash',
+          'cipher', 'access_token', 'refresh_token', 'secret',
+          'hash_secret', 'api_key', 'webhook_secret', 'customer_password'
+        ]);
+        const sanitizeRow = (row, tbl) => {
+          const clean = { ...row };
+          if (tbl === 'store_settings' && String(clean.setting_key || '').startsWith('private_admin:')) {
+            clean.setting_value = '[REDACTED]';
           }
-          res.write(']');
-          backupData.meta.tableCounts[tbl] = count;
-        } catch (_) {}
+          for (const col of REDACT_COLS) {
+            if (Object.prototype.hasOwnProperty.call(clean, col)) clean[col] = '[REDACTED]';
+          }
+          return clean;
+        };
+        const BATCH_SIZE = 500;
+        const MAX_ROWS_PER_TABLE = 50000;
+        if (!res.getHeader('Content-Type')) res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.write('{\n  "meta": ' + JSON.stringify({ ...backupData.meta, truncatedAt: MAX_ROWS_PER_TABLE }) + ',\n  "tables": {\n');
+        let firstTable = true;
+        for (const row of tablesRes.rows) {
+          if (res.writableEnded || res.destroyed) break;
+          const tbl = row.tablename;
+          if (EXCLUDED_BACKUP_TABLES.has(tbl) || !/^[a-zA-Z0-9_]+$/.test(tbl)) continue;
+          try {
+            const firstBatch = await client.query(`SELECT * FROM "${tbl}" LIMIT $1 OFFSET $2`, [BATCH_SIZE, 0]);
+            if (!firstTable) res.write(',\n');
+            firstTable = false;
+            res.write(`    ${JSON.stringify(tbl)}: [`);
+            let offset = 0;
+            let count = 0;
+            let batchRows = firstBatch.rows || [];
+            while (count < MAX_ROWS_PER_TABLE) {
+              for (let i = 0; i < batchRows.length && count < MAX_ROWS_PER_TABLE; i++) {
+                if (count > 0) res.write(',');
+                res.write(JSON.stringify(sanitizeRow(batchRows[i], tbl)));
+                count++;
+              }
+              if (batchRows.length < BATCH_SIZE || count >= MAX_ROWS_PER_TABLE) {
+                if (batchRows.length >= BATCH_SIZE && count >= MAX_ROWS_PER_TABLE) backupData.meta.truncated = true;
+                break;
+              }
+              offset += batchRows.length;
+              const nextLimit = Math.min(BATCH_SIZE, MAX_ROWS_PER_TABLE - count);
+              const nextRes = await client.query(`SELECT * FROM "${tbl}" LIMIT $1 OFFSET $2`, [nextLimit, offset]);
+              batchRows = nextRes.rows || [];
+            }
+            res.write(']');
+            backupData.meta.tableCounts[tbl] = count;
+          } catch (tblErr) {
+            console.error(`[server-admin] db-backup table "${tbl}" read error:`, tblErr.message);
+            backupData.meta.tableErrors[tbl] = 'READ_FAILED';
+            if (!firstTable) res.write(',\n');
+            firstTable = false;
+            res.write(`    ${JSON.stringify(tbl)}: []`);
+          }
+        }
+        res.write('\n  },\n  "tableCounts": ' + JSON.stringify(backupData.meta.tableCounts) + ',\n  "tableErrors": ' + JSON.stringify(backupData.meta.tableErrors) + ',\n  "truncated": ' + JSON.stringify(backupData.meta.truncated) + '\n}');
+        return res.end();
+      } finally {
+        if (txActive) await client.query('ROLLBACK').catch(() => {});
+        client.release();
       }
-      res.write('\n  },\n  "tableCounts": ' + JSON.stringify(backupData.meta.tableCounts) + '\n}');
-      return res.end();
     } catch (e) {
       console.error('[server-admin] db-backup error:', e);
       if (res.headersSent) return res.end();

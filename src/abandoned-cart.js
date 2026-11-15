@@ -93,10 +93,10 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
 
     if (existing) {
       if (existing.customer_id && existing.customer_id !== customerId) {
-        throw fail('Không có quyền cập nhật giỏ hàng của tài khoản khác.', 403);
+        throw fail('Email này hiện không thể đồng bộ giỏ hàng cho phiên hiện tại. Vui lòng đăng nhập tài khoản để tiếp tục.', 403);
       }
       if (!customerId && Array.isArray(allowedCartIds) && !allowedCartIds.includes(existing.id)) {
-        throw fail('Không có quyền ghi đè giỏ hàng đã tồn tại của phiên khác.', 403);
+        throw fail('Email này hiện không thể đồng bộ giỏ hàng cho phiên hiện tại. Vui lòng đăng nhập tài khoản để tiếp tục.', 403);
       }
     } else if (enforceCustomerOwnership && !customerId) {
       const registeredCustomer = (await client.query(
@@ -104,7 +104,7 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
         [normEmail]
       )).rows[0];
       if (registeredCustomer) {
-        throw fail('Email này thuộc tài khoản đã đăng ký; vui lòng đăng nhập để đồng bộ giỏ hàng.', 403);
+        throw fail('Email này hiện không thể đồng bộ giỏ hàng cho phiên hiện tại. Vui lòng đăng nhập tài khoản để tiếp tục.', 403);
       }
     }
 
@@ -573,7 +573,7 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
   });
 
   // Public: Capture checkout contacts & consent
-  publicApi.post('/capture', rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res, next) => {
+  publicApi.post('/capture', (req, res, next) => (req.session?.customer || req.session?.admin) ? require('./security').requireCsrf(req, res, next) : next(), rateLimit({ ...require('./security-hardening').sharedStore(pool, config || {}, 'abandoned-capture'), windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res, next) => {
     try {
       const parsed = captureSchema.parse(req.body);
       const customerId = req.session?.customer?.id || null;
@@ -612,7 +612,7 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
   });
 
   // Public: Recover cart via recovery token
-  publicApi.get('/recover/:token', rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res, next) => {
+  publicApi.get('/recover/:token', rateLimit({ ...require('./security-hardening').sharedStore(pool, config || {}, 'abandoned-recover'), windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res, next) => {
     try {
       const token = z.string().trim().min(20).max(128).parse(req.params.token);
       const cart = await recoverCartByToken(pool, token);

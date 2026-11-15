@@ -43,9 +43,6 @@ const CLOUDFLARED_EXE = process.env.CLOUDFLARED_EXE || winPath.join(process.env[
 const CLOUDFLARED_CONFIG = path.join(os.homedir(), '.cloudflared', 'config.yml');
 const CLOUDFLARED_PID_FILE = path.join(LOGS_DIR, 'cloudflared.pid');
 const CLOUDFLARED_LOG = path.join(LOGS_DIR, 'cloudflared.log');
-const SYNC_SCRIPT = path.join(ROOT_DIR, 'scripts', 'realtime-cluster-sync.js');
-const SYNC_PID_FILE = path.join(LOGS_DIR, 'cluster-sync.pid');
-const SYNC_LOG = path.join(LOGS_DIR, 'cluster-sync.log');
 
 const HEALTH_CHECK_INTERVAL_MS = 5000;
 const HEALTH_CHECK_TIMEOUT_MS = 6000;
@@ -147,20 +144,6 @@ function killProcessTree(pid) {
 }
 
 let cloudflaredProcess = null;
-let syncProcess = null;
-
-function getSyncPid() {
-  if (syncProcess && syncProcess.pid && isPidAlive(syncProcess.pid)) {
-    return syncProcess.pid;
-  }
-  if (fs.existsSync(SYNC_PID_FILE)) {
-    try {
-      const pid = parseInt(fs.readFileSync(SYNC_PID_FILE, 'utf8').trim(), 10);
-      if (isPidAlive(pid)) return pid;
-    } catch (_) {}
-  }
-  return null;
-}
 
 function getCloudflaredPid() {
   if (cloudflaredProcess && cloudflaredProcess.pid && isPidAlive(cloudflaredProcess.pid)) {
@@ -232,9 +215,6 @@ function checkStatus() {
 
   const cfPid = getCloudflaredPid();
   console.log(`Cloudflare Tunnel: ${cfPid ? `RUNNING (PID: ${cfPid}, Connected to Cloudflare Edge)` : 'STOPPED'}`);
-
-  const syncPid = getSyncPid();
-  console.log(`Two-way Cluster Sync: ${syncPid ? `RUNNING (PID: ${syncPid}, PC <-> Mi 6 parallel servers)` : 'STOPPED'}`);
 
   // Test local HTTP health
   const req = http.get(`http://127.0.0.1:${SERVER_PORT}/healthz`, { timeout: 2000 }, (res) => {
@@ -522,60 +502,6 @@ function checkCloudflaredHealth() {
   }
 }
 
-function spawnClusterSync() {
-  if (isShuttingDown) return;
-  if (getSyncPid()) return;
-
-  log(`Khởi chạy tiến trình Two-way Cluster Synchronizer (PC <-> Mi 6 phục vụ song song)...`);
-  rotateLogIfNeeded(SYNC_LOG);
-  const outStream = fs.openSync(SYNC_LOG, 'a');
-  const errStream = fs.openSync(SYNC_LOG, 'a');
-
-  try {
-    syncProcess = spawn(process.execPath, [SYNC_SCRIPT], {
-      cwd: ROOT_DIR,
-      stdio: ['ignore', outStream, errStream],
-      detached: false
-    });
-
-    const syncPid = syncProcess.pid;
-    fs.writeFileSync(SYNC_PID_FILE, String(syncPid), 'utf8');
-    tuneProcessPriorities(syncPid);
-    log(`Two-way Cluster Synchronizer đã khởi chạy thành công (PID: ${syncPid})`);
-
-    syncProcess.on('error', (err) => {
-      log(`Lỗi khởi tạo Cluster Synchronizer: ${err.message}`, 'ERROR');
-    });
-
-    syncProcess.on('exit', (code, signal) => {
-      try { fs.closeSync(outStream); } catch (_) {}
-      try { fs.closeSync(errStream); } catch (_) {}
-      try { if (fs.existsSync(SYNC_PID_FILE)) fs.unlinkSync(SYNC_PID_FILE); } catch (_) {}
-      syncProcess = null;
-
-      if (isShuttingDown) {
-        log(`Cluster Synchronizer (PID ${syncPid}) đã dừng an toàn theo yêu cầu.`);
-        return;
-      }
-
-      log(`Cluster Synchronizer (PID ${syncPid}) đã dừng đột ngột (code: ${code}, signal: ${signal}). TỰ ĐỘNG KHỞI ĐỘNG LẠI TRONG 3s...`, 'WARN');
-      setTimeout(() => {
-        if (!isShuttingDown) spawnClusterSync();
-      }, 3000);
-    });
-  } catch (err) {
-    log(`Không thể khởi chạy Cluster Synchronizer: ${err.message}`, 'ERROR');
-  }
-}
-
-function checkClusterSyncHealth() {
-  if (isShuttingDown) return;
-  if (!getSyncPid()) {
-    log('Phát hiện Cluster Synchronizer chưa chạy. Đang tự động kích hoạt lại...', 'WARN');
-    spawnClusterSync();
-  }
-}
-
 function checkSignals() {
   if (isShuttingDown) return;
 
@@ -618,15 +544,9 @@ function shutdownGracefully() {
     killProcessTree(cloudflaredProcess.pid);
   }
 
-  if (syncProcess && syncProcess.pid) {
-    log(`Dừng Cluster Synchronizer PID ${syncProcess.pid}...`);
-    killProcessTree(syncProcess.pid);
-  }
-
   try { if (fs.existsSync(PID_FILE)) fs.unlinkSync(PID_FILE); } catch (_) {}
   try { if (fs.existsSync(SERVER_PID_FILE)) fs.unlinkSync(SERVER_PID_FILE); } catch (_) {}
   try { if (fs.existsSync(CLOUDFLARED_PID_FILE)) fs.unlinkSync(CLOUDFLARED_PID_FILE); } catch (_) {}
-  try { if (fs.existsSync(SYNC_PID_FILE)) fs.unlinkSync(SYNC_PID_FILE); } catch (_) {}
 
   log('Supervisor đã dừng hoàn tất.');
   process.exit(0);
@@ -649,10 +569,6 @@ if (process.env.ALLOW_PC_SUPERVISOR !== 'true') {
 preventSystemSleep();
 spawnServer();
 spawnCloudflared();
-if (process.env.ENABLE_CLUSTER_SYNC === 'true' && fs.existsSync(path.join(ROOT_DIR, 'scripts', 'cluster-media-sync.js'))) {
-  spawnClusterSync();
-  setInterval(checkClusterSyncHealth, 10000);
-}
 healthTimer = setInterval(checkHttpHealth, HEALTH_CHECK_INTERVAL_MS);
 signalTimer = setInterval(checkSignals, 1000);
 setInterval(checkCloudflaredHealth, 10000);

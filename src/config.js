@@ -42,6 +42,12 @@ const schema = z.object({
   GOOGLE_ANALYTICS_ID: z.string().trim().regex(/^G-[A-Z0-9]+$/i).optional().or(z.literal('').transform(() => undefined)),
   PG_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(200).optional(),
   PG_POOL_SIZE: z.coerce.number().int().min(1).max(200).optional(),
+  PG_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).optional(),
+  PG_IDLE_IN_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).optional(),
+  PG_LOCK_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).optional(),
+  PG_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).optional(),
+  PG_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(500).max(60000).optional(),
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(5000).max(600000).optional(),
   DDOS_RATE_LIMIT: z.coerce.number().int().min(100).max(100000).optional(),
   CACHE_RAM_MAX_ENTRIES: z.coerce.number().int().min(100).max(100000).optional(),
   CACHE_RAM_MAX_MB: z.coerce.number().int().min(16).max(4096).optional()

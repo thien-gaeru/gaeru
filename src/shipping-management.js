@@ -648,18 +648,25 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
       }
 
       if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
-        try {
-          const { earnPoints } = require('./loyalty-api');
-          await earnPoints(client, {
-            customerId: shipment.orderCustomerId,
-            orderId: shipment.order_id,
-            orderTotalVnd: Number(shipment.orderTotalVnd),
-            actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
-          });
-        } catch (loyaltyErr) {
-          if (!/Cannot read properties of undefined/.test(String(loyaltyErr?.message || ''))) {
-            console.warn('[SHIPPING] Loyalty earn skipped:', loyaltyErr.message);
+        const { earnPoints } = require('./loyalty-api');
+        const earnPayload = {
+          customerId: shipment.orderCustomerId,
+          orderId: shipment.order_id,
+          orderTotalVnd: Number(shipment.orderTotalVnd),
+          actor: actor || { username: 'carrier_sync', source: 'shipping_worker' }
+        };
+        if (shipment.orderPaymentMethod === 'cod') {
+          const inTx = Boolean(client?.__inTransaction);
+          if (inTx) await client.query('SAVEPOINT sp_cod_delivery_loyalty');
+          try {
+            await earnPoints(client, earnPayload);
+            if (inTx) await client.query('RELEASE SAVEPOINT sp_cod_delivery_loyalty');
+          } catch (loyaltyErr) {
+            if (inTx) await client.query('ROLLBACK TO SAVEPOINT sp_cod_delivery_loyalty').catch(() => {});
+            console.warn('[SHIPPING] COD delivery loyalty accrual deferred to settlement:', loyaltyErr?.message || loyaltyErr);
           }
+        } else {
+          await earnPoints(client, earnPayload);
         }
       }
 
@@ -725,7 +732,7 @@ async function settleSingleCarrierCodInTx(client, {
       throw fail('Tổng tiền chứng từ chi trả (declaredPayoutVnd) phải là số nguyên dương.', 400);
     }
   }
-  if (actor && actor.role !== 'owner' && Array.isArray(actor.permissions) && !actor.permissions.includes('payments.write')) {
+  if (actor && !actor.isOwner && actor.role !== 'owner' && !(Array.isArray(actor.permissions) && actor.permissions.includes('payments.write'))) {
     throw fail('Tài khoản cần quyền quản lý thanh toán (payments.write) để xác nhận đối soát tiền COD.', 403);
   }
 
@@ -1211,7 +1218,7 @@ async function confirmCarrierPortalStatus(pool, { orderId, targetStatus, evidenc
     if (targetStatus === 'delivered' && shipment.orderPaymentMethod === 'cod' && shipment.orderPaymentStatus !== 'paid') {
       const hasPaymentPerm = actor?.isOwner || actor?.role === 'owner' ||
         (Array.isArray(actor?.permissions) && actor.permissions.includes('payments.write'));
-      if (Array.isArray(actor?.permissions) && !hasPaymentPerm) {
+      if (!hasPaymentPerm) {
         throw fail('Xác nhận đã giao & thu tiền COD đòi hỏi quyền thanh toán (payments.write).', 403);
       }
     }
@@ -1504,6 +1511,8 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
        FROM carrier_shipments s
        JOIN orders o ON o.id = s.order_id
        WHERE s.carrier_id = $1 AND (s.tracking_number = $2 OR s.carrier_order_id = $3)
+       ORDER BY (s.status = 'cancelled')::int ASC, s.created_at DESC
+       LIMIT 1
        FOR UPDATE OF s, o`,
       [carrierId, trackingNumber || '', carrierOrderId || '']
     );
@@ -1702,7 +1711,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
   const publicRouter = Router();
 
   adminRouter.post('/shipping/attempts/:id/reconcile', requirePermission('orders.write'), requireCsrf,
-    rateLimit({windowMs:900000,limit:10,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+    rateLimit({ ...require('./security-hardening').sharedStore(pool, config, 'shipping-reconcile'), windowMs:900000,limit:10,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
       try {
         if(req.admin?.role!=='owner'||req.admin?.source!=='bootstrap'||!config.accountSecurity) throw fail('Chỉ chủ doanh nghiệp được đối soát yêu cầu vận đơn.',403);
         const attemptId=z.string().uuid().parse(req.params.id);
@@ -1965,7 +1974,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
 
   // Public Webhook route
   publicRouter.post('/shipping/:carrier/webhook',
-    rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }),
+    rateLimit({ ...require('./security-hardening').sharedStore(pool, config, 'shipping-webhook'), windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
         const carrierId = z.enum(['viettel', 'jt', 'spx']).parse(req.params.carrier);
@@ -1983,7 +1992,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
 
   // Public Realtime Quote route (advisory quote; final checkout fee & COD are always computed server-side)
   publicRouter.post('/shipping/quote',
-    rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }),
+    rateLimit({ ...require('./security-hardening').sharedStore(pool, config, 'shipping-quote'), windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
         const schema = z.object({

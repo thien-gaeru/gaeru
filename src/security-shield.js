@@ -108,11 +108,13 @@ function createHoneypotShield() {
 /**
  * Adaptive Rate Limiter for API endpoints (Anti-DDoS / Flood Shield)
  */
-function createDdosShield(config = {}) {
+function createDdosShield(config = {}, pool = null) {
   const isTest = config.NODE_ENV === 'test' || process.env.NODE_ENV === 'test';
   const customLimit = Number(config?.DDOS_RATE_LIMIT || process.env.DDOS_RATE_LIMIT);
   const defaultLimit = Number.isFinite(customLimit) && customLimit > 0 ? customLimit : 3000;
+  const { sharedStore } = require('./security-hardening');
   return rateLimit({
+    ...sharedStore(pool, config, 'ddos-shield'),
     windowMs: 60000, // 1 minute
     limit: isTest ? 10000 : defaultLimit, // Generous limit for high-traffic browsing and polling
     standardHeaders: 'draft-8',
@@ -128,9 +130,11 @@ function createDdosShield(config = {}) {
 /**
  * Sensitive Endpoints Rate Limiter (Brute-Force & Credential Stuffing Shield)
  */
-function createAuthBruteForceShield(config = {}) {
+function createAuthBruteForceShield(config = {}, pool = null) {
   const isTest = config.NODE_ENV === 'test' || process.env.NODE_ENV === 'test';
+  const { sharedStore } = require('./security-hardening');
   return rateLimit({
+    ...sharedStore(pool, config, 'auth-brute-force'),
     windowMs: 900000, // 15 minutes
     limit: isTest ? 5000 : 60, // 60 requests per 15 mins for auth routes
     // Session/config reads and successful writes are not failed login attempts.
@@ -163,6 +167,8 @@ async function getSystemHealth(pool, config = {}, request = null) {
   const memory = process.memoryUsage();
   const uptimeSeconds = Math.round(process.uptime());
 
+  const customDdos = Number(config?.DDOS_RATE_LIMIT || process.env.DDOS_RATE_LIMIT);
+  const effectiveDdos = Number.isFinite(customDdos) && customDdos > 0 ? customDdos : 3000;
   return {
     status: dbStatus === 'connected' ? 'healthy' : 'degraded',
     statusScope: 'database_reachability',
@@ -182,7 +188,7 @@ async function getSystemHealth(pool, config = {}, request = null) {
       csrfStatus: 'middleware_configured',
       antiDdos: {
         status: 'active',
-        limit: '600 req/phút/IP',
+        limit: `${effectiveDdos} req/phút/IP`,
         strategy: 'Adaptive Rate Limiting'
       },
       antiBot: {

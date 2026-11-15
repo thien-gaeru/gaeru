@@ -190,6 +190,48 @@
     }
   }
 
+  function askPasswordModal(titleText, labelText){
+    return new Promise(resolve=>{
+      const overlay=document.createElement('div');
+      overlay.setAttribute('role','dialog');
+      overlay.setAttribute('aria-modal','true');
+      overlay.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;';
+      const card=document.createElement('form');
+      card.style.cssText='background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;box-shadow:0 20px 45px rgba(0,0,0,.22);display:flex;flex-direction:column;gap:12px;';
+      const h=document.createElement('strong');
+      h.textContent=titleText||'Xác thực thao tác';
+      h.style.fontSize='15px';
+      const p=document.createElement('label');
+      p.textContent=labelText||'Nhập mật khẩu:';
+      p.style.fontSize='13px';
+      const input=document.createElement('input');
+      input.type='password';
+      input.autocomplete='current-password';
+      input.required=true;
+      input.style.cssText='width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;';
+      p.appendChild(input);
+      const actions=document.createElement('div');
+      actions.style.cssText='display:flex;justify-content:flex-end;gap:8px;margin-top:4px;';
+      const cancelBtn=document.createElement('button');
+      cancelBtn.type='button';
+      cancelBtn.textContent='Hủy';
+      cancelBtn.className='secondary-button';
+      const okBtn=document.createElement('button');
+      okBtn.type='submit';
+      okBtn.textContent='Xác nhận';
+      okBtn.className='button';
+      actions.append(cancelBtn,okBtn);
+      card.append(h,p,actions);
+      overlay.appendChild(card);
+      const close=val=>{overlay.remove();resolve(val||null);};
+      cancelBtn.addEventListener('click',()=>close(null));
+      overlay.addEventListener('click',ev=>{if(ev.target===overlay)close(null);});
+      card.addEventListener('submit',ev=>{ev.preventDefault();close(input.value.trim());});
+      document.body.appendChild(overlay);
+      input.focus();
+    });
+  }
+
   root.addEventListener('submit',async e=>{
     const form=e.target.closest('[data-mail-create-form]');
     if(!form)return;
@@ -200,7 +242,7 @@
       const username=String(fd.get('username')||'').trim().toLowerCase().split('@')[0];
       const rawPassword=String(fd.get('password')||'').trim();
       const displayName=String(fd.get('displayName')||'GAERU').trim()||'GAERU';
-      const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác mail iCloud @gaeru.com:');
+      const adminPassword=await askPasswordModal('Xác thực chủ doanh nghiệp (Owner)', 'Mật khẩu Quản trị viên tối cao để thêm hộp thư @gaeru.com:');
       if(!adminPassword)return;
       const payload={action:'add',username,displayName,adminPassword};
       if(rawPassword)payload.password=rawPassword;
@@ -229,9 +271,9 @@
       }
       if(passBtn){
         const username=passBtn.dataset.mailPasswd;
-        const password=window.prompt(`Nhập App-Specific Password Apple ID (dùng cho smtp.mail.me.com) cho ${username}@gaeru.com:`);
+        const password=await askPasswordModal('Cập nhật App-Specific Password Apple ID', `App-Specific Password (smtp.mail.me.com) cho ${username}@gaeru.com:`);
         if(!password)return;
-        const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác mail iCloud @gaeru.com:');
+        const adminPassword=await askPasswordModal('Xác thực chủ doanh nghiệp (Owner)', `Mật khẩu Quản trị viên tối cao để cập nhật ${username}@gaeru.com:`);
         if(!adminPassword)return;
         const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
           method:'POST',
@@ -244,7 +286,7 @@
       if(delBtn){
         const username=delBtn.dataset.mailDel;
         if(!window.confirm(`Xóa alias ${username}@gaeru.com khỏi danh sách quản trị?`))return;
-        const adminPassword=window.prompt('Nhập mật khẩu Quản trị viên tối cao (Owner) để xác thực thao tác mail iCloud @gaeru.com:');
+        const adminPassword=await askPasswordModal('Xác thực chủ doanh nghiệp (Owner)', `Mật khẩu Quản trị viên tối cao để xóa ${username}@gaeru.com:`);
         if(!adminPassword)return;
         const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
           method:'POST',

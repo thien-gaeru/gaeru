@@ -216,10 +216,12 @@ async function updateRmaLogisticsByAdmin(pool, {
 /**
  * Express router for RMA endpoints (Public tracking + Token authorization).
  */
-function createRmaApi(pool, _config = {}) {
+function createRmaApi(pool, config = {}) {
   const router = express.Router();
+  const { sharedStore } = require('./security-hardening');
 
   const rmaLimiter = rateLimit({
+    ...sharedStore(pool, config, 'rma-public'),
     windowMs: 60 * 1000,
     limit: 30,
     standardHeaders: 'draft-8',

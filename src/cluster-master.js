@@ -17,7 +17,6 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const { defaultFanoutHub } = require('./lib/cluster-fanout');
-const { clusterStockCoordinator } = require('./lib/cluster-stock-coordinator');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const LOGS_DIR = path.join(ROOT_DIR, 'logs');
@@ -286,23 +285,40 @@ process.on('SIGINT', () => void gracefulShutdown());
 async function gracefulShutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  if (typeof signalInterval !== 'undefined' && signalInterval) clearInterval(signalInterval);
   for (const timer of respawnTimers.values()) clearTimeout(timer);
   respawnTimers.clear();
   log('Đang thực hiện dừng hệ thống Cluster an toàn...');
 
   try { if (fs.existsSync(CLUSTER_PID_FILE)) fs.unlinkSync(CLUSTER_PID_FILE); } catch (_) {}
 
-  for (const [idx, worker] of activeWorkers.entries()) {
+  const exits = [];
+  for (const [, worker] of activeWorkers.entries()) {
     try {
       if (worker && worker.isConnected()) {
-        worker.disconnect();
+        exits.push(new Promise((resolve) => {
+          worker.once('exit', resolve);
+          worker.disconnect();
+        }));
       }
     } catch (_) {}
   }
 
-  setTimeout(() => {
-    process.exit(0);
-  }, 3000);
+  let forceTimer;
+  await Promise.race([
+    Promise.allSettled(exits),
+    new Promise((resolve) => {
+      forceTimer = setTimeout(() => {
+        for (const [, worker] of activeWorkers.entries()) {
+          try { worker?.process?.kill?.('SIGKILL'); } catch (_) {}
+        }
+        resolve();
+      }, 12000);
+      forceTimer.unref?.();
+    })
+  ]);
+  if (forceTimer) clearTimeout(forceTimer);
+  process.exit(0);
 }
 
 module.exports = {

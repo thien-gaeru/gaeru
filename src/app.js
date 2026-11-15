@@ -167,7 +167,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(require('./primary-domain').publicAliasRedirect);
   app.disable("x-powered-by");
   app.set('case sensitive routing', true);
-  app.set("trust proxy", 1);
+  app.set("trust proxy", "loopback");
   app.use((req,res,next)=>{
     if (/^\/api(?:\/|$)/i.test(req.path)) {
       res.set({'Cache-Control':'no-store','Pragma':'no-cache','Expires':'0','X-Robots-Tag':'noindex, nofollow, noarchive'});
@@ -208,8 +208,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
   const { createWafShield, createHoneypotShield, createDdosShield, createAuthBruteForceShield, getSystemHealth } = require('./security-shield');
   app.use(createWafShield());
-  app.use(['/api/auth', '/api/customer-auth'], createAuthBruteForceShield(config));
-  app.use('/api', createDdosShield(config));
+  app.use(['/api/auth', '/api/customer-auth', '/server_admin/api/login'], createAuthBruteForceShield(config, pool));
+  app.use(['/api', '/server_admin/api'], createDdosShield(config, pool));
   app.use(require("./bot-protection").createBotProtection(pool,config));
   app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
@@ -240,7 +240,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(async(req,res,next)=>{try{const pathname=req.path.toLowerCase();if(req.session?.admin&&(pathname.startsWith('/api/')||pathname.startsWith('/server_admin/api/'))){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
-  app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool));
+  app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool,config));
   app.get("/api/health", async (req, res, next) => {
     try {
       await pool.query("SELECT 1");
@@ -283,8 +283,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/customer/care", createCareCustomerApi(pool, config));
   app.use("/api/customer/warranties", createWarrantyCustomerApi(pool));
   app.use("/api/warranty-requests", createWarrantyPublicApi(pool, config));
-  app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool));
-  app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer}));
+  app.use("/api/customer-auth",require("./checkout-account").setupRouter(pool,config));
+  app.use("/api/customer-auth/contact-change", createContactChangeApi(pool, {smtpConfig:config.smtp,mailer:customerMailer,config}));
   const customerOAuthRouter = require("./customer-oauth").createCustomerOAuthRouter(pool, {
     config,
     accountSecurity: config.accountSecurity,
@@ -399,6 +399,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     });
   });
   app.use("/api/customer-auth", createCustomerAuthRouter(pool, {
+    config,
     accountSecurity:config.accountSecurity,
     smtpConfig: config.smtp,
     mailer: customerMailer,
@@ -421,7 +422,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use('/api/gaeru_ceo', require('./ai-knowledge-admin').createKnowledgeAdmin(pool));
   app.use('/api/gaeru_ceo/internal-ai', require('./internal-ai').createInternalAiRouter(pool, config));
   app.use('/api/gaeru_ceo', require('./chat-compression-admin').createChatCompressionAdmin(pool));
-  app.use("/api/gaeru_ceo", require("./file-library").createFileLibrary(pool));
+  app.use("/api/gaeru_ceo", require("./file-library").createFileLibrary(pool, config));
   app.use("/api/gaeru_ceo", require("./site-pages").createPagesAdmin(pool));
   app.use("/api/gaeru_ceo", require("./order-review").reviewRouter(pool,config));
   app.use("/api/gaeru_ceo", require("./order-after-sales").afterSalesRouter(pool));
@@ -483,7 +484,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
   app.use("/media",productWorkspace.publicMedia);
-  app.use("/assets",rateLimit({windowMs:60000,limit:600,standardHeaders:"draft-8",legacyHeaders:false}),require("./persistent-assets").serveAssets(pool));
+  app.use("/assets",rateLimit({...require("./security-hardening").sharedStore(pool,config,'assets-read'),windowMs:60000,limit:600,standardHeaders:"draft-8",legacyHeaders:false}),require("./persistent-assets").serveAssets(pool));
   app.use("/api", (req,res,next)=>{
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
     next();

@@ -165,19 +165,24 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
      // Product catalog images are stored exclusively in MEDIA_ROOT / PostgreSQL via stored-media.js.
      // No local public/uploads directory write.
 
-     // Concurrency bounded runner: process at most 3 images simultaneously to protect RAM/CPU
+     // Concurrency bounded runner: sequential on ARM64 to protect RAM/CPU during sharp decoding
      const results = new Array(files.length);
      let cursor = 0;
-     const concurrency = Math.min(3, files.length);
+     const concurrency = process.arch === 'arm64' ? 1 : Math.min(3, files.length);
      const workers = Array.from({ length: concurrency }, async () => {
        while (cursor < files.length) {
          const i = cursor++;
          const f = files[i];
          const b = f.buffer;
-         const optimized = await require('./lib/stored-media').storeUpload('products', b, f.mimetype, pool, {
-           removeBackground,
-           ...bgOpts
-         });
+         let optimized;
+         try {
+           optimized = await require('./lib/stored-media').storeUpload('products', b, f.mimetype, pool, {
+             removeBackground,
+             ...bgOpts
+           });
+         } finally {
+           f.buffer = null;
+         }
          const content = optimized.content;
 
          const row = (await pool.query(

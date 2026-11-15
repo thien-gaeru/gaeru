@@ -91,6 +91,7 @@ const STOP = 106;
 function generateCode128Svg(rawText, options = {}) {
   const text = String(rawText || "").trim();
   if (!text) throw fail("Nội dung tạo mã vạch không được để trống", 400);
+  if (text.length > 80) throw fail("Nội dung mã vạch tối đa 80 ký tự.", 400);
 
   const codes = [];
   for (let i = 0; i < text.length; i++) {
@@ -109,9 +110,9 @@ function generateCode128Svg(rawText, options = {}) {
   const checkDigit = checksum % 103;
 
   const sequence = [START_B, ...codes, checkDigit, STOP];
-  const moduleWidth = Math.max(1, parseInt(options.moduleWidth || 2, 10));
-  const barHeight = Math.max(20, parseInt(options.height || 60, 10));
-  const quietZone = Math.max(10, parseInt(options.quietZone || 14, 10)) * moduleWidth;
+  const moduleWidth = Math.max(1, Math.min(8, parseInt(options.moduleWidth || 2, 10) || 2));
+  const barHeight = Math.max(20, Math.min(300, parseInt(options.height || 60, 10) || 60));
+  const quietZone = Math.max(10, Math.min(40, parseInt(options.quietZone || 14, 10) || 14)) * moduleWidth;
   const includeText = options.includeText !== false && options.includeText !== "false";
   const fontSize = Math.max(11, Math.round(moduleWidth * 6));
 

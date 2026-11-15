@@ -274,6 +274,13 @@ function createOrderWorkflow({
             }
           }
         } else if (targetStatus === "completed" && activeCarrierShipment && Number(activeCarrierShipment.cod_amount_vnd) > 0 && activeCarrierShipment.cod_settlement_status !== "settled") {
+          const canSettleCod = Boolean(safeActor.isOwner || safeActor.role === 'owner' || (Array.isArray(safeActor.permissions) && safeActor.permissions.includes('payments.write')));
+          if (!canSettleCod) {
+            throw Object.assign(new Error('Tài khoản cần quyền quản lý thanh toán (payments.write) để chốt đối soát COD khi hoàn tất đơn.'), { status: 403 });
+          }
+          if (finance?.receiptTotal && total > 0 && receivedAmount < total) {
+            throw Object.assign(new Error('Đơn COD chưa có đủ chứng từ thu tiền (sales_receipts) để tự động đối soát.'), { status: 409 });
+          }
           const explicitRef = String(update.reconciliationRef || '').trim();
           const defaultCodRef = 'COD-' + (current.order_number || current.id.slice(0, 8));
           const effectiveRef = (explicitRef && explicitRef.length >= 4) ? explicitRef : defaultCodRef;

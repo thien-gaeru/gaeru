@@ -302,8 +302,8 @@ function createInternalAiRouter(pool, config) {
         dbLatencyMs: health.database?.latencyMs || 0.5,
         clusterMode: process.env.CLUSTER_ENABLED === 'true' ? 'Enterprise Multi-Core Cluster (Active)' : 'Single'
       };
-    } catch (err) {
-      return { status: 'ok', uptimeSeconds: Math.round(process.uptime()), message: err.message };
+    } catch (_) {
+      return { status: 'degraded', uptimeSeconds: Math.round(process.uptime()), message: 'Không thể kiểm tra sức khỏe hệ thống lúc này.' };
     }
   }
 
@@ -1038,10 +1038,14 @@ Quy tắc cốt lõi:
     }
   });
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const isUuid = value => UUID_RE.test(String(value || '').trim());
+
   // 3. Lấy chi tiết tin nhắn trong hội thoại (Bảo mật F02: Chỉ chủ sở hữu hoặc Owner)
   router.get('/threads/:id', async (req, res, next) => {
     try {
       const threadId = req.params.id;
+      if (!isUuid(threadId)) return res.status(400).json({ error: 'Mã hội thoại không hợp lệ.' });
       const userId = req.admin?.id || 'admin';
       const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
       const thread = (await pool.query(`
@@ -1054,9 +1058,14 @@ Quy tắc cốt lõi:
 
       const messages = (await pool.query(`
         SELECT id, role, content, tool_results AS "toolResults", action_card AS "actionCard", created_at AS "createdAt"
-        FROM internal_ai_messages
-        WHERE thread_id = $1
-        ORDER BY created_at ASC
+        FROM (
+          SELECT id, role, content, tool_results, action_card, created_at
+          FROM internal_ai_messages
+          WHERE thread_id = $1
+          ORDER BY created_at DESC, id DESC
+          LIMIT 100
+        ) recent
+        ORDER BY created_at ASC, id ASC
       `, [threadId])).rows;
 
       res.json({ thread, messages });
@@ -1069,6 +1078,7 @@ Quy tắc cốt lõi:
   router.delete('/threads/:id', async (req, res, next) => {
     try {
       const threadId = req.params.id;
+      if (!isUuid(threadId)) return res.status(400).json({ error: 'Mã hội thoại không hợp lệ.' });
       const userId = req.admin?.id || 'admin';
       const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
       const delRes = await pool.query(`
@@ -1089,8 +1099,10 @@ Quy tắc cốt lõi:
   router.post('/threads/:id/chat', async (req, res, next) => {
     try {
       const threadId = req.params.id;
+      if (!isUuid(threadId)) return res.status(400).json({ error: 'Mã hội thoại không hợp lệ.' });
       const question = String(req.body?.question || '').trim();
       if (!question) return res.status(400).json({ error: 'Nội dung câu hỏi không được để trống.' });
+      if (question.length > 2000) return res.status(400).json({ error: 'Câu hỏi tối đa 2000 ký tự.' });
 
       const userId = req.admin?.id || 'admin';
       const isOwner = req.admin?.isOwner || req.admin?.role === 'owner';
@@ -1161,10 +1173,16 @@ Quy tắc cốt lõi:
 
   async function streamAgentConversation(req, res, { question, readOnly }) {
     const threadId = req.params.id;
+    if (!isUuid(threadId)) {
+      return res.status(400).send('Mã hội thoại không hợp lệ.');
+    }
     const cleanQuestion = String(question || '').trim();
 
     if (!cleanQuestion) {
       return res.status(400).send('Câu hỏi không được để trống');
+    }
+    if (cleanQuestion.length > 2000) {
+      return res.status(400).send('Câu hỏi tối đa 2000 ký tự.');
     }
 
     // Bảo mật F02: Xác thực quyền sở hữu thread trước khi stream
@@ -1259,8 +1277,8 @@ Quy tắc cốt lõi:
         sendEvent('done', { message: assistantMsg, actionCard: turnResult.actionCard });
       }
       res.end();
-    } catch (err) {
-      sendEvent('error', { error: err.message });
+    } catch (_) {
+      sendEvent('error', { error: 'Đã xảy ra lỗi khi xử lý yêu cầu AI.' });
       res.end();
     }
   }
@@ -1295,6 +1313,7 @@ Quy tắc cốt lõi:
   router.post('/actions/:actionId/execute', async (req, res, next) => {
     try {
       const actionId = req.params.actionId;
+      if (!isUuid(actionId)) return res.status(400).json({ error: 'Mã thẻ hành động không hợp lệ.' });
       const actor = {
         ...(req.admin || {}),
         username: req.admin?.username || req.admin?.id || 'admin'

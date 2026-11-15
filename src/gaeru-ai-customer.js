@@ -118,18 +118,18 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   // 2. Tra cứu đơn hàng nếu có mã đơn hoặc số điện thoại (Bảo mật Zero-Trust)
   const orderLookup = await lookupOrderInfo(pool, raw, thread);
   if (orderLookup && orderLookup.searched) {
+    // Nếu chỉ tra cứu qua SĐT mà không phải chủ đơn đã xác thực: trả về phản hồi bảo mật đồng nhất (chống dò SĐT)
+    if (orderLookup.queryType === 'phone' && !orderLookup.isOwner) {
+      return {
+        handoff: false,
+        answer: 'Để bảo vệ quyền riêng tư và thông tin đơn hàng của bạn, GAERU AI chỉ hỗ trợ xem chi tiết khi bạn đăng nhập tài khoản mua hàng hoặc cung cấp chính xác **Mã đơn hàng (dạng GAE-xxxxxx)**. Nếu bạn cần hỗ trợ gấp, vui lòng liên hệ hotline **082 919 1080** nhé!',
+        orderLookup: { found: false, protected: true }
+      };
+    }
+
     if (orderLookup.found) {
       const o = orderLookup.order;
       const s = orderLookup.shipment;
-
-      // Nếu chỉ tra cứu qua SĐT mà không phải chủ đơn đã xác thực: từ chối tiết lộ PII
-      if (orderLookup.queryType === 'phone' && !orderLookup.isOwner) {
-        return {
-          handoff: false,
-          answer: 'Để bảo vệ quyền riêng tư và thông tin đơn hàng của bạn, GAERU AI chỉ hỗ trợ xem chi tiết khi bạn đăng nhập tài khoản mua hàng hoặc cung cấp chính xác **Mã đơn hàng (dạng GAE-xxxxxx)**. Nếu bạn cần hỗ trợ gấp, vui lòng liên hệ hotline **082 919 1080** nhé!',
-          orderLookup: { found: true, protected: true }
-        };
-      }
 
       const statusMap = {
         pending: 'Chờ xác nhận',
@@ -152,7 +152,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       if (!orderLookup.isOwner && !isLegacyMockWithoutContext) {
         const redactedAnswer = `Chào bạn! Mã đơn hàng **${o.order_number}** đã được ghi nhận trên hệ thống GAERU.\n\n` +
           `- **Khách hàng:** *** (Vui lòng đăng nhập đúng tài khoản đặt hàng để xem)\n` +
-          `- **Trạng thái đơn hàng:** ${statusMap[o.status] || o.status}\n` +
+          `- **Trạng thái đơn hàng:** *** (Đã ẩn vì lý do bảo mật)\n` +
           `- **Hình thức & giá trị thanh toán:** *** (Đã ẩn thông tin tài chính vì lý do bảo mật)\n` +
           `- **Địa chỉ giao hàng:** *** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)\n` +
           `- **Vận chuyển:** *** (Đã ẩn mã vận đơn vì lý do bảo mật)\n\n` +

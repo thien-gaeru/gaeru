@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { readBoundedJson } = require('./lib/http-response');
 const xml=v=>String(v).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&apos;'}[c]));
 function tiktokSignature(secret,apiPath,params,body=''){const values=Object.keys(params).filter(k=>!['sign','access_token'].includes(k)).sort().map(k=>k+params[k]).join('');return crypto.createHmac('sha256',secret).update(secret+apiPath+values+body+secret,'utf8').digest('hex');}
 function signedTikTokUrl(secret,apiPath,params,body=''){return 'https://open-api.tiktokglobalshop.com'+apiPath+'?'+new URLSearchParams({...params,sign:tiktokSignature(secret,apiPath,params,body)});}
@@ -60,7 +61,7 @@ const shopeeConnector = {
     });
 
     if (!res.ok) throw fail(`Shopee token exchange failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'Shopee' });
     if (json.error) throw fail(`Shopee API error: ${json.message || json.error}`, 502);
 
     return {
@@ -72,14 +73,17 @@ const shopeeConnector = {
   },
 
   async fetchOrders({ partnerId, partnerKey, accessToken, shopId, timeFrom, timeTo, status, verifyOnly=false }, { fetcher = fetch } = {}) {
-    const timestamp = Math.floor(Date.now() / 1000);
+    const startTimestamp = Math.floor(Date.now() / 1000);
+    const rangeFrom = timeFrom || startTimestamp - 86400 * 3;
+    const rangeTo = timeTo || startTimestamp;
     const path = '/api/v2/order/get_order_list';
     const orderList=[],seenCursors=new Set();let cursor='';
     for(let page=0;page<20;page++){
-      const sign=this.createSignature(partnerKey,partnerId,path,timestamp,accessToken,shopId);
-      const query={partner_id:partnerId,timestamp,access_token:accessToken,shop_id:shopId,sign,time_range_field:'create_time',time_from:timeFrom||timestamp-86400*3,time_to:timeTo||timestamp,page_size:verifyOnly?1:50,response_optional_fields:'order_status',...(status?{order_status:status}:{}),...(cursor?{cursor}:{})};
+      const reqTimestamp=Math.floor(Date.now()/1000);
+      const sign=this.createSignature(partnerKey,partnerId,path,reqTimestamp,accessToken,shopId);
+      const query={partner_id:partnerId,timestamp:reqTimestamp,access_token:accessToken,shop_id:shopId,sign,time_range_field:'create_time',time_from:rangeFrom,time_to:rangeTo,page_size:verifyOnly?1:50,response_optional_fields:'order_status',...(status?{order_status:status}:{}),...(cursor?{cursor}:{})};
       const res=await fetcher('https://partner.shopeemobile.com'+path+'?'+new URLSearchParams(query),{signal:AbortSignal.timeout(15000)});
-      if(!res.ok)throw fail(`Shopee fetch orders failed HTTP ${res.status}`,502);const json=await res.json();
+      if(!res.ok)throw fail(`Shopee fetch orders failed HTTP ${res.status}`,502);const json=await readBoundedJson(res,{label:'Shopee'});
       if(json.error)throw fail('Shopee từ chối quyền đọc đơn. Kiểm tra token và phạm vi được cấp.',502);
       if(!json.response||!Array.isArray(json.response.order_list))throw fail('Shopee trả dữ liệu đơn không đúng định dạng.',502);
       if(verifyOnly)return [];orderList.push(...json.response.order_list);
@@ -87,10 +91,10 @@ const shopeeConnector = {
       const next=String(json.response.next_cursor||'');if(!next||seenCursors.has(next)||page===19)throw fail('Chưa nhận hết đơn sàn. Chọn khoảng ngày ngắn hơn rồi thử lại.',409);
       seenCursors.add(next);cursor=next;
     }
-    for(const order of orderList){if(!Array.isArray(order.item_list)){const detailPath='/api/v2/order/get_order_detail';const detailSign=this.createSignature(partnerKey,partnerId,detailPath,timestamp,accessToken,shopId);const detailUrl='https://partner.shopeemobile.com'+detailPath+'?'+new URLSearchParams({partner_id:partnerId,timestamp:String(timestamp),access_token:accessToken,shop_id:shopId,sign:detailSign,order_sn_list:order.order_sn,response_optional_fields:'item_list,total_amount,order_status,create_time'});const d=await fetcher(detailUrl,{signal:AbortSignal.timeout(15000)});if(!d.ok)throw fail('Shopee chưa trả chi tiết đơn hàng.',502);const body=await d.json();if(body.error||!body.response?.order_list?.[0])throw fail('Shopee chưa trả chi tiết đơn hàng.',502);Object.assign(order,body.response.order_list[0]);}}
+    for(const order of orderList){if(!Array.isArray(order.item_list)){const detailPath='/api/v2/order/get_order_detail',detailTimestamp=Math.floor(Date.now()/1000);const detailSign=this.createSignature(partnerKey,partnerId,detailPath,detailTimestamp,accessToken,shopId);const detailUrl='https://partner.shopeemobile.com'+detailPath+'?'+new URLSearchParams({partner_id:partnerId,timestamp:String(detailTimestamp),access_token:accessToken,shop_id:shopId,sign:detailSign,order_sn_list:order.order_sn,response_optional_fields:'item_list,total_amount,order_status,create_time'});const d=await fetcher(detailUrl,{signal:AbortSignal.timeout(15000)});if(!d.ok)throw fail('Shopee chưa trả chi tiết đơn hàng.',502);const body=await readBoundedJson(d,{label:'Shopee'});if(body.error||!body.response?.order_list?.[0])throw fail('Shopee chưa trả chi tiết đơn hàng.',502);Object.assign(order,body.response.order_list[0]);}}
     return orderList.map(o => ({
       externalOrderId: String(o.order_sn),
-      orderDate: new Date((o.create_time || timestamp) * 1000).toISOString().slice(0, 10),
+      orderDate: new Date((o.create_time || startTimestamp) * 1000).toISOString().slice(0, 10),
       rawStatus: o.order_status,
       status: normalizeStatus('shopee', o.order_status),
       items: (o.item_list || []).map(i => ({
@@ -121,7 +125,7 @@ const shopeeConnector = {
       signal: AbortSignal.timeout(12000)
     });
     if (!res.ok) throw fail(`Shopee update stock failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'Shopee' });
     return { success: !json.error, response: json };
   },
 
@@ -138,7 +142,7 @@ const shopeeConnector = {
       signal: AbortSignal.timeout(12000)
     });
     if (!res.ok) throw fail(`Shopee ship order failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'Shopee' });
     if (json.error) throw fail(`Shopee API error: ${json.message || json.error}`, 502);
     return { success: true, response: json };
   },
@@ -167,7 +171,7 @@ const tiktokConnector = {
     const url = `https://auth.tiktok-shops.com/api/v2/token/get?app_key=${appKey}&app_secret=${appSecret}&auth_code=${authCode}&grant_type=authorized_code`;
     const res = await fetcher(url, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw fail(`TikTok Shop token exchange failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'TikTok Shop' });
     if (json.code !== 0) throw fail(`TikTok API error: ${json.message}`, 502);
     return {
       accessToken: json.data?.access_token,
@@ -177,18 +181,19 @@ const tiktokConnector = {
   },
 
   async fetchOrders({ appKey, appSecret, accessToken, shopCipher, createTimeFrom, createTimeTo, orderStatus, verifyOnly=false }, { fetcher = fetch } = {}) {
-    const timestamp = Math.floor(Date.now() / 1000);
+    const startTimestamp = Math.floor(Date.now() / 1000);
     const path = '/order/202309/orders/search';
     const body = {
-      create_time_ge: createTimeFrom || (timestamp - 86400 * 3),
-      create_time_lt: createTimeTo || timestamp
+      create_time_ge: createTimeFrom || (startTimestamp - 86400 * 3),
+      create_time_lt: createTimeTo || startTimestamp
     };
     if (orderStatus) body.order_status = orderStatus;
     const orders=[],seenTokens=new Set();let pageToken='';
     for(let page=0;page<20;page++){
-      const payload=JSON.stringify(body),url=signedTikTokUrl(appSecret,path,{app_key:appKey,timestamp,shop_cipher:shopCipher,page_size:verifyOnly?1:50,...(pageToken?{page_token:pageToken}:{})},payload);
+      const reqTimestamp=Math.floor(Date.now()/1000);
+      const payload=JSON.stringify(body),url=signedTikTokUrl(appSecret,path,{app_key:appKey,timestamp:reqTimestamp,shop_cipher:shopCipher,page_size:verifyOnly?1:50,...(pageToken?{page_token:pageToken}:{})},payload);
       const res=await fetcher(url,{method:'POST',headers:{'Content-Type':'application/json','x-tts-access-token':accessToken||''},body:payload,signal:AbortSignal.timeout(15000)});
-      if(!res.ok)throw fail(`TikTok Shop fetch orders failed HTTP ${res.status}`,502);const json=await res.json();
+      if(!res.ok)throw fail(`TikTok Shop fetch orders failed HTTP ${res.status}`,502);const json=await readBoundedJson(res,{label:'TikTok Shop'});
       if(json.code!==0&&json.code!==200)throw fail('TikTok từ chối quyền đọc đơn. Kiểm tra token và phạm vi được cấp.',502);
       if(!json.data||!Array.isArray(json.data.orders))throw fail('TikTok trả dữ liệu đơn không đúng định dạng.',502);
       if(verifyOnly)return [];orders.push(...json.data.orders);
@@ -198,7 +203,7 @@ const tiktokConnector = {
     }
     return orders.map(o => ({
       externalOrderId: String(o.id),
-      orderDate: new Date((o.create_time || timestamp) * 1000).toISOString().slice(0, 10),
+      orderDate: new Date((o.create_time || startTimestamp) * 1000).toISOString().slice(0, 10),
       rawStatus: o.status,
       status: normalizeStatus('tiktok', o.status),
       items: (o.line_items || []).map(i => ({
@@ -225,7 +230,7 @@ const tiktokConnector = {
       signal: AbortSignal.timeout(12000)
     });
     if (!res.ok) throw fail(`TikTok update stock failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'TikTok Shop' });
     return { success: json.code === 0 || json.code === 200, response: json };
   },
 
@@ -243,7 +248,7 @@ const tiktokConnector = {
       signal: AbortSignal.timeout(12000)
     });
     if (!res.ok) throw fail(`TikTok ship order failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'TikTok Shop' });
     return { success: json.code === 0 || json.code === 200, response: json };
   },
 
@@ -285,7 +290,7 @@ const lazadaConnector = {
 
     const res = await fetcher(url, { method: 'POST', signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw fail(`Lazada token exchange failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'Lazada' });
     if (json.code !== '0' && json.code !== 0) throw fail(`Lazada API error: ${json.message}`, 502);
 
     return {
@@ -296,22 +301,20 @@ const lazadaConnector = {
   },
 
   async fetchOrders({ appKey, appSecret, accessToken, createdAfter, status, verifyOnly=false }, { fetcher = fetch } = {}) {
-    const timestamp = Date.now();
     const path = '/orders/get';
     const params = {
       app_key: appKey,
       access_token: accessToken,
       sign_method: 'sha256',
-      timestamp,
       created_after: createdAfter || new Date(Date.now() - 86400 * 3 * 1000).toISOString(),
       limit: verifyOnly?1:50
     };
     if (status) params.status = status;
     const orders=[];
     for(let page=0;page<20;page++){
-      const pageParams={...params,offset:page*(verifyOnly?1:50)};pageParams.sign=this.createSignature(appSecret,path,pageParams);
+      const pageParams={...params,timestamp:Date.now(),offset:page*(verifyOnly?1:50)};pageParams.sign=this.createSignature(appSecret,path,pageParams);
       const res=await fetcher('https://api.lazada.vn/rest'+path+'?'+new URLSearchParams(pageParams),{signal:AbortSignal.timeout(15000)});
-      if(!res.ok)throw fail(`Lazada fetch orders failed HTTP ${res.status}`,502);const json=await res.json();
+      if(!res.ok)throw fail(`Lazada fetch orders failed HTTP ${res.status}`,502);const json=await readBoundedJson(res,{label:'Lazada'});
       if(json.code!=='0'&&json.code!==0)throw fail('Lazada từ chối quyền đọc đơn. Kiểm tra token và phạm vi được cấp.',502);
       const rows=Array.isArray(json.data)?json.data:json.data?.orders;
       if(!Array.isArray(rows))throw fail('Lazada trả dữ liệu đơn không đúng định dạng.',502);
@@ -319,7 +322,7 @@ const lazadaConnector = {
       if(rows.length<50)break;
       if(page===19)throw fail('Chưa nhận hết đơn sàn. Chọn khoảng ngày ngắn hơn rồi thử lại.',409);
     }
-    for(const order of orders){if(!Array.isArray(order.items)){const itemPath='/order/items/get',itemParams={app_key:appKey,access_token:accessToken,sign_method:'sha256',timestamp:Date.now(),order_id:order.order_id};itemParams.sign=this.createSignature(appSecret,itemPath,itemParams);const d=await fetcher('https://api.lazada.vn/rest'+itemPath+'?'+new URLSearchParams(itemParams),{signal:AbortSignal.timeout(15000)});if(!d.ok)throw fail('Lazada chưa trả chi tiết đơn hàng.',502);const body=await d.json();if(!['0',0].includes(body.code)||!Array.isArray(body.data))throw fail('Lazada chưa trả chi tiết đơn hàng.',502);order.items=body.data;}}
+    for(const order of orders){if(!Array.isArray(order.items)){const itemPath='/order/items/get',itemParams={app_key:appKey,access_token:accessToken,sign_method:'sha256',timestamp:Date.now(),order_id:order.order_id};itemParams.sign=this.createSignature(appSecret,itemPath,itemParams);const d=await fetcher('https://api.lazada.vn/rest'+itemPath+'?'+new URLSearchParams(itemParams),{signal:AbortSignal.timeout(15000)});if(!d.ok)throw fail('Lazada chưa trả chi tiết đơn hàng.',502);const body=await readBoundedJson(d,{label:'Lazada'});if(!['0',0].includes(body.code)||!Array.isArray(body.data))throw fail('Lazada chưa trả chi tiết đơn hàng.',502);order.items=body.data;}}
     return orders.map(o => ({
       externalOrderId: String(o.order_id),
       orderDate: new Date(o.created_at || Date.now()).toISOString().slice(0, 10),
@@ -355,7 +358,7 @@ const lazadaConnector = {
       signal: AbortSignal.timeout(12000)
     });
     if (!res.ok) throw fail(`Lazada update stock failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'Lazada' });
     return { success: json.code === '0' || json.code === 0, response: json };
   },
 
@@ -379,7 +382,7 @@ const lazadaConnector = {
       signal: AbortSignal.timeout(12000)
     });
     if (!res.ok) throw fail(`Lazada ready to ship failed HTTP ${res.status}`, 502);
-    const json = await res.json();
+    const json = await readBoundedJson(res, { label: 'Lazada' });
     return { success: json.code === '0' || json.code === 0, response: json };
   },
 

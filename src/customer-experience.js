@@ -225,7 +225,15 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
         accountNumber: z.string().trim().max(50).optional(),
         accountHolder: z.string().trim().max(100).optional()
       }).optional().default({}),
-      evidenceUrls: z.array(z.string().trim().max(500)).max(5).optional().default([])
+      evidenceUrls: z.array(z.string().trim().max(500).refine((u) => {
+        if (u.startsWith('/') && !u.startsWith('//')) return true;
+        try {
+          const p = new URL(u).protocol;
+          return p === 'https:' || p === 'http:';
+        } catch (_) {
+          return false;
+        }
+      }, 'Đường dẫn bằng chứng không hợp lệ.')).max(5).optional().default([])
     });
 
     const parsed = returnSchema.safeParse(normalizedBody);
@@ -311,6 +319,17 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
            RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
           [req.customerId, a.fullName, newPhone, newEmail, phoneUpdated, emailUpdated]
         )).rows[0];
+        if (customer && (phoneUpdated || emailUpdated)) {
+          await client.query(
+            `UPDATE account_security
+             SET email = CASE WHEN $2::boolean THEN $3 ELSE email END,
+                 phone = CASE WHEN $4::boolean THEN $5 ELSE phone END,
+                 version = version + 1,
+                 updated_at = now()
+             WHERE account_key = $1`,
+            ['customer:' + req.customerId, emailUpdated, newEmail, phoneUpdated, newPhone]
+          );
+        }
         return { status: 200, customer };
       });
       if (result.customer) req.session.customer = result.customer;

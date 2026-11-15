@@ -23,7 +23,80 @@ const sessionStore = new PgSessionStore({
   createTableIfMissing: isPrimaryWorkerSlot,
   pruneSessionInterval: isPrimaryWorkerSlot ? 15 * 60 : false
 });
-const app = createApp({ config, pool, sessionStore });
+// GAERU P2-02: Priority DB concurrency semaphore covering BOTH pool.query() and pool.connect()
+const buildFallbackPriorityController = (targetPool, maxLow = 2) => {
+  let activeHighOps = 0;
+  let activeLowOps = 0;
+  const lowWaitQueue = [];
+  const pumpLowQueue = () => {
+    while (activeHighOps === 0 && activeLowOps < maxLow && lowWaitQueue.length > 0) {
+      activeLowOps++;
+      const resume = lowWaitQueue.shift();
+      resume();
+    }
+  };
+  const acquireSlot = async (priority) => {
+    if (priority === 'high') {
+      activeHighOps++;
+      let released = false;
+      return () => { if (!released) { released = true; activeHighOps = Math.max(0, activeHighOps - 1); pumpLowQueue(); } };
+    }
+    if (activeHighOps > 0 || activeLowOps >= maxLow) {
+      await new Promise(resolve => lowWaitQueue.push(resolve));
+    } else {
+      activeLowOps++;
+    }
+    let released = false;
+    return () => { if (!released) { released = true; activeLowOps = Math.max(0, activeLowOps - 1); pumpLowQueue(); } };
+  };
+  const wrap = (priority) => {
+    if (!targetPool || (typeof targetPool.query !== 'function' && typeof targetPool.connect !== 'function')) return targetPool;
+    return new Proxy(targetPool, {
+      get(t, prop) {
+        if (prop === 'query' && typeof t.query === 'function') {
+          return async (...args) => {
+            const releaseSlot = await acquireSlot(priority);
+            try { return await t.query(...args); } finally { releaseSlot(); }
+          };
+        }
+        if (prop === 'connect' && typeof t.connect === 'function') {
+          return async (...args) => {
+            const releaseSlot = await acquireSlot(priority);
+            let client;
+            try { client = await t.connect(...args); } catch (err) { releaseSlot(); throw err; }
+            if (!client || typeof client !== 'object') { releaseSlot(); return client; }
+            const origRelease = typeof client.release === 'function' ? client.release.bind(client) : () => {};
+            let released = false;
+            const safeRelease = (...relArgs) => {
+              try { return origRelease(...relArgs); } finally {
+                if (!released) { released = true; releaseSlot(); }
+              }
+            };
+            return new Proxy(client, {
+              get(cTarget, cProp) {
+                if (cProp === 'release') return safeRelease;
+                const val = Reflect.get(cTarget, cProp, cTarget);
+                return typeof val === 'function' ? val.bind(cTarget) : val;
+              }
+            });
+          };
+        }
+        const val = Reflect.get(t, prop, t);
+        return typeof val === 'function' ? val.bind(t) : val;
+      }
+    });
+  };
+  return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low'), getStats: () => ({ activeHighOps, activeLowOps, queuedLowOps: lowWaitQueue.length, maxLowPriorityOps: maxLow }) };
+};
+const poolMax = Math.max(1, Number.parseInt(pool?.options?.max || 30, 10));
+const maxLowPriorityOps = Math.max(1, Math.min(Math.floor(poolMax * 0.2), Math.max(1, poolMax - 1)));
+const maxHighPriorityOps = Math.max(1, poolMax - maxLowPriorityOps);
+const priorityController = typeof dbModule.createPriorityPoolController === 'function'
+  ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps, maxHighPriorityOps })
+  : buildFallbackPriorityController(pool, maxLowPriorityOps);
+const { highPriorityPool, lowPriorityPool } = priorityController;
+
+const app = createApp({ config, pool: highPriorityPool, sessionStore });
 let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
 let resourceMonitor;
 let mediaRetryTimer = null;
@@ -64,7 +137,7 @@ async function start() {
   // High-concurrency socket tuning & Cloudflare reverse proxy keep-alive alignment
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
-  server.requestTimeout = 300000;
+  server.requestTimeout = Math.max(5000, Number(config?.HTTP_REQUEST_TIMEOUT_MS || process.env.HTTP_REQUEST_TIMEOUT_MS) || 120000);
   server.maxHeadersCount = 2000;
   server.on('error', (error) => {
     console.error('GAERU listener failed:', errorSummary(error));
@@ -76,72 +149,7 @@ async function start() {
   await migrateDatabase(pool, { lockTimeoutMs: 30000 });
   if (shuttingDown) return;
 
-  // GAERU P2-02: Priority DB concurrency semaphore covering BOTH pool.query() and pool.connect()
-  const buildFallbackPriorityController = (targetPool, maxLow = 2) => {
-    let activeHighOps = 0;
-    let activeLowOps = 0;
-    const lowWaitQueue = [];
-    const pumpLowQueue = () => {
-      while (activeHighOps === 0 && activeLowOps < maxLow && lowWaitQueue.length > 0) {
-        activeLowOps++;
-        const resume = lowWaitQueue.shift();
-        resume();
-      }
-    };
-    const acquireSlot = async (priority) => {
-      if (priority === 'high') {
-        activeHighOps++;
-        let released = false;
-        return () => { if (!released) { released = true; activeHighOps = Math.max(0, activeHighOps - 1); pumpLowQueue(); } };
-      }
-      if (activeHighOps > 0 || activeLowOps >= maxLow) {
-        await new Promise(resolve => lowWaitQueue.push(resolve));
-      } else {
-        activeLowOps++;
-      }
-      let released = false;
-      return () => { if (!released) { released = true; activeLowOps = Math.max(0, activeLowOps - 1); pumpLowQueue(); } };
-    };
-    const wrap = (priority) => {
-      if (!targetPool || (typeof targetPool.query !== 'function' && typeof targetPool.connect !== 'function')) return targetPool;
-      return new Proxy(targetPool, {
-        get(t, prop) {
-          if (prop === 'query' && typeof t.query === 'function') {
-            return async (...args) => {
-              const releaseSlot = await acquireSlot(priority);
-              try { return await t.query(...args); } finally { releaseSlot(); }
-            };
-          }
-          if (prop === 'connect' && typeof t.connect === 'function') {
-            return async (...args) => {
-              const releaseSlot = await acquireSlot(priority);
-              let client;
-              try { client = await t.connect(...args); } catch (err) { releaseSlot(); throw err; }
-              if (!client || typeof client !== 'object') { releaseSlot(); return client; }
-              const origRelease = typeof client.release === 'function' ? client.release.bind(client) : () => {};
-              return new Proxy(client, {
-                get(cTarget, cProp) {
-                  if (cProp === 'release') return (...relArgs) => { try { return origRelease(...relArgs); } finally { releaseSlot(); } };
-                  const val = Reflect.get(cTarget, cProp, cTarget);
-                  return typeof val === 'function' ? val.bind(cTarget) : val;
-                }
-              });
-            };
-          }
-          const val = Reflect.get(t, prop, t);
-          return typeof val === 'function' ? val.bind(t) : val;
-        }
-      });
-    };
-    return { highPriorityPool: wrap('high'), lowPriorityPool: wrap('low'), getStats: () => ({ activeHighOps, activeLowOps, queuedLowOps: lowWaitQueue.length, maxLowPriorityOps: maxLow }) };
-  };
-  const poolMax = Number.parseInt(pool?.options?.max || 30, 10);
-  const maxLowPriorityOps = Math.max(4, Math.floor(poolMax * 0.20));
-  const maxHighPriorityOps = Math.max(16, poolMax - maxLowPriorityOps);
-  const priorityController = typeof dbModule.createPriorityPoolController === 'function'
-    ? dbModule.createPriorityPoolController(pool, { maxLowPriorityOps, maxHighPriorityOps })
-    : buildFallbackPriorityController(pool, maxLowPriorityOps);
-  const { highPriorityPool, lowPriorityPool } = priorityController;
+  // Priority DB concurrency controller initialized at module scope above createApp().
 
 
   // Background workers initialization with staggered startup and priority concurrency cap (A10 / P2-02)
@@ -400,4 +408,6 @@ process.on("unhandledRejection", (reason) => {
 });
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception in server runtime:", errorSummary(error));
+  process.exitCode = 1;
+  void shutdown();
 });

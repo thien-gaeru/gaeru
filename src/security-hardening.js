@@ -8,6 +8,6 @@ class PgRateLimitStore {
  async decrement(value){await this.pool.query('UPDATE security_rate_limits SET hits=GREATEST(0,hits-1) WHERE key=$1',[this.key(value)]);}
  async resetKey(value){await this.pool.query('DELETE FROM security_rate_limits WHERE key=$1',[this.key(value)]);}
 }
-const sharedStore=(pool,config,prefix)=>required(config)?{store:new PgRateLimitStore(pool,prefix)}:{};
+const sharedStore=(pool,config,prefix)=>pool&&typeof pool.query==='function'&&(required(config)||config?.NODE_ENV==='production'||process.env.NODE_ENV==='production'||Number(process.env.CLUSTER_WORKERS)>1)?{store:new PgRateLimitStore(pool,prefix)}:{};
 async function enrollment(config,req,principal){if(!principal||!required(config))return false;const key=principal.source==='bootstrap'?'owner':'staff:'+principal.id;return (await config.accountSecurity.settings(key)).method==='off';}
 module.exports={required,PgRateLimitStore,sharedStore,enrollment};

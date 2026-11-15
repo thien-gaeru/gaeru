@@ -4,6 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
+const { promisify } = require('node:util');
+
+const brotliCompressAsync = promisify(zlib.brotliCompress);
 
 const DCB_MAGIC = Buffer.from([0xff, 0x44, 0x43, 0x42]); // \xffDCB (RFC 9842)
 const DICT_PATH = path.join(__dirname, '..', '..', 'assets', 'dict', 'shared-template.dict');
@@ -66,6 +69,17 @@ function compressDcb(rawBuffer) {
   return Buffer.concat([DCB_MAGIC, info.hash, compressed]);
 }
 
+async function compressDcbAsync(rawBuffer) {
+  const info = getDictionaryInfo();
+  const compressed = await brotliCompressAsync(rawBuffer, {
+    dictionary: info.buffer,
+    params: {
+      [zlib.constants.BROTLI_PARAM_QUALITY]: 5
+    }
+  });
+  return Buffer.concat([DCB_MAGIC, info.hash, compressed]);
+}
+
 function serveDictionaryRoute(req, res) {
   const info = getDictionaryInfo();
   const etag = `"gaeru-dict-${info.version}"`;
@@ -94,5 +108,6 @@ module.exports = {
   isDcbEnabled,
   isDcbEligible,
   compressDcb,
+  compressDcbAsync,
   serveDictionaryRoute
 };

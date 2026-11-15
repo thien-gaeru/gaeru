@@ -20,6 +20,6 @@ async function generateDraft(config,input,transport=fetch){
 }
 function createNewsAI(pool,config){const router=Router();let active=0;
  router.get('/news/ai/status',requirePermission('catalog.write'),(_req,res)=>res.set('Cache-Control','no-store').json({configured:Boolean(config.OPENAI_API_KEY),model:config.OPENAI_NEWS_MODEL||'gpt-4.1-mini'}));
- const limit=rateLimit({windowMs:60*60*1000,limit:20,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Tối đa 20 lần soạn AI mỗi giờ. Vui lòng thử lại sau.'}});
+ const limit=rateLimit({...require('./security-hardening').sharedStore(pool,config,'news-ai'),windowMs:60*60*1000,limit:20,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Tối đa 20 lần soạn AI mỗi giờ. Vui lòng thử lại sau.'}});
  router.post('/news/ai/draft',requirePermission('catalog.write'),requireCsrf,limit,async(req,res,next)=>{if(active>=2)return res.status(429).json({error:'AI đang xử lý bài viết khác. Vui lòng thử lại sau.'});active++;try{const draft=await generateDraft(config,req.body);await appendAudit(pool,{actor:req.admin,action:'news.ai.draft',entityType:'news',metadata:{model:config.OPENAI_NEWS_MODEL||'gpt-4.1-mini'}});res.set('Cache-Control','no-store').json({draft});}catch(e){if(e.status)return res.status(e.status).json({error:e.message});next(e);}finally{active--;}});return router;}
 module.exports={createNewsAI,generateDraft,inputSchema,draftSchema};

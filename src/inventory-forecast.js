@@ -7,9 +7,10 @@ const { withTransaction } = require('./db');
  * Memory cache for Inventory Forecast calculations with TTL
  */
 class ForecastCache {
-  constructor(defaultTtlMs = 300_000) {
+  constructor(defaultTtlMs = 300_000, maxEntries = 100) {
     this.cache = new Map();
     this.defaultTtlMs = defaultTtlMs;
+    this.maxEntries = Math.max(10, Number(maxEntries) || 100);
   }
 
   get(key) {
@@ -23,6 +24,18 @@ class ForecastCache {
   }
 
   set(key, data, ttlMs = this.defaultTtlMs) {
+    if (this.cache.has(key)) this.cache.delete(key);
+    if (this.cache.size >= this.maxEntries) {
+      const now = Date.now();
+      for (const [k, v] of this.cache.entries()) {
+        if (now > v.expiresAt) this.cache.delete(k);
+      }
+      while (this.cache.size >= this.maxEntries) {
+        const oldestKey = this.cache.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.cache.delete(oldestKey);
+      }
+    }
     this.cache.set(key, {
       data,
       cachedAt: new Date().toISOString(),

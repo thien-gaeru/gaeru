@@ -256,7 +256,7 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
   }));
 
   publicApi.use(require('express').urlencoded({ extended: false, limit: '32kb' }));
-  publicApi.use(rateLimit({ windowMs: 900000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }));
+  publicApi.use(rateLimit({ ...require('./security-hardening').sharedStore(pool, config || {}, 'marketing-email-public'), windowMs: 900000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }));
 
   // Double Opt-In Subscribe
   publicApi.post('/subscribe', wrap(async (req, res) => {

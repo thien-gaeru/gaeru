@@ -15,7 +15,6 @@ test('GAERU High-Availability Cluster Orchestrator architecture verification', (
   assert.ok(masterSrc.includes('WORKER_INDEX'), 'Must pass WORKER_INDEX to workers');
   assert.ok(masterSrc.includes('CLUSTER_WORKER'), 'Must pass CLUSTER_WORKER flag');
   assert.ok(masterSrc.includes('defaultFanoutHub'), 'Must integrate IPC Fan-out Hub');
-  assert.ok(masterSrc.includes('clusterStockCoordinator'), 'Must integrate Cluster Stock Coordinator');
   assert.ok(masterSrc.includes('oldWorker.disconnect()'), 'Rolling reload must gracefully disconnect old worker');
   assert.ok(masterSrc.includes('tuneWorkerPriority'), 'Must tune worker priority to AboveNormal');
   assert.ok(masterSrc.includes('reload.signal'), 'Must watch reload.signal for zero-downtime rolling reload');

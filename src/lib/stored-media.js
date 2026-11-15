@@ -7,7 +7,7 @@ const PREFIX=Buffer.from('GAERU_FS_V1:');
 // Read-only compatibility for old database references. Their bytes must already
 // exist in MEDIA_ROOT; these formats never initiate a remote storage request.
 const OLD_V2=Buffer.from('GAERU_S3_V2:'),OLD_V1=Buffer.from('GAERU_S3_V1:');
-const imageCache=require('./object-cache').createObjectCache();
+const imageCache=require('./object-cache').createObjectCache({maxBytes:process.arch==='arm64'?24*1024*1024:128*1024*1024});
 const sha=b=>createHash('sha256').update(b).digest('hex');
 function metadata(content){
  if(content==null)return null;

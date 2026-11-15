@@ -226,6 +226,9 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    if(!configuredSecret){
     return {valid:false,reason:'Automatic bank reconciliation is disabled until a verified provider adapter is configured. Use owner-authorized reconciliation.'};
    }
+   if(configuredSecret.length<16){
+    return {valid:false,reason:'Bank transfer webhook secret must be at least 16 characters.'};
+   }
    const headers=options.headers||{};
    const header=name=>typeof headers[name]==='string'?headers[name]:'';
    const rawTimestamp=(
@@ -259,6 +262,9 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
     ''
    ).trim();
    const incomingSignature=header('x-signature').trim();
+   if(settings?.webhookRequireHmac===true&&(!rawTimestamp||!incomingSignature)){
+    return {valid:false,reason:'Strict HMAC webhook verification requires timestamp and x-signature headers'};
+   }
    const hasRawBody=Buffer.isBuffer(options.rawBody)||(typeof options.rawBody==='string'&&options.rawBody.length>0);
    const rawPayload=hasRawBody?options.rawBody:(typeof payload==='object'?JSON.stringify(payload):String(payload));
    const computeHmac=()=>createHmac('sha256',configuredSecret).update(rawPayload,hasRawBody?undefined:'utf8').digest('hex');
@@ -594,7 +600,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    res.json(await listPaymentChannels(pool,config));
   }catch(e){next(e);}
  });
- router.post('/owner/payments/:id/test',requireCsrf,rateLimit({windowMs:900000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+ router.post('/owner/payments/:id/test',requireCsrf,rateLimit({...require('./security-hardening').sharedStore(pool,config,'owner-pay-test'),windowMs:900000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
   try{
    const id=channelEnum.parse(req.params.id);
    const version=z.number().int().min(0).parse(req.body.version);
@@ -610,7 +616,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    next(e);
   }
  });
- router.patch('/owner/payments/:id/availability',requireCsrf,rateLimit({windowMs:900000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+ router.patch('/owner/payments/:id/availability',requireCsrf,rateLimit({...require('./security-hardening').sharedStore(pool,config,'owner-pay-avail'),windowMs:900000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
   try{
    const id=channelEnum.parse(req.params.id);
    const meta=channels[id];
@@ -644,7 +650,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
    next(e);
   }
  });
- router.post('/owner/payments/reconcile',requireCsrf,rateLimit({windowMs:900000,limit:30,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+ router.post('/owner/payments/reconcile',requireCsrf,rateLimit({...require('./security-hardening').sharedStore(pool,config,'owner-pay-reconcile'),windowMs:900000,limit:30,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
   try{
    const parsed=z.object({
     provider:z.enum(['bank_transfer','vnpay','momo','zalopay']),

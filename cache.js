@@ -17,9 +17,26 @@ cacheEvents.setMaxListeners(1000);
 const BOOT_ID = Date.now().toString(36);
 
 // GAERU PERF-02: Dynamic L1 RAM Cache Configuration
-// Reads from CACHE_RAM_MAX_ENTRIES (default 20,000) and CACHE_RAM_MAX_MB (default 512 MB)
-const cacheMaxEntries = Math.max(500, Number.parseInt(process.env.CACHE_RAM_MAX_ENTRIES, 10) || 20000);
-const cacheMaxMb = Math.max(16, Number.parseInt(process.env.CACHE_RAM_MAX_MB, 10) || 512);
+const defaultMaxEntries = process.arch === 'arm64' ? 1500 : 20000;
+const defaultMaxMb = process.arch === 'arm64' ? 64 : 512;
+const cacheMaxEntries = Math.max(500, Number.parseInt(process.env.CACHE_RAM_MAX_ENTRIES, 10) || defaultMaxEntries);
+const cacheMaxMb = Math.max(16, Number.parseInt(process.env.CACHE_RAM_MAX_MB, 10) || defaultMaxMb);
+
+// Bảng ánh xạ Tag -> Set<cacheKey> cho việc xóa chính xác theo nhãn
+const tagIndex = new Map();
+
+// Lưu tồn kho thời gian thực trên RAM (giới hạn LRU tránh tăng vô hạn)
+const MAX_STOCK_ENTRIES = 5000;
+const stockMap = new Map();
+function setStockEntry(skuOrId, qty) {
+  if (stockMap.has(skuOrId)) {
+    stockMap.delete(skuOrId);
+  } else if (stockMap.size >= MAX_STOCK_ENTRIES) {
+    const oldestKey = stockMap.keys().next().value;
+    if (oldestKey !== undefined) stockMap.delete(oldestKey);
+  }
+  stockMap.set(skuOrId, qty);
+}
 
 const ramCache = new LRUCache({
   max: cacheMaxEntries,
@@ -30,25 +47,34 @@ const ramCache = new LRUCache({
     const brLen = entry.br?.length || 0;
     const gzLen = entry.gz?.length || 0;
     const dcbLen = entry.dcb?.length || 0;
-    return Math.max(1024, rawLen + brLen + gzLen + dcbLen);
+    const htmlOrDataLen = rawLen > 0 ? (rawLen + brLen + gzLen + dcbLen) : (entry._sizeBytes || 1024);
+    return Math.max(1024, htmlOrDataLen);
+  },
+  dispose: (_entry, key, reason) => {
+    if (reason === 'set') return;
+    for (const [tag, keys] of tagIndex.entries()) {
+      if (keys.delete(key) && keys.size === 0) {
+        tagIndex.delete(tag);
+      }
+    }
   }
 });
+
+const ALLOWED_HTML_QUERY_PARAMS = new Set(['id', 'slug', 'category', 'q', 'page']);
 
 function canonicalizeHtmlCacheUrl(originalUrl) {
   const [pathPart, queryPart] = String(originalUrl || '').split('?');
   if (!queryPart) return pathPart;
   const params = new URLSearchParams(queryPart);
-  const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'ttclid', '_ga', 'ref'];
-  for (const p of trackingParams) params.delete(p);
-  const remaining = params.toString();
+  const kept = new URLSearchParams();
+  for (const key of [...params.keys()].sort()) {
+    if (ALLOWED_HTML_QUERY_PARAMS.has(key)) {
+      for (const val of params.getAll(key)) kept.append(key, val);
+    }
+  }
+  const remaining = kept.toString();
   return remaining ? `${pathPart}?${remaining}` : pathPart;
 }
-
-// Bảng ánh xạ Tag -> Set<cacheKey> cho việc xóa chính xác theo nhãn
-const tagIndex = new Map();
-
-// Lưu tồn kho thời gian thực trên RAM
-const stockMap = new Map();
 
 // Singleflight Map: Gộp các request đồng thời thành 1 truy vấn duy nhất
 const inflight = new Map();
@@ -176,7 +202,7 @@ if (typeof process.on === 'function') {
       purgeTagsLocal(msg.tags);
       cacheEvents.emit('invalidated', { tags: msg.tags, timestamp: Date.now(), fromIpc: true });
     } else if (msg?.type === 'STOCK_SYNC' && msg.skuOrId !== undefined && msg.qty !== undefined) {
-      stockMap.set(msg.skuOrId, Number(msg.qty) || 0);
+      setStockEntry(msg.skuOrId, Number(msg.qty) || 0);
     }
   });
 }
@@ -205,18 +231,16 @@ async function getOrSetCache(key, tags = [], fetchFn, ttl) {
     try {
       const freshData = await fetchFn();
       if (freshData === undefined || freshData === null) return freshData;
+      const serialized = typeof freshData === 'string' ? freshData : JSON.stringify(freshData);
       const entry = {
         data: freshData,
-        etag: generateETag(freshData),
+        etag: generateETag(serialized),
         updatedAt: Date.now(),
-        tags: Array.isArray(tags) ? tags : [tags]
+        tags: Array.isArray(tags) ? tags : [tags],
+        _sizeBytes: Buffer.byteLength(serialized, 'utf8')
       };
 
-      if (ttl) {
-        ramCache.set(key, entry, { ttl });
-      } else {
-        ramCache.set(key, entry);
-      }
+      ramCache.set(key, entry, { ttl: ttl || 3600000 });
 
       const tagList = Array.isArray(tags) ? tags : [tags];
       for (const tag of tagList) {
@@ -281,15 +305,18 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
         .then(() => dbFetchFn())
         .then((fresh) => {
           if (fresh !== undefined && fresh !== null) {
-            const newHash = crypto.createHash('md5').update(JSON.stringify(fresh)).digest('hex');
+            const freshJson = JSON.stringify(fresh);
+            const newHash = crypto.createHash('md5').update(freshJson).digest('hex');
+            const freshTtl = Math.max(swrMs * 20, 300000);
             if (newHash !== entry.hash) {
-              ramCache.set(key, { data: fresh, time: Date.now(), hash: newHash });
+              ramCache.set(key, { data: fresh, time: Date.now(), hash: newHash, _sizeBytes: Buffer.byteLength(freshJson, 'utf8') }, { ttl: freshTtl });
               clearHtmlCacheOnly(); // DB có thay đổi -> Xóa ngay HTML cũ
               if (edgePurgeService && typeof edgePurgeService.purgeCatalog === 'function') {
                 edgePurgeService.purgeCatalog().catch(() => {});
               }
             } else {
               entry.time = Date.now();
+              ramCache.set(key, entry, { ttl: freshTtl });
             }
           }
         })
@@ -307,8 +334,9 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
     try {
       const data = await dbFetchFn();
       if (data !== undefined && data !== null) {
-        const hash = crypto.createHash('md5').update(JSON.stringify(data)).digest('hex');
-        ramCache.set(key, { data, time: Date.now(), hash });
+        const dataJson = JSON.stringify(data);
+        const hash = crypto.createHash('md5').update(dataJson).digest('hex');
+        ramCache.set(key, { data, time: Date.now(), hash, _sizeBytes: Buffer.byteLength(dataJson, 'utf8') }, { ttl: Math.max(swrMs * 20, 300000) });
       }
       return data;
     } finally {
@@ -358,21 +386,32 @@ function smartPageCache(swrMs = 60000) {
       res.vary('Sec-Purpose');
       res.setHeader('X-Accel-Buffering', 'no');
 
-      const { isDcbEligible, compressDcb } = require('./src/lib/compression-dictionary');
+      const { isDcbEligible, compressDcbAsync } = require('./src/lib/compression-dictionary');
       if (isDcbEligible(req)) {
-        if (!hit.dcb) {
-          hit.dcb = compressDcb(Buffer.from(hit.raw, 'utf-8'));
-          hit.dcbEtag = hit.etag.replace(/"$/, '-dcb"');
+        if (hit.dcb) {
+          res.setHeader('ETag', hit.dcbEtag);
+          if (req.headers['if-none-match'] === hit.dcbEtag) {
+            return res.status(304).end();
+          }
+          res.setHeader('Content-Encoding', 'dcb');
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.setHeader('Content-Length', hit.dcb.length);
+          res.setHeader('X-Cache', 'HIT-FRESH-RAM-DCB');
+          return res.end(hit.dcb);
         }
-        res.setHeader('ETag', hit.dcbEtag);
-        if (req.headers['if-none-match'] === hit.dcbEtag) {
-          return res.status(304).end();
+        if (!hit.dcbPending) {
+          hit.dcbPending = compressDcbAsync(Buffer.from(hit.raw, 'utf-8'))
+            .then((dcbBuf) => {
+              if (ramCache.get(key) === hit) {
+                hit.dcb = dcbBuf;
+                hit.dcbEtag = hit.etag.replace(/"$/, '-dcb"');
+                const remTtl = Math.max(1000, (hit.expiresAt || Date.now() + swrMs) - Date.now());
+                ramCache.set(key, hit, { ttl: remTtl });
+              }
+            })
+            .catch(() => {})
+            .finally(() => { hit.dcbPending = null; });
         }
-        res.setHeader('Content-Encoding', 'dcb');
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.setHeader('Content-Length', hit.dcb.length);
-        res.setHeader('X-Cache', 'HIT-FRESH-RAM-DCB');
-        return res.end(hit.dcb);
       }
       if (req.headers['if-none-match'] === hit.etag) {
         return res.status(304).end();
@@ -429,7 +468,7 @@ function smartPageCache(swrMs = 60000) {
           ? Math.min(builtAt + swrMs, nextPromotionBoundaryMs)
           : builtAt + swrMs;
         const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: builtAt, expiresAt };
-        ramCache.set(key, entry);
+        ramCache.set(key, entry, { ttl: Math.max(1000, expiresAt - builtAt) });
 
         const rawBuffer = Buffer.from(body, 'utf-8');
         Promise.all([
@@ -444,7 +483,8 @@ function smartPageCache(swrMs = 60000) {
           if (ramCache.get(key) === entry) {
             entry.br = br;
             entry.gz = gz;
-            ramCache.set(key, entry);
+            const remTtl = Math.max(1000, (entry.expiresAt || Date.now() + swrMs) - Date.now());
+            ramCache.set(key, entry, { ttl: remTtl });
           }
         }).catch(() => {});
       } else if (!res.headersSent && !/no-store|private/i.test(currentCacheControl)) {
@@ -475,7 +515,7 @@ function reserveStock(skuOrId, qty) {
     return { ok: false, remaining: current, error: 'INSUFFICIENT_STOCK' };
   }
   const remaining = current - qty;
-  stockMap.set(skuOrId, remaining);
+  setStockEntry(skuOrId, remaining);
   if (process.send) {
     try { process.send({ type: 'STOCK_SYNC', skuOrId, qty: remaining }); } catch (_) {}
   }
@@ -492,7 +532,7 @@ function releaseStock(skuOrId, qty) {
     return { ok: false, remaining: 0, error: 'CACHE_MISS' };
   }
   const remaining = current + qty;
-  stockMap.set(skuOrId, remaining);
+  setStockEntry(skuOrId, remaining);
   if (process.send) {
     try { process.send({ type: 'STOCK_SYNC', skuOrId, qty: remaining }); } catch (_) {}
   }
@@ -503,7 +543,7 @@ function releaseStock(skuOrId, qty) {
 function seedStock(skuOrId, qty) {
   const num = typeof qty === 'number' ? qty : Number(qty);
   if (!Number.isSafeInteger(num) || num < 0) return;
-  stockMap.set(skuOrId, num);
+  setStockEntry(skuOrId, num);
   if (process.send) {
     try { process.send({ type: 'STOCK_SYNC', skuOrId, qty: num }); } catch (_) {}
   }

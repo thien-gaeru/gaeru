@@ -21,10 +21,11 @@ const requestSchema=z.object({
  serial:z.string().trim().max(80).regex(/^[A-Za-z0-9 ._/-]*$/).default(''),
  contact:contactSchema,requestKey:z.string().uuid()
 }).strict();
-function createWarrantyPublicApi(pool){
+function createWarrantyPublicApi(pool,config=null){
  const router=Router();
+ const {sharedStore}=require('./security-hardening');
  require("./warranty-management").mountWarrantyManagement(router,pool,requestSchema);
- router.post('/',requireCsrf,rateLimit({windowMs:15*60*1000,limit:15,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều đăng ký. Vui lòng thử lại sau hoặc liên hệ GAERU.'}}),async(req,res,next)=>{
+ router.post('/',requireCsrf,rateLimit({...sharedStore(pool,config||{},'warranty-public'),windowMs:15*60*1000,limit:15,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều đăng ký. Vui lòng thử lại sau hoặc liên hệ GAERU.'}}),async(req,res,next)=>{
   const parsed=requestSchema.safeParse(req.body);
   if(!parsed.success)return res.status(400).json({error:'Chọn kênh mua, nhập mã đơn, sản phẩm, họ tên, số điện thoại và địa chỉ hợp lệ.'});
   try{

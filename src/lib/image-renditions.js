@@ -8,14 +8,14 @@ const { createObjectCache } = require('./object-cache');
 const { qualifiesForSelectiveAvif, encodeAvif, SAVINGS_RATIO } = require('./selective-avif');
 
 const widths = [480, 800, 1200];
-const MAX_ROW_CACHE_ENTRIES = 512;
-const MAX_ROW_CACHE_BYTES = 24 * 1024 * 1024;
+const MAX_ROW_CACHE_ENTRIES = process.arch === 'arm64' ? 256 : 512;
+const MAX_ROW_CACHE_BYTES = process.arch === 'arm64' ? 12 * 1024 * 1024 : 24 * 1024 * 1024;
 const MAX_SINGLE_ROW_CACHE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_WARM_RSS_BYTES = process.arch === 'arm64'
-  ? 600 * 1024 * 1024
+  ? 384 * 1024 * 1024
   : Math.floor(2.2 * 1024 * 1024 * 1024);
 const cache = createObjectCache({
-  maxBytes: 48 * 1024 * 1024,
+  maxBytes: process.arch === 'arm64' ? 24 * 1024 * 1024 : 48 * 1024 * 1024,
   maxEntryBytes: 4 * 1024 * 1024,
   ttl: 24 * 3600000,
   maxPending: 64

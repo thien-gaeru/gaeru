@@ -446,7 +446,8 @@ test('audit fixes: SSE socket keepalive/timeout, async web knowledge loader, and
 });
 
 test('audit fixes: full DB schema migration creates FK indexes idempotently and ops/CI hardening invariants hold', async (t) => {
-  assert.equal(MIGRATION_FILES.at(-1), 'audit-fk-indexes-20261114.sql');
+  assert.ok(MIGRATION_FILES.includes('audit-fk-indexes-20261114.sql'));
+  assert.equal(MIGRATION_FILES.at(-1), 'runtime-resilience-20261115.sql');
   const pool = await createPglitePool();
   t.after(() => pool.end());
 
@@ -499,7 +500,7 @@ test('audit fixes: full DB schema migration creates FK indexes idempotently and 
   }
 
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-  assert.ok(pkg.dependencies && pkg.dependencies.ws, 'ws must be declared in package.json dependencies');
+  assert.equal(Boolean(pkg.dependencies && pkg.dependencies.ws), false, 'unused ws dependency must remain removed from package.json');
 });
 
 test('batch 1 critical fixes: gaeru-full-restore.sh stdout isolation & standalone test script DB safety', async (t) => {

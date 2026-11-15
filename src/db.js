@@ -55,6 +55,9 @@ function poolOptions(config) {
   const max = Math.max(1, Number.parseInt(config?.PG_MAX_CONNECTIONS || config?.PG_POOL_SIZE || 30, 10));
   const statementTimeout = config?.PG_STATEMENT_TIMEOUT_MS ? Number.parseInt(config.PG_STATEMENT_TIMEOUT_MS, 10) : 30000;
   const idleInTransactionTimeout = config?.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS ? Number.parseInt(config.PG_IDLE_IN_TRANSACTION_TIMEOUT_MS, 10) : 15000;
+  const lockTimeout = config?.PG_LOCK_TIMEOUT_MS ? Number.parseInt(config.PG_LOCK_TIMEOUT_MS, 10) : 10000;
+  const idleTimeoutMillis = config?.PG_IDLE_TIMEOUT_MS ? Number.parseInt(config.PG_IDLE_TIMEOUT_MS, 10) : 30000;
+  const connectionTimeoutMillis = config?.PG_CONNECTION_TIMEOUT_MS ? Number.parseInt(config.PG_CONNECTION_TIMEOUT_MS, 10) : 5000;
   return {
     connectionString,
     ssl: requireTls
@@ -71,8 +74,9 @@ function poolOptions(config) {
     max,
     statement_timeout: statementTimeout,
     idle_in_transaction_session_timeout: idleInTransactionTimeout,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000
+    lock_timeout: lockTimeout,
+    idleTimeoutMillis,
+    connectionTimeoutMillis
   };
 }
 
@@ -169,6 +173,7 @@ async function withTransaction(pool, handler) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    client.__inTransaction = true;
     const result = await handler(client);
     await client.query("COMMIT");
     return result;
@@ -177,6 +182,7 @@ async function withTransaction(pool, handler) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
+    delete client.__inTransaction;
     client.release();
   }
 }
@@ -188,9 +194,11 @@ function createPriorityPoolController(pool, {
   starvationThresholdMs = 5000,
   maxConsecutiveHighOps = 20
 } = {}) {
-  const capLow = Math.max(1, Number.parseInt(maxLowPriorityOps, 10) || 2);
-  const poolMax = Number.parseInt(pool?.options?.max || 10, 10);
-  const capHigh = Math.max(1, Number.parseInt(maxHighPriorityOps, 10) || Math.max(1, poolMax - capLow));
+  const poolMax = Math.max(1, Number.parseInt(pool?.options?.max || 10, 10));
+  const requestedLow = Math.max(1, Number.parseInt(maxLowPriorityOps, 10) || 2);
+  const capLow = poolMax <= 1 ? 1 : Math.min(requestedLow, Math.max(1, poolMax - 1));
+  const requestedHigh = Number.parseInt(maxHighPriorityOps, 10);
+  const capHigh = Math.max(1, Math.min(poolMax, Number.isFinite(requestedHigh) && requestedHigh > 0 ? requestedHigh : Math.max(1, poolMax - capLow)));
   const qTimeout = Number.parseInt(queueTimeoutMs, 10) || 30000;
   const starvMs = Number.parseInt(starvationThresholdMs, 10) || 5000;
   const maxConsecutive = Number.parseInt(maxConsecutiveHighOps, 10) || 20;
@@ -301,6 +309,29 @@ function createPriorityPoolController(pool, {
     });
   };
 
+  const wrapReleasedClient = (client, releaseSlot, fallbackRelease) => {
+    const origRelease = typeof client.release === "function" ? client.release.bind(client) : fallbackRelease;
+    let released = false;
+    const wrappedDone = (...relArgs) => {
+      try {
+        return origRelease ? origRelease(...relArgs) : undefined;
+      } finally {
+        if (!released) {
+          released = true;
+          releaseSlot();
+        }
+      }
+    };
+    const clientProxy = new Proxy(client, {
+      get(cTarget, cProp) {
+        if (cProp === "release") return wrappedDone;
+        const val = Reflect.get(cTarget, cProp, cTarget);
+        return typeof val === "function" ? val.bind(cTarget) : val;
+      }
+    });
+    return { clientProxy, wrappedDone };
+  };
+
   const wrapPool = (priority) => {
     if (!pool || (typeof pool.query !== "function" && typeof pool.connect !== "function")) {
       return pool;
@@ -352,21 +383,7 @@ function createPriorityPoolController(pool, {
                       releaseSlot();
                       return callback(err, client, done);
                     }
-                    const origRelease = typeof client.release === "function" ? client.release.bind(client) : done;
-                    const wrappedDone = (...relArgs) => {
-                      try {
-                        return origRelease ? origRelease(...relArgs) : undefined;
-                      } finally {
-                        releaseSlot();
-                      }
-                    };
-                    const clientProxy = new Proxy(client, {
-                      get(cTarget, cProp) {
-                        if (cProp === "release") return wrappedDone;
-                        const val = Reflect.get(cTarget, cProp, cTarget);
-                        return typeof val === "function" ? val.bind(cTarget) : val;
-                      }
-                    });
+                    const { clientProxy, wrappedDone } = wrapReleasedClient(client, releaseSlot, done);
                     return callback(null, clientProxy, wrappedDone);
                   });
                 })
@@ -386,22 +403,8 @@ function createPriorityPoolController(pool, {
                 releaseSlot();
                 return client;
               }
-              const origRelease = typeof client.release === "function" ? client.release.bind(client) : () => {};
-              return new Proxy(client, {
-                get(cTarget, cProp) {
-                  if (cProp === "release") {
-                    return (...relArgs) => {
-                      try {
-                        return origRelease(...relArgs);
-                      } finally {
-                        releaseSlot();
-                      }
-                    };
-                  }
-                  const val = Reflect.get(cTarget, cProp, cTarget);
-                  return typeof val === "function" ? val.bind(cTarget) : val;
-                }
-              });
+              const { clientProxy } = wrapReleasedClient(client, releaseSlot, () => {});
+              return clientProxy;
             })();
           };
         }

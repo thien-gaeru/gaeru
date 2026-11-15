@@ -40,6 +40,123 @@ const orderSchema = z.object({
 
 const {transitions} = require('./order-workflow');
 
+async function tryMarkCartRecovered(client, payload) {
+  await client.query("SAVEPOINT sp_mark_cart_recovered");
+  try {
+    await require("./abandoned-cart").markCartRecovered(client, payload);
+    await client.query("RELEASE SAVEPOINT sp_mark_cart_recovered");
+  } catch (_) {
+    await client.query("ROLLBACK TO SAVEPOINT sp_mark_cart_recovered").catch(() => {});
+  }
+}
+
+async function releaseCheckoutIntentOnClient(client, intentId, nextStatus = "released") {
+  const intentRes = await client.query(
+    "SELECT id, status FROM checkout_payment_intents WHERE id = $1 FOR UPDATE",
+    [intentId]
+  );
+  const intent = intentRes.rows[0];
+  if (!intent || intent.status !== "pending_provider") return;
+
+  const holdsRes = await client.query(
+    `SELECT id, variant_id AS "variantId", warehouse_id AS "warehouseId", quantity
+     FROM checkout_stock_holds
+     WHERE intent_id = $1 AND released_at IS NULL
+     ORDER BY variant_id, warehouse_id
+     FOR UPDATE`,
+    [intentId]
+  );
+
+  const byVariant = new Map();
+  for (const h of holdsRes.rows) {
+    if (!byVariant.has(h.variantId)) byVariant.set(h.variantId, []);
+    byVariant.get(h.variantId).push(h);
+  }
+
+  for (const [variantId, holds] of [...byVariant.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    await client.query("SELECT id FROM product_variants WHERE id = $1 FOR UPDATE", [variantId]);
+    const heldWhIds = [...new Set(holds.map((h) => h.warehouseId).filter(Boolean))].sort();
+    if (heldWhIds.length) {
+      await client.query(
+        "SELECT warehouse_id FROM warehouse_stock WHERE variant_id = $1 AND warehouse_id = ANY($2::uuid[]) ORDER BY warehouse_id FOR UPDATE",
+        [variantId, heldWhIds]
+      );
+    }
+    let totalReleased = 0;
+    for (const h of holds) {
+      if (h.warehouseId) {
+        await client.query(
+          "UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2",
+          [h.warehouseId, variantId, h.quantity]
+        );
+      }
+      await client.query("UPDATE checkout_stock_holds SET released_at = now() WHERE id = $1", [h.id]);
+      totalReleased += h.quantity;
+    }
+    if (totalReleased > 0) {
+      await client.query(
+        "UPDATE product_variants SET stock_quantity = stock_quantity + $2, updated_at = now() WHERE id = $1",
+        [variantId, totalReleased]
+      );
+    }
+  }
+
+  await client.query(
+    "UPDATE checkout_payment_intents SET status = $2, updated_at = now() WHERE id = $1",
+    [intentId, nextStatus]
+  );
+}
+
+async function releaseCheckoutIntent(poolInstance, intentId, nextStatus = "released") {
+  if (!intentId) return;
+  await withTransaction(poolInstance, (client) => releaseCheckoutIntentOnClient(client, intentId, nextStatus));
+}
+
+async function releaseExpiredCheckoutIntents(poolInstance) {
+  if (typeof poolInstance?.query !== "function") return;
+  let lockClient = null;
+  let lockAcquired = false;
+  try {
+    if (typeof poolInstance.connect === "function") {
+      try {
+        lockClient = await poolInstance.connect();
+        const lockRes = await lockClient.query(
+          "SELECT pg_try_advisory_lock(hashtext('gaeru:release-expired-intents')) AS acquired"
+        );
+        if (lockRes?.rows?.[0]?.acquired === false) return;
+        lockAcquired = lockRes?.rows?.[0]?.acquired === true;
+      } catch (_) {}
+    }
+    const qClient = lockClient || poolInstance;
+    for (let batch = 0; batch < 25; batch++) {
+      const expired = await qClient.query(
+        "SELECT id FROM checkout_payment_intents WHERE status = 'pending_provider' AND expires_at <= now() LIMIT 20"
+      );
+      if (!expired.rows.length) break;
+      for (const row of expired.rows) {
+        if (lockClient) {
+          try {
+            await lockClient.query("BEGIN");
+            await releaseCheckoutIntentOnClient(lockClient, row.id, "expired");
+            await lockClient.query("COMMIT");
+          } catch (_) {
+            await lockClient.query("ROLLBACK").catch(() => {});
+          }
+        } else {
+          await releaseCheckoutIntent(poolInstance, row.id, "expired").catch(() => {});
+        }
+      }
+      if (expired.rows.length < 20) break;
+    }
+  } catch (_) {
+  } finally {
+    if (lockAcquired && lockClient) {
+      await lockClient.query("SELECT pg_advisory_unlock(hashtext('gaeru:release-expired-intents'))").catch(() => {});
+    }
+    try { lockClient?.release?.(); } catch (_) {}
+  }
+}
+
 async function loadProducts(pool, { includeDrafts = false, deleted = false, search = "" } = {}) {
   const visibility = includeDrafts ? (deleted ? "WHERE p.deleted_at IS NOT NULL" : "WHERE p.deleted_at IS NULL") : "WHERE p.active = true AND p.deleted_at IS NULL";
   const query = `
@@ -117,7 +234,9 @@ async function getSettings(pool, keys) {
 
 function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, vnpayConfig = null, getVnpayConfig = null, paymentChannels = null, getPaymentChannels = null, paymentFetcher = fetch, publicBaseUrl = "https://gaeru.com", inventory = null, finance = null, audit = async () => {}, shippingChoices = false, checkoutAccounts = false, config = null, misaFetcher = fetch } = {}) {
   const router = Router();
+  const { sharedStore } = require("./security-hardening");
   const orderLimit = rateLimit({
+    ...sharedStore(pool, config || {}, "store-order-submit"),
     windowMs: 15 * 60 * 1000,
     limit: 10,
     standardHeaders: "draft-8",
@@ -608,77 +727,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   }
 
-  async function releaseCheckoutIntent(poolInstance, intentId, nextStatus = "released") {
-    if (!intentId) return;
-    await withTransaction(poolInstance, async (client) => {
-      const intentRes = await client.query(
-        "SELECT id, status FROM checkout_payment_intents WHERE id = $1 FOR UPDATE",
-        [intentId]
-      );
-      const intent = intentRes.rows[0];
-      if (!intent || intent.status !== "pending_provider") return;
-
-      const holdsRes = await client.query(
-        `SELECT id, variant_id AS "variantId", warehouse_id AS "warehouseId", quantity
-         FROM checkout_stock_holds
-         WHERE intent_id = $1 AND released_at IS NULL
-         ORDER BY variant_id, warehouse_id
-         FOR UPDATE`,
-        [intentId]
-      );
-
-      const byVariant = new Map();
-      for (const h of holdsRes.rows) {
-        if (!byVariant.has(h.variantId)) byVariant.set(h.variantId, []);
-        byVariant.get(h.variantId).push(h);
-      }
-
-      for (const [variantId, holds] of [...byVariant.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-        await client.query("SELECT id FROM product_variants WHERE id = $1 FOR UPDATE", [variantId]);
-        const heldWhIds = [...new Set(holds.map((h) => h.warehouseId).filter(Boolean))].sort();
-        if (heldWhIds.length) {
-          await client.query(
-            "SELECT warehouse_id FROM warehouse_stock WHERE variant_id = $1 AND warehouse_id = ANY($2::uuid[]) ORDER BY warehouse_id FOR UPDATE",
-            [variantId, heldWhIds]
-          );
-        }
-        let totalReleased = 0;
-        for (const h of holds) {
-          if (h.warehouseId) {
-            await client.query(
-              "UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2",
-              [h.warehouseId, variantId, h.quantity]
-            );
-          }
-          await client.query("UPDATE checkout_stock_holds SET released_at = now() WHERE id = $1", [h.id]);
-          totalReleased += h.quantity;
-        }
-        if (totalReleased > 0) {
-          await client.query(
-            "UPDATE product_variants SET stock_quantity = stock_quantity + $2, updated_at = now() WHERE id = $1",
-            [variantId, totalReleased]
-          );
-        }
-      }
-
-      await client.query(
-        "UPDATE checkout_payment_intents SET status = $2, updated_at = now() WHERE id = $1",
-        [intentId, nextStatus]
-      );
-    });
-  }
-
-  async function releaseExpiredCheckoutIntents(poolInstance) {
-    if (typeof poolInstance?.query !== "function") return;
-    try {
-      const expired = await poolInstance.query(
-        "SELECT id FROM checkout_payment_intents WHERE status = 'pending_provider' AND expires_at <= now() LIMIT 20"
-      );
-      for (const row of expired.rows) {
-        await releaseCheckoutIntent(poolInstance, row.id, "expired").catch(() => {});
-      }
-    } catch (_) {}
-  }
+  // releaseCheckoutIntent & releaseExpiredCheckoutIntents defined at module scope above.
 
   async function prepareCartAndDiscounts(client, { parsedData, sortedEntries, sessionCustomerId, paymentChannelsObj, lockVoucher }) {
     let activeCustomerId = null;
@@ -907,17 +956,17 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           if (existing?.status === "completed" && existing.responseBody) {
             return res.status(existing.responseStatus || 201).json(existing.responseBody);
           }
-          // Concurrent duplicate request while first request is in flight: wait for completion
+          // Concurrent duplicate request while first request is in flight: wait with capped backoff
           const deadline = Date.now() + 31_000;
+          let pollDelayMs = 40;
           while (Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, 40));
-            const polled = await withTransaction(pool, async (client) => {
-              return (await client.query(
-                `SELECT request_hash AS "requestHash", status, response_status AS "responseStatus", response_body AS "responseBody"
-                 FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2`,
-                [scopeKey, idempotencyKey]
-              )).rows[0];
-            });
+            await new Promise((r) => setTimeout(r, Math.min(pollDelayMs, Math.max(10, deadline - Date.now()))));
+            pollDelayMs = Math.min(250, Math.round(pollDelayMs * 1.5));
+            const polled = (await pool.query(
+              `SELECT request_hash AS "requestHash", status, response_status AS "responseStatus", response_body AS "responseBody"
+               FROM order_idempotency_keys WHERE scope_key = $1 AND idempotency_key = $2`,
+              [scopeKey, idempotencyKey]
+            )).rows[0];
             if (!polled) {
               return res.status(409).json({ error: "Yêu cầu đặt hàng đồng thời trước đó không thành công. Vui lòng thử lại." });
             }
@@ -1193,13 +1242,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                 createdOrder.loyaltyDiscountVnd = redemption.discountVnd;
               }
             }
-            try {
-              await require("./abandoned-cart").markCartRecovered(client, {
-                orderId: createdOrder.id,
-                email: parsed.data.customer.email,
-                customerId: phase1.activeCustomerId
-              });
-            } catch (_) {}
+            await tryMarkCartRecovered(client, {
+              orderId: createdOrder.id,
+              email: parsed.data.customer.email,
+              customerId: phase1.activeCustomerId
+            });
             if (checkoutAccounts) {
               await require("./checkout-account").enroll(client, createdOrder, parsed.data.customer, phase1.activeCustomerId);
             }
@@ -1346,13 +1393,11 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             createdOrder.discountVnd = (createdOrder.discountVnd || 0) + calc.bundleDiscountVnd;
             createdOrder.bundleDiscountVnd = calc.bundleDiscountVnd;
           }
-          try {
-            await require("./abandoned-cart").markCartRecovered(client, {
-              orderId: createdOrder.id,
-              email: parsed.data.customer.email,
-              customerId: calc.activeCustomerId
-            });
-          } catch (_) {}
+          await tryMarkCartRecovered(client, {
+            orderId: createdOrder.id,
+            email: parsed.data.customer.email,
+            customerId: calc.activeCustomerId
+          });
           if (calc.activeCustomerId) {
             await client.query("UPDATE orders SET customer_id=$2 WHERE id=$1", [createdOrder.id, calc.activeCustomerId]);
             if (calc.effectivePointsToRedeem > 0) {
@@ -2043,7 +2088,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   const {applyOrderUpdate, updateOrder} = require('./order-workflow').createOrderWorkflow({inventory, finance, audit, checkoutAccounts, config});
 
-  router.post('/gaeru_ceo/orders/bulk',requirePermission('orders.write'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+  router.post('/gaeru_ceo/orders/bulk',requirePermission('orders.write'),requireCsrf,rateLimit({...sharedStore(pool,config||{},'orders-bulk'),windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{
       const parsed=z.object({action:z.enum(['confirm','prepare','ship','complete','cancel']),confirmReceived:z.boolean().default(false),orders:z.array(z.object({id:z.string().regex(uuidPattern),expectedStatus:z.enum(['pending','confirmed','processing','shipped','completed','cancelled']),expectedPaymentStatus:z.enum(['pending','paid']),expectedTotalVnd:z.number().int().min(0).max(2000000000).nullable()}).strict()).min(1).max(100).refine(rows=>new Set(rows.map(o=>o.id)).size===rows.length)}).strict().safeParse(req.body);
       if(!parsed.success)return res.status(400).json({error:'Chọn từ 1 đến 100 đơn khác nhau và bước xử lý hợp lệ.'});
@@ -2088,7 +2133,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       res.json({orders:result,targetStatus:target,message:'Đã cập nhật '+result.length+' đơn hàng.'});
     }catch(error){next(error);}
   });
-  router.post('/gaeru_ceo/orders/:id/restore',requirePermission('orders.write'),requireUuidParam('id'),requireCsrf,rateLimit({windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+  router.post('/gaeru_ceo/orders/:id/restore',requirePermission('orders.write'),requireUuidParam('id'),requireCsrf,rateLimit({...sharedStore(pool,config||{},'orders-restore'),windowMs:60000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{const {restoreOrder,restorationSchema}=require('./order-restoration');const data=restorationSchema.parse(req.body);
       const order=await withTransaction(pool,client=>restoreOrder(client,{id:req.params.id,data,actor:req.admin,inventory:inventory||require('./inventory'),audit}));
       invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
@@ -2129,8 +2174,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       next(error);
     }
   };
-  router.post('/gaeru_ceo/orders/:id/permanent-delete', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
-  router.delete('/gaeru_ceo/orders/:id', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
+  router.post('/gaeru_ceo/orders/:id/permanent-delete', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ ...sharedStore(pool, config || {}, 'orders-perm-delete'), windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
+  router.delete('/gaeru_ceo/orders/:id', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ ...sharedStore(pool, config || {}, 'orders-perm-delete'), windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
 
   router.patch("/gaeru_ceo/orders/:id", requirePermission('orders.write'), requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
@@ -2326,4 +2371,4 @@ function requireUuidParam(name) {
   };
 }
 
-module.exports = { createStoreApi, loadProducts, transitions, orderSchema, productSchema, variantSchema, settingsSchema };
+module.exports = { createStoreApi, loadProducts, transitions, orderSchema, productSchema, variantSchema, settingsSchema, releaseExpiredCheckoutIntents };

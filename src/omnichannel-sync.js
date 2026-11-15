@@ -284,39 +284,85 @@ async function recordSync(pool,channel,type,result,actor) {
   await pool.query(`INSERT INTO marketplace_sync_events(channel,event_type,event_key,payload,processed,error_message) VALUES($1,$2,$3,$4,$5,$6)`,[channel,type,'manual:'+randomUUID(),JSON.stringify(summary),result.success!==false,result.success===false?'Một hoặc nhiều mục chưa đồng bộ; xem chi tiết kết quả.':null]);
   await appendAudit(pool,{actor,action:'marketplace.'+type,entityType:'marketplace',entityId:channel,metadata:summary});
 }
-async function syncMarketplaceOrders(pool, config, channel, { fetcher = fetch, actor, autoDeductStock=false, days=3 } = {}) {
-  const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
-  const start=Math.floor(Date.now()/1000)-days*86400;const orders=await getConnector(channel).fetchOrders({...account.transportCredentials(channel,creds),timeFrom:start,createTimeFrom:start,createdAfter:new Date(start*1000).toISOString()},{fetcher});
-  let syncedCount=0;
-  for(const order of orders){
-    if(!order.externalOrderId||!Array.isArray(order.items)||!order.items.length)throw fail('Sàn chưa trả đầy đủ chi tiết sản phẩm của đơn. Không ghi đơn thiếu dữ liệu.',502);
-    const ingested=await withTransaction(pool,client=>ingestMarketplaceOrder(client,{channel,shopId:creds.shopId,order,autoDeductStock,actor}));
-    if(ingested?.stock_deducted||ingested?.stock_reversed){try{require('../cache').flushAllCache();}catch{}}
-    syncedCount++;
+const inFlightSyncLocks = new Set();
+
+async function withChannelSyncLock(pool, lockKey, fn) {
+  if (inFlightSyncLocks.has(lockKey)) {
+    throw fail('Kênh này đang có một tiến trình đồng bộ khác đang chạy. Vui lòng chờ hoàn tất.', 409);
   }
-  const result={success:true,channel,syncedCount,autoDeductStock,windowDays:days};await recordSync(pool,channel,'sync_orders',result,actor);return result;
+  inFlightSyncLocks.add(lockKey);
+  const settingKey = `runtime_lock:${lockKey}`;
+  const lockToken = randomUUID();
+  let dbLockAcquired = false;
+  try {
+    if (typeof pool?.query === 'function') {
+      try {
+        const res = await pool.query(
+          `INSERT INTO store_settings (setting_key, setting_value, updated_at)
+           VALUES ($1, jsonb_build_object('token', $2::text, 'expiresAt', (extract(epoch from now()) + 300)::bigint), now())
+           ON CONFLICT (setting_key) DO UPDATE
+             SET setting_value = EXCLUDED.setting_value, updated_at = now()
+             WHERE COALESCE((store_settings.setting_value->>'expiresAt')::bigint, 0) < extract(epoch from now())::bigint
+           RETURNING setting_key`,
+          [settingKey, lockToken]
+        );
+        if (res && typeof res.rowCount === 'number' && res.rowCount === 0) {
+          throw fail('Kênh này đang có một tiến trình đồng bộ khác đang chạy. Vui lòng chờ hoàn tất.', 409);
+        }
+        dbLockAcquired = Boolean(res?.rowCount === 1);
+      } catch (lockErr) {
+        if (lockErr?.status === 409) throw lockErr;
+      }
+    }
+    return await fn();
+  } finally {
+    inFlightSyncLocks.delete(lockKey);
+    if (dbLockAcquired && typeof pool?.query === 'function') {
+      await pool.query(
+        `DELETE FROM store_settings WHERE setting_key = $1 AND setting_value->>'token' = $2`,
+        [settingKey, lockToken]
+      ).catch(() => {});
+    }
+  }
+}
+
+async function syncMarketplaceOrders(pool, config, channel, { fetcher = fetch, actor, autoDeductStock=false, days=3 } = {}) {
+  return withChannelSyncLock(pool, `gaeru:mp-sync-orders:${channel}`, async () => {
+    const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
+    const start=Math.floor(Date.now()/1000)-days*86400;const orders=await getConnector(channel).fetchOrders({...account.transportCredentials(channel,creds),timeFrom:start,createTimeFrom:start,createdAfter:new Date(start*1000).toISOString()},{fetcher});
+    let syncedCount=0;
+    for(const order of orders){
+      if(!order.externalOrderId||!Array.isArray(order.items)||!order.items.length)throw fail('Sàn chưa trả đầy đủ chi tiết sản phẩm của đơn. Không ghi đơn thiếu dữ liệu.',502);
+      const ingested=await withTransaction(pool,client=>ingestMarketplaceOrder(client,{channel,shopId:creds.shopId,order,autoDeductStock,actor}));
+      if(ingested?.stock_deducted||ingested?.stock_reversed){try{require('../cache').flushAllCache();}catch{}}
+      syncedCount++;
+    }
+    const result={success:true,channel,syncedCount,autoDeductStock,windowDays:days};await recordSync(pool,channel,'sync_orders',result,actor);return result;
+  });
 }
 async function syncStockToChannel(pool, config, channel, { variantId, fetcher = fetch, actor } = {}) {
-  const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
-  if(!account.connection(channel,record).verified)throw fail('Kiểm tra kết nối đọc thành công với cấu hình hiện tại trước khi gửi tồn kho lên sàn.');
-  const connector=getConnector(channel),base=account.transportCredentials(channel,creds);
-  const variants=(await pool.query(`SELECT v.id,v.sku,v.stock_quantity AS "stockQuantity",m.id AS "mappingId",m.external_sku AS "externalSku",m.external_product_id AS "externalProductId",m.external_variant_id AS "externalVariantId"
-   FROM product_variants v JOIN products p ON p.id=v.product_id LEFT JOIN marketplace_sku_mappings m ON m.variant_id=v.id AND m.channel=$1 AND m.shop_id=$3
-   WHERE ($2::uuid IS NULL OR v.id=$2) AND v.active=true AND p.active=true AND p.deleted_at IS NULL ORDER BY v.sku,m.external_sku`,[channel,variantId||null,creds.shopId])).rows;
-  let updatedCount=0,failedCount=0,skippedCount=0;const results=[];
-  for(const v of variants){
-    if(!v.mappingId||(channel!=='lazada'&&!v.externalProductId)||(channel==='tiktok'&&!v.externalVariantId)){
-      skippedCount++;results.push({sku:v.sku,state:'skipped',message:'Chưa có mapping và ID sản phẩm/biến thể sàn đầy đủ.'});continue;
+  return withChannelSyncLock(pool, `gaeru:mp-sync-stock:${channel}`, async () => {
+    const record=await readRecord(pool,config,channel),creds=account.credentials(channel,record.data);
+    if(!account.connection(channel,record).verified)throw fail('Kiểm tra kết nối đọc thành công với cấu hình hiện tại trước khi gửi tồn kho lên sàn.');
+    const connector=getConnector(channel),base=account.transportCredentials(channel,creds);
+    const variants=(await pool.query(`SELECT v.id,v.sku,v.stock_quantity AS "stockQuantity",m.id AS "mappingId",m.external_sku AS "externalSku",m.external_product_id AS "externalProductId",m.external_variant_id AS "externalVariantId"
+     FROM product_variants v JOIN products p ON p.id=v.product_id LEFT JOIN marketplace_sku_mappings m ON m.variant_id=v.id AND m.channel=$1 AND m.shop_id=$3
+     WHERE ($2::uuid IS NULL OR v.id=$2) AND v.active=true AND p.active=true AND p.deleted_at IS NULL ORDER BY v.sku,m.external_sku`,[channel,variantId||null,creds.shopId])).rows;
+    let updatedCount=0,failedCount=0,skippedCount=0;const results=[];
+    for(const v of variants){
+      if(!v.mappingId||(channel!=='lazada'&&!v.externalProductId)||(channel==='tiktok'&&!v.externalVariantId)){
+        skippedCount++;results.push({sku:v.sku,state:'skipped',message:'Chưa có mapping và ID sản phẩm/biến thể sàn đầy đủ.'});continue;
+      }
+      try{
+        const safetyBuffer = Math.max(0, Number(record.data?.safetyStockBuffer ?? 2));
+        const safeStock = Math.max(0, Number(v.stockQuantity) - safetyBuffer);
+        const r=await connector.updateStock(channel==='shopee'?{...base,itemId:v.externalProductId,modelId:v.externalVariantId||'0',stock:safeStock}:channel==='tiktok'?{...base,productId:v.externalProductId,skuId:v.externalVariantId,availableStock:safeStock}:{...base,sku:v.externalSku,quantity:safeStock},{fetcher});
+        if(r?.success!==true)throw fail('Sàn chưa xác nhận cập nhật tồn kho.',502);
+        updatedCount++;results.push({sku:v.sku,state:'updated',message:'Sàn đã xác nhận cập nhật.',syncedStock:safeStock,safetyBuffer});
+      }catch{failedCount++;results.push({sku:v.sku,state:'failed',message:'Sàn chưa xác nhận cập nhật. Kiểm tra token, quyền và ID mapping rồi thử lại.'});}
     }
-    try{
-      const safetyBuffer = Math.max(0, Number(record.data?.safetyStockBuffer ?? 2));
-      const safeStock = Math.max(0, Number(v.stockQuantity) - safetyBuffer);
-      const r=await connector.updateStock(channel==='shopee'?{...base,itemId:v.externalProductId,modelId:v.externalVariantId||'0',stock:safeStock}:channel==='tiktok'?{...base,productId:v.externalProductId,skuId:v.externalVariantId,availableStock:safeStock}:{...base,sku:v.externalSku,quantity:safeStock},{fetcher});
-      if(r?.success!==true)throw fail('Sàn chưa xác nhận cập nhật tồn kho.',502);
-      updatedCount++;results.push({sku:v.sku,state:'updated',message:'Sàn đã xác nhận cập nhật.',syncedStock:safeStock,safetyBuffer});
-    }catch{failedCount++;results.push({sku:v.sku,state:'failed',message:'Sàn chưa xác nhận cập nhật. Kiểm tra token, quyền và ID mapping rồi thử lại.'});}
-  }
-  const result={success:failedCount===0&&skippedCount===0,channel,updatedCount,failedCount,skippedCount,results};await recordSync(pool,channel,'sync_stock',result,actor);return result;
+    const result={success:failedCount===0&&skippedCount===0,channel,updatedCount,failedCount,skippedCount,results};await recordSync(pool,channel,'sync_stock',result,actor);return result;
+  });
 }
 
 // -----------------------------------------------------------------------------
