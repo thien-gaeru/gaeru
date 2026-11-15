@@ -391,6 +391,7 @@ test('flagship email template renders rich structured blocks safely without XSS 
   assert.match(html, /1\.290\.000 ₫/);
   assert.match(html, /082 919 1080/);
   assert.match(html, /MST: 8836293843-002/);
+  assert.doesNotMatch(html, /Hộ kinh doanh/i);
   assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /<svg>/);
   assert.doesNotMatch(html, /<img onerror=1>/);
