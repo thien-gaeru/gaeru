@@ -522,4 +522,75 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
       assert.ok(rateLimitQueries.length > before, `Expected PG rate limit write for ${method} ${p}`);
     }
   });
+
+  test("clearAssetSnapshotCache({ all: true }) invalidates stale asset snapshots across distinct pool references", async (t) => {
+    const os = require("node:os");
+    const tmpAssets = fs.mkdtempSync(path.join(os.tmpdir(), "gaeru-assets-epoch-"));
+    const mediaRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gaeru-media-epoch-"));
+    t.after(() => {
+      fs.rmSync(tmpAssets, { recursive: true, force: true });
+      fs.rmSync(mediaRoot, { recursive: true, force: true });
+    });
+    fs.mkdirSync(path.join(tmpAssets, "products"), { recursive: true });
+    const imgPath = path.join(tmpAssets, "products", "sample.webp");
+    const oldBytes = Buffer.from("RIFF1234WEBPVP8Xold-asset-bytes");
+    const newBytes = Buffer.from("RIFF1234WEBPVP8Xnew-smaller");
+    fs.writeFileSync(imgPath, oldBytes);
+
+    const prevRoot = process.env.MEDIA_STORAGE_ROOT;
+    const prevEnabled = process.env.MEDIA_CACHE_ENABLED;
+    process.env.MEDIA_STORAGE_ROOT = mediaRoot;
+    process.env.MEDIA_CACHE_ENABLED = "true";
+    t.after(() => {
+      if (prevRoot === undefined) delete process.env.MEDIA_STORAGE_ROOT;
+      else process.env.MEDIA_STORAGE_ROOT = prevRoot;
+      if (prevEnabled === undefined) delete process.env.MEDIA_CACHE_ENABLED;
+      else process.env.MEDIA_CACHE_ENABLED = prevEnabled;
+    });
+
+    const snapshots = new Map();
+    const makePool = () => ({
+      async query(sql, params) {
+        if (String(sql).includes("INSERT INTO site_asset_snapshots")) {
+          const [rel, storageKey, mimeType, byteSize, sha256] = params;
+          const prev = snapshots.get(rel);
+          if (!prev || prev.sha256 !== sha256) {
+            snapshots.set(rel, { path: rel, storage_key: storageKey, mime_type: mimeType, byte_size: byteSize, sha256 });
+            return { rows: [], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        if (String(sql).includes("SELECT * FROM site_asset_snapshots WHERE path=$1")) {
+          const row = snapshots.get(params[0]);
+          return { rows: row ? [row] : [] };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+    });
+
+    const syncPool = makePool();
+    const requestPool = makePool();
+    const { syncAssets, serveAssets } = require("../src/persistent-assets");
+    await syncAssets(syncPool, { source: tmpAssets });
+
+    const app = express();
+    app.use("/assets", serveAssets(requestPool));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+    const base = "http://127.0.0.1:" + server.address().port;
+
+    const first = await httpRequest(base + "/assets/products/sample.webp");
+    assert.equal(first.status, 200);
+    assert.deepEqual(first.body, oldBytes);
+
+    // Simulate updated asset synced on another pool wrapper (raw pool vs highPriorityPool)
+    fs.writeFileSync(imgPath, newBytes);
+    const result = await syncAssets(syncPool, { source: tmpAssets });
+    assert.equal(result.updated, 1);
+
+    const second = await httpRequest(base + "/assets/products/sample.webp");
+    assert.equal(second.status, 200);
+    assert.deepEqual(second.body, newBytes);
+  });
 }

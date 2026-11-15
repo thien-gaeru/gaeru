@@ -10,6 +10,7 @@ const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const widths=[480,800,1200];
 const snapshotCaches=new WeakMap();
 const assetCaches=new WeakMap();
+let snapshotEpoch=0;
 let last={state:'not-configured',files:0};
 const IS_ARM64 = process.arch === 'arm64';
 const MAX_SNAPSHOT_CACHE_BYTES = IS_ARM64 ? 8 * 1024 * 1024 : 16 * 1024 * 1024;
@@ -23,16 +24,18 @@ function estimateSnapshotRowBytes(row){
  if(typeof row.mime_type==='string')b+=row.mime_type.length;
  return b;
 }
-function clearAssetSnapshotCache(pool){
+function clearAssetSnapshotCache(pool,{all=false}={}){
+ if(all){snapshotEpoch++;preAvifCache.clear();preWebpCache.clear();}
  if(pool&&typeof pool==='object'){
   const state=snapshotCaches.get(pool);
-  if(state){state.rows.clear();state.pending.clear();state.bytes=0;}
+  if(state){state.rows.clear();state.pending.clear();state.bytes=0;state.epoch=snapshotEpoch;}
  }
 }
 async function getCachedSnapshotRow(pool,relative,loader){
  if(!pool||process.env.MEDIA_CACHE_ENABLED==='false')return loader();
  let state=snapshotCaches.get(pool);
- if(!state){state={rows:new Map(),pending:new Map(),bytes:0};snapshotCaches.set(pool,state);}
+ if(!state){state={rows:new Map(),pending:new Map(),bytes:0,epoch:snapshotEpoch};snapshotCaches.set(pool,state);}
+ else if(state.epoch!==snapshotEpoch){state.rows.clear();state.pending.clear();state.bytes=0;state.epoch=snapshotEpoch;}
  const now=Date.now(),hit=state.rows.get(relative);
  if(hit&&hit.until>now){state.rows.delete(relative);state.rows.set(relative,hit);return hit.row;}
  if(hit){state.bytes=Math.max(0,state.bytes-(hit.bytes||0));state.rows.delete(relative);}
@@ -239,7 +242,7 @@ async function warmStaticAssets(pool){
 }
 async function syncAssets(pool,{source=path.join(__dirname,'..','assets')}={}){
  if(!filesystem.configured())return last={state:'not-configured',files:0};
- const dir=await disk.directory('site-assets','',true);let count=0,total=0;
+ const dir=await disk.directory('site-assets','',true);let count=0,total=0,updated=0;
  async function scan(current,prefix=''){
   for(const entry of await fs.readdir(current,{withFileTypes:true})){
    if(entry.isSymbolicLink())throw Error('SITE_ASSET_SYMLINK');
@@ -252,12 +255,19 @@ async function syncAssets(pool,{source=path.join(__dirname,'..','assets')}={}){
    const sha256=hash(bytes),name=sha256+path.extname(relative).toLowerCase(),key='site-assets/'+name,target=path.join(dir,name);
    let exists=false;try{const actual=await disk.read(key);if(actual.length!==bytes.length||hash(actual)!==sha256)throw Error('SITE_ASSET_INTEGRITY');exists=true;}catch(e){if(e.code!=='ENOENT')throw e;}
    if(!exists){const temporary=path.join(dir,'.'+randomUUID()+'.copying'),file=await fs.open(temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|(constants.O_NOFOLLOW||0),0o600);try{await file.writeFile(bytes);await file.sync();}finally{await file.close();}try{await fs.link(temporary,target);}catch(e){if(e.code!=='EEXIST')throw e;}finally{await fs.unlink(temporary);}const actual=await disk.read(key);if(actual.length!==bytes.length||hash(actual)!==sha256)throw Error('SITE_ASSET_INTEGRITY');}
-   await pool.query(`INSERT INTO site_asset_snapshots(path,storage_key,mime_type,byte_size,sha256) VALUES($1,$2,$3,$4,$5)
+   const res=await pool.query(`INSERT INTO site_asset_snapshots(path,storage_key,mime_type,byte_size,sha256) VALUES($1,$2,$3,$4,$5)
     ON CONFLICT(path) DO UPDATE SET storage_key=EXCLUDED.storage_key,mime_type=EXCLUDED.mime_type,byte_size=EXCLUDED.byte_size,sha256=EXCLUDED.sha256,updated_at=now()
-    WHERE site_asset_snapshots.sha256<>EXCLUDED.sha256`,[relative,key,types[path.extname(relative).toLowerCase()],bytes.length,sha256]);total+=bytes.length;
+    WHERE site_asset_snapshots.sha256<>EXCLUDED.sha256`,[relative,key,types[path.extname(relative).toLowerCase()],bytes.length,sha256]);
+   if(res&&Number(res.rowCount)>0)updated++;
+   total+=bytes.length;
   }
  }
- try{await scan(source);clearAssetSnapshotCache(pool);return last={state:'verified',files:count,bytes:total};}catch(e){clearAssetSnapshotCache(pool);last={state:'failed',files:count};throw e;}
+ try{
+  await scan(source);
+  clearAssetSnapshotCache(pool,{all:true});
+  if(updated>0){try{require('./cache').invalidateTags(['catalog'],{immediate:true});}catch(_){}}
+  return last={state:'verified',files:count,bytes:total,updated};
+ }catch(e){clearAssetSnapshotCache(pool,{all:true});last={state:'failed',files:count};throw e;}
 }
 function serveAssets(pool){const cache=createObjectCache({maxBytes:IS_ARM64?24*1024*1024:96*1024*1024,maxEntryBytes:IS_ARM64?6*1024*1024:12*1024*1024,ttl:3600000,maxPending:64});if(pool&&typeof pool==='object')assetCaches.set(pool,cache);return async(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method))return next();
