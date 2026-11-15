@@ -32,7 +32,7 @@ async function main() {
     for (const width of [480, 800]) {
       const { data, info } = await sharp(sourceDisk)
         .resize(width, width, { fit: 'inside', withoutEnlargement: true })
-        .webp({ lossless: true, effort: 6 })
+        .webp({ quality: 86, alphaQuality: 96, effort: 6 })
         .toBuffer({ resolveWithObject: true });
 
       const hash = crypto.createHash('sha256').update(data).digest('hex').slice(0, 12);

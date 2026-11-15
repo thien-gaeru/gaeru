@@ -227,6 +227,10 @@ if [ "$RELOAD_MODE" != "skip" ]; then
     echo "ERROR: http://127.0.0.1:3000/health failed after reload" >&2
     exit 1
   fi
+  if [ -d /run/shm/nginx_static_cache ]; then
+    find /run/shm/nginx_static_cache -mindepth 1 -delete 2>/dev/null || rm -rf /run/shm/nginx_static_cache/* 2>/dev/null || true
+    echo "NGINX_STATIC_CACHE_PURGED=1"
+  fi
 fi
 '@
 

@@ -373,3 +373,153 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
   assert.equal(rawReleaseCalls, 2);
   assert.ok(rawQueryCalls >= 4);
 });
+
+{
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const http = require("node:http");
+  const crypto = require("node:crypto");
+  const zlib = require("node:zlib");
+  const session = require("express-session");
+  const { createApp } = require("../src/app");
+  const { createDdosShield } = require("../src/security-shield");
+  const { _clearCacheForTest } = require("../src/lib/static-asset-cache");
+
+  const httpRequest = (url, headers = {}, method = "GET") =>
+    new Promise((resolve, reject) => {
+      const req = http.request(url, { method, headers }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () =>
+          resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) })
+        );
+      });
+      req.on("error", reject);
+      req.end();
+    });
+
+  test("static CSS/JS serve pre-compressed br/gzip from RAM and grant immutable only for verified SHA-256 hash", async (t) => {
+    _clearCacheForTest();
+    const pool = { query: async () => ({ rows: [] }) };
+    const app = createApp({
+      pool,
+      sessionStore: new session.MemoryStore(),
+      config: { NODE_ENV: "test", SESSION_SECRET: "runtime-opt-fixture-secret-at-least-32-chars" }
+    });
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+
+    const base = "http://127.0.0.1:" + server.address().port;
+    const stylesRaw = fs.readFileSync(path.join(__dirname, "..", "styles.css"));
+    const stylesHash12 = crypto.createHash("sha256").update(stylesRaw).digest("hex").slice(0, 12);
+
+    const brRes = await httpRequest(`${base}/styles.css?v=${stylesHash12}`, { "Accept-Encoding": "gzip, br" });
+    assert.equal(brRes.status, 200);
+    assert.equal(brRes.headers["content-encoding"], "br");
+    assert.equal(brRes.headers["cache-control"], "public, max-age=31536000, immutable");
+    assert.equal(brRes.headers["content-type"], "text/css; charset=utf-8");
+    assert.match(brRes.headers.vary, /Accept-Encoding/i);
+    assert.deepEqual(zlib.brotliDecompressSync(brRes.body), stylesRaw);
+
+    const res304 = await httpRequest(`${base}/styles.css?v=${stylesHash12}`, {
+      "Accept-Encoding": "br, gzip",
+      "If-None-Match": brRes.headers.etag
+    });
+    assert.equal(res304.status, 304);
+    assert.equal(res304.headers["cache-control"], "public, max-age=31536000, immutable");
+    assert.equal(res304.body.length, 0);
+
+    const qZeroRes = await httpRequest(`${base}/styles.css?v=${stylesHash12}`, {
+      "Accept-Encoding": "br;q=0, gzip;q=1"
+    });
+    assert.equal(qZeroRes.status, 200);
+    assert.equal(qZeroRes.headers["content-encoding"], "gzip");
+    assert.notEqual(qZeroRes.headers.etag, brRes.headers.etag);
+    assert.deepEqual(zlib.gunzipSync(qZeroRes.body), stylesRaw);
+
+    const unhashedRes = await httpRequest(`${base}/styles.css?v=20261025-arbitrary`, { "Accept-Encoding": "gzip" });
+    assert.equal(unhashedRes.status, 200);
+    assert.equal(unhashedRes.headers["content-encoding"], "gzip");
+    assert.equal(unhashedRes.headers["cache-control"], "public, max-age=0, must-revalidate");
+
+    const scriptRaw = fs.readFileSync(path.join(__dirname, "..", "script.js"));
+    const scriptHash12 = crypto.createHash("sha256").update(scriptRaw).digest("hex").slice(0, 12);
+    const jsRes = await httpRequest(`${base}/script.js?v=${scriptHash12}`, { "Accept-Encoding": "br, gzip" });
+    assert.equal(jsRes.status, 200);
+    assert.equal(jsRes.headers["content-encoding"], "br");
+    assert.equal(jsRes.headers["content-type"], "text/javascript; charset=utf-8");
+    assert.equal(jsRes.headers["cache-control"], "public, max-age=31536000, immutable");
+
+    const accountJs = await httpRequest(`${base}/account.js?v=${stylesHash12}`, { "Accept-Encoding": "gzip" });
+    assert.equal(accountJs.status, 200);
+    assert.equal(accountJs.headers["cache-control"], "no-store");
+
+    const privateJs = await httpRequest(`${base}/cache.js`);
+    assert.equal(privateJs.status, 404);
+  });
+
+  test("createDdosShield skips PostgreSQL writes on public cached reads while enforcing 429 and PG persistence on mutations/queries", async (t) => {
+    const rateLimitQueries = [];
+    const pool = {
+      async query(sql, params) {
+        if (String(sql).includes("security_rate_limits")) {
+          rateLimitQueries.push({ sql, params });
+          if (String(sql).includes("INSERT INTO security_rate_limits")) {
+            return { rows: [{ hits: 1, expires_at: new Date(Date.now() + 60000).toISOString() }] };
+          }
+        }
+        return { rows: [] };
+      }
+    };
+
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let shield;
+    try {
+      shield = createDdosShield({ NODE_ENV: "production", DDOS_RATE_LIMIT: 2 }, pool);
+    } finally {
+      if (prevEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevEnv;
+    }
+
+    const app = express();
+    app.use(["/api", "/server_admin/api"], shield);
+    app.get("/api/products", (_req, res) => res.json({ ok: true }));
+    app.get("/api/products/:slug", (_req, res) => res.json({ ok: true }));
+    app.get("/api/products/:slug/bundles", (_req, res) => res.json({ ok: true }));
+    app.get("/api/search-index.json", (_req, res) => res.json({ ok: true }));
+    app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+    app.get("/api/bot-protection", (_req, res) => res.json({ enabled: false }));
+    app.all("/api/orders", (_req, res) => res.json({ ok: true }));
+    app.post("/server_admin/api/login", (_req, res) => res.json({ ok: true }));
+
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+    const base = "http://127.0.0.1:" + server.address().port;
+
+    for (const p of ["/api/products", "/api/products/m3", "/api/products/m3/bundles", "/api/search-index.json"]) {
+      const r = await httpRequest(base + p);
+      assert.equal(r.status, 200, "Expected 200 for " + p);
+    }
+    assert.equal(rateLimitQueries.length, 0, "Public cached reads must not write to security_rate_limits");
+
+    const limited = await httpRequest(base + "/api/health");
+    assert.equal(limited.status, 429);
+    assert.equal(JSON.parse(limited.body.toString()).code, "DDOS_RATE_LIMITED");
+    assert.equal(rateLimitQueries.length, 0);
+
+    for (const [method, p] of [
+      ["POST", "/api/orders"],
+      ["GET", "/api/orders"],
+      ["GET", "/api/products?q=m3"],
+      ["POST", "/server_admin/api/login"]
+    ]) {
+      const before = rateLimitQueries.length;
+      const r = await httpRequest(base + p, {}, method);
+      assert.equal(r.status, 200);
+      assert.ok(rateLimitQueries.length > before, `Expected PG rate limit write for ${method} ${p}`);
+    }
+  });
+}

@@ -4,11 +4,14 @@ const { getFreshData, stockMap } = require('../cache');
 const { loadProducts } = require('../store-api');
 const { getCachedImageRow, warmPublicImage } = require('./image-renditions');
 const { warmStaticAssets } = require('../persistent-assets');
+const { warmStaticTextAssets } = require('./static-asset-cache');
+const path = require('node:path');
 try { require('sharp').concurrency(Math.max(1, Number(process.env.SHARP_CONCURRENCY) || (process.arch === 'arm64' ? 1 : 2))); } catch (_) {}
 
 async function warmHotImagesInBackground(pool, products) {
   if (!pool || !pool.__gaeruCacheHooked || process.env.MEDIA_CACHE_ENABLED === 'false') return;
   try {
+    warmStaticTextAssets(path.resolve(__dirname, '..', '..'), require('../public-files'));
     await warmStaticAssets(pool);
     const shouldWarmRenditions = process.env.RENDITION_DISK_CACHE === 'true' || process.env.NODE_ENV === 'production';
     const catalogIds = new Set();

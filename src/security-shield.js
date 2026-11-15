@@ -105,6 +105,19 @@ function createHoneypotShield() {
   };
 }
 
+function isPublicCachedRead(req) {
+  if (!req || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
+  if (req.query && req.query.q !== undefined && req.query.q !== '') return false;
+  const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
+  return (
+    fullPath === '/api/products' ||
+    /^\/api\/products\/[^/]+(?:\/bundles)?$/.test(fullPath) ||
+    fullPath === '/api/search-index.json' ||
+    fullPath === '/api/health' ||
+    fullPath === '/api/bot-protection'
+  );
+}
+
 /**
  * Adaptive Rate Limiter for API endpoints (Anti-DDoS / Flood Shield)
  */
@@ -113,10 +126,8 @@ function createDdosShield(config = {}, pool = null) {
   const customLimit = Number(config?.DDOS_RATE_LIMIT || process.env.DDOS_RATE_LIMIT);
   const defaultLimit = Number.isFinite(customLimit) && customLimit > 0 ? customLimit : 3000;
   const { sharedStore } = require('./security-hardening');
-  return rateLimit({
-    ...sharedStore(pool, config, 'ddos-shield'),
+  const commonOptions = {
     windowMs: 60000, // 1 minute
-    limit: isTest ? 10000 : defaultLimit, // Generous limit for high-traffic browsing and polling
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     validate: { xForwardedForHeader: false, default: true },
@@ -124,7 +135,17 @@ function createDdosShield(config = {}, pool = null) {
       error: 'Quá nhiều yêu cầu cùng lúc. Hệ thống phòng vệ chống DDoS đã tạm chặn để bảo vệ máy chủ. Vui lòng thử lại sau 1 phút.',
       code: 'DDOS_RATE_LIMITED'
     }
+  };
+  const sharedLimiter = rateLimit({
+    ...commonOptions,
+    ...sharedStore(pool, config, 'ddos-shield'),
+    limit: isTest ? 10000 : defaultLimit // Generous limit for high-traffic browsing and polling
   });
+  const memoryReadLimiter = rateLimit({
+    ...commonOptions,
+    limit: isTest ? 10000 : defaultLimit * 2
+  });
+  return (req, res, next) => (isPublicCachedRead(req) ? memoryReadLimiter : sharedLimiter)(req, res, next);
 }
 
 /**

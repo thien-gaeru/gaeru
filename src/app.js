@@ -484,7 +484,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
   app.use("/media",productWorkspace.publicMedia);
-  app.use("/assets",rateLimit({...require("./security-hardening").sharedStore(pool,config,'assets-read'),windowMs:60000,limit:600,standardHeaders:"draft-8",legacyHeaders:false}),require("./persistent-assets").serveAssets(pool));
+  app.use("/assets",rateLimit({windowMs:60000,limit:config.NODE_ENV==="test"||process.env.NODE_ENV==="test"?10000:2400,standardHeaders:"draft-8",legacyHeaders:false}),require("./persistent-assets").serveAssets(pool));
   app.use("/api", (req,res,next)=>{
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});
     next();
@@ -575,6 +575,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
 
   app.use(require('./clean-routes').staticHtml);
+  app.use(require('./lib/static-asset-cache').createStaticAssetMiddleware(path.join(__dirname, ".."), require('./public-files')));
   app.use(express.static(path.join(__dirname, ".."), {
     dotfiles: "deny",
     index: "index.html",
