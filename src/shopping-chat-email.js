@@ -2,7 +2,7 @@ const {z}=require('zod');
 const {requirePermission,ROLE_PERMISSIONS}=require('./staff-access');
 const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
-const {resolveReplyTo,resolveFrom,failureStatus,retryDelaySeconds}=require('./smtp-delivery');
+const {resolveReplyTo,resolveFrom,prepareOutboundMail,failureStatus,retryDelaySeconds}=require('./smtp-delivery');
 async function recipients(pool){
   const owner=(await pool.query("SELECT email FROM account_security WHERE account_key='owner'")).rows[0];
   const rows=(await pool.query("SELECT s.id,s.username,s.full_name,s.role,s.active,a.email FROM staff_accounts s LEFT JOIN account_security a ON a.account_key='staff:'||s.id::text ORDER BY s.full_name,s.id")).rows;
@@ -38,7 +38,9 @@ async function processChatEmail(pool,config,mailer){
     const link=require('./primary-domain').normalizePublicBase(config.PUBLIC_BASE_URL||config.smtp.publicBaseUrl)+'/gaeru_ceo#shopping-chat';
     const domainCopy=(config?.adminDomainEmail||config?.smtp?.adminDomainEmail||config?.ADMIN_DOMAIN_EMAIL||'').trim().toLowerCase();
     const bcc=(domainCopy&&z.string().email().safeParse(domainCopy).success&&domainCopy!==job.to.toLowerCase())?domainCopy:undefined;
-    const result=await mailer.sendMail({from:resolveFrom(config),...(bcc?{bcc}:{}),replyTo:resolveReplyTo(config),to:job.to,subject:job.kind==='handoff'?'GAERU · Chat cần nhân viên hỗ trợ':'GAERU · Phiên chat mới do AI tiếp nhận',text:(job.kind==='handoff'?'Hội thoại đã chuyển cho nhân viên: ':'Có phiên chat mới. AI tiếp nhận trước; nhân viên chỉ cần xử lý khi được chuyển: ')+job.topic+'\n\nĐăng nhập quản trị để đọc và trả lời: '+link+'\n\nEmail không chứa nội dung tin nhắn hoặc tệp đính kèm. Tối đa một email cho mỗi loại thông báo trong mỗi khung 5 phút. Quản trị có thể đổi người nhận tại Chat trực tuyến → Thông báo qua email.',messageId:'<shopping-chat-'+job.id+'@gaeru.com>'});
+    const chatBodyText=(job.kind==='handoff'?'Hội thoại đã chuyển cho nhân viên: ':'Có phiên chat mới. AI tiếp nhận trước; nhân viên chỉ cần xử lý khi được chuyển: ')+job.topic+'\n\nĐăng nhập quản trị để đọc và trả lời: '+link+'\n\nEmail không chứa nội dung tin nhắn hoặc tệp đính kèm. Tối đa một email cho mỗi loại thông báo trong mỗi khung 5 phút. Quản trị có thể đổi người nhận tại Chat trực tuyến → Thông báo qua email.';
+    const chatSubject=job.kind==='handoff'?'GAERU · Chat cần nhân viên hỗ trợ':'GAERU · Phiên chat mới do AI tiếp nhận';
+    const result=await mailer.sendMail(prepareOutboundMail(config,{...(bcc?{bcc}:{}),to:job.to,subject:chatSubject,text:chatBodyText,messageId:'<shopping-chat-'+job.id+'@gaeru.com>'},{actionUrl:link,actionLabel:'Mở quản trị trò chuyện'}));
     const accepted=result?.accepted?.some(v=>String(v.address||v).toLowerCase()===job.to.toLowerCase());
     await pool.query("UPDATE shopping_chat_email_outbox SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'",[job.id,accepted?'sent':result?.rejected?.length?'failed':'unknown',accepted?'SMTP đã tiếp nhận':'Chưa xác định tiếp nhận hoặc SMTP từ chối']);
   }catch(error){const state=failureStatus(error,job.attempts);const delaySec=retryDelaySeconds(job.attempts);await pool.query("UPDATE shopping_chat_email_outbox SET status=$2,next_attempt_at=now()+($4::text||' seconds')::interval,finished_at=CASE WHEN $2='pending' THEN NULL ELSE now() END,result=$3 WHERE id=$1 AND status='sending'",[job.id,state,state==='pending'?'Chờ thử lại kết nối SMTP':state==='failed'?'SMTP từ chối hoặc đã hết số lần thử kết nối':'Không xác định kết quả SMTP; không tự gửi trùng',delaySec]);}

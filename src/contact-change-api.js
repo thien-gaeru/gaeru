@@ -34,7 +34,9 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
    });
    const send=async(to,token,step)=>{
     const link=new URL('/tai-khoan',smtpConfig.publicBaseUrl);link.searchParams.set('contactVerify',token);
-    await mailer.sendMail({from:require('./smtp-delivery').resolveFrom({smtp:smtpConfig}),replyTo:require('./smtp-delivery').resolveReplyTo({smtp:smtpConfig}),to,subject:'Xác nhận thay đổi thông tin tài khoản GAERU',text:`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`});
+    const {prepareOutboundMail}=require('./smtp-delivery');
+    const bodyText=`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`;
+    await mailer.sendMail(prepareOutboundMail({smtp:smtpConfig},{to,subject:'Xác nhận thay đổi thông tin tài khoản GAERU',text:bodyText},{messageIdPrefix:'contact',actionUrl:link.toString(),actionLabel:'Xác nhận thay đổi'}));
    };
    await send(owner.email,oldToken,'Xác nhận từ email hiện tại.');
    if(newToken)await send(a.email,newToken,'Xác minh hộp thư email mới.');

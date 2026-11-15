@@ -10,6 +10,7 @@ const { storeUpload, readMedia, readMediaRange, openMediaStream } = require('./l
 const {
   resolveReplyTo,
   resolveFrom,
+  prepareOutboundMail,
   failureStatus,
   retryDelaySeconds,
   enqueueAdminDomainNotification,
@@ -511,14 +512,12 @@ async function processCareEmailOutbox(pool, config, mailer) {
   if (!job) return false;
 
   try {
-    const result = await mailer.sendMail({
-      from: resolveFrom(config),
-      replyTo: resolveReplyTo(config),
+    const result = await mailer.sendMail(prepareOutboundMail(config, {
       to: job.recipient_email,
       subject: job.subject,
       text: job.body_text,
       messageId: `<care-response-${job.id}@gaeru.com>`
-    });
+    }));
     const accepted = result?.accepted?.some(v => String(v.address || v).toLowerCase() === job.recipient_email.toLowerCase());
     await pool.query("UPDATE care_email_outbox SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'", [
       job.id,

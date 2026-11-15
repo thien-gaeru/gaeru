@@ -270,4 +270,49 @@ test('domain email pipeline enqueues CARE+ & external warranty alerts, delivers 
   const health = await operationalHealth(pool, config);
   assert.equal(health.queues.admin_domain_email_outbox.counts.sent, 3);
   assert.equal(health.failedOrUnknown, 0);
+
+  // 7. Verify all delivered domain & admin order emails include valid HTML + @gaeru.com Message-ID
+  for (const m of delivered.slice(0, 4)) {
+    assert.match(m.html || '', /^<!doctype html><html lang="vi">/);
+    assert.match(m.messageId || '', /^<[^@]+@gaeru\.com>$/);
+  }
+});
+
+test('outbound mail deliverability helpers always generate FQDN EHLO, HTML body, and @gaeru.com Message-ID', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { smtpOptions, resolveEhloDomain } = require('../src/smtp-security');
+  const { prepareOutboundMail, buildMessageId, renderGaeruEmailHtml } = require('../src/smtp-delivery');
+
+  assert.equal(resolveEhloDomain({ from: 'noreply@gaeru.com' }), 'gaeru.com');
+  assert.equal(resolveEhloDomain({ publicBaseUrl: 'https://gaeru.com' }), 'gaeru.com');
+  assert.equal(resolveEhloDomain({}), 'gaeru.com');
+  assert.equal(smtpOptions({ host: 'smtp.mail.me.com', port: 587, secure: false, from: 'noreply@gaeru.com', user: 'u', password: 'p' }).name, 'gaeru.com');
+
+  const prepared = prepareOutboundMail(
+    { smtp: { from: 'noreply@gaeru.com', replyTo: 'business@gaeru.com' } },
+    { to: 'customer@example.com', subject: 'GAERU · Đơn hàng', text: 'Đoạn 1\n\nĐoạn 2 <script>' },
+    { messageIdPrefix: 'order', actionUrl: 'https://gaeru.com/tai-khoan', actionLabel: 'Xem đơn' }
+  );
+  assert.equal(prepared.from, 'GAERU <noreply@gaeru.com>');
+  assert.equal(prepared.replyTo, 'business@gaeru.com');
+  assert.match(prepared.messageId, /^<order-[0-9a-f-]+@gaeru\.com>$/);
+  assert.match(prepared.html, /^<!doctype html><html lang="vi">/);
+  assert.doesNotMatch(prepared.html, /<script>/);
+  assert.match(prepared.html, /https:\/\/gaeru\.com\/tai-khoan/);
+  assert.match(renderGaeruEmailHtml({ heading: 'Test', bodyText: 'Hello' }), /GAERU/);
+  assert.match(buildMessageId('sec', { smtp: { from: 'noreply@gaeru.com' } }), /^<sec-[0-9a-f-]+@gaeru\.com>$/);
+
+  // Ensure every real outbound mail caller uses prepareOutboundMail or sets both html and messageId
+  const srcDir = path.join(__dirname, '..', 'src');
+  for (const file of fs.readdirSync(srcDir)) {
+    if (!file.endsWith('.js') || file === 'local-server.js' || file === 'smtp-delivery.js') continue;
+    const src = fs.readFileSync(path.join(srcDir, file), 'utf8');
+    if (!src.includes('.sendMail(')) continue;
+    const usesHelper = src.includes('prepareOutboundMail(') || src.includes('sendAdminNotification(');
+    if (!usesHelper) {
+      assert.match(src, /\bhtml\s*[,:]/, `${file} missing HTML body`);
+      assert.match(src, /\bmessageId\s*:/, `${file} missing FQDN messageId`);
+    }
+  }
 });

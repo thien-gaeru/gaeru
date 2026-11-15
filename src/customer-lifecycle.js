@@ -247,7 +247,8 @@ async function sendRegistrationNotificationEmail({ mailer, smtpConfig, to, fullN
       to,
       subject: 'Thông báo đăng ký tài khoản GAERU thành công',
       text: `Xin chào ${fullName},\n\nChúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: ${to}.\n\nBạn có thể đăng nhập và theo dõi đơn hàng, ưu đãi tại: ${accountUrl}\n\nTrân trọng,\nĐội ngũ GAERU`,
-      html: `<p>Xin chào <strong>${safeName}</strong>,</p><p>Chúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: <strong>${to}</strong>.</p><p>Bạn có thể theo dõi đơn hàng và ưu đãi tại <a href="${accountUrl}">Tài khoản GAERU</a>.</p><p>Trân trọng,<br>Đội ngũ GAERU</p>`
+      html: `<p>Xin chào <strong>${safeName}</strong>,</p><p>Chúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: <strong>${to}</strong>.</p><p>Bạn có thể theo dõi đơn hàng và ưu đãi tại <a href="${accountUrl}">Tài khoản GAERU</a>.</p><p>Trân trọng,<br>Đội ngũ GAERU</p>`,
+      messageId: require('./smtp-delivery').buildMessageId('welcome', { smtp: smtpConfig })
     });
     return true;
   } catch (err) {

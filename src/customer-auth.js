@@ -362,7 +362,8 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
           to: customer.email,
           subject: "Khôi phục mật khẩu tài khoản GAERU",
           text: `GAERU nhận được yêu cầu đặt lại mật khẩu. Mở liên kết dùng một lần trong vòng 30 phút: ${resetUrl.toString()}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`,
-          html: `<p>GAERU nhận được yêu cầu đặt lại mật khẩu.</p><p><a href="${resetUrl.toString()}">Đặt lại mật khẩu</a></p><p>Liên kết chỉ dùng một lần và hết hạn sau 30 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>`
+          html: `<p>GAERU nhận được yêu cầu đặt lại mật khẩu.</p><p><a href="${resetUrl.toString()}">Đặt lại mật khẩu</a></p><p>Liên kết chỉ dùng một lần và hết hạn sau 30 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>`,
+          messageId: require("./smtp-delivery").buildMessageId("reset", { smtp: smtpConfig })
         });
       } catch (error) {
         await pool.query(
@@ -478,7 +479,8 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
           to: customer.email,
           subject: "Xác minh tài khoản GAERU",
           text: `Xin chào ${customer.fullName}, hãy mở liên kết sau để xác minh email tài khoản GAERU. Liên kết chỉ dùng một lần và có hiệu lực trong 30 phút: ${verificationUrl.toString()}\n\nNếu bạn không yêu cầu xác minh, hãy bỏ qua email này.`,
-          html: `<p>Xin chào ${escapeHtml(customer.fullName)},</p><p>Hãy xác minh email tài khoản GAERU bằng liên kết dưới đây. Liên kết chỉ dùng một lần và có hiệu lực trong 30 phút.</p><p><a href="${verificationUrl.toString()}">Xác minh tài khoản GAERU</a></p><p>Nếu bạn không yêu cầu xác minh, hãy bỏ qua email này.</p>`
+          html: `<p>Xin chào ${escapeHtml(customer.fullName)},</p><p>Hãy xác minh email tài khoản GAERU bằng liên kết dưới đây. Liên kết chỉ dùng một lần và có hiệu lực trong 30 phút.</p><p><a href="${verificationUrl.toString()}">Xác minh tài khoản GAERU</a></p><p>Nếu bạn không yêu cầu xác minh, hãy bỏ qua email này.</p>`,
+          messageId: require("./smtp-delivery").buildMessageId("verify", { smtp: smtpConfig })
         });
       } catch (error) {
         await pool.query(

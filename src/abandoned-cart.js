@@ -386,8 +386,10 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
       subject,
       text,
       html,
+      messageId: require('./smtp-delivery').buildMessageId('cart-recovery', config),
       headers: {
-        'List-Unsubscribe': `<${optOutUrl}>`
+        'List-Unsubscribe': `<${optOutUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
       }
     });
 

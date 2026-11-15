@@ -1,5 +1,6 @@
 'use strict';
 
+const { randomUUID } = require('node:crypto');
 const { z } = require('zod');
 const { withTransaction } = require('./db');
 
@@ -111,25 +112,95 @@ async function adminNotificationRecipients(pool, config) {
   return list;
 }
 
+function escapeMailHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
+function resolveMailDomain(config) {
+  const fromStr = resolveFrom(config);
+  const match = fromStr.match(/@([^>\s]+)>?$/);
+  const domain = match ? match[1].trim().toLowerCase() : '';
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain) ? domain : 'gaeru.com';
+}
+
+function buildMessageId(prefix, config) {
+  const cleanPrefix = String(prefix || 'gaeru').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'gaeru';
+  return `<${cleanPrefix}-${randomUUID()}@${resolveMailDomain(config)}>`;
+}
+
+function renderGaeruEmailHtml({ heading, bodyText, actionUrl, actionLabel, footerNote } = {}) {
+  const safeHeading = escapeMailHtml(heading || 'Thông báo từ GAERU');
+  const paragraphs = String(bodyText || '')
+    .split(/\r?\n\r?\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#333336;">${escapeMailHtml(p).replace(/\r?\n/g, '<br>')}</p>`)
+    .join('');
+
+  let ctaHtml = '';
+  if (actionUrl) {
+    try {
+      const safeHref = new URL(String(actionUrl)).toString();
+      if (safeHref.startsWith('https://') || safeHref.startsWith('http://')) {
+        ctaHtml = `<div style="margin:24px 0;"><a href="${escapeMailHtml(safeHref)}" style="display:inline-block;background:#0071e3;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:980px;font-weight:600;font-size:14px;">${escapeMailHtml(actionLabel || 'Xem chi tiết')}</a></div>`;
+      }
+    } catch {}
+  }
+
+  const footer = footerNote
+    ? escapeMailHtml(footerNote)
+    : 'GAERU · gaeru.com · Hỗ trợ khách hàng: business@gaeru.com';
+
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeHeading}</title></head><body style="margin:0;padding:24px 12px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;"><main style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:16px;padding:28px 24px;"><div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:#087f8c;text-transform:uppercase;margin-bottom:8px;">GAERU</div><h1 style="font-size:20px;line-height:1.35;margin:0 0 18px;color:#1d1d1f;">${safeHeading}</h1>${paragraphs || '<p style="margin:0 0 14px;font-size:15px;color:#333336;"></p>'}${ctaHtml}<hr style="border:none;border-top:1px solid #e5e5ea;margin:24px 0 14px;"><p style="margin:0;font-size:12px;line-height:1.5;color:#6e6e73;">${footer}</p></main></body></html>`;
+}
+
+function prepareOutboundMail(config, mail, opts = {}) {
+  const from = mail.from || resolveFrom(config);
+  const replyTo = mail.replyTo || resolveReplyTo(config);
+  const messageId = mail.messageId || buildMessageId(opts.messageIdPrefix || 'gaeru', config);
+  const html = mail.html || renderGaeruEmailHtml({
+    heading: opts.heading || mail.subject,
+    bodyText: mail.text,
+    actionUrl: opts.actionUrl,
+    actionLabel: opts.actionLabel,
+    footerNote: opts.footerNote
+  });
+  return {
+    ...mail,
+    from,
+    replyTo,
+    messageId,
+    html
+  };
+}
+
 /**
  * Gửi thông báo quản trị tới toàn bộ hộp thư nhận (ưu tiên mail chính ở `to` và đồng gửi `cc` nếu có thêm mail tên miền).
  */
-async function sendAdminNotification(mailer, pool, config, { subject, text, html, messageId }) {
+async function sendAdminNotification(mailer, pool, config, { subject, text, html, messageId, actionUrl, actionLabel }) {
   const recipients = await adminNotificationRecipients(pool, config);
   if (!recipients.length) {
     return { sent: false, reason: 'no_recipients', recipients: [] };
   }
 
-  const mail = {
-    from: resolveFrom(config),
-    to: recipients[0],
-    ...(recipients.length > 1 ? { cc: recipients.slice(1) } : {}),
-    replyTo: resolveReplyTo(config),
-    subject,
-    text,
-    ...(html ? { html } : {}),
-    ...(messageId ? { messageId } : {})
-  };
+  const mail = prepareOutboundMail(
+    config,
+    {
+      to: recipients[0],
+      ...(recipients.length > 1 ? { cc: recipients.slice(1) } : {}),
+      subject,
+      text,
+      ...(html ? { html } : {}),
+      ...(messageId ? { messageId } : {})
+    },
+    { messageIdPrefix: 'admin', heading: subject, actionUrl, actionLabel }
+  );
 
   const result = await mailer.sendMail(mail);
   const acceptedSet = new Set(
@@ -215,6 +286,8 @@ async function processAdminDomainEmailOutbox(pool, config, mailer) {
     const delivery = await sendAdminNotification(mailer, pool, config, {
       subject: job.subject,
       text: fullText,
+      actionUrl: `${base}${adminAnchor}`,
+      actionLabel: 'Mở trang quản trị GAERU',
       messageId: `<admin-domain-${job.id}@gaeru.com>`
     });
     await pool.query(
@@ -251,6 +324,10 @@ module.exports = {
   retryDelaySeconds,
   resolveReplyTo,
   resolveFrom,
+  resolveMailDomain,
+  buildMessageId,
+  renderGaeruEmailHtml,
+  prepareOutboundMail,
   adminNotificationRecipients,
   sendAdminNotification,
   enqueueAdminDomainNotification,
