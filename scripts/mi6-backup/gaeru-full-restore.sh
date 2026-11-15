@@ -10,7 +10,6 @@ umask 077
 
 PG_DIR="/userdata/storage/gaeru-pg-backups"
 MEDIA_DIR="/userdata/storage/gaeru-media-backups"
-MAIL_DIR="/userdata/storage/gaeru-mail-backups"
 CHROOT="/userdata/storage/ubuntu"
 CHROOT_STORAGE="/storage/ubuntu"
 
@@ -80,15 +79,13 @@ usage() {
 GAERU Full Server Disaster Recovery Tool
 Usage:
   gaeru-full-restore.sh --verify
-      Verify SHA-256 + OpenPGP envelope integrity of newest PG, Media/Codebase, and Mail backups.
+      Verify SHA-256 + OpenPGP envelope integrity of newest PG and Media/Codebase backups.
   gaeru-full-restore.sh --pull-from-gdrive
-      Download newest encrypted PG, Media, and Mail backups from Google Drive (gdrive:GAERU_Backups).
+      Download newest encrypted PG and Media backups from Google Drive (gdrive:GAERU_Backups).
   gaeru-full-restore.sh --restore-db <path/to/decrypted.dump|archive.dump.gpg>
       Restore PostgreSQL database gaeru_store cleanly (stops Node app first).
   gaeru-full-restore.sh --restore-media-code <path/to/decrypted.tar.gz|archive.tar.gz.gpg>
       Restore Web Codebase, AVIF Media Library, Admin Dashboard, and Server Configs (--numeric-owner).
-  gaeru-full-restore.sh --restore-mail-archive <path/to/decrypted-mail-backup.tar.gz|archive.tar.gz.gpg>
-      Restore Maildirs, Roundcube DB, WebPush DB, Sync DB, and restart Mail services.
 EOF
 }
 
@@ -112,17 +109,7 @@ verify_all() {
   [ -n "$media_file" ] || die "No encrypted Media/Config .tar.gz.gpg found in $MEDIA_DIR"
   verify_gpg_envelope "$media_file"
   say "Media+Codebase Backup OK: $(basename "$media_file") ($(stat -c%s "$media_file") bytes)"
-
-  say "=== 3. Checking Optional Legacy Mail Backup (iCloud+ Mail active) ==="
-  local mail_file
-  mail_file=$(ls -1t "$MAIL_DIR"/gaeru-mail-v04-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
-  if [ -n "$mail_file" ]; then
-    verify_gpg_envelope "$mail_file"
-    say "Legacy Mail Backup OK: $(basename "$mail_file") ($(stat -c%s "$mail_file") bytes)"
-  else
-    say "Mail archive directory empty or decommissioned (iCloud Mail active) — skipping mail archive check."
-  fi
-  say "=== ALL ACTIVE ENCRYPTED BACKUP LAYERS VERIFIED INTACT ==="
+  say "=== ALL ACTIVE ENCRYPTED BACKUP LAYERS VERIFIED INTACT (iCloud+ Mail active) ==="
 }
 
 pull_from_gdrive() {
@@ -130,13 +117,11 @@ pull_from_gdrive() {
   /usr/local/sbin/ubuntu-mount.sh
   chroot_dir=$(resolve_chroot)
   [ -d "$chroot_dir" ] || die "Missing chroot"
-  mkdir -p "$PG_DIR" "$MEDIA_DIR" "$MAIL_DIR"
-  chmod 700 "$PG_DIR" "$MEDIA_DIR" "$MAIL_DIR"
+  mkdir -p "$PG_DIR" "$MEDIA_DIR"
+  chmod 700 "$PG_DIR" "$MEDIA_DIR"
   say "Pulling newest encrypted backups from Google Drive (gdrive:GAERU_Backups)..."
   env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
     copy "gdrive:GAERU_Backups/pg" "/storage/gaeru-pg-backups" --max-age 48h --transfers 2
-  env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
-    copy "gdrive:GAERU_Backups/mail" "/storage/gaeru-mail-backups" --max-age 7d --transfers 2 || true
   env -u LD_PRELOAD chroot "$chroot_dir" /usr/bin/rclone --config /etc/gaeru-rclone/rclone.conf \
     copy "gdrive:GAERU_Backups/media" "/storage/gaeru-media-backups" --max-age 7d --transfers 2
   verify_all
@@ -207,67 +192,10 @@ restore_media_code() {
   say "Media + Codebase + System Configs restored cleanly."
 }
 
-restore_mail_archive() {
-  local raw_input="${1:-}"
-  [ -n "$raw_input" ] || die "Provide mail archive (.tar.gz or .tar.gz.gpg): $0 --restore-mail-archive <file>"
-
-  local tmp_plain="/run/gaeru-restore-mail.$$.tar.gz"
-  trap 'rm -f -- "$tmp_plain"' RETURN
-  local archive
-  archive=$(prepare_restore_input "$raw_input" "$tmp_plain")
-
-  local chroot_dir
-  chroot_dir=$(resolve_chroot)
-
-  say "Testing decrypted mail archive integrity: $archive"
-  gzip -t "$archive"
-  say "Stopping Mail & Webmail services before extract..."
-  initctl stop gaeru-mail-sync 2>/dev/null || true
-  initctl stop gaeru-webmail-nginx 2>/dev/null || true
-  initctl stop gaeru-webmail-fpm 2>/dev/null || true
-  initctl stop gaeru-mail 2>/dev/null || true
-
-  say "Extracting Maildirs, Postfix, Dovecot, Roundcube, WebPush & Sync databases to / ..."
-  if (set +o pipefail; tar -tzf "$archive" | grep -qE '(^|/)\.\.(/|$)|^/'); then
-    die "Unsafe path traversal or absolute entry detected in archive: $archive"
-  fi
-  tar -xzpf "$archive" -C / --numeric-owner
-
-  local rc_snap wp_snap sync_snap
-  rc_snap=$(ls -1t "$chroot_dir"/opt/gaeru-webmail/data/.gaeru-mail-v04-snapshot-*.sqlite 2>/dev/null | head -n 1 || true)
-  if [ -n "$rc_snap" ]; then
-    cp -f "$rc_snap" "$chroot_dir/opt/gaeru-webmail/data/roundcube.sqlite"
-    chown 33:33 "$chroot_dir/opt/gaeru-webmail/data/roundcube.sqlite"
-    chmod 660 "$chroot_dir/opt/gaeru-webmail/data/roundcube.sqlite"
-    rm -f "$rc_snap"
-  fi
-  wp_snap=$(ls -1t "$chroot_dir"/opt/gaeru-webmail/data/.gaeru-webpush-v04-snapshot-*.sqlite 2>/dev/null | head -n 1 || true)
-  if [ -n "$wp_snap" ]; then
-    cp -f "$wp_snap" "$chroot_dir/opt/gaeru-webmail/data/webpush.sqlite"
-    chown 33:33 "$chroot_dir/opt/gaeru-webmail/data/webpush.sqlite"
-    chmod 660 "$chroot_dir/opt/gaeru-webmail/data/webpush.sqlite"
-    rm -f "$wp_snap"
-  fi
-  sync_snap=$(ls -1t "$chroot_dir"/opt/gaeru-webmail/data/.gaeru-sync-v04-snapshot-*.sqlite 2>/dev/null | head -n 1 || true)
-  if [ -n "$sync_snap" ]; then
-    mkdir -p /var/lib/gaeru-mail
-    cp -f "$sync_snap" /var/lib/gaeru-mail/sync.sqlite
-    chmod 644 /var/lib/gaeru-mail/sync.sqlite
-    rm -f "$sync_snap"
-  fi
-  say "Starting Mail & Webmail services..."
-  initctl start gaeru-mail 2>/dev/null || true
-  initctl start gaeru-webmail-fpm 2>/dev/null || true
-  initctl start gaeru-webmail-nginx 2>/dev/null || true
-  initctl start gaeru-mail-sync 2>/dev/null || true
-  say "Mail & Webmail restore completed cleanly."
-}
-
 case "${1:---help}" in
   --verify) verify_all ;;
   --pull-from-gdrive) pull_from_gdrive ;;
   --restore-db) shift; restore_db "${1:-}" ;;
   --restore-media-code) shift; restore_media_code "${1:-}" ;;
-  --restore-mail-archive) shift; restore_mail_archive "${1:-}" ;;
   *) usage; exit 1 ;;
 esac

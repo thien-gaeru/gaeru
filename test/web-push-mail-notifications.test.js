@@ -62,10 +62,10 @@ test('RFC 8292 VAPID JWT & RFC 8291 aes128gcm encryption roundtrip', async () =>
   };
 
   const messageObj = {
-    title: '✉️ Thư mới · GAERU <business@gaeru.com>',
+    title: '✉️ GAERU Mail · iCloud+ Custom Domain <business@gaeru.com>',
     body: '[business@gaeru.com] Đơn hàng và hợp tác mới',
     target: 'webmail',
-    url: 'https://mail.gaeru.com/?_task=mail&_mbox=INBOX'
+    url: 'https://www.icloud.com/mail'
   };
   const encrypted = encryptWebPushPayload(Buffer.from(JSON.stringify(messageObj), 'utf8'), subKeys);
   assert.ok(encrypted.length > 86, 'Encrypted payload must contain 86-byte aes128gcm header + ciphertext');
@@ -89,38 +89,33 @@ test('RFC 8292 VAPID JWT & RFC 8291 aes128gcm encryption roundtrip', async () =>
   assert.match(capturedReq.opts.headers.Authorization, /^vapid t=[^,]+, k=/);
 });
 
-test('inbound_mail_notifications surface in admin notices with webmail target', async () => {
-  const pool = {
+test('admin notices no longer read inbound_mail_notifications and migration drops legacy table', async t => {
+  const queries = [];
+  const mockPool = {
     async query(sql) {
-      if (sql.includes('FROM inbound_mail_notifications')) {
-        return {
-          rows: [
-            {
-              id: 1,
-              mail_uid: '30899',
-              recipient: 'business@gaeru.com',
-              sender: 'Khách hàng A <khach@example.com>',
-              subject: 'Hỏi báo giá sỉ GAERU M3',
-              created_at: '2026-11-14T06:10:00.000Z',
-              version: '2026-11-14T06:10:00.000Z'
-            }
-          ]
-        };
-      }
+      queries.push(sql);
       return { rows: [] };
     }
   };
 
   const items = await notices(
-    pool,
-    { source: 'bootstrap', permissions: ['dashboard.read'] },
+    mockPool,
+    { source: 'bootstrap', permissions: ['dashboard.read', 'settings.read'] },
     { TURNSTILE_SITE_KEY: 'k', TURNSTILE_SECRET_KEY: 's', smtp: {} }
   );
-  const mailNotice = items.find(i => i.key.startsWith('mail:'));
-  assert.ok(mailNotice, 'Mail notice must be included in admin notifications');
-  assert.equal(mailNotice.target, 'webmail');
-  assert.match(mailNotice.title, /business@gaeru\.com/);
-  assert.match(mailNotice.detail, /Hỏi báo giá sỉ GAERU M3/);
+  assert.equal(queries.some(sql => sql.includes('inbound_mail_notifications')), false);
+  assert.equal(items.some(i => i.key.startsWith('mail:')), false);
+
+  const workerSrc = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'admin', 'notification-worker.js'), 'utf8');
+  assert.doesNotMatch(workerSrc, /mail\.gaeru\.com/);
+  assert.match(workerSrc, /www\.icloud\.com/);
+
+  const pool = await createTestPool(t);
+  await pool.query('CREATE TABLE IF NOT EXISTS inbound_mail_notifications (id bigserial PRIMARY KEY)');
+  await pool.query("DELETE FROM schema_migrations WHERE name = 'decommission-internal-mail-20261116.sql'");
+  await migrateDatabase(pool);
+  const tblRes = await pool.query("SELECT to_regclass('public.inbound_mail_notifications') AS tbl");
+  assert.equal(tblRes.rows[0].tbl, null);
 });
 
 async function createTestPool(t) {

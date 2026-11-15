@@ -90,7 +90,7 @@ function makeClient(baseUrl) {
   };
 }
 
-test('global error handler preserves 501, turns ZodError into 400 without schema leaks, serves /favicon.ico, and handles offline mail-accounts without 500', async (t) => {
+test('global error handler preserves 501, turns ZodError into 400 without schema leaks, serves /favicon.ico, and exposes iCloud-only mail status', async (t) => {
   const pool = await createPglitePool();
   t.after(() => pool.end());
   await migrateDatabase(pool);
@@ -181,38 +181,21 @@ test('global error handler preserves 501, turns ZodError into 400 without schema
   });
   assert.equal(evilProductRes.status, 400);
 
-  // 5. Offline mail-accounts sidecar handles GET gracefully (200 available:false) & maps POST failure cleanly (503/504, never 500)
-  const origFetch = globalThis.fetch;
-  let mailMode = 'refused';
-  globalThis.fetch = async (input, init) => {
-    const urlStr = typeof input === 'string' ? input : input?.url || '';
-    if (urlStr === 'http://127.0.0.1:8080/api/gaeru-mail/accounts') {
-      if (mailMode === 'timeout') {
-        throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
-      }
-      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
-    }
-    return origFetch(input, init);
-  };
-  t.after(() => { globalThis.fetch = origFetch; });
-
-  const mailGet = await owner.ok('/api/gaeru_ceo/notifications/mail-accounts');
-  assert.equal(mailGet.available, false);
-  assert.equal(mailGet.offline, true);
-  assert.deepEqual(mailGet.accounts, []);
-
-  const mailPostRefused = await owner.request('/api/gaeru_ceo/notifications/mail-accounts', {
+  // 5. Legacy internal mail-accounts routes are removed (404) & iCloud-only mail status returns 200 without sidecar
+  const legacyMailGet = await owner.request('/api/gaeru_ceo/notifications/mail-accounts');
+  assert.equal(legacyMailGet.status, 404);
+  const legacyMailPost = await owner.request('/api/gaeru_ceo/notifications/mail-accounts', {
     method: 'POST',
     body: { action: 'add', username: 'support', password: 'MailboxPass-2026!', adminPassword: ownerPass },
   });
-  assert.equal(mailPostRefused.status, 503);
+  assert.equal(legacyMailPost.status, 404);
 
-  mailMode = 'timeout';
-  const mailPostTimeout = await owner.request('/api/gaeru_ceo/notifications/mail-accounts', {
-    method: 'POST',
-    body: { action: 'add', username: 'support', password: 'MailboxPass-2026!', adminPassword: ownerPass },
-  });
-  assert.equal(mailPostTimeout.status, 504);
+  const icloudStatus = await owner.ok('/api/gaeru_ceo/notifications/icloud-mail');
+  assert.equal(icloudStatus.provider, 'iCloud+ Custom Email Domain');
+  assert.equal(icloudStatus.internalMailDisabled, true);
+  assert.equal(icloudStatus.webmailUrl, 'https://www.icloud.com/mail');
+  assert.equal(icloudStatus.smtp.host, 'smtp.mail.me.com');
+  assert.equal(icloudStatus.smtp.configured, false);
 });
 
 test('store-shell initRealtimeSSE disconnects unconditionally on pagehide (including bfcache persisted) and reconnects on persisted pageshow', async () => {

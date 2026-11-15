@@ -22,7 +22,7 @@ self.addEventListener('notificationclick', event => {
     try {
       const candidate = new URL(data.url);
       const host = candidate.hostname.toLowerCase();
-      if (candidate.protocol === 'https:' && (host === 'www.icloud.com' || host === 'mail.gaeru.com')) {
+      if (candidate.protocol === 'https:' && host === 'www.icloud.com') {
         parsedDataUrl = candidate.toString();
       }
     } catch (_) {}

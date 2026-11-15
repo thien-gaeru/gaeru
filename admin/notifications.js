@@ -1,6 +1,6 @@
 (()=>{
   const admin=window.GAERUAdmin,root=document.querySelector('#notifications-view');
-  let items=[],loading=false,mailAccounts=[],mailLoading=false,mailServiceNotice='';
+  let items=[],loading=false,icloudMail=null,mailLoading=false;
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let baseline=false;
   const seen=new Set();
@@ -165,62 +165,43 @@
     return '<section class="notice-preferences"><div><strong>Thông báo đẩy & âm thanh trên thiết bị này</strong><p>Nhận thông báo đẩy (Web Push) ngay khi có đơn hàng, chat khách hàng hoặc yêu cầu mới, kể cả khi đóng trình duyệt.</p></div><div><button type="button" data-notice-desktop aria-pressed="'+desk.active+'">'+desk.label+'</button><button type="button" data-notice-sound aria-pressed="'+Boolean(p.sound)+'">Âm thanh: '+(p.sound?'Bật':'Tắt')+'</button><button type="button" data-notice-test>Thử âm thanh</button><button type="button" data-notice-push-test>Thử thông báo đẩy</button></div><p data-notice-preference-status role="status"></p></section>';
   }
 
-  function mailAccountsSection(){
+  function icloudMailSection(){
     if(!admin.can('settings.read'))return '';
-    const isOwner=admin.user?.role==='owner'||admin.user?.source==='bootstrap'||admin.user?.isOwner;
-    const canWrite=admin.can('settings.write')&&isOwner;
-    const list=mailAccounts.length?mailAccounts:[
-      {username:'noreply',email:'noreply@gaeru.com',displayName:'GAERU',isSender:true},
-      {username:'business',email:'business@gaeru.com',displayName:'GAERU',isPrimary:true}
-    ];
-    const rows=list.map(acc=>{
-      const badge=acc.isSender||acc.username==='noreply'
-        ?'<span class="notice-level" style="background:#1e3a8a;color:#dbeafe">Mail gửi thông báo người dùng (SMTP_FROM)</span>'
-        :(acc.isPrimary
-          ?'<span class="notice-level" style="background:#065f46;color:#d1fae5">Mail nhận thông báo quản trị (ADMIN_DOMAIN_EMAIL)</span>'
-          :'<span class="notice-level">Địa chỉ alias iCloud+</span>');
-      return `<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid rgba(148,163,184,.25);border-radius:8px;margin-top:8px">
-        <div>
-          <strong>${esc(acc.email)}</strong> ${badge}
-          <div style="font-size:12px;opacity:.8;margin-top:3px">Tên gửi: <b>${esc(acc.displayName||'GAERU')}</b> · Vận hành qua <b>iCloud+ Mail</b> (<code>mx01/mx02.mail.icloud.com</code>)</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button type="button" data-mail-open="${esc(acc.email)}">Mở iCloud Mail ↗</button>
-          ${canWrite?`<button type="button" data-mail-passwd="${esc(acc.username)}">Cập nhật App Password SMTP</button>`:''}
-          ${canWrite&&!acc.isPrimary&&!acc.isSender&&acc.username!=='noreply'?`<button type="button" data-mail-del="${esc(acc.username)}">Xóa alias</button>`:''}
-        </div>
-      </div>`;
-    }).join('');
-    const createForm=canWrite?`<form data-mail-create-form style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:10px;border-top:1px dashed rgba(148,163,184,.25)">
-      <input type="text" name="username" placeholder="alias (vd: cskh)" required pattern="[a-zA-Z0-9._-]+" style="min-width:150px">
-      <span>@gaeru.com</span>
-      <input type="password" name="password" placeholder="App Password Apple (tuỳ chọn)" minlength="6" style="min-width:190px">
-      <input type="text" name="displayName" placeholder="Tên gửi (mặc định: GAERU)" value="GAERU" style="min-width:150px">
-      <button type="submit">+ Lưu địa chỉ / alias</button>
-    </form>`:'';
+    const smtp=icloudMail?.smtp||{};
+    const senderEmail=smtp.senderEmail||'noreply@gaeru.com';
+    const adminEmail=smtp.adminEmail||'business@gaeru.com';
+    const replyTo=smtp.replyTo||adminEmail;
+    const smtpHost=smtp.host||'smtp.mail.me.com';
+    const smtpPort=smtp.port||587;
+    const smtpBadge=smtp.configured
+      ?'<span class="notice-level" style="background:#065f46;color:#d1fae5">SMTP iCloud+ đã kích hoạt</span>'
+      :(smtp.passwordPlaceholder
+        ?'<span class="notice-level" style="background:#92400e;color:#fef3c7">Chưa nhập App-Specific Password iCloud+ (SMTP_PASSWORD)</span>'
+        :'<span class="notice-level" style="background:#92400e;color:#fef3c7">Chưa cấu hình SMTP iCloud+</span>');
     return `<section class="notice-preferences" style="margin-top:12px">
       <div>
-        <strong>Hệ thống Email Tên miền @gaeru.com · Kết nối iCloud+ Mail</strong>
-        <p>Mail gửi thông báo cho người dùng: <b>noreply@gaeru.com</b> · Mail nhận thông báo cho quản trị &amp; phản hồi: <b>business@gaeru.com</b> (vận hành qua <b>iCloud+ Custom Email Domain</b>: <code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, DKIM <code>sig1._domainkey.gaeru.com</code>, SPF <code>include:icloud.com</code>).</p>
+        <strong>Hệ thống Email Tên miền @gaeru.com · 100% iCloud+ Mail</strong> ${smtpBadge}
+        <p>Hệ thống email nội bộ đã được tắt và gỡ bỏ hoàn toàn. Toàn bộ thư đến &amp; thư đi tên miền <code>@gaeru.com</code> vận hành qua <b>iCloud+ Custom Email Domain</b> (<code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, SMTP <code>${esc(smtpHost)}:${esc(smtpPort)}</code>).</p>
+        <p style="font-size:13px;opacity:.9;margin-top:6px">Gửi thông báo người dùng (<code>SMTP_FROM</code>): <b>${esc(senderEmail)}</b> · Nhận thông báo quản trị &amp; phản hồi (<code>Reply-To</code>): <b>${esc(replyTo)}</b> (Quản trị: <b>${esc(adminEmail)}</b>)</p>
       </div>
-      <div data-mail-accounts-list>${rows}</div>
-      ${createForm}
-      <p data-mail-accounts-status role="status">${esc(mailServiceNotice)}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" data-mail-open="https://www.icloud.com/mail">Mở iCloud Mail ↗</button>
+        <button type="button" data-mail-manage="https://www.icloud.com/icloudplus/">Quản lý alias &amp; tên miền trên iCloud+ ↗</button>
+      </div>
     </section>`;
   }
 
   function render(){
-    root.innerHTML=controls()+mailAccountsSection()+'<div class="notice-toolbar"><p>Cảnh báo công việc & hộp thư hiện tại. Chỉ hiển thị nội dung bạn có quyền xem.</p><button type="button" data-notice-all>Đánh dấu tất cả đã đọc</button></div><div class="notice-list">'+(items.map((n,i)=>`<article class="notice-card ${n.read?'is-read':''}"><span class="notice-level">${n.level==='warning'?'Cần chú ý':(n.target==='webmail'?'iCloud Mail':'Thông báo')}</span><h3>${esc(n.title)}</h3><p>${esc(n.detail)}</p><div><button type="button" data-notice-open="${i}">${n.target==='webmail'?'Mở iCloud Mail ↗':'Mở mục xử lý'}</button>${!n.read?`<button type="button" data-notice-read="${i}">Đánh dấu đã đọc</button>`:''}</div></article>`).join('')||'<div class="notice-empty">Chưa có công việc cần chú ý.</div>')+'</div>';
+    root.innerHTML=controls()+icloudMailSection()+'<div class="notice-toolbar"><p>Cảnh báo công việc hiện tại. Chỉ hiển thị nội dung bạn có quyền xem.</p><button type="button" data-notice-all>Đánh dấu tất cả đã đọc</button></div><div class="notice-list">'+(items.map((n,i)=>`<article class="notice-card ${n.read?'is-read':''}"><span class="notice-level">${n.level==='warning'?'Cần chú ý':(n.target==='webmail'?'iCloud Mail':'Thông báo')}</span><h3>${esc(n.title)}</h3><p>${esc(n.detail)}</p><div><button type="button" data-notice-open="${i}">${n.target==='webmail'?'Mở iCloud Mail ↗':'Mở mục xử lý'}</button>${!n.read?`<button type="button" data-notice-read="${i}">Đánh dấu đã đọc</button>`:''}</div></article>`).join('')||'<div class="notice-empty">Chưa có công việc cần chú ý.</div>')+'</div>';
   }
 
-  async function loadMailAccounts(){
+  async function loadIcloudMailStatus(){
     if(mailLoading||!admin.can('settings.read'))return;
     mailLoading=true;
     try{
-      const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{cache:'no-store'});
-      mailServiceNotice=res?.available===false?(res.message||'Dịch vụ hộp thư @gaeru.com cục bộ hiện chưa kết nối.'):'';
-      if(Array.isArray(res?.accounts)){
-        mailAccounts=res.accounts;
+      const res=await admin.request('/api/gaeru_ceo/notifications/icloud-mail',{cache:'no-store'});
+      if(res&&res.provider){
+        icloudMail=res;
         if(!root.hidden)render();
       }
     }catch{}finally{
@@ -241,121 +222,18 @@
       }
       if(!root.hidden){
         render();
-        if(!mailAccounts.length)loadMailAccounts();
+        if(!icloudMail)loadIcloudMailStatus();
       }
     }finally{
       loading=false;
     }
   }
 
-  function askPasswordModal(titleText, labelText){
-    return new Promise(resolve=>{
-      const overlay=document.createElement('div');
-      overlay.setAttribute('role','dialog');
-      overlay.setAttribute('aria-modal','true');
-      overlay.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;';
-      const card=document.createElement('form');
-      card.style.cssText='background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;box-shadow:0 20px 45px rgba(0,0,0,.22);display:flex;flex-direction:column;gap:12px;';
-      const h=document.createElement('strong');
-      h.textContent=titleText||'Xác thực thao tác';
-      h.style.fontSize='15px';
-      const p=document.createElement('label');
-      p.textContent=labelText||'Nhập mật khẩu:';
-      p.style.fontSize='13px';
-      const input=document.createElement('input');
-      input.type='password';
-      input.autocomplete='current-password';
-      input.required=true;
-      input.style.cssText='width:100%;padding:9px 11px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;';
-      p.appendChild(input);
-      const actions=document.createElement('div');
-      actions.style.cssText='display:flex;justify-content:flex-end;gap:8px;margin-top:4px;';
-      const cancelBtn=document.createElement('button');
-      cancelBtn.type='button';
-      cancelBtn.textContent='Hủy';
-      cancelBtn.className='secondary-button';
-      const okBtn=document.createElement('button');
-      okBtn.type='submit';
-      okBtn.textContent='Xác nhận';
-      okBtn.className='button';
-      actions.append(cancelBtn,okBtn);
-      card.append(h,p,actions);
-      overlay.appendChild(card);
-      const close=val=>{overlay.remove();resolve(val||null);};
-      cancelBtn.addEventListener('click',()=>close(null));
-      overlay.addEventListener('click',ev=>{if(ev.target===overlay)close(null);});
-      card.addEventListener('submit',ev=>{ev.preventDefault();close(input.value.trim());});
-      document.body.appendChild(overlay);
-      input.focus();
-    });
-  }
-
-  root.addEventListener('submit',async e=>{
-    const form=e.target.closest('[data-mail-create-form]');
-    if(!form)return;
-    e.preventDefault();
-    const st=root.querySelector('[data-mail-accounts-status]');
-    try{
-      const fd=new FormData(form);
-      const username=String(fd.get('username')||'').trim().toLowerCase().split('@')[0];
-      const rawPassword=String(fd.get('password')||'').trim();
-      const displayName=String(fd.get('displayName')||'GAERU').trim()||'GAERU';
-      const adminPassword=await askPasswordModal('Xác thực chủ doanh nghiệp (Owner)', 'Mật khẩu Quản trị viên tối cao để thêm hộp thư @gaeru.com:');
-      if(!adminPassword)return;
-      const payload={action:'add',username,displayName,adminPassword};
-      if(rawPassword)payload.password=rawPassword;
-      const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
-        method:'POST',
-        body:JSON.stringify(payload)
-      });
-      form.reset();
-      await loadMailAccounts();
-      if(st)st.textContent=res.message||(`Đã lưu địa chỉ ${username}@gaeru.com cho iCloud+ Mail.`);
-    }catch(error){
-      if(st)st.textContent=error.message;
-    }
-  });
-
-  root.addEventListener('click',async e=>{
-    const openBtn=e.target.closest('[data-mail-open]'),
-          passBtn=e.target.closest('[data-mail-passwd]'),
-          delBtn=e.target.closest('[data-mail-del]');
-    if(!openBtn&&!passBtn&&!delBtn)return;
-    const st=root.querySelector('[data-mail-accounts-status]');
-    try{
-      if(openBtn){
-        window.open('https://www.icloud.com/mail','_blank','noopener');
-        return;
-      }
-      if(passBtn){
-        const username=passBtn.dataset.mailPasswd;
-        const password=await askPasswordModal('Cập nhật App-Specific Password Apple ID', `App-Specific Password (smtp.mail.me.com) cho ${username}@gaeru.com:`);
-        if(!password)return;
-        const adminPassword=await askPasswordModal('Xác thực chủ doanh nghiệp (Owner)', `Mật khẩu Quản trị viên tối cao để cập nhật ${username}@gaeru.com:`);
-        if(!adminPassword)return;
-        const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
-          method:'POST',
-          body:JSON.stringify({action:'passwd',username,password,adminPassword})
-        });
-        await loadMailAccounts();
-        if(st)st.textContent=res.message||(`Đã cập nhật cấu hình SMTP iCloud Mail cho ${username}@gaeru.com.`);
-        return;
-      }
-      if(delBtn){
-        const username=delBtn.dataset.mailDel;
-        if(!window.confirm(`Xóa alias ${username}@gaeru.com khỏi danh sách quản trị?`))return;
-        const adminPassword=await askPasswordModal('Xác thực chủ doanh nghiệp (Owner)', `Mật khẩu Quản trị viên tối cao để xóa ${username}@gaeru.com:`);
-        if(!adminPassword)return;
-        const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{
-          method:'POST',
-          body:JSON.stringify({action:'del',username,adminPassword})
-        });
-        await loadMailAccounts();
-        if(st)st.textContent=res.message||(`Đã xóa alias ${username}@gaeru.com.`);
-      }
-    }catch(error){
-      if(st)st.textContent=error.message;
-    }
+  root.addEventListener('click',e=>{
+    const openBtn=e.target.closest('[data-mail-open],[data-mail-manage]');
+    if(!openBtn)return;
+    const url=openBtn.dataset.mailManage||openBtn.dataset.mailOpen||'https://www.icloud.com/mail';
+    window.open(url,'_blank','noopener');
   });
 
   root.addEventListener('click',async e=>{
@@ -442,7 +320,7 @@
     });
     if(admin.can('dashboard.read')){
       load().catch(error=>admin.showGlobal(error.message,true));
-      loadMailAccounts().catch(()=>{});
+      loadIcloudMailStatus().catch(()=>{});
       if(preference().desktop&&'Notification'in window&&Notification.permission==='granted'){
         syncWebPushSubscription(true).catch(()=>{});
       }

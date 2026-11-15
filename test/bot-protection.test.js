@@ -8,3 +8,23 @@ test('Turnstile gates the fourth invalid attempt across routes, validates token 
  assert.equal((await request('/api/login',{},'human-once')).status,401);assert.equal((await request('/api/login',{valid:true},'human-once')).status,428);
  assert.equal((await request('/api/login',{valid:true},'human-again')).status,200);assert.equal((await db.query('SELECT * FROM bot_failures')).rows.length,0);assert.equal((await request()).status,401);
 });
+
+test('Turnstile exempts machine-to-machine shipping and marketplace webhooks even when IP has 3+ failures',async t=>{
+ const db=await PGlite.create();await db.exec('CREATE TABLE bot_failures(key text PRIMARY KEY,failures integer NOT NULL,expires_at timestamptz NOT NULL)');
+ const app=express();let webhookCalls=0;
+ app.use(createBotProtection(db,{TURNSTILE_SITE_KEY:'public-fixture',TURNSTILE_SECRET_KEY:'private-fixture',PUBLIC_BASE_URL:'https://gaeru.example',SESSION_SECRET:'fixture-secret'}));
+ app.use(express.json());
+ app.post('/api/bundles/quote',(_req,res)=>res.status(400).json({error:'Invalid bundle'}));
+ app.post('/api/shipping/:carrier/webhook',(_req,res)=>{webhookCalls++;res.status(400).json({error:'Invalid webhook signature'});});
+ app.post('/api/marketplace/:channel/webhook',(_req,res)=>{webhookCalls++;res.status(501).json({error:'Not implemented'});});
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(async()=>{await new Promise(r=>server.close(r));await db.close();});
+ const base='http://127.0.0.1:'+server.address().port;
+ const post=(p)=>fetch(base+p,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+ for(let i=0;i<3;i++)assert.equal((await post('/api/bundles/quote')).status,400);
+ assert.equal((await post('/api/bundles/quote')).status,428);
+ for(let i=0;i<5;i++){
+  assert.equal((await post('/api/shipping/viettel/webhook')).status,400);
+  assert.equal((await post('/api/marketplace/shopee/webhook')).status,501);
+ }
+ assert.equal(webhookCalls,10);
+});

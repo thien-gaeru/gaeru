@@ -61,6 +61,21 @@ const schema = z.object({
   if (smtpConfigured && (!values.SMTP_HOST || !values.SMTP_PORT || !values.SMTP_USER || !values.SMTP_PASSWORD || !values.SMTP_FROM || !values.PUBLIC_BASE_URL)) {
     context.addIssue({ code: "custom", message: "SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM và PUBLIC_BASE_URL phải được cấu hình cùng nhau." });
   }
+  const smtpHostLower = String(values.SMTP_HOST || '').trim().toLowerCase();
+  if (smtpHostLower && ['localhost', '127.0.0.1', '::1', 'mail.gaeru.com', 'smtp.resend.com'].includes(smtpHostLower)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['SMTP_HOST'],
+      message: 'Hệ thống email nội bộ/cũ đã bị gỡ bỏ; chỉ sử dụng iCloud+ Mail SMTP (smtp.mail.me.com).'
+    });
+  }
+  if (values.NODE_ENV === 'production' && smtpHostLower && smtpHostLower !== 'smtp.mail.me.com') {
+    context.addIssue({
+      code: 'custom',
+      path: ['SMTP_HOST'],
+      message: 'Môi trường production chỉ hỗ trợ cấu hình SMTP iCloud+ Mail (smtp.mail.me.com).'
+    });
+  }
   if (values.NODE_ENV === "production" && !process.env.ALLOW_LEGACY_SESSION_ENCRYPTION) {
     if (!values.AUTH_ENCRYPTION_KEY || values.AUTH_ENCRYPTION_KEY === values.SESSION_SECRET) {
       context.addIssue({ code: "custom", path: ["AUTH_ENCRYPTION_KEY"], message: "AUTH_ENCRYPTION_KEY (>= 32 chars) phải được cấu hình riêng trong production và khác SESSION_SECRET." });
@@ -86,6 +101,7 @@ function loadConfig(env = process.env) {
     (smtpHostNormalized === 'smtp.mail.me.com' && smtpPassValue.startsWith('re_'));
   return {
     ...config,
+    mailProvider: 'icloud',
     GA_MEASUREMENT_ID: gaId,
     vnpay: config.VNPAY_TMN_CODE ? {
       tmnCode: config.VNPAY_TMN_CODE,

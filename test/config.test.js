@@ -97,3 +97,28 @@ test("requires complete HTTPS configuration for VNPAY", () => {
 });
 
 test('Turnstile requires both keys and an HTTPS public origin',()=>{const base={DATABASE_URL:'postgres://localhost/gaeru',SESSION_SECRET:'a-session-secret-with-at-least-32-chars',ADMIN_USERNAME:'manager',ADMIN_PASSWORD_HASH:bcrypt.hashSync('test-password',4)};assert.throws(()=>loadConfig({...base,TURNSTILE_SITE_KEY:'site'}),/TURNSTILE/);assert.throws(()=>loadConfig({...base,TURNSTILE_SITE_KEY:'site',TURNSTILE_SECRET_KEY:'secret'}),/PUBLIC_BASE_URL/);const config=loadConfig({...base,TURNSTILE_SITE_KEY:'site',TURNSTILE_SECRET_KEY:'secret',PUBLIC_BASE_URL:'https://gaeru.com'});assert.equal(config.TURNSTILE_SITE_KEY,'site');});
+
+test('SMTP enforces iCloud+ Mail in production and blocks legacy internal/localhost hosts', () => {
+  const base = {
+    DATABASE_URL: 'postgres://localhost/gaeru',
+    SESSION_SECRET: 'a-session-secret-with-at-least-32-chars',
+    AUTH_ENCRYPTION_KEY: 'b-encryption-key-with-at-least-32-chars',
+    ADMIN_USERNAME: 'manager',
+    ADMIN_PASSWORD_HASH: bcrypt.hashSync('test-password', 4),
+    PUBLIC_BASE_URL: 'https://gaeru.com',
+    SMTP_PORT: '587',
+    SMTP_SECURE: 'false',
+    SMTP_USER: 'business@gaeru.com',
+    SMTP_PASSWORD: 'app-specific-password-fixture',
+    SMTP_FROM: 'noreply@gaeru.com'
+  };
+  for (const legacyHost of ['localhost', '127.0.0.1', 'mail.gaeru.com', 'smtp.resend.com']) {
+    assert.throws(() => loadConfig({ ...base, SMTP_HOST: legacyHost }), /iCloud|SMTP_HOST/i);
+  }
+  assert.throws(() => loadConfig({ ...base, NODE_ENV: 'production', SMTP_HOST: 'smtp.example.com' }), /smtp\.mail\.me\.com/);
+  const prod = loadConfig({ ...base, NODE_ENV: 'production', SMTP_HOST: 'smtp.mail.me.com' });
+  assert.equal(prod.mailProvider, 'icloud');
+  assert.equal(prod.smtp.host, 'smtp.mail.me.com');
+  const placeholder = loadConfig({ ...base, NODE_ENV: 'production', SMTP_HOST: 'smtp.mail.me.com', SMTP_PASSWORD: 'ICLOUD_APP_PASSWORD_REQUIRED' });
+  assert.equal(placeholder.smtp, null);
+});

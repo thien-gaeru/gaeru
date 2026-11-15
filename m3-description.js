@@ -1,7 +1,7 @@
 /* Curated M3 story with Apple-style scannable typography and visual hierarchy. */
 function renderM3() {
-  const image = (n, alt) =>
-    `<figure><a href="/assets/products/m3-description/${n}.webp" target="_blank" rel="noopener" aria-label="Xem ảnh lớn: ${alt} (mở trong tab mới)"><img src="/assets/products/m3-description/${n}.webp" alt="${alt}" width="842" height="${n === 12 ? 507 : 1264}" loading="lazy" decoding="async"></a></figure>`;
+  const image = (n, alt, eager = false) =>
+    `<figure><a href="/assets/products/m3-description/${n}.webp" target="_blank" rel="noopener" aria-label="Xem ảnh lớn: ${alt} (mở trong tab mới)"><img src="/assets/products/m3-description/${n}.webp" alt="${alt}" width="842" height="${n === 12 ? 507 : 1264}"${eager ? '' : ' loading="lazy"'} decoding="async"></a></figure>`;
 
   const section = (title, statement, body, images) =>
     `<section class="m3-chapter"><header><h3>${title}</h3><strong class="chapter-statement m3-lead-text">${statement}</strong><p class="chapter-body-text">${body}</p></header><div class="m3-artwork-grid">${images}</div></section>`;
@@ -80,7 +80,7 @@ function renderM3() {
     </dl>
     <details>
       <summary>Xem ảnh thông số gốc</summary>
-      ${image(9, 'Bảng thông số sản phẩm GAERU M3')}
+      ${image(9, 'Bảng thông số sản phẩm GAERU M3', true)}
     </details>
   </section>
 </div>`;

@@ -109,23 +109,6 @@ prune_remote_subdir() {
   run_rclone delete "${REMOTE_ROOT}/${subdir}" --min-age "$REMOTE_RETENTION_AGE" "$@" || true
 }
 
-sync_mail() {
-  local src_host="/userdata/storage/gaeru-mail-backups"
-  local src_chroot="/storage/gaeru-mail-backups"
-  [ -d "$src_host" ] || return 0
-  local newest
-  newest=$(ls -1t "$src_host"/gaeru-mail-v04-*.tar.gz.gpg 2>/dev/null | head -n 1 || true)
-  [ -n "$newest" ] || return 0
-  log "Pushing Encrypted Mail & Webmail backups to ${REMOTE_ROOT}/mail ..."
-  run_rclone copy "$src_chroot" "${REMOTE_ROOT}/mail" \
-    --filter "+ $(basename "$newest")" \
-    --filter "+ $(basename "$newest").sha256" \
-    --filter "- *" \
-    "${COMMON_FLAGS[@]}"
-  prune_remote_subdir "mail"
-  log "Encrypted Mail backup push to Google Drive OK."
-}
-
 sync_media() {
   local src_host="/userdata/storage/gaeru-media-backups"
   local src_chroot="/storage/gaeru-media-backups"
@@ -146,15 +129,13 @@ sync_media() {
 
 case "$MODE" in
   pg) sync_pg ;;
-  mail) sync_mail ;;
   media) sync_media ;;
   all)
     sync_pg
-    sync_mail
     sync_media
     ;;
   *)
-    echo "Usage: $0 {all|pg|mail|media|status}" >&2
+    echo "Usage: $0 {all|pg|media|status}" >&2
     exit 1
     ;;
 esac

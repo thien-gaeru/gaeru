@@ -42,7 +42,7 @@ if ($RegisterPullTask) {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$pullScript`""
     $trigger = New-ScheduledTaskTrigger -Daily -At 04:15
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-    Register-ScheduledTask -TaskName "GAERU_Mi6_Offsite_Backup_Pull" -Action $action -Trigger $trigger -Settings $settings -Description "Daily pull of verified PostgreSQL, media/config, and mail backups from Xiaomi Mi 6 to E:\GAERU_Backups\mi6" -Force | Out-Null
+    Register-ScheduledTask -TaskName "GAERU_Mi6_Offsite_Backup_Pull" -Action $action -Trigger $trigger -Settings $settings -Description "Daily pull of verified PostgreSQL and media/config backups from Xiaomi Mi 6 to E:\GAERU_Backups\mi6" -Force | Out-Null
     Write-Output "Registered/updated task: GAERU_Mi6_Offsite_Backup_Pull (daily 04:15)"
 }
 
@@ -131,7 +131,7 @@ Get-ScheduledTask -TaskName "GAERU*" | Select-Object TaskName, State | Format-Ta
 $pcListen3000 = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
 Write-Output ("PC port 3000 listening: " + [bool]$pcListen3000)
 
-foreach ($url in @("https://gaeru.com/api/health", "https://mail.gaeru.com/")) {
+foreach ($url in @("https://gaeru.com/api/health")) {
     try {
         $resp = Invoke-WebRequest -Uri $url -TimeoutSec 10 -UseBasicParsing
         Write-Output "PUBLIC $url -> $($resp.StatusCode)"

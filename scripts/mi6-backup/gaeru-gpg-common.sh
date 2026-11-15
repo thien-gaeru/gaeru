@@ -5,7 +5,6 @@ export LANG=C.UTF-8 LC_ALL=C.UTF-8
 unset LANGUAGE 2>/dev/null || true
 
 GAERU_GPG_CONFIG_PRIMARY="/etc/gaeru-backup-gpg.conf"
-GAERU_GPG_CONFIG_MAIL="/etc/gaeru-mail-backup-v04.conf"
 
 gaeru_die() {
   echo "[$(date -Is)] ERROR: $*" >&2
@@ -28,10 +27,8 @@ gaeru_load_gpg_recipient() {
   local cfg="" fpr="" gpg_bin
   if [ -r "$GAERU_GPG_CONFIG_PRIMARY" ]; then
     cfg="$GAERU_GPG_CONFIG_PRIMARY"
-  elif [ -r "$GAERU_GPG_CONFIG_MAIL" ]; then
-    cfg="$GAERU_GPG_CONFIG_MAIL"
   else
-    gaeru_die "Missing GPG recipient config ($GAERU_GPG_CONFIG_PRIMARY or $GAERU_GPG_CONFIG_MAIL); refusing unencrypted backup"
+    gaeru_die "Missing GPG recipient config ($GAERU_GPG_CONFIG_PRIMARY); refusing unencrypted backup"
   fi
 
   fpr=$(sed -n 's/^GPG_FINGERPRINT=//p' "$cfg" | head -n 1 | tr -d '[:space:]')

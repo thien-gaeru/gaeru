@@ -131,15 +131,6 @@ const pushSubscribeSchema=z.object({
 async function notices(pool,admin,config){
   const list=[],can=p=>admin.permissions.includes(p);
   const add=(kind,r,title,detail,target,level='info')=>list.push({key:kind+':'+r.id,version:String(r.version??r.updated_at??r.created_at??1),title,detail,target,level,createdAt:r.created_at||null});
-  if(can('dashboard.read')&&(admin?.role==='owner'||admin?.source==='bootstrap'||admin?.isOwner||can('settings.read'))){
-    try{
-      const mails=(await pool.query("SELECT id,mail_uid,recipient,sender,subject,received_at AS created_at,received_at AS version FROM inbound_mail_notifications ORDER BY received_at DESC LIMIT 20")).rows;
-      for(const m of mails){
-        const fromText=m.sender?m.sender+' · ':'';
-        add('mail',m,'✉️ Thư mới ('+m.recipient+')',fromText+(m.subject||'(Không tiêu đề)'),'webmail','info');
-      }
-    }catch(_){}
-  }
   if(can('orders.read')||can('invoice.approve')){try{const failedInvoices=(await pool.query("SELECT q.id,o.order_number,q.last_error,q.attempts,q.updated_at FROM misa_einvoice_retry_queue q JOIN orders o ON o.id=q.order_id WHERE q.status='failed' ORDER BY q.updated_at DESC LIMIT 25")).rows;for(const r of failedInvoices)add('misa-invoice-failed',r,'Lỗi phát hành hóa đơn MISA','Đơn '+r.order_number+' thất bại sau '+r.attempts+' lần thử ('+(r.last_error||'Lỗi kết nối MISA')+').','business','error');}catch(_){}}
   if(can('orders.read')){for(const r of (await pool.query("SELECT id,order_number,created_at FROM orders WHERE status='pending' ORDER BY created_at DESC LIMIT 25")).rows)add('order',r,'Đơn hàng chờ xác nhận',r.order_number,'orders');for(const r of (await pool.query("SELECT id,subject,version,created_at FROM care_requests c WHERE status='submitted' OR (status='reviewing' AND (SELECT sender FROM care_messages WHERE care_id=c.id ORDER BY id DESC LIMIT 1)='customer') ORDER BY updated_at DESC LIMIT 25")).rows)add('care',r,'Hỗ trợ cần phản hồi',r.subject,'care','warning');for(const r of (await pool.query("SELECT id,version,created_at FROM warranty_activations WHERE status='pending' AND automatic=false AND withdrawn_at IS NULL ORDER BY created_at DESC LIMIT 25")).rows)add('warranty',r,'Đăng ký bảo hành chờ đối chiếu','Mở hồ sơ để kiểm tra chứng từ mua hàng.','warranty');}
   if(can('customers.read'))for(const r of(await pool.query("SELECT id,product_name,version,created_at FROM shopping_chat_threads WHERE awaiting_admin=true AND status='open' ORDER BY updated_at DESC LIMIT 25")).rows)add('shopping-chat',r,'Chat mua sắm cần phản hồi',r.product_name,'shopping-chat','warning');
@@ -207,7 +198,7 @@ function createAdminNotifications(pool,config){
             body:'Thiết bị đã sẵn sàng nhận thông báo cho hộp thư tên miền @gaeru.com (iCloud+ Mail).',
             target:'webmail',
             url:'https://www.icloud.com/mail',
-            tag:'gaeru-mail-test-'+Date.now()
+            tag:'icloud-mail-test-'+Date.now()
           }
         :{
             title:'🔔 GAERU CEO · Thông báo đẩy đã bật',
@@ -226,82 +217,30 @@ function createAdminNotifications(pool,config){
     }catch(e){next(e);}
   });
 
-  const mailAccountActionSchema=z.object({
-    action:z.enum(['add','passwd','del','icloud-smtp']),
-    username:z.string().trim().min(1).max(64).optional(),
-    password:z.string().min(4).max(160).optional(),
-    displayName:z.string().trim().max(80).optional(),
-    smtpHost:z.string().trim().max(120).optional(),
-    smtpPort:z.coerce.number().int().min(1).max(65535).optional(),
-    smtpUser:z.string().trim().max(160).optional(),
-    smtpPassword:z.string().min(4).max(160).optional(),
-    adminPassword:z.string().min(1).max(200).optional(),
-    factorCode:z.string().max(64).optional(),
-    factorChallengeId:z.string().max(128).optional()
-  }).strict();
-
-  const ownerOnly=(req,res,next)=>{
-    if(req.admin?.role==='owner'||req.admin?.source==='bootstrap'||req.admin?.isOwner)return next();
-    return res.status(403).json({error:'Chỉ chủ doanh nghiệp được quản lý hộp thư tên miền @gaeru.com.'});
-  };
-
-  async function callLocalMailAccountApi(method,body){
-    const rawMailSecret=String(config.INTERNAL_MAIL_SECRET||process.env.INTERNAL_MAIL_SECRET||'').trim();
-    const fallbackBase=String(config.SESSION_SECRET||process.env.SESSION_SECRET||'').trim();
-    const secret=rawMailSecret||(fallbackBase?require('node:crypto').createHmac('sha256',fallbackBase).update('gaeru-internal-mail-v1').digest('hex'):'');
-    if(!secret)throw Object.assign(new Error('Thiếu khóa bảo mật nội bộ cho dịch vụ mail.'),{status:503});
-    let res;
-    try{
-      res=await fetch('http://127.0.0.1:8080/api/gaeru-mail/accounts',{
-        method,
-        headers:{
-          'Content-Type':'application/json',
-          'X-Gaeru-Internal-Mail':secret
-        },
-        ...(body?{body:JSON.stringify(body)}:{}),
-        signal:AbortSignal.timeout(5000)
-      });
-    }catch(fetchErr){
-      const isTimeout=fetchErr?.name==='TimeoutError'||fetchErr?.name==='AbortError';
-      throw Object.assign(new Error(isTimeout?'Dịch vụ hộp thư @gaeru.com cục bộ phản hồi quá chậm.':'Dịch vụ hộp thư @gaeru.com cục bộ hiện chưa kết nối.'),{status:isTimeout?504:503});
-    }
-    const data=await res.json().catch(()=>({}));
-    if(!res.ok||data.error){
-      const err=new Error(data.error||'Không thể thực hiện thao tác hộp thư.');
-      err.status=res.status>=400?res.status:500;
-      throw err;
-    }
-    return data;
-  }
-
-  router.get('/notifications/mail-accounts',ownerOnly,requirePermission('settings.read'),async(_req,res,next)=>{
-    try{
-      const data=await callLocalMailAccountApi('GET');
-      res.set('Cache-Control','no-store').json({available:true,...data});
-    }catch(e){
-      if(e.status===503||e.status===504){
-        return res.set('Cache-Control','no-store').json({available:false,offline:true,accounts:[],message:e.message});
+  router.get('/notifications/icloud-mail',requirePermission('settings.read'),(_req,res)=>{
+    const smtpHost=config.smtp?.host||config.SMTP_HOST||'smtp.mail.me.com';
+    const smtpPort=Number(config.smtp?.port||config.SMTP_PORT||587);
+    const senderEmail=config.smtp?.from||config.SMTP_FROM||'noreply@gaeru.com';
+    const replyTo=config.smtp?.replyTo||config.SMTP_REPLY_TO||'business@gaeru.com';
+    const adminEmail=config.smtp?.adminDomainEmail||config.ADMIN_DOMAIN_EMAIL||'business@gaeru.com';
+    const passwordPlaceholder=String(config.SMTP_PASSWORD||'').trim()==='ICLOUD_APP_PASSWORD_REQUIRED';
+    res.set('Cache-Control','no-store').json({
+      provider:'iCloud+ Custom Email Domain',
+      internalMailDisabled:true,
+      domain:'gaeru.com',
+      webmailUrl:'https://www.icloud.com/mail',
+      manageUrl:'https://www.icloud.com/icloudplus/',
+      mxServers:['mx01.mail.icloud.com','mx02.mail.icloud.com'],
+      smtp:{
+        host:smtpHost,
+        port:smtpPort,
+        configured:Boolean(config.smtp),
+        passwordPlaceholder,
+        senderEmail,
+        replyTo,
+        adminEmail
       }
-      if(e.status)return res.status(e.status).json({error:e.message});
-      next(e);
-    }
-  });
-
-  router.post('/notifications/mail-accounts',ownerOnly,requirePermission('settings.write'),requireCsrf,async(req,res,next)=>{
-    const parsed=mailAccountActionSchema.safeParse(req.body);
-    if(!parsed.success)return res.status(400).json({error:'Thông tin hộp thư không hợp lệ (mật khẩu tối thiểu 6 ký tự).'});
-    try{
-      const {verifyAdminStepUp}=require('./audit-fixes/admin-reauth');
-      const stepUpReq=Object.create(req);
-      stepUpReq.body={...req.body,password:parsed.data.adminPassword};
-      await verifyAdminStepUp(stepUpReq,pool,config);
-      const {adminPassword:_ap,factorCode:_fc,factorChallengeId:_fci,...mailPayload}=parsed.data;
-      const data=await callLocalMailAccountApi('POST',mailPayload);
-      res.json(data);
-    }catch(e){
-      if(e.status)return res.status(e.status).json({error:e.message});
-      next(e);
-    }
+    });
   });
 
   return router;

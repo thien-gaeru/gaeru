@@ -451,7 +451,7 @@ test('audit fixes: SSE socket keepalive/timeout, async web knowledge loader, and
 
 test('audit fixes: full DB schema migration creates FK indexes idempotently and ops/CI hardening invariants hold', async (t) => {
   assert.ok(MIGRATION_FILES.includes('audit-fk-indexes-20261114.sql'));
-  assert.equal(MIGRATION_FILES.at(-1), 'runtime-resilience-20261115.sql');
+  assert.equal(MIGRATION_FILES.at(-1), 'decommission-internal-mail-20261116.sql');
   const pool = await createPglitePool();
   t.after(() => pool.end());
 
@@ -490,7 +490,7 @@ test('audit fixes: full DB schema migration creates FK indexes idempotently and 
 
   const gdriveSh = fs.readFileSync(path.join(root, 'scripts', 'mi6-backup', 'gaeru-gdrive-sync.sh'), 'utf8');
   assert.match(gdriveSh, /prune_remote_subdir "pg"/);
-  assert.match(gdriveSh, /prune_remote_subdir "mail"/);
+  assert.doesNotMatch(gdriveSh, /sync_mail|prune_remote_subdir "mail"|gaeru-mail/);
   assert.match(gdriveSh, /prune_remote_subdir "media"/);
 
   const wf = fs.readFileSync(path.join(root, '.github', 'workflows', 'neon_workflow.yml'), 'utf8');
@@ -1159,8 +1159,8 @@ test('batch 3 medium-severity fixes: [M-01] through [M-09]', async (t) => {
     assert.ok((await pool.query("SELECT used_at FROM security_challenges WHERE fingerprint = 'm01-fp-junk'")).rows[0].used_at);
   });
 
-  // [M-02] Mail permissions, HMAC internal secret, owner step-up, & WebPush SSRF/role filtering
-  await t.test('[M-02] mail RBAC, owner step-up, HMAC secret derivation, and WebPush endpoint/role guard', async () => {
+  // [M-02] Internal mail server/routes decommissioned cleanly; only iCloud+ Mail status remains under RBAC
+  await t.test('[M-02] internal mail endpoints removed & iCloud Mail status enforces settings.read without leaking secrets', async () => {
     const { pool, baseUrl } = await bootTestApp();
     const deptId = (await pool.query("INSERT INTO departments(code, name) VALUES('M02D', 'Batch3 Dept') RETURNING id")).rows[0].id;
     const staffPass = bcrypt.hashSync('StaffPass-2026!', 4);
@@ -1174,47 +1174,46 @@ test('batch 3 medium-severity fixes: [M-01] through [M-09]', async (t) => {
     const viewer = makeClient(baseUrl);
     await viewer.ok('/api/csrf');
     await viewer.ok('/api/auth/login', { method: 'POST', body: { username: 'm02_viewer', password: 'StaffPass-2026!' } });
-    assert.equal((await viewer.request('/api/gaeru_ceo/notifications/mail-accounts')).status, 403);
+    assert.equal((await viewer.request('/api/gaeru_ceo/notifications/mail-accounts')).status, 404);
+    assert.equal((await viewer.request('/api/gaeru_ceo/notifications/icloud-mail')).status, 403);
     const viewerNotices = await viewer.ok('/api/gaeru_ceo/notifications');
-    assert.equal(viewerNotices.items.some((i) => i.key === 'inbound_mail_notifications'), false);
+    assert.equal(viewerNotices.items.some((i) => i.key.startsWith('mail:') || i.key === 'inbound_mail_notifications'), false);
 
     const adminStaff = makeClient(baseUrl);
     await adminStaff.ok('/api/csrf');
     await adminStaff.ok('/api/auth/login', { method: 'POST', body: { username: 'm02_admin', password: 'StaffPass-2026!' } });
-    // adminStaff has settings.write, yet mail-accounts mutation is restricted to owner
-    const staffMutRes = await adminStaff.request('/api/gaeru_ceo/notifications/mail-accounts', {
+    const legacyMutRes = await adminStaff.request('/api/gaeru_ceo/notifications/mail-accounts', {
       method: 'POST',
       body: { action: 'add', username: 'test', password: 'MailboxPass123!' },
     });
-    assert.equal(staffMutRes.status, 403);
+    assert.equal(legacyMutRes.status, 404);
+
+    const icloudStatus = await adminStaff.ok('/api/gaeru_ceo/notifications/icloud-mail');
+    assert.equal(icloudStatus.provider, 'iCloud+ Custom Email Domain');
+    assert.equal(icloudStatus.internalMailDisabled, true);
+    assert.equal(icloudStatus.webmailUrl, 'https://www.icloud.com/mail');
+    assert.equal(icloudStatus.smtp.password, undefined);
 
     const owner = makeClient(baseUrl);
     await owner.ok('/api/csrf');
     await owner.ok('/api/auth/login', { method: 'POST', body: { username: 'batch3-owner', password: 'Batch3-Owner-Pass-2026!' } });
-    // Owner without adminPassword fails step-up re-auth
-    const noStepUp = await owner.request('/api/gaeru_ceo/notifications/mail-accounts', {
-      method: 'POST',
-      body: { action: 'add', username: 'test', password: 'MailboxPass123!' },
-    });
-    assert.ok([401, 403].includes(noStepUp.status));
-    // Owner with wrong adminPassword fails step-up re-auth
-    const badStepUp = await owner.request('/api/gaeru_ceo/notifications/mail-accounts', {
-      method: 'POST',
-      body: { action: 'add', username: 'test', password: 'MailboxPass123!', adminPassword: 'WrongPassword!' },
-    });
-    assert.ok([401, 403].includes(badStepUp.status));
+    assert.equal((await owner.request('/api/gaeru_ceo/notifications/mail-accounts')).status, 404);
+    assert.equal(
+      fs.existsSync(path.join(repoRoot, 'scripts', 'send-mail-webpush.js')),
+      false,
+      'Legacy internal mail webpush script must be deleted'
+    );
 
     const notifSrc = fs.readFileSync(path.join(repoRoot, 'src', 'admin-notifications.js'), 'utf8');
-    assert.match(notifSrc, /'X-Gaeru-Internal-Mail':secret/);
-    assert.match(notifSrc, /createHmac\(['"]sha256['"],fallbackBase\)\.update\(['"]gaeru-internal-mail-v1['"]\)\.digest\(['"]hex['"]\)/);
-
-    const pushScript = fs.readFileSync(path.join(repoRoot, 'scripts', 'send-mail-webpush.js'), 'utf8');
-    assert.match(pushScript, /assertSafePushEndpoint/);
-    assert.match(pushScript, /sa\.active\s*=\s*true\s+AND\s+sa\.role\s+IN\s*\(\s*'owner'\s*,\s*'admin'\s*\)/i);
+    assert.doesNotMatch(notifSrc, /X-Gaeru-Internal-Mail|127\.0\.0\.1:8080|inbound_mail_notifications|gaeru-mail\/accounts/);
 
     const uiNotifSrc = fs.readFileSync(path.join(repoRoot, 'admin', 'notifications.js'), 'utf8');
     assert.match(uiNotifSrc, /settings\.read/);
-    assert.match(uiNotifSrc, /adminPassword/);
+    assert.doesNotMatch(uiNotifSrc, /mail-accounts|data-mail-create-form|data-mail-passwd|data-mail-del/);
+
+    const workerSrc = fs.readFileSync(path.join(repoRoot, 'admin', 'notification-worker.js'), 'utf8');
+    assert.doesNotMatch(workerSrc, /mail\.gaeru\.com/);
+    assert.match(workerSrc, /www\.icloud\.com/);
   });
 
   // [M-03] /api/payments/order-status permission check & /owner/revoke-staff-sessions account_security invalidation

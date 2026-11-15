@@ -1,9 +1,8 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("Verify", "TestDatabaseRestore", "DecryptMailArchive", "PullFromGoogleDrive", "FailoverToPC")]
+    [ValidateSet("Verify", "TestDatabaseRestore", "PullFromGoogleDrive", "FailoverToPC")]
     [string]$Mode = "Verify",
-    [string]$BackupRoot = "E:\GAERU_Backups\mi6",
-    [string]$DecryptOutDir = "E:\GAERU_Backups\mi6\decrypted-mail-test"
+    [string]$BackupRoot = "E:\GAERU_Backups\mi6"
 )
 
 $ErrorActionPreference = "Stop"
@@ -182,20 +181,6 @@ elseif ($Mode -eq "TestDatabaseRestore") {
         & $psql -q -d postgres -c "DROP DATABASE IF EXISTS $testDb;" *>$null
         $ErrorActionPreference = $prevEA
     }
-}
-elseif ($Mode -eq "DecryptMailArchive") {
-    $mailDir = Join-Path $BackupRoot "mail"
-    $newestMail = Get-NewestBackupFile -Dir $mailDir -Filter "gaeru-mail-v04-*.tar.gz.gpg"
-    Assert-Sha256Companion -FilePath $newestMail | Out-Null
-    New-Item -ItemType Directory -Path $DecryptOutDir -Force | Out-Null
-    $outTarGz = Join-Path $DecryptOutDir ([IO.Path]::GetFileNameWithoutExtension($newestMail))
-    Write-Output "Decrypting $newestMail -> $outTarGz ..."
-    & "C:\Program Files\GnuPG\bin\gpg.exe" --output $outTarGz --decrypt $newestMail
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $outTarGz)) {
-        throw "GPG decryption failed."
-    }
-    $entries = Assert-SafeTarArchive -ArchivePath $outTarGz
-    Write-Output "Decrypted Mail archive verified ($($entries.Count) files): $outTarGz"
 }
 elseif ($Mode -eq "FailoverToPC") {
     Write-Output "=== EMERGENCY FAILOVER: Restoring Latest Mi 6 State to PC and Starting Server ==="
