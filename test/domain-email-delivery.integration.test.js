@@ -278,19 +278,34 @@ test('domain email pipeline enqueues CARE+ & external warranty alerts, delivers 
   }
 });
 
-test('outbound mail deliverability helpers always generate FQDN EHLO, HTML body, and @gaeru.com Message-ID', () => {
+test('outbound mail deliverability helpers always generate FQDN EHLO, branded HTML body with logo, and @gaeru.com Message-ID', async (t) => {
   const fs = require('node:fs');
   const path = require('node:path');
   const { smtpOptions, resolveEhloDomain } = require('../src/smtp-security');
-  const { prepareOutboundMail, buildMessageId, renderGaeruEmailHtml } = require('../src/smtp-delivery');
+  const {
+    prepareOutboundMail,
+    buildMessageId,
+    renderGaeruEmailHtml,
+    renderGaeruEmailLogoHtml,
+    resolveEmailLogoUrl
+  } = require('../src/smtp-delivery');
 
   assert.equal(resolveEhloDomain({ from: 'noreply@gaeru.com' }), 'gaeru.com');
   assert.equal(resolveEhloDomain({ publicBaseUrl: 'https://gaeru.com' }), 'gaeru.com');
   assert.equal(resolveEhloDomain({}), 'gaeru.com');
   assert.equal(smtpOptions({ host: 'smtp.mail.me.com', port: 587, secure: false, from: 'noreply@gaeru.com', user: 'u', password: 'p' }).name, 'gaeru.com');
 
+  const logoPath = path.join(__dirname, '..', 'assets', 'brand', 'gaeru-email-logo.png');
+  const logoBytes = fs.readFileSync(logoPath);
+  assert.equal(logoBytes.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  assert.equal(logoBytes.readUInt32BE(16), 260);
+  assert.equal(logoBytes.readUInt32BE(20), 88);
+
+  assert.equal(resolveEmailLogoUrl({ PUBLIC_BASE_URL: 'https://gaeru.com/' }), 'https://gaeru.com/assets/brand/gaeru-email-logo.png');
+  assert.match(renderGaeruEmailLogoHtml({ smtp: { publicBaseUrl: 'https://gaeru.com/' } }, { centered: true }), /src="https:\/\/gaeru\.com\/assets\/brand\/gaeru-email-logo\.png"[^>]*width="130" height="44"/);
+
   const prepared = prepareOutboundMail(
-    { smtp: { from: 'noreply@gaeru.com', replyTo: 'business@gaeru.com' } },
+    { PUBLIC_BASE_URL: 'https://gaeru.com/', smtp: { from: 'noreply@gaeru.com', replyTo: 'business@gaeru.com' } },
     { to: 'customer@example.com', subject: 'GAERU · Đơn hàng', text: 'Đoạn 1\n\nĐoạn 2 <script>' },
     { messageIdPrefix: 'order', actionUrl: 'https://gaeru.com/tai-khoan', actionLabel: 'Xem đơn' }
   );
@@ -298,21 +313,46 @@ test('outbound mail deliverability helpers always generate FQDN EHLO, HTML body,
   assert.equal(prepared.replyTo, 'business@gaeru.com');
   assert.match(prepared.messageId, /^<order-[0-9a-f-]+@gaeru\.com>$/);
   assert.match(prepared.html, /^<!doctype html><html lang="vi">/);
+  assert.match(prepared.html, /https:\/\/gaeru\.com\/assets\/brand\/gaeru-email-logo\.png/);
   assert.doesNotMatch(prepared.html, /<script>/);
   assert.match(prepared.html, /https:\/\/gaeru\.com\/tai-khoan/);
-  assert.match(renderGaeruEmailHtml({ heading: 'Test', bodyText: 'Hello' }), /GAERU/);
+  assert.match(renderGaeruEmailHtml({ heading: 'Test', bodyText: 'Hello' }), /assets\/brand\/gaeru-email-logo\.png/);
   assert.match(buildMessageId('sec', { smtp: { from: 'noreply@gaeru.com' } }), /^<sec-[0-9a-f-]+@gaeru\.com>$/);
 
-  // Ensure every real outbound mail caller uses prepareOutboundMail or sets both html and messageId
+  // Ensure every real outbound mail caller renders the GAERU email logo and sets FQDN messageId
   const srcDir = path.join(__dirname, '..', 'src');
   for (const file of fs.readdirSync(srcDir)) {
     if (!file.endsWith('.js') || file === 'local-server.js' || file === 'smtp-delivery.js') continue;
     const src = fs.readFileSync(path.join(srcDir, file), 'utf8');
     if (!src.includes('.sendMail(')) continue;
     const usesHelper = src.includes('prepareOutboundMail(') || src.includes('sendAdminNotification(');
-    if (!usesHelper) {
-      assert.match(src, /\bhtml\s*[,:]/, `${file} missing HTML body`);
-      assert.match(src, /\bmessageId\s*:/, `${file} missing FQDN messageId`);
-    }
+    const usesLogoHelper = usesHelper || (src.includes('renderGaeruEmailHtml(') && src.includes('buildMessageId(')) || (src.includes('renderGaeruEmailLogoHtml(') && src.includes('buildMessageId('));
+    assert.equal(usesLogoHelper, true, `${file} missing GAERU email logo helper or FQDN messageId`);
   }
+
+  // Ensure /assets/brand/gaeru-email-logo.png allows cross-origin embedding for webmail clients
+  const db = await PGlite.create();
+  const pool = makePool(db);
+  t.after(() => db.close());
+  await migrateDatabase(pool);
+  const session = require('express-session');
+  const { createApp } = require('../src/app');
+  const app = createApp({
+    config: {
+      NODE_ENV: 'test',
+      SESSION_SECRET: 'test-session-secret-0123456789abcdef0123456789',
+      ADMIN_USERNAME: 'owner',
+      ADMIN_PASSWORD_HASH: '$2b$10$7EqJtq98hPqEX7fNZaFWoOhi5N7K6S5r3m8k6n5R9Y4xW6b5d8H6K',
+      PUBLIC_BASE_URL: 'https://gaeru.com/'
+    },
+    pool,
+    sessionStore: new session.MemoryStore()
+  });
+  const srv = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise((r) => srv.close(r)));
+  await new Promise((r) => srv.once('listening', r));
+  const res = await fetch(`http://127.0.0.1:${srv.address().port}/assets/brand/gaeru-email-logo.png`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  assert.equal(res.headers.get('cross-origin-resource-policy'), 'cross-origin');
 });

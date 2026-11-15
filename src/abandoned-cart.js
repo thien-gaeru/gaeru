@@ -356,7 +356,7 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1d1d1f;line-height:1.6;margin:0;padding:24px;background:#f5f5f7;">
   <div style="max-width:540px;margin:0 auto;background:#ffffff;border-radius:18px;padding:32px;box-shadow:0 4px 20px rgba(0,0,0,0.04);">
     <div style="margin-bottom:20px;">
-      <span style="font-size:12px;font-weight:600;letter-spacing:0.08em;color:#087f8c;text-transform:uppercase;">GAERU STORE</span>
+      ${require('./smtp-delivery').renderGaeruEmailLogoHtml(config)}
       <h1 style="font-size:22px;line-height:1.3;margin:8px 0 12px;color:#1d1d1f;">${escapeHtml(headline)}</h1>
       <p style="font-size:15px;color:#515154;margin:0;">${customerGreeting} Bạn đã chọn những sản phẩm tuyệt vời tại GAERU nhưng chưa hoàn tất thanh toán.</p>
     </div>

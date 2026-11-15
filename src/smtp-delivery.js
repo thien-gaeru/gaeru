@@ -134,8 +134,29 @@ function buildMessageId(prefix, config) {
   return `<${cleanPrefix}-${randomUUID()}@${resolveMailDomain(config)}>`;
 }
 
-function renderGaeruEmailHtml({ heading, bodyText, actionUrl, actionLabel, footerNote } = {}) {
+function resolvePublicOrigin(config) {
+  const candidate = config?.PUBLIC_BASE_URL || config?.smtp?.publicBaseUrl || 'https://gaeru.com';
+  try {
+    return new URL(require('./primary-domain').normalizePublicBase(candidate)).origin;
+  } catch {
+    return 'https://gaeru.com';
+  }
+}
+
+function resolveEmailLogoUrl(config) {
+  return `${resolvePublicOrigin(config)}/assets/brand/gaeru-email-logo.png`;
+}
+
+function renderGaeruEmailLogoHtml(config, { centered = false } = {}) {
+  const origin = resolvePublicOrigin(config);
+  const logoUrl = `${origin}/assets/brand/gaeru-email-logo.png`;
+  const wrapStyle = centered ? 'margin:0 auto 18px;text-align:center;' : 'margin:0 0 18px;text-align:left;';
+  return `<div style="${wrapStyle}"><a href="${escapeMailHtml(origin + '/')}" style="display:inline-block;text-decoration:none;background:#ffffff;border-radius:8px;" target="_blank" rel="noopener"><img src="${escapeMailHtml(logoUrl)}" alt="GAERU" width="130" height="44" style="display:block;width:130px;height:44px;border:0;outline:none;text-decoration:none;border-radius:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;font-weight:800;letter-spacing:0.06em;color:#1d1d1f;"></a></div>`;
+}
+
+function renderGaeruEmailHtml({ heading, bodyText, actionUrl, actionLabel, footerNote, config } = {}) {
   const safeHeading = escapeMailHtml(heading || 'Thông báo từ GAERU');
+  const logoHtml = renderGaeruEmailLogoHtml(config);
   const paragraphs = String(bodyText || '')
     .split(/\r?\n\r?\n+/)
     .map((p) => p.trim())
@@ -157,7 +178,7 @@ function renderGaeruEmailHtml({ heading, bodyText, actionUrl, actionLabel, foote
     ? escapeMailHtml(footerNote)
     : 'GAERU · gaeru.com · Hỗ trợ khách hàng: business@gaeru.com';
 
-  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeHeading}</title></head><body style="margin:0;padding:24px 12px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;"><main style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:16px;padding:28px 24px;"><div style="font-size:12px;font-weight:700;letter-spacing:0.08em;color:#087f8c;text-transform:uppercase;margin-bottom:8px;">GAERU</div><h1 style="font-size:20px;line-height:1.35;margin:0 0 18px;color:#1d1d1f;">${safeHeading}</h1>${paragraphs || '<p style="margin:0 0 14px;font-size:15px;color:#333336;"></p>'}${ctaHtml}<hr style="border:none;border-top:1px solid #e5e5ea;margin:24px 0 14px;"><p style="margin:0;font-size:12px;line-height:1.5;color:#6e6e73;">${footer}</p></main></body></html>`;
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${safeHeading}</title></head><body style="margin:0;padding:24px 12px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;"><main style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:16px;padding:28px 24px;">${logoHtml}<h1 style="font-size:20px;line-height:1.35;margin:0 0 18px;color:#1d1d1f;">${safeHeading}</h1>${paragraphs || '<p style="margin:0 0 14px;font-size:15px;color:#333336;"></p>'}${ctaHtml}<hr style="border:none;border-top:1px solid #e5e5ea;margin:24px 0 14px;"><p style="margin:0;font-size:12px;line-height:1.5;color:#6e6e73;">${footer}</p></main></body></html>`;
 }
 
 function prepareOutboundMail(config, mail, opts = {}) {
@@ -169,7 +190,8 @@ function prepareOutboundMail(config, mail, opts = {}) {
     bodyText: mail.text,
     actionUrl: opts.actionUrl,
     actionLabel: opts.actionLabel,
-    footerNote: opts.footerNote
+    footerNote: opts.footerNote,
+    config
   });
   return {
     ...mail,
@@ -325,6 +347,9 @@ module.exports = {
   resolveReplyTo,
   resolveFrom,
   resolveMailDomain,
+  resolvePublicOrigin,
+  resolveEmailLogoUrl,
+  renderGaeruEmailLogoHtml,
   buildMessageId,
   renderGaeruEmailHtml,
   prepareOutboundMail,

@@ -484,6 +484,10 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
   app.use("/media",productWorkspace.publicMedia);
+  app.use("/assets/brand", (_req, res, next) => {
+    res.set("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  });
   app.use("/assets",rateLimit({windowMs:60000,limit:config.NODE_ENV==="test"||process.env.NODE_ENV==="test"?10000:2400,standardHeaders:"draft-8",legacyHeaders:false}),require("./persistent-assets").serveAssets(pool));
   app.use("/api", (req,res,next)=>{
     if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path) && !req.admin) return res.status(401).json({error:'Vui lòng đăng nhập quản trị viên.'});

@@ -189,6 +189,7 @@ async function warmStaticAssets(pool){
  const m3Paths=[12,1,2,3,4,6,7,8,10,11,9].map(n=>'products/m3-description/'+n+'.webp');
  const k9Paths=[1,2,3,4,5,6,7,8].map(n=>'products/k9-description/'+n+'.webp');
  const hotSnapshots=[
+  'brand/gaeru-email-logo.png',
   'brand/gaeru-logo.webp',
   'products/k9.webp',
   'products/k9-display-480-f7433a67675b.webp',
