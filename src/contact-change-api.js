@@ -36,7 +36,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
     const link=new URL('/tai-khoan',smtpConfig.publicBaseUrl);link.searchParams.set('contactVerify',token);
     const {prepareOutboundMail}=require('./smtp-delivery');
     const bodyText=`${step}\nYêu cầu đổi thông tin tài khoản GAERU sang email ${a.email}, số điện thoại ${a.phone}. Hãy đăng nhập đúng tài khoản và mở liên kết sau để xác nhận. Liên kết dùng một lần, hiệu lực 30 phút:\n${link}\n\nNếu không phải bạn yêu cầu, không mở liên kết và liên hệ GAERU.`;
-    await mailer.sendMail(prepareOutboundMail({smtp:smtpConfig},{to,subject:'Xác nhận thay đổi thông tin tài khoản GAERU',text:bodyText},{messageIdPrefix:'contact',actionUrl:link.toString(),actionLabel:'Xác nhận thay đổi'}));
+    await mailer.sendMail(prepareOutboundMail({smtp:smtpConfig},{to,subject:'GAERU · Xác nhận thay đổi thông tin tài khoản',text:bodyText},{messageIdPrefix:'contact',heading:'Xác nhận thay đổi thông tin liên hệ',badge:'BẢO MẬT LIÊN HỆ',badgeTone:'amber',preheader:'Xác nhận đổi email/số điện thoại tài khoản GAERU (hiệu lực 30 phút).',leadText:`${step} Hãy đăng nhập đúng tài khoản GAERU và bấm xác nhận để hoàn tất cập nhật thông tin liên hệ mới.`,htmlBodyText:'',summaryRows:[{label:'Email mới dự kiến',value:a.email},{label:'Số điện thoại mới',value:a.phone},{label:'Hiệu lực liên kết',value:'30 phút · Dùng một lần'}],warningNote:'Nếu không phải bạn thực hiện yêu cầu này, tuyệt đối không bấm xác nhận và hãy liên hệ GAERU ngay qua business@gaeru.com.',actionUrl:link.toString(),actionLabel:'Xác nhận thay đổi liên hệ',showActionFallback:true}));
    };
    await send(owner.email,oldToken,'Xác nhận từ email hiện tại.');
    if(newToken)await send(a.email,newToken,'Xác minh hộp thư email mới.');

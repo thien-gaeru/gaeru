@@ -356,3 +356,46 @@ test('outbound mail deliverability helpers always generate FQDN EHLO, branded HT
   assert.equal(res.headers.get('content-type'), 'image/png');
   assert.equal(res.headers.get('cross-origin-resource-policy'), 'cross-origin');
 });
+
+test('flagship email template renders rich structured blocks safely without XSS or flex layout breakage', () => {
+  const { renderGaeruEmailHtml } = require('../src/smtp-delivery');
+  const html = renderGaeruEmailHtml({
+    config: { PUBLIC_BASE_URL: 'https://gaeru.com' },
+    heading: 'Xác nhận đơn hàng <script>x</script>',
+    badge: 'XÁC NHẬN ĐƠN HÀNG',
+    badgeTone: 'green',
+    preheader: 'Đơn #GR-999 đang được chuẩn bị',
+    leadText: 'Xin chào Minh Anh, cảm ơn bạn đã chọn GAERU.',
+    otpCode: '482910',
+    otpNote: 'Mã có hiệu lực 5 phút',
+    lineItems: [
+      { title: 'Micro thu âm <svg>', meta: 'Trắng · Số lượng: 1', price: '1.290.000 ₫' }
+    ],
+    summaryRows: [
+      { label: 'Tổng cộng', value: '1.290.000 ₫', emphasis: true, accent: true }
+    ],
+    highlightTitle: 'Phản hồi <img onerror=1>',
+    highlightText: 'Đã kiểm tra kỹ thuật thành công.',
+    warningNote: 'Không chia sẻ liên kết <b onclick=1>.',
+    actionUrl: 'https://gaeru.com/tai-khoan?order=GR-999',
+    actionLabel: 'Xem đơn hàng',
+    unsubscribeUrl: 'javascript:alert(1)'
+  });
+
+  assert.match(html, /^<!doctype html><html lang="vi">/);
+  assert.match(html, /role="presentation"/);
+  assert.doesNotMatch(html, /display:flex/);
+  assert.match(html, /XÁC NHẬN ĐƠN HÀNG/);
+  assert.match(html, /Đơn #GR-999 đang được chuẩn bị/);
+  assert.match(html, /482910/);
+  assert.match(html, /1\.290\.000 ₫/);
+  assert.match(html, /082 919 1080/);
+  assert.match(html, /MST: 8836293843-002/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<svg>/);
+  assert.doesNotMatch(html, /<img onerror=1>/);
+  assert.doesNotMatch(html, /<b onclick=1>/);
+  assert.doesNotMatch(html, /javascript:alert/);
+  assert.match(html, /&lt;script&gt;x&lt;\/script&gt;/);
+  assert.match(html, /&lt;svg&gt;/);
+});

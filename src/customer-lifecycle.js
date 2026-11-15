@@ -247,7 +247,7 @@ async function sendRegistrationNotificationEmail({ mailer, smtpConfig, to, fullN
       to,
       subject: 'Thông báo đăng ký tài khoản GAERU thành công',
       text: `Xin chào ${fullName},\n\nChúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: ${to}.\n\nBạn có thể đăng nhập và theo dõi đơn hàng, ưu đãi tại: ${accountUrl}\n\nTrân trọng,\nĐội ngũ GAERU`,
-      html: require('./smtp-delivery').renderGaeruEmailHtml({ config: { smtp: smtpConfig }, heading: 'Đăng ký tài khoản GAERU thành công', bodyText: `Xin chào ${fullName},\n\nChúc mừng bạn đã tạo tài khoản GAERU thành công với địa chỉ email: ${to}.\n\nBạn có thể đăng nhập và theo dõi đơn hàng, ưu đãi tại tài khoản GAERU.`, actionUrl: accountUrl, actionLabel: 'Mở tài khoản GAERU' }),
+      html: require('./smtp-delivery').renderGaeruEmailHtml({ config: { smtp: smtpConfig }, heading: 'Chào mừng bạn gia nhập GAERU', badge: 'THÀNH VIÊN MỚI', badgeTone: 'green', preheader: `Tài khoản GAERU (${to}) đã sẵn sàng để đặt hàng và kích hoạt bảo hành CARE+.`, leadText: `Xin chào ${fullName}, chúc mừng bạn đã đăng ký tài khoản thành viên GAERU thành công. Từ nay bạn có thể theo dõi đơn hàng, quản lý bảo hành điện tử và nhận ưu đãi riêng trong một nơi duy nhất.`, htmlBodyText: '', summaryRows: [{ label: 'Chủ tài khoản', value: fullName }, { label: 'Email đăng nhập', value: to }, { label: 'Tiện ích tài khoản', value: 'Đơn hàng · Bảo hành CARE+ · Ưu đãi thành viên' }], actionUrl: accountUrl, actionLabel: 'Mở tài khoản GAERU' }),
       messageId: require('./smtp-delivery').buildMessageId('welcome', { smtp: smtpConfig })
     });
     return true;

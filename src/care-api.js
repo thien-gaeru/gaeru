@@ -512,12 +512,43 @@ async function processCareEmailOutbox(pool, config, mailer) {
   if (!job) return false;
 
   try {
+    const base = require('./primary-domain').normalizePublicBase(config?.PUBLIC_BASE_URL || config?.smtp?.publicBaseUrl || 'https://gaeru.com');
+    const careUrl = base + '/care#care-request';
+    const rawBody = String(job.body_text || '');
+    const orderMatch = rawBody.match(/\(Đơn hàng:\s*([^,\n]+),\s*Mã yêu cầu:\s*([^)\n]+)\)/);
+    const replyMatch = rawBody.match(/Nội dung phản hồi:\r?\n([\s\S]*?)(?:\r?\n\r?\nĐể xem toàn bộ|$)/);
+    const cleanReply = replyMatch ? replyMatch[1].trim() : '';
+    const richOpts = cleanReply
+      ? {
+          heading: job.subject.replace(/^\[GAERU CARE\+\]\s*/i, ''),
+          badge: 'GAERU CARE+',
+          badgeTone: 'blue',
+          preheader: `GAERU CARE+ vừa phản hồi: ${cleanReply.slice(0, 110)}`,
+          leadText: 'Đội ngũ GAERU CARE+ vừa cập nhật phản hồi mới cho hồ sơ hỗ trợ của bạn.',
+          htmlBodyText: '',
+          summaryRows: [
+            { label: 'Mã hồ sơ CARE+', value: orderMatch?.[2] || job.care_id },
+            ...(orderMatch?.[1] && orderMatch[1] !== 'N/A' ? [{ label: 'Đơn hàng liên quan', value: orderMatch[1] }] : [])
+          ],
+          highlightTitle: 'Nội dung phản hồi từ GAERU CARE+',
+          highlightText: cleanReply,
+          actionUrl: careUrl,
+          actionLabel: 'Xem hội thoại & phản hồi'
+        }
+      : {
+          heading: job.subject,
+          badge: 'GAERU CARE+',
+          badgeTone: 'blue',
+          actionUrl: careUrl,
+          actionLabel: 'Mở GAERU CARE+'
+        };
+
     const result = await mailer.sendMail(prepareOutboundMail(config, {
       to: job.recipient_email,
       subject: job.subject,
       text: job.body_text,
       messageId: `<care-response-${job.id}@gaeru.com>`
-    }));
+    }, richOpts));
     const accepted = result?.accepted?.some(v => String(v.address || v).toLowerCase() === job.recipient_email.toLowerCase());
     await pool.query("UPDATE care_email_outbox SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'", [
       job.id,

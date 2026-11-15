@@ -362,7 +362,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
           to: customer.email,
           subject: "Khôi phục mật khẩu tài khoản GAERU",
           text: `GAERU nhận được yêu cầu đặt lại mật khẩu. Mở liên kết dùng một lần trong vòng 30 phút: ${resetUrl.toString()}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`,
-          html: require("./smtp-delivery").renderGaeruEmailHtml({ config: { smtp: smtpConfig }, heading: "Đặt lại mật khẩu GAERU", bodyText: "GAERU nhận được yêu cầu đặt lại mật khẩu. Mở liên kết dùng một lần trong vòng 30 phút bên dưới.\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.", actionUrl: resetUrl.toString(), actionLabel: "Đặt lại mật khẩu" }),
+          html: require("./smtp-delivery").renderGaeruEmailHtml({ config: { smtp: smtpConfig }, heading: "Đặt lại mật khẩu GAERU", badge: "BẢO MẬT TÀI KHOẢN", badgeTone: "blue", preheader: "Liên kết đặt lại mật khẩu tài khoản GAERU (hiệu lực 30 phút).", leadText: "GAERU nhận được yêu cầu thiết lập lại mật khẩu cho tài khoản của bạn. Bấm nút bên dưới để tạo mật khẩu mới an toàn.", htmlBodyText: "", summaryRows: [{ label: "Email tài khoản", value: customer.email }, { label: "Hiệu lực liên kết", value: "30 phút · Dùng một lần" }], warningNote: "Nếu bạn không thực hiện yêu cầu này, hãy bỏ qua email — mật khẩu hiện tại của bạn vẫn giữ nguyên và an toàn.", actionUrl: resetUrl.toString(), actionLabel: "Đặt lại mật khẩu mới", showActionFallback: true }),
           messageId: require("./smtp-delivery").buildMessageId("reset", { smtp: smtpConfig })
         });
       } catch (error) {
@@ -479,7 +479,7 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
           to: customer.email,
           subject: "Xác minh tài khoản GAERU",
           text: `Xin chào ${customer.fullName}, hãy mở liên kết sau để xác minh email tài khoản GAERU. Liên kết chỉ dùng một lần và có hiệu lực trong 30 phút: ${verificationUrl.toString()}\n\nNếu bạn không yêu cầu xác minh, hãy bỏ qua email này.`,
-          html: require("./smtp-delivery").renderGaeruEmailHtml({ config: { smtp: smtpConfig }, heading: "Xác minh tài khoản GAERU", bodyText: `Xin chào ${customer.fullName}, hãy xác minh email tài khoản GAERU bằng liên kết bên dưới. Liên kết chỉ dùng một lần và có hiệu lực trong 30 phút.\n\nNếu bạn không yêu cầu xác minh, hãy bỏ qua email này.`, actionUrl: verificationUrl.toString(), actionLabel: "Xác minh tài khoản GAERU" }),
+          html: require("./smtp-delivery").renderGaeruEmailHtml({ config: { smtp: smtpConfig }, heading: "Xác minh email tài khoản GAERU", badge: "XÁC MINH EMAIL", badgeTone: "green", preheader: "Xác minh địa chỉ email để hoàn thiện bảo mật tài khoản GAERU.", leadText: `Xin chào ${customer.fullName}, hãy hoàn tất xác minh địa chỉ email để bảo vệ tài khoản và nhận thông báo đơn hàng, bảo hành từ GAERU.`, htmlBodyText: "", summaryRows: [{ label: "Chủ tài khoản", value: customer.fullName }, { label: "Email cần xác minh", value: customer.email }, { label: "Hiệu lực liên kết", value: "30 phút · Dùng một lần" }], warningNote: "Nếu bạn không tạo tài khoản hoặc không yêu cầu xác minh, vui lòng bỏ qua email này.", actionUrl: verificationUrl.toString(), actionLabel: "Xác minh email ngay", showActionFallback: true }),
           messageId: require("./smtp-delivery").buildMessageId("verify", { smtp: smtpConfig })
         });
       } catch (error) {

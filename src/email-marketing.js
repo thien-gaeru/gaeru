@@ -243,15 +243,26 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
     if (!currentMailer) throw fail('Dịch vụ SMTP không khả dụng.', 503);
     const testSubject = '[THỬ NGHIỆM] ' + d.subject;
     const dummyUnsubUrl = new URL('/api/marketing-email/unsubscribe/test-preview', normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
-    await currentMailer.sendMail({
-      from: require('./smtp-delivery').resolveFrom(config),
-      replyTo: require('./smtp-delivery').resolveReplyTo(config),
-      to: d.to,
-      subject: testSubject,
-      text: d.body + '\n\nGAERU · Thư thử nghiệm marketing (Liên kết ngừng nhận mẫu: ' + dummyUnsubUrl + ')',
-      html: '<!doctype html><html lang="vi"><meta charset="utf-8"><body style="margin:0;padding:24px 12px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;"><main style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:16px;padding:28px 24px;line-height:1.6;">' + require('./smtp-delivery').renderGaeruEmailLogoHtml(config) + '<div style="background:#f5f5f7;padding:8px 14px;border-radius:8px;font-size:12px;color:#6e6e73;margin-bottom:16px;">[EMAIL THỬ NGHIỆM TỪ TRANG QUẢN TRỊ GAERU]</div><h1 style="font-size:20px;margin:0 0 16px;">' + h(d.subject) + '</h1><div style="white-space:pre-wrap">' + h(d.body) + '</div><hr style="border:none;border-top:1px solid #e5e5ea;margin:24px 0;"><p style="font-size:12px;color:#6e6e73;margin:0;">GAERU · <a href="' + h(dummyUnsubUrl) + '" style="color:#6e6e73;">Ngừng nhận email khuyến mại (Mẫu xem trước)</a></p></main></body></html>',
-      messageId: require('./smtp-delivery').buildMessageId('mkt-test', config)
-    });
+    const { prepareOutboundMail, buildMessageId } = require('./smtp-delivery');
+    await currentMailer.sendMail(prepareOutboundMail(
+      config,
+      {
+        to: d.to,
+        subject: testSubject,
+        text: d.body + '\n\nGAERU · Thư thử nghiệm marketing (Liên kết ngừng nhận mẫu: ' + dummyUnsubUrl + ')',
+        messageId: buildMessageId('mkt-test', config)
+      },
+      {
+        heading: d.subject,
+        badge: 'EMAIL THỬ NGHIỆM',
+        badgeTone: 'amber',
+        preheader: '[Xem trước] ' + d.subject,
+        bodyHtml: '<div class="gaeru-text" style="font-size:15px;line-height:1.68;color:#333336;white-space:pre-wrap;">' + h(d.body) + '</div>',
+        footerNote: 'Đây là email thử nghiệm xem trước chiến dịch từ trang quản trị GAERU.',
+        unsubscribeUrl: dummyUnsubUrl,
+        unsubscribeLabel: 'Ngừng nhận email khuyến mại (Mẫu xem trước)'
+      }
+    ));
     await appendAudit(pool, { actor: req.admin, action: 'marketing.email.test_send', entityType: 'marketing', metadata: { to: d.to, subject: testSubject } });
     res.json({ message: 'Đã gửi email thử nghiệm thành công tới ' + d.to });
   }));
@@ -299,15 +310,33 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
     if (currentMailer && config.smtp && (config.PUBLIC_BASE_URL || config.smtp?.publicBaseUrl)) {
       const confirmUrl = new URL('/api/marketing-email/confirm/' + token, normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
       try {
-        await currentMailer.sendMail({
-          from: require('./smtp-delivery').resolveFrom(config),
-      replyTo: require('./smtp-delivery').resolveReplyTo(config),
-          to: email,
-          subject: 'Xác nhận đăng ký nhận tin từ GAERU',
-          text: `Chào bạn,\n\nCảm ơn bạn đã quan tâm đến GAERU. Vui lòng bấm vào liên kết dưới đây để xác nhận đăng ký nhận thông tin về sản phẩm microphone, phụ kiện và ưu đãi:\n${confirmUrl}\n\nLiên kết có hiệu lực trong 24 giờ. Nếu bạn không yêu cầu đăng ký này, vui lòng bỏ qua email này.\n\nTrân trọng,\nĐội ngũ GAERU`,
-          html: `<!doctype html><html lang="vi"><meta charset="utf-8"><body style="margin:0;padding:32px 16px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;"><main style="max-width:560px;margin:20px auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:24px;padding:40px 36px;box-shadow:0 4px 20px rgba(0,0,0,0.03);text-align:center;">${require('./smtp-delivery').renderGaeruEmailLogoHtml(config, { centered: true })}<h2 style="font-size:20px;font-weight:600;color:#1d1d1f;margin:0 0 12px;">Xác nhận đăng ký nhận tin</h2><p style="font-size:15px;line-height:1.6;color:#515156;margin:0 0 24px;">Cảm ơn bạn đã quan tâm đến GAERU. Vui lòng bấm vào nút bên dưới để xác nhận đăng ký nhận thông tin về sản phẩm microphone, phụ kiện và ưu đãi:</p><div style="margin:28px 0;"><a href="${h(confirmUrl)}" style="background:#0071e3;color:#ffffff;text-decoration:none;padding:13px 32px;border-radius:980px;font-weight:600;font-size:15px;display:inline-block;box-shadow:0 2px 8px rgba(0,113,227,0.25);">Xác nhận đăng ký nhận tin</a></div><p style="font-size:13px;color:#86868b;line-height:1.5;margin:0;">Liên kết có hiệu lực trong 24 giờ. Nếu nút trên không hoạt động, bạn có thể truy cập liên kết trực tiếp:<br><a href="${h(confirmUrl)}" style="color:#0071e3;word-break:break-all;">${h(confirmUrl)}</a></p><hr style="border:none;border-top:1px solid #f0f0f2;margin:28px 0 20px;"><p style="font-size:12px;color:#86868b;margin:0;">Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua thư này.<br>© 2026 GAERU · gaeru.com</p></main></body></html>`,
-          messageId: require('./smtp-delivery').buildMessageId('mkt-optin', config)
-        });
+        const { prepareOutboundMail, buildMessageId } = require('./smtp-delivery');
+        await currentMailer.sendMail(prepareOutboundMail(
+          config,
+          {
+            to: email,
+            subject: 'GAERU · Xác nhận đăng ký nhận tin',
+            text: `Chào bạn,\n\nCảm ơn bạn đã quan tâm đến GAERU. Vui lòng bấm vào liên kết dưới đây để xác nhận đăng ký nhận thông tin về sản phẩm microphone, phụ kiện và ưu đãi:\n${confirmUrl}\n\nLiên kết có hiệu lực trong 24 giờ. Nếu bạn không yêu cầu đăng ký này, vui lòng bỏ qua email này.\n\nTrân trọng,\nĐội ngũ GAERU`,
+            messageId: buildMessageId('mkt-optin', config)
+          },
+          {
+            centeredLogo: true,
+            heading: 'Xác nhận đăng ký nhận tin từ GAERU',
+            badge: 'BẢN TIN GAERU',
+            badgeTone: 'blue',
+            preheader: 'Chỉ một bước để hoàn tất đăng ký nhận tin sản phẩm mới & ưu đãi GAERU.',
+            leadText: 'Cảm ơn bạn đã quan tâm đến GAERU. Vui lòng bấm nút bên dưới để xác nhận đăng ký nhận thông tin về microphone, phụ kiện thu âm và các ưu đãi chọn lọc.',
+            htmlBodyText: '',
+            summaryRows: [
+              { label: 'Email đăng ký', value: email },
+              { label: 'Hiệu lực xác nhận', value: '24 giờ' }
+            ],
+            warningNote: 'Nếu bạn không yêu cầu đăng ký này, hãy bỏ qua email — GAERU sẽ không gửi thêm bản tin nào tới hộp thư của bạn.',
+            actionUrl: confirmUrl,
+            actionLabel: 'Xác nhận đăng ký nhận tin',
+            showActionFallback: true
+          }
+        ));
       } catch (err) {
         console.error('Không gửi được email xác nhận Double Opt-In:', err.message);
       }
@@ -495,19 +524,30 @@ async function processEmailQueue(pool, config, mailer) {
       return false;
     }
 
-    const sent = await mailer.sendMail({
-      from: require('./smtp-delivery').resolveFrom(config),
-      replyTo: require('./smtp-delivery').resolveReplyTo(config),
-      to: row.email,
-      subject: campaign.subject,
-      text: campaign.body + '\n\nGAERU · Ngừng nhận email khuyến mại: ' + url,
-      html: '<!doctype html><html lang="vi"><meta charset="utf-8"><body style="margin:0;padding:24px 12px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;"><main style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:16px;padding:28px 24px;line-height:1.6;">' + require('./smtp-delivery').renderGaeruEmailLogoHtml(config) + '<h1 style="font-size:20px;margin:0 0 16px;">' + h(campaign.subject) + '</h1><div style="white-space:pre-wrap">' + h(campaign.body) + '</div><hr style="border:none;border-top:1px solid #e5e5ea;margin:24px 0;"><p style="font-size:12px;color:#6e6e73;margin:0;">GAERU · <a href="' + h(url) + '" style="color:#6e6e73;">Ngừng nhận email khuyến mại</a></p></main></body></html>',
-      messageId: require('./smtp-delivery').buildMessageId('mkt-campaign', config),
-      headers: {
-        'List-Unsubscribe': '<' + url + '>',
-        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+    const { prepareOutboundMail, buildMessageId } = require('./smtp-delivery');
+    const sent = await mailer.sendMail(prepareOutboundMail(
+      config,
+      {
+        to: row.email,
+        subject: campaign.subject,
+        text: campaign.body + '\n\nGAERU · Ngừng nhận email khuyến mại: ' + url,
+        messageId: buildMessageId('mkt-campaign', config),
+        headers: {
+          'List-Unsubscribe': '<' + url + '>',
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+        }
+      },
+      {
+        heading: campaign.subject,
+        badge: 'BẢN TIN GAERU',
+        badgeTone: 'blue',
+        preheader: String(campaign.body || '').replace(/\s+/g, ' ').trim().slice(0, 140),
+        bodyHtml: '<div class="gaeru-text" style="font-size:15px;line-height:1.68;color:#333336;white-space:pre-wrap;">' + h(campaign.body) + '</div>',
+        footerNote: 'Bạn nhận được email này do đã đăng ký nhận tin sản phẩm & ưu đãi từ GAERU.',
+        unsubscribeUrl: url,
+        unsubscribeLabel: 'Ngừng nhận email khuyến mại'
       }
-    });
+    ));
 
     const accepted = sent?.accepted?.some(e => String(e.address || e).toLowerCase() === row.email);
     await pool.query("UPDATE marketing_email_recipients SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'", [

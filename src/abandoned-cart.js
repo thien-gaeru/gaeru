@@ -321,77 +321,75 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
   const recoveryUrl = `${publicBase}/thanh-toan?recovery_token=${encodeURIComponent(cart.recovery_token)}`;
   const optOutUrl = `${publicBase}/api/abandoned-cart/opt-out/${encodeURIComponent(cart.recovery_token)}`;
 
+  const greetingPlain = cart.customer_name ? `Chào ${cart.customer_name},` : 'Chào bạn,';
+
   let subject;
   let headline;
+  let badgeText;
+  let leadCopy;
   if (stage === 1) {
     subject = 'GAERU · Bạn còn sản phẩm trong giỏ hàng';
     headline = 'Giỏ hàng của bạn đang chờ hoàn tất';
+    badgeText = 'GIỎ HÀNG CỦA BẠN';
+    leadCopy = `${greetingPlain} Bạn vừa chọn sẵn sản phẩm tại GAERU. Chỉ một bước nữa để hoàn tất đơn hàng và được giữ ưu tiên tồn kho.`;
   } else if (stage === 2) {
     subject = 'GAERU · Đừng quên: Giỏ hàng của bạn vẫn đang được giữ';
     headline = 'Sản phẩm của bạn vẫn đang được giữ trong giỏ';
+    badgeText = 'NHẮC LỊCH ĐƠN HÀNG';
+    leadCopy = `${greetingPlain} Các sản phẩm bạn quan tâm vẫn đang sẵn sàng tại GAERU. Bấm tiếp tục để hoàn tất thanh toán nhanh chóng.`;
   } else {
     subject = 'GAERU · Cơ hội cuối cùng: Sản phẩm trong giỏ hàng sắp hết hạn giữ chỗ';
     headline = 'Cơ hội cuối cùng để hoàn tất đơn hàng của bạn';
+    badgeText = 'SẮP HẾT HẠN GIỮ CHỖ';
+    leadCopy = `${greetingPlain} Thời gian giữ chỗ cho giỏ hàng của bạn sắp kết thúc. Hoàn tất ngay hôm nay để đảm bảo đủ mẫu và phiên bản bạn đã chọn.`;
   }
 
   const items = Array.isArray(cart.items) ? cart.items : JSON.parse(cart.items || '[]');
   const itemsText = items.map(i => `- ${i.productName} (${i.variantName}) × ${i.quantity}: ${formatPrice(i.priceVnd * i.quantity)}`).join('\n');
-  const itemsHtml = items.map(i => `
-    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f2;">
-      <div style="flex:1;">
-        <strong style="color:#1d1d1f;font-size:14px;">${escapeHtml(i.productName)}</strong><br>
-        <small style="color:#6e6e73;">${escapeHtml(i.variantName)} · Số lượng: ${i.quantity}</small>
-      </div>
-      <strong style="color:#0071e3;font-size:14px;">${formatPrice(i.priceVnd * i.quantity)}</strong>
-    </div>
-  `).join('');
+  const lineItems = items.map(i => ({
+    title: i.productName,
+    meta: `${i.variantName || 'Phiên bản tiêu chuẩn'} · Số lượng: ${i.quantity}`,
+    price: formatPrice(i.priceVnd * i.quantity)
+  }));
 
-  const customerGreeting = cart.customer_name ? `Chào ${escapeHtml(cart.customer_name)},` : 'Chào bạn,';
+  const text = `${greetingPlain}\n\n${headline}.\n\nSản phẩm trong giỏ của bạn:\n${itemsText}\n\nTạm tính: ${formatPrice(cart.subtotal_vnd)}\n\nKhôi phục và hoàn tất đơn hàng tại liên kết bên dưới:\n${recoveryUrl}\n\nNếu bạn không muốn tiếp tục nhận email nhắc giỏ hàng, hãy bấm từ chối tại:\n${optOutUrl}\n\nGAERU Team\nHotline: 082 919 1080 · Email: business@gaeru.com`;
 
-  const text = `${customerGreeting}\n\n${headline}.\n\nSản phẩm trong giỏ của bạn:\n${itemsText}\n\nTạm tính: ${formatPrice(cart.subtotal_vnd)}\n\nKhôi phục và hoàn tất đơn hàng tại liên kết bên dưới:\n${recoveryUrl}\n\nNếu bạn không muốn tiếp tục nhận email nhắc giỏ hàng, hãy bấm từ chối tại:\n${optOutUrl}\n\nGAERU Team\nHotline: 082 919 1080 · Email: business@gaeru.com`;
-
-  const html = `<!doctype html>
-<html lang="vi">
-<head><meta charset="utf-8"></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1d1d1f;line-height:1.6;margin:0;padding:24px;background:#f5f5f7;">
-  <div style="max-width:540px;margin:0 auto;background:#ffffff;border-radius:18px;padding:32px;box-shadow:0 4px 20px rgba(0,0,0,0.04);">
-    <div style="margin-bottom:20px;">
-      ${require('./smtp-delivery').renderGaeruEmailLogoHtml(config)}
-      <h1 style="font-size:22px;line-height:1.3;margin:8px 0 12px;color:#1d1d1f;">${escapeHtml(headline)}</h1>
-      <p style="font-size:15px;color:#515154;margin:0;">${customerGreeting} Bạn đã chọn những sản phẩm tuyệt vời tại GAERU nhưng chưa hoàn tất thanh toán.</p>
-    </div>
-    <div style="margin:24px 0;background:#fafafc;border:1px solid #e5e5ea;border-radius:12px;padding:16px;">
-      ${itemsHtml}
-      <div style="display:flex;justify-content:space-between;padding-top:12px;font-size:15px;">
-        <span>Tạm tính giỏ hàng:</span>
-        <strong style="color:#1d1d1f;font-size:17px;">${formatPrice(cart.subtotal_vnd)}</strong>
-      </div>
-    </div>
-    <div style="text-align:center;margin:28px 0;">
-      <a href="${escapeHtml(recoveryUrl)}" style="display:inline-block;background:#0071e3;color:#ffffff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:24px;text-decoration:none;">Khôi phục giỏ hàng ngay →</a>
-    </div>
-    <p style="font-size:12px;color:#86868b;margin-top:28px;padding-top:16px;border-top:1px solid #e5e5ea;">
-      Email này được gửi tự động do có giỏ hàng chưa hoàn tất thanh toán tại GAERU.<br>
-      Để ngừng nhận thông báo này: <a href="${escapeHtml(optOutUrl)}" style="color:#6e6e73;text-decoration:underline;">Ngừng nhận nhắc nhở giỏ hàng</a>.
-    </p>
-  </div>
-</body>
-</html>`;
-
-  try {
-    const result = await mailer.sendMail({
-      from: require('./smtp-delivery').resolveFrom(config),
-      replyTo: require('./smtp-delivery').resolveReplyTo(config),
+  const { prepareOutboundMail } = require('./smtp-delivery');
+  const preparedMail = prepareOutboundMail(
+    config,
+    {
       to: normEmail,
       subject,
       text,
-      html,
       messageId: require('./smtp-delivery').buildMessageId('cart-recovery', config),
       headers: {
         'List-Unsubscribe': `<${optOutUrl}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
       }
-    });
+    },
+    {
+      heading: headline,
+      preheader: `${headline} — Tạm tính ${formatPrice(cart.subtotal_vnd)}.`,
+      badge: badgeText,
+      badgeTone: stage >= 3 ? 'amber' : 'blue',
+      leadText: leadCopy,
+      htmlBodyText: '',
+      lineItems,
+      summaryRows: [
+        { label: 'Số lượng mặt hàng', value: `${items.length} sản phẩm` },
+        { label: 'Tạm tính đơn hàng', value: formatPrice(cart.subtotal_vnd), emphasis: true, accent: true }
+      ],
+      actionUrl: recoveryUrl,
+      actionLabel: 'Khôi phục giỏ hàng ngay',
+      showActionFallback: true,
+      footerNote: 'Email này được gửi tự động do có giỏ hàng chưa hoàn tất tại GAERU.',
+      unsubscribeUrl: optOutUrl,
+      unsubscribeLabel: 'Ngừng nhận nhắc nhở giỏ hàng'
+    }
+  );
+
+  try {
+    const result = await mailer.sendMail(preparedMail);
 
     const accepted = Array.isArray(result?.accepted)
       ? result.accepted.some(e => String(e.address || e).toLowerCase() === normEmail)
