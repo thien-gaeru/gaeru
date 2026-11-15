@@ -9,6 +9,7 @@ const { readBoundedText, readBoundedJson } = require("../src/lib/http-response")
 const { ForecastCache } = require("../src/inventory-forecast");
 const { smartPageCache, flushAllCache } = require("../cache");
 const { migrateDatabase } = require("../src/migrate");
+const { attachTransactionalCacheInvalidation } = require("../src/app");
 const { releaseExpiredCheckoutIntents } = require("../src/store-api");
 
 const VALID_BCRYPT_HASH = "$2a$04$012345678901234567890u0123456789012345678901234567890";
@@ -311,4 +312,64 @@ test("releaseExpiredCheckoutIntents restores held inventory on single-mutex PGli
     [warehouseId, variantId]
   );
   assert.equal(updatedWhStock.rows[0].quantity, 7);
+});
+
+test("attachTransactionalCacheInvalidation on priority proxy never recurses or leaks pool slots", async () => {
+  let rawQueryCalls = 0;
+  let rawConnectCalls = 0;
+  let rawReleaseCalls = 0;
+  const origQuery = async (sql) => {
+    rawQueryCalls++;
+    return { rows: [{ sql }] };
+  };
+  const origConnect = (cb) => {
+    rawConnectCalls++;
+    const client = {
+      async query(sql) {
+        rawQueryCalls++;
+        return { rows: [{ sql }] };
+      },
+      release() {
+        rawReleaseCalls++;
+      }
+    };
+    if (typeof cb === "function") return cb(null, client, () => rawReleaseCalls++);
+    return Promise.resolve(client);
+  };
+  const rawPool = { options: { max: 4 }, query: origQuery, connect: origConnect };
+
+  const ctrl = createPriorityPoolController(rawPool, { maxLowPriorityOps: 1, maxHighPriorityOps: 3 });
+  attachTransactionalCacheInvalidation(ctrl.highPriorityPool);
+
+  assert.equal(rawPool.connect, origConnect);
+  assert.equal(rawPool.query, origQuery);
+  assert.equal(rawPool.__gaeruCacheHooked, undefined);
+  assert.equal(ctrl.highPriorityPool.__gaeruCacheHooked, true);
+
+  const client = await Promise.race([
+    ctrl.highPriorityPool.connect(),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("connect timeout (proxy recursion)")), 2000))
+  ]);
+  assert.equal(ctrl.getStats().activeHighOps, 1);
+  await client.query("BEGIN");
+  await client.query("UPDATE products SET active = true WHERE id = $1", ["x"]);
+  await client.query("COMMIT");
+  client.release();
+  client.release();
+
+  await new Promise((resolve, reject) => {
+    ctrl.highPriorityPool.connect((err, cbClient, done) => {
+      if (err) return reject(err);
+      assert.equal(ctrl.getStats().activeHighOps, 1);
+      cbClient.release();
+      done();
+      resolve();
+    });
+  });
+
+  await ctrl.highPriorityPool.query("SELECT 1");
+  assert.equal(ctrl.getStats().activeHighOps, 0);
+  assert.equal(rawConnectCalls, 2);
+  assert.equal(rawReleaseCalls, 2);
+  assert.ok(rawQueryCalls >= 4);
 });

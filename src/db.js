@@ -309,26 +309,61 @@ function createPriorityPoolController(pool, {
     });
   };
 
+  const createOverlayProxy = (target, baseGetters) => {
+    const ownProps = Object.create(null);
+    return new Proxy(target, {
+      has(t, prop) {
+        return Object.prototype.hasOwnProperty.call(ownProps, prop)
+          || (baseGetters && Object.prototype.hasOwnProperty.call(baseGetters, prop))
+          || prop in t;
+      },
+      get(t, prop) {
+        if (Object.prototype.hasOwnProperty.call(ownProps, prop)) {
+          return ownProps[prop];
+        }
+        if (baseGetters && Object.prototype.hasOwnProperty.call(baseGetters, prop)) {
+          return baseGetters[prop];
+        }
+        const value = Reflect.get(t, prop, t);
+        return typeof value === "function" ? value.bind(t) : value;
+      },
+      set(_t, prop, value) {
+        ownProps[prop] = value;
+        return true;
+      },
+      defineProperty(_t, prop, descriptor) {
+        if (descriptor && ("get" in descriptor || "set" in descriptor)) {
+          Object.defineProperty(ownProps, prop, descriptor);
+          return true;
+        }
+        if (descriptor && "value" in descriptor) {
+          Object.defineProperty(ownProps, prop, descriptor);
+          return true;
+        }
+        return false;
+      },
+      getOwnPropertyDescriptor(t, prop) {
+        if (Object.prototype.hasOwnProperty.call(ownProps, prop)) {
+          return Object.getOwnPropertyDescriptor(ownProps, prop);
+        }
+        return Reflect.getOwnPropertyDescriptor(t, prop);
+      }
+    });
+  };
+
   const wrapReleasedClient = (client, releaseSlot, fallbackRelease) => {
     const origRelease = typeof client.release === "function" ? client.release.bind(client) : fallbackRelease;
     let released = false;
     const wrappedDone = (...relArgs) => {
+      if (released) return undefined;
+      released = true;
       try {
         return origRelease ? origRelease(...relArgs) : undefined;
       } finally {
-        if (!released) {
-          released = true;
-          releaseSlot();
-        }
+        releaseSlot();
       }
     };
-    const clientProxy = new Proxy(client, {
-      get(cTarget, cProp) {
-        if (cProp === "release") return wrappedDone;
-        const val = Reflect.get(cTarget, cProp, cTarget);
-        return typeof val === "function" ? val.bind(cTarget) : val;
-      }
-    });
+    const clientProxy = createOverlayProxy(client, { release: wrappedDone });
     return { clientProxy, wrappedDone };
   };
 
@@ -336,82 +371,85 @@ function createPriorityPoolController(pool, {
     if (!pool || (typeof pool.query !== "function" && typeof pool.connect !== "function")) {
       return pool;
     }
-    return new Proxy(pool, {
-      get(target, prop) {
-        if (prop === "query" && typeof target.query === "function") {
-          return (...args) => {
-            const lastArg = args[args.length - 1];
-            if (typeof lastArg === "function") {
-              const callback = lastArg;
-              acquireSlot(priority)
-                .then((releaseSlot) => {
-                  try {
-                    args[args.length - 1] = (...cbArgs) => {
-                      try {
-                        return callback(...cbArgs);
-                      } finally {
-                        releaseSlot();
-                      }
-                    };
-                    return target.query(...args);
-                  } catch (syncErr) {
-                    releaseSlot();
-                    throw syncErr;
-                  }
-                })
-                .catch(callback);
-              return;
-            }
-            return (async () => {
-              const releaseSlot = await acquireSlot(priority);
-              try {
-                return await target.query(...args);
-              } finally {
-                releaseSlot();
-              }
-            })();
-          };
-        }
-        if (prop === "connect" && typeof target.connect === "function") {
-          return (...args) => {
-            if (typeof args[0] === "function") {
-              const callback = args[0];
-              acquireSlot(priority)
-                .then((releaseSlot) => {
-                  target.connect((err, client, done) => {
-                    if (err || !client) {
+    const baseQuery = typeof pool.query === "function" ? pool.query.bind(pool) : null;
+    const baseConnect = typeof pool.connect === "function" ? pool.connect.bind(pool) : null;
+
+    const wrappedQuery = baseQuery
+      ? (...args) => {
+          const lastArg = args[args.length - 1];
+          if (typeof lastArg === "function") {
+            const callback = lastArg;
+            acquireSlot(priority)
+              .then((releaseSlot) => {
+                try {
+                  args[args.length - 1] = (...cbArgs) => {
+                    try {
+                      return callback(...cbArgs);
+                    } finally {
                       releaseSlot();
-                      return callback(err, client, done);
                     }
-                    const { clientProxy, wrappedDone } = wrapReleasedClient(client, releaseSlot, done);
-                    return callback(null, clientProxy, wrappedDone);
-                  });
-                })
-                .catch((err) => callback(err));
-              return undefined;
+                  };
+                  return baseQuery(...args);
+                } catch (syncErr) {
+                  releaseSlot();
+                  throw syncErr;
+                }
+              })
+              .catch(callback);
+            return;
+          }
+          return (async () => {
+            const releaseSlot = await acquireSlot(priority);
+            try {
+              return await baseQuery(...args);
+            } finally {
+              releaseSlot();
             }
-            return (async () => {
-              const releaseSlot = await acquireSlot(priority);
-              let client;
-              try {
-                client = await target.connect(...args);
-              } catch (err) {
-                releaseSlot();
-                throw err;
-              }
-              if (!client || typeof client !== "object") {
-                releaseSlot();
-                return client;
-              }
-              const { clientProxy } = wrapReleasedClient(client, releaseSlot, () => {});
-              return clientProxy;
-            })();
-          };
+          })();
         }
-        const value = Reflect.get(target, prop, target);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-    });
+      : undefined;
+
+    const wrappedConnect = baseConnect
+      ? (...args) => {
+          if (typeof args[0] === "function") {
+            const callback = args[0];
+            acquireSlot(priority)
+              .then((releaseSlot) => {
+                baseConnect((err, client, done) => {
+                  if (err || !client) {
+                    releaseSlot();
+                    return callback(err, client, done);
+                  }
+                  const { clientProxy, wrappedDone } = wrapReleasedClient(client, releaseSlot, done);
+                  return callback(null, clientProxy, wrappedDone);
+                });
+              })
+              .catch((err) => callback(err));
+            return undefined;
+          }
+          return (async () => {
+            const releaseSlot = await acquireSlot(priority);
+            let client;
+            try {
+              client = await baseConnect(...args);
+            } catch (err) {
+              releaseSlot();
+              throw err;
+            }
+            if (!client || typeof client !== "object") {
+              releaseSlot();
+              return client;
+            }
+            const { clientProxy } = wrapReleasedClient(client, releaseSlot, () => {});
+            return clientProxy;
+          })();
+        }
+      : undefined;
+
+    const baseGetters = {};
+    if (wrappedQuery) baseGetters.query = wrappedQuery;
+    if (wrappedConnect) baseGetters.connect = wrappedConnect;
+    return createOverlayProxy(pool, baseGetters);
   };
 
   return {
