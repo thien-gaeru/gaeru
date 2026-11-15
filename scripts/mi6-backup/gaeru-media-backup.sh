@@ -10,7 +10,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST=/userdata/storage/gaeru-media-backups
 APP_DIR=/userdata/storage/apps/gaeru
 MEDIA_DIR=/userdata/storage/apps/gaeru/media
-MAX_KEEP=14
+RETENTION_HOURS=48
+MIN_KEEP=1
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 OUT_GPG="$DEST/gaeru-media-config-${STAMP}.tar.gz.gpg"
 TMP_TAR="$DEST/.gaeru-media-config-${STAMP}.tar.gz.tmp.$$"
@@ -55,6 +56,7 @@ CONFIG_CANDIDATES=(
   usr/local/sbin/gaeru-gpg-common.sh
   usr/local/sbin/gaeru-pg-backup.sh
   usr/local/sbin/gaeru-media-backup.sh
+  usr/local/sbin/gaeru-backup-prune.sh
   usr/local/sbin/gaeru-gdrive-sync.sh
   usr/local/sbin/gaeru-full-restore.sh
   usr/local/sbin/gaeru-healthcheck.sh
@@ -95,9 +97,10 @@ gaeru_gpg_encrypt_and_wipe "$TMP_TAR" "$OUT_GPG"
 # Remove any legacy unencrypted archives in DEST so plaintext secrets never leave via Drive
 rm -f -- "$DEST"/gaeru-media-config-*.tar.gz "$DEST"/gaeru-media-config-*.tar.gz.sha256 2>/dev/null || true
 
-gaeru_prune_old_files "$DEST" "gaeru-media-config-*.tar.gz.gpg" "$MAX_KEEP"
+# Prune encrypted Media + Config backups older than RETENTION_HOURS (always keeping at least MIN_KEEP newest)
+PRUNED_MEDIA=$(gaeru_prune_older_than_hours "$DEST" "gaeru-media-config-*.tar.gz.gpg" "$RETENTION_HOURS" "$MIN_KEEP")
 
-echo "$(date -Is) OK encrypted $OUT_GPG ($(stat -c%s "$OUT_GPG") bytes)"
+echo "$(date -Is) OK encrypted $OUT_GPG ($(stat -c%s "$OUT_GPG") bytes) (pruned_old=${PRUNED_MEDIA}, retention=${RETENTION_HOURS}h)"
 
 # Push independently to Google Drive in background if configured
 if [ -x /usr/local/sbin/gaeru-gdrive-sync.sh ]; then

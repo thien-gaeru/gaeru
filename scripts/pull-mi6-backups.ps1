@@ -194,6 +194,7 @@ foreach ($relPath in @(
     "mi6-backup\gaeru-gdrive-sync.sh",
     "mi6-backup\gaeru-pg-backup.sh",
     "mi6-backup\gaeru-media-backup.sh",
+    "mi6-backup\gaeru-backup-prune.sh",
     "failover-restore-to-pc.ps1"
 )) {
     $f = Join-Path $scriptRoot $relPath

@@ -9,7 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 DEST=/userdata/storage/gaeru-pg-backups
 DB=gaeru_store
-MAX_KEEP=48
+RETENTION_HOURS=48
+MIN_KEEP=2
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 OUT_GPG="$DEST/${DB}-${STAMP}.dump.gpg"
@@ -62,12 +63,13 @@ gaeru_copy_latest_encrypted "$GLOBALS_GPG" "$DEST/${DB}-globals-latest.sql.gz.gp
 rm -f -- "$DEST"/${DB}-*.dump "$DEST"/${DB}-*.dump.sha256 \
   "$DEST"/${DB}-*.sql.gz "$DEST"/${DB}-*.sql.gz.sha256 2>/dev/null || true
 
-# Prune older encrypted timestamped dumps beyond MAX_KEEP
-gaeru_prune_old_files "$DEST" "${DB}-20*.dump.gpg" "$MAX_KEEP"
-gaeru_prune_old_files "$DEST" "${DB}-20*.sql.gz.gpg" "$MAX_KEEP"
-gaeru_prune_old_files "$DEST" "${DB}-globals-20*.sql.gz.gpg" "$MAX_KEEP"
+# Prune encrypted timestamped dumps older than RETENTION_HOURS (always keeping at least MIN_KEEP newest)
+PRUNED_DUMP=$(gaeru_prune_older_than_hours "$DEST" "${DB}-20*.dump.gpg" "$RETENTION_HOURS" "$MIN_KEEP")
+PRUNED_SQL=$(gaeru_prune_older_than_hours "$DEST" "${DB}-20*.sql.gz.gpg" "$RETENTION_HOURS" "$MIN_KEEP")
+PRUNED_GLOB=$(gaeru_prune_older_than_hours "$DEST" "${DB}-globals-20*.sql.gz.gpg" "$RETENTION_HOURS" "$MIN_KEEP")
+PRUNED_TOTAL=$((PRUNED_DUMP + PRUNED_SQL + PRUNED_GLOB))
 
-echo "$(date -Is) OK encrypted $OUT_GPG ($(stat -c%s "$OUT_GPG") bytes) + $SQL_GPG ($(stat -c%s "$SQL_GPG") bytes) + $GLOBALS_GPG"
+echo "$(date -Is) OK encrypted $OUT_GPG ($(stat -c%s "$OUT_GPG") bytes) + $SQL_GPG ($(stat -c%s "$SQL_GPG") bytes) + $GLOBALS_GPG (pruned_old=${PRUNED_TOTAL}, retention=${RETENTION_HOURS}h)"
 
 # Push independently to Google Drive in background if configured
 if [ -x /usr/local/sbin/gaeru-gdrive-sync.sh ]; then

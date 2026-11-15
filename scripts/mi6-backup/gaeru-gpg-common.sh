@@ -107,3 +107,52 @@ gaeru_prune_old_files() {
     fi
   done < <(ls -1t "$dir"/$pattern 2>/dev/null || true)
 }
+
+# Prune timestamped backups matching glob inside dir whose mtime is older than
+# max_age_hours, while always keeping at least min_keep newest backups intact and
+# never touching *-latest.* aliases. Prints count of removed archive files to stdout.
+gaeru_prune_older_than_hours() {
+  local dir="$1"
+  local pattern="$2"
+  local max_age_hours="${3:-48}"
+  local min_keep="${4:-1}"
+
+  [[ "$max_age_hours" =~ ^[0-9]+$ ]] && [ "$max_age_hours" -ge 1 ] || gaeru_die "Invalid max_age_hours: $max_age_hours"
+  [[ "$min_keep" =~ ^[0-9]+$ ]] && [ "$min_keep" -ge 1 ] || gaeru_die "Invalid min_keep: $min_keep"
+  [ -d "$dir" ] || { echo 0; return 0; }
+
+  local now cutoff_epoch mtime f count=0 removed=0
+  now=$(date +%s)
+  # Refuse time-based pruning if RTC/NTP clock appears unsynced (before 2023-11-14 UTC).
+  if [ "$now" -lt 1700000000 ]; then
+    echo 0
+    return 0
+  fi
+  cutoff_epoch=$((now - max_age_hours * 3600))
+
+  while IFS=$'\t' read -r mtime f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    count=$((count + 1))
+    if [ "$count" -le "$min_keep" ]; then
+      continue
+    fi
+    mtime="${mtime%%.*}"
+    [[ "$mtime" =~ ^[0-9]+$ ]] || continue
+    if [ "$mtime" -lt "$cutoff_epoch" ]; then
+      rm -f -- "$f" "${f}.sha256"
+      removed=$((removed + 1))
+    fi
+  done < <(find "$dir" -maxdepth 1 -type f -name "$pattern" ! -name '*-latest.*' -printf '%Ts\t%p\n' 2>/dev/null | sort -t$'\t' -k1,1nr)
+
+  # Remove orphaned *.gpg.sha256 checksums matching pattern whose .gpg file is gone.
+  local sha target
+  while IFS= read -r sha; do
+    [ -n "$sha" ] && [ -f "$sha" ] || continue
+    target="${sha%.sha256}"
+    if [ ! -e "$target" ]; then
+      rm -f -- "$sha"
+    fi
+  done < <(find "$dir" -maxdepth 1 -type f -name "${pattern}.sha256" ! -name '*-latest.*' 2>/dev/null)
+
+  echo "$removed"
+}
