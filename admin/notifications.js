@@ -1,6 +1,6 @@
 (()=>{
   const admin=window.GAERUAdmin,root=document.querySelector('#notifications-view');
-  let items=[],loading=false,mailAccounts=[],mailLoading=false;
+  let items=[],loading=false,mailAccounts=[],mailLoading=false,mailServiceNotice='';
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let baseline=false;
   const seen=new Set();
@@ -205,7 +205,7 @@
       </div>
       <div data-mail-accounts-list>${rows}</div>
       ${createForm}
-      <p data-mail-accounts-status role="status"></p>
+      <p data-mail-accounts-status role="status">${esc(mailServiceNotice)}</p>
     </section>`;
   }
 
@@ -218,6 +218,7 @@
     mailLoading=true;
     try{
       const res=await admin.request('/api/gaeru_ceo/notifications/mail-accounts',{cache:'no-store'});
+      mailServiceNotice=res?.available===false?(res.message||'Dịch vụ hộp thư @gaeru.com cục bộ hiện chưa kết nối.'):'';
       if(Array.isArray(res?.accounts)){
         mailAccounts=res.accounts;
         if(!root.hidden)render();

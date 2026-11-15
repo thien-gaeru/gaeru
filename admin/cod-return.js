@@ -143,8 +143,10 @@
       });
     }
 
-    // Tự động kiểm tra số lượng chờ kiểm nhận khi vào trang
-    checkPendingCount();
+    // Chỉ kiểm tra số lượng chờ kiểm nhận sau khi quản trị viên đã đăng nhập và có quyền đọc đơn hàng
+    if (window.GAERUAdmin?.user && window.GAERUAdmin?.can?.('orders.read')) {
+      checkPendingCount();
+    }
   }
 
   function setTabActive(tab) {
@@ -411,10 +413,11 @@
     }
   }
 
-  // Tự khởi tạo khi DOM sẵn sàng
+  // Tự khởi tạo khi DOM sẵn sàng và đồng bộ lại sau khi đăng nhập quản trị
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
+  document.addEventListener('gaeru:admin-ready', init);
 })();

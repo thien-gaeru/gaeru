@@ -32,4 +32,12 @@ test('guide listing uses current catalog and missing models return a navigation 
  const {base,products}=await fixture(t),listing=await fetch(base+'/huong-dan');assert.equal(listing.status,200);
  const doc=parseHTML(await listing.text()).document;assert.equal(doc.querySelectorAll('.guide-card').length,products.length);
  const missing=await fetch(base+'/huong-dan/not-published');assert.equal(missing.status,404);const missingHtml=await missing.text(),missingDoc=parseHTML(missingHtml).document;assert.ok(missingDoc.querySelector('a[href="/huong-dan"]'));assert.doesNotMatch(missingHtml,/Fixture product/);
+ const hoTro=await fetch(base+'/ho-tro/san-pham',{redirect:'manual'});
+ assert.equal(hoTro.status,301);
+ assert.equal(hoTro.headers.get('location'),'/huong-dan');
+ for(const alias of ['/ho-tro/san-pham','/product-support.html']){
+  const followed=await fetch(base+alias);
+  assert.equal(followed.status,200);
+  assert.ok(new URL(followed.url).pathname==='/huong-dan');
+ }
 });

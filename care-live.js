@@ -41,7 +41,7 @@
   schedule(delay);
   return{
    refresh:wake,
-   setStreamUrl(url){connectStream(url);wake();},
+   setStreamUrl(url){connectStream(url);if(url)wake();},
    stop(){
     stopped=true;
     environment.clearTimeout(timer);

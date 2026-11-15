@@ -292,6 +292,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     return inFlightStoreConfigPromise;
   }
 
+  function invalidateStoreConfigCache() {
+    cachedStoreConfig = null;
+    cachedStoreConfigTime = 0;
+    inFlightStoreConfigPromise = null;
+  }
+
   // GAERU F-09, DB-01 & DB-02: Singleflight read-through cache with revision counter and stockMap TTL
   let catalogRevision = 0;
   let cachedCatalogProducts = null;
@@ -308,11 +314,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     inFlightCatalogPromise = null;
   }
   try {
-    const { cacheEvents } = require('../cache');
+    const { cacheEvents } = require('./cache');
     cacheEvents.on('invalidated', (payload) => {
       const tags = payload?.tags;
       if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['catalog', 'stock', 'promotion', 'product', 'products'].includes(t) || String(t).startsWith('product:'))) {
         invalidateCatalogCache();
+      }
+      if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['store-config', 'settings', 'payment-channels'].includes(t))) {
+        invalidateStoreConfigCache();
       }
     });
   } catch (_) {}
@@ -2329,8 +2338,8 @@ const productSchema = z.object({
   imageAlt: z.string().trim().max(250).default(""),
   active: z.boolean().default(false),
   sortOrder: z.number().int().min(-1000).max(10000).default(0),
-  shopeeUrl: z.string().trim().max(1000).nullish().transform(v=>v||'').default(""),
-  tiktokShopUrl: z.string().trim().max(1000).nullish().transform(v=>v||'').default("")
+  shopeeUrl: require("./product-workspace").marketplaceUrlField("shopee", "Đường dẫn Shopee không hợp lệ."),
+  tiktokShopUrl: require("./product-workspace").marketplaceUrlField("tiktok", "Đường dẫn TikTok Shop không hợp lệ.")
 });
 
 const variantSchema = z.object({

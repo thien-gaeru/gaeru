@@ -308,6 +308,13 @@ function initAdminRealtime() {
   }
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', stopAdminRealtime);
+  window.addEventListener('pageshow', (event) => {
+    if (event?.persisted && state.session && !adminRealtimeStream) initAdminRealtime();
+  });
+}
+
 async function refreshCurrentView() {
   const activeBtn = document.querySelector('[data-view].is-active');
   if (activeBtn) await activateView(activeBtn.dataset.view, { updateHistory: false });

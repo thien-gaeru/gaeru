@@ -639,6 +639,7 @@ function createPaymentAdmin(pool,config,{fetcher,finance}={}){
     await appendAudit(c,{actor:req.admin,action:'payment.checkout.toggle',entityType:'configuration',entityId:meta.configId,metadata:{channelId:id,enabled:payload.enabled,version:updated.version}});
     return updated;
    });
+   require('./cache').invalidateTags(['store-config','settings','payment-channels'],{immediate:true});
    res.json({
     id,
     version:nextVersion,

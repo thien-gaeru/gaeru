@@ -1021,16 +1021,31 @@
     } catch {}
   }
 
-  // Initialize
+  function syncInitialData() {
+    if (!window.GAERUAdmin?.user) return;
+    if (window.GAERUAdmin.can("inventory.read") || window.GAERUAdmin.can("orders.read") || window.GAERUAdmin.can("catalog.read")) {
+      loadMetrics();
+    }
+    if (window.GAERUAdmin.can("inventory.read")) {
+      loadWarehouses();
+    }
+  }
+
+  // Initialize UI immediately; defer authenticated API requests until session is active
   renderStation();
-  loadMetrics();
-  loadWarehouses();
+  syncInitialData();
+  document.addEventListener("gaeru:admin-ready", syncInitialData);
 
   // Re-focus master input when view is opened
   const observer = new MutationObserver(() => {
     if (viewPanel.hidden)stopCamera();
-    if (!viewPanel.hidden) {
-      loadMetrics();
+    if (!viewPanel.hidden && window.GAERUAdmin?.user) {
+      if (window.GAERUAdmin.can("inventory.read") || window.GAERUAdmin.can("orders.read") || window.GAERUAdmin.can("catalog.read")) {
+        loadMetrics();
+      }
+      if (!state.warehouses.length && window.GAERUAdmin.can("inventory.read")) {
+        loadWarehouses();
+      }
       const master = viewPanel.querySelector("#barcode-master-input");
       if (master) setTimeout(() => master.focus(), 100);
     }

@@ -593,7 +593,23 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
   let evtSource = null;
   let reconnectTimer = null;
 
+  function disconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (evtSource) {
+      try { evtSource.close(); } catch (_) {}
+      evtSource = null;
+    }
+  }
+
   function connect() {
+    if (evtSource && evtSource.readyState !== 2) return;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
     try {
       evtSource = new EventSource('/api/realtime');
 
@@ -637,10 +653,8 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
     connect();
   }
 
-  window.addEventListener('pagehide', (e) => {
-    if (!e.persisted && evtSource) {
-      evtSource.close();
-      evtSource = null;
-    }
+  window.addEventListener('pagehide', disconnect);
+  window.addEventListener('pageshow', (e) => {
+    if (e?.persisted) connect();
   });
 })();

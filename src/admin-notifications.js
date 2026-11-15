@@ -250,15 +250,21 @@ function createAdminNotifications(pool,config){
     const fallbackBase=String(config.SESSION_SECRET||process.env.SESSION_SECRET||'').trim();
     const secret=rawMailSecret||(fallbackBase?require('node:crypto').createHmac('sha256',fallbackBase).update('gaeru-internal-mail-v1').digest('hex'):'');
     if(!secret)throw Object.assign(new Error('Thiếu khóa bảo mật nội bộ cho dịch vụ mail.'),{status:503});
-    const res=await fetch('http://127.0.0.1:8080/api/gaeru-mail/accounts',{
-      method,
-      headers:{
-        'Content-Type':'application/json',
-        'X-Gaeru-Internal-Mail':secret
-      },
-      ...(body?{body:JSON.stringify(body)}:{}),
-      signal:AbortSignal.timeout(5000)
-    });
+    let res;
+    try{
+      res=await fetch('http://127.0.0.1:8080/api/gaeru-mail/accounts',{
+        method,
+        headers:{
+          'Content-Type':'application/json',
+          'X-Gaeru-Internal-Mail':secret
+        },
+        ...(body?{body:JSON.stringify(body)}:{}),
+        signal:AbortSignal.timeout(5000)
+      });
+    }catch(fetchErr){
+      const isTimeout=fetchErr?.name==='TimeoutError'||fetchErr?.name==='AbortError';
+      throw Object.assign(new Error(isTimeout?'Dịch vụ hộp thư @gaeru.com cục bộ phản hồi quá chậm.':'Dịch vụ hộp thư @gaeru.com cục bộ hiện chưa kết nối.'),{status:isTimeout?504:503});
+    }
     const data=await res.json().catch(()=>({}));
     if(!res.ok||data.error){
       const err=new Error(data.error||'Không thể thực hiện thao tác hộp thư.');
@@ -271,8 +277,11 @@ function createAdminNotifications(pool,config){
   router.get('/notifications/mail-accounts',ownerOnly,requirePermission('settings.read'),async(_req,res,next)=>{
     try{
       const data=await callLocalMailAccountApi('GET');
-      res.set('Cache-Control','no-store').json(data);
+      res.set('Cache-Control','no-store').json({available:true,...data});
     }catch(e){
+      if(e.status===503||e.status===504){
+        return res.set('Cache-Control','no-store').json({available:false,offline:true,accounts:[],message:e.message});
+      }
       if(e.status)return res.status(e.status).json({error:e.message});
       next(e);
     }

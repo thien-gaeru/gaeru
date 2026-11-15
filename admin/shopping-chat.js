@@ -276,5 +276,18 @@
   window.GAERUCareLive.poll({delay:15000,active:()=>admin.can('customers.read')&&root.hidden&&matchMedia('(max-width:800px)').matches,run:async()=>{syncBubble();if(bubble.hidden)return;const d=await admin.request('/api/gaeru_ceo/shopping-chat?page=1');const unread=d.threads.some(t=>t.awaiting_admin);bubble.querySelector('[data-chat-bubble-badge]').hidden=!unread;bubble.setAttribute('aria-label',unread?'Mở chat trực tuyến, có tin cần phản hồi':'Mở chat trực tuyến');},status:()=>{}});syncBubble();
   window.GAERUShoppingChat={load};
   const updateAdminLiveStatus=(text)=>{const isRealtime=String(text||'').includes('SSE')||String(text||'').includes('Thời gian thực');const badge=root.querySelector('[data-admin-chat-live]');const label=root.querySelector('[data-admin-chat-live-text]');if(badge){badge.classList.toggle('is-fallback',!isRealtime);badge.title=isRealtime?'Thời gian thực (SSE 0ms)':(text||'Tự cập nhật');}if(label){label.textContent=isRealtime?'Trực tuyến':(String(text||'').includes('Mất')?'Mất mạng':'Đang kết nối');}};
-  window.GAERUCareLive.poll({streamUrl:'/api/gaeru_ceo/realtime-sse',delay:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:updateAdminLiveStatus});
+  let adminChatPoll=null;
+  const syncChatStream=()=>{
+    if(admin.user&&admin.can('customers.read')){
+      if(!adminChatPoll){
+        adminChatPoll=window.GAERUCareLive.poll({streamUrl:'/api/gaeru_ceo/realtime-sse',delay:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:updateAdminLiveStatus});
+      }else{
+        adminChatPoll.setStreamUrl('/api/gaeru_ceo/realtime-sse');
+      }
+    }else if(adminChatPoll){
+      adminChatPoll.setStreamUrl(null);
+    }
+  };
+  syncChatStream();
+  document.addEventListener('gaeru:admin-ready',syncChatStream);
 })();

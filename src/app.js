@@ -504,6 +504,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     misaFetcher: config.misaFetcher,
     finance: { receiptTotal, recordFullOrderPayment }
   }));
+  // Mount public bundle quote APIs after store-api so GET /api/products/:slug/bundles keeps store cache headers.
+  app.use("/api", marketing.publicApi);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Không tìm thấy API." }));
 
   app.use((req, res, next) => {
@@ -548,6 +550,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.get("/gaeru_ceo", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.sendFile("index.html", { root: adminRoot }, error => { if (error) next(error); });
+  });
+  app.get('/favicon.ico', (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.sendFile('gaeru-app-192.png', { root: path.join(projectRoot, 'assets', 'brand') }, error => {
+      if (error && !res.headersSent) res.status(204).end();
+    });
   });
   app.get('/dict/shared-template.dict', require('./lib/compression-dictionary').serveDictionaryRoute);
   app.use(require('./lib/early-hints').earlyHintsMiddleware);
@@ -602,6 +610,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if(error.code==='IMAGE_PROCESSING_BUSY')return res.status(503).json({error:'Đang tối ưu nhiều ảnh. Vui lòng thử lại sau.'});
     if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;
+    if ((error.name === 'ZodError' || Array.isArray(error.issues)) && (!status || status >= 500)) {
+      return res.status(400).json({ error: 'Dữ liệu hoặc tham số yêu cầu chưa hợp lệ.' });
+    }
     if (error.code && typeof error.code === 'string') {
       const isCodRelated = ['cod_settlement_allocations', 'cod_settlement_batches', 'carrier_shipments', 'sales_receipts'].includes(error.table) ||
         (typeof error.constraint === 'string' && /cod_settlement|cap_check|sales_receipts/.test(error.constraint));
@@ -625,7 +636,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
         }
       }
     }
-    if ([502,503,504].includes(status)) return res.status(status).json({ error: error.message || (status===504 ? 'Dịch vụ kết nối phản hồi quá chậm. Vui lòng thử lại.' : 'Dịch vụ kết nối chưa trả dữ liệu hợp lệ. Vui lòng thử lại.') });
+    if ([501,502,503,504].includes(status)) return res.status(status).json({ error: error.message || (status===501 ? 'Chức năng chưa được hỗ trợ hoặc chưa nghiệm thu.' : (status===504 ? 'Dịch vụ kết nối phản hồi quá chậm. Vui lòng thử lại.' : 'Dịch vụ kết nối chưa trả dữ liệu hợp lệ. Vui lòng thử lại.')) });
     if (status >= 400 && status < 500) {
       const isSyntaxOrBody = error instanceof SyntaxError || error.type === 'entity.parse.failed' || status === 413 || !error.message;
       return res.status(status).json({ error: status === 413 ? "Dữ liệu gửi lên quá lớn." : (isSyntaxOrBody ? "Yêu cầu không hợp lệ." : error.message) });
