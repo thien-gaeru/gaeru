@@ -60,6 +60,17 @@ function createWarrantyPublicApi(pool,config=null){
     });
     return {status:201,activation,managementToken};
    });
+   if(result.status===201&&result.activation?.id){
+    try{
+      require('./admin-notifications').notifyAdminPushBackground(pool,config||{},{
+        requiredPermissions:['orders.read','warranty.approve'],
+        title:'🛡️ Bảo hành · Đăng ký mới chờ duyệt',
+        body:`${a.productName} · ${a.channel.toUpperCase()} ${a.externalOrderNumber}`.slice(0,160),
+        target:'warranty',
+        tag:'warranty:'+result.activation.id
+      });
+    }catch(_){}
+   }
    res.status(result.status).json(result.error?{error:result.error}:{activation:result.activation,...(result.managementToken?{managementToken:result.managementToken}:{})});
   }catch(error){if(error.code==='23505')return res.status(409).json({error:'Đăng ký hoặc serial đã tồn tại. Liên hệ GAERU để đối chiếu.'});next(error);}
  });

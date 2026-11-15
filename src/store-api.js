@@ -1512,6 +1512,19 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           : [order.order.orderNumber];
       }
       const responsePayload = checkoutResponse(order);
+      try {
+        const o = order?.order || {};
+        const totalText = Number.isFinite(Number(o.totalVnd))
+          ? `${new Intl.NumberFormat('vi-VN').format(Number(o.totalVnd))} ₫`
+          : '';
+        require('./admin-notifications').notifyAdminPushBackground(pool, config || {}, {
+          requiredPermissions: ['orders.read'],
+          title: `🛒 Đơn hàng mới ${o.orderNumber || ''}`.trim(),
+          body: [o.customerName, totalText].filter(Boolean).join(' · ') || 'Có đơn hàng mới cần xác nhận.',
+          target: 'orders',
+          tag: o.id ? `order:${o.id}` : 'gaeru-order-new'
+        });
+      } catch (_) {}
 
       res.status(201).json(responsePayload);
     } catch (error) {

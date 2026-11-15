@@ -92,7 +92,7 @@ test('Admin PWA for Android and iOS is configured, served, and installable', asy
   // Test notification-worker.js endpoint
   const swRes = await fetch(`${baseUrl}/gaeru_ceo/notification-worker.js`);
   assert.equal(swRes.status, 200);
-  assert.equal(swRes.headers.get('service-worker-allowed'), '/gaeru_ceo/');
+  assert.equal(swRes.headers.get('service-worker-allowed'), '/gaeru_ceo');
 
   // Test pwa-qr.png endpoint
   const qrRes = await fetch(`${baseUrl}/gaeru_ceo/pwa-qr.png`);

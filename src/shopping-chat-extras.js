@@ -172,6 +172,17 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   };
   if (client) await persist(client);
   else await withTransaction(pool, persist); try{require('./realtime-sse').publishChatEvent(chatThread.id,'chat:message',{threadId:chatThread.id,sender:isAdmin?'admin':'customer',body:'Tệp đính kèm: '+safeName,fileId:fileRecord?.id});}catch(_){}
+  if (!isAdmin && chatThread.handling_mode === 'human') {
+    try {
+      require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+        requiredPermissions: ['customers.read'],
+        title: `📎 Chat mua sắm · ${chatThread.product_name || 'Khách gửi tệp'}`,
+        body: `Tệp đính kèm: ${safeName}`.slice(0, 160),
+        target: 'shopping-chat',
+        tag: 'shopping-chat:' + chatThread.id
+      });
+    } catch (_) {}
+  }
   return fileRecord;
 }
 
@@ -463,7 +474,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit,chunkLi
     }
     res.set('Cache-Control','no-store').json({items,page,hasMore:items.length===25});
   }));
-  publicApi.post('/threads/:id/handoff',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{await withTransaction(pool,c=>require('./shopping-chat-ai-first').handoff(c,req.chatThread.id,'customer_request'));try{require('./realtime-sse').publishChatEvent(req.chatThread.id,'chat:update',{threadId:req.chatThread.id,mode:'human'});}catch(_){}res.json({message:'Đã chuyển hội thoại cho nhân viên.'});}));
+  publicApi.post('/threads/:id/handoff',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{const handedOff=await withTransaction(pool,c=>require('./shopping-chat-ai-first').handoff(c,req.chatThread.id,'customer_request'));try{require('./realtime-sse').publishChatEvent(req.chatThread.id,'chat:update',{threadId:req.chatThread.id,mode:'human'});}catch(_){}if(handedOff){try{require('./admin-notifications').notifyAdminPushBackground(pool,config,{requiredPermissions:['customers.read'],title:'💬 Chat mua sắm · Khách cần gặp nhân viên',body:String(req.chatThread.product_name||'Hội thoại mua sắm cần phản hồi').slice(0,160),target:'shopping-chat',tag:'shopping-chat:'+req.chatThread.id});}catch(_){}}res.json({message:'Đã chuyển hội thoại cho nhân viên.'});}));
   publicApi.post('/threads/:id/resume-ai',requireCsrf,limit,authorize(false),wrap(async(req,res)=>{
     const resumed=await withTransaction(pool,c=>require('./shopping-chat-ai-first').resumeAI(c,req.chatThread.id,'staff_timeout'));
     if(resumed)require('./shopping-chat-ai-first').kickAIChatWorker();

@@ -236,7 +236,18 @@ function createCareCustomerApi(pool, config = {}) {
         await appendAudit(client, { actor: { username: req.customerId, source: 'customer' }, action: 'care.reply', entityType: 'care', entityId: row.id });
         return { status: 201 };
       });
-      if (result.status === 201) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', body: parsed.data.body }); } catch (_) {} }
+      if (result.status === 201) {
+        try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', body: parsed.data.body }); } catch (_) {}
+        try {
+          require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+            requiredPermissions: ['orders.read'],
+            title: '💬 CARE+ · Khách hàng vừa phản hồi',
+            body: parsed.data.body.slice(0, 160),
+            target: 'care',
+            tag: 'care:' + req.params.id
+          });
+        } catch (_) {}
+      }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi trả lời.' });
     } catch (e) { next(e); }
   });
@@ -282,7 +293,18 @@ function createCareCustomerApi(pool, config = {}) {
         });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };
       });
-      if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', file: result.file }); } catch (_) {} }
+      if (result.file) {
+        try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'customer', file: result.file }); } catch (_) {}
+        try {
+          require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+            requiredPermissions: ['orders.read'],
+            title: '📎 CARE+ · Khách gửi tệp đính kèm',
+            body: String(result.file.name || 'Tệp đính kèm mới').slice(0, 160),
+            target: 'care',
+            tag: 'care:' + req.params.id
+          });
+        } catch (_) {}
+      }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
     } catch (e) { next(e); }
   });
@@ -345,6 +367,18 @@ function createCareCustomerApi(pool, config = {}) {
         await appendAudit(client, { actor: { username: req.customerId, source: 'customer' }, action: 'care.create', entityType: 'care', entityId: created.id, metadata: { orderId: a.orderId || null, channel: a.channel } });
         return { status: 201, request: created };
       });
+      if (result.status === 201 && result.request?.id) {
+        try { require('./realtime-sse').publishAdminEvent('care:update', { careId: result.request.id, status: result.request.status }); } catch (_) {}
+        try {
+          require('./admin-notifications').notifyAdminPushBackground(pool, config, {
+            requiredPermissions: ['orders.read'],
+            title: '🛟 CARE+ · Yêu cầu hỗ trợ mới',
+            body: String(parsed.data.subject || '').slice(0, 160),
+            target: 'care',
+            tag: 'care:' + result.request.id
+          });
+        } catch (_) {}
+      }
       res.status(result.status).json(result.error ? { error: result.error } : { request: { id: result.request.id, status: result.request.status } });
     } catch (e) { next(e); }
   });

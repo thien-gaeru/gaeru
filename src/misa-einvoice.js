@@ -114,11 +114,11 @@ async function ensureMisaRetryTable(client) {
   }
 }
 
-async function enqueueInvoiceRetry(pool, orderId, error) {
+async function enqueueInvoiceRetry(pool, orderId, error, config = {}) {
   try {
     await ensureMisaRetryTable(pool);
     const errMsg = String(error?.message || error || 'Lỗi không xác định');
-    await pool.query(
+    const qRes = await pool.query(
       `INSERT INTO misa_einvoice_retry_queue (order_id, attempts, last_error, next_attempt_at, status, updated_at)
        VALUES ($1, 1, $2, now() + interval '5 minutes', 'pending', now())
        ON CONFLICT (order_id) DO UPDATE SET
@@ -133,9 +133,22 @@ async function enqueueInvoiceRetry(pool, orderId, error) {
            WHEN misa_einvoice_retry_queue.attempts + 1 >= 3 THEN 'failed'
            ELSE 'pending'
          END,
-         updated_at = now()`,
+         updated_at = now()
+       RETURNING status, attempts`,
       [orderId, errMsg]
     );
+    const row = qRes.rows?.[0];
+    if (row?.status === 'failed') {
+      try {
+        require('./admin-notifications').notifyAdminPushBackground(pool, config || {}, {
+          requiredPermissions: ['orders.read', 'invoice.approve'],
+          title: '⚠️ Hóa đơn MISA · Phát hành thất bại',
+          body: `Đơn ${orderId} thất bại sau ${row.attempts} lần thử (${errMsg.slice(0, 120)}).`,
+          target: 'business',
+          tag: 'misa:' + orderId
+        });
+      } catch (_) {}
+    }
   } catch (e) {
     // Tolerant in case of mock pools
   }
@@ -190,11 +203,11 @@ async function retryPendingInvoices(pool, config = {}, { fetcher, limit = 50 } =
           await dequeueInvoiceSuccess(pool, order.orderId);
         } else if (res?.skipped) {
           // Bổ sung vào hàng đợi nếu giao thức chưa sẵn sàng hoặc mạng ngắt
-          await enqueueInvoiceRetry(pool, order.orderId, res.reason || res.message);
+          await enqueueInvoiceRetry(pool, order.orderId, res.reason || res.message, config);
         }
         results.push({ orderId: order.orderId, orderNumber: order.orderNumber, success: true, ...res });
       } catch (err) {
-        await enqueueInvoiceRetry(pool, order.orderId, err.message);
+        await enqueueInvoiceRetry(pool, order.orderId, err.message, config);
         results.push({ orderId: order.orderId, orderNumber: order.orderNumber, success: false, error: err.message });
       }
     }

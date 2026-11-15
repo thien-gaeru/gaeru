@@ -28,7 +28,7 @@
   function registerServiceWorker() {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/gaeru_ceo/notification-worker.js', { scope: '/gaeru_ceo/' })
+      navigator.serviceWorker.register('/gaeru_ceo/notification-worker.js', { scope: '/gaeru_ceo' })
         .catch(() => {});
     });
   }

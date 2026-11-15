@@ -5,7 +5,8 @@
   let baseline=false;
   const seen=new Set();
   let audio=null;
-  let pushSyncing=false;
+  let pushSyncPromise=null;
+  let pushSyncMode=null;
 
   const preference=()=>{
     try{
@@ -34,36 +35,82 @@
     return outputArray;
   }
 
-  async function syncWebPushSubscription(enable=true){
-    if(pushSyncing||!('serviceWorker'in navigator)||!('PushManager'in window))return false;
-    pushSyncing=true;
+  function uint8Equal(a,b){
+    if(!a||!b)return false;
+    const ua=a instanceof Uint8Array?a:new Uint8Array(a);
+    const ub=b instanceof Uint8Array?b:new Uint8Array(b);
+    if(ua.length!==ub.length)return false;
+    for(let i=0;i<ua.length;i++)if(ua[i]!==ub[i])return false;
+    return true;
+  }
+
+  async function registerAdminWorker(){
+    if(typeof navigator==='undefined'||!('serviceWorker'in navigator))return null;
     try{
-      const registration=await navigator.serviceWorker.register('/gaeru_ceo/notification-worker.js');
-      await navigator.serviceWorker.ready;
+      const regs=await navigator.serviceWorker.getRegistrations();
+      for(const r of regs){
+        try{
+          if(new URL(r.scope).pathname==='/gaeru_ceo/')await r.unregister();
+        }catch{}
+      }
+    }catch{}
+    const registration=await navigator.serviceWorker.register('/gaeru_ceo/notification-worker.js',{scope:'/gaeru_ceo'});
+    await navigator.serviceWorker.ready;
+    return registration;
+  }
+
+  async function syncWebPushSubscription(enable=true,{throwOnError=false}={}){
+    if(typeof navigator==='undefined'||!('serviceWorker'in navigator)||typeof window==='undefined'||!('PushManager'in window))return false;
+    if(pushSyncPromise){
+      if(pushSyncMode===Boolean(enable))return pushSyncPromise.catch(err=>{if(throwOnError)throw err;return false;});
+      try{await pushSyncPromise;}catch{}
+    }
+    const mode=Boolean(enable);
+    let wrapped=null;
+    const task=(async()=>{
+      const registration=await registerAdminWorker();
+      if(!registration)return false;
       const existing=await registration.pushManager.getSubscription();
-      if(!enable){
+      if(!mode){
         if(existing){
           try{await admin.request('/api/gaeru_ceo/notifications/push-unsubscribe',{method:'POST',body:JSON.stringify({endpoint:existing.endpoint})});}catch{}
           try{await existing.unsubscribe();}catch{}
         }
         return false;
       }
-      if(!('Notification'in window)||Notification.permission!=='granted')return false;
+      if(typeof Notification==='undefined'||Notification.permission!=='granted')return false;
       const keyRes=await admin.request('/api/gaeru_ceo/notifications/vapid-public-key',{cache:'no-store'});
-      if(!keyRes?.publicKey)return false;
-      const sub=existing||await registration.pushManager.subscribe({
+      if(!keyRes?.publicKey)throw Error('Máy chủ chưa cấu hình khóa thông báo đẩy (VAPID).');
+      const expectedKey=urlBase64ToUint8Array(keyRes.publicKey);
+      let activeSub=existing;
+      if(activeSub&&activeSub.options?.applicationServerKey&&!uint8Equal(activeSub.options.applicationServerKey,expectedKey)){
+        try{await admin.request('/api/gaeru_ceo/notifications/push-unsubscribe',{method:'POST',body:JSON.stringify({endpoint:activeSub.endpoint})});}catch{}
+        try{await activeSub.unsubscribe();}catch{}
+        activeSub=null;
+      }
+      const sub=activeSub||await registration.pushManager.subscribe({
         userVisibleOnly:true,
-        applicationServerKey:urlBase64ToUint8Array(keyRes.publicKey)
+        applicationServerKey:expectedKey
       });
       await admin.request('/api/gaeru_ceo/notifications/push-subscribe',{
         method:'POST',
         body:JSON.stringify(sub.toJSON())
       });
       return true;
-    }catch{
+    })();
+    pushSyncMode=mode;
+    wrapped=task.finally(()=>{
+      if(pushSyncPromise===wrapped){
+        pushSyncPromise=null;
+        pushSyncMode=null;
+      }
+    });
+    pushSyncPromise=wrapped;
+    try{
+      return await wrapped;
+    }catch(error){
+      if(throwOnError)throw error;
       return false;
-    }finally{
-      pushSyncing=false;
     }
   }
 
@@ -94,7 +141,8 @@
     const title=fresh.length===1?first.title:'GAERU · Có công việc mới';
     const body=fresh.length===1?first.detail:(fresh.length+' thông báo mới. Mở quản trị để xem nội dung.');
     try{
-      const registration=await navigator.serviceWorker.register('/gaeru_ceo/notification-worker.js');
+      const registration=await registerAdminWorker();
+      if(!registration)throw Error('No SW');
       await registration.showNotification(title,{body,tag:'gaeru-admin-work',data:{target:first.target}});
     }catch{
       try{
@@ -103,9 +151,18 @@
     }
   }
 
+  function desktopButtonState(p){
+    const supported=typeof Notification!=='undefined';
+    const perm=supported?Notification.permission:'default';
+    if(supported&&perm==='denied')return {active:false,label:'Thông báo đẩy: Bị chặn'};
+    if(!supported||perm!=='granted')return {active:false,label:'Thông báo đẩy: Chưa cấp quyền'};
+    return {active:Boolean(p.desktop),label:'Thông báo đẩy: '+(p.desktop?'Bật':'Tắt')};
+  }
+
   function controls(){
     const p=preference();
-    return '<section class="notice-preferences"><div><strong>Thông báo đẩy & âm thanh trên thiết bị này</strong><p>Nhận thông báo đẩy (Web Push) ngay khi có email mới tới @gaeru.com hoặc công việc mới, kể cả khi đóng trình duyệt.</p></div><div><button type="button" data-notice-desktop aria-pressed="'+Boolean(p.desktop)+'">Thông báo đẩy: '+(p.desktop?'Bật':'Tắt')+'</button><button type="button" data-notice-sound aria-pressed="'+Boolean(p.sound)+'">Âm thanh: '+(p.sound?'Bật':'Tắt')+'</button><button type="button" data-notice-test>Thử âm thanh</button><button type="button" data-notice-push-test>Thử thông báo đẩy Mail</button></div><p data-notice-preference-status role="status"></p></section>';
+    const desk=desktopButtonState(p);
+    return '<section class="notice-preferences"><div><strong>Thông báo đẩy & âm thanh trên thiết bị này</strong><p>Nhận thông báo đẩy (Web Push) ngay khi có đơn hàng, chat khách hàng hoặc yêu cầu mới, kể cả khi đóng trình duyệt.</p></div><div><button type="button" data-notice-desktop aria-pressed="'+desk.active+'">'+desk.label+'</button><button type="button" data-notice-sound aria-pressed="'+Boolean(p.sound)+'">Âm thanh: '+(p.sound?'Bật':'Tắt')+'</button><button type="button" data-notice-test>Thử âm thanh</button><button type="button" data-notice-push-test>Thử thông báo đẩy</button></div><p data-notice-preference-status role="status"></p></section>';
   }
 
   function mailAccountsSection(){
@@ -314,30 +371,40 @@
         }
         p.desktop=true;
         storePreference(p);
-        await syncWebPushSubscription(true);
+        const synced=await syncWebPushSubscription(true,{throwOnError:true});
+        if(!synced)throw Error('Trình duyệt không hỗ trợ hoặc chưa kích hoạt được Service Worker Web Push.');
         const res=await admin.request('/api/gaeru_ceo/notifications/push-test',{method:'POST',body:'{}'});
+        render();
         const st=root.querySelector('[data-notice-preference-status]');
-        if(st)st.textContent=res.message||'Đã gửi thông báo đẩy thử nghiệm.';
+        if(st)st.textContent=res.message||(res.ok?'Đã gửi thông báo đẩy thử nghiệm.':'Không gửi được thông báo đẩy.');
         return;
       }
       if(sound){
         p.sound=!p.sound;
         if(p.sound)beep();
       }
+      let nextStatus='';
       if(desktop){
-        if(p.desktop){
+        const hasPerm='Notification'in window&&Notification.permission==='granted';
+        if(p.desktop&&hasPerm){
           p.desktop=false;
           await syncWebPushSubscription(false);
+          nextStatus='Đã tắt thông báo đẩy trên thiết bị này.';
         }else{
           if(!('Notification'in window))throw Error('Trình duyệt chưa hỗ trợ thông báo.');
-          const permission=await Notification.requestPermission();
+          const permission=hasPerm?'granted':await Notification.requestPermission();
           if(permission!=='granted')throw Error('Chưa được cấp quyền. Bật thông báo trong cài đặt trình duyệt để tiếp tục.');
           p.desktop=true;
-          await syncWebPushSubscription(true);
+          const synced=await syncWebPushSubscription(true,{throwOnError:true});
+          nextStatus=synced?'Đã bật và đăng ký thông báo đẩy trên thiết bị này.':'Đã cấp quyền nhưng chưa thể đăng ký push gateway.';
         }
       }
       storePreference(p);
       render();
+      if(nextStatus){
+        const st=root.querySelector('[data-notice-preference-status]');
+        if(st)st.textContent=nextStatus;
+      }
     }catch(error){
       const st=root.querySelector('[data-notice-preference-status]');
       if(st)st.textContent=error.message;
@@ -386,7 +453,8 @@
       if('Notification' in window && Notification.permission==='default' && preference().desktop){
         Notification.requestPermission().then(perm=>{
           if(perm==='granted'){
-            syncWebPushSubscription(true).catch(()=>{});
+            syncWebPushSubscription(true).then(()=>{render();}).catch(()=>{});
+          }else{
             render();
           }
         }).catch(()=>{});

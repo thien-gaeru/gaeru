@@ -1,15 +1,130 @@
+const crypto=require('node:crypto');
 const {Router}=require('express');
 const {z}=require('zod');
-const {requirePermission}=require('./staff-access');const {requireCsrf}=require('./security');
+const {requirePermission,ROLE_PERMISSIONS}=require('./staff-access');const {requireCsrf}=require('./security');
 const {sendWebPushNotification}=require('./web-push');
 const {assertSafePushEndpoint}=require('./audit-fixes/push-url-guard');
 const accountKey=a=>a.source==='bootstrap'?'owner':'staff:'+a.id;
 
+function decodeBase64Url(value){
+  const normalized=String(value||'').trim().replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');
+  return Buffer.from(normalized,'base64url');
+}
+
+function isValidP256PublicKey(value){
+  try{
+    const buf=decodeBase64Url(value);
+    if(buf.length!==65||buf[0]!==0x04)return false;
+    const probe=crypto.createECDH('prime256v1');
+    probe.generateKeys();
+    probe.computeSecret(buf);
+    return true;
+  }catch(_){
+    return false;
+  }
+}
+
+function isValidAuthSecret(value){
+  try{
+    const buf=decodeBase64Url(value);
+    return buf.length>=16&&buf.length<=32;
+  }catch(_){
+    return false;
+  }
+}
+
+function resolveVapidConfig(config={}){
+  const publicKey=String(config?.VAPID_PUBLIC_KEY||process.env.VAPID_PUBLIC_KEY||'').trim();
+  const privateKey=String(config?.VAPID_PRIVATE_KEY||process.env.VAPID_PRIVATE_KEY||'').trim();
+  const subject=String(config?.VAPID_SUBJECT||process.env.VAPID_SUBJECT||'mailto:business@gaeru.com').trim()||'mailto:business@gaeru.com';
+  if(!publicKey||!privateKey)return null;
+  return {publicKey,privateKey,subject};
+}
+
+function isSubscriberAuthorized(row,requiredPermissions){
+  if(!row?.account_key)return false;
+  if(row.account_key==='owner')return true;
+  if(!String(row.account_key).startsWith('staff:'))return false;
+  if(row.active!==true||!row.role)return false;
+  if(!Array.isArray(requiredPermissions)||!requiredPermissions.length)return true;
+  const perms=ROLE_PERMISSIONS[row.role]||[];
+  return requiredPermissions.some(p=>perms.includes(p));
+}
+
+async function deliverPushToRows(pool,subs,payload,vapid,fetcher=globalThis.fetch){
+  if(!Array.isArray(subs)||!subs.length)return {sent:0,failed:0,gone:0};
+  const results=await Promise.allSettled(subs.map(async s=>{
+    const host=(()=>{try{return new URL(s.endpoint).origin;}catch{return 'unknown';}})();
+    try{
+      const r=await sendWebPushNotification(
+        {endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},
+        payload,
+        vapid,
+        fetcher
+      );
+      if(r.gone){
+        await pool.query('DELETE FROM admin_push_subscriptions WHERE endpoint=$1',[s.endpoint]).catch(()=>{});
+        return 'gone';
+      }
+      if(r.ok)return 'sent';
+      console.warn('[web-push] push rejected:',JSON.stringify({host,status:r.status}));
+      return 'failed';
+    }catch(err){
+      console.warn('[web-push] delivery error:',JSON.stringify({host,error:err?.message||String(err)}));
+      return 'failed';
+    }
+  }));
+  let sent=0,failed=0,gone=0;
+  for(const item of results){
+    const val=item.status==='fulfilled'?item.value:'failed';
+    if(val==='sent')sent+=1;
+    else if(val==='gone')gone+=1;
+    else failed+=1;
+  }
+  return {sent,failed,gone};
+}
+
+/**
+ * Gửi thông báo Web Push tới tất cả thiết bị quản trị đã đăng ký và có quyền tương ứng.
+ */
+async function dispatchAdminWebPush(pool,config,{requiredPermissions=['dashboard.read'],title,body,target='notifications',tag,url}={}){
+  const vapid=resolveVapidConfig(config);
+  if(!vapid||!pool||typeof pool.query!=='function')return {sent:0,failed:0,gone:0,skipped:true};
+  let rows=[];
+  try{
+    rows=(await pool.query(
+      `SELECT sub.endpoint,sub.p256dh,sub.auth,sub.account_key,s.role,s.active
+       FROM admin_push_subscriptions sub
+       LEFT JOIN staff_accounts s ON sub.account_key=('staff:'||s.id::text)`
+    )).rows||[];
+  }catch(err){
+    if(err?.code==='42P01')return {sent:0,failed:0,gone:0,skipped:true};
+    throw err;
+  }
+  const authorized=rows.filter(r=>isSubscriberAuthorized(r,requiredPermissions));
+  if(!authorized.length)return {sent:0,failed:0,gone:0};
+  const fetcher=typeof config?.webPushFetcher==='function'?config.webPushFetcher:globalThis.fetch;
+  return deliverPushToRows(pool,authorized,{title,body,target,...(tag?{tag}:{}),...(url?{url}:{})},vapid,fetcher);
+}
+
+/**
+ * Kích hoạt gửi Web Push chạy nền không chặn luồng giao dịch HTTP/DB chính.
+ */
+function notifyAdminPushBackground(pool,config,opts){
+  if(!pool||typeof pool.query!=='function')return;
+  const run=()=>dispatchAdminWebPush(pool,config,opts).catch(err=>{
+    console.warn('[web-push] background dispatch error:',err?.message||String(err));
+  });
+  if(typeof setImmediate==='function')setImmediate(run);
+  else Promise.resolve().then(run);
+}
+
 const pushSubscribeSchema=z.object({
   endpoint:z.string().url().max(2048),
+  expirationTime:z.number().finite().nullable().optional(),
   keys:z.object({
-    p256dh:z.string().trim().min(20).max(256),
-    auth:z.string().trim().min(16).max(128)
+    p256dh:z.string().trim().min(20).max(256).refine(isValidP256PublicKey,'Khóa công khai p256dh Web Push không hợp lệ.'),
+    auth:z.string().trim().min(16).max(128).refine(isValidAuthSecret,'Khóa auth Web Push không hợp lệ.')
   })
 }).strict();
 
@@ -77,37 +192,37 @@ function createAdminNotifications(pool,config){
 
   router.post('/notifications/push-test',requireCsrf,async(req,res,next)=>{
     try{
-      const vapid={
-        publicKey:config.VAPID_PUBLIC_KEY||process.env.VAPID_PUBLIC_KEY,
-        privateKey:config.VAPID_PRIVATE_KEY||process.env.VAPID_PRIVATE_KEY,
-        subject:config.VAPID_SUBJECT||process.env.VAPID_SUBJECT||'mailto:business@gaeru.com'
-      };
-      if(!vapid.publicKey||!vapid.privateKey){
+      const vapid=resolveVapidConfig(config);
+      if(!vapid){
         return res.status(503).json({error:'Máy chủ chưa cấu hình khóa VAPID.'});
       }
       const subs=(await pool.query('SELECT endpoint,p256dh,auth FROM admin_push_subscriptions WHERE account_key=$1',[accountKey(req.admin)])).rows;
       if(!subs.length){
         return res.status(404).json({error:'Thiết bị này chưa đăng ký nhận thông báo đẩy. Hãy bật Thông báo trình duyệt trước.'});
       }
-      let sent=0;
-      for(const s of subs){
-        try{
-          const r=await sendWebPushNotification(
-            {endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},
-            {
-              title:'✉️ GAERU Mail · Thông báo đẩy đã bật',
-              body:'Thiết bị đã sẵn sàng nhận thông báo cho hộp thư tên miền @gaeru.com (iCloud+ Mail).',
-              target:'webmail',
-              url:'https://www.icloud.com/mail',
-              tag:'gaeru-mail-test-'+Date.now()
-            },
-            vapid
-          );
-          if(r.gone)await pool.query('DELETE FROM admin_push_subscriptions WHERE endpoint=$1',[s.endpoint]);
-          else if(r.ok)sent+=1;
-        }catch(_){}
-      }
-      res.json({ok:sent>0,sent,message:sent>0?'Đã gửi thông báo đẩy thử nghiệm tới '+sent+' thiết bị.':'Không gửi được tới thiết bị nào.'});
+      const isMailTest=req.body?.channel==='mail';
+      const payload=isMailTest
+        ?{
+            title:'✉️ GAERU Mail · Thông báo đẩy đã bật',
+            body:'Thiết bị đã sẵn sàng nhận thông báo cho hộp thư tên miền @gaeru.com (iCloud+ Mail).',
+            target:'webmail',
+            url:'https://www.icloud.com/mail',
+            tag:'gaeru-mail-test-'+Date.now()
+          }
+        :{
+            title:'🔔 GAERU CEO · Thông báo đẩy đã bật',
+            body:'Thiết bị này đã sẵn sàng nhận thông báo đơn hàng, chat khách hàng và yêu cầu hỗ trợ mới.',
+            target:'notifications',
+            tag:'gaeru-admin-test-'+Date.now()
+          };
+      const fetcher=typeof config?.webPushFetcher==='function'?config.webPushFetcher:globalThis.fetch;
+      const result=await deliverPushToRows(pool,subs,payload,vapid,fetcher);
+      const message=result.sent>0
+        ?`Đã gửi thông báo đẩy thử nghiệm tới ${result.sent} thiết bị.`
+        :(result.gone>0
+          ?'Đăng ký trên thiết bị đã hết hạn và được dọn sạch. Vui lòng bật lại Thông báo đẩy.'
+          :'Không gửi được thông báo đẩy tới thiết bị nào. Vui lòng kiểm tra kết nối push gateway.');
+      res.json({ok:result.sent>0,sent:result.sent,failed:result.failed,gone:result.gone,message});
     }catch(e){next(e);}
   });
 
@@ -182,4 +297,4 @@ function createAdminNotifications(pool,config){
 
   return router;
 }
-module.exports={createAdminNotifications,notices};
+module.exports={createAdminNotifications,notices,dispatchAdminWebPush,notifyAdminPushBackground,deliverPushToRows,resolveVapidConfig,isSubscriberAuthorized,pushSubscribeSchema};
