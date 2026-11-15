@@ -144,11 +144,15 @@ test('audit fixes: /health, /api/failover-status auth, /gaeru_ceo/pwa-qr.png hos
   const port = server.address().port;
   const baseUrl = `http://127.0.0.1:${port}`;
 
-  // 1. Minimal /health endpoint
+  // 1. Minimal /health endpoint & blocked source files must not be cached by edge
   const healthRes = await fetch(`${baseUrl}/health`);
   assert.equal(healthRes.status, 200);
   assert.equal(healthRes.headers.get('cache-control'), 'no-store');
   assert.deepEqual(await healthRes.json(), { status: 'ok' });
+
+  const srcRes = await fetch(`${baseUrl}/src/config.js`);
+  assert.equal(srcRes.status, 404);
+  assert.equal(srcRes.headers.get('cache-control'), 'no-store');
 
   // 2. /api/failover-status requires admin session + dashboard.read
   const guest = makeClient(baseUrl);

@@ -508,7 +508,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
 
   app.use((req, res, next) => {
     if (/^\/(?:src|db|node_modules|tests?)(?:\/|$)|^\/(?:package(?:-lock)?\.json|\.env)/i.test(req.path)) {
-      return res.sendStatus(404);
+      return res.set('Cache-Control', 'no-store').sendStatus(404);
     }
     next();
   });

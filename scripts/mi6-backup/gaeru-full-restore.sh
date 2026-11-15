@@ -165,6 +165,15 @@ restore_db() {
 
   say "Restoring database gaeru_store from $dump_file ..."
   chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_restore --clean --if-exists --no-owner --no-privileges -v -d gaeru_store < "$dump_file"
+  # Keep runtime role webuser working without SUPERUSER after a postgres-run restore.
+  chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -v ON_ERROR_STOP=1 -d gaeru_store <<'EOSQL'
+GRANT ALL PRIVILEGES ON SCHEMA public TO webuser;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO webuser;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO webuser;
+GRANT pg_read_all_stats TO webuser;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO webuser;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO webuser;
+EOSQL
   local stats
   stats=$(chroot "$chroot_dir" runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 psql -tA -d gaeru_store -c "SELECT 'public_tables=' || count(*) FROM pg_tables WHERE schemaname='public' UNION ALL SELECT 'products=' || count(*) FROM products UNION ALL SELECT 'orders=' || count(*) FROM orders UNION ALL SELECT 'media_upload_originals=' || count(*) FROM media_upload_originals;" | tr '\n' ' ')
   say "Starting node-app..."
