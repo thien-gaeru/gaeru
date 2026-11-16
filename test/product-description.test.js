@@ -83,3 +83,24 @@ test('M3 fallback story handles jsonb key reordering gracefully', () => {
   const html = render({ slug: 'gaeru-m3', description: defaults.description, descriptionMedia: reorderedMedia });
   assert.match(html, /m3-story/);
 });
+
+test('client description renderers wrap assets and catalog images in <picture> with explicit AVIF sources', () => {
+  const k9Html = require('../k9-description')();
+  assert.equal((k9Html.match(/<picture><source type="image\/avif" srcset="\/assets\/products\/k9-description\/\d+\.avif">/g) || []).length, 8);
+
+  const m3Html = require('../m3-description')();
+  assert.equal((m3Html.match(/<picture><source type="image\/avif" srcset="\/assets\/products\/m3-description\/\d+-w480\.avif 480w/g) || []).length, 11);
+  assert.match(m3Html, /\?w=480&format=webp 480w/);
+
+  const catId = '00000000-0000-4000-8000-000000000077';
+  const customHtml = render({
+    slug: 'custom-product',
+    description: 'Đoạn một',
+    descriptionMedia: [
+      { type: 'image', url: `/api/catalog-images/${catId}?v=v2`, alt: 'Catalog' },
+      { type: 'image', url: '/assets/products/g1-ultra-clean.webp', alt: 'G1' }
+    ]
+  });
+  assert.match(customHtml, new RegExp(`<picture><source type="image/avif" srcset="/api/catalog-images/${catId}\\?v=v2&format=avif&w=480 480w`));
+  assert.match(customHtml, /<picture><source type="image\/avif" srcset="\/assets\/products\/g1-ultra-clean\.avif">/);
+});

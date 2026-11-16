@@ -1,7 +1,12 @@
 /* Curated M3 story with Apple-style scannable typography and visual hierarchy. */
 function renderM3() {
-  const image = (n, alt, eager = false) =>
-    `<figure><a href="/assets/products/m3-description/${n}.webp" target="_blank" rel="noopener" aria-label="Xem ảnh lớn: ${alt} (mở trong tab mới)"><img src="/assets/products/m3-description/${n}.webp" alt="${alt}" width="842" height="${n === 12 ? 507 : 1264}"${eager ? '' : ' loading="lazy"'} decoding="async"></a></figure>`;
+  const image = (n, alt, eager = false) => {
+    const url = `/assets/products/m3-description/${n}.webp`;
+    const sizes = '(max-width: 760px) calc(100vw - 40px), 380px';
+    const srcset = `${url}?w=480&format=webp 480w, ${url}?w=800&format=webp 800w, ${url}?format=webp 842w`;
+    const avif = `/assets/products/m3-description/${n}-w480.avif 480w, /assets/products/m3-description/${n}-w800.avif 800w, /assets/products/m3-description/${n}.avif 842w`;
+    return `<figure><a href="${url}" target="_blank" rel="noopener" aria-label="Xem ảnh lớn: ${alt} (mở trong tab mới)"><picture><source type="image/avif" srcset="${avif}" sizes="${sizes}"><img src="${url}" srcset="${srcset}" sizes="${sizes}" alt="${alt}" width="842" height="${n === 12 ? 507 : 1264}"${eager ? '' : ' loading="lazy"'} decoding="async"></picture></a></figure>`;
+  };
 
   const section = (title, statement, body, images) =>
     `<section class="m3-chapter"><header><h3>${title}</h3><strong class="chapter-statement m3-lead-text">${statement}</strong><p class="chapter-body-text">${body}</p></header><div class="m3-artwork-grid">${images}</div></section>`;
