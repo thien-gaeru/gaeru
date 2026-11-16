@@ -477,7 +477,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     process.env.NODE_ENV = "production";
     let shield;
     try {
-      shield = createDdosShield({ NODE_ENV: "production", DDOS_RATE_LIMIT: 2 }, pool);
+      shield = createDdosShield({ NODE_ENV: "production", DDOS_RATE_LIMIT: 5 }, pool);
     } finally {
       if (prevEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = prevEnv;
@@ -489,6 +489,12 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     app.get("/api/products/:slug", (_req, res) => res.json({ ok: true }));
     app.get("/api/products/:slug/bundles", (_req, res) => res.json({ ok: true }));
     app.get("/api/search-index.json", (_req, res) => res.json({ ok: true }));
+    app.get("/api/settings/public", (_req, res) => res.json({ ok: true }));
+    app.get("/api/news", (_req, res) => res.json({ ok: true }));
+    app.get("/api/news/:slug", (_req, res) => res.json({ ok: true }));
+    app.get("/api/news-images/:id", (_req, res) => res.json({ ok: true }));
+    app.get("/api/home-banner/images/:id", (_req, res) => res.json({ ok: true }));
+    app.get("/api/gaeru_ceo/news", (_req, res) => res.json({ ok: true }));
     app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
     app.get("/api/bot-protection", (_req, res) => res.json({ enabled: false }));
     app.all("/api/orders", (_req, res) => res.json({ ok: true }));
@@ -499,7 +505,18 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     t.after(() => new Promise((r) => server.close(r)));
     const base = "http://127.0.0.1:" + server.address().port;
 
-    for (const p of ["/api/products", "/api/products/m3", "/api/products/m3/bundles", "/api/search-index.json"]) {
+    for (const p of [
+      "/api/products",
+      "/api/products/m3",
+      "/api/products/m3/bundles",
+      "/api/search-index.json",
+      "/api/settings/public",
+      "/api/news",
+      "/api/news/le-audio",
+      "/api/news-images/00000000-0000-4000-8000-000000000001",
+      "/api/home-banner/images/00000000-0000-4000-8000-000000000002",
+      "/api/bot-protection"
+    ]) {
       const r = await httpRequest(base + p);
       assert.equal(r.status, 200, "Expected 200 for " + p);
     }
@@ -514,6 +531,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
       ["POST", "/api/orders"],
       ["GET", "/api/orders"],
       ["GET", "/api/products?q=m3"],
+      ["GET", "/api/gaeru_ceo/news"],
       ["POST", "/server_admin/api/login"]
     ]) {
       const before = rateLimitQueries.length;

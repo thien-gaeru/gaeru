@@ -113,6 +113,10 @@ function isPublicCachedRead(req) {
     fullPath === '/api/products' ||
     /^\/api\/products\/[^/]+(?:\/bundles)?$/.test(fullPath) ||
     fullPath === '/api/search-index.json' ||
+    fullPath === '/api/settings/public' ||
+    /^\/api\/news(?:\/[^/]+)?$/.test(fullPath) ||
+    /^\/api\/news-images\/[^/]+$/.test(fullPath) ||
+    /^\/api\/home-banner\/images\/[^/]+$/.test(fullPath) ||
     fullPath === '/api/health' ||
     fullPath === '/api/bot-protection'
   );
