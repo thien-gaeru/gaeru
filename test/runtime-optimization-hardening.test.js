@@ -611,4 +611,120 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     assert.equal(second.status, 200);
     assert.deepEqual(second.body, newBytes);
   });
+
+  test("cleanRoutes hashes all cacheable CSS/JS to immutable and omits DCB Vary tokens when DCB is disabled", async (t) => {
+    flushAllCache();
+    const { cleanRoutes, staticHtml } = require("../src/clean-routes");
+    const { getAssetHash12 } = require("../src/lib/static-asset-cache");
+    const projectRoot = path.resolve(__dirname, "..");
+
+    const prevEnv = process.env.NODE_ENV;
+    const prevDcb = process.env.ENABLE_DCB;
+    process.env.NODE_ENV = "production";
+    delete process.env.ENABLE_DCB;
+    t.after(() => {
+      if (prevEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevEnv;
+      if (prevDcb === undefined) delete process.env.ENABLE_DCB;
+      else process.env.ENABLE_DCB = prevDcb;
+    });
+
+    const app = express();
+    app.use(cleanRoutes("https://gaeru.com"));
+    app.use(smartPageCache());
+    app.use(staticHtml);
+
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+    const base = "http://127.0.0.1:" + server.address().port;
+
+    const home = await httpRequest(base + "/ho-tro", { "Accept-Encoding": "gzip" });
+    assert.equal(home.status, 200);
+    const html = (home.headers["content-encoding"] === "gzip" ? require("node:zlib").gunzipSync(home.body) : home.body).toString("utf8");
+    for (const file of ["styles.css", "brand.css", "store-shell.js", "footer-products.js", "clean-urls.js"]) {
+      const h12 = getAssetHash12(projectRoot, file);
+      assert.ok(h12, `Expected SHA-256 hash12 for ${file}`);
+      assert.ok(html.includes(`/${file}?v=${h12}`), `Rendered HTML must rewrite ${file} to ?v=${h12}`);
+    }
+    const vary = String(home.headers.vary || "");
+    assert.match(vary, /Accept-Encoding/i);
+    assert.doesNotMatch(vary, /Available-Dictionary|Sec-Purpose/i);
+
+    await new Promise((r) => setTimeout(r, 60));
+    const warmHome = await httpRequest(base + "/ho-tro", { "Accept-Encoding": "gzip" });
+    assert.equal(warmHome.status, 200);
+    assert.equal(warmHome.headers["x-cache"], "HIT-FRESH-RAM");
+    assert.doesNotMatch(String(warmHome.headers.vary || ""), /Available-Dictionary|Sec-Purpose/i);
+
+    const account = await httpRequest(base + "/tai-khoan");
+    assert.equal(account.status, 200);
+    const accountHtml = account.body.toString("utf8");
+    assert.match(accountHtml, /\/account\.js\?v=/);
+    const accountHash = getAssetHash12(projectRoot, "account.js");
+    assert.equal(accountHash, null, "Private account.js must never receive immutable content hashing");
+  });
+
+  test("public API reads and DB images emit public cache headers without Vary: Cookie, Pragma, or Expires", async (t) => {
+    const session = require("express-session");
+    const { createApp } = require("../src/app");
+    const { optimizeImage } = require("../src/lib/image-optimizer");
+    const imgBuf = await require("sharp")({ create: { width: 12, height: 12, channels: 4, background: { r: 10, g: 120, b: 220, alpha: 1 } } }).png().toBuffer();
+    const optimized = (await optimizeImage(imgBuf, "image/png")).buffer;
+    const coverId = "a0000000-0000-4000-8000-000000000099";
+    let newsSelects = 0;
+
+    const pool = {
+      async query(sql) {
+        const s = String(sql);
+        if (s.includes("INSERT INTO security_rate_limits")) {
+          return { rows: [{ hits: 1, expires_at: new Date(Date.now() + 60000).toISOString() }] };
+        }
+        if (s.includes("FROM news_images")) {
+          return { rows: [{ content: optimized, mime_type: "image/webp" }] };
+        }
+        if (s.includes("FROM products")) return { rows: [] };
+        if (s.includes("FROM store_settings")) return { rows: [] };
+        if (s.includes("FROM shipping_carrier_connections")) return { rows: [] };
+        if (s.includes("FROM payment_channel_connections")) return { rows: [] };
+        if (s.includes("FROM news_posts")) {
+          newsSelects++;
+          return { rows: [{ id: 1, slug: "test-post", title: "Bài thử", excerpt: "Tóm tắt thử nghiệm", coverId, imageAlt: "Ảnh", status: "published", version: 1, publishedAt: new Date("2026-11-16T00:00:00Z"), updatedAt: new Date("2026-11-16T00:00:00Z") }] };
+        }
+        return { rows: [] };
+      }
+    };
+
+    const app = createApp({
+      pool,
+      sessionStore: new session.MemoryStore(),
+      config: { NODE_ENV: "test", SESSION_SECRET: "cache-headers-test-secret-32chars-minimum" }
+    });
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+    const base = "http://127.0.0.1:" + server.address().port;
+
+    for (const p of ["/api/products", "/api/settings/public", "/api/news", `/api/news-images/${coverId}`]) {
+      const r = await httpRequest(base + p);
+      assert.equal(r.status, 200, "Expected 200 for " + p);
+      assert.doesNotMatch(String(r.headers.vary || ""), /\bCookie\b/i, `${p} must not vary on Cookie`);
+      assert.equal(r.headers.pragma, undefined, `${p} must not send Pragma: no-cache`);
+      assert.equal(r.headers.expires, undefined, `${p} must not send Expires: 0`);
+      assert.match(String(r.headers["cache-control"] || ""), /^public,\s*max-age=/i, `${p} must use public cache-control`);
+    }
+
+    // Second /api/news request within 3s SWR reuses RAM cache
+    const beforeSecond = newsSelects;
+    const secondNews = await httpRequest(base + "/api/news");
+    assert.equal(secondNews.status, 200);
+    assert.equal(newsSelects, beforeSecond, "Expected /api/news within SWR TTL to skip DB");
+
+    // Private routes keep strict no-store + Pragma + Vary: Cookie
+    for (const p of ["/api/csrf", "/api/orders", "/api/stock/K9-C"]) {
+      const r = await httpRequest(base + p);
+      assert.match(String(r.headers["cache-control"] || ""), /no-store/i, `${p} must stay no-store`);
+      assert.match(String(r.headers.vary || ""), /\bCookie\b/i, `${p} must retain Vary: Cookie`);
+    }
+  });
 }

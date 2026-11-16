@@ -19,14 +19,21 @@ const imagePath=id=>'/api/news-images/'+id;
 const output=row=>({...row,title:normalizeBrandText(row.title),excerpt:normalizeBrandText(row.excerpt),...(row.body!==undefined?{body:normalizeBrandText(row.body)}:{}),imageAlt:normalizeBrandText(row.imageAlt),imageUrl:imagePath(row.coverId)});
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:1,fields:0}}).single('image');
 function validImage(file){if(!file)return false;const b=file.buffer;return file.mimetype==='image/png'&&b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||file.mimetype==='image/jpeg'&&b[0]===255&&b[1]===216&&b[2]===255||file.mimetype==='image/webp'&&b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP';}
+const {getFreshData}=require('./cache');
+function setPublicNewsCacheHeaders(res){
+ res.setHeader('Cache-Control','public, max-age=0, must-revalidate');
+ res.setHeader('CDN-Cache-Control','public, max-age=5, stale-while-revalidate=15');
+ res.setHeader('Cloudflare-CDN-Cache-Control','public, max-age=5, stale-while-revalidate=15');
+}
 function createNewsPublicApi(pool){const router=Router();
- router.get('/news',async(req,res,next)=>{try{const page=Number(req.query.page||1);if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).json({error:'Trang không hợp lệ.'});const posts=(await pool.query(`SELECT ${fields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 12 OFFSET $1`,[(page-1)*12])).rows;res.set('Cache-Control','no-store').json({posts:posts.map(output),page,hasMore:posts.length===12});}catch(e){next(e);}});
+ router.get('/news',async(req,res,next)=>{try{const page=Number(req.query.page||1);if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).json({error:'Trang không hợp lệ.'});const fetchPage=async()=>{const posts=(await pool.query(`SELECT ${fields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 12 OFFSET $1`,[(page-1)*12])).rows;return {posts:posts.map(output),page,hasMore:posts.length===12};};const payload=pool&&pool.__gaeruCacheHooked?await getFreshData('data:news:page:'+page,fetchPage,3000):await fetchPage();setPublicNewsCacheHeaders(res);res.json(payload);}catch(e){next(e);}});
  router.get('/news/:slug',async(req,res,next)=>{
   if(!slug.safeParse(req.params.slug).success)return res.status(404).json({error:'Không tìm thấy bài viết.'});
   try{
-    const post=(await pool.query(`SELECT ${fields},body FROM news_posts WHERE slug=$1 AND status='published'`,[req.params.slug])).rows[0];
-    if(!post)return res.status(404).json({error:'Không tìm thấy bài viết.'});
-    const currentSlug = req.params.slug;
+    const fetchPost=async()=>{
+     const post=(await pool.query(`SELECT ${fields},body FROM news_posts WHERE slug=$1 AND status='published'`,[req.params.slug])).rows[0];
+     if(!post)return null;
+     const currentSlug = req.params.slug;
     let keyword = '';
     if (currentSlug.includes('tiktok')) keyword = '%tiktok%';
     else if (currentSlug.includes('video-marketing') || currentSlug.includes('storytelling') || currentSlug.includes('trieu-view') || currentSlug.includes('phong-cach')) keyword = '%video%';
@@ -64,10 +71,15 @@ function createNewsPublicApi(pool){const router=Router();
       )).rows;
       relatedRows = [...relatedRows, ...fillers];
     }
-    res.set('Cache-Control','no-store').json({
-      post: output(post),
-      relatedPosts: relatedRows.map(output)
-    });
+     return {
+       post: output(post),
+       relatedPosts: relatedRows.map(output)
+     };
+    };
+    const payload=pool&&pool.__gaeruCacheHooked?await getFreshData('data:news:post:'+req.params.slug,fetchPost,3000):await fetchPost();
+    if(!payload)return res.status(404).json({error:'Không tìm thấy bài viết.'});
+    setPublicNewsCacheHeaders(res);
+    res.json(payload);
   }catch(e){next(e);}
  });
  router.get('/news-images/:id',publicImageReadLimiter,async(req,res,next)=>{if(!uuid.safeParse(req.params.id).success)return res.sendStatus(404);try{const image=await getCachedImageRow(pool,'news:'+req.params.id,async()=>(await pool.query("SELECT content,mime_type FROM news_images WHERE id=$1 AND EXISTS(SELECT 1 FROM news_posts WHERE cover_id=$1 AND status='published')",[req.params.id])).rows[0]);if(!image)return res.sendStatus(404);await sendPublicImage(req,res,image,'news');}catch(e){next(e);}});
@@ -83,7 +95,7 @@ function createNewsAdminApi(pool){const router=Router();
   let row;if(req.params.id){row=(await client.query(`UPDATE news_posts SET slug=$2,title=$3,excerpt=$4,body=$5,cover_id=$6,image_alt=$7,status=$8,version=version+1,published_at=CASE WHEN $8='published' THEN COALESCE(published_at,now()) ELSE published_at END,updated_at=now() WHERE id=$1 AND version=$9 RETURNING ${fields},body`,[req.params.id,a.slug,a.title,a.excerpt,a.body,a.coverId,a.imageAlt,a.status,a.version])).rows[0];if(!row)return {status:409,error:'Bài viết đã thay đổi. Tải lại trước khi sửa.'};}
   else row=(await client.query(`INSERT INTO news_posts(slug,title,excerpt,body,cover_id,image_alt,status,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,CASE WHEN $7='published' THEN now() ELSE NULL END) RETURNING ${fields},body`,[a.slug,a.title,a.excerpt,a.body,a.coverId,a.imageAlt,a.status])).rows[0];
   await appendAudit(client,{actor:req.admin,action:'news.'+(req.params.id?'update':'create'),entityType:'news_post',entityId:row.id,metadata:{status:row.status,version:row.version}});return {status:req.params.id?200:201,post:output(row)};
- });if(!result.error)require('./cache').clearHtmlCacheOnly();res.status(result.status).json(result.error?{error:result.error}:{post:result.post});}catch(e){if(e.code==='23505')return res.status(409).json({error:'Đường dẫn bài viết đã được sử dụng.'});next(e);}};
+ });if(!result.error){const cacheMod=require('./cache');for(const key of cacheMod.ramCache.keys()){if(typeof key==='string'&&key.startsWith('data:news:'))cacheMod.ramCache.delete(key);}cacheMod.clearHtmlCacheOnly();cacheMod.invalidateTags(['catalog','news'],{immediate:true});}res.status(result.status).json(result.error?{error:result.error}:{post:result.post});}catch(e){if(e.code==='23505')return res.status(409).json({error:'Đường dẫn bài viết đã được sử dụng.'});next(e);}};
  router.post('/news',requirePermission('catalog.write'),requireCsrf,save);router.put('/news/:id',requirePermission('catalog.write'),requireCsrf,save);
  return router;
 }

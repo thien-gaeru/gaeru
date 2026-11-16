@@ -378,15 +378,17 @@ function smartPageCache(swrMs = 60000) {
       hit = undefined;
     }
     if (hit) {
+      const { isDcbEnabled, isDcbEligible, compressDcbAsync } = require('./src/lib/compression-dictionary');
       res.setHeader('Cache-Control', hit.cacheControl || 'public, max-age=0, must-revalidate');
       res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.vary('Accept-Encoding');
-      res.vary('Available-Dictionary');
-      res.vary('Sec-Purpose');
+      if (isDcbEnabled()) {
+        res.vary('Available-Dictionary');
+        res.vary('Sec-Purpose');
+      }
       res.setHeader('X-Accel-Buffering', 'no');
 
-      const { isDcbEligible, compressDcbAsync } = require('./src/lib/compression-dictionary');
       if (isDcbEligible(req)) {
         if (hit.dcb) {
           res.setHeader('ETag', hit.dcbEtag);
@@ -452,12 +454,15 @@ function smartPageCache(swrMs = 60000) {
         const etag = `"${BOOT_ID}-${crypto.createHash('md5').update(body).digest('hex')}"`;
         const cacheControl = currentCacheControl || 'public, max-age=0, must-revalidate';
         if (!res.headersSent) {
+          const { isDcbEnabled } = require('./src/lib/compression-dictionary');
           res.setHeader('Cache-Control', cacheControl);
           res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
           res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
           res.vary('Accept-Encoding');
-          res.vary('Available-Dictionary');
-          res.vary('Sec-Purpose');
+          if (isDcbEnabled()) {
+            res.vary('Available-Dictionary');
+            res.vary('Sec-Purpose');
+          }
           res.setHeader('X-Accel-Buffering', 'no');
           res.setHeader('ETag', etag);
           res.setHeader('X-Cache', 'MISS-REBUILT');

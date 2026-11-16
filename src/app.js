@@ -29,6 +29,8 @@ const { createWarrantyCustomerApi, createWarrantyAdminApi } = require("./warrant
 const { createWarrantyPublicApi } = require("./warranty-public-api");
 const { createBusinessApi } = require("./business-api");
 
+const PUBLIC_CACHEABLE_API_READ_RE = /^\/api\/(?:products(?:\/[^/]+(?:\/bundles)?)?|search-index\.json|settings\/public|news(?:\/[^/]+)?|news-images\/[^/]+|catalog-images\/[^/]+|home-banner\/images\/[^/]+)$/;
+
 function attachTransactionalCacheInvalidation(pool) {
   if (!pool || typeof pool.query !== 'function' || pool.__gaeruCacheHooked) return pool;
   const CATALOG_TABLES_RE = /\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i;
@@ -48,7 +50,12 @@ function attachTransactionalCacheInvalidation(pool) {
   const isCommitSql = sql => typeof sql === 'string' && /^\s*(?:COMMIT|END)\b/i.test(sql);
   const isRollbackSql = sql => typeof sql === 'string' && /^\s*ROLLBACK\b(?!\s+TO\b)/i.test(sql);
   const clearLocalDerivedCatalogCaches = () => {
-    require('./cache').ramCache.delete('data:catalog');
+    const cacheMod = require('./cache');
+    for (const key of cacheMod.ramCache.keys()) {
+      if (typeof key === 'string' && key.startsWith('data:')) {
+        cacheMod.ramCache.delete(key);
+      }
+    }
     require('./site-pages').clearSitePagesCache(pool);
     require('./lib/image-renditions').clearImageLookupCache(pool, { broadcast: false });
     require('./persistent-assets').clearAssetSnapshotCache(pool);
@@ -194,8 +201,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.set("trust proxy", "loopback");
   app.use((req,res,next)=>{
     if (/^\/api(?:\/|$)/i.test(req.path)) {
-      res.set({'Cache-Control':'no-store','Pragma':'no-cache','Expires':'0','X-Robots-Tag':'noindex, nofollow, noarchive'});
-      res.vary('Cookie');
+      if ((req.method === 'GET' || req.method === 'HEAD') && PUBLIC_CACHEABLE_API_READ_RE.test(req.path)) {
+        res.set({'Cache-Control':'public, max-age=0, must-revalidate','X-Robots-Tag':'noindex, nofollow, noarchive'});
+      } else {
+        res.set({'Cache-Control':'no-store','Pragma':'no-cache','Expires':'0','X-Robots-Tag':'noindex, nofollow, noarchive'});
+        res.vary('Cookie');
+      }
       if (!/^\/api(?:\/|$)/.test(req.path) || (/^\/api\/gaeru_ceo(?:\/|$)/i.test(req.path) && !/^\/api\/gaeru_ceo(?:\/|$)/.test(req.path))) return res.sendStatus(404);
     }
     if (/^\/(?:gaeru_ceo|server_admin|server)(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});

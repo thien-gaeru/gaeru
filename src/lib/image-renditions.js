@@ -267,7 +267,7 @@ async function sendPublicImage(req, res, row, namespace) {
   const requested = req.query.w;
   const width = requested === undefined ? null : widths.find(value => String(value) === requested);
   if (requested !== undefined && !width) return res.status(400).json({ error: 'Kích thước ảnh không được hỗ trợ.' });
-  const cacheControl = 'private, max-age=300, stale-while-revalidate=3600, must-revalidate';
+  const cacheControl = 'public, max-age=3600, stale-while-revalidate=86400, must-revalidate';
   const rawVersion = computeVersion(row, null);
   res.vary('Accept');
 
@@ -304,7 +304,7 @@ async function sendPublicImage(req, res, row, namespace) {
   if (!webpBytes) webpBytes = await loadDiskRenditionIntoCache(version);
   if (!webpBytes) {
     if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
-    const missCacheControl = 'private, max-age=30, stale-while-revalidate=60, must-revalidate';
+    const missCacheControl = 'public, max-age=30, stale-while-revalidate=60, must-revalidate';
     res.type(row.mime_type).set({
       'Cache-Control': missCacheControl,
       'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"',

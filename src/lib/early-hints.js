@@ -1,8 +1,18 @@
 'use strict';
 
+const path = require('node:path');
+const { getAssetHash12 } = require('./static-asset-cache');
+
+const projectRoot = path.join(__dirname, '..', '..');
+
+function resolvePreloadHint(filename) {
+  const hash12 = getAssetHash12(projectRoot, filename);
+  return `</${filename}${hash12 ? `?v=${hash12}` : ''}>; rel=preload; as=style`;
+}
+
 const EARLY_HINT_PRELOADS = [
-  '</styles.css?v=20261103-experience>; rel=preload; as=style',
-  '</brand.css?v=20261025-webp>; rel=preload; as=style'
+  resolvePreloadHint('styles.css'),
+  resolvePreloadHint('brand.css')
 ];
 
 function earlyHintsMiddleware(req, res, next) {

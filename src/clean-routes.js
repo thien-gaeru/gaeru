@@ -2,12 +2,31 @@
 const fs=require('node:fs'),path=require('node:path'),{parseHTML}=require('linkedom'),{paths,clean}=require('../clean-urls'),{normalizePublicBase,normalizeBrandText}=require('./primary-domain');
 const escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function setSafeTitle(doc,rawTitle){const cleanTitle=normalizeBrandText(String(rawTitle??''));if(doc)doc.title=escapeHtml(cleanTitle);return cleanTitle;}
-const sharedStyleVersion=require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(__dirname,'..','styles.css'))).digest('hex').slice(0,12);
+const projectRoot=path.join(__dirname,'..');
+const publicFiles=require('./public-files');
+const {getAssetHash12}=require('./lib/static-asset-cache');
+
+function versionedPublicAssetUrl(rawUrl){
+ if(typeof rawUrl!=='string')return rawUrl;
+ const trimmed=rawUrl.trim();
+ if(!trimmed||/^(?:[a-z]+:|\/\/)/i.test(trimmed))return rawUrl;
+ const hashSplit=trimmed.split('#');
+ const [pathname,query='']=hashSplit[0].split('?');
+ const filename=pathname.replace(/^\/+/,'');
+ if(!filename||filename.includes('/')||!publicFiles.has(filename))return rawUrl;
+ const hash12=getAssetHash12(projectRoot,filename);
+ if(!hash12)return rawUrl;
+ const params=new URLSearchParams(query);
+ params.set('v',hash12);
+ const fragment=hashSplit.length>1?'#'+hashSplit.slice(1).join('#'):'';
+ return '/'+filename+'?'+params.toString()+fragment;
+}
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
 function enrich(html,original,origin,override){if(typeof html==='string'&&html.includes('/clean-urls.js?v=')&&!override)return html;origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);
  require('./responsive-images').apply(doc);
- for(const style of doc.querySelectorAll('link[href]')){const href=style.getAttribute('href')||'';if(/^\/?styles\.css(?:\?|$)/.test(href))style.setAttribute('href','/styles.css?v='+sharedStyleVersion);}
+ for(const style of doc.querySelectorAll('link[href]')){const rel=String(style.getAttribute('rel')||'').toLowerCase();if(!rel||rel==='stylesheet'||rel==='preload'){style.setAttribute('href',versionedPublicAssetUrl(style.getAttribute('href')||''));}}
+ for(const script of doc.querySelectorAll('script[src]')){script.setAttribute('src',versionedPublicAssetUrl(script.getAttribute('src')||''));}
  let pageTitle=setSafeTitle(doc,doc.title),descriptionNode=doc.head.querySelector('meta[name=description]'),rawDescription=normalizeBrandText(descriptionNode?.content||'');if(override){pageTitle=setSafeTitle(doc,override.title);rawDescription=normalizeBrandText(override.description);if(!descriptionNode){descriptionNode=doc.createElement('meta');descriptionNode.name='description';doc.head.append(descriptionNode)}descriptionNode.content=escapeHtml(rawDescription);}else if(descriptionNode){descriptionNode.content=escapeHtml(rawDescription);}
  doc.documentElement.setAttribute('lang','vi');let base=doc.head.querySelector('base');if(!base){base=doc.createElement('base');base.setAttribute('href','/');doc.head.prepend(base)}
  const footerNode=doc.getElementById('site-footer')||doc.querySelector('#site-footer');
@@ -15,7 +34,7 @@ function enrich(html,original,origin,override){if(typeof html==='string'&&html.i
   footerNode.innerHTML=require('./site-footer').SITE_FOOTER_HTML;
  }
  for(const el of doc.querySelectorAll('[href],[action],[src],[poster]'))for(const key of ['href','action','src','poster'])if(el.hasAttribute(key))el.setAttribute(key,clean(el.getAttribute(key),origin));
- if(!doc.querySelector('script[src^="/clean-urls.js"]')){const script=doc.createElement('script');script.src='/clean-urls.js?v=20261027-gaeru-com';script.defer=true;doc.head.append(script)}
+ if(!doc.querySelector('script[src^="/clean-urls.js"]')){const script=doc.createElement('script');script.src=versionedPublicAssetUrl('/clean-urls.js');script.defer=true;doc.head.append(script)}
  const u=new URL('/'+String(original||'/').replace(/^[\/\\]+/,''),origin);const safePathname=u.pathname.replace(/\\/g,'/').replace(/^\/+/,'/');for(const a of doc.querySelectorAll('a[href^="#"]'))a.setAttribute('href',safePathname+a.getAttribute('href'));
  const canonical=doc.head.querySelector('link[rel=canonical]')?.getAttribute('href')||origin+u.pathname;
  const meta=(key,value,property=false)=>{const attr=property?'property':'name';let n=doc.head.querySelector('meta['+attr+'="'+key+'"]');if(!n){n=doc.createElement('meta');n.setAttribute(attr,key);doc.head.append(n)}n.setAttribute('content',value)};
@@ -40,7 +59,7 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
  const rawUrl='/'+String(req.originalUrl||'/').replace(/^[\/\\]+/,'');const target=clean(rawUrl,origin);if(target!==rawUrl&&/^\/(?!\/|\\)/.test(target))return res.redirect(301,target);
  const send=res.send.bind(res),prepare=body=>typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body;
  // Cache the final document, including metadata, rather than the unprocessed template.
- const {isDcbEligible,compressDcb}=require('./lib/compression-dictionary');
+ const {isDcbEnabled,isDcbEligible,compressDcb}=require('./lib/compression-dictionary');
  const customSend=body=>{
   const prepared=prepare(body);
   if(req.headers['sec-purpose']?.includes('prerender'))req.isPrerender=true;
@@ -64,9 +83,10 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
    if(etag&&req.headers['if-none-match']===res.getHeader('ETag'))return res.status(304).end();
    return send(dcbPayload);
   }
-  const existingVary=res.getHeader('Vary');
-  if(!existingVary||!String(existingVary).includes('Available-Dictionary')){
-   res.setHeader('Vary',existingVary?existingVary+', Available-Dictionary, Sec-Purpose':'Accept-Encoding, Available-Dictionary, Sec-Purpose');
+  res.vary('Accept-Encoding');
+  if(isDcbEnabled()){
+   res.vary('Available-Dictionary');
+   res.vary('Sec-Purpose');
   }
   return send(prepared);
  };

@@ -539,6 +539,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       const gaMeasurementId = settings.ga_measurement_id !== undefined
         ? (typeof settings.ga_measurement_id === "string" ? settings.ga_measurement_id.trim() : "")
         : (config?.GA_MEASUREMENT_ID || "").trim();
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
+      res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.json({
         ...(shippingChoices ? { shippingCarriers: shippingCarriers || [] } : {}),
         shippingNote: settings.shipping_note || "",

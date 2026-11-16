@@ -185,8 +185,18 @@ function warmStaticTextAssets(projectRoot, publicFiles) {
   return warmed;
 }
 
+/**
+ * Returns the cached 12-character SHA-256 content hash for a cacheable public CSS/JS asset.
+ */
+function getAssetHash12(projectRoot, filename) {
+  if (!isCacheableTextAsset(filename)) return null;
+  const entry = getEntry(path.resolve(projectRoot), filename, path.extname(filename).toLowerCase());
+  return entry ? entry.hash12 : null;
+}
+
 module.exports = {
   createStaticAssetMiddleware,
   warmStaticTextAssets,
+  getAssetHash12,
   _clearCacheForTest: () => assetCache.clear()
 };
