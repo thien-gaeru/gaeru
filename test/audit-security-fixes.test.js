@@ -1599,17 +1599,16 @@ test('batch 3 medium-severity fixes: [M-01] through [M-09]', async (t) => {
     assert.match(adminVideoRes.headers.get('cache-control') || '', /^no-store\b/);
   });
 
-  // [M-08] server-admin redaction, VietQR CSP, warranty sessionStorage, & lightbox shared state
-  await t.test('[M-08] redacts server-admin.html, sets img-src vietqr CSP, uses sessionStorage, and stores _lightboxState', async () => {
-    const serverAdminHtml = fs.readFileSync(path.join(repoRoot, 'admin', 'server-admin.html'), 'utf8');
-    for (const secretPattern of [/192\.168\.31\.7/, /u0_a184/, /8022/, /LG G7 ThinQ/i, /judyln/i, /Snapdragon 845/i, /4\.9\.337/, /5432/, /6379/, /18\.6/, /8\.10\.3/]) {
-      assert.doesNotMatch(serverAdminHtml, secretPattern);
-    }
-    for (const hook of [/<title>Bảng Điều Khiển Máy Chủ GAERU/, /id="spec-device"/, /id="spec-os"/, /id="spec-ip"/, /id="node-pid"/, /id="pg-summary-text"/]) {
-      assert.match(serverAdminHtml, hook);
-    }
+  // [M-08] server_admin removed (dedicated server.gaeru.com), VietQR CSP, warranty sessionStorage, & lightbox shared state
+  await t.test('[M-08] removes /server_admin routes cleanly, sets img-src vietqr CSP, uses sessionStorage, and stores _lightboxState', async () => {
+    assert.equal(fs.existsSync(path.join(repoRoot, 'admin', 'server-admin.html')), false);
+    assert.equal(fs.existsSync(path.join(repoRoot, 'src', 'server-admin.js')), false);
 
     const { baseUrl } = await bootTestApp();
+    for (const removedPath of ['/server', '/server_admin', '/server_admin/api/me', '/server_admin/api/stats']) {
+      const removedRes = await fetch(`${baseUrl}${removedPath}`, { redirect: 'manual' });
+      assert.equal(removedRes.status, 404, `Expected ${removedPath} to return 404`);
+    }
     const homeRes = await fetch(`${baseUrl}/`);
     const csp = homeRes.headers.get('content-security-policy') || '';
     assert.match(csp, /img-src[^;]*https:\/\/img\.vietqr\.io/);

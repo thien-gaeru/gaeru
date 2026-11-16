@@ -484,7 +484,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     }
 
     const app = express();
-    app.use(["/api", "/server_admin/api"], shield);
+    app.use("/api", shield);
     app.get("/api/products", (_req, res) => res.json({ ok: true }));
     app.get("/api/products/:slug", (_req, res) => res.json({ ok: true }));
     app.get("/api/products/:slug/bundles", (_req, res) => res.json({ ok: true }));
@@ -498,7 +498,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
     app.get("/api/bot-protection", (_req, res) => res.json({ enabled: false }));
     app.all("/api/orders", (_req, res) => res.json({ ok: true }));
-    app.post("/server_admin/api/login", (_req, res) => res.json({ ok: true }));
+    app.post("/api/auth/login", (_req, res) => res.json({ ok: true }));
 
     const server = app.listen(0, "127.0.0.1");
     await new Promise((r) => server.once("listening", r));
@@ -532,7 +532,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
       ["GET", "/api/orders"],
       ["GET", "/api/products?q=m3"],
       ["GET", "/api/gaeru_ceo/news"],
-      ["POST", "/server_admin/api/login"]
+      ["POST", "/api/auth/login"]
     ]) {
       const before = rateLimitQueries.length;
       const r = await httpRequest(base + p, {}, method);

@@ -209,8 +209,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       }
       if (!/^\/api(?:\/|$)/.test(req.path) || (/^\/api\/gaeru_ceo(?:\/|$)/i.test(req.path) && !/^\/api\/gaeru_ceo(?:\/|$)/.test(req.path))) return res.sendStatus(404);
     }
-    if (/^\/(?:gaeru_ceo|server_admin|server)(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
-    if (/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|gaeru_ceo|server_admin|server)(?:\/|$)/i.test(req.path)||/^\/(?:account|checkout|cart|payment-result)\.(?:html|js)$/i.test(req.path)) {
+    if (/^\/gaeru_ceo(?:\/|$)/i.test(req.path)) res.set({'X-Robots-Tag':'noindex, nofollow, noarchive','Cache-Control':'no-store'});
+    if (/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|gaeru_ceo)(?:\/|$)/i.test(req.path)||/^\/(?:account|checkout|cart|payment-result)\.(?:html|js)$/i.test(req.path)) {
       res.set({'Cache-Control':'private, no-store, max-age=0','CDN-Cache-Control':'no-store','Cloudflare-CDN-Cache-Control':'no-store','Surrogate-Control':'no-store','Pragma':'no-cache','Expires':'0'});res.vary('Cookie');
     }
     res.set('Permissions-Policy',/^\/gaeru_ceo(?:\/|$)/.test(req.path)?'camera=(self), microphone=(self), geolocation=()':'camera=(), microphone=(self), geolocation=()');
@@ -243,8 +243,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
   const { createWafShield, createHoneypotShield, createDdosShield, createAuthBruteForceShield, getSystemHealth } = require('./security-shield');
   app.use(createWafShield());
-  app.use(['/api/auth', '/api/customer-auth', '/server_admin/api/login'], createAuthBruteForceShield(config, pool));
-  app.use(['/api', '/server_admin/api'], createDdosShield(config, pool));
+  app.use(['/api/auth', '/api/customer-auth'], createAuthBruteForceShield(config, pool));
+  app.use('/api', createDdosShield(config, pool));
   app.use(require("./bot-protection").createBotProtection(pool,config));
   app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
@@ -272,7 +272,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     }
   }));
 
-  app.use(async(req,res,next)=>{try{const pathname=req.path.toLowerCase();if(req.session?.admin&&(pathname.startsWith('/api/')||pathname.startsWith('/server_admin/api/'))){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
+  app.use(async(req,res,next)=>{try{const pathname=req.path.toLowerCase();if(req.session?.admin&&pathname.startsWith('/api/')){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
   app.use(config.accountSecurity.sessionGuard);
   app.use("/api/account-security",config.accountSecurity.router);
   app.use("/api/account-deletion",require("./account-retention").createDeletionConfirmation(pool,config));
@@ -308,9 +308,6 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     res.set({ 'Cache-Control': 'no-store' });
     res.json(failoverSync.getStatus());
   });
-
-  const { createServerAdminRouter } = require("./server-admin");
-  app.use(createServerAdminRouter(config, pool));
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
   app.use("/api/customer/cart", require("./customer-cart").createCustomerCartRouter(pool));
