@@ -1,6 +1,6 @@
 /* Official GAERU transparent brand assets shared across storefront, service pages and administration. */
 .brand-window{display:inline-block;position:relative;overflow:hidden;width:100px;height:32px;vertical-align:middle;flex-shrink:0;background:transparent}
-.brand-window picture{display:contents}
+picture{display:contents}
 .brand-window .brand-logo{display:block;position:absolute;left:50%;top:50%;width:160px!important;height:160px!important;max-width:none!important;max-height:none!important;object-fit:contain;transform:translate(-50%,-50%)!important}
 .wordmark:has(.brand-window){display:inline-flex;align-items:center;letter-spacing:normal;line-height:1}
 .admin-wordmark:has(.brand-window){display:flex;align-items:center;gap:8px}

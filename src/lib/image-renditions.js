@@ -268,11 +268,13 @@ async function sendPublicImage(req, res, row, namespace) {
   const width = requested === undefined ? null : widths.find(value => String(value) === requested);
   if (requested !== undefined && !width) return res.status(400).json({ error: 'Kích thước ảnh không được hỗ trợ.' });
   const cacheControl = 'public, max-age=3600, stale-while-revalidate=86400, must-revalidate';
+  const missCacheControl = 'public, max-age=30, stale-while-revalidate=60, must-revalidate';
   const rawVersion = computeVersion(row, null);
-  res.vary('Accept');
+  const requestedFormat = req.query?.format === 'avif' || req.query?.format === 'webp' ? req.query.format : '';
+  if (!requestedFormat) res.vary('Accept');
 
   if (!width) {
-    if (req.query?.format === 'avif' && row.mime_type.startsWith('image/')) {
+    if (requestedFormat === 'avif' && row.mime_type.startsWith('image/')) {
       const avifVersion = computeVersion(row, null, 'avif');
       let avifBytes = cache.peek(avifVersion);
       if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
@@ -287,9 +289,10 @@ async function sendPublicImage(req, res, row, namespace) {
         if (req.fresh) return res.status(304).end();
         return res.send(avifBytes);
       }
+      if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
     }
     res.type(row.mime_type).set({
-      'Cache-Control': cacheControl,
+      'Cache-Control': requestedFormat === 'avif' ? missCacheControl : cacheControl,
       'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"',
       'X-Content-Type-Options': 'nosniff',
       'X-GAERU-Media-Storage': '2'
@@ -304,7 +307,6 @@ async function sendPublicImage(req, res, row, namespace) {
   if (!webpBytes) webpBytes = await loadDiskRenditionIntoCache(version);
   if (!webpBytes) {
     if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
-    const missCacheControl = 'public, max-age=30, stale-while-revalidate=60, must-revalidate';
     res.type(row.mime_type).set({
       'Cache-Control': missCacheControl,
       'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"',
@@ -316,11 +318,11 @@ async function sendPublicImage(req, res, row, namespace) {
     return res.send(rawBytes);
   }
 
-  if (qualifiesForSelectiveAvif(req, webpBytes.length)) {
+  if (qualifiesForSelectiveAvif(req, requestedFormat === 'avif' ? undefined : webpBytes.length)) {
     const avifVersion = computeVersion(row, width, 'avif');
     let avifBytes = cache.peek(avifVersion);
     if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
-    if (avifBytes && avifBytes.length <= webpBytes.length * SAVINGS_RATIO) {
+    if (avifBytes && (requestedFormat === 'avif' || avifBytes.length <= webpBytes.length * SAVINGS_RATIO)) {
       const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
       res.type('image/avif').set({
         'Cache-Control': cacheControl,
@@ -331,10 +333,13 @@ async function sendPublicImage(req, res, row, namespace) {
       if (req.fresh) return res.status(304).end();
       return res.send(avifBytes);
     }
+    if (requestedFormat === 'avif' && !avifBytes && isDiskRenditionCacheEnabled()) {
+      enqueueImageWarm(row);
+    }
   }
 
   res.type('image/webp').set({
-    'Cache-Control': cacheControl,
+    'Cache-Control': requestedFormat === 'avif' ? missCacheControl : cacheControl,
     'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + version + '"',
     'X-Content-Type-Options': 'nosniff',
     'X-GAERU-Media-Storage': '2'

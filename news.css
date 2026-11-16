@@ -9,7 +9,7 @@
 .news-strip{display:flex;gap:24px;overflow-x:auto;scroll-snap-type:x mandatory;padding:6px 4px 24px}
 .news-card{display:flex;flex-direction:column;flex:0 0 min(82vw,350px);border-radius:24px;overflow:hidden;background:#f5f5f7;color:#1d1d1f;text-decoration:none;scroll-snap-align:start;box-sizing:border-box;transition:transform .2s ease,box-shadow .2s ease}
 .news-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.06)}
-.news-card>img{display:block;width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;aspect-ratio:16/10;object-fit:cover!important;object-position:center;box-sizing:border-box;padding:0!important;margin:0;background:#ebebee;border-top-left-radius:24px;border-top-right-radius:24px;border-bottom-left-radius:0;border-bottom-right-radius:0}
+.news-card>img,.news-card>picture>img{display:block;width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;aspect-ratio:16/10;object-fit:cover!important;object-position:center;box-sizing:border-box;padding:0!important;margin:0;background:#ebebee;border-top-left-radius:24px;border-top-right-radius:24px;border-bottom-left-radius:0;border-bottom-right-radius:0}
 .news-card>div{padding:22px 24px 26px;display:flex;flex-direction:column;flex:1}
 .news-card time{font-size:13px;color:#6e6e73}
 .news-card h3{font-size:21px;line-height:1.32;margin:10px 0;letter-spacing:-.02em}
@@ -62,7 +62,7 @@
  .news-heading{align-items:flex-start}
  .news-page{padding:32px 20px 60px}
  .news-card{border-radius:20px}
- .news-card>img{width:100%!important;height:auto!important;max-height:none!important;aspect-ratio:16/10;object-fit:cover!important;padding:0!important;margin:0;border-top-left-radius:20px;border-top-right-radius:20px}
+ .news-card>img,.news-card>picture>img{width:100%!important;height:auto!important;max-height:none!important;aspect-ratio:16/10;object-fit:cover!important;padding:0!important;margin:0;border-top-left-radius:20px;border-top-right-radius:20px}
  .news-card>div{padding:16px 18px 20px}
  .news-card h3{font-size:18px;line-height:1.35;margin:8px 0}
  .news-card p{font-size:14px;line-height:1.5;margin:6px 0 14px}

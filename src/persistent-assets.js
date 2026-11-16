@@ -278,8 +278,9 @@ function serveAssets(pool){const configuredBytes=Number.parseInt(process.env.ASS
  const width=requestedWidth===undefined?null:widths.find(v=>String(v)===requestedWidth);
  if(requestedWidth!==undefined&&!width)return res.status(400).json({error:'Kích thước ảnh không được hỗ trợ.'});
  const mime=types[path.posix.extname(relative).toLowerCase()],isImage=Boolean(mime?.startsWith('image/'));
- const cacheControl=/-[0-9a-f]{12}\.[a-z0-9]+$/i.test(relative)&&process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=31536000, immutable':(process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=300, stale-while-revalidate=86400, must-revalidate':'public, max-age=0, must-revalidate'); if(isImage)res.vary('Accept');
-  if (isImage && qualifiesForSelectiveAvif(req)) {
+ const explicitFormat=mime==='image/avif'||req.query?.format==='avif'||req.query?.format==='webp';
+ const cacheControl=/-[0-9a-f]{12}\.[a-z0-9]+$/i.test(relative)&&process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=31536000, immutable':(process.env.MEDIA_CACHE_ENABLED!=='false'?'public, max-age=300, stale-while-revalidate=86400, must-revalidate':'public, max-age=0, must-revalidate'); if(isImage&&!explicitFormat)res.vary('Accept');
+  if (isImage && mime !== 'image/avif' && qualifiesForSelectiveAvif(req)) {
     const preAvifEntry = await getPreGeneratedAvif(relative, width);
     if (preAvifEntry) {
       res.type('image/avif').set({

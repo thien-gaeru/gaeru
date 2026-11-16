@@ -153,7 +153,7 @@ function productCard(product, compact = false) {
         ${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return hasSale?`<p class="price price-original"><span class="price-original-label">Giá gốc </span><del>${escapeHtml(getPriceLabel(product,true))}</del></p>${promotionLabel(product)}`:`<p class="price">${escapeHtml(getPriceLabel(product))}</p>`;})()}
 
       </div>
-      <img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
+      ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">`)}
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
           <a class="button button-outline" href="${pUrl}">Mua ngay</a>
@@ -161,7 +161,7 @@ function productCard(product, compact = false) {
     </article>` : `
     <article class="${cardClass}" data-href="${pUrl}" tabindex="0" role="link" aria-label="${escapeHtml(product.cardTitle||product.name)}">
       <a class="catalog-card-image" href="${pUrl}">
-        <img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">
+        ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">`)}
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="${pUrl}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
@@ -205,7 +205,7 @@ function renderCatalog() {
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
   const categoryArtwork=product=>window.GAERUProductArtwork?.image(product)||product.imageUrl;
-  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art"><img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" ${window.GAERUProductArtwork?.attributes?.(categoryArtwork(product))||''} alt="" width="144" height="120" loading="lazy" decoding="async"></span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art">${(img=>window.GAERUProductArtwork?.picture?.(img,categoryArtwork(product))||img)(`<img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" ${window.GAERUProductArtwork?.attributes?.(categoryArtwork(product))||''} alt="" width="144" height="120" loading="lazy" decoding="async">`)}</span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
   window.GAERUK9Loop?.mountHome();
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
@@ -396,7 +396,7 @@ function renderProduct() {
   root.innerHTML = `
     <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${hasFlash ? `<div class="product-heading-flash-badge"><span class="flash-badge-icon" aria-hidden="true">⚡</span><span class="flash-badge-text">FLASH SALE ĐANG DIỄN RA ${initialDiscountPercent ? `· Tiết kiệm tới ${initialDiscountPercent}%` : ''}</span></div>` : ''}${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
-      <div class="product-detail-art"><img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}"><div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}"><img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" loading="lazy" decoding="async"></button>`).join("")}</div></div>
+      <div class="product-detail-art">${(img=>window.GAERUProductArtwork?.picture?.(img,safeProductImage(product.imageUrl),true)||img)(`<img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}">`)}<div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}">${(img=>window.GAERUProductArtwork?.picture?.(img,url,'thumb')||img)(`<img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" loading="lazy" decoding="async">`)}</button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-promotion class="store-promotion-note" hidden></p>
@@ -511,7 +511,7 @@ function renderCart() {
     <div class="cart-items">
       ${rows.map(({ variantId, quantity, product, variant }) => `
         <article class="cart-item">
-          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" ${window.GAERUProductArtwork?.attributes?.(product.imageUrl,'thumb')||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async"></a>
+          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}">${(img=>window.GAERUProductArtwork?.picture?.(img,product.imageUrl,'thumb')||img)(`<img src="${escapeHtml(product.imageUrl)}" ${window.GAERUProductArtwork?.attributes?.(product.imageUrl,'thumb')||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">`)}</a>
           <div class="cart-item-info">
             <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
               <p>${escapeHtml(variant.name)} · ${escapeHtml(variant.sku)} · ${formatPrice(variant.priceVnd)}${variant.stockQuantity ? "" : " · Hết hàng"}</p>

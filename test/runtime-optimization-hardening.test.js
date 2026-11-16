@@ -727,4 +727,164 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
       assert.match(String(r.headers.vary || ""), /\bCookie\b/i, `${p} must retain Vary: Cookie`);
     }
   });
+
+  test("responsiveImages, product-art, and k9-loop separate AVIF <picture> sources from WebP <img> srcset", () => {
+    const { parseHTML } = require("linkedom");
+    const responsive = require("../src/responsive-images");
+    const art = require("../product-art");
+    const k9Loop = require("../k9-loop");
+
+    const newsId = "b0000000-0000-4000-8000-000000000011";
+    const { window, document } = parseHTML(`<!doctype html><html><head></head><body class="home-page">
+      <div id="top"><div class="hero-art"><img src="/assets/products/k9.webp" alt="K9"></div></div>
+      <img id="m3d" src="/assets/products/m3-description/1.webp" alt="M3">
+      <img id="g1" src="/assets/products/g1-ultra-clean.webp" alt="G1">
+      <img id="news-img" src="/api/news-images/${newsId}?v=v1" alt="News">
+      <div data-audio-art><img id="audio-art" src="/assets/products/k9.webp" alt="Audio"></div>
+      <div id="detail-wrap"><picture><source type="image/avif" srcset="/assets/products/k9.avif"><img id="variant-img" src="/assets/products/k9.webp"></picture></div>
+    </body></html>`);
+    window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+
+    responsive.apply(document);
+
+    const k9Img = document.querySelector("#top .hero-art img");
+    assert.equal(k9Img.parentElement.tagName, "PICTURE");
+    assert.equal(k9Img.getAttribute("src"), "/assets/products/k9.webp");
+    assert.match(k9Img.getAttribute("srcset"), /k9-display-480-[a-f0-9]+\.webp\?format=webp 480w/);
+    const k9AvifSource = k9Img.parentElement.querySelector('source[type="image/avif"]');
+    assert.ok(k9AvifSource);
+    assert.match(k9AvifSource.getAttribute("srcset"), /k9-display-480-[a-f0-9]+\.avif 480w/);
+    assert.match(k9AvifSource.getAttribute("srcset"), /\/assets\/products\/k9\.avif 1254w/);
+
+    const m3dSource = document.querySelector("#m3d").parentElement.querySelector('source[type="image/avif"]');
+    assert.ok(m3dSource);
+    assert.equal(
+      m3dSource.getAttribute("srcset"),
+      "/assets/products/m3-description/1-w480.avif 480w, /assets/products/m3-description/1-w800.avif 800w, /assets/products/m3-description/1.avif 842w"
+    );
+    assert.match(document.querySelector("#m3d").getAttribute("srcset"), /\?w=480&format=webp 480w/);
+
+    const g1Source = document.querySelector("#g1").parentElement.querySelector('source[type="image/avif"]');
+    assert.equal(g1Source.getAttribute("srcset"), "/assets/products/g1-ultra-clean.avif");
+
+    const newsImg = document.querySelector("#news-img");
+    const newsSource = newsImg.parentElement.querySelector('source[type="image/avif"]');
+    assert.match(newsSource.getAttribute("srcset"), /\?v=v1&format=avif&w=480 480w/);
+    assert.match(newsImg.getAttribute("srcset"), /\?v=v1&format=webp&w=480 480w/);
+
+    assert.notEqual(document.querySelector("#audio-art").parentElement.tagName, "PICTURE");
+
+    // product-art updateImage syncs and removes <source type="image/avif"> cleanly
+    const variantImg = document.querySelector("#variant-img");
+    art.updateImage(variantImg, "/assets/products/m3-home-cutout.webp");
+    assert.match(
+      variantImg.parentElement.querySelector('source[type="image/avif"]').getAttribute("srcset"),
+      /m3-home-cutout-display-480-[a-f0-9]+\.avif 480w/
+    );
+    art.updateImage(variantImg, "/media/products/gallery.webp");
+    assert.equal(variantImg.parentElement.querySelector('source[type="image/avif"]'), null);
+    assert.equal(variantImg.getAttribute("srcset"), null);
+
+    // k9-loop scans inside hero-art > picture > img and replaces the outer <picture>
+    const ctrl = k9Loop.createController({ window, document });
+    ctrl.scan();
+    const k9LoopRoot = document.querySelector("#top .hero-art [data-k9-loop]");
+    assert.ok(k9LoopRoot);
+    assert.equal(document.querySelector("#top .hero-art picture"), null);
+    ctrl.destroy();
+  });
+
+  test("explicit AVIF and WebP image URLs omit Vary: Accept while unqualified image URLs retain it", async (t) => {
+    const os = require("node:os");
+    const sharp = require("sharp");
+    const session = require("express-session");
+    const { createApp } = require("../src/app");
+    const { warmPublicImage, resetRenditionCache } = require("../src/lib/image-renditions");
+
+    const prevDir = process.env.MEDIA_RENDITIONS_DIR;
+    const prevDisk = process.env.MEDIA_DISK_RENDITION_CACHE;
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gaeru-avif-vary-"));
+    process.env.MEDIA_RENDITIONS_DIR = tmpDir;
+    process.env.MEDIA_DISK_RENDITION_CACHE = "true";
+    resetRenditionCache();
+    t.after(() => {
+      if (prevDir === undefined) delete process.env.MEDIA_RENDITIONS_DIR;
+      else process.env.MEDIA_RENDITIONS_DIR = prevDir;
+      if (prevDisk === undefined) delete process.env.MEDIA_DISK_RENDITION_CACHE;
+      else process.env.MEDIA_DISK_RENDITION_CACHE = prevDisk;
+      resetRenditionCache();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    const w = 960, h = 600;
+    const rawPixels = Buffer.alloc(w * h * 3);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 3;
+        rawPixels[idx] = (x * 7 + y * 3) & 255;
+        rawPixels[idx + 1] = ((x ^ y) * 5) & 255;
+        rawPixels[idx + 2] = (y * 11) & 255;
+      }
+    }
+    const largeWebp = await sharp(rawPixels, { raw: { width: w, height: h, channels: 3 } }).webp({ quality: 88 }).toBuffer();
+    const newsId = "b0000000-0000-4000-8000-000000000022";
+    const newsRow = { content: largeWebp, mime_type: "image/webp" };
+    await warmPublicImage(newsRow);
+
+    const pool = {
+      async query(sql) {
+        const s = String(sql);
+        if (s.includes("INSERT INTO security_rate_limits")) {
+          return { rows: [{ hits: 1, expires_at: new Date(Date.now() + 60000).toISOString() }] };
+        }
+        if (s.includes("FROM news_images")) {
+          return { rows: [newsRow] };
+        }
+        return { rows: [] };
+      }
+    };
+    const app = createApp({
+      pool,
+      sessionStore: new session.MemoryStore(),
+      config: { NODE_ENV: "test", SESSION_SECRET: "avif-vary-test-secret-32chars-min" }
+    });
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+    const base = "http://127.0.0.1:" + server.address().port;
+
+    const k9Avif = await httpRequest(`${base}/assets/products/k9-display-480-f7433a67675b.avif`, { Accept: "*/*" });
+    assert.equal(k9Avif.status, 200);
+    assert.equal(k9Avif.headers["content-type"], "image/avif");
+    assert.equal(k9Avif.headers["cache-control"], "public, max-age=31536000, immutable");
+    assert.doesNotMatch(String(k9Avif.headers.vary || ""), /\bAccept\b/i);
+
+    const k9Webp = await httpRequest(`${base}/assets/products/k9-display-480-f7433a67675b.webp?format=webp`, { Accept: "image/avif,*/*" });
+    assert.equal(k9Webp.status, 200);
+    assert.equal(k9Webp.headers["content-type"], "image/webp");
+    assert.doesNotMatch(String(k9Webp.headers.vary || ""), /\bAccept\b/i);
+
+    const k9QueryAvif = await httpRequest(`${base}/assets/products/k9.webp?format=avif`, { Accept: "*/*" });
+    assert.equal(k9QueryAvif.status, 200);
+    assert.equal(k9QueryAvif.headers["content-type"], "image/avif");
+    assert.doesNotMatch(String(k9QueryAvif.headers.vary || ""), /\bAccept\b/i);
+
+    const k9Unqualified = await httpRequest(`${base}/assets/products/k9.webp`, { Accept: "image/avif,*/*" });
+    assert.equal(k9Unqualified.status, 200);
+    assert.match(String(k9Unqualified.headers.vary || ""), /\bAccept\b/i);
+
+    const dbAvif = await httpRequest(`${base}/api/news-images/${newsId}?w=480&format=avif`, { Accept: "*/*" });
+    assert.equal(dbAvif.status, 200);
+    assert.equal(dbAvif.headers["content-type"], "image/avif");
+    assert.doesNotMatch(String(dbAvif.headers.vary || ""), /\bAccept\b/i);
+
+    const dbWebp = await httpRequest(`${base}/api/news-images/${newsId}?w=480&format=webp`, { Accept: "image/avif,*/*" });
+    assert.equal(dbWebp.status, 200);
+    assert.equal(dbWebp.headers["content-type"], "image/webp");
+    assert.doesNotMatch(String(dbWebp.headers.vary || ""), /\bAccept\b/i);
+
+    const dbUnqualified = await httpRequest(`${base}/api/news-images/${newsId}?w=480`, { Accept: "image/avif,*/*" });
+    assert.equal(dbUnqualified.status, 200);
+    assert.match(String(dbUnqualified.headers.vary || ""), /\bAccept\b/i);
+  });
 }
