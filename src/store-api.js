@@ -261,7 +261,38 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   let cachedStoreConfig = null;
   let cachedStoreConfigTime = 0;
   let inFlightStoreConfigPromise = null;
+  let cachedPublicSettings = null;
+  let cachedPublicSettingsTime = 0;
+  let inFlightPublicSettingsPromise = null;
   const STORE_CONFIG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 5000;
+
+  async function resolvePublicSettingsSnapshot() {
+    const now = Date.now();
+    if (cachedPublicSettings && (now - cachedPublicSettingsTime) < STORE_CONFIG_CACHE_TTL_MS) {
+      return cachedPublicSettings;
+    }
+    if (inFlightPublicSettingsPromise) {
+      return inFlightPublicSettingsPromise;
+    }
+    inFlightPublicSettingsPromise = (async () => {
+      try {
+        const [settings, carriers] = await Promise.all([
+          getSettings(pool, ["shipping_note", "shipping_rates", "ga_measurement_id"]),
+          shippingChoices ? require("./shipping-choice").availableCarriers(pool) : Promise.resolve(null)
+        ]);
+        const snapshot = {
+          settings,
+          shippingCarriers: carriers ? carriers.map(({ id, name }) => ({ id, name })) : null
+        };
+        cachedPublicSettings = snapshot;
+        cachedPublicSettingsTime = Date.now();
+        return snapshot;
+      } finally {
+        inFlightPublicSettingsPromise = null;
+      }
+    })();
+    return inFlightPublicSettingsPromise;
+  }
 
   async function resolveStorePaymentConfig() {
     const now = Date.now();
@@ -296,6 +327,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     cachedStoreConfig = null;
     cachedStoreConfigTime = 0;
     inFlightStoreConfigPromise = null;
+    cachedPublicSettings = null;
+    cachedPublicSettingsTime = 0;
+    inFlightPublicSettingsPromise = null;
   }
 
   // GAERU F-09, DB-01 & DB-02: Singleflight read-through cache with revision counter and stockMap TTL
@@ -320,7 +354,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['catalog', 'stock', 'promotion', 'product', 'products'].includes(t) || String(t).startsWith('product:'))) {
         invalidateCatalogCache();
       }
-      if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['store-config', 'settings', 'payment-channels'].includes(t))) {
+      if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['store-config', 'settings', 'payment-channels', 'shipping'].includes(t))) {
         invalidateStoreConfigCache();
       }
     });
@@ -499,21 +533,25 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     });
   });
 
-  router.get("/settings/public", async (req, res) => {
-    const settings = await getSettings(pool, ["shipping_note", "shipping_rates", "ga_measurement_id"]);
-    const gaMeasurementId = settings.ga_measurement_id !== undefined
-      ? (typeof settings.ga_measurement_id === "string" ? settings.ga_measurement_id.trim() : "")
-      : (config?.GA_MEASUREMENT_ID || "").trim();
-    res.json({
-      ...(shippingChoices ? {shippingCarriers:(await require("./shipping-choice").availableCarriers(pool)).map(({id,name})=>({id,name}))} : {}),
-      shippingNote: settings.shipping_note || "",
-      shippingRates: settings.shipping_rates || {},
-      paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
-      ...(req.paymentChannels?.bankTransfer ? { bankTransfer: req.paymentChannels.bankTransfer } : {}),
-      ...(req.paymentChannels?.cod ? { cod: req.paymentChannels.cod } : {}),
-      ordersEnabled:req.ordersEnabled,
-      gaMeasurementId
-    });
+  router.get("/settings/public", async (req, res, next) => {
+    try {
+      const { settings, shippingCarriers } = await resolvePublicSettingsSnapshot();
+      const gaMeasurementId = settings.ga_measurement_id !== undefined
+        ? (typeof settings.ga_measurement_id === "string" ? settings.ga_measurement_id.trim() : "")
+        : (config?.GA_MEASUREMENT_ID || "").trim();
+      res.json({
+        ...(shippingChoices ? { shippingCarriers: shippingCarriers || [] } : {}),
+        shippingNote: settings.shipping_note || "",
+        shippingRates: settings.shipping_rates || {},
+        paymentMethods: req.paymentChannels?.methods || ["cod", ...(req.vnpayConfig ? ["vnpay"] : [])],
+        ...(req.paymentChannels?.bankTransfer ? { bankTransfer: req.paymentChannels.bankTransfer } : {}),
+        ...(req.paymentChannels?.cod ? { cod: req.paymentChannels.cod } : {}),
+        ordersEnabled: req.ordersEnabled,
+        gaMeasurementId
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
   const signOptionalGuestTrackingToken = (orderNumber) => {
@@ -2274,6 +2312,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       await audit(client, { actor: req.admin, action: "settings.update", entityType: "store_settings", after: settings });
     });
     try { require('./shipping-management').invalidateShippingQuoteCache(); } catch (_) {}
+    invalidateStoreConfigCache();
+    invalidateTags(['store-config', 'settings'], { immediate: true });
     res.json({ settings: {
       shippingNote: settings.shipping_note,
       shippingRates: settings.shipping_rates,
@@ -2318,6 +2358,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       );
       await audit(client, { actor: req.admin, action: "settings.analytics.update", entityType: "store_settings", after: { gaMeasurementId } });
     });
+    invalidateStoreConfigCache();
+    invalidateTags(['store-config', 'settings'], { immediate: true });
     res.json({
       message: gaMeasurementId ? "Đã lưu Google Analytics Measurement ID." : "Đã gỡ Google Analytics Measurement ID.",
       gaMeasurementId,

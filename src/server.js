@@ -362,26 +362,20 @@ async function shutdown() {
   stopCareEmail?.();
   stopOrderEmail?.();
 
-  // 3. Settle in-flight startup work bounded by a 2.5-second deadline so shutdown is never hung by slow startup
+  // 3. Settle in-flight startup work, conversion, verification and media sync in parallel under a bounded 4-second deadline
   if (typeof setTimeout !== 'undefined') {
-    const startupDeadline = new Promise(resolve => setTimeout(resolve, 2500).unref?.());
+    let settleTimer;
+    const shutdownDeadline = new Promise(resolve => {
+      settleTimer = setTimeout(resolve, 4000);
+      settleTimer?.unref?.();
+    });
     await Promise.race([
-      startTask.catch(() => {}),
-      startupDeadline
-    ]);
-  } else {
-    await startTask.catch(() => {});
-  }
-
-  // 4. Background conversion, verification and media sync bounded by a 4-second deadline (A15)
-  if (typeof setTimeout !== 'undefined') {
-    const shutdownDeadline = new Promise(resolve => setTimeout(resolve, 4000).unref?.());
-    await Promise.race([
-      Promise.allSettled([mediaAuditTask, staticMediaSyncTask]),
+      Promise.allSettled([startTask.catch(() => {}), mediaAuditTask, staticMediaSyncTask]),
       shutdownDeadline
     ]);
+    if (typeof clearTimeout !== 'undefined' && settleTimer) clearTimeout(settleTimer);
   } else {
-    await Promise.allSettled([mediaAuditTask, staticMediaSyncTask]);
+    await Promise.allSettled([startTask.catch(() => {}), mediaAuditTask, staticMediaSyncTask]);
   }
   try {
     await sessionStore.close();

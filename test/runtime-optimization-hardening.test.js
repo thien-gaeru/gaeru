@@ -537,13 +537,13 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     const newBytes = Buffer.from("RIFF1234WEBPVP8Xnew-smaller");
     fs.writeFileSync(imgPath, oldBytes);
 
-    const prevRoot = process.env.MEDIA_STORAGE_ROOT;
+    const prevRoot = process.env.MEDIA_ROOT;
     const prevEnabled = process.env.MEDIA_CACHE_ENABLED;
-    process.env.MEDIA_STORAGE_ROOT = mediaRoot;
+    process.env.MEDIA_ROOT = mediaRoot;
     process.env.MEDIA_CACHE_ENABLED = "true";
     t.after(() => {
-      if (prevRoot === undefined) delete process.env.MEDIA_STORAGE_ROOT;
-      else process.env.MEDIA_STORAGE_ROOT = prevRoot;
+      if (prevRoot === undefined) delete process.env.MEDIA_ROOT;
+      else process.env.MEDIA_ROOT = prevRoot;
       if (prevEnabled === undefined) delete process.env.MEDIA_CACHE_ENABLED;
       else process.env.MEDIA_CACHE_ENABLED = prevEnabled;
     });

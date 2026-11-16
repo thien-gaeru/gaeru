@@ -231,15 +231,16 @@ async function executeRollingReload() {
             oldWorker.disconnect();
           } catch (_) {}
 
-          // Safety timeout to force-kill if worker fails to drain within 10s
+          // Safety timeout above worker's internal 15s shutdownTimer to allow clean DB/session drain
           const drainTimeout = setTimeout(() => {
             try {
               if (oldWorker.process && !oldWorker.isDead()) {
                 oldWorker.kill('SIGKILL');
               }
             } catch (_) {}
-          }, 10000);
+          }, 17000);
           drainTimeout.unref?.();
+          oldWorker.once('exit', () => clearTimeout(drainTimeout));
         }
 
         // Small pause between workers for load balancing stabilization

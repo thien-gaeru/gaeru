@@ -106,8 +106,8 @@ class ByteCappedLruCache {
     this.currentBytes = 0;
   }
 }
-const preAvifCache = new ByteCappedLruCache(IS_ARM64 ? 4 * 1024 * 1024 : 16 * 1024 * 1024);
-const preWebpCache = new ByteCappedLruCache(IS_ARM64 ? 4 * 1024 * 1024 : 12 * 1024 * 1024);
+const preAvifCache = new ByteCappedLruCache(IS_ARM64 ? 6 * 1024 * 1024 : 16 * 1024 * 1024);
+const preWebpCache = new ByteCappedLruCache(IS_ARM64 ? 8 * 1024 * 1024 : 12 * 1024 * 1024);
 
 async function getPreGeneratedWebp(relative, width = null) {
   if (!width) return null;
@@ -270,7 +270,7 @@ async function syncAssets(pool,{source=path.join(__dirname,'..','assets')}={}){
   return last={state:'verified',files:count,bytes:total,updated};
  }catch(e){clearAssetSnapshotCache(pool,{all:true});last={state:'failed',files:count};throw e;}
 }
-function serveAssets(pool){const cache=createObjectCache({maxBytes:IS_ARM64?24*1024*1024:96*1024*1024,maxEntryBytes:IS_ARM64?6*1024*1024:12*1024*1024,ttl:3600000,maxPending:64});if(pool&&typeof pool==='object')assetCaches.set(pool,cache);return async(req,res,next)=>{
+function serveAssets(pool){const configuredBytes=Number.parseInt(process.env.ASSET_CACHE_MAX_BYTES||'',10);const assetCacheMaxBytes=Number.isFinite(configuredBytes)&&configuredBytes>=4*1024*1024?configuredBytes:(IS_ARM64?48*1024*1024:96*1024*1024);const cache=createObjectCache({maxBytes:assetCacheMaxBytes,maxEntryBytes:IS_ARM64?6*1024*1024:12*1024*1024,ttl:3600000,maxPending:64});if(pool&&typeof pool==='object')assetCaches.set(pool,cache);return async(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method))return next();
  let relative;try{relative=decodeURIComponent(req.path).replace(/^\//,'');}catch{return res.sendStatus(400);}
  if(!valid(relative))return next();
@@ -343,6 +343,14 @@ function serveAssets(pool){const cache=createObjectCache({maxBytes:IS_ARM64?24*1
     const row=await getCachedSnapshotRow(pool,relative,async()=>(await pool.query('SELECT * FROM site_asset_snapshots WHERE path=$1',[relative])).rows[0]);
     if(!row){
       try{return await serveLocalFallback();}catch(_){return res.set('Cache-Control','no-store').sendStatus(404);}
+    }
+    if(width&&row.mime_type.startsWith('image/')){
+      const preWebp=await getPreGeneratedWebp(relative,width);
+      if(preWebp){
+        res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':preWebp.etag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
+        if(req.fresh)return res.status(304).end();
+        return res.send(preWebp.buffer);
+      }
     }
     // GAERU F-15: Fast 304 response before disk read if client already holds matching snapshot ETag
     if(!width && req.headers['if-none-match'] === '"' + row.sha256 + '"'){

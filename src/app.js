@@ -32,13 +32,17 @@ const { createBusinessApi } = require("./business-api");
 function attachTransactionalCacheInvalidation(pool) {
   if (!pool || typeof pool.query !== 'function' || pool.__gaeruCacheHooked) return pool;
   const CATALOG_TABLES_RE = /\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i;
-  const isCatalogOrPageMutation = sql => {
-    if (typeof sql !== 'string') return false;
+  const SETTINGS_TABLES_RE = /\b(?:store_settings|shipping_carrier_connections|payment_channel_connections)\b/i;
+  const classifyMutation = sql => {
+    if (typeof sql !== 'string') return { catalog: false, settings: false };
     const trimmed = sql.trimStart();
     if (!/^(?:INSERT|UPDATE|DELETE)\b/i.test(trimmed) && !(/^WITH\b/i.test(trimmed) && /\b(?:INSERT|UPDATE|DELETE)\b/i.test(trimmed))) {
-      return false;
+      return { catalog: false, settings: false };
     }
-    return CATALOG_TABLES_RE.test(trimmed);
+    return {
+      catalog: CATALOG_TABLES_RE.test(trimmed),
+      settings: SETTINGS_TABLES_RE.test(trimmed)
+    };
   };
   const isBeginSql = sql => typeof sql === 'string' && /^\s*(?:BEGIN|START\s+TRANSACTION)\b/i.test(sql);
   const isCommitSql = sql => typeof sql === 'string' && /^\s*(?:COMMIT|END)\b/i.test(sql);
@@ -57,19 +61,29 @@ function attachTransactionalCacheInvalidation(pool) {
       }
     });
   } catch (_) {}
-  const flushCatalogCaches = () => {
+  const flushCaches = ({ catalog = false, settings = false } = {}) => {
     const cacheMod = require('./cache');
-    cacheMod.clearHtmlCacheOnly();
-    clearLocalDerivedCatalogCaches();
-    cacheMod.invalidateTags(['products', 'catalog', 'promotions'], { immediate: true });
-    require('./site-pages').clearSitePagesCache(pool);
-    // derived image/site/asset/knowledge caches already cleared via clearLocalDerivedCatalogCaches()
-    require('./persistent-assets').clearAssetSnapshotCache(pool);
+    const tags = [];
+    if (catalog) {
+      cacheMod.clearHtmlCacheOnly();
+      clearLocalDerivedCatalogCaches();
+      tags.push('products', 'catalog', 'promotions');
+    }
+    if (settings) {
+      tags.push('store-config', 'settings', 'payment-channels', 'shipping');
+    }
+    if (tags.length) {
+      cacheMod.invalidateTags(tags, { immediate: true });
+    }
   };
   const extractSqlText = sql => (typeof sql === 'object' && sql !== null ? sql.text : sql);
   const rawPoolQuery = pool.query.bind(pool);
   const wrapAutocommitQuery = fn => function(sql, values, cb) {
-    const onDone = err => { if (!err && isCatalogOrPageMutation(extractSqlText(sql))) flushCatalogCaches(); };
+    const onDone = err => {
+      if (err) return;
+      const flags = classifyMutation(extractSqlText(sql));
+      if (flags.catalog || flags.settings) flushCaches(flags);
+    };
     if (typeof values === 'function') {
       const origCb = values;
       return fn.call(this, sql, (err, res) => { onDone(err); origCb(err, res); });
@@ -89,19 +103,27 @@ function attachTransactionalCacheInvalidation(pool) {
       if (isBeginSql(text)) {
         client.__gaeruInTx = true;
         client.__gaeruDirtyCatalog = false;
+        client.__gaeruDirtySettings = false;
       } else if (isRollbackSql(text)) {
         client.__gaeruInTx = false;
         client.__gaeruDirtyCatalog = false;
+        client.__gaeruDirtySettings = false;
       } else if (isCommitSql(text)) {
-        const wasDirty = Boolean(client.__gaeruDirtyCatalog);
+        const wasDirtyCatalog = Boolean(client.__gaeruDirtyCatalog);
+        const wasDirtySettings = Boolean(client.__gaeruDirtySettings);
         client.__gaeruInTx = false;
         client.__gaeruDirtyCatalog = false;
-        if (wasDirty) flushCatalogCaches();
-      } else if (isCatalogOrPageMutation(text)) {
-        if (client.__gaeruInTx) {
-          client.__gaeruDirtyCatalog = true;
-        } else {
-          flushCatalogCaches();
+        client.__gaeruDirtySettings = false;
+        if (wasDirtyCatalog || wasDirtySettings) flushCaches({ catalog: wasDirtyCatalog, settings: wasDirtySettings });
+      } else {
+        const flags = classifyMutation(text);
+        if (flags.catalog || flags.settings) {
+          if (client.__gaeruInTx) {
+            if (flags.catalog) client.__gaeruDirtyCatalog = true;
+            if (flags.settings) client.__gaeruDirtySettings = true;
+          } else {
+            flushCaches(flags);
+          }
         }
       }
     };
@@ -127,12 +149,14 @@ function attachTransactionalCacheInvalidation(pool) {
           const baseClientQuery = client.query === pool.query ? rawPoolQuery : client.query.bind(client);
           client.__gaeruInTx = false;
           client.__gaeruDirtyCatalog = false;
+          client.__gaeruDirtySettings = false;
           client.query = wrapClientQuery(client, baseClientQuery);
           if (typeof client.release === 'function') {
             const origRelease = client.release.bind(client);
             client.release = (...args) => {
               client.__gaeruInTx = false;
               client.__gaeruDirtyCatalog = false;
+              client.__gaeruDirtySettings = false;
               return origRelease(...args);
             };
           }

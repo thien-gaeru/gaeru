@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const http = require('node:http');
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
@@ -19,6 +19,33 @@ const { EventEmitter } = require('node:events');
 const { configureSseSocket, sseHandler } = require('../src/realtime-sse');
 const { loadWebPagesIndexAsync, clearWebKnowledgeCache } = require('../src/chat-web-knowledge');
 const { FailoverSyncManager } = require('../src/failover-sync');
+
+function resolvePowerShellBinary() {
+  if (process.platform === 'win32') return 'powershell';
+  for (const candidate of ['pwsh', 'powershell']) {
+    const check = spawnSync(candidate, ['--version'], { stdio: 'ignore' });
+    if (!check.error && check.status === 0) return candidate;
+  }
+  return null;
+}
+
+function assertPowerShellAst(t, psFile) {
+  const psBin = resolvePowerShellBinary();
+  if (!psBin) {
+    t.diagnostic(`Skipping PowerShell AST check for ${path.basename(psFile)} on ${process.platform}: powershell/pwsh unavailable.`);
+    return;
+  }
+  const astOut = execFileSync(
+    psBin,
+    [
+      '-NoProfile',
+      '-Command',
+      `$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('${psFile.replace(/'/g, "''")}',[ref]$tokens,[ref]$errors);if($errors.Count -gt 0){throw ($errors[0].Message)};Write-Output 'AST_OK'`
+    ],
+    { encoding: 'utf8' }
+  );
+  assert.match(astOut, /AST_OK/);
+}
 
 async function createPglitePool() {
   const db = await PGlite.create();
@@ -1033,22 +1060,13 @@ test('batch 2 high-severity fixes: [H-01] through [H-09]', async (t) => {
   });
 
   // [H-09] protect-and-hide-web-folders.ps1 uses non-destructive ACL inspection and parses cleanly
-  await t.test('[H-09] protect-and-hide-web-folders.ps1 checks ACL non-destructively', () => {
+  await t.test('[H-09] protect-and-hide-web-folders.ps1 checks ACL non-destructively', (sub) => {
     const ps1Path = path.join(root, 'scripts', 'protect-and-hide-web-folders.ps1');
     const ps1Src = fs.readFileSync(ps1Path, 'utf8');
     assert.doesNotMatch(ps1Src, /\[System\.IO\.Directory\]::Delete/);
     assert.match(ps1Src, /Get-Acl -LiteralPath \$dir/);
 
-    const astOut = execFileSync(
-      'powershell',
-      [
-        '-NoProfile',
-        '-Command',
-        `$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('${ps1Path.replace(/'/g, "''")}',[ref]$tokens,[ref]$errors);if($errors.Count -gt 0){throw ($errors[0].Message)};Write-Output 'AST_OK'`
-      ],
-      { encoding: 'utf8' }
-    );
-    assert.match(astOut, /AST_OK/);
+    assertPowerShellAst(sub, ps1Path);
   });
 });
 
@@ -1605,7 +1623,7 @@ test('batch 3 medium-severity fixes: [M-01] through [M-09]', async (t) => {
   });
 
   // [M-09] PowerShell/JS operational script hardening
-  await t.test('[M-09] scripts parse cleanly and enforce streaming/ACL/watchdog/process scoping', () => {
+  await t.test('[M-09] scripts parse cleanly and enforce streaming/ACL/watchdog/process scoping', (sub) => {
     const pullPs1 = path.join(repoRoot, 'scripts', 'pull-mi6-backups.ps1');
     const restorePs1 = path.join(repoRoot, 'scripts', 'failover-restore-to-pc.ps1');
     const cutoverPs1 = path.join(repoRoot, 'scripts', 'finalize-pc-cutover.ps1');
@@ -1629,16 +1647,7 @@ test('batch 3 medium-severity fixes: [M-01] through [M-09]', async (t) => {
     assert.match(cutoverSrc, /\$_\.CommandLine\s+-like\s+"\*gaeru\*"/);
 
     for (const psFile of [pullPs1, restorePs1, cutoverPs1]) {
-      const astOut = execFileSync(
-        'powershell',
-        [
-          '-NoProfile',
-          '-Command',
-          `$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('${psFile.replace(/'/g, "''")}',[ref]$tokens,[ref]$errors);if($errors.Count -gt 0){throw ($errors[0].Message)};Write-Output 'AST_OK'`
-        ],
-        { encoding: 'utf8' }
-      );
-      assert.match(astOut, /AST_OK/);
+      assertPowerShellAst(sub, psFile);
     }
   });
 });

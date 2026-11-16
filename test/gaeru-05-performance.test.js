@@ -9,6 +9,7 @@ test('GAERU-05: GET /products and public catalog routes do NOT trigger payment q
   let paymentChannelQueries = 0;
   let ordersEnabledQueries = 0;
   let vnpayQueries = 0;
+  let settingsQueries = 0;
 
   const mockPool = {
     async query(sql) {
@@ -16,6 +17,7 @@ test('GAERU-05: GET /products and public catalog routes do NOT trigger payment q
         return { rows: [] };
       }
       if (sql.includes('FROM store_settings')) {
+        settingsQueries++;
         return { rows: [] };
       }
       return { rows: [] };
@@ -62,9 +64,18 @@ test('GAERU-05: GET /products and public catalog routes do NOT trigger payment q
   const rCheckout = await fetch(`${base}/settings/public`);
   assert.equal(rCheckout.status, 200);
   assert.equal(paymentChannelQueries, 1, 'Checkout route properly triggers payment channel query');
+  assert.equal(settingsQueries, 1, 'Checkout route queries store_settings once');
 
-  // 3. Subsequent checkout calls within TTL share the in-memory cached config
+  // 3. Subsequent checkout calls within TTL share the in-memory cached config and public settings
   const rCheckout2 = await fetch(`${base}/settings/public`);
   assert.equal(rCheckout2.status, 200);
-  assert.equal(paymentChannelQueries, 1, 'Subsequent checkout within 10s TTL uses cache, preventing DB storm');
+  assert.equal(paymentChannelQueries, 1, 'Subsequent checkout within TTL uses cache, preventing DB storm');
+  assert.equal(settingsQueries, 1, 'Subsequent /settings/public within TTL uses cached public settings');
+
+  // 4. Tag invalidation clears both payment channel and public settings caches immediately
+  require('../src/cache').invalidateTags(['settings'], { immediate: true });
+  const rCheckout3 = await fetch(`${base}/settings/public`);
+  assert.equal(rCheckout3.status, 200);
+  assert.equal(paymentChannelQueries, 2);
+  assert.equal(settingsQueries, 2);
 });

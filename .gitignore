@@ -24,6 +24,7 @@ scripts/*.ps1
 !scripts/pull-mi6-backups.ps1
 !scripts/failover-restore-to-pc.ps1
 !scripts/finalize-pc-cutover.ps1
+!scripts/protect-and-hide-web-folders.ps1
 scripts/*.bat
 scripts/*.vbs
 logs/
