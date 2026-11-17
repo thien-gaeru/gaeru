@@ -478,7 +478,8 @@ test('audit fixes: SSE socket keepalive/timeout, async web knowledge loader, and
 
 test('audit fixes: full DB schema migration creates FK indexes idempotently and ops/CI hardening invariants hold', async (t) => {
   assert.ok(MIGRATION_FILES.includes('audit-fk-indexes-20261114.sql'));
-  assert.equal(MIGRATION_FILES.at(-1), 'decommission-internal-mail-20261116.sql');
+  assert.ok(MIGRATION_FILES.includes('decommission-internal-mail-20261116.sql'));
+  assert.equal(MIGRATION_FILES.at(-1), 'loyalty-clawback-debt-20261117.sql');
   const pool = await createPglitePool();
   t.after(() => pool.end());
 

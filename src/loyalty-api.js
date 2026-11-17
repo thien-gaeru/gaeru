@@ -54,6 +54,7 @@ async function getOrCreateLoyalty(client, customerId) {
   const sel = await client.query(
     `SELECT customer_id AS "customerId", points_balance AS "pointsBalance",
             lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
+            COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
             tier, created_at AS "createdAt", updated_at AS "updatedAt"
      FROM customer_loyalty WHERE customer_id = $1 FOR UPDATE`,
     [customerId]
@@ -61,15 +62,83 @@ async function getOrCreateLoyalty(client, customerId) {
   if (sel.rows.length) return sel.rows[0];
 
   const ins = await client.query(
-    `INSERT INTO customer_loyalty (customer_id, points_balance, lifetime_earned, lifetime_spent, tier)
-     VALUES ($1, 0, 0, 0, 'bronze')
+    `INSERT INTO customer_loyalty (customer_id, points_balance, lifetime_earned, lifetime_spent, clawback_debt_points, tier)
+     VALUES ($1, 0, 0, 0, 0, 'bronze')
      ON CONFLICT (customer_id) DO UPDATE SET customer_id = EXCLUDED.customer_id
      RETURNING customer_id AS "customerId", points_balance AS "pointsBalance",
                lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
+               COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
                tier, created_at AS "createdAt", updated_at AS "updatedAt"`,
     [customerId]
   );
   return ins.rows[0];
+}
+
+async function settleClawbackDebtInTx(client, { customerId, orderId = null, balance, clawbackDebt, eventKey, reason }) {
+  const debtPaid = Math.min(Math.max(0, Number(clawbackDebt) || 0), Math.max(0, Number(balance) || 0));
+  if (debtPaid <= 0) {
+    return { debtPaid: 0, balanceAfter: balance, clawbackDebtAfter: clawbackDebt };
+  }
+  const existing = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [eventKey]);
+  if (existing.rows.length) {
+    return { debtPaid: 0, balanceAfter: balance, clawbackDebtAfter: clawbackDebt };
+  }
+  const balanceAfter = balance - debtPaid;
+  const clawbackDebtAfter = clawbackDebt - debtPaid;
+  await client.query(
+    `UPDATE customer_loyalty
+     SET points_balance = $2, clawback_debt_points = $3, updated_at = now()
+     WHERE customer_id = $1`,
+    [customerId, balanceAfter, clawbackDebtAfter]
+  );
+  await client.query(
+    `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
+     VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
+    [customerId, orderId, -debtPaid, balanceAfter, reason || 'Cấn trừ công nợ Xu đã tiêu từ đơn hoàn trước', eventKey]
+  );
+  return { debtPaid, balanceAfter, clawbackDebtAfter };
+}
+
+async function previewEarnClawback(client, { customerId, orderId, lock = false }) {
+  if (!customerId || !orderId) {
+    return { earnToRevoke: 0, recoverableFromBalance: 0, shortfallPoints: 0, currentBalance: 0, pendingRedeemRefund: 0, alreadyRevoked: false };
+  }
+  const revokeCheck = await client.query(
+    'SELECT 1 FROM customer_loyalty_ledger WHERE event_key = $1 LIMIT 1',
+    [`refund-earn:${orderId}`]
+  );
+  if (revokeCheck.rows.length) {
+    return { earnToRevoke: 0, recoverableFromBalance: 0, shortfallPoints: 0, currentBalance: 0, pendingRedeemRefund: 0, alreadyRevoked: true };
+  }
+  const orderAgg = (await client.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN type = 'earn' THEN ABS(points) ELSE 0 END), 0)::int AS "earnedOnOrder",
+       COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points) ELSE 0 END), 0)::int AS "totalRedeemed",
+       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points ELSE 0 END), 0)::int AS "totalRefunded"
+     FROM customer_loyalty_ledger
+     WHERE order_id = $1`,
+    [orderId]
+  )).rows[0];
+
+  const earnToRevoke = Math.max(0, Number(orderAgg?.earnedOnOrder || 0));
+  const pendingRedeemRefund = Math.max(0, Number(orderAgg?.totalRedeemed || 0) - Number(orderAgg?.totalRefunded || 0));
+  if (earnToRevoke <= 0) {
+    return { earnToRevoke: 0, recoverableFromBalance: 0, shortfallPoints: 0, currentBalance: 0, pendingRedeemRefund, alreadyRevoked: false };
+  }
+
+  let currentBalance = 0;
+  if (lock) {
+    const loyalty = await getOrCreateLoyalty(client, customerId);
+    currentBalance = Math.max(0, Number(loyalty.pointsBalance || 0));
+  } else {
+    const row = (await client.query('SELECT points_balance AS "pointsBalance" FROM customer_loyalty WHERE customer_id = $1', [customerId])).rows[0];
+    currentBalance = Math.max(0, Number(row?.pointsBalance || 0));
+  }
+
+  const effectiveBalance = currentBalance + pendingRedeemRefund;
+  const recoverableFromBalance = Math.min(effectiveBalance, earnToRevoke);
+  const shortfallPoints = Math.max(0, earnToRevoke - recoverableFromBalance);
+  return { earnToRevoke, recoverableFromBalance, shortfallPoints, currentBalance, pendingRedeemRefund, alreadyRevoked: false };
 }
 
 async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRatio, reason, actor }) {
@@ -113,17 +182,48 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
     [customerId, orderId || null, points, newBalance, reason || `Tích Xu từ đơn hàng #${orderId || ''} · ${TIER_NAMES[earningTier]} ${ratio * 100}% · Chính sách v${policy.version}`, eventKey]
   );
 
+  let settlement = { debtPaid: 0, balanceAfter: newBalance, clawbackDebtAfter: loyalty.clawbackDebtPoints || 0 };
+  if (settlement.clawbackDebtAfter > 0 && newBalance > 0) {
+    settlement = await settleClawbackDebtInTx(client, {
+      customerId,
+      orderId: orderId || null,
+      balance: newBalance,
+      clawbackDebt: settlement.clawbackDebtAfter,
+      eventKey: `debt-settle:earn:${orderId || entry.rows[0].id}`,
+      reason: `Cấn trừ công nợ Xu đã tiêu từ đơn hoàn trước · Đơn #${orderId || ''}`
+    });
+  }
+
   if (actor) {
     await appendAudit(client, {
       actor,
       action: 'loyalty.earn',
       entityType: 'customer',
       entityId: customerId,
-      metadata: { points, orderId, newBalance, tier: newTier, earningTier, earnBasisPoints: ratio * 10000, policyVersion: policy.version }
+      metadata: {
+        points,
+        orderId,
+        newBalance: settlement.balanceAfter,
+        debtSettled: settlement.debtPaid,
+        clawbackDebtAfter: settlement.clawbackDebtAfter,
+        tier: newTier,
+        earningTier,
+        earnBasisPoints: ratio * 10000,
+        policyVersion: policy.version
+      }
     });
   }
 
-  return { success: true, existing: false, earnedPoints: points, balanceAfter: newBalance, tier: newTier, ledgerId: entry.rows[0].id };
+  return {
+    success: true,
+    existing: false,
+    earnedPoints: points,
+    debtSettled: settlement.debtPaid,
+    balanceAfter: settlement.balanceAfter,
+    clawbackDebtAfter: settlement.clawbackDebtAfter,
+    tier: newTier,
+    ledgerId: entry.rows[0].id
+  };
 }
 
 async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRedeemRatio = 0.5, orderTotalVnd, maxPayableVnd, cycleKey = null, reason, actor }) {
@@ -195,12 +295,14 @@ async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRe
   return { success: true, existing: false, redeemedPoints: redeemAmount, discountVnd: redeemAmount, balanceAfter: newBalance, ledgerId: entry.rows[0].id };
 }
 
-async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả do đơn hủy hoặc trả hàng', actor }) {
+async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả do đơn hủy hoặc trả hàng', actor, cashRecoveredEarnVnd = 0 }) {
   if (!customerId || !orderId) return { success: false, reason: 'Thiếu thông tin' };
 
   let refundedRedeem = 0;
   let revokedEarn = 0;
   let unrecoveredEarn = 0;
+  let cashRecoveredEarn = 0;
+  let debtAdded = 0;
 
   // 1. Check net unrefunded redeemed points for this order -> Refund them
   const redeemAgg = (await client.query(
@@ -213,13 +315,24 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
     [orderId]
   )).rows[0];
 
+  const earnEntry = await client.query(
+    `SELECT points FROM customer_loyalty_ledger
+     WHERE order_id = $1 AND type = 'earn'`,
+    [orderId]
+  );
+
   const pointsToRefund = Math.max(0, (redeemAgg?.totalRedeemed || 0) - (redeemAgg?.totalRefunded || 0));
+  const pointsToRevoke = earnEntry.rows.reduce((sum, r) => sum + Math.abs(r.points || 0), 0);
+
+  let loyalty = (pointsToRefund > 0 || pointsToRevoke > 0)
+    ? await getOrCreateLoyalty(client, customerId)
+    : null;
+
   if (pointsToRefund > 0) {
     const refundCount = redeemAgg?.refundCount || 0;
     const refundEventKey = refundCount === 0 ? `refund-redeem:${orderId}` : `refund-redeem:${orderId}:${refundCount + 1}`;
     const checkRefund = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [refundEventKey]);
     if (!checkRefund.rows.length) {
-      const loyalty = await getOrCreateLoyalty(client, customerId);
       const newBalance = loyalty.pointsBalance + pointsToRefund;
       const newSpent = Math.max(0, loyalty.lifetimeSpent - pointsToRefund);
 
@@ -235,43 +348,65 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
          VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
         [customerId, orderId, pointsToRefund, newBalance, `Hoàn lại Xu đã dùng cho đơn #${orderId}: ${reason}`, refundEventKey]
       );
+      loyalty.pointsBalance = newBalance;
+      loyalty.lifetimeSpent = newSpent;
       refundedRedeem = pointsToRefund;
     }
   }
 
-  // 2. Check if order had earned points -> Revoke up to available balance (preserving ledger invariant)
-  const earnEntry = await client.query(
-    `SELECT points FROM customer_loyalty_ledger
-     WHERE order_id = $1 AND type = 'earn'`,
-    [orderId]
-  );
+  // 2. Check if order had earned points -> Revoke from balance, apply cash refund clawback, and record any remaining deficit as clawback_debt_points
   if (earnEntry.rows.length) {
-    const pointsToRevoke = Math.abs(earnEntry.rows[0].points);
     const revokeEventKey = `refund-earn:${orderId}`;
     const checkRevoke = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [revokeEventKey]);
     if (!checkRevoke.rows.length && pointsToRevoke > 0) {
-      const loyalty = await getOrCreateLoyalty(client, customerId);
       const actualRevoked = Math.min(loyalty.pointsBalance, pointsToRevoke);
       unrecoveredEarn = Math.max(0, pointsToRevoke - actualRevoked);
+      cashRecoveredEarn = Math.min(unrecoveredEarn, Math.max(0, Math.floor(Number(cashRecoveredEarnVnd) || 0)));
+      debtAdded = Math.max(0, unrecoveredEarn - cashRecoveredEarn);
+
       const newBalance = loyalty.pointsBalance - actualRevoked;
+      const newDebt = (loyalty.clawbackDebtPoints || 0) + debtAdded;
       const newEarned = Math.max(0, loyalty.lifetimeEarned - pointsToRevoke);
       const newTier = calculateTier(newEarned, await readPolicy(client));
 
       await client.query(
         `UPDATE customer_loyalty
-         SET points_balance = $2, lifetime_earned = $3, tier = $4, updated_at = now()
+         SET points_balance = $2, clawback_debt_points = $3, lifetime_earned = $4, tier = $5, updated_at = now()
          WHERE customer_id = $1`,
-        [customerId, newBalance, newEarned, newTier]
+        [customerId, newBalance, newDebt, newEarned, newTier]
       );
+
+      const detailNote = (cashRecoveredEarn > 0 || debtAdded > 0)
+        ? ` (trừ số dư: ${actualRevoked} Xu${cashRecoveredEarn > 0 ? `, khấu trừ tiền hoàn: ${cashRecoveredEarn} ₫` : ''}${debtAdded > 0 ? `, ghi nợ Xu: ${debtAdded} Xu` : ''})`
+        : '';
 
       // Even a zero-balance reversal needs a durable replay marker.
       await client.query(
         `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
          VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
-        [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}`, revokeEventKey]
+        [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}${detailNote}`, revokeEventKey]
       );
+      loyalty.pointsBalance = newBalance;
+      loyalty.clawbackDebtPoints = newDebt;
+      loyalty.lifetimeEarned = newEarned;
       revokedEarn = actualRevoked;
     }
+  }
+
+  // 3. If restoring redeemed points pushed balance > 0 on an account with prior unrecovered debt, settle it atomically
+  if (loyalty && refundedRedeem > 0 && loyalty.clawbackDebtPoints > 0 && loyalty.pointsBalance > 0) {
+    const refundCount = redeemAgg?.refundCount || 0;
+    const settleKey = refundCount === 0 ? `debt-settle:refund:${orderId}` : `debt-settle:refund:${orderId}:${refundCount + 1}`;
+    const settlement = await settleClawbackDebtInTx(client, {
+      customerId,
+      orderId,
+      balance: loyalty.pointsBalance,
+      clawbackDebt: loyalty.clawbackDebtPoints,
+      eventKey: settleKey,
+      reason: `Cấn trừ công nợ Xu đã tiêu từ đơn hoàn trước khi hoàn Xu đơn #${orderId}`
+    });
+    loyalty.pointsBalance = settlement.balanceAfter;
+    loyalty.clawbackDebtPoints = settlement.clawbackDebtAfter;
   }
 
   if (actor && (refundedRedeem > 0 || revokedEarn > 0 || unrecoveredEarn > 0)) {
@@ -280,11 +415,27 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
       action: 'loyalty.refund',
       entityType: 'customer',
       entityId: customerId,
-      metadata: { orderId, refundedRedeem, revokedEarn, unrecoveredEarn, reason }
+      metadata: {
+        orderId,
+        refundedRedeem,
+        revokedEarn,
+        cashRecoveredEarn,
+        debtAdded,
+        clawbackDebtAfter: loyalty?.clawbackDebtPoints ?? 0,
+        unrecoveredEarn,
+        reason
+      }
     });
   }
 
-  return { success: true, refundedRedeem, revokedEarn, unrecoveredEarn };
+  return {
+    success: true,
+    refundedRedeem,
+    revokedEarn,
+    cashRecoveredEarn,
+    debtAdded,
+    unrecoveredEarn
+  };
 }
 
 async function adjustPoints(pool, { customerId, points, reason, actor, requestKey = require('node:crypto').randomUUID() }) {
@@ -324,15 +475,42 @@ async function adjustPoints(pool, { customerId, points, reason, actor, requestKe
       [customerId, points, newBalance, reason, eventKey]
     );
 
+    let settlement = { debtPaid: 0, balanceAfter: newBalance, clawbackDebtAfter: loyalty.clawbackDebtPoints || 0 };
+    if (points > 0 && settlement.clawbackDebtAfter > 0 && newBalance > 0) {
+      settlement = await settleClawbackDebtInTx(client, {
+        customerId,
+        orderId: null,
+        balance: newBalance,
+        clawbackDebt: settlement.clawbackDebtAfter,
+        eventKey: `debt-settle:adjust:${eventKey}`,
+        reason: `Cấn trừ công nợ Xu đã tiêu từ đơn hoàn trước khi điều chỉnh`
+      });
+    }
+
     await appendAudit(client, {
       actor,
       action: 'loyalty.adjust',
       entityType: 'customer',
       entityId: customerId,
-      metadata: { points, reason, newBalance, tier: newTier }
+      metadata: {
+        points,
+        reason,
+        newBalance: settlement.balanceAfter,
+        debtSettled: settlement.debtPaid,
+        clawbackDebtAfter: settlement.clawbackDebtAfter,
+        tier: newTier
+      }
     });
 
-    return { success: true, points, balanceAfter: newBalance, tier: newTier, ledgerId: entry.rows[0].id };
+    return {
+      success: true,
+      points,
+      balanceAfter: settlement.balanceAfter,
+      debtSettled: settlement.debtPaid,
+      clawbackDebtAfter: settlement.clawbackDebtAfter,
+      tier: newTier,
+      ledgerId: entry.rows[0].id
+    };
   });
 }
 
@@ -353,7 +531,8 @@ function createLoyaltyApi(pool) {
 
       const loyaltyRes = await pool.query(
         `SELECT points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
-                lifetime_spent AS "lifetimeSpent", tier, updated_at AS "updatedAt"
+                lifetime_spent AS "lifetimeSpent", COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
+                tier, updated_at AS "updatedAt"
          FROM customer_loyalty WHERE customer_id = $1`,
         [customerId]
       );
@@ -361,6 +540,7 @@ function createLoyaltyApi(pool) {
         pointsBalance: 0,
         lifetimeEarned: 0,
         lifetimeSpent: 0,
+        clawbackDebtPoints: 0,
         tier: 'bronze'
       };
       const policy = await readPolicy(pool);
@@ -451,8 +631,8 @@ function createLoyaltyApi(pool) {
       const q=z.string().max(100).default('').parse(req.query.q).trim();
       const policy=await readPolicy(pool);
       const where="c.deleted_at IS NULL AND ($1::text='' OR c.full_name ILIKE '%'||$1||'%' OR c.email ILIKE '%'||$1||'%' OR c.phone ILIKE '%'||$1||'%')";
-      const rows=(await pool.query(`SELECT c.id,c.full_name AS "fullName",c.email,c.phone,c.active,COALESCE(l.points_balance,0)::int AS "pointsBalance",COALESCE(l.lifetime_earned,0)::int AS "lifetimeEarned",COALESCE(l.lifetime_spent,0)::int AS "lifetimeSpent" FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where} ORDER BY COALESCE(l.points_balance,0) DESC,c.id LIMIT 25 OFFSET $2`,[q,(page-1)*25])).rows;
-      const summary=(await pool.query(`SELECT count(*)::int AS total,COALESCE(sum(l.points_balance),0)::text AS balance,COALESCE(sum(l.lifetime_earned),0)::text AS earned,COALESCE(sum(l.lifetime_spent),0)::text AS spent FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where}`,[q])).rows[0];
+      const rows=(await pool.query(`SELECT c.id,c.full_name AS "fullName",c.email,c.phone,c.active,COALESCE(l.points_balance,0)::int AS "pointsBalance",COALESCE(l.lifetime_earned,0)::int AS "lifetimeEarned",COALESCE(l.lifetime_spent,0)::int AS "lifetimeSpent",COALESCE(l.clawback_debt_points,0)::int AS "clawbackDebtPoints" FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where} ORDER BY COALESCE(l.points_balance,0) DESC,c.id LIMIT 25 OFFSET $2`,[q,(page-1)*25])).rows;
+      const summary=(await pool.query(`SELECT count(*)::int AS total,COALESCE(sum(l.points_balance),0)::text AS balance,COALESCE(sum(l.lifetime_earned),0)::text AS earned,COALESCE(sum(l.lifetime_spent),0)::text AS spent,COALESCE(sum(l.clawback_debt_points),0)::text AS debt FROM customers c LEFT JOIN customer_loyalty l ON l.customer_id=c.id WHERE ${where}`,[q])).rows[0];
       res.json({members:rows.map(row=>({...row,tier:calculateTier(row.lifetimeEarned,policy)})),summary,tierBenefits:tierBenefits(policy),pagination:{page,pageCount:Math.max(1,Math.ceil(summary.total/25)),total:summary.total,pageSize:25}});
     }catch(error){next(error);}
   });
@@ -465,7 +645,8 @@ function createLoyaltyApi(pool) {
         const page = z.coerce.number().int().min(1).max(1000000).default(1).parse(req.query.ledgerPage);
         const loyaltyRes = await pool.query(
           `SELECT points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
-                  lifetime_spent AS "lifetimeSpent", tier, updated_at AS "updatedAt"
+                  lifetime_spent AS "lifetimeSpent", COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
+                  tier, updated_at AS "updatedAt"
            FROM customer_loyalty WHERE customer_id = $1`,
           [customerId]
         );
@@ -473,6 +654,7 @@ function createLoyaltyApi(pool) {
           pointsBalance: 0,
           lifetimeEarned: 0,
           lifetimeSpent: 0,
+          clawbackDebtPoints: 0,
           tier: 'bronze'
         };
         const policy = await readPolicy(pool);
@@ -518,7 +700,7 @@ function createLoyaltyApi(pool) {
     }
   );
 
-  return { customer: customerRouter, admin: adminRouter, earnPoints, redeemPoints, refundPoints, adjustPoints };
+  return { customer: customerRouter, admin: adminRouter, earnPoints, redeemPoints, refundPoints, previewEarnClawback, adjustPoints };
 }
 
 module.exports = {
@@ -527,6 +709,7 @@ module.exports = {
   earnPoints,
   redeemPoints,
   refundPoints,
+  previewEarnClawback,
   adjustPoints,
   calculateTier, DEFAULT_POLICY, readPolicy, tierBenefits, policySchema
 };

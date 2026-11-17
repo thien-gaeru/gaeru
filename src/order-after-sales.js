@@ -259,7 +259,7 @@ function afterSalesRouter(pool) {
       }
 
       const result = await pool.query(
-        `SELECT a.*, o.order_number, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status,
+        `SELECT a.*, o.order_number, o.customer_id, o.customer_name, o.phone, o.email, o.status AS order_status, o.payment_status,
           CASE WHEN o.payment_status='paid' THEN o.total_vnd ELSE COALESCE((SELECT SUM(r.amount_vnd) FROM sales_receipts r WHERE r.order_id=o.id),0) END AS refundable_amount_vnd
          FROM order_after_sales a
          JOIN orders o ON o.id = a.order_id
@@ -268,7 +268,23 @@ function afterSalesRouter(pool) {
          LIMIT 100`,
         [status]
       );
-      for (const item of result.rows) item.exchange_issue = await require('./rma-exchange').readIssue(pool, item.id);
+      const { previewEarnClawback } = require('./loyalty-api');
+      for (const item of result.rows) {
+        item.exchange_issue = await require('./rma-exchange').readIssue(pool, item.id);
+        const gross = item.refundable_amount_vnd === null || item.refundable_amount_vnd === undefined ? null : Number(item.refundable_amount_vnd);
+        item.gross_refundable_amount_vnd = gross;
+        if (item.kind === 'return' && item.return_type !== 'exchange' && !['resolved', 'rejected'].includes(item.status) && item.customer_id && Number.isSafeInteger(gross) && gross > 0) {
+          const preview = await previewEarnClawback(pool, { customerId: item.customer_id, orderId: item.order_id, lock: false });
+          const clawback = Math.min(gross, preview.shortfallPoints || 0);
+          item.loyalty_clawback_preview_vnd = clawback;
+          item.refundable_amount_vnd = String(Math.max(0, gross - clawback));
+        } else {
+          item.loyalty_clawback_preview_vnd = Number(item.loyalty_clawback_vnd || 0);
+          if (item.status === 'resolved' && item.refund_amount_vnd !== null && item.refund_amount_vnd !== undefined) {
+            item.refundable_amount_vnd = String(item.refund_amount_vnd);
+          }
+        }
+      }
       res.json({ cases: result.rows });
     } catch (e) {
       next(e);
@@ -391,26 +407,49 @@ function afterSalesRouter(pool) {
           }
         }
         let refundAmount = null;
+        let grossRefundable = null;
+        let cashClawbackVnd = null;
+        let loyaltyRefund = null;
         if (data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange') {
           const received = Number((await c.query('SELECT COALESCE(SUM(amount_vnd),0) AS received FROM sales_receipts WHERE order_id=$1', [order.id])).rows[0]?.received || 0);
           const refundable = order.payment_status === 'paid' ? Number(order.total_vnd) : received;
           if ((order.payment_status === 'paid' && order.total_vnd === null) || !Number.isSafeInteger(refundable) || refundable < 0 || refundable > 2000000000 || received > refundable) throw fail('Số tiền cần hoàn chưa hợp lệ. Cần đối soát thanh toán trước.');
-          if (refundable > 0) {
+          grossRefundable = refundable;
+
+          const { previewEarnClawback, refundPoints } = require('./loyalty-api');
+          const clawbackPreview = order.customer_id
+            ? await previewEarnClawback(c, { customerId: order.customer_id, orderId: row.order_id, lock: true })
+            : { shortfallPoints: 0 };
+          cashClawbackVnd = Math.min(grossRefundable, Math.max(0, Number(clawbackPreview?.shortfallPoints || 0)));
+          const netRefundable = Math.max(0, grossRefundable - cashClawbackVnd);
+
+          if (netRefundable > 0) {
             if (!req.admin?.permissions?.includes('payments.write')) throw fail('Cần quyền ghi nhận thanh toán để đối soát chứng từ hoàn tiền.', 403);
             if (!data.manualRefund) throw fail('Cần xác nhận đã hoàn tiền thủ công và nhập số tiền, phương thức, mã chứng từ đối soát trước khi đóng hồ sơ. Hệ thống không tự chuyển tiền.');
-            if (data.manualRefund.amountVnd !== refundable) throw fail('Số tiền hoàn phải khớp toàn bộ số tiền đã thu của đơn hàng.');
+            if (data.manualRefund.amountVnd !== netRefundable) {
+              throw fail(
+                cashClawbackVnd > 0
+                  ? `Số tiền hoàn phải khớp số tiền thực hoàn sau khi khấu trừ ${new Intl.NumberFormat('vi-VN').format(cashClawbackVnd)} ₫ GAERU Xu đã tiêu (${new Intl.NumberFormat('vi-VN').format(netRefundable)} ₫). Tải lại hồ sơ nếu số dư Xu vừa thay đổi.`
+                  : 'Số tiền hoàn phải khớp toàn bộ số tiền đã thu của đơn hàng.'
+              );
+            }
           } else if (data.manualRefund) {
-            throw fail('Đơn chưa ghi nhận tiền; không tạo chứng từ đã hoàn tiền.');
+            throw fail(
+              cashClawbackVnd > 0
+                ? 'Đơn đã khấu trừ hết vào GAERU Xu đã tiêu (số tiền thực hoàn bằng 0 ₫); không tạo chứng từ đã hoàn tiền.'
+                : 'Đơn chưa ghi nhận tiền; không tạo chứng từ đã hoàn tiền.'
+            );
           }
-          refundAmount = refundable;
+
+          refundAmount = netRefundable;
           await c.query('UPDATE orders SET return_completed_at = COALESCE(return_completed_at, now()), updated_at = now() WHERE id = $1', [row.order_id]);
           if (order.customer_id) {
-            const { refundPoints } = require('./loyalty-api');
-            await refundPoints(c, {
+            loyaltyRefund = await refundPoints(c, {
               customerId: order.customer_id,
               orderId: row.order_id,
               reason: 'Hoàn trả đơn hàng #' + order.order_number,
-              actor: req.admin
+              actor: req.admin,
+              cashRecoveredEarnVnd: cashClawbackVnd
             });
           }
           if (row.restock_eligible === true) {
@@ -424,18 +463,34 @@ function afterSalesRouter(pool) {
         }
 
         const changed = (await c.query(
-          'UPDATE order_after_sales SET status = $2, resolution = $3, refund_amount_vnd = COALESCE($4, refund_amount_vnd), version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
-          [id, data.status, data.resolution, refundAmount]
+          'UPDATE order_after_sales SET status = $2, resolution = $3, refund_amount_vnd = COALESCE($4, refund_amount_vnd), loyalty_clawback_vnd = COALESCE($5, loyalty_clawback_vnd), version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
+          [id, data.status, data.resolution, refundAmount, cashClawbackVnd]
         )).rows[0];
+
+        const settlementScope = refundAmount !== null
+          ? (data.manualRefund ? 'manual_refund_recorded' : (cashClawbackVnd > 0 ? 'offset_by_loyalty_clawback' : 'no_payment_to_refund'))
+          : null;
 
         await appendAudit(c, {
           actor: req.admin,
           action: 'order.after_sales.update',
           entityType: 'order',
           entityId: row.order_id,
-          metadata: { caseId: id, status: data.status, resolution: data.resolution, ...(refundAmount !== null ? { settlementScope: data.manualRefund ? 'manual_refund_recorded' : 'no_payment_to_refund', manualRefund: data.manualRefund || null } : {}) }
+          metadata: {
+            caseId: id,
+            status: data.status,
+            resolution: data.resolution,
+            ...(refundAmount !== null ? {
+              settlementScope,
+              grossRefundableVnd: grossRefundable,
+              loyaltyClawbackVnd: cashClawbackVnd,
+              refundAmountVnd: refundAmount,
+              loyaltyRefund,
+              manualRefund: data.manualRefund || null
+            } : {})
+          }
         });
-        return { ...changed, ...(refundAmount !== null ? { settlementScope: data.manualRefund ? 'manual_refund_recorded' : 'no_payment_to_refund' } : {}) };
+        return { ...changed, ...(settlementScope ? { settlementScope } : {}) };
       });
 
       res.json(result);
