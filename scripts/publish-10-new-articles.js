@@ -385,6 +385,20 @@ Bên cạnh đó, khách hàng luôn có quyền lợi **7 ngày dùng thử tr�
   }
 ];
 
+// Helper to wrap text into lines
+function wrapText(text, maxChars = 58) {
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const w of words) {
+    if (!current) current = w;
+    else if ((current + ' ' + w).length <= maxChars) current += ' ' + w;
+    else { lines.push(current); current = w; }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 // Helper to generate sleek dark studio SVG banner
 function generateBannerSvg(art) {
   const safeTitle = art.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -394,14 +408,12 @@ function generateBannerSvg(art) {
   const safeB3 = art.bullet3.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const safeBadge = art.badge.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Split title into 2 lines if long
-  let tLine1 = safeTitle, tLine2 = '';
-  if (safeTitle.length > 42) {
-    const words = safeTitle.split(' ');
-    const mid = Math.ceil(words.length / 2);
-    tLine1 = words.slice(0, mid).join(' ');
-    tLine2 = words.slice(mid).join(' ');
-  }
+  // Split title into 2 clean lines
+  const titleLines = wrapText(safeTitle, 58);
+  const tLine1 = titleLines[0] || '';
+  const tLine2 = titleLines.slice(1).join(' ') || '';
+
+  const FONT_FAMILY = 'Arial, Segoe UI, Liberation Sans, sans-serif';
 
   return `
   <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
@@ -432,26 +444,26 @@ function generateBannerSvg(art) {
     <line x1="1120" y1="0" x2="1120" y2="630" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
 
     <!-- Category Pill Badge -->
-    <rect x="80" y="65" width="220" height="38" rx="19" fill="#1e293b" stroke="${art.badgeColor}" stroke-width="1.5" />
-    <text x="190" y="89" fill="${art.badgeColor}" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="1.5">${safeBadge}</text>
+    <rect x="80" y="65" width="230" height="40" rx="20" fill="#1e293b" stroke="${art.badgeColor}" stroke-width="1.5" />
+    <text x="195" y="91" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="14" font-weight="bold" text-anchor="middle" letter-spacing="1.5">${safeBadge}</text>
 
     <!-- Title Lines -->
-    <text x="80" y="165" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="800">${tLine1}</text>
-    ${tLine2 ? `<text x="80" y="220" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="800">${tLine2}</text>` : ''}
+    <text x="80" y="170" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine1}</text>
+    ${tLine2 ? `<text x="80" y="225" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine2}</text>` : ''}
 
     <!-- Highlight Subtitle -->
-    <text x="80" y="${tLine2 ? 285 : 240}" fill="url(#accent-${art.uuid})" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="700">${safeSub}</text>
+    <text x="80" y="${tLine2 ? 290 : 240}" fill="url(#accent-${art.uuid})" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold">${safeSub}</text>
 
     <!-- Key Takeaway Bullets -->
-    <text x="80" y="${tLine2 ? 365 : 330}" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="400">•  ${safeB1}</text>
-    <text x="80" y="${tLine2 ? 410 : 375}" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="400">•  ${safeB2}</text>
-    <text x="80" y="${tLine2 ? 455 : 420}" fill="#94a3b8" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="400">•  ${safeB3}</text>
+    <text x="80" y="${tLine2 ? 370 : 330}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB1}</text>
+    <text x="80" y="${tLine2 ? 418 : 378}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB2}</text>
+    <text x="80" y="${tLine2 ? 466 : 426}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB3}</text>
 
     <!-- Bottom Brand Divider & Metadata -->
     <line x1="80" y1="520" x2="1120" y2="520" stroke="#334155" stroke-width="1.2" />
-    <text x="80" y="565" fill="#f8fafc" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" letter-spacing="3">GAERU</text>
-    <text x="210" y="564" fill="#64748b" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="500">|   Thiết bị âm thanh &amp; sáng tạo di động</text>
-    <text x="1120" y="564" fill="${art.badgeColor}" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600" text-anchor="end">gaeru.com/tin-tuc</text>
+    <text x="80" y="565" fill="#f8fafc" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold" letter-spacing="3">GAERU</text>
+    <text x="210" y="564" fill="#64748b" font-family="${FONT_FAMILY}" font-size="16" font-weight="500">|   Thiết bị âm thanh &amp; sáng tạo di động</text>
+    <text x="1120" y="564" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="16" font-weight="bold" text-anchor="end">gaeru.com/tin-tuc</text>
   </svg>
   `;
 }
