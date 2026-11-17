@@ -91,7 +91,7 @@ test('PGlite integration: internal AI care overview queries warranty_activations
   app.use(express.json());
   app.use((req, _res, next) => {
     req.admin = { id: 'owner-1', username: 'owner', role: 'owner', source: 'bootstrap', isOwner: true, permissions: ['*'] };
-    req.session = { admin: req.admin };
+    req.session = { admin: req.admin, csrfToken: 'db-remediation-csrf' };
     next();
   });
   app.use('/api/gaeru_ceo/internal-ai', createInternalAiRouter(pool, {}));
@@ -101,12 +101,12 @@ test('PGlite integration: internal AI care overview queries warranty_activations
 
   const base = `http://127.0.0.1:${srv.address().port}`;
   const tRes = await fetch(`${base}/api/gaeru_ceo/internal-ai/threads`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'CSKH Test' })
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'db-remediation-csrf' }, body: JSON.stringify({ title: 'CSKH Test' })
   });
   const threadId = (await tRes.json()).thread.id;
   const chatRes = await fetch(`${base}/api/gaeru_ceo/internal-ai/threads/${threadId}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'db-remediation-csrf' },
     body: JSON.stringify({ question: 'Tình hình CSKH, bảo hành và khiếu nại đổi trả hiện tại thế nào?' })
   });
   assert.equal(chatRes.status, 200);

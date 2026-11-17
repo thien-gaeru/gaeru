@@ -67,6 +67,25 @@ class ForecastCache {
 
 const globalForecastCache = new ForecastCache(300_000); // 5 mins default
 
+function invalidateForecastCache(prefix = '', { broadcast = true } = {}) {
+  const norm = String(prefix || '').trim();
+  if (norm) globalForecastCache.invalidate(norm);
+  else globalForecastCache.clear();
+  if (broadcast && typeof process.send === 'function') {
+    try { process.send({ type: 'FORECAST_CACHE_INVALIDATE', prefix: norm, timestamp: Date.now() }); } catch (_) {}
+  }
+}
+
+const FORECAST_IPC_KEY = Symbol.for('gaeru.forecast.ipc');
+if (!global[FORECAST_IPC_KEY] && typeof process.on === 'function') {
+  global[FORECAST_IPC_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg?.type === 'FORECAST_CACHE_INVALIDATE') {
+      invalidateForecastCache(msg.prefix || '', { broadcast: false });
+    }
+  });
+}
+
 function round(val, decimals = 2) {
   if (val === null || val === undefined || isNaN(val)) return 0;
   const factor = Math.pow(10, decimals);
@@ -604,9 +623,9 @@ async function upsertReorderSettings(pool, data) {
 
   const result = (await pool.query(query, values)).rows[0];
 
-  // Invalidate cache for this warehouse
-  globalForecastCache.invalidate(parsed.warehouseId);
-  globalForecastCache.invalidate('all');
+  // Invalidate cache for this warehouse across workers
+  invalidateForecastCache(parsed.warehouseId);
+  invalidateForecastCache('all');
 
   return result;
 }
@@ -744,9 +763,9 @@ async function createPurchaseOrderFromForecast(pool, {
       );
     }
 
-    // Invalidate cache
-    globalForecastCache.invalidate(warehouseId);
-    globalForecastCache.invalidate('all');
+    // Invalidate cache across workers
+    invalidateForecastCache(warehouseId);
+    invalidateForecastCache('all');
 
     return {
       purchaseOrder: po,
@@ -762,6 +781,7 @@ async function createPurchaseOrderFromForecast(pool, {
  */
 function createInventoryForecastApi(pool) {
   const { Router } = require('express');
+  const { requireCsrf } = require('./security');
   const router = Router();
 
   function requirePerm(permission) {
@@ -810,7 +830,7 @@ function createInventoryForecastApi(pool) {
   });
 
   // PUT /api/gaeru_ceo/inventory/forecast/settings
-  router.put(['/forecast/settings', '/inventory/forecast/settings'], requirePerm('inventory.approve'), async (req, res, next) => {
+  router.put(['/forecast/settings', '/inventory/forecast/settings'], requirePerm('inventory.approve'), requireCsrf, async (req, res, next) => {
     try {
       const saved = await upsertReorderSettings(pool, req.body);
       res.json({ success: true, settings: saved });
@@ -824,7 +844,7 @@ function createInventoryForecastApi(pool) {
   });
 
   // POST /api/gaeru_ceo/inventory/forecast/create-po
-  router.post(['/forecast/create-po', '/inventory/forecast/create-po'], requirePerm('purchases.write'), async (req, res, next) => {
+  router.post(['/forecast/create-po', '/inventory/forecast/create-po'], requirePerm('purchases.write'), requireCsrf, async (req, res, next) => {
     try {
       const result = await createPurchaseOrderFromForecast(pool, {
         supplierId: req.body.supplierId,
@@ -842,8 +862,8 @@ function createInventoryForecastApi(pool) {
   });
 
   // POST /api/gaeru_ceo/inventory/forecast/clear-cache
-  router.post(['/forecast/clear-cache', '/inventory/forecast/clear-cache'], requirePerm('inventory.read'), (_req, res) => {
-    globalForecastCache.clear();
+  router.post(['/forecast/clear-cache', '/inventory/forecast/clear-cache'], requirePerm('inventory.read'), requireCsrf, (_req, res) => {
+    invalidateForecastCache('');
     res.json({ success: true, message: 'Đã xóa bộ nhớ đệm dự báo kho.' });
   });
 
@@ -853,6 +873,7 @@ function createInventoryForecastApi(pool) {
 module.exports = {
   ForecastCache,
   globalForecastCache,
+  invalidateForecastCache,
   round,
   getSalesVelocityMap,
   getIncomingStockMap,

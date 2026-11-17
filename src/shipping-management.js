@@ -12,9 +12,25 @@ const { getAdapter, normalizeCarrierStatus, resolveViettelProvinceId, computeCar
 const { availableCarriers } = require('./shipping-choice');
 
 const quoteCache = new LRUCache({ max: 500, ttl: 1000 * 60 * 5 }); // 5 minutes TTL
+const SHIPPING_QUOTE_SYNC_TAGS = new Set(['*', 'settings', 'store-config']);
 
-function invalidateShippingQuoteCache() {
+function invalidateShippingQuoteCache({ broadcast = true } = {}) {
   quoteCache.clear();
+  if (broadcast && typeof process.send === 'function') {
+    try { process.send({ type: 'SHIPPING_CACHE_INVALIDATE', timestamp: Date.now() }); } catch (_) {}
+  }
+}
+
+const SHIPPING_QUOTE_IPC_KEY = Symbol.for('gaeru.shippingQuote.ipc');
+if (!global[SHIPPING_QUOTE_IPC_KEY] && typeof process.on === 'function') {
+  global[SHIPPING_QUOTE_IPC_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg?.type === 'SHIPPING_CACHE_INVALIDATE') {
+      invalidateShippingQuoteCache({ broadcast: false });
+    } else if (msg?.type === 'CACHE_INVALIDATE_TAGS' && Array.isArray(msg.tags) && msg.tags.some(t => SHIPPING_QUOTE_SYNC_TAGS.has(String(t || '').trim()))) {
+      invalidateShippingQuoteCache({ broadcast: false });
+    }
+  });
 }
 
 function fail(message, status = 400) {
@@ -275,12 +291,17 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     const carrierRecord = await readRecord(client, config, 'shipping_' + targetCarrierId);
     if (!carrierRecord.data.secret) throw fail('Chưa cấu hình tài khoản API của hãng vận chuyển.',409);
     getAdapter(targetCarrierId);
+    const cancelledCount = Number((await client.query(
+      "SELECT count(*)::int AS cnt FROM carrier_shipments WHERE order_id = $1 AND status = 'cancelled'",
+      [orderId]
+    )).rows[0]?.cnt || 0);
+    const carrierOrderNumber = cancelledCount > 0 ? `${order.orderNumber}-R${cancelledCount + 1}` : order.orderNumber;
     const attempt = (await client.query('INSERT INTO carrier_shipment_attempts(order_id,carrier_id,config_version) VALUES($1,$2,$3) RETURNING id',[order.id,targetCarrierId,carrierRecord.version])).rows[0];
-    await appendAudit(client,{actor,action:'shipping.waybill.request',entityType:'order',entityId:order.id,metadata:{attemptId:attempt.id,carrierId:targetCarrierId,configVersion:carrierRecord.version}});
-    return {order,targetCarrierId,settings:carrierRecord.data,attemptId:attempt.id};
+    await appendAudit(client,{actor,action:'shipping.waybill.request',entityType:'order',entityId:order.id,metadata:{attemptId:attempt.id,carrierId:targetCarrierId,configVersion:carrierRecord.version,carrierOrderNumber}});
+    return {order,carrierOrderNumber,targetCarrierId,settings:carrierRecord.data,attemptId:attempt.id};
   });
   if (prepared.existing) return prepared;
-  const {order,targetCarrierId,settings,attemptId}=prepared;
+  const {order,carrierOrderNumber,targetCarrierId,settings,attemptId}=prepared;
   const pricing = computeCarrierShipmentPricing(order, settings);
   const codAmount = pricing.carrierCodCollectionVnd;
   const codSettlementStatus = codAmount > 0 ? 'unsettled' : 'not_applicable';
@@ -288,6 +309,7 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
   try {
     const waybillResult = await getAdapter(targetCarrierId).createWaybill(settings, {
       ...order,
+      carrierOrderNumber,
       codAmountVnd: codAmount,
       weightGrams: pricing.weightGrams,
       feePayer: pricing.feePayer

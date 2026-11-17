@@ -250,7 +250,7 @@ function createRmaApi(pool, config = {}) {
       }
 
       // Check access permission: capability token, guest phone suffix (guest orders only), order owner session, or admin
-      res.set('Cache-Control', 'no-store');
+      res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
       const { normalizePhone } = require('./tracking-api');
       const tokenMatches = safeTokenEqual(token, item.rma_token);
       const inputPhone = normalizePhone(phone), orderPhone = normalizePhone(item.phone);
@@ -306,7 +306,7 @@ function createRmaApi(pool, config = {}) {
   router.post('/rma/:rmaNumber/inbound', rmaLimiter, (req,res,next)=>{const rawToken=String(req.body?.token||req.headers['x-rma-token']||req.query?.token||'').trim();if(req.session?.customer&&!rawToken)return require('./security').requireCsrf(req,res,next);next();}, async (req, res, next) => {
     try {
       const rmaNumber = String(req.params.rmaNumber).trim().toUpperCase();
-      const token = String(req.body.token || req.headers['x-rma-token'] || req.query.token || '').trim();
+      const token = String(req.body?.token || req.headers['x-rma-token'] || req.query?.token || '').trim();
 
       const schema = z.object({
         inboundCarrier: z.string().trim().min(2, 'Vui lòng chọn hoặc nhập tên đơn vị vận chuyển.').max(60),

@@ -85,9 +85,14 @@ sync_pg() {
     --filter "+ gaeru_store-globals-latest.sql.gz.gpg"
     --filter "+ gaeru_store-globals-latest.sql.gz.gpg.sha256"
   )
-  local current_hour
+  local current_hour today_date daily_stamp_file last_daily_date need_daily_snapshot
   current_hour=$(date +%H)
-  if [ "$MODE" = "all" ] || [ "$current_hour" = "03" ]; then
+  today_date=$(date +%Y-%m-%d)
+  daily_stamp_file="/var/lib/gaeru-gdrive-daily-pg.date"
+  last_daily_date=$(cat "$daily_stamp_file" 2>/dev/null || true)
+  need_daily_snapshot="false"
+  if [ "$MODE" = "all" ] || [ "$current_hour" = "03" ] || [ "$last_daily_date" != "$today_date" ]; then
+    need_daily_snapshot="true"
     local newest newest_sql newest_globals
     newest=$(ls -1t "$src_host"/gaeru_store-20*.dump.gpg 2>/dev/null | head -n 1 || true)
     newest_sql=$(ls -1t "$src_host"/gaeru_store-20*.sql.gz.gpg 2>/dev/null | head -n 1 || true)
@@ -99,6 +104,9 @@ sync_pg() {
   filter_args+=(--filter "- *")
 
   run_rclone copy "$src_chroot" "${REMOTE_ROOT}/pg" "${filter_args[@]}" "${COMMON_FLAGS[@]}"
+  if [ "$need_daily_snapshot" = "true" ]; then
+    printf '%s\n' "$today_date" > "$daily_stamp_file" 2>/dev/null || true
+  fi
   prune_remote_subdir "pg" --filter "- *-latest.*" --filter "- *-latest.*.*"
   log "Encrypted PostgreSQL backup push to Google Drive OK."
 }

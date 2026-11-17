@@ -57,6 +57,38 @@ class IpcFanoutHub {
       return { fannedCount };
     }
 
+    if (action === 'FORECAST_CACHE_INVALIDATE') {
+      const fannedCount = this.broadcast(
+        { type: 'FORECAST_CACHE_INVALIDATE', prefix: String(message.prefix || ''), timestamp: message.timestamp || Date.now() },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
+    if (action === 'SHIPPING_CACHE_INVALIDATE') {
+      const fannedCount = this.broadcast(
+        { type: 'SHIPPING_CACHE_INVALIDATE', timestamp: message.timestamp || Date.now() },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
+    if (action === 'VIETTEL_PROVINCE_CATALOG_SYNC' && Array.isArray(message.entries)) {
+      const fannedCount = this.broadcast(
+        {
+          type: 'VIETTEL_PROVINCE_CATALOG_SYNC',
+          entries: message.entries,
+          syncedAt: message.syncedAt || null,
+          timestamp: message.timestamp || Date.now()
+        },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
     if (action === 'RENDITION_CACHE_INVALIDATE') {
       const fannedCount = this.broadcast(
         { type: 'RENDITION_CACHE_INVALIDATE', timestamp: message.timestamp || Date.now() },

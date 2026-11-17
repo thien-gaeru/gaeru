@@ -14,13 +14,36 @@ let cachedPagesAt = 0;
 let pendingPagesLoad = null;
 const PAGE_CACHE_TTL_MS = 300000;
 
+let liveDbCache = new WeakMap();
+const LIVE_DB_TTL_MS = 30000;
+const WEB_KNOWLEDGE_SYNC_TAGS = new Set(['*', 'catalog', 'products', 'product:list', 'gaeru-catalog', 'settings', 'store-config', 'promotions', 'news', 'site-pages']);
+
 function clearWebKnowledgeCache() {
   cachedPages = null;
   cachedPagesAt = 0;
+  liveDbCache = new WeakMap();
 }
 
-const liveDbCache = new WeakMap();
-const LIVE_DB_TTL_MS = 30000;
+const WEB_KNOWLEDGE_IPC_KEY = Symbol.for('gaeru.webKnowledge.ipc');
+if (!global[WEB_KNOWLEDGE_IPC_KEY]) {
+  global[WEB_KNOWLEDGE_IPC_KEY] = true;
+  if (typeof process.on === 'function') {
+    process.on('message', (msg) => {
+      if (msg?.type === 'AI_KNOWLEDGE_INVALIDATE') {
+        clearWebKnowledgeCache();
+      } else if (msg?.type === 'CACHE_INVALIDATE_TAGS' && Array.isArray(msg.tags) && msg.tags.some(t => WEB_KNOWLEDGE_SYNC_TAGS.has(String(t || '').trim()))) {
+        clearWebKnowledgeCache();
+      }
+    });
+  }
+  try {
+    require('./cache').cacheEvents.on('invalidated', (payload) => {
+      if (Array.isArray(payload?.tags) && payload.tags.some(t => WEB_KNOWLEDGE_SYNC_TAGS.has(String(t || '').trim()))) {
+        clearWebKnowledgeCache();
+      }
+    });
+  } catch (_) {}
+}
 
 function normalizeText(value) {
   return normalizeVi(value);

@@ -188,7 +188,7 @@ function invalidateTags(tags = [], { immediate = false } = {}) {
       } catch (_) {}
     }
 
-    if (edgePurgeService && typeof edgePurgeService.purgeTags === 'function' && !batchedTags.includes('*')) {
+    if (edgePurgeService && typeof edgePurgeService.purgeTags === 'function') {
       edgePurgeService.purgeTags(batchedTags).catch(() => {});
     }
 
@@ -229,7 +229,7 @@ function flushAllCache() {
   stockMap.clear();
   tagIndex.clear();
   nextPromotionBoundaryMs = null;
-  if (edgePurgeService && typeof edgePurgeService.purgeCatalog === 'function') {
+  if (edgePurgeService && typeof edgePurgeService.purgeTags !== 'function' && typeof edgePurgeService.purgeCatalog === 'function') {
     edgePurgeService.purgeCatalog().catch(() => {});
   }
   invalidateTags(['*'], { immediate: true });

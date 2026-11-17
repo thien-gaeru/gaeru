@@ -78,7 +78,17 @@ class EdgePurgeService {
     if (cleanTags.length === 0) return { skipped: true };
 
     if (process.env.CLOUDFLARE_TAG_PURGE === 'true') {
-      return this.sendPurgeRequest({ tags: cleanTags });
+      const expandedTags = cleanTags.includes('*')
+        ? [...new Set([
+            ...cleanTags.filter(t => t !== '*'),
+            'gaeru-catalog',
+            'gaeru-html',
+            'settings',
+            'home-banner',
+            'news'
+          ])]
+        : cleanTags;
+      return this.sendPurgeRequest({ tags: expandedTags });
     }
 
     const base = require('../primary-domain').normalizePublicBase(process.env.PUBLIC_BASE_URL || 'https://gaeru.com');

@@ -12,8 +12,9 @@ function parseStrictQuantity(quantity, { allowZero = false, fallback = null } = 
 }
 
 /**
- * Cluster Stock & Cache Coordinator
- * Master-Worker IPC architecture for 0.01ms atomic stock operations and zero-delay cache synchronization.
+ * Cluster Stock & Cache Coordinator (Legacy/Unit-Tested Standalone Coordinator)
+ * NOTE: Active multi-worker runtime in `src/cluster-master.js` uses `IpcFanoutHub` (`src/lib/cluster-fanout.js`) + `cache.js`
+ * for production stock/cache IPC fanout. Keep this standalone coordinator isolated to preserve test contracts without double-listening.
  */
 class ClusterStockCoordinator {
   constructor() {

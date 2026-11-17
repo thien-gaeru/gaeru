@@ -63,6 +63,12 @@ async function runAtomic(pool, fn) {
 
 function createInternalAiRouter(pool, config) {
   const router = express.Router();
+  const { requireCsrf } = require('./security');
+  router.use((req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+    if (req.session || req.get('cookie')) return requireCsrf(req, res, next);
+    next();
+  });
   const {updateOrder} = require('./order-workflow').createOrderWorkflow({config});
 
   // Helper định dạng tiền tệ VNĐ

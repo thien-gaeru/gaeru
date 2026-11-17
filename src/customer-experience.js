@@ -151,7 +151,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
       )).rows[0];
 
       const completedCase = (await pool.query(
-        "SELECT id FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' LIMIT 1",
+        "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' AND (return_type IS NULL OR return_type <> 'exchange') ORDER BY created_at DESC LIMIT 1",
         [order.id]
       )).rows[0];
 

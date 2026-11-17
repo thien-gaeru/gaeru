@@ -118,6 +118,30 @@ const VIETTEL_PROVINCE_IDS = (() => {
 const dynamicViettelProvinceMap = new Map();
 let viettelProvinceLastSyncedAt = null;
 
+function applyViettelProvinceCatalogSnapshot(entries = [], syncedAt = null) {
+  if (!Array.isArray(entries) || !entries.length) return 0;
+  dynamicViettelProvinceMap.clear();
+  for (const item of entries) {
+    const key = Array.isArray(item) ? String(item[0] || '').trim() : '';
+    const id = Array.isArray(item) ? Number(item[1]) : NaN;
+    if (key && Number.isSafeInteger(id) && id > 0) {
+      dynamicViettelProvinceMap.set(key, id);
+    }
+  }
+  if (syncedAt) viettelProvinceLastSyncedAt = String(syncedAt);
+  return dynamicViettelProvinceMap.size;
+}
+
+const VIETTEL_PROVINCE_IPC_KEY = Symbol.for('gaeru.viettelProvinces.ipc');
+if (!global[VIETTEL_PROVINCE_IPC_KEY] && typeof process.on === 'function') {
+  global[VIETTEL_PROVINCE_IPC_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg?.type === 'VIETTEL_PROVINCE_CATALOG_SYNC' && Array.isArray(msg.entries)) {
+      applyViettelProvinceCatalogSnapshot(msg.entries, msg.syncedAt || null);
+    }
+  });
+}
+
 async function syncViettelProvinceCatalog({ fetcher = fetch } = {}) {
   const resp = await fetcher('https://partner.viettelpost.vn/v2/categories/listProvinceById?provinceId=-1', {
     method: 'GET',
@@ -137,6 +161,16 @@ async function syncViettelProvinceCatalog({ fetcher = fetch } = {}) {
     if (row.PROVINCE_CODE) dynamicViettelProvinceMap.set(String(row.PROVINCE_CODE).trim().toLowerCase(), id);
   }
   viettelProvinceLastSyncedAt = new Date().toISOString();
+  if (typeof process.send === 'function') {
+    try {
+      process.send({
+        type: 'VIETTEL_PROVINCE_CATALOG_SYNC',
+        entries: [...dynamicViettelProvinceMap.entries()],
+        syncedAt: viettelProvinceLastSyncedAt,
+        timestamp: Date.now()
+      });
+    } catch (_) {}
+  }
   return {
     version: VIETTEL_PROVINCE_CATALOG_VERSION,
     syncedCount: rows.length,
@@ -303,7 +337,7 @@ const jtAdapter = {
     const sender = jtVietnam.address({ name: settings.pickupName, mobile: settings.pickupPhone,
       address: settings.pickupAddress, prov: settings.pickupProvince, area: settings.pickupArea }, 'người gửi');
     const receiver = jtVietnam.address(orderData.receiver, 'người nhận');
-    const txlogisticId = jtVietnam.text(orderData.orderNumber, 'mã đơn hàng', 100);
+    const txlogisticId = jtVietnam.text(orderData.carrierOrderNumber || orderData.orderNumber, 'mã đơn hàng', 100);
     if (!['PP_PM', 'PP_CASH', 'CC_CASH'].includes(settings.payType) || ![1, 6].includes(settings.serviceType)) {
       throw jtVietnam.fail('Chọn phương thức trả cước và hình thức lấy hàng J&T trước khi tạo vận đơn.', 409);
     }
@@ -485,9 +519,11 @@ const viettelAdapter = {
     const pricing = computeCarrierShipmentPricing(orderData, settings);
     const { isCod, viettelOrderPayment: orderPayment, carrierCodCollectionVnd, weightGrams, productPayableVnd } = pricing;
     let serviceCode = orderData.carrierServiceCode || settings.defaultService || 'LCOD';
+    const carrierOrderRef = String(orderData.carrierOrderNumber || orderData.orderNumber || '').trim();
+    if (!carrierOrderRef) throw fail('Thiếu mã đơn hàng gửi Viettel Post.', 400);
 
     const buildPayload = (srv) => ({
-      ORDER_NUMBER: orderData.orderNumber,
+      ORDER_NUMBER: carrierOrderRef,
       ORDER_SERVICE: srv,
       SENDER_FULLNAME: settings.pickupName || 'GAERU Store',
       SENDER_ADDRESS: settings.pickupAddress || 'Đại Mỗ, Nam Từ Liêm, Hà Nội',
@@ -557,7 +593,8 @@ const viettelAdapter = {
 
         const extractServices = d => Array.isArray(d) ? d : (Array.isArray(d?.RESULT) ? d.RESULT : (Array.isArray(d?.data) ? d.data : []));
         const services = extractServices(nlpRes);
-        const viableService = services.find(s => s.MA_DV_CHINH && s.MA_DV_CHINH !== serviceCode) || services[0];
+        const alternatives = services.filter(s => s && s.MA_DV_CHINH && s.MA_DV_CHINH !== serviceCode);
+        const viableService = alternatives.find(s => Number(s.GIA_CUOC) > 0) || alternatives[0] || null;
         if (viableService?.MA_DV_CHINH) {
           serviceCode = viableService.MA_DV_CHINH;
           const retryResult = await executeViettelRequest(settings, async (token) => {
@@ -596,7 +633,7 @@ const viettelAdapter = {
       carrierId: 'viettel',
       carrierName: CARRIER_NAMES.viettel,
       trackingNumber,
-      carrierOrderId: orderData.orderNumber,
+      carrierOrderId: carrierOrderRef,
       shippingFeeVnd: feeVnd,
       estimatedDelivery: null,
       labelUrl,
@@ -754,9 +791,11 @@ const spxAdapter = {
     const headers = { 'Content-Type': 'application/json', 'Token': settings.secret };
     if (settings.partnerCode) headers['X-Client-Source'] = settings.partnerCode;
 
+    const carrierOrderRef = String(orderData.carrierOrderNumber || orderData.orderNumber || '').trim();
+    if (!carrierOrderRef) throw fail('Thiếu mã đơn hàng gửi SPX.', 400);
     const payload = {
       shop_id: settings.accountId,
-      order_id: orderData.orderNumber,
+      order_id: carrierOrderRef,
       recipient: {
         name: orderData.customerName,
         phone: orderData.phone,
@@ -782,7 +821,7 @@ const spxAdapter = {
       carrierId: 'spx',
       carrierName: CARRIER_NAMES.spx,
       trackingNumber,
-      carrierOrderId: orderData.orderNumber,
+      carrierOrderId: carrierOrderRef,
       shippingFeeVnd: feeVnd,
       estimatedDelivery: null,
       labelUrl,
@@ -853,6 +892,7 @@ module.exports = {
   CARRIER_NAMES,
   normalizeCarrierStatus,
   resolveViettelProvinceId,
+  applyViettelProvinceCatalogSnapshot,
   syncViettelProvinceCatalog,
   VIETTEL_PROVINCE_CATALOG_VERSION,
   VIETTEL_OFFICIAL_PROVINCES,

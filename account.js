@@ -268,7 +268,7 @@ async function showInitialOAuthFeedback() {
     let email = linkEmail;
     if (!email) {
       try {
-        const res = await fetch('/api/customer-auth/oauth/pending-link', { cache: 'no-store' });
+        const res = await fetch('/api/customer-auth/oauth/pending-link', { cache: 'no-store', credentials: 'same-origin' });
         if (res.ok) {
           const data = await res.json();
           if (data?.pending && data?.email) {
@@ -598,7 +598,7 @@ let oauthConfig = null;
 async function loadOAuthConfig() {
   if (oauthConfig) return oauthConfig;
   try {
-    const res = await fetch('/api/customer-auth/oauth/config', { cache: 'no-store' });
+    const res = await fetch('/api/customer-auth/oauth/config', { cache: 'no-store', credentials: 'same-origin' });
     if (res.ok) oauthConfig = await res.json();
   } catch (e) {
     console.warn('Cannot load oauth config', e);

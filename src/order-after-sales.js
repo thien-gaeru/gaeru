@@ -81,7 +81,7 @@ function checkReturnEligibility(order, activeCase = null, completedCase = null, 
     };
   }
 
-  if (order.return_completed_at || completedCase) {
+  if (order.return_completed_at || (completedCase && completedCase.return_type !== 'exchange')) {
     return {
       eligible: false,
       reason: 'Đơn hàng đã hoàn tất thủ tục đổi/trả trước đó.',
@@ -170,7 +170,7 @@ async function createCustomerReturnRequest(client, {
   )).rows[0];
 
   const completedCase = (await client.query(
-    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' ORDER BY created_at DESC LIMIT 1",
+    "SELECT id, return_type FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' AND (return_type IS NULL OR return_type <> 'exchange') ORDER BY created_at DESC LIMIT 1",
     [orderId]
   )).rows[0];
 
@@ -246,6 +246,12 @@ async function createCustomerReturnRequest(client, {
  */
 function afterSalesRouter(pool) {
   const router = Router();
+  const { requireCsrf } = require('./security');
+  router.use((req, res, next) => {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+    if (req.session || req.get('cookie')) return requireCsrf(req, res, next);
+    next();
+  });
   router.use(
     ['/orders/after-sales', '/orders/:id/after-sales'],
     rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false })
