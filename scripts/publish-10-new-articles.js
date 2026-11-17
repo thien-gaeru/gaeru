@@ -416,7 +416,7 @@ function generateBannerSvg(art) {
   const FONT_FAMILY = 'Arial, Segoe UI, Liberation Sans, sans-serif';
 
   return `
-  <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <svg width="1200" height="750" viewBox="0 0 1200 750" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="bg-${art.uuid}" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#0b1120" />
@@ -433,37 +433,37 @@ function generateBannerSvg(art) {
     </defs>
 
     <!-- Background -->
-    <rect width="1200" height="630" fill="url(#bg-${art.uuid})" />
+    <rect width="1200" height="750" fill="url(#bg-${art.uuid})" />
 
     <!-- Ambient light glow circles -->
-    <circle cx="1060" cy="160" r="260" fill="${art.badgeColor}" opacity="0.08" filter="url(#glow-${art.uuid})" />
-    <circle cx="140" cy="520" r="220" fill="#38bdf8" opacity="0.06" filter="url(#glow-${art.uuid})" />
+    <circle cx="1060" cy="180" r="280" fill="${art.badgeColor}" opacity="0.08" filter="url(#glow-${art.uuid})" />
+    <circle cx="140" cy="580" r="240" fill="#38bdf8" opacity="0.06" filter="url(#glow-${art.uuid})" />
 
     <!-- Subtle Tech Grid Lines -->
-    <line x1="80" y1="0" x2="80" y2="630" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
-    <line x1="1120" y1="0" x2="1120" y2="630" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
+    <line x1="100" y1="0" x2="100" y2="750" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
+    <line x1="1100" y1="0" x2="1100" y2="750" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
 
     <!-- Category Pill Badge -->
-    <rect x="80" y="65" width="230" height="40" rx="20" fill="#1e293b" stroke="${art.badgeColor}" stroke-width="1.5" />
-    <text x="195" y="91" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="14" font-weight="bold" text-anchor="middle" letter-spacing="1.5">${safeBadge}</text>
+    <rect x="100" y="80" width="240" height="42" rx="21" fill="#1e293b" stroke="${art.badgeColor}" stroke-width="1.5" />
+    <text x="220" y="106" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="14" font-weight="bold" text-anchor="middle" letter-spacing="1.5">${safeBadge}</text>
 
     <!-- Title Lines -->
-    <text x="80" y="170" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine1}</text>
-    ${tLine2 ? `<text x="80" y="225" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine2}</text>` : ''}
+    <text x="100" y="195" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine1}</text>
+    ${tLine2 ? `<text x="100" y="250" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine2}</text>` : ''}
 
     <!-- Highlight Subtitle -->
-    <text x="80" y="${tLine2 ? 290 : 240}" fill="url(#accent-${art.uuid})" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold">${safeSub}</text>
+    <text x="100" y="${tLine2 ? 325 : 275}" fill="url(#accent-${art.uuid})" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold">${safeSub}</text>
 
     <!-- Key Takeaway Bullets -->
-    <text x="80" y="${tLine2 ? 370 : 330}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB1}</text>
-    <text x="80" y="${tLine2 ? 418 : 378}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB2}</text>
-    <text x="80" y="${tLine2 ? 466 : 426}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB3}</text>
+    <text x="100" y="${tLine2 ? 415 : 365}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB1}</text>
+    <text x="100" y="${tLine2 ? 470 : 420}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB2}</text>
+    <text x="100" y="${tLine2 ? 525 : 475}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB3}</text>
 
     <!-- Bottom Brand Divider & Metadata -->
-    <line x1="80" y1="520" x2="1120" y2="520" stroke="#334155" stroke-width="1.2" />
-    <text x="80" y="565" fill="#f8fafc" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold" letter-spacing="3">GAERU</text>
-    <text x="210" y="564" fill="#64748b" font-family="${FONT_FAMILY}" font-size="16" font-weight="500">|   Thiết bị âm thanh &amp; sáng tạo di động</text>
-    <text x="1120" y="564" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="16" font-weight="bold" text-anchor="end">gaeru.com/tin-tuc</text>
+    <line x1="100" y1="620" x2="1100" y2="620" stroke="#334155" stroke-width="1.2" />
+    <text x="100" y="665" fill="#f8fafc" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold" letter-spacing="3">GAERU</text>
+    <text x="230" y="664" fill="#64748b" font-family="${FONT_FAMILY}" font-size="16" font-weight="500">|   Thiết bị âm thanh &amp; sáng tạo di động</text>
+    <text x="1100" y="664" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="16" font-weight="bold" text-anchor="end">gaeru.com/tin-tuc</text>
   </svg>
   `;
 }
