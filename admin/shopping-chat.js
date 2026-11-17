@@ -262,19 +262,6 @@
     }
   });
 
-  const bubble=document.createElement('button');
-  bubble.type='button';
-  bubble.setAttribute('data-no-action-feedback','');
-  bubble.className='admin-chat-bubble';
-  bubble.setAttribute('aria-label','Mở chat trực tuyến');
-  bubble.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/></svg><span data-chat-bubble-badge hidden>•</span>';
-  bubble.hidden=true;
-  document.body.append(bubble);
-  bubble.onclick=()=>{admin.activateView('shopping-chat');root.scrollIntoView({block:'start'});};
-
-  function syncBubble(){bubble.hidden=!admin.can('customers.read')||!document.querySelector('#login-panel')?.hidden||!root.hidden;}
-  new MutationObserver(syncBubble).observe(document.querySelector('#admin-app'),{attributes:true,subtree:true,attributeFilter:['hidden']});
-  window.GAERUCareLive.poll({delay:15000,active:()=>admin.can('customers.read')&&root.hidden&&matchMedia('(max-width:800px)').matches,run:async()=>{syncBubble();if(bubble.hidden)return;const d=await admin.request('/api/gaeru_ceo/shopping-chat?page=1');const unread=d.threads.some(t=>t.awaiting_admin);bubble.querySelector('[data-chat-bubble-badge]').hidden=!unread;bubble.setAttribute('aria-label',unread?'Mở chat trực tuyến, có tin cần phản hồi':'Mở chat trực tuyến');},status:()=>{}});syncBubble();
   window.GAERUShoppingChat={load};
   const updateAdminLiveStatus=(text)=>{const isRealtime=String(text||'').includes('SSE')||String(text||'').includes('Thời gian thực');const badge=root.querySelector('[data-admin-chat-live]');const label=root.querySelector('[data-admin-chat-live-text]');if(badge){badge.classList.toggle('is-fallback',!isRealtime);badge.title=isRealtime?'Thời gian thực (SSE 0ms)':(text||'Tự cập nhật');}if(label){label.textContent=isRealtime?'Trực tuyến':(String(text||'').includes('Mất')?'Mất mạng':'Đang kết nối');}};
   let adminChatPoll=null;
