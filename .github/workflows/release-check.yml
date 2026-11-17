@@ -16,4 +16,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run verify:assets
 # This repository is a private application package, not an npm publication.

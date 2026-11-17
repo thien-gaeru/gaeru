@@ -497,42 +497,44 @@ async function processEmailQueue(pool, config, mailer) {
     return false;
   }
 
-  const claimed = await withTransaction(pool, async c => {
-    await c.query("UPDATE marketing_email_campaigns c SET status='completed',updated_at=now() WHERE status IN ('scheduled','sending') AND NOT EXISTS(SELECT 1 FROM marketing_email_recipients r WHERE r.campaign_id=c.id AND r.status IN ('pending','sending'))");
-    const campaign = (await c.query("SELECT * FROM marketing_email_campaigns WHERE status IN ('scheduled','sending') AND scheduled_at<=now() AND (next_send_at IS NULL OR next_send_at<=now()) ORDER BY scheduled_at,id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
-    if (!campaign) return null;
-    const row = (await c.query("SELECT * FROM marketing_email_recipients WHERE campaign_id=$1 AND status='pending' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1", [campaign.id])).rows[0];
-    if (!row) return null;
-    const suppressed = (await c.query("SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=$1 UNION ALL SELECT 1 FROM customers WHERE lower(trim(email))=$1 AND (active=false OR deleted_at IS NOT NULL) LIMIT 1", [row.email])).rows.length;
-    if (suppressed) {
-      await c.query("UPDATE marketing_email_recipients SET status='skipped',result='Không còn nhận marketing',finished_at=now() WHERE id=$1", [row.id]);
-      return null;
-    }
-    const token = randomBytes(32).toString('hex');
-    await c.query("UPDATE marketing_email_recipients SET status='sending',attempted_at=now(),unsubscribe_hash=$2 WHERE id=$1", [row.id, hash(token)]);
-    await c.query("UPDATE marketing_email_campaigns SET status='sending',next_send_at=now()+($2::text||' seconds')::interval,updated_at=now() WHERE id=$1", [campaign.id, 60 / campaign.rate_per_minute]);
-    return { row, campaign, token };
-  });
+  for (let pass = 0; pass < 50; pass++) {
+    const claimed = await withTransaction(pool, async c => {
+      await c.query("UPDATE marketing_email_campaigns c SET status='completed',updated_at=now() WHERE status IN ('scheduled','sending') AND NOT EXISTS(SELECT 1 FROM marketing_email_recipients r WHERE r.campaign_id=c.id AND r.status IN ('pending','sending'))");
+      const campaign = (await c.query("SELECT * FROM marketing_email_campaigns WHERE status IN ('scheduled','sending') AND scheduled_at<=now() AND (next_send_at IS NULL OR next_send_at<=now()) ORDER BY scheduled_at,id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
+      if (!campaign) return null;
+      const row = (await c.query("SELECT * FROM marketing_email_recipients WHERE campaign_id=$1 AND status='pending' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1", [campaign.id])).rows[0];
+      if (!row) return null;
+      const suppressed = (await c.query("SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=$1 UNION ALL SELECT 1 FROM customers WHERE lower(trim(email))=$1 AND (active=false OR deleted_at IS NOT NULL) LIMIT 1", [row.email])).rows.length;
+      if (suppressed) {
+        await c.query("UPDATE marketing_email_recipients SET status='skipped',result='Không còn nhận marketing',finished_at=now() WHERE id=$1", [row.id]);
+        return { skipped: true };
+      }
+      const token = randomBytes(32).toString('hex');
+      await c.query("UPDATE marketing_email_recipients SET status='sending',attempted_at=now(),unsubscribe_hash=$2 WHERE id=$1", [row.id, hash(token)]);
+      await c.query("UPDATE marketing_email_campaigns SET status='sending',next_send_at=now()+($2::text||' seconds')::interval,updated_at=now() WHERE id=$1", [campaign.id, 60 / campaign.rate_per_minute]);
+      return { row, campaign, token };
+    });
 
-  if (!claimed) return false;
-  const { row, campaign, token } = claimed;
-  const url = new URL('/api/marketing-email/unsubscribe/' + token, normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
+    if (!claimed) return false;
+    if (claimed.skipped) continue;
+    const { row, campaign, token } = claimed;
+    const url = new URL('/api/marketing-email/unsubscribe/' + token, normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
 
-  try {
-    const stillAllowed = (await pool.query("SELECT c.status,EXISTS(SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=$2) AS suppressed FROM marketing_email_campaigns c WHERE c.id=$1", [campaign.id, row.email])).rows[0];
-    if (!stillAllowed || stillAllowed.status === 'cancelled' || stillAllowed.suppressed) {
-      await pool.query("UPDATE marketing_email_recipients SET status='skipped',finished_at=now(),result='Đã dừng trước khi gửi' WHERE id=$1", [row.id]);
-      return false;
-    }
+    try {
+      const stillAllowed = (await pool.query("SELECT c.status,(EXISTS(SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email))=$2) OR EXISTS(SELECT 1 FROM customers WHERE lower(trim(email))=$2 AND (active=false OR deleted_at IS NOT NULL))) AS suppressed FROM marketing_email_campaigns c WHERE c.id=$1", [campaign.id, row.email])).rows[0];
+      if (!stillAllowed || stillAllowed.status === 'cancelled' || stillAllowed.suppressed) {
+        await pool.query("UPDATE marketing_email_recipients SET status='skipped',finished_at=now(),result='Đã dừng trước khi gửi' WHERE id=$1", [row.id]);
+        continue;
+      }
 
-    const { prepareOutboundMail, buildMessageId } = require('./smtp-delivery');
-    const sent = await mailer.sendMail(prepareOutboundMail(
-      config,
-      {
-        to: row.email,
-        subject: campaign.subject,
-        text: campaign.body + '\n\nGAERU · Ngừng nhận email khuyến mại: ' + url,
-        messageId: buildMessageId('mkt-campaign', config),
+      const { prepareOutboundMail, buildMessageId } = require('./smtp-delivery');
+      const sent = await mailer.sendMail(prepareOutboundMail(
+        config,
+        {
+          to: row.email,
+          subject: campaign.subject,
+          text: campaign.body + '\n\nGAERU · Ngừng nhận email khuyến mại: ' + url,
+          messageId: buildMessageId('mkt-campaign', config),
         headers: {
           'List-Unsubscribe': '<' + url + '>',
           'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
@@ -570,13 +572,15 @@ async function processEmailQueue(pool, config, mailer) {
       status = 'failed';
       result = `Lỗi SMTP (Mã ${code}): ` + (e.message || '');
     }
-    await pool.query("UPDATE marketing_email_recipients SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'", [
-      row.id,
-      status,
-      result
-    ]);
+      await pool.query("UPDATE marketing_email_recipients SET status=$2,finished_at=now(),result=$3 WHERE id=$1 AND status='sending'", [
+        row.id,
+        status,
+        result
+      ]);
+    }
+    return true;
   }
-  return true;
+  return false;
 }
 
 function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalMs = 3000 } = {}) {

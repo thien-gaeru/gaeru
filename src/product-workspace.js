@@ -117,7 +117,7 @@ async function serveCatalogImage(req,res,next){if(!uuid.safeParse(req.params.id)
    const bgOpts={whiteThreshold:req.body?.threshold||req.body?.whiteThreshold||req.query?.threshold||req.query?.whiteThreshold,tolerance:req.body?.tolerance||req.query?.tolerance,minHoleArea:req.body?.minHoleArea||req.query?.minHoleArea,autoCenterSquare,canvasSize,paddingRatio,enableShadow};
    const buffer=await readStoredImage(source.content),cutout=await require('./lib/image-optimizer').optimizeImage(buffer,source.mime_type,{removeBackground:true,...bgOpts});
    if(!cutout.backgroundRemoved)return res.status(409).json({error:'Chưa nhận diện được vùng nền trắng liền mép. Ảnh được giữ nguyên; dùng ảnh PNG/WebP đã tách nền cho nền phức tạp.'});
-   const saved=await require('./lib/stored-media').storeUpload('products',buffer,source.mime_type,pool,{removeBackground:true,...bgOpts});
+   const saved=await require('./lib/stored-media').storeUpload('products',buffer,source.mime_type,pool,{optimizedResult:cutout});
    const image=(await pool.query('INSERT INTO catalog_images(content,mime_type) VALUES($1,$2) RETURNING id',[saved.content,saved.mimeType])).rows[0];
    let thumbUrl=null;
    if(saved.thumbBuffer){

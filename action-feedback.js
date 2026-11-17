@@ -528,6 +528,7 @@
 
   function validateForm(form) {
     if (!form || typeof form.querySelectorAll !== 'function') return true;
+    if (form.hasAttribute?.('data-no-action-feedback') || form.closest?.('#admin-app') || (typeof location !== 'undefined' && /^\/gaeru_ceo(?:\/|$)/.test(String(location.pathname || '')))) return true;
     const inputs = form.querySelectorAll('input');
     if (!inputs || !inputs.length) return true;
     let firstInvalid = null;

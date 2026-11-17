@@ -7,6 +7,19 @@ const { withTransaction } = require('./db');
 const { appendAudit } = require('./audit');
 const { pipeline } = require('node:stream/promises');
 const { storeUpload, readMedia, readMediaRange, openMediaStream } = require('./lib/stored-media');
+const { createUploadGate, withUploadWork } = require('./audit-fixes/upload-state');
+const careUploadGate = createUploadGate(4);
+
+async function checkCareUploadQuota(client, careId, incomingBytes) {
+  const quota = (await client.query(
+    'SELECT count(*)::int AS files, COALESCE(sum(byte_size),0)::bigint AS bytes FROM care_message_files WHERE care_id=$1',
+    [careId]
+  )).rows[0];
+  if (Number(quota?.files || 0) >= 50 || Number(quota?.bytes || 0) + incomingBytes > 250 * 1024 * 1024) {
+    return { status: 409, error: 'Yêu cầu CARE+ đã đạt giới hạn số lượng hoặc dung lượng tệp đính kèm.' };
+  }
+  return null;
+}
 const {
   resolveReplyTo,
   resolveFrom,
@@ -43,11 +56,17 @@ function fileType(file) {
   if (ext === 'pdf' && b.toString('ascii', 0, 5) === '%PDF-') return 'application/pdf';
   if (['mp4', 'mov', 'm4v'].includes(ext) && b.toString('ascii', 4, 8) === 'ftyp') return ext === 'mov' ? 'video/quicktime' : 'video/mp4';
   if (['heic', 'heif'].includes(ext) && b.toString('ascii', 4, 8) === 'ftyp' && ['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(b.toString('ascii', 8, 12))) return 'image/heic';
-  if (['webm', 'mkv'].includes(ext) && b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/webm';
-  if (ext === 'avi' && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 11) === 'AVI') return 'video/mp4';
+  if (ext === 'webm' && b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/webm';
+  if (ext === 'mkv' && b.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]))) return 'video/x-matroska';
+  if (ext === 'avi' && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 11) === 'AVI') return 'video/x-msvideo';
   if (['docx', 'xlsx', 'pptx', 'zip'].includes(ext) && b.subarray(0, 4).equals(Buffer.from([80, 75, 3, 4]))) return 'application/octet-stream';
   if (['doc', 'xls', 'ppt'].includes(ext) && b.subarray(0, 8).equals(Buffer.from([208, 207, 17, 224, 161, 177, 26, 225]))) return 'application/octet-stream';
-  if (['txt', 'csv'].includes(ext) && !b.includes(0) && !b.toString('utf8').includes('\uFFFD')) return 'text/plain';
+  if (['txt', 'csv'].includes(ext) && !b.includes(0)) {
+    const text = b.toString('utf8');
+    if (!text.includes('\uFFFD') && !/<(?:script|iframe|svg|object|embed|form|html|body)\b|javascript:/i.test(text)) {
+      return 'text/plain';
+    }
+  }
   return null;
 }
 
@@ -178,7 +197,7 @@ function createCareCustomerApi(pool, config = {}) {
     try {
       const id = req.session?.customer?.id;
       if (!id) return res.status(401).json({ error: 'Vui lòng đăng nhập để gửi yêu cầu.' });
-      if (!(await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true', [id])).rows.length)
+      if (!(await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL', [id])).rows.length)
         return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
       req.customerId = id;
       next();
@@ -253,7 +272,7 @@ function createCareCustomerApi(pool, config = {}) {
     } catch (e) { next(e); }
   });
 
-  router.post('/:id/files', requireCsrf, parseUpload, async (req, res, next) => {
+  router.post('/:id/files', requireCsrf, careUploadGate, parseUpload, withUploadWork(async (req, res, next) => {
     if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Mã yêu cầu không hợp lệ.' });
     if (!req.file || !req.file.buffer?.length) return res.status(400).json({ error: 'Vui lòng chọn tệp tải lên.' });
     const mime = fileType(req.file);
@@ -267,6 +286,8 @@ function createCareCustomerApi(pool, config = {}) {
         if (!row.response) return { status: 409, error: 'Vui lòng chờ phản hồi đầu tiên từ GAERU.' };
         const count = Number((await client.query("SELECT count(*) total FROM care_messages WHERE care_id=$1 AND sender='customer' AND created_at>now()-interval '1 hour'", [row.id])).rows[0].total);
         if (count >= 30) return { status: 429, error: 'Bạn đã gửi nhiều tệp. Vui lòng thử lại sau.' };
+        const quotaError = await checkCareUploadQuota(client, row.id, req.file.buffer.length);
+        if (quotaError) return quotaError;
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
         const uploaded = await storeUpload('care', req.file.buffer, mime);
         uploadedContent = uploaded.content;
@@ -313,7 +334,7 @@ function createCareCustomerApi(pool, config = {}) {
       if (uploadedContent) await require('./lib/stored-media').removeUploadedMedia(uploadedContent).catch(() => {});
       next(e);
     }
-  });
+  }));
 
   router.get('/:id/files/:fileId', async (req, res, next) => {
     if (!z.string().uuid().safeParse(req.params.id).success || !z.string().uuid().safeParse(req.params.fileId).success)
@@ -447,7 +468,7 @@ function createCareAdminApi(pool, config = {}) {
     } catch (e) { next(e); }
   });
 
-  router.post('/care-requests/:id/files', requirePermission('orders.write'), requireCsrf, parseUpload, async (req, res, next) => {
+  router.post('/care-requests/:id/files', requirePermission('orders.write'), requireCsrf, careUploadGate, parseUpload, withUploadWork(async (req, res, next) => {
     if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Mã yêu cầu không hợp lệ.' });
     if (!req.file || !req.file.buffer?.length) return res.status(400).json({ error: 'Vui lòng chọn tệp tải lên.' });
     const mime = fileType(req.file);
@@ -458,6 +479,8 @@ function createCareAdminApi(pool, config = {}) {
         const before = (await client.query('SELECT * FROM care_requests WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
         if (!before) return { status: 404, error: 'Không tìm thấy yêu cầu.' };
         if (before.status === 'closed') return { status: 409, error: 'Yêu cầu đã đóng.' };
+        const quotaError = await checkCareUploadQuota(client, before.id, req.file.buffer.length);
+        if (quotaError) return quotaError;
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
         const uploaded = await storeUpload('care', req.file.buffer, mime);
         uploadedContent = uploaded.content;
@@ -481,7 +504,7 @@ function createCareAdminApi(pool, config = {}) {
       if (uploadedContent) await require('./lib/stored-media').removeUploadedMedia(uploadedContent).catch(() => {});
       next(e);
     }
-  });
+  }));
 
   router.get('/care-requests/:id/files/:fileId', requirePermission('orders.read'), async (req, res, next) => {
     if (!z.string().uuid().safeParse(req.params.id).success || !z.string().uuid().safeParse(req.params.fileId).success)

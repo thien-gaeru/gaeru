@@ -366,11 +366,18 @@ async function showAdmin(session) {
   applyPermissions();
   document.querySelectorAll('[data-product-scope]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.productScope===state.productScope)));
   document.querySelector('#product-trash-note').hidden=state.productScope!=='trash';
-  if(session.mfaEnrollmentRequired){document.querySelectorAll('[data-view]').forEach(b=>{b.hidden=b.dataset.view!=='security';});document.querySelectorAll('.nav-group').forEach(g=>{g.hidden=![...g.querySelectorAll('[data-view]')].some(b=>!b.hidden);});}
+  if(session.mfaEnrollmentRequired){
+    document.querySelectorAll('[data-view]').forEach(b=>{b.hidden=b.dataset.view!=='security';});
+    document.querySelectorAll('.nav-group').forEach(g=>{g.hidden=![...g.querySelectorAll('[data-view]')].some(b=>!b.hidden);});
+    const copilotBtn = document.getElementById('floating-copilot-btn');
+    if (copilotBtn) copilotBtn.hidden = true;
+    await activateView('security');
+    showGlobal('Bắt buộc bật xác thực hai yếu tố trước khi truy cập quản trị.');
+    return;
+  }
 
   document.dispatchEvent(new CustomEvent("gaeru:admin-ready", { detail: session }));
   initAdminRealtime();
-  if(session.mfaEnrollmentRequired){await activateView('security');showGlobal('Bắt buộc bật xác thực hai yếu tố trước khi truy cập quản trị.');return;}
   let initialView = "";
   try { initialView = decodeURIComponent(location.hash.slice(1)); } catch {}
   if (initialView === "shipping" || initialView === "payments") {
@@ -400,6 +407,12 @@ async function loadSummary() {
   document.querySelector("#orders-gate-notice").hidden = summary.ordersEnabled;
   document.querySelector("#shipping-rates-notice").hidden = summary.shippingRatesConfigured;
   if (summary.traffic) renderTrafficMetrics(summary.traffic);
+  const chatNavBadge = document.querySelector('[data-chat-nav-badge]');
+  if (chatNavBadge && summary.shoppingChat) {
+    const unread = Number(summary.shoppingChat.unreadCount || 0);
+    chatNavBadge.textContent = unread > 99 ? "99+" : String(unread);
+    chatNavBadge.hidden = unread <= 0;
+  }
 }
 
 function renderTrafficMetrics(traffic) {
@@ -1054,7 +1067,7 @@ function openOrderProcessing(id,opener){
    dialog.querySelector('.order-processing-content').prepend(callout);
  }
  if(can('orders.write')&&order.status==='completed'&&order.returnStatus!=='open'){const action=document.createElement('div');action.className='order-return-action';action.innerHTML='<button class="secondary-button" type="button" data-return-order="'+escapeHtml(order.id)+'">Ghi nhận hoàn trả hàng</button>';dialog.querySelector('.order-processing-content').prepend(action);}
- if(can('orders.write')){
+ if(can('orders.permanent_delete')){
     const dangerZone=document.createElement('div');
     dangerZone.className='order-danger-zone';
     dangerZone.style.cssText='margin-top:16px;padding-top:14px;border-top:1px solid #fee4e2;display:flex;justify-content:flex-end';
@@ -1381,7 +1394,7 @@ async function openLoyaltyAdjustment(customerId, trigger, onSaved) {
   if (!can('customers.write')) return;
   const dialog = document.createElement('dialog'); dialog.className = 'enterprise-confirm-dialog';
   dialog.setAttribute('aria-labelledby', 'loyalty-adjust-title');
-  dialog.innerHTML = '<form data-loyalty-adjust-form><h2 id="loyalty-adjust-title">Điều chỉnh GAERU Xu</h2><p>Nhập số dương để cộng, số âm để trừ. Số dư không được âm; mọi thao tác được ghi vào sổ Xu và nhật ký.</p><label>Số Xu điều chỉnh<input name="points" type="number" step="1" required min="-2000000000" max="2000000000"></label><label>Lý do<textarea name="reason" required minlength="3" maxlength="500" rows="3"></textarea></label><p role="status" aria-live="polite"></p><div class="enterprise-confirm-actions"><button type="button" class="secondary-button" data-loyalty-cancel>Quay lại</button><button type="submit" class="primary-button">Xác nhận điều chỉnh</button></div></form>';
+  dialog.innerHTML = '<form data-loyalty-adjust-form><h2 id="loyalty-adjust-title">Điều chỉnh GAERU Xu</h2><p>Nhập số dương để cộng, số âm để trừ. Số dư không được âm; nếu tài khoản đang có công nợ thu hồi Xu, số Xu cộng dương sẽ tự động cấn trừ công nợ trước. Mọi thao tác được ghi vào sổ Xu và nhật ký.</p><label>Số Xu điều chỉnh<input name="points" type="number" step="1" required min="-2000000000" max="2000000000"></label><label>Lý do<textarea name="reason" required minlength="3" maxlength="500" rows="3"></textarea></label><p role="status" aria-live="polite"></p><div class="enterprise-confirm-actions"><button type="button" class="secondary-button" data-loyalty-cancel>Quay lại</button><button type="submit" class="primary-button">Xác nhận điều chỉnh</button></div></form>';
   const form = dialog.querySelector('form'), status = form.querySelector('[role=status]');
   let saving = false;
   const close = () => { if (saving) return; dialog.close(); dialog.remove(); trigger?.focus(); };
@@ -1449,8 +1462,8 @@ async function loadLoyaltyWorkspace(page=1){
   const result=await request('/api/gaeru_ceo/customers/loyalty-members?'+new URLSearchParams({q,page}));
   root._xuPage=result.pagination.page;
   const number=value=>new Intl.NumberFormat('vi-VN').format(Number(value)||0);
-  root.querySelector('[data-xu-metrics]').innerHTML=[['Thành viên',result.summary.total],['Xu khả dụng',result.summary.balance],['Xu đã tích',result.summary.earned],['Xu đã dùng',result.summary.spent]].map(([label,value])=>'<article class="metric-card"><span>'+label+'</span><strong>'+number(value)+'</strong></article>').join('');
-  root.querySelector('[data-xu-members]').innerHTML=result.members.map(c=>'<article class="customer-card"><div class="customer-card-header"><div><h3>'+escapeHtml(c.fullName)+'</h3><p>'+escapeHtml(c.email)+' · '+escapeHtml(c.phone)+'</p></div><div><strong>'+number(c.pointsBalance)+' Xu</strong><p>'+escapeHtml(result.tierBenefits[c.tier]?.name||c.tier)+'</p></div></div><button class="secondary-button" type="button" data-xu-detail="'+c.id+'">Xem sổ Xu</button><div data-xu-ledger hidden></div></article>').join('')||'<p>Không có thành viên phù hợp.</p>';
+  root.querySelector('[data-xu-metrics]').innerHTML=[['Thành viên',result.summary.total],['Xu khả dụng',result.summary.balance],['Xu đã tích',result.summary.earned],['Xu đã dùng',result.summary.spent],['Nợ thu hồi',result.summary.debt||0]].map(([label,value])=>'<article class="metric-card"><span>'+label+'</span><strong>'+number(value)+'</strong></article>').join('');
+  root.querySelector('[data-xu-members]').innerHTML=result.members.map(c=>'<article class="customer-card"><div class="customer-card-header"><div><h3>'+escapeHtml(c.fullName)+'</h3><p>'+escapeHtml(c.email)+' · '+escapeHtml(c.phone)+'</p></div><div><strong>'+number(c.pointsBalance)+' Xu</strong><p>'+escapeHtml(result.tierBenefits[c.tier]?.name||c.tier)+(Number(c.clawbackDebtPoints)>0?' · <span style="color:#b91c1c;font-weight:600;">Nợ thu hồi: '+number(c.clawbackDebtPoints)+' Xu</span>':'')+'</p></div></div><button class="secondary-button" type="button" data-xu-detail="'+c.id+'">Xem sổ Xu</button><div data-xu-ledger hidden></div></article>').join('')||'<p>Không có thành viên phù hợp.</p>';
   const p=result.pagination;root.querySelector('[data-xu-pagination]').innerHTML='<button type="button" class="secondary-button" data-xu-page="'+(p.page-1)+'" '+(p.page<=1?'disabled':'')+'>Trước</button><span>Trang '+p.page+'/'+p.pageCount+'</span><button type="button" class="secondary-button" data-xu-page="'+(p.page+1)+'" '+(p.page>=p.pageCount?'disabled':'')+'>Tiếp</button>';
   feedback.textContent='Số liệu theo kết quả tra cứu. Mọi điều chỉnh được lưu trong sổ Xu và nhật ký.';
   if(can('settings.write'))await loadLoyaltyPolicy();
@@ -1708,8 +1721,16 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   } finally {
     state.session = null;
     stopAdminRealtime();
+    const copilotModal = document.getElementById("gaeru-ai-modal");
+    if (copilotModal) copilotModal.hidden = true;
+    const copilotBtn = document.getElementById("floating-copilot-btn");
+    if (copilotBtn) copilotBtn.hidden = true;
     document.querySelector("#admin-app").hidden = true;
     document.querySelector("#login-panel").hidden = false;
+    try {
+      const fresh = await request("/api/csrf");
+      if (fresh?.csrfToken) state.csrfToken = fresh.csrfToken;
+    } catch (_) {}
     showGlobal("Đã đăng xuất an toàn khỏi Cổng Quản trị.");
   }
 });

@@ -201,7 +201,8 @@ function formatVariantSummaryLines(prod, question) {
     const pricePart = hasDiscount
       ? `**${formatVnd(v.priceVnd)}** (giá gốc ${formatVnd(v.originalPriceVnd)})`
       : `**${formatVnd(v.priceVnd)}**`;
-    const promoNote = v.activePromotion?.title ? ` · Ưu đãi: ${v.activePromotion.title}` : '';
+    const promoText = v.activePromotion?.title || v.promotion?.title;
+    const promoNote = promoText ? ` · Ưu đãi: ${promoText}` : '';
     return `- ${v.name || 'Phiên bản chuẩn'}: ${pricePart} (${stockBadge})${promoNote}`;
   }).join('\n');
 }
@@ -485,14 +486,13 @@ function findWebKnowledgeAnswer(question, webKnowledge, catalog = []) {
     const facts = Array.isArray(src.facts) ? src.facts.filter(Boolean) : [];
     for (const fact of facts) {
       const score = tokenOverlapScore(qTokens, tokenizeMeaningful(`${src.title || ''} ${fact}`));
-      if (score >= bestScore) {
+      if (score > bestScore) {
         bestScore = score;
         bestFact = fact;
       }
     }
-    if (!bestFact && facts.length) bestFact = facts[0];
   }
-  if (approved.length > 0 && bestFact) return bestFact;
+  if (approved.length > 0 && bestScore > 0 && bestFact) return bestFact;
 
   // 2. Crisp matched lines from storefront web pages
   const snippets = webKnowledge?.relevantSnippets || [];
@@ -552,13 +552,13 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
 
   // Xác định câu hỏi có yêu cầu tra cứu dữ liệu động (giá/kho/chính sách/vận chuyển/voucher) không
   const isDynamicPolicyOrCommerce = hasAnyBoundaryTerm(space, [
-    'gia', 'gia ban', 'bao nhieu', 'may tien', 'con hang', 'het hang', 'ton kho',
+    'gia', 'gia ban', 'bao nhieu tien', 'may tien', 'con hang', 'het hang', 'ton kho',
     'ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai',
     'bao hanh', '1 doi 1', 'care+', 'doi tra',
     'giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'dong kiem',
     'gaeru xu', 'tich xu', 'doi xu', 'diem thuong',
     'thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay'
-  ]);
+  ]) || /(?:gia|tien|phi|giam).{0,12}bao nhieu|bao nhieu\s+(?:tien|nghin|ngan|dong|k\b|xu\b)/.test(space);
 
   // 3. Tri thức tự học đặc thù (chỉ ưu tiên trước khi KHÔNG phải câu hỏi giá/tồn kho/đơn/chính sách)
   if (!isDynamicPolicyOrCommerce) {
@@ -613,7 +613,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   }
 
   // 7. Chính sách GAERU Xu / Bảo hành / Vận chuyển / Thanh toán / Khuyến mãi (chỉ thêm phần được hỏi)
-  if (hasAnyBoundaryTerm(space, ['gaeru xu', 'tich xu', 'doi xu', 'diem thuong']) || /\bxu\b/.test(space)) {
+  if (hasAnyBoundaryTerm(space, ['gaeru xu', 'tich xu', 'doi xu', 'hoan xu', 'diem thuong']) || /(?:^|[^\p{L}])xu(?:$|[^\p{L}])/iu.test(raw)) {
     sections.push(
       '**Chính sách GAERU Xu:**\n' +
       '- Quy đổi: **1 GAERU Xu = 1 VNĐ**, dùng giảm tối đa **50%** giá trị đơn hàng (tuân thủ Nghị định 81/2018/NĐ-CP).\n' +

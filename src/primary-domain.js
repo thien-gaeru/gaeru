@@ -22,9 +22,14 @@ function normalizePublicBase(value){
   }
   return value;
 }
+function isLoopbackRemote(addr) {
+  const ip = String(addr || '').trim();
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
 function publicAliasRedirect(req,res,next){
   res.set('Strict-Transport-Security','max-age=31536000; includeSubDomains; preload');
-  const forwardedProto=String(req.headers?.['x-forwarded-proto']||'').split(',')[0].trim().toLowerCase();
+  const trustedProxy = !req.socket?.remoteAddress || isLoopbackRemote(req.socket.remoteAddress);
+  const forwardedProto=trustedProxy?String(req.headers?.['x-forwarded-proto']||'').split(',')[0].trim().toLowerCase():'';
   const isPrimaryHost=BRAND_HOST.test(req.hostname||'');
   const isInternalRoute=/^\/(?:api|gaeru_ceo)(?:\/|$)/.test(req.path);
   const isSafeRead=['GET','HEAD'].includes(req.method);

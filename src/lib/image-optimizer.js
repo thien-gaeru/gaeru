@@ -55,7 +55,7 @@ async function encodeImage(buffer, mimeType, {maxUploadBytes=MAX_UPLOAD_BYTES,ma
     // Full-size decoding and optional cutout masks have a second, weighted
     // budget. Two request slots must not decode two 24 MP images at once.
     const pixels=info.width*info.height;
-    const releasePixels=await reservePixels(Math.min(MAX_INPUT_PIXELS,pixels*(removeBackground&&pixels<=8_000_000?3:1)));
+    const releasePixels=await reservePixels(Math.min(MAX_INPUT_PIXELS,pixels*(removeBackground?3:1)));
     try {
     if(removeBackground){const cutout=await require('./product-background').removeWhiteBackground(buffer,backgroundOptions);if(cutout){if(cutout.length>maxOutputBytes)throw outputTooLarge();return {buffer:cutout,mimeType:'image/webp',backgroundRemoved:true};}}
     if(info.format==='webp'&&!info.exif&&!info.icc&&!info.xmp&&!info.orientation){

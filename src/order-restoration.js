@@ -13,11 +13,12 @@ async function restoreOrder(client,{id,data,actor,inventory=require('./inventory
  if(order.management_version!==data.version)throw fail('Đơn hàng vừa thay đổi. Tải lại trước khi khôi phục.');
  if(order.status!=='cancelled')throw fail('Chỉ khôi phục đơn đang ở trạng thái đã hủy.');
  if(order.return_completed_at||(await client.query("SELECT id FROM order_after_sales WHERE order_id=$1 AND kind='return' AND (return_type IS NULL OR return_type<>'exchange') AND status='resolved'",[id])).rows.length)throw fail('Đơn đã hoàn trả xong; không thể khôi phục xử lý lại.');
+ if((await client.query("SELECT id FROM cod_return_intakes WHERE order_id=$1 LIMIT 1",[id])).rows.length)throw fail('Đơn COD đã tiếp nhận chuyển hoàn kho; không thể khôi phục.');
  if((await client.query("SELECT id FROM order_after_sales WHERE order_id=$1 AND status NOT IN ('resolved','rejected')",[id])).rows.length)throw fail('Hoàn tất hồ sơ hủy/hoàn trả đang mở trước khi khôi phục đơn.');
  const received=Number((await client.query('SELECT COALESCE(sum(amount_vnd),0) AS amount FROM sales_receipts WHERE order_id=$1',[id])).rows[0]?.amount||0);
  if(order.payment_status!=='pending'||received>0||(await client.query("SELECT id FROM payment_attempts WHERE order_id=$1 AND status='paid'",[id])).rows.length)throw fail('Đơn đã ghi nhận tiền cần đối soát/hoàn tiền riêng trước; không khôi phục tự động.');
  if(!['cod','bank_transfer'].includes(order.payment_method))throw fail('Đơn cổng thanh toán cần tạo đơn và phiên thanh toán mới; không tái dùng phiên của đơn đã hủy.');
- if(order.customer_id&&!(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true',[order.customer_id])).rows.length)throw fail('Tài khoản khách không còn hoạt động. Cần xác minh lại trước khi khôi phục.');
+ if(order.customer_id&&!(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL',[order.customer_id])).rows.length)throw fail('Tài khoản khách không còn hoạt động. Cần xác minh lại trước khi khôi phục.');
  if((await client.query('SELECT order_id FROM order_reviews WHERE order_id=$1 AND resolved_at IS NULL',[id])).rows.length)throw fail('Đối chiếu yêu cầu xác minh đơn trước khi khôi phục.');
  const raw=(await client.query('SELECT variant_id AS "variantId",sum(quantity)::int AS quantity FROM order_items WHERE order_id=$1 GROUP BY variant_id ORDER BY variant_id',[id])).rows;
  if(!raw.length||raw.some(i=>!i.variantId))throw fail('Sản phẩm của đơn không còn đầy đủ; không thể khôi phục.');

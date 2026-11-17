@@ -7,7 +7,7 @@ function createBotProtection(pool,config,{fetchImpl=fetch}={}){
  const limited=rateLimit({...shared(pool,config,'bot-api'),windowMs:900000,limit:300,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Quá nhiều yêu cầu. Vui lòng thử lại sau.'}});
  const chunkLimited=rateLimit({...shared(pool,config,'bot-chunks'),windowMs:900000,limit:1500,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Quá nhiều yêu cầu. Vui lòng thử lại sau.'}});
  return function botProtection(req,res,next){
-  if(!enabled||!req.path.startsWith('/api/')||!['POST','PUT','PATCH','DELETE'].includes(req.method)||req.path.startsWith('/api/payments/')||isMachineWebhook(req.path)||req.path==='/api/auth/activity')return next();
+  if(!enabled||!req.path.startsWith('/api/')||!['POST','PUT','PATCH','DELETE'].includes(req.method)||req.path.startsWith('/api/payments/')||req.path.startsWith('/api/gaeru_ceo/')||req.path==='/api/auth/logout'||isMachineWebhook(req.path)||req.path==='/api/auth/activity')return next();
   const limiter=/\/files\/chunk$/.test(req.path)?chunkLimited:limited;
   return limiter(req,res,()=>handle(req,res,next));
  };

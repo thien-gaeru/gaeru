@@ -544,6 +544,19 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
       const id = z.string().uuid().parse(req.params.id);
       const cart = (await pool.query('SELECT * FROM abandoned_carts WHERE id = $1', [id])).rows[0];
       if (!cart) throw fail('Giỏ hàng không tồn tại.', 404);
+      if (!['abandoned', 'recovering'].includes(cart.status)) {
+        throw fail('Giỏ hàng này đã hoàn tất hoặc ngừng nhắc lịch.', 409);
+      }
+      if (!cart.recovery_consent) {
+        throw fail('Khách hàng chưa đồng ý nhận email nhắc giỏ hàng.', 409);
+      }
+      const suppressed = (await pool.query(
+        'SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email)) = $1 LIMIT 1',
+        [String(cart.email || '').trim().toLowerCase()]
+      )).rows.length > 0;
+      if (suppressed) {
+        throw fail('Email này đã từ chối nhận thư tiếp thị.', 409);
+      }
 
       const mailTransport = mailer || makeMailer(config);
       if (!mailTransport) throw fail('Chưa cấu hình dịch vụ gửi email SMTP.', 503);

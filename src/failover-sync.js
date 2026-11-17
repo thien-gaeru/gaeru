@@ -43,12 +43,13 @@ class FailoverSyncManager {
 
   loadState() {
     try {
+      const explicitRole = process.env.SERVER_ROLE || this.config.SERVER_ROLE;
       if (fs.existsSync(this.stateFilePath)) {
         const raw = fs.readFileSync(this.stateFilePath, 'utf8');
         const parsed = JSON.parse(raw);
         if (parsed.lastSyncTime) this.state.lastSyncTime = parsed.lastSyncTime;
         if (parsed.lastSyncStats) this.state.lastSyncStats = parsed.lastSyncStats;
-        if (parsed.role) {
+        if (!explicitRole && parsed.role) {
           this.state.role = parsed.role;
           this.state.isPromoted = parsed.role === 'primary';
         }
@@ -58,11 +59,13 @@ class FailoverSyncManager {
 
   saveState() {
     try {
-      fs.writeFileSync(this.stateFilePath, JSON.stringify({
+      const tmpPath = `${this.stateFilePath}.tmp-${process.pid}`;
+      fs.writeFileSync(tmpPath, JSON.stringify({
         role: this.state.role,
         lastSyncTime: this.state.lastSyncTime,
         lastSyncStats: this.state.lastSyncStats
-      }, null, 2), 'utf8');
+      }, null, 2), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(tmpPath, this.stateFilePath);
     } catch (_) {}
   }
 
@@ -78,7 +81,7 @@ class FailoverSyncManager {
       lastSyncStats: this.state.lastSyncStats,
       lastError: this.state.lastError,
       primaryHealth: this.state.primaryHealth,
-      readyForTraffic: true,
+      readyForTraffic: this.state.role === 'primary' || Boolean(this.state.lastSyncTime),
       timestamp: new Date().toISOString()
     };
   }
@@ -152,9 +155,10 @@ class FailoverSyncManager {
         for (const p of [...products].sort((a, b) => String(a?.slug).localeCompare(String(b?.slug)))) {
           if (!p?.slug || !p.name || !Array.isArray(p.variants)) throw new Error('Sản phẩm đồng bộ không hợp lệ.');
           const category = ['audio', 'video', 'accessory'].includes(p.category) ? p.category : 'audio';
+          const prodActive = p.active === undefined ? true : Boolean(p.active);
           const prodRow = (await client.query(`
             INSERT INTO products (slug, name, category, descriptor, description, image_url, image_alt, active, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
             ON CONFLICT (slug) DO UPDATE
             SET name = EXCLUDED.name,
                 category = EXCLUDED.category,
@@ -162,7 +166,7 @@ class FailoverSyncManager {
                 description = EXCLUDED.description,
                 image_url = EXCLUDED.image_url,
                 image_alt = EXCLUDED.image_alt,
-                active = true,
+                active = EXCLUDED.active,
                 updated_at = NOW()
             RETURNING id;
           `, [
@@ -172,7 +176,8 @@ class FailoverSyncManager {
             p.descriptor || '',
             p.description || '',
             p.imageUrl || p.image_url || '',
-            p.imageAlt || p.image_alt || ''
+            p.imageAlt || p.image_alt || '',
+            prodActive
           ])).rows[0];
 
           const productId = prodRow.id;
@@ -183,17 +188,18 @@ class FailoverSyncManager {
                 !Number.isSafeInteger(price) || price < 0 || price > 2_000_000_000) {
               throw new Error('Giá hoặc tồn kho đồng bộ không hợp lệ.');
             }
+            const variantActive = v.active === undefined ? true : Boolean(v.active);
             const variant = (await client.query(`
               INSERT INTO product_variants (product_id, sku, name, options, price_vnd, stock_quantity, active, updated_at)
-              VALUES ($1, $2, $3, $4, $5, 0, true, NOW())
+              VALUES ($1, $2, $3, $4, $5, 0, $6, NOW())
               ON CONFLICT (sku) DO UPDATE
               SET name = EXCLUDED.name,
                   options = EXCLUDED.options,
                   price_vnd = EXCLUDED.price_vnd,
-                  active = true,
+                  active = EXCLUDED.active,
                   updated_at = NOW()
               RETURNING id, product_id, stock_quantity;
-            `, [productId, v.sku, v.name, JSON.stringify(v.options || {}), price])).rows[0];
+            `, [productId, v.sku, v.name, JSON.stringify(v.options || {}), price, variantActive])).rows[0];
             if (variant.product_id !== productId) throw new Error('SKU đồng bộ thuộc sản phẩm khác; cần đối soát trước khi đồng bộ.');
             // Preserve local IDs and inventory history. Initialize new (or legacy
             // unallocated) stock, then record a normal ledger adjustment so the

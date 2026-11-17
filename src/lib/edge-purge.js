@@ -84,11 +84,22 @@ class EdgePurgeService {
     const base = require('../primary-domain').normalizePublicBase(process.env.PUBLIC_BASE_URL || 'https://gaeru.com');
     const urlSet = new Set();
     for (const tag of cleanTags) {
-      if (tag === 'catalog' || tag === 'gaeru-catalog' || tag === 'products' || tag === 'product:list' || tag === 'search-index' || tag === 'promotions' || tag === 'gaeru-html' || tag === '*') {
+      if (
+        tag === 'catalog' || tag === 'gaeru-catalog' || tag === 'products' ||
+        tag === 'product:list' || tag === 'search-index' || tag === 'promotions' ||
+        tag === 'gaeru-html' || tag === 'settings' || tag === 'store-config' ||
+        tag === 'home-banner' || tag === 'site-pages' || tag === '*'
+      ) {
         urlSet.add(`${base}/`);
         urlSet.add(`${base}/cua-hang`);
         urlSet.add(`${base}/api/products`);
         urlSet.add(`${base}/api/search-index.json`);
+        if (tag === 'settings' || tag === 'store-config' || tag === '*') {
+          urlSet.add(`${base}/api/settings/public`);
+        }
+        if (tag === 'home-banner' || tag === '*') {
+          urlSet.add(`${base}/api/home-banner`);
+        }
       }
       if (tag.startsWith('gaeru-product-')) {
         const slug = tag.slice('gaeru-product-'.length);

@@ -24,6 +24,8 @@
       ...(options.headers || {})
     };
     const res = await fetch('/api/gaeru_ceo/internal-ai' + path, {
+      credentials: 'same-origin',
+      cache: 'no-store',
       ...options,
       headers
     });
@@ -100,8 +102,12 @@
         });
       }
 
-      // Phím tắt Ctrl + Space
+      // Phím tắt Ctrl + Space (chỉ mở khi Admin đã đăng nhập và hoàn tất MFA)
       window.addEventListener('keydown', (e) => {
+        const adminApp = document.getElementById('admin-app');
+        const floatingBtn = document.getElementById('floating-copilot-btn');
+        const unlocked = Boolean(adminApp && !adminApp.hidden && floatingBtn && !floatingBtn.hidden);
+        if (!unlocked) return;
         if (e.ctrlKey && e.code === 'Space') {
           e.preventDefault();
           const modalEl = document.getElementById('gaeru-ai-modal');
@@ -139,7 +145,9 @@
       });
     }
 
-    if (session) {
+    if (session && !session.mfaEnrollmentRequired) {
+      const floatingBtn = document.getElementById('floating-copilot-btn');
+      if (floatingBtn) floatingBtn.hidden = false;
       // Cập nhật role badge
       const roleBadge = document.getElementById('copilot-user-role');
       const modalRoleBadge = document.getElementById('modal-copilot-user-role');

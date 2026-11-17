@@ -369,7 +369,12 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     });
   } catch (error) {
     if (!providerAcknowledged && (error.isCarrierRejected || error.status === 400 || error.status === 409)) {
-      await pool.query("UPDATE carrier_shipment_attempts SET status='failed',result=$2,updated_at=now() WHERE id=$1 AND status='sending'",[attemptId, error.message || 'Hãng vận chuyển từ chối tạo đơn']).catch(()=>{});
+      await pool.query(
+        "UPDATE carrier_shipment_attempts SET status='failed',result=$2,updated_at=now() WHERE id=$1 AND status='sending'",
+        [attemptId, error.message || 'Hãng vận chuyển từ chối tạo đơn']
+      ).catch((err) => {
+        console.warn('[shipping] failed to mark carrier attempt failed:', err?.message || err);
+      });
       throw error;
     }
     const unknownResult = providerAcknowledged
@@ -647,7 +652,7 @@ async function applyCarrierDeliveryTransition(client, shipment, newNormalizedSta
         );
       }
 
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0 && !shipment.orderReturnCompletedAt) {
         const { earnPoints } = require('./loyalty-api');
         const earnPayload = {
           customerId: shipment.orderCustomerId,
@@ -957,7 +962,7 @@ async function settleSingleCarrierCodInTx(client, {
          WHERE id = $1`,
         [orderId]
       );
-      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0) {
+      if (shipment.orderCustomerId && Number(shipment.orderTotalVnd) > 0 && !shipment.orderReturnCompletedAt) {
         const { earnPoints } = require('./loyalty-api');
         await earnPoints(client, {
           customerId: shipment.orderCustomerId,
@@ -1394,7 +1399,7 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
       }
     });
 
-    return {
+    const syncResult = {
       success: true,
       processed: true,
       trackingNumber: shipment.tracking_number,
@@ -1403,6 +1408,7 @@ async function syncShipmentTracking(pool, config, { orderId, trackingNumber, act
       history,
       orderStatus: updatedOrderStatus
     };
+    return syncResult;
   });
 }
 
@@ -1426,18 +1432,21 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
     }
 
     const sigHeader = String(headers['x-webhook-signature'] || headers['x-signature'] || '').trim();
-    if (sigHeader || carrierRecord?.data?.webhookAuthMode === 'hmac') {
+    const isHmacMode = carrierRecord?.data?.webhookAuthMode === 'hmac';
+    if (sigHeader || isHmacMode) {
       if (!sigHeader) {
         throw fail('Thiếu chữ ký HMAC Webhook vận chuyển.', 401);
       }
-      if (carrierRecord?.data?.webhookAuthMode === 'hmac' && !rawTimestamp) {
+      if (isHmacMode && !rawTimestamp) {
         throw fail('Thiếu timestamp chống phát lại trên Webhook vận chuyển.', 401);
       }
       const cleanSig = sigHeader.replace(/^sha256=/i, '').trim();
       const bodyStr = Buffer.isBuffer(rawBody)
         ? rawBody.toString('utf8')
         : (typeof rawBody === 'string' ? rawBody : JSON.stringify(payload || {}));
-      const signedInputs = rawTimestamp ? [`${rawTimestamp}.${bodyStr}`, bodyStr] : [bodyStr];
+      const signedInputs = rawTimestamp
+        ? (isHmacMode ? [`${rawTimestamp}.${bodyStr}`] : [`${rawTimestamp}.${bodyStr}`, bodyStr])
+        : [bodyStr];
       const matchesHmac = signedInputs.some((msg) => {
         const hexExpected = crypto.createHmac('sha256', expectedSecret).update(msg, 'utf8').digest('hex');
         const b64Expected = crypto.createHmac('sha256', expectedSecret).update(msg, 'utf8').digest('base64');
@@ -1504,18 +1513,19 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
   const incomingEventTime = parseProviderEventTime(rawEventTime);
   const sanitizedPayload = sanitizeWebhookPayload(payload);
 
-  return withTransaction(pool, async client => {
+  const txResult = await withTransaction(pool, async client => {
     const result = await client.query(
       `SELECT s.*, o.order_number AS "orderNumber", o.total_vnd AS "orderTotalVnd",
               o.customer_id AS "orderCustomerId", o.return_completed_at AS "orderReturnCompletedAt",
               o.payment_method AS "orderPaymentMethod", o.payment_status AS "orderPaymentStatus", o.status AS "orderStatus"
        FROM carrier_shipments s
        JOIN orders o ON o.id = s.order_id
-       WHERE s.carrier_id = $1 AND (s.tracking_number = $2 OR s.carrier_order_id = $3)
+       WHERE s.carrier_id = $1
+         AND (($2::text <> '' AND s.tracking_number = $2) OR ($3::text <> '' AND s.carrier_order_id = $3))
        ORDER BY (s.status = 'cancelled')::int ASC, s.created_at DESC
        LIMIT 1
        FOR UPDATE OF s, o`,
-      [carrierId, trackingNumber || '', carrierOrderId || '']
+      [carrierId, String(trackingNumber || '').trim(), String(carrierOrderId || '').trim()]
     );
 
     if (!result.rows.length) {
@@ -1528,7 +1538,15 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       : `${carrierId}\0${shipment.tracking_number}\0${String(rawStatus)}\0${incomingEventTime ? incomingEventTime.toISOString() : ''}\0${String(webhookDesc || '').trim()}`;
     const eventFingerprint = crypto.createHash('sha256').update(fingerprintSource).digest('hex');
 
-    const transitionCheck = canAdvanceCarrierStatus(shipment.status, normalizedStatus, shipment.provider_event_time, incomingEventTime);
+    let transitionCheck = canAdvanceCarrierStatus(shipment.status, normalizedStatus, shipment.provider_event_time, incomingEventTime);
+    if (
+      transitionCheck.allowed &&
+      shipment.status === normalizedStatus &&
+      String(shipment.carrier_status_raw || '') === String(rawStatus) &&
+      (!incomingEventTime || (shipment.provider_event_time && incomingEventTime.getTime() <= new Date(shipment.provider_event_time).getTime()))
+    ) {
+      transitionCheck = { allowed: false, reason: 'same_status_replay' };
+    }
 
     const eventInsert = await client.query(
       `INSERT INTO carrier_webhook_events (
@@ -1623,6 +1641,10 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
       codSettlementStatus: shipment.cod_settlement_status
     };
   });
+  if (txResult?.processed) {
+    try { require('../cache').invalidateTags(['orders']); } catch {}
+  }
+  return txResult;
 }
 
 async function quoteShippingFee(pool, config, { carrierId, city, district, address, weightGrams = 500, totalVnd = 0, codAmountVnd = 0, serviceCode = '', fetcher = fetch }) {
@@ -1786,9 +1808,12 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
         const result = await syncShipmentTracking(pool, config, {
           orderId,
           actor: req.admin,
-          fetcher,
+          fetcher: resolveFetcher(),
           finance
         });
+        if (result?.processed) {
+          try { require('../cache').invalidateTags(['orders']); } catch {}
+        }
         res.json(result);
       } catch (e) {
         next(e);

@@ -33,13 +33,13 @@ function createWarrantyPublicApi(pool,config=null){
    const guestHash=customerId?null:createHash('sha256').update(req.sessionID).digest('hex');
    const hash=createHash('sha256').update(JSON.stringify({...a,requestKey:undefined})).digest('hex');
    const result=await withTransaction(pool,async client=>{
-    if(customerId&&!(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true',[customerId])).rows.length)return {status:401,error:'Phiên tài khoản không còn hợp lệ. Hãy đăng nhập lại.'};
+    if(customerId&&!(await client.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL',[customerId])).rows.length)return {status:401,error:'Phiên tài khoản không còn hợp lệ. Hãy đăng nhập lại.'};
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['warranty:'+a.requestKey]);
     const previous=(await client.query('SELECT id,status,request_hash,guest_owner_hash,withdrawn_at FROM warranty_activations WHERE request_key=$1 AND customer_id IS NOT DISTINCT FROM $2::uuid',[a.requestKey,customerId])).rows[0];
     if(previous){
      if(previous.withdrawn_at)return {status:409,error:"Yêu cầu đã xóa. Hãy tạo đăng ký mới."};
      if(previous.request_hash!==hash||previous.guest_owner_hash!==guestHash)return {status:409,error:'Mã yêu cầu đã được sử dụng. Vui lòng tải lại biểu mẫu.'};
-     const managementToken=customerId?null:randomBytes(32).toString('hex');if(managementToken)await client.query('UPDATE warranty_activations SET manage_token_hash=$2 WHERE id=$1',[previous.id,createHash('sha256').update(managementToken).digest('hex')]);return {status:200,activation:{id:previous.id,status:previous.status},managementToken};
+     const managementToken=customerId?null:randomBytes(32).toString('hex');const tokenUpdated=managementToken?(await client.query('UPDATE warranty_activations SET manage_token_hash=$2 WHERE id=$1 AND manage_token_hash IS NULL RETURNING id',[previous.id,createHash('sha256').update(managementToken).digest('hex')])).rowCount>0:false;return {status:200,activation:{id:previous.id,status:previous.status},...(tokenUpdated?{managementToken}:{})};
     }
     const orderKey=a.externalOrderNumber.replace(/\s/g,'').toUpperCase();
     if((await client.query("SELECT id FROM orders WHERE upper(regexp_replace(order_number,'[[:space:]]','','g'))=$1 LIMIT 1",[orderKey])).rows.length)return {status:409,error:'Mã đơn đã có trong hệ thống website. Bảo hành được kích hoạt tự động sau khi hoàn tất và thanh toán; không gửi đăng ký lại.',code:'WARRANTY_AUTOMATIC'};

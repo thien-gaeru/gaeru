@@ -56,13 +56,13 @@ function sanitizePii(text) {
   if (!text || typeof text !== 'string') return '';
 
   return text
-    // Số điện thoại Việt Nam (09x, 08x, 07x, 03x, 05x, +84x...)
-    .replace(/(?:\+84|84|0)(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9[0-9])\d{7}\b/g, '[SĐT_ĐÃ_ẨN]')
-    .replace(/\b0\d{9}\b/g, '[SĐT_ĐÃ_ẨN]')
+    // Số điện thoại Việt Nam (09x, 08x, 07x, 03x, 05x, +84x..., kể cả tách dấu chấm / gạch / khoảng trắng)
+    .replace(/(?:\+84|84|0)[\s.-]*(?:3[2-9]|5[2689]|7[06-9]|8[1-9]|9[0-9])(?:[\s.-]*\d){7}\b/g, '[SĐT_ĐÃ_ẨN]')
+    .replace(/\b0(?:[\s.-]*\d){9}\b/g, '[SĐT_ĐÃ_ẨN]')
     // Email
     .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_ĐÃ_ẨN]')
     // Mã đơn hàng GR-... / GAE-... / TEST-... (xử lý trước chuỗi số dài để không cắt nhầm phần ngày)
-    .replace(/\b(?:gr|gae)-[a-zA-Z0-9-]+\b/gi, '[MÃ_ĐƠN_HÀNG]')
+    .replace(/\b(?:gr|gae|test)-[a-zA-Z0-9-]+\b/gi, '[MÃ_ĐƠN_HÀNG]')
     // Số tài khoản ngân hàng / thẻ (dãy 8 - 19 số liên tiếp)
     .replace(/\b\d{8,19}\b/g, '[SỐ_TÀI_KHOẢN_ĐÃ_ẨN]')
     // Mã vận đơn
@@ -424,7 +424,8 @@ async function learnFromStaffResponse(pool, { threadId, customerQuestion, staffA
     sourceType: 'staff_guidance',
     question: customerQuestion,
     answer: staffAnswer,
-    confidence: 0.95, // Phản hồi từ nhân viên có độ tin cậy vượt trội
+    confidence: 0.95, // Phản hồi từ nhân viên có độ tin cậy vượt trội, chờ quản trị viên duyệt trước khi phục vụ đại trà
+    status: 'pending_review',
     metadata: {
       threadId,
       learnedFrom: 'staff_resolution',

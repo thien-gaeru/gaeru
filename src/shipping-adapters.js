@@ -244,6 +244,12 @@ function computeCarrierShipmentPricing(orderData = {}, settings = {}) {
 
 function normalizeCarrierStatus(carrierId, rawStatus) {
   const s = String(rawStatus ?? '').toLowerCase().trim();
+  const normalizedToken = s.replace(/[\s-]+/g, '_');
+  const tokens = normalizedToken.split('_').filter(Boolean);
+  const hasWord = (list) => list.some(k => tokens.includes(k));
+  const isNegatedCancel = tokens.includes('rejected') || tokens.includes('failed') || tokens.includes('denied') || tokens.includes('pending');
+  const isRetryableFail = tokens.includes('retry') || tokens.includes('reschedule') || tokens.includes('pending') || tokens.includes('soon');
+
   if (carrierId === 'viettel' && /^-?\d+$/.test(s)) {
     if (s === '501') return 'delivered';
     if (['107', '503'].includes(s)) return 'cancelled';
@@ -254,25 +260,33 @@ function normalizeCarrierStatus(carrierId, rawStatus) {
     if (['100', '102', '103', '104'].includes(s)) return 'picking';
     return 'pending';
   }
-  if (['delivered', 'hoanthanh', 'dagiao', 'thanh_cong'].includes(s)) {
+  if (['delivered', 'hoanthanh', 'dagiao', 'thanh_cong'].includes(normalizedToken)) {
     return 'delivered';
   }
-  if (['cancel', 'huy', 'huy_don', 'deleted', 'closed'].some(k => s.includes(k))) {
-    return 'cancelled';
-  }
-  if (['return_requested', 'cho_chuyen_hoan', 'cho_xu_ly_hoan', 'cho_hoan'].includes(s)) {
+  if (['return_requested', 'cho_chuyen_hoan', 'cho_xu_ly_hoan', 'cho_hoan', 'return_pending'].includes(normalizedToken)) {
     return 'return_requested';
   }
-  if (['returning', 'returning_to_sender', 'dang_hoan', 'chuyen_hoan_ve_buu_cuc'].includes(s)) {
+  if (['returning', 'returning_to_sender', 'dang_hoan', 'chuyen_hoan_ve_buu_cuc', 'returning_soon'].includes(normalizedToken)) {
     return 'returning';
   }
-  if (['return', 'tra_hang', 'chuyen_hoan', 'that_bai', 'failed', 'refused', 'returned_to_sender'].some(k => s.includes(k))) {
+  if (
+    !isNegatedCancel &&
+    (['cancel', 'cancelled', 'canceled', 'huy', 'huy_don', 'deleted', 'closed'].includes(normalizedToken) ||
+      hasWord(['cancelled', 'canceled', 'huy']))
+  ) {
+    return 'cancelled';
+  }
+  if (
+    !isRetryableFail &&
+    (['return', 'returned', 'tra_hang', 'chuyen_hoan', 'that_bai', 'failed', 'refused', 'returned_to_sender', 'delivery_failed'].includes(normalizedToken) ||
+      hasWord(['returned', 'refused']))
+  ) {
     return 'returned';
   }
-  if (['delivering', 'transport', 'shipping', 'danggiao', 'dang_giao', 'xuat_kho', 'luanchuyen', 'on_delivery'].some(k => s.includes(k))) {
+  if (['delivering', 'transport', 'shipping', 'danggiao', 'dang_giao', 'xuat_kho', 'luanchuyen', 'on_delivery', 'delivery_failed_retry'].includes(normalizedToken)) {
     return 'delivering';
   }
-  if (['picking', 'waiting_pick', 'cho_lay', 'lay_hang', 'da_tiep_nhan', 'ready_to_pick', 'pickup'].some(k => s.includes(k))) {
+  if (['picking', 'waiting_pick', 'cho_lay', 'lay_hang', 'da_tiep_nhan', 'ready_to_pick', 'pickup'].includes(normalizedToken)) {
     return 'picking';
   }
   return 'pending';

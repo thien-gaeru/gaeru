@@ -14,18 +14,18 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
  if(mailer===undefined&&smtpConfig)mailer=nodemailer.createTransport(require('./smtp-security').smtpOptions(smtpConfig));
  const router=Router();
  const {sharedStore}=require('./security-hardening');
- router.use(async(req,res,next)=>{try{const id=req.session?.customer?.id;if(!id)return res.status(401).json({error:'Đăng nhập tài khoản để xác nhận thay đổi thông tin.'});const found=(await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true',[id])).rows[0];if(!found)return res.status(401).json({error:'Tài khoản không còn hoạt động.'});req.customerId=id;next();}catch(e){next(e);}});
+ router.use(async(req,res,next)=>{try{const id=req.session?.customer?.id;if(!id)return res.status(401).json({error:'Đăng nhập tài khoản để xác nhận thay đổi thông tin.'});const found=(await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL',[id])).rows[0];if(!found)return res.status(401).json({error:'Tài khoản không còn hoạt động.'});req.customerId=id;next();}catch(e){next(e);}});
  router.post('/request',requireCsrf,rateLimit({...sharedStore(pool,config||{NODE_ENV:process.env.NODE_ENV},'contact-change'),windowMs:60*60*1000,limit:5,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều yêu cầu đổi thông tin. Vui lòng thử lại sau.'}}),async(req,res,next)=>{
   const parsed=schema.safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'Kiểm tra email, số điện thoại và mật khẩu hiện tại.'});
   if(!mailer||!smtpConfig?.publicBaseUrl)return res.status(503).json({error:'Chưa cấu hình dịch vụ email để xác nhận thay đổi.'});
   const a=parsed.data;let requestId;
   try{
-   const owner=(await pool.query('SELECT id,email,phone,password_hash FROM customers WHERE id=$1 AND active=true',[req.customerId])).rows[0];
+   const owner=(await pool.query('SELECT id,email,phone,password_hash FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL',[req.customerId])).rows[0];
    if(!owner||!owner.password_hash||!require('./audit-fixes/password-rules').withinBcryptLimit(a.password)||!await bcrypt.compare(a.password,owner.password_hash))throw fail(403,owner&&!owner.password_hash?'Tài khoản Google chưa thiết lập mật khẩu riêng; vui lòng tạo mật khẩu trước khi đổi liên hệ.':'Mật khẩu hiện tại không đúng.');
    if(owner.email===a.email&&owner.phone===a.phone)return res.json({unchanged:true,message:'Email và số điện thoại không thay đổi.'});
    const oldToken=randomBytes(32).toString('base64url'),newToken=owner.email===a.email?null:randomBytes(32).toString('base64url');
    requestId=await withTransaction(pool,async client=>{
-    const current=(await client.query('SELECT email,phone,password_hash FROM customers WHERE id=$1 AND active=true FOR UPDATE',[req.customerId])).rows[0];
+    const current=(await client.query('SELECT email,phone,password_hash FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE',[req.customerId])).rows[0];
     if(!current||current.email!==owner.email||current.phone!==owner.phone||current.password_hash!==owner.password_hash)throw fail(409,'Thông tin vừa thay đổi. Hãy tải lại trang.');
     if((await client.query('SELECT id FROM customers WHERE email=$1 AND id<>$2',[a.email,req.customerId])).rows.length)throw fail(409,'Email này không thể sử dụng cho tài khoản.');
     await client.query('UPDATE customer_contact_changes SET cancelled_at=now() WHERE customer_id=$1 AND applied_at IS NULL AND cancelled_at IS NULL',[req.customerId]);
@@ -54,7 +54,7 @@ function createContactChangeApi(pool,{smtpConfig=null,mailer,config=null}={}){
   try{
    const tokenHash=hash(parsed.data.token);
    const result=await withTransaction(pool,async client=>{
-    const current=(await client.query('SELECT id,full_name AS "fullName",email,phone,password_hash,email_verified_at FROM customers WHERE id=$1 AND active=true FOR UPDATE',[req.customerId])).rows[0];
+    const current=(await client.query('SELECT id,full_name AS "fullName",email,phone,password_hash,email_verified_at FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE',[req.customerId])).rows[0];
     if(!current)throw fail(401,'Tài khoản không còn hoạt động.');
     const row=(await client.query('SELECT * FROM customer_contact_changes WHERE customer_id=$1 AND (old_token_hash=$2 OR new_token_hash=$2) AND applied_at IS NULL AND cancelled_at IS NULL AND expires_at>now() FOR UPDATE',[req.customerId,tokenHash])).rows[0];
     if(!row||row.old_email!==current.email||row.old_phone!==current.phone||row.credential_fingerprint!==hash(current.password_hash))throw fail(400,'Liên kết đã dùng, hết hạn hoặc không thuộc tài khoản này.');

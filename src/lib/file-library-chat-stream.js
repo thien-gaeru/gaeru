@@ -22,7 +22,15 @@ async function serveChatFile(pool,req,res,key,cleanName){
  const {handle,stat}=await disk.openRead(key,limit);
  try{
   const expected=pointer?{size:pointer.size,sha:pointer.sha256}:registered?{size:Number(registered.byte_size),sha:registered.sha256}:null;
-  if(expected){const hash=createHash('sha256');for await(const chunk of handle.createReadStream({start:0,autoClose:false}))hash.update(chunk);if(stat.size!==expected.size||hash.digest('hex')!==expected.sha)throw disk.fail('Tệp không khớp bản đã lưu. Dừng tải để kiểm tra.',409);}
+  const isPartialRange=Boolean(req.get('range'))&&stat.size>4*1024*1024;
+  if(expected){
+   if(stat.size!==expected.size)throw disk.fail('Tệp không khớp bản đã lưu. Dừng tải để kiểm tra.',409);
+   if(req.method!=='HEAD'&&!isPartialRange){
+    const hash=createHash('sha256');
+    for await(const chunk of handle.createReadStream({start:0,autoClose:false}))hash.update(chunk);
+    if(hash.digest('hex')!==expected.sha)throw disk.fail('Tệp không khớp bản đã lưu. Dừng tải để kiểm tra.',409);
+   }
+  }
   const peek=Buffer.alloc(2048),{bytesRead}=await handle.read(peek,0,peek.length,0);
   let offset=0,decoded=null;
   if(peek.subarray(0,PREFIX.length).equals(PREFIX)){

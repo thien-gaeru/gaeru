@@ -85,6 +85,44 @@ function checkAdminSessionValid(req) {
   return true;
 }
 
+const SSE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function checkAdminSessionDbValid(pool, req) {
+  if (pool && typeof pool.query === 'function') {
+    if (req.sessionID) {
+      try {
+        const sRow = (await pool.query('SELECT sess, expire FROM user_sessions WHERE sid = $1 LIMIT 1', [req.sessionID])).rows[0];
+        if (!sRow || (sRow.expire && new Date(sRow.expire).getTime() <= Date.now())) {
+          return false;
+        }
+        const sess = typeof sRow.sess === 'string' ? JSON.parse(sRow.sess) : sRow.sess;
+        if (!sess?.admin) return false;
+        if (Number.isFinite(sess.adminLastSeenAt) && req.session) {
+          req.session.adminLastSeenAt = Math.max(Number(req.session.adminLastSeenAt || 0), sess.adminLastSeenAt);
+        }
+      } catch (_) {}
+    }
+    const admin = req.admin || req.session?.admin;
+    if (admin?.source === 'staff' && admin?.id && SSE_UUID_RE.test(String(admin.id))) {
+      try {
+        const staffRow = (await pool.query('SELECT active FROM staff_accounts WHERE id = $1 LIMIT 1', [admin.id])).rows[0];
+        if (staffRow && staffRow.active !== true) return false;
+      } catch (_) {}
+    }
+    const secVer = admin?.securityVersion ?? req.session?.securityVersion;
+    if (Number.isInteger(secVer) && admin) {
+      const accountKey = admin.source === 'bootstrap' ? 'owner' : (admin.id ? `staff:${admin.id}` : '');
+      if (accountKey) {
+        try {
+          const secRow = (await pool.query('SELECT session_version FROM account_security WHERE account_key = $1 LIMIT 1', [accountKey])).rows[0];
+          if (secRow && Number(secRow.session_version) !== secVer) return false;
+        } catch (_) {}
+      }
+    }
+  }
+  return checkAdminSessionValid(req);
+}
+
 
 // GAERU High-Performance Realtime Connection Budget
 const MAX_TOTAL_SSE = Number(process.env.MAX_SSE_CONNECTIONS) || 1000;
@@ -166,21 +204,28 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
 
   const unsubscribe = hub.subscribe(channel, onEvent);
 
-  const heartbeatTimer = setInterval(() => {
+  const heartbeatTimer = setInterval(async () => {
     if (res.writableEnded) {
       clearInterval(heartbeatTimer);
       return;
     }
     if (checkSession) {
-      const valid = checkSession(req);
+      let valid = false;
+      try {
+        valid = Boolean(await checkSession(req));
+      } catch (_) {
+        valid = false;
+      }
       if (!valid) {
-        res.write(`event: session-expired\ndata: ${JSON.stringify({ error: 'Phiên quản trị đã hết hạn hoặc cần xác thực lại.' })}\n\n`);
-        res.end();
+        if (!res.writableEnded) {
+          res.write(`event: session-expired\ndata: ${JSON.stringify({ error: 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
+          res.end();
+        }
         clearInterval(heartbeatTimer);
         return;
       }
     }
-    res.write(': ping\n\n');
+    if (!res.writableEnded) res.write(': ping\n\n');
   }, 15000);
   if (heartbeatTimer.unref) heartbeatTimer.unref();
 
@@ -202,11 +247,13 @@ function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
   const adminRouter = require('express').Router();
   const publicRouter = require('express').Router();
 
+  const adminSessionChecker = (req) => checkAdminSessionDbValid(pool, req);
+
   adminRouter.get('/realtime-sse', requirePermission('dashboard.read'), (req, res) => {
     openSseStream(req, res, 'admin', {
       hub,
       isAdmin: true,
-      checkSession: checkAdminSessionValid
+      checkSession: adminSessionChecker
     });
   });
 
@@ -215,7 +262,7 @@ function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
     openSseStream(req, res, 'care:' + req.params.id, {
       hub,
       isAdmin: true,
-      checkSession: checkAdminSessionValid
+      checkSession: adminSessionChecker
     });
   });
 
@@ -224,7 +271,7 @@ function createRealtimeRouter({ pool, config, hub = defaultHub } = {}) {
     openSseStream(req, res, 'shopping_chat:' + req.params.id, {
       hub,
       isAdmin: true,
-      checkSession: checkAdminSessionValid
+      checkSession: adminSessionChecker
     });
   });
 
@@ -316,9 +363,11 @@ function sseHandler(req, res) {
 
 // Khi có Cache Tag bị xóa, thông báo ngay tới mọi trình duyệt đang mở trang
 cacheEvents.on('invalidated', (payload) => {
-  try {
-    defaultHub.publish('admin', 'cache:invalidated', payload);
-  } catch (_) {}
+  if (!payload?.fromIpc) {
+    try {
+      defaultHub.publish('admin', 'cache:invalidated', payload);
+    } catch (_) {}
+  }
   if (realtimeClients.size === 0) return;
   const message = `data: ${JSON.stringify({ type: 'CACHE_INVALIDATED', ...payload })}\n\n`;
   for (const client of realtimeClients) {

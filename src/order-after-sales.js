@@ -364,6 +364,9 @@ function afterSalesRouter(pool) {
         if (row.kind === 'cancellation' && data.status === 'received') throw fail('Yêu cầu hủy không có bước nhận hàng hoàn.');
 
         const order = (await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [row.order_id])).rows[0];
+        if (data.status === 'resolved' && row.kind === 'return' && (order.status === 'cancelled' || order.return_completed_at)) {
+          throw fail('Đơn hàng đã hủy hoặc đã hoàn trả trước đó; không thể đóng lại hồ sơ trả hàng.', 409);
+        }
         if (data.status === 'approved' && row.kind === 'return' && row.return_type === 'exchange') {
           const items = (await c.query('SELECT variant_id, quantity FROM order_items WHERE order_id = $1 AND variant_id IS NOT NULL', [row.order_id])).rows;
           if (items.length > 0) {
@@ -462,9 +465,10 @@ function afterSalesRouter(pool) {
           }
         }
 
+        const restockedNow = Boolean(data.status === 'resolved' && row.kind === 'return' && row.return_type !== 'exchange' && row.restock_eligible === true);
         const changed = (await c.query(
-          'UPDATE order_after_sales SET status = $2, resolution = $3, refund_amount_vnd = COALESCE($4, refund_amount_vnd), loyalty_clawback_vnd = COALESCE($5, loyalty_clawback_vnd), version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
-          [id, data.status, data.resolution, refundAmount, cashClawbackVnd]
+          'UPDATE order_after_sales SET status = $2, resolution = $3, refund_amount_vnd = COALESCE($4, refund_amount_vnd), loyalty_clawback_vnd = COALESCE($5, loyalty_clawback_vnd), restocked_at = CASE WHEN $6 THEN COALESCE(restocked_at, now()) ELSE restocked_at END, version = version + 1, updated_at = now() WHERE id = $1 RETURNING *',
+          [id, data.status, data.resolution, refundAmount, cashClawbackVnd, restockedNow]
         )).rows[0];
 
         const settlementScope = refundAmount !== null

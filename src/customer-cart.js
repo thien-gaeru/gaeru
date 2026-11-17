@@ -27,7 +27,7 @@ function createCustomerCartRouter(pool) {
       if (!id) {
         return res.status(401).json({ error: 'Vui lòng đăng nhập để đồng bộ giỏ hàng.' });
       }
-      const found = await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true', [id]);
+      const found = await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL', [id]);
       if (!found.rows.length) {
         return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
       }
@@ -256,7 +256,10 @@ function createCustomerCartRouter(pool) {
       }
 
       await withTransaction(pool, async client => {
-        await client.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [req.customerId]);
+        const cust = (await client.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE', [req.customerId])).rows[0];
+        if (!cust) {
+          throw Object.assign(new Error('Tài khoản không còn hoạt động.'), { status: 401 });
+        }
         const existing = (await client.query(
           'SELECT quantity FROM customer_cart_items WHERE customer_id=$1 AND variant_id=$2',
           [req.customerId, variantId]

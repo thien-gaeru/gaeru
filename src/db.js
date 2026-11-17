@@ -171,11 +171,18 @@ async function inspectDatabaseTls(pool, config = {}) {
 
 async function withTransaction(pool, handler) {
   const client = await pool.connect();
+  const afterCommitCallbacks = [];
+  client.__gaeruAfterCommit = afterCommitCallbacks;
   try {
     await client.query("BEGIN");
     client.__inTransaction = true;
     const result = await handler(client);
     await client.query("COMMIT");
+    delete client.__inTransaction;
+    delete client.__gaeruAfterCommit;
+    for (const cb of afterCommitCallbacks) {
+      try { await cb(); } catch {}
+    }
     return result;
   } catch (error) {
     // Preserve the business error if a lost connection also prevents rollback.
@@ -183,8 +190,18 @@ async function withTransaction(pool, handler) {
     throw error;
   } finally {
     delete client.__inTransaction;
+    delete client.__gaeruAfterCommit;
     client.release();
   }
+}
+
+function onTransactionCommit(client, callback) {
+  if (typeof callback !== "function") return;
+  if (client && Array.isArray(client.__gaeruAfterCommit)) {
+    client.__gaeruAfterCommit.push(callback);
+    return;
+  }
+  Promise.resolve().then(callback).catch(() => {});
 }
 
 function createPriorityPoolController(pool, {
@@ -468,4 +485,4 @@ function createPriorityPoolController(pool, {
   };
 }
 
-module.exports = { createPool, poolOptions, inspectDatabaseTls, withTransaction, createPriorityPoolController };
+module.exports = { createPool, poolOptions, inspectDatabaseTls, withTransaction, onTransactionCommit, createPriorityPoolController };

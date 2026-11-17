@@ -34,7 +34,7 @@ function Find-PgTool([string]$ExeName) {
 
 function Get-NewestBackupFile([string]$Dir, [string]$Filter) {
     $file = Get-ChildItem -LiteralPath $Dir -Filter $Filter -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notmatch '-latest\.' -and $_.Name -notmatch '\.sha256$' } |
+        Where-Object { $_.Name -notmatch '-latest\.' -and $_.Name -notmatch '\.sha256$' -and $_.Name -notmatch '-globals-' } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if (-not $file) { throw "No backup file matching $Filter found in $Dir" }

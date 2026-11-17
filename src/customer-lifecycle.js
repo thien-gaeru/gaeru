@@ -390,8 +390,8 @@ async function permanentDeleteCustomer(pool, customerId, actor, reason = 'Quản
       );
     }
 
-    await client.query('DELETE FROM care_messages WHERE care_id IN (SELECT id FROM care_requests WHERE customer_id = $1)', [customerId]);
-    await client.query('DELETE FROM care_requests WHERE customer_id = $1', [customerId]);
+    await require('./order-deletion').purgeCareRequestsByEntity(client, 'customer_id', customerId);
+    /* care_requests removed via purgeCareRequestsByEntity */
     await client.query(
       `DELETE FROM warranty_email_outbox WHERE warranty_id IN (
          SELECT id FROM warranty_activations WHERE customer_id = $1 OR order_item_id IN (

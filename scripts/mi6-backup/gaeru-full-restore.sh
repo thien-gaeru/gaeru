@@ -13,6 +13,15 @@ MEDIA_DIR="/userdata/storage/gaeru-media-backups"
 CHROOT="/userdata/storage/ubuntu"
 CHROOT_STORAGE="/storage/ubuntu"
 
+GAERU_TMP_CLEANUP_FILES=()
+cleanup_temp_files() {
+  local f
+  for f in "${GAERU_TMP_CLEANUP_FILES[@]:-}"; do
+    [ -n "$f" ] && rm -f -- "$f" 2>/dev/null || true
+  done
+}
+trap cleanup_temp_files EXIT
+
 say() { printf '[%s] %s\n' "$(date -Is)" "$*"; }
 die() { printf '[%s] ERROR: %s\n' "$(date -Is)" "$*" >&2; exit 1; }
 
@@ -135,7 +144,8 @@ restore_db() {
   [ -n "$raw_input" ] || die "Specify dump file (.dump or .dump.gpg)"
 
   local tmp_plain="/run/gaeru-restore-db.$$.dump"
-  trap 'rm -f -- "$tmp_plain"' RETURN
+  GAERU_TMP_CLEANUP_FILES+=("$tmp_plain")
+  trap 'cleanup_temp_files' RETURN
   local dump_file
   dump_file=$(prepare_restore_input "$raw_input" "$tmp_plain")
 
@@ -174,7 +184,8 @@ restore_media_code() {
   [ -n "$raw_input" ] || die "Specify Media/Config archive (.tar.gz or .tar.gz.gpg)"
 
   local tmp_plain="/run/gaeru-restore-media.$$.tar.gz"
-  trap 'rm -f -- "$tmp_plain"' RETURN
+  GAERU_TMP_CLEANUP_FILES+=("$tmp_plain")
+  trap 'cleanup_temp_files' RETURN
   local archive
   archive=$(prepare_restore_input "$raw_input" "$tmp_plain")
 

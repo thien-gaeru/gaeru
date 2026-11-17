@@ -127,6 +127,7 @@ function clearHtmlCacheOnly() {
 function purgeTagsLocal(tags = []) {
   const purgedKeys = [];
   const tagList = Array.isArray(tags) ? tags : [tags];
+  const stockAffectingTags = new Set(['stock', 'orders', 'catalog', 'product:list', 'gaeru-catalog', 'products']);
   for (const rawTag of tagList) {
     const tag = String(rawTag).trim();
     if (tag === '*') {
@@ -134,6 +135,7 @@ function purgeTagsLocal(tags = []) {
         purgedKeys.push(key);
       }
       ramCache.clear();
+      stockMap.clear();
       tagIndex.clear();
       clearHtmlCacheOnly();
       break;
@@ -149,6 +151,9 @@ function purgeTagsLocal(tags = []) {
         }
         tagIndex.delete(t);
       }
+    }
+    if (stockAffectingTags.has(tag)) {
+      stockMap.clear();
     }
     if (catalogAliases.includes(tag)) {
       clearHtmlCacheOnly();
@@ -181,6 +186,10 @@ function invalidateTags(tags = [], { immediate = false } = {}) {
       try {
         process.send({ type: 'CACHE_INVALIDATE_TAGS', tags: batchedTags });
       } catch (_) {}
+    }
+
+    if (edgePurgeService && typeof edgePurgeService.purgeTags === 'function' && !batchedTags.includes('*')) {
+      edgePurgeService.purgeTags(batchedTags).catch(() => {});
     }
 
     // Phát sự kiện để đẩy SSE xuống trình duyệt đang mở

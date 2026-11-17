@@ -1787,7 +1787,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   const { getTrafficSummary } = require("./traffic-tracker");
 
   router.get("/gaeru_ceo/summary", async (req, res) => {
-    const [products, orders, settings, traffic] = await Promise.all([
+    const [products, orders, settings, traffic, chatUnread] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
         (SELECT COUNT(*)::int FROM product_variants v JOIN products p ON p.id = v.product_id
          WHERE v.active = true AND p.active = true AND v.stock_quantity <= 5) AS "lowStock"
@@ -1798,10 +1798,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         COUNT(*) FILTER (WHERE payment_status = 'pending' AND status <> 'cancelled' AND return_completed_at IS NULL)::int AS "paymentPending"
         FROM orders`),
       getSettings(pool, ["shipping_rates"]),
-      getTrafficSummary(pool)
+      getTrafficSummary(pool),
+      pool.query(`SELECT COUNT(*)::int AS unread FROM shopping_chat_threads WHERE status <> 'closed' AND awaiting_admin = true`).catch(() => ({ rows: [{ unread: 0 }] }))
     ]);
     const shippingRatesConfigured = Object.keys(settings.shipping_rates || {}).length > 0;
-    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled:req.ordersEnabled, shippingRatesConfigured, traffic });
+    const chatUnreadCount = Number(chatUnread.rows[0]?.unread || 0);
+    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled:req.ordersEnabled, shippingRatesConfigured, traffic, shoppingChat: { unreadCount: chatUnreadCount } });
   });
 
   router.get("/gaeru_ceo/traffic-summary", async (req, res) => {

@@ -213,7 +213,7 @@ async function getApplicableBundles(client, { slug = null, variantId = null } = 
     const primaryItems = items.filter(i => i.isPrimary);
     const bundledItems = items.filter(i => !i.isPrimary);
 
-    const primaryPrice = primaryItems[0]?.priceVnd || 0;
+    const primaryPrice = (primaryItems[0]?.priceVnd || 0) * (primaryItems[0]?.minQuantity || 1);
     const secondaryOriginalTotal = bundledItems.reduce((s, it) => s + it.priceVnd * it.minQuantity, 0);
     const originalComboTotal = primaryPrice + secondaryOriginalTotal;
 
@@ -254,7 +254,7 @@ async function calculateCartBundleDiscount(client, cartItems) {
 
   const vIds = cartItems.map(i => i.variantId || i.id);
 
-  // Fetch active bundles that might apply to these variants
+  // Fetch active bundles in deterministic order so greedy quantity allocation matches quote & checkout
   const activeBundles = (await client.query(
     `SELECT DISTINCT b.*
      FROM product_bundles b
@@ -262,7 +262,8 @@ async function calculateCartBundleDiscount(client, cartItems) {
      WHERE bi.variant_id = ANY($1::uuid[])
        AND b.active = true
        AND b.starts_at <= statement_timestamp()
-       AND b.ends_at > statement_timestamp()`,
+       AND b.ends_at > statement_timestamp()
+     ORDER BY b.created_at ASC, b.id ASC`,
     [vIds]
   )).rows;
 
@@ -275,7 +276,8 @@ async function calculateCartBundleDiscount(client, cartItems) {
   const items = (await client.query(
     `SELECT bundle_id, variant_id, is_primary, min_quantity
      FROM product_bundle_items
-     WHERE bundle_id = ANY($1::uuid[])`,
+     WHERE bundle_id = ANY($1::uuid[])
+     ORDER BY is_primary DESC, id ASC`,
     [bIds]
   )).rows;
 
@@ -492,14 +494,28 @@ function mountBundles({ admin, publicRouter }, pool) {
         const vIds = parsed.items.map(i => i.variantId);
 
         const vRows = (await pool.query(
-          `SELECT v.id, v.price_vnd AS "priceVnd" FROM product_variants v
+          `SELECT v.id, v.price_vnd AS "priceVnd", p.id AS "productId" FROM product_variants v
            JOIN products p ON p.id = v.product_id
            WHERE v.id = ANY($1::uuid[]) AND v.active = true AND p.active = true AND p.deleted_at IS NULL`,
           [vIds]
         )).rows;
 
+        let promotedRows = vRows;
+        try {
+          const { applyPromotions } = require('./product-promotions');
+          const fakeProductMap = new Map();
+          for (const row of vRows) {
+            if (!fakeProductMap.has(row.productId)) {
+              fakeProductMap.set(row.productId, { id: row.productId, variants: [] });
+            }
+            fakeProductMap.get(row.productId).variants.push({ ...row, priceVnd: Number(row.priceVnd) });
+          }
+          const promoProducts = await applyPromotions(pool, [...fakeProductMap.values()]);
+          promotedRows = promoProducts.flatMap(p => p.variants);
+        } catch (_) {}
+
         const pricedItems = parsed.items.map(it => {
-          const v = vRows.find(r => r.id === it.variantId);
+          const v = promotedRows.find(r => r.id === it.variantId);
           return {
             variantId: it.variantId,
             quantity: it.quantity,

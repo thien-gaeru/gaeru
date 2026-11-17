@@ -1,4 +1,34 @@
 const { appendAudit } = require('./audit');
+const { onTransactionCommit } = require('./db');
+
+async function purgeCareRequestsByEntity(client, filterColumn, entityId) {
+  if (!['order_id', 'customer_id'].includes(filterColumn) || !entityId) return;
+  let files = [];
+  await client.query('SAVEPOINT purge_care_files');
+  try {
+    files = (await client.query(
+      `SELECT content FROM care_message_files WHERE care_id IN (SELECT id FROM care_requests WHERE ${filterColumn} = $1)`,
+      [entityId]
+    )).rows;
+    await client.query('RELEASE SAVEPOINT purge_care_files');
+  } catch (err) {
+    await client.query('ROLLBACK TO SAVEPOINT purge_care_files');
+    if (err?.code !== '42P01') throw err;
+  }
+  await client.query(
+    `DELETE FROM care_messages WHERE care_id IN (SELECT id FROM care_requests WHERE ${filterColumn} = $1)`,
+    [entityId]
+  );
+  await client.query(`DELETE FROM care_requests WHERE ${filterColumn} = $1`, [entityId]);
+  if (files.length > 0) {
+    onTransactionCommit(client, async () => {
+      const { removeUploadedMedia } = require('./lib/stored-media');
+      for (const file of files) {
+        if (file?.content) await removeUploadedMedia(file.content).catch(() => {});
+      }
+    });
+  }
+}
 
 /**
  * Permanently deletes an order and all of its associated records across all tables,
@@ -108,12 +138,8 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
   }
 
   // 3. Delete dependent records in strict dependency order:
-  // A. Customer care messages & requests
-  await client.query(
-    'DELETE FROM care_messages WHERE care_id IN (SELECT id FROM care_requests WHERE order_id = $1)',
-    [order.id]
-  );
-  await client.query('DELETE FROM care_requests WHERE order_id = $1', [order.id]);
+  // A. Customer care messages, files & requests
+  await purgeCareRequestsByEntity(client, 'order_id', order.id);
 
   // B. Warranty email outbox & activations
   await client.query(
@@ -324,5 +350,6 @@ async function anonymizeCustomerOrders(client, customerId, { actor = { username:
 module.exports = {
   deleteOrderPermanently,
   deleteCustomerOrdersPermanently,
-  anonymizeCustomerOrders
+  anonymizeCustomerOrders,
+  purgeCareRequestsByEntity
 };

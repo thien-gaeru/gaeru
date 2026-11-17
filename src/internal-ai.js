@@ -95,38 +95,57 @@ function createInternalAiRouter(pool, config) {
   // Tool 1: Tổng quan kinh doanh & doanh thu (có phân quyền RBAC)
   async function toolGetBusinessOverview({ days = 1 }, user) {
     const numDays = Math.max(1, Math.min(90, parseInt(days || 1, 10)));
-    const canViewFinance = user?.isOwner || (Array.isArray(user?.permissions) && user.permissions.includes('finance.read'));
+    const canViewFinance = user?.isOwner || hasReadPermission(user, ['finance.read']);
+    const canViewOrders = user?.isOwner || canViewFinance || hasReadPermission(user, ['orders.read', 'orders.write']);
+    const canViewCustomers = user?.isOwner || hasReadPermission(user, ['customers.read', 'customers.write']);
 
-    const orderStats = (await pool.query(`
-      SELECT 
-        COUNT(*)::int AS total_orders,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending_orders,
-        COUNT(CASE WHEN status = 'confirmed' THEN 1 END)::int AS confirmed_orders,
-        COUNT(CASE WHEN status = 'processing' THEN 1 END)::int AS processing_orders,
-        COUNT(CASE WHEN status = 'shipped' THEN 1 END)::int AS shipped_orders,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END)::int AS completed_orders,
-        COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int AS cancelled_orders,
-        COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_vnd ELSE 0 END), 0)::bigint AS paid_revenue,
-        COALESCE(SUM(total_vnd), 0)::bigint AS gross_revenue
-      FROM orders
-      WHERE created_at >= NOW() - INTERVAL '1 day' * $1
-    `, [numDays])).rows[0];
+    let orderStats = {
+      total_orders: null,
+      pending_orders: null,
+      confirmed_orders: null,
+      processing_orders: null,
+      shipped_orders: null,
+      completed_orders: null,
+      cancelled_orders: null,
+      paid_revenue: 0,
+      gross_revenue: 0
+    };
+    if (canViewOrders) {
+      orderStats = (await pool.query(`
+        SELECT 
+          COUNT(*)::int AS total_orders,
+          COUNT(CASE WHEN status = 'pending' THEN 1 END)::int AS pending_orders,
+          COUNT(CASE WHEN status = 'confirmed' THEN 1 END)::int AS confirmed_orders,
+          COUNT(CASE WHEN status = 'processing' THEN 1 END)::int AS processing_orders,
+          COUNT(CASE WHEN status = 'shipped' THEN 1 END)::int AS shipped_orders,
+          COUNT(CASE WHEN status = 'completed' THEN 1 END)::int AS completed_orders,
+          COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int AS cancelled_orders,
+          COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_vnd ELSE 0 END), 0)::bigint AS paid_revenue,
+          COALESCE(SUM(total_vnd), 0)::bigint AS gross_revenue
+        FROM orders
+        WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+      `, [numDays])).rows[0] || orderStats;
+    }
 
-    const newCustomers = (await pool.query(`
-      SELECT COUNT(*)::int AS count
-      FROM customers
-      WHERE created_at >= NOW() - INTERVAL '1 day' * $1
-    `, [numDays])).rows[0]?.count || 0;
+    const newCustomers = canViewCustomers
+      ? ((await pool.query(`
+          SELECT COUNT(*)::int AS count
+          FROM customers
+          WHERE created_at >= NOW() - INTERVAL '1 day' * $1
+        `, [numDays])).rows[0]?.count || 0)
+      : null;
 
     return {
       periodDays: numDays,
-      totalOrders: orderStats.total_orders,
-      pendingOrders: orderStats.pending_orders,
-      processingOrders: orderStats.processing_orders,
-      shippedOrders: orderStats.shipped_orders,
-      completedOrders: orderStats.completed_orders,
-      cancelledOrders: orderStats.cancelled_orders,
-      newCustomers,
+      ...(canViewOrders ? {
+        totalOrders: orderStats.total_orders,
+        pendingOrders: orderStats.pending_orders,
+        processingOrders: orderStats.processing_orders,
+        shippedOrders: orderStats.shipped_orders,
+        completedOrders: orderStats.completed_orders,
+        cancelledOrders: orderStats.cancelled_orders
+      } : { ordersNote: 'Bạn không có quyền xem số liệu đơn hàng (cần orders.read).' }),
+      ...(canViewCustomers ? { newCustomers } : { customersNote: 'Bạn không có quyền xem số liệu khách hàng (cần customers.read).' }),
       // Bảo vệ thông tin tài chính theo quyền RBAC
       revenue: canViewFinance ? {
         paidVnd: orderStats.paid_revenue,
@@ -524,16 +543,20 @@ Quy tắc cốt lõi:
       const code = (candidateCode && !reservedWords.test(candidateCode))
         ? candidateCode.toUpperCase()
         : 'SALE' + Math.floor(Math.random() * 900 + 100);
-      const amountMatch = userQuestion.match(/(\d+[\d.,]*)\s*(?:k|đ|đồng|%)/i);
+      const amountMatch = userQuestion.match(/(\d+(?:[.,]\d+)?)\s*(%|k\b|nghìn|ngàn|đồng|đ\b)/i);
       let amount = 30000;
       let kind = 'fixed';
       if (amountMatch) {
-        const valStr = amountMatch[1].replace(/[.,]/g, '');
-        if (userQuestion.includes('%')) {
+        const rawNum = amountMatch[1];
+        const unit = String(amountMatch[2] || '').toLowerCase();
+        if (unit === '%') {
           kind = 'percent';
-          amount = Math.min(100, Math.max(1, parseInt(valStr, 10)));
+          const parsedPct = Math.round(Number(rawNum.replace(',', '.')));
+          amount = Math.min(100, Math.max(1, Number.isFinite(parsedPct) ? parsedPct : 1));
         } else {
-          amount = parseInt(valStr, 10) * (valStr.length <= 3 ? 1000 : 1);
+          const digitsOnly = rawNum.replace(/[.,]/g, '');
+          const multiplier = unit === 'k' || unit === 'nghìn' || unit === 'ngàn' || digitsOnly.length <= 3 ? 1000 : 1;
+          amount = Math.max(1, parseInt(digitsOnly, 10) * multiplier || 1);
         }
       }
 
@@ -714,13 +737,17 @@ Quy tắc cốt lõi:
         toolResults.push({ tool: 'check_system_health', data: sys });
       }
 
-      // I. Tri thức Tự học (Self-Learning Knowledge)
+      // I. Tri thức Tự học (Self-Learning Knowledge - requires settings.read)
       if (hasAnyBoundaryTerm(norm, ['tu hoc', 'hoc hoi', 'tri thuc', 'learned', 'khach hang hoi gi', 'kien thuc'])) {
-        try {
-          const { getLearnedKnowledgeStats } = require('./ai-self-learning');
-          const learned = await getLearnedKnowledgeStats(pool);
-          toolResults.push({ tool: 'get_learned_knowledge', data: learned });
-        } catch (_) {}
+        if (!hasReadPermission(user, ['settings.read'])) {
+          toolResults.push({ tool: 'get_learned_knowledge', data: { error: 'Bạn không có quyền xem cấu hình/tri thức AI (cần quyền settings.read).' } });
+        } else {
+          try {
+            const { getLearnedKnowledgeStats } = require('./ai-self-learning');
+            const learned = await getLearnedKnowledgeStats(pool);
+            toolResults.push({ tool: 'get_learned_knowledge', data: learned });
+          } catch (_) {}
+        }
       }
     }
 
@@ -1193,6 +1220,7 @@ Quy tắc cốt lõi:
       const words = turnResult.content.split(' ');
       let chunk = '';
       for (let i = 0; i < words.length; i++) {
+        if (res.writableEnded || req.destroyed) break;
         chunk += (chunk ? ' ' : '') + words[i];
         if ((i + 1) % 3 === 0 || i === words.length - 1) {
           sendEvent('token', { text: chunk + (i === words.length - 1 ? '' : ' ') });
@@ -1200,6 +1228,7 @@ Quy tắc cốt lõi:
           await new Promise(r => setTimeout(r, 20));
         }
       }
+      if (res.writableEnded || req.destroyed) return;
 
       if (readOnly) {
         sendEvent('done', {
@@ -1312,6 +1341,8 @@ Quy tắc cốt lõi:
             return { status: 409, body: { error: `Mã giảm giá ${p.code} đã tồn tại trên hệ thống.` } };
           }
 
+          try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: inserted?.id, active: true }); } catch (_) {}
+          try { require('./cache').flushAllCache(); } catch (_) {}
           result = { success: true, ...(inserted?.id ? { voucherId: inserted.id } : {}), message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
         } else if (row.actionType === 'cancel_voucher') {
           await client.query('UPDATE marketing_vouchers SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.voucherId]);
@@ -1413,12 +1444,7 @@ Quy tắc cốt lõi:
           result = { success: true, message: `Đã hủy đơn hàng ${p.orderNumber} và hoàn trả số lượng vào kho thành công!`, orderId: p.orderId, actionType: 'cancel_order' };
         } else if (row.actionType === 'sync_shipping') {
           const { syncShipmentTracking } = require('./shipping-management');
-          let syncRes = null;
-          try {
-            syncRes = await syncShipmentTracking(pool, config, { orderId: p.orderId, actor: req.admin });
-          } catch (err) {
-            syncRes = { message: 'Đã hoàn tất kiểm tra hành trình: ' + err.message };
-          }
+          const syncRes = await syncShipmentTracking(pool, config, { orderId: p.orderId, actor: req.admin });
           result = { success: true, message: syncRes?.message || `Đã đồng bộ hành trình bưu cục cho đơn ${p.orderNumber} thành công!`, orderId: p.orderId, actionType: 'sync_shipping' };
         }
       } catch (execErr) {

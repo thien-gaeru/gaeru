@@ -127,14 +127,20 @@
         urgent:d.urgentCount||0,
         overdue:d.overdueCount||0,
         due_soon:d.dueSoonCount||0,
-        unanswered:0,
-        unread:0
+        unanswered:d.unansweredCount??d.urgentCount??0,
+        unread:d.unreadCount??d.urgentCount??0
       };
       for(const [k,v] of Object.entries(counts)){
         const el=root.querySelector('[data-chat-count="'+k+'"]');
         if(el){
           el.textContent=v;
         }
+      }
+      const navBadge=document.querySelector('[data-chat-nav-badge]');
+      if(navBadge){
+        const unreadTotal=Number(counts.unread||0);
+        navBadge.textContent=unreadTotal>99?'99+':String(unreadTotal);
+        navBadge.hidden=unreadTotal<=0;
       }
 
       root.querySelector('[data-admin-chat-list]').innerHTML=d.threads.map(t=>'<button type="button" data-chat-thread="'+h(t.id)+'" aria-pressed="'+(t.id===selected)+'"><strong>'+h(t.product_name)+'</strong><small>'+(t.status==='closed'?'Đã đóng':t.awaiting_admin?'Cần nhân viên':t.handling_mode==='ai'?'AI đang hỗ trợ':'Nhân viên hỗ trợ')+'</small><time title="'+h(new Date(t.updated_at).toLocaleString('vi-VN'))+'">'+h(new Date(t.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}))+'</time></button>').join('')||'<p style="padding:16px 0;font-size:12px;color:var(--muted)">Không có hội thoại trong mục này.</p>';

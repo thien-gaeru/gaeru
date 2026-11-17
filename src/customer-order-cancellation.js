@@ -116,6 +116,18 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
     throw err;
   }
 
+  if (['vnpay', 'momo', 'zalopay'].includes(order.payment_method)) {
+    const activeOnlineAttempt = await client.query(
+      "SELECT 1 FROM payment_attempts WHERE order_id = $1 AND status = 'pending' AND expires_at > now() LIMIT 1",
+      [order.id]
+    );
+    if (activeOnlineAttempt.rows.length > 0) {
+      const err = new Error('Phiên thanh toán trực tuyến đang mở; vui lòng hoàn tất thanh toán hoặc chờ phiên hết hạn rồi hủy đơn.');
+      err.status = 409;
+      throw err;
+    }
+  }
+
   // 2. Invalidate any active pending online payment attempts
   await client.query(
     "UPDATE payment_attempts SET status = 'failed', expires_at = LEAST(expires_at, now()), updated_at = now() WHERE order_id = $1 AND status = 'pending'",

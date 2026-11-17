@@ -58,7 +58,7 @@
   function openActivation(){disclosure.open=true;}
   function openFromHash(){if(location.hash==='#warranty-activation')openActivation();}
   window.addEventListener('hashchange',openFromHash);
-  document.addEventListener('click',event=>{if(event.target.closest('a[href="#warranty-activation"]'))openActivation();});
+  document.addEventListener('click',event=>{const direct=event.target.closest('a[href="#warranty-activation"]');const link=direct||event.target.closest('a[href$="#warranty-activation"]');if(direct||(link&&(!link.getAttribute||link.getAttribute('href')?.startsWith('#')||(link.href&&new URL(link.href,location.href).pathname===location.pathname))))openActivation();});
   openFromHash();
   const form=section.querySelector('form'),feedback=section.querySelector('[data-w-status]');
   window.GAERUAddress?.enhance?.(form);

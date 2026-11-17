@@ -8,18 +8,47 @@ const { appendAudit } = require("./audit");
 const { rateLimit } = require("express-rate-limit");
 
 const MAX_STOCK = 1_000_000_000;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+function requireValidUuid(value, label) {
+  const norm = String(value || "").trim();
+  if (!UUID_REGEX.test(norm)) {
+    throw fail(`${label} không đúng định dạng UUID hợp lệ.`, 400);
+  }
+  return norm;
+}
+
+async function resolveAndLockWarehouse(client, warehouseId) {
+  let targetWhId = warehouseId ? requireValidUuid(warehouseId, "Mã kho") : null;
+  if (!targetWhId) {
+    const whRes = await client.query(`SELECT id FROM warehouses WHERE code = 'MAIN' AND active = true LIMIT 1`);
+    if (whRes.rows.length === 0) {
+      const anyWh = await client.query(`SELECT id FROM warehouses WHERE active = true ORDER BY created_at ASC LIMIT 1`);
+      if (anyWh.rows.length === 0) throw fail("Không tìm thấy kho hàng hoạt động nào trong hệ thống", 400);
+      targetWhId = anyWh.rows[0].id;
+    } else {
+      targetWhId = whRes.rows[0].id;
+    }
+  }
+  const whCheck = await client.query(`SELECT id, name, code FROM warehouses WHERE id = $1 AND active = true FOR SHARE`, [targetWhId]);
+  if (whCheck.rows.length === 0) throw fail("Kho chỉ định không tồn tại hoặc đã ngừng hoạt động", 404);
+  return whCheck.rows[0];
+}
 
 async function verifyWarehouseBalance(client, variantId, stockQuantity) {
   const balancesRes = await client.query(
-    `SELECT warehouse_id, quantity FROM warehouse_stock WHERE variant_id = $1 ORDER BY warehouse_id FOR UPDATE`,
+    `SELECT s.warehouse_id, s.quantity
+     FROM warehouse_stock s
+     JOIN warehouses w ON w.id = s.warehouse_id
+     WHERE s.variant_id = $1
+     ORDER BY s.warehouse_id
+     FOR UPDATE OF s`,
     [variantId]
   );
-  if (balancesRes.rows.length > 0) {
-    const sum = balancesRes.rows.reduce((acc, row) => acc + Number(row.quantity), 0);
-    if (sum !== Number(stockQuantity)) {
-      throw fail("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi.", 409);
-    }
+  const sum = balancesRes.rows.reduce((acc, row) => acc + Number(row.quantity), 0);
+  if (sum !== Number(stockQuantity)) {
+    throw fail("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi.", 409);
   }
   return balancesRes.rows;
 }
@@ -156,7 +185,6 @@ function generateCode128Svg(rawText, options = {}) {
 // -------------------------------------------------------------
 // Core Barcode Resolver (Unified lookup for SKU, Order, Waybill)
 // -------------------------------------------------------------
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function resolveBarcode(pool, rawCode, { actor = null, logScan = true, ensureVerification = true } = {}) {
   const code = String(rawCode || "").trim();
@@ -388,6 +416,7 @@ async function resolveBarcode(pool, rawCode, { actor = null, logScan = true, ens
 // -------------------------------------------------------------
 async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "Nhập kho nhanh qua máy quét mã vạch", actor = null, requestKey = null }) {
   const normCode = String(code || "").trim();
+  const normWarehouseId = warehouseId ? requireValidUuid(warehouseId, "Mã kho") : null;
   const qty = parseInt(quantity, 10);
   if (!normCode) throw fail("Mã vạch / SKU không được để trống", 400);
   if (!Number.isSafeInteger(qty) || qty <= 0) throw fail("Số lượng nhập kho phải là số nguyên dương", 400);
@@ -397,7 +426,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
     const reqState = await beginInventoryRequest(client, {
       requestKey,
       operationType: "barcode_inbound_receive",
-      payload: { code: normCode, warehouseId: warehouseId || null, quantity: qty, reason },
+      payload: { code: normCode, warehouseId: normWarehouseId, quantity: qty, reason },
       actor
     });
     if (reqState.cachedResult) return reqState.cachedResult;
@@ -421,21 +450,8 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
     await verifyWarehouseBalance(client, variant.id, variant.stock_quantity);
 
     // 2. Resolve warehouse
-    let targetWhId = warehouseId;
-    if (!targetWhId) {
-      const whRes = await client.query(`SELECT id FROM warehouses WHERE code = 'MAIN' AND active = true LIMIT 1`);
-      if (whRes.rows.length === 0) {
-        const anyWh = await client.query(`SELECT id FROM warehouses WHERE active = true ORDER BY created_at ASC LIMIT 1`);
-        if (anyWh.rows.length === 0) throw fail("Không tìm thấy kho hàng hoạt động nào trong hệ thống", 400);
-        targetWhId = anyWh.rows[0].id;
-      } else {
-        targetWhId = whRes.rows[0].id;
-      }
-    }
-
-    const whCheck = await client.query(`SELECT id, name, code FROM warehouses WHERE id = $1 AND active = true FOR SHARE`, [targetWhId]);
-    if (whCheck.rows.length === 0) throw fail("Kho chỉ định không tồn tại hoặc đã ngừng hoạt động", 404);
-    const warehouse = whCheck.rows[0];
+    const warehouse = await resolveAndLockWarehouse(client, warehouseId);
+    const targetWhId = warehouse.id;
 
     // 3. Lock or initialize warehouse stock balance
     await client.query(`
@@ -522,6 +538,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
 // -------------------------------------------------------------
 async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason = "Kiểm kê kho qua máy quét mã vạch", actor = null, requestKey = null }) {
   const normCode = String(code || "").trim();
+  const normWarehouseId = warehouseId ? requireValidUuid(warehouseId, "Mã kho") : null;
   const actual = parseInt(actualQuantity, 10);
   if (!normCode) throw fail("Mã vạch / SKU không được để trống", 400);
   if (!Number.isSafeInteger(actual) || actual < 0) throw fail("Số lượng kiểm kê thực tế phải lớn hơn hoặc bằng 0", 400);
@@ -531,7 +548,7 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
     const reqState = await beginInventoryRequest(client, {
       requestKey,
       operationType: "barcode_cycle_count",
-      payload: { code: normCode, warehouseId: warehouseId || null, actualQuantity: actual, reason },
+      payload: { code: normCode, warehouseId: normWarehouseId, actualQuantity: actual, reason },
       actor
     });
     if (reqState.cachedResult) return reqState.cachedResult;
@@ -553,21 +570,8 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
 
     await verifyWarehouseBalance(client, variant.id, variant.stock_quantity);
 
-    let targetWhId = warehouseId;
-    if (!targetWhId) {
-      const whRes = await client.query(`SELECT id FROM warehouses WHERE code = 'MAIN' AND active = true LIMIT 1`);
-      if (whRes.rows.length === 0) {
-        const anyWh = await client.query(`SELECT id FROM warehouses WHERE active = true ORDER BY created_at ASC LIMIT 1`);
-        if (anyWh.rows.length === 0) throw fail("Không tìm thấy kho hàng hoạt động nào trong hệ thống", 400);
-        targetWhId = anyWh.rows[0].id;
-      } else {
-        targetWhId = whRes.rows[0].id;
-      }
-    }
-
-    const whCheck = await client.query(`SELECT id, name, code FROM warehouses WHERE id = $1 AND active = true FOR SHARE`, [targetWhId]);
-    if (whCheck.rows.length === 0) throw fail("Kho chỉ định không tồn tại hoặc đã ngừng hoạt động", 404);
-    const warehouse = whCheck.rows[0];
+    const warehouse = await resolveAndLockWarehouse(client, warehouseId);
+    const targetWhId = warehouse.id;
 
     await client.query(`
       INSERT INTO warehouse_stock (warehouse_id, variant_id, quantity)
@@ -651,9 +655,8 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
 // Pack Item Verification (Kiểm tra từng món trong đơn hàng)
 // -------------------------------------------------------------
 async function verifyPackItem(pool, { orderId, scannedCode, actor = null }) {
-  const normOrderId = String(orderId || "").trim();
+  const normOrderId = requireValidUuid(orderId, "Mã đơn hàng");
   const code = String(scannedCode || "").trim();
-  if (!normOrderId) throw fail("Mã đơn hàng không được để trống", 400);
   if (!code) throw fail("Mã vạch món hàng không được để trống", 400);
 
   return await withTransaction(pool, async (client) => {
@@ -702,13 +705,14 @@ async function verifyPackItem(pool, { orderId, scannedCode, actor = null }) {
       throw fail("Đơn hàng này đã hoàn tất xuất kho, không thể quét đóng gói thêm.", 400);
     }
 
-    // 3. Find matched item in checklist (by SKU or Barcode)
+    // 3. Find matched item in checklist (prefer lines that still need scanning)
     const checklist = Array.isArray(verification.items_checklist) ? verification.items_checklist : [];
     const lowerCode = code.toLowerCase();
-    const matchedItem = checklist.find(it =>
+    const matchesCode = (it) =>
       (it.sku && it.sku.toLowerCase() === lowerCode) ||
-      (it.barcode && it.barcode.toLowerCase() === lowerCode)
-    );
+      (it.barcode && it.barcode.toLowerCase() === lowerCode);
+    const matchedItem = checklist.find(it => matchesCode(it) && it.scannedQuantity < it.requiredQuantity)
+      || checklist.find(matchesCode);
 
     if (!matchedItem) {
       await client.query(`
@@ -773,10 +777,9 @@ async function verifyPackItem(pool, { orderId, scannedCode, actor = null }) {
 // Outbound Dispatch by Barcode (Xuất kho bàn giao vận chuyển)
 // -------------------------------------------------------------
 async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = null }) {
-  const normOrderId = String(orderId || "").trim();
-  if (!normOrderId) throw fail("Mã đơn hàng không được để trống", 400);
+  const normOrderId = requireValidUuid(orderId, "Mã đơn hàng");
 
-  return await withTransaction(pool, async (client) => {
+  const dispatchResult = await withTransaction(pool, async (client) => {
     const ordRes = await client.query(
       `SELECT id, order_number, status, payment_method, payment_status, shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd", return_completed_at FROM orders WHERE id = $1 FOR UPDATE`,
       [normOrderId]
@@ -798,6 +801,20 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
     );
     if (openRev.rows.length > 0) {
       throw fail("Đơn hàng đang chờ xác minh; vui lòng đối chiếu trước khi xuất kho.", 409);
+    }
+    const unresolvedAttempt = await client.query(
+      "SELECT 1 FROM carrier_shipment_attempts WHERE order_id = $1 AND status IN ('sending', 'unknown') LIMIT 1",
+      [normOrderId]
+    );
+    if (unresolvedAttempt.rows.length > 0) {
+      throw fail("Đơn hàng đang có yêu cầu tạo vận đơn chưa đối soát với hãng; không thể xuất kho.", 409);
+    }
+    const blockedCancel = await client.query(
+      "SELECT 1 FROM carrier_shipments WHERE order_id = $1 AND status IN ('cancel_requested', 'cancel_reconciliation_required') LIMIT 1",
+      [normOrderId]
+    );
+    if (blockedCancel.rows.length > 0) {
+      throw fail("Vận đơn của đơn hàng đang yêu cầu hủy hoặc chờ đối soát; không thể xuất kho.", 409);
     }
 
     const verRes = await client.query(`SELECT * FROM order_pack_verifications WHERE order_id = $1 FOR UPDATE`, [normOrderId]);
@@ -845,11 +862,14 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
     `, [normOrderId]);
 
     if (trackingCode) {
-      await client.query(`
+      const updShip = await client.query(`
         UPDATE carrier_shipments
         SET status = 'delivering', updated_at = now()
         WHERE order_id = $1 AND tracking_number = $2 AND status IN ('created', 'picking')
       `, [normOrderId, trackingCode]);
+      if (updShip.rowCount === 0) {
+        throw fail("Mã vận đơn không khớp hoặc vận đơn không còn ở trạng thái chờ lấy để bàn giao.", 409);
+      }
     }
 
     await client.query(`
@@ -874,15 +894,16 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
       dispatchedAt: new Date().toISOString()
     };
   });
+  try { require('../cache').flushAllCache(); } catch {}
+  return dispatchResult;
 }
 
 // -------------------------------------------------------------
 // Bind Barcode to SKU (Gán mã vạch NSX vào phiên bản SKU)
 // -------------------------------------------------------------
 async function bindBarcode(pool, { variantId, barcode, actor = null }) {
-  const normVarId = String(variantId || "").trim();
+  const normVarId = requireValidUuid(variantId, "Mã phiên bản (variantId)");
   const normBarcode = String(barcode || "").trim();
-  if (!normVarId) throw fail("Mã phiên bản (variantId) không được để trống", 400);
   if (!normBarcode) throw fail("Mã vạch gán không được để trống", 400);
 
   return await withTransaction(pool, async (client) => {
@@ -896,16 +917,24 @@ async function bindBarcode(pool, { variantId, barcode, actor = null }) {
     if (check.rows.length === 0) throw fail("Không tìm thấy phiên bản sản phẩm", 404);
 
     const dupCheck = await client.query(`
-      SELECT id, sku FROM product_variants WHERE barcode = $1 AND id <> $2
+      SELECT id, sku FROM product_variants WHERE barcode = $1 AND id <> $2 FOR UPDATE
     `, [normBarcode, normVarId]);
     if (dupCheck.rows.length > 0) {
       throw fail(`Mã vạch '${normBarcode}' đã được gán cho SKU '${dupCheck.rows[0].sku}'`, 409);
     }
 
-    const updated = await client.query(`
-      UPDATE product_variants SET barcode = $2, updated_at = now() WHERE id = $1
-      RETURNING id, sku, barcode, name, stock_quantity
-    `, [normVarId, normBarcode]);
+    let updated;
+    try {
+      updated = await client.query(`
+        UPDATE product_variants SET barcode = $2, updated_at = now() WHERE id = $1
+        RETURNING id, sku, barcode, name, stock_quantity
+      `, [normVarId, normBarcode]);
+    } catch (err) {
+      if (err?.code === "23505") {
+        throw fail(`Mã vạch '${normBarcode}' đã được gán cho một SKU khác.`, 409);
+      }
+      throw err;
+    }
 
     await appendAudit(client, {
       actor,

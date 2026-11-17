@@ -378,6 +378,7 @@ function attachShoppingChat({publicApi,admin,pool,config,owns,wrap,limit,chunkLi
         }else{
           res.set({...headers,'Content-Length':String(streamInfo.totalSize)}).status(200);
         }
+        if(req.method==='HEAD'){ streamInfo.stream.destroy?.(); return res.end(); }
         try{ await pipeline(streamInfo.stream, res); }
         catch(err){ if(err?.code!=='ERR_STREAM_PREMATURE_CLOSE'&&err?.code!=='ECONNRESET') throw err; }
         return;

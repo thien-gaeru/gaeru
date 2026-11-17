@@ -112,9 +112,9 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
   }
   const orderAgg = (await client.query(
     `SELECT
-       COALESCE(SUM(CASE WHEN type = 'earn' THEN ABS(points) ELSE 0 END), 0)::int AS "earnedOnOrder",
-       COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points) ELSE 0 END), 0)::int AS "totalRedeemed",
-       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points ELSE 0 END), 0)::int AS "totalRefunded"
+       COALESCE(SUM(CASE WHEN type = 'earn' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "earnedOnOrder",
+       COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "totalRedeemed",
+       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points::bigint ELSE 0 END), 0)::bigint AS "totalRefunded"
      FROM customer_loyalty_ledger
      WHERE order_id = $1`,
     [orderId]
@@ -144,14 +144,21 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
 async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRatio, reason, actor }) {
   if (!customerId) return null;
 
-  const eventKey = `earn:${orderId}`;
+  const eventKey = orderId ? `earn:${orderId}` : `earn:manual:${require('node:crypto').randomUUID()}`;
   const existing = await client.query(
     `SELECT id, points, balance_after AS "balanceAfter"
      FROM customer_loyalty_ledger WHERE event_key = $1`,
     [eventKey]
   );
   if (existing.rows.length) {
-    return { success: true, existing: true, earnedPoints: existing.rows[0].points, balanceAfter: existing.rows[0].balanceAfter };
+    const cur = (await client.query('SELECT points_balance AS "pointsBalance", COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints" FROM customer_loyalty WHERE customer_id = $1', [customerId])).rows[0];
+    return {
+      success: true,
+      existing: true,
+      earnedPoints: existing.rows[0].points,
+      balanceAfter: cur ? cur.pointsBalance : existing.rows[0].balanceAfter,
+      clawbackDebtAfter: cur ? cur.clawbackDebtPoints : 0
+    };
   }
 
   const loyalty = await getOrCreateLoyalty(client, customerId);
@@ -307,8 +314,8 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
   // 1. Check net unrefunded redeemed points for this order -> Refund them
   const redeemAgg = (await client.query(
     `SELECT
-       COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points) ELSE 0 END), 0)::int AS "totalRedeemed",
-       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points ELSE 0 END), 0)::int AS "totalRefunded",
+       COALESCE(SUM(CASE WHEN type = 'redeem' THEN ABS(points::bigint) ELSE 0 END), 0)::bigint AS "totalRedeemed",
+       COALESCE(SUM(CASE WHEN type = 'refund' AND event_key LIKE 'refund-redeem:%' THEN points::bigint ELSE 0 END), 0)::bigint AS "totalRefunded",
        COUNT(*) FILTER (WHERE type = 'refund' AND event_key LIKE 'refund-redeem:%')::int AS "refundCount"
      FROM customer_loyalty_ledger
      WHERE order_id = $1`,
@@ -321,7 +328,7 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
     [orderId]
   );
 
-  const pointsToRefund = Math.max(0, (redeemAgg?.totalRedeemed || 0) - (redeemAgg?.totalRefunded || 0));
+  const pointsToRefund = Math.max(0, Number(redeemAgg?.totalRedeemed || 0) - Number(redeemAgg?.totalRefunded || 0));
   const pointsToRevoke = earnEntry.rows.reduce((sum, r) => sum + Math.abs(r.points || 0), 0);
 
   let loyalty = (pointsToRefund > 0 || pointsToRevoke > 0)
@@ -334,6 +341,7 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
     const checkRefund = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [refundEventKey]);
     if (!checkRefund.rows.length) {
       const newBalance = loyalty.pointsBalance + pointsToRefund;
+      if (newBalance > 2147483647) throw fail('Số dư Xu vượt giới hạn cho phép.', 409);
       const newSpent = Math.max(0, loyalty.lifetimeSpent - pointsToRefund);
 
       await client.query(
@@ -384,7 +392,7 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
       await client.query(
         `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
          VALUES ($1, $2, 'refund', $3, $4, $5, $6)`,
-        [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích do hủy đơn #${orderId}: ${reason}${detailNote}`, revokeEventKey]
+        [customerId, orderId, -actualRevoked, newBalance, `Thu hồi Xu đã tích từ đơn #${orderId}: ${reason}${detailNote}`, revokeEventKey]
       );
       loyalty.pointsBalance = newBalance;
       loyalty.clawbackDebtPoints = newDebt;
@@ -451,7 +459,7 @@ async function adjustPoints(pool, { customerId, points, reason, actor, requestKe
     const old = (await client.query('SELECT id, points, reason, balance_after FROM customer_loyalty_ledger WHERE event_key=$1', [eventKey])).rows[0];
     if (old) {
       if (old.points !== points || old.reason !== reason) throw fail('Mã yêu cầu đã được dùng cho nội dung điều chỉnh khác.', 409);
-      return { success: true, existing: true, points: old.points, balanceAfter: old.balance_after, ledgerId: old.id };
+      return { success: true, existing: true, points: old.points, balanceAfter: loyalty.pointsBalance, clawbackDebtAfter: loyalty.clawbackDebtPoints || 0, ledgerId: old.id };
     }
     const newBalance = loyalty.pointsBalance + points;
     if (newBalance < 0) throw fail('Số dư Xu sau điều chỉnh không thể âm.', 409);

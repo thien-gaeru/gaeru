@@ -91,11 +91,12 @@ const SPAM_SQL_PREDICATE = `(
       w.contact_phone IS NULL OR trim(w.contact_phone) = ''
       OR regexp_replace(w.contact_phone, '[^0-9]', '', 'g') !~ '^(0|84)(3|5|7|8|9)[0-9]{8}$'
       OR regexp_replace(w.contact_phone, '[^0-9]', '', 'g') ~ '^(0000000000|0123456789|0987654321|0999999999|0111111111|0888888888|840000000000)$'
-      OR lower(coalesce(w.contact_name, '')) ~* '(test|spam|demo|asdf|fake|aaaa|bbbb|cccc|noname|admin)'
+      OR lower(coalesce(w.contact_name, '')) ~* '(^|[^a-z0-9])(test|spam|demo|asdf|fake|aaaa|bbbb|cccc|noname|admin)([^a-z0-9]|$)'
       OR lower(coalesce(w.external_order_number, '')) ~* '^(test|demo|123|1234|0000|1111|fake|none|null)$'
       OR lower(coalesce(w.serial, '')) ~* '^(test|demo|123|1234|0000|1111|fake|none|null)$'
       OR lower(coalesce(w.contact_email, '')) ~* '(tempmail|10minute|mailinator|guerrillamail|yopmail|trashmail|dispostable|fake\\.com|test\\.com|test@|spam@|fake@)'
       OR lower(coalesce(w.reason, '')) ~* '(rác|spam|giả mạo|không hợp lệ|không có thật)'
+      OR (w.claimed_purchase_date IS NOT NULL AND (w.claimed_purchase_date < date '2020-01-01' OR w.claimed_purchase_date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
     ))
   )
 )`;

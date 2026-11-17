@@ -240,7 +240,7 @@ async function start() {
   }
 
   // Cache warmup and database TLS verification
-  try { require('./lib/cache-warmup').warmUpCache(lowPriorityPool).catch(() => {}); } catch (_) {}
+  try { require('./lib/cache-warmup').warmUpCache(highPriorityPool).catch(() => {}); } catch (_) {}
   inspectDatabaseTls(pool, config)
     .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
     .catch(() => console.log("Database TLS active: unavailable"));

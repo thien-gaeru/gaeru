@@ -198,6 +198,16 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(require('./primary-domain').publicAliasRedirect);
   app.disable("x-powered-by");
   app.set('case sensitive routing', true);
+  const net = require("node:net");
+  app.use((req, _res, next) => {
+    const remoteAddr = String(req.socket?.remoteAddress || "");
+    const isLoopback = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
+    const cfConnectingIp = String(req.headers["cf-connecting-ip"] || "").trim();
+    if (isLoopback && cfConnectingIp && net.isIP(cfConnectingIp)) {
+      req.headers["x-forwarded-for"] = cfConnectingIp;
+    }
+    next();
+  });
   app.set("trust proxy", "loopback");
   app.use((req,res,next)=>{
     if (/^\/api(?:\/|$)/i.test(req.path)) {
@@ -257,7 +267,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     }
   }));
   app.use(createHoneypotShield());
-  app.use(session({
+  const sessionMiddleware = session({
     name: "gaeru.sid",
     store: sessionStore,
     secret: config.SESSION_SECRET,
@@ -270,7 +280,14 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       maxAge: 8 * 60 * 60 * 1000,
       path: "/"
     }
-  }));
+  });
+  app.use((req, res, next) => {
+    const p = req.path;
+    if (p === "/health" || p === "/livez" || p === "/readyz" || p === "/healthz" || /^\/(?:assets\/|media\/|favicon\.|apple-touch-icon)|(?:^\/[^/]+\.(?:css|webp|avif|woff2?|png|jpe?g|svg|ico)$)/i.test(p)) {
+      return next();
+    }
+    return sessionMiddleware(req, res, next);
+  });
 
   app.use(async(req,res,next)=>{try{const pathname=req.path.toLowerCase();if(req.session?.admin&&pathname.startsWith('/api/')){const record=await require('./admin-configuration').readRecord(pool,config,'security');req.adminSessionLimits=record.data;}require('./admin-session-policy').adminSessionPolicy(req,res,next);}catch(error){next(error);}});
   app.use(config.accountSecurity.sessionGuard);
@@ -637,7 +654,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
       }
-      if (['account.html', 'account.js'].includes(path.basename(file))) {
+      if (['account.html', 'account.js', 'checkout.html', 'cart.html', 'payment-result.html', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js'].includes(path.basename(file))) {
         res.setHeader('Cache-Control', 'no-store');
       }
     },

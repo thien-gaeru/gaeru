@@ -18,10 +18,11 @@ async function screenNextEmail(pool,{resolver=dns}={}){
  const row=(await pool.query("SELECT j.id,o.email FROM order_email_outbox j JOIN orders o ON o.id=j.order_id WHERE j.kind='receipt' AND j.status='pending' AND j.next_attempt_at<=now() ORDER BY j.created_at,j.id LIMIT 1")).rows[0];
  if(row&&await inspectDomain(row.email,resolver)==='missing')await pool.query("UPDATE order_email_outbox SET status='failed',finished_at=now(),result='Tên miền email không tồn tại' WHERE id=$1 AND status='pending'",[row.id]);
 }
-async function classify(pool){
+async function classify(pool,{smtpConfigured=true}={}){
+ const delayedCondition=smtpConfigured?" OR (j.status='pending' AND j.created_at<now()-interval '15 minutes')":"";
  await pool.query(`INSERT INTO order_reviews(order_id,reason)
  SELECT j.order_id,CASE WHEN j.result='Tên miền email không tồn tại' THEN 'domain_missing' WHEN j.result='SMTP từ chối' THEN 'recipient_rejected' WHEN j.status='unknown' THEN 'delivery_unknown' WHEN j.status='pending' THEN 'delivery_delayed' ELSE 'delivery_failed' END
- FROM order_email_outbox j WHERE j.kind='receipt' AND (j.status IN ('failed','unknown') OR (j.status='pending' AND j.created_at<now()-interval '15 minutes'))
+ FROM order_email_outbox j WHERE j.kind='receipt' AND (j.status IN ('failed','unknown')${delayedCondition})
  ON CONFLICT(order_id) DO NOTHING`);
 }
 async function guardContact(client,customer){

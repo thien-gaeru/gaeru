@@ -134,7 +134,7 @@ async function loadLiveSiteFacts(pool) {
   try {
     const [settingsRes, vouchersRes, campaignsRes, newsRes] = await Promise.all([
       pool.query("SELECT setting_key, setting_value FROM store_settings WHERE setting_key IN ('shipping_rates', 'shipping_note')").catch(() => ({ rows: [] })),
-      pool.query("SELECT code, title, kind, amount, max_discount_vnd, min_spend_vnd, ends_at FROM marketing_vouchers WHERE active=true AND public_claim=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC LIMIT 6").catch(() => ({ rows: [] })),
+      pool.query("SELECT v.code, v.title, v.kind, v.amount, v.max_discount_vnd, v.min_spend_vnd, v.ends_at FROM marketing_vouchers v WHERE v.active=true AND v.public_claim=true AND now() BETWEEN v.starts_at AND v.ends_at AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.released=false) < v.total_limit ORDER BY v.created_at DESC LIMIT 6").catch(() => ({ rows: [] })),
       pool.query("SELECT title, body, ends_at FROM marketing_campaigns WHERE active=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC LIMIT 4").catch(() => ({ rows: [] })),
       pool.query("SELECT slug, title, excerpt AS summary FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 6").catch(error => { console.warn("AI news context unavailable", /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "QUERY_FAILED"); return { rows: [] }; })
     ]);

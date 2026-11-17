@@ -79,11 +79,18 @@ async function removeUploadedMedia(content){
  if(!content||!local.configured())return false;
  try{const meta=metadata(content);if(!meta?.key)return false;await require('./file-library-storage').remove(meta.key);return true;}catch{return false;}
 }
-async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==='products',...backgroundOptions}={}){
+async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==='products',optimizedResult=null,...backgroundOptions}={}){
  const originalBuffer=buffer;
  const maxUploadBytes=scope==='chat'||scope==='care'?require('../audit-fixes/upload-state').MAX_FILE_BYTES:(({products:8,banners:5,news:5,videos:25})[scope]??10)*1024*1024;
  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>maxUploadBytes)throw Object.assign(Error('Upload is too large.'),{status:413});
- let mimeType=mime,backgroundRemoved=false;if(scope!=='chat'&&scope!=='care'&&mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes,removeBackground,...backgroundOptions});buffer=optimized.buffer;mimeType=optimized.mimeType;backgroundRemoved=Boolean(optimized.backgroundRemoved);}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
+ let mimeType=mime,backgroundRemoved=false;
+ if(optimizedResult&&Buffer.isBuffer(optimizedResult.buffer)){
+   buffer=optimizedResult.buffer;
+   mimeType=optimizedResult.mimeType||mime;
+   backgroundRemoved=Boolean(optimizedResult.backgroundRemoved);
+ }else if(scope!=='chat'&&scope!=='care'&&mime.startsWith('image/')&&mime!=='image/gif'){
+   try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes,removeBackground,...backgroundOptions});buffer=optimized.buffer;mimeType=optimized.mimeType;backgroundRemoved=Boolean(optimized.backgroundRemoved);}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
+ }
  const content=await storeMedia(scope,buffer,mimeType),meta=metadata(content);
  if(meta&&mime.startsWith('image/')&&scope!=='chat'&&scope!=='care')await require('./image-originals').preserveOriginal(pool,{scope,buffer:originalBuffer,mime,derivativeKey:meta.key});
  if(mimeType&&mimeType.startsWith('image/')&&(scope==='products'||scope==='news'||scope==='banners')){

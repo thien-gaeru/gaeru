@@ -67,6 +67,7 @@ async function searchLiveWeb(query, { transport = fetch, timeoutMs = 3500 } = {}
   try {
     const res = await transport(url, {
       method: 'GET',
+      redirect: 'error',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html',
@@ -76,7 +77,8 @@ async function searchLiveWeb(query, { transport = fetch, timeoutMs = 3500 } = {}
     });
 
     if (!res.ok) return [];
-    const html = await res.text();
+    const { readBoundedText } = require('./lib/http-response');
+    const html = await readBoundedText(res, 262144);
     const snippets = [];
     const re = /<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/gi;
     let match;
@@ -119,14 +121,15 @@ async function getExternalWebKnowledge({ question = '', selectedProduct = null, 
 
   let searchSnippets = [];
   if (webSearchEnabled && needsWebSearch && transport) {
-    const cacheKey = createHash('md5').update(qNorm).digest('hex');
+    const cacheKey = createHash('md5').update(`${prodNorm}\0${qNorm}`).digest('hex');
     const cached = externalCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       searchSnippets = cached.snippets;
     } else {
-      // Build a concise search query
-      const searchQuery = (selectedProduct ? `${selectedProduct.name} ` : 'mic thu am ') + text.slice(0, 80);
-      searchSnippets = await searchLiveWeb(searchQuery, { transport });
+      const { sanitizePii } = require('./ai-self-learning');
+      const scrubbedQuestion = sanitizePii(text).replace(/\[[^\]]+\]/g, '').trim().slice(0, 80);
+      const searchQuery = (selectedProduct ? `${selectedProduct.name} ` : 'mic thu am ') + scrubbedQuestion;
+      searchSnippets = scrubbedQuestion.length >= 3 ? await searchLiveWeb(searchQuery, { transport }) : [];
       if (searchSnippets.length) {
         if (externalCache.size >= MAX_CACHE_ENTRIES) {
           const firstKey = externalCache.keys().next().value;

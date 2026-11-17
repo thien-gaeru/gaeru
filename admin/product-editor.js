@@ -11,11 +11,12 @@
    const headers={};
    if(method!=='GET'){
      const r=await fetch('/api/csrf',{credentials:'same-origin',cache:'no-store'});
+     if(!r.ok)throw Error('Không thể khởi tạo phiên làm việc.');
      headers['X-CSRF-Token']=(await r.json()).csrfToken;
      if(!(body instanceof FormData))headers['Content-Type']='application/json';
    }
    const r=await fetch(path,{method,credentials:'same-origin',cache:'no-store',headers,...(body?{body:body instanceof FormData?body:JSON.stringify(body)}:{})});
-   const data=await r.json();
+   const data=await r.json().catch(()=>({}));
    if(!r.ok){
      const err=Error(data.error||'Không thể lưu thay đổi.');
      err.status=r.status;

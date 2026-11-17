@@ -32,7 +32,11 @@ async function ensureCache(pool) {
   cacheInitialized = true;
   if (pool && typeof pool === 'object') initializedPools.add(pool);
   try {
-    const res = await pool.query("SELECT visitor_hash FROM site_traffic_realtime WHERE last_seen_at >= CURRENT_DATE ORDER BY last_seen_at DESC LIMIT 100000");
+    const res = await pool.query(
+      `SELECT visitor_hash FROM site_traffic_realtime
+       WHERE (last_seen_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+       ORDER BY last_seen_at DESC LIMIT 100000`
+    );
     for (const row of res.rows) {
       trackVisitorHash(row.visitor_hash);
     }
@@ -67,19 +71,33 @@ async function applyVisitsBatch(pool, visits) {
   try {
     await ensureCache(pool);
     let pageviewsInc = 0;
-    let uniqueInc = 0;
+    const candidateHashes = [];
     const latestPathByVisitor = new Map();
 
     for (const v of visits) {
       const delta = computeVisitDelta(v, pool);
       pageviewsInc += 1;
-      uniqueInc += delta.uniqueInc;
+      if (delta.uniqueInc > 0) candidateHashes.push(delta.visitorHash);
       latestPathByVisitor.set(delta.visitorHash, delta.path);
     }
 
+    let alreadySeenToday = new Set();
+    if (candidateHashes.length > 0) {
+      try {
+        const seenRes = await pool.query(
+          `SELECT visitor_hash FROM site_traffic_realtime
+           WHERE visitor_hash = ANY($1::text[])
+             AND (last_seen_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`,
+          [candidateHashes]
+        );
+        alreadySeenToday = new Set((seenRes.rows || []).map(r => r.visitor_hash));
+      } catch {}
+    }
+    const uniqueInc = candidateHashes.filter(h => !alreadySeenToday.has(h)).length;
+
     await pool.query(
       `INSERT INTO site_traffic (date, pageviews, unique_visitors, updated_at)
-       VALUES (CURRENT_DATE, $1, $2, now())
+       VALUES ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, $1, $2, now())
        ON CONFLICT (date)
        DO UPDATE SET
          pageviews = site_traffic.pageviews + $1,
@@ -168,8 +186,8 @@ async function getTrafficSummary(pool) {
     await flushPendingVisits(pool);
     const res = await pool.query(
       `SELECT
-         COALESCE((SELECT pageviews FROM site_traffic WHERE date = CURRENT_DATE), 0)::bigint AS today_pageviews,
-         COALESCE((SELECT unique_visitors FROM site_traffic WHERE date = CURRENT_DATE), 0)::bigint AS today_visitors,
+         COALESCE((SELECT pageviews FROM site_traffic WHERE date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0)::bigint AS today_pageviews,
+         COALESCE((SELECT unique_visitors FROM site_traffic WHERE date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0)::bigint AS today_visitors,
          COALESCE((SELECT SUM(pageviews) FROM site_traffic), 0)::bigint AS total_pageviews,
          COALESCE((SELECT SUM(unique_visitors) FROM site_traffic), 0)::bigint AS total_visitors,
          COALESCE((SELECT COUNT(*) FROM site_traffic_realtime WHERE last_seen_at >= now() - INTERVAL '15 minutes'), 0)::int AS active`
@@ -226,7 +244,10 @@ function createTrafficTracker(pool) {
     };
 
     if (res && typeof res.once === 'function') {
-      res.once('finish', () => enqueueVisit(pool, visit));
+      res.once('finish', () => {
+        const statusCode = res.statusCode ?? 200;
+        if (statusCode >= 200 && statusCode < 300) enqueueVisit(pool, visit);
+      });
     } else {
       enqueueVisit(pool, visit, 10);
     }

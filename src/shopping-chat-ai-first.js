@@ -9,7 +9,7 @@ function kickAIChatWorker(){
 
 function requestsHuman(text){
   const value=String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').toLowerCase();
-  if(/khong (?:can|muon) (?:gap |noi chuyen voi )?nhan vien/.test(value))return false;
+  if(/(?:khong|dung|khoi|ngung|thoi)\s+(?:can|muon|chuyen|ket noi|noi chuyen|lam phien|gap).{0,20}(?:nhan vien|nguoi that|tu van vien)/.test(value))return false;
   return /(?:gap|chuyen|ket noi|noi chuyen|lien he|goi).{0,35}(?:nhan vien|nguoi that|tu van vien)|(?:human|live agent)|khong muon.{0,12}(?:ai|bot)/.test(value);
 }
 async function handoff(client,id,reason,answer){
@@ -75,7 +75,7 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
     return {...row,thread,question:latest.body};
   });
   if(!job)return false;if(job.skipped)return true;
-  let result,reason='outside_capability';
+  let result,reason='outside_capability',loadedCatalog=[],loadedHistory=[];
   try{
     if(requestsHuman(job.question)){reason='customer_request';result={handoff:true,answer:''};}
     else{
@@ -84,17 +84,19 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
         require('./store-api').loadProducts(pool),
         pool.query('SELECT sender,body FROM shopping_chat_messages WHERE thread_id=$1 ORDER BY id DESC LIMIT 10',[job.thread_id])
       ]);
+      loadedCatalog=catalog;
+      loadedHistory=historyRes.rows.reverse();
       const usage=usageRes.rows[0].total;
       if(usage>40){reason='ai_limit';result={handoff:true,answer:'AI đã đạt giới hạn xử lý của phiên này.'};}
       else{
-        const facts=p=>({id:p.id,slug:p.slug,category:p.category,descriptor:p.descriptor,name:p.name,description:String(p.description||'').slice(0,job.thread.product_id?2400:480),variants:(p.variants||[]).slice(0,12).map(v=>({name:v.name,sku:v.sku,priceVnd:v.priceVnd,originalPriceVnd:v.originalPriceVnd,activePromotion:v.activePromotion||null,stockQuantity:v.stockQuantity,available:Number(v.stockQuantity)>0}))});
+        const facts=p=>({id:p.id,slug:p.slug,category:p.category,descriptor:p.descriptor,name:p.name,description:String(p.description||'').slice(0,job.thread.product_id?2400:480),variants:(p.variants||[]).slice(0,12).map(v=>({name:v.name,sku:v.sku,priceVnd:v.priceVnd,originalPriceVnd:v.originalPriceVnd,activePromotion:v.activePromotion||v.promotion||null,stockQuantity:v.stockQuantity,available:Number(v.stockQuantity)>0}))});
         const selected=catalog.find(p=>p.id===job.thread.product_id);
         if(job.thread.product_id&&!selected)throw Error('Product unavailable');
         const webKnowledge=await getRelevantWebKnowledge(pool,{question:job.question,selectedProduct:selected,transport});
         const product=selected
           ?{...facts(selected),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}}
           :{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
-        const history=historyRes.rows.reverse();
+        const history=loadedHistory;
         if(decisionFn){
           result=await decisionFn({config,product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});
         }else{
@@ -105,7 +107,7 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
     }
   }catch{
     try{
-      result=await require('./gaeru-ai-customer').generateGaeruAiResponse({pool,thread:job.thread,question:job.question});
+      result=await require('./gaeru-ai-customer').generateGaeruAiResponse({pool,thread:job.thread,question:job.question,catalog:loadedCatalog,history:loadedHistory});
       reason='gaeru_ai_resolved';
     }catch(_){
       reason='ai_unavailable';result={handoff:true,answer:'AI hiện chưa thể trả lời chính xác câu hỏi này.'};

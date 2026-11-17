@@ -505,7 +505,15 @@ function checkCloudflaredHealth() {
 function checkSignals() {
   if (isShuttingDown) return;
 
-  // 1. Kiểm tra yêu cầu reload (Zero-Downtime Rolling Reload do Cluster Master xử lý)
+  // 1. Kiểm tra yêu cầu dừng trước để STOP_FILE không bị RELOAD_FILE chặn vĩnh viễn
+  if (fs.existsSync(STOP_FILE)) {
+    try { fs.unlinkSync(STOP_FILE); } catch (_) {}
+    log('Nhận tín hiệu STOP từ CLI. Đang dừng hệ thống...');
+    shutdownGracefully();
+    return;
+  }
+
+  // 2. Kiểm tra yêu cầu reload (Zero-Downtime Rolling Reload do Cluster Master xử lý)
   if (fs.existsSync(RELOAD_FILE)) {
     // Nếu tiến trình con đang sống bình thường, để Cluster Master tự đọc và xoay tua workers (Zero Downtime)
     if (childProcess && isPidAlive(childProcess.pid)) {
@@ -515,14 +523,6 @@ function checkSignals() {
       log('Tiến trình con không hoạt động. Khởi tạo lại Cluster Master...', 'WARN');
       recycleServer();
     }
-    return;
-  }
-
-  // 2. Kiểm tra yêu cầu dừng
-  if (fs.existsSync(STOP_FILE)) {
-    try { fs.unlinkSync(STOP_FILE); } catch (_) {}
-    log('Nhận tín hiệu STOP từ CLI. Đang dừng hệ thống...');
-    shutdownGracefully();
   }
 }
 

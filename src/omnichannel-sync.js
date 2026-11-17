@@ -156,8 +156,12 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     resolvedItems.sort((a, b) => a.variantId.localeCompare(b.variantId));
 
     const enrichedByIndex = new Array(items.length);
+    const seenVariantCounts = new Map();
     for (const entry of resolvedItems) {
       const { index, item, variantId, requestedQty } = entry;
+      const lineOccurrence = (seenVariantCounts.get(variantId) || 0) + 1;
+      seenVariantCounts.set(variantId, lineOccurrence);
+      const lineSuffix = lineOccurrence > 1 ? `:line${index}` : '';
       const varLock = (await client.query(
         `SELECT v.id, v.stock_quantity, v.sku, v.name AS "variantName", p.name AS "productName"
          FROM product_variants v
@@ -197,7 +201,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
             [wh.warehouse_id, variantId, take]
           );
           await recordMarketplaceMovement(client, {
-            eventKey: `marketplace-sale:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${wh.warehouse_id}`,
+            eventKey: `marketplace-sale:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${wh.warehouse_id}${lineSuffix}`,
             warehouseId: wh.warehouse_id,
             variant: varLock,
             movementType: 'sale_reservation',
@@ -225,7 +229,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
           [variantId, actualDeducted]
         );
 
-        const eventKey = `marketplace-sale:${channel}:${shopId}:${order.externalOrderId}:${variantId}`;
+        const eventKey = `marketplace-sale:${channel}:${shopId}:${order.externalOrderId}:${variantId}${lineSuffix}`;
         await client.query(
           `INSERT INTO marketplace_sync_events (channel, event_type, external_order_id, event_key, payload, processed)
            VALUES ($1, 'stock_deduction', $2, $3, $4, true)
@@ -261,7 +265,12 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     }
     reverseItems.sort((a, b) => a.variantId.localeCompare(b.variantId));
 
-    for (const { item, variantId, qty } of reverseItems) {
+    const seenReverseCounts = new Map();
+    for (let revIdx = 0; revIdx < reverseItems.length; revIdx++) {
+      const { item, variantId, qty } = reverseItems[revIdx];
+      const lineOccurrence = (seenReverseCounts.get(variantId) || 0) + 1;
+      seenReverseCounts.set(variantId, lineOccurrence);
+      const lineSuffix = lineOccurrence > 1 ? `:line${revIdx}` : '';
       const varLock = (await client.query(
         `SELECT v.id, v.sku, v.name AS "variantName", p.name AS "productName"
          FROM product_variants v
@@ -286,7 +295,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
           );
           if (varLock) {
             await recordMarketplaceMovement(client, {
-              eventKey: `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${alloc.warehouseId}`,
+              eventKey: `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${alloc.warehouseId}${lineSuffix}`,
               warehouseId: alloc.warehouseId,
               variant: varLock,
               movementType: 'sale_release',
@@ -307,7 +316,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
         [variantId, qty]
       );
 
-      const eventKey = `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}`;
+      const eventKey = `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}${lineSuffix}`;
       await client.query(
         `INSERT INTO marketplace_sync_events (channel, event_type, external_order_id, event_key, payload, processed)
          VALUES ($1, 'stock_reverse', $2, $3, $4, true)
@@ -536,6 +545,8 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
           const orderRes = await client.query('SELECT * FROM marketplace_orders WHERE id = $1 FOR UPDATE', [orderId]);
           if (!orderRes.rows.length) throw fail('Không tìm thấy đơn hàng sàn.', 404);
           const order = orderRes.rows[0];
+          if (!order.stock_deducted) throw fail('Đơn hàng sàn chưa từng trừ tồn kho nội bộ.', 409);
+          if (order.stock_reversed) throw fail('Đơn hàng sàn đã được hoàn tồn kho trước đó.', 409);
           order.rawStatus = 'cancelled';
           return await ingestMarketplaceOrder(client, {
             channel: order.channel,

@@ -97,15 +97,22 @@ const VIETQR_BANKS = {
  seab: { bin: '970440', code: 'SEAB', shortName: 'SeABank' },
  seabank: { bin: '970440', code: 'SEAB', shortName: 'SeABank' },
  lpb: { bin: '970449', code: 'LPB', shortName: 'LPBank' },
- lpbank: { bin: '970449', code: 'LPB', shortName: 'LPBank' }
+ lpbank: { bin: '970449', code: 'LPB', shortName: 'LPBank' },
+ eib: { bin: '970431', code: 'EIB', shortName: 'Eximbank' },
+ eximbank: { bin: '970431', code: 'EIB', shortName: 'Eximbank' }
 };
 
 function resolveVietQrBank(input) {
  const raw = String(input || '').trim().toLowerCase().replace(/[\s_.-]/g, '');
  if (!raw) return null;
  if (VIETQR_BANKS[raw]) return VIETQR_BANKS[raw];
- for (const [k, v] of Object.entries(VIETQR_BANKS)) {
-  if (raw.includes(k) || k.includes(raw) || raw === v.bin) return v;
+ for (const v of Object.values(VIETQR_BANKS)) {
+  const shortNorm = String(v.shortName || '').toLowerCase().replace(/[\s_.-]/g, '');
+  if (raw === v.bin || raw === shortNorm) return v;
+ }
+ const entries = Object.entries(VIETQR_BANKS).sort((a, b) => b[0].length - a[0].length);
+ for (const [k, v] of entries) {
+  if (k.length >= 4 && raw.includes(k)) return v;
  }
  if (/^\d{6}$/.test(raw)) return { bin: raw, code: raw, shortName: input };
  return { bin: input, code: input, shortName: input };

@@ -205,6 +205,13 @@ function createCodReturnIntake(pool) {
         if (shipment.orderStatus === 'completed') {
           throw fail('Đơn hàng đã hoàn tất giao hàng thành công; không thể kiểm nhận chuyển hoàn tự động.', 409);
         }
+        const openAfterSales = (await client.query(
+          "SELECT 1 FROM order_after_sales WHERE order_id = $1 AND status NOT IN ('resolved', 'rejected') LIMIT 1",
+          [shipment.orderId]
+        )).rows[0];
+        if (openAfterSales) {
+          throw fail('Đơn hàng đang có yêu cầu hủy/trả hàng (RMA) đang mở; vui lòng xử lý đồng bộ trong hồ sơ RMA.', 409);
+        }
 
         // 5. Xác minh trạng thái giao vận: Chỉ bưu phẩm đã hoàn tất chuyển trả về người gửi (status = 'returned', ví dụ Viettel 504)
         // mới được mở kiểm nhận nhập lại tồn kho khả dụng (không nhập kho khi mới 505 return_requested hoặc 502 returning).
@@ -248,8 +255,10 @@ function createCodReturnIntake(pool) {
             }
           }
         } else {
-          const wRow = (await client.query('SELECT name FROM warehouses WHERE id = $1', [targetWarehouseId])).rows[0];
-          targetWarehouseName = wRow?.name || '';
+          const wRow = (await client.query('SELECT id, name, active FROM warehouses WHERE id = $1 FOR SHARE', [targetWarehouseId])).rows[0];
+          if (!wRow) throw fail('Kho tiếp nhận không tồn tại.', 404);
+          if (!wRow.active) throw fail('Kho tiếp nhận đã ngừng hoạt động.', 409);
+          targetWarehouseName = wRow.name || '';
 
           if (allocWarehouseIds.length && !allocWarehouseIds.includes(targetWarehouseId)) {
             throw fail(`Kho tiếp nhận (${targetWarehouseName || targetWarehouseId}) khác kho xuất hàng ban đầu. Vui lòng chọn đúng kho xuất ban đầu để hoàn tồn chính xác.`, 400);
