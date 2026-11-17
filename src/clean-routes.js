@@ -23,7 +23,7 @@ function versionedPublicAssetUrl(rawUrl){
 }
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
-function enrich(html,original,origin,override){if(typeof html==='string'&&html.includes('/clean-urls.js?v=')&&!override)return html;origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);
+function enrich(html,original,origin,override){if(typeof html==='string'&&html.includes('/clean-urls.js?v=')&&(!override||html.includes('data-gaeru-enriched="1"')))return html;origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);doc.documentElement.setAttribute('data-gaeru-enriched','1');
  require('./responsive-images').apply(doc);
  for(const style of doc.querySelectorAll('link[href]')){const rel=String(style.getAttribute('rel')||'').toLowerCase();if(!rel||rel==='stylesheet'||rel==='preload'){style.setAttribute('href',versionedPublicAssetUrl(style.getAttribute('href')||''));}}
  for(const script of doc.querySelectorAll('script[src]')){script.setAttribute('src',versionedPublicAssetUrl(script.getAttribute('src')||''));}
@@ -51,9 +51,10 @@ function enrich(html,original,origin,override){if(typeof html==='string'&&html.i
  if(!doc.querySelector('script[type="speculationrules"]')){const spec=doc.createElement('script');spec.type='speculationrules';spec.textContent=require('./speculation-policy').text;if(doc.body)doc.body.append(spec);else doc.head.append(spec);}
  const { isDcbEnabled } = require('./lib/compression-dictionary'); if(isDcbEnabled() && !doc.head.querySelector('link[rel="compression-dictionary"]')){const dl=doc.createElement('link');dl.setAttribute('rel','compression-dictionary');dl.setAttribute('href','/dict/shared-template.dict');doc.head.append(dl);}
  const mainStyle=doc.head.querySelector('link[rel="stylesheet"][href^="/styles.css"]');if(mainStyle&&!doc.head.querySelector('link[rel="preload"][href^="/styles.css"]')){const preload=doc.createElement('link');preload.setAttribute('rel','preload');preload.setAttribute('as','style');preload.setAttribute('href',mainStyle.getAttribute('href'));base.after(preload);}
- if(doc.querySelector('script[src*="store-shell.js"]')&&!['/thanh-toan','/tai-khoan','/dang-ky-bao-hanh','/kich-hoat-bao-hanh'].includes(u.pathname)){for(const css of doc.head.querySelectorAll('link[rel="stylesheet"]')){const href=css.getAttribute('href')||'';if(/^\/(shopping-chat|quick-purchase|action-feedback|bot-protection|vietnam-address)\.css(?:\?|$)/.test(href)){css.setAttribute('media','print');css.setAttribute('data-deferred-css','');const ns=doc.createElement('noscript');const nsLink=doc.createElement('link');nsLink.setAttribute('rel','stylesheet');nsLink.setAttribute('href',href);ns.append(nsLink);css.after(ns);}}}
+ if(doc.querySelector('script[src*="store-shell.js"]')&&!['/thanh-toan','/tai-khoan','/dang-ky-bao-hanh','/kich-hoat-bao-hanh'].includes(u.pathname)){for(const css of doc.head.querySelectorAll('link[rel="stylesheet"]')){if(css.hasAttribute('data-deferred-css')||css.closest('noscript'))continue;const href=css.getAttribute('href')||'';if(/^\/(shopping-chat|quick-purchase|action-feedback|bot-protection|vietnam-address)\.css(?:\?|$)/.test(href)){css.setAttribute('media','print');css.setAttribute('data-deferred-css','');const ns=doc.createElement('noscript');const nsLink=doc.createElement('link');nsLink.setAttribute('rel','stylesheet');nsLink.setAttribute('href',href);ns.append(nsLink);css.after(ns);}}}
  return normalizeBrandText('<!doctype html>'+doc.documentElement.outerHTML);
 }
+const PRIVATE_DCB_EXCLUSION_RE=/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-thanh-toan|account|checkout|cart|payment-result)(?:\/|$|\.)/i;
 function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method)||/^\/(?:api|gaeru_ceo)(?:\/|$)/.test(req.path))return next();
  const rawUrl='/'+String(req.originalUrl||'/').replace(/^[\/\\]+/,'');const target=clean(rawUrl,origin);if(target!==rawUrl&&/^\/(?!\/|\\)/.test(target))return res.redirect(301,target);
@@ -61,9 +62,12 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
  // Cache the final document, including metadata, rather than the unprocessed template.
  const {isDcbEnabled,isDcbEligible,compressDcb}=require('./lib/compression-dictionary');
  const customSend=body=>{
-  const prepared=prepare(body);
+  const prepared=res.locals.__gaeruHtmlPrepared?body:prepare(body);
+  res.locals.__gaeruHtmlPrepared=false;
   if(req.headers['sec-purpose']?.includes('prerender'))req.isPrerender=true;
-  if(typeof prepared==='string'&&isDcbEligible(req)){
+  const cacheControlHeader=String(res.getHeader('Cache-Control')||'');
+  const isPrivateResponse=PRIVATE_DCB_EXCLUSION_RE.test(req.path)||/no-store|private/i.test(cacheControlHeader);
+  if(typeof prepared==='string'&&!isPrivateResponse&&isDcbEligible(req)){
    const dcbPayload=compressDcb(Buffer.from(prepared,'utf8'));
    res.setHeader('Content-Encoding','dcb');
    res.setHeader('Vary','Accept-Encoding, Available-Dictionary, Sec-Purpose');
@@ -90,7 +94,7 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
   }
   return send(prepared);
  };
- res.locals.publicHtml={prepare,send:customSend};
+ res.locals.publicHtml={prepare:body=>{res.locals.__gaeruHtmlPrepared=true;return prepare(body);},send:customSend};
  res.send=customSend;
  const internal=legacy(req.originalUrl);if(internal)req.url=internal;next();
 }}

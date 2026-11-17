@@ -13,8 +13,16 @@ const gzip = promisify(zlib.gzip);
 const cacheEvents = new EventEmitter();
 cacheEvents.setMaxListeners(1000);
 
-// Đổi mới mỗi khi sửa code và restart server -> Ép trình duyệt bỏ bản HTML cũ ngay lập tức
-const BOOT_ID = Date.now().toString(36);
+// Đổi mới mỗi khi sửa code và restart server -> Ép trình duyệt bỏ bản HTML cũ ngay lập tức (đồng bộ giữa các worker cluster)
+const BOOT_ID = (process.env.GAERU_CLUSTER_BOOT_ID && String(process.env.GAERU_CLUSTER_BOOT_ID).trim()) || Date.now().toString(36);
+
+function etagMatches(ifNoneMatch, currentEtag) {
+  if (!ifNoneMatch || !currentEtag) return false;
+  const raw = String(ifNoneMatch).trim();
+  if (raw === '*') return true;
+  const target = String(currentEtag).trim().replace(/^W\//i, '');
+  return raw.split(',').some((part) => part.trim().replace(/^W\//i, '') === target);
+}
 
 // GAERU PERF-02: Dynamic L1 RAM Cache Configuration
 const defaultMaxEntries = process.arch === 'arm64' ? 1500 : 20000;
@@ -278,7 +286,7 @@ function withCache(keyBuilder, tagsBuilder, fetchFn, ttl) {
         res.setHeader('Cache-Tag', tags.join(','));
       }
 
-      if (req.headers['if-none-match'] === etag) {
+      if (etagMatches(req.headers['if-none-match'], etag)) {
         return res.status(304).end();
       }
 
@@ -392,7 +400,7 @@ function smartPageCache(swrMs = 60000) {
       if (isDcbEligible(req)) {
         if (hit.dcb) {
           res.setHeader('ETag', hit.dcbEtag);
-          if (req.headers['if-none-match'] === hit.dcbEtag) {
+          if (etagMatches(req.headers['if-none-match'], hit.dcbEtag)) {
             return res.status(304).end();
           }
           res.setHeader('Content-Encoding', 'dcb');
@@ -415,11 +423,11 @@ function smartPageCache(swrMs = 60000) {
             .finally(() => { hit.dcbPending = null; });
         }
       }
-      if (req.headers['if-none-match'] === hit.etag) {
+      res.setHeader('ETag', hit.etag);
+      if (etagMatches(req.headers['if-none-match'], hit.etag)) {
         return res.status(304).end();
       }
 
-      res.setHeader('ETag', hit.etag);
       res.setHeader('X-Cache', 'HIT-FRESH-RAM');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
 

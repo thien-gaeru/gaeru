@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
+const { LRUCache } = require('lru-cache');
 
 const COMPRESS_THRESHOLD = 1024;
 const SKIP_CACHE_FILES = new Set(['account.js', 'checkout.js', 'cart.js', 'payment-result.js']);
@@ -12,8 +13,17 @@ const TEXT_ASSET_MIME = {
   '.js': 'text/javascript; charset=utf-8'
 };
 const HASHED_FILENAME_RE = /-[0-9a-f]{8,32}\.(?:js|css)$/i;
+const IS_ARM64 = process.arch === 'arm64';
+const STATIC_ASSET_MAX_BYTES = Math.max(
+  2 * 1024 * 1024,
+  Number.parseInt(process.env.STATIC_ASSET_CACHE_MAX_BYTES || '', 10) || (IS_ARM64 ? 16 * 1024 * 1024 : 32 * 1024 * 1024)
+);
 
-const assetCache = new Map();
+const assetCache = new LRUCache({
+  max: 500,
+  maxSize: STATIC_ASSET_MAX_BYTES,
+  sizeCalculation: (entry) => (entry?.raw?.length || 0) + (entry?.gzip?.length || 0) + (entry?.br?.length || 0) + 256
+});
 
 function buildEntry(fullPath, ext, stat) {
   const raw = fs.readFileSync(fullPath);

@@ -620,7 +620,7 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
             const tags = Array.isArray(payload.tags) ? payload.tags : [];
 
             // Nếu nhãn liên quan đến danh mục/sản phẩm hoặc toàn cục, tự động làm mới menu và chân trang
-            if (tags.some(t => ['catalog', 'product:list', 'search-index', '*'].includes(t))) {
+            if (tags.some(t => ['catalog', 'product:list', 'products', 'promotions', 'search-index', '*'].includes(t))) {
               if (typeof refreshMenuProducts === 'function') {
                 refreshMenuProducts({ fresh: true });
               }

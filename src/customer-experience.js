@@ -319,20 +319,24 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
            RETURNING id, full_name AS "fullName", email, phone, email_verified_at IS NOT NULL AS "emailVerified"`,
           [req.customerId, a.fullName, newPhone, newEmail, phoneUpdated, emailUpdated]
         )).rows[0];
+        let updatedSecurityVersion = null;
         if (customer && (phoneUpdated || emailUpdated)) {
-          await client.query(
+          const secRow = (await client.query(
             `UPDATE account_security
              SET email = CASE WHEN $2::boolean THEN $3 ELSE email END,
                  phone = CASE WHEN $4::boolean THEN $5 ELSE phone END,
                  version = version + 1,
                  updated_at = now()
-             WHERE account_key = $1`,
+             WHERE account_key = $1
+             RETURNING version`,
             ['customer:' + req.customerId, emailUpdated, newEmail, phoneUpdated, newPhone]
-          );
+          )).rows[0];
+          if (Number.isInteger(secRow?.version)) updatedSecurityVersion = secRow.version;
         }
-        return { status: 200, customer };
+        return { status: 200, customer, updatedSecurityVersion };
       });
       if (result.customer) req.session.customer = result.customer;
+      if (Number.isInteger(result.updatedSecurityVersion)) req.session.securityVersion = result.updatedSecurityVersion;
       res.status(result.status).json(result.error ? { error: result.error } : { customer: result.customer });
     } catch (e) {
       next(e);

@@ -106,7 +106,7 @@ function createAdminAuthRouter(config, pool) {
     } catch (error) { next(error); }
   });
 
-  router.post('/activity', rateLimit({windowMs:15*60*1000,limit:300,standardHeaders:'draft-8',legacyHeaders:false}), requireCsrf, async(req,res,next)=>{
+  router.post('/activity', rateLimit({...require('./security-hardening').sharedStore(pool,config,'admin-activity'),windowMs:15*60*1000,limit:300,standardHeaders:'draft-8',legacyHeaders:false}), requireCsrf, async(req,res,next)=>{
     try {
       if(!await resolveAdminSession(req,pool,config)) return res.status(401).json({error:'Phiên quản trị đã kết thúc. Vui lòng đăng nhập lại.'});
       res.status(204).end();

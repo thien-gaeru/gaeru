@@ -76,7 +76,8 @@ async function warmUpCache(pool) {
       }
     }
 
-    if (pool && pool.__gaeruCacheHooked && process.env.MEDIA_CACHE_ENABLED !== 'false') {
+    const isPrimarySlot = !process.env.CLUSTER_WORKER || String(process.env.WORKER_INDEX || '0') === '0';
+    if (isPrimarySlot && pool && pool.__gaeruCacheHooked && process.env.MEDIA_CACHE_ENABLED !== 'false') {
       const t = setTimeout(() => { warmHotImagesInBackground(pool, products); }, 50);
       if (typeof t.unref === 'function') t.unref();
     }

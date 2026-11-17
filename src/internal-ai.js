@@ -1354,23 +1354,33 @@ Quy tắc cốt lõi:
         const p = row.payload || {};
 
         if (row.actionType === 'create_voucher') {
-          await client.query(`
+          const insertRes = await client.query(`
             INSERT INTO marketing_vouchers (code, title, kind, amount, min_spend_vnd, starts_at, ends_at, total_limit, active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
-            ON CONFLICT (code) DO UPDATE
-            SET title = $2, kind = $3, amount = $4, min_spend_vnd = $5, starts_at = $6, ends_at = $7, total_limit = $8, active = true
+            ON CONFLICT (code) DO NOTHING
+            RETURNING id
           `, [p.code, p.title, p.kind, p.amount, p.minSpendVnd || 0, p.startsAt, p.endsAt, p.totalLimit || 50]);
+          const inserted = insertRes?.rows?.[0];
+          if (!inserted && insertRes?.rowCount !== 1) {
+            return { status: 409, body: { error: `Mã giảm giá ${p.code} đã tồn tại trên hệ thống.` } };
+          }
 
-          result = { success: true, message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
+          result = { success: true, ...(inserted?.id ? { voucherId: inserted.id } : {}), message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
         } else if (row.actionType === 'cancel_voucher') {
           await client.query('UPDATE marketing_vouchers SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.voucherId]);
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, active: false }); } catch (_) {}
           try { require('./cache').flushAllCache(); } catch (_) {}
           result = { success: true, message: `Đã dừng kích hoạt mã voucher ${p.code} thành công!`, voucherId: p.voucherId, actionType: 'cancel_voucher' };
         } else if (row.actionType === 'delete_voucher') {
+          const existingVoucher = (await client.query('SELECT id FROM marketing_vouchers WHERE id=$1 FOR UPDATE', [p.voucherId])).rows[0];
+          if (!existingVoucher) {
+            return { status: 404, body: { error: `Mã voucher ${p.code || ''} không tồn tại hoặc đã bị xóa.` } };
+          }
+          if ((await client.query('SELECT 1 FROM voucher_redemptions WHERE voucher_id=$1 LIMIT 1', [p.voucherId])).rows.length) {
+            return { status: 409, body: { error: 'Voucher đã phát sinh lịch sử áp dụng trên đơn hàng; hãy chọn Tạm dừng thay vì xóa vĩnh viễn để bảo toàn đối soát đơn hàng.' } };
+          }
           await client.query('UPDATE marketing_campaigns SET voucher_id=NULL WHERE voucher_id=$1', [p.voucherId]);
           await client.query('DELETE FROM customer_vouchers WHERE voucher_id=$1', [p.voucherId]);
-          await client.query('DELETE FROM voucher_redemptions WHERE voucher_id=$1', [p.voucherId]);
           await client.query('DELETE FROM marketing_vouchers WHERE id=$1', [p.voucherId]);
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, deleted: true }); } catch (_) {}
           try { require('./cache').flushAllCache(); } catch (_) {}

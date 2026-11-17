@@ -127,7 +127,7 @@ function scheduleWorker(fn, delayMs) {
 
 async function start() {
   const port = Number.parseInt(process.env.PORT, 10) || config.PORT || 3000;
-  const host = "0.0.0.0";
+  const host = String(process.env.BIND_HOST || process.env.HOST || "0.0.0.0").trim() || "0.0.0.0";
 
   // Phase 1: Open HTTP listener immediately (< 300ms) to satisfy Hostinger 3s watchdog.
   // The Readiness Gate holds business traffic with 503 Retry-After until Phase 2 finishes.
@@ -158,9 +158,9 @@ async function start() {
   const backgroundJobsEnabled = String(process.env.BACKGROUND_JOBS_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
   const isBackgroundWorker = backgroundJobsEnabled && (!process.env.CLUSTER_WORKER || process.env.WORKER_INDEX === '0');
   if (isBackgroundWorker) {
-    scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(highPriorityPool, config); }, 0);
-    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(highPriorityPool, config); }, 500);
-    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(highPriorityPool, config); }, 1000);
+    scheduleWorker(() => { stopOrderEmail = require("./order-email").startOrderEmailWorker(lowPriorityPool, config); }, 0);
+    scheduleWorker(() => { stopWarrantyEmail = require("./warranty-email").startWarrantyEmailWorker(lowPriorityPool, config); }, 500);
+    scheduleWorker(() => { stopCareEmail = require("./care-api").startCareEmailWorker(lowPriorityPool, config); }, 1000);
     scheduleWorker(() => { stopAIChat = require('./shopping-chat-ai-first').startAIChatWorker(lowPriorityPool, config); }, 1500);
     scheduleWorker(() => { stopChatEmail = require('./shopping-chat-email').startChatEmailWorker(lowPriorityPool, config); }, 2000);
     scheduleWorker(() => { stopChatCompression = require('./shopping-chat-compression').startChatCompressionWorker(lowPriorityPool); }, 2500);
@@ -240,7 +240,7 @@ async function start() {
   }
 
   // Cache warmup and database TLS verification
-  try { require('./lib/cache-warmup').warmUpCache(highPriorityPool).catch(() => {}); } catch (_) {}
+  try { require('./lib/cache-warmup').warmUpCache(lowPriorityPool).catch(() => {}); } catch (_) {}
   inspectDatabaseTls(pool, config)
     .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
     .catch(() => console.log("Database TLS active: unavailable"));

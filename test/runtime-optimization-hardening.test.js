@@ -887,4 +887,156 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     assert.equal(dbUnqualified.status, 200);
     assert.match(String(dbUnqualified.headers.vary || ""), /\bAccept\b/i);
   });
+
+  test("audit fixes: ETag on 304, weak ETag, no double enrich with req.sitePage, DCB private guard, Free Cloudflare purge", async (t) => {
+    const { cleanRoutes, staticHtml } = require("../src/clean-routes");
+    const { EdgePurgeService } = require("../src/lib/edge-purge");
+
+    // 1. ETag on 304 + weak ETag matching + no double enrich with req.sitePage
+    flushAllCache();
+    const app = express();
+    app.use((req, _res, next) => {
+      if (req.path === "/cua-hang") {
+        req.sitePage = { title: "Cửa hàng SEO", description: "Mô tả SEO tùy chỉnh" };
+      }
+      next();
+    });
+    app.use(cleanRoutes("https://gaeru.com"));
+    app.use(smartPageCache(60_000));
+    app.use(staticHtml);
+
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    t.after(() => new Promise((r) => server.close(r)));
+    const base = "http://127.0.0.1:" + server.address().port;
+
+    const first = await httpRequest(`${base}/cua-hang`);
+    assert.equal(first.status, 200);
+    const html = first.body.toString("utf8");
+    const jsonLdCount = (html.match(/application\/ld\+json/g) || []).length;
+    assert.equal(jsonLdCount, 2, "req.sitePage must enrich once cleanly without duplicating JSON-LD");
+    const etag = first.headers.etag;
+    assert.ok(etag);
+
+    await new Promise((r) => setTimeout(r, 40));
+    const weakNotModified = await httpRequest(`${base}/cua-hang`, { "If-None-Match": `W/${etag}` });
+    assert.equal(weakNotModified.status, 304);
+    assert.equal(weakNotModified.headers.etag, etag);
+
+    // 2. DCB must never overwrite private/no-store HTML routes even if ENABLE_DCB=true
+    const prevDcb = process.env.ENABLE_DCB;
+    process.env.ENABLE_DCB = "true";
+    t.after(() => {
+      if (prevDcb === undefined) delete process.env.ENABLE_DCB;
+      else process.env.ENABLE_DCB = prevDcb;
+    });
+    const privApp = express();
+    privApp.use((_req, res, next) => {
+      res.set({ "Cache-Control": "private, no-store, max-age=0" });
+      res.vary("Cookie");
+      next();
+    });
+    privApp.use(cleanRoutes("https://gaeru.com"));
+    privApp.use(smartPageCache(60_000));
+    privApp.use(staticHtml);
+    const privSrv = privApp.listen(0, "127.0.0.1");
+    await new Promise((r) => privSrv.once("listening", r));
+    t.after(() => new Promise((r) => privSrv.close(r)));
+    const privBase = "http://127.0.0.1:" + privSrv.address().port;
+    const privRes = await httpRequest(`${privBase}/tai-khoan`, {
+      "Accept-Encoding": "dcb, br, gzip",
+      "Available-Dictionary": require("../src/lib/compression-dictionary").getDictionaryInfo().hashBase64Formatted
+    });
+    assert.equal(privRes.status, 200);
+    assert.match(String(privRes.headers["cache-control"] || ""), /no-store/);
+    assert.match(String(privRes.headers.vary || ""), /Cookie/i);
+    assert.notEqual(privRes.headers["content-encoding"], "dcb");
+
+    // 3. EdgePurgeService defaults to Cloudflare Free URL file purge instead of Enterprise tags
+    const sentBodies = [];
+    const purgeSvc = new EdgePurgeService({
+      zoneId: "zone-test",
+      apiToken: "tok-test",
+      fetcher: async (_url, opts) => {
+        sentBodies.push(JSON.parse(opts.body));
+        return { ok: true, status: 200, json: async () => ({ success: true }) };
+      }
+    });
+    await purgeSvc.purgeProduct("gaeru-k9");
+    assert.ok(Array.isArray(sentBodies[0].files));
+    assert.equal(sentBodies[0].tags, undefined);
+    assert.ok(sentBodies[0].files.includes("https://gaeru.com/san-pham/gaeru-k9"));
+  });
+
+  test("audit fixes: commerce.js, shopping-chat-client, customer profile securityVersion, and AI voucher guards", async () => {
+    const commerceSrc = fs.readFileSync(path.join(__dirname, "..", "commerce.js"), "utf8");
+    assert.match(commerceSrc, /product\.slug === "gaeru-k9"/);
+    assert.match(commerceSrc, /product\.slug === "gaeru-g1-ultra"/);
+    assert.match(commerceSrc, /fetchCsrfToken/);
+    assert.ok(
+      commerceSrc.indexOf("Liên kết cổng thanh toán không hợp lệ") < commerceSrc.indexOf("if (!purchase.direct) writeCart([]);") ||
+      commerceSrc.includes("if (!purchase.direct) writeCart([]);\n        location.assign(safePayUrl);") ||
+      commerceSrc.includes("if (!purchase.direct) writeCart([]);\r\n        location.assign(safePayUrl);"),
+      "commerce.js must validate safePayUrl before clearing local cart"
+    );
+
+    const chatSrc = fs.readFileSync(path.join(__dirname, "..", "shopping-chat-client.js"), "utf8");
+    assert.match(chatSrc, /rootAbort\?\.abort/);
+    assert.match(chatSrc, /sendEpoch!==sessionEpoch/);
+    assert.match(chatSrc, /orphanBlobUrls/);
+
+    // Customer profile email/phone clear must keep req.session.securityVersion in sync with account_security.version
+    const { createCustomerExperience } = require("../src/customer-experience");
+    const fakePool = {
+      async connect() {
+        return {
+          async query(sql) {
+            const s = String(sql);
+            if (s.includes("SELECT email,phone,phone_invalid_at")) {
+              return { rows: [{ email: "old@example.com", phone: "0000000000", phone_invalid_at: new Date(), reg_email_failed_at: null, password_hash: null }] };
+            }
+            if (s.includes("UPDATE customers")) {
+              return { rows: [{ id: "c1", fullName: "Test", email: "old@example.com", phone: "0912345678", emailVerified: true }] };
+            }
+            if (s.includes("UPDATE account_security")) {
+              return { rows: [{ version: 4 }] };
+            }
+            return { rows: [], rowCount: 0 };
+          },
+          release() {}
+        };
+      },
+      async query(sql) {
+        const s = String(sql);
+        if (s.includes("FROM customers WHERE id=$1 AND active=true")) {
+          return { rows: [{ id: "c1" }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }
+    };
+    const app = express();
+    app.use(express.json());
+    const reqSession = { customer: { id: "c1" }, securityVersion: 3, csrfToken: "tok" };
+    app.use((req, _res, next) => { req.session = reqSession; next(); });
+    app.use("/api/customer", createCustomerExperience(fakePool));
+    const srv = app.listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    try {
+      const port = srv.address().port;
+      const res = await fetch(`http://127.0.0.1:${port}/api/customer/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": "tok" },
+        body: JSON.stringify({ fullName: "Test", phone: "0912345678", email: "old@example.com" })
+      });
+      assert.equal(res.status, 200);
+      assert.equal(reqSession.securityVersion, 4);
+    } finally {
+      await new Promise((r) => srv.close(r));
+    }
+
+    // Internal AI delete_voucher and create_voucher guards
+    const aiSrc = fs.readFileSync(path.join(__dirname, "..", "src", "internal-ai.js"), "utf8");
+    assert.match(aiSrc, /ON CONFLICT \(code\) DO NOTHING/);
+    assert.match(aiSrc, /SELECT 1 FROM voucher_redemptions WHERE voucher_id=\$1 LIMIT 1/);
+  });
 }

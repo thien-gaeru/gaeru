@@ -25,6 +25,7 @@ const STOP_FILE = path.join(LOGS_DIR, 'stop.signal');
 const CLUSTER_PID_FILE = path.join(LOGS_DIR, 'cluster.pid');
 
 const SERVER_PORT = parseInt(process.env.PORT || '3000', 10);
+const CLUSTER_BOOT_ID = (process.env.GAERU_CLUSTER_BOOT_ID && String(process.env.GAERU_CLUSTER_BOOT_ID).trim()) || Date.now().toString(36);
 // Hỗ trợ CLUSTER_WORKERS hoặc WORKERS từ app.env để khai thác hết các nhân khi tối ưu web trên Mi 6
 const DEFAULT_WORKER_COUNT = Math.min(4, Math.max(2, (os.cpus()?.length || 4) >= 4 ? 2 : 1));
 const NUM_WORKERS = Math.max(1, Math.min(8, parseInt(process.env.CLUSTER_WORKERS || process.env.WORKERS || String(DEFAULT_WORKER_COUNT), 10) || DEFAULT_WORKER_COUNT));
@@ -116,6 +117,7 @@ function spawnWorker(workerIndex) {
     CLUSTER_WORKER: '1',
     CLUSTER_ENABLED: 'true',
     WORKER_INDEX: String(workerIndex),
+    GAERU_CLUSTER_BOOT_ID: CLUSTER_BOOT_ID,
     PORT: String(SERVER_PORT)
   };
 
@@ -166,6 +168,7 @@ async function executeRollingReload() {
           CLUSTER_WORKER: '1',
           CLUSTER_ENABLED: 'true',
           WORKER_INDEX: String(i),
+          GAERU_CLUSTER_BOOT_ID: CLUSTER_BOOT_ID,
           PORT: String(SERVER_PORT)
         });
         newWorker.workerIndex = i;

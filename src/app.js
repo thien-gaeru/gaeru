@@ -220,7 +220,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", require('./speculation-policy').cspHash, "'sha256-WikgKY9oGvw1tmT0FTW+IXpDEVQS7+62LaajKhnujEg='", "https://challenges.cloudflare.com", "https://static.cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://www.googletagmanager.com", "https://*.googletagmanager.com"],
+        scriptSrc: ["'self'", require('./speculation-policy').cspHash, "https://challenges.cloudflare.com", "https://static.cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://www.googletagmanager.com", "https://*.googletagmanager.com"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://img.vietqr.io", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.googletagmanager.com"],
@@ -325,7 +325,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
   app.use("/api/customer-auth/oauth", customerOAuthRouter);
   if (customerOAuthRouter.handleRedirectCallback) {
-    app.post(['/auth/google', '/account.html', '/tai-khoan', '/account'], express.urlencoded({ extended: false, limit: '32kb' }), customerOAuthRouter.handleRedirectCallback);
+    const gisRedirectMiddlewares = [
+      ...(customerOAuthRouter.oauthLimit ? [customerOAuthRouter.oauthLimit] : []),
+      express.urlencoded({ extended: false, limit: '32kb' }),
+      customerOAuthRouter.handleRedirectCallback
+    ];
+    app.post(['/auth/google', '/account.html', '/tai-khoan', '/account'], ...gisRedirectMiddlewares);
   }
   app.get('/account/link-required', (req, res) => {
     res.set('Cache-Control', 'no-store');

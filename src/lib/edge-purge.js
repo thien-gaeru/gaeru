@@ -77,21 +77,73 @@ class EdgePurgeService {
     const cleanTags = tags.map(t => String(t).trim().toLowerCase()).filter(Boolean);
     if (cleanTags.length === 0) return { skipped: true };
 
-    return this.sendPurgeRequest({ tags: cleanTags });
+    if (process.env.CLOUDFLARE_TAG_PURGE === 'true') {
+      return this.sendPurgeRequest({ tags: cleanTags });
+    }
+
+    const base = require('../primary-domain').normalizePublicBase(process.env.PUBLIC_BASE_URL || 'https://gaeru.com');
+    const urlSet = new Set();
+    for (const tag of cleanTags) {
+      if (tag === 'catalog' || tag === 'gaeru-catalog' || tag === 'products' || tag === 'product:list' || tag === 'search-index' || tag === 'promotions' || tag === 'gaeru-html' || tag === '*') {
+        urlSet.add(`${base}/`);
+        urlSet.add(`${base}/cua-hang`);
+        urlSet.add(`${base}/api/products`);
+        urlSet.add(`${base}/api/search-index.json`);
+      }
+      if (tag.startsWith('gaeru-product-')) {
+        const slug = tag.slice('gaeru-product-'.length);
+        if (slug) {
+          urlSet.add(`${base}/san-pham/${encodeURIComponent(slug)}`);
+          urlSet.add(`${base}/api/products/${encodeURIComponent(slug)}`);
+        }
+      }
+      if (tag === 'news' || tag === '*') {
+        urlSet.add(`${base}/tin-tuc`);
+        urlSet.add(`${base}/api/news?page=1`);
+      }
+    }
+    const urls = [...urlSet].slice(0, 30);
+    if (!urls.length) return { skipped: true, reason: 'CLOUDFLARE_FREE_NO_TAG_MAPPING' };
+    return this.purgeUrls(urls);
   }
 
   async purgeProduct(slug) {
     const cleanSlug = String(slug || '').trim().toLowerCase();
-    const tags = [
-      'gaeru-catalog',
-      cleanSlug ? `gaeru-product-${cleanSlug}` : null
-    ].filter(Boolean);
-
-    return this.purgeTags(tags);
+    if (process.env.CLOUDFLARE_TAG_PURGE === 'true') {
+      const tags = [
+        'gaeru-catalog',
+        cleanSlug ? `gaeru-product-${cleanSlug}` : null
+      ].filter(Boolean);
+      return this.sendPurgeRequest({ tags });
+    }
+    const base = require('../primary-domain').normalizePublicBase(process.env.PUBLIC_BASE_URL || 'https://gaeru.com');
+    const urls = [
+      `${base}/`,
+      `${base}/cua-hang`,
+      `${base}/api/products`,
+      `${base}/api/search-index.json`
+    ];
+    if (cleanSlug) {
+      urls.push(
+        `${base}/san-pham/${encodeURIComponent(cleanSlug)}`,
+        `${base}/api/products/${encodeURIComponent(cleanSlug)}`
+      );
+    }
+    return this.purgeUrls(urls);
   }
 
   async purgeCatalog() {
-    return this.purgeTags(['gaeru-catalog', 'gaeru-html']);
+    if (process.env.CLOUDFLARE_TAG_PURGE === 'true') {
+      return this.sendPurgeRequest({ tags: ['gaeru-catalog', 'gaeru-html'] });
+    }
+    const base = require('../primary-domain').normalizePublicBase(process.env.PUBLIC_BASE_URL || 'https://gaeru.com');
+    return this.purgeUrls([
+      `${base}/`,
+      `${base}/cua-hang`,
+      `${base}/tin-tuc`,
+      `${base}/api/products`,
+      `${base}/api/search-index.json`
+    ]);
   }
 
   async purgeUrls(urls) {

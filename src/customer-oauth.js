@@ -268,6 +268,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   const resolvedOAuthClient = oauthClient || config.oauthClient || null;
   const router = Router();
   const oauthLimit = rateLimit({
+    ...require('./security-hardening').sharedStore(pool, config, 'customer-oauth'),
     windowMs: 60 * 1000,
     limit: 30,
     standardHeaders: 'draft-8',
@@ -673,6 +674,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   router.post('/link-google', requireCsrf, handleLinkGoogle);
   router.post('/unlink-google', requireCsrf, handleUnlinkGoogle);
 
+  router.oauthLimit = oauthLimit;
   router.handleRedirectCallback = handleRedirectCallback;
   router.handleGisRedirect = handleRedirectCallback;
   router.handleLinkGoogle = handleLinkGoogle;

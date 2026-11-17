@@ -14,7 +14,9 @@
     mic: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>'
   };
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[], pendingUploads=new Map(), hdOriginalMode=false, activeUploadAbort=null, uploadCancelled=false, voiceState=null;
+    let stopped=false, sessionEpoch=0, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], orphanBlobUrls=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[], pendingUploads=new Map(), hdOriginalMode=false, activeUploadAbort=null, uploadCancelled=false, voiceState=null;
+    const rootAbort=typeof AbortController==='function'?new AbortController():null;
+    const rootListenerOpts=rootAbort?{signal:rootAbort.signal}:undefined;
     const quickReplies = admin ? []      : [
           'Tư vấn chọn phiên bản phù hợp',
           'Kiểm tra tồn kho & ưu đãi',
@@ -363,14 +365,16 @@
     function setClosed(){const closed=thread?.status==='closed';send.disabled=closed;form.elements.body.disabled=closed;plus.disabled=closed;actions.querySelectorAll('button:not([data-chat-hotline])').forEach(b=>b.disabled=closed);root.querySelectorAll('[data-quick-reply]').forEach(b=>b.disabled=closed);syncSupport();}
     async function refresh(before){
       if(stopped||busy||!id)return;busy=true;
+      const myEpoch=sessionEpoch;
       try{
         const confirmedNodes=[...messages.querySelectorAll('[data-message-id]')];
         const first=!confirmedNodes.length,last=confirmedNodes.at(-1)?.dataset.messageId;
-        let d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped)return;
-        if(!before&&!first&&thread&&d.thread.version!==thread.version&&!d.messages.length){d=await request(base+'/'+id+'/messages');messages.replaceChildren();confirmedNodes.length=0;}
+        let d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped||myEpoch!==sessionEpoch)return;
+        if(!before&&!first&&thread&&d.thread.version!==thread.version&&!d.messages.length){d=await request(base+'/'+id+'/messages');if(stopped||myEpoch!==sessionEpoch)return;messages.replaceChildren();confirmedNodes.length=0;}
         thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
         const near=nearBottom(),oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set(confirmedNodes.map(e=>e.dataset.messageId));
         for(const m of d.messages){if(m.requestKey){const opt=messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(m.requestKey):m.requestKey}"]`);if(opt)opt.remove();}}
+        if(orphanBlobUrls.length&&d.messages.length){for(const ob of orphanBlobUrls.splice(0))release(ob);}
         const newMessages=d.messages.filter(m=>!known.has(String(m.id)));
         const html=newMessages.map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);
@@ -396,12 +400,13 @@
     }
 
     root.addEventListener('click',async event=>{
+      if(stopped)return;
       const button=event.target.closest('[data-chat-delete-file]');if(!button||!admin||!window.GAERUAdmin?.can('chat.files.delete'))return;
       const okDelFile=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.',{danger:true,confirmText:'Xóa tệp'}):window.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.'));if(!okDelFile)return;
       button.disabled=true;
       try{const result=await request(base+'/'+id+'/files/'+encodeURIComponent(button.dataset.chatDeleteFile),{method:'DELETE',body:JSON.stringify({confirm:true})});feedback.textContent=result.message;messages.replaceChildren();await refresh();}
       catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}
-    });
+    },rootListenerOpts);
     const quickToggle=root.querySelector('[data-chat-quick-toggle]'),quickList=root.querySelector('[data-chat-quick-list]');
     function collapseQuickReplies(){
       if(quickList&&quickToggle){
@@ -704,17 +709,22 @@
         feedback.textContent='Đang chuẩn bị và tải lên '+queuedFiles.length+' tệp...';
       }
 
+      const sendEpoch=sessionEpoch;
       bgChain=bgChain.then(async()=>{
+        if(stopped||sendEpoch!==sessionEpoch)return;
         try{
           const firstBody=textBody||'Tôi gửi tệp để được tư vấn.';
           if(!id){
             const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:firstBody,requestKey:msgKey})});
+            if(stopped||sendEpoch!==sessionEpoch)return;
             id=d.thread.id; poll?.setStreamUrl?.(base+'/'+id+'/realtime-sse');
           }else if(textBody){
             await request(base+'/'+id+'/messages',{method:'POST',body:JSON.stringify({body:textBody,requestKey:msgKey})});
+            if(stopped||sendEpoch!==sessionEpoch)return;
           }
           if(!queuedFiles.length)scheduleFastAIRefresh();
         }catch(error){
+          if(stopped||sendEpoch!==sessionEpoch)return;
           syncAiTypingIndicator(false);
           if(queuedFiles.length){
             if(!id){
@@ -741,11 +751,13 @@
         let anySuccess=false;
         const uploadedItems=[];
         for(let idx=0;idx<queuedFiles.length;idx++){
+          if(stopped||sendEpoch!==sessionEpoch)break;
           const item=queuedFiles[idx];
           const displayName=item.file?.name||item.safeName||'tệp';
           feedback.textContent='Đang tải tệp ('+(idx+1)+'/'+queuedFiles.length+'): '+displayName+'...';
           try{
             await uploadFileInBackground(id,item,idx,queuedFiles.length);
+            if(stopped||sendEpoch!==sessionEpoch)break;
             uploadedItems.push(item);
             anySuccess=true;
 
@@ -760,6 +772,7 @@
             const fileContent='<div class="chat-file-wrap" data-file-wrap>'+preview+'</div>';
             insertOptimisticBubble(item.key,new Date().toLocaleString('vi-VN'),'',fileContent);
           }catch(fileErr){
+            if(stopped||sendEpoch!==sessionEpoch)break;
             if(uploadCancelled||fileErr?.name==='AbortError'){
               const remaining=queuedFiles.slice(idx);
               if(remaining.length){
@@ -777,9 +790,17 @@
             try{feedback.scrollIntoView?.({block:'nearest'});}catch{}
           }
         }
-        try{await refresh();}finally{for(const item of uploadedItems)release(item);}
-        if(!admin&&thread?.aiPending)scheduleFastAIRefresh();
-        if(anySuccess&&uploadedItems.length===queuedFiles.length)feedback.textContent='';
+        let refreshed=false;
+        if(!stopped&&sendEpoch===sessionEpoch){
+          try{await refresh();refreshed=true;}catch(_){}
+        }
+        if(refreshed||stopped||sendEpoch!==sessionEpoch){
+          for(const item of uploadedItems)release(item);
+        }else if(uploadedItems.length){
+          orphanBlobUrls.push(...uploadedItems);
+        }
+        if(!stopped&&sendEpoch===sessionEpoch&&!admin&&thread?.aiPending)scheduleFastAIRefresh();
+        if(!stopped&&sendEpoch===sessionEpoch&&anySuccess&&uploadedItems.length===queuedFiles.length)feedback.textContent='';
       });
     }
 
@@ -820,8 +841,15 @@
     }
     function startNewChatSession(){
       if(admin)return;
+      sessionEpoch++;
+      uploadCancelled=true;
+      try{activeUploadAbort?.abort?.();}catch{}
       clearFastAiTimers();
       syncAiTypingIndicator(false);
+      for(const entry of pendingUploads.values())release(entry?.item);
+      pendingUploads.clear();
+      orphanBlobUrls.splice(0).forEach(release);
+      files.forEach(release);files=[];renderFiles();
       id=null;thread=null;poll?.setStreamUrl?.(null);
       messages.innerHTML='';
       root.querySelector('[data-chat-earlier]').hidden=true;
@@ -1002,28 +1030,31 @@
     });
     let dragDepth=0;
     root.addEventListener?.('dragenter',event=>{
-      if(!event.dataTransfer?.types?.includes?.('Files')||thread?.status==='closed')return;
+      if(stopped||!event.dataTransfer?.types?.includes?.('Files')||thread?.status==='closed')return;
       event.preventDefault();
       dragDepth++;
       root.classList.add('is-dragover');
-    });
+    },rootListenerOpts);
     root.addEventListener?.('dragover',event=>{
-      if(!event.dataTransfer?.types?.includes?.('Files')||thread?.status==='closed')return;
+      if(stopped||!event.dataTransfer?.types?.includes?.('Files')||thread?.status==='closed')return;
       event.preventDefault();
       root.classList.add('is-dragover');
-    });
+    },rootListenerOpts);
     root.addEventListener?.('dragleave',()=>{
+      if(stopped)return;
       dragDepth=Math.max(0,dragDepth-1);
       if(!dragDepth)root.classList.remove('is-dragover');
-    });
+    },rootListenerOpts);
     root.addEventListener?.('drop',event=>{
+      if(stopped)return;
       dragDepth=0;
       root.classList.remove('is-dragover');
       if(!event.dataTransfer?.files?.length||thread?.status==='closed')return;
       event.preventDefault();
       addRawFiles([...event.dataTransfer.files]);
-    });
+    },rootListenerOpts);
     root.addEventListener('click',event=>{
+      if(stopped)return;
       const lightImg=event.target.closest('img[data-chat-lightbox-src]');
       if(lightImg){
         event.preventDefault();
@@ -1075,7 +1106,7 @@
       else if(event.target.closest('[data-inline-handoff],[data-chat-human]'))void requestHuman();
       else if(event.target.closest('[data-chat-end]'))void endChatSession();
       else if(event.target.closest('[data-chat-new]'))startNewChatSession();
-    });
+    },rootListenerOpts);
     const supportTimer=setInterval(()=>{if(!stopped)syncSupport();},1000);
     if(!admin)void loadCapabilities();
     const updateLiveStatus=(text)=>{
@@ -1099,6 +1130,6 @@
       ? window.GAERUCareLive.poll({streamUrl:id?base+'/'+id+'/realtime-sse':null,delay:2000,active:()=>!stopped&&root.isConnected&&(!root.closest('dialog')||root.closest('dialog').open)&&!root.closest('.view-panel')?.hidden,run:()=>{if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();return refresh();},status:updateLiveStatus})
       : { stop(){} };
     if(id)refresh().catch(e=>feedback.textContent=e.message);
-    return {refresh,stop(){stopped=true;stopVoiceRecording(false);try{activeUploadAbort?.abort?.();}catch{}clearFastAiTimers();clearPickerTimers();activePicker=null;window.removeEventListener?.('focus',onPickerReturn);document.removeEventListener?.('visibilitychange',onPickerReturn);poll.stop();clearInterval(supportTimer);files.forEach(release);files=[];pendingUploads.clear();},get thread(){return thread;}};
+    return {refresh,stop(){stopped=true;sessionEpoch++;try{rootAbort?.abort?.();}catch{}stopVoiceRecording(false);try{activeUploadAbort?.abort?.();}catch{}clearFastAiTimers();clearPickerTimers();activePicker=null;window.removeEventListener?.('focus',onPickerReturn);document.removeEventListener?.('visibilitychange',onPickerReturn);poll.stop();clearInterval(supportTimer);orphanBlobUrls.splice(0).forEach(release);for(const entry of pendingUploads.values())release(entry?.item);pendingUploads.clear();files.forEach(release);files=[];},get thread(){return thread;}};
   }};
 })();
