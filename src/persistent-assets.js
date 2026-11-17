@@ -7,7 +7,7 @@ const {qualifiesForSelectiveAvif,encodeAvif,SAVINGS_RATIO}=require('./lib/select
 const types={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.avif':'image/avif','.ico':'image/x-icon','.mp4':'video/mp4'};
 const valid=relative=>typeof relative==='string'&&/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+$/.test(relative)&&!relative.split('/').some(p=>p==='.'||p==='..')&&Object.hasOwn(types,path.posix.extname(relative).toLowerCase());
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
-const widths=[480,800,1200];
+const widths=[480,800,1200,1600];
 const snapshotCaches=new WeakMap();
 const assetCaches=new WeakMap();
 let snapshotEpoch=0;
@@ -194,18 +194,22 @@ async function warmStaticAssets(pool){
   'products/k9.webp',
   'products/k9-display-480-f7433a67675b.webp',
   'products/k9-display-800-19cce68491be.webp',
+  'products/k9-display-1200-f877678d28f9.webp',
   'products/m3-home-cutout.webp',
   'products/m3-home-cutout-display-480-95e9e4d1416c.webp',
   'products/m3-home-cutout-display-800-2d66fc21b488.webp',
+  'products/m3-home-cutout-display-1200-44fa9ac360ff.webp',
   'products/p01.webp',
   'products/p01-display-480-3006d4ac291d.webp',
   'products/p01-display-800-b1693527696c.webp',
   'products/g1-ultra-874bf1d3db77.webp',
   'products/g1-ultra-874bf1d3db77-display-480-19288308445b.webp',
   'products/g1-ultra-874bf1d3db77-display-800-a5a917ef6f29.webp',
+  'products/g1-ultra-874bf1d3db77-display-1200-2cdd248bb3fc.webp',
   'products/p185-cutout-1cc9dfde9fa3.webp',
   'products/p185-cutout-display-480-0992b5f5e3ed.webp',
-  'products/p185-cutout-display-800-5b0e6749a14c.webp'
+  'products/p185-cutout-display-800-5b0e6749a14c.webp',
+  'products/p185-cutout-display-1200-532b0dc167e2.webp'
  ];
  // GAERU F-05: Startup warmup only prefetches existing bytes into RAM cache; no runtime Sharp/AVIF re-encoding at boot.
  if(filesystem.configured()){
@@ -223,6 +227,7 @@ async function warmStaticAssets(pool){
   try{
    await getPreGeneratedAvif(rel,480);
    await getPreGeneratedAvif(rel,800);
+   await getPreGeneratedAvif(rel,1200);
   }catch{}
  }
  for(const rel of [...m3Paths,...k9Paths]){

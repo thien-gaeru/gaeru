@@ -2,7 +2,7 @@
 function renderM3() {
   const image = (n, alt, eager = false) => {
     const url = `/assets/products/m3-description/${n}.webp`;
-    const sizes = '(max-width: 760px) calc(100vw - 40px), 380px';
+    const sizes = '(max-width: 760px) calc(100vw - 40px), (max-width: 1120px) 54vw, 660px';
     const srcset = `${url}?w=480&format=webp 480w, ${url}?w=800&format=webp 800w, ${url}?format=webp 842w`;
     const avif = `/assets/products/m3-description/${n}-w480.avif 480w, /assets/products/m3-description/${n}-w800.avif 800w, /assets/products/m3-description/${n}.avif 842w`;
     return `<figure><a href="${url}" target="_blank" rel="noopener" aria-label="Xem ảnh lớn: ${alt} (mở trong tab mới)"><picture><source type="image/avif" srcset="${avif}" sizes="${sizes}"><img src="${url}" srcset="${srcset}" sizes="${sizes}" alt="${alt}" width="842" height="${n === 12 ? 507 : 1264}"${eager ? '' : ' loading="lazy"'} decoding="async"></picture></a></figure>`;

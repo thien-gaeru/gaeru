@@ -7,7 +7,7 @@ const { readMedia } = require('./stored-media');
 const { createObjectCache } = require('./object-cache');
 const { qualifiesForSelectiveAvif, encodeAvif, SAVINGS_RATIO } = require('./selective-avif');
 
-const widths = [480, 800, 1200];
+const widths = [480, 800, 1200, 1600];
 const MAX_ROW_CACHE_ENTRIES = process.arch === 'arm64' ? 256 : 512;
 const MAX_ROW_CACHE_BYTES = process.arch === 'arm64' ? 12 * 1024 * 1024 : 24 * 1024 * 1024;
 const MAX_SINGLE_ROW_CACHE_BYTES = 4 * 1024 * 1024;
@@ -188,7 +188,7 @@ async function getCachedImageRow(pool, key, loader) {
 }
 function computeVersion(row, width, format = 'webp') {
   const digest = row._digest || createHash('sha256').update(row.content).update('\0').update(row.mime_type).digest('hex');
-  return createHash('sha256').update(digest).update('\0lossless-display-v1:' + (width || 'original') + (format !== 'webp' ? ':' + format : '')).digest('hex');
+  return createHash('sha256').update(digest).update('\0lossless-display-v2:' + (width || 'original') + (format !== 'webp' ? ':' + format : '')).digest('hex');
 }
 let queuedWarmTasks = 0;
 function getMaxWarmRssBytes() {
@@ -237,7 +237,13 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
         return bounded(async () => {
           warmEncodeCount++;
           const original = await loadOriginal();
-          const encoded = await encodeAvif(original, { width, quality: width <= 480 ? 66 : 68 });
+          const encoded = await encodeAvif(original, {
+            width,
+            quality: width <= 480 ? 78 : (width <= 800 ? 84 : 86),
+            effort: process.arch === 'arm64' ? 4 : 5,
+            chromaSubsampling: '4:4:4',
+            tune: 'ssim'
+          });
           await writeDiskRendition(avifVersion, encoded);
           return encoded;
         });

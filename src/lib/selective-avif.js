@@ -8,7 +8,7 @@ try {
 
 const MIN_AVIF_SOURCE_BYTES = 16 * 1024;
 const SAVINGS_RATIO = 0.88;
-const DEFAULT_AVIF_EFFORT = process.arch === 'arm64' ? 1 : 2;
+const DEFAULT_AVIF_EFFORT = process.arch === 'arm64' ? 3 : 4;
 const DEFAULT_WEBP_EFFORT = process.arch === 'arm64' ? 1 : 2;
 
 function clientSupportsAvif(req) {
@@ -28,7 +28,7 @@ function qualifiesForSelectiveAvif(req, sourceByteSize) {
   return true;
 }
 
-async function encodeAvif(inputBuffer, { width, quality = 68, effort = DEFAULT_AVIF_EFFORT, chromaSubsampling = '4:4:4', tune = 'ssim' } = {}) {
+async function encodeAvif(inputBuffer, { width, quality = 84, effort = DEFAULT_AVIF_EFFORT, chromaSubsampling = '4:4:4', tune = 'ssim' } = {}) {
   let pipeline = sharp(inputBuffer, { limitInputPixels: 24000000 }).rotate();
   if (width) pipeline = pipeline.resize({ width, withoutEnlargement: true });
   return pipeline.avif({ quality, effort, chromaSubsampling, tune }).toBuffer();
