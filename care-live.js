@@ -15,7 +15,7 @@
    }catch(error){
     failures++;
     status(error.status===401||error.status===403?'Phiên hoặc quyền truy cập đã thay đổi. Vui lòng đăng nhập lại.':'Chưa cập nhật được. Đang tự kết nối lại…');
-    if(error.status===401||error.status===403)stopped=true;
+    if(error.status===401||error.status===403){stopped=true;try{eventSource?.close();}catch(_){}eventSource=null;}
    }finally{
     busy=false;
     if(!stopped)schedule(Math.min(30000,delay*2**Math.min(failures,4)));

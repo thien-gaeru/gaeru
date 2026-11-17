@@ -205,7 +205,8 @@
         return;
       }
       if(pager){
-        page+=Number(pager.dataset.chatPage);
+        if(loading)return;
+        page=Math.max(1,page+Number(pager.dataset.chatPage));
         await load();
         return;
       }
@@ -278,7 +279,8 @@
   const updateAdminLiveStatus=(text)=>{const isRealtime=String(text||'').includes('SSE')||String(text||'').includes('Thời gian thực');const badge=root.querySelector('[data-admin-chat-live]');const label=root.querySelector('[data-admin-chat-live-text]');if(badge){badge.classList.toggle('is-fallback',!isRealtime);badge.title=isRealtime?'Thời gian thực (SSE 0ms)':(text||'Tự cập nhật');}if(label){label.textContent=isRealtime?'Trực tuyến':(String(text||'').includes('Mất')?'Mất mạng':'Đang kết nối');}};
   let adminChatPoll=null;
   const syncChatStream=()=>{
-    if(admin.user&&admin.can('customers.read')){
+    const activeStream=Boolean(admin.user&&admin.can('customers.read')&&!root.hidden);
+    if(activeStream){
       if(!adminChatPoll){
         adminChatPoll=window.GAERUCareLive.poll({streamUrl:'/api/gaeru_ceo/realtime-sse',delay:5000,active:()=>!root.hidden&&admin.can('customers.read'),run:load,status:updateAdminLiveStatus});
       }else{
@@ -288,6 +290,7 @@
       adminChatPoll.setStreamUrl(null);
     }
   };
+  new MutationObserver(syncChatStream).observe(root,{attributes:true,attributeFilter:['hidden']});
   syncChatStream();
   document.addEventListener('gaeru:admin-ready',syncChatStream);
 })();

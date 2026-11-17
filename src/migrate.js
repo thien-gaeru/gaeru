@@ -17,7 +17,12 @@ async function migrateDatabase(pool, options = {}) {
       await client.query(`SET LOCAL lock_timeout = '${options.lockTimeoutMs}ms'`).catch(async () => {
         await client.query("ROLLBACK TO SAVEPOINT gaeru_lock_timeout_sp").catch(() => {});
       });
-      await client.query(`SET LOCAL statement_timeout = '${options.lockTimeoutMs * 2}ms'`).catch(() => {});
+      await client.query("RELEASE SAVEPOINT gaeru_lock_timeout_sp").catch(() => {});
+      await client.query("SAVEPOINT gaeru_stmt_timeout_sp").catch(() => {});
+      await client.query(`SET LOCAL statement_timeout = '${options.lockTimeoutMs * 2}ms'`).catch(async () => {
+        await client.query("ROLLBACK TO SAVEPOINT gaeru_stmt_timeout_sp").catch(() => {});
+      });
+      await client.query("RELEASE SAVEPOINT gaeru_stmt_timeout_sp").catch(() => {});
     }
     await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
     await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");

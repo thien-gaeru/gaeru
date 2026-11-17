@@ -761,8 +761,9 @@ async function settleSingleCarrierCodInTx(client, {
   if (shipment.orderPaymentMethod !== 'cod') {
     throw fail('Chỉ đối soát thu hộ cho đơn hàng thanh toán COD.', 409);
   }
-  if (shipment.orderStatus === 'cancelled' || shipment.orderReturnCompletedAt) {
-    throw fail('Đơn hàng đã hủy hoặc hoàn trả; không thể đối soát thu tiền COD.', 409);
+  // Allow settling COD collected by the carrier if the parcel was delivered before a customer-initiated return.
+  if (shipment.orderStatus === 'cancelled' || (shipment.orderReturnCompletedAt && shipment.status !== 'delivered')) {
+    throw fail('Đơn hàng đã hủy hoặc hoàn trả trước khi giao thành công; không thể đối soát thu tiền COD.', 409);
   }
 
   const cleanEvidence = String(evidenceRef || '').trim();

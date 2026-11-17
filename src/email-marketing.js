@@ -280,7 +280,8 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
     const userAgent = String(req.headers['user-agent'] || '').slice(0, 255);
 
     const existing = (await pool.query('SELECT status FROM marketing_email_subscriptions WHERE email = $1', [email])).rows[0];
-    if (existing && existing.status === 'subscribed') {
+    const suppressed = (await pool.query('SELECT 1 FROM marketing_email_suppressions WHERE lower(trim(email)) = $1 LIMIT 1', [email])).rows.length > 0;
+    if (existing && existing.status === 'subscribed' && !suppressed) {
       return res.json({ status: 'subscribed', message: 'Địa chỉ email này đã hoàn tất đăng ký nhận tin từ trước.' });
     }
 
@@ -291,14 +292,14 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
           confirmation_token_hash, confirmation_expires_at, updated_at
         ) VALUES ($1, 'pending', $2, 'v2026.11', now(), $3, $4, now())
         ON CONFLICT (email) DO UPDATE SET
-          status = CASE WHEN marketing_email_subscriptions.status = 'subscribed' THEN 'subscribed' ELSE 'pending' END,
+          status = CASE WHEN marketing_email_subscriptions.status = 'subscribed' AND NOT $5::boolean THEN 'subscribed' ELSE 'pending' END,
           consent_source = EXCLUDED.consent_source,
           consent_version = EXCLUDED.consent_version,
           consent_at = now(),
           confirmation_token_hash = EXCLUDED.confirmation_token_hash,
           confirmation_expires_at = EXCLUDED.confirmation_expires_at,
           updated_at = now()
-      `, [email, source, tokenHash, expiresAt]);
+      `, [email, source, tokenHash, expiresAt, suppressed]);
 
       await c.query(`
         INSERT INTO marketing_email_consent_events (email, event_type, source, ip_hash, user_agent)

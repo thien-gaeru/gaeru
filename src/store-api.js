@@ -1066,7 +1066,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             orderId: result.order?.id,
             orderNumber: result.order?.orderNumber,
             totalVnd: result.order?.totalVnd,
-            customerName: result.order?.customerName
+            customerName: result.order?.customerName || parsed.data.customer.name
           });
           publishAdminEvent('notification:refresh', {});
         } catch (_) {}

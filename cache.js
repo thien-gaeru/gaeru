@@ -297,6 +297,12 @@ function withCache(keyBuilder, tagsBuilder, fetchFn, ttl) {
   };
 }
 
+const logSwrError = (key, err) => {
+  if (process.env.NODE_ENV !== 'test') {
+    console.warn('[Cache SWR]', key, err?.message || err);
+  }
+};
+
 // 1. Lấy dữ liệu DB: Phản hồi 0.01ms từ RAM, tự kiểm tra ngầm DB sau mỗi 3 giây (SWR)
 async function getFreshData(key, dbFetchFn, swrMs = 3000) {
   let entry = ramCache.get(key);
@@ -328,7 +334,7 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
             }
           }
         })
-        .catch(() => {})
+        .catch((err) => logSwrError(key, err))
         .finally(() => inflight.delete(key));
 
       inflight.set(key, bg);
@@ -419,7 +425,7 @@ function smartPageCache(swrMs = 60000) {
                 ramCache.set(key, hit, { ttl: remTtl });
               }
             })
-            .catch(() => {})
+            .catch((err) => logSwrError(key, err))
             .finally(() => { hit.dcbPending = null; });
         }
       }

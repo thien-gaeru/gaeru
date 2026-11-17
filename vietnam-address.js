@@ -60,7 +60,8 @@
   proxy.addEventListener('click',open);proxy.addEventListener('keydown',e=>{if(['Enter','ArrowDown',' '].includes(e.key)){e.preventDefault();open();}});
   proxy.addEventListener('input',()=>{const query=proxy.value;open();search.value=query;render();});
   search.addEventListener('input',render);panel.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();close();proxy.focus();return;}if(!['ArrowDown','ArrowUp'].includes(e.key))return;const buttons=[...list.querySelectorAll('button')];if(!buttons.length)return;e.preventDefault();const index=buttons.indexOf(doc.activeElement);buttons[index<0?(e.key==='ArrowDown'?0:buttons.length-1):(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();});
-  doc.addEventListener('click',e=>{if(!wrap.contains(e.target)&&!panel.hidden)close();});
+  const onDocClick=e=>{if(!wrap.isConnected){doc.removeEventListener('click',onDocClick);return;}if(!wrap.contains(e.target)&&!panel.hidden)close();};
+  doc.addEventListener('click',onDocClick);
   form.addEventListener('reset',()=>{setTimeout(()=>{province=null;ward=null;legacy=false;city.value='';delete city.dataset.wardCode;close();},0);});
   const controller={restore(street,value,preserveLegacy){
    province=data.provinces.find(p=>p.name===canonical(value))||null;ward=null;legacy=Boolean(preserveLegacy&&street);delete city.dataset.wardCode;

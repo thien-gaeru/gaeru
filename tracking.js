@@ -284,9 +284,10 @@
         body: JSON.stringify({ orderNumber, challenge })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.ok && !data.order) {
-        throw new Error(data.error || 'Không tìm thấy đơn hàng phù hợp.');
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const data = isJson ? await res.json().catch(() => ({})) : {};
+      if (!res.ok || (!data.ok && !data.order)) {
+        throw new Error(data.error || 'Không tìm thấy đơn hàng hoặc máy chủ đang bận. Vui lòng thử lại.');
       }
 
       if (resultBox) {
@@ -297,12 +298,12 @@
         resultBox.querySelectorAll('[data-copy]').forEach(btn => {
           btn.addEventListener('click', () => {
             const text = btn.dataset.copy;
-            if (navigator.clipboard) {
+            if (navigator.clipboard?.writeText) {
               navigator.clipboard.writeText(text).then(() => {
                 const orig = btn.textContent;
                 btn.textContent = 'Đã chép!';
                 setTimeout(() => { btn.textContent = orig; }, 2000);
-              });
+              }).catch(() => {});
             }
           });
         });

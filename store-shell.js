@@ -399,8 +399,8 @@ function loadSearchIndex() {
     .catch(() => {})
     .finally(() => { edgeSearchLoading = false; });
 }
-searchInput?.addEventListener("focus", loadSearchIndex, { credentials: "same-origin" });
-searchToggle?.addEventListener("click", loadSearchIndex, { credentials: "same-origin" });
+searchInput?.addEventListener("focus", loadSearchIndex, { once: true });
+searchToggle?.addEventListener("click", loadSearchIndex, { once: true });
 
 function filterSearchProducts(query) {
   const needle = query.trim().toLocaleLowerCase("vi");
@@ -454,6 +454,11 @@ searchInput?.addEventListener("input", () => {
             { not: { href_matches: "/tai-khoan*" } },
             { not: { href_matches: "/gio-hang*" } },
             { not: { href_matches: "/thanh-toan*" } },
+            { not: { href_matches: "/ket-qua-thanh-toan*" } },
+            { not: { href_matches: "/account.html*" } },
+            { not: { href_matches: "/cart.html*" } },
+            { not: { href_matches: "/checkout.html*" } },
+            { not: { href_matches: "/payment-result.html*" } },
             { not: { href_matches: "/admin*" } },
             { not: { href_matches: "/gaeru_ceo*" } },
             { not: { href_matches: "/api/*" } }
@@ -472,7 +477,7 @@ searchInput?.addEventListener("input", () => {
     try {
       const url = new URL(a.href, location.origin);
       if (url.origin !== location.origin) return;
-      if (/^\/(?:tai-khoan|gio-hang|thanh-toan|admin|gaeru_ceo|api)/.test(url.pathname)) return;
+      if (/^\/(?:tai-khoan|gio-hang|thanh-toan|ket-qua-thanh-toan|account\.html|cart\.html|checkout\.html|payment-result\.html|admin|gaeru_ceo|api)/.test(url.pathname)) return;
       prefetchedUrls.add(a.href);
       const link = document.createElement('link');
       link.rel = 'prefetch';

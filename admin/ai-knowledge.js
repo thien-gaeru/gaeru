@@ -15,6 +15,7 @@ async function loadLearnedSection(box, a) {
     const stats = res?.stats?.counts || {};
     const items = res?.items || [];
 
+    const canWriteSettings = a.can('settings.write');
     const statsMarkup = `
       <div style="margin-bottom: 18px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -24,11 +25,11 @@ async function loadLearnedSection(box, a) {
               GAERU AI tự động đúc kết kinh nghiệm từ giải đáp của nhân viên và phản hồi khách hàng để ngày càng thông minh hơn.
             </p>
           </div>
-          <div>
+          ${canWriteSettings ? `<div>
             <button type="button" class="secondary-button" data-learned-scan style="cursor: pointer; padding: 6px 14px; font-weight: 600;">
               ⚡ Quét & Học hỏi từ Lịch sử Chat ngay
             </button>
-          </div>
+          </div>` : ''}
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 14px;">
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center;">
@@ -88,8 +89,8 @@ async function loadLearnedSection(box, a) {
                   </span>
                 </td>
                 <td style="padding: 8px 12px; text-align: right; white-space: nowrap;">
-                  ${it.status !== 'active' ? `<button type="button" class="secondary-button" data-learned-approve="${it.id}" style="font-size: 0.75rem; padding: 2px 6px; cursor: pointer;">Duyệt</button>` : ''}
-                  <button type="button" class="secondary-button" data-learned-delete="${it.id}" style="font-size: 0.75rem; padding: 2px 6px; cursor: pointer; color: #dc2626;">Xóa</button>
+                  ${canWriteSettings && it.status !== 'active' ? `<button type="button" class="secondary-button" data-learned-approve="${it.id}" style="font-size: 0.75rem; padding: 2px 6px; cursor: pointer;">Duyệt</button>` : ''}
+                  ${canWriteSettings ? `<button type="button" class="secondary-button" data-learned-delete="${it.id}" style="font-size: 0.75rem; padding: 2px 6px; cursor: pointer; color: #dc2626;">Xóa</button>` : '<span class="help-text">Chỉ xem</span>'}
                 </td>
               </tr>
             `).join('')}

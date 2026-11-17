@@ -392,11 +392,11 @@ function createInternalAiRouter(pool, config) {
       out.awaitingAdminChats = chatRes.rows[0]?.awaiting_admin || 0;
     } catch (_) {}
     try {
-      const warRes = await pool.query(`SELECT COUNT(*)::int AS total FROM warranty_registrations`);
+      const warRes = await pool.query(`SELECT COUNT(*)::int AS total FROM warranty_activations WHERE status = 'active'`);
       out.activeWarranties = warRes.rows[0]?.total || 0;
     } catch (_) {}
     try {
-      const retRes = await pool.query(`SELECT COUNT(*)::int AS total FROM after_sales_cases WHERE status NOT IN ('completed', 'rejected', 'cancelled')`);
+      const retRes = await pool.query(`SELECT COUNT(*)::int AS total FROM order_after_sales WHERE status NOT IN ('resolved', 'rejected')`);
       out.pendingReturns = retRes.rows[0]?.total || 0;
     } catch (_) {}
     return out;
@@ -1508,6 +1508,7 @@ Quy tắc cốt lõi:
   router.post('/actions/:actionId/cancel', async (req, res, next) => {
     try {
       const actionId = req.params.actionId;
+      if (!isUuid(actionId)) return res.status(400).json({ error: 'Mã thẻ hành động không hợp lệ.' });
       const actor = {
         ...(req.admin || {}),
         username: req.admin?.username || req.admin?.id || 'admin'

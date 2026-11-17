@@ -258,6 +258,7 @@ function createCareCustomerApi(pool, config = {}) {
     if (!req.file || !req.file.buffer?.length) return res.status(400).json({ error: 'Vui lòng chọn tệp tải lên.' });
     const mime = fileType(req.file);
     if (!mime) return res.status(400).json({ error: 'Chỉ nhận tệp ảnh (JPG, PNG, WebP, GIF, HEIC), video (MP4, MOV, WebM), PDF hoặc tài liệu văn bản.' });
+    let uploadedContent = null;
     try {
       const result = await withTransaction(pool, async client => {
         const row = (await client.query('SELECT * FROM care_requests WHERE id=$1 AND customer_id=$2 FOR UPDATE', [req.params.id, req.customerId])).rows[0];
@@ -268,6 +269,7 @@ function createCareCustomerApi(pool, config = {}) {
         if (count >= 30) return { status: 429, error: 'Bạn đã gửi nhiều tệp. Vui lòng thử lại sau.' };
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
         const uploaded = await storeUpload('care', req.file.buffer, mime);
+        uploadedContent = uploaded.content;
         if (uploaded.mimeType === 'image/webp' && req.file.originalname?.match(/\.[^.]+$/)) {
           safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
         }
@@ -307,7 +309,10 @@ function createCareCustomerApi(pool, config = {}) {
         } catch (_) {}
       }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
-    } catch (e) { next(e); }
+    } catch (e) {
+      if (uploadedContent) await require('./lib/stored-media').removeUploadedMedia(uploadedContent).catch(() => {});
+      next(e);
+    }
   });
 
   router.get('/:id/files/:fileId', async (req, res, next) => {
@@ -447,6 +452,7 @@ function createCareAdminApi(pool, config = {}) {
     if (!req.file || !req.file.buffer?.length) return res.status(400).json({ error: 'Vui lòng chọn tệp tải lên.' });
     const mime = fileType(req.file);
     if (!mime) return res.status(400).json({ error: 'Chỉ nhận tệp ảnh (JPG, PNG, WebP, GIF, HEIC), video (MP4, MOV, WebM), PDF hoặc tài liệu văn bản.' });
+    let uploadedContent = null;
     try {
       const result = await withTransaction(pool, async client => {
         const before = (await client.query('SELECT * FROM care_requests WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
@@ -454,6 +460,7 @@ function createCareAdminApi(pool, config = {}) {
         if (before.status === 'closed') return { status: 409, error: 'Yêu cầu đã đóng.' };
         let safeName = String(req.file.originalname || 'attachment').replace(/[\x00-\x1f\x7f/\\]/g, '_').slice(0, 180);
         const uploaded = await storeUpload('care', req.file.buffer, mime);
+        uploadedContent = uploaded.content;
         if (uploaded.mimeType === 'image/webp' && req.file.originalname?.match(/\.[^.]+$/)) {
           safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
         }
@@ -470,7 +477,10 @@ function createCareAdminApi(pool, config = {}) {
       });
       if (result.file) { try { require('./realtime-sse').publishCareEvent(req.params.id, 'care:message', { careId: req.params.id, sender: 'staff', file: result.file }); } catch (_) {} }
       res.status(result.status).json(result.error ? { error: result.error } : { message: 'Đã gửi tệp đính kèm.', file: result.file });
-    } catch (e) { next(e); }
+    } catch (e) {
+      if (uploadedContent) await require('./lib/stored-media').removeUploadedMedia(uploadedContent).catch(() => {});
+      next(e);
+    }
   });
 
   router.get('/care-requests/:id/files/:fileId', requirePermission('orders.read'), async (req, res, next) => {

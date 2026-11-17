@@ -3,6 +3,7 @@ const { requirePermission } = require('./staff-access');
 const { requireCsrf } = require('./security');
 const { withTransaction } = require('./db');
 const { appendAudit } = require('./audit');
+const { parseStrictPositiveInt } = require('./lib/input-validation');
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -294,7 +295,7 @@ async function calculateCartBundleDiscount(client, cartItems) {
  * List bundles for admin panel
  */
 async function listBundles(pool, page = 1, pageSize = 25) {
-  const p = Math.max(1, Number(page) || 1);
+  const p = parseStrictPositiveInt(page, { defaultValue: 1, min: 1, max: 10000, message: 'Số trang combo không hợp lệ.' });
   const offset = (p - 1) * pageSize;
 
   const bundles = (await pool.query(
@@ -335,7 +336,7 @@ function mountBundles({ admin, publicRouter }, pool) {
   // Admin list
   admin.get('/marketing/bundles', requirePermission('marketing.read'), async (req, res, next) => {
     try {
-      const page = Math.max(1, Number(req.query.page) || 1);
+      const page = parseStrictPositiveInt(req.query.page, { defaultValue: 1, min: 1, max: 10000, message: 'Số trang combo không hợp lệ.' });
       const data = await listBundles(pool, page);
       res.json(data);
     } catch (e) {

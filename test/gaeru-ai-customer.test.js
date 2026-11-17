@@ -77,6 +77,7 @@ test('GAERU AI Customer Assistant Test Suite', async (t) => {
         if (sql.includes('FROM orders')) {
           return {
             rows: [{
+              id: '00000000-0000-4000-8000-000000000001',
               order_number: 'GAE-20261109-001',
               customer_name: 'Nguyễn Văn A',
               phone: '0988123456',
@@ -90,9 +91,11 @@ test('GAERU AI Customer Assistant Test Suite', async (t) => {
             }]
           };
         }
-        if (sql.includes('FROM shipping_fulfillments')) {
+        if (sql.includes('FROM carrier_shipments')) {
+          assert.equal(params?.[0], '00000000-0000-4000-8000-000000000001');
           return {
             rows: [{
+              carrier_id: 'viettel',
               carrier_name: 'Viettel Post',
               tracking_number: 'VTP99887766',
               status: 'Đang vận chuyển'

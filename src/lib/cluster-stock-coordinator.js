@@ -4,6 +4,13 @@ const cluster = require('node:cluster');
 const { ramCache } = require('./ram-cache');
 const { edgePurge } = require('./edge-purge');
 
+function parseStrictQuantity(quantity, { allowZero = false, fallback = null } = {}) {
+  const num = typeof quantity === 'number' ? quantity : (typeof quantity === 'string' && /^\d+$/.test(quantity.trim()) ? Number(quantity.trim()) : NaN);
+  const min = allowZero ? 0 : 1;
+  if (!Number.isSafeInteger(num) || num < min || num > 1_000_000_000) return fallback;
+  return num;
+}
+
 /**
  * Cluster Stock & Cache Coordinator
  * Master-Worker IPC architecture for 0.01ms atomic stock operations and zero-delay cache synchronization.
@@ -47,8 +54,10 @@ class ClusterStockCoordinator {
 
       case 'STOCK_DECREMENT_ATOMIC': {
         const current = this.stockMap.get(variantId) ?? 0;
-        const qty = Number.parseInt(quantity, 10) || 1;
-        if (current < qty) {
+        const qty = parseStrictQuantity(quantity);
+        if (!qty) {
+          worker.send({ responseTo: id, success: false, remaining: current, error: 'INVALID_QUANTITY' });
+        } else if (current < qty) {
           worker.send({ responseTo: id, success: false, remaining: current, error: 'INSUFFICIENT_STOCK' });
         } else {
           const remaining = current - qty;
@@ -62,7 +71,11 @@ class ClusterStockCoordinator {
 
       case 'STOCK_INCREMENT_ATOMIC': {
         const current = this.stockMap.get(variantId) ?? 0;
-        const qty = Number.parseInt(quantity, 10) || 1;
+        const qty = parseStrictQuantity(quantity);
+        if (!qty) {
+          worker.send({ responseTo: id, success: false, remaining: current, error: 'INVALID_QUANTITY' });
+          break;
+        }
         const remaining = current + qty;
         this.stockMap.set(variantId, remaining);
         worker.send({ responseTo: id, success: true, remaining });
@@ -71,7 +84,11 @@ class ClusterStockCoordinator {
       }
 
       case 'STOCK_SET': {
-        const qty = Number.parseInt(quantity, 10) || 0;
+        const qty = parseStrictQuantity(quantity, { allowZero: true });
+        if (qty === null) {
+          worker.send({ responseTo: id, success: false, error: 'INVALID_QUANTITY' });
+          break;
+        }
         this.stockMap.set(variantId, qty);
         worker.send({ responseTo: id, success: true, remaining: qty });
         this.broadcastToWorkers({ action: 'STOCK_SYNC', variantId, stock: qty }, worker.id);
@@ -157,7 +174,8 @@ class ClusterStockCoordinator {
 
   // Atomic decrement stock in RAM: guarantees zero overselling
   async atomicDecrement(variantId, quantity) {
-    const qty = Number.parseInt(quantity, 10) || 1;
+    const qty = parseStrictQuantity(quantity);
+    if (!qty) return { success: false, remaining: this.stockMap.get(variantId) ?? 0, error: 'INVALID_QUANTITY' };
 
     // Single-process / Master: synchronous atomic decrement
     if (!this.isClustered || this.isMaster) {
@@ -179,7 +197,8 @@ class ClusterStockCoordinator {
 
   // Atomic rollback / increment stock
   async atomicIncrement(variantId, quantity) {
-    const qty = Number.parseInt(quantity, 10) || 1;
+    const qty = parseStrictQuantity(quantity);
+    if (!qty) return { success: false, remaining: this.stockMap.get(variantId) ?? 0, error: 'INVALID_QUANTITY' };
 
     if (!this.isClustered || this.isMaster) {
       const current = this.stockMap.get(variantId) ?? 0;
@@ -196,7 +215,8 @@ class ClusterStockCoordinator {
 
   // Seed or set stock from Database
   setStock(variantId, quantity) {
-    const qty = Number.parseInt(quantity, 10) || 0;
+    const qty = parseStrictQuantity(quantity, { allowZero: true });
+    if (qty === null) return;
     this.stockMap.set(variantId, qty);
 
     if (this.isMaster) {

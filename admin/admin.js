@@ -288,6 +288,14 @@ function initAdminRealtime() {
       });
     }
 
+    adminRealtimeStream.addEventListener('session-expired', () => {
+      stopAdminRealtime();
+      if (state.session) {
+        state.session = null;
+        location.replace('/gaeru_ceo?expired=1');
+      }
+    });
+
     adminRealtimeStream.onerror = () => {
       setRealtimeBadge('reconnecting', 'Đang kết nối lại...');
       if (adminRealtimeStream) {
@@ -411,7 +419,9 @@ async function loadTrafficSummary() {
   try {
     const traffic = await request("/api/gaeru_ceo/traffic-summary");
     renderTrafficMetrics(traffic);
-  } catch {}
+  } catch (err) {
+    console.warn("Failed to load traffic summary:", err?.message || err);
+  }
 }
 
 async function loadSystemHealth() {

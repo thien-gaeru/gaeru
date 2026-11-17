@@ -75,9 +75,13 @@ async function storeStagedMedia(scope,stageId,mime,expectedSize){
  catch(e){if(e?.message==='MEDIA_STAGE_SIZE_MISMATCH')throw e;throw Object.assign(Error('Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'),{status:503,code:'MEDIA_STORAGE_UNAVAILABLE'});}
  return {content:pointerFromStats(finalized.key,finalized.size,finalized.sha256),mimeType:mime,byteSize:finalized.size,key:finalized.key,rollback:finalized.rollback,finish:finalized.finish};
 }
+async function removeUploadedMedia(content){
+ if(!content||!local.configured())return false;
+ try{const meta=metadata(content);if(!meta?.key)return false;await require('./file-library-storage').remove(meta.key);return true;}catch{return false;}
+}
 async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==='products',...backgroundOptions}={}){
  const originalBuffer=buffer;
- const maxUploadBytes=scope==='chat'||scope==='care'?require('../audit-fixes/upload-state').MAX_FILE_BYTES:({products:8,banners:5,news:5,videos:25})[scope]*1024*1024;
+ const maxUploadBytes=scope==='chat'||scope==='care'?require('../audit-fixes/upload-state').MAX_FILE_BYTES:(({products:8,banners:5,news:5,videos:25})[scope]??10)*1024*1024;
  if(!Buffer.isBuffer(buffer)||!buffer.length||buffer.length>maxUploadBytes)throw Object.assign(Error('Upload is too large.'),{status:413});
  let mimeType=mime,backgroundRemoved=false;if(scope!=='chat'&&scope!=='care'&&mime.startsWith('image/')&&mime!=='image/gif')try{const optimized=await require('./image-optimizer').optimizeImage(buffer,mime,{maxUploadBytes,removeBackground,...backgroundOptions});buffer=optimized.buffer;mimeType=optimized.mimeType;backgroundRemoved=Boolean(optimized.backgroundRemoved);}catch(e){if(scope!=='chat'&&scope!=='care')throw e;}
  const content=await storeMedia(scope,buffer,mimeType),meta=metadata(content);
@@ -87,4 +91,4 @@ async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==
  }
  return {content,mimeType,byteSize:buffer.length,backgroundRemoved,thumbBuffer:buffer.thumbBuffer};
 }
-module.exports={storeMedia,storeUpload,storeStagedMedia,readMedia,readMediaRange,openMediaStream,metadata,pointer,PREFIX};
+module.exports={storeMedia,storeUpload,storeStagedMedia,removeUploadedMedia,readMedia,readMediaRange,openMediaStream,metadata,pointer,PREFIX};

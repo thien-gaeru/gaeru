@@ -267,14 +267,22 @@ function verifyGatewayPayload(provider,payload,settings,options={}){
    }
    const hasRawBody=Buffer.isBuffer(options.rawBody)||(typeof options.rawBody==='string'&&options.rawBody.length>0);
    const rawPayload=hasRawBody?options.rawBody:(typeof payload==='object'?JSON.stringify(payload):String(payload));
-   const computeHmac=()=>createHmac('sha256',configuredSecret).update(rawPayload,hasRawBody?undefined:'utf8').digest('hex');
+   const computeHmac=(includeTimestamp=false)=>{
+    const hmac=createHmac('sha256',configuredSecret);
+    if(includeTimestamp&&rawTimestamp)hmac.update(rawTimestamp+'.');
+    hmac.update(rawPayload,hasRawBody?undefined:'utf8');
+    return hmac.digest('hex');
+   };
+   const signatureMatches=()=>settings?.webhookRequireHmac===true
+    ?safeHexEqual(incomingSignature,computeHmac(true))
+    :(safeHexEqual(incomingSignature,computeHmac(false))||(rawTimestamp?safeHexEqual(incomingSignature,computeHmac(true)):false));
    let tokenValid=false;
    if(incomingToken&&incomingSignature){
-    tokenValid=safeTokenEqual(incomingToken,configuredSecret)&&safeHexEqual(incomingSignature,computeHmac());
+    tokenValid=safeTokenEqual(incomingToken,configuredSecret)&&signatureMatches();
    }else if(incomingToken){
     tokenValid=safeTokenEqual(incomingToken,configuredSecret);
    }else if(incomingSignature){
-    tokenValid=safeHexEqual(incomingSignature,computeHmac());
+    tokenValid=signatureMatches();
    }
    if(!tokenValid){
     return {valid:false,reason:'Invalid or missing bank transfer webhook credentials'};

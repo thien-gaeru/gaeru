@@ -241,7 +241,7 @@
             </ul>
           </div>
 
-          <!-- Form kiểm nhận trực tiếp -->
+          ${window.GAERUAdmin?.can?.('inventory.write') ? `<!-- Form kiểm nhận trực tiếp -->
           <form data-cod-intake-form="${esc(item.trackingNumber)}" style="margin-top:10px;padding:12px;background:#fff;border-radius:6px;border:1px solid #cbd5e0;display:grid;gap:10px;">
             <input type="hidden" name="trackingNumber" value="${esc(item.trackingNumber)}">
             <label style="font-weight:600;font-size:0.9em;">
@@ -267,7 +267,7 @@
               <button type="submit" class="primary-button" style="background:#2b6cb0;">Xác nhận kiểm nhận bưu kiện</button>
               <span class="intake-form-status" style="font-size:0.85em;"></span>
             </div>
-          </form>
+          </form>` : `<p class="help-text" style="margin-top:10px;">Tài khoản chỉ có quyền xem; cần quyền ghi kho để xác nhận kiểm nhận.</p>`}
         </article>
       `).join('');
 

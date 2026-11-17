@@ -1023,6 +1023,23 @@
 
   function syncInitialData() {
     if (!window.GAERUAdmin?.user) return;
+    const canPack = window.GAERUAdmin.can("orders.write");
+    const canInvApprove = window.GAERUAdmin.can("inventory.approve");
+    const packTab = viewPanel.querySelector('[data-tab="packing"]');
+    const inTab = viewPanel.querySelector('[data-tab="inbound"]');
+    const ccTab = viewPanel.querySelector('[data-tab="cycle_count"]');
+    if (packTab) packTab.hidden = !canPack;
+    if (inTab) inTab.hidden = !canInvApprove;
+    if (ccTab) ccTab.hidden = !canInvApprove;
+    const inBtn = viewPanel.querySelector('#form-quick-inbound button[type="submit"]');
+    const ccBtn = viewPanel.querySelector('#form-cycle-count button[type="submit"]');
+    const dispBtn = viewPanel.querySelector('#btn-dispatch-order');
+    if (inBtn) inBtn.disabled = !canInvApprove;
+    if (ccBtn) ccBtn.disabled = !canInvApprove;
+    if (dispBtn) dispBtn.hidden = !canPack;
+    if ((state.activeTab === "packing" && !canPack) || (["inbound", "cycle_count"].includes(state.activeTab) && !canInvApprove)) {
+      viewPanel.querySelector('[data-tab="lookup"]')?.click();
+    }
     if (window.GAERUAdmin.can("inventory.read") || window.GAERUAdmin.can("orders.read") || window.GAERUAdmin.can("catalog.read")) {
       loadMetrics();
     }

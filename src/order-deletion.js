@@ -97,8 +97,12 @@ async function deleteOrderPermanently(client, orderId, { actor = { username: 'sy
     }
   }
 
-  // 2. If order holds active inventory (not cancelled and not completed), release stock
-  if (order.status !== 'cancelled' && order.status !== 'completed') {
+  const nonRestockableReturn = Boolean(order.return_completed_at) || (await client.query(
+    `SELECT 1 FROM order_after_sales WHERE order_id = $1 AND kind = 'return' AND status = 'resolved' AND restock_eligible = false LIMIT 1`,
+    [order.id]
+  )).rows.length > 0;
+  // 2. If order holds active inventory (not cancelled, not completed, and not a non-restockable return), release stock
+  if (order.status !== 'cancelled' && order.status !== 'completed' && !nonRestockableReturn) {
     const inv = inventory || require('./inventory');
     await inv.releaseOrderStock(client, { orderId: order.id, actor });
   }

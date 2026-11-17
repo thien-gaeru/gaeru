@@ -158,10 +158,11 @@
       const card = document.createElement('div');
       card.className = 'gaeru-modal-card gaeru-modal-' + type + (danger ? ' is-danger-card' : '');
 
+      const escModal = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       let inputSection = '';
       if (mode === 'prompt') {
         const inputType = isPassword ? 'password' : 'text';
-        inputSection = `<div class="gaeru-modal-input-wrap"><input class="gaeru-modal-input" type="${inputType}" value="${String(defaultValue).replace(/"/g, '&quot;')}" placeholder="${String(placeholder).replace(/"/g, '&quot;')}" autocomplete="off" /></div>`;
+        inputSection = `<div class="gaeru-modal-input-wrap"><input class="gaeru-modal-input" type="${inputType}" value="${escModal(defaultValue)}" placeholder="${escModal(placeholder)}" autocomplete="off" /></div>`;
       }
 
       const isAlert = mode === 'alert';
@@ -169,14 +170,14 @@
         <div class="gaeru-modal-header">
           <div class="gaeru-modal-icon gaeru-modal-icon-${type}${danger ? ' is-danger' : ''}">${iconSvg}</div>
           <div class="gaeru-modal-text">
-            <h3 class="gaeru-modal-title">${String(title).replace(/</g, '&lt;')}</h3>
-            <p class="gaeru-modal-message">${String(message).replace(/</g, '&lt;')}</p>
+            <h3 class="gaeru-modal-title">${escModal(title)}</h3>
+            <p class="gaeru-modal-message">${escModal(message)}</p>
           </div>
         </div>
         ${inputSection}
         <div class="gaeru-modal-actions">
-          ${!isAlert ? `<button type="button" class="gaeru-modal-btn gaeru-modal-btn-cancel">${String(cancelText).replace(/</g, '&lt;')}</button>` : ''}
-          <button type="button" class="gaeru-modal-btn gaeru-modal-btn-confirm ${danger ? 'is-danger' : 'is-primary'}">${String(confirmText).replace(/</g, '&lt;')}</button>
+          ${!isAlert ? `<button type="button" class="gaeru-modal-btn gaeru-modal-btn-cancel">${escModal(cancelText)}</button>` : ''}
+          <button type="button" class="gaeru-modal-btn gaeru-modal-btn-confirm ${danger ? 'is-danger' : 'is-primary'}">${escModal(confirmText)}</button>
         </div>
       `;
 

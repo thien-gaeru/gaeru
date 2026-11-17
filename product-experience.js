@@ -7,15 +7,28 @@
   'use strict';
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
+  let renderPollRafId = null;
+
   function initProductExperience() {
     const detailContainer = document.querySelector('#product-detail');
     if (!detailContainer) return;
 
+    if (renderPollRafId !== null) {
+      cancelAnimationFrame(renderPollRafId);
+      renderPollRafId = null;
+    }
+
+    let frames = 0;
+    const MAX_WAIT_FRAMES = 600;
     // Wait until product is rendered by commerce.js
     const checkProductRendered = () => {
+      renderPollRafId = null;
+      if (!detailContainer.isConnected) return;
       const heading = document.querySelector('.product-purchase-heading h1');
       if (!heading) {
-        requestAnimationFrame(checkProductRendered);
+        const failed = detailContainer.querySelector('.product-empty, .product-not-found, [data-product-error]');
+        if (failed || ++frames >= MAX_WAIT_FRAMES) return;
+        renderPollRafId = requestAnimationFrame(checkProductRendered);
         return;
       }
       setupProductLocalNav();
@@ -23,7 +36,7 @@
       setupGalleryCrossfade();
     };
 
-    requestAnimationFrame(checkProductRendered);
+    renderPollRafId = requestAnimationFrame(checkProductRendered);
   }
 
   /**
@@ -319,6 +332,8 @@
     if (!mainImg || !thumbs.length) return;
 
     thumbs.forEach(thumb => {
+      if (thumb.dataset.crossfadeBound === 'true') return;
+      thumb.dataset.crossfadeBound = 'true';
       thumb.addEventListener('click', () => {
         mainImg.style.opacity = '0.35';
         mainImg.style.transform = 'scale(0.98)';

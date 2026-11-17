@@ -2,6 +2,7 @@
 
 const { z } = require('zod');
 const { withTransaction } = require('./db');
+const { assertUuid, parseOptionalUuid, parseStrictPositiveInt } = require('./lib/input-validation');
 
 /**
  * Memory cache for Inventory Forecast calculations with TTL
@@ -231,7 +232,8 @@ async function calculateInventoryForecast(pool, {
   status = null,
   useCache = true
 } = {}) {
-  const periodDays = Math.max(1, parseInt(days, 10) || 30);
+  warehouseId = parseOptionalUuid(warehouseId, 'Mã kho hàng không hợp lệ.');
+  const periodDays = parseStrictPositiveInt(days, { defaultValue: 30, min: 1, max: 365, message: 'Số ngày dự báo không hợp lệ.' });
   const cacheKey = `forecast:${warehouseId || 'all'}:${periodDays}:${search || ''}:${status || 'all'}`;
 
   if (useCache) {
@@ -464,6 +466,7 @@ async function calculateInventoryForecast(pool, {
  * Get multi-period forecast detail for a single variant across all warehouses
  */
 async function getVariantForecastDetail(pool, variantId, { days = 30 } = {}) {
+  variantId = assertUuid(variantId, 'Mã phiên bản sản phẩm không hợp lệ.');
   const variant = (await pool.query(
     `SELECT v.id, v.sku, v.name AS "variantName", v.price_vnd AS "priceVnd", v.cost_price_vnd AS "costPriceVnd",
             v.image_url AS "imageUrl", p.id AS "productId", p.name AS "productName", p.category
@@ -622,6 +625,8 @@ async function createPurchaseOrderFromForecast(pool, {
   if (!supplierId || !warehouseId) {
     throw Object.assign(new Error('Vui lòng chọn nhà cung cấp và kho nhận hàng.'), { status: 400 });
   }
+  supplierId = assertUuid(supplierId, 'Mã nhà cung cấp không hợp lệ.');
+  warehouseId = assertUuid(warehouseId, 'Mã kho nhận hàng không hợp lệ.');
   if (!Array.isArray(items) || !items.length) {
     throw Object.assign(new Error('Danh sách đặt hàng không được để trống.'), { status: 400 });
   }
@@ -772,8 +777,8 @@ function createInventoryForecastApi(pool) {
   // GET /api/gaeru_ceo/inventory/forecast
   router.get(['/forecast', '/inventory/forecast'], requirePerm('inventory.read'), async (req, res, next) => {
     try {
-      const warehouseId = req.query.warehouseId || null;
-      const days = parseInt(req.query.days, 10) || 30;
+      const warehouseId = parseOptionalUuid(req.query.warehouseId, 'Mã kho hàng không hợp lệ.');
+      const days = parseStrictPositiveInt(req.query.days, { defaultValue: 30, min: 1, max: 365, message: 'Số ngày dự báo không hợp lệ.' });
       const search = req.query.search || '';
       const status = req.query.status || null;
       const refresh = req.query.refresh === 'true' || req.query.refresh === '1';

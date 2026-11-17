@@ -9,9 +9,38 @@ const account = require('./marketplace-account');
 const {randomUUID}=require('node:crypto');
 const { appendAudit } = require('./audit');
 const { getConnector, normalizeStatus } = require('./marketplace-connectors');
+const { parseStrictPositiveInt } = require('./lib/input-validation');
 
 function fail(message, status = 400) {
   return Object.assign(new Error(message), { status });
+}
+
+async function recordMarketplaceMovement(client, { eventKey, warehouseId, variant, movementType, delta, quantityBefore, quantityAfter, orderId, reason, actor }) {
+  if (!delta || !variant?.sku) return;
+  await client.query(
+    `INSERT INTO inventory_movements (
+       event_key, warehouse_id, variant_id, sku, product_name, variant_name,
+       movement_type, delta, quantity_before, quantity_after,
+       reference_type, reference_id, reason, actor_id, actor_username
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'marketplace_order',$11,$12,$13,$14)
+     ON CONFLICT (event_key) DO NOTHING`,
+    [
+      eventKey,
+      warehouseId,
+      variant.id,
+      variant.sku,
+      variant.productName || '',
+      variant.variantName || '',
+      movementType,
+      delta,
+      quantityBefore,
+      quantityAfter,
+      String(orderId),
+      reason,
+      actor?.id || null,
+      actor?.username || 'omnichannel_worker'
+    ]
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -130,7 +159,10 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     for (const entry of resolvedItems) {
       const { index, item, variantId, requestedQty } = entry;
       const varLock = (await client.query(
-        'SELECT id, stock_quantity FROM product_variants WHERE id = $1 FOR UPDATE',
+        `SELECT v.id, v.stock_quantity, v.sku, v.name AS "variantName", p.name AS "productName"
+         FROM product_variants v
+         JOIN products p ON p.id = v.product_id
+         WHERE v.id = $1 FOR UPDATE OF v`,
         [variantId]
       )).rows[0];
       if (!varLock || Number(varLock.stock_quantity)<requestedQty) throw fail('Tồn nội bộ không đủ cho SKU '+String(item.externalSku||'')+'. Chưa trừ tồn của đơn sàn.',409);
@@ -157,12 +189,25 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
         let remaining = Math.min(requestedQty, Math.max(0, Number(varLock.stock_quantity) || 0));
         for (const wh of allocRows) {
           if (remaining <= 0) break;
-          const take = Math.min(remaining, Math.max(0, Number(wh.quantity) || 0));
+          const qtyBefore = Math.max(0, Number(wh.quantity) || 0);
+          const take = Math.min(remaining, qtyBefore);
           if (take <= 0) continue;
           await client.query(
             'UPDATE warehouse_stock SET quantity = quantity - $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2',
             [wh.warehouse_id, variantId, take]
           );
+          await recordMarketplaceMovement(client, {
+            eventKey: `marketplace-sale:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${wh.warehouse_id}`,
+            warehouseId: wh.warehouse_id,
+            variant: varLock,
+            movementType: 'sale_reservation',
+            delta: -take,
+            quantityBefore: qtyBefore,
+            quantityAfter: qtyBefore - take,
+            orderId: order.externalOrderId,
+            reason: `Trừ tồn đơn sàn ${channel.toUpperCase()} #${order.externalOrderId}`,
+            actor
+          });
           warehouseAllocations.push({ warehouseId: wh.warehouse_id, quantity: take });
           actualDeducted += take;
           remaining -= take;
@@ -217,20 +262,42 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     reverseItems.sort((a, b) => a.variantId.localeCompare(b.variantId));
 
     for (const { item, variantId, qty } of reverseItems) {
-      await client.query('SELECT id FROM product_variants WHERE id = $1 FOR UPDATE', [variantId]);
+      const varLock = (await client.query(
+        `SELECT v.id, v.sku, v.name AS "variantName", p.name AS "productName"
+         FROM product_variants v
+         JOIN products p ON p.id = v.product_id
+         WHERE v.id = $1 FOR UPDATE OF v`,
+        [variantId]
+      )).rows[0];
       if (Array.isArray(item.warehouseAllocations) && item.warehouseAllocations.length > 0) {
         const sortedAllocs = [...item.warehouseAllocations]
           .filter(alloc => alloc?.warehouseId && Number(alloc.quantity) > 0)
           .sort((a, b) => String(a.warehouseId).localeCompare(String(b.warehouseId)));
         for (const alloc of sortedAllocs) {
-          await client.query(
-            'SELECT warehouse_id FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2 FOR UPDATE',
+          const whRow = (await client.query(
+            'SELECT warehouse_id, quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2 FOR UPDATE',
             [alloc.warehouseId, variantId]
-          );
+          )).rows[0];
+          const allocQty = Number(alloc.quantity);
+          const qtyBefore = Math.max(0, Number(whRow?.quantity) || 0);
           await client.query(
             'UPDATE warehouse_stock SET quantity = quantity + $3, updated_at = now() WHERE warehouse_id = $1 AND variant_id = $2',
-            [alloc.warehouseId, variantId, Number(alloc.quantity)]
+            [alloc.warehouseId, variantId, allocQty]
           );
+          if (varLock) {
+            await recordMarketplaceMovement(client, {
+              eventKey: `marketplace-reverse:${channel}:${shopId}:${order.externalOrderId}:${variantId}:${alloc.warehouseId}`,
+              warehouseId: alloc.warehouseId,
+              variant: varLock,
+              movementType: 'sale_release',
+              delta: allocQty,
+              quantityBefore: qtyBefore,
+              quantityAfter: qtyBefore + allocQty,
+              orderId: order.externalOrderId,
+              reason: `Hoàn tồn đơn sàn ${channel.toUpperCase()} (${normStatus}) #${order.externalOrderId}`,
+              actor
+            });
+          }
         }
       }
       await client.query(
@@ -425,7 +492,7 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
       try {
         const channel = req.query.channel ? z.enum(['shopee', 'tiktok', 'lazada']).parse(req.query.channel) : null;
         const status = req.query.status ? z.enum(['pending', 'confirmed', 'processing', 'shipped', 'completed', 'cancelled', 'returned']).parse(req.query.status) : null;
-        const page = Math.max(1, Number(req.query.page || 1));
+        const page = parseStrictPositiveInt(req.query.page, { defaultValue: 1, min: 1, max: 10000, message: 'Số trang đơn sàn không hợp lệ.' });
         const limit = 25;
         const offset = (page - 1) * limit;
 

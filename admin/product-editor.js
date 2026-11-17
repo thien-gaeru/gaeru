@@ -783,9 +783,15 @@
         if(batchStatus)batchStatus.textContent='Vui lòng chọn ít nhất một file ảnh.';
         return;
       }
-      if(files.length>10){
-        feedback('Tối đa 10 ảnh mỗi lần tải lên.',true);
-        if(batchStatus)batchStatus.textContent='Tối đa 10 ảnh mỗi lần tải lên.';
+      const remainingSlots=Math.max(0,9-model.gallery.length-imageUploads.length);
+      if(!remainingSlots){
+        feedback('Thư viện ảnh sản phẩm đã đủ tối đa 9 ảnh.',true);
+        if(batchStatus)batchStatus.textContent='Thư viện ảnh sản phẩm đã đủ tối đa 9 ảnh.';
+        return;
+      }
+      if(files.length>remainingSlots){
+        feedback('Chỉ có thể thêm tối đa ' + remainingSlots + ' ảnh nữa (giới hạn 9 ảnh).',true);
+        if(batchStatus)batchStatus.textContent='Chỉ còn ' + remainingSlots + ' vị trí trống trong thư viện (giới hạn 9 ảnh).';
         return;
       }
       if(batchStatus)batchStatus.textContent=`Đang xử lý ${files.length} ảnh, vui lòng đợi...`;
@@ -837,11 +843,13 @@
     const b=e.target.closest('button');
     if(!b||busy||!can('catalog.write'))return;
     if(b.dataset.cutoutImage!==undefined){
-      const index=Number(b.dataset.cutoutImage),url=model.gallery[index];b.disabled=true;
+      const index=Number(b.dataset.cutoutImage),url=model.gallery[index];
+      if(!url)return;
+      lock(true);
       const {body}=getCutoutParams();
       request('/api/gaeru_ceo/catalog-images/'+url.split('/').at(-1)+'/remove-background','POST',body).then(result=>{
-        readRows();model.gallery[index]=result.imageUrl;model.variants.forEach(v=>{if(v.imageUrl===url)v.imageUrl=result.imageUrl;});if(model.product.imageUrl===url)model.product.imageUrl=result.imageUrl;dirty=true;gallery();rows();feedback('Đã tạo ảnh tách nền. Bản gốc được giữ; lưu sản phẩm để áp dụng.');
-      }).catch(error=>{b.disabled=false;feedback(error.message,true);});return;
+        readRows();const targetIndex=model.gallery.indexOf(url);if(targetIndex>=0)model.gallery[targetIndex]=result.imageUrl;model.variants.forEach(v=>{if(v.imageUrl===url)v.imageUrl=result.imageUrl;});if(model.product.imageUrl===url)model.product.imageUrl=result.imageUrl;dirty=true;gallery();rows();feedback('Đã tạo ảnh tách nền. Bản gốc được giữ; lưu sản phẩm để áp dụng.');
+      }).catch(error=>{feedback(error.message,true);}).finally(()=>{lock(false);});return;
     }
     if(b.dataset.retryUpload!==undefined){
       const item=imageUploads.find(v=>v.id===Number(b.dataset.retryUpload));

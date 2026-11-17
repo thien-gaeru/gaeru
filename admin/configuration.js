@@ -488,7 +488,7 @@ document.addEventListener('click',async event=>{
  }
 });
 
-function owner(){return Boolean(admin.user?.role==='owner'||admin.user?.role==='admin'||admin.user?.source==='bootstrap');}
+function owner(){return Boolean(admin.user?.role==='owner'&&admin.user?.source==='bootstrap');}
 async function read(){data=await admin.request('/api/gaeru_ceo/owner/configuration');return data;}
 
 

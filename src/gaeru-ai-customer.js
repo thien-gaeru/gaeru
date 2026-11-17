@@ -68,17 +68,24 @@ async function lookupOrderInfo(pool, text, thread = null) {
       thread?.customer_id && row.customer_id && String(thread.customer_id) === String(row.customer_id)
     );
 
-    // Tra cứu thông tin vận chuyển
+    // Tra cứu thông tin vận chuyển thực tế từ bảng carrier_shipments
     let shipment = null;
     try {
       shipment = (await pool.query(
-        `SELECT carrier_name, tracking_number, status, synced_at 
-         FROM shipping_fulfillments 
-         WHERE order_number = $1 
-         ORDER BY created_at DESC 
+        `SELECT carrier_id,
+                CASE carrier_id
+                  WHEN 'viettel' THEN 'Viettel Post'
+                  WHEN 'jt' THEN 'J&T Express'
+                  WHEN 'spx' THEN 'SPX Express'
+                  ELSE carrier_id
+                END AS carrier_name,
+                tracking_number, status, last_synced_at AS synced_at
+         FROM carrier_shipments
+         WHERE order_id = $1 AND status <> 'cancelled'
+         ORDER BY created_at DESC
          LIMIT 1`,
-        [row.order_number]
-      )).rows[0];
+        [row.id]
+      )).rows[0] || null;
     } catch (_) {}
 
     return {

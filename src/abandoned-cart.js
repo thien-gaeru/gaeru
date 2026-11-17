@@ -6,6 +6,7 @@ const { requirePermission } = require('./staff-access');
 const { requireCsrf } = require('./security');
 const { appendAudit } = require('./audit');
 const { rateLimit } = require('express-rate-limit');
+const { parseStrictPositiveInt } = require('./lib/input-validation');
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const hash = t => createHash('sha256').update(String(t)).digest('hex');
@@ -215,9 +216,15 @@ async function optOutAbandonedCart(pool, recoveryToken) {
       [cart.id]
     );
 
-    // Suppress future marketing/recovery emails to this address
+    // Suppress future marketing/recovery emails to this address and keep newsletter subscription aligned
     await client.query(
       `INSERT INTO marketing_email_suppressions (email) VALUES ($1) ON CONFLICT DO NOTHING`,
+      [cart.email.toLowerCase()]
+    );
+    await client.query(
+      `UPDATE marketing_email_subscriptions
+       SET status = 'unsubscribed', unsubscribed_at = now(), updated_at = now()
+       WHERE lower(trim(email)) = $1 AND status = 'subscribed'`,
       [cart.email.toLowerCase()]
     );
 
@@ -229,7 +236,7 @@ async function optOutAbandonedCart(pool, recoveryToken) {
  * List abandoned carts for admin panel with recovery metrics
  */
 async function listAbandonedCarts(pool, { page = 1, pageSize = 25, status = null } = {}) {
-  const p = Math.max(1, Number(page) || 1);
+  const p = parseStrictPositiveInt(page, { defaultValue: 1, min: 1, max: 10000, message: 'Số trang giỏ hàng không hợp lệ.' });
   const offset = (p - 1) * pageSize;
 
   const whereClause = status ? 'WHERE ac.status = $3' : '';
@@ -283,6 +290,9 @@ async function listAbandonedCarts(pool, { page = 1, pageSize = 25, status = null
  */
 async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = null) {
   if (!mailer || !config?.smtp?.from) return { success: false, reason: 'Chưa cấu hình SMTP.' };
+  if (cart.status === 'recovered' || cart.status === 'expired') {
+    return { success: false, reason: 'Giỏ hàng đã hoàn tất đơn hoặc đã hết hạn nhắc nhở.' };
+  }
   if (cart.recovery_consent === false || cart.status === 'opted_out') {
     return { success: false, reason: 'Khách hàng chưa đồng ý hoặc đã hủy nhận email nhắc giỏ hàng.' };
   }
@@ -296,21 +306,23 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
   )).rows.length > 0;
 
   if (suppressed) {
-    await pool.query(`UPDATE abandoned_carts SET status = 'opted_out', next_reminder_at = NULL WHERE id = $1`, [cart.id]);
+    await pool.query(`UPDATE abandoned_carts SET status = 'opted_out', next_reminder_at = NULL WHERE id = $1 AND status IN ('abandoned', 'recovering')`, [cart.id]);
     return { success: false, reason: 'Khách hàng đã hủy nhận email.' };
   }
 
-  // Safeguard 2: Check if customer already ordered
+  // Safeguard 2: Check if customer already ordered (by email or customer_id)
   const ordered = (await pool.query(
     `SELECT id, order_number FROM orders
-     WHERE lower(trim(email)) = $1 AND created_at >= $2
+     WHERE (lower(trim(email)) = $1 OR ($3::uuid IS NOT NULL AND customer_id = $3))
+       AND status <> 'cancelled'
+       AND created_at >= $2
      LIMIT 1`,
-    [normEmail, cart.created_at]
+    [normEmail, cart.created_at, cart.customer_id || null]
   )).rows[0];
 
   if (ordered) {
     await pool.query(
-      `UPDATE abandoned_carts SET status = 'recovered', order_id = $1, recovered_at = now(), next_reminder_at = NULL WHERE id = $2`,
+      `UPDATE abandoned_carts SET status = 'recovered', order_id = $1, recovered_at = now(), next_reminder_at = NULL WHERE id = $2 AND status IN ('abandoned', 'recovering')`,
       [ordered.id, cart.id]
     );
     return { success: false, reason: 'Khách hàng đã hoàn tất đơn hàng.' };
@@ -402,9 +414,10 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
       let newStatus = cart.status;
       const newReminderCount = cart.reminder_count + 1;
 
-      if (newReminderCount === 1) {
+      const maxReminders = Math.max(1, Number(cart.max_reminders) || 3);
+      if (newReminderCount === 1 && newReminderCount < maxReminders) {
         nextReminderAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-      } else if (newReminderCount === 2) {
+      } else if (newReminderCount === 2 && newReminderCount < maxReminders) {
         nextReminderAt = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48 hours
       } else {
         newStatus = 'expired';
@@ -417,7 +430,7 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
              next_reminder_at = $3,
              status = $4,
              updated_at = now()
-         WHERE id = $1`,
+         WHERE id = $1 AND status IN ('abandoned', 'recovering')`,
         [cart.id, newReminderCount, nextReminderAt, newStatus]
       );
 

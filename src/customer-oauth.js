@@ -200,7 +200,9 @@ async function resolveGoogleIdentity(pool, googleUser) {
       `SELECT id, email, full_name AS "fullName", phone,
               email_verified_at IS NOT NULL AS "emailVerified", active, deleted_at AS "deletedAt",
               phone_invalid_at AS "phoneInvalidAt", created_at AS "createdAt"
-       FROM customers WHERE lower(email) = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
+       FROM customers WHERE lower(email) = $1
+       ORDER BY (deleted_at IS NULL) DESC, deleted_at DESC
+       LIMIT 1 FOR UPDATE`,
       [email]
     )).rows[0];
 

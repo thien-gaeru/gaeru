@@ -129,7 +129,7 @@
       }
 
       // Đóng modal nếu người dùng điều hướng sang view khác từ menu
-      document.querySelectorAll('.admin-nav .nav-item').forEach(btn => {
+      document.querySelectorAll('#admin-navigation .nav-item').forEach(btn => {
         if (btn !== navBtn) {
           btn.addEventListener('click', () => {
             const modalEl = document.getElementById('gaeru-ai-modal');
