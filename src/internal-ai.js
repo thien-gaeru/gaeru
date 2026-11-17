@@ -16,6 +16,16 @@ const express = require('express');
 const { getSystemHealth } = require('./security-shield');
 const { withTransaction } = require('./db');
 const { appendAudit } = require('./audit');
+const {
+  normalizeVi: sharedNormalizeVi,
+  expandQueryVi,
+  hasBoundaryTerm,
+  hasAnyBoundaryTerm,
+  isTermNegated,
+  extractOrderCodes,
+  extractPhoneNumbers,
+  isExplicitDetailedRequest
+} = require('./lib/ai-nlu');
 
 const ACTION_PERMISSION_MAP = Object.freeze({
   create_voucher: 'marketing.write',
@@ -59,27 +69,22 @@ function createInternalAiRouter(pool, config) {
   const formatVnd = (num) => new Intl.NumberFormat('vi-VN').format(Math.round(num || 0)) + ' ₫';
 
   // Helper chuẩn hóa văn bản tiếng Việt (hỗ trợ cả gõ có dấu và không dấu)
-  const normalizeVi = (str) => String(str || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .toLowerCase()
-    .trim();
+  const normalizeVi = (str) => sharedNormalizeVi(str);
 
   // Helper nhận diện khung thời gian linh hoạt từ câu hỏi tự nhiên
   function parseFlexibleDays(text) {
-    const norm = normalizeVi(text);
-    const numMatch = norm.match(/(\d+)\s*(?:ngay|hom)/);
+    const norm = expandQueryVi(text);
+    const numMatch = norm.match(/\b(\d+)\s*(?:ngay|hom)\b/);
     if (numMatch) return Math.max(1, Math.min(90, parseInt(numMatch[1], 10)));
-    const weekMatch = norm.match(/(\d+)\s*tuan/);
+    const weekMatch = norm.match(/\b(\d+)\s*tuan\b/);
     if (weekMatch) return Math.max(7, Math.min(90, parseInt(weekMatch[1], 10) * 7));
-    const monthMatch = norm.match(/(\d+)\s*thang/);
+    const monthMatch = norm.match(/\b(\d+)\s*thang\b/);
     if (monthMatch) return Math.max(30, Math.min(90, parseInt(monthMatch[1], 10) * 30));
-    if (norm.includes('quy') || norm.includes('3 thang')) return 90;
-    if (norm.includes('thang')) return 30;
-    if (norm.includes('tuan')) return 7;
-    if (norm.includes('hom qua')) return 2;
+    if (hasAnyBoundaryTerm(norm, ['quy', '3 thang'])) return 90;
+    if (hasAnyBoundaryTerm(norm, ['thang nay', 'thang qua', 'thang'])) return 30;
+    if (hasAnyBoundaryTerm(norm, ['tuan truoc', '2 tuan'])) return 14;
+    if (hasAnyBoundaryTerm(norm, ['tuan nay', 'tuan qua', 'tuan'])) return 7;
+    if (hasBoundaryTerm(norm, 'hom qua')) return 2;
     return 1;
   }
 
@@ -406,25 +411,24 @@ function createInternalAiRouter(pool, config) {
   // DISPATCHER & SYSTEM PROMPT
   // ==========================================================================
 
-  const SYSTEM_INSTRUCTION = `Bạn là GAERU AI - Trợ lý Điều hành Doanh nghiệp nội bộ cao cấp của GAERU (dành riêng cho Ban Giám Đốc và Đội ngũ Quản trị).
-Văn phong: Chuyên nghiệp, nhã nhặn, rành mạch, số liệu chính xác tuyệt đối, hỗ trợ tiếng Việt chuẩn mực.
+  const SYSTEM_INSTRUCTION = `Bạn là GAERU AI - Trợ lý Điều hành Doanh nghiệp nội bộ của GAERU.
+Văn phong: Chuyên nghiệp, ngắn gọn, đi thẳng vào đúng số liệu được hỏi; KHÔNG trả lời lan man hay chèn nội dung thừa không được hỏi.
 
 Quy tắc cốt lõi:
-1. Bạn có quyền truy cập vào các công cụ nội bộ (Tools) để lấy dữ liệu thực tế: Doanh thu, Đơn hàng, Tồn kho, Vận đơn, Sức khỏe hệ thống.
-2. TUYỆT ĐỐI không bịa đặt số liệu (Zero Hallucination). Hãy luôn dùng số liệu được trả về từ Tools để trả lời.
-3. Khi trình bày số liệu, hãy dùng định dạng bảng Markdown, bullet points rõ ràng và tiền tệ Việt Nam (Ví dụ: 1.250.000 ₫).
-4. Đối với các hành động ghi hoặc thay đổi hệ thống (ví dụ: tạo mã voucher, đổi trạng thái đơn, gửi email), bạn KHÔNG tự ý nói là "đã tạo thành công". Thay vào đó, hãy gọi tool propose_action để tạo Thẻ Xác Nhận (Action Card) để người dùng bấm nút Xác nhận trước khi áp dụng.
-5. Luôn tôn trọng phân quyền RBAC: Nếu người dùng không có quyền xem tài chính, hãy thông báo lịch sự rằng họ cần tài khoản Owner/Finance.`;
+1. Chỉ dùng số liệu thực tế từ Tools: Doanh thu, Đơn hàng, Tồn kho, Vận đơn, Sức khỏe hệ thống.
+2. TUYỆT ĐỐI không bịa đặt số liệu (Zero Hallucination). Dùng tiền tệ VNĐ (Ví dụ: 1.250.000 ₫).
+3. Chỉ xuất bảng Markdown đầy đủ khi cần liệt kê danh sách hoặc được hỏi tổng quan/báo cáo; với câu hỏi một chỉ số (doanh thu, số khách online, tồn kho 1 mã), trả lời trực diện trong 1-3 dòng.
+4. Đối với thao tác ghi (tạo/hủy voucher, xác nhận/hủy đơn, đồng bộ vận đơn), luôn tạo Action Card qua propose_action để người dùng bấm xác nhận.
+5. Tuân thủ phân quyền RBAC nghiêm ngặt theo vai trò người dùng.`;
 
   // Thực thi Function Calling logic
   async function executeAgentTurn({ userQuestion, history = [], user, threadId, aiConfig, readOnly = false }) {
-    // 1. Phân tích câu hỏi xem cần gọi tool nào (Heuristic / Fast Grounding + Multi-turn Context)
     const lower = userQuestion.toLowerCase();
-    const norm = normalizeVi(userQuestion);
+    const norm = expandQueryVi(userQuestion);
     const toolResults = [];
     let actionCard = null;
 
-    // Trích xuất ngữ cảnh từ các lượt hội thoại trước (Multi-turn Memory)
+    // Ngữ cảnh các lượt trước (Multi-turn Memory)
     const prevUserMsgs = (Array.isArray(history) ? history : [])
       .filter(m => m && m.role === 'user' && m.content !== userQuestion)
       .map(m => String(m.content || ''));
@@ -432,109 +436,16 @@ Quy tắc cốt lõi:
       .filter(m => m && m.role === 'assistant')
       .map(m => String(m.content || ''));
     const lastContextText = [...prevUserMsgs.slice(-2), ...prevAssistantMsgs.slice(-1)].join(' ');
-    const normHistory = normalizeVi(lastContextText);
+    const normHistory = expandQueryVi(lastContextText);
 
-    // Nhận diện câu hỏi tiếp nối ngắn (ví dụ: "còn 7 ngày qua thì sao?", "thế còn tháng này?", "còn K9?")
-    const isFollowUpTime = /^(?:con|the con|vay con|xem|neu)\s+.*(?:ngay|tuan|thang|hom qua|quy)/i.test(norm);
-    const isFollowUpProduct = /^(?:con|the con|vay con|kiem tra)\s+.*(?:p01|k9|m3|p185|g1)/i.test(norm);
+    const questionOrders = extractOrderCodes(userQuestion);
+    const historyOrders = extractOrderCodes(lastContextText);
+    const questionPhones = extractPhoneNumbers(userQuestion);
+    const refersPrevOrder = hasAnyBoundaryTerm(norm, ['don nay', 'don do', 'don vua roi', 'ma nay', 'ma do']);
+    const resolvedOrderCode = questionOrders[0] || (refersPrevOrder ? historyOrders[0] : null) || null;
 
-    // A. Doanh thu & Tổng quan kinh doanh
-    if (
-      norm.includes('doanh thu') || norm.includes('tong quan') || norm.includes('ban duoc bao nhieu') ||
-      norm.includes('hom nay the nao') || norm.includes('bao cao') || norm.includes('tinh hinh kinh doanh') ||
-      norm.includes('ket qua kinh doanh') || norm.includes('doanh so') ||
-      (isFollowUpTime && (normHistory.includes('doanh thu') || normHistory.includes('kinh doanh')))
-    ) {
-      const days = parseFlexibleDays(userQuestion);
-      const overview = await toolGetBusinessOverview({ days }, user);
-      toolResults.push({ tool: 'get_business_overview', data: overview });
-    }
-
-    // B. Tra cứu Đơn hàng
-    if (
-      norm.includes('don hang') || norm.includes('tra cuu don') || norm.includes('cho xu ly') ||
-      norm.includes('cho xac nhan') || norm.includes('gae-') || /\b0\d{9}\b/.test(lower) ||
-      norm.includes('don moi') || norm.includes('don chua thanh toan') || norm.includes('don huy')
-    ) {
-      const status = (norm.includes('cho') || norm.includes('pending') || norm.includes('moi')) ? 'pending'
-        : (norm.includes('dang dong goi') || norm.includes('processing')) ? 'processing'
-        : (norm.includes('dang giao') || norm.includes('shipped')) ? 'shipped'
-        : (norm.includes('hoan thanh') || norm.includes('completed')) ? 'completed'
-        : (norm.includes('da huy') || norm.includes('don huy') || norm.includes('cancelled')) ? 'cancelled' : '';
-      const orderMatch = lower.match(/gae-[a-z0-9-]+/i);
-      const phoneMatch = lower.match(/\b0\d{9}\b/);
-      const kw = orderMatch ? orderMatch[0] : phoneMatch ? phoneMatch[0] : '';
-      const orders = await toolQueryOrders({ keyword: kw, status, limit: 6 }, user);
-      toolResults.push({ tool: 'query_orders', data: orders });
-    }
-
-    // C. Kiểm tra Tồn kho & Sản phẩm
-    if (
-      norm.includes('ton kho') || norm.includes('het hang') || norm.includes('sap het') ||
-      norm.includes('kho hang') || norm.includes('con bao nhieu') || norm.includes('so luong kho') ||
-      norm.includes('p01') || norm.includes('k9') || norm.includes('m3') || norm.includes('p185') || norm.includes('g1') ||
-      (isFollowUpProduct && normHistory.includes('ton kho'))
-    ) {
-      const lowStockOnly = (norm.includes('het') || norm.includes('sap het') || norm.includes('canh bao') || norm.includes('thap')) &&
-                           !norm.includes('p01') && !norm.includes('k9') && !norm.includes('m3') && !norm.includes('p185') && !norm.includes('g1');
-      const kw = norm.includes('p01') ? 'P01'
-        : norm.includes('k9') ? 'K9'
-        : norm.includes('m3') ? 'M3'
-        : norm.includes('p185') ? 'P185'
-        : norm.includes('g1') ? 'G1' : '';
-      const stock = await toolCheckInventory({ keyword: kw, lowStockOnly }, user);
-      toolResults.push({ tool: 'check_inventory', data: stock });
-    }
-
-    // D. Vận đơn & Lộ trình giao hàng
-    if (norm.includes('van don') || norm.includes('viettel') || norm.includes('giao hang') || norm.includes('van chuyen') || norm.includes('lo trinh') || norm.includes('buu cuc')) {
-      const orderMatch = lower.match(/gae-[a-z0-9-]+/i) || lastContextText.match(/gae-[a-z0-9-]+/i);
-      const isSpecificOrderRef = Boolean(lower.match(/gae-[a-z0-9-]+/i)) || (/(?:don nay|don do|ma nay)/i.test(norm) && Boolean(orderMatch));
-      const shipping = await toolQueryShipping({ orderNumber: isSpecificOrderRef && orderMatch ? orderMatch[0] : '' }, user);
-      toolResults.push({ tool: 'query_shipping', data: shipping });
-    }
-
-    // E. Lưu lượng truy cập Website (Traffic & Online Visitors)
-    if (norm.includes('truy cap') || norm.includes('traffic') || norm.includes('luot xem') || norm.includes('pageview') || norm.includes('khach online') || norm.includes('dang online') || norm.includes('ghe tham')) {
-      const traffic = await toolGetTrafficAnalytics();
-      toolResults.push({ tool: 'get_traffic_analytics', data: traffic });
-    }
-
-    // F. Chương trình Khuyến mãi & Danh sách Voucher
-    if (
-      (norm.includes('khuyen mai') || norm.includes('voucher') || norm.includes('ma giam gia') || norm.includes('chien dich') || norm.includes('flash sale')) &&
-      !/\b(?:tao|lap|them|phat hanh|huy|dung|tat|xoa|go)\b/.test(norm)
-    ) {
-      const mkt = await toolGetMarketingOverview(user);
-      toolResults.push({ tool: 'get_marketing_overview', data: mkt });
-    }
-
-    // G. Chăm sóc khách hàng, Tin nhắn chờ & Bảo hành / Đổi trả
-    if (norm.includes('cskh') || norm.includes('tin nhan khach') || norm.includes('chat khach') || norm.includes('bao hanh') || norm.includes('doi tra') || norm.includes('hau mai') || norm.includes('khieu nai')) {
-      const care = await toolGetCustomerCareOverview(user);
-      toolResults.push({ tool: 'get_customer_care', data: care });
-    }
-
-    // H. Sức khỏe Hệ thống & Hạ tầng Máy chủ
-    if (norm.includes('he thong') || norm.includes('may chu') || norm.includes('server') || norm.includes('cluster') || norm.includes('bao mat') || norm.includes('cpu') || norm.includes('ram') || norm.includes('waf')) {
-      const sys = await toolCheckSystemHealth();
-      toolResults.push({ tool: 'check_system_health', data: sys });
-    }
-
-    // I. Tri thức Tự học (Self-Learning Knowledge)
-    if (norm.includes('tu hoc') || norm.includes('hoc hoi') || norm.includes('tri thuc') || norm.includes('learned') || norm.includes('khach hang hoi gi') || norm.includes('kien thuc')) {
-      try {
-        const { getLearnedKnowledgeStats } = require('./ai-self-learning');
-        const learned = await getLearnedKnowledgeStats(pool);
-        toolResults.push({ tool: 'get_learned_knowledge', data: learned });
-      } catch (_) {}
-    }
-
-    // Tìm kiếm đơn hàng trong câu hỏi hiện tại hoặc tham chiếu từ câu trước ("đơn này", "đơn đó")
-    const orderCodeMatch = userQuestion.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i) ||
-                           ((/(?:don nay|don do|don vua roi)/i.test(norm)) ? lastContextText.match(/(?:gae-[a-z0-9-]+|gr-[a-z0-9-]+|test-[a-z0-9-]+)/i) : null);
     let matchedOrder = null;
-    if (orderCodeMatch && hasReadPermission(user, ['orders.read', 'orders.write', 'shipping.read'])) {
+    if (resolvedOrderCode && hasReadPermission(user, ['orders.read', 'orders.write', 'shipping.read'])) {
       try {
         const ordRes = await pool.query(
           `SELECT o.id, o.order_number, o.customer_name, o.total_vnd, o.status, o.payment_status, s.tracking_number
@@ -542,15 +453,15 @@ Quy tắc cốt lõi:
            LEFT JOIN carrier_shipments s ON s.order_id = o.id AND s.status != 'cancelled'
            WHERE lower(o.order_number) = lower($1)
            ORDER BY s.created_at DESC LIMIT 1`,
-          [orderCodeMatch[0].trim()]
+          [resolvedOrderCode]
         );
         if (ordRes.rows.length) matchedOrder = ordRes.rows[0];
       } catch (_) {}
     }
 
-    // 1. Ý định xác nhận / duyệt đơn hàng (confirm_order)
-    const isConfirmOrderIntent = /(?:xác nhận|duyệt|chuẩn bị|tiến hành|giao hàng).*(?:đơn|đơn hàng)/i.test(lower) ||
-                                 /(?:xác nhận đơn|duyệt đơn|chuẩn bị đơn)/i.test(lower);
+    // 1. Nhận diện Ý định Hành động Quản trị trước để không gọi nhầm các tool báo cáo thừa
+    const isConfirmOrderIntent = (/(?:xác nhận|duyệt|chuẩn bị|tiến hành|chuyển sang giao).{0,25}(?:đơn|đơn hàng)/i.test(lower) ||
+                                 /(?:xác nhận đơn|duyệt đơn|chuẩn bị đơn)/i.test(lower)) && !isTermNegated(norm, 'duyet') && !isTermNegated(norm, 'xac nhan');
     if (!readOnly && hasActionPermission(user, 'confirm_order') && isConfirmOrderIntent && matchedOrder && ['pending', 'confirmed'].includes(matchedOrder.status)) {
       actionCard = await toolProposeAction({
         actionType: 'confirm_order',
@@ -565,9 +476,7 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'propose_action', data: actionCard });
     }
 
-    // 2. Ý định hủy đơn hàng (cancel_order)
-    const isCancelOrderIntent = /(?:hủy|huỷ|cancel).*(?:đơn|đơn hàng)/i.test(lower) ||
-                                /(?:hủy đơn|huỷ đơn)/i.test(lower);
+    const isCancelOrderIntent = /(?:hủy|huỷ|cancel).{0,20}(?:đơn|đơn hàng)/i.test(lower) || /(?:hủy đơn|huỷ đơn)/i.test(lower);
     if (!readOnly && hasActionPermission(user, 'cancel_order') && !actionCard && isCancelOrderIntent && matchedOrder && !['cancelled', 'completed'].includes(matchedOrder.status)) {
       actionCard = await toolProposeAction({
         actionType: 'cancel_order',
@@ -581,8 +490,7 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'propose_action', data: actionCard });
     }
 
-    // 3. Ý định đồng bộ vận đơn hãng (sync_shipping)
-    const isSyncShippingIntent = /(?:đồng bộ|hành trình|vận đơn|bưu cục|tra cứu).*(?:đơn|vận chuyển|viettel|jt|spx)/i.test(lower) ||
+    const isSyncShippingIntent = /(?:đồng bộ|cập nhật hành trình).{0,25}(?:đơn|vận đơn|vận chuyển|viettel|jt|spx)/i.test(lower) ||
                                  /(?:đồng bộ vận đơn|kiểm tra hành trình)/i.test(lower);
     if (!readOnly && hasActionPermission(user, 'sync_shipping') && !actionCard && isSyncShippingIntent && matchedOrder && matchedOrder.tracking_number) {
       actionCard = await toolProposeAction({
@@ -598,13 +506,24 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'propose_action', data: actionCard });
     }
 
-    // 4. Kiểm tra xem người dùng có yêu cầu tạo mã giảm giá / voucher không
-    const isVoucherIntent = /(?:tạo|lập|thêm|phát hành).*(?:mã|voucher|coupon|khuyến mãi)/i.test(lower) ||
-                            /(?:mã giảm giá|mã khuyến mãi|tạo voucher)/i.test(lower) ||
-                            (lower.includes('voucher') && (lower.includes('tạo') || lower.includes('thêm')));
-    if (!readOnly && hasActionPermission(user, 'create_voucher') && !actionCard && isVoucherIntent) {
+    const isVoucherActionIntent = !/\b(?:xem|danh sach|liet ke|kiem tra|co nhung|dang chay|hien tai)\b/.test(norm) && (
+      /(?:tạo|lập|thêm|phát hành).{0,25}(?:mã|voucher|coupon|khuyến mãi)/i.test(lower) ||
+      (hasBoundaryTerm(norm, 'voucher') && hasAnyBoundaryTerm(norm, ['tao', 'lap', 'them', 'phat hanh']))
+    );
+    const isCancelVoucherIntent = /(?:hủy|huỷ|dừng|tắt).{0,25}(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
+                                 /(?:hủy voucher|huỷ voucher|dừng voucher|tắt voucher)/i.test(lower);
+    const isDeleteVoucherIntent = /(?:xóa|xoá|gỡ).{0,25}(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
+                                 /(?:xóa voucher|xoá voucher)/i.test(lower);
+    const isCancelCampaignIntent = /(?:hủy|huỷ|dừng|tắt).{0,25}(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
+    const isDeleteCampaignIntent = /(?:xóa|xoá|gỡ).{0,25}(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
+
+    if (!readOnly && hasActionPermission(user, 'create_voucher') && !actionCard && isVoucherActionIntent && !isCancelVoucherIntent && !isDeleteVoucherIntent) {
       const codeMatch = userQuestion.match(/(?:mã\s*(?:giảm\s*giá\s*|khuyến\s*mãi\s*)?|voucher\s*)([A-Za-z0-9_-]{3,20})/i);
-      const code = codeMatch ? codeMatch[1].toUpperCase() : 'SALE' + Math.floor(Math.random() * 900 + 100);
+      const candidateCode = codeMatch ? codeMatch[1] : '';
+      const reservedWords = /^(?:cho|giam|khach|moi|nay|ngay|them|toi|khuyen|mai)$/i;
+      const code = (candidateCode && !reservedWords.test(candidateCode))
+        ? candidateCode.toUpperCase()
+        : 'SALE' + Math.floor(Math.random() * 900 + 100);
       const amountMatch = userQuestion.match(/(\d+[\d.,]*)\s*(?:k|đ|đồng|%)/i);
       let amount = 30000;
       let kind = 'fixed';
@@ -637,11 +556,6 @@ Quy tắc cốt lõi:
       toolResults.push({ tool: 'propose_action', data: actionCard });
     }
 
-    // 5. Ý định Hủy / Dừng hoặc Xóa Voucher
-    const isCancelVoucherIntent = /(?:hủy|huỷ|dừng|tắt).*(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
-                                 /(?:hủy voucher|huỷ voucher|dừng voucher|tắt voucher)/i.test(lower);
-    const isDeleteVoucherIntent = /(?:xóa|xoá|gỡ).*(?:voucher|mã giảm|mã khuyến mãi)/i.test(lower) ||
-                                 /(?:xóa voucher|xoá voucher)/i.test(lower);
     if (!readOnly && !actionCard && (isCancelVoucherIntent || isDeleteVoucherIntent) && hasActionPermission(user, isDeleteVoucherIntent ? 'delete_voucher' : 'cancel_voucher')) {
       const vCodeMatch = userQuestion.match(/(?:voucher|mã(?:\s+giảm(?:\s+giá)?)?|mã\s+khuyến\s+mãi|code)\s+([A-Za-z0-9_-]{3,40})/i);
       let targetVoucher = null;
@@ -672,9 +586,6 @@ Quy tắc cốt lõi:
       }
     }
 
-    // 6. Ý định Hủy / Dừng hoặc Xóa Chiến dịch Marketing
-    const isCancelCampaignIntent = /(?:hủy|huỷ|dừng|tắt).*(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
-    const isDeleteCampaignIntent = /(?:xóa|xoá|gỡ).*(?:chiến dịch|campaign|khuyến mại|khuyến mãi|flash sale)/i.test(lower);
     if (!readOnly && !actionCard && (isCancelCampaignIntent || isDeleteCampaignIntent) && hasActionPermission(user, isDeleteCampaignIntent ? 'delete_campaign' : 'cancel_campaign')) {
       const campNameMatch = userQuestion.match(/(?:chiến\s+dịch(?:\s+khuyến\s+mại|\s+khuyến\s+mãi)?|campaign|flash\s+sale)\s+([^\n,.!?]{2,80})/i);
       const rawCampName = campNameMatch ? campNameMatch[1].trim() : '';
@@ -713,18 +624,107 @@ Quy tắc cốt lõi:
       }
     }
 
-    // 2. Chuẩn bị ngữ cảnh cho LLM
-    const contextPayload = {
-      system: SYSTEM_INSTRUCTION,
-      userRole: user?.role || 'staff',
-      userName: user?.username || 'Quản trị viên',
-      isOwner: Boolean(user?.isOwner),
-      userQuestion,
-      toolResults,
-      hasActionCard: Boolean(actionCard)
-    };
+    const isActionWorkflowTurn = Boolean(
+      actionCard || isVoucherActionIntent || isCancelVoucherIntent || isDeleteVoucherIntent || isCancelCampaignIntent || isDeleteCampaignIntent
+    );
 
-    // 3. Tổng hợp phản hồi thông minh GAERU AI dựa trên dữ liệu hệ thống thực tế (Hoàn toàn độc lập, không phụ thuộc AI bên ngoài)
+    // 2. Nhận diện câu hỏi tiếp nối ngắn (Multi-turn follow-up)
+    const isFollowUpTime = /^(?:con|the con|vay con|xem|neu|hom qua|tuan|thang|\d+\s*(?:ngay|tuan|thang))\b/.test(norm) &&
+      hasAnyBoundaryTerm(norm, ['ngay', 'tuan', 'thang', 'hom qua', 'quy']);
+    const isFollowUpProduct = /^(?:con|the con|vay con|kiem tra|the|xem)\b/.test(norm) &&
+      hasAnyBoundaryTerm(norm, ['p01', 'k9', 'm3', 'p185', 'g1', 'g1 ultra']);
+    const isDraftingRequest = !hasAnyBoundaryTerm(norm, ['doanh thu', 'ton kho', 'tra cuu', 'don hang', 'thong ke', 'bao cao', 'van don']) &&
+      hasAnyBoundaryTerm(norm, ['viet', 'soan', 'mau tin nhan', 'caption', 'kich ban', 'bai dang']);
+
+    if (!isActionWorkflowTurn && !isDraftingRequest) {
+      // A. Doanh thu & Tổng quan kinh doanh (không kích hoạt nhầm khi "báo cáo" đi kèm chủ đề khác như CSKH/kho/hệ thống)
+      const mentionsOtherReportDomain = hasAnyBoundaryTerm(norm, ['ton kho', 'kho hang', 'cskh', 'bao hanh', 'khiếu nại', 'khieu nai', 'doi tra', 'van don', 'he thong', 'may chu', 'tri thuc', 'tu hoc']);
+      if (
+        hasAnyBoundaryTerm(norm, ['doanh thu', 'doanh so', 'tong quan', 'ban duoc bao nhieu', 'hom nay the nao', 'tinh hinh kinh doanh', 'ket qua kinh doanh']) ||
+        (hasBoundaryTerm(norm, 'bao cao') && !mentionsOtherReportDomain) ||
+        (isFollowUpTime && hasAnyBoundaryTerm(normHistory, ['doanh thu', 'doanh so', 'kinh doanh', 'tong quan']))
+      ) {
+        const days = parseFlexibleDays(userQuestion);
+        const overview = await toolGetBusinessOverview({ days }, user);
+        toolResults.push({ tool: 'get_business_overview', data: overview });
+      }
+
+      // B. Tra cứu Đơn hàng (Hỗ trợ cả GR-... và GAE-...; không hiểu nhầm "tạo cho tôi" thành pending)
+      const isOrderLookupQuery = hasAnyBoundaryTerm(norm, [
+        'don hang', 'tra cuu don', 'cho xu ly', 'cho xac nhan', 'don cho', 'don moi', 'chua thanh toan', 'don huy', 'don bi huy', 'tim don', 'kiem tra don'
+      ]) || questionOrders.length > 0 || questionPhones.length > 0;
+      const onlyShippingTracking = hasAnyBoundaryTerm(norm, ['van don', 'lo trinh', 'buu cuc', 'viettel post', 'hanh trinh giao']) && !hasAnyBoundaryTerm(norm, ['don hang', 'cho xu ly', 'don moi', 'don huy']);
+      if (isOrderLookupQuery && !onlyShippingTracking) {
+        const isPendingStatus = /\b(?:cho xu ly|cho xac nhan|chua duyet|don cho|pending|don moi|moi dat)\b/.test(norm) ||
+          (/\bchờ\b/i.test(lower) && hasAnyBoundaryTerm(norm, ['don', 'xac nhan', 'xu ly', 'duyet']));
+        const status = isPendingStatus ? 'pending'
+          : hasAnyBoundaryTerm(norm, ['dang dong goi', 'chuan bi hang', 'processing']) ? 'processing'
+          : hasAnyBoundaryTerm(norm, ['dang giao', 'dang van chuyen', 'shipped']) ? 'shipped'
+          : hasAnyBoundaryTerm(norm, ['hoan thanh', 'da giao', 'giao thanh cong', 'completed']) ? 'completed'
+          : (hasAnyBoundaryTerm(norm, ['da huy', 'don huy', 'bi huy', 'cancelled']) && !isTermNegated(norm, 'huy')) ? 'cancelled' : '';
+        const kw = questionOrders[0] || questionPhones[0] || '';
+        const orders = await toolQueryOrders({ keyword: kw, status, limit: 6 }, user);
+        toolResults.push({ tool: 'query_orders', data: orders });
+      }
+
+      // C. Kiểm tra Tồn kho & Sản phẩm
+      const modelKw = hasBoundaryTerm(norm, 'p01') ? 'P01'
+        : hasBoundaryTerm(norm, 'k9') ? 'K9'
+        : hasBoundaryTerm(norm, 'm3') ? 'M3'
+        : hasBoundaryTerm(norm, 'p185') ? 'P185'
+        : hasAnyBoundaryTerm(norm, ['g1', 'g1 ultra']) ? 'G1'
+        : (userQuestion.match(/\bSKU-[A-Z0-9-]+\b/i)?.[0] || '');
+      const asksInventory = hasAnyBoundaryTerm(norm, ['ton kho', 'het hang', 'sap het', 'kho hang', 'con bao nhieu', 'so luong kho', 'kiem ke']) ||
+        (Boolean(modelKw) && !hasAnyBoundaryTerm(norm, ['don hang', 'van don'])) ||
+        (isFollowUpProduct && hasAnyBoundaryTerm(normHistory, ['ton kho', 'kho hang']));
+      if (asksInventory) {
+        const lowStockOnly = hasAnyBoundaryTerm(norm, ['sap het', 'het hang', 'canh bao', 'ton thap', 'duoi 5']) && !modelKw;
+        const stock = await toolCheckInventory({ keyword: modelKw, lowStockOnly }, user);
+        toolResults.push({ tool: 'check_inventory', data: stock });
+      }
+
+      // D. Vận đơn & Lộ trình giao hàng
+      if (hasAnyBoundaryTerm(norm, ['van don', 'viettel', 'viettel post', 'jt', 'spx', 'giao hang', 'van chuyen', 'lo trinh', 'buu cuc'])) {
+        const isSpecificOrderRef = questionOrders.length > 0 || (refersPrevOrder && Boolean(historyOrders[0]));
+        const shipping = await toolQueryShipping({ orderNumber: isSpecificOrderRef ? resolvedOrderCode : '' }, user);
+        toolResults.push({ tool: 'query_shipping', data: shipping });
+      }
+
+      // E. Lưu lượng truy cập Website (Traffic & Online Visitors)
+      if (hasAnyBoundaryTerm(norm, ['truy cap', 'traffic', 'luot xem', 'pageview', 'khach online', 'dang online', 'nguoi online', 'ghe tham'])) {
+        const traffic = await toolGetTrafficAnalytics();
+        toolResults.push({ tool: 'get_traffic_analytics', data: traffic });
+      }
+
+      // F. Chương trình Khuyến mãi & Danh sách Voucher
+      if (hasAnyBoundaryTerm(norm, ['khuyen mai', 'voucher', 'ma giam gia', 'chien dich', 'flash sale'])) {
+        const mkt = await toolGetMarketingOverview(user);
+        toolResults.push({ tool: 'get_marketing_overview', data: mkt });
+      }
+
+      // G. Chăm sóc khách hàng, Tin nhắn chờ & Bảo hành / Đổi trả
+      if (hasAnyBoundaryTerm(norm, ['cskh', 'cham soc khach hang', 'tin nhan khach', 'chat khach', 'bao hanh', 'doi tra', 'hau mai', 'khieu nai'])) {
+        const care = await toolGetCustomerCareOverview(user);
+        toolResults.push({ tool: 'get_customer_care', data: care });
+      }
+
+      // H. Sức khỏe Hệ thống & Hạ tầng Máy chủ
+      if (hasAnyBoundaryTerm(norm, ['he thong', 'may chu', 'server', 'cluster', 'bao mat', 'cpu', 'ram', 'waf', 'suc khoe'])) {
+        const sys = await toolCheckSystemHealth();
+        toolResults.push({ tool: 'check_system_health', data: sys });
+      }
+
+      // I. Tri thức Tự học (Self-Learning Knowledge)
+      if (hasAnyBoundaryTerm(norm, ['tu hoc', 'hoc hoi', 'tri thuc', 'learned', 'khach hang hoi gi', 'kien thuc'])) {
+        try {
+          const { getLearnedKnowledgeStats } = require('./ai-self-learning');
+          const learned = await getLearnedKnowledgeStats(pool);
+          toolResults.push({ tool: 'get_learned_knowledge', data: learned });
+        } catch (_) {}
+      }
+    }
+
+    // 3. Tổng hợp phản hồi chính xác, súc tích, đúng trọng tâm câu hỏi
     let aiResponseText = synthesizeDeterministicResponse(userQuestion, toolResults, actionCard, user);
 
     if (aiResponseText) {
@@ -738,17 +738,18 @@ Quy tắc cốt lõi:
     };
   }
 
-  // Bộ tổng hợp phản hồi thông minh, tự nhiên và giàu ngữ cảnh điều hành của GAERU AI
+  // Bộ tổng hợp phản hồi chính xác, ngắn gọn, không lan man của GAERU AI
   function synthesizeDeterministicResponse(question, toolResults, actionCard, user) {
-    const norm = normalizeVi(question);
-    const userTitle = user?.isOwner ? 'Chủ doanh nghiệp (CEO)' : (user?.username || 'Quản trị viên');
+    const norm = expandQueryVi(question);
+    const detailed = isExplicitDetailedRequest(norm);
+    const userTitle = user?.isOwner ? 'CEO' : (user?.username || 'Quản trị viên');
     const statusLabelMap = {
-      pending: '⏳ Chờ xác nhận',
-      confirmed: '✅ Đã xác nhận',
-      processing: '📦 Đang đóng gói',
-      shipped: '🚚 Đang giao hàng',
-      completed: '🎉 Hoàn thành',
-      cancelled: '❌ Đã hủy'
+      pending: 'Chờ xác nhận',
+      confirmed: 'Đã xác nhận',
+      processing: 'Đang đóng gói',
+      shipped: 'Đang giao hàng',
+      completed: 'Hoàn thành',
+      cancelled: 'Đã hủy'
     };
     const payLabelMap = {
       paid: 'Đã thanh toán',
@@ -772,229 +773,175 @@ Quy tắc cốt lõi:
 
     let out = '';
 
-    // 1. Tổng hợp Tình hình Kinh doanh & Doanh thu với lời dẫn tự nhiên
+    // 1. Kinh doanh & Doanh thu: Trả thẳng số liệu cần hỏi khi hỏi gọn, chỉ mở bảng breakdown khi yêu cầu báo cáo/tổng quan
     if (overview) {
-      const periodText = overview.periodDays === 1 ? 'hôm nay (24 giờ qua)' : `${overview.periodDays} ngày qua`;
-      out += `### 📊 Báo cáo Điều hành Kinh doanh (${periodText})\n\n`;
-      if (overview.totalOrders > 0) {
-        const revSentence = overview.revenue?.paidFormatted
-          ? `, mang về **Doanh thu thực thu ${overview.revenue.paidFormatted}** (Tổng giá trị đơn hàng: **${overview.revenue.grossFormatted}**)`
-          : '';
-        out += `Chào **${userTitle}**, trong ${periodText} hệ thống GAERU ghi nhận **${overview.totalOrders} đơn hàng**${revSentence}. Dưới đây là chi tiết tiến độ vận hành:\n\n`;
+      const periodText = overview.periodDays === 1 ? 'hôm nay (24h qua)' : `${overview.periodDays} ngày qua`;
+      const wantsOnlyRevenueSummary = !detailed &&
+        hasAnyBoundaryTerm(norm, ['doanh thu', 'doanh so', 'ban duoc bao nhieu']) &&
+        !hasAnyBoundaryTerm(norm, ['don cho', 'don hang', 'khach moi', 'tien do']);
+
+      if (wantsOnlyRevenueSummary) {
+        if (overview.revenue?.paidFormatted) {
+          out += `**Doanh thu ${periodText}:** Thực thu **${overview.revenue.paidFormatted}** · Tổng giá trị **${overview.revenue.grossFormatted}** (${overview.totalOrders} đơn hàng${overview.pendingOrders > 0 ? `, ${overview.pendingOrders} chờ xác nhận` : ''}).\n\n`;
+        } else {
+          out += `**Doanh thu (${periodText}):** ${overview.revenue?.note || 'Không có quyền xem dữ liệu tài chính.'}\n\n`;
+        }
       } else {
-        const revSentence = overview.revenue?.paidFormatted
-          ? ` Doanh thu thực thu hiện tại là **${overview.revenue.paidFormatted}** (Tổng giá trị đơn: ${overview.revenue.grossFormatted}).`
-          : '';
-        out += `Chào **${userTitle}**, tính trong ${periodText} hiện chưa có đơn hàng mới nào phát sinh.${revSentence} Toàn bộ cổng thanh toán và hệ thống đón khách vẫn đang trực tuyến ổn định:\n\n`;
+        out += `**Báo cáo kinh doanh (${periodText}):**\n`;
+        if (overview.revenue?.paidFormatted) {
+          out += `- **Doanh thu thực thu:** **${overview.revenue.paidFormatted}** (Tổng giá trị đơn: **${overview.revenue.grossFormatted}**)\n`;
+        } else if (overview.revenue?.note) {
+          out += `- **Doanh thu:** *${overview.revenue.note}*\n`;
+        }
+        out += `- **Đơn hàng:** **${overview.totalOrders}** đơn (Chờ xác nhận: ${overview.pendingOrders}, Đang xử lý: ${overview.processingOrders}, Đang giao: ${overview.shippedOrders}, Hoàn thành: ${overview.completedOrders})\n`;
+        out += `- **Khách mới:** ${overview.newCustomers} tài khoản\n\n`;
       }
-
-      out += `- **Tổng đơn hàng ghi nhận:** **${overview.totalOrders}** đơn\n`;
-      out += `- **Đơn chờ xác nhận (Pending):** ${overview.pendingOrders} đơn\n`;
-      out += `- **Đơn đang đóng gói (Processing):** ${overview.processingOrders} đơn\n`;
-      out += `- **Đơn đang giao (Shipped):** ${overview.shippedOrders} đơn\n`;
-      out += `- **Đơn hoàn thành (Completed):** ${overview.completedOrders} đơn\n`;
-      out += `- **Khách hàng mới đăng ký:** ${overview.newCustomers} người\n`;
-      if (overview.revenue && overview.revenue.paidFormatted) {
-        out += `- **Doanh thu thực thu:** **${overview.revenue.paidFormatted}** (Tổng giá trị đơn: ${overview.revenue.grossFormatted})\n`;
-      } else if (overview.revenue && overview.revenue.note) {
-        out += `- **Doanh thu:** *${overview.revenue.note}*\n`;
-      }
-
-      // Gợi ý điều hành chủ động dựa trên số liệu thực
-      if (overview.pendingOrders > 0) {
-        out += `\n> 💡 **Gợi ý điều hành:** Hiện có **${overview.pendingOrders} đơn hàng đang chờ xác nhận**. Bạn có thể nhắn *"Đơn hàng đang chờ xử lý"* để kiểm tra và duyệt đơn ngay.\n`;
-      }
-      out += `\n`;
     }
 
-    // 2. Danh sách & Tra cứu Đơn hàng
+    // 2. Đơn hàng
     if (orders?.error) {
-      if (!out) out += `### 📦 Tra cứu Đơn hàng\n\n`;
       out += `- ⚠️ ${orders.error}\n\n`;
     } else if (orders && orders.length) {
-      if (!out) out += `### 📦 Kết quả Tra cứu Đơn hàng\n\n`;
-      else out += `#### 📦 Danh sách đơn hàng phù hợp (${orders.length} đơn gần nhất):\n`;
+      out += `**Đơn hàng (${orders.length} đơn):**\n`;
       out += `| Mã đơn | Khách hàng | SĐT | Trạng thái | Thanh toán | Tổng tiền |\n`;
       out += `|:---|:---|:---|:---|:---|---:|\n`;
       for (const o of orders) {
         out += `| **${o.orderNumber}** | ${o.customerName} | ${o.phone} | ${statusLabelMap[o.status] || o.status} | ${payLabelMap[o.paymentStatus] || o.paymentStatus} | **${o.totalFormatted}** |\n`;
       }
-      const firstPending = orders.find(o => o.status === 'pending');
-      if (firstPending && !actionCard) {
-        out += `\n> 💡 *Mẹo nhanh: Nhắn \`Duyệt đơn ${firstPending.orderNumber}\` hoặc \`Hủy đơn ${firstPending.orderNumber}\` để tôi tạo thẻ thao tác nhanh cho bạn.*\n`;
-      }
       out += `\n`;
     } else if (ordersTool && Array.isArray(orders) && orders.length === 0 && !overview && !shippingTool) {
-      out += `### 📦 Tra cứu Đơn hàng\n\n`;
-      out += `Hiện tại hệ thống **không có đơn hàng nào** đang ở trạng thái chờ xử lý hoặc khớp với điều kiện bạn vừa tìm kiếm. Tất cả các đơn hàng trước đó đều đã được giải quyết gọn gàng! ✅\n\n`;
+      out += `Không tìm thấy đơn hàng nào khớp điều kiện tra cứu.\n\n`;
     }
 
-    // 3. Lộ trình Vận chuyển & Vận đơn
+    // 3. Vận chuyển & Vận đơn
     if (shipping) {
-      if (!out) out += `### 🚚 Báo cáo Lộ trình Vận chuyển\n\n`;
       if (shipping.error) {
-        out += `#### 🚚 Tra cứu Vận chuyển:\n`;
-        out += `- ⚠️ ${shipping.error}. Bạn vui lòng kiểm tra lại mã đơn (dạng \`GAE-xxxxxx\`) nhé.\n\n`;
+        out += `- ⚠️ ${shipping.error} (định dạng mã \`GR-...\` hoặc \`GAE-...\`).\n\n`;
       } else if (shipping.shipment && shipping.order) {
-        out += `#### 🚚 Thông tin Vận đơn chi tiết (${shipping.order.orderNumber}):\n`;
-        out += `- **Đơn vị vận chuyển:** **${shipping.shipment.carrier}**\n`;
-        out += `- **Mã vận đơn:** \`${shipping.shipment.trackingNumber}\`\n`;
-        out += `- **Trạng thái vận chuyển:** ${statusLabelMap[shipping.shipment.status] || shipping.shipment.status}\n`;
-        out += `- **Người nhận:** ${shipping.order.customerName} (${shipping.order.phone}) — ${shipping.order.address ? shipping.order.address + ', ' : ''}${shipping.order.city || ''}\n\n`;
+        out += `**Vận đơn ${shipping.order.orderNumber}:** ${shipping.shipment.carrier} · Mã \`${shipping.shipment.trackingNumber}\` · ${statusLabelMap[shipping.shipment.status] || shipping.shipment.status} (${shipping.order.customerName} — ${shipping.order.city || ''}).\n\n`;
       } else if (Array.isArray(shipping.shipments)) {
         if (shipping.shipments.length > 0) {
-          out += `Hiện có **${shipping.shipments.length} đơn hàng** đang trong luồng điều phối giao vận:\n\n`;
-          out += `| Mã đơn | Khách hàng | Khu vực | Đơn vị VC | Mã vận đơn | Trạng thái |\n`;
+          out += `**Vận đơn đang điều phối (${shipping.shipments.length}):**\n`;
+          out += `| Mã đơn | Khách hàng | Khu vực | Hãng VC | Mã vận đơn | Trạng thái |\n`;
           out += `|:---|:---|:---|:---|:---|:---|\n`;
           for (const s of shipping.shipments) {
             out += `| **${s.orderNumber}** | ${s.customerName} | ${s.city || '—'} | ${s.carrier} | \`${s.trackingNumber}\` | ${statusLabelMap[s.shipmentStatus] || s.shipmentStatus} |\n`;
           }
           out += `\n`;
         } else {
-          out += `Hiện tại **không có đơn hàng nào đang tồn đọng trên lộ trình vận chuyển** hoặc chờ bưu cục Viettel Post lấy hàng. Mọi vận đơn trước đó đều đã hoàn tất! ✅\n\n`;
+          out += `Hiện không có đơn hàng nào đang chờ giao hoặc trên lộ trình vận chuyển.\n\n`;
         }
       }
     }
 
-    // 4. Báo cáo Tồn kho & Sản phẩm
+    // 4. Tồn kho
     if (inventory?.error) {
-      if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
       out += `- ⚠️ ${inventory.error}\n\n`;
     } else if (inventory && inventory.length) {
-      if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
-      else out += `#### 📋 Báo cáo Tồn kho chi tiết:\n`;
-      const lowItems = inventory.filter(i => i.isLowStock);
-      if (lowItems.length > 0) {
-        out += `Phát hiện **${lowItems.length} phân loại sản phẩm** đang ở mức tồn kho thấp (≤ 5 sản phẩm) cần lưu ý:\n\n`;
-      } else {
-        out += `Tất cả **${inventory.length} phân loại sản phẩm** tra cứu đều đang có lượng tồn kho dồi dào, sẵn sàng phục vụ đơn mới:\n\n`;
-      }
-      out += `| Sản phẩm | Biến thể | SKU | Giá bán | Tồn kho | Tình trạng |\n`;
+      const lowCount = inventory.filter(i => i.isLowStock).length;
+      out += `**Tồn kho (${inventory.length} SKU${lowCount > 0 ? `, ${lowCount} sắp hết ≤ 5` : ''}):**\n`;
+      out += `| Sản phẩm | Biến thể | SKU | Giá | Tồn | Trạng thái |\n`;
       out += `|:---|:---|:---|---:|:---:|:---|\n`;
       for (const it of inventory) {
-        out += `| **${it.productName}** | ${it.variantName} | \`${it.sku}\` | ${it.priceFormatted} | **${it.stockQuantity}** | ${it.isLowStock ? '⚠️ ' + it.stockStatus : '✅ ' + it.stockStatus} |\n`;
+        out += `| **${it.productName}** | ${it.variantName} | \`${it.sku}\` | ${it.priceFormatted} | **${it.stockQuantity}** | ${it.stockStatus} |\n`;
       }
       out += `\n`;
     } else if (inventoryTool && Array.isArray(inventory) && inventory.length === 0) {
-      if (!out) out += `### 📋 Báo cáo Kiểm kê Tồn kho\n\n`;
-      else out += `#### 📋 Báo cáo Tồn kho:\n`;
-      out += `Tin vui! Hiện tại **không có sản phẩm nào sắp hết hàng**. Toàn bộ các mẫu micro và thiết bị thu âm trong kho đều đảm bảo định mức an toàn (> 5 sản phẩm/SKU). ✅\n\n`;
+      out += `Không có SKU nào nằm dưới ngưỡng tồn kho thấp (≤ 5) hoặc khớp từ khóa tìm kiếm.\n\n`;
     }
 
-    // 5. Lưu lượng Truy cập Website (Traffic)
+    // 5. Lưu lượng truy cập Storefront
     if (traffic) {
-      if (!out) out += `### 📈 Thống kê Lưu lượng Truy cập Storefront\n\n`;
-      else out += `#### 📈 Lưu lượng Truy cập Storefront:\n`;
-      out += `- **Khách đang trực tuyến (15 phút qua):** **${traffic.activeNow}** người đang xem web 🟢\n`;
-      out += `- **Lượt xem trang hôm nay (Pageviews):** **${new Intl.NumberFormat('vi-VN').format(traffic.todayPageviews)}** lượt\n`;
-      out += `- **Khách truy cập hôm nay (Unique Visitors):** **${new Intl.NumberFormat('vi-VN').format(traffic.todayVisitors)}** khách\n`;
-      out += `- **Tổng lượt xem tích lũy toàn hệ thống:** **${new Intl.NumberFormat('vi-VN').format(traffic.totalPageviews)}** lượt\n\n`;
+      const nf = new Intl.NumberFormat('vi-VN');
+      const onlyOnline = !detailed && hasAnyBoundaryTerm(norm, ['dang online', 'khach online', 'nguoi online']) && !hasAnyBoundaryTerm(norm, ['luot xem', 'pageview', 'tong']);
+      if (onlyOnline) {
+        out += `- **Đang trực tuyến:** **${traffic.activeNow}** khách (hôm nay: ${nf.format(traffic.todayVisitors)} khách, ${nf.format(traffic.todayPageviews)} lượt xem).\n\n`;
+      } else {
+        out += `**Lưu lượng truy cập Website:**\n`;
+        out += `- Đang trực tuyến (15 phút qua): **${traffic.activeNow}** khách\n`;
+        out += `- Hôm nay: **${nf.format(traffic.todayPageviews)}** lượt xem (**${nf.format(traffic.todayVisitors)}** khách)\n`;
+        out += `- Tổng tích lũy: **${nf.format(traffic.totalPageviews)}** lượt xem\n\n`;
+      }
     }
 
-    // 6. Chương trình Khuyến mãi & Voucher
+    // 6. Khuyến mãi & Voucher
     if (marketing) {
-      if (!out) out += `### 🎁 Tổng quan Khuyến mãi & Mã Giảm giá\n\n`;
-      else out += `#### 🎁 Chương trình Khuyến mãi & Voucher:\n`;
       if (marketing.error) {
         out += `- ⚠️ ${marketing.error}\n\n`;
       } else if (marketing.vouchers && marketing.vouchers.length > 0) {
+        out += `**Mã giảm giá (${marketing.vouchers.length}):**\n`;
         out += `| Mã Voucher | Chương trình | Mức giảm | Đơn tối thiểu | Trạng thái |\n`;
         out += `|:---|:---|:---:|---:|:---:|\n`;
         for (const v of marketing.vouchers) {
-          out += `| \`${v.code}\` | ${v.title} | **${v.discountFormatted}** | ${v.minSpendFormatted} | ${v.active ? '🟢 Đang bật' : '⚪ Tạm tắt'} |\n`;
+          out += `| \`${v.code}\` | ${v.title} | **${v.discountFormatted}** | ${v.minSpendFormatted} | ${v.active ? 'Đang bật' : 'Tạm tắt'} |\n`;
         }
         out += `\n`;
       } else {
-        out += `- Hiện chưa có mã giảm giá nào trong danh sách. Bạn có thể nhắn *"Tạo mã giảm giá SALE50K giảm 50000đ"* để tôi khởi tạo ngay!\n\n`;
+        out += `Hiện chưa có mã giảm giá nào trong hệ thống.\n\n`;
       }
     }
 
-    // 7. Tình hình CSKH & Bảo hành / Đổi trả
+    // 7. CSKH & Bảo hành (Giữ chuẩn định dạng số đếm bảo hành & hồ sơ đổi trả)
     if (care) {
-      if (!out) out += `### 💬 Tình hình Chăm sóc Khách hàng & Hậu mãi\n\n`;
-      else out += `#### 💬 Chăm sóc Khách hàng & Hậu mãi:\n`;
       if (care.error) {
         out += `- ⚠️ ${care.error}\n\n`;
       } else {
-        out += `- **Hội thoại tư vấn đang mở:** **${care.openChats}** cuộc trò chuyện (${care.awaitingAdminChats > 0 ? `⚠️ **${care.awaitingAdminChats}** hội thoại đang chờ nhân viên phản hồi` : '✅ 0 hội thoại chờ — GAERU AI đã phản hồi đầy đủ'})\n`;
-        out += `- **Hồ sơ đổi trả / hậu mãi đang xử lý:** **${care.pendingReturns}** hồ sơ\n`;
-        out += `- **Tổng thiết bị đã kích hoạt bảo hành điện tử:** **${care.activeWarranties}** thiết bị\n\n`;
+        out += `**CSKH & Hậu mãi:**\n`;
+        out += `- Chat đang mở: **${care.openChats}** (${care.awaitingAdminChats > 0 ? `**${care.awaitingAdminChats}** chờ nhân viên` : 'đã phản hồi đủ'})\n`;
+        out += `- Đổi trả / khiếu nại chưa đóng: **${care.pendingReturns}** hồ sơ\n`;
+        out += `- Bảo hành kích hoạt: **${care.activeWarranties}** thiết bị\n\n`;
       }
     }
 
-    // 8. Sức khỏe Hệ thống & Hạ tầng
+    // 8. Sức khỏe Hệ thống
     if (sys) {
-      if (!out) out += `### 🛡️ Báo cáo Sức khỏe Hệ thống & An ninh\n\n`;
-      else out += `#### 🛡️ Sức khỏe Hệ thống & Hạ tầng:\n`;
-      out += `Hệ thống máy chủ GAERU đang vận hành ở trạng thái **tối ưu (${sys.status.toUpperCase()})**:\n\n`;
-      out += `- **Kiến trúc vận hành:** ${sys.clusterMode}\n`;
-      out += `- **Thời gian hoạt động liên tục (Uptime):** ${Math.max(1, Math.round(sys.uptimeSeconds / 60))} phút\n`;
-      out += `- **Tài nguyên bộ nhớ:** RSS **${sys.memoryRssMb} MB** (Heap đang dùng: **${sys.heapUsedMb} MB**)\n`;
-      out += `- **Độ trễ Cơ sở dữ liệu (PostgreSQL):** **${sys.dbLatencyMs} ms**\n`;
-      out += `- **Tường lửa WAF & Chống Bot:** Đã chặn đứng **${sys.threatsBlocked}** cuộc tấn công/truy cập bất thường\n\n`;
+      out += `**Hệ thống (${String(sys.status || 'ok').toUpperCase()}):** ${sys.clusterMode} · Uptime ${Math.max(1, Math.round((sys.uptimeSeconds || 0) / 60))} phút · RSS **${sys.memoryRssMb} MB** (Heap **${sys.heapUsedMb} MB**) · DB **${sys.dbLatencyMs} ms** · WAF đã chặn **${sys.threatsBlocked}**.\n\n`;
     }
 
-    // 9. Tri thức Tự học (Self-Learning)
+    // 9. Tri thức Tự học
     if (learned) {
-      if (!out) out += `### 🧠 Báo cáo Tri thức Tự học (Autonomous Learning)\n\n`;
-      else out += `#### 🧠 Tri Thức Tự Học từ Hội Thoại:\n`;
       const counts = learned.stats || learned.counts || {};
-      out += `- **Tổng số tri thức đã tích lũy:** **${counts.total || 0}** bài học nghiệp vụ\n`;
-      out += `- **Đang kích hoạt phục vụ khách hàng:** **${counts.active_count || 0}** bài\n`;
-      out += `- **Tổng lượt tương tác đã học hỏi:** **${counts.total_interactions || 0}** lượt\n`;
-      out += `- **Độ tin cậy trung bình:** **${Math.round((counts.avg_confidence || 0.85) * 100)}%**\n`;
+      out += `**Tri thức tự học:** **${counts.total || 0}** bài (**${counts.active_count || 0}** đang bật, **${counts.total_interactions || 0}** lượt học, tin cậy TB **${Math.round((counts.avg_confidence || 0.85) * 100)}%**).\n`;
       if (learned.topEntries && learned.topEntries.length) {
-        out += `\n**Các chủ đề khách hàng quan tâm nhiều nhất:**\n`;
         for (const e of learned.topEntries.slice(0, 5)) {
-          out += `- **${e.topic}** (Từ khóa: \`${(e.triggers || []).slice(0, 3).join(', ')}\`) · Tần suất: ${e.occurrence_count} lần · Tin cậy: ${Math.round(e.confidence_score * 100)}%\n`;
+          out += `- **${e.topic}** (${e.occurrence_count} lần · ${Math.round(e.confidence_score * 100)}%)\n`;
         }
       }
       out += `\n`;
     }
 
-    // 10. Thẻ hành động quản trị (Action Card)
+    // 10. Action Card
     if (actionCard) {
-      if (!out) out += `### ⚡ Đề xuất Thao tác Quản trị\n\n`;
-      out += `> 💡 **Xác nhận thao tác:** Tôi đã chuẩn bị sẵn thẻ hành động **${actionCard.title}** phía dưới theo yêu cầu của bạn. Vui lòng kiểm tra thông tin và bấm **[✓ Xác nhận thực hiện]** để hệ thống chính thức áp dụng.\n\n`;
+      out += `Đã tạo thẻ xác nhận **${actionCard.title}** phía dưới — vui lòng kiểm tra lại thông số và bấm **[Xác nhận thực hiện]** để áp dụng.\n\n`;
     }
 
-    // 11. Xử lý linh hoạt các yêu cầu Soạn thảo nội dung, Tư vấn chiến lược hoặc Chào hỏi tự nhiên khi không gọi Tool cứng
+    // 11. Soạn thảo nội dung / Chào hỏi / Ngoài phạm vi
     if (!toolResults.length && !actionCard) {
-      if (/^(?:xin chao|chao|hello|hi|alo|ban la ai|giup gi|co the lam gi)/i.test(norm)) {
-        out += `### 👋 Xin chào ${userTitle}! Tôi là GAERU AI\n\n`;
-        out += `Tôi là Trợ lý Điều hành Doanh nghiệp thông minh hoạt động 24/7 của GAERU. Bạn có thể trò chuyện tự nhiên với tôi để:\n\n`;
-        out += `1. 📊 **Phân tích Doanh thu & Traffic:** *"Doanh thu hôm nay thế nào?"*, *"Báo cáo 7 ngày qua"*, *"Có bao nhiêu khách đang online?"*\n`;
-        out += `2. 📦 **Điều phối Đơn hàng & Vận đơn:** *"Đơn hàng đang chờ xử lý"*, *"Lộ trình vận chuyển"*, *"Duyệt đơn GAE-..."*\n`;
-        out += `3. 📋 **Kiểm soát Tồn kho:** *"Cảnh báo tồn kho thấp"*, *"Kiểm tra kho P01, K9, M3"*\n`;
-        out += `4. 🎫 **Tự động hóa Khuyến mãi:** *"Tạo mã giảm giá VIP50K giảm 50k"*, *"Danh sách voucher đang chạy"*\n`;
-        out += `5. ✍️ **Soạn thảo Nội dung & CSKH:** *"Viết mẫu tin nhắn xin lỗi khách giao trễ"*, *"Soạn bài đăng giới thiệu GAERU P01"*\n\n`;
-        out += `Bạn muốn tôi kiểm tra số liệu hay thực hiện tác vụ nào ngay bây giờ?`;
-      } else if (norm.includes('viet') || norm.includes('soan') || norm.includes('mau tin nhan') || norm.includes('caption') || norm.includes('kich ban') || norm.includes('xin loi khach')) {
-        out += `### ✍️ Đề xuất Nội dung Soạn thảo từ GAERU AI\n\n`;
-        if (norm.includes('xin loi') || norm.includes('giao tre') || norm.includes('cham')) {
-          out += `Dưới đây là mẫu phản hồi chăm sóc khách hàng chuyên nghiệp, tận tâm mà bạn có thể gửi ngay:\n\n`;
-          out += `> *"Chào anh/chị ạ, GAERU thành thật xin lỗi anh/chị vì sự chậm trễ trong quá trình giao đơn hàng lần này. Hiện bộ phận Điều vận của GAERU đã làm việc trực tiếp với bưu cục Viettel Post để ưu tiên phát hàng sớm nhất tới mình. Để bày tỏ thiện chí, GAERU xin gửi tặng anh/chị mã ưu đãi giảm giá cho lần mua tiếp theo. Cảm ơn anh/chị đã luôn thông cảm và đồng hành cùng GAERU ạ!"*\n`;
+      if (/^(?:xin chao|chao|hello|hi|alo|ban la ai|giup gi|co the lam gi)\b/.test(norm)) {
+        out += `Chào ${userTitle}, mình là **GAERU AI**. Bạn cần kiểm tra số liệu **doanh thu**, **đơn hàng/vận đơn**, **tồn kho**, **CSKH**, hay muốn **tạo action** (duyệt đơn, tạo voucher)?`;
+      } else if (hasAnyBoundaryTerm(norm, ['viet', 'soan', 'mau tin nhan', 'caption', 'kich ban', 'bai dang', 'xin loi khach'])) {
+        if (hasAnyBoundaryTerm(norm, ['xin loi', 'giao tre', 'cham'])) {
+          out += `Mẫu tin nhắn xin lỗi giao trễ:\n\n` +
+            `> *"Chào anh/chị, GAERU xin lỗi vì đơn hàng giao chậm hơn dự kiến. Bên mình đã làm việc trực tiếp với Viettel Post để ưu tiên phát sớm nhất tới anh/chị. Cảm ơn anh/chị đã thông cảm và đồng hành cùng GAERU ạ!"*`;
+        } else if (hasBoundaryTerm(norm, 'p01')) {
+          out += `Bản thảo giới thiệu **GAERU P01 (Gimbal AI quay theo người)**:\n\n` +
+            `> Tự quay một mình vẫn luôn gọn khung hình với **GAERU P01** — tự động nhận diện và xoay 360° theo người không cần app, pin ~6–8 giờ, hỗ trợ bản để bàn hoặc chân 2m1. Bảo hành 12 tháng 1 đổi 1.`;
+        } else if (hasBoundaryTerm(norm, 'm3')) {
+          out += `Bản thảo giới thiệu **GAERU M3**:\n\n` +
+            `> Thu âm gọn nhẹ cùng **GAERU M3** — bộ 2 mic cài áo kèm hộp sạc hiển thị % pin, thu 360° chuẩn 24-bit/48kHz, giảm ồn AI thông minh, tổng thời lượng lên tới 24 giờ.`;
+        } else if (hasBoundaryTerm(norm, 'k9')) {
+          out += `Bản thảo giới thiệu **GAERU K9**:\n\n` +
+            `> **GAERU K9** — mic cài áo không dây siêu nhẹ 7g, cắm là dùng ngay (Type-C / Lightning), thu đa hướng 360° lọc ồn DSP, cự ly tới 20m cho TikTok, livestream và dạy học.`;
         } else {
-          out += `Dưới đây là bản thảo nội dung truyền thông chuẩn phong cách thương hiệu **GAERU** dành cho yêu cầu *"${question}"*:\n\n`;
-          out += `> **🎙️ THU ÂM CHUYÊN NGHIỆP MỌI LÚC MỌI NƠI CÙNG GAERU**\n>\n`;
-          out += `> Không còn nỗi lo tạp âm ngoài trời hay tiếng ồn gió khi quay TikTok, Livestream bán hàng!\n`;
-          out += `> - ✨ **Chip DSP & Khử ồn chủ động ANC 3 cấp độ:** Giữ trọn giọng nói ấm, trong trẻo.\n`;
-          out += `> - 🔋 **Pin bền bỉ tới 32 giờ kèm hộp sạc:** Thoải mái quay chụp cả ngày dài.\n`;
-          out += `> - 📱 **Cắm là chạy (Plug & Play):** Tương thích hoàn hảo iPhone 15/16, Lightning, Android & Laptop.\n`;
-          out += `> - 🛡️ **Bảo hành chính hãng 12 tháng — 1 đổi 1 trong 30 ngày — Freeship toàn quốc!**\n`;
+          out += `Bản thảo gợi ý:\n\n` +
+            `> Thiết bị thu âm & sáng tạo **GAERU** — kết nối cắm là dùng cho iPhone, Android và Laptop, lọc ồn rõ nét, bảo hành chính hãng 12 tháng (1 đổi 1 trong 30 ngày) và Freeship đơn từ 500.000 ₫.`;
         }
       } else {
-        out += `### 🤖 Phản hồi từ GAERU AI\n\n`;
-        out += `Tôi đã tiếp nhận câu hỏi của bạn: *"${question}"*.\n\n`;
-        out += `Để tôi cung cấp số liệu chính xác nhất từ cơ sở dữ liệu thời gian thực, bạn có thể nói rõ hơn nội dung cần tra cứu, ví dụ:\n`;
-        out += `- **Về doanh số:** *"Doanh thu hôm nay"* hoặc *"Báo cáo kinh doanh 7 ngày qua"*\n`;
-        out += `- **Về đơn hàng & vận chuyển:** *"Đơn hàng chờ xử lý"*, *"Lộ trình vận chuyển"* hoặc nhập mã đơn \`GAE-...\`\n`;
-        out += `- **Về kho hàng & website:** *"Cảnh báo tồn kho thấp"*, *"Tồn kho P01"*, *"Có mấy khách đang online?"*\n`;
-        out += `- **Về thao tác nhanh:** *"Tạo mã giảm giá SALE50K giảm 50000đ"*`;
+        out += `Chưa khớp yêu cầu với công cụ nào. Hãy hỏi cụ thể theo mảng (**doanh thu 7 ngày**, **đơn hàng mã GR-...**, **tồn kho K9**, **khách online**, **tạo voucher...**) để mình trích xuất dữ liệu ngay.`;
       }
     }
 
-    return out;
+    return out.trim();
   }
 
   // ==========================================================================

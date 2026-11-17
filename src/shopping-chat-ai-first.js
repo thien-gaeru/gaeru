@@ -82,12 +82,12 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
       const [usageRes,catalog,historyRes]=await Promise.all([
         pool.query("SELECT count(*)::int AS total FROM shopping_chat_ai_jobs WHERE thread_id=$1 AND status IN ('done','running') AND created_at>now()-interval '1 hour'",[job.thread_id]),
         require('./store-api').loadProducts(pool),
-        pool.query('SELECT sender,body FROM shopping_chat_messages WHERE thread_id=$1 ORDER BY id DESC LIMIT 6',[job.thread_id])
+        pool.query('SELECT sender,body FROM shopping_chat_messages WHERE thread_id=$1 ORDER BY id DESC LIMIT 10',[job.thread_id])
       ]);
       const usage=usageRes.rows[0].total;
       if(usage>40){reason='ai_limit';result={handoff:true,answer:'AI đã đạt giới hạn xử lý của phiên này.'};}
       else{
-        const facts=p=>({name:p.name,description:p.description.slice(0,job.thread.product_id?2400:360),variants:p.variants.slice(0,12).map(v=>({name:v.name,priceVnd:v.priceVnd,available:Number(v.stockQuantity)>0}))});
+        const facts=p=>({id:p.id,slug:p.slug,category:p.category,descriptor:p.descriptor,name:p.name,description:String(p.description||'').slice(0,job.thread.product_id?2400:480),variants:(p.variants||[]).slice(0,12).map(v=>({name:v.name,sku:v.sku,priceVnd:v.priceVnd,originalPriceVnd:v.originalPriceVnd,activePromotion:v.activePromotion||null,stockQuantity:v.stockQuantity,available:Number(v.stockQuantity)>0}))});
         const selected=catalog.find(p=>p.id===job.thread.product_id);
         if(job.thread.product_id&&!selected)throw Error('Product unavailable');
         const webKnowledge=await getRelevantWebKnowledge(pool,{question:job.question,selectedProduct:selected,transport});

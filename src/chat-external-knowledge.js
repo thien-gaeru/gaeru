@@ -1,4 +1,5 @@
 const { createHash } = require('node:crypto');
+const { normalizeVi, expandQueryVi, hasAnyBoundaryTerm } = require('./lib/ai-nlu');
 
 // In-memory cache for external knowledge lookups (TTL 30 mins, max 300 entries)
 const externalCache = new Map();
@@ -35,10 +36,10 @@ const TECH_ECOSYSTEM_KNOWLEDGE = [
   },
   {
     category: 'noise_reduction_technology',
-    triggers: ['loc am', 'loc tieng on', 'on', 'gio', 'tap am', 'ngoai duong', 'dsp', 'khoang cach', 'pin', 'song', '2.4ghz'],
+    triggers: ['loc am', 'loc tieng on', 'tieng on', 'chong on', 'khu on', 'gio', 'tap am', 'ngoai duong', 'dsp', 'khoang cach', 'pin', 'song', '2.4ghz'],
     facts: [
       'Công nghệ lọc tiếng ồn thông minh Smart DSP: Tự động tách giọng nói khỏi tạp âm xung quanh (tiếng gió, còi xe, tiếng quạt, tiếng ồn quán cafe). Có thể bật/tắt hoặc điều chỉnh mức lọc ồn dễ dàng.',
-      'Sóng không dây 2.4GHz kỹ thuật số: Cho kết nối ổn định, độ trễ siêu thấp dưới 20ms, âm thanh không bị lệch hình khi quay video hay phát trực tiếp. Phạm vi hoạt động hiệu quả lên đến 15-25m trong môi trường mở.'
+      'Sóng không dây 2.4GHz kỹ thuật số: Cho kết nối ổn định, độ trễ siêu thấp dưới 20ms, âm thanh không bị lệch hình khi quay video hay phát trực tiếp. Phạm vi hoạt động hiệu quả lên đến 20m trong môi trường mở.'
     ]
   },
   {
@@ -52,12 +53,7 @@ const TECH_ECOSYSTEM_KNOWLEDGE = [
 ];
 
 function normalize(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .toLowerCase();
+  return normalizeVi(text);
 }
 
 /**
@@ -105,23 +101,21 @@ async function searchLiveWeb(query, { transport = fetch, timeoutMs = 3500 } = {}
  */
 async function getExternalWebKnowledge({ question = '', selectedProduct = null, transport = fetch, webSearchEnabled = true, curatedEnabled = true } = {}) {
   const text = typeof question === 'string' ? question : question?.current || '';
-  const qNorm = normalize(text);
+  const qNorm = expandQueryVi(text);
   const prodNorm = selectedProduct ? normalize(`${selectedProduct.name} ${selectedProduct.slug || ''}`) : '';
 
-  // 1. Match curated technology ecosystem facts
+  // 1. Match curated technology ecosystem facts using token boundaries
   const matchedFacts = [];
   for (const entry of curatedEnabled ? TECH_ECOSYSTEM_KNOWLEDGE : []) {
-    const isTriggered = entry.triggers.some(trigger => {
-      const tNorm = normalize(trigger);
-      return qNorm.includes(tNorm) || prodNorm.includes(tNorm);
-    });
+    const isTriggered = hasAnyBoundaryTerm(qNorm, entry.triggers) ||
+      (prodNorm && !/noise_reduction/.test(entry.category) && hasAnyBoundaryTerm(prodNorm, entry.triggers));
     if (isTriggered) {
       matchedFacts.push(...entry.facts);
     }
   }
 
   // 2. Perform live web search if question involves specific devices, apps, or comparisons
-  const needsWebSearch = /(?:iphone|samsung|oppo|xiaomi|vivo|ipad|laptop|pc|mac|otg|capcut|tiktok|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)/.test(qNorm);
+  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|vivo|ipad|laptop|pc|macbook|mac|otg|capcut|tiktok|livestream|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)\b/.test(qNorm);
 
   let searchSnippets = [];
   if (webSearchEnabled && needsWebSearch && transport) {

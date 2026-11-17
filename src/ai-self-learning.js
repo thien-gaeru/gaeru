@@ -13,6 +13,12 @@
  */
 
 const { randomUUID } = require('node:crypto');
+const {
+  normalizeVi,
+  hasBoundaryTerm,
+  tokenizeMeaningful,
+  tokenOverlapScore
+} = require('./lib/ai-nlu');
 
 // In-memory cache cho tri thức tự học (TTL 60s, tự động làm mới khi có tri thức mới)
 let learnedKnowledgeCache = null;
@@ -55,8 +61,8 @@ function sanitizePii(text) {
     .replace(/\b0\d{9}\b/g, '[SĐT_ĐÃ_ẨN]')
     // Email
     .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL_ĐÃ_ẨN]')
-    // Mã đơn hàng GAE-xxxxxx
-    .replace(/gae-[a-zA-Z0-9-]+/gi, '[MÃ_ĐƠN_HÀNG]')
+    // Mã đơn hàng GR-... / GAE-... / TEST-... (xử lý trước chuỗi số dài để không cắt nhầm phần ngày)
+    .replace(/\b(?:gr|gae)-[a-zA-Z0-9-]+\b/gi, '[MÃ_ĐƠN_HÀNG]')
     // Số tài khoản ngân hàng / thẻ (dãy 8 - 19 số liên tiếp)
     .replace(/\b\d{8,19}\b/g, '[SỐ_TÀI_KHOẢN_ĐÃ_ẨN]')
     // Mã vận đơn
@@ -74,14 +80,13 @@ function sanitizePii(text) {
  * Chuẩn hóa chuỗi tìm kiếm tiếng Việt không dấu
  */
 function normalizeText(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .toLowerCase()
-    .trim();
+  return normalizeVi(text);
 }
+
+const GENERIC_SINGLE_TRIGGERS = new Set([
+  'p01', 'k9', 'm3', 'p185', 'g1', 'g1 ultra', 'gaeru p01', 'gaeru k9', 'gaeru m3', 'gaeru p185',
+  'micro', 'iphone', 'android', 'laptop', 'pc', 'may tinh', 'dien thoai', 'pin', 'camera'
+]);
 
 // Từ điển từ khóa công nghệ, thiết bị, cổng kết nối, ứng dụng và âm thanh
 const TECH_VOCABULARY = [
@@ -114,8 +119,7 @@ function extractTriggers(text) {
   const found = new Set();
 
   for (const term of TECH_VOCABULARY) {
-    const normTerm = normalizeText(term);
-    if (norm.includes(normTerm)) {
+    if (hasBoundaryTerm(norm, term)) {
       found.add(term.toLowerCase());
     }
   }
@@ -180,6 +184,7 @@ async function matchLearnedKnowledge(pool, question, { minScore = 0.55 } = {}) {
   const entries = await getActiveLearnedKnowledge(pool);
   if (!entries || !entries.length) return null;
 
+  const qTokens = tokenizeMeaningful(question);
   let bestEntry = null;
   let bestScore = 0;
 
@@ -187,24 +192,35 @@ async function matchLearnedKnowledge(pool, question, { minScore = 0.55 } = {}) {
     const triggers = Array.isArray(entry.triggers) ? entry.triggers : [];
     if (!triggers.length) continue;
 
-    let matchedCount = 0;
+    const matchedTrigs = [];
     for (const trig of triggers) {
-      const normTrig = normalizeText(trig);
-      if (normTrig && normQ.includes(normTrig)) {
-        matchedCount++;
+      if (hasBoundaryTerm(normQ, trig)) {
+        matchedTrigs.push(normalizeText(trig));
       }
     }
 
-    if (matchedCount > 0) {
-      // Điểm khớp = (tỷ lệ từ khóa khớp * 0.7) + (độ tin cậy * 0.3)
-      const coverage = matchedCount / Math.max(triggers.length, 1);
-      const conf = parseFloat(entry.confidence_score) || 0.8;
-      const score = (coverage * 0.6) + (matchedCount * 0.2) + (conf * 0.2);
+    const matchedCount = matchedTrigs.length;
+    if (matchedCount === 0) continue;
 
-      if (score > bestScore) {
-        bestScore = score;
-        bestEntry = entry;
-      }
+    const refText = `${entry.sample_question || ''} ${entry.topic || ''}`.trim();
+    const refTokens = tokenizeMeaningful(refText);
+    const questionSim = refTokens.length ? tokenOverlapScore(qTokens, refTokens) : 0;
+
+    // Tránh bắt nhầm câu hỏi chung chung chỉ vì trùng 1 từ khóa sản phẩm/thiết bị phổ thông
+    const hasSpecificTrig = matchedTrigs.some(t => !GENERIC_SINGLE_TRIGGERS.has(t));
+    if (matchedCount === 1 && !hasSpecificTrig && questionSim < 0.35) {
+      continue;
+    }
+
+    const coverageNorm = Math.min(1, matchedCount / Math.min(triggers.length, 4));
+    const matchStrength = 1 - Math.exp(-0.55 * matchedCount);
+    const conf = Math.min(1, Math.max(0.1, parseFloat(entry.confidence_score) || 0.8));
+    const rawScore = (coverageNorm * 0.35) + (matchStrength * 0.25) + (questionSim * 0.25) + (conf * 0.15);
+    const score = Math.min(1, Number(rawScore.toFixed(4)));
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestEntry = entry;
     }
   }
 
@@ -245,7 +261,8 @@ async function learnFromInteraction(pool, {
   const normBoth = normQ + ' ' + normalizeText(cleanA);
   // Placeholder do sanitizePii() sinh ra có dấu (VD: [SĐT_ĐÃ_ẨN]) nên phải so khớp trên văn bản đã bỏ dấu
   if (/\[(?:sdt_da_an|email_da_an|ma_don_hang|so_tai_khoan_da_an|ma_van_don|khach_hang_da_an|dia_chi_da_an)\]/i.test(normalizeText(cleanQ + ' ' + cleanA)) ||
-      /(?:don hang|tra cuu don|van don|dia chi giao|phi ship cua don|hoan tien|huy don|chuyen khoan)/i.test(normBoth)) {
+      /(?:don hang|tra cuu don|van don|dia chi giao|phi ship cua don|hoan tien|huy don|chuyen khoan)/i.test(normBoth) ||
+      /\b(?:gr|gae)-[a-z0-9-]+/i.test(normBoth)) {
     return null;
   }
 

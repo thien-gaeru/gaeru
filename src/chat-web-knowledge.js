@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 const { parseHTML } = require('linkedom');
+const { normalizeVi, expandQueryVi, hasAnyBoundaryTerm, tokenizeMeaningful, tokenOverlapScore } = require('./lib/ai-nlu');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const EXCLUDED_HTML = new Set(['cart.html', 'checkout.html', 'payment-result.html', 'sitemap.html']);
@@ -22,12 +23,7 @@ const liveDbCache = new WeakMap();
 const LIVE_DB_TTL_MS = 30000;
 
 function normalizeText(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .toLowerCase();
+  return normalizeVi(value);
 }
 
 function extractPageKnowledge(fileName, html) {
@@ -177,25 +173,26 @@ async function loadLiveSiteFacts(pool) {
 
 async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = null, transport = fetch } = {}) {
   const pages = await loadWebPagesIndexAsync();
-  const qNorm = normalizeText(typeof question === 'string' ? question : JSON.stringify(question || ''));
-  const tokens = qNorm.split(/[^a-z0-9]+/).filter(t => t.length >= 2);
+  const qNorm = expandQueryVi(typeof question === 'string' ? question : JSON.stringify(question || ''));
+  const tokens = tokenizeMeaningful(qNorm);
   const productNorm = selectedProduct ? normalizeText(`${selectedProduct.slug || ''} ${selectedProduct.name || ''}`) : '';
 
   const scored = pages.map(page => {
     let score = 0;
     if (productNorm) {
-      if (productNorm.includes('k9') && page.file.includes('k9')) score += 25;
-      if (productNorm.includes('m3') && page.file.includes('m3')) score += 25;
-      if (productNorm.includes('p01') && page.file.includes('p01')) score += 25;
-      if ((productNorm.includes('g1') || productNorm.includes('ultra')) && page.file.includes('g1')) score += 25;
+      if (hasAnyBoundaryTerm(productNorm, ['k9']) && page.file.includes('k9')) score += 25;
+      if (hasAnyBoundaryTerm(productNorm, ['m3']) && page.file.includes('m3')) score += 25;
+      if (hasAnyBoundaryTerm(productNorm, ['p01']) && page.file.includes('p01')) score += 25;
+      if (hasAnyBoundaryTerm(productNorm, ['p185']) && page.file.includes('p185')) score += 25;
+      if (hasAnyBoundaryTerm(productNorm, ['g1', 'g1 ultra']) && page.file.includes('g1')) score += 25;
     }
-    if (/huong dan|ket noi|su dung|cach dung|sac|pin|bluetooth|usb|type c|lightning/.test(qNorm) && page.file.startsWith('guide')) score += 18;
-    if (/bao hanh|care|doi moi|sua chua|kich hoat/.test(qNorm) && (page.file === 'care.html' || page.file === 'warranty-activation.html' || page.file === 'product-support.html')) score += 20;
-    if (/giao hang|van chuyen|ship|doi tra|hoan tien|nhan hang/.test(qNorm) && page.file === 'delivery-returns.html') score += 20;
-    if (/thanh toan|vnpay|momo|zalopay|chuyen khoan|cod|tra gop/.test(qNorm) && page.file === 'payment.html') score += 20;
-    if (/gia|bang gia|uu dai|khuyen mai/.test(qNorm) && (page.file === 'pricing.html' || page.file === 'shop.html')) score += 15;
-    if (/khieu nai|gop y|tranh chap/.test(qNorm) && page.file === 'complaints.html') score += 18;
-    if (/chinh sach|dieu khoan|bao mat/.test(qNorm) && (page.file === 'terms.html' || page.file === 'privacy.html' || page.file === 'legal.html')) score += 15;
+    if (/\b(?:huong dan|ket noi|su dung|cach dung|sac|pin|bluetooth|usb|type-c|type c|lightning)\b/.test(qNorm) && page.file.startsWith('guide')) score += 18;
+    if (/\b(?:bao hanh|care|doi moi|sua chua|kich hoat)\b/.test(qNorm) && (page.file === 'care.html' || page.file === 'warranty-activation.html' || page.file === 'product-support.html')) score += 20;
+    if (/\b(?:giao hang|van chuyen|ship|doi tra|hoan tien|nhan hang)\b/.test(qNorm) && page.file === 'delivery-returns.html') score += 20;
+    if (/\b(?:thanh toan|vnpay|momo|zalopay|chuyen khoan|cod|tra gop)\b/.test(qNorm) && page.file === 'payment.html') score += 20;
+    if (/\b(?:gia|bang gia|uu dai|khuyen mai|bao nhieu)\b/.test(qNorm) && (page.file === 'pricing.html' || page.file === 'shop.html')) score += 15;
+    if (/\b(?:khieu nai|gop y|tranh chap)\b/.test(qNorm) && page.file === 'complaints.html') score += 18;
+    if (/\b(?:chinh sach|dieu khoan|bao mat)\b/.test(qNorm) && (page.file === 'terms.html' || page.file === 'privacy.html' || page.file === 'legal.html')) score += 15;
 
     for (const token of tokens) {
       if (page.file.includes(token)) score += 6;
@@ -206,25 +203,40 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
   });
 
   scored.sort((a, b) => b.score - a.score);
-  const topPages = scored
-    .filter((item, index) => item.score > 0 || index < 2)
-    .slice(0, 3)
-    .map(({ page }) => ({
-      url: page.url,
-      title: page.title,
-      excerpt: page.content.slice(0, 1200)
-    }));
+  const topMatched = scored.filter((item, index) => item.score > 0 || index < 2).slice(0, 3);
+  const topPages = topMatched.map(({ page }) => ({
+    url: page.url,
+    title: page.title,
+    excerpt: page.content.slice(0, 1200)
+  }));
 
-  const policy=await require('./ai-knowledge-admin').readKnowledgePolicy(pool);
+  // Extract up to 2 crisp matching lines across top pages for direct factual grounding
+  const relevantSnippets = [];
+  if (tokens.length > 0) {
+    for (const { page, score } of topMatched) {
+      if (score < 4) continue;
+      const lines = page.content.split('\n').map(l => l.trim()).filter(l => l.length >= 20 && l.length <= 260);
+      for (const line of lines) {
+        const lineScore = tokenOverlapScore(tokens, tokenizeMeaningful(line));
+        if (lineScore >= 0.35) {
+          relevantSnippets.push({ title: page.title, url: page.url, line, score: lineScore });
+        }
+      }
+    }
+    relevantSnippets.sort((a, b) => b.score - a.score);
+  }
+
+  const policy = await require('./ai-knowledge-admin').readKnowledgePolicy(pool);
   const [liveFacts, externalKnowledge] = await Promise.all([
     loadLiveSiteFacts(pool),
-    getExternalWebKnowledge({ question, selectedProduct, transport, webSearchEnabled:policy.webSearchEnabled,curatedEnabled:policy.curatedEnabled }).catch(() => ({ ecosystemFacts: [], searchSnippets: [] }))
+    getExternalWebKnowledge({ question, selectedProduct, transport, webSearchEnabled: policy.webSearchEnabled, curatedEnabled: policy.curatedEnabled }).catch(() => ({ ecosystemFacts: [], searchSnippets: [] }))
   ]);
-  const approved=(policy.entries||[]).filter(e=>e.enabled&&e.triggers.some(t=>qNorm.includes(normalizeText(t)))).slice(0,6);
-  externalKnowledge.approvedSources=approved.map(e=>({title:e.title,url:e.sourceUrl||null,facts:e.facts}));
-  externalKnowledge.ecosystemFacts=[...approved.flatMap(e=>e.facts),...externalKnowledge.ecosystemFacts].slice(0,12);
+  const approved = (policy.entries || []).filter(e => e.enabled && hasAnyBoundaryTerm(qNorm, e.triggers || [])).slice(0, 6);
+  externalKnowledge.approvedSources = approved.map(e => ({ title: e.title, url: e.sourceUrl || null, facts: e.facts }));
+  externalKnowledge.ecosystemFacts = [...approved.flatMap(e => e.facts), ...externalKnowledge.ecosystemFacts].slice(0, 12);
   return {
     webPages: topPages,
+    relevantSnippets: relevantSnippets.slice(0, 3),
     externalKnowledge,
     ...liveFacts
   };

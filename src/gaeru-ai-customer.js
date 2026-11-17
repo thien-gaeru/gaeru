@@ -2,73 +2,149 @@
 
 /**
  * GAERU AI Customer Assistant (Lõi trí tuệ nhân tạo hỗ trợ bán hàng & CSKH GAERU)
- * 
- * Hoạt động độc lập 100% nội bộ, không phụ thuộc vào AI bên ngoài.
- * Tích hợp kiến thức sâu về sản phẩm, tương thích thiết bị, tra cứu đơn hàng,
- * chính sách GAERU Xu, bảo hành và giao vận.
+ *
+ * Kết hợp dữ liệu catalog sản phẩm thời gian thực, chính sách & bài viết trên web,
+ * tri thức tự học tích lũy, tra cứu đơn hàng Zero-Trust và bộ NLU tiếng Việt chuẩn hóa.
+ * Trọng tâm: Hiểu đúng ý định, trả lời chính xác dữ kiện thực tế, súc tích, không lan man.
  */
 
 const { getRelevantWebKnowledge } = require('./chat-web-knowledge');
-const { getExternalWebKnowledge } = require('./chat-external-knowledge');
 const { matchLearnedKnowledge, learnFromInteraction } = require('./ai-self-learning');
+const {
+  normalizeVi,
+  normalizeSearchSpace,
+  expandQueryVi,
+  hasBoundaryTerm,
+  hasAnyBoundaryTerm,
+  isTermNegated,
+  tokenizeMeaningful,
+  tokenOverlapScore,
+  extractOrderCodes,
+  extractPhoneNumbers,
+  isExplicitDetailedRequest,
+  resolveMentionedProducts,
+  matchProductVariants
+} = require('./lib/ai-nlu');
 
 function formatVnd(num) {
   return new Intl.NumberFormat('vi-VN').format(Math.round(num || 0)) + ' ₫';
 }
 
 function normalize(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .toLowerCase()
-    .trim();
+  return normalizeVi(text);
 }
 
 /**
- * Tra cứu thông tin đơn hàng từ database nếu khách cung cấp mã đơn hoặc số điện thoại
+ * Kiến thức chuẩn xác về từng dòng sản phẩm GAERU (đồng bộ với catalog & hướng dẫn chính hãng).
+ * Khi DB có `description`/`variants`, luôn ưu tiên số liệu trực tiếp từ DB.
+ */
+const PRODUCT_SPECS = Object.freeze({
+  'gaeru-k9': {
+    name: 'GAERU K9',
+    kind: 'mic',
+    role: 'Micro thu âm cài áo không dây nhỏ gọn (~7g), cắm là dùng (Plug & Play, không cần app/Bluetooth).',
+    audio: 'Thu đa hướng 360°, tần số 2.4GHz độ trễ < 15ms, chip DSP lọc ồn + bông lọc gió.',
+    battery: 'Pin micro dùng liên tục khoảng **2,5 giờ**, sạc qua cổng Type-C (5V/1A).',
+    range: 'Phạm vi thu ổn định lên đến **20 mét** (môi trường mở, tầm nhìn thẳng).',
+    variantsGuide: 'Có phiên bản bộ **1 Micro** / **2 Micro**, chân cắm **Type-C** hoặc **Lightning**.',
+    compatibility: 'Tương thích điện thoại Type-C (Android, iPhone 15/16), iPhone 14 trở xuống (chọn chân Lightning), iPad và laptop.',
+    fit: 'quay TikTok/Vlog cơ bản, livestream bán hàng, dạy học online, phỏng vấn 2 người tiết kiệm chi phí',
+    defaultPrice: 'Từ 289.000 ₫'
+  },
+  'gaeru-m3': {
+    name: 'GAERU M3',
+    kind: 'mic',
+    role: 'Bộ micro thu âm cài áo không dây (2 mic + 1 đầu thu Type-C + hộp sạc hiển thị % pin).',
+    audio: 'Thu đa hướng 360°, chất lượng **24-bit / 48kHz**, SNR 100 dB, Max SPL 120 dB, giảm ồn AI thông minh + tự động cân bằng âm lượng.',
+    battery: 'Một bộ phát dùng tới **3,5 giờ** liên tục; tổng thời lượng tới **24 giờ** khi luân phiên 2 mic cùng hộp sạc 500 mAh.',
+    range: 'Khoảng cách truyền lên đến **20 mét** trong môi trường mở không vật cản.',
+    variantsGuide: 'Bộ **2 Micro + hộp sạc**, đầu thu **Type-C** (cần đầu chuyển phù hợp nếu dùng iPhone chân Lightning).',
+    compatibility: 'Tương thích trực tiếp thiết bị cổng Type-C (Android, iPhone 15/16, iPad Type-C, laptop); dùng đầu chuyển chuẩn âm thanh nếu máy dùng Lightning.',
+    fit: 'vlog, livestream nhiều giờ, phỏng vấn 2 người cần pin lâu và kiểm soát % pin',
+    defaultPrice: '1.200.000 ₫'
+  },
+  'gaeru-g1-ultra': {
+    name: 'GAERU G1 ULTRA',
+    kind: 'mic',
+    role: 'Bộ micro thu âm không dây đa thiết bị chuyên nghiệp (2 mic cài áo + đầu thu + hộp sạc).',
+    audio: 'Thu âm 2 người song song, hỗ trợ giảm ồn, tai nghe **kiểm âm trực tiếp** trên đầu thu và đưa nhạc nền qua Bluetooth.',
+    battery: 'Kèm hộp sạc tiện lợi, sạc qua cổng **Type-C**.',
+    range: 'Kết nối không dây 2.4GHz ổn định; hỗ trợ nhiều thiết bị từ điện thoại, máy ảnh tới PC.',
+    variantsGuide: 'Bộ 2 Micro đa thiết bị kèm dây/đầu chuyển theo phân loại thực tế.',
+    compatibility: 'Kết nối **điện thoại** (Type-C / Lightning qua dây chuyển), **máy ảnh** (ngõ 3.5mm) và **máy tính/laptop** (USB).',
+    fit: 'quay đa thiết bị (máy ảnh, điện thoại, PC), phỏng vấn 2 người, cần kiểm âm trực tiếp',
+    defaultPrice: '2.100.000 ₫'
+  },
+  'gaeru-p01': {
+    name: 'GAERU P01',
+    kind: 'gimbal',
+    role: '**Gimbal AI tự động quay theo người xoay 360°** (nhận diện khuôn mặt & dáng người, tự xoay theo khi di chuyển, không cần cài app).',
+    audio: 'Thiết bị chuyên quay hình theo dõi khung hình (không phải micro thu âm).',
+    battery: 'Thời lượng pin sử dụng khoảng **6–8 giờ** tùy chế độ xoay; sạc qua cổng nguồn tiêu chuẩn trên máy.',
+    range: 'Cảm biến AI nhận diện chủ thể trực tiếp trong vùng quay, xoay 360° ngang/dọc linh hoạt.',
+    variantsGuide: 'Phân loại bản để bàn gọn nhẹ hoặc bộ kèm chân đứng 2m1 (ren 1/4").',
+    compatibility: 'Giữ và tự động xoay theo điện thoại cho các app quay/live (TikTok, Facebook, YouTube, Zoom) mà không cần Bluetooth/App điều khiển.',
+    fit: 'tự quay một mình, livestream bán hàng di chuyển, dạy học/chia sẻ cần luôn giữ chủ thể ở giữa khung hình',
+    defaultPrice: 'Từ 550.000 ₫'
+  },
+  'gaeru-p185': {
+    name: 'GAERU P185',
+    kind: 'tripod',
+    role: 'Gậy chụp hình selfie kiêm **Tripod 4 chân hợp kim** chắc chắn, kèm remote Bluetooth tháo rời.',
+    audio: 'Phụ kiện giá đỡ quay chụp (không tích hợp micro). Trọng lượng nhẹ **423g**, có ren 1/4".',
+    battery: 'Remote Bluetooth tích hợp pin **55 mAh**, sạc lại qua cổng **Type-C**.',
+    range: 'Kéo dài linh hoạt từ **29,5 cm đến 180 cm (1m8)**; remote bấm chụp/quay từ xa qua Bluetooth.',
+    variantsGuide: 'Phiên bản chuẩn gậy 4 chân xoay 360° kèm remote Bluetooth.',
+    compatibility: 'Kẹp điện thoại xoay ngang/dọc 360° và hỗ trợ ren 1/4" cho thiết bị nhẹ tương thích.',
+    fit: 'tự quay góc rộng/góc cao tới 1m8, chụp ảnh nhóm, livestream cần chân đứng 4 chấu vững',
+    defaultPrice: '450.000 ₫'
+  }
+});
+
+/**
+ * Tra cứu thông tin đơn hàng từ database nếu khách cung cấp mã đơn (GR-... / GAE-...) hoặc SĐT.
  */
 async function lookupOrderInfo(pool, text, thread = null) {
   if (!pool || typeof pool.query !== 'function') return null;
 
-  const orderMatch = text.match(/gae-[a-z0-9-]+/i);
-  const phoneMatch = text.match(/\b0\d{9}\b/);
+  const orderCodes = extractOrderCodes(text);
+  const phones = extractPhoneNumbers(text);
 
-  if (!orderMatch && !phoneMatch) return null;
+  if (!orderCodes.length && !phones.length) return null;
+
+  const orderCode = orderCodes[0] || null;
+  const phone = phones[0] || null;
 
   try {
     let row = null;
     let queryType = null;
-    if (orderMatch) {
+    if (orderCode) {
       queryType = 'order_number';
       row = (await pool.query(
-        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at 
-         FROM orders 
-         WHERE lower(order_number) = lower($1) 
+        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at
+         FROM orders
+         WHERE lower(order_number) = lower($1)
          LIMIT 1`,
-        [orderMatch[0].trim()]
+        [orderCode]
       )).rows[0];
-    } else if (phoneMatch) {
+    } else if (phone) {
       queryType = 'phone';
       row = (await pool.query(
-        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at 
-         FROM orders 
-         WHERE phone = $1 
-         ORDER BY created_at DESC 
+        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at
+         FROM orders
+         WHERE phone = $1
+         ORDER BY created_at DESC
          LIMIT 1`,
-        [phoneMatch[0].trim()]
+        [phone]
       )).rows[0];
     }
 
-    if (!row) return { searched: true, found: false, query: orderMatch ? orderMatch[0] : phoneMatch[0], queryType };
+    if (!row) return { searched: true, found: false, query: orderCode || phone, queryType };
 
-    // Kiểm tra tính xác thực chủ sở hữu (Verified Owner)
     const isOwner = Boolean(
       thread?.customer_id && row.customer_id && String(thread.customer_id) === String(row.customer_id)
     );
 
-    // Tra cứu thông tin vận chuyển thực tế từ bảng carrier_shipments
     let shipment = null;
     try {
       shipment = (await pool.query(
@@ -97,211 +173,481 @@ async function lookupOrderInfo(pool, text, thread = null) {
       hasThreadContext: thread !== null && thread !== undefined,
       hasCustomerIdCol: Object.prototype.hasOwnProperty.call(row, 'customer_id'),
       queryType,
-      query: orderMatch ? orderMatch[0] : phoneMatch[0]
+      query: orderCode || phone
     };
-  } catch (err) {
+  } catch (_) {
     return null;
   }
 }
 
-/**
- * Phân tích và sinh câu trả lời thông minh từ GAERU AI
- */
-async function generateGaeruAiResponse({ pool, thread, question, catalog = [], history = [] }) {
-  const norm = normalize(question);
-  const raw = String(question || '').trim();
+function getPriceSummaryFromProduct(prod, spec) {
+  const variants = Array.isArray(prod?.variants) ? prod.variants.filter(v => v && Number.isFinite(Number(v.priceVnd))) : [];
+  if (!variants.length) return spec?.defaultPrice || 'Liên hệ để xem giá';
+  const prices = variants.map(v => Number(v.priceVnd));
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  return min === max ? formatVnd(min) : `${formatVnd(min)} – ${formatVnd(max)}`;
+}
 
-  // 1. Kiểm tra yêu cầu gặp người thật / nhân viên
-  const isHumanReq = /(?:gap|chuyen|ket noi|noi chuyen|lien he|goi).{0,35}(?:nhan vien|nguoi that|tu van vien)|(?:human|live agent)|khong muon.{0,12}(?:ai|bot)/i.test(norm) &&
-                    !/khong (?:can|muon) (?:gap |noi chuyen voi )?nhan vien/i.test(norm);
+function formatVariantSummaryLines(prod, question) {
+  const variants = Array.isArray(prod?.variants) ? prod.variants : [];
+  if (!variants.length) return '';
+  const filtered = matchProductVariants(question, variants);
+  const target = filtered.length ? filtered : variants.slice(0, 6);
+  return target.map(v => {
+    const inStock = v.stockQuantity === undefined ? (v.available !== false) : Number(v.stockQuantity) > 0;
+    const stockBadge = inStock ? 'Còn hàng' : 'Tạm hết';
+    const hasDiscount = Number(v.originalPriceVnd) > Number(v.priceVnd);
+    const pricePart = hasDiscount
+      ? `**${formatVnd(v.priceVnd)}** (giá gốc ${formatVnd(v.originalPriceVnd)})`
+      : `**${formatVnd(v.priceVnd)}**`;
+    const promoNote = v.activePromotion?.title ? ` · Ưu đãi: ${v.activePromotion.title}` : '';
+    return `- ${v.name || 'Phiên bản chuẩn'}: ${pricePart} (${stockBadge})${promoNote}`;
+  }).join('\n');
+}
 
-  if (isHumanReq) {
+function formatOrderLookupReply(orderLookup, questionNorm) {
+  if (orderLookup.queryType === 'phone' && !orderLookup.isOwner) {
     return {
-      handoff: true,
-      answer: 'Dạ GAERU AI đã tiếp nhận và đang kết nối bạn với chuyên viên tư vấn của GAERU. Bạn cũng có thể liên hệ trực tiếp qua Hotline 082 919 1080 (10:00 – 17:00 các ngày trong tuần) hoặc để lại số điện thoại để được hỗ trợ ngay nhé!'
+      handoff: false,
+      answer: 'Để bảo vệ quyền riêng tư, bạn vui lòng đăng nhập đúng tài khoản mua hàng hoặc nhắn chính xác **Mã đơn hàng (dạng GR-... hoặc GAE-...)** để mình tra cứu nhé.',
+      orderLookup: { found: false, protected: true }
     };
   }
 
-  // 2. Tra cứu đơn hàng nếu có mã đơn hoặc số điện thoại (Bảo mật Zero-Trust)
+  if (!orderLookup.found) {
+    return {
+      handoff: false,
+      answer: `Chưa tìm thấy đơn hàng với thông tin "${orderLookup.query}". Bạn kiểm tra lại đúng mã đơn (dạng GR-... hoặc GAE-...) giúp mình nhé.`,
+      orderLookup: { found: false }
+    };
+  }
+
+  const o = orderLookup.order;
+  const s = orderLookup.shipment;
+  const isLegacyMockWithoutContext = !orderLookup.hasThreadContext && !orderLookup.hasCustomerIdCol;
+
+  if (!orderLookup.isOwner && !isLegacyMockWithoutContext) {
+    const redactedAnswer = `Mã đơn **${o.order_number}** đã được ghi nhận trên hệ thống GAERU.\n\n` +
+      `- Khách hàng / Trạng thái / Thanh toán: *** (Đã ẩn để bảo mật)\n` +
+      `- Địa chỉ giao hàng: *** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)\n` +
+      `Vui lòng đăng nhập đúng tài khoản đặt hàng hoặc tra cứu tại trang **Theo dõi đơn hàng** kèm số điện thoại đặt hàng.`;
+    return { handoff: false, answer: redactedAnswer, orderLookup: { found: true, isOwner: false, protected: true } };
+  }
+
+  const statusMap = {
+    pending: 'Chờ xác nhận',
+    confirmed: 'Đã xác nhận đơn hàng',
+    processing: 'Đang đóng gói và chuẩn bị hàng',
+    shipped: 'Đang vận chuyển giao cho khách',
+    completed: 'Giao hàng thành công',
+    cancelled: 'Đã hủy đơn hàng'
+  };
+  const payMap = {
+    cod: 'COD (thanh toán khi nhận hàng)',
+    vietqr: 'Chuyển khoản VietQR',
+    vnpay: 'VNPAY',
+    momo: 'Ví MoMo',
+    zalopay: 'ZaloPay'
+  };
+
+  const displayAddress = (orderLookup.isOwner || isLegacyMockWithoutContext)
+    ? [o.address, o.city].filter(Boolean).join(', ')
+    : '*** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)';
+  const shipLine = s && s.tracking_number
+    ? `${s.carrier_name || 'Viettel Post'} · Mã vận đơn: \`${s.tracking_number}\` (${s.status || 'Đang giao'})`
+    : 'Đang chuẩn bị bàn giao đơn vị vận chuyển';
+
+  if (hasAnyBoundaryTerm(questionNorm, ['van don', 'ma van don', 'buu cuc', 'shiper', 'shipper', 'den dau', 'o dau', 'chua giao'])) {
+    return {
+      handoff: false,
+      answer: `Đơn **${o.order_number}** (${o.customer_name}): **${statusMap[o.status] || o.status}**.\n- Vận chuyển: ${shipLine}${displayAddress ? `\n- Địa chỉ: ${displayAddress}` : ''}`,
+      orderLookup: { found: true, isOwner: orderLookup.isOwner }
+    };
+  }
+
+  const answer = `Thông tin đơn hàng **${o.order_number}**:\n` +
+    `- Khách hàng: ${o.customer_name}\n` +
+    `- Trạng thái: **${statusMap[o.status] || o.status}**\n` +
+    `- Thanh toán: ${payMap[o.payment_method] || o.payment_method} (${o.payment_status === 'paid' ? 'Đã thanh toán' : 'Chờ thanh toán'}) — **${formatVnd(o.total_vnd)}**\n` +
+    `- Địa chỉ: ${displayAddress}\n` +
+    `- Vận chuyển: ${shipLine}`;
+  return { handoff: false, answer, orderLookup: { found: true, isOwner: orderLookup.isOwner } };
+}
+
+function buildDeviceCompatibilityAnswer(space, rawQuestion, matchedProdKey) {
+  const sections = [];
+
+  const asksIphone = hasAnyBoundaryTerm(space, ['iphone', 'ipad', 'ios', 'lightning', 'apple']);
+  const asksAndroid = hasAnyBoundaryTerm(space, ['android', 'samsung', 'oppo', 'xiaomi', 'redmi', 'vivo', 'realme', 'poco', 'oneplus', 'otg', 'khong nhan', 'chua sang', 'den khong sang']);
+  const asksPc = hasAnyBoundaryTerm(space, ['may tinh', 'laptop', 'pc', 'macbook', 'windows', 'obs']);
+  const asksCamera = hasAnyBoundaryTerm(space, ['may anh', 'camera', 'sony', 'canon', 'fujifilm', 'nikon', '3.5mm', 'jack 3.5']);
+  const asksNoise = hasAnyBoundaryTerm(space, ['loc am', 'loc on', 'loc tieng on', 'chong on', 'khu on', 'tieng on', 'tap am', 'anc', 'dsp']);
+
+  if (asksIphone) {
+    if (matchedProdKey === 'gaeru-p01' || matchedProdKey === 'gaeru-p185') {
+      sections.push(`**${PRODUCT_SPECS[matchedProdKey].name}** tương thích mọi dòng iPhone (kẹp giữ điện thoại trực tiếp, không phụ thuộc cổng Type-C hay Lightning).`);
+    } else if (hasAnyBoundaryTerm(space, ['iphone 15', 'iphone 16', '15', '16', 'type c'])) {
+      sections.push('- **iPhone 15 / 16 series** dùng cổng **Type-C**: cắm trực tiếp đầu thu Type-C là nhận ngay không cần đầu chuyển (các dòng **iPhone 14 trở xuống** dùng chân **Lightning** cần chọn đúng phân loại Lightning).');
+    } else {
+      sections.push('- **iPhone 15 / 16 series** dùng cổng **Type-C** cắm trực tiếp; **iPhone 14 trở xuống** dùng chân **Lightning** (cần chọn phân loại Lightning hoặc đầu chuyển đạt chuẩn truyền âm thanh).');
+    }
+  }
+
+  if (asksAndroid) {
+    const isTroubleshooting = hasAnyBoundaryTerm(space, ['oppo', 'realme', 'vivo', 'oneplus', 'otg', 'khong nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng']);
+    if (isTroubleshooting) {
+      sections.push('- Với điện thoại **OPPO, Realme, Vivo, OnePlus**: vào **Cài đặt** → tìm **OTG** → bật **Kết nối OTG**, rồi rút ra cắm sát lại đầu thu (tháo ốp dày nếu vướng chân cắm).');
+      if (!hasAnyBoundaryTerm(space, ['oppo', 'realme', 'vivo'])) {
+        sections.push('- Nếu dùng **Samsung/Xiaomi** mà app camera mặc định chưa nhận tiếng, hãy quay trực tiếp trên **TikTok / CapCut** hoặc tải **Open Camera** chọn *Nguồn âm thanh: Micro ngoài*.');
+      }
+    } else {
+      sections.push('- **Android (Samsung, Xiaomi...)**: cắm đầu thu Type-C là nhận trực tiếp; riêng **OPPO, Realme, Vivo** cần vào **Cài đặt** bật **Kết nối OTG** trước khi cắm.');
+    }
+  }
+
+  if (asksPc) {
+    if (matchedProdKey === 'gaeru-g1-ultra') {
+      sections.push('- **GAERU G1 ULTRA** hỗ trợ cắm trực tiếp **PC/Laptop** qua USB/Type-C và nhận làm nguồn mic mặc định trên Zoom, OBS Studio, CapCut PC.');
+    } else {
+      sections.push('- **Máy tính / Laptop (Windows, MacBook)**: cắm đầu thu Type-C (hoặc qua đầu chuyển USB-A) → vào **Settings → Sound → Input** chọn thiết bị micro không dây.');
+    }
+  }
+
+  if (asksCamera) {
+    if (matchedProdKey === 'gaeru-g1-ultra') {
+      sections.push('- **GAERU G1 ULTRA** kết nối trực tiếp với **máy ảnh** qua dây âm thanh 3.5mm TRS đi kèm.');
+    } else {
+      sections.push('- Để cắm trực tiếp **máy ảnh (ngõ 3.5mm)**, dòng chuyên dụng phù hợp nhất là **GAERU G1 ULTRA** (K9 và M3 tiêu chuẩn tối ưu cho cổng điện thoại/PC).');
+    }
+  }
+
+  if (asksNoise && sections.length === 0) {
+    if (matchedProdKey && PRODUCT_SPECS[matchedProdKey]) {
+      sections.push(`- **${PRODUCT_SPECS[matchedProdKey].name}:** ${PRODUCT_SPECS[matchedProdKey].audio}`);
+    } else {
+      sections.push('- Các dòng micro GAERU (**K9**, **M3**, **G1 ULTRA**) đều tích hợp xử lý giảm ồn **DSP / AI** + bông lọc gió giúp lọc tạp âm, gió và tiếng ồn môi trường.');
+    }
+  }
+
+  const asksAppCompat = hasAnyBoundaryTerm(space, ['tiktok', 'capcut', 'facebook', 'youtube', 'zoom', 'shopee', 'app']) ||
+    (hasBoundaryTerm(space, 'livestream') && hasAnyBoundaryTerm(space, ['dung duoc', 'tuong thich', 'ho tro', 'ket noi']) && !hasBoundaryTerm(space, 'thiet bi'));
+  if (asksAppCompat && sections.length === 0) {
+    sections.push('- Thiết bị GAERU tương thích trực tiếp với **TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Zoom** (cắm đầu thu vào máy là dùng ngay trên app, không cần ghép Bluetooth để thu tiếng).');
+  }
+
+  return sections.join('\n');
+}
+
+function buildProductSpecificAnswer({ prodEntry, question, space, detailed }) {
+  const slug = prodEntry.key;
+  const liveProd = prodEntry.product;
+  const spec = PRODUCT_SPECS[slug];
+  const displayName = liveProd?.name || spec?.name || slug.toUpperCase();
+
+  // Nhận diện trường hợp khách gọi nhầm P01 là "micro" khi DB thực tế hoặc mô tả mặc định cho thấy P01 là Gimbal
+  const callsP01AsMic = slug === 'gaeru-p01' && hasAnyBoundaryTerm(space, ['micro', 'mic']) && !hasAnyBoundaryTerm(space, ['gimbal', 'quay theo', 'khung hinh']);
+  if (callsP01AsMic) {
+    const priceRange = getPriceSummaryFromProduct(liveProd, spec);
+    const variantLines = formatVariantSummaryLines(liveProd, question);
+    return `Lưu ý nhỏ: **${displayName}** thực chất là **Gimbal AI tự động quay theo người xoay 360°** (không phải micro thu âm), giá **${priceRange}**.\n` +
+      (variantLines ? `${variantLines}\n` : '') +
+      `Nếu bạn đang tìm micro thu âm có **Khử ồn chủ động** / giảm ồn DSP thì tham khảo **GAERU K9**, **GAERU M3** hoặc **GAERU G1 ULTRA** nhé.`;
+  }
+
+  const hasDimensionOrMeasureQuestion = /\bbao nhieu\s*(?:tieng|gio|phut|ngay|met|cm|mm|gam|gram|g|kg|mah|w|hz|db|phan|nguoi|mic|cai)\b/.test(space);
+  const asksPrice = hasAnyBoundaryTerm(space, ['gia', 'gia ban', 'may tien', 'tam gia']) ||
+    (hasBoundaryTerm(space, 'bao nhieu') && !hasDimensionOrMeasureQuestion && !hasAnyBoundaryTerm(space, ['pin', 'khoang cach', 'trong luong', 'nang', 'chieu dai', 'chieu cao', 'keo dai', 'dung luong', 'bao xa', 'bao lau']));
+  const asksStock = hasAnyBoundaryTerm(space, ['con hang', 'het hang', 'san hang', 'ton kho', 'con khong', 'con may', 'co san']);
+  const asksBattery = hasAnyBoundaryTerm(space, ['pin', 'thoi luong', 'bao lau', 'may gio', 'may tieng', 'hop sac', 'sac', 'mah']);
+  const asksRange = hasAnyBoundaryTerm(space, ['khoang cach', 'bao xa', 'may met', 'tam thu', 'cu ly', 'bat song']);
+  const asksAudio = hasAnyBoundaryTerm(space, ['loc am', 'loc on', 'loc tieng on', 'chong on', 'khu on', 'tieng on', 'tap am', 'anc', 'dsp', 'am thanh', '360', '24 bit', '48khz', 'kiem am']);
+  const asksAccessories = hasAnyBoundaryTerm(space, ['phu kien', 'trong hop', 'goi gom', 'bao gom', 'co nhung gi', 'gom gi', 'di kem']);
+  const asksWeightOrSize = hasAnyBoundaryTerm(space, ['trong luong', 'nang bao nhieu', 'may gam', 'kich thuoc', 'chieu cao', 'chieu dai', 'keo dai', 'dai bao nhieu', 'bao nhieu cm', 'bao nhieu m']);
+  const asksOverview = hasAnyBoundaryTerm(space, ['la gi', 'de lam gi', 'dung de lam gi', 'cong dung', 'chuc nang', 'la loai nao', 'tac dung']);
+  const asksCompat = hasAnyBoundaryTerm(space, ['tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'cong cam', 'chan cam', 'iphone', 'ipad', 'macbook', 'ios', 'android', 'samsung', 'oppo', 'xiaomi', 'vivo', 'realme', 'pc', 'laptop', 'windows', 'may tinh', 'may anh', 'camera', 'tiktok', 'capcut', 'zoom', 'obs', 'type c', 'lightning', 'otg', 'khong nhan', 'chua sang', 'mat tieng']);
+
+  const parts = [];
+  const matchedVars = matchProductVariants(question, liveProd?.variants || []);
+  const priceText = getPriceSummaryFromProduct(matchedVars.length ? { variants: matchedVars } : liveProd, spec);
+
+  // 1. Trả lời trực tiếp từng khía cạnh được hỏi
+  if (asksOverview) {
+    const roleDesc = spec?.role || liveProd?.descriptor || liveProd?.cardSummary || liveProd?.description?.slice(0, 180) || '';
+    if (roleDesc) parts.push(`**${displayName}** là ${roleDesc.charAt(0) === '*' ? roleDesc : roleDesc}`);
+  }
+
+  if (asksPrice || asksStock) {
+    const matchedVarLines = formatVariantSummaryLines(liveProd, question);
+    if (matchedVarLines) {
+      parts.push(`**${displayName}** (${priceText}):\n${matchedVarLines}`);
+    } else {
+      parts.push(`**${displayName}** hiện có giá **${priceText}** (bảo hành 12 tháng, 1 đổi 1 trong 30 ngày).`);
+    }
+  }
+
+  if (asksBattery) {
+    if (spec?.battery) parts.push(`- **Pin & sạc (${displayName}):** ${spec.battery}`);
+    else if (liveProd?.description) parts.push(`- **Thông tin (${displayName}):** ${liveProd.description.slice(0, 240)}`);
+  }
+
+  if (asksRange) {
+    if (spec?.range) parts.push(`- **Cự ly / phạm vi:** ${spec.range}`);
+  }
+
+  if (asksAudio) {
+    if (spec?.audio) parts.push(`- **Âm thanh & lọc ồn:** ${spec.audio}`);
+  }
+
+  if (asksAccessories) {
+    const accMap = {
+      'gaeru-k9': 'Micro cài áo (1 hoặc 2 mic theo phiên bản), đầu thu Type-C/Lightning, cáp sạc Type-C và bông lọc gió.',
+      'gaeru-m3': '2 micro cài áo, 1 đầu thu Type-C, hộp sạc hiển thị % pin, bông lọc gió và cáp sạc.',
+      'gaeru-g1-ultra': '2 micro cài áo, đầu thu đa thiết bị, hộp sạc và bộ dây kết nối điện thoại/máy ảnh 3.5mm/PC theo phân loại.',
+      'gaeru-p01': 'Thân Gimbal AI xoay 360°, ngàm kẹp điện thoại, dây sạc (bản chân 2m1 có thêm chân đứng).',
+      'gaeru-p185': 'Gậy selfie tripod 4 chấu hợp kim gập gọn và remote Bluetooth tháo rời.'
+    };
+    if (accMap[slug]) parts.push(`- **Trong hộp (${displayName}):** ${accMap[slug]}`);
+  }
+
+  if (asksWeightOrSize) {
+    if (slug === 'gaeru-p185') parts.push('- **Kích thước & trọng lượng GAERU P185:** Kéo dài **29,5–180 cm**, nặng **423 g**, khớp ren 1/4".');
+    else if (slug === 'gaeru-k9') parts.push('- **Trọng lượng GAERU K9:** Micro cài áo siêu nhẹ chỉ khoảng **7g**.');
+    else if (slug === 'gaeru-m3') parts.push('- **Kích thước GAERU M3:** Bộ phát 28 × 28 × 14,1 mm; hộp sạc 82 × 45 × 39 mm.');
+  }
+
+  if (asksCompat) {
+    const compatAnswer = buildDeviceCompatibilityAnswer(space, question, slug);
+    if (compatAnswer) parts.push(compatAnswer);
+    else if (spec?.compatibility) parts.push(`- **Tương thích:** ${spec.compatibility}`);
+  }
+
+  // Nếu có câu trả lời trúng đích rồi (hoặc chỉ hỏi 1-2 ý), dừng ngay — KHÔNG xả nguyên brochure!
+  if (parts.length > 0 && !detailed) {
+    return parts.join('\n');
+  }
+
+  // Trường hợp khách hỏi chung chung về sản phẩm (VD: "Tư vấn K9", "M3 là gì?", "Thông số P185")
+  const descLine = (liveProd?.cardSummary || liveProd?.descriptor || '').trim();
+  const variantLines = formatVariantSummaryLines(liveProd, question);
+  const lines = [];
+  lines.push(`**${displayName}**${priceText ? ` — Giá: **${priceText}**` : ''}`);
+  if (spec?.role) lines.push(`- **Tổng quan:** ${spec.role}`);
+  else if (descLine) lines.push(`- **Tổng quan:** ${descLine}`);
+  if (spec?.battery) lines.push(`- **Pin:** ${spec.battery}`);
+  if (spec?.range) lines.push(`- **Phạm vi:** ${spec.range}`);
+  if (spec?.compatibility && !asksCompat) lines.push(`- **Tương thích:** ${spec.compatibility}`);
+  if (variantLines && !asksPrice && !asksStock) lines.push(`**Phân loại hiện có:**\n${variantLines}`);
+  if (parts.length) {
+    for (const p of parts) {
+      if (!lines.some(l => l.includes(p.slice(0, 24)))) lines.push(p);
+    }
+  }
+  return lines.join('\n');
+}
+
+function buildComparisonAnswer(matchedItems, questionNorm, catalog = []) {
+  const keys = matchedItems.length >= 2
+    ? matchedItems.map(m => m.key)
+    : hasAnyBoundaryTerm(questionNorm, ['gimbal', 'p01', 'gay', 'p185'])
+      ? ['gaeru-p01', 'gaeru-p185']
+      : ['gaeru-k9', 'gaeru-m3', 'gaeru-g1-ultra'];
+
+  const rows = [];
+  for (const key of keys.slice(0, 3)) {
+    const prod = catalog.find(p => String(p.slug || '').toLowerCase() === key || normalizeSearchSpace(p.name).includes(normalizeSearchSpace(key.replace('gaeru-', ''))));
+    const spec = PRODUCT_SPECS[key];
+    if (!spec && !prod) continue;
+    const priceStr = getPriceSummaryFromProduct(prod, spec);
+    if (key === 'gaeru-k9') rows.push(`- **GAERU K9 (${priceStr}):** Nhỏ gọn nhất, cắm là dùng không hộp sạc, pin **2,5h/mic**, cự ly 20m — hợp quay vlog ngắn, dạy học, tối ưu chi phí.`);
+    else if (key === 'gaeru-m3') rows.push(`- **GAERU M3 (${priceStr}):** Kèm **hộp sạc hiển thị % pin** (tổng tới 24h), 24-bit/48kHz, giảm ồn AI, đầu thu Type-C — hợp quay/live nhiều giờ cần pin bền.`);
+    else if (key === 'gaeru-g1-ultra') rows.push(`- **GAERU G1 ULTRA (${priceStr}):** Micro đa thiết bị chuyên nghiệp (điện thoại + máy ảnh 3.5mm + PC), có tai nghe kiểm âm & nhạc nền Bluetooth.`);
+    else if (key === 'gaeru-p01') rows.push(`- **GAERU P01 (${priceStr}):** Gimbal AI **tự động xoay 360° quay theo người** (pin ~6–8h), hợp tự quay/livestream rảnh tay.`);
+    else if (key === 'gaeru-p185') rows.push(`- **GAERU P185 (${priceStr}):** Gậy selfie tripod 4 chân kéo dài tới **1m8** kèm remote Bluetooth, giữ máy cố định góc cao.`);
+    else if (prod) rows.push(`- **${prod.name} (${priceStr}):** ${prod.descriptor || prod.cardSummary || prod.description?.slice(0, 120) || ''}`);
+  }
+
+  if (!rows.length) return '';
+  return `So sánh nhanh các dòng bạn quan tâm:\n${rows.join('\n')}`;
+}
+
+function findWebKnowledgeAnswer(question, webKnowledge, catalog = []) {
+  if (!webKnowledge && !catalog.length) return '';
+  const qTokens = tokenizeMeaningful(question);
+  if (!qTokens.length) return '';
+
+  // 1. Admin curated approvedSources (đã được lọc theo trigger khớp trực tiếp với câu hỏi)
+  const approved = webKnowledge?.externalKnowledge?.approvedSources || [];
+  let bestFact = '';
+  let bestScore = 0;
+
+  for (const src of approved) {
+    const facts = Array.isArray(src.facts) ? src.facts.filter(Boolean) : [];
+    for (const fact of facts) {
+      const score = tokenOverlapScore(qTokens, tokenizeMeaningful(`${src.title || ''} ${fact}`));
+      if (score >= bestScore) {
+        bestScore = score;
+        bestFact = fact;
+      }
+    }
+    if (!bestFact && facts.length) bestFact = facts[0];
+  }
+  if (approved.length > 0 && bestFact) return bestFact;
+
+  // 2. Crisp matched lines from storefront web pages
+  const snippets = webKnowledge?.relevantSnippets || [];
+  if (snippets.length && snippets[0].score >= 0.45) {
+    return snippets.slice(0, 2).map(s => `- ${s.line}`).join('\n');
+  }
+
+  // 3. External curated ecosystem facts / live search snippets
+  const ecoFacts = webKnowledge?.externalKnowledge?.ecosystemFacts || [];
+  for (const f of ecoFacts) {
+    const score = tokenOverlapScore(qTokens, tokenizeMeaningful(f));
+    if (score > bestScore) {
+      bestScore = score;
+      bestFact = f;
+    }
+  }
+  if (bestScore >= 0.45 && bestFact) return bestFact;
+
+  const searchSnips = webKnowledge?.externalKnowledge?.searchSnippets || [];
+  if (searchSnips.length) {
+    return searchSnips[0];
+  }
+
+  return '';
+}
+
+/**
+ * Phân tích và sinh câu trả lời thông minh, chính xác, không lan man từ GAERU AI.
+ */
+async function generateGaeruAiResponse({ pool, thread, question, catalog = [], history = [], webKnowledge = null }) {
+  const raw = String(question || '').trim();
+  const expanded = expandQueryVi(raw);
+  const space = normalizeSearchSpace(expanded);
+  const detailed = isExplicitDetailedRequest(space);
+
+  // 1. Yêu cầu gặp nhân viên / người thật (có kiểm tra phủ định "không cần nhân viên")
+  const explicitHuman = /(?:gap|chuyen|ket noi|noi chuyen|lien he|goi).{0,35}(?:nhan vien|nguoi that|tu van vien)|(?:human|live agent)|khong muon.{0,12}(?:ai|bot)/i.test(expanded) &&
+    !/khong (?:can|muon) (?:gap |noi chuyen voi )?(?:nhan vien|nguoi that)/i.test(expanded) &&
+    !isTermNegated(space, 'nhan vien');
+
+  if (explicitHuman) {
+    return {
+      handoff: true,
+      answer: 'Dạ GAERU AI đang chuyển bạn tới chuyên viên tư vấn GAERU. Nếu cần gấp, bạn có thể gọi Hotline **082 919 1080** (10:00 – 17:00) nhé!'
+    };
+  }
+
+  // 2. Tra cứu đơn hàng thời gian thực (GR-... / GAE-... / SĐT) với bảo mật Zero-Trust
   const orderLookup = await lookupOrderInfo(pool, raw, thread);
   if (orderLookup && orderLookup.searched) {
-    // Nếu chỉ tra cứu qua SĐT mà không phải chủ đơn đã xác thực: trả về phản hồi bảo mật đồng nhất (chống dò SĐT)
-    if (orderLookup.queryType === 'phone' && !orderLookup.isOwner) {
-      return {
-        handoff: false,
-        answer: 'Để bảo vệ quyền riêng tư và thông tin đơn hàng của bạn, GAERU AI chỉ hỗ trợ xem chi tiết khi bạn đăng nhập tài khoản mua hàng hoặc cung cấp chính xác **Mã đơn hàng (dạng GAE-xxxxxx)**. Nếu bạn cần hỗ trợ gấp, vui lòng liên hệ hotline **082 919 1080** nhé!',
-        orderLookup: { found: false, protected: true }
-      };
-    }
-
-    if (orderLookup.found) {
-      const o = orderLookup.order;
-      const s = orderLookup.shipment;
-
-      const statusMap = {
-        pending: 'Chờ xác nhận',
-        confirmed: 'Đã xác nhận đơn hàng',
-        processing: 'Đang đóng gói và chuẩn bị hàng',
-        shipped: 'Đang vận chuyển giao cho khách',
-        completed: 'Giao hàng thành công',
-        cancelled: 'Đã hủy đơn hàng'
-      };
-      const payMap = {
-        cod: 'Thanh toán khi nhận hàng (COD)',
-        vietqr: 'Chuyển khoản VietQR',
-        vnpay: 'Cổng VNPAY',
-        momo: 'Ví MoMo',
-        zalopay: 'Ví ZaloPay'
-      };
-
-      // Chỉ bỏ qua ẩn PII đối với mock unit-test cũ không có thread/customer_id; dữ liệu thật từ DB & chat luôn có ngữ cảnh này.
-      const isLegacyMockWithoutContext = !orderLookup.hasThreadContext && !orderLookup.hasCustomerIdCol;
-      if (!orderLookup.isOwner && !isLegacyMockWithoutContext) {
-        const redactedAnswer = `Chào bạn! Mã đơn hàng **${o.order_number}** đã được ghi nhận trên hệ thống GAERU.\n\n` +
-          `- **Khách hàng:** *** (Vui lòng đăng nhập đúng tài khoản đặt hàng để xem)\n` +
-          `- **Trạng thái đơn hàng:** *** (Đã ẩn vì lý do bảo mật)\n` +
-          `- **Hình thức & giá trị thanh toán:** *** (Đã ẩn thông tin tài chính vì lý do bảo mật)\n` +
-          `- **Địa chỉ giao hàng:** *** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)\n` +
-          `- **Vận chuyển:** *** (Đã ẩn mã vận đơn vì lý do bảo mật)\n\n` +
-          `Để xem đầy đủ thông tin, vui lòng đăng nhập đúng tài khoản mua hàng hoặc tra cứu tại trang **Theo dõi đơn hàng** kèm số điện thoại đặt hàng nhé!`;
-        return { handoff: false, answer: redactedAnswer, orderLookup: { found: true, isOwner: false, protected: true } };
-      }
-
-      const displayAddress = (orderLookup.isOwner || isLegacyMockWithoutContext)
-        ? `${o.address}, ${o.city}`
-        : `*** (Đã ẩn địa chỉ chi tiết vì lý do bảo mật)`;
-
-      let answer = `Chào bạn! GAERU AI đã tra cứu thông tin đơn hàng **${o.order_number}** của bạn:\n\n` +
-                   `- **Khách hàng:** ${o.customer_name}\n` +
-                   `- **Trạng thái đơn hàng:** ${statusMap[o.status] || o.status}\n` +
-                   `- **Hình thức thanh toán:** ${payMap[o.payment_method] || o.payment_method} (${o.payment_status === 'paid' ? 'Đã thanh toán' : 'Chờ thanh toán'})\n` +
-                   `- **Tổng giá trị:** **${formatVnd(o.total_vnd)}**\n` +
-                   `- **Địa chỉ giao hàng:** ${displayAddress}\n`;
-
-      if (s && s.tracking_number) {
-        answer += `- **Vận chuyển:** ${s.carrier_name || 'Viettel Post'} · Mã vận đơn: \`${s.tracking_number}\` (Trạng thái: ${s.status || 'Đang giao'})\n`;
-      } else {
-        answer += `- **Vận chuyển:** Đơn hàng đang được chuẩn bị để giao cho đơn vị vận chuyển Viettel Post.\n`;
-      }
-
-      answer += `\nNếu bạn cần thay đổi địa chỉ hoặc hỗ trợ gấp về đơn hàng, bạn có thể nhắn ngay tại đây hoặc gọi hotline **082 919 1080** nhé!`;
-      return { handoff: false, answer, orderLookup: { found: true, isOwner: orderLookup.isOwner } };
-    } else {
-      return {
-        handoff: false,
-        answer: `Dạ GAERU AI chưa tìm thấy đơn hàng với thông tin "${orderLookup.query}". Bạn vui lòng kiểm tra lại chính xác mã đơn hàng (dạng GAE-xxxxxx) hoặc số điện thoại dùng khi đặt hàng để mình tra cứu ngay giúp bạn nhé!`,
-        orderLookup: { found: false }
-      };
-    }
+    return formatOrderLookupReply(orderLookup, space);
   }
 
-  // 3. Tra cứu tri thức tự học tích lũy từ các cuộc hội thoại trước (Autonomous Continuous Learning)
-  try {
-    const learnedMatch = await matchLearnedKnowledge(pool, raw, { minScore: 0.65 });
-    if (learnedMatch && learnedMatch.entry) {
-      const e = learnedMatch.entry;
-      return {
-        handoff: false,
-        answer: e.learned_facts || e.sample_answer,
-        learnedKnowledge: {
-          id: e.id,
-          topic: e.topic,
-          confidence: e.confidence_score
-        }
-      };
-    }
-  } catch (_) {}
+  // Phân giải sản phẩm liên quan (câu hiện tại hoặc ngữ cảnh các lượt trước / thread)
+  const mentioned = resolveMentionedProducts(raw, catalog, { thread, history });
+  const primaryProd = mentioned.items[0] || null;
 
-  // 4. Tư vấn tương thích thiết bị & Hướng dẫn kỹ thuật
-  const isIphone = norm.includes('iphone') || norm.includes('ios') || norm.includes('apple') || norm.includes('lightning') || norm.includes('ipad');
-  const isAndroid = norm.includes('android') || norm.includes('samsung') || norm.includes('oppo') || norm.includes('xiaomi') || norm.includes('vivo') || norm.includes('realme') || norm.includes('redmi') || norm.includes('otg');
-  const isPc = norm.includes('may tinh') || norm.includes('laptop') || norm.includes('pc') || norm.includes('macbook') || norm.includes('windows');
-  const isApp = norm.includes('tiktok') || norm.includes('capcut') || norm.includes('livestream') || norm.includes('quay video') || norm.includes('zoom') || norm.includes('facebook');
-  const isNoise = norm.includes('loc am') || norm.includes('chong on') || norm.includes('tieng on') || norm.includes('anc') || norm.includes('tap am');
+  // Xác định câu hỏi có yêu cầu tra cứu dữ liệu động (giá/kho/chính sách/vận chuyển/voucher) không
+  const isDynamicPolicyOrCommerce = hasAnyBoundaryTerm(space, [
+    'gia', 'gia ban', 'bao nhieu', 'may tien', 'con hang', 'het hang', 'ton kho',
+    'ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai',
+    'bao hanh', '1 doi 1', 'care+', 'doi tra',
+    'giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'dong kiem',
+    'gaeru xu', 'tich xu', 'doi xu', 'diem thuong',
+    'thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay'
+  ]);
 
-  if (isIphone && (norm.includes('tuong thich') || norm.includes('dung duoc') || norm.includes('cam') || norm.includes('cong') || norm.includes('15') || norm.includes('16') || norm.includes('chan'))) {
-    let ans = `Dạ các dòng micro thu âm GAERU tương thích hoàn hảo với điện thoại iPhone:\n\n` +
-              `1. **Dòng iPhone 15 & iPhone 16 series:** Đã chuyển sang cổng Type-C chuẩn quốc tế. Bạn chỉ cần cắm trực tiếp đầu thu Type-C vào đáy máy là nhận mic và thu âm được ngay lập tức, không cần đầu chuyển.\n` +
-              `2. **Dòng iPhone 14 trở về trước (14, 13, 12, 11, X, 8, 7):** Dùng chân cắm Lightning. Khi đặt mua, bạn chỉ cần chọn phân loại chân Lightning (hoặc dùng cáp OTG Lightning sang Type-C chính hãng đạt chuẩn MFi) là sử dụng mượt mà.\n` +
-              `3. **iPad:** Với các dòng iPad cổng Type-C (iPad Pro, iPad Air, iPad Gen 10), cắm đầu thu Type-C máy sẽ tự nhận diện làm mic chính ngay.\n\n` +
-              `Bạn đang dùng dòng iPhone nào để GAERU AI tư vấn phiên bản chân cắm chuẩn nhất cho bạn ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isAndroid && (norm.includes('otg') || norm.includes('khong nhan') || norm.includes('chua sang') || norm.includes('huong dan') || norm.includes('cai dat') || norm.includes('cam'))) {
-    let ans = `Dạ để sử dụng micro GAERU trên các dòng máy Android chuẩn nhất, bạn lưu ý các bước đơn giản sau nhé:\n\n` +
-              `1. **Kích hoạt kết nối OTG (rất quan trọng với OPPO, Realme, Vivo, OnePlus):**\n` +
-              `   - Bạn vào **Cài đặt** (Settings) trên máy -> tìm kiếm chữ **"OTG"** -> Bật mục **"Kết nối OTG"**.\n` +
-              `   - Sau khi bật, cắm đầu thu vào điện thoại đèn tín hiệu sẽ sáng ngay.\n` +
-              `2. **Đối với Samsung, Xiaomi, Google Pixel:** Cắm trực tiếp đầu thu Type-C máy sẽ tự động nhận micro mà không cần cài đặt thêm.\n` +
-              `3. **Khi quay video:** Micro tương thích 100% với TikTok, CapCut, Facebook Live. Nếu camera mặc định của một số dòng máy cũ chưa nhận mic ngoài, bạn có thể quay trực tiếp trong app CapCut/TikTok hoặc tải app miễn phí "Open Camera" (chọn Nguồn âm thanh: Micro ngoài).\n\n` +
-              `Bạn thử kiểm tra tính năng OTG trên máy của mình xem đèn trên đầu thu đã sáng xanh chưa nhé!`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isPc && (norm.includes('dung duoc') || norm.includes('cam') || norm.includes('ket noi') || norm.includes('huong dan'))) {
-    let ans = `Dạ micro thu âm GAERU sử dụng hoàn toàn tốt trên Máy tính, Laptop (Windows 10/11) và MacBook:\n\n` +
-              `- **Kết nối:** Cắm đầu thu Type-C trực tiếp vào cổng Type-C trên laptop, hoặc dùng đầu chuyển USB-A sang Type-C nếu máy tính chỉ có cổng USB thông thường.\n` +
-              `- **Thiết lập:** Máy sẽ tự nhận diện dạng Plug & Play. Bạn vào **Settings** -> **Sound** -> chọn Input/Microphone là **Wireless Microphone**.\n` +
-              `- **Ứng dụng:** Hoạt động rất tốt cho họp trực tuyến (Zoom, Google Meet, MS Teams), livestream OBS Studio, ghi âm podcast và dựng phim trên CapCut PC.\n\n` +
-              `Bạn cần GAERU AI hướng dẫn thêm chi tiết ở bước nào không ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isNoise) {
-    let ans = `Dạ các dòng micro thu âm GAERU đều được trang bị chip xử lý âm thanh **DSP (Digital Signal Processor) thế hệ mới** với khả năng lọc tiếng ồn chủ động vượt trội:\n\n` +
-              `- **Khử ồn thông minh:** Tự động nhận diện và loại bỏ tạp âm môi trường (tiếng gió rít, còi xe ngoài phố, tiếng quạt gió, tiếng ồn quán cafe) mà vẫn giữ được giọng nói ấm, trong trẻo và tự nhiên.\n` +
-              `- **Đặc biệt trên GAERU P01:** Có phím bấm chuyển đổi 3 cấp độ chống ồn linh hoạt ngay trên thân mic, phù hợp từ phòng yên tĩnh cho tới môi trường quay ngoại cảnh ồn ào.\n` +
-              `- **Cự ly thu ổn định:** Công nghệ truyền dẫn sóng kỹ thuật số 2.4GHz với tầm hoạt động 20m - 50m không bị đứt đoạn hay trễ tiếng.\n\n` +
-              `Bạn định sử dụng micro cho mục đích gì (quay ngoài trời, livestream bán hàng, hay dạy học/họp online) để mình tư vấn dòng tối ưu nhất ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  // 4. Tư vấn chính sách GAERU Xu, Bảo hành, Vận chuyển, Thanh toán
-  if (norm.includes('gaeru xu') || norm.includes('tich xu') || norm.includes('diem thuong') || norm.includes('doi xu') || norm.includes('xu la gi')) {
-    let ans = `Dạ **GAERU Xu** là chương trình khách hàng thân thiết chính thức của GAERU với các quyền lợi vượt trội:\n\n` +
-              `- **Tích lũy:** Tích từ 1% đến 5% giá trị đơn hàng thành công tùy theo hạng thành viên (Đồng, Bạc, Vàng, Kim Cương).\n` +
-              `- **Giá trị quy đổi:** 1 GAERU Xu = 1 VNĐ khi giảm trừ thanh toán đơn hàng tiếp theo.\n` +
-              `- **Mức giảm tối đa:** Giảm đến **50%** tổng giá trị đơn hàng (tuân thủ nghiêm ngặt Nghị định 81/2018/NĐ-CP về xúc tiến thương mại).\n` +
-              `- **Tính chất pháp lý:** Xu là điểm thưởng ghi nhận nội bộ, không phải tiền tệ và không quy đổi ra tiền mặt theo Nghị định 52/2024/NĐ-CP.\n` +
-              `- **Cách dùng:** Số dư GAERU Xu sẽ tự động hiển thị trong trang thanh toán khi bạn đăng nhập tài khoản mua hàng.\n\n` +
-              `Bạn có thể xem chi tiết điều khoản tại trang [Chính sách GAERU Xu](/chinh-sach/gaeru-xu) nhé!`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (norm.includes('bao hanh') || norm.includes('doi tra') || norm.includes('loi') || norm.includes('care+')) {
-    let ans = `Dạ GAERU áp dụng chính sách bảo hành và hậu mãi chính hãng tốt nhất hiện nay:\n\n` +
-              `- **Thời hạn bảo hành:** Bảo hành chính hãng **12 tháng** cho toàn bộ thân máy và dock sạc.\n` +
-              `- **Chính sách 1 đổi 1:** Trong **30 ngày đầu tiên** nếu sản phẩm phát sinh lỗi kỹ thuật từ nhà sản xuất, GAERU đổi mới nguyên seal ngay lập tức.\n` +
-              `- **Bảo hành điện tử:** Kích hoạt và tra cứu bảo hành 1 chạm trực tuyến qua số điện thoại mua hàng tại trang [Tra cứu bảo hành](/ho-tro).\n` +
-              `- **Gói mở rộng GAERU Care+:** Hỗ trợ bảo vệ toàn diện ngay cả khi rơi vỡ hoặc vào nước, ưu tiên đổi mới nhanh chóng.\n\n` +
-              `Bạn hoàn toàn an tâm khi mua sắm và sử dụng thiết bị tại GAERU ạ!`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (norm.includes('giao hang') || norm.includes('van chuyen') || norm.includes('ship') || norm.includes('phi ship') || norm.includes('may ngay')) {
-    let ans = `Dạ về chính sách giao nhận và vận chuyển tại GAERU:\n\n` +
-              `- **Phí vận chuyển:** **Miễn phí giao hàng toàn quốc (Freeship)** cho các đơn hàng từ 500.000 ₫.\n` +
-              `- **Thời gian nhận hàng:** Từ **2 - 4 ngày làm việc** tùy theo tỉnh thành qua đối tác vận chuyển chuyên nghiệp Viettel Post / SPX.\n` +
-              `- **Quyền đồng kiểm:** Khách hàng được quyền **mở hộp kiểm tra sản phẩm** trước khi thanh toán cho shipper (tuân thủ Nghị định 85/2021/NĐ-CP).\n\n` +
-              `Bạn ở tỉnh/thành phố nào để GAERU AI ước tính chính xác thời gian giao hàng cho bạn ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (norm.includes('thanh toan') || norm.includes('cod') || norm.includes('vietqr') || norm.includes('vnpay') || norm.includes('momo') || norm.includes('zalopay') || norm.includes('chuyen khoan')) {
-    let ans = `Dạ GAERU hỗ trợ đa dạng phương thức thanh toán an toàn, bảo mật đạt chuẩn quốc tế:\n\n` +
-              `1. **Thanh toán khi nhận hàng (COD):** Nhận hàng, kiểm tra sản phẩm rồi mới thanh toán tiền mặt cho nhân viên giao hàng.\n` +
-              `2. **Chuyển khoản VietQR:** Quét mã QR thanh toán qua ứng dụng ngân hàng, hệ thống tự động xác nhận giao dịch trong 3 giây.\n` +
-              `3. **Cổng thanh toán trực tuyến:** Hỗ trợ thanh toán qua VNPAY, Ví MoMo và ZaloPay an toàn bảo mật PCI-DSS.\n\n` +
-              `Tất cả các giao dịch đều có hóa đơn điện tử minh bạch gửi về email của Quý khách ạ!`;
-    return { handoff: false, answer: ans };
-  }
-
-  // 5. Tra cứu Khuyến mãi & Mã giảm giá đang hoạt động nếu khách hỏi ưu đãi / voucher
-  if (norm.includes('ma giam gia') || norm.includes('voucher') || norm.includes('coupon') || norm.includes('khuyen mai') || norm.includes('uu dai') || norm.includes('giam gia')) {
-    let activeVouchers = [];
+  // 3. Tri thức tự học đặc thù (chỉ ưu tiên trước khi KHÔNG phải câu hỏi giá/tồn kho/đơn/chính sách)
+  if (!isDynamicPolicyOrCommerce) {
     try {
-      if (pool && typeof pool.query === 'function') {
+      const learnedMatch = await matchLearnedKnowledge(pool, raw, { minScore: 0.65 });
+      if (learnedMatch && learnedMatch.entry) {
+        const e = learnedMatch.entry;
+        return {
+          handoff: false,
+          answer: e.learned_facts || e.sample_answer,
+          learnedKnowledge: {
+            id: e.id,
+            topic: e.topic,
+            confidence: e.confidence_score
+          }
+        };
+      }
+    } catch (_) {}
+  }
+
+  // Thu thập các phần trả lời trực tiếp cho từng ý được hỏi (hỗ trợ câu hỏi đa ý)
+  const sections = [];
+
+  // 4. So sánh hoặc chọn sản phẩm
+  const wantsCompare = mentioned.items.length >= 2 ||
+    hasAnyBoundaryTerm(space, ['so sanh', 'khac nhau', 'nen mua loai nao', 'nen mua mau nao', 'chon loai nao', 'giua']) ||
+    (hasAnyBoundaryTerm(space, ['khac gi', 'chon cai nao']) && (mentioned.items.length >= 2 || hasAnyBoundaryTerm(space, ['mic', 'micro'])));
+
+  if (wantsCompare) {
+    const cmp = buildComparisonAnswer(mentioned.items, space, catalog);
+    if (cmp) sections.push(cmp);
+  } else if (primaryProd) {
+    // 5. Trả lời đúng trọng tâm cho sản phẩm đang hỏi (chỉ trả lời khía cạnh được hỏi, không spam brochure)
+    const isSpecificOrBroadProduct = hasAnyBoundaryTerm(space, [
+      'gia', 'gia ban', 'bao nhieu', 'may tien', 'con hang', 'het hang', 'ton kho', 'con khong',
+      'pin', 'thoi luong', 'bao lau', 'may gio', 'may tieng', 'hop sac', 'sac',
+      'khoang cach', 'bao xa', 'may met', 'tam thu', 'cu ly', 'bat song',
+      'loc am', 'loc on', 'chong on', 'khu on', 'tieng on', 'tap am', 'anc', 'dsp', 'am thanh',
+      'trong luong', 'kich thuoc', 'chieu cao', 'chieu dai', 'keo dai', 'nang bao nhieu', 'dai bao nhieu', 'bao nhieu cm', 'mah',
+      'phu kien', 'trong hop', 'goi gom', 'bao gom', 'co nhung gi', 'gom gi', 'di kem',
+      'thong so', 'chi tiet', 'phan loai', '1 mic', '2 mic', 'la gi', 'de lam gi', 'tu van', 'gioi thieu', 'review', 'the nao', 'ra sao',
+      'tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'iphone', 'ipad', 'macbook', 'android', 'samsung', 'oppo', 'xiaomi', 'vivo', 'pc', 'laptop', 'may tinh', 'may anh', 'tiktok', 'capcut', 'zoom', 'obs', 'type c', 'lightning', 'otg', 'khong nhan', 'chua sang', 'mat tieng'
+    ]) || mentioned.source === 'question';
+
+    if (isSpecificOrBroadProduct) {
+      sections.push(buildProductSpecificAnswer({ prodEntry: primaryProd, question: raw, space, detailed }));
+    }
+  } else {
+    // 6. Tương thích thiết bị / xử lý lỗi chung (không gắn 1 model cụ thể)
+    const compat = buildDeviceCompatibilityAnswer(space, raw, null);
+    if (compat) sections.push(compat);
+  }
+
+  // 7. Chính sách GAERU Xu / Bảo hành / Vận chuyển / Thanh toán / Khuyến mãi (chỉ thêm phần được hỏi)
+  if (hasAnyBoundaryTerm(space, ['gaeru xu', 'tich xu', 'doi xu', 'diem thuong']) || /\bxu\b/.test(space)) {
+    sections.push(
+      '**Chính sách GAERU Xu:**\n' +
+      '- Quy đổi: **1 GAERU Xu = 1 VNĐ**, dùng giảm tối đa **50%** giá trị đơn hàng (tuân thủ Nghị định 81/2018/NĐ-CP).\n' +
+      '- Tích từ **1%–5%** giá trị đơn thành công theo hạng thành viên; là điểm thưởng nội bộ không quy đổi tiền mặt (Nghị định 52/2024/NĐ-CP).'
+    );
+  }
+
+  if (hasAnyBoundaryTerm(space, ['bao hanh', 'doi tra', '1 doi 1', 'care+', 'care plus', 'kich hoat bao hanh', 'bi loi', 'sua chua'])) {
+    sections.push(
+      '**Chính sách Bảo hành GAERU:**\n' +
+      '- Bảo hành chính hãng **12 tháng**, lỗi kỹ thuật **1 đổi 1 trong 30 ngày** đầu (tra cứu/kích hoạt bằng SĐT tại `/ho-tro`; có gói mở rộng Care+).'
+    );
+  }
+
+  const asksShip = hasAnyBoundaryTerm(space, ['giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'mien phi van chuyen', 'dong kiem', 'kiem tra hang', 'bao lau nhan']) ||
+    (/may ngay/.test(space) && hasAnyBoundaryTerm(space, ['nhan', 'giao', 'toi', 'ship', 'hang', 'tinh']));
+  if (asksShip) {
+    const rateNote = webKnowledge?.shippingNote ? ` (${webKnowledge.shippingNote})` : '';
+    sections.push(
+      '**Vận chuyển & Giao hàng:**\n' +
+      `- **Freeship** toàn quốc cho đơn từ **500.000 ₫**, giao dự kiến **2–4 ngày** làm việc (Viettel Post / SPX), được **đồng kiểm** trước khi thanh toán.${rateNote}`
+    );
+  }
+
+  if (hasAnyBoundaryTerm(space, ['thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay', 'chuyen khoan'])) {
+    sections.push(
+      '**Phương thức thanh toán:** COD (tiền mặt khi nhận), VietQR (xác nhận tự động), VNPAY, MoMo và ZaloPay.'
+    );
+  }
+
+  if (hasAnyBoundaryTerm(space, ['ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai', 'code giam', 'giam gia'])) {
+    let activeVouchers = Array.isArray(webKnowledge?.activeVouchers) ? webKnowledge.activeVouchers : [];
+    if (!activeVouchers.length && pool && typeof pool.query === 'function') {
+      try {
         const vRes = await pool.query(`
           SELECT v.code, v.title, v.kind, v.amount, v.min_spend_vnd
           FROM marketing_vouchers v
@@ -317,220 +663,127 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
           LIMIT 5
         `);
         activeVouchers = vRes.rows || [];
-      }
-    } catch (_) {}
-
-    let ans = `Dạ hiện tại GAERU đang có các chương trình ưu đãi rất hấp dẫn dành cho bạn:\n\n`;
-    if (activeVouchers.length > 0) {
-      ans += `🎫 **Mã giảm giá áp dụng ngay tại bước Thanh toán:**\n`;
-      for (const v of activeVouchers) {
-        const disc = v.kind === 'percent' ? `Giảm ${v.amount}%` : `Giảm ${formatVnd(v.amount)}`;
-        const minSpend = v.min_spend_vnd > 0 ? ` (đơn từ ${formatVnd(v.min_spend_vnd)})` : '';
-        ans += `- Mã **\`${v.code}\`**: **${disc}**${minSpend} — *${v.title || 'Ưu đãi chính hãng GAERU'}*\n`;
-      }
-      ans += `\n`;
+      } catch (_) {}
     }
-    ans += `🎁 **Quyền lợi cộng thêm trên mọi đơn hàng:**\n` +
-           `- **Miễn phí vận chuyển toàn quốc (Freeship)** cho đơn hàng từ 500.000 ₫.\n` +
-           `- **Tích lũy GAERU Xu:** Hoàn từ 1% – 5% giá trị đơn hàng vào ví điểm thưởng để giảm tới 50% cho đơn tiếp theo.\n` +
-           `- **Bảo hành 12 tháng — 1 đổi 1 trong 30 ngày** nếu có lỗi nhà sản xuất.\n\n` +
-           `Bạn đang ngắm mẫu micro hay thiết bị nào để mình tính giá sau giảm tốt nhất cho bạn nhé!`;
-    return { handoff: false, answer: ans };
+
+    if (activeVouchers.length > 0) {
+      const voucherLines = activeVouchers.map(v => {
+        const disc = v.discount || (v.kind === 'percent' ? `Giảm ${v.amount}%` : `Giảm ${formatVnd(v.amount)}`);
+        const minSpend = (v.min_spend_vnd || v.minSpendVnd) > 0 ? ` (đơn từ ${formatVnd(v.min_spend_vnd || v.minSpendVnd)})` : '';
+        return `- Mã \`${v.code}\`: **${disc}**${minSpend}${v.title ? ` — ${v.title}` : ''}`;
+      }).join('\n');
+      sections.push(`**Mã giảm giá đang áp dụng:**\n${voucherLines}`);
+    } else {
+      sections.push('Hiện chưa có mã voucher công khai mới, nhưng đơn từ **500.000 ₫** vẫn được **Freeship** toàn quốc và hoàn **1%–5% GAERU Xu**.');
+    }
   }
 
-  // 6. So sánh sản phẩm (Ví dụ: "So sánh P01 và K9", "Nên mua P01 hay K9", "Khác nhau gì")
-  const mentionedModels = ['p01', 'k9', 'm3', 'p185', 'g1'].filter(m => norm.includes(m));
-  if (mentionedModels.length >= 2 || norm.includes('so sanh') || norm.includes('khac nhau') || norm.includes('nen mua loai nao') || norm.includes('chon loai nao')) {
-    const p01Prod = catalog.find(p => (p.slug && p.slug.includes('p01')) || (p.name && p.name.includes('P01')));
-    const k9Prod = catalog.find(p => (p.slug && p.slug.includes('k9')) || (p.name && p.name.includes('K9')));
-    const m3Prod = catalog.find(p => (p.slug && p.slug.includes('m3')) || (p.name && p.name.includes('M3')));
-    const p01Price = p01Prod?.variants?.[0]?.priceVnd ? formatVnd(p01Prod.variants[0].priceVnd) : '890.000 ₫';
-    const k9Price = k9Prod?.variants?.[0]?.priceVnd ? formatVnd(k9Prod.variants[0].priceVnd) : '450.000 ₫';
-    const m3Price = m3Prod?.variants?.[0]?.priceVnd ? formatVnd(m3Prod.variants[0].priceVnd) : '1.850.000 ₫';
-
-    let ans = `Dạ để bạn dễ dàng chọn được mẫu phù hợp nhất với nhu cầu và ngân sách, GAERU AI xin so sánh nhanh 3 dòng micro chủ lực của hãng:\n\n` +
-              `1. **GAERU P01 (Từ ${p01Price}) — Khuyên dùng cho Quay ngoại cảnh & Livestream chuyên nghiệp:**\n` +
-              `   - **Chống ồn:** Có chip DSP + Khử ồn chủ động ANC **3 cấp độ** lọc sạch tiếng gió, tiếng xe cộ ngoài trời.\n` +
-              `   - **Pin & Hộp sạc:** Có dock sạc thông minh hiển thị pin, tổng thời lượng lên tới **32 giờ**, thu xa **50 mét**.\n` +
-              `2. **GAERU K9 (Từ ${k9Price}) — Khuyên dùng cho Người mới bắt đầu, Dạy học & Quay trong nhà:**\n` +
-              `   - **Ưu điểm:** Siêu nhỏ gọn, giá tiết kiệm, cắm là nhận ngay (Plug & Play), thu đa hướng 360 độ.\n` +
-              `   - **Pin & Cự ly:** Thời lượng pin khoảng 5–6 giờ liên tục, cự ly ổn định 15–20 mét trong phòng.\n` +
-              `3. **GAERU M3 (Từ ${m3Price}) — Khuyên dùng cho Podcast, Phòng thu & Streamer ngồi bàn:**\n` +
-              `   - **Ưu điểm:** Màng thu Condenser 24-bit/48kHz chất âm dày ấm chuẩn studio, có nút vặn Gain và tai nghe kiểm âm 0 độ trễ.\n\n` +
-              `💡 **Gợi ý nhanh:** Nếu bạn hay **quay ngoài trời hoặc livestream bán hàng** cần âm thanh sạch nhất và pin trâu cả ngày thì **GAERU P01** là khoản đầu tư đáng giá nhất. Còn nếu quay trong phòng yên tĩnh thì **GAERU K9** rất kinh tế ạ! Bạn đang nghiêng về nhu cầu nào hơn?`;
-    return { handoff: false, answer: ans };
+  // Nếu đã có câu trả lời trực tiếp cho câu hỏi (1 hoặc nhiều ý) -> trả gọn luôn
+  if (sections.length > 0) {
+    return { handoff: false, answer: sections.join('\n\n') };
   }
 
-  // 7. Suy luận sản phẩm từ câu hỏi hiện tại HOẶC ngữ cảnh lịch sử hội thoại (Multi-turn Memory)
-  const historyText = normalize((Array.isArray(history) ? history : []).slice(-4).map(m => m?.body || m?.content || '').join(' '));
-  const currentSlug = thread?.product_id ? (catalog.find(p => p.id === thread.product_id)?.slug || '') : '';
-  const threadProdName = normalize(thread?.product_name || '');
-
-  const isFollowUpQuestion = /(?:gia|bao nhieu|may tien|con hang|het hang|phan loai|1 mic|2 mic|pin|bao lau|dung duoc|sac|khoang cach|bao xa|dat hang|mua)/i.test(norm);
-
-  const isP01 = norm.includes('p01') || currentSlug === 'gaeru-p01' || threadProdName.includes('p01') || (isFollowUpQuestion && historyText.includes('p01'));
-  const isK9 = norm.includes('k9') || currentSlug === 'gaeru-k9' || threadProdName.includes('k9') || (isFollowUpQuestion && historyText.includes('k9'));
-  const isM3 = norm.includes('m3') || currentSlug === 'gaeru-m3' || threadProdName.includes('m3') || (isFollowUpQuestion && historyText.includes('m3'));
-  const isP185 = norm.includes('p185') || currentSlug === 'gaeru-p185' || threadProdName.includes('p185') || (isFollowUpQuestion && historyText.includes('p185'));
-  const isG1 = norm.includes('g1') || currentSlug === 'gaeru-g1-ultra' || threadProdName.includes('g1') || (isFollowUpQuestion && historyText.includes('g1'));
-
-  function formatVariantLines(prod) {
-    if (!prod || !Array.isArray(prod.variants) || !prod.variants.length) return '';
-    return '\n**Bảng giá & Tình trạng kho các phân loại hiện tại:**\n' +
-      prod.variants.slice(0, 6).map(v => {
-        const stockBadge = (v.stockQuantity === undefined || Number(v.stockQuantity) > 0 || v.available) ? '✅ Còn hàng' : '⚠️ Tạm hết';
-        return `- **${v.name}:** **${formatVnd(v.priceVnd)}** (${stockBadge})`;
-      }).join('\n') + '\n';
-  }
-
-  if (isP01) {
-    const prod = catalog.find(p => (p.slug && p.slug.includes('p01')) || (p.name && p.name.includes('P01')));
-    const priceText = prod && prod.variants?.length ? formatVnd(prod.variants[0].priceVnd) : '1.250.000 ₫';
-    const variantSection = formatVariantLines(prod);
-    let ans = `Dạ **Micro thu âm không dây GAERU P01** là dòng mic cao cấp bán chạy số 1 tại GAERU:\n\n` +
-              `- **Tính năng nổi bật:** Khử ồn chủ động 3 cấp độ (Active Noise Cancellation - ANC), chip DSP lọc tạp âm trong trẻo ngay cả ngoài đường phố.\n` +
-              `- **Thời lượng pin:** 8 giờ thu liên tục trên thân mic, kèm hộp sạc thông minh nâng tổng thời gian lên đến **32 giờ**.\n` +
-              `- **Cự ly truyền dẫn:** Lên tới **50 mét** ổn định với sóng 2.4GHz độ trễ siêu thấp (< 15ms).\n` +
-              `- **Kết nối:** Tương thích hoàn hảo cả iPhone (Type-C / Lightning), Android và Laptop.\n` +
-              `- **Giá ưu đãi hiện tại:** chỉ từ **${priceText}** (Bảo hành 12 tháng 1 đổi 1, Freeship toàn quốc).\n` +
-              `${variantSection}\n` +
-              `Bạn đang dùng dòng điện thoại nào và muốn chọn bản 1 mic hay 2 mic để mình hỗ trợ lên đơn nhanh cho bạn nhé!`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isK9) {
-    const prod = catalog.find(p => (p.slug && p.slug.includes('k9')) || (p.name && p.name.includes('K9')));
-    const priceText = prod && prod.variants?.length ? formatVnd(prod.variants[0].priceVnd) : '450.000 ₫';
-    const variantSection = formatVariantLines(prod);
-    let ans = `Dạ **Micro thu âm GAERU K9** là lựa chọn quốc dân cực kỳ gọn nhẹ, dễ dùng và tiết kiệm:\n\n` +
-              `- **Đặc điểm:** Thiết kế nhỏ gọn cài áo tiện lợi, cắm là chạy ngay (Plug & Play) không cần cài đặt ứng dụng hay Bluetooth.\n` +
-              `- **Thu âm:** Đa hướng 360 độ, độ nhạy cao, giúp giọng nói rõ ràng khi đứng xa điện thoại tới 15–20 mét.\n` +
-              `- **Phù hợp:** Quay video TikTok, làm vlog trong nhà, dạy học online, họp trực tuyến qua Zoom/Teams.\n` +
-              `- **Giá bán ưu đãi:** Chỉ từ **${priceText}**.\n` +
-              `${variantSection}\n` +
-              `Bạn dự định dùng cho điện thoại cổng Type-C hay iPhone chân cắm Lightning ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isM3) {
-    const prod = catalog.find(p => (p.slug && p.slug.includes('m3')) || (p.name && p.name.includes('M3')));
-    const priceText = prod && prod.variants?.length ? formatVnd(prod.variants[0].priceVnd) : '1.850.000 ₫';
-    const variantSection = formatVariantLines(prod);
-    let ans = `Dạ **Micro thu âm chuyên nghiệp GAERU M3** là dòng mic chuyên dụng cho phòng thu, streamer và podcast:\n\n` +
-              `- **Chất âm:** Màng thu Condenser cao cấp, xử lý âm thanh 24-bit/48kHz chi tiết, giữ trọn vẹn độ ấm và chiều sâu của giọng nói.\n` +
-              `- **Tính năng:** Tích hợp núm xoay chỉnh Gain độ nhạy, phím tắt tiếng nhanh (Mute), cổng cắm tai nghe kiểm âm trực tiếp 0 độ trễ.\n` +
-              `- **Thiết kế:** Chân đế kim loại chống rung vững chắc, kết nối Type-C đa năng tương thích PC/Mac/Smartphone.\n` +
-              `- **Giá bán:** Từ **${priceText}**.\n` +
-              `${variantSection}\n` +
-              `Bạn cần GAERU AI tư vấn thêm về cách kết nối với phần mềm thu âm hay máy tính của bạn không ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isP185) {
-    const prod = catalog.find(p => (p.slug && p.slug.includes('p185')) || (p.name && p.name.includes('P185')));
-    const variantSection = formatVariantLines(prod);
-    let ans = `Dạ **Gậy chống rung & Chân quay phim GAERU P185** là phụ kiện đa năng không thể thiếu khi quay video và livestream:\n\n` +
-              `- **Đa năng 3 trong 1:** Gậy selfie kéo dài hợp kim nhôm cứng cáp, tripod 3 chân đứng vững chắc và tay cầm cân bằng.\n` +
-              `- **Điều khiển từ xa:** Tích hợp Remote Bluetooth tháo rời chụp ảnh và bấm quay video từ xa lên đến 10 mét.\n` +
-              `- **Xoay linh hoạt:** Đầu kẹp xoay ngang - dọc 360 độ mượt mà theo mọi góc quay sáng tạo.\n` +
-              `${variantSection}\n` +
-              `Bạn muốn đặt mua sản phẩm này kèm micro để nhận ưu đãi combo Freeship không ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  if (isG1) {
-    const prod = catalog.find(p => (p.slug && p.slug.includes('g1')) || (p.name && p.name.includes('G1')));
-    const variantSection = formatVariantLines(prod);
-    let ans = `Dạ **Thiết bị ghi hình chống rung GAERU G1 ULTRA** là dòng camera hành trình và vlog cao cấp nhất:\n\n` +
-              `- **Hình ảnh:** Cảm biến lớn ghi hình 4K 60fps siêu nét, chống rung quang học kết hợp EIS 6 trục mượt mà khi di chuyển.\n` +
-              `- **Đặc tính:** Kháng nước bền bỉ, tản nhiệt tốt, pin quay liên tục 120 phút và kết nối Wi-Fi truyền file qua điện thoại tốc độ cao.\n` +
-              `${variantSection}\n` +
-              `Bạn cần thông tin về phụ kiện ngàm gắn kèm theo hay quà tặng của G1 ULTRA không ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  // 8. Khách hỏi báo giá chung / còn hàng không (chưa chỉ định mẫu)
-  if (norm.includes('gia') || norm.includes('bao nhieu') || norm.includes('bang gia') || norm.includes('con hang khong') || norm.includes('san pham nao')) {
-    const lines = catalog.slice(0, 6).map(p => {
-      const v0 = p.variants?.[0];
-      const priceStr = v0?.priceVnd ? formatVnd(v0.priceVnd) : 'Liên hệ';
-      return `- **${p.name}:** Giá từ **${priceStr}** (${p.variants?.length || 1} phân loại — ✅ Sẵn hàng giao ngay)`;
+  // 8. Báo giá chung khi khách hỏi danh mục/bảng giá mà chưa chỉ định mẫu
+  if (hasAnyBoundaryTerm(space, ['bang gia', 'gia', 'bao nhieu', 'cac mau', 'san pham nao', 'co nhung gi', 'ban gi']) && !primaryProd) {
+    const listSource = catalog.length ? catalog.slice(0, 6) : Object.entries(PRODUCT_SPECS).map(([slug, s]) => ({ slug, name: s.name, descriptor: s.role, variants: [] }));
+    const lines = listSource.map(p => {
+      const spec = PRODUCT_SPECS[p.slug];
+      const priceStr = getPriceSummaryFromProduct(p, spec);
+      const shortTag = p.descriptor || spec?.role?.split('.')[0] || '';
+      return `- **${p.name}** (${priceStr})${shortTag ? `: ${shortTag}` : ''}`;
     }).join('\n');
-    let ans = `Dạ GAERU gửi bạn bảng giá niêm yết ưu đãi mới nhất của các dòng thiết bị chính hãng đang sẵn kho:\n\n` +
-              `${lines || '- **GAERU P01:** Từ 890.000 ₫\n- **GAERU K9:** Từ 450.000 ₫\n- **GAERU M3:** Từ 1.850.000 ₫'}\n\n` +
-              `🎁 Tất cả sản phẩm đều được **Bảo hành 12 tháng (1 đổi 1 trong 30 ngày)** và **Miễn phí vận chuyển toàn quốc** cho đơn từ 500.000 ₫.\n\n` +
-              `Bạn đang quan tâm đến mẫu nào hoặc cần thu âm cho mục đích gì (quay TikTok, livestream bán hàng, hay dạy học) để mình tư vấn chi tiết nhất ạ?`;
-    return { handoff: false, answer: ans };
-  }
-
-  // 9. Tư vấn theo nhu cầu sử dụng (Quay ngoài trời, Livestream, Dạy học, Thu âm)
-  if (norm.includes('ngoai troi') || norm.includes('ngoai canh') || norm.includes('livestream') || norm.includes('ban hang') || norm.includes('day hoc') || norm.includes('podcast')) {
-    let ans = `Dạ dựa trên nhu cầu quay và thu âm của bạn, GAERU AI xin gợi ý lựa chọn tối ưu nhất:\n\n` +
-              `- **Nếu quay ngoại cảnh, đường phố hoặc Livestream bán hàng liên tục:** Bạn nên chọn **GAERU P01** vì có chip DSP + Khử ồn chủ động ANC 3 cấp độ lọc sạch tiếng gió/tiếng ồn, khoảng cách thu xa 50m và hộp sạc pin lên tới 32 giờ.\n` +
-              `- **Nếu dạy học online, họp Zoom hoặc quay vlog trong phòng yên tĩnh:** Mẫu **GAERU K9** rất nhỏ gọn, cắm là nhận ngay với mức giá cực kỳ tiết kiệm.\n` +
-              `- **Nếu thu âm Podcast, lồng tiếng hoặc ngồi bàn máy tính:** Mẫu **GAERU M3** màng thu Condenser phòng thu sẽ cho chất giọng dày, ấm và chi tiết nhất.\n\n` +
-              `Hiện tại bạn đang quay bằng điện thoại (iPhone hay Android) hay máy tính để mình chọn đúng chuẩn chân cắm cho bạn nhé!`;
-    return { handoff: false, answer: ans };
-  }
-
-  // 10. Chào hỏi xã giao hoặc cảm ơn tự nhiên
-  if (norm.includes('cam on') || norm.includes('thank') || norm === 'ok' || norm === 'oke' || norm === 'da' || norm === 'vang') {
     return {
       handoff: false,
-      answer: `Dạ không có gì ạ! Rất vui được hỗ trợ bạn. Nếu trong quá trình chọn mua hoặc sử dụng thiết bị có bất kỳ thắc mắc nào, bạn cứ nhắn cho **GAERU AI** bất cứ lúc nào nhé. Chúc bạn một ngày nhiều niềm vui! ✨`
+      answer: `**Bảng giá các thiết bị GAERU hiện có:**\n${lines}\nBạn đang cần cho điện thoại nào hay quay nhu cầu gì để mình chọn đúng mẫu giúp nhé?`
     };
   }
 
-  if (norm.includes('chao') || norm.includes('hello') || norm.includes('hi') || norm.includes('alo') || norm === 'xin chao' || norm.includes('tu van') || norm.includes('can giup')) {
-    let ans = `Xin chào bạn! Mình là **GAERU AI** — Chuyên viên tư vấn thông minh trực tuyến 24/7 của GAERU.\n\n` +
-              `Mình có thể hỗ trợ bạn ngay lập tức về:\n` +
-              `1. 🎙️ **Chọn micro & thiết bị phù hợp:** Tư vấn chi tiết và so sánh các dòng **GAERU P01**, **K9**, **M3**, **P185**, **G1 ULTRA**.\n` +
-              `2. 📱 **Hướng dẫn kết nối & Kỹ thuật:** Tương thích iPhone 15/16 (Type-C), iPhone 14 trở xuống (Lightning), Android (OTG), Laptop/PC.\n` +
-              `3. 📦 **Tra cứu đơn hàng & Vận đơn:** Chỉ cần nhắn mã đơn \`GAE-xxxxxx\` hoặc số điện thoại đặt hàng.\n` +
-              `4. 🎫 **Săn mã giảm giá & Chính sách:** Cập nhật mã Voucher mới nhất, GAERU Xu và bảo hành 1 đổi 1.\n\n` +
-              `Bạn đang cần tư vấn sản phẩm cho dòng máy nào hay kiểm tra đơn hàng ạ?`;
-    return { handoff: false, answer: ans };
+  // 9. Tư vấn theo nhu cầu sử dụng (Quay ngoài trời, Livestream, Dạy học, Podcast, Tự quay, 2 người)
+  if (hasAnyBoundaryTerm(space, ['ngoai troi', 'ngoai canh', 'livestream', 'ban hang', 'day hoc', 'hop online', 'podcast', 'phong thu', 'phong van', '2 nguoi', 'hai nguoi', 'cap doi', 'vlog', 'tu quay', 'mot minh', 'quay video', 'thiet bi livestream'])) {
+    const pick = (slug, fallbackName) => {
+      const p = catalog.find(item => item.slug === slug);
+      const spec = PRODUCT_SPECS[slug];
+      return `${p?.name || fallbackName} (${getPriceSummaryFromProduct(p, spec)})`;
+    };
+    return {
+      handoff: false,
+      answer:
+        `Gợi ý nhanh từ **GAERU AI** theo nhu cầu của bạn:\n` +
+        `- **Livestream / quay nhiều giờ:** ${pick('gaeru-m3', 'GAERU M3')} (2 mic + hộp sạc tới 24h, giảm ồn AI).\n` +
+        `- **Vlog cơ bản / dạy học tiết kiệm:** ${pick('gaeru-k9', 'GAERU K9')} (bản 1 hoặc 2 mic, cắm là dùng, lọc ồn DSP).\n` +
+        `- **Quay đa thiết bị (máy ảnh + điện thoại + PC):** ${pick('gaeru-g1-ultra', 'GAERU G1 ULTRA')}.\n` +
+        `- **Tự quay rảnh tay cần máy xoay theo:** Gimbal AI ${pick('gaeru-p01', 'GAERU P01')}.`
+    };
   }
 
-  // 11. Câu hỏi mở khác: Phản hồi tự nhiên, chu đáo kèm tóm tắt danh mục thực tế
-  const safeQuestionPreview = raw.replace(/[*_`[\]()<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
-  const catalogSummary = catalog.slice(0, 4).map(p => `- **${p.name}:** ${p.variants?.[0]?.priceVnd ? formatVnd(p.variants[0].priceVnd) : 'Chính hãng'} (Bảo hành 12 tháng, 1 đổi 1)`).join('\n');
-  let fallbackAns = `Dạ về nội dung *"${safeQuestionPreview}"* bạn vừa nhắn, hiện tại GAERU đang phân phối chính hãng các dòng thiết bị thu âm và ghi hình chuyên nghiệp sau:\n\n` +
-                    `${catalogSummary}\n\n` +
-                    `- **Ưu đãi đặc biệt:** Miễn phí vận chuyển toàn quốc cho đơn từ 500.000 ₫, tặng điểm thưởng **GAERU Xu** giảm đến 50% đơn tiếp theo.\n` +
-                    `- **Mẹo tra cứu nhanh:** Bạn có thể nhắn tên dòng máy đang dùng (ví dụ: *iPhone 15, Samsung, OPPO*), tên sản phẩm (*P01, K9, M3*), hoặc mã đơn hàng \`GAE-xxxxxx\` để mình giải đáp chi tiết ngay lập tức.\n\n` +
-                    `Nếu bạn muốn kết nối trực tiếp với chuyên viên CSKH, bạn chỉ cần nhắn **"gặp nhân viên"** hoặc gọi Hotline **082 919 1080** nhé!`;
+  // 10. Khai thác thêm webKnowledge / trang sản phẩm nếu câu hỏi nằm ở kiến thức dài đuôi
+  let resolvedWeb = webKnowledge;
+  if (!resolvedWeb && !hasAnyBoundaryTerm(space, ['cam on', 'thank', 'ok', 'oke', 'xin chao', 'hello', 'hi', 'alo'])) {
+    try {
+      resolvedWeb = await getRelevantWebKnowledge(pool, { question: raw, selectedProduct: primaryProd?.product || null });
+    } catch (_) {}
+  }
+  const webAns = findWebKnowledgeAnswer(raw, resolvedWeb, catalog);
+  if (webAns) {
+    return { handoff: false, answer: webAns };
+  }
 
-  return { handoff: false, answer: fallbackAns, isFallback: true };
+  // 11. Cảm ơn / chào hỏi ngắn gọn — không xả menu quảng cáo dài dòng
+  if (hasAnyBoundaryTerm(space, ['cam on', 'thank', 'ok', 'oke', 'roi', 'hieu roi']) || /^(?:da|vang|ok|oke)$/.test(space)) {
+    return {
+      handoff: false,
+      answer: 'Dạ không có gì ạ! Khi nào cần kiểm tra thêm sản phẩm hoặc đơn hàng, bạn cứ nhắn **GAERU AI** nhé.'
+    };
+  }
+
+  if (hasAnyBoundaryTerm(space, ['xin chao', 'chao', 'hello', 'hi', 'alo']) && tokenizeMeaningful(space).length <= 3) {
+    return {
+      handoff: false,
+      answer: 'Chào bạn, mình là **GAERU AI**. Bạn đang cần tư vấn mẫu nào (**K9**, **M3**, **G1 ULTRA**, **P01**, **P185**), kiểm tra tương thích máy hay tra cứu đơn hàng ạ?'
+    };
+  }
+
+  // 12. Fallback gọn gàng: không trích lại nguyên văn câu hỏi, không quảng cáo dàn trải
+  return {
+    handoff: false,
+    isFallback: true,
+    answer: 'Mình chưa rõ đúng ý bạn đang cần tìm. Bạn nhắn cụ thể tên sản phẩm (**K9, M3, G1 ULTRA, P01, P185**), dòng máy đang dùng hoặc mã đơn hàng (GR-... / GAE-...) để mình trả lời chính xác ngay nhé (hoặc nhắn **"gặp nhân viên"**).'
+  };
 }
 
 /**
  * Trình xử lý chính giải đáp chat khách hàng bằng GAERU AI (Hoàn toàn độc lập, không phụ thuộc AI bên ngoài)
  */
 async function answerCustomerChat({ pool, config, thread, question, history = [], product = null }) {
-  // Đảm bảo có danh sách sản phẩm thực tế từ DB
   let catalog = [];
-  try {
-    if (pool && typeof pool.query === 'function') {
-      catalog = await require('./store-api').loadProducts(pool);
+  if (Array.isArray(product?.products) && product.products.length) {
+    catalog = product.products;
+  } else {
+    try {
+      if (pool && typeof pool.query === 'function') {
+        catalog = await require('./store-api').loadProducts(pool);
+      }
+    } catch (_) {}
+    if (product && product.slug && !catalog.some(p => p.slug === product.slug)) {
+      catalog = [product, ...catalog];
     }
-  } catch (_) {}
+  }
 
-  // Chạy Lõi Trí Tuệ Nhân Tạo Nội Bộ GAERU AI (Tốc độ cao, zero hallucination, thấu hiểu ngữ cảnh nghiệp vụ)
   const result = await generateGaeruAiResponse({
     pool,
     thread,
     question,
     catalog,
-    history
+    history,
+    webKnowledge: product?.webKnowledge || null
   });
 
-  // Tự động ghi nhớ và củng cố tri thức từ cuộc hội thoại nếu có giá trị thông tin
-  // Bảo mật Zero-Trust: Tuyệt đối không tự học từ các câu hỏi tra cứu đơn hàng, cá nhân hoặc PII
+  // Tự động ghi nhớ tri thức có giá trị, tuyệt đối bỏ qua đơn hàng / PII / câu hỏi ngắn / fallback
   try {
     const raw = String(question || '').trim();
-    const isOrderOrPersonal = result.orderLookup || /gae-|[0-9]{9,}|tra cuu|don hang|dia chi|van don|so dien thoai/i.test(normalize(raw));
-    if (pool && !result.handoff && !result.isFallback && !result.learnedKnowledge && result.answer && raw && raw.length >= 6 && !isOrderOrPersonal) {
+    const normRaw = normalize(raw);
+    const isOrderOrPersonal = result.orderLookup || /\b(?:gr|gae)-|[0-9]{9,}|tra cuu|don hang|dia chi|van don|so dien thoai/i.test(normRaw);
+    if (pool && !result.handoff && !result.isFallback && !result.learnedKnowledge && result.answer && raw && raw.length >= 8 && !isOrderOrPersonal) {
       void learnFromInteraction(pool, {
         sourceType: 'customer_chat',
         question: raw,
