@@ -15,8 +15,8 @@ const uuid=z.string().uuid();
 const slug=z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(2).max(120);
 const postSchema=z.object({slug,title:z.string().trim().min(5).max(180),excerpt:z.string().trim().min(10).max(400),body:z.string().trim().min(30).max(20000),coverId:uuid,imageAlt:z.string().trim().min(3).max(250),status:z.enum(['draft','published']),version:z.number().int().positive().optional()}).strict();
 const fields='id,slug,title,excerpt,cover_id AS "coverId",image_alt AS "imageAlt",status,version,published_at AS "publishedAt",updated_at AS "updatedAt"';
-const imagePath=id=>'/api/news-images/'+id;
-const output=row=>({...row,title:normalizeBrandText(row.title),excerpt:normalizeBrandText(row.excerpt),...(row.body!==undefined?{body:normalizeBrandText(row.body)}:{}),imageAlt:normalizeBrandText(row.imageAlt),imageUrl:imagePath(row.coverId)});
+const imagePath=(id,ts)=>'/api/news-images/'+id+(ts?'?v='+Math.floor(new Date(ts).getTime()/1000):'');
+const output=row=>({...row,title:normalizeBrandText(row.title),excerpt:normalizeBrandText(row.excerpt),...(row.body!==undefined?{body:normalizeBrandText(row.body)}:{}),imageAlt:normalizeBrandText(row.imageAlt),imageUrl:imagePath(row.coverId,row.updatedAt||row.publishedAt)});
 const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:1,fields:0}}).single('image');
 function validImage(file){if(!file)return false;const b=file.buffer;return file.mimetype==='image/png'&&b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||file.mimetype==='image/jpeg'&&b[0]===255&&b[1]===216&&b[2]===255||file.mimetype==='image/webp'&&b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP';}
 const {getFreshData}=require('./cache');
