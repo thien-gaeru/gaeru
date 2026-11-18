@@ -536,6 +536,7 @@ test('GAERU AI uses live store settings (shipping, loyalty 1%-2%, bundles, Shope
   });
   assert.ok(marketRes.answer.includes('https://vn.shp.ee/hgiewft2'));
   assert.ok(marketRes.answer.includes('https://vt.tiktok.com/ZMkBgU1pQ/?page=TikTokShop'));
+  assert.ok(!marketRes.answer.includes('CapCut'), 'Marketplace link request must not prepend recording-app compat blurb');
 
   const bundleRes = await generateGaeruAiResponse({
     pool: mockLivePool,

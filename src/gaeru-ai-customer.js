@@ -548,8 +548,12 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
   const asksAccessories = hasAnyBoundaryTerm(space, ['phu kien', 'trong hop', 'goi gom', 'bao gom', 'co nhung gi', 'gom gi', 'di kem']);
   const asksWeightOrSize = hasAnyBoundaryTerm(space, ['trong luong', 'nang bao nhieu', 'may gam', 'kich thuoc', 'chieu cao', 'chieu dai', 'keo dai', 'dai bao nhieu', 'bao nhieu cm', 'bao nhieu m']);
   const asksOverview = hasAnyBoundaryTerm(space, ['la gi', 'de lam gi', 'dung de lam gi', 'cong dung', 'chuc nang', 'la loai nao', 'tac dung']);
-  const nonVariantPortCompatTerms = DEVICE_COMPAT_TERMS.filter(t => !['type c', 'lightning', 'micro usb', 'usb a', 'chuyen usb', 'usb thuong'].includes(t));
-  const asksCompat = hasAnyBoundaryTerm(space, DEVICE_COMPAT_TERMS) &&
+  const asksMarketplaceLink = hasAnyBoundaryTerm(space, ['shopee', 'tiktok shop', 'tiktokshop', 'san thuong mai', 'lazada', 'link shopee', 'link tiktok', 'gian hang']);
+  const compatPool = asksMarketplaceLink && !hasAnyBoundaryTerm(space, ['tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'quay', 'thu am', 'livestream', 'app'])
+    ? DEVICE_COMPAT_TERMS.filter(t => t !== 'tiktok')
+    : DEVICE_COMPAT_TERMS;
+  const nonVariantPortCompatTerms = compatPool.filter(t => !['type c', 'lightning', 'micro usb', 'usb a', 'chuyen usb', 'usb thuong'].includes(t));
+  const asksCompat = hasAnyBoundaryTerm(space, compatPool) &&
     !((asksPrice || asksStock || buyIntent?.isDirectClose) && !hasAnyBoundaryTerm(space, nonVariantPortCompatTerms));
 
   const inferredPorts = inferDevicePortsFromText(space, history);
@@ -630,6 +634,23 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
   // Nếu có câu trả lời trúng đích rồi (hoặc chỉ hỏi 1-2 ý), dừng ngay — KHÔNG xả nguyên brochure!
   if (parts.length > 0 && !detailed) {
     return parts.join('\n');
+  }
+
+  // Nếu câu hỏi chỉ tập trung vào sàn TMĐT / combo / chính sách / bài viết mà không hỏi thông số chung -> không chèn brochure thừa
+  const isPureCommerceOrPolicy = !detailed && !closingIntent.isClosing && !asksOverview &&
+    !hasAnyBoundaryTerm(space, ['thong so', 'chi tiet', 'tu van', 'gioi thieu', 'review', 'the nao', 'ra sao', 'la gi', 'phan loai']) &&
+    hasAnyBoundaryTerm(space, [
+      'shopee', 'tiktok shop', 'tiktokshop', 'san thuong mai', 'lazada', 'link shopee', 'link tiktok', 'gian hang',
+      'combo', 'mua kem', 'tron bo', 'bo combo', 'goi combo',
+      'gaeru xu', 'tich xu', 'doi xu', 'hoan xu', 'diem thuong',
+      'giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'mien phi van chuyen', 'dong kiem',
+      'thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay',
+      'ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai', 'code giam',
+      'bao hanh', 'doi tra', '1 doi 1', 'care+', 'care plus', 'kich hoat bao hanh',
+      'bai viet', 'tin tuc', 'blog', 'bai huong dan', 'doc bai'
+    ]);
+  if (parts.length === 0 && isPureCommerceOrPolicy) {
+    return '';
   }
 
   // Trường hợp khách hỏi chung chung về sản phẩm (VD: "Tư vấn K9", "M3 là gì?", "Thông số P185")
@@ -1044,7 +1065,8 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     ]) || buyIntent.isClosing || mentioned.source === 'question';
 
     if (isSpecificOrBroadProduct) {
-      sections.push(buildProductSpecificAnswer({ prodEntry: primaryProd, question: raw, space, detailed, history, catalog, buyIntent, webKnowledge: liveWeb }));
+      const prodAns = buildProductSpecificAnswer({ prodEntry: primaryProd, question: raw, space, detailed, history, catalog, buyIntent, webKnowledge: liveWeb });
+      if (prodAns) sections.push(prodAns);
     }
   } else {
     // 6. Tương thích thiết bị / xử lý lỗi chung (không gắn 1 model cụ thể)
