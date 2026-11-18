@@ -29,6 +29,7 @@
       .replace(/(?:^|\n)\[([^\]]+)\]\((\/thanh-toan\?variant=[a-zA-Z0-9_-]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, true) || full)
       .replace(/\[([^\]]+)\]\(((?:\/|https:\/\/)[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, false) || full)
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^\s*\n](?:[^*\n]*[^\s*\n])?)\*/g, '<em>$1</em>')
       .replace(/`([^`\n]+)`/g, '<code style="background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px;font-size:.92em">$1</code>');
     return formatted.replace(/^\n+/, '');
   };

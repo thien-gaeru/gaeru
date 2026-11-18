@@ -562,13 +562,16 @@ test('GAERU AI uses live store settings (shipping, loyalty 1%-2%, bundles, Shope
     '\nreturn { formatMessageBody, escape };})();';
   const helpers = vm.runInNewContext(snippet, {});
   const safeExt = helpers.formatMessageBody(
-    '[Shopee — M3](https://vn.shp.ee/hgiewft2) · [Tin hướng dẫn](/tin-tuc/huong-dan-m3) · [Bad](https://phishing.example.com/login)',
+    '[Shopee — M3](https://vn.shp.ee/hgiewft2) · [Tin hướng dẫn](/tin-tuc/huong-dan-m3) · *Media Mod* & **Type-C** · 3 * 4 · [Bad](https://phishing.example.com/login)',
     'ai',
     false
   );
   assert.ok(safeExt.includes('href="https://vn.shp.ee/hgiewft2"'));
   assert.ok(safeExt.includes('target="_blank" rel="noopener noreferrer"'));
   assert.ok(safeExt.includes('href="/tin-tuc/huong-dan-m3"'));
+  assert.ok(safeExt.includes('<em>Media Mod</em>'));
+  assert.ok(safeExt.includes('<strong>Type-C</strong>'));
+  assert.ok(safeExt.includes('3 * 4'));
   assert.ok(!safeExt.includes('href="https://phishing.example.com/login"'));
 
   // 6. Published /tin-tuc/<slug> news matching via webKnowledge
