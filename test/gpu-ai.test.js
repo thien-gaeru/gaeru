@@ -204,15 +204,15 @@ test('chat-web-knowledge keeps CPU behavior cleanly if GPU unavailable', async (
   assert.ok(wk.webPages.length > 0);
 });
 
-test('gpu-ai-client uses Adreno-safe batching, 320-char cap, and answers outdoor wind queries without fallback', async () => {
-  assert.equal(DEFAULT_EMBED_BATCH_SIZE, 3);
+test('gpu-ai-client uses hybrid CPU+GPU batching, 320-char cap, and answers outdoor wind queries without fallback', async () => {
+  assert.equal(DEFAULT_EMBED_BATCH_SIZE, 8);
   assert.equal(DEFAULT_EMBED_TIMEOUT_MS, 12000);
   assert.equal(DEFAULT_RMBG_TIMEOUT_MS, 10000);
   assert.equal(MAX_EMBED_TEXT_CHARS, 320);
 
   resetGpuAiState();
   const batchSizes = [];
-  const longTexts = Array.from({ length: 7 }, (_, i) => `${i}: ` + 'thu am ngoai troi '.repeat(30));
+  const longTexts = Array.from({ length: 10 }, (_, i) => `${i}: ` + 'thu am ngoai troi '.repeat(30));
   const vecs = await embedTexts(longTexts, {
     transport: async (_url, init) => {
       const payload = JSON.parse(init.body);
@@ -227,8 +227,8 @@ test('gpu-ai-client uses Adreno-safe batching, 320-char cap, and answers outdoor
       };
     }
   });
-  assert.deepEqual(batchSizes, [3, 3, 1]);
-  assert.equal(vecs.length, 7);
+  assert.deepEqual(batchSizes, [8, 2]);
+  assert.equal(vecs.length, 10);
 
   // Single timeout on fetch must not immediately lock GPU circuit, whereas 2 consecutive timeouts trip circuit
   resetGpuAiState();
@@ -262,29 +262,31 @@ test('gpu-ai-client uses Adreno-safe batching, 320-char cap, and answers outdoor
 });
 
 if (process.env.GAERU_GPU_AI_TEST === '1') {
-  test('LIVE Adreno 540 GPU daemon removes background & computes Vietnamese semantic embeddings', async () => {
+  test('LIVE hybrid CPU+GPU daemon removes background & computes Vietnamese semantic embeddings concurrently', async () => {
     resetGpuAiState();
     const health = await checkGpuHealth({ timeoutMs: 2500 });
     assert.ok(health && health.ok === true, 'gaeru-gpu-ai /health must report ok:true');
     assert.equal(health.ready.rmbg, true);
     assert.equal(health.ready.embed, true);
 
-    // Live RMBG on non-white studio banner photo in GAERU media/
+    // Concurrent live execution: GPU OpenCL background removal + CPU NEON semantic embeddings
     const sampleImg = await sharp('media/products/4e536aa8-f614-422d-bb46-c3e09f0d6e7e.jpg').toBuffer();
-    const cutout = await removeWhiteBackground(sampleImg, { autoCenterSquare: true, canvasSize: 800 });
-    assert.ok(Buffer.isBuffer(cutout), 'live GPU cutout should succeed on non-white product photo');
-    assert.ok(Buffer.isBuffer(cutout.thumbBuffer));
-    const info = await sharp(cutout).metadata();
-    assert.equal(info.hasAlpha, true);
-
-    // Live Vietnamese semantic similarity
     const texts = [
       'đơn hàng bao nhiêu tiền thì được miễn phí vận chuyển',
       'Miễn phí giao hàng toàn quốc (freeship) cho đơn hàng từ 300.000đ trở lên',
       'Hướng dẫn kết nối micro trên OBS Studio cho laptop',
       'Cáp chuyển đổi OTG Type-C dành cho Android'
     ];
-    const vecs = await embedTexts(texts);
+    const [cutout, vecs] = await Promise.all([
+      removeWhiteBackground(sampleImg, { autoCenterSquare: true, canvasSize: 800 }),
+      embedTexts(texts)
+    ]);
+
+    assert.ok(Buffer.isBuffer(cutout), 'live GPU cutout should succeed on non-white product photo');
+    assert.ok(Buffer.isBuffer(cutout.thumbBuffer));
+    const info = await sharp(cutout).metadata();
+    assert.equal(info.hasAlpha, true);
+
     assert.ok(Array.isArray(vecs) && vecs.length === 4);
     const sShip = cosineSimilarity(vecs[0], vecs[1]);
     const sObs = cosineSimilarity(vecs[0], vecs[2]);
