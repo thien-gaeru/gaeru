@@ -1,6 +1,6 @@
 'use strict';
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const rootDir = path.resolve(__dirname, '..');
 const manifestPath = path.join(rootDir, 'responsive-images.json');

@@ -8,7 +8,7 @@
  */
 
 const { Pool } = require('pg');
-const { execFileSync } = require('child_process');
+const { execFileSync } = require('node:child_process');
 
 const MI6_HOST = process.env.MI6_HOST || '192.168.31.59';
 const MI6_BASE_URL = `http://${MI6_HOST}:3000`;
@@ -604,7 +604,7 @@ async function runStandaloneTests() {
   console.log('================================================================\n');
 
   // Ghi kết quả ra file JSON phục vụ sinh artifact
-  const fs = require('fs');
+  const fs = require('node:fs');
   fs.writeFileSync('mi6-standalone-test-results.json', JSON.stringify(results, null, 2));
   console.log('Đã xuất kết quả kiểm thử ra mi6-standalone-test-results.json');
   return results;

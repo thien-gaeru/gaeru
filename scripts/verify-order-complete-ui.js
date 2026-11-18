@@ -1,10 +1,10 @@
 'use strict';
 
 const puppeteer = require('puppeteer-core');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const http = require('http');
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const http = require('node:http');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');

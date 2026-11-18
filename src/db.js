@@ -1,3 +1,4 @@
+const fs = require("node:fs");
 const { Pool } = require("pg");
 const tls = require("node:tls");
 
@@ -30,7 +31,7 @@ function resolveCa(raw) {
   if (!raw) return undefined;
   if (typeof raw === 'string' && raw.includes('-----BEGIN CERTIFICATE-----')) return raw;
   try {
-    if (typeof raw === 'string' && require('fs').existsSync(raw)) return require('fs').readFileSync(raw, 'utf8');
+    if (typeof raw === 'string' && fs.existsSync(raw)) return fs.readFileSync(raw, 'utf8');
   } catch {}
   return raw;
 }

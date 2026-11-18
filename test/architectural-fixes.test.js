@@ -26,10 +26,14 @@ test('Fix 1 & 4: GA4 trackPurchase normalizes item revenue, shipping and tax wit
     getItem: (k) => fakeSessionStorage.get(k) || null,
     setItem: (k, v) => fakeSessionStorage.set(k, v)
   };
-  globalThis.localStorage = {
-    getItem: (k) => fakeLocalStorage.get(k) || null,
-    setItem: (k, v) => fakeLocalStorage.set(k, v)
-  };
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: {
+      getItem: (k) => fakeLocalStorage.get(k) || null,
+      setItem: (k, v) => fakeLocalStorage.set(k, v)
+    }
+  });
 
   const order = {
     orderNumber: 'GAERU-NORM-001',

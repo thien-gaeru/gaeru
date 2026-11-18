@@ -19,8 +19,24 @@
   'use strict';
 
   const getGlobal = () => (typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null));
-  const getSessionStorage = () => (typeof sessionStorage !== 'undefined' ? sessionStorage : (typeof globalThis !== 'undefined' ? globalThis.sessionStorage : null));
-  const getLocalStorage = () => (typeof localStorage !== 'undefined' ? localStorage : (typeof globalThis !== 'undefined' ? globalThis.localStorage : null));
+  const readBrowserStorage = (name) => {
+    try {
+      if (typeof window !== 'undefined' && window?.[name]) return window[name];
+      if (typeof globalThis === 'undefined') return null;
+      if (name === 'localStorage' && typeof process !== 'undefined' && process.versions?.node) {
+        const desc = Object.getOwnPropertyDescriptor(globalThis, name);
+        const hasFile = process.execArgv?.some((arg) => arg.startsWith('--localstorage-file'))
+          || String(process.env?.NODE_OPTIONS || '').includes('--localstorage-file');
+        // Avoid invoking Node 26+ lazy webstorage getter when --localstorage-file is unset
+        if (desc && !('value' in desc) && !hasFile) return null;
+      }
+      return globalThis[name] || null;
+    } catch (_) {
+      return null;
+    }
+  };
+  const getSessionStorage = () => readBrowserStorage('sessionStorage');
+  const getLocalStorage = () => readBrowserStorage('localStorage');
 
   // Initialize dataLayer and gtag stub immediately
   const win = getGlobal();

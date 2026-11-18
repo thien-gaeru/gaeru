@@ -27,7 +27,7 @@ Mở `/gaeru_ceo` và đăng nhập bằng tài khoản đã cấu hình trên m
 
 ## Yêu cầu
 
-- Node.js từ **22.x** đến **25.x** (tương thích Node 22 LTS, Node 24 LTS và Node 25 Current), khai báo trong `package.json` với `engines.node >=22.0.0 <26`.
+- Node.js **26 LTS** (`26.x`), khai báo trong `package.json` với `engines.node >=26.0.0 <27`.
 - PostgreSQL 13 trở lên.
 - Lưu trữ bền vững cho thư mục `assets/products/` và kế hoạch sao lưu cơ sở dữ liệu/ảnh.
 
@@ -102,7 +102,7 @@ Trạng thái khách hàng được đồng bộ qua `customer-session.js`: túi
 
 Tài khoản chủ (`owner`, nguồn `bootstrap`) có mục **Quản trị tối cao**: xem nhân viên/đơn/CARE+ đang xử lý, trạng thái cấu hình hệ thống và thu hồi toàn bộ phiên nhân viên có xác nhận. Quản trị viên thường không truy cập được API này. Không thể cấp vai trò chủ hoặc khóa tài khoản chủ qua API nhân viên. Thu hồi phiên không khóa tài khoản nhân viên; họ có thể đăng nhập lại. Việc đổi tên/mật khẩu chủ làm phiên cũ hết hiệu lực sau khi cấu hình mới được ứng dụng nạp lại.
 
-Để tạo tài khoản chủ `gaeru` trên máy tính: cài Node.js 24 và `npm ci`, chạy `npm run owner:setup -- gaeru`, tự nhập mật khẩu hai lần trong terminal. Mật khẩu không hiển thị và không lưu nguyên văn; công cụ ghi bcrypt hash cùng khóa phiên vào `.env.local-owner` (đã loại khỏi Git). Nếu đã có tài khoản, công cụ yêu cầu nhập `THAY DOI` trước khi ghi thay thế. Cấu hình `.env` của hosting không bị thay đổi.
+Để tạo tài khoản chủ `gaeru` trên máy tính: cài Node.js 26 LTS và `npm ci`, chạy `npm run owner:setup -- gaeru`, tự nhập mật khẩu hai lần trong terminal. Mật khẩu không hiển thị và không lưu nguyên văn; công cụ ghi bcrypt hash cùng khóa phiên vào `.env.local-owner` (đã loại khỏi Git). Nếu đã có tài khoản, công cụ yêu cầu nhập `THAY DOI` trước khi ghi thay thế. Cấu hình `.env` của hosting không bị thay đổi.
 
 Chạy `npm run dev:local`, mở `http://127.0.0.1:3000/gaeru_ceo` và đăng nhập. Dữ liệu PostgreSQL nhúng lưu ở `.local-data/`, không bị mất khi dừng và mở lại; có thể đặt `LOCAL_PORT` nếu cổng 3000 bận. Bản cục bộ chỉ lắng nghe trên `127.0.0.1`, không nhận đơn, không gọi VNPAY hoặc SMTP, không thêm dữ liệu kinh doanh giả. Phiên đăng nhập cục bộ dùng bộ nhớ và kết thúc khi khởi động lại. Bản này dùng cho thiết lập/thử nghiệm cá nhân, chưa thay thế hosting production/PostgreSQL nhiều kết nối. Dừng bằng Ctrl+C; sao lưu `.local-data/` khi ứng dụng đã dừng. Không chia sẻ `.env.local-owner` hoặc thư mục dữ liệu.
 
