@@ -16,9 +16,11 @@ const { randomUUID } = require('node:crypto');
 const {
   normalizeVi,
   hasBoundaryTerm,
+  hasAnyBoundaryTerm,
   tokenizeMeaningful,
   tokenOverlapScore
 } = require('./lib/ai-nlu');
+const { embedTexts, cosineSimilarity } = require('./lib/gpu-ai-client');
 
 // In-memory cache cho tri thức tự học (TTL 60s, tự động làm mới khi có tri thức mới)
 let learnedKnowledgeCache = null;
@@ -193,7 +195,67 @@ async function getActiveLearnedKnowledge(pool) {
 /**
  * Tìm tri thức tự học phù hợp nhất với câu hỏi của người dùng
  */
-async function matchLearnedKnowledge(pool, question, { minScore = 0.55 } = {}) {
+
+const LEARNED_PRODUCT_CODES = ['k9', 'm3', 'p01', 'p185', 'g1', 'g1 ultra'];
+const LEARNED_INTENT_GUARDS = [
+  ['gia', 'gia ban', 'bao nhieu tien', 'may tien', 'bang gia'],
+  ['ton kho', 'con hang', 'het hang', 'san hang'],
+  ['pin', 'dung luong pin', 'sac pin', 'may tieng', 'thoi luong'],
+  ['van chuyen', 'giao hang', 'freeship', 'mien phi ship', 'phi ship'],
+  ['bao hanh', 'doi moi', 'sua chua', 'kich hoat bao hanh']
+];
+
+function hasLearnedIntentConflict(normQ, entry) {
+  const entryFull = normalizeText(
+    `${entry.topic || ''} ${Array.isArray(entry.triggers) ? entry.triggers.join(' ') : ''} ${entry.sample_question || ''} ${entry.learned_facts || ''}`
+  );
+  const qProds = LEARNED_PRODUCT_CODES.filter(p => hasBoundaryTerm(normQ, p));
+  const eProds = LEARNED_PRODUCT_CODES.filter(p => hasBoundaryTerm(entryFull, p));
+  if (qProds.length > 0 && eProds.length > 0 && !qProds.some(p => eProds.includes(p))) {
+    return true;
+  }
+  for (const terms of LEARNED_INTENT_GUARDS) {
+    if (hasAnyBoundaryTerm(normQ, terms) && !hasAnyBoundaryTerm(entryFull, terms)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function matchLearnedKnowledgeSemantic(normQ, question, entries, minScore, gpuTransport) {
+  const candidates = [];
+  for (const entry of entries) {
+    if (isLowValueLearnedAnswer(entry.learned_facts || entry.sample_answer)) continue;
+    if (hasLearnedIntentConflict(normQ, entry)) continue;
+    candidates.push(entry);
+    if (candidates.length >= 10) break;
+  }
+  if (!candidates.length) return null;
+
+  const docs = candidates.map(e =>
+    `${e.topic || ''}. ${e.sample_question || ''}. ${e.learned_facts || e.sample_answer || ''}`.trim().slice(0, 320)
+  );
+  const vecs = await embedTexts([question, ...docs], { transport: gpuTransport });
+  if (!vecs || !vecs[0]) return null;
+
+  const qVec = vecs[0];
+  const threshold = Math.max(minScore, 0.66);
+  let best = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const dVec = vecs[i + 1];
+    if (!dVec) continue;
+    const cos = cosineSimilarity(qVec, dVec);
+    if (cos < 0.60) continue;
+    const conf = Math.min(1, Math.max(0.1, parseFloat(candidates[i].confidence_score) || 0.8));
+    const score = Math.min(1, Number((cos * 0.88 + conf * 0.12).toFixed(4)));
+    if (score >= threshold && (!best || score > best.score)) {
+      best = { entry: candidates[i], score, semantic: true };
+    }
+  }
+  return best;
+}
+
+async function matchLearnedKnowledge(pool, question, { minScore = 0.55, gpuTransport } = {}) {
   const normQ = normalizeText(question);
   if (!normQ || normQ.length < 3) return null;
 
@@ -251,6 +313,11 @@ async function matchLearnedKnowledge(pool, question, { minScore = 0.55 } = {}) {
       score: bestScore
     };
   }
+
+  try {
+    const semMatch = await matchLearnedKnowledgeSemantic(normQ, question, entries, minScore, gpuTransport);
+    if (semMatch) return semMatch;
+  } catch (_) {}
 
   return null;
 }

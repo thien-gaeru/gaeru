@@ -504,7 +504,7 @@ const DEVICE_COMPAT_TERMS = Object.freeze(Array.from(new Set([
   'khong nhan', 'chua nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng', '3.5mm', 'jack 3.5',
   'tieng vang', 'bi vang', 'bi nhai', 'reverb', 'tieng vong', 'echo', 'giong ao',
   '1 mic khong len', 'chi co 1 mic', 'chi thu 1 mic', '1 ben khong', '1 mic bi mat', 'ghep doi lai', 'ket noi 2 mic',
-  'bi re', 'tieng re', 'vo tieng', 'vo am', 'tieng nho', 'nho tieng', 'co ao', 'u gio', 'gio giat', 'tieng gio', 'deadcat',
+  'bi re', 'tieng re', 'vo tieng', 'vo am', 'tieng nho', 'nho tieng', 'co ao', 'u gio', 'gio giat', 'tieng gio', 'nhieu gio', 'gio to', 'loc gio', 'thu ro', 'deadcat',
   'den nhap nhay', 'nhap nhay cham', 'den do', 'den xanh', 'lech pin', 'khong sac', 'chan tiep xuc', 'hop sac khong sac', 'sac khong vao',
   'vua sac vua dung', 'vua sac vua live', 'vua sac vua quay', 'cong chia', 'cap chia', 'hub chia', 'splitter',
   'nghe lai video', 'phat lai video', 'nghe loa ngoai', 'khong nghe thay loa', 'cam vao bi mat loa',
@@ -738,7 +738,7 @@ function findWebKnowledgeAnswer(question, webKnowledge, catalog = []) {
     return `Bài hướng dẫn liên quan trên GAERU:\n- [${bestNews.title}](${bestNews.url})${bestNews.summary ? ` — ${bestNews.summary}` : ''}`;
   }
 
-  if (snippets.length && topSnippetScore >= 0.45) {
+  if (snippets.length && topSnippetScore >= 0.42) {
     return snippets.slice(0, 2).map(s => `- ${s.line}`).join('\n');
   }
 
@@ -1022,8 +1022,9 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     } catch (_) {}
   }
 
+  const asksUseCase = hasAnyBoundaryTerm(space, ['ngoai troi', 'ngoai canh', 'livestream', 'ban hang', 'day hoc', 'hop online', 'podcast', 'phong thu', 'phong van', '2 nguoi', 'hai nguoi', 'cap doi', 'vlog', 'tu quay', 'mot minh', 'quay video', 'thiet bi livestream']);
   let liveWeb = webKnowledge;
-  if (!liveWeb && pool && typeof pool.query === 'function' && (isDynamicPolicyOrCommerce || primaryProd)) {
+  if (!liveWeb && pool && typeof pool.query === 'function' && (isDynamicPolicyOrCommerce || primaryProd || asksUseCase)) {
     try {
       liveWeb = await loadLiveSiteFacts(pool);
     } catch (_) {}
@@ -1198,7 +1199,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   }
 
   // 9. Tư vấn theo nhu cầu sử dụng (Quay ngoài trời, Livestream, Dạy học, Podcast, Tự quay, 2 người)
-  if (hasAnyBoundaryTerm(space, ['ngoai troi', 'ngoai canh', 'livestream', 'ban hang', 'day hoc', 'hop online', 'podcast', 'phong thu', 'phong van', '2 nguoi', 'hai nguoi', 'cap doi', 'vlog', 'tu quay', 'mot minh', 'quay video', 'thiet bi livestream'])) {
+  if (asksUseCase) {
     const pick = (slug, fallbackName) => {
       const p = catalog.find(item => item.slug === slug);
       const spec = PRODUCT_SPECS[slug];

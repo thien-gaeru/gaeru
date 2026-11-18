@@ -4,6 +4,7 @@ const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 const { parseHTML } = require('linkedom');
 const { normalizeVi, expandQueryVi, hasAnyBoundaryTerm, tokenizeMeaningful, tokenOverlapScore } = require('./lib/ai-nlu');
+const { embedTexts, cosineSimilarity } = require('./lib/gpu-ai-client');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const EXCLUDED_HTML = new Set(['cart.html', 'checkout.html', 'payment-result.html', 'sitemap.html']);
@@ -199,7 +200,88 @@ async function loadLiveSiteFacts(pool) {
   return facts;
 }
 
-async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = null, transport = fetch } = {}) {
+
+async function boostWebKnowledgeWithEmbeddings(rawQuestion, scored, relevantSnippets, gpuTransport) {
+  if (!rawQuestion || rawQuestion.trim().length < 5) {
+    return;
+  }
+  const topKeywordScore = scored[0]?.score || 0;
+  let qVec = null;
+
+  if (topKeywordScore < 18) {
+    const candidates = [];
+    const seenFiles = new Set();
+    for (const item of scored) {
+      const f = item.page.file;
+      if (seenFiles.has(f)) continue;
+      if (item.score > 0 || /^(guide|care|delivery-returns|payment|pricing|product-support|warranty)/.test(f)) {
+        seenFiles.add(f);
+        candidates.push(item);
+        if (candidates.length >= 8) break;
+      }
+    }
+    if (candidates.length) {
+      const texts = [
+        rawQuestion,
+        ...candidates.map(c => `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`)
+      ];
+      const vecs = await embedTexts(texts, { transport: gpuTransport });
+      if (!vecs || !vecs[0]) return;
+
+      qVec = vecs[0];
+      for (let i = 0; i < candidates.length; i++) {
+        const pVec = vecs[i + 1];
+        if (!pVec) continue;
+        const cos = cosineSimilarity(qVec, pVec);
+        if (cos >= 0.40) {
+          candidates[i].score += Math.round(cos * 18);
+        }
+      }
+      scored.sort((a, b) => b.score - a.score);
+    }
+  }
+
+  if (relevantSnippets.length < 2) {
+    const extraLines = [];
+    for (const item of scored.slice(0, 2)) {
+      if (item.score < 8) continue;
+      const lines = String(item.page.content || '').split('\n').map(l => l.trim()).filter(l => l.length >= 24 && l.length <= 240);
+      for (const line of lines.slice(0, 24)) {
+        if (!relevantSnippets.some(s => s.line === line)) {
+          extraLines.push({ page: item.page, line });
+        }
+        if (extraLines.length >= 6) break;
+      }
+      if (extraLines.length >= 6) break;
+    }
+    if (extraLines.length) {
+      const toEmbed = qVec ? extraLines.map(x => x.line) : [rawQuestion, ...extraLines.map(x => x.line)];
+      const lVecs = await embedTexts(toEmbed, { transport: gpuTransport });
+      if (lVecs) {
+        const lineOffset = qVec ? 0 : 1;
+        if (!qVec) qVec = lVecs[0];
+        if (qVec) {
+          for (let i = 0; i < extraLines.length; i++) {
+            const vec = lVecs[i + lineOffset];
+            if (!vec) continue;
+            const cos = cosineSimilarity(qVec, vec);
+            if (cos >= 0.50) {
+              relevantSnippets.push({
+                title: extraLines[i].page.title,
+                url: extraLines[i].page.url,
+                line: extraLines[i].line,
+                score: Number(cos.toFixed(4))
+              });
+            }
+          }
+          relevantSnippets.sort((a, b) => b.score - a.score);
+        }
+      }
+    }
+  }
+}
+
+async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = null, transport = fetch, gpuTransport } = {}) {
   const pages = await loadWebPagesIndexAsync();
   const qNorm = expandQueryVi(typeof question === 'string' ? question : JSON.stringify(question || ''));
   const tokens = tokenizeMeaningful(qNorm);
@@ -231,6 +313,13 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
   });
 
   scored.sort((a, b) => b.score - a.score);
+  const semanticSnippets = [];
+  try {
+    const qRaw = typeof question === 'string' ? question : '';
+    if (tokens.length > 0 && qRaw) {
+      await boostWebKnowledgeWithEmbeddings(qRaw, scored, semanticSnippets, gpuTransport);
+    }
+  } catch (_) {}
   const topMatched = scored.filter((item, index) => item.score > 0 || index < 2).slice(0, 3);
   const topPages = topMatched.map(({ page }) => ({
     url: page.url,
@@ -239,7 +328,7 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
   }));
 
   // Extract up to 2 crisp matching lines across top pages for direct factual grounding
-  const relevantSnippets = [];
+  const relevantSnippets = semanticSnippets;
   if (tokens.length > 0) {
     for (const { page, score } of topMatched) {
       if (score < 4) continue;

@@ -1,5 +1,6 @@
 'use strict';
 const sharp = require('sharp');
+const { segmentForegroundMask } = require('./gpu-ai-client');
 
 /**
  * Tách nền trắng siêu tốc bằng Sharp + Thuật toán Connected-Component Labeling (CCL)
@@ -12,6 +13,95 @@ const sharp = require('sharp');
  * @param {Object} [options] - Cấu hình tinh chỉnh
  * @returns {Promise<Buffer|null>} - Buffer ảnh WebP trong suốt hoặc null nếu không phải ảnh nền trắng
  */
+
+const AI_RMBG_INPUT_SIZE = 320;
+
+function isCandidateForAiSegmentation(data, width, height, options = {}) {
+  if (options.useAiSegmentation === false) return false;
+  if (width < 48 || height < 48) return false;
+
+  // Reject already-transparent images (cutout artwork)
+  let borderSamples = 0;
+  let transparentBorders = 0;
+  const stepX = Math.max(1, Math.floor(width / 16));
+  const stepY = Math.max(1, Math.floor(height / 16));
+  for (let x = 0; x < width; x += stepX) {
+    borderSamples += 2;
+    if (data[x * 4 + 3] < 200) transparentBorders++;
+    if (data[((height - 1) * width + x) * 4 + 3] < 200) transparentBorders++;
+  }
+  for (let y = 0; y < height; y += stepY) {
+    borderSamples += 2;
+    if (data[(y * width) * 4 + 3] < 200) transparentBorders++;
+    if (data[(y * width + width - 1) * 4 + 3] < 200) transparentBorders++;
+  }
+  if (borderSamples > 0 && (transparentBorders / borderSamples) > 0.25) {
+    return false;
+  }
+
+  // Reject flat/solid uniform color images (such as solid test squares)
+  let minR = 255, maxR = 0, minG = 255, maxG = 0, minB = 255, maxB = 0;
+  for (let gy = 0; gy < 8; gy++) {
+    const y = Math.min(height - 1, Math.floor(((gy + 0.5) * height) / 8));
+    for (let gx = 0; gx < 8; gx++) {
+      const x = Math.min(width - 1, Math.floor(((gx + 0.5) * width) / 8));
+      const idx = (y * width + x) * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      if (r < minR) minR = r; if (r > maxR) maxR = r;
+      if (g < minG) minG = g; if (g > maxG) maxG = g;
+      if (b < minB) minB = b; if (b > maxB) maxB = b;
+    }
+  }
+  return Math.max(maxR - minR, maxG - minG, maxB - minB) >= 24;
+}
+
+async function applyAiSegmentationAlpha(data, width, height, options = {}) {
+  const rgb320 = await sharp(data, { raw: { width, height, channels: 4 } })
+    .resize(AI_RMBG_INPUT_SIZE, AI_RMBG_INPUT_SIZE, { fit: 'fill' })
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+
+  const seg = await segmentForegroundMask(rgb320, {
+    width: AI_RMBG_INPUT_SIZE,
+    height: AI_RMBG_INPUT_SIZE,
+    transport: options.gpuTransport
+  });
+  if (!seg || !Buffer.isBuffer(seg.alpha)) return false;
+  if (seg.fgRatio < 0.03 || seg.fgRatio > 0.96) return false;
+
+  const alphaUp = await sharp(seg.alpha, {
+    raw: { width: AI_RMBG_INPUT_SIZE, height: AI_RMBG_INPUT_SIZE, channels: 1 }
+  })
+    .toColourspace('b-w')
+    .resize(width, height, { kernel: sharp.kernel.cubic })
+    .extractChannel(0)
+    .raw()
+    .toBuffer();
+
+  const totalPixels = width * height;
+  if (alphaUp.length !== totalPixels) return false;
+
+  let fgCount = 0;
+  for (let i = 0; i < totalPixels; i++) {
+    const origA = data[i * 4 + 3];
+    const t = alphaUp[i] / 255;
+    let mapped = 0;
+    if (t >= 0.78) {
+      mapped = 255;
+    } else if (t > 0.08) {
+      const u = (t - 0.08) / 0.70;
+      mapped = Math.round(u * u * (3 - 2 * u) * 255);
+    }
+    const nextA = Math.min(origA, mapped);
+    data[i * 4 + 3] = nextA;
+    if (nextA >= 128) fgCount++;
+  }
+
+  const fgRatio = fgCount / totalPixels;
+  return fgRatio >= 0.025 && fgRatio <= 0.97;
+}
+
 async function removeWhiteBackground(buffer, options = {}) {
   const {
     whiteThreshold = Number(options.whiteThreshold || options.threshold) || 240,
@@ -76,11 +166,27 @@ async function removeWhiteBackground(buffer, options = {}) {
     if (isWhitePixel(y * width + width - 1)) edgeWhiteCount++;
   }
 
-  if (totalEdgePixels === 0 || (edgeWhiteCount / totalEdgePixels) < 0.65) {
+  if (totalEdgePixels === 0) {
     return null;
   }
 
-  const visited = new Uint8Array(totalPixels);
+  let hasAiMask = false;
+  if ((edgeWhiteCount / totalEdgePixels) < 0.65) {
+    if (!isCandidateForAiSegmentation(data, width, height, options)) {
+      return null;
+    }
+    try {
+      hasAiMask = await applyAiSegmentationAlpha(data, width, height, options);
+    } catch (_) {
+      hasAiMask = false;
+    }
+    if (!hasAiMask) {
+      return null;
+    }
+  }
+
+  if (!hasAiMask) {
+    const visited = new Uint8Array(totalPixels);
   const queue = new Int32Array(totalPixels);
   const borderBuffer = new Int32Array(totalPixels);
 
@@ -208,8 +314,9 @@ async function removeWhiteBackground(buffer, options = {}) {
     }
   }
 
-  if (totalRemovedPixels / totalPixels < 0.01 || totalRemovedPixels / totalPixels > 0.98) {
-    return null;
+    if (totalRemovedPixels / totalPixels < 0.01 || totalRemovedPixels / totalPixels > 0.98) {
+      return null;
+    }
   }
 
   if (autoCenterSquare) {

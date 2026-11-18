@@ -92,10 +92,12 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
         const facts=p=>({id:p.id,slug:p.slug,category:p.category,descriptor:p.descriptor,name:p.name,shopeeUrl:p.shopeeUrl||'',tiktokShopUrl:p.tiktokShopUrl||'',description:String(p.description||'').slice(0,job.thread.product_id?2400:480),variants:(p.variants||[]).slice(0,12).map(v=>({id:v.id,name:v.name,sku:v.sku,options:v.options||null,priceVnd:v.priceVnd,originalPriceVnd:v.originalPriceVnd,activePromotion:v.activePromotion||v.promotion||null,stockQuantity:v.stockQuantity,active:v.active!==false,available:Number(v.stockQuantity)>0}))});
         const selected=catalog.find(p=>p.id===job.thread.product_id);
         if(job.thread.product_id&&!selected)throw Error('Product unavailable');
-        const webKnowledge=await getRelevantWebKnowledge(pool,{question:job.question,selectedProduct:selected,transport});
+        const webKnowledge=decisionFn
+          ? await getRelevantWebKnowledge(pool,{question:job.question,selectedProduct:selected,transport})
+          : null;
         const product=selected
-          ?{...facts(selected),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}}
-          :{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),webKnowledge,contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
+          ?{...facts(selected),...(webKnowledge?{webKnowledge}:{}),contact:{email:'business@gaeru.com',phone:'082 919 1080'}}
+          :{name:'Hỗ trợ GAERU',products:catalog.slice(0,20).map(facts),...(webKnowledge?{webKnowledge}:{}),contact:{email:'business@gaeru.com',phone:'082 919 1080'}};
         const history=loadedHistory;
         if(decisionFn){
           result=await decisionFn({config,product,question:{current:job.question,recentMessages:history},decision:true,...(transport?{transport}:{})});

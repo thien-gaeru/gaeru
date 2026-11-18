@@ -35,7 +35,7 @@ function buildAudioSymptomAnswer(space, rawQuestion, matchedProdKey = null) {
   }
 
   // 3. Tiếng bị nhỏ, rè, vỡ âm (clipping), cọ áo hoặc ù gió
-  if (hasAnyBoundaryTerm(q, ['bi re', 'tieng re', 'vo tieng', 'vo am', 'tieng nho', 'nho tieng', 'co ao', 'u gio', 'gio giat', 'tieng gio', 'deadcat'])) {
+  if (hasAnyBoundaryTerm(q, ['bi re', 'tieng re', 'vo tieng', 'vo am', 'tieng nho', 'nho tieng', 'co ao', 'u gio', 'gio giat', 'tieng gio', 'nhieu gio', 'gio to', 'loc gio', 'thu ro', 'deadcat'])) {
     sections.push(
       '**Mẹo kẹp mic & xử lý tiếng rè / nhỏ / gió giật:**\n' +
       '- **Vị trí gắn chuẩn:** Kẹp mic ở cổ áo cách miệng khoảng **10–15 cm**, hướng đầu lưới thu lên phía cằm và không để vải áo/trang sức cọ vào thân mic (không bọc mic trong tay).\n' +
