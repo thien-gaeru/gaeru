@@ -523,6 +523,7 @@ function initializeMotion() {
     ".discover-section",
     ".discover-features > *",
     ".discover-uses > *",
+    ".m3-discover-images > figure",
     ".discover-split-grid",
     ".product-feature-intro",
     ".product-feature-chapter",
