@@ -496,6 +496,7 @@ function initializeMotion() {
   document.body.prepend(progress);
 
   const revealTargets = [
+    ".home-showcase-grid > section",
     ".section-heading",
     ".filter-row",
     ".product-card",
@@ -505,9 +506,25 @@ function initializeMotion() {
     ".home-m3-art",
     ".care-intro",
     ".care-card",
+    ".news-heading",
+    ".news-card",
     ".closing-banner > *",
     ".page-intro > *",
+    ".store-welcome > *",
+    ".store-section-heading",
     ".catalog-card",
+    ".store-story",
+    ".store-benefit-grid > a",
+    ".store-quick",
+    ".story-page-intro",
+    ".story-complete-products > article",
+    ".story-product-feature",
+    ".discover-section",
+    ".product-feature-intro",
+    ".product-feature-chapter",
+    ".product-feature-specs",
+    ".support-topic",
+    ".support-feature",
     ".product-detail-art",
     ".product-detail-copy > *",
     ".cart-item",
@@ -518,14 +535,51 @@ function initializeMotion() {
   ].join(",");
 
   let revealObserver;
+  const computeRevealDelay = (element, fallbackIndex) => {
+    if (element.matches?.(".home-m3-copy, .story-copy")) {
+      const tile = element.closest(".home-showcase-grid > section");
+      const siblings = tile?.parentElement ? [...tile.parentElement.children] : [];
+      const col = siblings.indexOf(tile) % 2;
+      return `${Math.max(0, col) * 85}ms`;
+    }
+    if (element.matches?.(".home-m3-art, .story-art")) {
+      const tile = element.closest(".home-showcase-grid > section");
+      const siblings = tile?.parentElement ? [...tile.parentElement.children] : [];
+      const col = siblings.indexOf(tile) % 2;
+      return `${Math.max(0, col) * 85 + 95}ms`;
+    }
+    if (element.parentElement?.classList?.contains("home-showcase-grid")) {
+      const siblings = [...element.parentElement.children];
+      const col = siblings.indexOf(element) % 2;
+      return `${Math.max(0, col) * 85}ms`;
+    }
+    const parent = element.parentElement;
+    if (parent) {
+      const peers = [...parent.children].filter((child) => child.matches?.(revealTargets));
+      const pos = peers.indexOf(element);
+      if (pos >= 0) return `${Math.min(pos % 4, 3) * 75}ms`;
+    }
+    return `${Math.min(fallbackIndex % 4, 3) * 70}ms`;
+  };
+
   const reveal = (root) => {
     const targets = [...(root.matches?.(revealTargets) ? [root] : []), ...(root.querySelectorAll?.(revealTargets) ?? [])];
+    const vh = typeof window !== "undefined" ? window.innerHeight || 800 : 800;
     targets.forEach((element, index) => {
       if (element.dataset.revealReady) return;
       element.dataset.revealReady = "true";
-      element.style.setProperty("--reveal-delay", `${Math.min(index % 4, 3) * 75}ms`);
-      if (revealObserver) revealObserver.observe(element);
-      else element.classList.add("is-visible");
+      element.style.setProperty("--reveal-delay", computeRevealDelay(element, index));
+      if (revealObserver) {
+        const rect = element.getBoundingClientRect?.();
+        if (rect && rect.top < vh * 0.92 && rect.bottom > 0) {
+          element.classList.add("is-visible");
+        } else {
+          element.classList.remove("is-visible");
+          revealObserver.observe(element);
+        }
+      } else {
+        element.classList.add("is-visible");
+      }
     });
   };
 
@@ -533,10 +587,19 @@ function initializeMotion() {
     revealObserver = new IntersectionObserver((entries, observer) => {
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
-        entry.target.classList.add("is-visible");
-        observer.unobserve(entry.target);
+        const target = entry.target;
+        target.classList.add("is-visible");
+        observer.unobserve(target);
+        const rail = target.closest?.(".product-grid, .news-strip, .catalog-grid, .store-help-grid, .store-benefit-grid");
+        if (rail) {
+          [...rail.querySelectorAll("[data-reveal-ready]:not(.is-visible)")].forEach((peer, idx) => {
+            peer.style.setProperty("--reveal-delay", `${Math.min(idx + 1, 5) * 75}ms`);
+            peer.classList.add("is-visible");
+            observer.unobserve(peer);
+          });
+        }
       });
-    }, { threshold: 0.12, rootMargin: "0px 0px -35px 0px" });
+    }, { threshold: 0.06, rootMargin: "0px 0px 32px 0px" });
   }
 
   reveal(document);
