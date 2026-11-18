@@ -276,12 +276,10 @@ dialog.gaeru-center-popup:not([open]),
 }
 
 /* Hide inline status text leak from customer security list */
-.security-settings .security-feedback,
-.security-feedback,
-.account-form [role="status"],
-.account-feedback,
+.customer-profile .security-settings .security-feedback,
+.customer-profile .security-feedback,
+.customer-profile .account-form [role="status"],
 [data-account-feedback],
-[data-email-verification-feedback],
 [data-address-status] {
   display: none !important;
 }

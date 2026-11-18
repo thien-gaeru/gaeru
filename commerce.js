@@ -104,12 +104,13 @@ async function mergeCartWithServer() {
     });
     if (result && Array.isArray(result.items)) {
       const merged = result.items.map(i => ({ variantId: i.variantId, quantity: i.quantity }));
+      const changed = JSON.stringify(merged) !== JSON.stringify(local.map(i => ({ variantId: i.variantId, quantity: i.quantity })));
       localStorage.setItem(cartStorageKey, JSON.stringify(merged));
       updateCartBadge(merged);
       document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
       renderCart();
       renderMiniCart();
-      renderCheckout();
+      if (changed || !document.querySelector?.("#checkout-form")) renderCheckout();
     }
   })();
   try {

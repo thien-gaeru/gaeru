@@ -1399,6 +1399,7 @@ async function openLoyaltyAdjustment(customerId, trigger, onSaved) {
   let saving = false;
   const close = () => { if (saving) return; dialog.close(); dialog.remove(); trigger?.focus(); };
   dialog.querySelector('[data-loyalty-cancel]').onclick = close;
+  dialog.addEventListener('click', event => { if (event.target === dialog) close(); });
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
   form.addEventListener('submit', async event => {
     event.preventDefault(); if (saving || !form.reportValidity()) return;
@@ -1743,6 +1744,7 @@ async function activateView(view, { updateHistory = true } = {}) {
   }
   const button = [...document.querySelectorAll('[data-view]')].find(item => item.dataset.view === view);
   if (!button || button.hidden || (!can(button.dataset.permission)&&!(view==='security'&&state.session?.mfaEnrollmentRequired))) return;
+  state.currentView = view;
   const requestId = ++state.viewRequest;
   if (updateHistory && location.hash !== '#' + view) history.pushState(null, '', '#' + view);
   showGlobal('');
@@ -2287,7 +2289,7 @@ function confirmProductAction(product,{permanent=false,message}={}){
   const accept=dialog.querySelector('[data-product-action-accept]');
   if(permanent){dialog.querySelector('[data-product-action-slug]').textContent=product.slug;dialog.querySelector('input').addEventListener('input',event=>{accept.disabled=event.target.value!==product.slug;});}
   accept.onclick=()=>{if(!permanent||dialog.querySelector('input').value===product.slug)finish(true);};
-  dialog.querySelector('[data-product-action-cancel]').onclick=()=>finish(false);dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});dialog.addEventListener('close',()=>finish(false));document.body.append(dialog);dialog.showModal();
+  dialog.querySelector('[data-product-action-cancel]').onclick=()=>finish(false);dialog.addEventListener('click',event=>{if(event.target===dialog)finish(false);});dialog.addEventListener('cancel',event=>{event.preventDefault();finish(false);});dialog.addEventListener('close',()=>finish(false));document.body.append(dialog);dialog.showModal();
  });
 }
 
@@ -2485,6 +2487,7 @@ function confirmOrderPermanentDeletion(order) {
       };
     }
     if (cancelBtn) cancelBtn.onclick = () => finish(false);
+    dialog.addEventListener('click', event => { if (event.target === dialog) finish(false); });
     dialog.addEventListener('cancel', event => {
       event.preventDefault();
       finish(false);

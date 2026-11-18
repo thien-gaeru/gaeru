@@ -1351,6 +1351,8 @@
   box-sizing: border-box !important;
   overflow-y: auto !important;
   overflow-x: hidden !important;
+  animation: none !important;
+  transform: none !important;
 }
 
 /* Lớp nền mờ chuẩn GAERU Studio (Glassmorphism) */
@@ -1812,11 +1814,13 @@
 /* ===================================================
    LOẠI BỎ HOÀN TOÀN THÔNG BÁO VĂN BẢN Ở CUỐI TRANG
    =================================================== */
-.account-feedback,
+.account-settings-dialog:has(.account-settings-content:empty) {
+  display: none !important;
+  pointer-events: none !important;
+}
 [data-account-feedback],
-[data-email-verification-feedback],
 [data-address-status],
-p.account-feedback {
+p.account-feedback:not([data-email-verification-feedback]) {
   display: none !important;
   visibility: hidden !important;
   margin: 0 !important;
@@ -1824,6 +1828,9 @@ p.account-feedback {
   height: 0 !important;
   min-height: 0 !important;
   overflow: hidden !important;
+}
+[data-email-verification-feedback]:empty {
+  display: none !important;
 }
 #account-addresses>.account-add-address-link{display:inline-flex;align-items:center;gap:5px;min-height:44px;margin-top:8px;padding:8px 0;border:0;border-radius:4px;background:transparent;box-shadow:none;color:#0071e3;font:inherit;font-size:16px;cursor:pointer;text-decoration:none}#account-addresses>.account-add-address-link:hover{text-decoration:underline}#account-addresses>.account-add-address-link:focus-visible{outline:2px solid #0071e3;outline-offset:4px}
 

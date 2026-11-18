@@ -175,12 +175,11 @@ body.product-page {
   opacity: 0;
   transform: translateY(32px);
   transition: opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1), transform 0.85s cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform;
 }
 
 .product-reveal-ready.is-inview {
   opacity: 1;
-  transform: translateY(0);
+  transform: none;
 }
 
 .product-reveal-ready:nth-child(2) { transition-delay: 0.08s; }

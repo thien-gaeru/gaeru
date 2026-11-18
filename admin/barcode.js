@@ -69,7 +69,7 @@
     stopCamera();const generation=cameraGeneration;
     const dialog=document.createElement('dialog');cameraDialog=dialog;dialog.className='barcode-camera-dialog';dialog.setAttribute('aria-label','Quét mã bằng camera');
     dialog.innerHTML='<header><h2>Quét mã bằng camera</h2><button class="secondary-button" type="button">Đóng</button></header><p>Đưa mã vạch hoặc QR vào giữa khung. Camera dừng sau khi đọc được một mã.</p><video muted playsinline autoplay></video><p role="status">Đang chuẩn bị camera…</p>';
-    viewPanel.append(dialog);dialog.showModal();dialog.querySelector('button').onclick=stopCamera;dialog.oncancel=event=>{event.preventDefault();stopCamera();};
+    viewPanel.append(dialog);dialog.showModal();dialog.querySelector('button').onclick=stopCamera;dialog.addEventListener('click',event=>{if(event.target===dialog)stopCamera();});dialog.oncancel=event=>{event.preventDefault();stopCamera();};
     let found=false;
     try{
       const library=await loadDecoder();if(generation!==cameraGeneration)return;

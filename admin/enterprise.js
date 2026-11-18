@@ -603,6 +603,6 @@
     if (event.target.matches('.enterprise-view [data-e-form="staff"] [name="role"]')) renderRolePermissions(event.target.closest("form"));
     if (event.target.matches('#inventory-forecast-section select')) loadForecastView();
   });
-  window.addEventListener('hashchange',()=>closeEditor(activeEditor,true));
+  window.addEventListener('hashchange',()=>{closeEditor(activeEditor,true);document.querySelector?.('[data-forecast-dialog][open]')?.close?.();});
   window.GAERUEnterprise = Object.freeze({ loadView });
 })();

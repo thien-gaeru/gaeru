@@ -43,7 +43,15 @@
    * 1. Sticky Local Navigation Bar (Subnav)
    */
   function setupProductLocalNav() {
-    if (document.querySelector('.product-local-subnav')) return;
+    const existingNav = document.querySelector('.product-local-subnav');
+    if (existingNav) {
+      const freshPriceNode = document.querySelector('[data-selected-price]');
+      if (freshPriceNode && existingNav._priceObserver) {
+        existingNav._priceObserver.disconnect();
+        existingNav._priceObserver.observe(freshPriceNode, { childList: true, characterData: true, subtree: true });
+      }
+      return;
+    }
 
     const heading = document.querySelector('.product-purchase-heading h1');
     const productName = heading ? heading.textContent.replace(/^Mua\s+/i, '').trim() : 'Sản phẩm GAERU';
@@ -142,8 +150,13 @@
         if (localPrice) localPrice.textContent = formatSubnavPrice(priceNode);
       };
       syncSubnavPrice();
-      const observer = new MutationObserver(syncSubnavPrice);
+      const observer = new MutationObserver(() => {
+        const currentNode = document.querySelector('[data-selected-price]') || priceNode;
+        const localPrice = nav.querySelector('[data-local-nav-price]');
+        if (localPrice && currentNode) localPrice.textContent = formatSubnavPrice(currentNode);
+      });
       observer.observe(priceNode, { childList: true, characterData: true, subtree: true });
+      nav._priceObserver = observer;
     }
 
     // Scroll Visibility & Progress Tracking

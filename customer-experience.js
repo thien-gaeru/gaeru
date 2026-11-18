@@ -155,7 +155,8 @@
     section.append(settingsPanel);
     const settingsDialog=document.createElement('dialog');settingsDialog.className='account-settings-dialog';settingsDialog.dataset.accountSettingsDialog='';settingsDialog.setAttribute('aria-labelledby','account-settings-title');settingsDialog.innerHTML='<header><h2 id="account-settings-title">Thông tin và bảo mật</h2><button type="button" data-settings-close aria-label="Đóng cài đặt">×</button></header><nav aria-label="Mục cài đặt" hidden><button type="button" data-settings-jump="profile">Thông tin cá nhân</button><button type="button" data-settings-jump="password">Mật khẩu</button><button type="button" data-settings-jump="factor">Xác thực 2 bước</button></nav><div class="account-settings-content"></div>';
     section.append(settingsDialog);
-    const openSettings=()=>{if(!settingsDialog.isConnected||profile.hidden)return;if(!settingsDialog.open){if(settingsDialog.showModal)settingsDialog.showModal();else settingsDialog.open=true;profileEditor.open=true;}};
+    const closeSettings=()=>{if(settingsDialog.close&&!window.HTMLDialogElement)settingsDialog.close();else{settingsDialog.open=false;settingsDialog.removeAttribute?.('open');if(typeof Event==='function')settingsDialog.dispatchEvent?.(new Event('close'));}};
+    const openSettings=()=>{if(!settingsDialog.isConnected||profile.hidden)return;if(!settingsDialog.open){if(settingsDialog.showModal&&!window.HTMLDialogElement)settingsDialog.showModal();else settingsDialog.open=true;profileEditor.open=true;settingsPanel.scrollIntoView?.({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}};
     let pendingSettingsJump='';
     function jumpToSettings(name){
       const pForm=profileEditor.querySelector('[data-profile-form]');
@@ -176,10 +177,10 @@
       target.scrollIntoView({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
       (target.querySelector('input:not([type=hidden]),select')||target).focus?.({preventScroll:true});
     }
-    settingsDialog.querySelector('[data-settings-close]').onclick=()=>settingsDialog.close();settingsDialog.addEventListener('click',e=>{if(e.target===settingsDialog)settingsDialog.close();});settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
+    settingsDialog.querySelector('[data-settings-close]').onclick=closeSettings;settingsDialog.addEventListener('click',e=>{if(e.target===settingsDialog)closeSettings();});settingsDialog.addEventListener('close',()=>{pendingSettingsJump='';settingsDialog.querySelectorAll('input[type=password],input[autocomplete=one-time-code]').forEach(input=>input.value='');});
     document.addEventListener('click',event=>{const button=event.target.closest('[data-settings-jump]');if(button)jumpToSettings(button.dataset.settingsJump);});
     window.addEventListener('gaeru:security-rendered',()=>{if(pendingSettingsJump)jumpToSettings(pendingSettingsJump);});
-    window.GAERUAccountSettings={open:openSettings,close:()=>settingsDialog.close()};
+    window.GAERUAccountSettings={open:openSettings,close:closeSettings};
 
     const profileForm=profileEditor.querySelector('form');profileForm.elements.fullName.value=profile.querySelector('[data-customer-name]').textContent;profileForm.elements.phone.value=profile.querySelector('[data-customer-phone]').textContent;profileForm.elements.email.value=profile.querySelector('[data-customer-email]').textContent;
     profileForm.addEventListener('submit',async e=>{
