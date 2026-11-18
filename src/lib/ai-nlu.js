@@ -51,10 +51,15 @@ function expandQueryVi(text) {
     .replace(/(?<![a-z0-9])iphone(1[0-8]|[5-9])(?![a-z0-9])/g, 'iphone $1')
     .replace(/(?<![a-z0-9])(?:ip|iphone)\s*(xs\s*max|xs|xr|x|se|air)(?![a-z0-9])/g, 'iphone $1')
     .replace(/(?<![a-z0-9])ip(?![a-z0-9])(?!\s*(?:tinh|address|v4|v6))/g, 'iphone')
+    .replace(/(?<![a-z0-9])(?:mb|mac)\s*(air|pro)(?![a-z0-9])/g, 'macbook $1')
+    .replace(/(?<![a-z0-9])mtb(?![a-z0-9])/g, 'may tinh bang')
+    .replace(/(?<![a-z0-9])ios\s*(1[0-9]|2[0-9])(?![a-z0-9])/g, 'ios $1')
     .replace(/(?<![a-z0-9])ss(?=\s*(?:galaxy|s[12]\d|a[0-9]{2}|m[0-9]{2}|z\s*(?:fold|flip)|fold|flip|note|tab|j\d))/g, 'samsung')
-    .replace(/(?<![a-z0-9])xm(?=\s*(?:1[2-9]|redmi|poco|ultra|pro))/g, 'xiaomi')
+    .replace(/(?<![a-z0-9])xm(?=\s*(?:1[2-9]|redmi|poco|ultra|pro|pad))/g, 'xiaomi')
     .replace(/(?<![a-z0-9])(?:type\s*c|typec|usb\s*c|usb-c)(?![a-z0-9])/g, 'type-c')
     .replace(/(?<![a-z0-9])(?:micro\s*usb|microusb)(?![a-z0-9])/g, 'micro-usb')
+    .replace(/(?<![a-z0-9])(?:usb\s*a|usba|usb-a)(?![a-z0-9])/g, 'usb-a')
+    .replace(/(?<![a-z0-9])usb\s*debugging(?![a-z0-9])/g, 'go loi usb')
     .replace(/(?<![a-z0-9])(?:ko|hok)(?![a-z0-9])/g, 'khong')
     .replace(/(?<![a-z0-9])(?:bn|bnh|bnhieu)(?![a-z0-9])/g, 'bao nhieu')
     .replace(/(?<![a-z0-9])bh(?![a-z0-9])/g, 'bao hanh')
@@ -205,7 +210,7 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
     }
   }
 
-  const productSpace = space.replace(/\b(?:ipad|macbook|imac|chip|apple)\s+(?:air\s+|pro\s+)?m3\b/g, '$1');
+  const productSpace = space.replace(/\b(?:ipad|macbook|imac|mac mini|mac studio|surface|galaxy tab|xiaomi pad|chip|apple)\s+(?:air\s+|pro\s+|mini\s+)?m3\b/g, '$1');
   const directMatches = [];
   for (const e of entries) {
     const matchTarget = e.key === 'gaeru-m3' && !hasBoundaryTerm(space, 'gaeru m3') ? productSpace : space;
@@ -231,13 +236,25 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
 
   // Multi-turn & thread binding fallback
   const looksFollowUp = isFollowUpReference(expanded) ||
-    hasAnyBoundaryTerm(space, ['gia', 'pin', 'bao lau', 'khoang cach', 'bao xa', 'con hang', 'het hang', 'phan loai', '1 mic', '2 mic', 'type c', 'lightning', 'chong on', 'loc on', 'dung duoc', 'tuong thich', 'trong luong', 'hop sac']);
+    hasAnyBoundaryTerm(space, [
+      'gia', 'pin', 'bao lau', 'khoang cach', 'bao xa', 'con hang', 'het hang', 'phan loai',
+      '1 mic', '2 mic', 'type c', 'lightning', 'micro usb', 'usb a', 'chong on', 'loc on',
+      'dung duoc', 'tuong thich', 'trong luong', 'hop sac', 'chot', 'dat', 'mua', 'lay',
+      'mua ngay', 'dat hang', 'chot don', 'thanh toan', 'go loi usb', 'bat otg', 'mo otg',
+      'ios', 'mic ngoai', 'pc', 'laptop', 'macbook', 'may tinh bang'
+    ]);
 
   if (Array.isArray(history) && history.length) {
     const recentReverse = [...history].slice(-6).reverse();
     for (const msg of recentReverse) {
-      const mText = expandQueryVi(msg?.body || msg?.content || '');
-      const histHits = entries.filter(e => hasAnyBoundaryTerm(mText, e.aliases));
+      const mRaw = msg?.body || msg?.content || '';
+      const mText = expandQueryVi(mRaw);
+      const mSpace = normalizeSearchSpace(mText);
+      const mProdSpace = mSpace.replace(/\b(?:ipad|macbook|imac|mac mini|mac studio|surface|galaxy tab|xiaomi pad|chip|apple)\s+(?:air\s+|pro\s+|mini\s+)?m3\b/g, '$1');
+      const histHits = entries.filter(e => {
+        const target = e.key === 'gaeru-m3' && !hasBoundaryTerm(mSpace, 'gaeru m3') ? mProdSpace : mSpace;
+        return hasAnyBoundaryTerm(target, e.aliases);
+      });
       if (histHits.length === 1 && (looksFollowUp || mText.length < 180)) {
         return { source: 'history', items: histHits };
       }
@@ -258,33 +275,101 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
 }
 
 /**
- * Filters a product's variants to the ones specifically asked about (e.g. "2 mic Type-C", "Lightning").
+ * Filters a product's variants to the ones specifically asked about or inferred from device ports.
+ * Prioritizes exact port matches (e.g. pure Type-C when only Type-C is needed, or Type-C + USB when PC USB-A).
  */
-function matchProductVariants(question, variants = []) {
+function matchProductVariants(question, variants = [], { ports = null } = {}) {
   if (!Array.isArray(variants) || !variants.length) return [];
   const space = normalizeSearchSpace(expandQueryVi(question));
 
+  const portSet = ports instanceof Set ? ports : new Set(Array.isArray(ports) ? ports : []);
+  const want2Mic = hasAnyBoundaryTerm(space, ['2 mic', '2 micro', 'ban 2', 'hai mic', 'doi', '2 nguoi']);
+  const want1Mic = !want2Mic && hasAnyBoundaryTerm(space, ['1 mic', '1 micro', 'ban 1', 'mot mic', 'don', '1 nguoi']);
+  const want2m1 = hasAnyBoundaryTerm(space, ['2m1', '2.1m', 'chan cao', 'kem chan']);
+  const wantDesk = hasAnyBoundaryTerm(space, ['de ban', 'mini', 'khong chan']);
+
+  const wantMicroUsb = hasBoundaryTerm(space, 'micro usb') || portSet.has('micro-usb');
+  const wantUsbA = !wantMicroUsb && (
+    hasAnyBoundaryTerm(space, ['usb a', 'chuyen usb', 'usb thuong', 'usb chu nhat']) ||
+    portSet.has('usb-a')
+  );
+  const wantLightning = hasAnyBoundaryTerm(space, ['lightning', 'ios cu', 'iphone cu']) || portSet.has('lightning');
+  const wantTypeC = hasBoundaryTerm(space, 'type c') || portSet.has('type-c');
+
   const hints = [];
-  if (hasAnyBoundaryTerm(space, ['2 mic', '2 micro', 'ban 2', 'hai mic', 'doi'])) hints.push(['2 mic', 'doi', '2tx', '2bo', '2 micro']);
-  if (hasAnyBoundaryTerm(space, ['1 mic', '1 micro', 'ban 1', 'mot mic', 'don'])) hints.push(['1 mic', 'don', '1tx', '1bo', '1 micro']);
-  if (hasBoundaryTerm(space, 'micro usb')) hints.push(['micro usb']);
-  else if (hasBoundaryTerm(space, 'type c')) hints.push(['type c', 'typec', 'usb c']);
-  if (hasBoundaryTerm(space, 'lightning')) hints.push(['lightning', 'ios', 'iphone cu']);
-  if (hasAnyBoundaryTerm(space, ['2m1', '2.1m', 'chan cao'])) hints.push(['2m1', '2.1']);
-  if (hasAnyBoundaryTerm(space, ['de ban', 'mini'])) hints.push(['de ban']);
+  if (want2Mic) hints.push(['2 mic', 'doi', '2tx', '2bo', '2 micro']);
+  if (want1Mic) hints.push(['1 mic', 'don', '1tx', '1bo', '1 micro']);
+  if (wantMicroUsb) hints.push(['micro usb']);
+  if (wantUsbA) hints.push(['chuyen usb', 'usb a']);
+  if (wantTypeC && !wantMicroUsb && !wantUsbA) hints.push(['type c', 'typec', 'usb c']);
+  if (wantLightning) hints.push(['lightning', 'ios', 'iphone cu']);
+  if (want2m1) hints.push(['2m1', '2.1']);
+  if (wantDesk) hints.push(['de ban']);
 
   if (!hints.length) return [];
 
-  const matched = variants.filter(v => {
-    const vSpace = normalizeSearchSpace(`${v.name || ''} ${v.sku || ''}`);
-    return hints.every(group => group.some(tok => hasBoundaryTerm(vSpace, tok) || vSpace.includes(tok)));
+  const getVarSpace = v => {
+    const opts = v?.options && typeof v.options === 'object' ? Object.values(v.options).join(' ') : '';
+    return normalizeSearchSpace(`${v?.name || ''} ${v?.sku || ''} ${opts}`);
+  };
+  const hasAny2Mic = variants.some(v => {
+    const vs = getVarSpace(v);
+    return hasBoundaryTerm(vs, '2 mic') || vs.includes('2 micro');
   });
-  if (matched.length) return matched;
+  const isAdapterCombo = vs => /\bchuyen\b|\bdau chuyen\b/.test(vs) || vs.includes('micro usb');
 
-  return variants.filter(v => {
-    const vSpace = normalizeSearchSpace(`${v.name || ''} ${v.sku || ''}`);
-    return hints.some(group => group.some(tok => hasBoundaryTerm(vSpace, tok) || vSpace.includes(tok)));
+  const matchesGroup = (vs, group) => {
+    if (group.some(tok => hasBoundaryTerm(vs, tok) || vs.includes(tok))) return true;
+    // K9 1-Mic Type-C SKU is named "Chân Type C" without literal "1 Micro" text
+    if (want1Mic && group[0] === '1 mic' && hasAny2Mic && !hasBoundaryTerm(vs, '2 mic') && !vs.includes('2 micro')) {
+      return true;
+    }
+    return false;
+  };
+
+  let matched = variants.filter(v => {
+    const vs = getVarSpace(v);
+    return hints.every(group => matchesGroup(vs, group));
   });
+  if (!matched.length) {
+    matched = variants.filter(v => {
+      const vs = getVarSpace(v);
+      return hints.some(group => matchesGroup(vs, group));
+    });
+  }
+  if (!matched.length) return [];
+
+  // Narrow by exact connector intent to avoid returning adapter combos when only pure Type-C or Lightning is needed
+  if (wantUsbA && !wantLightning && !wantMicroUsb) {
+    const usbExact = matched.filter(v => {
+      const vs = getVarSpace(v);
+      return (vs.includes('chuyen usb') || hasBoundaryTerm(vs, 'usb a')) && !vs.includes('micro usb');
+    });
+    if (usbExact.length) matched = usbExact;
+  } else if (wantMicroUsb) {
+    const microExact = matched.filter(v => getVarSpace(v).includes('micro usb'));
+    if (microExact.length) matched = microExact;
+  } else if (wantTypeC && wantLightning) {
+    const dualExact = matched.filter(v => {
+      const vs = getVarSpace(v);
+      return (vs.includes('type c') || vs.includes('typec')) && vs.includes('lightning');
+    });
+    if (dualExact.length) matched = dualExact;
+  } else if (wantTypeC && !wantLightning) {
+    const pureTypeC = matched.filter(v => {
+      const vs = getVarSpace(v);
+      return (vs.includes('type c') || vs.includes('typec') || vs.includes('usb c')) && !isAdapterCombo(vs) && !vs.includes('lightning');
+    });
+    if (pureTypeC.length) matched = pureTypeC;
+  } else if (wantLightning && !wantTypeC) {
+    const pureLightning = matched.filter(v => {
+      const vs = getVarSpace(v);
+      return vs.includes('lightning') && !vs.includes('type c') && !isAdapterCombo(vs);
+    });
+    if (pureLightning.length) matched = pureLightning;
+  }
+
+  return matched;
 }
 
 module.exports = {

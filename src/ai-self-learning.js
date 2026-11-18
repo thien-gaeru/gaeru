@@ -102,11 +102,15 @@ const TECH_VOCABULARY = [
   'vivo', 'vivo x200', 'vivo x300', 'vivo v40', 'vivo v50', 'iqoo', 'realme', 'realme 14', 'realme 15', 'realme 16',
   'honor', 'magic 7', 'magic 8', 'huawei', 'pura 70', 'pura 80', 'mate 70',
   'google pixel', 'pixel', 'pixel 9', 'pixel 10', 'pixel 11', 'oneplus', 'tecno', 'infinix', 'nothing phone', 'rog phone', 'redmagic', 'nubia', 'xperia', 'motorola', 'nokia', 'android',
-  // Máy tính, máy ảnh
-  'pc', 'laptop', 'windows', 'windows 10', 'windows 11', 'may tinh', 'sony', 'canon', 'fujifilm', 'nikon', 'may anh', 'camera',
-  // Cổng kết nối & phụ kiện
-  'type-c', 'type c', 'usb-c', 'lightning', 'chan lightning', 'micro-usb', 'micro usb', 'jack 3.5', '3.5mm', 'trs', 'trrs', 'otg', 'ket noi otg', 'bat otg',
-  'usb-a', 'dau chuyen', 'cap chuyen', 'hub', 'dock sac', 'hop sac',
+  // Máy tính bảng, Laptop, PC, máy ảnh (cập nhật 2025–2026)
+  'may tinh bang', 'tablet', 'galaxy tab', 'xiaomi pad', 'redmi pad', 'oppo pad', 'vivo pad', 'matepad', 'honor pad', 'lenovo tab', 'surface', 'surface pro', 'surface go',
+  'macbook', 'macbook air', 'macbook pro', 'imac', 'mac mini', 'mac studio',
+  'pc', 'laptop', 'windows', 'windows 10', 'windows 11', 'may tinh', 'may tinh ban', 'sony', 'canon', 'fujifilm', 'nikon', 'may anh', 'camera',
+  // Cổng kết nối, OTG, Gỡ lỗi USB, iOS Mic & Mua hàng
+  'type-c', 'type c', 'usb-c', 'lightning', 'chan lightning', 'micro-usb', 'micro usb', 'jack 3.5', '3.5mm', 'trs', 'trrs', 'otg', 'ket noi otg', 'bat otg', 'mo otg',
+  'go loi usb', 'usb debugging', 'tuy chon nha phat trien', 'nha phat trien', 'dinh tuyen am thanh usb',
+  'ios 18', 'ios 17', 'ios 16', 'mic ngoai', 'mic gan ngoai', 'dau vao am thanh', 'trung tam dieu khien',
+  'usb-a', 'dau chuyen', 'cap chuyen', 'chuyen usb', 'hub', 'dock sac', 'hop sac', 'chot don', 'mua ngay',
   // Ứng dụng & Nền tảng
   'tiktok', 'capcut', 'capcut pc', 'facebook', 'facebook live', 'youtube', 'zoom', 'teams', 'google meet', 'obs', 'obs studio',
   'open camera', 'livestream', 'quay video', 'thu am', 'podcast', 'day hoc', 'hop online',

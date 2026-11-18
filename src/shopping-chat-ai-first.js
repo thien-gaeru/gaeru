@@ -89,7 +89,7 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
       const usage=usageRes.rows[0].total;
       if(usage>40){reason='ai_limit';result={handoff:true,answer:'AI đã đạt giới hạn xử lý của phiên này.'};}
       else{
-        const facts=p=>({id:p.id,slug:p.slug,category:p.category,descriptor:p.descriptor,name:p.name,description:String(p.description||'').slice(0,job.thread.product_id?2400:480),variants:(p.variants||[]).slice(0,12).map(v=>({name:v.name,sku:v.sku,priceVnd:v.priceVnd,originalPriceVnd:v.originalPriceVnd,activePromotion:v.activePromotion||v.promotion||null,stockQuantity:v.stockQuantity,available:Number(v.stockQuantity)>0}))});
+        const facts=p=>({id:p.id,slug:p.slug,category:p.category,descriptor:p.descriptor,name:p.name,description:String(p.description||'').slice(0,job.thread.product_id?2400:480),variants:(p.variants||[]).slice(0,12).map(v=>({id:v.id,name:v.name,sku:v.sku,options:v.options||null,priceVnd:v.priceVnd,originalPriceVnd:v.originalPriceVnd,activePromotion:v.activePromotion||v.promotion||null,stockQuantity:v.stockQuantity,active:v.active!==false,available:Number(v.stockQuantity)>0}))});
         const selected=catalog.find(p=>p.id===job.thread.product_id);
         if(job.thread.product_id&&!selected)throw Error('Product unavailable');
         const webKnowledge=await getRelevantWebKnowledge(pool,{question:job.question,selectedProduct:selected,transport});

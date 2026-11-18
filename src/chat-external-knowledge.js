@@ -1,6 +1,12 @@
 const { createHash } = require('node:crypto');
 const { normalizeVi, normalizeSearchSpace, expandQueryVi, hasAnyBoundaryTerm } = require('./lib/ai-nlu');
-const { BRAND_PROFILES, buildComprehensiveCompatibilityAnswer } = require('./lib/phone-compatibility');
+const {
+  BRAND_PROFILES,
+  TABLET_PROFILES,
+  WINDOWS_LAPTOP_BRANDS,
+  DESKTOP_PC_TRIGGERS,
+  buildComprehensiveCompatibilityAnswer
+} = require('./lib/phone-compatibility');
 
 // In-memory cache for external knowledge lookups (TTL 30 mins, max 300 entries)
 const externalCache = new Map();
@@ -11,23 +17,29 @@ const MAX_CACHE_ENTRIES = 300;
 const TECH_ECOSYSTEM_KNOWLEDGE = [
   {
     category: 'iphone_ios_devices',
-    triggers: ['iphone', 'ios', 'lightning', 'type c iphone', 'ipad', 'macbook'],
+    triggers: ['iphone', 'ios', 'lightning', 'type c iphone', 'ipad', 'macbook', 'imac', 'mac mini', 'ios 18', 'ios 17', 'mic ngoai', 'mic gan ngoai'],
     facts: [
-      'iPhone 15, 16 (kể cả 16e), 17 (17, 17 Air, 17e, 17 Pro/Pro Max) và iPhone 18 series đều sử dụng cổng USB Type-C chuẩn quốc tế: Cắm đầu thu Type-C trực tiếp vào đáy máy là nhận mic ngay, không cần đầu chuyển.',
-      'iPhone 14 series trở xuống (iPhone 14, 13, 12, 11, XS, XR, X, 8, 7, SE thế hệ 1–3): Sử dụng chân cắm Lightning. Khách nên chọn phân loại Chân Lightning (trên GAERU K9) hoặc bản Type-C kèm đầu chuyển Lightning (trên GAERU K9 / GAERU M3).',
-      'iPad Type-C (iPad Gen 10/11, iPad Air 4/5/M2/M3+, iPad mini 6/7, iPad Pro 2018–M4/M5) và MacBook cắm đầu thu Type-C nhận ngay; iPad Gen 9 / Air 3 / mini 5 trở xuống dùng chân Lightning.'
+      'iPhone 15, 16 (kể cả 16e), 17 (17, 17 Air, 17e, 17 Pro/Pro Max) và iPhone 18 series đều sử dụng cổng USB Type-C chuẩn quốc tế: Cắm đầu thu Type-C trực tiếp vào đáy máy là nhận mic ngay.',
+      'iPhone 14 series trở xuống (iPhone 14, 13, 12, 11, XS, XR, X, 8, 7, SE thế hệ 1–3) và iPad Gen 9 / Air 3 / mini 5 trở xuống dùng chân Lightning: Chọn phân loại Chân Lightning hoặc bản Type-C + đầu chuyển Lightning.',
+      'iPad Gen 10/11, Air 4/5/M2/M3/M4, mini 6/7, iPad Pro 2018–M4/M5 và MacBook Air/Pro 2016+ (Apple Silicon M1–M5), iMac M1–M4, Mac mini M4 dùng USB Type-C trực tiếp.',
+      'Từ iOS 18 trở lên (iOS mới), mở Trung tâm điều khiển (Control Center) khi đang quay/thu âm → chạm khung Micrô/Ứng dụng để kiểm tra chọn Đầu vào là mic gắn ngoài và giữ Chế độ micrô Tiêu chuẩn. Riêng iOS dưới 18 (iOS 17 trở xuống) tự động nhận mic ngoài ngay khi cắm, KHÔNG cần thực hiện bước chọn thủ công.'
     ]
   },
   {
-    category: 'android_otg_compatibility',
+    category: 'android_tablets_laptops_pc',
     triggers: [
-      'android', 'otg', 'micro usb', 'chua nhan', 'khong nhan', 'khong nhan mic', 'den khong sang',
-      ...BRAND_PROFILES.flatMap(b => b.triggers)
+      'android', 'otg', 'micro usb', 'go loi usb', 'nha phat trien', 'may tinh bang', 'tablet',
+      'usb a', 'chuyen usb', 'chua nhan', 'khong nhan', 'khong nhan mic', 'den khong sang',
+      ...BRAND_PROFILES.flatMap(b => b.triggers),
+      ...TABLET_PROFILES.flatMap(t => t.triggers),
+      ...WINDOWS_LAPTOP_BRANDS,
+      ...DESKTOP_PC_TRIGGERS
     ],
     facts: [
-      'Samsung Galaxy (S20–S26 Ultra, Z Fold 5–7, Z Flip 5–7, A15–A56, Tab S9–S11), Google Pixel (6–11), HONOR (Magic 6–8, 200–400), Xiaomi/Redmi/POCO (Xiaomi 14–18, Redmi Note 12–15, POCO X7–F8), Huawei (Pura 70–80, Mate 70), Nothing/CMF, ASUS ROG Phone 8–9, RedMagic/Nubia, Sony Xperia: Đều dùng cổng USB Type-C, tự nhận OTG & micro ngoài khi cắm trực tiếp.',
-      'OPPO (Find X8–X10, Find N5, Reno12–16, A5/A60), Realme (12–16, GT 6–8, C65–C85), OnePlus, vivo/iQOO (X200–X300, V40–V60, Y19s–Y31d, iQOO 13–15), Tecno (Camon 30–40, Spark 30–40), Infinix (Note 40–50, Hot 40–50): Đều dùng cổng USB Type-C và thường cần vào Cài đặt -> bật Kết nối OTG trước khi cắm đầu thu.',
-      'Điện thoại Android phổ thông đời cũ (Samsung J7/A10s, OPPO A3s/A12/A15, Redmi 9A/9C/10A, vivo Y11/Y12/Y20, Realme C11/C21Y): Sử dụng chân cắm Micro-USB, cần chọn phân loại Type-C + chuyển Micro-USB (có sẵn trên GAERU K9 và GAERU M3).'
+      'Samsung Galaxy (S20–S26 Ultra, Z Fold 5–7, Z Flip 5–7, A15–A56, Galaxy Tab S6–S11 / A7–A9+), Google Pixel, HONOR (Magic 6–8, HONOR Pad), Xiaomi/Redmi/POCO (Xiaomi 14–18, Redmi Note 12–15, Xiaomi/Redmi Pad), Huawei (Pura 70–80, MatePad), Lenovo Tab mới, Nothing/CMF, ASUS ROG, Sony Xperia: Dùng cổng USB Type-C và tự nhận OTG trực tiếp.',
+      'OPPO (Find X8–X10, Reno12–16, OPPO Pad), Realme (12–16, GT 6–8), OnePlus, vivo/iQOO (X200–X300, V40–V60, vivo Pad), Tecno, Infinix: Dùng USB Type-C và thường cần vào Cài đặt → bật Kết nối OTG trước khi cắm đầu thu.',
+      'Nếu Android đã bật OTG mà vẫn chưa nhận tín hiệu mic USB: Mở Tùy chọn nhà phát triển (chạm 7 lần Phiên bản OS / Số bản dựng) → bật Gỡ lỗi USB (USB debugging) và đảm bảo công tắc Tắt định tuyến âm thanh USB đang TẮT.',
+      'Laptop Windows phổ thông/cũ, MacBook Air/Pro trước 2017, Surface Pro 4–6 và PC để bàn (USB-A): Chọn phân loại Type-C + chuyển USB để cắm cổng USB chữ nhật rồi chọn Wireless Microphone trong Sound Input. Máy Android cũ (J7, OPPO A3s, Redmi 9A, vivo Y11) dùng phân loại + chuyển Micro USB.'
     ]
   },
   {
@@ -135,7 +147,7 @@ async function getExternalWebKnowledge({ question = '', selectedProduct = null, 
   }
 
   // 2. Perform live web search if question involves specific devices, apps, or comparisons
-  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|redmi|poco|vivo|iqoo|realme|oneplus|honor|huawei|pixel|tecno|infinix|nothing|rog|redmagic|nubia|xperia|motorola|nokia|ipad|laptop|pc|macbook|mac|otg|capcut|tiktok|livestream|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)\b/.test(qNorm);
+  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|redmi|poco|vivo|iqoo|realme|oneplus|honor|huawei|pixel|tecno|infinix|nothing|rog|redmagic|nubia|xperia|motorola|nokia|ipad|tablet|may tinh bang|galaxy tab|xiaomi pad|matepad|surface|laptop|pc|macbook|imac|mac mini|otg|go loi usb|usb debugging|ios 18|ios 17|mic ngoai|capcut|tiktok|livestream|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)\b/.test(qNorm);
 
   let searchSnippets = [];
   if (webSearchEnabled && needsWebSearch && transport) {
@@ -159,7 +171,7 @@ async function getExternalWebKnowledge({ question = '', selectedProduct = null, 
   }
 
   return {
-    ecosystemFacts: matchedFacts.slice(0, 4),
+    ecosystemFacts: matchedFacts.slice(0, 6),
     searchSnippets: searchSnippets.slice(0, 2)
   };
 }

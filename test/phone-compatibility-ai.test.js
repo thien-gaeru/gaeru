@@ -7,11 +7,36 @@ const { expandQueryVi, resolveMentionedProducts } = require('../src/lib/ai-nlu')
 const { getExternalWebKnowledge } = require('../src/chat-external-knowledge');
 
 const CATALOG = [
-  { slug: 'gaeru-k9', name: 'GAERU K9', category: 'audio', variants: [{ name: 'Chân Type C', priceVnd: 289000 }, { name: 'Chân Type C + Chuyển Lightning · Bộ 1 Micro', priceVnd: 339000 }] },
-  { slug: 'gaeru-m3', name: 'GAERU M3', category: 'audio', variants: [{ name: 'Type C', priceVnd: 1200000 }, { name: 'Type C + đầu chuyển Lightning', priceVnd: 1200000 }] },
-  { slug: 'gaeru-g1-ultra', name: 'GAERU G1 ULTRA', category: 'audio', variants: [{ name: 'GAERU G1 ULTRA', priceVnd: 2100000 }] },
-  { slug: 'gaeru-p01', name: 'GAERU P01', category: 'video', variants: [{ name: 'Gimbal P01 để bàn', priceVnd: 550000 }] },
-  { slug: 'gaeru-p185', name: 'GAERU P185', category: 'video', variants: [{ name: 'Phiên bản tiêu chuẩn', priceVnd: 450000 }] }
+  {
+    slug: 'gaeru-k9',
+    name: 'GAERU K9',
+    category: 'audio',
+    variants: [
+      { id: 'k9-1l', name: 'Chân Lightning · Bộ 1 Micro', sku: 'K9-1M-L', priceVnd: 289000, stockQuantity: 100, active: true },
+      { id: 'k9-2l', name: 'Chân Lightning · Bộ 2 Micro', sku: 'K9-2M-L', priceVnd: 409000, stockQuantity: 100, active: true },
+      { id: 'k9-1c', name: 'Chân Type C', sku: 'K9-1M-C', priceVnd: 289000, stockQuantity: 100, active: true },
+      { id: 'k9-2c', name: 'Chân Type C · Bộ 2 Micro', sku: 'K9-2M-C', priceVnd: 409000, stockQuantity: 100, active: true },
+      { id: 'k9-1c-l', name: 'Chân Type C + Chuyển Lightning · Bộ 1 Micro', sku: 'K9-1M-CL', priceVnd: 339000, stockQuantity: 100, active: true },
+      { id: 'k9-2c-l', name: 'Chân Type C + Chuyển Lightning · Bộ 2 Micro', sku: 'K9-2M-CL', priceVnd: 459000, stockQuantity: 100, active: true },
+      { id: 'k9-1c-m', name: 'Chân Type C + Chuyển Micro USB · Bộ 1 Micro', sku: 'K9-1M-CM', priceVnd: 339000, stockQuantity: 100, active: true },
+      { id: 'k9-1c-u', name: 'Chân Type C + Chuyển USB · Bộ 1 Micro', sku: 'K9-1M-CU', priceVnd: 339000, stockQuantity: 100, active: true },
+      { id: 'k9-2c-u', name: 'Chân Type C + Chuyển USB · Bộ 2 Micro', sku: 'K9-2M-CU', priceVnd: 459000, stockQuantity: 100, active: true }
+    ]
+  },
+  {
+    slug: 'gaeru-m3',
+    name: 'GAERU M3',
+    category: 'audio',
+    variants: [
+      { id: 'm3-c', name: 'Type C', sku: 'M3-C', priceVnd: 1200000, stockQuantity: 50, active: true },
+      { id: 'm3-m', name: 'Type C + chuyển Micro usb', sku: 'M3-M', priceVnd: 1200000, stockQuantity: 50, active: true },
+      { id: 'm3-u', name: 'Type C + chuyển USB', sku: 'M3-U', priceVnd: 1200000, stockQuantity: 50, active: true },
+      { id: 'm3-l', name: 'Type C + đầu chuyển Lightning', sku: 'M3-L', priceVnd: 1200000, stockQuantity: 50, active: true }
+    ]
+  },
+  { slug: 'gaeru-g1-ultra', name: 'GAERU G1 ULTRA', category: 'audio', variants: [{ id: 'g1-u', name: 'GAERU G1 ULTRA', sku: 'G1-U', priceVnd: 2100000, stockQuantity: 0, active: true }] },
+  { slug: 'gaeru-p01', name: 'GAERU P01', category: 'video', variants: [{ id: 'p01-desk', name: 'Gimbal P01 để bàn', priceVnd: 550000, stockQuantity: 10, active: true }, { id: 'p01-2m1', name: 'Gimbal GAERU P01 + Chân 2m1', priceVnd: 650000, stockQuantity: 10, active: true }] },
+  { slug: 'gaeru-p185', name: 'GAERU P185', category: 'video', variants: [{ id: 'p185-std', name: 'Phiên bản tiêu chuẩn', priceVnd: 450000, stockQuantity: 10, active: true }] }
 ];
 
 test('NLU shorthand expansion supports 2025-2026 iPhone, Samsung, Xiaomi and Micro-USB queries', () => {
@@ -98,4 +123,151 @@ test('GAERU AI identifies legacy Micro-USB phones, Phone Directory summary, and 
   // External Knowledge includes the updated device facts too
   const ext = await getExternalWebKnowledge({ question: 'HONOR Magic 8 Pro dùng chân gì?', webSearchEnabled: false });
   assert.ok(ext.ecosystemFacts.some(f => f.includes('HONOR') && f.includes('Type-C')));
+});
+
+test('GAERU AI accurately recommends connector ports across Tablets, Laptops and Desktop PCs', async () => {
+  // Chip M3 in Apple laptops/iMacs must NOT false-trigger GAERU M3
+  const mbK9 = resolveMentionedProducts('MacBook Air M3 và iMac M3 dùng GAERU K9 bản nào?', CATALOG);
+  assert.equal(mbK9.items.length, 1);
+  assert.equal(mbK9.items[0].key, 'gaeru-k9');
+
+  const queries = [
+    ['Samsung Galaxy Tab S10 Ultra dùng chân gì cho mic?', ['Galaxy Tab', 'USB Type-C']],
+    ['OPPO Pad Air và vivo Pad 3 Pro cắm mic GAERU có cần bật gì không?', ['OPPO Pad', 'vivo Pad', 'OTG', 'USB Type-C']],
+    ['Xiaomi Pad 7 và Huawei MatePad 11.5 cắm mic K9 bản nào?', ['Xiaomi Pad', 'MatePad', 'Type-C']],
+    ['Microsoft Surface Pro 6 cũ dùng chân nào, còn Surface Pro 9 dùng chân gì?', ['USB-A', 'USB Type-C']],
+    ['MacBook Air M3 và MacBook Air 2015 dùng mic GAERU M3 bản nào?', ['Type-C', 'chuyển USB']],
+    ['Laptop Dell XPS và PC máy tính để bàn Windows cắm K9 chọn chân gì?', ['USB-A', 'Chuyển USB']],
+    ['Mac mini M4 và iMac M4 dùng chân cắm gì cho micro?', ['USB-C', 'Type-C']]
+  ];
+
+  for (const [question, expected] of queries) {
+    const res = await generateGaeruAiResponse({ question, catalog: CATALOG });
+    assert.equal(res.handoff, false, `Unexpected handoff for: ${question}`);
+    for (const token of expected) {
+      assert.ok(res.answer.includes(token), `Missing "${token}" in answer for "${question}":\n${res.answer}`);
+    }
+  }
+});
+
+test('GAERU AI provides detailed per-brand OTG and USB Debugging guides', async () => {
+  const otgAll = await generateGaeruAiResponse({ question: 'Hướng dẫn mở OTG cho từng loại máy khi kết nối mic GAERU', catalog: CATALOG });
+  assert.ok(otgAll.answer.includes('OPPO'));
+  assert.ok(otgAll.answer.includes('Realme'));
+  assert.ok(otgAll.answer.includes('vivo'));
+  assert.ok(otgAll.answer.includes('Tecno'));
+  assert.ok(otgAll.answer.includes('10 phút'));
+  assert.ok(otgAll.answer.includes('5 phút'));
+
+  const otgVivo = await generateGaeruAiResponse({ question: 'vivo X300 cắm mic không sáng đèn thì bật OTG ở đâu?', catalog: CATALOG });
+  assert.ok(otgVivo.answer.includes('Bluetooth'));
+  assert.ok(otgVivo.answer.includes('OTG'));
+
+  const usbAll = await generateGaeruAiResponse({ question: 'Hướng dẫn mở gỡ lỗi USB cho từng loại máy Android để kết nối mic', catalog: CATALOG });
+  assert.ok(usbAll.answer.includes('HyperOS'));
+  assert.ok(usbAll.answer.includes('Samsung'));
+  assert.ok(usbAll.answer.includes('OPPO'));
+  assert.ok(usbAll.answer.includes('vivo'));
+  assert.ok(usbAll.answer.includes('Tắt định tuyến âm thanh USB'));
+  assert.ok(usbAll.answer.includes('iPhone / iPad'));
+
+  const usbXiaomi = await generateGaeruAiResponse({ question: 'Xiaomi Redmi Note 14 bật gỡ lỗi usb chỗ nào?', catalog: CATALOG });
+  assert.ok(usbXiaomi.answer.includes('Phiên bản MIUI / Phiên bản HyperOS'));
+  assert.ok(usbXiaomi.answer.includes('Gỡ lỗi USB'));
+});
+
+test('GAERU AI distinguishes iOS 18+ manual external mic selection from iOS under 18 automatic plug-and-play', async () => {
+  const iosCompare = await generateGaeruAiResponse({
+    question: 'Cách chọn mic gắn ngoài trên iOS 18 mới và máy iOS dưới 18 có cần chọn không?',
+    catalog: CATALOG
+  });
+  assert.ok(iosCompare.answer.includes('iOS 18'));
+  assert.ok(iosCompare.answer.includes('Trung tâm điều khiển'));
+  assert.ok(iosCompare.answer.includes('Đầu vào'));
+  assert.ok(iosCompare.answer.includes('iOS dưới 18'));
+  assert.ok(iosCompare.answer.includes('KHÔNG cần'));
+
+  const iosUnder18 = await generateGaeruAiResponse({
+    question: 'iPhone 13 chạy iOS 16 có cần thao tác chọn mic ngoài như iOS 18 không?',
+    catalog: CATALOG
+  });
+  assert.ok(iosUnder18.answer.includes('iOS dưới 18'));
+  assert.ok(iosUnder18.answer.includes('KHÔNG cần'));
+});
+
+test('GAERU AI resolves purchase-closing intent to Buy Now CTA (respecting real stock) and client renders XSS-safe action cards', async () => {
+  // 1. Multi-turn closing retains prior iPhone 17 Pro Max -> Type-C SKU on M3
+  const multiTurnClose = await generateGaeruAiResponse({
+    question: 'Ok chốt cho mình lấy bộ này nhé',
+    catalog: CATALOG,
+    history: [
+      { sender: 'customer', body: 'Mình dùng iPhone 17 Pro Max hỏi GAERU M3 dùng bản nào?' },
+      { sender: 'ai', body: 'GAERU M3 bản Type C cắm trực tiếp iPhone 17 Pro Max.' }
+    ]
+  });
+  assert.ok(multiTurnClose.answer.includes('GAERU M3'));
+  assert.ok(multiTurnClose.answer.includes('(/thanh-toan?variant=m3-c)'), `Expected exact M3 Type-C checkout CTA:\n${multiTurnClose.answer}`);
+  assert.ok(!multiTurnClose.answer.includes('m3-u') && !multiTurnClose.answer.includes('m3-l'));
+
+  // 2. Direct closing on K9 2 mic for PC Windows -> Chân Type C + Chuyển USB · Bộ 2 Micro
+  const pcClose = await generateGaeruAiResponse({
+    question: 'Chốt mua GAERU K9 bản 2 mic cho PC máy tính để bàn Windows nhé',
+    catalog: CATALOG
+  });
+  assert.ok(pcClose.answer.includes('Chân Type C + Chuyển USB · Bộ 2 Micro'));
+  assert.ok(pcClose.answer.includes('(/thanh-toan?variant=k9-2c-u)'));
+
+  // 3. Out-of-stock GAERU G1 ULTRA must NOT suggest Buy Now for 0-stock SKU
+  const oosClose = await generateGaeruAiResponse({
+    question: 'Chốt đơn GAERU G1 ULTRA cho mình luôn nhé',
+    catalog: CATALOG
+  });
+  assert.ok(oosClose.answer.includes('tạm hết hàng'));
+  assert.ok(!oosClose.answer.includes('/thanh-toan?variant=g1-u'));
+  assert.ok(oosClose.answer.includes('/san-pham/gaeru-k9') || oosClose.answer.includes('/san-pham/gaeru-m3'));
+
+  // 4. Negated closing ("chưa chốt") stays pure informational without buy button
+  const negatedClose = await generateGaeruAiResponse({
+    question: 'Chưa chốt đâu, hỏi K9 pin dùng mấy tiếng?',
+    catalog: CATALOG
+  });
+  assert.ok(negatedClose.answer.includes('2,5 giờ'));
+  assert.ok(!negatedClose.answer.includes('/thanh-toan?variant='));
+
+  // 5. Thread-bound closing with Laptop Windows -> resolves USB-A variant CTA cleanly
+  const { answerCustomerChat } = require('../src/gaeru-ai-customer');
+  const threadClose = await answerCustomerChat({
+    pool: null,
+    config: {},
+    thread: { id: 't-1', product_id: 'prod-m3', product_name: 'GAERU M3' },
+    question: 'Ok chốt lấy luôn bản cắm Laptop ASUS cổng USB thường nha',
+    product: { products: CATALOG.map((p, idx) => idx === 1 ? { ...p, id: 'prod-m3' } : p) }
+  });
+  assert.ok(threadClose.answer.includes('Type C + chuyển USB'));
+  assert.ok(threadClose.answer.includes('(/thanh-toan?variant=m3-u)'));
+
+  // 6. Client formatMessageBody renders .chat-buy-card + Mua ngay + Thêm vào giỏ while blocking javascript: XSS
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const clientSrc = fs.readFileSync(require.resolve('../shopping-chat-client.js'), 'utf8');
+  const snippet = clientSrc.slice(0, clientSrc.indexOf('  const ICONS =')) +
+    '\nreturn { formatMessageBody, escape };})();';
+  const helpers = vm.runInNewContext(snippet, {});
+  const renderedBuy = helpers.formatMessageBody(
+    'Xác nhận chốt **GAERU M3** · **Type C**.\n- 👉 [Mua ngay GAERU M3 · Type C (1.200.000 ₫)](/thanh-toan?variant=m3-c)',
+    'ai',
+    false
+  );
+  assert.ok(renderedBuy.includes('<strong>GAERU M3</strong>'));
+  assert.ok(renderedBuy.includes('class="chat-buy-card"'));
+  assert.ok(renderedBuy.includes('href="/thanh-toan?variant=m3-c"'));
+  assert.ok(renderedBuy.includes('data-chat-add-variant="m3-c"'));
+
+  const xssAttempt = helpers.formatMessageBody(
+    '<img src=x onerror=alert(1)> [Hack](javascript:alert(1))',
+    'ai',
+    false
+  );
+  assert.ok(!xssAttempt.includes('<img'));
+  assert.ok(!xssAttempt.includes('href="javascript:'));
 });

@@ -1786,5 +1786,104 @@ dialog.chat-media-lightbox::backdrop {
     background: #15293d !important;
     border-color: #1d4ed8 !important;
   }
+  .chat-buy-card {
+    background: #1c2430 !important;
+    border-color: #2f435c !important;
+  }
+  .chat-buy-title {
+    color: #f5f5f7 !important;
+  }
+  .chat-buy-cta {
+    background: #0a84ff !important;
+    color: #ffffff !important;
+  }
+  .chat-cart-cta {
+    background: #2c2c2e !important;
+    border-color: #48484a !important;
+    color: #60a5fa !important;
+  }
+  .chat-cart-cta.is-added {
+    background: #13281b !important;
+    border-color: #1e532d !important;
+    color: #4ade80 !important;
+  }
+  .chat-inline-link,
+  .chat-cart-view-link {
+    color: #60a5fa !important;
+  }
+}
+
+.chat-buy-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid #cce0ff;
+  border-radius: 12px;
+  background: #ffffff;
+  white-space: normal;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.06);
+}
+.chat-buy-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1d1d1f;
+  line-height: 1.35;
+}
+.chat-buy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.chat-buy-cta,
+.chat-cart-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.chat-buy-cta {
+  border: 1px solid transparent;
+  background: #0071e3;
+  color: #ffffff;
+}
+.chat-buy-cta:hover {
+  background: #0066cc;
+}
+.chat-cart-cta {
+  border: 1px solid #0071e3;
+  background: #f0f7ff;
+  color: #0066cc;
+}
+.chat-cart-cta:hover:not(:disabled) {
+  background: #e2efff;
+}
+.chat-cart-cta.is-added {
+  border-color: #22c55e;
+  background: #f0fdf4;
+  color: #15803d;
+}
+.chat-cart-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.chat-cart-view-link,
+.chat-inline-link {
+  color: #0066cc;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 

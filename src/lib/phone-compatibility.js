@@ -1,26 +1,34 @@
 'use strict';
 
 /**
- * Cơ sở dữ liệu thiết bị di động & chuẩn chân cắm kết nối cập nhật (2025–2026)
- * Phục vụ hệ thống tư vấn tương thích thông minh GAERU AI.
- *
- * Bao phủ đầy đủ các dòng máy Apple (iPhone/iPad), Android (Samsung, Xiaomi/Redmi/POCO,
- * OPPO/OnePlus/Realme, vivo/iQOO, HONOR, Huawei, Google Pixel, Tecno, Infinix,
- * Nothing/CMF, ZTE/Nubia/RedMagic, ASUS ROG/Zenfone, Sony Xperia, Motorola, Nokia/HMD),
- * phân loại rõ chuẩn cổng vật lý (USB Type-C / Lightning / Micro-USB) và lưu ý OTG / App.
+ * Cơ sở dữ liệu thiết bị toàn diện & chuẩn chân cắm kết nối (2025–2026)
+ * Phục vụ hệ thống tư vấn chuyên sâu GAERU AI:
+ * - Điện thoại (Apple iPhone & 16 nhóm hãng Android/Gaming mới nhất lẫn đời cũ)
+ * - Máy tính bảng (iPad, Samsung Galaxy Tab, Xiaomi/Redmi/POCO Pad, OPPO/OnePlus Pad, vivo Pad, Huawei MatePad, HONOR Pad, Lenovo Tab, Surface Pro/Go, Fire/Masstel)
+ * - Laptop (MacBook Air/Pro Intel & M1–M5, Dell, HP, ASUS, Lenovo, Acer, MSI, LG Gram, Surface Laptop, Huawei MateBook)
+ * - PC / Máy tính để bàn & All-in-One (Windows Case/Mainboard, iMac Intel & M1–M4, Mac mini, Mac Studio)
+ * - Hướng dẫn OTG theo từng hãng, Gỡ lỗi USB từng hãng, và chọn Mic gắn ngoài iOS 18+ vs iOS dưới 18.
  */
 
 const {
   normalizeSearchSpace,
   expandQueryVi,
-  hasAnyBoundaryTerm
+  hasAnyBoundaryTerm,
+  hasBoundaryTerm
 } = require('./ai-nlu');
 
-const PORT_TYPES = Object.freeze({
-  TYPE_C: 'type-c',
-  LIGHTNING: 'lightning',
-  MICRO_USB: 'micro-usb'
-});
+const {
+  EXT_PORT_TYPES,
+  TABLET_PROFILES,
+  WINDOWS_LAPTOP_BRANDS,
+  DESKTOP_PC_TRIGGERS,
+  detectTabletLaptopPcInfo,
+  buildOtgGuide,
+  buildUsbDebuggingGuide,
+  buildIosMicSelectionGuide
+} = require('./device-guides');
+
+const PORT_TYPES = EXT_PORT_TYPES;
 
 const APPLE_TYPE_C_SERIES = Object.freeze([
   'iphone 18', 'iphone 18 plus', 'iphone 18 pro', 'iphone 18 pro max',
@@ -66,15 +74,15 @@ const BRAND_PROFILES = Object.freeze([
       'z fold 7', 'z fold 6', 'z fold 5', 'z fold 4', 'fold 7', 'fold 6', 'fold 5',
       'z flip 7', 'z flip 7 fe', 'z flip 6', 'z flip 5', 'z flip 4', 'flip 7', 'flip 6', 'flip 5',
       'a56', 'a55', 'a54', 'a36', 'a35', 'a34', 'a26', 'a25', 'a17', 'a16', 'a15', 'a07', 'a06', 'a05',
-      'm55', 'm35', 'm15', 'tab s11', 'tab s10', 'tab s9', 'galaxy note 20', 'galaxy note 10',
+      'm55', 'm35', 'm15', 'galaxy note 20', 'galaxy note 10',
       'j7 prime', 'j7 pro', 'galaxy j7', 'galaxy j5', 'galaxy j4', 'galaxy j6', 'galaxy a10', 'a10s', 'a2 core', 'galaxy a02', 'a03 core'
     ],
     legacyMicroUsbModels: [
       'j7 prime', 'j7 pro', 'galaxy j7', 'galaxy j5', 'galaxy j4', 'galaxy j6', 'galaxy a10', 'a10s', 'a2 core', 'galaxy a02', 'a03 core'
     ],
-    latestSummary: 'Galaxy S25 / S26 series, Z Fold 7 / Z Flip 7, Galaxy A56 / A36 / A26 / A16–A17, Tab S10 / S11',
+    latestSummary: 'Galaxy S25 / S26 series, Z Fold 7 / Z Flip 7, Galaxy A56 / A36 / A26 / A16–A17',
     portNote: 'Tất cả dòng Galaxy hiện đại từ S8, A/M series (từ 2020–2026) đến Z Fold 7 / Flip 7 đều dùng cổng **USB Type-C** (chỉ các dòng cũ như J7 Prime, J7 Pro, A10s, A03 Core dùng **Micro-USB**).',
-    osTip: 'Máy Samsung tự động nhận OTG & micro Type-C (cắm là dùng). Nếu app Camera mặc định chỉ dùng mic máy, bạn hãy chuyển sang chế độ **Video Chuyên Nghiệp (Pro Video) → Mic: USB**, hoặc quay bằng **TikTok / CapCut / Open Camera**.'
+    osTip: 'Máy Samsung tự động nhận OTG & micro Type-C (cắm là dùng). Nếu app Camera mặc định chỉ dùng mic máy, chuyển sang chế độ **Video Chuyên Nghiệp (Pro Video) → Mic: USB**, hoặc quay bằng **TikTok / CapCut / Open Camera**.'
   },
   {
     id: 'oppo',
@@ -91,7 +99,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['oppo a3s', 'a3s', 'oppo a5s', 'a5s', 'a1k', 'oppo a12', 'oppo a15', 'a15s', 'a16k', 'oppo f7', 'oppo f9', 'oppo f11'],
     latestSummary: 'OPPO Find X9 / X10, Find N5, Reno13 / Reno14 / Reno15 / Reno16, OPPO A5 / A6 Pro / A60',
     portNote: 'Các dòng OPPO mới (Reno, Find X/N, A3/A5/A60 trở lên) dùng cổng **USB Type-C** (chỉ các máy cũ như A3s, A5s, A12, A15, F7/F9/F11 dùng **Micro-USB**).',
-    osTip: '**Lưu ý quan trọng trên OPPO (ColorOS):** Vào **Cài đặt → Cài đặt bổ sung (hoặc Kết nối & chia sẻ) → bật Kết nối OTG** trước khi cắm đầu thu (OTG tự tắt sau 10 phút nếu không dùng).'
+    osTip: '**Lưu ý quan trọng trên OPPO (ColorOS):** Vào **Cài đặt → Cài đặt bổ sung / Cài đặt hệ thống → bật Kết nối OTG** trước khi cắm đầu thu (OTG tự tắt sau 10 phút nếu không dùng).'
   },
   {
     id: 'realme',
@@ -136,7 +144,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['vivo y11', 'vivo y12', 'y12s', 'vivo y15', 'y15s', 'vivo y17', 'vivo y19', 'vivo y20', 'y20s', 'vivo y91'],
     latestSummary: 'vivo X200 / X300 Ultra, V40 / V50 / V60, Y19s / Y28 / Y29 / Y31d, iQOO 13 / 15 / Neo 10',
     portNote: 'Các dòng vivo V/X/T, Y mới (Y18/Y19s/Y28/Y29/Y31d) và iQOO dùng **USB Type-C** (các mẫu vivo cũ như Y11, Y12, Y15, Y20 dùng **Micro-USB**).',
-    osTip: '**Lưu ý trên vivo (Funtouch OS / OriginOS):** Nếu cắm chưa sáng đèn, vào **Cài đặt → Bluetooth & thiết bị (hoặc Cài đặt khác) → bật OTG**.'
+    osTip: '**Lưu ý trên vivo (Funtouch OS / OriginOS):** Nếu cắm chưa sáng đèn, vào **Cài đặt → Bluetooth & thiết bị (hoặc Mạng & kết nối khác) → bật OTG** (OTG tự tắt sau 5 phút nếu không kết nối).'
   },
   {
     id: 'xiaomi',
@@ -153,7 +161,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['redmi 9a', 'redmi 9c', 'redmi 10a', 'redmi a1', 'redmi a2', 'redmi s2', 'redmi note 5', 'redmi note 6'],
     latestSummary: 'Xiaomi 15 / 17 / 18 series, 14T / 15T, Redmi Note 13–15, Redmi 13–15 / A3–A5, POCO X7 / F7 / F8',
     portNote: 'Các dòng Xiaomi, Redmi (từ Note 7, Redmi 9, A3/A5, 13–15 trở lên) và POCO đều dùng **USB Type-C** (chỉ dòng giá rẻ cũ như Redmi 9A, 9C, 10A, A1, A2 dùng **Micro-USB**).',
-    osTip: 'HyperOS / MIUI hỗ trợ OTG tự nhận khi cắm. Nếu app Camera mặc định chưa ghi âm mic ngoài, chọn **Nguồn âm ngoài** trong cài đặt camera hoặc quay qua **TikTok / CapCut / Open Camera**.'
+    osTip: 'HyperOS / MIUI hỗ trợ OTG tự nhận khi cắm. Nếu app Camera mặc định chưa ghi âm mic ngoài hoặc ROM nội địa chưa cấp quyền USB, quay thử qua **TikTok / CapCut / Open Camera** (*Nguồn âm ngoài*), hoặc bật **Gỡ lỗi USB** trong *Tùy chọn nhà phát triển* (tắt mục *Tắt định tuyến âm thanh USB*).'
   },
   {
     id: 'honor',
@@ -197,7 +205,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['spark go 2020', 'spark go 2022', 'tecno spark 5', 'tecno spark 6'],
     latestSummary: 'Tecno Camon 30 / 40, Spark 30 / 40, Spark Go 1–3, Pova 6 / 7',
     portNote: 'Các dòng Tecno mới (Camon 30/40, Spark 30/40, Spark Go mới, Pova 6/7) đều dùng **USB Type-C** (chỉ dòng Spark đời rất cũ trước 2022 dùng Micro-USB).',
-    osTip: '**Lưu ý trên Tecno (HiOS):** Nếu cắm chưa lên đèn đầu thu, hãy vuốt thanh thông báo hoặc vào **Cài đặt → Kết nối khác → bật OTG**.'
+    osTip: '**Lưu ý trên Tecno (HiOS):** Nếu cắm chưa lên đèn đầu thu, hãy vuốt thanh thông báo hoặc vào **Cài đặt → Thêm kết nối / Kết nối khác → bật OTG**.'
   },
   {
     id: 'infinix',
@@ -208,7 +216,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: [],
     latestSummary: 'Infinix Note 40 / 50, Hot 40 / 50, GT 20 / 30, Zero 40',
     portNote: 'Các dòng Infinix mới bán tại Việt Nam đều dùng cổng **USB Type-C**.',
-    osTip: '**Lưu ý trên Infinix (XOS):** Nếu chưa nhận mic, vào **Cài đặt → Kết nối khác → bật OTG** rồi cắm lại sát chân.'
+    osTip: '**Lưu ý trên Infinix (XOS):** Nếu chưa nhận mic, vào **Cài đặt → Thêm kết nối / Kết nối khác → bật OTG** rồi cắm lại sát chân.'
   },
   {
     id: 'nothing',
@@ -271,34 +279,61 @@ function recommendVariantForPorts(ports, matchedProdKey = null) {
   const hasTypeC = ports.has(PORT_TYPES.TYPE_C);
   const hasLightning = ports.has(PORT_TYPES.LIGHTNING);
   const hasMicroUsb = ports.has(PORT_TYPES.MICRO_USB);
+  const hasUsbA = ports.has(PORT_TYPES.USB_A);
 
   if (matchedProdKey === 'gaeru-m3') {
-    if (hasLightning && hasTypeC) return 'Trên **GAERU M3**, chọn phân loại **Type C + đầu chuyển Lightning** (`1.200.000 ₫`) để dùng cho cả hai máy.';
-    if (hasLightning) return 'Trên **GAERU M3**, chọn phân loại **Type C + đầu chuyển Lightning** (`1.200.000 ₫`).';
-    if (hasMicroUsb) return 'Trên **GAERU M3**, chọn phân loại **Type C + chuyển Micro usb** (`1.200.000 ₫`).';
+    if (hasLightning && !hasUsbA && !hasMicroUsb) {
+      return 'Trên **GAERU M3**, chọn phân loại **Type C + đầu chuyển Lightning** (`1.200.000 ₫`)' + (hasTypeC ? ' để dùng cho cả hai máy.' : '.');
+    }
+    if (hasUsbA && !hasLightning && !hasMicroUsb) {
+      return 'Trên **GAERU M3**, chọn phân loại **Type C + chuyển USB** (`1.200.000 ₫`) để cắm vừa cổng USB-A của Laptop/PC lẫn thiết bị Type-C.';
+    }
+    if (hasMicroUsb && !hasLightning && !hasUsbA) {
+      return 'Trên **GAERU M3**, chọn phân loại **Type C + chuyển Micro usb** (`1.200.000 ₫`).';
+    }
+    if (hasLightning && (hasUsbA || hasMicroUsb)) {
+      return 'Trên **GAERU M3** (`1.200.000 ₫`), mỗi bộ đi kèm sẵn **1 loại đầu chuyển** — bạn chọn bản theo thiết bị chính (**Type C + đầu chuyển Lightning** hoặc **Type C + chuyển USB**) rồi dùng thêm đầu chuyển lẻ tương ứng khi cần cắm thêm máy còn lại.';
+    }
     return 'Trên **GAERU M3**, chọn phân loại chuẩn **Type C** (`1.200.000 ₫`) — cắm trực tiếp không cần đầu chuyển.';
   }
 
   if (matchedProdKey === 'gaeru-k9') {
-    if (hasLightning && hasTypeC) return 'Trên **GAERU K9**, chọn phân loại **Chân Type C + Chuyển Lightning** (bộ 1 mic `339.000 ₫` hoặc 2 mic `459.000 ₫`) để dùng chung được cho cả hai chuẩn chân cắm.';
-    if (hasLightning) return 'Trên **GAERU K9**, chọn phân loại **Chân Lightning** (bộ 1 mic `289.000 ₫` hoặc 2 mic `409.000 ₫`) để cắm trực tiếp, hoặc **Chân Type C + Chuyển Lightning** nếu muốn dùng thêm với máy Type-C.';
-    if (hasMicroUsb) return 'Trên **GAERU K9**, chọn phân loại **Chân Type C + Chuyển Micro USB** (bộ 1 mic `339.000 ₫` hoặc 2 mic `459.000 ₫`).';
+    if (hasLightning && hasTypeC && !hasUsbA && !hasMicroUsb) {
+      return 'Trên **GAERU K9**, chọn phân loại **Chân Type C + Chuyển Lightning** (bộ 1 mic `339.000 ₫` hoặc 2 mic `459.000 ₫`) để dùng chung được cho cả hai chuẩn chân cắm.';
+    }
+    if (hasLightning && !hasUsbA && !hasMicroUsb) {
+      return 'Trên **GAERU K9**, chọn phân loại **Chân Lightning** (bộ 1 mic `289.000 ₫` hoặc 2 mic `409.000 ₫`) để cắm trực tiếp, hoặc **Chân Type C + Chuyển Lightning** nếu muốn dùng thêm với máy Type-C.';
+    }
+    if (hasUsbA && !hasLightning && !hasMicroUsb) {
+      return 'Trên **GAERU K9**, chọn phân loại **Chân Type C + Chuyển USB** (bộ 1 mic `339.000 ₫` hoặc 2 mic `459.000 ₫`) để cắm vừa cổng USB chữ nhật trên Laptop/PC vừa dùng được trên thiết bị Type-C.';
+    }
+    if (hasMicroUsb && !hasLightning && !hasUsbA) {
+      return 'Trên **GAERU K9**, chọn phân loại **Chân Type C + Chuyển Micro USB** (bộ 1 mic `339.000 ₫` hoặc 2 mic `459.000 ₫`).';
+    }
+    if (hasLightning && (hasUsbA || hasMicroUsb)) {
+      return 'Trên **GAERU K9**, mỗi phân loại combo kèm sẵn **1 đầu chuyển** (`Chân Type C + Chuyển Lightning` hoặc `Chân Type C + Chuyển USB`, từ `339.000 ₫`) — bạn chọn theo máy dùng thường xuyên nhất rồi ghép thêm đầu chuyển OTG phụ nếu cần cắm đủ mọi máy.';
+    }
     return 'Trên **GAERU K9**, chọn phân loại **Chân Type C** (bộ 1 mic `289.000 ₫` hoặc 2 mic `409.000 ₫`) — cắm trực tiếp không cần đầu chuyển.';
   }
 
   if (matchedProdKey === 'gaeru-g1-ultra') {
-    return 'Trên **GAERU G1 ULTRA**, bộ đa thiết bị đi kèm cáp/đầu chuyển theo phân loại cho điện thoại **Type-C / Lightning**, **máy ảnh 3.5mm** và **PC**.';
+    return 'Trên **GAERU G1 ULTRA**, bộ đa thiết bị hỗ trợ điện thoại **Type-C / Lightning**, **máy ảnh 3.5mm** và **Laptop/PC**.';
   }
 
-  // General recommendation across GAERU mics when product not specified
-  if (hasLightning && hasTypeC) {
+  if (hasLightning && hasTypeC && !hasUsbA && !hasMicroUsb) {
     return '**Gợi ý chọn phân loại GAERU:** Chọn **Chân Type C + Chuyển Lightning** (trên **GAERU K9** hoặc **GAERU M3**) để cắm được cho cả hai loại máy.';
   }
-  if (hasLightning) {
+  if (hasLightning && !hasUsbA && !hasMicroUsb) {
     return '**Gợi ý chọn phân loại GAERU:** Chọn bản **Chân Lightning** (trên **GAERU K9** từ `289.000 ₫`) hoặc **Type C + đầu chuyển Lightning** (trên **GAERU M3** `1.200.000 ₫` / **K9** `339.000 ₫`).';
   }
-  if (hasMicroUsb) {
+  if (hasUsbA && !hasLightning && !hasMicroUsb) {
+    return '**Gợi ý chọn phân loại GAERU:** Chọn bản **Type C + chuyển USB** (có sẵn trên **GAERU K9** từ `339.000 ₫` và **GAERU M3** `1.200.000 ₫`) để cắm vừa **USB-A Laptop/PC** lẫn máy **Type-C**.';
+  }
+  if (hasMicroUsb && !hasLightning && !hasUsbA) {
     return '**Gợi ý chọn phân loại GAERU:** Chọn phân loại **Type C + chuyển Micro USB** (có sẵn trên **GAERU K9** và **GAERU M3**).';
+  }
+  if (hasLightning && (hasUsbA || hasMicroUsb)) {
+    return '**Gợi ý chọn phân loại GAERU:** Nếu dùng song song máy **Lightning** và **PC USB-A / Micro-USB**, hãy chọn bộ **Chân Type C + Chuyển Lightning** (hoặc **+ Chuyển USB**) theo máy chính rồi trang bị thêm 1 đầu chuyển OTG phụ.';
   }
   if (hasTypeC) {
     return '**Gợi ý chọn phân loại GAERU:** Chọn bản chuẩn **Chân Type-C** (có sẵn trên **GAERU K9** từ `289.000 ₫` và **GAERU M3** `1.200.000 ₫`) — cắm trực tiếp nhận ngay.';
@@ -314,14 +349,14 @@ function formatAppleLabel(raw) {
     .replace(/\b(xs|xr|x|se)\b/gi, m => m.toUpperCase());
 }
 
-function detectAppleDeviceInfo(space, hasAndroidMatch = false) {
+function detectAppleDeviceInfo(space, hasAndroidOrOtherMatch = false) {
   const matchedTypeC = APPLE_TYPE_C_SERIES.filter(m => hasAnyBoundaryTerm(space, [m]));
   const matchedLightning = APPLE_LIGHTNING_SERIES.filter(m => hasAnyBoundaryTerm(space, [m]));
   const matchedIpadC = IPAD_TYPE_C_MODELS.filter(m => hasAnyBoundaryTerm(space, [m]));
   const matchedIpadL = IPAD_LIGHTNING_MODELS.filter(m => hasAnyBoundaryTerm(space, [m]));
 
   const hasExplicitApple = hasAnyBoundaryTerm(space, ['iphone', 'ipad', 'ios', 'apple']) ||
-    (!hasAndroidMatch && hasAnyBoundaryTerm(space, ['lightning']));
+    (!hasAndroidOrOtherMatch && hasAnyBoundaryTerm(space, ['lightning']));
   const ports = new Set();
   const lines = [];
 
@@ -339,17 +374,17 @@ function detectAppleDeviceInfo(space, hasAndroidMatch = false) {
 
   if (matchedIpadC.length) {
     ports.add(PORT_TYPES.TYPE_C);
-    lines.push('- **iPad đời mới** (iPad Gen 10/11, Air 4/5/M2/M3+, mini 6/7, iPad Pro 2018–M4/M5) dùng cổng **USB Type-C** — cắm trực tiếp đầu thu Type-C.');
+    lines.push('- **iPad đời mới** (iPad Gen 10/11, Air 4/5/M2/M3/M4, mini 6/7, iPad Pro 2018–M4/M5) dùng cổng **USB Type-C** — cắm trực tiếp đầu thu Type-C.');
   } else if (matchedIpadL.length) {
     ports.add(PORT_TYPES.LIGHTNING);
-    lines.push('- **iPad đời cũ** (iPad Gen 9 trở xuống, Air 3 trở xuống, mini 5 trở xuống) dùng chân **Lightning** — chọn đầu thu hoặc đầu chuyển Lightning.');
+    lines.push('- **iPad đời cũ** (iPad Gen 5–9, Air 1–3, mini 1–5, iPad Pro 9.7"/10.5") dùng chân **Lightning** — chọn đầu thu hoặc đầu chuyển Lightning.');
   } else if (hasAnyBoundaryTerm(space, ['ipad'])) {
     ports.add(PORT_TYPES.TYPE_C);
     ports.add(PORT_TYPES.LIGHTNING);
-    lines.push('- **iPad:** Các mẫu mới (Gen 10/11, Air 4+, mini 6+, Pro 2018+) dùng **Type-C**; các mẫu cũ (Gen 9 trở xuống, mini 5 trở xuống, Air 3 trở xuống) dùng **Lightning**.');
+    lines.push('- **iPad:** Các mẫu mới (Gen 10/11 A16, Air 4+, mini 6/7, Pro 2018–M5) dùng **Type-C**; các mẫu cũ (Gen 9 trở xuống, mini 5 trở xuống, Air 3 trở xuống) dùng **Lightning**.');
   }
 
-  if (!matchedTypeC.length && !matchedLightning.length && hasExplicitApple) {
+  if (!matchedTypeC.length && !matchedLightning.length && !matchedIpadC.length && !matchedIpadL.length && !hasAnyBoundaryTerm(space, ['ipad', 'macbook', 'imac', 'mac mini', 'mac studio']) && hasExplicitApple) {
     if (hasAnyBoundaryTerm(space, ['type c']) && !hasAnyBoundaryTerm(space, ['lightning'])) {
       ports.add(PORT_TYPES.TYPE_C);
     } else if (hasAnyBoundaryTerm(space, ['lightning']) && !hasAnyBoundaryTerm(space, ['type c'])) {
@@ -365,9 +400,27 @@ function detectAppleDeviceInfo(space, hasAndroidMatch = false) {
 }
 
 function detectAndroidBrandMatches(space) {
+  const tabletBrandsMatched = new Set();
+  for (const tab of TABLET_PROFILES) {
+    if (hasAnyBoundaryTerm(space, tab.triggers)) {
+      if (tab.id === 'galaxy_tab') tabletBrandsMatched.add('samsung');
+      if (tab.id === 'xiaomi_pad') tabletBrandsMatched.add('xiaomi');
+      if (tab.id === 'oppo_tab') tabletBrandsMatched.add('oppo');
+      if (tab.id === 'vivo_tab') tabletBrandsMatched.add('vivo');
+      if (tab.id === 'huawei_honor_tab') { tabletBrandsMatched.add('huawei'); tabletBrandsMatched.add('honor'); }
+    }
+  }
+
   const matches = [];
   for (const profile of BRAND_PROFILES) {
     if (hasAnyBoundaryTerm(space, profile.triggers)) {
+      // Tránh lặp 2 dòng giống nhau khi khách chỉ hỏi tên máy tính bảng như "Galaxy Tab S10" hoặc "OPPO Pad Air"
+      if (tabletBrandsMatched.has(profile.id)) {
+        const specificPhoneTriggers = profile.triggers.filter(t => !['samsung', 'galaxy', 'xiaomi', 'redmi', 'poco', 'oppo', 'vivo', 'iqoo', 'huawei', 'honor'].includes(t));
+        if (!hasAnyBoundaryTerm(space, specificPhoneTriggers) && !hasAnyBoundaryTerm(space, ['dien thoai'])) {
+          continue;
+        }
+      }
       const legacyHits = profile.legacyMicroUsbModels.filter(m => hasAnyBoundaryTerm(space, [m]));
       const detectedPort = legacyHits.length > 0 ? PORT_TYPES.MICRO_USB : profile.defaultPort;
       matches.push({ profile, detectedPort, legacyHits });
@@ -376,23 +429,54 @@ function detectAndroidBrandMatches(space) {
   return matches;
 }
 
+/**
+ * Suy luận tập cổng kết nối cần thiết từ câu hiện tại và lịch sử trò chuyện của khách.
+ */
+function inferDevicePortsFromText(space, history = []) {
+  const texts = [space];
+  if (Array.isArray(history)) {
+    for (const msg of history.slice(-6)) {
+      if (msg && (!msg.sender || msg.sender === 'customer')) {
+        texts.push(normalizeSearchSpace(expandQueryVi(msg.body || msg.content || '')));
+      }
+    }
+  }
+  const combined = texts.filter(Boolean).join(' ');
+  const ports = new Set();
+  const brandMatches = detectAndroidBrandMatches(combined);
+  const tabletPc = detectTabletLaptopPcInfo(combined, { hasPhoneMatch: brandMatches.length > 0 });
+  const apple = detectAppleDeviceInfo(combined, brandMatches.length > 0 || tabletPc.matched);
+
+  apple.ports.forEach(p => ports.add(p));
+  tabletPc.ports.forEach(p => ports.add(p));
+  brandMatches.forEach(m => ports.add(m.detectedPort));
+
+  if (hasBoundaryTerm(combined, 'micro usb')) ports.add(PORT_TYPES.MICRO_USB);
+  if (hasAnyBoundaryTerm(combined, ['usb a', 'chuyen usb', 'usb thuong'])) ports.add(PORT_TYPES.USB_A);
+  if (hasBoundaryTerm(combined, 'type c')) ports.add(PORT_TYPES.TYPE_C);
+  if (hasBoundaryTerm(combined, 'lightning') && brandMatches.length === 0) ports.add(PORT_TYPES.LIGHTNING);
+
+  return ports;
+}
+
 function buildPhoneDirectorySummary() {
   return [
-    '**Tổng hợp chuẩn chân cắm các dòng điện thoại mới nhất (2025–2026) khi chọn mic GAERU:**',
-    '- **Chân USB Type-C (cắm trực tiếp không cần đầu chuyển):** Toàn bộ **iPhone 15 / 16 / 16e / 17 / 17 Air / 18**, iPad Gen 10+/Air 4+/Pro, và hầu hết Android mới (**Samsung S24–S26 / Z Fold 7 / Flip 7 / A36–A56**, **Xiaomi 14–18 / Redmi Note 13–15 / POCO X7–F8**, **OPPO Find X8–X10 / Reno12–16**, **Realme 14–16 / GT7**, **vivo X200–X300 / V40–V60**, **HONOR Magic 7–8 / 200–400**, **Huawei Pura 70–80 / Mate 70**, **Google Pixel 8–11**, **Tecno Camon 30–40**, **Infinix Note 40–50**, **Nothing Phone**, **ROG Phone / RedMagic / Sony Xperia**).',
-    '- **Chân Lightning:** **iPhone 14 series trở xuống** (14, 13, 12, 11, X/XS/XR, 8, SE 1–3) và iPad Gen 9 / Air 3 / mini 5 trở xuống (chọn bản **Chân Lightning** hoặc **Type C + đầu chuyển Lightning**).',
-    '- **Chân Micro-USB (máy Android phổ thông đời cũ trước 2020):** Samsung J7 Prime / A10s, OPPO A3s / A12 / A15, Redmi 9A / 9C / 10A, vivo Y11 / Y12 / Y20 (chọn bản **Type C + chuyển Micro USB** trên GAERU K9 hoặc M3).',
-    '- **Lưu ý bật OTG:** Các máy **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** cần vào **Cài đặt → bật Kết nối OTG** trước khi cắm đầu thu micro.'
+    '**Tổng hợp chuẩn chân cắm Điện thoại, Máy tính bảng, Laptop & PC khi chọn micro GAERU (2025–2026):**',
+    '- **Điện thoại / iPad cổng USB Type-C (cắm trực tiếp bản Type-C):** Toàn bộ **iPhone 15 / 16 / 16e / 17 / 17 Air / 18**, **iPad Gen 10–11 / Air 4–M4 / mini 6–7 / Pro 2018–M5**, và hầu hết Android mới (**Samsung S24–S26 / Z Fold 7 / Flip 7 / A36–A56**, **Xiaomi 14–18 / Redmi Note 13–15 / POCO X7–F8**, **OPPO Find X8–X10 / Reno12–16**, **Realme 14–16 / GT7**, **vivo X200–X300 / V40–V60**, **HONOR Magic 7–8**, **Huawei Pura 70–80 / Mate 70**, **Google Pixel 8–11**, **Tecno / Infinix / Nothing / ROG Phone / RedMagic / Sony Xperia**).',
+    '- **Điện thoại / iPad chân Lightning:** **iPhone 14 series trở xuống** (14, 13, 12, 11, X/XS/XR, 8, SE 1–3) và **iPad Gen 9 / Air 3 / mini 5 trở xuống** → chọn bản **Chân Lightning** hoặc **Type C + đầu chuyển Lightning**.',
+    '- **Máy tính bảng Android & Surface:** **Galaxy Tab S6–S11 / A7–A9+**, **Xiaomi/Redmi/POCO Pad**, **OPPO Pad / OnePlus Pad**, **vivo Pad**, **Huawei MatePad**, **HONOR Pad**, **Lenovo Tab mới**, **Surface Pro 7+–11 / Go 2–4** dùng **USB Type-C** (máy bảng cũ trước 2019 dùng **Micro-USB**; Surface Pro 4–6 dùng **USB-A**).',
+    '- **Laptop & PC (Máy tính để bàn):** **MacBook (2016+ & M1–M5), iMac M1–M4, Mac mini M4** dùng **USB Type-C** trực tiếp; **Laptop Windows phổ thông/cũ, MacBook trước 2017 & PC để bàn** dùng cổng chữ nhật **USB-A** → chọn phân loại **Type C + chuyển USB**.',
+    '- **Điện thoại Android phổ thông đời cũ (Micro-USB):** Samsung J7 Prime / A10s, OPPO A3s / A12 / A15, Redmi 9A / 9C / 10A, vivo Y11 / Y12 / Y20 → chọn bản **Type C + chuyển Micro USB**.',
+    '- **Lưu ý hệ điều hành:** Các máy **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** nhớ bật **Kết nối OTG**; trên **iOS 18+** kiểm tra chọn **mic gắn ngoài** trong Trung tâm điều khiển (**iOS dưới 18 không cần chọn thủ công**).'
   ].join('\n');
 }
 
 /**
- * Sinh câu trả lời chuyên sâu về tương thích điện thoại, hãng máy & chân cắm kết nối.
+ * Sinh câu trả lời chuyên sâu về tương thích thiết bị, chân cắm & hướng dẫn OTG / Gỡ lỗi USB / iOS.
  */
 function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKey = null) {
   const qNorm = space || normalizeSearchSpace(expandQueryVi(rawQuestion));
 
-  // Trường hợp sản phẩm là Gimbal P01 hoặc Gậy chụp hình P185 (không phụ thuộc cổng sạc/âm thanh)
   if (matchedProdKey === 'gaeru-p01' || matchedProdKey === 'gaeru-p185') {
     const productName = matchedProdKey === 'gaeru-p01' ? 'GAERU P01' : 'GAERU P185';
     const extra = matchedProdKey === 'gaeru-p185'
@@ -401,27 +485,55 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
     return `**${productName}** kẹp giữ thân máy trực tiếp nên **tương thích 100% mọi dòng iPhone (5 đến 18 series) và mọi hãng Android** (Samsung, OPPO, Xiaomi, vivo, HONOR, Pixel…), không phân biệt chân cắm Type-C hay Lightning. ${extra}`;
   }
 
-  // Trường hợp khách hỏi tổng quát danh sách các hãng/đời máy và chân cắm hiện nay
   const asksDirectory = hasAnyBoundaryTerm(qNorm, [
     'cac loai dien thoai', 'cac dong dien thoai', 'cac hang dien thoai', 'tat ca dien thoai',
-    'danh sach dien thoai', 'nhung dong may nao', 'dien thoai nao dung', 'hang dien thoai nao'
+    'danh sach dien thoai', 'nhung dong may nao', 'dien thoai nao dung', 'hang dien thoai nao',
+    'tat ca thiet bi', 'nhung thiet bi nao', 'cac thiet bi ho tro'
   ]);
   if (asksDirectory) {
     return buildPhoneDirectorySummary();
   }
 
+  const brandMatches = detectAndroidBrandMatches(qNorm);
+  const tabletPc = detectTabletLaptopPcInfo(qNorm, { hasPhoneMatch: brandMatches.length > 0 });
+  const hasNonAppleMatch = brandMatches.length > 0 || tabletPc.matched;
+  const appleInfo = detectAppleDeviceInfo(qNorm, hasNonAppleMatch);
+
+  const matchedBrandIds = Array.from(new Set([
+    ...brandMatches.map(m => m.profile.id),
+    ...tabletPc.manualOtgBrands
+  ]));
+
+  const asksUsbDebugging = hasAnyBoundaryTerm(qNorm, [
+    'go loi usb', 'bat go loi usb', 'mo go loi usb', 'nha phat trien',
+    'tuy chon nha phat trien', 'developer options', 'dinh tuyen am thanh usb', 'disable usb audio routing'
+  ]);
+  const asksOtgTopic = hasAnyBoundaryTerm(qNorm, [
+    'otg', 'bat otg', 'mo otg', 'ket noi otg',
+    'khong nhan', 'chua nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng'
+  ]);
+  const asksIosMicSelection = hasAnyBoundaryTerm(qNorm, [
+    'ios 18', 'ios 19', 'ios 26', 'ios 17', 'ios 16', 'ios 15', 'ios 14',
+    'ios moi', 'ios duoi 18', 'ios cu', 'mic ngoai', 'mic gan ngoai', 'micro ngoai', 'micro gan ngoai',
+    'chon mic ngoai', 'dau vao am thanh', 'trung tam dieu khien', 'mic may', 'mic iphone', 'thu bang mic trong'
+  ]) || (appleInfo.matched && hasAnyBoundaryTerm(qNorm, [
+    'chon mic', 'chon dau vao', 'cach cai', 'cach bat', 'thiet lap', 'khong nhan', 'mat tieng', 'khong co tieng', 'van thu'
+  ]));
+
   const sections = [];
   const portsFound = new Set();
 
-  const brandMatches = detectAndroidBrandMatches(qNorm);
-  const appleInfo = detectAppleDeviceInfo(qNorm, brandMatches.length > 0);
-  if (appleInfo.matched) {
+  // Nếu chỉ hỏi chuyên sâu về Gỡ lỗi USB / OTG / chọn mic iOS mà không hỏi chọn mua máy mới
+  const isPureUsbDebugGuide = asksUsbDebugging && !hasAnyBoundaryTerm(qNorm, ['chon chan', 'chan cam', 'chan gi', 'mua ban nao']);
+  const isPureOtgGuide = asksOtgTopic && hasAnyBoundaryTerm(qNorm, ['otg', 'bat otg', 'mo otg', 'cach bat', 'huong dan']) && !hasAnyBoundaryTerm(qNorm, ['chan cam', 'chan gi', 'mua ban nao']);
+  const isPureIosGuide = asksIosMicSelection && !hasAnyBoundaryTerm(qNorm, ['chan cam', 'chan gi', 'mua ban nao']) && brandMatches.length === 0 && !tabletPc.matched;
+
+  if (appleInfo.matched && !isPureIosGuide && !isPureUsbDebugGuide) {
     appleInfo.ports.forEach(p => portsFound.add(p));
     sections.push(...appleInfo.lines);
   }
-  const asksGenericAndroid = hasAnyBoundaryTerm(qNorm, ['android', 'otg', 'khong nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng', 'micro usb']);
 
-  if (brandMatches.length > 0) {
+  if (brandMatches.length > 0 && !isPureUsbDebugGuide && !isPureOtgGuide) {
     for (const m of brandMatches) {
       portsFound.add(m.detectedPort);
       if (m.detectedPort === PORT_TYPES.MICRO_USB) {
@@ -433,38 +545,57 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
         sections.push(`  ${m.profile.osTip}`);
       }
     }
-  } else if (asksGenericAndroid) {
+  }
+
+  if (tabletPc.matched && !isPureUsbDebugGuide && !isPureOtgGuide) {
+    tabletPc.ports.forEach(p => portsFound.add(p));
+    sections.push(...tabletPc.lines);
+  }
+
+  // Trường hợp Android chung chưa nêu hãng cụ thể
+  const asksGenericAndroid = hasAnyBoundaryTerm(qNorm, ['android', 'micro usb']) ||
+    (asksOtgTopic && brandMatches.length === 0 && !appleInfo.matched && !tabletPc.matched);
+  if (brandMatches.length === 0 && asksGenericAndroid && !isPureOtgGuide && !isPureUsbDebugGuide) {
     if (hasAnyBoundaryTerm(qNorm, ['micro usb'])) {
       portsFound.add(PORT_TYPES.MICRO_USB);
-      sections.push('- Điện thoại Android đời cũ cổng **Micro-USB** (như Samsung J7, OPPO A3s/A12, Redmi 9A/9C, vivo Y11/Y12): chọn phân loại **Type C + chuyển Micro USB** có sẵn trên **GAERU K9** và **GAERU M3** (lưu ý bật OTG nếu máy OPPO/Realme/Vivo).');
-    } else {
+      sections.push('- Điện thoại / tablet Android đời cũ cổng **Micro-USB** (Samsung J7, OPPO A3s/A12, Redmi 9A/9C, vivo Y11/Y12…): chọn phân loại **Type C + chuyển Micro USB** trên **GAERU K9** và **GAERU M3**.');
+    } else if (!asksOtgTopic) {
       portsFound.add(PORT_TYPES.TYPE_C);
-      sections.push('- **Android (Samsung, Xiaomi, HONOR, Pixel, Nothing…):** Các dòng hiện đại dùng cổng **USB Type-C** tự nhận khi cắm; riêng **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** cần vào **Cài đặt → bật Kết nối OTG** trước khi cắm đầu thu (tháo ốp dày nếu cấn chân).');
-      sections.push('- Nếu app Camera mặc định chưa lấy tiếng mic ngoài, hãy quay bằng **TikTok / CapCut** hoặc tải **Open Camera** (chọn *Nguồn âm thanh: Micro ngoài*).');
+      sections.push('- **Android:** Các dòng hiện đại dùng cổng **USB Type-C** tự nhận khi cắm; riêng **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** cần vào **Cài đặt → bật Kết nối OTG** trước khi cắm đầu thu.');
     }
   }
 
-  // Cảnh báo nếu khách nhắc tới cổng 3.5mm trên điện thoại
+  // Chèn hướng dẫn chuyên sâu iOS 18+ vs iOS dưới 18 nếu câu hỏi liên quan
+  if (asksIosMicSelection) {
+    sections.push(buildIosMicSelectionGuide(qNorm));
+  }
+
+  // Chèn hướng dẫn OTG chi tiết theo từng dòng máy
+  const shouldIncludeFullOtg = isPureOtgGuide || (asksOtgTopic && brandMatches.length === 0 && !appleInfo.matched && !tabletPc.matched) ||
+    (asksOtgTopic && matchedBrandIds.some(id => ['oppo', 'realme', 'oneplus', 'vivo', 'tecno', 'infinix'].includes(id)));
+  if (shouldIncludeFullOtg) {
+    sections.push(buildOtgGuide(qNorm, matchedBrandIds));
+  }
+
+  // Chèn hướng dẫn Gỡ lỗi USB từng hãng (hoặc nhắc ngắn khi troubleshooting Android chưa nhận mic)
+  if (asksUsbDebugging) {
+    sections.push(buildUsbDebuggingGuide(qNorm, brandMatches.map(m => m.profile.id)));
+  } else if (asksOtgTopic && !appleInfo.matched && (brandMatches.length > 0 || asksGenericAndroid)) {
+    sections.push('- **Nếu đã bật OTG & cắm sát chân nhưng Android vẫn chưa nhận:** Mở *Tùy chọn nhà phát triển* (chạm 7 lần *Số bản dựng / Phiên bản OS*) → bật **Gỡ lỗi USB** và kiểm tra công tắc **Tắt định tuyến âm thanh USB** phải đang **TẮT**, sau đó quay thử qua **CapCut / TikTok / Open Camera** (*Micro ngoài*).');
+  }
+
+  // Cảnh báo nếu khách nhắc tới cổng 3.5mm trên điện thoại / laptop
   if (hasAnyBoundaryTerm(qNorm, ['3.5mm', 'jack 3.5', 'lo tron', 'tai nghe']) && !hasAnyBoundaryTerm(qNorm, ['may anh', 'camera', 'canon', 'sony alpha', 'fujifilm', 'nikon'])) {
-    sections.push('- **Lưu ý cổng 3.5mm trên điện thoại:** Đầu thu mic GAERU K9 và M3 cắm vào **cổng sạc (Type-C / Lightning / chuyển Micro-USB)**, không cắm vào lỗ tai nghe 3.5mm trên điện thoại (cáp 3.5mm TRS chỉ dùng cho **máy ảnh** trên dòng G1 ULTRA).');
-  }
-
-  const asksPc = hasAnyBoundaryTerm(qNorm, ['may tinh', 'laptop', 'pc', 'macbook', 'windows', 'obs']);
-  if (asksPc) {
-    if (matchedProdKey === 'gaeru-g1-ultra') {
-      sections.push('- **Máy tính / Laptop:** **GAERU G1 ULTRA** hỗ trợ cắm trực tiếp PC/Laptop và nhận làm nguồn mic mặc định trên Zoom, OBS Studio, CapCut PC.');
-    } else {
-      sections.push('- **Máy tính / Laptop (Windows, MacBook):** Cắm đầu thu **Type-C** trực tiếp vào cổng USB-C, hoặc chọn bản **Type C + chuyển USB (USB-A)** trên K9/M3 để cắm vào cổng USB thường trên máy tính → chọn *Wireless Microphone* trong Sound Input.');
-    }
+    sections.push('- **Lưu ý cổng 3.5mm:** Đầu thu mic GAERU K9 và M3 cắm vào **cổng kỹ thuật số (Type-C / Lightning / chuyển USB-A / Micro-USB)**, không cắm vào lỗ tai nghe 3.5mm trên điện thoại hoặc laptop (chỉ máy ảnh mới dùng dây 3.5mm TRS trên dòng G1 ULTRA).');
   }
 
   const asksCamera = hasAnyBoundaryTerm(qNorm, ['may anh', 'camera', 'sony', 'canon', 'fujifilm', 'nikon', '3.5mm', 'jack 3.5']) &&
-    !hasAnyBoundaryTerm(qNorm, ['xperia', 'open camera', 'app camera']);
+    !hasAnyBoundaryTerm(qNorm, ['xperia', 'open camera', 'app camera', 'pixel camera']);
   if (asksCamera) {
     if (matchedProdKey === 'gaeru-g1-ultra') {
       sections.push('- **GAERU G1 ULTRA** kết nối trực tiếp với **máy ảnh** qua dây âm thanh **3.5mm TRS** đi kèm.');
     } else if (hasAnyBoundaryTerm(qNorm, ['may anh', 'canon', 'fujifilm', 'nikon', 'sony'])) {
-      sections.push('- Để cắm trực tiếp **máy ảnh (ngõ Mic 3.5mm)**, dòng phù hợp nhất là **GAERU G1 ULTRA** (K9 và M3 tiêu chuẩn thiết kế cho cổng Type-C / Lightning / USB của điện thoại và PC).');
+      sections.push('- Để cắm trực tiếp **máy ảnh (ngõ Mic 3.5mm)**, dòng phù hợp nhất là **GAERU G1 ULTRA** (K9 và M3 tiêu chuẩn thiết kế cho cổng Type-C / Lightning / USB của điện thoại, máy tính bảng và PC/Laptop).');
     }
   }
 
@@ -473,14 +604,14 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
     sections.push('- Các dòng micro GAERU (**K9**, **M3**, **G1 ULTRA**) đều tích hợp xử lý giảm ồn **DSP / AI** + bông lọc gió giúp lọc tạp âm, gió và tiếng ồn môi trường.');
   }
 
-  const asksAppCompat = hasAnyBoundaryTerm(qNorm, ['tiktok', 'capcut', 'facebook', 'youtube', 'zoom', 'shopee', 'app', 'open camera']) ||
+  const asksAppCompat = hasAnyBoundaryTerm(qNorm, ['tiktok', 'capcut', 'facebook', 'youtube', 'zoom', 'shopee', 'obs', 'app', 'open camera']) ||
     (hasAnyBoundaryTerm(qNorm, ['livestream']) && hasAnyBoundaryTerm(qNorm, ['dung duoc', 'tuong thich', 'ho tro', 'ket noi']) && !hasAnyBoundaryTerm(qNorm, ['thiet bi']));
   if (asksAppCompat && sections.length === 0) {
-    sections.push('- Thiết bị GAERU tương thích trực tiếp với **TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Zoom** (cắm đầu thu vào máy là dùng ngay trên app, không cần ghép Bluetooth để thu tiếng).');
+    sections.push('- Thiết bị GAERU tương thích trực tiếp với **TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Zoom, OBS Studio** (cắm đầu thu vào máy là dùng ngay, không cần ghép Bluetooth để thu tiếng).');
   }
 
-  // Bổ sung gợi ý phân loại chân cắm chính xác theo thiết bị khách đang hỏi
-  if (portsFound.size > 0 && sections.length > 0) {
+  // Gợi ý đúng phân loại chân cắm GAERU nếu người hỏi đang chọn mua cho thiết bị
+  if (portsFound.size > 0 && sections.length > 0 && !isPureOtgGuide && !isPureUsbDebugGuide && !isPureIosGuide) {
     const rec = recommendVariantForPorts(portsFound, matchedProdKey);
     if (rec && !sections.some(s => s.includes('Gợi ý chọn phân loại'))) {
       sections.push(`- ${rec}`);
@@ -497,9 +628,17 @@ module.exports = {
   IPAD_TYPE_C_MODELS,
   IPAD_LIGHTNING_MODELS,
   BRAND_PROFILES,
+  TABLET_PROFILES,
+  WINDOWS_LAPTOP_BRANDS,
+  DESKTOP_PC_TRIGGERS,
   detectAppleDeviceInfo,
   detectAndroidBrandMatches,
+  detectTabletLaptopPcInfo,
+  inferDevicePortsFromText,
   recommendVariantForPorts,
   buildPhoneDirectorySummary,
+  buildOtgGuide,
+  buildUsbDebuggingGuide,
+  buildIosMicSelectionGuide,
   buildComprehensiveCompatibilityAnswer
 };

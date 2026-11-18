@@ -1,11 +1,31 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const formatMessageBody = (body, sender) => {
+  const SAFE_CHAT_ACTION_URL = /^\/(?:thanh-toan\?variant=([a-zA-Z0-9_-]+)|san-pham\/([a-z0-9-]+)(?:\?variant=([a-zA-Z0-9_-]+))?|cua-hang|gio-hang|ho-tro(?:#[a-z0-9-]+)?|huong-dan(?:\/[a-z0-9-]+)?)$/;
+  const renderChatActionHtml = (rawLabel, rawHref, admin, asCard = true) => {
+    const m = SAFE_CHAT_ACTION_URL.exec(rawHref);
+    if (!m) return null;
+    const checkoutVariant = m[1];
+    const productSlug = m[2];
+    const cleanTitle = String(rawLabel || '').replace(/^(?:Mua ngay|Chọn phân loại\s*(?:&amp;|&)\s*Mua ngay)\s+/i, '').trim() || rawLabel;
+    if (asCard && checkoutVariant) {
+      const addCartBtn = admin ? '' : `<button type="button" class="chat-cart-cta" data-chat-add-variant="${checkoutVariant}" data-chat-add-label="${cleanTitle}" data-no-action-feedback>+ Thêm vào giỏ</button>`;
+      return `<span class="chat-buy-card"><span class="chat-buy-title">${cleanTitle}</span><span class="chat-buy-actions"><a class="chat-buy-cta" href="${rawHref}" data-chat-buy-variant="${checkoutVariant}" data-no-action-feedback>Mua ngay ↗</a>${addCartBtn}</span></span>`;
+    }
+    if (asCard && productSlug) {
+      return `<span class="chat-buy-card is-browse"><span class="chat-buy-title">${cleanTitle}</span><span class="chat-buy-actions"><a class="chat-buy-cta" href="${rawHref}" data-no-action-feedback>Chọn phân loại &amp; Mua ngay ↗</a></span></span>`;
+    }
+    return `<a class="chat-inline-link" href="${rawHref}" data-no-action-feedback>${rawLabel}</a>`;
+  };
+  const formatMessageBody = (body, sender, admin = false) => {
     const safe = escape(body);
     if (sender !== 'ai') return safe;
-    return safe
+    const formatted = safe
+      .replace(/(?:^|\n)(?:[-*]\s*)?(?:👉\s*)\[([^\]]+)\]\((\/[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, true) || full)
+      .replace(/(?:^|\n)\[([^\]]+)\]\((\/thanh-toan\?variant=[a-zA-Z0-9_-]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, true) || full)
+      .replace(/\[([^\]]+)\]\((\/[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, false) || full)
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
       .replace(/`([^`\n]+)`/g, '<code style="background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px;font-size:.92em">$1</code>');
+    return formatted.replace(/^\n+/, '');
   };
   const ICONS = {
     mediaFile: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
@@ -383,7 +403,7 @@
         for(const m of d.messages){if(m.requestKey){const opt=messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(m.requestKey):m.requestKey}"]`);if(opt)opt.remove();}}
         if(orphanBlobUrls.length&&d.messages.length){for(const ob of orphanBlobUrls.splice(0))release(ob);}
         const newMessages=d.messages.filter(m=>!known.has(String(m.id)));
-        const html=newMessages.map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${formatMessageBody(m.body,m.sender)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
+        const html=newMessages.map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${formatMessageBody(m.body,m.sender,admin)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);
         else{
           const anchor=messages.querySelector('[data-optimistic-key],[data-ai-typing]');
@@ -1062,6 +1082,56 @@
     },rootListenerOpts);
     root.addEventListener('click',event=>{
       if(stopped)return;
+      const addChatVarBtn=!admin&&event.target.closest('[data-chat-add-variant]');
+      if(addChatVarBtn){
+        event.preventDefault();
+        const variantId=addChatVarBtn.dataset.chatAddVariant;
+        const label=addChatVarBtn.dataset.chatAddLabel||'Sản phẩm GAERU';
+        if(!variantId)return;
+        try{
+          const cartKey='gaeru-store-cart-v2';
+          const raw=JSON.parse(localStorage.getItem(cartKey)||'[]');
+          const cart=Array.isArray(raw)?raw.filter(i=>i&&typeof i.variantId==='string'&&Number.isInteger(i.quantity)&&i.quantity>0&&i.quantity<=99):[];
+          let maxStock=99;
+          const storeProducts=window.GAERUStore?.products;
+          if(Array.isArray(storeProducts)){
+            for(const prod of storeProducts){
+              const found=(prod.variants||[]).find(v=>v.id===variantId);
+              if(found&&Number.isFinite(Number(found.stockQuantity))){
+                maxStock=Math.max(0,Math.min(99,Number(found.stockQuantity)));
+                break;
+              }
+            }
+          }
+          if(maxStock<1){
+            feedback.textContent='Phiên bản này hiện đã tạm hết hàng.';
+            addChatVarBtn.disabled=true;
+            addChatVarBtn.textContent='Tạm hết hàng';
+            return;
+          }
+          const existing=cart.find(i=>i.variantId===variantId);
+          if(existing&&existing.quantity>=maxStock){
+            feedback.textContent=`Đã đạt giới hạn tối đa ${maxStock} sản phẩm trong giỏ.`;
+            return;
+          }
+          if(existing)existing.quantity+=1;
+          else cart.push({variantId,quantity:1});
+          localStorage.setItem(cartKey,JSON.stringify(cart));
+          window.GAERUStore?.syncCartToServer?.(cart);
+          document.dispatchEvent(new CustomEvent('gaeru:cart-updated'));
+          addChatVarBtn.classList.add('is-added');
+          addChatVarBtn.textContent='✓ Đã thêm vào giỏ';
+          const actionsWrap=addChatVarBtn.closest('.chat-buy-actions');
+          if(actionsWrap&&!actionsWrap.querySelector('.chat-cart-view-link')){
+            actionsWrap.insertAdjacentHTML('beforeend','<a class="chat-cart-view-link" href="/gio-hang" data-no-action-feedback>Xem giỏ hàng ›</a>');
+          }
+          feedback.textContent=`Đã thêm "${label}" vào giỏ hàng.`;
+          window.GAERUNotify?.toast?.(`Đã thêm ${label} vào giỏ hàng.`,'success');
+        }catch(err){
+          feedback.textContent=err?.message||'Không thể thêm vào giỏ hàng lúc này.';
+        }
+        return;
+      }
       const lightImg=event.target.closest('img[data-chat-lightbox-src]');
       if(lightImg){
         event.preventDefault();
