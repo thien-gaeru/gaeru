@@ -13,6 +13,7 @@ const MAX_WEB_KNOWLEDGE_FILES = 100;
 let cachedPages = null;
 let cachedPagesAt = 0;
 let pendingPagesLoad = null;
+let webPagesEpoch = 0;
 const PAGE_CACHE_TTL_MS = 300000;
 
 let liveDbCache = new WeakMap();
@@ -20,8 +21,10 @@ const LIVE_DB_TTL_MS = 30000;
 const WEB_KNOWLEDGE_SYNC_TAGS = new Set(['*', 'catalog', 'products', 'product:list', 'gaeru-catalog', 'settings', 'store-config', 'promotions', 'news', 'site-pages']);
 
 function clearWebKnowledgeCache() {
+  webPagesEpoch++;
   cachedPages = null;
   cachedPagesAt = 0;
+  pendingPagesLoad = null;
   liveDbCache = new WeakMap();
 }
 
@@ -119,7 +122,8 @@ async function loadWebPagesIndexAsync() {
     return cachedPages;
   }
   if (pendingPagesLoad) return pendingPagesLoad;
-  pendingPagesLoad = (async () => {
+  const loadEpoch = webPagesEpoch;
+  const loadPromise = (async () => {
     const pages = [];
     try {
       const files = selectKnowledgeHtmlFiles(await fsPromises.readdir(ROOT_DIR));
@@ -140,13 +144,18 @@ async function loadWebPagesIndexAsync() {
         }
       }
     } catch {}
-    cachedPages = pages;
-    cachedPagesAt = Date.now();
+    if (loadEpoch === webPagesEpoch) {
+      cachedPages = pages;
+      cachedPagesAt = Date.now();
+    }
     return pages;
   })().finally(() => {
-    pendingPagesLoad = null;
+    if (pendingPagesLoad === loadPromise) {
+      pendingPagesLoad = null;
+    }
   });
-  return pendingPagesLoad;
+  pendingPagesLoad = loadPromise;
+  return loadPromise;
 }
 
 async function loadLiveSiteFacts(pool) {
@@ -327,15 +336,19 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
     excerpt: page.content.slice(0, 1200)
   }));
 
-  // Extract up to 2 crisp matching lines across top pages for direct factual grounding
-  const relevantSnippets = semanticSnippets;
+  // Extract crisp matching lines across top pages for direct factual grounding (deduplicated vs semantic snippets)
+  const relevantSnippets = [...semanticSnippets];
+  const seenLines = new Set(semanticSnippets.map(s => `${s.url || ''}::${normalizeText(s.line || '')}`));
   if (tokens.length > 0) {
     for (const { page, score } of topMatched) {
       if (score < 4) continue;
       const lines = page.content.split('\n').map(l => l.trim()).filter(l => l.length >= 20 && l.length <= 260);
       for (const line of lines) {
+        const key = `${page.url}::${normalizeText(line)}`;
+        if (seenLines.has(key)) continue;
         const lineScore = tokenOverlapScore(tokens, tokenizeMeaningful(line));
         if (lineScore >= 0.35) {
+          seenLines.add(key);
           relevantSnippets.push({ title: page.title, url: page.url, line, score: lineScore });
         }
       }

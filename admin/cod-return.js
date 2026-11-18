@@ -53,7 +53,7 @@
         <!-- Khung quét Barcode / Tìm nhanh kiện hàng -->
         <div style="background:#f7fafc;padding:14px;border-radius:8px;border:1px dashed #cbd5e0;margin-bottom:16px;">
           <form id="cod-return-lookup-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <label style="font-weight:600;min-width:140px;">Quét mã bưu kiện:</label>
+            <label for="cod-return-scan-input" style="font-weight:600;min-width:140px;">Quét mã bưu kiện:</label>
             <input type="text" id="cod-return-scan-input" placeholder="Quét barcode vận đơn hoặc nhập mã đơn..." style="flex:1;min-width:200px;padding:10px 12px;border:1px solid #cbd5e0;border-radius:8px;font-family:monospace;font-size:16px;box-sizing:border-box;" autocomplete="off" required>
             <button type="submit" class="primary-button" id="btn-cod-return-search">Tìm kiện hàng</button>
           </form>

@@ -114,11 +114,16 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
     if (prev.status === 'completed' && ['pending', 'confirmed', 'processing', 'shipped'].includes(normStatus)) {
       throw fail(`Đơn hàng sàn đã hoàn tất, không thể lùi về trạng thái ${normStatus}.`, 409);
     }
+    const nextItemsJson = (!prev.stock_deducted && Array.isArray(order.items) && order.items.length > 0)
+      ? JSON.stringify(order.items)
+      : null;
     const updated = await client.query(
       `UPDATE marketplace_orders
        SET status = $4, customer_name = COALESCE(NULLIF($5, ''), customer_name),
            total_amount_vnd = CASE WHEN $6 > 0 THEN $6 ELSE total_amount_vnd END,
-           raw_payload = $7, updated_at = now()
+           raw_payload = $7,
+           items = COALESCE($8::jsonb, items),
+           updated_at = now()
        WHERE channel = $1 AND shop_id = $2 AND external_order_id = $3
        RETURNING *`,
       [
@@ -128,7 +133,8 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
         normStatus,
         order.customerName || '',
         order.totalAmountVnd || 0,
-        JSON.stringify(order.rawPayload || order)
+        JSON.stringify(order.rawPayload || order),
+        nextItemsJson
       ]
     );
     marketplaceOrder = updated.rows[0];
@@ -161,7 +167,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
       const { index, item, variantId, requestedQty } = entry;
       const lineOccurrence = (seenVariantCounts.get(variantId) || 0) + 1;
       seenVariantCounts.set(variantId, lineOccurrence);
-      const lineSuffix = lineOccurrence > 1 ? `:line${index}` : '';
+      const lineSuffix = lineOccurrence > 1 ? `:line${lineOccurrence}` : '';
       const varLock = (await client.query(
         `SELECT v.id, v.stock_quantity, v.sku, v.name AS "variantName", p.name AS "productName"
          FROM product_variants v
@@ -217,6 +223,10 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
           remaining -= take;
         }
       } else {
+        const hasAnyWh = (await client.query('SELECT 1 FROM warehouse_stock WHERE variant_id = $1 LIMIT 1', [variantId])).rows.length > 0;
+        if (hasAnyWh) {
+          throw fail('Tồn kho đang hoạt động không đủ cho SKU ' + String(item.externalSku || '') + '. Chưa trừ tồn của đơn sàn.', 409);
+        }
         actualDeducted = Math.min(requestedQty, Math.max(0, Number(varLock.stock_quantity) || 0));
       }
 
@@ -270,7 +280,7 @@ async function ingestMarketplaceOrder(client, { channel, shopId, order, autoDedu
       const { item, variantId, qty } = reverseItems[revIdx];
       const lineOccurrence = (seenReverseCounts.get(variantId) || 0) + 1;
       seenReverseCounts.set(variantId, lineOccurrence);
-      const lineSuffix = lineOccurrence > 1 ? `:line${revIdx}` : '';
+      const lineSuffix = lineOccurrence > 1 ? `:line${lineOccurrence}` : '';
       const varLock = (await client.query(
         `SELECT v.id, v.sku, v.name AS "variantName", p.name AS "productName"
          FROM product_variants v

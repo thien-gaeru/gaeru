@@ -94,7 +94,7 @@ async function searchLiveWeb(query, { transport = fetch, timeoutMs = 3500 } = {}
 
     if (!res.ok) return [];
     const { readBoundedText } = require('./lib/http-response');
-    const html = await readBoundedText(res, 262144);
+    const html = await readBoundedText(res, { maxBytes: 262144, label: 'Web knowledge' });
     const snippets = [];
     const re = /<a class="result__snippet[^>]*>([\s\S]*?)<\/a>/gi;
     let match;

@@ -10,19 +10,26 @@ function fail(message, status = 400) {
 
 function normalizeStatus(channel, rawStatus) {
   const s = String(rawStatus || '').toUpperCase().trim();
-  if (['CANCELLED', 'CANCELED', 'CANCEL', 'HUY', 'CLOSED', 'DEAD'].some(k => s.includes(k))) {
+  if (!s) return 'pending';
+  const tokens = new Set(s.split(/[^A-Z0-9]+/).filter(Boolean));
+  const cancelTokens = ['CANCELLED', 'CANCELED', 'CANCEL', 'CLOSED', 'DEAD', 'HUY'];
+  if (cancelTokens.some(t => tokens.has(t)) || s === 'DA_HUY' || s === 'IN_CANCEL' || s === 'TO_CANCEL') {
     return 'cancelled';
   }
-  if (['RETURNED', 'REFUND', 'RETURN', 'TRA_HANG'].some(k => s.includes(k))) {
+  const returnTokens = ['RETURNED', 'RETURNING', 'RETURN', 'REFUND', 'REFUNDED'];
+  if (returnTokens.some(t => tokens.has(t)) || s.includes('TRA_HANG')) {
     return 'returned';
   }
-  if (['COMPLETED', 'DELIVERED', 'SUCCESS', 'HOAN_TAT', 'FINISH'].some(k => s.includes(k))) {
+  const completeTokens = ['COMPLETED', 'DELIVERED', 'SUCCESS', 'FINISHED'];
+  if (completeTokens.some(t => tokens.has(t)) || s === 'HOAN_TAT' || s === 'FINISH') {
     return 'completed';
   }
-  if (['SHIPPED', 'DELIVERING', 'IN_TRANSIT', 'TRANSIT', 'DANG_GIAO'].some(k => s.includes(k))) {
+  const shipTokens = ['SHIPPED', 'DELIVERING', 'TRANSIT'];
+  if (shipTokens.some(t => tokens.has(t)) || s === 'IN_TRANSIT' || s === 'DANG_GIAO') {
     return 'shipped';
   }
-  if (['PROCESSING', 'READY_TO_SHIP', 'PROCESSED', 'CONFIRMED', 'AWAITING_COLLECTION'].some(k => s.includes(k))) {
+  const processTokens = ['PROCESSING', 'PROCESSED', 'CONFIRMED', 'PACKING', 'PACKED', 'RTS'];
+  if (processTokens.some(t => tokens.has(t)) || ['READY_TO_SHIP', 'AWAITING_COLLECTION', 'AWAITING_SHIPMENT', 'TO_SHIP'].includes(s)) {
     return 'processing';
   }
   return 'pending';

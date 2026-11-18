@@ -98,6 +98,15 @@ class IpcFanoutHub {
       return { fannedCount };
     }
 
+    if (action === 'AI_CHAT_WORKER_KICK') {
+      const fannedCount = this.broadcast(
+        { type: 'AI_CHAT_WORKER_KICK', timestamp: message.timestamp || Date.now() },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
     if (action === 'REALTIME_SSE_EVENT' && typeof message.channel === 'string' && typeof message.event === 'string') {
       const fannedCount = this.broadcast(
         {

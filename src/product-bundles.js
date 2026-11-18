@@ -503,15 +503,7 @@ function mountBundles({ admin, publicRouter }, pool) {
         let promotedRows = vRows;
         try {
           const { applyPromotions } = require('./product-promotions');
-          const fakeProductMap = new Map();
-          for (const row of vRows) {
-            if (!fakeProductMap.has(row.productId)) {
-              fakeProductMap.set(row.productId, { id: row.productId, variants: [] });
-            }
-            fakeProductMap.get(row.productId).variants.push({ ...row, priceVnd: Number(row.priceVnd) });
-          }
-          const promoProducts = await applyPromotions(pool, [...fakeProductMap.values()]);
-          promotedRows = promoProducts.flatMap(p => p.variants);
+          promotedRows = await applyPromotions(pool, vRows.map(row => ({ ...row, priceVnd: Number(row.priceVnd) })));
         } catch (_) {}
 
         const pricedItems = parsed.items.map(it => {

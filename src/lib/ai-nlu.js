@@ -78,12 +78,24 @@ function expandQueryVi(text) {
   return s.replace(/\s+/g, ' ').trim();
 }
 
+const BOUNDARY_RE_CACHE = new Map();
+function getBoundaryRegex(needle) {
+  let re = BOUNDARY_RE_CACHE.get(needle);
+  if (!re) {
+    if (BOUNDARY_RE_CACHE.size >= 512) {
+      BOUNDARY_RE_CACHE.clear();
+    }
+    re = new RegExp(`(?:^|[^a-z0-9])${escapeRegex(needle)}(?=$|[^a-z0-9])`, 'i');
+    BOUNDARY_RE_CACHE.set(needle, re);
+  }
+  return re;
+}
+
 function hasBoundaryTerm(normOrRawText, term) {
   const hay = normalizeSearchSpace(normOrRawText);
   const needle = normalizeSearchSpace(term);
   if (!hay || !needle) return false;
-  const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegex(needle)}(?=$|[^a-z0-9])`, 'i');
-  return re.test(hay);
+  return getBoundaryRegex(needle).test(hay);
 }
 
 function hasAnyBoundaryTerm(normOrRawText, terms) {
@@ -93,8 +105,7 @@ function hasAnyBoundaryTerm(normOrRawText, terms) {
   for (const term of terms) {
     const needle = normalizeSearchSpace(term);
     if (!needle) continue;
-    const re = new RegExp(`(?:^|[^a-z0-9])${escapeRegex(needle)}(?=$|[^a-z0-9])`, 'i');
-    if (re.test(hay)) return true;
+    if (getBoundaryRegex(needle).test(hay)) return true;
   }
   return false;
 }

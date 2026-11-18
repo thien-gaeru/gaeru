@@ -114,7 +114,8 @@ const configModalMeta={
  security:{title:'Cấu hình · Chính sách phiên & Bảo mật',sub:'Thời hạn phiên làm việc và bảo vệ tài khoản quản trị',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'},
  misa:{title:'Cấu hình & Khóa · MISA eShop',sub:'Lưu cấu hình MISA; chưa nghiệm thu quyền phát hành hóa đơn điện tử',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M4 4h16v16H4z"></path></svg>'},
  shopee:{title:'Cấu hình & Khóa · Sàn TMĐT Shopee',sub:'Partner ID, Shop ID và Partner Key liên kết Shopee Open Platform',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ee4d2d" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg>'},
- tiktok:{title:'Cấu hình & Khóa · Sàn TMĐT TikTok Shop',sub:'App Key, Shop ID và App Secret TikTok Shop Partner Center',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path></svg>'}
+ tiktok:{title:'Cấu hình & Khóa · Sàn TMĐT TikTok Shop',sub:'App Key, Shop ID và App Secret TikTok Shop Partner Center',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"></path></svg>'},
+ lazada:{title:'Cấu hình & Khóa · Sàn TMĐT Lazada',sub:'App Key, Seller ID và App Secret Lazada Open Platform',icon:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0f146d" stroke-width="2"><path d="M12 21s-7-4.35-9-9.5C1.6 7.9 4.2 5 7.5 5c1.9 0 3.6.95 4.5 2.4C12.9 5.95 14.6 5 16.5 5c3.3 0 5.9 2.9 4.5 6.5-2 5.15-9 9.5-9 9.5z"></path></svg>'}
 };
 
 function renderWebhookBox(configId){
@@ -368,12 +369,13 @@ document.addEventListener('click',async event=>{
  }
 });
 
-document.addEventListener('click',event=>{
+document.addEventListener('click',async event=>{
  const toggle=event.target.closest('[data-open-config-popup],[data-toggle-drawer]');
  if(!toggle)return;
  const configId=toggle.dataset.openConfigPopup||toggle.dataset.toggleDrawer;
  if(!configId)return;
- openConfigModal(configId);
+ if(!data&&owner()){try{await read();}catch(_){}}
+ openConfigModal(configId,toggle);
 });
 
 document.addEventListener('click',event=>{
@@ -606,9 +608,12 @@ document.addEventListener('submit',async e=>{
   if(id==='operations'){
    values.ordersEnabled=f.elements.ordersEnabled?f.elements.ordersEnabled.checked:false;
   }
-  if(['vnpay','payment_momo','payment_zalopay'].includes(id)){
+  if(['vnpay','payment_momo','payment_zalopay','misa'].includes(id)){
    if(f.elements.environment)values.environment=f.elements.environment.value;
    if(f.elements.enabled)values.enabled=f.elements.enabled.checked;
+  }
+  if(id==='misa'&&f.elements.autoIssue){
+   values.autoIssue=f.elements.autoIssue.checked;
   }
   if(['payment_cod','payment_bank_transfer'].includes(id)){
    if(f.elements.enabled)values.enabled=f.elements.enabled.checked;

@@ -257,13 +257,19 @@
       return;
     }
     listEl.innerHTML = threads.map(t => `
-      <div class="copilot-thread-item ${t.id === currentThreadId ? 'is-active' : ''}" data-id="${t.id}">
+      <div class="copilot-thread-item ${t.id === currentThreadId ? 'is-active' : ''}" role="button" tabindex="0" aria-pressed="${t.id === currentThreadId ? 'true' : 'false'}" data-id="${t.id}">
         <span class="copilot-thread-title">💬 ${escapeHtml(t.title)}</span>
       </div>
     `).join('');
 
     listEl.querySelectorAll('.copilot-thread-item').forEach(item => {
       item.addEventListener('click', () => selectThread(item.dataset.id));
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          selectThread(item.dataset.id);
+        }
+      });
     });
   }
 

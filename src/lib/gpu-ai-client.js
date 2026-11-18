@@ -13,6 +13,7 @@ const DEFAULT_RMBG_TIMEOUT_MS = 10000;
 
 let circuitOpenUntil = 0;
 let consecutiveFailures = 0;
+let halfOpenProbeInFlight = false;
 const embedCache = new Map();
 
 function isGpuAiEnabled() {
@@ -28,11 +29,20 @@ function isGpuAiEnabled() {
 function resetGpuAiState() {
   circuitOpenUntil = 0;
   consecutiveFailures = 0;
+  halfOpenProbeInFlight = false;
   embedCache.clear();
 }
 
 function isCircuitOpen() {
   return Date.now() < circuitOpenUntil;
+}
+
+function tryEnterHalfOpenSlot() {
+  if (circuitOpenUntil === 0) return { allowed: true, isHalfOpenProbe: false };
+  if (Date.now() < circuitOpenUntil) return { allowed: false, isHalfOpenProbe: false };
+  if (halfOpenProbeInFlight) return { allowed: false, isHalfOpenProbe: false };
+  halfOpenProbeInFlight = true;
+  return { allowed: true, isHalfOpenProbe: true };
 }
 
 function recordSuccess() {
@@ -42,7 +52,7 @@ function recordSuccess() {
 
 function recordFailure({ hard = false } = {}) {
   consecutiveFailures += 1;
-  if (hard || consecutiveFailures >= 2) {
+  if (hard || consecutiveFailures >= 2 || circuitOpenUntil > 0) {
     circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
   }
 }
@@ -124,8 +134,16 @@ async function segmentForegroundMask(rgbBuffer, {
   transport = fetch
 } = {}) {
   if (!isGpuAiEnabled() && transport === fetch) return null;
-  if (isCircuitOpen() && transport === fetch) return null;
-  if (!Buffer.isBuffer(rgbBuffer) || rgbBuffer.length !== width * height * 3) return null;
+  let probeToken = false;
+  if (transport === fetch) {
+    const gate = tryEnterHalfOpenSlot();
+    if (!gate.allowed) return null;
+    probeToken = gate.isHalfOpenProbe;
+  }
+  if (!Buffer.isBuffer(rgbBuffer) || rgbBuffer.length !== width * height * 3) {
+    if (probeToken) halfOpenProbeInFlight = false;
+    return null;
+  }
 
   try {
     const res = await fetchWithTimeout(
@@ -144,7 +162,10 @@ async function segmentForegroundMask(rgbBuffer, {
     }
     const ab = await res.arrayBuffer();
     const alpha = Buffer.from(ab);
-    if (alpha.length !== width * height) return null;
+    if (alpha.length !== width * height) {
+      if (transport === fetch) recordFailure({ hard: false });
+      return null;
+    }
 
     if (transport === fetch) recordSuccess();
     const fgRatio = parseFloat(res.headers?.get?.('x-foreground-ratio') || '0');
@@ -158,6 +179,8 @@ async function segmentForegroundMask(rgbBuffer, {
       recordFailure({ hard });
     }
     return null;
+  } finally {
+    if (probeToken) halfOpenProbeInFlight = false;
   }
 }
 
@@ -169,7 +192,12 @@ async function embedTexts(texts, {
 } = {}) {
   if (!Array.isArray(texts) || texts.length === 0) return [];
   if (!isGpuAiEnabled() && transport === fetch) return null;
-  if (isCircuitOpen() && transport === fetch) return null;
+  let probeToken = false;
+  if (transport === fetch) {
+    const gate = tryEnterHalfOpenSlot();
+    if (!gate.allowed) return null;
+    probeToken = gate.isHalfOpenProbe;
+  }
 
   const cleaned = texts.map(t => String(t || '').trim().slice(0, MAX_EMBED_TEXT_CHARS));
   const results = new Array(cleaned.length).fill(null);
@@ -194,41 +222,51 @@ async function embedTexts(texts, {
     }
   }
 
-  for (let start = 0; start < missing.length; start += batchSize) {
-    const chunk = missing.slice(start, start + batchSize);
-    try {
-      const res = await fetchWithTimeout(
-        `${baseUrl}/v1/embed`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: chunk.map(item => item.text) })
-        },
-        timeoutMs,
-        transport
-      );
-      if (!res.ok) {
-        if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
+  try {
+    for (let start = 0; start < missing.length; start += batchSize) {
+      const chunk = missing.slice(start, start + batchSize);
+      try {
+        const res = await fetchWithTimeout(
+          `${baseUrl}/v1/embed`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input: chunk.map(item => item.text) })
+          },
+          timeoutMs,
+          transport
+        );
+        if (!res.ok) {
+          if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
+          return null;
+        }
+        const payload = await res.json();
+        const data = Array.isArray(payload?.data) ? payload.data : [];
+        if (data.length !== chunk.length) {
+          if (transport === fetch) recordFailure({ hard: false });
+          return null;
+        }
+
+        for (let j = 0; j < chunk.length; j++) {
+          const vec = normalizeUnitVector(data[j]?.embedding);
+          if (!vec) {
+            if (transport === fetch) recordFailure({ hard: false });
+            return null;
+          }
+          setCachedEmbedding(chunk[j].key, vec);
+          for (const idx of chunk[j].indices) results[idx] = vec;
+        }
+        if (transport === fetch) recordSuccess();
+      } catch (err) {
+        if (transport === fetch) {
+          const hard = err?.name !== 'AbortError' && err?.name !== 'TimeoutError';
+          recordFailure({ hard });
+        }
         return null;
       }
-      const payload = await res.json();
-      const data = Array.isArray(payload?.data) ? payload.data : [];
-      if (data.length !== chunk.length) return null;
-
-      for (let j = 0; j < chunk.length; j++) {
-        const vec = normalizeUnitVector(data[j]?.embedding);
-        if (!vec) return null;
-        setCachedEmbedding(chunk[j].key, vec);
-        for (const idx of chunk[j].indices) results[idx] = vec;
-      }
-      if (transport === fetch) recordSuccess();
-    } catch (err) {
-      if (transport === fetch) {
-        const hard = err?.name !== 'AbortError' && err?.name !== 'TimeoutError';
-        recordFailure({ hard });
-      }
-      return null;
     }
+  } finally {
+    if (probeToken) halfOpenProbeInFlight = false;
   }
 
   return results;

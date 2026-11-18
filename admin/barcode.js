@@ -154,23 +154,23 @@
         </div>
 
         <!-- Navigation Tabs -->
-        <div class="barcode-tabs" style="display:flex; gap:8px; border-bottom:2px solid var(--border-color, #e5e7eb); margin-bottom:20px; overflow-x:auto;">
-          <button type="button" class="barcode-tab-btn is-active" data-tab="lookup" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid #2563eb; color:#2563eb; cursor:pointer;">
+        <div class="barcode-tabs" role="tablist" style="display:flex; gap:8px; border-bottom:2px solid var(--border-color, #e5e7eb); margin-bottom:20px; overflow-x:auto;">
+          <button type="button" role="tab" aria-selected="true" class="barcode-tab-btn is-active" data-tab="lookup" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid #2563eb; color:#2563eb; cursor:pointer;">
             🔍 Tra Cứu (Lookup)
           </button>
-          <button type="button" class="barcode-tab-btn" data-tab="packing" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
+          <button type="button" role="tab" aria-selected="false" class="barcode-tab-btn" data-tab="packing" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
             📦 Đóng Gói & Xuất Kho
           </button>
-          <button type="button" class="barcode-tab-btn" data-tab="inbound" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
+          <button type="button" role="tab" aria-selected="false" class="barcode-tab-btn" data-tab="inbound" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
             📥 Nhập Kho Nhanh
           </button>
-          <button type="button" class="barcode-tab-btn" data-tab="cycle_count" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
+          <button type="button" role="tab" aria-selected="false" class="barcode-tab-btn" data-tab="cycle_count" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
             📊 Kiểm Kê Tồn Kho
           </button>
-          <button type="button" class="barcode-tab-btn" data-tab="print" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
+          <button type="button" role="tab" aria-selected="false" class="barcode-tab-btn" data-tab="print" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
             🏷️ In Tem Mã Vạch (Code 128)
           </button>
-          <button type="button" class="barcode-tab-btn" data-tab="history" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
+          <button type="button" role="tab" aria-selected="false" class="barcode-tab-btn" data-tab="history" style="padding:10px 18px; font-weight:600; font-size:14px; border:none; background:transparent; border-bottom:3px solid transparent; color:var(--text-muted, #6b7280); cursor:pointer;">
             🕒 Lịch Sử Quét
           </button>
         </div>
@@ -179,8 +179,8 @@
         <div style="background:var(--card-bg, #ffffff); border:2px solid #3b82f6; border-radius:10px; padding:16px 20px; margin-bottom:20px; box-shadow:0 4px 12px rgba(59,130,246,0.08);">
           <form id="barcode-global-scan-form" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
             <div style="flex:1; min-width:0; flex-basis:220px; position:relative;">
-              <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:18px;">🎯</span>
-              <input type="text" id="barcode-master-input" autofocus autocomplete="off" placeholder="Quét mã vạch hoặc gõ SKU / Mã đơn / Vận đơn rồi nhấn Enter..." style="width:100%; box-sizing:border-box; padding:12px 14px 12px 40px; font-size:16px; font-weight:600; font-family:ui-monospace, monospace; border:1px solid #d1d5db; border-radius:6px; outline:none;">
+              <span style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:18px;" aria-hidden="true">🎯</span>
+              <input type="text" id="barcode-master-input" aria-label="Quét mã vạch hoặc nhập SKU, mã đơn, vận đơn" autofocus autocomplete="off" placeholder="Quét mã vạch hoặc gõ SKU / Mã đơn / Vận đơn rồi nhấn Enter..." style="width:100%; box-sizing:border-box; padding:12px 14px 12px 40px; font-size:16px; font-weight:600; font-family:ui-monospace, monospace; border:1px solid #d1d5db; border-radius:6px; outline:none;">
             </div>
             <button type="submit" class="primary-button" style="padding:12px 24px; font-size:15px; font-weight:700; background:#2563eb; color:#fff; border:none; border-radius:6px; cursor:pointer;">
               Quét / Tra Cứu
@@ -440,6 +440,7 @@
     viewPanel.querySelectorAll(".barcode-tab-btn").forEach((b) => {
       const active = b.dataset.tab === tab;
       b.classList.toggle("is-active", active);
+      b.setAttribute("aria-selected", String(active));
       b.style.borderBottom = active ? "3px solid #2563eb" : "3px solid transparent";
       b.style.color = active ? "#2563eb" : "var(--text-muted, #6b7280)";
     });

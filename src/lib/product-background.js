@@ -103,23 +103,28 @@ async function applyAiSegmentationAlpha(data, width, height, options = {}) {
 }
 
 async function removeWhiteBackground(buffer, options = {}) {
+  const parseOptNum = (val, fallback) => {
+    if (val === undefined || val === null || val === '') return fallback;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : fallback;
+  };
   const {
-    whiteThreshold = Number(options.whiteThreshold || options.threshold) || 240,
-    tolerance = Number(options.tolerance) || 35,
-    maxWidth = options.maxWidth ? Number(options.maxWidth) : null,
+    whiteThreshold = parseOptNum(options.whiteThreshold ?? options.threshold, 240),
+    tolerance = parseOptNum(options.tolerance, 35),
+    maxWidth = options.maxWidth ? parseOptNum(options.maxWidth, null) : null,
     minHoleArea = (options.minHoleArea !== undefined && options.minHoleArea !== null && options.minHoleArea !== '')
-      ? Number(options.minHoleArea)
+      ? parseOptNum(options.minHoleArea, null)
       : null,
-    maxTextDimension = Number(options.maxTextDimension) || 45,
+    maxTextDimension = parseOptNum(options.maxTextDimension, 45),
     autoCenterSquare = Boolean(options.autoCenterSquare === true || options.autoCenterSquare === 'true' || options.autoCenterSquare === '1' || options.autoSquare === true || options.autoSquare === '1'),
-    canvasSize = Number(options.canvasSize || options.mainSize) || 1000,
-    mainSize = Number(options.mainSize || options.canvasSize) || 1000,
-    thumbSize = Number(options.thumbSize) || 400,
-    paddingRatio = options.paddingRatio !== undefined ? Number(options.paddingRatio) : 0.08,
+    canvasSize = parseOptNum(options.canvasSize ?? options.mainSize, 1000),
+    mainSize = parseOptNum(options.mainSize ?? options.canvasSize, 1000),
+    thumbSize = parseOptNum(options.thumbSize, 400),
+    paddingRatio = parseOptNum(options.paddingRatio, 0.08),
     enableShadow = options.enableShadow !== undefined ? Boolean(options.enableShadow === true || options.enableShadow === 'true' || options.enableShadow === 1 || options.enableShadow === '1') : true,
-    shadowBlur = Number(options.shadowBlur) || 18,
-    shadowOpacity = options.shadowOpacity !== undefined ? Number(options.shadowOpacity) : 0.22,
-    shadowOffsetY = options.shadowOffsetY !== undefined ? Number(options.shadowOffsetY) : 12
+    shadowBlur = parseOptNum(options.shadowBlur, 18),
+    shadowOpacity = parseOptNum(options.shadowOpacity, 0.22),
+    shadowOffsetY = parseOptNum(options.shadowOffsetY, 12)
   } = options;
 
   const input = sharp(buffer, { limitInputPixels: 24_000_000, failOn: 'error' });
@@ -243,54 +248,26 @@ async function removeWhiteBackground(buffer, options = {}) {
         touchesImageBorder = true;
       }
 
+      const enqueueNeighbor = (nIdx) => {
+        if (visited[nIdx] === 0) {
+          if (isWhitePixel(nIdx)) {
+            visited[nIdx] = 1;
+            queue[tail++] = nIdx;
+          } else {
+            visited[nIdx] = 3;
+            borderBuffer[borderCount++] = nIdx;
+          }
+        }
+      };
+
       // Trái
-      if (x > 0) {
-        const nIdx = curr - 1;
-        if (visited[nIdx] === 0) {
-          if (isWhitePixel(nIdx)) {
-            visited[nIdx] = 1;
-            queue[tail++] = nIdx;
-          } else {
-            borderBuffer[borderCount++] = nIdx;
-          }
-        }
-      }
+      if (x > 0) enqueueNeighbor(curr - 1);
       // Phải
-      if (x < width - 1) {
-        const nIdx = curr + 1;
-        if (visited[nIdx] === 0) {
-          if (isWhitePixel(nIdx)) {
-            visited[nIdx] = 1;
-            queue[tail++] = nIdx;
-          } else {
-            borderBuffer[borderCount++] = nIdx;
-          }
-        }
-      }
+      if (x < width - 1) enqueueNeighbor(curr + 1);
       // Trên
-      if (y > 0) {
-        const nIdx = curr - width;
-        if (visited[nIdx] === 0) {
-          if (isWhitePixel(nIdx)) {
-            visited[nIdx] = 1;
-            queue[tail++] = nIdx;
-          } else {
-            borderBuffer[borderCount++] = nIdx;
-          }
-        }
-      }
+      if (y > 0) enqueueNeighbor(curr - width);
       // Dưới
-      if (y < height - 1) {
-        const nIdx = curr + width;
-        if (visited[nIdx] === 0) {
-          if (isWhitePixel(nIdx)) {
-            visited[nIdx] = 1;
-            queue[tail++] = nIdx;
-          } else {
-            borderBuffer[borderCount++] = nIdx;
-          }
-        }
-      }
+      if (y < height - 1) enqueueNeighbor(curr + width);
     }
 
     const pixelCount = tail;
@@ -371,10 +348,10 @@ async function removeWhiteBackground(buffer, options = {}) {
         }
       }
 
-      const blurredShadowBuffer = await sharp(shadowData, {
+      const shadowPipeline = sharp(shadowData, {
         raw: { width: mainSize, height: mainSize, channels: 4 }
-      })
-        .blur(shadowBlur)
+      });
+      const blurredShadowBuffer = await (shadowBlur >= 0.3 ? shadowPipeline.blur(shadowBlur) : shadowPipeline)
         .png()
         .toBuffer();
 

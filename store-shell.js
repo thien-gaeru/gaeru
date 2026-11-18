@@ -99,6 +99,26 @@ if (headerRoot) {
       </div>
     </section>`);
   headerRoot.querySelector("[data-mini-cart]").innerHTML = window.GAERUEmptyCartMarkup;
+  const syncFallbackCartBadge = () => {
+    if (window.GAERUStore) return;
+    try {
+      const parsed = JSON.parse(localStorage.getItem("gaeru-store-cart-v2") || "[]");
+      const qty = Array.isArray(parsed)
+        ? parsed.reduce((sum, i) => sum + (Number.isInteger(i?.quantity) && i.quantity > 0 ? i.quantity : 0), 0)
+        : 0;
+      const badge = headerRoot.querySelector(".cart-count");
+      const link = headerRoot.querySelector(".bag-link");
+      if (badge) {
+        badge.textContent = String(qty);
+        badge.hidden = qty === 0;
+      }
+      if (link) link.setAttribute("aria-label", `Giỏ hàng, ${qty} sản phẩm`);
+    } catch (_) {}
+  };
+  syncFallbackCartBadge();
+  window.addEventListener("storage", (e) => {
+    if (e.key === null || e.key === "gaeru-store-cart-v2") syncFallbackCartBadge();
+  });
 }
 
 document.querySelectorAll('link[rel="stylesheet"][data-deferred-css]').forEach((link) => { const activate = () => { link.media = "all"; link.removeAttribute("data-deferred-css"); }; if (link.sheet) activate(); else { link.addEventListener("load", activate, { once: true }); setTimeout(activate, 200); } });
@@ -531,7 +551,6 @@ function initializeMotion() {
     ".support-topic",
     ".support-feature",
     ".product-detail-art",
-    ".product-detail-copy > *",
     ".cart-item",
     ".cart-summary",
     ".account-copy > *",

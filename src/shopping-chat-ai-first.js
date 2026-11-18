@@ -3,8 +3,23 @@ const {withTransaction}=require('./db');
 const {getRelevantWebKnowledge}=require('./chat-web-knowledge');
 
 let activeWakeup=null;
+const AI_CHAT_WORKER_IPC_KEY = Symbol.for('gaeru.aiChatWorker.ipcRegistered');
+if (typeof process.on === 'function' && !process[AI_CHAT_WORKER_IPC_KEY]) {
+  process[AI_CHAT_WORKER_IPC_KEY] = true;
+  process.on('message', (msg) => {
+    if (msg?.type === 'AI_CHAT_WORKER_KICK' && typeof activeWakeup === 'function') {
+      setImmediate(activeWakeup);
+    }
+  });
+}
 function kickAIChatWorker(){
-  if(typeof activeWakeup==='function')setImmediate(activeWakeup);
+  if(typeof activeWakeup==='function') {
+    setImmediate(activeWakeup);
+    return;
+  }
+  if (typeof process.send === 'function') {
+    try { process.send({ type: 'AI_CHAT_WORKER_KICK' }); } catch (_) {}
+  }
 }
 
 function requestsHuman(text){

@@ -105,8 +105,8 @@ async function checkAdminSessionDbValid(pool, req) {
     const admin = req.admin || req.session?.admin;
     if (admin?.source === 'staff' && admin?.id && SSE_UUID_RE.test(String(admin.id))) {
       try {
-        const staffRow = (await pool.query('SELECT active FROM staff_accounts WHERE id = $1 LIMIT 1', [admin.id])).rows[0];
-        if (staffRow && staffRow.active !== true) return false;
+        const staffRow = (await pool.query('SELECT active, auth_version AS "authVersion" FROM staff_accounts WHERE id = $1 LIMIT 1', [admin.id])).rows[0];
+        if (staffRow && (staffRow.active !== true || (Number.isInteger(admin.authVersion) && Number(staffRow.authVersion) !== admin.authVersion))) return false;
       } catch (_) {}
     }
     const secVer = admin?.securityVersion ?? req.session?.securityVersion;
@@ -114,8 +114,8 @@ async function checkAdminSessionDbValid(pool, req) {
       const accountKey = admin.source === 'bootstrap' ? 'owner' : (admin.id ? `staff:${admin.id}` : '');
       if (accountKey) {
         try {
-          const secRow = (await pool.query('SELECT session_version FROM account_security WHERE account_key = $1 LIMIT 1', [accountKey])).rows[0];
-          if (secRow && Number(secRow.session_version) !== secVer) return false;
+          const secRow = (await pool.query('SELECT version FROM account_security WHERE account_key = $1 LIMIT 1', [accountKey])).rows[0];
+          if (secRow && Number(secRow.version) !== secVer) return false;
         } catch (_) {}
       }
     }
@@ -198,7 +198,11 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
   res.write(`event: init\ndata: ${JSON.stringify({ connected: true, channel, at: Date.now() })}\n\n`);
 
   const onEvent = ({ event, data, id }) => {
-    if (res.writableEnded) return;
+    if (res.writableEnded || res.destroyed) return;
+    if (typeof res.writableLength === 'number' && res.writableLength > 512 * 1024) {
+      try { res.end(); } catch (_) {}
+      return;
+    }
     res.write(`id: ${id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -401,6 +405,7 @@ module.exports = {
   defaultHub,
   openSseStream,
   checkAdminSessionValid,
+  checkAdminSessionDbValid,
   createRealtimeRouter,
   publishAdminEvent,
   publishCareEvent,

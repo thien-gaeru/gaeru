@@ -26,6 +26,7 @@ const schemas={shipping_viettel:shippingSchema,shipping_jt:jtShippingSchema,ship
   branch:z.string().trim().max(160),
   transferSyntax:z.string().trim().min(3).max(160),
   webhookSecret:z.string().trim().max(500).optional().refine(v=>!v||v.length>=24,'Mã bí mật Webhook cần tối thiểu 24 ký tự hoặc để trống nếu chỉ đối soát thủ công.'),
+  webhookRequireHmac:z.boolean().optional(),
   enabled:z.boolean()
 }).strict().superRefine((data,ctx)=>{
   if(data.enabled){

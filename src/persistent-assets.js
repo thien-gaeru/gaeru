@@ -380,12 +380,6 @@ function serveAssets(pool){const configuredBytes=Number.parseInt(process.env.ASS
       }
     });
   if(width&&row.mime_type.startsWith('image/')){
-   const preWebp=await getPreGeneratedWebp(relative,width);
-   if(preWebp){
-    res.type('image/webp').set({'Cache-Control':cacheControl,'ETag':preWebp.etag,'X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
-    if(req.fresh)return res.status(304).end();
-    return res.send(preWebp.buffer);
-   }
    const resized=cache.peek(row.storage_key+':w='+width);
    if(resized){
     if(qualifiesForSelectiveAvif(req,resized.length)){

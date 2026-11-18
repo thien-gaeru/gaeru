@@ -228,7 +228,7 @@ async function matchLearnedKnowledgeSemantic(normQ, question, entries, minScore,
     if (isLowValueLearnedAnswer(entry.learned_facts || entry.sample_answer)) continue;
     if (hasLearnedIntentConflict(normQ, entry)) continue;
     candidates.push(entry);
-    if (candidates.length >= 10) break;
+    if (candidates.length >= 24) break;
   }
   if (!candidates.length) return null;
 

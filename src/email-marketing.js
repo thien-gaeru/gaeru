@@ -497,6 +497,7 @@ async function processEmailQueue(pool, config, mailer) {
     return false;
   }
 
+  let processed = false;
   for (let pass = 0; pass < 50; pass++) {
     const claimed = await withTransaction(pool, async c => {
       await c.query("UPDATE marketing_email_campaigns c SET status='completed',updated_at=now() WHERE status IN ('scheduled','sending') AND NOT EXISTS(SELECT 1 FROM marketing_email_recipients r WHERE r.campaign_id=c.id AND r.status IN ('pending','sending'))");
@@ -515,7 +516,7 @@ async function processEmailQueue(pool, config, mailer) {
       return { row, campaign, token };
     });
 
-    if (!claimed) return false;
+    if (!claimed) return processed;
     if (claimed.skipped) continue;
     const { row, campaign, token } = claimed;
     const url = new URL('/api/marketing-email/unsubscribe/' + token, normalizePublicBase(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)).toString();
@@ -578,9 +579,9 @@ async function processEmailQueue(pool, config, mailer) {
         result
       ]);
     }
-    return true;
+    processed = true;
   }
-  return false;
+  return processed;
 }
 
 function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalMs = 3000 } = {}) {

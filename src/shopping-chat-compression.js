@@ -129,14 +129,20 @@ async function processOneChatCompression(pool, targetId = null, { readMedia, sto
     const originalSize=raw.length;
     let nextBuffer=raw,nextMime=originalMime,nextName=job.original_name||job.name,wasCompressed=false;
     if(['image/jpeg','image/png','image/heic','image/avif'].includes(originalMime)){
+      const applyLossyWebpFallback=async()=>{
+        if(hasCustomOptimizer||raw.length<150000)return;
+        const lossy=await require('sharp')(raw).rotate().webp({quality:84,effort:4}).toBuffer();
+        if(lossy.length+1024<raw.length){nextBuffer=lossy;nextMime='image/webp';nextName=nextName.replace(/\.[^.]+$/,'')+'.webp';wasCompressed=true;}
+      };
       try {const optimized=await optimizeImage(raw,originalMime,{maxUploadBytes:Infinity});
         if(optimized.mimeType==='image/webp'&&optimized.buffer.length<raw.length){nextBuffer=optimized.buffer;nextMime=optimized.mimeType;wasCompressed=true;
           if(nextMime==='image/webp')nextName=nextName.replace(/\.[^.]+$/,'')+'.webp';
-        }else if(!hasCustomOptimizer&&raw.length>=150000){
-          const lossy=await require('sharp')(raw).rotate().webp({quality:84,effort:4}).toBuffer();
-          if(lossy.length+1024<raw.length){nextBuffer=lossy;nextMime='image/webp';nextName=nextName.replace(/\.[^.]+$/,'')+'.webp';wasCompressed=true;}
+        }else{await applyLossyWebpFallback();}
+      }catch(optErr){
+        if(optErr?.code==='IMAGE_OUTPUT_TOO_LARGE'||raw.length>=150000){
+          try{await applyLossyWebpFallback();}catch{}
         }
-      }catch{/* Original remains downloadable if an optional optimization is unsupported. */}
+      }
     }
     if(!wasCompressed){const gz=await compressBuffer(nextBuffer,nextMime);if(gz.compressed){nextBuffer=gz.buffer;wasCompressed=true;}}
     if(leaseLost)return true;

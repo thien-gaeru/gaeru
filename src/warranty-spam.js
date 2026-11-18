@@ -45,11 +45,13 @@ function detectWarrantySpam(row) {
 
   // 3. Order number / serial check
   const orderNum = String(row.orderNumber || row.external_order_number || row.externalOrderNumber || '').trim().toLowerCase();
-  if (orderNum && /^(test|demo|123|1234|0000|1111|fake|none|null|asdf)$/i.test(orderNum)) {
+  const orderCompact = orderNum.replace(/[\s\-._/]+/g, '');
+  if (orderCompact && /^(test\d*|demo\d*|123|1234|12345|123456|0+|1+|fake\d*|none|null|asdf\d*)$/i.test(orderCompact)) {
     reasons.push('Mã đơn hàng nghi vấn rác / thử nghiệm');
   }
   const serial = String(row.serial || '').trim().toLowerCase();
-  if (serial && /^(test|demo|123|1234|0000|1111|fake|none|null|asdf)$/i.test(serial)) {
+  const serialCompact = serial.replace(/[\s\-._/]+/g, '');
+  if (serialCompact && /^(test\d*|demo\d*|123|1234|12345|123456|0+|1+|fake\d*|none|null|asdf\d*)$/i.test(serialCompact)) {
     reasons.push('Số serial nghi vấn rác / thử nghiệm');
   }
 

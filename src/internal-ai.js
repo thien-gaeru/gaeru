@@ -171,9 +171,10 @@ function createInternalAiRouter(pool, config) {
     const params = [];
     const where = [];
 
+    const escapeLike = (val) => String(val || '').replace(/[\\%_]/g, '\\$&');
     if (keyword) {
-      params.push(`%${keyword.trim().toLowerCase()}%`);
-      where.push(`(lower(order_number) LIKE $${params.length} OR lower(customer_name) LIKE $${params.length} OR phone LIKE $${params.length})`);
+      params.push(`%${escapeLike(keyword.trim().toLowerCase())}%`);
+      where.push(`(lower(order_number) LIKE $${params.length} ESCAPE '\\' OR lower(customer_name) LIKE $${params.length} ESCAPE '\\' OR phone LIKE $${params.length} ESCAPE '\\')`);
     }
 
     if (status) {
@@ -216,8 +217,9 @@ function createInternalAiRouter(pool, config) {
     const where = ['p.deleted_at IS NULL', 'v.active = true'];
 
     if (keyword) {
-      params.push(`%${keyword.trim().toLowerCase()}%`);
-      where.push(`(lower(p.name) LIKE $${params.length} OR lower(v.name) LIKE $${params.length} OR lower(v.sku) LIKE $${params.length})`);
+      const escaped = String(keyword || '').trim().toLowerCase().replace(/[\\%_]/g, '\\$&');
+      params.push(`%${escaped}%`);
+      where.push(`(lower(p.name) LIKE $${params.length} ESCAPE '\\' OR lower(v.name) LIKE $${params.length} ESCAPE '\\' OR lower(v.sku) LIKE $${params.length} ESCAPE '\\')`);
     }
 
     if (lowStockOnly) {
@@ -622,10 +624,11 @@ Quy tắc cốt lõi:
       let targetCampaign = null;
       try {
         if (requestedName) {
-          const cRes = await pool.query("SELECT id, title, active FROM marketing_campaigns WHERE lower(title) LIKE '%' || lower($1) || '%' OR id::text = $1 ORDER BY created_at DESC LIMIT 1", [requestedName]);
+          const escapedName = requestedName.toLowerCase().replace(/[\\%_]/g, '\\$&');
+          const cRes = await pool.query("SELECT id, title, active FROM marketing_campaigns WHERE lower(title) LIKE '%' || $1 || '%' ESCAPE '\\' OR id::text = $2 ORDER BY created_at DESC LIMIT 1", [escapedName, requestedName]);
           if (cRes.rows.length) targetCampaign = { ...cRes.rows[0], type: 'campaign' };
           if (!targetCampaign) {
-            const pRes = await pool.query("SELECT id, title, active FROM product_promotions WHERE lower(title) LIKE '%' || lower($1) || '%' OR id::text = $1 ORDER BY created_at DESC LIMIT 1", [requestedName]);
+            const pRes = await pool.query("SELECT id, title, active FROM product_promotions WHERE lower(title) LIKE '%' || $1 || '%' ESCAPE '\\' OR id::text = $2 ORDER BY created_at DESC LIMIT 1", [escapedName, requestedName]);
             if (pRes.rows.length) targetCampaign = { ...pRes.rows[0], type: 'promotion' };
           }
         } else {
@@ -943,7 +946,7 @@ Quy tắc cốt lõi:
     // 9. Tri thức Tự học
     if (learned) {
       const counts = learned.stats || learned.counts || {};
-      out += `**Tri thức tự học:** **${counts.total || 0}** bài (**${counts.active_count || 0}** đang bật, **${counts.total_interactions || 0}** lượt học, tin cậy TB **${Math.round((counts.avg_confidence || 0.85) * 100)}%**).\n`;
+      out += `**Tri thức tự học:** **${counts.total || 0}** bài (**${counts.active_count || 0}** đang bật, **${counts.total_interactions || 0}** lượt học, tin cậy TB **${Math.round((counts.avg_confidence ?? 0.85) * 100)}%**).\n`;
       if (learned.topEntries && learned.topEntries.length) {
         for (const e of learned.topEntries.slice(0, 5)) {
           out += `- **${e.topic}** (${e.occurrence_count} lần · ${Math.round(e.confidence_score * 100)}%)\n`;
@@ -1194,8 +1197,14 @@ Quy tắc cốt lõi:
       'X-Accel-Buffering': 'no'
     });
 
+    let streamClosed = false;
+    req.on?.('close', () => { streamClosed = true; });
+    res.on?.('close', () => { streamClosed = true; });
+
     const sendEvent = (event, data) => {
+      if (streamClosed || res.writableEnded || res.destroyed) return false;
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      return true;
     };
 
     try {
@@ -1235,15 +1244,15 @@ Quy tắc cốt lõi:
       const words = turnResult.content.split(' ');
       let chunk = '';
       for (let i = 0; i < words.length; i++) {
-        if (res.writableEnded || req.destroyed) break;
+        if (streamClosed || res.writableEnded || res.destroyed || req.destroyed) break;
         chunk += (chunk ? ' ' : '') + words[i];
         if ((i + 1) % 3 === 0 || i === words.length - 1) {
-          sendEvent('token', { text: chunk + (i === words.length - 1 ? '' : ' ') });
+          if (!sendEvent('token', { text: chunk + (i === words.length - 1 ? '' : ' ') })) break;
           chunk = '';
           await new Promise(r => setTimeout(r, 20));
         }
       }
-      if (res.writableEnded || req.destroyed) return;
+      if (streamClosed || res.writableEnded || res.destroyed || req.destroyed) return;
 
       if (readOnly) {
         sendEvent('done', {
@@ -1267,10 +1276,10 @@ Quy tắc cốt lõi:
 
         sendEvent('done', { message: assistantMsg, actionCard: turnResult.actionCard });
       }
-      res.end();
+      if (!res.writableEnded) res.end();
     } catch (_) {
       sendEvent('error', { error: 'Đã xảy ra lỗi khi xử lý yêu cầu AI.' });
-      res.end();
+      if (!res.writableEnded) res.end();
     }
   }
 
@@ -1314,13 +1323,20 @@ Quy tắc cốt lõi:
 
       const phase1 = await runAtomic(pool, async (client) => {
         const row = (await client.query(`
-          SELECT id, action_type AS "actionType", payload, status, created_by AS "createdBy"
+          SELECT id, action_type AS "actionType", payload, status, created_by AS "createdBy", executed_at AS "executedAt"
           FROM internal_ai_action_logs
           WHERE id = $1
           FOR UPDATE
         `, [actionId])).rows[0];
 
         if (!row) return { status: 404, body: { error: 'Không tìm thấy thẻ hành động.' } };
+        if (row.status === 'executing' && row.executedAt && (Date.now() - new Date(row.executedAt).getTime()) > 120000) {
+          await client.query(
+            "UPDATE internal_ai_action_logs SET status = 'pending', executed_at = NULL WHERE id = $1 AND status = 'executing'",
+            [actionId]
+          );
+          row.status = 'pending';
+        }
         if (row.createdBy && !isOwner && row.createdBy !== actor.username) {
           return { status: 403, body: { error: 'Bạn không có quyền thực thi thẻ hành động do nhân sự khác tạo.' } };
         }
@@ -1335,7 +1351,7 @@ Quy tắc cốt lõi:
           // Giải phóng kết nối/lock DB trước khi gọi updateOrder/syncShipmentTracking (tránh deadlock kết nối lồng nhau)
           await client.query(`
             UPDATE internal_ai_action_logs
-            SET status = 'executing'
+            SET status = 'executing', executed_at = NOW()
             WHERE id = $1 AND status = 'pending'
           `, [actionId]);
           return { pendingExternal: true, row };
@@ -1357,12 +1373,12 @@ Quy tắc cốt lõi:
           }
 
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: inserted?.id, active: true }); } catch (_) {}
-          try { require('./cache').flushAllCache(); } catch (_) {}
+          try { require('./cache').invalidateTags(['promotions', 'vouchers', 'catalog', 'product:list']); } catch (_) {}
           result = { success: true, ...(inserted?.id ? { voucherId: inserted.id } : {}), message: `Đã kích hoạt thành công mã giảm giá ${p.code} (-${p.kind === 'percent' ? p.amount + '%' : formatVnd(p.amount)}) trên toàn hệ thống!`, actionType: 'create_voucher' };
         } else if (row.actionType === 'cancel_voucher') {
           await client.query('UPDATE marketing_vouchers SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.voucherId]);
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, active: false }); } catch (_) {}
-          try { require('./cache').flushAllCache(); } catch (_) {}
+          try { require('./cache').invalidateTags(['promotions', 'vouchers', 'catalog', 'product:list']); } catch (_) {}
           result = { success: true, message: `Đã dừng kích hoạt mã voucher ${p.code} thành công!`, voucherId: p.voucherId, actionType: 'cancel_voucher' };
         } else if (row.actionType === 'delete_voucher') {
           const existingVoucher = (await client.query('SELECT id FROM marketing_vouchers WHERE id=$1 FOR UPDATE', [p.voucherId])).rows[0];
@@ -1376,7 +1392,7 @@ Quy tắc cốt lõi:
           await client.query('DELETE FROM customer_vouchers WHERE voucher_id=$1', [p.voucherId]);
           await client.query('DELETE FROM marketing_vouchers WHERE id=$1', [p.voucherId]);
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: 'vouchers', id: p.voucherId, deleted: true }); } catch (_) {}
-          try { require('./cache').flushAllCache(); } catch (_) {}
+          try { require('./cache').invalidateTags(['promotions', 'vouchers', 'catalog', 'product:list']); } catch (_) {}
           result = { success: true, message: `Đã xóa vĩnh viễn mã voucher ${p.code} khỏi cơ sở dữ liệu!`, voucherId: p.voucherId, actionType: 'delete_voucher' };
         } else if (row.actionType === 'cancel_campaign') {
           if (p.type === 'promotion') {
@@ -1385,7 +1401,7 @@ Quy tắc cốt lõi:
             await client.query('UPDATE marketing_campaigns SET active=false, version=version+1, updated_at=now() WHERE id=$1', [p.campaignId]);
           }
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, active: false }); } catch (_) {}
-          try { require('./cache').flushAllCache(); } catch (_) {}
+          try { require('./cache').invalidateTags(['promotions', 'campaigns', 'catalog', 'product:list', 'search-index']); } catch (_) {}
           result = { success: true, message: `Đã dừng kích hoạt chiến dịch "${p.title}" thành công!`, campaignId: p.campaignId, actionType: 'cancel_campaign' };
         } else if (row.actionType === 'delete_campaign') {
           if (p.type === 'promotion') {
@@ -1396,7 +1412,7 @@ Quy tắc cốt lõi:
             await client.query('DELETE FROM marketing_campaigns WHERE id=$1', [p.campaignId]);
           }
           try { require('./realtime-sse').publishAdminEvent('marketing:update', { kind: p.type || 'campaigns', id: p.campaignId, deleted: true }); } catch (_) {}
-          try { require('./cache').flushAllCache(); } catch (_) {}
+          try { require('./cache').invalidateTags(['promotions', 'campaigns', 'catalog', 'product:list', 'search-index']); } catch (_) {}
           result = { success: true, message: `Đã xóa vĩnh viễn chiến dịch "${p.title}" khỏi hệ thống!`, campaignId: p.campaignId, actionType: 'delete_campaign' };
         } else {
           return { status: 400, body: { error: `Loại hành động không được hỗ trợ: ${row.actionType}` } };
@@ -1464,7 +1480,7 @@ Quy tắc cốt lõi:
         }
       } catch (execErr) {
         await pool.query(
-          "UPDATE internal_ai_action_logs SET status = 'pending' WHERE id = $1 AND status = 'executing'",
+          "UPDATE internal_ai_action_logs SET status = 'pending', executed_at = NULL WHERE id = $1 AND status = 'executing'",
           [actionId]
         ).catch(() => {});
         throw execErr;

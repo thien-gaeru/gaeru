@@ -209,7 +209,14 @@ function createCustomerAuthRouter(pool, { smtpConfig = null, mailer = createMail
         customer.regEmailWarningMessage = regEmailStatus.warningMessage;
       }
 
-      const pendingOAuthLink = req.session?.pendingOAuthLink || null;
+      const rawPendingLink = req.session?.pendingOAuthLink || null;
+      const pendingCreatedAt = Number(rawPendingLink?.createdAt);
+      const pendingOAuthLink = rawPendingLink && (!Number.isFinite(pendingCreatedAt) || (Date.now() - pendingCreatedAt <= 15 * 60 * 1000))
+        ? rawPendingLink
+        : null;
+      if (rawPendingLink && !pendingOAuthLink && req.session) {
+        delete req.session.pendingOAuthLink;
+      }
       if (accountSecurity && await accountSecurity.beginLogin(req, res, "customer:" + customer.id, parsed.data.password, { pendingOAuthLink })) return;
       if (pendingOAuthLink) {
         await require("./audit-fixes/oauth-link-helper").applyPendingOAuthLink(pool, customer, pendingOAuthLink);

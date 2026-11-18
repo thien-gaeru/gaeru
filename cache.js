@@ -77,7 +77,10 @@ function canonicalizeHtmlCacheUrl(originalUrl) {
   const kept = new URLSearchParams();
   for (const key of [...params.keys()].sort()) {
     if (ALLOWED_HTML_QUERY_PARAMS.has(key)) {
-      for (const val of params.getAll(key)) kept.append(key, val);
+      for (const val of params.getAll(key)) {
+        const cleanVal = key === 'q' ? String(val).trim().slice(0, 80) : val;
+        if (cleanVal !== '' || key !== 'q') kept.append(key, cleanVal);
+      }
     }
   }
   const remaining = kept.toString();
@@ -341,9 +344,14 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
               entry.time = Date.now();
               ramCache.set(key, entry, { ttl: freshTtl });
             }
+            return fresh;
           }
+          return entry.data;
         })
-        .catch((err) => logSwrError(key, err))
+        .catch((err) => {
+          logSwrError(key, err);
+          return entry.data;
+        })
         .finally(() => inflight.delete(key));
 
       inflight.set(key, bg);

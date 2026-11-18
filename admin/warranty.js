@@ -97,10 +97,10 @@
         '<button class="secondary-button" type="button" data-warranty-clear>Xóa tìm kiếm</button>' +
       '</form>' +
       '<div class="warranty-filter-tabs" role="tablist">' +
-        '<button type="button" class="warranty-tab ' + (filter === 'all' ? 'active' : '') + '" data-warranty-filter="all">Tất cả <span class="warranty-tab-count">' + counts.total + '</span></button>' +
-        '<button type="button" class="warranty-tab ' + (filter === 'active' ? 'active' : '') + '" data-warranty-filter="active">Đã duyệt <span class="warranty-tab-count is-active">' + counts.active + '</span></button>' +
-        '<button type="button" class="warranty-tab ' + (filter === 'pending' ? 'active' : '') + '" data-warranty-filter="pending">Chưa duyệt <span class="warranty-tab-count is-pending">' + counts.pending + '</span></button>' +
-        '<button type="button" class="warranty-tab is-spam ' + (filter === 'spam' ? 'active' : '') + '" data-warranty-filter="spam">⚠️ Yêu cầu rác <span class="warranty-tab-count is-spam">' + counts.spam + '</span></button>' +
+        '<button type="button" role="tab" aria-selected="' + (filter === 'all') + '" class="warranty-tab ' + (filter === 'all' ? 'active' : '') + '" data-warranty-filter="all">Tất cả <span class="warranty-tab-count">' + counts.total + '</span></button>' +
+        '<button type="button" role="tab" aria-selected="' + (filter === 'active') + '" class="warranty-tab ' + (filter === 'active' ? 'active' : '') + '" data-warranty-filter="active">Đã duyệt <span class="warranty-tab-count is-active">' + counts.active + '</span></button>' +
+        '<button type="button" role="tab" aria-selected="' + (filter === 'pending') + '" class="warranty-tab ' + (filter === 'pending' ? 'active' : '') + '" data-warranty-filter="pending">Chưa duyệt <span class="warranty-tab-count is-pending">' + counts.pending + '</span></button>' +
+        '<button type="button" role="tab" aria-selected="' + (filter === 'spam') + '" class="warranty-tab is-spam ' + (filter === 'spam' ? 'active' : '') + '" data-warranty-filter="spam">⚠️ Yêu cầu rác <span class="warranty-tab-count is-spam">' + counts.spam + '</span></button>' +
       '</div>' +
       '<p class="warranty-intro">Đơn website tự kích hoạt khi hoàn tất và thanh toán đủ. Chỉ đối chiếu thủ công các đơn ngoài hệ thống; thời hạn 12 tháng tính từ ngày mua đã xác nhận.</p>' +
       '<div class="warranty-orders">' +

@@ -58,7 +58,7 @@ function attachTransactionalCacheInvalidation(pool) {
     }
     require('./site-pages').clearSitePagesCache(pool);
     require('./lib/image-renditions').clearImageLookupCache(pool, { broadcast: false });
-    require('./persistent-assets').clearAssetSnapshotCache(pool);
+    require('./persistent-assets').clearAssetSnapshotCache(pool, { all: true });
     require('./chat-web-knowledge').clearWebKnowledgeCache?.();
   };
   try {
@@ -242,7 +242,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       }
     },
     crossOriginEmbedderPolicy: false,
-    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true, preload: true }
   }));
   // Retired routes must not redirect or fall through to the static admin folder.
   app.use((req,res,next)=>{

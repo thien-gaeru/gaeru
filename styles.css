@@ -1023,7 +1023,7 @@ body.panel-active .site-header {
 .search-inner { width: min(83%, 980px); padding-top: 68px; padding-bottom: 38px; }
 .search-inner > .panel-close { position: absolute; top: 74px; right: 0; width: 42px; height: 42px; padding: 0; border-radius: 50%; background: #e7e7eb; color: #55555a; font-size: 28px; z-index: 10; }
 .search-form { display: flex; align-items: center; gap: 17px; min-height: 48px; padding: 0; padding-right: 52px; border: 0; }
-.search-form:focus-within { border: 0; box-shadow: none; }
+.search-form:focus-within { border: 0; border-radius: 10px; box-shadow: 0 0 0 2px var(--teal); }
 .search-form > svg { flex: 0 0 25px; width: 25px; height: 25px; fill: none; stroke: #6e6e73; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .search-form input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(25px, 4vw, 34px); font-weight: 600; letter-spacing: -.04em; }
 .search-panel .search-form input[type="search"] { padding: 0; border: 0; font-size: clamp(25px, 4vw, 34px); -webkit-appearance: none; appearance: none; }
@@ -1100,6 +1100,7 @@ body.panel-active .site-header {
 .panel-active { overscroll-behavior: none; }
 
 @media (max-width: 760px) {
+  .icon-button { min-width: 44px; min-height: 44px; }
   .primary-nav { display: none; }
   .menu-nav-trigger { display: none; }
   .panel-scrim { inset: 0; height: 100dvh; background: rgb(10 13 16 / 34%); }

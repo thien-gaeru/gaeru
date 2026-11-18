@@ -148,7 +148,7 @@ function formatBankTransferInstructions(settings,{orderNumber,amountVnd}={}){
   transferSyntax:syntax,
   transferContent,
   qrUrl,
-  autoReconcile:Boolean(settings?.webhookSecret&&String(settings.webhookSecret).trim().length>=8),
+  autoReconcile:Boolean(settings?.webhookSecret&&String(settings.webhookSecret).trim().length>=16),
   ...(amountVnd!==undefined?{amountVnd:Number(amountVnd)}:{})
  };
 }
@@ -389,7 +389,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    );
    const order=orderQuery.rows[0];
    if(!order||order.paymentMethod!==provider)return {code:'01',matched:false,message:'Order not found'};
-   if(actor?.role==='owner'&&(order.orderStatus==='cancelled'||order.returnCompletedAt)){
+   if((Boolean(actor?.role)&&(order.orderStatus==='cancelled'||order.returnCompletedAt))||order.returnCompletedAt){
     return {code:'09',matched:false,message:'Không thể đối soát thủ công cho đơn hàng đã hủy hoặc đã hoàn trả.'};
    }
    const insertedAttempt=await client.query(
@@ -401,7 +401,7 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    );
    attempt={...order,...insertedAttempt.rows[0]};
   }
-  if(actor?.role==='owner'&&(attempt.orderStatus==='cancelled'||attempt.returnCompletedAt)){
+  if((Boolean(actor?.role)&&(attempt.orderStatus==='cancelled'||attempt.returnCompletedAt))||attempt.returnCompletedAt){
    return {code:'09',matched:false,message:'Không thể đối soát thủ công cho đơn hàng đã hủy hoặc đã hoàn trả.'};
   }
   if(!Number.isSafeInteger(amountVnd)||amountVnd!==attempt.amountVnd||attempt.totalVnd!==attempt.amountVnd){

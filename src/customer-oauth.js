@@ -471,6 +471,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
             email: outcome.email,
             provider: 'google',
             googleSub: googleUser.sub,
+            picture: googleUser.picture || null,
             createdAt: Date.now()
           };
         }

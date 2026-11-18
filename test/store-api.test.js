@@ -233,6 +233,7 @@ test("admin order search is paginated and validates filters", async (context) =>
   const app = express();
   app.use((req, _res, next) => {
     req.session = { admin: { username: "manager" } };
+    req.admin = { username: "manager", role: "sales", source: "staff", permissions: ["orders.read"] };
     next();
   });
   app.use("/api", createStoreApi({

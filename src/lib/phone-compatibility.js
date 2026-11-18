@@ -455,7 +455,7 @@ function inferDevicePortsFromText(space, history = []) {
   if (hasBoundaryTerm(combined, 'micro usb')) ports.add(PORT_TYPES.MICRO_USB);
   if (hasAnyBoundaryTerm(combined, ['usb a', 'chuyen usb', 'usb thuong'])) ports.add(PORT_TYPES.USB_A);
   if (hasBoundaryTerm(combined, 'type c')) ports.add(PORT_TYPES.TYPE_C);
-  if (hasBoundaryTerm(combined, 'lightning') && brandMatches.length === 0) ports.add(PORT_TYPES.LIGHTNING);
+  if (hasBoundaryTerm(combined, 'lightning')) ports.add(PORT_TYPES.LIGHTNING);
 
   return ports;
 }
