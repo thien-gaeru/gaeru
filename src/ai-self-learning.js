@@ -90,7 +90,7 @@ const GENERIC_SINGLE_TRIGGERS = new Set([
 
 // Từ điển từ khóa công nghệ, thiết bị, cổng kết nối, ứng dụng và âm thanh
 const TECH_VOCABULARY = [
-  // Dòng máy iPhone / Apple
+  // Dòng máy iPhone / iOS
   'iphone', 'iphone 11', 'iphone 12', 'iphone 13', 'iphone 14', 'iphone 15', 'iphone 16',
   'iphone 15 pro', 'iphone 15 pro max', 'iphone 16 pro', 'iphone 16 pro max',
   'iphone plus', 'iphone pro max', 'ipad', 'ipad pro', 'ipad air', 'ipad mini', 'macbook', 'macbook pro', 'macbook air', 'ios',

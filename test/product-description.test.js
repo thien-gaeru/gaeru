@@ -46,7 +46,7 @@ test('K9, P185 and G1 legacy descriptions become model-specific chapters while c
  }
 });
 
-test('Apple-style typography hierarchy and scannability elements exist in K9 and M3 stories', () => {
+test('GAERU typography hierarchy and scannability elements exist in K9 and M3 stories', () => {
   const k9Html = require('../k9-description')();
   assert.ok(k9Html.includes('chapter-statement'), 'K9 should feature punchy statement leads');
   assert.ok(k9Html.includes('chapter-body-text'), 'K9 should have readable body copy');

@@ -1,4 +1,4 @@
-/* Curated GAERU K9 story with Apple-style scannable typography and visual hierarchy. */
+/* Curated GAERU K9 story with GAERU scannable typography and visual hierarchy. */
 function renderK9() {
   const image = (n, alt, w = 800, h = 1024) =>
     `<figure><a href="/assets/products/k9-description/${n}.webp" target="_blank" rel="noopener" aria-label="Xem ảnh lớn: ${alt} (mở trong tab mới)"><picture><source type="image/avif" srcset="/assets/products/k9-description/${n}.avif"><img src="/assets/products/k9-description/${n}.webp" alt="${alt}" width="${w}" height="${h}" loading="lazy" decoding="async"></picture></a></figure>`;

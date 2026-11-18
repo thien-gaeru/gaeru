@@ -1,4 +1,4 @@
-/* Curated M3 story with Apple-style scannable typography and visual hierarchy. */
+/* Curated M3 story with GAERU scannable typography and visual hierarchy. */
 function renderM3() {
   const image = (n, alt, eager = false) => {
     const url = `/assets/products/m3-description/${n}.webp`;
