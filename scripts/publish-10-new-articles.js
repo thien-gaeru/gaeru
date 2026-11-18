@@ -301,7 +301,7 @@ Sự kết hợp giữa công nghệ AI hiện đại và phụ kiện khí đ�
         desc: [
           'Chân đỡ nhôm P185 cao 1m8',
           'Micro cài áo GAERU K9 cự ly gần',
-          'Hỗ trợ sạc bypass live liên tục 4h'
+          'Cổng sạc bypass nuôi nguồn liên tục'
         ],
         tip: '✓ Combo hoàn thiện ~700.000 VNĐ',
         icon: 'tripod'
@@ -560,7 +560,7 @@ Sự chân thành không làm giảm doanh số; ngược lại, nó giúp khác
         features: [
           { f: 'Cực kỳ nhỏ gọn (8.2g)', sub: 'Kẹp áo thoải mái, không làm trễ cổ áo thun' },
           { f: 'Cắm trực tiếp Type-C / Lightning', sub: 'Không cần cài app thứ 3, nhận ngay trong 3s' },
-          { f: 'Pin liên tục 5 - 6 giờ', sub: 'Hỗ trợ cổng sạc bypass vừa sạc vừa live cả ngày' }
+          { f: 'Pin liên tục hơn 2 giờ', sub: 'Hỗ trợ cổng sạc bypass vừa sạc vừa live cả ngày' }
         ],
         verdictTag: 'Phù hợp nhất:',
         verdictText: 'Livestream bán hàng, quay video phòng kín, TikToker mới'
@@ -592,7 +592,7 @@ Chênh lệch mức giá khiến nhiều người băn khoăn: *"Liệu bỏ th�
 | :--- | :--- | :--- |
 | **Phân khúc** | Phổ thông – Khởi đầu dễ dàng | Bán chuyên – Đa dụng cao cấp |
 | **Hộp sạc đi kèm** | Không có (sạc cáp trực tiếp vào mic) | Hộp sạc thông minh màn hình LED hiển thị % pin |
-| **Thời lượng pin 1 lần sạc** | 4 – 5 giờ liên tục | 4 – 5 giờ (Mở rộng lên 24 giờ với hộp sạc) |
+| **Thời lượng pin 1 lần sạc** | Hơn 2 giờ liên tục | 4 – 5 giờ (Mở rộng lên 24 giờ với hộp sạc) |
 | **Công nghệ lọc ồn** | Chip DSP lọc tiếng ồn tiêu chuẩn | Mạng nơ-ron AI ENC đa tầng + Bông lọc lông Deadcat |
 | **Chất lượng âm thanh** | 16-bit / 48 kHz (Rõ tiếng, trong trẻo) | 24-bit / 48 kHz (Dày dặn, bắt trọn âm sắc) |
 | **Cổng kết nối** | Chọn bản Type-C hoặc Lightning riêng | Đầu thu Type-C (hỗ trợ đầu chuyển Lightning/USB) |
