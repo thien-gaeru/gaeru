@@ -78,8 +78,8 @@ body.product-page {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(0, 113, 227, 0.09);
-  color: #0071e3;
+  background: rgba(0, 96, 199, 0.09);
+  color: #0060c7;
   letter-spacing: 0.02em;
 }
 
@@ -95,7 +95,7 @@ body.product-page {
 .product-local-subnav-links a {
   font-size: 13.5px;
   font-weight: 500;
-  color: #6e6e73;
+  color: #55555a;
   text-decoration: none;
   padding: 6px 14px;
   border-radius: 999px;
@@ -109,9 +109,9 @@ body.product-page {
 }
 
 .product-local-subnav-links a.is-active {
-  color: #0071e3;
+  color: #0060c7;
   font-weight: 600;
-  background: rgba(0, 113, 227, 0.08);
+  background: rgba(0, 96, 199, 0.08);
 }
 
 .product-local-subnav-cta {
@@ -136,7 +136,7 @@ body.product-page {
   gap: 6px;
   padding: 7px 18px;
   border-radius: 999px;
-  background: #0071e3;
+  background: #0060c7;
   color: #ffffff !important;
   font-size: 13px;
   font-weight: 600;
@@ -163,9 +163,12 @@ body.product-page {
   bottom: 0;
   left: 0;
   height: 2px;
-  width: 0%;
-  background: linear-gradient(90deg, #0071e3, #25f4ee);
-  transition: width 0.08s linear;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, #0060c7, #25f4ee);
+  transition: transform 0.08s linear;
+  will-change: transform;
 }
 
 /* ------------------------------------------------------------------------------
@@ -209,7 +212,7 @@ body.product-page {
   font-weight: 700 !important;
   letter-spacing: 0.14em !important;
   text-transform: uppercase !important;
-  background: linear-gradient(90deg, #0071e3 0%, #6366f1 100%);
+  background: linear-gradient(90deg, #0060c7 0%, #4f46e5 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 14px;
@@ -219,8 +222,8 @@ body.product-page {
 .product-story-copy .eyebrow {
   background: none;
   -webkit-text-fill-color: initial;
-  color: #0071e3 !important;
-  background: rgba(0, 113, 227, 0.07);
+  color: #0060c7 !important;
+  background: rgba(0, 96, 199, 0.07);
   padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px !important;
@@ -244,9 +247,9 @@ body.product-page {
 
 .product-information>header h2 span {
   font-weight: 500 !important;
-  color: #6e6e73 !important;
+  color: #55555a !important;
   background: none;
-  -webkit-text-fill-color: #6e6e73;
+  -webkit-text-fill-color: #55555a;
 }
 
 /* Chapter Headings: Tiêu đề từng chương kể chuyện sản phẩm */
@@ -325,8 +328,8 @@ body.product-page {
   padding: 1px 8px;
   margin: 0 2px;
   border-radius: 6px;
-  background: rgba(0, 113, 227, 0.08);
-  color: #0071e3 !important;
+  background: rgba(0, 96, 199, 0.08);
+  color: #0060c7 !important;
   font-weight: 600 !important;
   font-size: 0.94em;
   letter-spacing: -0.01em;
@@ -425,7 +428,7 @@ body.product-page {
   font-size: 28px !important;
   line-height: 1.18 !important;
   letter-spacing: -0.03em !important;
-  background: linear-gradient(135deg, #1d1d1f 0%, #0071e3 140%);
+  background: linear-gradient(135deg, #1d1d1f 0%, #0060c7 140%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-bottom: 8px !important;
@@ -437,7 +440,7 @@ body.product-page {
 .k9-highlights span {
   font-size: 14.5px !important;
   line-height: 1.5 !important;
-  color: #6e6e73 !important;
+  color: #55555a !important;
   font-weight: 500;
 }
 
@@ -456,7 +459,7 @@ body.product-page {
   background-position: top;
   background-size: 100% 1px;
   background-repeat: no-repeat;
-  transition: all 0.4s ease;
+  transition: opacity 0.4s ease, transform 0.4s ease;
 }
 
 /* Ambient glow cho hero figure của phần giới thiệu */
@@ -541,7 +544,7 @@ body.product-page {
 }
 
 .product-page .product-gallery-thumbnails button {
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, box-shadow 0.22s ease !important;
   background: #ffffff;
   border: 2px solid transparent !important;
   border-radius: 12px !important;
@@ -553,9 +556,9 @@ body.product-page {
 }
 
 .product-page .product-gallery-thumbnails button[aria-pressed=true] {
-  border-color: #0071e3 !important;
+  border-color: #0060c7 !important;
   transform: scale(1.06);
-  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.3) !important;
+  box-shadow: 0 4px 14px rgba(0, 96, 199, 0.3) !important;
 }
 
 /* ------------------------------------------------------------------------------
@@ -613,7 +616,7 @@ body.product-page {
 
 .product-feature-specs>p {
   font-size: 13.5px !important;
-  color: #86868b !important;
+  color: #55555a !important;
   line-height: 1.6 !important;
   margin-top: 24px !important;
 }
@@ -624,7 +627,7 @@ body.product-page {
   gap: 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #0071e3;
+  color: #0060c7;
   text-decoration: none;
   margin-top: 16px;
   transition: gap 0.2s ease;

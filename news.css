@@ -11,11 +11,11 @@
 .news-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.06)}
 .news-card>img,.news-card>picture>img{display:block;width:100%!important;max-width:100%!important;height:auto!important;max-height:none!important;aspect-ratio:16/10;object-fit:cover!important;object-position:center;box-sizing:border-box;padding:0!important;margin:0;background:#ebebee;border-top-left-radius:24px;border-top-right-radius:24px;border-bottom-left-radius:0;border-bottom-right-radius:0}
 .news-card>div{padding:22px 24px 26px;display:flex;flex-direction:column;flex:1}
-.news-card time{font-size:13px;color:#6e6e73}
+.news-card time{font-size:13px;color:#55555a}
 .news-card h3{font-size:21px;line-height:1.32;margin:10px 0;letter-spacing:-.02em}
-.news-card p{line-height:1.6;color:#6e6e73;font-size:15px;margin:0 0 16px}
-.news-card span{color:#0071e3;font-weight:500;margin-top:auto}
-.news-card:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
+.news-card p{line-height:1.6;color:#55555a;font-size:15px;margin:0 0 16px}
+.news-card span{color:#0060c7;font-weight:500;margin-top:auto}
+.news-card:focus-visible{outline:3px solid #0060c7;outline-offset:2px}
 .news-page{max-width:1120px;padding:48px 24px 80px;margin:auto;min-height:60vh}
 .news-page h1{font-size:clamp(36px,5vw,60px);line-height:1.1;letter-spacing:-.04em}
 .news-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:36px 0;content-visibility:auto;contain-intrinsic-size:auto 600px}
@@ -32,29 +32,29 @@
 
 /* Clean Editorial Recommendation Bar */
 .article-product-recommend{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin:32px 0;padding:14px 22px;background:#f5f5f7;border:1px solid #e5e5ea;border-radius:14px;box-sizing:border-box;transition:border-color .2s ease,box-shadow .2s ease}
-.article-product-recommend:hover{border-color:#0071e360;box-shadow:0 4px 16px rgba(0,0,0,0.04)}
+.article-product-recommend:hover{border-color:#0060c760;box-shadow:0 4px 16px rgba(0,0,0,0.04)}
 .article-product-recommend .recommend-info{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:#1d1d1f;line-height:1.4}
-.article-product-recommend .recommend-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#0071e3;background:#0071e314;padding:4px 10px;border-radius:999px;white-space:nowrap}
-.article-product-recommend .recommend-price{color:#6e6e73;font-size:14px;font-weight:500}
+.article-product-recommend .recommend-badge{display:inline-flex;align-items:center;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#0060c7;background:#0060c714;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.article-product-recommend .recommend-price{color:#55555a;font-size:14px;font-weight:500}
 .article-product-recommend .recommend-actions{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}
 .article-product-recommend .button{min-height:38px;padding:8px 18px;border-radius:999px;font-size:13px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;transition:all .2s ease}
-.article-product-recommend .button-outline{background:#fff;color:#0071e3;border:1px solid #0071e3}
-.article-product-recommend .button-outline:hover{background:#0071e30d}
-.article-product-recommend .button-blue{background:#0071e3;color:#fff;border:1px solid #0071e3;box-shadow:0 2px 8px rgba(0,113,227,0.2)}
-.article-product-recommend .button-blue:hover{background:#0077ed;box-shadow:0 4px 12px rgba(0,113,227,0.35)}
+.article-product-recommend .button-outline{background:#fff;color:#0060c7;border:1px solid #0060c7}
+.article-product-recommend .button-outline:hover{background:#0060c70d}
+.article-product-recommend .button-blue{background:#0060c7;color:#fff;border:1px solid #0060c7;box-shadow:0 2px 8px rgba(0,96,199,0.2)}
+.article-product-recommend .button-blue:hover{background:#0051ab;box-shadow:0 4px 12px rgba(0,96,199,0.35)}
 
 /* Bottom Conclusion CTA */
 .article-bottom-cta{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin:44px 0 28px;padding:22px 26px;background:linear-gradient(135deg,#f5f5f7 0%,#edf2f7 100%);border:1px solid #e5e5ea;border-radius:18px;box-sizing:border-box}
 .article-bottom-cta .cta-info{display:flex;flex-direction:column;gap:6px}
-.article-bottom-cta .cta-badge{display:inline-flex;align-items:center;width:fit-content;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#0071e3;background:#0071e314;padding:4px 10px;border-radius:999px}
+.article-bottom-cta .cta-badge{display:inline-flex;align-items:center;width:fit-content;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#0060c7;background:#0060c714;padding:4px 10px;border-radius:999px}
 .article-bottom-cta .cta-title{font-size:17px;font-weight:600;color:#1d1d1f;margin:0!important;letter-spacing:-.01em}
-.article-bottom-cta .cta-price{font-weight:500;color:#6e6e73;font-size:15px}
+.article-bottom-cta .cta-price{font-weight:500;color:#55555a;font-size:15px}
 .article-bottom-cta .cta-actions{display:inline-flex;align-items:center;gap:10px;flex-wrap:wrap}
 .article-bottom-cta .button{min-height:42px;padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;transition:all .2s ease}
 .article-bottom-cta .button-outline{background:#fff;color:#1d1d1f;border:1px solid #d2d2d7}
-.article-bottom-cta .button-outline:hover{background:#f5f5f7;border-color:#86868b;transform:translateY(-1px)}
-.article-bottom-cta .button-blue{background:#0071e3;color:#fff;border:1px solid #0071e3;box-shadow:0 2px 10px rgba(0,113,227,0.25)}
-.article-bottom-cta .button-blue:hover{background:#0077ed;box-shadow:0 4px 14px rgba(0,113,227,0.4);transform:translateY(-1px)}
+.article-bottom-cta .button-outline:hover{background:#f5f5f7;border-color:#59595e;transform:translateY(-1px)}
+.article-bottom-cta .button-blue{background:#0060c7;color:#fff;border:1px solid #0060c7;box-shadow:0 2px 10px rgba(0,96,199,0.25)}
+.article-bottom-cta .button-blue:hover{background:#0051ab;box-shadow:0 4px 14px rgba(0,96,199,0.4);transform:translateY(-1px)}
 
 @media(max-width:760px){
  .home-news{padding:48px 0}

@@ -26,3 +26,21 @@ test('browser URL normalization rewrites responsive images and continues with la
   assert.doesNotThrow(() => observerCallback([{ type: 'attributes', target: image }]));
   assert.equal(image.getAttribute('srcset'), '/assets/products/m3.webp 480w');
 });
+
+test('browser URL normalization preserves absolute rel=canonical URLs for SEO', () => {
+  const { document, window } = parseHTML('<!doctype html><html><head><link rel="canonical" href="https://gaeru.com/cua-hang"><link rel="icon" href="https://gaeru.com/favicon.ico"></head><body><a href="https://gaeru.com/shop.html">Cửa hàng</a></body></html>');
+  window.location = { origin: 'https://gaeru.com', pathname: '/cua-hang', search: '' };
+  let observerCallback = null;
+  window.MutationObserver = class {
+    constructor(cb) { observerCallback = cb; }
+    observe() {}
+  };
+  const source = require('node:fs').readFileSync(require.resolve('../clean-urls.js'), 'utf8');
+  require('node:vm').runInNewContext(source, { window, document, location: window.location, MutationObserver: window.MutationObserver, URL, URLSearchParams, module: undefined, exports: undefined });
+
+  const canonical = document.querySelector('link[rel="canonical"]');
+  assert.equal(canonical.getAttribute('href'), 'https://gaeru.com/cua-hang');
+  assert.equal(document.querySelector('a').getAttribute('href'), '/cua-hang');
+  observerCallback?.([{ type: 'attributes', target: canonical }]);
+  assert.equal(canonical.getAttribute('href'), 'https://gaeru.com/cua-hang');
+});

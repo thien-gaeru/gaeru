@@ -8,6 +8,7 @@ const { createObjectCache } = require('./object-cache');
 const { qualifiesForSelectiveAvif, encodeAvif, SAVINGS_RATIO } = require('./selective-avif');
 
 const widths = [480, 800, 1200, 1600];
+const supportedServeWidths = [160, 480, 800, 1200, 1600];
 const MAX_ROW_CACHE_ENTRIES = process.arch === 'arm64' ? 256 : 512;
 const MAX_ROW_CACHE_BYTES = process.arch === 'arm64' ? 12 * 1024 * 1024 : 24 * 1024 * 1024;
 const MAX_SINGLE_ROW_CACHE_BYTES = 4 * 1024 * 1024;
@@ -206,7 +207,7 @@ async function warmPublicImage(row, targetWidths = widths, rawBuffer = null) {
     return cachedOriginal;
   };
   for (const width of targetWidths) {
-    if (!widths.includes(width)) continue;
+    if (!supportedServeWidths.includes(width)) continue;
     await new Promise(resolve => setImmediate(resolve));
     if (process.memoryUsage().rss > getMaxWarmRssBytes()) {
       skippedWarmByRssCount++;
@@ -260,7 +261,7 @@ function enqueueImageWarm(row, rawBuffer = null) {
   }
   queuedWarmTasks++;
   const timer = setTimeout(() => {
-    void warmPublicImage(row, widths, rawBuffer)
+    void warmPublicImage(row, supportedServeWidths, rawBuffer)
       .catch(() => {})
       .finally(() => { queuedWarmTasks = Math.max(0, queuedWarmTasks - 1); });
   }, 0);
@@ -271,7 +272,7 @@ function enqueueImageWarm(row, rawBuffer = null) {
 // it serves precomputed renditions when available or falls back to raw original bytes with true MIME.
 async function sendPublicImage(req, res, row, namespace) {
   const requested = req.query.w;
-  const width = requested === undefined ? null : widths.find(value => String(value) === requested);
+  const width = requested === undefined ? null : supportedServeWidths.find(value => String(value) === requested);
   if (requested !== undefined && !width) return res.status(400).json({ error: 'Kích thước ảnh không được hỗ trợ.' });
   const cacheControl = 'public, max-age=3600, stale-while-revalidate=86400, must-revalidate';
   const missCacheControl = 'public, max-age=30, stale-while-revalidate=60, must-revalidate';

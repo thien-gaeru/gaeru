@@ -569,22 +569,25 @@ function initializeMotion() {
   const reveal = (root) => {
     const targets = [...(root.matches?.(revealTargets) ? [root] : []), ...(root.querySelectorAll?.(revealTargets) ?? [])];
     const vh = typeof window !== "undefined" ? window.innerHeight || 800 : 800;
-    targets.forEach((element, index) => {
-      if (element.dataset.revealReady) return;
+    const pending = [];
+    for (let index = 0; index < targets.length; index++) {
+      const element = targets[index];
+      if (element.dataset.revealReady) continue;
+      const delay = computeRevealDelay(element, index);
+      const rect = revealObserver ? element.getBoundingClientRect?.() : null;
+      pending.push({ element, delay, visible: !revealObserver || Boolean(rect && rect.top < vh * 0.92 && rect.bottom > 0) });
+    }
+    for (const item of pending) {
+      const { element, delay, visible } = item;
       element.dataset.revealReady = "true";
-      element.style.setProperty("--reveal-delay", computeRevealDelay(element, index));
-      if (revealObserver) {
-        const rect = element.getBoundingClientRect?.();
-        if (rect && rect.top < vh * 0.92 && rect.bottom > 0) {
-          element.classList.add("is-visible");
-        } else {
-          element.classList.remove("is-visible");
-          revealObserver.observe(element);
-        }
-      } else {
+      element.style.setProperty("--reveal-delay", delay);
+      if (visible) {
         element.classList.add("is-visible");
+      } else {
+        element.classList.remove("is-visible");
+        revealObserver.observe(element);
       }
-    });
+    }
   };
 
   if ("IntersectionObserver" in window && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {

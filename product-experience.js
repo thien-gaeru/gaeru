@@ -190,9 +190,9 @@
       // 2. Progress Bar
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
       const scrolled = window.scrollY || window.pageYOffset || 0;
-      const progress = docHeight > 0 ? (scrolled / docHeight) * 100 : 0;
+      const ratio = Math.min(1, Math.max(0, docHeight > 0 ? (scrolled / docHeight) : 0));
       if (progressBar) {
-        progressBar.style.width = Math.min(100, Math.max(0, progress)) + '%';
+        progressBar.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
       }
 
       // 3. ScrollSpy Active Indicator

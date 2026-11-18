@@ -179,7 +179,7 @@ function productCard(product, compact = false) {
     ? `product-card ${isG1Ultra ? "product-card-wide" : ""}`
     : "catalog-card";
   return compact ? `
-    <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}" tabindex="0" role="link" aria-label="${escapeHtml(product.cardTitle||product.name)}">
+    <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}">
       <div class="product-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
@@ -187,15 +187,15 @@ function productCard(product, compact = false) {
         ${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return hasSale?`<p class="price price-original"><span class="price-original-label">Giá gốc </span><del>${escapeHtml(getPriceLabel(product,true))}</del></p>${promotionLabel(product)}`:`<p class="price">${escapeHtml(getPriceLabel(product))}</p>`;})()}
 
       </div>
-      ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">`)}
+      ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt||product.name)}" loading="lazy" decoding="async">`)}
         <div class="card-actions">
           <button class="button button-blue" type="button" data-choose-cart="${escapeHtml(product.slug)}" ${availableVariants.length?"":"disabled"}>Thêm vào giỏ hàng</button>
           <a class="button button-outline" href="${pUrl}">Mua ngay</a>
         </div>
     </article>` : `
-    <article class="${cardClass}" data-href="${pUrl}" tabindex="0" role="link" aria-label="${escapeHtml(product.cardTitle||product.name)}">
-      <a class="catalog-card-image" href="${pUrl}">
-        ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">`)}
+    <article class="${cardClass}" data-href="${pUrl}">
+      <a class="catalog-card-image" href="${pUrl}" aria-label="Xem chi tiết ${escapeHtml(product.cardTitle||product.name)}">
+        ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt||product.name)}" loading="lazy" decoding="async">`)}
       </a>
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="${pUrl}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
@@ -341,7 +341,7 @@ function renderBundlesHtml(container, bundles, currentVariantId) {
         </div>
         <div class="bundle-items-flow">
           <div class="bundle-item-card primary-card">
-            <img src="${escapeHtml(safeProductImage(primaryItem.imageUrl))}" alt="${escapeHtml(primaryItem.productName)}" loading="lazy">
+            <img src="${escapeHtml(safeProductImage(primaryItem.imageUrl))}" alt="${escapeHtml(primaryItem.productName)}" width="52" height="52" loading="lazy" fetchpriority="low">
             <div class="bundle-item-info">
               <strong>${escapeHtml(primaryItem.productName)}</strong>
               <small>${escapeHtml(primaryItem.variantName)}</small>
@@ -353,7 +353,7 @@ function renderBundlesHtml(container, bundles, currentVariantId) {
             <div class="bundle-item-card secondary-card">
               <label class="bundle-accessory-choice">
                 <input type="checkbox" data-bundle-accessory="${escapeHtml(item.variantId)}" checked>
-                <img src="${escapeHtml(safeProductImage(item.imageUrl))}" alt="${escapeHtml(item.productName)}" loading="lazy">
+                <img src="${escapeHtml(safeProductImage(item.imageUrl))}" alt="${escapeHtml(item.productName)}" width="52" height="52" loading="lazy" fetchpriority="low">
                 <div class="bundle-item-info">
                   <strong>${escapeHtml(item.productName)}</strong>
                   <small>${escapeHtml(item.variantName)}</small>
@@ -427,10 +427,17 @@ function renderProduct() {
     ${priceBoxHtml}` : `
     <p class="detail-price">Chưa có phiên bản để đặt hàng</p>`;
 
+  const existingHeroNode = root.querySelector('.product-detail-art > picture, .product-detail-art > [data-product-main-image]');
+  const existingHeroImg = existingHeroNode?.matches?.('img') ? existingHeroNode : existingHeroNode?.querySelector?.('[data-product-main-image]');
+  const expectedHeroPath = safeProductImage(product.imageUrl).split('?')[0];
+  const existingHeroPath = (existingHeroImg?.getAttribute?.('src') || '').split('?')[0];
+  const reuseHeroNode = Boolean(existingHeroNode && existingHeroImg && existingHeroPath && existingHeroPath === expectedHeroPath);
+  if (reuseHeroNode) existingHeroNode.remove?.();
+
   root.innerHTML = `
     <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${hasFlash ? `<div class="product-heading-flash-badge"><span class="flash-badge-icon" aria-hidden="true">⚡</span><span class="flash-badge-text">FLASH SALE ĐANG DIỄN RA ${initialDiscountPercent ? `· Tiết kiệm tới ${initialDiscountPercent}%` : ''}</span></div>` : ''}${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
-      <div class="product-detail-art">${(img=>window.GAERUProductArtwork?.picture?.(img,safeProductImage(product.imageUrl),true)||img)(`<img loading="eager" fetchpriority="high" decoding="async" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}">`)}<div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}">${(img=>window.GAERUProductArtwork?.picture?.(img,url,'thumb')||img)(`<img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" loading="lazy" decoding="async">`)}</button>`).join("")}</div></div>
+      <div class="product-detail-art">${(img=>window.GAERUProductArtwork?.picture?.(img,safeProductImage(product.imageUrl),true)||img)(`<img loading="eager" fetchpriority="high" decoding="async" width="800" height="800" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}">`)}<div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}">${(img=>window.GAERUProductArtwork?.picture?.(img,url,'thumb')||img)(`<img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" width="74" height="74" loading="lazy" fetchpriority="low" decoding="async">`)}</button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>Chọn kết nối phù hợp với bạn.</span></h2>
         ${variantField}<p data-selected-promotion class="store-promotion-note" hidden></p>
@@ -455,6 +462,16 @@ function renderProduct() {
     </section>
     <section class="product-information section-wrap" id="product-information"><header><p class="eyebrow">TÌM HIỂU SẢN PHẨM</p><h2>${escapeHtml(product.name)}. <span>Chi tiết cho lựa chọn của bạn.</span></h2></header>${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}</section>
     <section class="detail-more"><p class="eyebrow">Khám phá thêm</p><h2>Thiết bị khác. Cùng cảm hứng.</h2><a class="text-link" href="shop.html">Xem toàn bộ cửa hàng <span aria-hidden="true">›</span></a></section>`;
+  if (reuseHeroNode && existingHeroNode) {
+    const freshHeroNode = root.querySelector('.product-detail-art > picture, .product-detail-art > [data-product-main-image]');
+    if (freshHeroNode && typeof freshHeroNode.replaceWith === 'function') {
+      existingHeroImg.setAttribute('loading', 'eager');
+      existingHeroImg.setAttribute('fetchpriority', 'high');
+      existingHeroImg.setAttribute('width', '800');
+      existingHeroImg.setAttribute('height', '800');
+      freshHeroNode.replaceWith(existingHeroNode);
+    }
+  }
 
   const selector = root.querySelector("#product-variant");
   const countdown=root.querySelector('[data-selected-countdown]');

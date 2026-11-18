@@ -10,8 +10,14 @@
    // Both views reuse the exact source pixels. The single view clips the right mic,
    // then centers the left mic; no hardware is generated or stretched.
    const pic=img.parentElement?.tagName==='PICTURE'?img.parentElement:null,container=pic?pic.parentElement:img.parentElement;
-   const target=Math.min(container?.clientWidth||win.innerWidth||640,720)*(win.devicePixelRatio||1);
-   const candidates=(img.getAttribute?.('srcset')||'').split(',').map(value=>{const [url,width]=value.trim().split(/\s+/);return {url,width:parseInt(width,10)};}).filter(v=>/^\/assets\/products\/[a-z0-9._-]+\.webp(?:\?format=webp)?$/i.test(v.url)&&v.width).sort((a,b)=>a.width-b.width);
+   const containerWidth=container?.clientWidth||win.innerWidth||640;
+   const dpr=win.innerWidth&&win.innerWidth<=760?1:Math.min(win.devicePixelRatio||1,1.5);
+   const target=Math.min(containerWidth,520)*dpr;
+   const avifSrcset=pic?.querySelector?.('source[type="image/avif"]')?.getAttribute?.('srcset')||'';
+   const parseList=(list,re)=>String(list||'').split(',').map(value=>{const [url,width]=value.trim().split(/\s+/);return {url,width:parseInt(width,10)};}).filter(v=>re.test(v.url)&&v.width).sort((a,b)=>a.width-b.width);
+   const avifCandidates=parseList(avifSrcset,/^\/assets\/products\/[a-z0-9._-]+\.avif$/i);
+   const webpCandidates=parseList(img.getAttribute?.('srcset')||'',/^\/assets\/products\/[a-z0-9._-]+\.webp(?:\?format=webp)?$/i);
+   const candidates=avifCandidates.length?avifCandidates:webpCandidates;
    const displaySource=(candidates.find(v=>v.width>=target)||candidates.at(-1))?.url||'/assets/products/k9.webp?format=webp';
    const createSvg=tag=>typeof doc.createElementNS==='function'?doc.createElementNS('http://www.w3.org/2000/svg',tag):doc.createElement(tag);
    const svg=createSvg('svg');svg.setAttribute('viewBox','0 0 1280 1280');svg.setAttribute('preserveAspectRatio','xMidYMid meet');svg.setAttribute('role','img');

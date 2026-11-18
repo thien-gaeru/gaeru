@@ -365,11 +365,37 @@
 
   if (typeof window !== 'undefined') {
     window.GAERUAnalytics = GAERUAnalytics;
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = window.gtag || function () { window.dataLayer.push(arguments); };
+
+    const scheduleBootstrap = () => {
+      let triggered = false;
+      const run = () => {
+        if (triggered) return;
+        triggered = true;
+        ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(ev =>
+          window.removeEventListener(ev, run)
+        );
+        void GAERUAnalytics.bootstrap();
+      };
+      ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(ev =>
+        window.addEventListener(ev, run, { once: true, passive: true })
+      );
+      const deferAfterLoad = () => {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => setTimeout(run, 1800), { timeout: 3200 });
+        } else {
+          setTimeout(run, 2500);
+        }
+      };
+      if (document.readyState === 'complete') deferAfterLoad();
+      else window.addEventListener('load', deferAfterLoad, { once: true });
+    };
 
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => GAERUAnalytics.bootstrap());
+      document.addEventListener('DOMContentLoaded', scheduleBootstrap, { once: true });
     } else {
-      GAERUAnalytics.bootstrap();
+      scheduleBootstrap();
     }
   }
 

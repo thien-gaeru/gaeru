@@ -4,7 +4,7 @@ const sharp=require('sharp');
 const disk=require('./lib/file-library-storage'),filesystem=require('./lib/filesystem-media');
 const {createObjectCache}=require('./lib/object-cache');
 const {qualifiesForSelectiveAvif,encodeAvif,SAVINGS_RATIO}=require('./lib/selective-avif');
-const types={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.avif':'image/avif','.ico':'image/x-icon','.mp4':'video/mp4'};
+const types={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.gif':'image/gif','.avif':'image/avif','.ico':'image/x-icon','.mp4':'video/mp4','.vtt':'text/vtt; charset=utf-8'};
 const valid=relative=>typeof relative==='string'&&/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+$/.test(relative)&&!relative.split('/').some(p=>p==='.'||p==='..')&&Object.hasOwn(types,path.posix.extname(relative).toLowerCase());
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const widths=[480,800,1200,1600];
