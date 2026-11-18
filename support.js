@@ -51,9 +51,9 @@ function renderSupportProducts(customProducts) {
   }
 
   if (supportProducts) {
-    supportProducts.innerHTML = `<h2 class="visually-hidden">Sản phẩm GAERU đang bán</h2>${products.map((product) => `
+    supportProducts.innerHTML = `<h2 class="visually-hidden">Sản phẩm GAERU đang bán</h2>${products.map((product, i) => `
       <a class="support-product" href="/huong-dan/${encodeURIComponent(product.slug)}" data-support-searchable data-support-terms="${escapeHtml(`${product.category || ''} ${product.descriptor || ''}`)}">
-        <span class="support-product-image"><img src="${escapeHtml(window.GAERUProductArtwork?.image(product) || product.imageUrl)}" alt="${escapeHtml(product.imageAlt || product.name)}" loading="lazy"></span>
+        <span class="support-product-image"><img src="${escapeHtml(window.GAERUProductArtwork?.image(product) || product.imageUrl)}" alt="${escapeHtml(product.imageAlt || product.name)}" decoding="async"${i === 0 ? ' fetchpriority="high"' : ''}${i < 2 ? '' : ' loading="lazy"'}></span>
         <span class="support-product-name">${escapeHtml(product.name)}</span>
         <span class="support-product-link">Hướng dẫn sử dụng <span aria-hidden="true">›</span></span>
       </a>

@@ -125,3 +125,20 @@ test('PageSpeed Perf: cache-warmup warms 160w and cold miss emits no-store CDN c
     await new Promise((r) => server2.close(r));
   }
 });
+
+test('PageSpeed Post-Fix II: footer-chat-link disables color transitions, 160w thumbs bypass stale query order, and above-the-fold cards stay eager', () => {
+  const styles = fs.readFileSync(path.join(ROOT, 'styles.css'), 'utf8');
+  assert.match(styles, /\.site-footer \.footer-chat-link\[data-product-chat\]\{[^}]*transition:none/);
+
+  const art = require('../product-art');
+  const thumbHtml = art.picture('<img src="/api/catalog-images/11111111-1111-4111-8111-111111111111?v=webp-20261025">', '/api/catalog-images/11111111-1111-4111-8111-111111111111?v=webp-20261025', 'thumb');
+  assert.match(thumbHtml, /\?v=webp-20261025&w=160&format=avif 160w/);
+
+  const newsSrc = fs.readFileSync(path.join(ROOT, 'news.js'), 'utf8');
+  assert.match(newsSrc, /lazy:!eager&&i>=3/);
+
+  const seoSrc = fs.readFileSync(path.join(ROOT, 'src', 'seo-pages.js'), 'utf8');
+  assert.match(seoSrc, /newsCards[\s\S]*?i<3/);
+  const cleanSrc = fs.readFileSync(path.join(ROOT, 'src', 'clean-routes.js'), 'utf8');
+  assert.match(cleanSrc, /u\.pathname==='\/'&&\/\^\\\/\?news\\\.css/);
+});
