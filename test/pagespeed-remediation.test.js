@@ -104,4 +104,24 @@ test('PageSpeed Perf: cache-warmup warms 160w and cold miss emits no-store CDN c
   } finally {
     await new Promise((r) => server.close(r));
   }
+
+  // Compact <16KB 160w WebP intentionally has no AVIF rendition and should cache publicly with long TTL
+  const smallImg = await sharp({
+    create: { width: 480, height: 480, channels: 4, background: { r: 24, g: 112, b: 196, alpha: 1 } }
+  }).webp().toBuffer();
+  const smallRow = { content: smallImg, mime_type: 'image/webp' };
+  await renditions.warmPublicImage(smallRow, [160]);
+  const app2 = express();
+  app2.get('/api/catalog-images/:id', (req, res, next) => renditions.sendPublicImage(req, res, smallRow, 'catalog-image').catch(next));
+  const server2 = app2.listen(0, '127.0.0.1');
+  await new Promise((r) => server2.once('listening', r));
+  try {
+    const res2 = await fetch(`http://127.0.0.1:${server2.address().port}/api/catalog-images/small-thumb?v=webp-20261025&format=avif&w=160`);
+    await res2.arrayBuffer();
+    assert.equal(res2.status, 200);
+    assert.equal(res2.headers.get('content-type'), 'image/webp');
+    assert.match(res2.headers.get('cache-control') || '', /^public,\s*max-age=3600/i);
+  } finally {
+    await new Promise((r) => server2.close(r));
+  }
 });

@@ -337,7 +337,8 @@ async function sendPublicImage(req, res, row, namespace) {
     return res.send(rawBytes);
   }
 
-  if (qualifiesForSelectiveAvif(req, requestedFormat === 'avif' ? undefined : webpBytes.length)) {
+  const avifExpected = webpBytes.length >= 16 * 1024;
+  if (avifExpected && qualifiesForSelectiveAvif(req, requestedFormat === 'avif' ? undefined : webpBytes.length)) {
     const avifVersion = computeVersion(row, servedFallbackWidth ? 480 : width, 'avif');
     let avifBytes = cache.peek(avifVersion);
     if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
@@ -353,7 +354,7 @@ async function sendPublicImage(req, res, row, namespace) {
   }
 
   const webpEtag = '"gaeru-' + namespace + '-' + req.params.id + '-' + version + '"';
-  res.type('image/webp').set(buildImageHeaders(webpEtag, servedFallbackWidth || requestedFormat === 'avif'));
+  res.type('image/webp').set(buildImageHeaders(webpEtag, servedFallbackWidth || (requestedFormat === 'avif' && avifExpected)));
   if (req.fresh) return res.status(304).end();
   return res.send(webpBytes);
 }
