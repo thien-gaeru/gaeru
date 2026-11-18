@@ -113,7 +113,7 @@ img { display: block; max-width: 100%; }
 .story-copy h2 span { color: #6e7d83; }
 .story-copy > p:not(.eyebrow) { max-width: 390px; margin: 23px 0; color: #59676d; font-size: 16px; line-height: 1.7; }
 .story-art { position: relative; height: 490px; display: flex; align-items: center; justify-content: center; }
-.story-art:before { content: ""; position: absolute; width: min(85%, 400px); aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(8, 127, 140, 0.08) 0%, rgba(0, 113, 227, 0.03) 50%, transparent 72%); pointer-events: none; }
+.story-art:before { display: none; }
 .story-art img { position: relative; height: 100%; object-fit: contain; filter: drop-shadow(12px 24px 20px rgb(23 49 59 / 16%)); }
 .story-art-label { position: absolute; bottom: 35px; right: 0; color: #61737a; font-size: 13px; line-height: 1.5; text-align: right; }
 
