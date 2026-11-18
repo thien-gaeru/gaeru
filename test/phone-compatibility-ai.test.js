@@ -326,4 +326,262 @@ test('GAERU AI resolves purchase-closing intent to Buy Now CTA (respecting real 
   );
   assert.ok(!xssAttempt.includes('<img'));
   assert.ok(!xssAttempt.includes('href="javascript:'));
+
+  // 7. Direct closing ("Ok chốt cho mình lấy GAERU M3 bản Type C nhé") skips redundant compatibility boilerplate
+  const crispClose = await generateGaeruAiResponse({
+    question: 'Ok chốt cho mình lấy GAERU M3 bản Type C nhé',
+    catalog: CATALOG
+  });
+  assert.ok(crispClose.answer.includes('Xác nhận chốt **GAERU M3**'));
+  assert.ok(!crispClose.answer.includes('Chân Type-C dùng tốt cho'), 'Direct checkout confirmation must stay concise');
 });
+
+test('GAERU AI handles audio troubleshooting symptoms, PD+OTG splitters, RX playback and TRS camera adapters', async () => {
+  const reverbRes = await generateGaeruAiResponse({
+    question: 'GAERU G1 ULTRA thu âm bị vang tiếng echo phải tắt thế nào?',
+    catalog: CATALOG
+  });
+  assert.ok(reverbRes.answer.includes('Reverb') || reverbRes.answer.includes('vang'));
+  assert.ok(reverbRes.answer.includes('Trung tâm điều khiển'));
+
+  const oneMicRes = await generateGaeruAiResponse({
+    question: 'Bộ 2 mic GAERU M3 chỉ lên tiếng 1 mic không lên mic còn lại xử lý sao?',
+    catalog: CATALOG
+  });
+  assert.ok(oneMicRes.answer.includes('đèn kết nối'));
+  assert.ok(oneMicRes.answer.includes('chân tiếp xúc đồng'));
+
+  const windRes = await generateGaeruAiResponse({
+    question: 'Mic thu ngoài trời bị ù gió với cọ áo kêu rè rè xử lý thế nào?',
+    catalog: CATALOG
+  });
+  assert.ok(windRes.answer.includes('Deadcat'));
+  assert.ok(windRes.answer.includes('10–15 cm'));
+
+  const splitterRes = await generateGaeruAiResponse({
+    question: 'Dùng cáp chia cổng vừa sạc vừa live bằng GAERU K9 có được không?',
+    catalog: CATALOG
+  });
+  assert.ok(splitterRes.answer.includes('USB Data (OTG) + Sạc PD'));
+
+  const playbackRes = await generateGaeruAiResponse({
+    question: 'Cắm đầu thu mic xong phát lại video không nghe thấy loa ngoài?',
+    catalog: CATALOG
+  });
+  assert.ok(playbackRes.answer.includes('rút đầu thu RX ra'));
+
+  const camRes = await generateGaeruAiResponse({
+    question: 'GoPro với Sony ZV-E10 dùng jack 3.5mm TRS cắm mic GAERU nào?',
+    catalog: CATALOG
+  });
+  assert.ok(camRes.answer.includes('Media Mod'));
+  assert.ok(camRes.answer.includes('TRS'));
+  assert.ok(camRes.answer.includes('GAERU G1 ULTRA'));
+});
+
+test('GAERU AI uses live store settings (shipping, loyalty 1%-2%, bundles, Shopee/TikTok links, news guides) and Zero-Trust owner checks', async () => {
+  const liveCatalog = CATALOG.map(p => ({
+    ...p,
+    shopeeUrl: p.slug === 'gaeru-m3' ? 'https://vn.shp.ee/hgiewft2' : '',
+    tiktokShopUrl: p.slug === 'gaeru-m3' ? 'https://vt.tiktok.com/ZMkBgU1pQ/?page=TikTokShop' : '',
+    variants: p.variants.map((v, i) => (p.slug === 'gaeru-m3' && i === 0)
+      ? { ...v, originalPriceVnd: 1350000, activePromotion: { title: 'Flash Sale Tuần', endsAt: '2026-12-25T16:59:00Z' } }
+      : v)
+  }));
+
+  const mockLivePool = {
+    async query(sql, params) {
+      if (sql.includes("FROM store_settings")) {
+        return {
+          rows: [
+            { setting_key: 'shipping_rates', setting_value: { 'Toàn quốc': 0, 'Hà Nội': 15000 } },
+            { setting_key: 'shipping_note', setting_value: 'Miễn phí vận chuyển toàn quốc' },
+            {
+              setting_key: 'loyalty_policy',
+              setting_value: {
+                version: 1,
+                tiers: [
+                  { id: 'bronze', minPoints: 0, earnBasisPoints: 100 },
+                  { id: 'silver', minPoints: 100000, earnBasisPoints: 120 },
+                  { id: 'gold', minPoints: 500000, earnBasisPoints: 150 },
+                  { id: 'platinum', minPoints: 2000000, earnBasisPoints: 200 }
+                ]
+              }
+            }
+          ]
+        };
+      }
+      if (sql.includes('FROM customer_loyalty')) {
+        assert.equal(params[0], 'cust-owner-1');
+        return { rows: [{ points_balance: 35000, lifetime_earned: 150000, tier: 'silver' }] };
+      }
+      if (sql.includes('FROM warranty_activations')) {
+        assert.equal(params[0], 'cust-owner-1');
+        return { rows: [{ serial: 'SN-M3-999', status: 'active', expires_on: '2027-11-01', channel: 'website', external_product_name: 'GAERU M3' }] };
+      }
+      if (sql.includes('FROM care_requests')) {
+        assert.equal(params[0], 'cust-owner-1');
+        return { rows: [{ subject: 'Kiểm tra pin hộp sạc M3', status: 'reviewing', response: 'Đang kiểm tra kỹ thuật', channel: 'website' }] };
+      }
+      if (sql.includes('FROM orders') && sql.includes('WHERE customer_id = $1')) {
+        if (params[0] === 'cust-owner-1') {
+          return {
+            rows: [{
+              id: 'ord-own-1',
+              order_number: 'GR-20261118-888',
+              customer_id: 'cust-owner-1',
+              customer_name: 'Trần Minh',
+              phone: '0909123456',
+              address: '10 Lê Lợi',
+              city: 'Đà Nẵng',
+              status: 'processing',
+              payment_method: 'vietqr',
+              payment_status: 'paid',
+              total_vnd: 1200000,
+              created_at: new Date()
+            }]
+          };
+        }
+        return { rows: [] };
+      }
+      if (sql.includes('FROM product_bundles')) {
+        return {
+          rows: [{
+            id: 'b-1',
+            title: 'Combo Quay Vlogger Pro',
+            discount_type: 'fixed',
+            discount_value: 80000,
+            items: [
+              { productSlug: 'gaeru-m3', productName: 'GAERU M3' },
+              { productSlug: 'gaeru-p01', productName: 'GAERU P01' }
+            ]
+          }]
+        };
+      }
+      if (sql.includes('FROM news_posts')) {
+        return {
+          rows: [{
+            slug: 'so-sanh-chi-tiet-micro-gaeru-k9-va-gaeru-m3',
+            title: 'So sánh chi tiết micro GAERU K9 và GAERU M3',
+            summary: 'Phân tích pin hộp sạc 24h và lọc ồn AI trên M3 vs K9.'
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  // 1. Nationwide 0 VND dynamic freeship & city shipping fee
+  const shipAll = await generateGaeruAiResponse({ pool: mockLivePool, question: 'Phí ship toàn quốc bao nhiêu?', catalog: liveCatalog });
+  assert.ok(shipAll.answer.includes('Miễn phí vận chuyển toàn quốc'));
+  assert.ok(!shipAll.answer.includes('đơn từ **500.000 ₫**'));
+
+  const shipHn = await generateGaeruAiResponse({ pool: mockLivePool, question: 'Phí ship về Hà Nội bao nhiêu?', catalog: liveCatalog });
+  assert.ok(shipHn.answer.includes('15.000 ₫'));
+
+  // 2. Real loyalty policy (1%-2%) + authenticated customer balance + Zero-Trust guest isolation
+  const xuAuth = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    thread: { customer_id: 'cust-owner-1' },
+    question: 'Mình còn bao nhiêu GAERU Xu và tích điểm mấy %?',
+    catalog: liveCatalog
+  });
+  assert.ok(xuAuth.answer.includes('1%–2%'));
+  assert.ok(!xuAuth.answer.includes('1%–5%'));
+  assert.ok(xuAuth.answer.includes('35.000 GAERU Xu'));
+  assert.ok(xuAuth.answer.includes('Thành viên Bạc'));
+
+  const xuGuest = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    thread: { customer_id: null },
+    question: 'GAERU Xu tích được bao nhiêu %?',
+    catalog: liveCatalog
+  });
+  assert.ok(xuGuest.answer.includes('1%–2%'));
+  assert.ok(!xuGuest.answer.includes('35.000 GAERU Xu'), 'Guest must never see private Xu balance');
+
+  // 3. Authenticated "đơn hàng của mình" without order code + authenticated Care+/Warranty vs guest isolation
+  const ownOrderAuth = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    thread: { customer_id: 'cust-owner-1' },
+    question: 'Kiểm tra giúp mình đơn hàng của mình tới đâu rồi?',
+    catalog: liveCatalog
+  });
+  assert.ok(ownOrderAuth.answer.includes('GR-20261118-888'));
+  assert.ok(ownOrderAuth.answer.includes('Trần Minh'));
+
+  const ownOrderGuest = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    thread: { customer_id: null },
+    question: 'Kiểm tra đơn hàng của mình với',
+    catalog: liveCatalog
+  });
+  assert.ok(!ownOrderGuest.answer.includes('GR-20261118-888'));
+  assert.ok(ownOrderGuest.answer.includes('đăng nhập'));
+
+  const ownCareAuth = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    thread: { customer_id: 'cust-owner-1' },
+    question: 'Tình trạng phiếu bảo hành và yêu cầu Care+ của mình sao rồi?',
+    catalog: liveCatalog
+  });
+  assert.ok(ownCareAuth.answer.includes('SN-M3-999'));
+  assert.ok(ownCareAuth.answer.includes('Kiểm tra pin hộp sạc M3'));
+
+  // 4. Marketplace Shopee / TikTok Shop links + Active bundles + XSS-safe client rendering
+  const marketRes = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    question: 'Cho mình xin link Shopee và TikTok Shop của GAERU M3',
+    catalog: liveCatalog
+  });
+  assert.ok(marketRes.answer.includes('https://vn.shp.ee/hgiewft2'));
+  assert.ok(marketRes.answer.includes('https://vt.tiktok.com/ZMkBgU1pQ/?page=TikTokShop'));
+
+  const bundleRes = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    question: 'GAERU M3 có combo mua kèm tiết kiệm không?',
+    catalog: liveCatalog
+  });
+  assert.ok(bundleRes.answer.includes('Combo Quay Vlogger Pro'));
+  assert.ok(bundleRes.answer.includes('80.000 ₫'));
+
+  const promoClose = await generateGaeruAiResponse({
+    pool: mockLivePool,
+    question: 'Chốt GAERU M3 bản Type C giá bao nhiêu?',
+    catalog: liveCatalog
+  });
+  assert.ok(promoClose.answer.includes('Flash Sale Tuần'));
+  assert.ok(promoClose.answer.includes('Combo Quay Vlogger Pro'));
+
+  // 5. Client renders verified Shopee/TikTok & /tin-tuc links safely while blocking non-allowlisted https domains
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const clientSrc = fs.readFileSync(require.resolve('../shopping-chat-client.js'), 'utf8');
+  const snippet = clientSrc.slice(0, clientSrc.indexOf('  const ICONS =')) +
+    '\nreturn { formatMessageBody, escape };})();';
+  const helpers = vm.runInNewContext(snippet, {});
+  const safeExt = helpers.formatMessageBody(
+    '[Shopee — M3](https://vn.shp.ee/hgiewft2) · [Tin hướng dẫn](/tin-tuc/huong-dan-m3) · [Bad](https://phishing.example.com/login)',
+    'ai',
+    false
+  );
+  assert.ok(safeExt.includes('href="https://vn.shp.ee/hgiewft2"'));
+  assert.ok(safeExt.includes('target="_blank" rel="noopener noreferrer"'));
+  assert.ok(safeExt.includes('href="/tin-tuc/huong-dan-m3"'));
+  assert.ok(!safeExt.includes('href="https://phishing.example.com/login"'));
+
+  // 6. Published /tin-tuc/<slug> news matching via webKnowledge
+  const newsRes = await generateGaeruAiResponse({
+    question: 'Có bài hướng dẫn chi tiết phân biệt gimbal P01 và tripod P185 không?',
+    webKnowledge: {
+      latestNews: [{
+        url: '/tin-tuc/phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185',
+        title: 'Phân biệt Gimbal AI GAERU P01 và Tripod P185',
+        summary: 'Hướng dẫn chọn đúng thiết bị tự quay xoay 360 độ vs chân gậy cố định.'
+      }]
+    },
+    catalog: []
+  });
+  assert.ok(newsRes.answer.includes('/tin-tuc/phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185'));
+});
+

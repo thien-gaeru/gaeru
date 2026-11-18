@@ -1,7 +1,12 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const SAFE_CHAT_ACTION_URL = /^\/(?:thanh-toan\?variant=([a-zA-Z0-9_-]+)|san-pham\/([a-z0-9-]+)(?:\?variant=([a-zA-Z0-9_-]+))?|cua-hang|gio-hang|ho-tro(?:#[a-z0-9-]+)?|huong-dan(?:\/[a-z0-9-]+)?)$/;
+  const SAFE_CHAT_ACTION_URL = /^\/(?:thanh-toan\?variant=([a-zA-Z0-9_-]+)|san-pham\/([a-z0-9-]+)(?:\?variant=([a-zA-Z0-9_-]+))?|cua-hang|gio-hang|ho-tro(?:#[a-z0-9-]+)?|huong-dan(?:\/[a-z0-9-]+)?|tin-tuc\/[a-z0-9-]+)$/;
+  const SAFE_CHAT_MARKETPLACE_URL = /^https:\/\/(?:(?:[a-z0-9-]+\.)?shopee\.(?:vn|com)|(?:vn\.)?shp\.ee|shope\.ee|(?:[a-z0-9-]+\.)?tiktok(?:shop)?\.com|(?:vt|vm)\.tiktok\.com)\/[a-zA-Z0-9_/?=&%;.-]+$/;
   const renderChatActionHtml = (rawLabel, rawHref, admin, asCard = true) => {
+    const ext = SAFE_CHAT_MARKETPLACE_URL.exec(rawHref);
+    if (ext) {
+      return `<a class="chat-inline-link" href="${rawHref}" target="_blank" rel="noopener noreferrer" data-no-action-feedback>${rawLabel}</a>`;
+    }
     const m = SAFE_CHAT_ACTION_URL.exec(rawHref);
     if (!m) return null;
     const checkoutVariant = m[1];
@@ -20,9 +25,9 @@
     const safe = escape(body);
     if (sender !== 'ai') return safe;
     const formatted = safe
-      .replace(/(?:^|\n)(?:[-*]\s*)?(?:👉\s*)\[([^\]]+)\]\((\/[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, true) || full)
+      .replace(/(?:^|\n)(?:[-*]\s*)?(?:👉\s*)\[([^\]]+)\]\(((?:\/|https:\/\/)[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, true) || full)
       .replace(/(?:^|\n)\[([^\]]+)\]\((\/thanh-toan\?variant=[a-zA-Z0-9_-]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, true) || full)
-      .replace(/\[([^\]]+)\]\((\/[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, false) || full)
+      .replace(/\[([^\]]+)\]\(((?:\/|https:\/\/)[^)\s]+)\)/g, (full, label, href) => renderChatActionHtml(label, href, admin, false) || full)
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
       .replace(/`([^`\n]+)`/g, '<code style="background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px;font-size:.92em">$1</code>');
     return formatted.replace(/^\n+/, '');

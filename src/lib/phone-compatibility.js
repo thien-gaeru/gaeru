@@ -27,6 +27,7 @@ const {
   buildUsbDebuggingGuide,
   buildIosMicSelectionGuide
 } = require('./device-guides');
+const { buildAudioSymptomAnswer } = require('./audio-troubleshooting');
 
 const PORT_TYPES = EXT_PORT_TYPES;
 
@@ -589,7 +590,12 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
     sections.push('- **Lưu ý cổng 3.5mm:** Đầu thu mic GAERU K9 và M3 cắm vào **cổng kỹ thuật số (Type-C / Lightning / chuyển USB-A / Micro-USB)**, không cắm vào lỗ tai nghe 3.5mm trên điện thoại hoặc laptop (chỉ máy ảnh mới dùng dây 3.5mm TRS trên dòng G1 ULTRA).');
   }
 
-  const asksCamera = hasAnyBoundaryTerm(qNorm, ['may anh', 'camera', 'sony', 'canon', 'fujifilm', 'nikon', '3.5mm', 'jack 3.5']) &&
+  const audioSymptomAns = buildAudioSymptomAnswer(qNorm, rawQuestion, matchedProdKey);
+  if (audioSymptomAns) {
+    sections.push(audioSymptomAns);
+  }
+
+  const asksCamera = !audioSymptomAns && hasAnyBoundaryTerm(qNorm, ['may anh', 'camera', 'sony', 'canon', 'fujifilm', 'nikon', '3.5mm', 'jack 3.5']) &&
     !hasAnyBoundaryTerm(qNorm, ['xperia', 'open camera', 'app camera', 'pixel camera']);
   if (asksCamera) {
     if (matchedProdKey === 'gaeru-g1-ultra') {

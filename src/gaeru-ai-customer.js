@@ -8,7 +8,9 @@
  * Trọng tâm: Hiểu đúng ý định, trả lời chính xác dữ kiện thực tế, súc tích, không lan man.
  */
 
-const { getRelevantWebKnowledge } = require('./chat-web-knowledge');
+const { loadLiveSiteFacts, getRelevantWebKnowledge } = require('./chat-web-knowledge');
+const { shippingFee } = require('../checkout-flow');
+const { DEFAULT_POLICY: DEFAULT_LOYALTY_POLICY, tierBenefits } = require('./loyalty-api');
 const { matchLearnedKnowledge, learnFromInteraction } = require('./ai-self-learning');
 const {
   normalizeVi,
@@ -109,6 +111,17 @@ const PRODUCT_SPECS = Object.freeze({
   }
 });
 
+function isAskingOwnOrder(qSpace) {
+  return !hasAnyBoundaryTerm(qSpace, ['bao hanh', 'doi tra']) && (
+    hasAnyBoundaryTerm(qSpace, [
+      'don cua minh', 'don cua toi', 'don hang cua minh', 'don hang cua toi',
+      'don gan nhat', 'don vua dat', 'don moi dat', 'kiem tra don hang',
+      'kiem tra don', 'trang thai don hang', 'trang thai don', 'tra cuu don', 'tinh trang don'
+    ]) || (hasAnyBoundaryTerm(qSpace, ['don hang', 'kien hang', 'goi hang']) &&
+      hasAnyBoundaryTerm(qSpace, ['cua minh', 'cua toi', 'gan nhat', 'vua dat', 'moi dat', 'toi dau', 'den dau']))
+  );
+}
+
 /**
  * Tra cứu thông tin đơn hàng từ database nếu khách cung cấp mã đơn (GR-... / GAE-...) hoặc SĐT.
  */
@@ -117,8 +130,10 @@ async function lookupOrderInfo(pool, text, thread = null) {
 
   const orderCodes = extractOrderCodes(text);
   const phones = extractPhoneNumbers(text);
+  const qSpace = normalizeSearchSpace(expandQueryVi(text));
+  const asksOwnLatestOrder = !orderCodes.length && !phones.length && Boolean(thread?.customer_id) && isAskingOwnOrder(qSpace);
 
-  if (!orderCodes.length && !phones.length) return null;
+  if (!orderCodes.length && !phones.length && !asksOwnLatestOrder) return null;
 
   const orderCode = orderCodes[0] || null;
   const phone = phones[0] || null;
@@ -145,6 +160,19 @@ async function lookupOrderInfo(pool, text, thread = null) {
          LIMIT 1`,
         [phone]
       )).rows[0];
+    } else if (asksOwnLatestOrder && thread?.customer_id) {
+      queryType = 'customer_latest';
+      row = (await pool.query(
+        `SELECT id, order_number, customer_id, customer_name, phone, address, city, status, payment_method, payment_status, total_vnd, created_at
+         FROM orders
+         WHERE customer_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [thread.customer_id]
+      )).rows[0];
+      if (!row) {
+        return { searched: true, found: false, queryType, query: 'tài khoản của bạn' };
+      }
     }
 
     if (!row) return { searched: true, found: false, query: orderCode || phone, queryType };
@@ -181,7 +209,7 @@ async function lookupOrderInfo(pool, text, thread = null) {
       hasThreadContext: thread !== null && thread !== undefined,
       hasCustomerIdCol: Object.prototype.hasOwnProperty.call(row, 'customer_id'),
       queryType,
-      query: orderCode || phone
+      query: orderCode || phone || row.order_number
     };
   } catch (_) {
     return null;
@@ -197,6 +225,17 @@ function getPriceSummaryFromProduct(prod, spec) {
   return min === max ? formatVnd(min) : `${formatVnd(min)} – ${formatVnd(max)}`;
 }
 
+function formatShortEndTime(isoValue) {
+  if (!isoValue) return '';
+  const dt = new Date(isoValue);
+  if (!Number.isFinite(dt.getTime()) || dt.getTime() <= Date.now()) return '';
+  try {
+    return dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+  } catch (_) {
+    return '';
+  }
+}
+
 function formatVariantSummaryLines(prod, question, inferredPorts = null) {
   const variants = Array.isArray(prod?.variants) ? prod.variants : [];
   if (!variants.length) return '';
@@ -209,8 +248,9 @@ function formatVariantSummaryLines(prod, question, inferredPorts = null) {
     const pricePart = hasDiscount
       ? `**${formatVnd(v.priceVnd)}** (giá gốc ${formatVnd(v.originalPriceVnd)})`
       : `**${formatVnd(v.priceVnd)}**`;
-    const promoText = v.activePromotion?.title || v.promotion?.title;
-    const promoNote = promoText ? ` · Ưu đãi: ${promoText}` : '';
+    const promo = v.activePromotion || v.promotion;
+    const endDate = formatShortEndTime(promo?.endsAt || promo?.ends_at);
+    const promoNote = promo?.title ? ` · Ưu đãi: ${promo.title}${endDate ? ` (đến ${endDate})` : ''}` : '';
     return `- ${v.name || 'Phiên bản chuẩn'}: ${pricePart} (${stockBadge})${promoNote}`;
   }).join('\n');
 }
@@ -288,7 +328,24 @@ function formatBuyCtaLink({ prod, variant, displayName }) {
   return `- 👉 [Mua ngay ${fullTitle}${priceText}](${href})`;
 }
 
-function buildClosingRecommendation({ prodEntry, question, space, history = [], catalog = [], isDirectClose = false, alreadyExplainedVariant = false }) {
+function formatBundleDiscountText(bundle) {
+  if (!bundle) return '';
+  if (bundle.discount_type === 'percent' && Number(bundle.discount_value) > 0) {
+    return `Giảm ${Number(bundle.discount_value)}%`;
+  }
+  if (Number(bundle.discount_value) > 0) {
+    return `Giảm ${formatVnd(bundle.discount_value)}`;
+  }
+  return 'Giá combo ưu đãi';
+}
+
+function resolveBundleMatchForProduct(webKnowledge, slug) {
+  const bundles = Array.isArray(webKnowledge?.activeBundles) ? webKnowledge.activeBundles : [];
+  if (!bundles.length || !slug) return null;
+  return bundles.find(b => Array.isArray(b.items) && b.items.some(it => String(it.productSlug || '').toLowerCase() === slug)) || null;
+}
+
+function buildClosingRecommendation({ prodEntry, question, space, history = [], catalog = [], webKnowledge = null, isDirectClose = false, alreadyExplainedVariant = false }) {
   const slug = prodEntry.key;
   const liveProd = prodEntry.product;
   const spec = PRODUCT_SPECS[slug];
@@ -328,6 +385,9 @@ function buildClosingRecommendation({ prodEntry, question, space, history = [], 
     return `Hiện **${displayName}**${outLabel} đang **tạm hết hàng** trên hệ thống nên chưa thể đặt mua ngay.${altHint}`;
   }
 
+  const nationwideShipFee = webKnowledge?.shippingRates ? shippingFee(webKnowledge.shippingRates, 'Toàn quốc') : undefined;
+  const matchedBundle = isDirectClose ? resolveBundleMatchForProduct(webKnowledge, slug) : null;
+
   if (inStockPool.length >= 1 && inStockPool.length <= 3) {
     const lines = [];
     if (isDirectClose && !alreadyExplainedVariant) {
@@ -337,7 +397,8 @@ function buildClosingRecommendation({ prodEntry, question, space, history = [], 
         const priceNote = hasDiscount
           ? `**${formatVnd(v.priceVnd)}** (giá gốc ${formatVnd(v.originalPriceVnd)})`
           : `**${formatVnd(v.priceVnd)}**`;
-        const shipNote = Number(v.priceVnd) >= 500000 ? 'Freeship toàn quốc, ' : '';
+        const isFreeShip = nationwideShipFee === 0 || (nationwideShipFee === undefined && Number(v.priceVnd) >= 500000);
+        const shipNote = isFreeShip ? 'Freeship toàn quốc, ' : '';
         lines.push(`Xác nhận chốt **${displayName}** · **${v.name}** (${priceNote} — **Còn hàng**, ${shipNote}bảo hành 12 tháng, 1 đổi 1 trong 30 ngày).`);
       } else {
         lines.push(`**${displayName}** hiện có các lựa chọn phù hợp đang **Còn hàng**, bạn chọn đúng phân loại bên dưới để đặt mua ngay:`);
@@ -346,6 +407,11 @@ function buildClosingRecommendation({ prodEntry, question, space, history = [], 
     const maxButtons = isDirectClose ? 3 : 2;
     for (const v of inStockPool.slice(0, maxButtons)) {
       lines.push(formatBuyCtaLink({ prod: liveProd || { slug, name: displayName }, variant: v, displayName }));
+    }
+    if (matchedBundle) {
+      const otherNames = (matchedBundle.items || []).filter(i => i.productSlug !== slug).map(i => i.productName).filter(Boolean);
+      const comboWith = otherNames.length ? ` (mua kèm ${otherNames.join(' + ')})` : '';
+      lines.push(`- 💡 Đang có gói combo **${matchedBundle.title}**${comboWith}: **${formatBundleDiscountText(matchedBundle)}** — tiết kiệm hơn khi đặt chung giỏ hàng!`);
     }
     return lines.join('\n');
   }
@@ -436,6 +502,13 @@ const DEVICE_COMPAT_TERMS = Object.freeze(Array.from(new Set([
   'mic ngoai', 'mic gan ngoai', 'micro ngoai', 'micro gan ngoai', 'chon mic', 'dau vao am thanh', 'trung tam dieu khien', 'mic may', 'mic iphone',
   'type c', 'lightning', 'micro usb', 'usb a', 'chuyen usb', 'usb thuong',
   'khong nhan', 'chua nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng', '3.5mm', 'jack 3.5',
+  'tieng vang', 'bi vang', 'bi nhai', 'reverb', 'tieng vong', 'echo', 'giong ao',
+  '1 mic khong len', 'chi co 1 mic', 'chi thu 1 mic', '1 ben khong', '1 mic bi mat', 'ghep doi lai', 'ket noi 2 mic',
+  'bi re', 'tieng re', 'vo tieng', 'vo am', 'tieng nho', 'nho tieng', 'co ao', 'u gio', 'gio giat', 'tieng gio', 'deadcat',
+  'den nhap nhay', 'nhap nhay cham', 'den do', 'den xanh', 'lech pin', 'khong sac', 'chan tiep xuc', 'hop sac khong sac', 'sac khong vao',
+  'vua sac vua dung', 'vua sac vua live', 'vua sac vua quay', 'cong chia', 'cap chia', 'hub chia', 'splitter',
+  'nghe lai video', 'phat lai video', 'nghe loa ngoai', 'khong nghe thay loa', 'cam vao bi mat loa',
+  'gopro', 'media mod', 'dji osmo', 'osmo pocket', 'osmo action', 'action cam', 'zv e10', 'zv-e10', 'zv1', 'zv-1', 'trs', 'trrs', 'canon', 'fujifilm', 'nikon',
   'may tinh bang', 'tablet', 'mtb', 'may anh', 'camera', 'tiktok', 'capcut', 'zoom', 'obs', 'open camera',
   'cac loai dien thoai', 'cac dong dien thoai', 'cac hang dien thoai', 'tat ca dien thoai', 'dien thoai nao dung', 'hang dien thoai nao',
   'tat ca thiet bi', 'nhung thiet bi nao', 'cac thiet bi ho tro',
@@ -449,7 +522,7 @@ function buildDeviceCompatibilityAnswer(space, rawQuestion, matchedProdKey) {
   return buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKey);
 }
 
-function buildProductSpecificAnswer({ prodEntry, question, space, detailed, history = [], catalog = [], buyIntent = null }) {
+function buildProductSpecificAnswer({ prodEntry, question, space, detailed, history = [], catalog = [], buyIntent = null, webKnowledge = null }) {
   const slug = prodEntry.key;
   const liveProd = prodEntry.product;
   const spec = PRODUCT_SPECS[slug];
@@ -477,7 +550,7 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
   const asksOverview = hasAnyBoundaryTerm(space, ['la gi', 'de lam gi', 'dung de lam gi', 'cong dung', 'chuc nang', 'la loai nao', 'tac dung']);
   const nonVariantPortCompatTerms = DEVICE_COMPAT_TERMS.filter(t => !['type c', 'lightning', 'micro usb', 'usb a', 'chuyen usb', 'usb thuong'].includes(t));
   const asksCompat = hasAnyBoundaryTerm(space, DEVICE_COMPAT_TERMS) &&
-    !((asksPrice || asksStock) && !hasAnyBoundaryTerm(space, nonVariantPortCompatTerms));
+    !((asksPrice || asksStock || buyIntent?.isDirectClose) && !hasAnyBoundaryTerm(space, nonVariantPortCompatTerms));
 
   const inferredPorts = inferDevicePortsFromText(space, history);
   const parts = [];
@@ -544,6 +617,7 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
       space,
       history,
       catalog,
+      webKnowledge,
       isDirectClose: closingIntent.isDirectClose,
       alreadyExplainedVariant: Boolean(asksPrice || asksStock)
     });
@@ -624,13 +698,39 @@ function findWebKnowledgeAnswer(question, webKnowledge, catalog = []) {
   }
   if (approved.length > 0 && bestScore > 0 && bestFact) return bestFact;
 
-  // 2. Crisp matched lines from storefront web pages
+  // 2. Crisp matched lines from storefront web pages & published guides (/tin-tuc/...)
   const snippets = webKnowledge?.relevantSnippets || [];
-  if (snippets.length && snippets[0].score >= 0.45) {
+  const topSnippetScore = snippets.length ? Number(snippets[0].score || 0) : 0;
+
+  const newsList = Array.isArray(webKnowledge?.latestNews) ? webKnowledge.latestNews : [];
+  let bestNews = null;
+  let bestNewsScore = 0;
+  for (const item of newsList) {
+    const score = tokenOverlapScore(qTokens, tokenizeMeaningful(`${item.title || ''} ${item.summary || ''}`));
+    if (score > bestNewsScore) {
+      bestNewsScore = score;
+      bestNews = item;
+    }
+  }
+
+  if (bestNews && bestNewsScore >= 0.4 && bestNewsScore >= topSnippetScore) {
+    return `Bài hướng dẫn liên quan trên GAERU:\n- [${bestNews.title}](${bestNews.url})${bestNews.summary ? ` — ${bestNews.summary}` : ''}`;
+  }
+
+  if (snippets.length && topSnippetScore >= 0.45) {
     return snippets.slice(0, 2).map(s => `- ${s.line}`).join('\n');
   }
 
-  // 3. External curated ecosystem facts / live search snippets
+  // 3. Active campaigns if matching user query
+  const campaigns = Array.isArray(webKnowledge?.activeCampaigns) ? webKnowledge.activeCampaigns : [];
+  for (const c of campaigns) {
+    const score = tokenOverlapScore(qTokens, tokenizeMeaningful(`${c.title || ''} ${c.summary || ''}`));
+    if (score >= 0.4) {
+      return `**Chương trình hiện hành — ${c.title}:** ${c.summary}`;
+    }
+  }
+
+  // 4. External curated ecosystem facts / live search snippets
   const ecoFacts = webKnowledge?.externalKnowledge?.ecosystemFacts || [];
   for (const f of ecoFacts) {
     const score = tokenOverlapScore(qTokens, tokenizeMeaningful(f));
@@ -647,6 +747,183 @@ function findWebKnowledgeAnswer(question, webKnowledge, catalog = []) {
   }
 
   return '';
+}
+
+function formatViPercent(num) {
+  return `${String(Number(num || 0)).replace('.', ',')}%`;
+}
+
+async function lookupAuthenticatedCustomerData(pool, thread, space) {
+  if (!pool || typeof pool.query !== 'function' || !thread?.customer_id) return null;
+  const cid = thread.customer_id;
+  const asksXu = hasAnyBoundaryTerm(space, ['gaeru xu', 'tich xu', 'doi xu', 'hoan xu', 'diem thuong', 'hang thanh vien']);
+  const asksWarranty = hasAnyBoundaryTerm(space, ['bao hanh', 'kich hoat bao hanh', 'serial', 'phieu bao hanh', 'han bao hanh']);
+  const asksCare = hasAnyBoundaryTerm(space, ['care+', 'care plus', 'gaeru care', 'yeu cau care', 'yeu cau ho tro', 'phieu ho tro', 'ho tro bao hanh', 'trang thai ho tro', 'khieu nai']) || /\bcare\+/i.test(space);
+
+  const out = {};
+  const tasks = [];
+
+  if (asksXu) {
+    tasks.push(
+      pool.query('SELECT points_balance, lifetime_earned, tier FROM customer_loyalty WHERE customer_id = $1 LIMIT 1', [cid])
+        .then(r => { if (r.rows?.[0]) out.loyalty = r.rows[0]; })
+        .catch(() => {})
+    );
+  }
+  if (asksWarranty) {
+    tasks.push(
+      pool.query(
+        'SELECT serial, status, expires_on, channel, external_order_number, external_product_name, reason FROM warranty_activations WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 3',
+        [cid]
+      )
+        .then(r => { if (r.rows?.length) out.warranties = r.rows; })
+        .catch(() => {})
+    );
+  }
+  if (asksCare) {
+    tasks.push(
+      pool.query(
+        'SELECT subject, status, response, channel, external_order_number FROM care_requests WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 3',
+        [cid]
+      )
+        .then(r => { if (r.rows?.length) out.careRequests = r.rows; })
+        .catch(() => {})
+    );
+  }
+
+  if (tasks.length) await Promise.all(tasks);
+  return Object.keys(out).length ? out : null;
+}
+
+function getLoyaltyPolicyRangeText(webKnowledge) {
+  const policy = webKnowledge?.loyaltyPolicy?.tiers?.length ? webKnowledge.loyaltyPolicy : DEFAULT_LOYALTY_POLICY;
+  const rates = policy.tiers.map(t => Number(t.earnBasisPoints || 0) / 100);
+  const minR = Math.min(...rates);
+  const maxR = Math.max(...rates);
+  return { policy, rangeText: minR === maxR ? formatViPercent(minR) : `${formatViPercent(minR)}–${formatViPercent(maxR)}` };
+}
+
+function buildLoyaltyAnswer({ webKnowledge, authData }) {
+  const { policy, rangeText } = getLoyaltyPolicyRangeText(webKnowledge);
+  const benefits = tierBenefits(policy);
+  const tierSummary = ['bronze', 'silver', 'gold', 'platinum']
+    .map(id => benefits[id])
+    .filter(Boolean)
+    .map(b => `${b.name.replace('Thành viên ', '')} (${String(b.earnRate).replace('.', ',')})`)
+    .join(', ');
+
+  const lines = [
+    '**Chính sách GAERU Xu:**',
+    '- Quy đổi: **1 GAERU Xu = 1 VNĐ**, dùng giảm tối đa **50%** giá trị đơn hàng (tuân thủ Nghị định 81/2018/NĐ-CP).',
+    `- Tích **${rangeText}** giá trị đơn thành công theo hạng thành viên (${tierSummary}); là điểm thưởng nội bộ không quy đổi tiền mặt (Nghị định 52/2024/NĐ-CP).`
+  ];
+
+  if (authData?.loyalty) {
+    const bal = Number(authData.loyalty.points_balance || 0);
+    const tierInfo = benefits[authData.loyalty.tier] || benefits.bronze;
+    const formattedBal = new Intl.NumberFormat('vi-VN').format(Math.round(bal));
+    lines.push(`- **Tài khoản của bạn:** Đang ở **${tierInfo?.name || 'Thành viên Đồng'}** · Số dư hiện tại: **${formattedBal} GAERU Xu**.`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildAuthenticatedWarrantyStatusLines(authData) {
+  const statusMap = {
+    pending: 'Chờ duyệt',
+    active: 'Đang hiệu lực',
+    rejected: 'Từ chối',
+    revoked: 'Đã thu hồi',
+    submitted: 'Đã tiếp nhận',
+    reviewing: 'Đang kiểm tra',
+    waiting_customer: 'Chờ khách phản hồi',
+    resolved: 'Đã xử lý',
+    closed: 'Đã đóng'
+  };
+  const lines = [];
+  if (Array.isArray(authData?.warranties) && authData.warranties.length) {
+    lines.push('**Phiếu bảo hành của tài khoản bạn:**');
+    for (const w of authData.warranties) {
+      const exp = w.expires_on ? ` · Hết hạn: ${new Date(w.expires_on).toLocaleDateString('vi-VN')}` : '';
+      const serialTag = w.serial ? ` · Serial \`${w.serial}\`` : '';
+      const label = `${w.external_product_name || 'Đơn hàng website'}${serialTag}`;
+      lines.push(`- ${label} (${w.channel || 'website'}): **${statusMap[w.status] || w.status}**${exp}`);
+    }
+  }
+  if (Array.isArray(authData?.careRequests) && authData.careRequests.length) {
+    lines.push('**Yêu cầu GAERU Care+ gần đây của bạn:**');
+    for (const c of authData.careRequests) {
+      lines.push(`- ${c.subject}: **${statusMap[c.status] || c.status}**${c.response ? ` — ${c.response}` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function buildShippingAnswer({ webKnowledge, space }) {
+  const rates = webKnowledge?.shippingRates;
+  const note = String(webKnowledge?.shippingNote || '').trim();
+
+  if (rates && typeof rates === 'object' && Object.keys(rates).length > 0) {
+    const matchedProvinceKey = Object.keys(rates).find(k => {
+      const kNorm = normalizeSearchSpace(k);
+      return kNorm && kNorm !== 'toan quoc' && hasBoundaryTerm(space, kNorm);
+    });
+    if (matchedProvinceKey) {
+      const fee = shippingFee(rates, matchedProvinceKey);
+      if (fee === 0) {
+        return `**Vận chuyển & Giao hàng:**\n- Khu vực **${matchedProvinceKey}** hiện được **Freeship (Miễn phí vận chuyển 0 ₫)**, giao dự kiến **2–4 ngày** làm việc, hỗ trợ **đồng kiểm** trước khi thanh toán.`;
+      }
+      if (Number.isFinite(fee)) {
+        return `**Vận chuyển & Giao hàng:**\n- Phí ship tới **${matchedProvinceKey}** hiện là **${formatVnd(fee)}**, giao dự kiến **2–4 ngày** làm việc, hỗ trợ **đồng kiểm** trước khi thanh toán.`;
+      }
+    }
+
+    const nationwideFee = shippingFee(rates, 'Toàn quốc');
+    if (nationwideFee === 0) {
+      const shipLabel = note ? `**Freeship** — ${note}` : '**Freeship (Miễn phí vận chuyển toàn quốc 0 ₫)**';
+      return `**Vận chuyển & Giao hàng:**\n- ${shipLabel}, giao dự kiến **2–4 ngày** làm việc (Viettel Post / SPX), được **đồng kiểm** trước khi thanh toán.`;
+    }
+    if (Number.isFinite(nationwideFee)) {
+      const noteText = note ? ` (${note})` : '';
+      return `**Vận chuyển & Giao hàng:**\n- Phí vận chuyển toàn quốc là **${formatVnd(nationwideFee)}**${noteText}, giao dự kiến **2–4 ngày** làm việc (Viettel Post / SPX), được **đồng kiểm** trước khi thanh toán.`;
+    }
+  }
+
+  const rateNote = note ? ` (${note})` : '';
+  return '**Vận chuyển & Giao hàng:**\n' +
+    `- **Freeship** toàn quốc cho đơn từ **500.000 ₫**, giao dự kiến **2–4 ngày** làm việc (Viettel Post / SPX), được **đồng kiểm** trước khi thanh toán.${rateNote}`;
+}
+
+function buildMarketplaceAnswer({ primaryProd, catalog = [] }) {
+  const poolList = primaryProd?.product ? [primaryProd.product] : (catalog || []);
+  const lines = [];
+  for (const p of poolList) {
+    if (!p || (!p.shopeeUrl && !p.tiktokShopUrl)) continue;
+    const links = [];
+    if (p.shopeeUrl) links.push(`[Shopee chính hãng — ${p.name}](${p.shopeeUrl})`);
+    if (p.tiktokShopUrl) links.push(`[TikTok Shop — ${p.name}](${p.tiktokShopUrl})`);
+    lines.push(`- **${p.name}:** ${links.join(' · ')}`);
+  }
+  if (!lines.length) {
+    return 'GAERU hiện phân phối chính hãng trực tiếp tại **gaeru.com** (hỗ trợ đồng kiểm, áp voucher và tích **GAERU Xu**) cùng các gian hàng chính thức trên **Shopee** và **TikTok Shop**. Bạn chọn mẫu sản phẩm cụ thể để mình gửi đúng link hoặc đặt nhanh ngay tại web nhé!';
+  }
+  return `**Gian hàng chính hãng GAERU (Shopee & TikTok Shop):**\n${lines.slice(0, 5).join('\n')}\n- Đặt trực tiếp tại **gaeru.com** sẽ được tích thêm **GAERU Xu**, áp voucher tại web và hỗ trợ kích hoạt bảo hành nhanh theo đơn hàng.`;
+}
+
+function buildBundlesAnswer({ webKnowledge, primaryProd }) {
+  const bundles = Array.isArray(webKnowledge?.activeBundles) ? webKnowledge.activeBundles : [];
+  const relevant = primaryProd?.key
+    ? bundles.filter(b => Array.isArray(b.items) && b.items.some(it => String(it.productSlug || '').toLowerCase() === primaryProd.key))
+    : bundles;
+  const list = relevant.length ? relevant : bundles;
+  if (!list.length) {
+    return 'Hiện hệ thống chưa có gói combo mua kèm mới được bật; bạn có thể kiểm tra **mã giảm giá (voucher)** đang mở hoặc đặt trực tiếp trên **gaeru.com** để được **Freeship** và tích **GAERU Xu** nhé.';
+  }
+  const rows = list.slice(0, 3).map(b => {
+    const itemNames = (b.items || []).map(i => i.productName).filter(Boolean).join(' + ');
+    return `- **${b.title}** (**${formatBundleDiscountText(b)}**)${itemNames ? `: gồm ${itemNames}` : ''}`;
+  });
+  return `**Gói Combo mua kèm đang áp dụng:**\n${rows.join('\n')}`;
 }
 
 /**
@@ -670,10 +947,17 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     };
   }
 
-  // 2. Tra cứu đơn hàng thời gian thực (GR-... / GAE-... / SĐT) với bảo mật Zero-Trust
+  // 2. Tra cứu đơn hàng thời gian thực (GR-... / GAE-... / SĐT / tài khoản đang đăng nhập) với bảo mật Zero-Trust
   const orderLookup = await lookupOrderInfo(pool, raw, thread);
   if (orderLookup && orderLookup.searched) {
     return formatOrderLookupReply(orderLookup, space);
+  }
+  const asksOwnOrderWithoutIdentifier = !thread?.customer_id && isAskingOwnOrder(space);
+  if (asksOwnOrderWithoutIdentifier) {
+    return {
+      handoff: false,
+      answer: 'Để kiểm tra đúng đơn hàng của bạn, vui lòng **đăng nhập tài khoản** đã đặt hoặc nhắn chính xác **Mã đơn hàng (dạng GR-... / GAE-...)** để mình tra cứu trạng thái & mã vận đơn ngay nhé.'
+    };
   }
 
   // Phân giải sản phẩm liên quan (câu hiện tại hoặc ngữ cảnh các lượt trước / thread)
@@ -681,15 +965,21 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   const primaryProd = mentioned.items[0] ? { ...mentioned.items[0], source: mentioned.source } : null;
   const buyIntent = detectPurchaseClosingIntent(raw, space);
 
+  const asksXu = hasAnyBoundaryTerm(space, ['gaeru xu', 'tich xu', 'doi xu', 'hoan xu', 'diem thuong', 'hang thanh vien']) || /(?:^|[^\p{L}])xu(?:$|[^\p{L}])/iu.test(raw);
+  const asksWarrantyOrCare = hasAnyBoundaryTerm(space, ['bao hanh', 'doi tra', '1 doi 1', 'care+', 'care plus', 'kich hoat bao hanh', 'bi loi', 'sua chua', 'yeu cau ho tro', 'phieu ho tro', 'khieu nai']);
+  const asksShip = hasAnyBoundaryTerm(space, ['giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'mien phi van chuyen', 'dong kiem', 'kiem tra hang', 'bao lau nhan']) ||
+    (/may ngay/.test(space) && hasAnyBoundaryTerm(space, ['nhan', 'giao', 'toi', 'ship', 'hang', 'tinh']));
+  const asksPay = hasAnyBoundaryTerm(space, ['thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay', 'chuyen khoan']);
+  const asksVoucher = hasAnyBoundaryTerm(space, ['ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai', 'code giam', 'giam gia']);
+  const asksMarketplace = hasAnyBoundaryTerm(space, ['shopee', 'tiktok shop', 'tiktokshop', 'san thuong mai', 'lazada', 'link shopee', 'link tiktok', 'gian hang']);
+  const asksBundles = hasAnyBoundaryTerm(space, ['combo', 'mua kem', 'tron bo', 'bo combo', 'goi combo']);
+  const asksArticle = hasAnyBoundaryTerm(space, ['bai viet', 'tin tuc', 'blog', 'bai huong dan', 'doc bai']);
+
   // Xác định câu hỏi có yêu cầu tra cứu dữ liệu động (giá/kho/chính sách/vận chuyển/voucher/chốt đơn) không
   const isDynamicPolicyOrCommerce = hasAnyBoundaryTerm(space, [
-    'gia', 'gia ban', 'bao nhieu tien', 'may tien', 'con hang', 'het hang', 'ton kho',
-    'ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai',
-    'bao hanh', '1 doi 1', 'care+', 'doi tra',
-    'giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'dong kiem',
-    'gaeru xu', 'tich xu', 'doi xu', 'diem thuong',
-    'thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay'
-  ]) || buyIntent.isClosing || /(?:gia|tien|phi|giam).{0,12}bao nhieu|bao nhieu\s+(?:tien|nghin|ngan|dong|k\b|xu\b)/.test(space);
+    'gia', 'gia ban', 'bao nhieu tien', 'may tien', 'con hang', 'het hang', 'ton kho'
+  ]) || asksXu || asksWarrantyOrCare || asksShip || asksPay || asksVoucher || asksMarketplace || asksBundles ||
+    buyIntent.isClosing || /(?:gia|tien|phi|giam).{0,12}bao nhieu|bao nhieu\s+(?:tien|nghin|ngan|dong|k\b|xu\b)/.test(space);
 
   // 3. Tri thức tự học đặc thù (chỉ ưu tiên trước khi KHÔNG phải câu hỏi giá/tồn kho/đơn/chính sách/chốt đơn)
   if (!isDynamicPolicyOrCommerce) {
@@ -709,6 +999,17 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       }
     } catch (_) {}
   }
+
+  let liveWeb = webKnowledge;
+  if (!liveWeb && pool && typeof pool.query === 'function' && (isDynamicPolicyOrCommerce || primaryProd)) {
+    try {
+      liveWeb = await loadLiveSiteFacts(pool);
+    } catch (_) {}
+  }
+
+  const authData = thread?.customer_id && pool && (asksXu || asksWarrantyOrCare)
+    ? await lookupAuthenticatedCustomerData(pool, thread, space)
+    : null;
 
   // Thu thập các phần trả lời trực tiếp cho từng ý được hỏi (hỗ trợ câu hỏi đa ý)
   const sections = [];
@@ -743,7 +1044,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     ]) || buyIntent.isClosing || mentioned.source === 'question';
 
     if (isSpecificOrBroadProduct) {
-      sections.push(buildProductSpecificAnswer({ prodEntry: primaryProd, question: raw, space, detailed, history, catalog, buyIntent }));
+      sections.push(buildProductSpecificAnswer({ prodEntry: primaryProd, question: raw, space, detailed, history, catalog, buyIntent, webKnowledge: liveWeb }));
     }
   } else {
     // 6. Tương thích thiết bị / xử lý lỗi chung (không gắn 1 model cụ thể)
@@ -751,40 +1052,45 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     if (compat) sections.push(compat);
   }
 
-  // 7. Chính sách GAERU Xu / Bảo hành / Vận chuyển / Thanh toán / Khuyến mãi (chỉ thêm phần được hỏi)
-  if (hasAnyBoundaryTerm(space, ['gaeru xu', 'tich xu', 'doi xu', 'hoan xu', 'diem thuong']) || /(?:^|[^\p{L}])xu(?:$|[^\p{L}])/iu.test(raw)) {
-    sections.push(
-      '**Chính sách GAERU Xu:**\n' +
-      '- Quy đổi: **1 GAERU Xu = 1 VNĐ**, dùng giảm tối đa **50%** giá trị đơn hàng (tuân thủ Nghị định 81/2018/NĐ-CP).\n' +
-      '- Tích từ **1%–5%** giá trị đơn thành công theo hạng thành viên; là điểm thưởng nội bộ không quy đổi tiền mặt (Nghị định 52/2024/NĐ-CP).'
-    );
+  // 7. Chính sách GAERU Xu / Bảo hành / Vận chuyển / Thanh toán / Khuyến mãi / Combo / Sàn TMĐT
+  if (asksXu) {
+    sections.push(buildLoyaltyAnswer({ webKnowledge: liveWeb, authData }));
   }
 
-  if (hasAnyBoundaryTerm(space, ['bao hanh', 'doi tra', '1 doi 1', 'care+', 'care plus', 'kich hoat bao hanh', 'bi loi', 'sua chua'])) {
+  if (asksWarrantyOrCare) {
+    const authCareText = buildAuthenticatedWarrantyStatusLines(authData);
     sections.push(
       '**Chính sách Bảo hành GAERU:**\n' +
-      '- Bảo hành chính hãng **12 tháng**, lỗi kỹ thuật **1 đổi 1 trong 30 ngày** đầu (tra cứu/kích hoạt bằng SĐT tại `/ho-tro`; có gói mở rộng Care+).'
+      '- Bảo hành chính hãng **12 tháng**, lỗi kỹ thuật **1 đổi 1 trong 30 ngày** đầu (tra cứu/kích hoạt bằng SĐT tại `/ho-tro`; có gói mở rộng Care+).' +
+      (authCareText ? `\n\n${authCareText}` : '')
     );
   }
 
-  const asksShip = hasAnyBoundaryTerm(space, ['giao hang', 'van chuyen', 'phi ship', 'ship', 'freeship', 'mien phi van chuyen', 'dong kiem', 'kiem tra hang', 'bao lau nhan']) ||
-    (/may ngay/.test(space) && hasAnyBoundaryTerm(space, ['nhan', 'giao', 'toi', 'ship', 'hang', 'tinh']));
   if (asksShip) {
-    const rateNote = webKnowledge?.shippingNote ? ` (${webKnowledge.shippingNote})` : '';
-    sections.push(
-      '**Vận chuyển & Giao hàng:**\n' +
-      `- **Freeship** toàn quốc cho đơn từ **500.000 ₫**, giao dự kiến **2–4 ngày** làm việc (Viettel Post / SPX), được **đồng kiểm** trước khi thanh toán.${rateNote}`
-    );
+    sections.push(buildShippingAnswer({ webKnowledge: liveWeb, space }));
   }
 
-  if (hasAnyBoundaryTerm(space, ['thanh toan', 'cod', 'vietqr', 'vnpay', 'momo', 'zalopay', 'chuyen khoan'])) {
+  if (asksPay) {
     sections.push(
       '**Phương thức thanh toán:** COD (tiền mặt khi nhận), VietQR (xác nhận tự động), VNPAY, MoMo và ZaloPay.'
     );
   }
 
-  if (hasAnyBoundaryTerm(space, ['ma giam gia', 'voucher', 'coupon', 'khuyen mai', 'uu dai', 'code giam', 'giam gia'])) {
-    let activeVouchers = Array.isArray(webKnowledge?.activeVouchers) ? webKnowledge.activeVouchers : [];
+  if (asksMarketplace) {
+    sections.push(buildMarketplaceAnswer({ primaryProd, catalog }));
+  }
+
+  if (asksBundles) {
+    sections.push(buildBundlesAnswer({ webKnowledge: liveWeb, primaryProd }));
+  }
+
+  if (asksArticle && Array.isArray(liveWeb?.latestNews) && liveWeb.latestNews.length) {
+    const newsAns = findWebKnowledgeAnswer(raw, { latestNews: liveWeb.latestNews }, catalog);
+    if (newsAns) sections.push(newsAns);
+  }
+
+  if (asksVoucher) {
+    let activeVouchers = Array.isArray(liveWeb?.activeVouchers) ? liveWeb.activeVouchers : [];
     if (!activeVouchers.length && pool && typeof pool.query === 'function') {
       try {
         const vRes = await pool.query(`
@@ -813,7 +1119,12 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       }).join('\n');
       sections.push(`**Mã giảm giá đang áp dụng:**\n${voucherLines}`);
     } else {
-      sections.push('Hiện chưa có mã voucher công khai mới, nhưng đơn từ **500.000 ₫** vẫn được **Freeship** toàn quốc và hoàn **1%–5% GAERU Xu**.');
+      const { rangeText } = getLoyaltyPolicyRangeText(liveWeb);
+      const nationwideFee = liveWeb?.shippingRates ? shippingFee(liveWeb.shippingRates, 'Toàn quốc') : undefined;
+      const shipSentence = nationwideFee === 0
+        ? 'vẫn đang **Freeship** toàn quốc'
+        : 'đơn từ **500.000 ₫** vẫn được **Freeship** toàn quốc';
+      sections.push(`Hiện chưa có mã voucher công khai mới, nhưng ${shipSentence} và tích **${rangeText} GAERU Xu**.`);
     }
   }
 

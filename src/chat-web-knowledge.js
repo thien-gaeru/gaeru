@@ -155,16 +155,18 @@ async function loadLiveSiteFacts(pool) {
 
   const facts = {};
   try {
-    const [settingsRes, vouchersRes, campaignsRes, newsRes] = await Promise.all([
-      pool.query("SELECT setting_key, setting_value FROM store_settings WHERE setting_key IN ('shipping_rates', 'shipping_note')").catch(() => ({ rows: [] })),
+    const [settingsRes, vouchersRes, campaignsRes, newsRes, bundlesRes] = await Promise.all([
+      pool.query("SELECT setting_key, setting_value FROM store_settings WHERE setting_key IN ('shipping_rates', 'shipping_note', 'loyalty_policy')").catch(() => ({ rows: [] })),
       pool.query("SELECT v.code, v.title, v.kind, v.amount, v.max_discount_vnd, v.min_spend_vnd, v.ends_at FROM marketing_vouchers v WHERE v.active=true AND v.public_claim=true AND now() BETWEEN v.starts_at AND v.ends_at AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.released=false) < v.total_limit ORDER BY v.created_at DESC LIMIT 6").catch(() => ({ rows: [] })),
       pool.query("SELECT title, body, ends_at FROM marketing_campaigns WHERE active=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC LIMIT 4").catch(() => ({ rows: [] })),
-      pool.query("SELECT slug, title, excerpt AS summary FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 6").catch(error => { console.warn("AI news context unavailable", /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "QUERY_FAILED"); return { rows: [] }; })
+      pool.query("SELECT slug, title, excerpt AS summary FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 10").catch(error => { console.warn("AI news context unavailable", /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "QUERY_FAILED"); return { rows: [] }; }),
+      pool.query("SELECT b.id, b.title, b.discount_type, b.discount_value, COALESCE((SELECT json_agg(json_build_object('productSlug', p.slug, 'productName', p.name, 'variantName', v.name, 'priceVnd', v.price_vnd, 'isPrimary', bi.is_primary)) FROM product_bundle_items bi JOIN product_variants v ON v.id=bi.variant_id JOIN products p ON p.id=v.product_id WHERE bi.bundle_id=b.id AND v.active=true AND p.active=true), '[]'::json) AS items FROM product_bundles b WHERE b.active=true AND b.starts_at <= now() AND b.ends_at > now() ORDER BY b.created_at DESC LIMIT 5").catch(() => ({ rows: [] }))
     ]);
 
     for (const row of settingsRes.rows || []) {
       if (row.setting_key === 'shipping_rates' && row.setting_value) facts.shippingRates = row.setting_value;
       if (row.setting_key === 'shipping_note' && row.setting_value) facts.shippingNote = row.setting_value;
+      if (row.setting_key === 'loyalty_policy' && row.setting_value) facts.loyaltyPolicy = row.setting_value;
     }
     if (vouchersRes.rows?.length) {
       facts.activeVouchers = vouchersRes.rows.map(v => ({
@@ -183,10 +185,13 @@ async function loadLiveSiteFacts(pool) {
     }
     if (newsRes.rows?.length) {
       facts.latestNews = newsRes.rows.map(n => ({
-        url: `https://gaeru.com/news-article.html?slug=${encodeURIComponent(n.slug)}`,
+        url: `/tin-tuc/${encodeURIComponent(n.slug)}`,
         title: n.title,
         summary: String(n.summary || '').slice(0, 240)
       }));
+    }
+    if (bundlesRes.rows?.length) {
+      facts.activeBundles = bundlesRes.rows;
     }
   } catch {}
 

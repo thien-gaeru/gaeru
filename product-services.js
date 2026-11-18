@@ -123,12 +123,12 @@ function loadScriptOnce(src,check){
   });
 }
 async function ensureChatAssets(){
-  loadStylesheetOnce('/shopping-chat.css?v=20261118-gaeru-v16');
+  loadStylesheetOnce('/shopping-chat.css?v=20261118-gaeru-v17');
   if(!window.GAERUCareLive){
     await loadScriptOnce('/care-live.js?v=20261024-chat',()=>Boolean(window.GAERUCareLive)).catch(()=>{});
   }
   if(typeof window.GAERUChatClient?.mount==='function')return true;
-  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261118-gaeru-v16',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
+  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261118-gaeru-v17',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
   for(let i=0;i<40;i++){
     if(typeof window.GAERUChatClient?.mount==='function')return true;
     await new Promise(r=>setTimeout(r,50));
