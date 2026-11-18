@@ -40,6 +40,13 @@ test("hidden backdrops and closed accordions enforce display:none and pointer-ev
   assert.match(internalAiCss, /\.gaeru-ai-modal-backdrop\[hidden\]\s*\{[^}]*pointer-events:\s*none\s*!important/s);
   assert.match(internalAiCss, /body:has\(dialog\[open\]\)\s+\.floating-copilot-trigger/);
   assert.match(opsCss, /\.operations-dialog:not\(\[open\]\)\s*,\s*\.operations-dialog\[hidden\]\s*\{[^}]*display:\s*none\s*!important/s);
+
+  // Ensure .account-card and .is-visible reveal rules never trap position:fixed security modals
+  const stylesCss = fs.readFileSync(path.join(rootDir, "styles.css"), "utf8");
+  const storeShellJs = fs.readFileSync(path.join(rootDir, "store-shell.js"), "utf8");
+  assert.doesNotMatch(stylesCss, /\.motion-ready\s+\[data-reveal-ready\]\s*\{[^}]*will-change:/s);
+  assert.match(stylesCss, /\.motion-ready\s+\[data-reveal-ready\]\.is-visible\s*\{\s*opacity:\s*1;\s*transform:\s*none;\s*\}/);
+  assert.doesNotMatch(storeShellJs, /"\.account-card"/);
 });
 
 test("GAERUNotify modal sets [open], resolves on backdrop click or Escape, and survives parent dialog close", async () => {

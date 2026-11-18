@@ -360,6 +360,11 @@
   max-width: 100% !important;
   overflow: visible !important;
   transform: none !important;
+  will-change: auto !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  perspective: none !important;
+  contain: none !important;
 }
 
 .account-page .account-layout.is-authenticated .account-card:hover,

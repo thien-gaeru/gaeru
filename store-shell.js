@@ -535,7 +535,6 @@ function initializeMotion() {
     ".cart-item",
     ".cart-summary",
     ".account-copy > *",
-    ".account-card",
     ".account-shortcuts > *"
   ].join(",");
 
