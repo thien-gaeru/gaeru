@@ -7,6 +7,107 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 const ROOT = path.resolve(__dirname, '..');
+const FONT_FAMILY = 'Arial, Segoe UI, Liberation Sans, sans-serif';
+
+const THEMES = {
+  sky: {
+    bgLight: '#f0f9ff',
+    border: '#bae6fd',
+    pillBg: '#e0f2fe',
+    pillText: '#0284c7',
+    iconColor: '#0284c7',
+    titleColor: '#0369a1'
+  },
+  emerald: {
+    bgLight: '#ecfdf5',
+    border: '#a7f3d0',
+    pillBg: '#dcfce7',
+    pillText: '#15803d',
+    iconColor: '#10b981',
+    titleColor: '#166534'
+  },
+  purple: {
+    bgLight: '#faf5ff',
+    border: '#e9d5ff',
+    pillBg: '#f3e8ff',
+    pillText: '#7e22ce',
+    iconColor: '#a855f7',
+    titleColor: '#6b21a8'
+  },
+  amber: {
+    bgLight: '#fffbeb',
+    border: '#fde68a',
+    pillBg: '#fef3c7',
+    pillText: '#b45309',
+    iconColor: '#d97706',
+    titleColor: '#92400e'
+  },
+  rose: {
+    bgLight: '#fff1f2',
+    border: '#fecdd3',
+    pillBg: '#ffe4e6',
+    pillText: '#be123c',
+    iconColor: '#e11d48',
+    titleColor: '#9f1239'
+  },
+  teal: {
+    bgLight: '#f0fdfa',
+    border: '#99f6e4',
+    pillBg: '#ccfbf1',
+    pillText: '#0f766e',
+    iconColor: '#0d9488',
+    titleColor: '#115e59'
+  }
+};
+
+function getIconSvg(name, strokeColor) {
+  switch (name) {
+    case 'otg':
+      return `<rect x="3" y="8" width="18" height="16" rx="3" /><path d="M8 8V4a1 1 0 011-1h6a1 1 0 011 1v4M7 16h10" /><circle cx="12" cy="16" r="1.5" fill="${strokeColor}" />`;
+    case 'cable':
+      return `<rect x="4" y="10" width="24" height="12" rx="6" /><line x1="10" y1="16" x2="22" y2="16" stroke-width="2.5" /><circle cx="16" cy="16" r="2" fill="${strokeColor}" />`;
+    case 'mic':
+      return `<rect x="9" y="4" width="14" height="16" rx="6" /><path d="M5 14a11 11 0 0022 0M16 25v4M11 29h10" />`;
+    case 'wind':
+      return `<path d="M4 8h16a3 3 0 010 6H3M3 14h20a3 3 0 010 6H4M5 20h10a2.5 2.5 0 010 5H5" stroke-width="2.2" />`;
+    case 'chip':
+      return `<rect x="7" y="7" width="18" height="18" rx="3" /><rect x="11" y="11" width="10" height="10" rx="1" /><path d="M11 3v4M16 3v4M21 3v4M11 25v4M16 25v4M21 25v4M3 11h4M3 16h4M3 21h4M25 11h4M25 16h4M25 21h4" />`;
+    case 'shield':
+      return `<path d="M16 3l11 4v7c0 7-6 12-11 15-5-3-11-8-11-15V7l11-4z" stroke-width="2.2" /><polyline points="11 14 15 18 21 12" stroke-width="2.2" />`;
+    case 'light':
+      return `<circle cx="16" cy="16" r="6" /><path d="M16 3v4M16 25v4M3 16h4M25 16h4M6.8 6.8l2.8 2.8M22.4 22.4l2.8 2.8M6.8 25.2l2.8-2.8M22.4 9.6l2.8-2.8" />`;
+    case 'waves':
+      return `<path d="M4 16v-2m4 5V13m4 8V10m4 13V9m4 11V12m4 6v-2" stroke-width="2.5" />`;
+    case 'tripod':
+      return `<circle cx="16" cy="6" r="3" /><path d="M16 9v7M7 28l9-12 9 12M11 22h10" stroke-width="2.2" />`;
+    case 'users':
+      return `<circle cx="11" cy="9" r="4" /><path d="M4 25c0-4 3-7 7-7s7 3 7 7" /><circle cx="21" cy="9" r="3" /><path d="M18 19c2-.5 4 .5 5 2v4" />`;
+    case 'sliders':
+      return `<line x1="8" y1="4" x2="8" y2="28" /><circle cx="8" cy="12" r="3" fill="${strokeColor}" /><line x1="16" y1="4" x2="16" y2="28" /><circle cx="16" cy="20" r="3" fill="${strokeColor}" /><line x1="24" y1="4" x2="24" y2="28" /><circle cx="24" cy="10" r="3" fill="${strokeColor}" />`;
+    case 'disc':
+      return `<rect x="5" y="8" width="22" height="16" rx="4" /><circle cx="12" cy="16" r="3" /><line x1="18" y1="12" x2="23" y2="12" /><line x1="18" y1="16" x2="23" y2="16" /><line x1="18" y1="20" x2="21" y2="20" />`;
+    case 'eye':
+      return `<circle cx="16" cy="16" r="4" fill="${strokeColor}" /><path d="M3 16s5-9 13-9 13 9 13 9-5 9-13 9-13-9-13-9z" stroke-width="2.2" />`;
+    case 'rotate':
+      return `<path d="M27 16A11 11 0 1116 5c3.5 0 6.5 1.5 8.5 4" stroke-width="2.2" /><polyline points="21 9 25.5 9 25.5 4.5" stroke-width="2.2" />`;
+    case 'hand':
+      return `<path d="M12 15V6a2 2 0 014 0v9M16 11a2 2 0 014 0v5M8 14a2 2 0 00-2 2v2c0 5 4 8 9 8s9-3 9-8v-3a2 2 0 00-4 0" stroke-width="2.2" />`;
+    case 'zap':
+      return `<polygon points="17 2 6 16 15 16 13 30 26 14 17 14 17 2" fill="${strokeColor}" stroke="${strokeColor}" />`;
+    case 'check':
+      return `<circle cx="16" cy="16" r="12" stroke-width="2" /><polyline points="10 16 14 20 22 12" stroke-width="2.5" />`;
+    case 'sparkle':
+      return `<path d="M16 3l2 8 8 2-8 2-2 8-2-8-8-2 8-2z" stroke-width="2" fill="${strokeColor}" />`;
+    case 'battery':
+      return `<rect x="4" y="9" width="20" height="14" rx="3" stroke-width="2.2" /><path d="M26 13v6" stroke-width="2.5" /><rect x="7" y="12" width="7" height="8" rx="1.5" fill="${strokeColor}" />`;
+    case 'search':
+      return `<circle cx="13" cy="13" r="8" stroke-width="2.2" /><line x1="19" y1="19" x2="27" y2="27" stroke-width="2.5" />`;
+    case 'truck':
+      return `<rect x="3" y="7" width="14" height="12" rx="1.5" stroke-width="2" /><path d="M17 10h5l3 4v5h-8z" stroke-width="2" /><circle cx="8" cy="22" r="3" stroke-width="2" /><circle cx="20" cy="22" r="3" stroke-width="2" />`;
+    default:
+      return `<circle cx="16" cy="16" r="10" stroke-width="2" />`;
+  }
+}
 
 const articles = [
   {
@@ -14,11 +115,46 @@ const articles = [
     slug: 'dien-thoai-khong-nhan-micro-thu-am-cach-khac-phuc',
     title: 'Cắm micro thu âm vào điện thoại nhưng không nhận tiếng: Nguyên nhân và cách khắc phục trong 3 phút',
     badge: 'XỬ LÝ KỸ THUẬT',
-    badgeColor: '#38bdf8',
-    subHeader: 'Khắc phục triệt để lỗi mất âm thanh trên Android & iPhone',
-    bullet1: 'Hướng dẫn bật kết nối OTG trên Oppo, Vivo, Xiaomi, Realme',
-    bullet2: 'Phân biệt chuẩn Type-C âm thanh số và quyền truy cập ứng dụng',
-    bullet3: 'Checklist 3 bước thử bản thu gốc trước giờ bấm máy',
+    subHeader: 'Quy trình xử lý nhanh trong 3 phút trên Android & iPhone – Thu âm rõ nét ngay',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'sky',
+        tag: 'BƯỚC 1: KẾT NỐI',
+        title: 'Kích Hoạt OTG',
+        desc: [
+          'Vào Cài đặt > Cài đặt bổ sung',
+          'Bật công tắc "Kết nối OTG"',
+          '(Áp dụng Oppo, Vivo, Realme)'
+        ],
+        tip: '✓ Đèn đầu thu sáng đứng yên',
+        icon: 'otg'
+      },
+      {
+        theme: 'emerald',
+        tag: 'BƯỚC 2: PHẦN CỨNG',
+        title: 'Chuẩn Tiếp Xúc',
+        desc: [
+          'Tháo bỏ ốp lưng chống sốc dày',
+          'Cắm khít chân Type-C vào đáy',
+          'Đảm bảo chân dữ liệu số ăn khớp'
+        ],
+        tip: '✓ Tránh nghẽn tín hiệu cơ học',
+        icon: 'cable'
+      },
+      {
+        theme: 'purple',
+        tag: 'BƯỚC 3: ỨNG DỤNG',
+        title: 'Cấp Quyền Nguồn Âm',
+        desc: [
+          'Mở Camera > Nguồn âm ngoài',
+          'Hoặc dùng CapCut / Open Camera',
+          'Thử ghi âm 10s trước khi quay'
+        ],
+        tip: '✓ Âm thanh trầm ấm, rõ nét',
+        icon: 'mic'
+      }
+    ],
     excerpt: 'Hướng dẫn từng bước kiểm tra kết nối OTG trên điện thoại Android, phân biệt cổng cắm Type-C và xử lý quyền micro trong ứng dụng quay video để thu âm rõ nét ngay lập tức.',
     imageAlt: 'Hướng dẫn khắc phục lỗi cắm micro thu âm vào điện thoại nhưng không nhận tiếng',
     body: `Bạn vừa mở hộp chiếc micro thu âm không dây, háo hức cắm đầu thu vào điện thoại, bật micro và quay thử một đoạn video. Nhưng khi xem lại, âm thanh vẫn là tiếng micro tích hợp của điện thoại đầy tạp âm, hoặc tệ hơn là hoàn toàn không có tiếng.
@@ -60,11 +196,46 @@ Với các dòng micro chuẩn mực như **GAERU K9** hay **GAERU M3**, đầu 
     slug: 'thu-am-ngoai-troi-khong-bi-gio-giat-deadcat-loc-ai',
     title: 'Bí quyết thu âm ngoài trời không bị gió giật: Khi nào dùng lọc ồn AI, khi nào cần bông lọc gió Deadcat?',
     badge: 'KỸ THUẬT NGOẠI CẢNH',
-    badgeColor: '#10b981',
-    subHeader: 'Làm chủ âm thanh dã ngoại – Chặn đứng tiếng gió rít',
-    bullet1: 'Bản chất vật lý của tiếng gió giật và giới hạn của thuật toán',
-    bullet2: 'Cơ chế tán khí của bông lông Deadcat chuyên dụng',
-    bullet3: 'Kỹ thuật cài áo ngược chiều gió và kiểm soát mức Gain',
+    subHeader: 'Làm chủ âm thanh dã ngoại – Chặn đứng tiếng gió rít bằng 3 lớp bảo vệ chuẩn studio',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'amber',
+        tag: 'LỚP 1: CƠ HỌC',
+        title: 'Bông Lông Deadcat',
+        desc: [
+          'Hàng nghìn sợi lông nhân tạo mịn',
+          'Tán nhỏ luồng gió trước khi chạm mic',
+          'Triệt tiêu tiếng phù phù, bụp bụp'
+        ],
+        tip: '✓ Chống gió cấp 4 - 5 ngoài trời',
+        icon: 'wind'
+      },
+      {
+        theme: 'sky',
+        tag: 'LỚP 2: THUẬT TOÁN',
+        title: 'Chip Lọc Ồn AI ENC',
+        desc: [
+          'Bật chế độ khử ồn mức vừa',
+          'Lọc tạp âm xa xăm, tiếng xe cộ',
+          'Không ép quá mức tránh nghẹt giọng'
+        ],
+        tip: '✓ Giữ giọng ấm áp tự nhiên',
+        icon: 'chip'
+      },
+      {
+        theme: 'emerald',
+        tag: 'LỚP 3: VỊ TRÍ GÀI',
+        title: 'Cài Áo Chắn Gió',
+        desc: [
+          'Gài mic cách miệng 15 - 20cm',
+          'Quay đầu thu chếch vào vạt áo',
+          'Dùng cơ thể làm lá chắn gió tự nhiên'
+        ],
+        tip: '✓ Tối ưu biên độ âm thanh',
+        icon: 'shield'
+      }
+    ],
     excerpt: 'Phân biệt cơ chế cản gió vật lý của bông lông Deadcat và thuật toán lọc ồn AI ENC để giữ trọn giọng nói ấm áp tự nhiên khi quay vlog dã ngoại hay phỏng vấn ngoài phố.',
     imageAlt: 'So sánh hiệu quả chống gió của bông lọc lông Deadcat và lọc ồn AI khi quay ngoài trời',
     body: `Khi quay video ngoại cảnh, kẻ thù số một của mọi nhà sáng tạo không phải là tiếng còi xe hay tiếng người nói chuyện, mà chính là **tiếng gió**. Gió lùa qua màng thu tạo nên những tiếng "phù phù", "bụp bụp" chói tai làm méo mó toàn bộ giọng đọc.
@@ -95,12 +266,47 @@ Sự kết hợp giữa công nghệ AI hiện đại và phụ kiện khí đ�
     uuid: 'c0000000-0000-4000-8000-000000000003',
     slug: 'setup-goc-quay-livestream-tai-nha-duoi-1-trieu',
     title: 'Setup góc quay livestream bán hàng tại nhà dưới 1 triệu đồng: Đủ sáng, chuẩn âm, không cần phòng cách âm',
-    badge: 'LIVESTREAM TIẾT KIỆM',
-    badgeColor: '#f59e0b',
-    subHeader: 'Giải pháp phòng live tại gia – Bứt phá đơn hàng chi phí tối thiểu',
-    bullet1: 'Bố trí ánh sáng 2 điểm tận dụng bóng đèn gia dụng',
-    bullet2: 'Tiêu âm phòng ngủ bằng rèm vải và thảm sàn',
-    bullet3: 'Combo chân chống rung P185 và micro định hướng K9',
+    badge: 'SETUP TIẾT KIỆM',
+    subHeader: 'Giải pháp phòng live tại gia – Bứt phá đơn hàng với chi phí đầu tư tối thiểu',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'amber',
+        tag: 'BƯỚC 1: ÁNH SÁNG',
+        title: 'Đèn 2 Điểm Tự Chế',
+        desc: [
+          'Đèn LED bàn làm việc 15W - 20W',
+          'Tản sáng bằng giấy nến chống chói',
+          'Đèn vàng hắt phông tạo chiều sâu'
+        ],
+        tip: '✓ Chi phí chỉ ~200.000 VNĐ',
+        icon: 'light'
+      },
+      {
+        theme: 'sky',
+        tag: 'BƯỚC 2: TIÊU ÂM',
+        title: 'Triệt Tiêu Âm Vang',
+        desc: [
+          'Đóng kín cửa, kéo rèm vải dày',
+          'Trải thảm sàn hấp thụ tiếng vang',
+          'Ngồi cách tường sau ít nhất 1m'
+        ],
+        tip: '✓ Khắc phục vang vọng 0 đồng',
+        icon: 'waves'
+      },
+      {
+        theme: 'emerald',
+        tag: 'BƯỚC 3: THIẾT BỊ',
+        title: 'Bộ Đôi K9 & P185',
+        desc: [
+          'Chân đỡ nhôm P185 cao 1m8',
+          'Micro cài áo GAERU K9 cự ly gần',
+          'Hỗ trợ sạc bypass live liên tục 4h'
+        ],
+        tip: '✓ Combo hoàn thiện ~700.000 VNĐ',
+        icon: 'tripod'
+      }
+    ],
     excerpt: 'Cẩm nang tối ưu không gian nhỏ: kết hợp ánh sáng tự nhiên, chân đỡ chống rung P185 và micro định hướng K9 tạo phòng live chuyên nghiệp chi phí thấp cho chủ shop khởi nghiệp.',
     imageAlt: 'Hướng dẫn setup góc livestream bán hàng tại nhà chi phí thấp với GAERU K9 và P185',
     body: `Nhiều bạn trẻ và chủ shop khởi nghiệp thường ngần ngại bắt đầu livestream vì nghĩ rằng phải có phòng studio chuyên nghiệp, dàn đèn hàng chục triệu và micro đắt đỏ. Thực tế, bạn hoàn toàn có thể tạo nên một khung hình livestream sáng rõ, âm thanh cuốn hút với tổng chi phí chưa đến 1 triệu đồng.
@@ -125,12 +331,47 @@ Chỉ với sự sắp xếp khéo léo và lựa chọn công cụ đúng chỗ
     uuid: 'c0000000-0000-4000-8000-000000000004',
     slug: 'thu-am-podcast-phong-van-hai-nguoi-can-bang-am-luong',
     title: 'Bắt đầu kênh Podcast / Phỏng vấn 2 người từ con số 0: Cách giữ cân bằng âm lượng hai giọng nói',
-    badge: 'PODCAST & PHỎNG VẤN',
-    badgeColor: '#8b5cf6',
-    subHeader: 'Làm chủ âm thanh đối thoại – Không lo lệch tiếng',
-    bullet1: 'Xử lý tình trạng người nói to át người nói nhỏ',
-    bullet2: 'Khoảng cách cài áo chuẩn mực cho từng chất giọng nam/nữ',
-    bullet3: 'Kỹ thuật thu âm 2 kênh độc lập với GAERU M3',
+    badge: 'PODCAST & TALKSHOW',
+    subHeader: 'Làm chủ âm thanh đối thoại – Giữ sự dễ chịu, cân bằng giữa hai chất giọng',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'rose',
+        tag: 'NGUYÊN TẮC 1',
+        title: '2 Micro Độc Lập',
+        desc: [
+          'Không dùng 1 mic chung giữa bàn',
+          'Tránh thu tạp âm cốc nước, giấy tờ',
+          'Giữ âm lượng chuẩn khi xoay mặt'
+        ],
+        tip: '✓ Tách bạch 2 luồng âm thanh',
+        icon: 'users'
+      },
+      {
+        theme: 'sky',
+        tag: 'NGUYÊN TẮC 2',
+        title: 'Vị Trí Cài Áo Chuẩn',
+        desc: [
+          'Cách khóe miệng chuẩn 15 - 20cm',
+          'Người nói to: gài thấp 20cm lệch ngực',
+          'Người nói nhỏ: gài cao 15cm cúc trên'
+        ],
+        tip: '✓ Tự cân bằng cơ học tức thì',
+        icon: 'sliders'
+      },
+      {
+        theme: 'purple',
+        tag: 'NGUYÊN TẮC 3',
+        title: 'Đầu Thu GAERU M3',
+        desc: [
+          'Cắm 1 đầu thu, kết nối 2 mic',
+          'Tự động mix 2 kênh đồng pha',
+          'Màn hình LED kiểm soát pin cả hai'
+        ],
+        tip: '✓ Hoạt động đồng bộ 1 chạm',
+        icon: 'disc'
+      }
+    ],
     excerpt: 'Bí quyết ghi âm cuộc trò chuyện hai người: bố trí vị trí micro GAERU M3, kiểm soát mức gain độc lập và xử lý âm dội phòng chi phí 0 đồng cho podcast và talkshow.',
     imageAlt: 'Kỹ thuật thu âm podcast và phỏng vấn hai người với micro GAERU M3',
     body: `Một cuộc trò chuyện truyền cảm hứng, một buổi phỏng vấn sâu sắc hay một tập podcast tâm tình... Điều giữ chân người nghe suốt 30 - 45 phút không phải là hiệu ứng âm thanh cầu kỳ, mà là **sự dễ chịu và cân bằng của hai giọng nói**.
@@ -163,11 +404,46 @@ Học viên và thính giả luôn đánh giá cao những nội dung có âm th
     slug: 'tu-quay-video-nau-an-diy-mot-minh-gimbal-ai-p01',
     title: 'Tự quay video nấu ăn và làm đồ thủ công một mình: Góc máy rảnh tay với giá đỡ xoay AI GAERU P01',
     badge: 'CREATIVE DIY & FOOD',
-    badgeColor: '#ec4899',
-    subHeader: 'Sáng tạo nội dung rảnh tay – Tự động theo dõi 360 độ',
-    bullet1: 'Camera AI độc lập không cần kết nối Bluetooth hay cài app',
-    bullet2: 'Điều khiển bằng cử chỉ bàn tay: Xòe tay dừng, OK tiếp tục',
-    bullet3: 'Bố trí góc máy nấu ăn, làm bánh mượt mà không bị khuất',
+    subHeader: 'Giải phóng đôi tay – Camera tự lia mượt mà theo từng bước di chuyển quanh căn bếp',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'teal',
+        tag: 'TÍNH NĂNG 1',
+        title: 'Mắt Thần AI Độc Lập',
+        desc: [
+          'Cảm biến quang học tích hợp sẵn',
+          'Tự nhận diện khuôn mặt và dáng người',
+          'Hoạt động 100% không cần App'
+        ],
+        tip: '✓ Tương thích mọi app quay chụp',
+        icon: 'eye'
+      },
+      {
+        theme: 'sky',
+        tag: 'TÍNH NĂNG 2',
+        title: 'Xoay Lia 360° Mượt',
+        desc: [
+          'Động cơ bước phản hồi cực êm',
+          'Bám theo người nấu từ bếp tới bàn',
+          'Không giật khựng, giữ khung chuẩn'
+        ],
+        tip: '✓ Tự nhiên như có quay phim riêng',
+        icon: 'rotate'
+      },
+      {
+        theme: 'amber',
+        tag: 'TÍNH NĂNG 3',
+        title: 'Cử Chỉ Ra Lệnh',
+        desc: [
+          'Giơ tay OK để gimbal bám theo',
+          'Xòe bàn tay để tạm dừng bám',
+          'Không chạm máy khi tay dính bột'
+        ],
+        tip: '✓ Rảnh tay làm việc tuyệt đối',
+        icon: 'hand'
+      }
+    ],
     excerpt: 'Hướng dẫn một mình sản xuất video nấu ăn, làm bánh, handmade: tận dụng camera AI theo dõi 360 độ của P01 và cử chỉ bàn tay thông minh không cần chạm máy.',
     imageAlt: 'Cách tự quay video nấu ăn và làm đồ thủ công với giá đỡ thông minh GAERU P01',
     body: `Bạn đam mê nấu ăn, làm bánh, thêu thùa hay làm đồ thủ công và muốn xây dựng một kênh TikTok / YouTube để chia sẻ? Thách thức lớn nhất khi "tác chiến một mình" chính là:
@@ -199,11 +475,46 @@ Khám phá trợ thủ đắc lực GAERU P01 tại https://gaeru.com/cua-hang.`
     slug: 'kich-ban-video-ngan-45-giay-chuyen-doi-cao-affiliate',
     title: 'Kịch bản video ngắn 45 giây đập tan nỗi sợ mua hàng: Công thức "Vấn đề – Thử nghiệm thật – Giới hạn sản phẩm"',
     badge: 'KỊCH BẢN CHUYỂN ĐỔI',
-    badgeColor: '#0ea5e9',
-    subHeader: 'Xây dựng lòng tin tuyệt đối – Tối ưu tỷ lệ chốt đơn',
-    bullet1: '3 giây đầu tiên: Đánh thức giác quan bằng âm thanh tệ hại',
-    bullet2: '15 giây đối chiếu A/B Test chân thực không hiệu ứng',
-    bullet3: 'Nói thẳng nhược điểm và giới hạn để tạo sự tin tưởng',
+    subHeader: 'Công thức 3 phần giữ chân người xem và kích thích chốt đơn tự nhiên không gượng ép',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'rose',
+        tag: '0 - 3 GIÂY ĐẦU',
+        title: 'Hook Trực Diện',
+        desc: [
+          'Vào thẳng cảnh âm thanh bị lỗi',
+          'Hoặc câu hỏi đánh trúng nỗi đau',
+          'Giữ ngón tay người xem không lướt'
+        ],
+        tip: '✓ Tăng tỷ lệ xem tiếp >70%',
+        icon: 'zap'
+      },
+      {
+        theme: 'sky',
+        tag: '4 - 30 GIÂY GIỮA',
+        title: 'Test Âm Thanh Thật',
+        desc: [
+          'Bật quạt thổi gió hoặc ra ngoài đường',
+          'Tắt bật micro để người xem so sánh',
+          'Chứng minh hiệu quả không nhạc nền'
+        ],
+        tip: '✓ Xây dựng niềm tin chân thực',
+        icon: 'waves'
+      },
+      {
+        theme: 'emerald',
+        tag: '31 - 45 GIÂY CUỐI',
+        title: 'Khuyết Điểm + CTA',
+        desc: [
+          'Nêu 1 lưu ý nhỏ (ví dụ máy Oppo)',
+          'Khẳng định giá trị thực tế vượt trội',
+          'Kêu gọi bấm giỏ hàng nhận ưu đãi'
+        ],
+        tip: '✓ Tối đa hóa tỷ lệ chuyển đổi',
+        icon: 'check'
+      }
+    ],
     excerpt: 'Khung kịch bản chuyển đổi cao cho nhà sáng tạo affiliate: mở đầu giật hook trực diện, đối chiếu âm thanh thật và thẳng thắn chỉ ra đối tượng phù hợp để giữ trọn niềm tin.',
     imageAlt: 'Cấu trúc kịch bản video ngắn 45 giây tối ưu tỷ lệ chuyển đổi cho nhà sáng tạo tiếp thị liên kết',
     body: `Người xem video ngắn trên TikTok hay Reels ngày nay cực kỳ thông minh. Những lời quảng cáo tâng bốc kiểu *"Chiếc micro thần thánh nhất phân khúc"* hay *"Lọc sạch 100% tiếng ồn xung quanh"* chỉ khiến họ lướt qua ngay lập tức vì mùi "quảng cáo lố".
@@ -237,12 +548,38 @@ Sự chân thành không làm giảm doanh số; ngược lại, nó giúp khác
     uuid: 'c0000000-0000-4000-8000-000000000007',
     slug: 'so-sanh-chi-tiet-micro-gaeru-k9-va-gaeru-m3',
     title: 'Nên chọn GAERU K9 hay GAERU M3? Bảng so sánh chi tiết giúp bạn không mua thừa tính năng',
-    badge: 'SO SÁNH CHỌN MUA',
-    badgeColor: '#6366f1',
-    subHeader: 'Đặt lên bàn cân 2 dòng mic bán chạy nhất GAERU',
-    bullet1: 'Đối chiếu thời lượng pin, dải tần 24-bit và hộp sạc LED',
-    bullet2: 'Ai chỉ cần GAERU K9 là đủ (tiết kiệm, nhu cầu cơ bản)',
-    bullet3: 'Ai bắt buộc nên nâng cấp GAERU M3 (dã ngoại, livestream bền bỉ)',
+    badge: 'SO SÁNH SẢN PHẨM',
+    subHeader: 'Phân tích chuyên sâu về tính năng, thời lượng pin, công nghệ lọc ồn và nhu cầu sử dụng thực tế',
+    type: 'comparison',
+    comparison: {
+      left: {
+        theme: 'sky',
+        tag: 'CẮM LÀ DÙNG NGAY',
+        model: 'GAERU K9',
+        sub: 'TỐI ƯU CHI PHÍ',
+        features: [
+          { f: 'Cực kỳ nhỏ gọn (8.2g)', sub: 'Kẹp áo thoải mái, không làm trễ cổ áo thun' },
+          { f: 'Cắm trực tiếp Type-C / Lightning', sub: 'Không cần cài app thứ 3, nhận ngay trong 3s' },
+          { f: 'Pin liên tục 5 - 6 giờ', sub: 'Hỗ trợ cổng sạc bypass vừa sạc vừa live cả ngày' }
+        ],
+        verdictTag: 'Phù hợp nhất:',
+        verdictText: 'Livestream bán hàng, quay video phòng kín, TikToker mới'
+      },
+      right: {
+        theme: 'purple',
+        tag: 'HỘP SẠC THÔNG MINH',
+        model: 'GAERU M3',
+        sub: 'CHUYÊN NGHIỆP ĐA NĂNG',
+        features: [
+          { f: 'Hộp sạc Màn hình LED % pin', sub: 'Kiểm soát chính xác pin từng mic, thời lượng 24h+' },
+          { f: 'Lọc ồn AI 3 cấp độ + Deadcat', sub: 'Chống gió giật ngoài trời, giữ giọng nói ấm tự nhiên' },
+          { f: 'Bộ 2 micro độc lập', sub: 'Thu đồng thời 2 người, tự cân bằng âm lượng thông minh' }
+        ],
+        verdictTag: 'Phù hợp nhất:',
+        verdictText: 'Quay ngoại cảnh, podcast, phỏng vấn, sự kiện'
+      },
+      vsText: 'VS'
+    },
     excerpt: 'Đặt lên bàn cân hai dòng micro thu âm không dây bán chạy nhất của GAERU: phân tích thời lượng pin, chất âm 24-bit, hộp sạc LED và chân dung người dùng phù hợp.',
     imageAlt: 'Bảng so sánh chi tiết thông số và tính năng giữa micro GAERU K9 và GAERU M3',
     body: `Khi tìm kiếm một chiếc micro thu âm không dây cài áo cho điện thoại, hai cái tên phổ biến nhất mà bạn bắt gặp tại GAERU chính là **GAERU K9** và **GAERU M3**.
@@ -279,12 +616,38 @@ Cả hai sản phẩm đều được áp dụng chính sách bảo hành 12 th�
     uuid: 'c0000000-0000-4000-8000-000000000008',
     slug: 'phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185',
     title: 'Phân biệt Gimbal xoay theo dõi AI GAERU P01 và Chân tripod GAERU P185: Đâu là thiết bị bạn thực sự cần?',
-    badge: 'PHỤ KIỆN GHI HÌNH',
-    badgeColor: '#14b8a6',
-    subHeader: 'Tối ưu công năng góc quay – Tránh nhầm lẫn khi đặt hàng',
-    bullet1: 'GAERU P01: Trọng tâm là "Cử động & Tự động xoay theo người"',
-    bullet2: 'GAERU P185: Trọng tâm là "Chiều cao & Cơ động chụp dã ngoại"',
-    bullet3: 'Mẹo ghép nối tạo thành hệ thống camera bám đuổi di động',
+    badge: 'TƯ VẤN THIẾT BỊ',
+    subHeader: 'Khi nào nên chọn gimbal bám người tự động, khi nào nên chọn chân đỡ 4 chân 1m8 siêu vững?',
+    type: 'comparison',
+    comparison: {
+      left: {
+        theme: 'teal',
+        tag: 'CHỦ ĐỘNG BÁM NGƯỜI',
+        model: 'GIMBAL AI P01',
+        sub: 'TỰ DO DI CHUYỂN',
+        features: [
+          { f: 'Mắt thần AI xoay 360°', sub: 'Tự nhận diện dáng người, không cần app hay bluetooth' },
+          { f: 'Điều khiển cử chỉ tay OK', sub: 'Bật/dừng bám theo rảnh tay khi nấu ăn, làm việc' },
+          { f: 'Thiết kế để bàn hoặc gắn chân', sub: 'Đế tròn vững chắc, có lỗ ốc 1/4 inch đa năng' }
+        ],
+        verdictTag: 'Phù hợp nhất:',
+        verdictText: 'Tự quay nấu ăn, dạy học online, DIY di chuyển nhiều'
+      },
+      right: {
+        theme: 'amber',
+        tag: 'VỮNG VÀNG LINH HOẠT',
+        model: 'TRIPOD P185',
+        sub: 'CHIỀU CAO 1M8 VƯỢT TRỘI',
+        features: [
+          { f: 'Hợp kim nhôm 4 chân siêu vững', sub: 'Chống gió lật, đứng vững trên mọi mặt phẳng gồ ghề' },
+          { f: 'Chiều cao tối đa 1,8 mét', sub: 'Góc quay ngang tầm mắt, chuẩn tỷ lệ vàng khung hình' },
+          { f: 'Remote Bluetooth bấm từ xa 10m', sub: 'Chụp ảnh nhóm, quay video không cần nhờ người' }
+        ],
+        verdictTag: 'Phù hợp nhất:',
+        verdictText: 'Livestream cố định, chụp ảnh du lịch nhóm, dã ngoại'
+      },
+      vsText: 'VS'
+    },
     excerpt: 'Rõ ràng công năng giữa đế tracking tự động trong nhà và gậy chụp tripod dã ngoại: chọn thiết bị tối ưu cho phong cách quay video và góc máy của bạn.',
     imageAlt: 'So sánh sự khác biệt giữa gimbal xoay AI GAERU P01 và chân tripod GAERU P185',
     body: `Khi dạo quanh danh mục phụ kiện ghi hình của GAERU, rất nhiều khách hàng đặt câu hỏi: *"GAERU P01 và GAERU P185 khác nhau ở điểm nào? Tôi nên mua chiếc nào để quay video trên điện thoại?"*
@@ -320,12 +683,47 @@ Khám phá ngay bộ đôi phụ kiện hỗ trợ quay phim tại https://gaeru
     uuid: 'c0000000-0000-4000-8000-000000000009',
     slug: 'huong-dan-sac-va-bao-quan-micro-thu-am-khong-day',
     title: 'Cách sạc và bảo quản thiết bị thu âm không dây: Tránh chai pin và hỏng chân tiếp xúc hộp sạc',
-    badge: 'BẢO QUẢN THIẾT BỊ',
-    badgeColor: '#eab308',
-    subHeader: 'Kéo dài tuổi thọ pin lithium – Giữ thiết bị luôn như mới',
-    bullet1: 'Cảnh báo nguy cơ sốc nguồn khi dùng củ sạc siêu nhanh 65W/100W',
-    bullet2: 'Vệ sinh định kỳ chân tiếp xúc pogo pin bằng tăm bông khô',
-    bullet3: 'Bảo quản pin ở mức 50% - 70% khi không sử dụng thời gian dài',
+    badge: 'CHĂM SÓC THIẾT BỊ',
+    subHeader: '3 nguyên tắc vàng kéo dài tuổi thọ cell pin lithium và giữ linh kiện luôn như mới',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'amber',
+        tag: 'NGUYÊN TẮC 1',
+        title: 'Tránh Củ Sạc >15W',
+        desc: [
+          'Chỉ dùng nguồn 5V-1A hoặc 5V-2A',
+          'Tránh sạc nhanh 65W/100W laptop',
+          'Bảo vệ IC nguồn nhỏ không sốc điện'
+        ],
+        tip: '✓ Ngăn ngừa chai phồng pin',
+        icon: 'zap'
+      },
+      {
+        theme: 'sky',
+        tag: 'NGUYÊN TẮC 2',
+        title: 'Lau Chân Pogo Pin',
+        desc: [
+          'Dùng tăm bông khô hoặc cồn nhẹ',
+          'Lau sạch mồ hôi và bụi ở điểm đồng',
+          'Tránh oxy hóa làm tiếp xúc chập chờn'
+        ],
+        tip: '✓ Dòng sạc luôn ổn định 100%',
+        icon: 'sparkle'
+      },
+      {
+        theme: 'emerald',
+        tag: 'NGUYÊN TẮC 3',
+        title: 'Lưu Trữ 50% - 70%',
+        desc: [
+          'Không cất tủ khi pin cạn kiệt 0%',
+          'Sạc lại định kỳ 2 tháng một lần',
+          'Tránh pin ngủ sâu hỏng cell vĩnh viễn'
+        ],
+        tip: '✓ Tối đa hóa chu kỳ nạp xả',
+        icon: 'battery'
+      }
+    ],
     excerpt: 'Quy tắc vàng bảo vệ pin lithium nhỏ: tránh củ sạc siêu nhanh công suất lớn, vệ sinh chân tiếp xúc pogo pin và lưu trữ đúng cách khi ít sử dụng để thiết bị bền bỉ nhiều năm.',
     imageAlt: 'Hướng dẫn sạc pin an toàn và vệ sinh chân tiếp xúc hộp sạc micro không dây GAERU',
     body: `Các thiết bị âm thanh không dây như micro cài áo hay hộp sạc thông minh sử dụng pin lithium polymer dung lượng nhỏ (khoảng 70mAh trên thân mic và 500mAh trên hộp sạc). Mặc dù mạch sạc của GAERU đều có chip bảo vệ quá nhiệt và quá dòng, việc sạc sai cách trong thời gian dài vẫn là nguyên nhân hàng đầu khiến pin nhanh chai hoặc chập chân tiếp xúc.
@@ -354,11 +752,46 @@ Nếu thiết bị của bạn gặp bất kỳ vấn đề nào về pin hoặc
     slug: 'chinh-sach-bao-hanh-dien-tu-mot-doi-mot-gaeru',
     title: 'Mua hàng online an tâm với Bảo hành điện tử 1 đổi 1 trong 12 tháng: Cách kiểm tra và quy trình xử lý tại GAERU',
     badge: 'CHÍNH SÁCH BẢO HÀNH',
-    badgeColor: '#22c55e',
-    subHeader: 'Quyền lợi minh bạch – Không cần giữ hóa đơn giấy',
-    bullet1: 'Hệ thống bảo hành điện tử tra cứu theo số điện thoại',
-    bullet2: 'Cam kết 1 đổi 1 nguyên thân máy mới khi có lỗi kỹ thuật',
-    bullet3: 'Hỗ trợ chi phí vận chuyển 2 chiều tiện lợi tận nhà',
+    subHeader: 'Minh bạch, tốc độ và an tâm tuyệt đối – Quyền lợi khách hàng luôn đặt lên hàng đầu',
+    type: 'cards',
+    cards: [
+      {
+        theme: 'sky',
+        tag: 'QUY TRÌNH 1',
+        title: 'Tra Cứu Tự Động',
+        desc: [
+          'Bảo hành điện tử theo Số điện thoại',
+          'Không cần lưu giữ hóa đơn giấy',
+          'Tra cứu tức thì tại gaeru.com'
+        ],
+        tip: '✓ Minh bạch thời hạn 100%',
+        icon: 'search'
+      },
+      {
+        theme: 'emerald',
+        tag: 'QUY TRÌNH 2',
+        title: '1 Đổi 1 Thân Máy',
+        desc: [
+          'Lỗi kỹ thuật do NSX được đổi ngay',
+          'Thân máy mới nguyên seal 100%',
+          'Không sửa chữa chắp vá'
+        ],
+        tip: '✓ An tâm chất lượng chuẩn mực',
+        icon: 'shield'
+      },
+      {
+        theme: 'purple',
+        tag: 'QUY TRÌNH 3',
+        title: 'Thu Đổi Tận Nhà',
+        desc: [
+          'Shipper đến tận nhà nhận máy lỗi',
+          'Giao máy mới tận tay khách hàng',
+          'GAERU miễn phí ship 2 chiều'
+        ],
+        tip: '✓ Tiết kiệm thời gian tối đa',
+        icon: 'truck'
+      }
+    ],
     excerpt: 'Khám phá quy trình bảo hành minh bạch không cần giữ hóa đơn giấy: tra cứu theo số điện thoại, đổi mới nguyên thân máy và hỗ trợ phí ship 2 chiều cho người mua hàng tại GAERU.',
     imageAlt: 'Quy trình kích hoạt và tra cứu bảo hành điện tử chính hãng 1 đổi 1 tại GAERU',
     body: `Nỗi lo lớn nhất của người tiêu dùng khi mua thiết bị công nghệ trực tuyến là: *"Lúc mua thì dễ, lúc hỏng thì không biết tìm ai; mất tờ phiếu bảo hành giấy là bị từ chối phục vụ"*.
@@ -386,7 +819,7 @@ Bên cạnh đó, khách hàng luôn có quyền lợi **7 ngày dùng thử tr�
 ];
 
 // Helper to wrap text into lines
-function wrapText(text, maxChars = 58) {
+function wrapText(text, maxChars = 56) {
   const words = text.split(' ');
   const lines = [];
   let current = '';
@@ -399,77 +832,204 @@ function wrapText(text, maxChars = 58) {
   return lines;
 }
 
-// Helper to generate sleek dark studio SVG banner
-function generateBannerSvg(art) {
-  const safeTitle = art.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeSub = art.subHeader.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeB1 = art.bullet1.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeB2 = art.bullet2.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeB3 = art.bullet3.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const safeBadge = art.badge.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function escapeXml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
-  // Split title into 2 clean lines
-  const titleLines = wrapText(safeTitle, 58);
-  const tLine1 = titleLines[0] || '';
-  const tLine2 = titleLines.slice(1).join(' ') || '';
+function generateEditorialCoverSvg(art) {
+  const safeBadge = escapeXml(art.badge);
+  const safeHeadline = escapeXml(art.title);
+  const safeSubHeader = escapeXml(art.subHeader);
 
-  const FONT_FAMILY = 'Arial, Segoe UI, Liberation Sans, sans-serif';
+  // Split headline if needed
+  const headlineLines = wrapText(safeHeadline, 52);
+  const hlLine1 = headlineLines[0] || '';
+  const hlLine2 = headlineLines.slice(1).join(' ') || '';
 
-  return `
-  <svg width="1200" height="750" viewBox="0 0 1200 750" xmlns="http://www.w3.org/2000/svg">
+  // Background and ambient accents
+  const bgSvg = `
     <defs>
       <linearGradient id="bg-${art.uuid}" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#0b1120" />
-        <stop offset="50%" stop-color="#1e293b" />
-        <stop offset="100%" stop-color="#0f172a" />
+        <stop offset="0%" stop-color="#f8fafc" />
+        <stop offset="100%" stop-color="#f1f5f9" />
       </linearGradient>
-      <linearGradient id="accent-${art.uuid}" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="${art.badgeColor}" />
-        <stop offset="100%" stop-color="#38bdf8" />
+      <linearGradient id="vs-grad-${art.uuid}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0284c7" />
+        <stop offset="100%" stop-color="#2563eb" />
       </linearGradient>
-      <filter id="glow-${art.uuid}" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="60" result="blur" />
+      <filter id="card-shadow-${art.uuid}" x="-10%" y="-10%" width="120%" height="120%">
+        <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.07" />
+      </filter>
+      <filter id="vs-shadow-${art.uuid}" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0284c7" flood-opacity="0.35" />
       </filter>
     </defs>
 
-    <!-- Background -->
     <rect width="1200" height="750" fill="url(#bg-${art.uuid})" />
+    <circle cx="1120" cy="120" r="280" fill="#38bdf8" opacity="0.08" />
+    <circle cx="80" cy="650" r="260" fill="#818cf8" opacity="0.06" />
 
-    <!-- Ambient light glow circles -->
-    <circle cx="1060" cy="180" r="280" fill="${art.badgeColor}" opacity="0.08" filter="url(#glow-${art.uuid})" />
-    <circle cx="140" cy="580" r="240" fill="#38bdf8" opacity="0.06" filter="url(#glow-${art.uuid})" />
+    <!-- Top Eyebrow & Headline -->
+    <text x="80" y="70" fill="#0284c7" font-family="${FONT_FAMILY}" font-size="13" font-weight="bold" letter-spacing="2">GAERU / ${safeBadge}</text>
+    <text x="80" y="112" fill="#0f172a" font-family="${FONT_FAMILY}" font-size="${hlLine2 ? '30' : '32'}" font-weight="bold">${hlLine1}</text>
+    ${hlLine2 ? `<text x="80" y="148" fill="#0f172a" font-family="${FONT_FAMILY}" font-size="28" font-weight="bold">${hlLine2}</text>` : ''}
+    <text x="80" y="${hlLine2 ? '182' : '148'}" fill="#64748b" font-family="${FONT_FAMILY}" font-size="15" font-weight="500">${safeSubHeader}</text>
+  `;
 
-    <!-- Subtle Tech Grid Lines -->
-    <line x1="100" y1="0" x2="100" y2="750" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
-    <line x1="1100" y1="0" x2="1100" y2="750" stroke="#1e293b" stroke-width="0.8" opacity="0.4" />
+  // Content Area: either 3 cards or 2 comparison cards
+  let contentSvg = '';
+  const cardStartY = hlLine2 ? 205 : 175;
+  const cardHeight = hlLine2 ? 440 : 465;
 
-    <!-- Category Pill Badge -->
-    <rect x="100" y="80" width="240" height="42" rx="21" fill="#1e293b" stroke="${art.badgeColor}" stroke-width="1.5" />
-    <text x="220" y="106" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="14" font-weight="bold" text-anchor="middle" letter-spacing="1.5">${safeBadge}</text>
+  if (art.type === 'comparison' && art.comparison) {
+    const comp = art.comparison;
+    const leftTheme = THEMES[comp.left.theme] || THEMES.sky;
+    const rightTheme = THEMES[comp.right.theme] || THEMES.purple;
 
-    <!-- Title Lines -->
-    <text x="100" y="195" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine1}</text>
-    ${tLine2 ? `<text x="100" y="250" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="34" font-weight="bold">${tLine2}</text>` : ''}
+    contentSvg = `
+      <!-- Left Card: ${escapeXml(comp.left.model)} -->
+      <g transform="translate(80, ${cardStartY})">
+        <rect width="490" height="${cardHeight}" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#card-shadow-${art.uuid})" />
+        
+        <!-- Header banner -->
+        <path d="M 0 20 Q 0 0 20 0 L 470 0 Q 490 0 490 20 L 490 92 L 0 92 Z" fill="${leftTheme.bgLight}" />
+        <line x1="0" y1="92" x2="490" y2="92" stroke="${leftTheme.border}" stroke-width="1.2" />
 
-    <!-- Highlight Subtitle -->
-    <text x="100" y="${tLine2 ? 325 : 275}" fill="url(#accent-${art.uuid})" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold">${safeSub}</text>
+        <!-- Tag Pill -->
+        <rect x="25" y="18" width="160" height="24" rx="12" fill="${leftTheme.pillBg}" />
+        <text x="105" y="34" fill="${leftTheme.pillText}" font-family="${FONT_FAMILY}" font-size="11" font-weight="bold" text-anchor="middle" letter-spacing="1">${escapeXml(comp.left.tag)}</text>
+        
+        <!-- Model Title -->
+        <text x="25" y="74" fill="${leftTheme.titleColor}" font-family="${FONT_FAMILY}" font-size="26" font-weight="bold">${escapeXml(comp.left.model)}</text>
+        <text x="465" y="70" fill="${leftTheme.pillText}" font-family="${FONT_FAMILY}" font-size="13" font-weight="bold" text-anchor="end">${escapeXml(comp.left.sub)}</text>
 
-    <!-- Key Takeaway Bullets -->
-    <text x="100" y="${tLine2 ? 415 : 365}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB1}</text>
-    <text x="100" y="${tLine2 ? 470 : 420}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB2}</text>
-    <text x="100" y="${tLine2 ? 525 : 475}" fill="#cbd5e1" font-family="${FONT_FAMILY}" font-size="20" font-weight="normal">•  ${safeB3}</text>
+        <!-- Feature Rows -->
+        <g transform="translate(25, 120)">
+          ${comp.left.features.map((feat, idx) => `
+            <g transform="translate(0, ${idx * 64})">
+              <circle cx="14" cy="14" r="14" fill="${leftTheme.bgLight}" stroke="${leftTheme.border}" />
+              <path d="M9 14l3.5 3.5 7-7" stroke="${leftTheme.iconColor}" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+              <text x="42" y="14" fill="#0f172a" font-family="${FONT_FAMILY}" font-size="16" font-weight="bold">${escapeXml(feat.f)}</text>
+              <text x="42" y="34" fill="#64748b" font-family="${FONT_FAMILY}" font-size="13.5">${escapeXml(feat.sub)}</text>
+            </g>
+          `).join('')}
+        </g>
 
-    <!-- Bottom Brand Divider & Metadata -->
-    <line x1="100" y1="620" x2="1100" y2="620" stroke="#334155" stroke-width="1.2" />
-    <text x="100" y="665" fill="#f8fafc" font-family="${FONT_FAMILY}" font-size="24" font-weight="bold" letter-spacing="3">GAERU</text>
-    <text x="230" y="664" fill="#64748b" font-family="${FONT_FAMILY}" font-size="16" font-weight="500">|   Thiết bị âm thanh &amp; sáng tạo di động</text>
-    <text x="1100" y="664" fill="${art.badgeColor}" font-family="${FONT_FAMILY}" font-size="16" font-weight="bold" text-anchor="end">gaeru.com/tin-tuc</text>
-  </svg>
+        <!-- Bottom Verdict Pill -->
+        <rect x="20" y="${cardHeight - 55}" width="450" height="38" rx="12" fill="#f8fafc" stroke="#e2e8f0" />
+        <text x="35" y="${cardHeight - 31}" fill="${leftTheme.titleColor}" font-family="${FONT_FAMILY}" font-size="12.5" font-weight="bold">${escapeXml(comp.left.verdictTag)}</text>
+        <text x="125" y="${cardHeight - 31}" fill="#334155" font-family="${FONT_FAMILY}" font-size="12" font-weight="500">${escapeXml(comp.left.verdictText)}</text>
+      </g>
+
+      <!-- Right Card: ${escapeXml(comp.right.model)} -->
+      <g transform="translate(630, ${cardStartY})">
+        <rect width="490" height="${cardHeight}" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#card-shadow-${art.uuid})" />
+        
+        <!-- Header banner -->
+        <path d="M 0 20 Q 0 0 20 0 L 470 0 Q 490 0 490 20 L 490 92 L 0 92 Z" fill="${rightTheme.bgLight}" />
+        <line x1="0" y1="92" x2="490" y2="92" stroke="${rightTheme.border}" stroke-width="1.2" />
+
+        <!-- Tag Pill -->
+        <rect x="25" y="18" width="165" height="24" rx="12" fill="${rightTheme.pillBg}" />
+        <text x="107" y="34" fill="${rightTheme.pillText}" font-family="${FONT_FAMILY}" font-size="11" font-weight="bold" text-anchor="middle" letter-spacing="1">${escapeXml(comp.right.tag)}</text>
+        
+        <!-- Model Title -->
+        <text x="25" y="74" fill="${rightTheme.titleColor}" font-family="${FONT_FAMILY}" font-size="26" font-weight="bold">${escapeXml(comp.right.model)}</text>
+        <text x="465" y="70" fill="${rightTheme.pillText}" font-family="${FONT_FAMILY}" font-size="13" font-weight="bold" text-anchor="end">${escapeXml(comp.right.sub)}</text>
+
+        <!-- Feature Rows -->
+        <g transform="translate(25, 120)">
+          ${comp.right.features.map((feat, idx) => `
+            <g transform="translate(0, ${idx * 64})">
+              <circle cx="14" cy="14" r="14" fill="${rightTheme.bgLight}" stroke="${rightTheme.border}" />
+              <path d="M9 14l3.5 3.5 7-7" stroke="${rightTheme.iconColor}" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+              <text x="42" y="14" fill="#0f172a" font-family="${FONT_FAMILY}" font-size="16" font-weight="bold">${escapeXml(feat.f)}</text>
+              <text x="42" y="34" fill="#64748b" font-family="${FONT_FAMILY}" font-size="13.5">${escapeXml(feat.sub)}</text>
+            </g>
+          `).join('')}
+        </g>
+
+        <!-- Bottom Verdict Pill -->
+        <rect x="20" y="${cardHeight - 55}" width="450" height="38" rx="12" fill="#f8fafc" stroke="#e2e8f0" />
+        <text x="35" y="${cardHeight - 31}" fill="${rightTheme.titleColor}" font-family="${FONT_FAMILY}" font-size="12.5" font-weight="bold">${escapeXml(comp.right.verdictTag)}</text>
+        <text x="125" y="${cardHeight - 31}" fill="#334155" font-family="${FONT_FAMILY}" font-size="12" font-weight="500">${escapeXml(comp.right.verdictText)}</text>
+      </g>
+
+      <!-- Central VS Badge -->
+      <g transform="translate(600, ${cardStartY + (cardHeight / 2)})">
+        <circle cx="0" cy="0" r="34" fill="url(#vs-grad-${art.uuid})" stroke="#ffffff" stroke-width="4" filter="url(#vs-shadow-${art.uuid})" />
+        <text x="0" y="8" fill="#ffffff" font-family="${FONT_FAMILY}" font-size="20" font-weight="900" text-anchor="middle" font-style="italic">VS</text>
+      </g>
+    `;
+  } else {
+    // 3 Cards Layout
+    const cards = art.cards || [];
+    const cardWidth = 340;
+    const cardGap = 10;
+    const startX = 80;
+
+    contentSvg = cards.map((c, idx) => {
+      const theme = THEMES[c.theme] || THEMES.sky;
+      const x = startX + idx * (cardWidth + 10);
+      const iconSvg = getIconSvg(c.icon, theme.iconColor);
+
+      return `
+        <g transform="translate(${x}, ${cardStartY})">
+          <rect width="${cardWidth}" height="${cardHeight}" rx="20" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#card-shadow-${art.uuid})" />
+          
+          <!-- Circle Icon Badge -->
+          <circle cx="170" cy="65" r="36" fill="${theme.bgLight}" stroke="${theme.border}" stroke-width="1.5" />
+          <g transform="translate(150, 45) scale(1.25)" stroke="${theme.iconColor}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            ${iconSvg}
+          </g>
+
+          <!-- Step Tag Pill -->
+          <rect x="105" y="120" width="130" height="24" rx="12" fill="${theme.pillBg}" />
+          <text x="170" y="136" fill="${theme.pillText}" font-family="${FONT_FAMILY}" font-size="11" font-weight="bold" text-anchor="middle" letter-spacing="1.2">${escapeXml(c.tag)}</text>
+
+          <!-- Card Title -->
+          <text x="170" y="175" fill="#0f172a" font-family="${FONT_FAMILY}" font-size="19" font-weight="bold" text-anchor="middle">${escapeXml(c.title)}</text>
+          
+          <line x1="40" y1="202" x2="300" y2="202" stroke="#f1f5f9" stroke-width="1.5" />
+
+          <!-- Desc Lines -->
+          ${c.desc.map((dLine, dIdx) => `
+            <text x="170" y="${236 + dIdx * 28}" fill="#475569" font-family="${FONT_FAMILY}" font-size="14" font-weight="500" text-anchor="middle">${escapeXml(dLine)}</text>
+          `).join('')}
+
+          <!-- Bottom Tip Pill -->
+          <rect x="25" y="${cardHeight - 55}" width="290" height="36" rx="18" fill="#f8fafc" stroke="#e2e8f0" />
+          <text x="170" y="${cardHeight - 32}" fill="${theme.pillText}" font-family="${FONT_FAMILY}" font-size="12" font-weight="bold" text-anchor="middle">${escapeXml(c.tip)}</text>
+        </g>
+      `;
+    }).join('\n');
+  }
+
+  // Footer bar
+  const footerSvg = `
+    <line x1="80" y1="680" x2="1120" y2="680" stroke="#e2e8f0" stroke-width="1.2" />
+    <text x="80" y="718" fill="#0f172a" font-family="${FONT_FAMILY}" font-size="22" font-weight="bold" letter-spacing="2">GAERU</text>
+    <text x="190" y="717" fill="#64748b" font-family="${FONT_FAMILY}" font-size="14.5" font-weight="500">|   Hệ sinh thái thiết bị sáng tạo nội dung &amp; âm thanh di động</text>
+    <text x="1120" y="717" fill="#0284c7" font-family="${FONT_FAMILY}" font-size="15" font-weight="bold" text-anchor="end">gaeru.com/tin-tuc</text>
+  `;
+
+  return `
+    <svg width="1200" height="750" viewBox="0 0 1200 750" xmlns="http://www.w3.org/2000/svg">
+      ${bgSvg}
+      ${contentSvg}
+      ${footerSvg}
+    </svg>
   `;
 }
 
 async function main() {
-  console.log(`[publish-10-articles] Preparing ${articles.length} new articles & generating high-res banners...`);
+  console.log(`[publish-10-articles] Preparing ${articles.length} new articles with tailored visual infographic covers...`);
 
   const newsDir = path.join(ROOT, 'assets', 'news');
   if (!fs.existsSync(newsDir)) fs.mkdirSync(newsDir, { recursive: true });
@@ -480,7 +1040,8 @@ async function main() {
 
   for (let i = 0; i < articles.length; i++) {
     const art = articles[i];
-    const svg = generateBannerSvg(art);
+    const svg = generateEditorialCoverSvg(art);
+
     const webpBuf = await sharp(Buffer.from(svg))
       .webp({ quality: 90, effort: 6 })
       .toBuffer();
@@ -488,7 +1049,7 @@ async function main() {
       .avif({ quality: 86, effort: 8, chromaSubsampling: '4:4:4', tune: 'ssim' })
       .toBuffer();
 
-    // Filenames for assets/news
+    // Write to assets/news
     const webpPath = path.join(newsDir, `${art.slug}.webp`);
     const avifPath = path.join(newsDir, `${art.slug}.avif`);
     fs.writeFileSync(webpPath, webpBuf);
@@ -511,7 +1072,6 @@ async function main() {
     const safeBody = art.body.replace(/'/g, "''");
     const safeAlt = art.imageAlt.replace(/'/g, "''");
 
-    // Stagger publication times slightly (e.g. 1 minute apart)
     const minutesAgo = (articles.length - i) * 2;
     sqlInsertsPosts.push(`INSERT INTO news_posts(slug, title, excerpt, body, cover_id, image_alt, status, published_at, updated_at)
 VALUES(
@@ -570,7 +1130,7 @@ ON CONFLICT (slug) DO UPDATE SET
   );
   console.log(`[publish-10-articles] Wrote content JSON backup to ${jsonFile}`);
 
-  // 3. If local or database is reachable, apply migration directly
+  // 3. If local database is reachable, apply migration directly
   try {
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL || 'postgresql://gaeru:gaeru@127.0.0.1:5432/gaeru'
@@ -583,7 +1143,8 @@ ON CONFLICT (slug) DO UPDATE SET
     console.log('[publish-10-articles] Local DB not available or offline:', dbErr.message);
   }
 
-  console.log('[publish-10-articles] Done! Generated 10 articles, 20 image renditions (WebP+AVIF), SQL and JSON files.');
+  console.log('[publish-10-articles] Done! Successfully re-rendered all 10 visual editorial covers (WebP + AVIF)!');
+  console.table(generatedImages);
 }
 
 main().catch(err => {
