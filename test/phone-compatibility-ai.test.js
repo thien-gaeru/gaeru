@@ -589,3 +589,65 @@ test('GAERU AI uses live store settings (shipping, loyalty 1%-2%, bundles, Shope
   assert.ok(newsRes.answer.includes('/tin-tuc/phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185'));
 });
 
+test('GAERU AI resolves global quick-reply chips, Vietnamese chat shorthands, and blocks volatile self-learning pollution', async () => {
+  const { learnFromInteraction } = require('../src/ai-self-learning');
+
+  const chipVersion = await generateGaeruAiResponse({ question: 'Tư vấn chọn phiên bản phù hợp', catalog: CATALOG });
+  assert.ok(chipVersion.answer.includes('GAERU M3'));
+  assert.ok(chipVersion.answer.includes('Type-C'));
+  assert.ok(chipVersion.answer.includes('Type C + chuyển USB'));
+
+  const chipStock = await generateGaeruAiResponse({ question: 'Kiểm tra tồn kho & ưu đãi', catalog: CATALOG });
+  assert.ok(chipStock.answer.includes('Tình trạng tồn kho hiện tại'));
+  assert.ok(chipStock.answer.includes('Còn hàng'));
+  assert.ok(chipStock.answer.includes('Tạm hết hàng'));
+
+  const chipConnect = await generateGaeruAiResponse({ question: 'Hướng dẫn kết nối thiết bị', catalog: CATALOG });
+  assert.ok(chipConnect.answer.includes('iOS 18+'));
+  assert.ok(chipConnect.answer.includes('Kết nối OTG'));
+  assert.ok(chipConnect.answer.includes('GAERU G1 ULTRA'));
+
+  const shorthandCompat = await generateGaeruAiResponse({ question: 'ip15 cắm M3 đc k?', catalog: CATALOG });
+  assert.ok(shorthandCompat.answer.includes('iPhone 15'));
+  assert.ok(shorthandCompat.answer.includes('USB Type-C'));
+
+  const shorthandPrice = await generateGaeruAiResponse({ question: 'g1ultra giá nhiu?', catalog: CATALOG });
+  assert.ok(shorthandPrice.answer.includes('GAERU G1 ULTRA'));
+  assert.ok(shorthandPrice.answer.includes('2.100.000 ₫'));
+
+  const thanksShort = await generateGaeruAiResponse({ question: 'tks shop nhiều nhé', catalog: CATALOG });
+  assert.ok(thanksShort.answer.includes('GAERU AI'));
+  assert.equal(thanksShort.isFallback, undefined);
+
+  // Usage advice connects directly to matching /tin-tuc/<slug> editorial guide
+  const usageNews = await generateGaeruAiResponse({
+    question: 'Setup góc quay livestream tại nhà dưới 1 triệu cần gì?',
+    webKnowledge: {
+      latestNews: [{
+        url: '/tin-tuc/setup-goc-quay-livestream-tai-nha-duoi-1-trieu',
+        title: 'Setup góc quay livestream bán hàng tại nhà dưới 1 triệu đồng',
+        summary: 'Đủ sáng, chuẩn âm với GAERU K9.'
+      }]
+    },
+    catalog: CATALOG
+  });
+  assert.ok(usageNews.answer.includes('GAERU M3'));
+  assert.ok(usageNews.answer.includes('/tin-tuc/setup-goc-quay-livestream-tai-nha-duoi-1-trieu'));
+
+  // Self-learning refuses volatile buy cards & personal balance answers
+  let inserted = false;
+  const guardPool = { query: async (sql) => { if (sql.includes('INSERT')) inserted = true; return { rows: [] }; } };
+  const blockedBuy = await learnFromInteraction(guardPool, {
+    question: 'Chốt GAERU M3 bản Type C',
+    answer: 'Xác nhận chốt **GAERU M3** · **Type C** (1.200.000 ₫ — Còn hàng)\n- 👉 [Mua ngay GAERU M3](/thanh-toan?variant=m3-c)'
+  });
+  const blockedPrivate = await learnFromInteraction(guardPool, {
+    question: 'Mình còn bao nhiêu GAERU Xu?',
+    answer: '**Chính sách GAERU Xu:**\n- **Tài khoản của bạn:** Số dư hiện tại: **35.000 GAERU Xu**.'
+  });
+  assert.equal(blockedBuy, null);
+  assert.equal(blockedPrivate, null);
+  assert.equal(inserted, false);
+});
+
+

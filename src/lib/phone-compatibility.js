@@ -616,6 +616,16 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
     sections.push('- Thiết bị GAERU tương thích trực tiếp với **TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Zoom, OBS Studio** (cắm đầu thu vào máy là dùng ngay, không cần ghép Bluetooth để thu tiếng).');
   }
 
+  if (sections.length === 0 && !matchedProdKey && hasAnyBoundaryTerm(qNorm, ['huong dan ket noi', 'ket noi thiet bi', 'cach ket noi', 'cach cam', 'su dung mic'])) {
+    sections.push(
+      '**Hướng dẫn kết nối nhanh thiết bị GAERU theo từng dòng máy:**\n' +
+      '- **iPhone / iPad:** iPhone 14 trở xuống dùng **Lightning**, iPhone 15–18 / iPad cổng vuông dùng **Type-C**. Trên **iOS 18+**, mở *Trung tâm điều khiển → Micrô → Đầu vào* chọn mic gắn ngoài; **iOS dưới 18** cắm là nhận tự động.\n' +
+      '- **Android & Máy tính bảng:** Cổng **Type-C** (hoặc **Micro-USB** máy cũ). Riêng **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** vào *Cài đặt → bật Kết nối OTG*; nếu chưa nhận tiếng hãy bật thêm *Gỡ lỗi USB* và tắt *Tắt định tuyến âm thanh USB*.\n' +
+      '- **Laptop / PC & Máy ảnh:** Laptop/PC dùng cổng **Type-C** hoặc **Type C + chuyển USB (USB-A)**; máy ảnh / GoPro ngõ `3.5mm TRS` dùng **GAERU G1 ULTRA**.\n' +
+      'Bạn đang dùng máy nào để mình gửi đúng hướng dẫn chi tiết theo dòng máy đó nhé?'
+    );
+  }
+
   // Gợi ý đúng phân loại chân cắm GAERU nếu người hỏi đang chọn mua cho thiết bị
   if (portsFound.size > 0 && sections.length > 0 && !isPureOtgGuide && !isPureUsbDebugGuide && !isPureIosGuide) {
     const rec = recommendVariantForPorts(portsFound, matchedProdKey);

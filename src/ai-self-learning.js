@@ -86,7 +86,7 @@ function normalizeText(text) {
 function isLowValueLearnedAnswer(answerText) {
   const norm = normalizeText(answerText);
   if (!norm || norm.length < 10) return true;
-  return /tro ly thong minh ho tro truc tuyen|co the giup ban ngay cac noi dung sau|ai hien chua the tra loi|ai chua the tiep tuc tra loi|minh chua ro dung y|toi chua ro dung y/.test(norm);
+  return /tro ly thong minh ho tro truc tuyen|co the giup ban ngay cac noi dung sau|ai hien chua the tra loi|ai chua the tiep tuc tra loi|minh chua ro dung y|toi chua ro dung y|\/thanh-toan\?variant=|xac nhan chot|trao doi ve dien thoai, nhu cau quay|khong tu thao thiet bi de xu ly loi|tai khoan cua ban:|so du hien tai:|phieu bao hanh cua tai khoan ban:|yeu cau gaeru care\+ gan day|hien .* dang tam het hang|con hang\)|tam het\)/.test(norm);
 }
 
 const GENERIC_SINGLE_TRIGGERS = new Set([

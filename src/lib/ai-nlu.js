@@ -60,8 +60,14 @@ function expandQueryVi(text) {
     .replace(/(?<![a-z0-9])(?:micro\s*usb|microusb)(?![a-z0-9])/g, 'micro-usb')
     .replace(/(?<![a-z0-9])(?:usb\s*a|usba|usb-a)(?![a-z0-9])/g, 'usb-a')
     .replace(/(?<![a-z0-9])usb\s*debugging(?![a-z0-9])/g, 'go loi usb')
+    .replace(/(?<![a-z0-9])free\s+ship(?![a-z0-9])/g, 'freeship')
+    .replace(/(?<![a-z0-9])(duoc|co|con|ban|giao|nhan|cam|dung|sac|live|quay)\s+k(?=$|[\s?!.,])/g, '$1 khong')
     .replace(/(?<![a-z0-9])(?:ko|hok)(?![a-z0-9])/g, 'khong')
-    .replace(/(?<![a-z0-9])(?:bn|bnh|bnhieu)(?![a-z0-9])/g, 'bao nhieu')
+    .replace(/(?<![a-z0-9])(?:bn|bnh|bnhiu|bnhieu|nhiu)(?![a-z0-9])/g, 'bao nhieu')
+    .replace(/(?<![a-z0-9])(?:tks|thx|thankiu)(?![a-z0-9])/g, 'cam on')
+    .replace(/(?<![a-z0-9])ntn(?![a-z0-9])/g, 'nhu the nao')
+    .replace(/(?<![a-z0-9])trc(?![a-z0-9])/g, 'truoc')
+    .replace(/(?<![a-z0-9])g1ultra(?![a-z0-9])/g, 'g1 ultra')
     .replace(/(?<![a-z0-9])bh(?![a-z0-9])/g, 'bao hanh')
     .replace(/(?<![a-z0-9])sp(?![a-z0-9])/g, 'san pham')
     .replace(/(?<![a-z0-9])sdt(?![a-z0-9])/g, 'so dien thoai')
@@ -174,7 +180,7 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
     { key: 'gaeru-k9', aliases: ['k9', 'gaeru k9'] },
     { key: 'gaeru-m3', aliases: ['m3', 'gaeru m3'] },
     { key: 'gaeru-p185', aliases: ['p185', 'gaeru p185'] },
-    { key: 'gaeru-g1-ultra', aliases: ['g1 ultra', 'gaeru g1 ultra', 'g1'] }
+    { key: 'gaeru-g1-ultra', aliases: ['g1 ultra', 'gaeru g1 ultra', 'g1', 'g1ultra'] }
   ];
 
   // Build lookup descriptors from both known models and dynamic DB catalog
@@ -237,8 +243,8 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
   // Multi-turn & thread binding fallback
   const looksFollowUp = isFollowUpReference(expanded) ||
     hasAnyBoundaryTerm(space, [
-      'gia', 'pin', 'bao lau', 'khoang cach', 'bao xa', 'con hang', 'het hang', 'phan loai',
-      '1 mic', '2 mic', 'type c', 'lightning', 'micro usb', 'usb a', 'chong on', 'loc on',
+      'gia', 'pin', 'bao lau', 'khoang cach', 'bao xa', 'con hang', 'het hang', 'ton kho', 'uu dai', 'phan loai',
+      'phien ban', 'chon ban', '1 mic', '2 mic', 'type c', 'lightning', 'micro usb', 'usb a', 'chong on', 'loc on',
       'dung duoc', 'tuong thich', 'trong luong', 'hop sac', 'chot', 'dat', 'mua', 'lay',
       'mua ngay', 'dat hang', 'chot don', 'thanh toan', 'go loi usb', 'bat otg', 'mo otg',
       'ios', 'mic ngoai', 'pc', 'laptop', 'macbook', 'may tinh bang'

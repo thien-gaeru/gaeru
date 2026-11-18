@@ -734,7 +734,7 @@ function findWebKnowledgeAnswer(question, webKnowledge, catalog = []) {
     }
   }
 
-  if (bestNews && bestNewsScore >= 0.4 && bestNewsScore >= topSnippetScore) {
+  if (bestNews && bestNewsScore >= 0.35 && bestNewsScore >= topSnippetScore) {
     return `Bài hướng dẫn liên quan trên GAERU:\n- [${bestNews.title}](${bestNews.url})${bestNews.summary ? ` — ${bestNews.summary}` : ''}`;
   }
 
@@ -995,6 +995,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   const asksMarketplace = hasAnyBoundaryTerm(space, ['shopee', 'tiktok shop', 'tiktokshop', 'san thuong mai', 'lazada', 'link shopee', 'link tiktok', 'gian hang']);
   const asksBundles = hasAnyBoundaryTerm(space, ['combo', 'mua kem', 'tron bo', 'bo combo', 'goi combo']);
   const asksArticle = hasAnyBoundaryTerm(space, ['bai viet', 'tin tuc', 'blog', 'bai huong dan', 'doc bai']);
+  const asksGlobalStock = !primaryProd && hasAnyBoundaryTerm(space, ['ton kho', 'con hang', 'san hang', 'het hang', 'kiem tra kho']);
 
   // Xác định câu hỏi có yêu cầu tra cứu dữ liệu động (giá/kho/chính sách/vận chuyển/voucher/chốt đơn) không
   const isDynamicPolicyOrCommerce = hasAnyBoundaryTerm(space, [
@@ -1111,6 +1112,22 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     if (newsAns) sections.push(newsAns);
   }
 
+  if (asksGlobalStock && Array.isArray(catalog) && catalog.length) {
+    const stockRows = catalog.slice(0, 6).map(p => {
+      const spec = PRODUCT_SPECS[p.slug];
+      const priceStr = getPriceSummaryFromProduct(p, spec);
+      const variants = Array.isArray(p.variants) ? p.variants.filter(v => v && v.active !== false) : [];
+      const inStockCount = variants.filter(v => v.stockQuantity === undefined || Number(v.stockQuantity) > 0).length;
+      const badge = !variants.length
+        ? 'Sẵn hàng'
+        : inStockCount > 0
+          ? `**Còn hàng** (${inStockCount}/${variants.length} phân loại)`
+          : '**Tạm hết hàng**';
+      return `- **${p.name}** (${priceStr}): ${badge}`;
+    }).join('\n');
+    sections.push(`**Tình trạng tồn kho hiện tại:**\n${stockRows}`);
+  }
+
   if (asksVoucher) {
     let activeVouchers = Array.isArray(liveWeb?.activeVouchers) ? liveWeb.activeVouchers : [];
     if (!activeVouchers.length && pool && typeof pool.query === 'function') {
@@ -1155,11 +1172,12 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     return { handoff: false, answer: sections.join('\n\n') };
   }
 
-  // 8. Báo giá chung hoặc đề xuất mua khi khách hỏi danh mục / chốt mua chung mà chưa chỉ định mẫu
-  if ((hasAnyBoundaryTerm(space, ['bang gia', 'gia', 'bao nhieu', 'cac mau', 'san pham nao', 'co nhung gi', 'ban gi']) || buyIntent.isClosing) && !primaryProd) {
+  // 8. Báo giá chung hoặc đề xuất mua / chọn phiên bản phù hợp khi chưa chỉ định mẫu cụ thể
+  const asksVersionSelection = hasAnyBoundaryTerm(space, ['chon phien ban', 'chon ban nao', 'tu van chon', 'phien ban phu hop', 'nen chon ban nao', 'phien ban nao']) && !primaryProd;
+  if ((hasAnyBoundaryTerm(space, ['bang gia', 'gia', 'bao nhieu', 'cac mau', 'san pham nao', 'co nhung gi', 'ban gi']) || buyIntent.isClosing || asksVersionSelection) && !primaryProd) {
     const listSource = catalog.length ? catalog.slice(0, 6) : Object.entries(PRODUCT_SPECS).map(([slug, s]) => ({ slug, name: s.name, descriptor: s.role, variants: [] }));
     const inStockItems = listSource.filter(p => !Array.isArray(p.variants) || !p.variants.length || p.variants.some(v => v.stockQuantity === undefined || Number(v.stockQuantity) > 0));
-    const displayList = buyIntent.isDirectClose && inStockItems.length ? inStockItems : listSource;
+    const displayList = (buyIntent.isDirectClose || asksVersionSelection) && inStockItems.length ? inStockItems : listSource;
     const lines = displayList.map(p => {
       const spec = PRODUCT_SPECS[p.slug];
       const priceStr = getPriceSummaryFromProduct(p, spec);
@@ -1170,9 +1188,12 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       }
       return `- **${p.name}** (${priceStr})${shortTag ? `: ${shortTag}` : ''}`;
     }).join('\n');
+    const portGuide = asksVersionSelection
+      ? '\n- **Chọn đúng chân cắm:** iPhone 15–18 / Android mới / MacBook chọn **Type-C**; iPhone 14 trở xuống chọn **Lightning**; Laptop/PC cổng chữ nhật chọn **Type C + chuyển USB**; Android đời cũ chọn **Micro-USB**.\nBạn đang dùng thiết bị nào (điện thoại / iPad / Laptop / PC) và nhu cầu **1 mic hay 2 mic** để mình chốt đúng phiên bản nhé?'
+      : '\nBạn đang dùng thiết bị nào (điện thoại / iPad / Laptop / PC) để mình chọn đúng chân cắm nhé?';
     return {
       handoff: false,
-      answer: `**${buyIntent.isClosing ? 'Các thiết bị GAERU sẵn hàng để bạn đặt mua ngay:' : 'Bảng giá các thiết bị GAERU hiện có:'}**\n${lines}\nBạn đang dùng thiết bị nào (điện thoại / iPad / Laptop / PC) để mình chọn đúng chân cắm nhé?`
+      answer: `**${buyIntent.isClosing ? 'Các thiết bị GAERU sẵn hàng để bạn đặt mua ngay:' : asksVersionSelection ? 'Hướng dẫn chọn dòng sản phẩm & phiên bản GAERU phù hợp:' : 'Bảng giá các thiết bị GAERU hiện có:'}**\n${lines}${portGuide}`
     };
   }
 
@@ -1183,6 +1204,19 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       const spec = PRODUCT_SPECS[slug];
       return `${p?.name || fallbackName} (${getPriceSummaryFromProduct(p, spec)})`;
     };
+    let guideHint = '';
+    if (Array.isArray(liveWeb?.latestNews) && liveWeb.latestNews.length) {
+      const qToks = tokenizeMeaningful(raw);
+      let topArticle = null;
+      let topScore = 0;
+      for (const n of liveWeb.latestNews) {
+        const sc = tokenOverlapScore(qToks, tokenizeMeaningful(`${n.title || ''} ${n.summary || ''}`));
+        if (sc > topScore) { topScore = sc; topArticle = n; }
+      }
+      if (topArticle && topScore >= 0.42) {
+        guideHint = `\n- 📖 Xem thêm hướng dẫn: [${topArticle.title}](${topArticle.url})`;
+      }
+    }
     return {
       handoff: false,
       answer:
@@ -1190,7 +1224,8 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
         `- **Livestream / quay nhiều giờ:** ${pick('gaeru-m3', 'GAERU M3')} (2 mic + hộp sạc tới 24h, giảm ồn AI).\n` +
         `- **Vlog cơ bản / dạy học tiết kiệm:** ${pick('gaeru-k9', 'GAERU K9')} (bản 1 hoặc 2 mic, cắm là dùng, lọc ồn DSP).\n` +
         `- **Quay đa thiết bị (máy ảnh + điện thoại + PC):** ${pick('gaeru-g1-ultra', 'GAERU G1 ULTRA')}.\n` +
-        `- **Tự quay rảnh tay cần máy xoay theo:** Gimbal AI ${pick('gaeru-p01', 'GAERU P01')}.`
+        `- **Tự quay rảnh tay cần máy xoay theo:** Gimbal AI ${pick('gaeru-p01', 'GAERU P01')}.` +
+        guideHint
     };
   }
 
@@ -1260,8 +1295,10 @@ async function answerCustomerChat({ pool, config, thread, question, history = []
   try {
     const raw = String(question || '').trim();
     const normRaw = normalize(raw);
+    const normAns = normalize(result.answer);
     const isOrderOrPersonal = result.orderLookup || /\b(?:gr|gae)-|[0-9]{9,}|tra cuu|don hang|dia chi|van don|so dien thoai/i.test(normRaw);
-    if (pool && !result.handoff && !result.isFallback && !result.learnedKnowledge && result.answer && raw && raw.length >= 8 && !isOrderOrPersonal) {
+    const isVolatileOrPrivateAns = /\/thanh-toan\?variant=|xac nhan chot|tai khoan cua ban:|so du hien tai:|phieu bao hanh cua tai khoan ban:|yeu cau gaeru care\+ gan day|hien .* dang tam het hang|con hang\)|tam het\)/i.test(normAns);
+    if (pool && !result.handoff && !result.isFallback && !result.learnedKnowledge && result.answer && raw && raw.length >= 8 && !isOrderOrPersonal && !isVolatileOrPrivateAns) {
       void learnFromInteraction(pool, {
         sourceType: 'customer_chat',
         question: raw,

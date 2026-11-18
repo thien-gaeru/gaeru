@@ -758,7 +758,16 @@ Quy tắc cốt lõi:
     }
 
     // 3. Tổng hợp phản hồi chính xác, súc tích, đúng trọng tâm câu hỏi
-    let aiResponseText = synthesizeDeterministicResponse(userQuestion, toolResults, actionCard, user);
+    let dynamicShippingPhrase = 'Freeship toàn quốc';
+    try {
+      const liveFacts = await require('./chat-web-knowledge').loadLiveSiteFacts(pool);
+      const nationwideFee = liveFacts?.shippingRates?.['Toàn quốc'];
+      if (liveFacts?.shippingNote) dynamicShippingPhrase = liveFacts.shippingNote;
+      else if (nationwideFee === undefined) dynamicShippingPhrase = 'Freeship đơn từ 500.000 ₫';
+      else if (Number(nationwideFee) > 0) dynamicShippingPhrase = `phí ship đồng giá ${formatVnd(nationwideFee)}`;
+    } catch (_) {}
+
+    let aiResponseText = synthesizeDeterministicResponse(userQuestion, toolResults, actionCard, user, dynamicShippingPhrase);
 
     if (aiResponseText) {
       aiResponseText = aiResponseText.replace(/GAERU Copilot/gi, 'GAERU AI').replace(/Copilot/gi, 'GAERU AI');
@@ -772,7 +781,7 @@ Quy tắc cốt lõi:
   }
 
   // Bộ tổng hợp phản hồi chính xác, ngắn gọn, không lan man của GAERU AI
-  function synthesizeDeterministicResponse(question, toolResults, actionCard, user) {
+  function synthesizeDeterministicResponse(question, toolResults, actionCard, user, dynamicShippingPhrase = 'Freeship toàn quốc') {
     const norm = expandQueryVi(question);
     const detailed = isExplicitDetailedRequest(norm);
     const userTitle = user?.isOwner ? 'CEO' : (user?.username || 'Quản trị viên');
@@ -967,7 +976,7 @@ Quy tắc cốt lõi:
             `> **GAERU K9** — mic cài áo không dây siêu nhẹ 7g, cắm là dùng ngay (Type-C / Lightning), thu đa hướng 360° lọc ồn DSP, cự ly tới 20m cho TikTok, livestream và dạy học.`;
         } else {
           out += `Bản thảo gợi ý:\n\n` +
-            `> Thiết bị thu âm & sáng tạo **GAERU** — kết nối cắm là dùng cho iPhone, Android và Laptop, lọc ồn rõ nét, bảo hành chính hãng 12 tháng (1 đổi 1 trong 30 ngày) và Freeship đơn từ 500.000 ₫.`;
+            `> Thiết bị thu âm & sáng tạo **GAERU** — kết nối cắm là dùng cho iPhone, Android và Laptop, lọc ồn rõ nét, bảo hành chính hãng 12 tháng (1 đổi 1 trong 30 ngày) và ${dynamicShippingPhrase}.`;
         }
       } else {
         out += `Chưa khớp yêu cầu với công cụ nào. Hãy hỏi cụ thể theo mảng (**doanh thu 7 ngày**, **đơn hàng mã GR-...**, **tồn kho K9**, **khách online**, **tạo voucher...**) để mình trích xuất dữ liệu ngay.`;
