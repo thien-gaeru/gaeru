@@ -90,16 +90,22 @@ const GENERIC_SINGLE_TRIGGERS = new Set([
 
 // Từ điển từ khóa công nghệ, thiết bị, cổng kết nối, ứng dụng và âm thanh
 const TECH_VOCABULARY = [
-  // Dòng máy iPhone / iOS
-  'iphone', 'iphone 11', 'iphone 12', 'iphone 13', 'iphone 14', 'iphone 15', 'iphone 16',
-  'iphone 15 pro', 'iphone 15 pro max', 'iphone 16 pro', 'iphone 16 pro max',
-  'iphone plus', 'iphone pro max', 'ipad', 'ipad pro', 'ipad air', 'ipad mini', 'macbook', 'macbook pro', 'macbook air', 'ios',
-  // Dòng máy Android & Hãng
-  'samsung', 'galaxy', 'oppo', 'xiaomi', 'redmi', 'vivo', 'realme', 'poco', 'google pixel', 'pixel', 'oneplus', 'android',
+  // Dòng máy iPhone / iOS (cập nhật 2025–2026)
+  'iphone', 'iphone 11', 'iphone 12', 'iphone 13', 'iphone 14', 'iphone 15', 'iphone 16', 'iphone 16e',
+  'iphone 17', 'iphone 17 air', 'iphone air', 'iphone 17e', 'iphone 18',
+  'iphone 15 pro', 'iphone 15 pro max', 'iphone 16 pro', 'iphone 16 pro max', 'iphone 17 pro', 'iphone 17 pro max', 'iphone 18 pro', 'iphone 18 pro max',
+  'iphone plus', 'iphone pro max', 'iphone se', 'ipad', 'ipad pro', 'ipad air', 'ipad mini', 'macbook', 'macbook pro', 'macbook air', 'ios',
+  // Dòng máy Android & Hãng (cập nhật 2025–2026)
+  'samsung', 'galaxy', 's24', 's25', 's26', 'z fold', 'z flip', 'a55', 'a56', 'a36',
+  'oppo', 'find x8', 'find x9', 'find x10', 'find n5', 'reno 13', 'reno 14', 'reno 15', 'reno 16',
+  'xiaomi', 'xiaomi 15', 'xiaomi 17', 'xiaomi 18', 'redmi', 'redmi note 13', 'redmi note 14', 'redmi note 15', 'poco', 'poco x7', 'poco f7',
+  'vivo', 'vivo x200', 'vivo x300', 'vivo v40', 'vivo v50', 'iqoo', 'realme', 'realme 14', 'realme 15', 'realme 16',
+  'honor', 'magic 7', 'magic 8', 'huawei', 'pura 70', 'pura 80', 'mate 70',
+  'google pixel', 'pixel', 'pixel 9', 'pixel 10', 'pixel 11', 'oneplus', 'tecno', 'infinix', 'nothing phone', 'rog phone', 'redmagic', 'nubia', 'xperia', 'motorola', 'nokia', 'android',
   // Máy tính, máy ảnh
   'pc', 'laptop', 'windows', 'windows 10', 'windows 11', 'may tinh', 'sony', 'canon', 'fujifilm', 'nikon', 'may anh', 'camera',
   // Cổng kết nối & phụ kiện
-  'type-c', 'type c', 'usb-c', 'lightning', 'chan lightning', 'jack 3.5', '3.5mm', 'trs', 'trrs', 'otg', 'ket noi otg', 'bat otg',
+  'type-c', 'type c', 'usb-c', 'lightning', 'chan lightning', 'micro-usb', 'micro usb', 'jack 3.5', '3.5mm', 'trs', 'trrs', 'otg', 'ket noi otg', 'bat otg',
   'usb-a', 'dau chuyen', 'cap chuyen', 'hub', 'dock sac', 'hop sac',
   // Ứng dụng & Nền tảng
   'tiktok', 'capcut', 'capcut pc', 'facebook', 'facebook live', 'youtube', 'zoom', 'teams', 'google meet', 'obs', 'obs studio',

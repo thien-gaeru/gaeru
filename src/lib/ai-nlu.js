@@ -44,10 +44,17 @@ function expandQueryVi(text) {
   let s = normalizeVi(text);
   if (!s) return '';
   s = s
-    .replace(/(?<![a-z0-9])ip\s*(1[0-6])(?![a-z0-9])/g, 'iphone $1')
-    .replace(/(?<![a-z0-9])iphone(1[0-6])(?![a-z0-9])/g, 'iphone $1')
-    .replace(/(?<![a-z0-9])ip(?![a-z0-9])/g, 'iphone')
+    .replace(/(?<![a-z0-9])ip\s*(1[0-8])\s*e(?![a-z0-9])/g, 'iphone $1e')
+    .replace(/(?<![a-z0-9])iphone\s*(1[0-8])\s*e(?![a-z0-9])/g, 'iphone $1e')
+    .replace(/(?<![a-z0-9])(?:ip|iphone)\s*(1[0-8]|[5-9]|xs|xr|x|se)\s*(?:prm|pm)(?![a-z0-9])/g, 'iphone $1 pro max')
+    .replace(/(?<![a-z0-9])ip\s*(1[0-8]|[5-9])(?![a-z0-9])/g, 'iphone $1')
+    .replace(/(?<![a-z0-9])iphone(1[0-8]|[5-9])(?![a-z0-9])/g, 'iphone $1')
+    .replace(/(?<![a-z0-9])(?:ip|iphone)\s*(xs\s*max|xs|xr|x|se|air)(?![a-z0-9])/g, 'iphone $1')
+    .replace(/(?<![a-z0-9])ip(?![a-z0-9])(?!\s*(?:tinh|address|v4|v6))/g, 'iphone')
+    .replace(/(?<![a-z0-9])ss(?=\s*(?:galaxy|s[12]\d|a[0-9]{2}|m[0-9]{2}|z\s*(?:fold|flip)|fold|flip|note|tab|j\d))/g, 'samsung')
+    .replace(/(?<![a-z0-9])xm(?=\s*(?:1[2-9]|redmi|poco|ultra|pro))/g, 'xiaomi')
     .replace(/(?<![a-z0-9])(?:type\s*c|typec|usb\s*c|usb-c)(?![a-z0-9])/g, 'type-c')
+    .replace(/(?<![a-z0-9])(?:micro\s*usb|microusb)(?![a-z0-9])/g, 'micro-usb')
     .replace(/(?<![a-z0-9])(?:ko|hok)(?![a-z0-9])/g, 'khong')
     .replace(/(?<![a-z0-9])(?:bn|bnh|bnhieu)(?![a-z0-9])/g, 'bao nhieu')
     .replace(/(?<![a-z0-9])bh(?![a-z0-9])/g, 'bao hanh')
@@ -198,9 +205,11 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
     }
   }
 
+  const productSpace = space.replace(/\b(?:ipad|macbook|imac|chip|apple)\s+(?:air\s+|pro\s+)?m3\b/g, '$1');
   const directMatches = [];
   for (const e of entries) {
-    if (hasAnyBoundaryTerm(space, e.aliases)) {
+    const matchTarget = e.key === 'gaeru-m3' && !hasBoundaryTerm(space, 'gaeru m3') ? productSpace : space;
+    if (hasAnyBoundaryTerm(matchTarget, e.aliases)) {
       directMatches.push(e);
     }
   }
@@ -258,7 +267,8 @@ function matchProductVariants(question, variants = []) {
   const hints = [];
   if (hasAnyBoundaryTerm(space, ['2 mic', '2 micro', 'ban 2', 'hai mic', 'doi'])) hints.push(['2 mic', 'doi', '2tx', '2bo', '2 micro']);
   if (hasAnyBoundaryTerm(space, ['1 mic', '1 micro', 'ban 1', 'mot mic', 'don'])) hints.push(['1 mic', 'don', '1tx', '1bo', '1 micro']);
-  if (hasBoundaryTerm(space, 'type c')) hints.push(['type c', 'typec', 'usb c']);
+  if (hasBoundaryTerm(space, 'micro usb')) hints.push(['micro usb']);
+  else if (hasBoundaryTerm(space, 'type c')) hints.push(['type c', 'typec', 'usb c']);
   if (hasBoundaryTerm(space, 'lightning')) hints.push(['lightning', 'ios', 'iphone cu']);
   if (hasAnyBoundaryTerm(space, ['2m1', '2.1m', 'chan cao'])) hints.push(['2m1', '2.1']);
   if (hasAnyBoundaryTerm(space, ['de ban', 'mini'])) hints.push(['de ban']);

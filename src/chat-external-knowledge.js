@@ -1,29 +1,33 @@
 const { createHash } = require('node:crypto');
-const { normalizeVi, expandQueryVi, hasAnyBoundaryTerm } = require('./lib/ai-nlu');
+const { normalizeVi, normalizeSearchSpace, expandQueryVi, hasAnyBoundaryTerm } = require('./lib/ai-nlu');
+const { BRAND_PROFILES, buildComprehensiveCompatibilityAnswer } = require('./lib/phone-compatibility');
 
 // In-memory cache for external knowledge lookups (TTL 30 mins, max 300 entries)
 const externalCache = new Map();
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 300;
 
-// Curated technical compatibility & audio ecosystem knowledge
+// Curated technical compatibility & audio ecosystem knowledge (2025–2026 Updated)
 const TECH_ECOSYSTEM_KNOWLEDGE = [
   {
     category: 'iphone_ios_devices',
     triggers: ['iphone', 'ios', 'lightning', 'type c iphone', 'ipad', 'macbook'],
     facts: [
-      'iPhone 15, 15 Plus, 15 Pro, 15 Pro Max và toàn bộ dòng iPhone 16 series đã chuyển sang cổng Type-C (USB-C) chuẩn quốc tế: Cắm đầu thu Type-C trực tiếp vào đáy máy là nhận mic ngay, không cần bất kỳ đầu chuyển nào.',
-      'Dòng iPhone 14 trở xuống (iPhone 14, 13, 12, 11, XS, XR, X, 8, 7): Sử dụng chân cắm Lightning. Khi mua mic GAERU, khách nên chọn phân loại chân Lightning (hoặc dùng cáp OTG Lightning sang Type-C chính hãng đạt chuẩn tương thích iOS).',
-      'iPad Type-C (iPad Pro M1/M2/M4, iPad Air 4/5/6, iPad mini 6, iPad Gen 10) và máy tính MacBook: Cắm đầu thu Type-C nhận ngay làm micro thu âm mặc định.'
+      'iPhone 15, 16 (kể cả 16e), 17 (17, 17 Air, 17e, 17 Pro/Pro Max) và iPhone 18 series đều sử dụng cổng USB Type-C chuẩn quốc tế: Cắm đầu thu Type-C trực tiếp vào đáy máy là nhận mic ngay, không cần đầu chuyển.',
+      'iPhone 14 series trở xuống (iPhone 14, 13, 12, 11, XS, XR, X, 8, 7, SE thế hệ 1–3): Sử dụng chân cắm Lightning. Khách nên chọn phân loại Chân Lightning (trên GAERU K9) hoặc bản Type-C kèm đầu chuyển Lightning (trên GAERU K9 / GAERU M3).',
+      'iPad Type-C (iPad Gen 10/11, iPad Air 4/5/M2/M3+, iPad mini 6/7, iPad Pro 2018–M4/M5) và MacBook cắm đầu thu Type-C nhận ngay; iPad Gen 9 / Air 3 / mini 5 trở xuống dùng chân Lightning.'
     ]
   },
   {
     category: 'android_otg_compatibility',
-    triggers: ['android', 'samsung', 'oppo', 'xiaomi', 'redmi', 'vivo', 'realme', 'otg', 'chua nhan', 'khong nhan mic', 'den khong sang'],
+    triggers: [
+      'android', 'otg', 'micro usb', 'chua nhan', 'khong nhan', 'khong nhan mic', 'den khong sang',
+      ...BRAND_PROFILES.flatMap(b => b.triggers)
+    ],
     facts: [
-      'Samsung Galaxy, Google Pixel: Cắm đầu thu Type-C vào là tự động nhận diện và kích hoạt micro thu âm ngay lập tức.',
-      'Oppo, Realme, Vivo, OnePlus: Mặc định cổng Type-C có thể khóa OTG để tiết kiệm pin. Người dùng cần vào Cài đặt (Settings) -> tìm "OTG" -> Bật "Kết nối OTG" trước khi cắm đầu thu mic. Nếu sau 10 phút không sử dụng, tính năng này sẽ tự tắt.',
-      'Xiaomi, Redmi, POCO: Đa phần cắm tự nhận. Nếu camera mặc định chưa nhận tiếng từ mic rời, hãy vào Cài đặt Camera -> Bật nguồn âm thanh micro ngoài.'
+      'Samsung Galaxy (S20–S26 Ultra, Z Fold 5–7, Z Flip 5–7, A15–A56, Tab S9–S11), Google Pixel (6–11), HONOR (Magic 6–8, 200–400), Xiaomi/Redmi/POCO (Xiaomi 14–18, Redmi Note 12–15, POCO X7–F8), Huawei (Pura 70–80, Mate 70), Nothing/CMF, ASUS ROG Phone 8–9, RedMagic/Nubia, Sony Xperia: Đều dùng cổng USB Type-C, tự nhận OTG & micro ngoài khi cắm trực tiếp.',
+      'OPPO (Find X8–X10, Find N5, Reno12–16, A5/A60), Realme (12–16, GT 6–8, C65–C85), OnePlus, vivo/iQOO (X200–X300, V40–V60, Y19s–Y31d, iQOO 13–15), Tecno (Camon 30–40, Spark 30–40), Infinix (Note 40–50, Hot 40–50): Đều dùng cổng USB Type-C và thường cần vào Cài đặt -> bật Kết nối OTG trước khi cắm đầu thu.',
+      'Điện thoại Android phổ thông đời cũ (Samsung J7/A10s, OPPO A3s/A12/A15, Redmi 9A/9C/10A, vivo Y11/Y12/Y20, Realme C11/C21Y): Sử dụng chân cắm Micro-USB, cần chọn phân loại Type-C + chuyển Micro-USB (có sẵn trên GAERU K9 và GAERU M3).'
     ]
   },
   {
@@ -31,22 +35,22 @@ const TECH_ECOSYSTEM_KNOWLEDGE = [
     triggers: ['camera', 'quay video', 'tiktok', 'capcut', 'livestream', 'facebook', 'youtube', 'zoom', 'quay phim', 'app', 'ung dung'],
     facts: [
       'Tương thích 100% với các ứng dụng phổ biến: TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Instagram Reels, Zoom, Google Meet.',
-      'Nếu camera mặc định của một số máy Android cũ không thu tiếng từ mic rời: Người dùng có thể quay trực tiếp trong app TikTok/CapCut hoặc tải ứng dụng miễn phí "Open Camera" (Vào Cài đặt video -> Cài đặt âm thanh -> Nguồn âm thanh -> Chọn "Microphone ngoài nếu có").'
+      'Nếu camera mặc định của một số máy Android chưa thu tiếng từ mic rời: Bạn có thể bật Micro ngoài trong cài đặt camera (Samsung Pro Video / Pixel Camera), quay trực tiếp trong app TikTok/CapCut hoặc tải ứng dụng miễn phí "Open Camera" chọn nguồn âm thanh "Microphone ngoài nếu có".'
     ]
   },
   {
     category: 'noise_reduction_technology',
     triggers: ['loc am', 'loc tieng on', 'tieng on', 'chong on', 'khu on', 'gio', 'tap am', 'ngoai duong', 'dsp', 'khoang cach', 'pin', 'song', '2.4ghz'],
     facts: [
-      'Công nghệ lọc tiếng ồn thông minh Smart DSP: Tự động tách giọng nói khỏi tạp âm xung quanh (tiếng gió, còi xe, tiếng quạt, tiếng ồn quán cafe). Có thể bật/tắt hoặc điều chỉnh mức lọc ồn dễ dàng.',
-      'Sóng không dây 2.4GHz kỹ thuật số: Cho kết nối ổn định, độ trễ siêu thấp dưới 20ms, âm thanh không bị lệch hình khi quay video hay phát trực tiếp. Phạm vi hoạt động hiệu quả lên đến 20m trong môi trường mở.'
+      'Công nghệ lọc tiếng ồn thông minh Smart DSP / AI: Tự động tách giọng nói khỏi tạp âm xung quanh (tiếng gió, còi xe, tiếng quạt, tiếng ồn quán cafe).',
+      'Sóng không dây 2.4GHz kỹ thuật số: Cho kết nối ổn định, độ trễ siêu thấp dưới 15–20ms, âm thanh không bị lệch hình khi quay video hay phát trực tiếp. Phạm vi hoạt động hiệu quả lên đến 20m trong môi trường mở.'
     ]
   },
   {
     category: 'computer_laptop_pc',
     triggers: ['may tinh', 'laptop', 'pc', 'windows', 'mac', 'obs'],
     facts: [
-      'Sử dụng trên Máy tính / Laptop (Windows 10/11 & Mac): Cắm đầu thu Type-C (hoặc dùng đầu chuyển USB-A sang Type-C nếu máy không có cổng C). Vào Settings -> Sound -> Chọn Input / Microphone là Wireless Microphone.',
+      'Sử dụng trên Máy tính / Laptop (Windows 10/11 & Mac): Cắm đầu thu Type-C trực tiếp (hoặc chọn phân loại kèm đầu chuyển USB-A nếu máy chỉ có cổng USB thường). Vào Settings -> Sound -> Chọn Input / Microphone là Wireless Microphone.',
       'Hoạt động mượt mà trên OBS Studio, Audacity, Premiere Pro, Camtasia, CapCut PC.'
     ]
   }
@@ -108,16 +112,30 @@ async function getExternalWebKnowledge({ question = '', selectedProduct = null, 
 
   // 1. Match curated technology ecosystem facts using token boundaries
   const matchedFacts = [];
-  for (const entry of curatedEnabled ? TECH_ECOSYSTEM_KNOWLEDGE : []) {
-    const isTriggered = hasAnyBoundaryTerm(qNorm, entry.triggers) ||
-      (prodNorm && !/noise_reduction/.test(entry.category) && hasAnyBoundaryTerm(prodNorm, entry.triggers));
-    if (isTriggered) {
-      matchedFacts.push(...entry.facts);
+  if (curatedEnabled) {
+    const specificCompat = buildComprehensiveCompatibilityAnswer(
+      normalizeSearchSpace(qNorm),
+      text,
+      selectedProduct?.slug || null
+    );
+    if (specificCompat) {
+      for (const line of specificCompat.split('\n').map(l => l.replace(/\*\*/g, '').replace(/^-\s*/, '').trim()).filter(Boolean)) {
+        if (!matchedFacts.includes(line)) matchedFacts.push(line);
+      }
+    }
+    for (const entry of TECH_ECOSYSTEM_KNOWLEDGE) {
+      const isTriggered = hasAnyBoundaryTerm(qNorm, entry.triggers) ||
+        (prodNorm && !/noise_reduction/.test(entry.category) && hasAnyBoundaryTerm(prodNorm, entry.triggers));
+      if (isTriggered) {
+        for (const f of entry.facts) {
+          if (!matchedFacts.includes(f)) matchedFacts.push(f);
+        }
+      }
     }
   }
 
   // 2. Perform live web search if question involves specific devices, apps, or comparisons
-  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|vivo|ipad|laptop|pc|macbook|mac|otg|capcut|tiktok|livestream|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)\b/.test(qNorm);
+  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|redmi|poco|vivo|iqoo|realme|oneplus|honor|huawei|pixel|tecno|infinix|nothing|rog|redmagic|nubia|xperia|motorola|nokia|ipad|laptop|pc|macbook|mac|otg|capcut|tiktok|livestream|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)\b/.test(qNorm);
 
   let searchSnippets = [];
   if (webSearchEnabled && needsWebSearch && transport) {

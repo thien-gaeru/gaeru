@@ -25,6 +25,10 @@ const {
   resolveMentionedProducts,
   matchProductVariants
 } = require('./lib/ai-nlu');
+const {
+  BRAND_PROFILES,
+  buildComprehensiveCompatibilityAnswer
+} = require('./lib/phone-compatibility');
 
 function formatVnd(num) {
   return new Intl.NumberFormat('vi-VN').format(Math.round(num || 0)) + ' ₫';
@@ -46,8 +50,8 @@ const PRODUCT_SPECS = Object.freeze({
     audio: 'Thu đa hướng 360°, tần số 2.4GHz độ trễ < 15ms, chip DSP lọc ồn + bông lọc gió.',
     battery: 'Pin micro dùng liên tục khoảng **2,5 giờ**, sạc qua cổng Type-C (5V/1A).',
     range: 'Phạm vi thu ổn định lên đến **20 mét** (môi trường mở, tầm nhìn thẳng).',
-    variantsGuide: 'Có phiên bản bộ **1 Micro** / **2 Micro**, chân cắm **Type-C** hoặc **Lightning**.',
-    compatibility: 'Tương thích điện thoại Type-C (Android, iPhone 15/16), iPhone 14 trở xuống (chọn chân Lightning), iPad và laptop.',
+    variantsGuide: 'Có phân loại bộ **1 Micro** / **2 Micro**, chân cắm **Lightning**, **Type-C**, hoặc **Type-C kèm đầu chuyển (Lightning / Micro-USB / USB-A)**.',
+    compatibility: 'Tương thích trực tiếp **iPhone 15 / 16 / 17 / 18 series** & Android mới (bản **Type-C**), **iPhone 14 trở xuống** (bản **Lightning**), máy Android cũ (bản **Type-C + chuyển Micro-USB**) và Laptop/PC (bản **Type-C + chuyển USB-A**).',
     fit: 'quay TikTok/Vlog cơ bản, livestream bán hàng, dạy học online, phỏng vấn 2 người tiết kiệm chi phí',
     defaultPrice: 'Từ 289.000 ₫'
   },
@@ -58,8 +62,8 @@ const PRODUCT_SPECS = Object.freeze({
     audio: 'Thu đa hướng 360°, chất lượng **24-bit / 48kHz**, SNR 100 dB, Max SPL 120 dB, giảm ồn AI thông minh + tự động cân bằng âm lượng.',
     battery: 'Một bộ phát dùng tới **3,5 giờ** liên tục; tổng thời lượng tới **24 giờ** khi luân phiên 2 mic cùng hộp sạc 500 mAh.',
     range: 'Khoảng cách truyền lên đến **20 mét** trong môi trường mở không vật cản.',
-    variantsGuide: 'Bộ **2 Micro + hộp sạc**, đầu thu **Type-C** (cần đầu chuyển phù hợp nếu dùng iPhone chân Lightning).',
-    compatibility: 'Tương thích trực tiếp thiết bị cổng Type-C (Android, iPhone 15/16, iPad Type-C, laptop); dùng đầu chuyển chuẩn âm thanh nếu máy dùng Lightning.',
+    variantsGuide: 'Bộ **2 Micro + hộp sạc**, đầu thu **Type-C** kèm tùy chọn **đầu chuyển Lightning**, **chuyển Micro-USB** hoặc **chuyển USB-A**.',
+    compatibility: 'Tương thích trực tiếp thiết bị cổng **Type-C** (Android mới, iPhone 15 / 16 / 17 / 18, iPad Type-C, Laptop); có sẵn phân loại kèm **đầu chuyển Lightning** (iPhone 14 trở xuống), **Micro-USB** (Android đời cũ) và **USB-A** (PC/Laptop).',
     fit: 'vlog, livestream nhiều giờ, phỏng vấn 2 người cần pin lâu và kiểm soát % pin',
     defaultPrice: '1.200.000 ₫'
   },
@@ -83,7 +87,7 @@ const PRODUCT_SPECS = Object.freeze({
     battery: 'Thời lượng pin sử dụng khoảng **6–8 giờ** tùy chế độ xoay; sạc qua cổng nguồn tiêu chuẩn trên máy.',
     range: 'Cảm biến AI nhận diện chủ thể trực tiếp trong vùng quay, xoay 360° ngang/dọc linh hoạt.',
     variantsGuide: 'Phân loại bản để bàn gọn nhẹ hoặc bộ kèm chân đứng 2m1 (ren 1/4").',
-    compatibility: 'Giữ và tự động xoay theo điện thoại cho các app quay/live (TikTok, Facebook, YouTube, Zoom) mà không cần Bluetooth/App điều khiển.',
+    compatibility: 'Kẹp giữ thân máy trực tiếp nên tương thích mọi dòng iPhone (5 đến 18 series) và mọi hãng Android (Samsung, OPPO, Xiaomi, vivo, HONOR, Pixel…) không phân biệt chân cắm.',
     fit: 'tự quay một mình, livestream bán hàng di chuyển, dạy học/chia sẻ cần luôn giữ chủ thể ở giữa khung hình',
     defaultPrice: 'Từ 550.000 ₫'
   },
@@ -95,7 +99,7 @@ const PRODUCT_SPECS = Object.freeze({
     battery: 'Remote Bluetooth tích hợp pin **55 mAh**, sạc lại qua cổng **Type-C**.',
     range: 'Kéo dài linh hoạt từ **29,5 cm đến 180 cm (1m8)**; remote bấm chụp/quay từ xa qua Bluetooth.',
     variantsGuide: 'Phiên bản chuẩn gậy 4 chân xoay 360° kèm remote Bluetooth.',
-    compatibility: 'Kẹp điện thoại xoay ngang/dọc 360° và hỗ trợ ren 1/4" cho thiết bị nhẹ tương thích.',
+    compatibility: 'Ngàm kẹp xoay 360° tương thích mọi dòng iPhone và Android không phụ thuộc cổng cắm; kết nối chụp/quay từ xa bằng Bluetooth + hỗ trợ ren 1/4" cho thiết bị nhẹ.',
     fit: 'tự quay góc rộng/góc cao tới 1m8, chụp ảnh nhóm, livestream cần chân đứng 4 chấu vững',
     defaultPrice: '450.000 ₫'
   }
@@ -276,68 +280,17 @@ function formatOrderLookupReply(orderLookup, questionNorm) {
   return { handoff: false, answer, orderLookup: { found: true, isOwner: orderLookup.isOwner } };
 }
 
+const DEVICE_COMPAT_TERMS = Object.freeze(Array.from(new Set([
+  'tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'cong cam', 'chan cam', 'chan sac', 'cong sac',
+  'iphone', 'ipad', 'macbook', 'ios', 'apple', 'android', 'otg', 'type c', 'lightning', 'micro usb',
+  'khong nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng', '3.5mm', 'jack 3.5',
+  'pc', 'laptop', 'windows', 'may tinh', 'may anh', 'camera', 'tiktok', 'capcut', 'zoom', 'obs', 'open camera',
+  'cac loai dien thoai', 'cac dong dien thoai', 'cac hang dien thoai', 'tat ca dien thoai', 'dien thoai nao dung', 'hang dien thoai nao',
+  ...BRAND_PROFILES.flatMap(b => b.triggers)
+])));
+
 function buildDeviceCompatibilityAnswer(space, rawQuestion, matchedProdKey) {
-  const sections = [];
-
-  const asksIphone = hasAnyBoundaryTerm(space, ['iphone', 'ipad', 'ios', 'lightning', 'apple']);
-  const asksAndroid = hasAnyBoundaryTerm(space, ['android', 'samsung', 'oppo', 'xiaomi', 'redmi', 'vivo', 'realme', 'poco', 'oneplus', 'otg', 'khong nhan', 'chua sang', 'den khong sang']);
-  const asksPc = hasAnyBoundaryTerm(space, ['may tinh', 'laptop', 'pc', 'macbook', 'windows', 'obs']);
-  const asksCamera = hasAnyBoundaryTerm(space, ['may anh', 'camera', 'sony', 'canon', 'fujifilm', 'nikon', '3.5mm', 'jack 3.5']);
-  const asksNoise = hasAnyBoundaryTerm(space, ['loc am', 'loc on', 'loc tieng on', 'chong on', 'khu on', 'tieng on', 'tap am', 'anc', 'dsp']);
-
-  if (asksIphone) {
-    if (matchedProdKey === 'gaeru-p01' || matchedProdKey === 'gaeru-p185') {
-      sections.push(`**${PRODUCT_SPECS[matchedProdKey].name}** tương thích mọi dòng iPhone (kẹp giữ điện thoại trực tiếp, không phụ thuộc cổng Type-C hay Lightning).`);
-    } else if (hasAnyBoundaryTerm(space, ['iphone 15', 'iphone 16', '15', '16', 'type c'])) {
-      sections.push('- **iPhone 15 / 16 series** dùng cổng **Type-C**: cắm trực tiếp đầu thu Type-C là nhận ngay không cần đầu chuyển (các dòng **iPhone 14 trở xuống** dùng chân **Lightning** cần chọn đúng phân loại Lightning).');
-    } else {
-      sections.push('- **iPhone 15 / 16 series** dùng cổng **Type-C** cắm trực tiếp; **iPhone 14 trở xuống** dùng chân **Lightning** (cần chọn phân loại Lightning hoặc đầu chuyển đạt chuẩn truyền âm thanh).');
-    }
-  }
-
-  if (asksAndroid) {
-    const isTroubleshooting = hasAnyBoundaryTerm(space, ['oppo', 'realme', 'vivo', 'oneplus', 'otg', 'khong nhan', 'chua sang', 'den khong sang', 'mat tieng', 'khong co tieng']);
-    if (isTroubleshooting) {
-      sections.push('- Với điện thoại **OPPO, Realme, Vivo, OnePlus**: vào **Cài đặt** → tìm **OTG** → bật **Kết nối OTG**, rồi rút ra cắm sát lại đầu thu (tháo ốp dày nếu vướng chân cắm).');
-      if (!hasAnyBoundaryTerm(space, ['oppo', 'realme', 'vivo'])) {
-        sections.push('- Nếu dùng **Samsung/Xiaomi** mà app camera mặc định chưa nhận tiếng, hãy quay trực tiếp trên **TikTok / CapCut** hoặc tải **Open Camera** chọn *Nguồn âm thanh: Micro ngoài*.');
-      }
-    } else {
-      sections.push('- **Android (Samsung, Xiaomi...)**: cắm đầu thu Type-C là nhận trực tiếp; riêng **OPPO, Realme, Vivo** cần vào **Cài đặt** bật **Kết nối OTG** trước khi cắm.');
-    }
-  }
-
-  if (asksPc) {
-    if (matchedProdKey === 'gaeru-g1-ultra') {
-      sections.push('- **GAERU G1 ULTRA** hỗ trợ cắm trực tiếp **PC/Laptop** qua USB/Type-C và nhận làm nguồn mic mặc định trên Zoom, OBS Studio, CapCut PC.');
-    } else {
-      sections.push('- **Máy tính / Laptop (Windows, MacBook)**: cắm đầu thu Type-C (hoặc qua đầu chuyển USB-A) → vào **Settings → Sound → Input** chọn thiết bị micro không dây.');
-    }
-  }
-
-  if (asksCamera) {
-    if (matchedProdKey === 'gaeru-g1-ultra') {
-      sections.push('- **GAERU G1 ULTRA** kết nối trực tiếp với **máy ảnh** qua dây âm thanh 3.5mm TRS đi kèm.');
-    } else {
-      sections.push('- Để cắm trực tiếp **máy ảnh (ngõ 3.5mm)**, dòng chuyên dụng phù hợp nhất là **GAERU G1 ULTRA** (K9 và M3 tiêu chuẩn tối ưu cho cổng điện thoại/PC).');
-    }
-  }
-
-  if (asksNoise && sections.length === 0) {
-    if (matchedProdKey && PRODUCT_SPECS[matchedProdKey]) {
-      sections.push(`- **${PRODUCT_SPECS[matchedProdKey].name}:** ${PRODUCT_SPECS[matchedProdKey].audio}`);
-    } else {
-      sections.push('- Các dòng micro GAERU (**K9**, **M3**, **G1 ULTRA**) đều tích hợp xử lý giảm ồn **DSP / AI** + bông lọc gió giúp lọc tạp âm, gió và tiếng ồn môi trường.');
-    }
-  }
-
-  const asksAppCompat = hasAnyBoundaryTerm(space, ['tiktok', 'capcut', 'facebook', 'youtube', 'zoom', 'shopee', 'app']) ||
-    (hasBoundaryTerm(space, 'livestream') && hasAnyBoundaryTerm(space, ['dung duoc', 'tuong thich', 'ho tro', 'ket noi']) && !hasBoundaryTerm(space, 'thiet bi'));
-  if (asksAppCompat && sections.length === 0) {
-    sections.push('- Thiết bị GAERU tương thích trực tiếp với **TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Zoom** (cắm đầu thu vào máy là dùng ngay trên app, không cần ghép Bluetooth để thu tiếng).');
-  }
-
-  return sections.join('\n');
+  return buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKey);
 }
 
 function buildProductSpecificAnswer({ prodEntry, question, space, detailed }) {
@@ -366,7 +319,8 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed }) {
   const asksAccessories = hasAnyBoundaryTerm(space, ['phu kien', 'trong hop', 'goi gom', 'bao gom', 'co nhung gi', 'gom gi', 'di kem']);
   const asksWeightOrSize = hasAnyBoundaryTerm(space, ['trong luong', 'nang bao nhieu', 'may gam', 'kich thuoc', 'chieu cao', 'chieu dai', 'keo dai', 'dai bao nhieu', 'bao nhieu cm', 'bao nhieu m']);
   const asksOverview = hasAnyBoundaryTerm(space, ['la gi', 'de lam gi', 'dung de lam gi', 'cong dung', 'chuc nang', 'la loai nao', 'tac dung']);
-  const asksCompat = hasAnyBoundaryTerm(space, ['tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'cong cam', 'chan cam', 'iphone', 'ipad', 'macbook', 'ios', 'android', 'samsung', 'oppo', 'xiaomi', 'vivo', 'realme', 'pc', 'laptop', 'windows', 'may tinh', 'may anh', 'camera', 'tiktok', 'capcut', 'zoom', 'obs', 'type c', 'lightning', 'otg', 'khong nhan', 'chua sang', 'mat tieng']);
+  const asksCompat = hasAnyBoundaryTerm(space, DEVICE_COMPAT_TERMS) &&
+    !((asksPrice || asksStock) && !hasAnyBoundaryTerm(space, ['tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'iphone', 'ipad', 'macbook', 'android', 'otg', 'pc', 'laptop', 'may tinh', 'may anh', 'camera', ...BRAND_PROFILES.flatMap(b => b.triggers)]));
 
   const parts = [];
   const matchedVars = matchProductVariants(question, liveProd?.variants || []);
@@ -584,8 +538,8 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
 
   // 4. So sánh hoặc chọn sản phẩm
   const wantsCompare = mentioned.items.length >= 2 ||
-    hasAnyBoundaryTerm(space, ['so sanh', 'khac nhau', 'nen mua loai nao', 'nen mua mau nao', 'chon loai nao', 'giua']) ||
-    (hasAnyBoundaryTerm(space, ['khac gi', 'chon cai nao']) && (mentioned.items.length >= 2 || hasAnyBoundaryTerm(space, ['mic', 'micro'])));
+    hasAnyBoundaryTerm(space, ['nen mua loai nao', 'nen mua mau nao', 'chon loai nao']) ||
+    (hasAnyBoundaryTerm(space, ['so sanh', 'khac nhau', 'khac gi', 'chon cai nao', 'giua']) && (mentioned.items.length >= 1 || hasAnyBoundaryTerm(space, ['mic', 'micro', 'gimbal', 'gay', 'san pham'])));
 
   if (wantsCompare) {
     const cmp = buildComparisonAnswer(mentioned.items, space, catalog);
@@ -600,7 +554,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       'trong luong', 'kich thuoc', 'chieu cao', 'chieu dai', 'keo dai', 'nang bao nhieu', 'dai bao nhieu', 'bao nhieu cm', 'mah',
       'phu kien', 'trong hop', 'goi gom', 'bao gom', 'co nhung gi', 'gom gi', 'di kem',
       'thong so', 'chi tiet', 'phan loai', '1 mic', '2 mic', 'la gi', 'de lam gi', 'tu van', 'gioi thieu', 'review', 'the nao', 'ra sao',
-      'tuong thich', 'dung duoc', 'cam duoc', 'ket noi', 'iphone', 'ipad', 'macbook', 'android', 'samsung', 'oppo', 'xiaomi', 'vivo', 'pc', 'laptop', 'may tinh', 'may anh', 'tiktok', 'capcut', 'zoom', 'obs', 'type c', 'lightning', 'otg', 'khong nhan', 'chua sang', 'mat tieng'
+      ...DEVICE_COMPAT_TERMS
     ]) || mentioned.source === 'question';
 
     if (isSpecificOrBroadProduct) {
