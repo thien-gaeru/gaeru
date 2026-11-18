@@ -63,3 +63,45 @@ test('PageSpeed Perf: storefront HTML defers chat client JS/CSS and k9-loop pref
   assert.equal(img.getAttribute('href'), '/assets/products/k9-display-480-f7433a67675b.avif');
   ctrl.destroy();
 });
+
+test('PageSpeed Perf: cache-warmup warms 160w and cold miss emits no-store CDN cache headers with 480w AVIF fallback', async () => {
+  const cacheWarmupSrc = fs.readFileSync(path.join(ROOT, 'src', 'lib', 'cache-warmup.js'), 'utf8');
+  assert.match(cacheWarmupSrc, /warmPublicImage\(row,\s*supportedServeWidths\)/);
+
+  const sharp = require('sharp');
+  const express = require('express');
+  const renditions = require('../src/lib/image-renditions');
+  renditions.resetRenditionCache();
+
+  const w = 960, h = 600;
+  const rawPixels = Buffer.alloc(w * h * 3);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 3;
+      rawPixels[idx] = (x * 7 + y * 3) & 255;
+      rawPixels[idx + 1] = ((x ^ y) * 5) & 255;
+      rawPixels[idx + 2] = (y * 11) & 255;
+    }
+  }
+  const img = await sharp(rawPixels, { raw: { width: w, height: h, channels: 3 } }).webp({ quality: 88 }).toBuffer();
+  const row = { content: img, mime_type: 'image/webp' };
+  await renditions.warmPublicImage(row, [480]);
+
+  const app = express();
+  app.get('/api/catalog-images/:id', (req, res, next) => renditions.sendPublicImage(req, res, row, 'catalog-image').catch(next));
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const res = await fetch(`${base}/api/catalog-images/test-thumb?v=webp-20261025&format=avif&w=160`);
+    const body = await res.arrayBuffer();
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'image/avif');
+    assert.match(res.headers.get('cache-control') || '', /^public,\s*max-age=0,\s*s-maxage=0,\s*must-revalidate/i);
+    assert.equal(res.headers.get('cdn-cache-control'), 'no-store');
+    assert.equal(res.headers.get('cloudflare-cdn-cache-control'), 'no-store');
+    assert.ok(body.byteLength < img.byteLength, `Expected compact 480w AVIF fallback (${body.byteLength}B) < raw (${img.byteLength}B)`);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});

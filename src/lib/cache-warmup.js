@@ -2,7 +2,7 @@
 
 const { getFreshData, stockMap } = require('../cache');
 const { loadProducts } = require('../store-api');
-const { getCachedImageRow, warmPublicImage } = require('./image-renditions');
+const { getCachedImageRow, warmPublicImage, supportedServeWidths } = require('./image-renditions');
 const { warmStaticAssets } = require('../persistent-assets');
 const { warmStaticTextAssets } = require('./static-asset-cache');
 const path = require('node:path');
@@ -36,7 +36,7 @@ async function warmHotImagesInBackground(pool, products) {
         )).rows[0]
       );
       if (row && shouldWarmRenditions) {
-        await warmPublicImage(row);
+        await warmPublicImage(row, supportedServeWidths);
       }
     }
     const newsRows = (await pool.query("SELECT cover_id FROM news_posts WHERE status='published' AND cover_id IS NOT NULL ORDER BY published_at DESC, id LIMIT 24")).rows;
@@ -51,7 +51,7 @@ async function warmHotImagesInBackground(pool, products) {
         )).rows[0]
       );
       if (row && shouldWarmRenditions) {
-        await warmPublicImage(row);
+        await warmPublicImage(row, supportedServeWidths);
       }
     }
   } catch (_) {}

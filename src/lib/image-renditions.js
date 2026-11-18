@@ -275,10 +275,23 @@ async function sendPublicImage(req, res, row, namespace) {
   const width = requested === undefined ? null : supportedServeWidths.find(value => String(value) === requested);
   if (requested !== undefined && !width) return res.status(400).json({ error: 'Kích thước ảnh không được hỗ trợ.' });
   const cacheControl = 'public, max-age=3600, stale-while-revalidate=86400, must-revalidate';
-  const missCacheControl = 'public, max-age=30, stale-while-revalidate=60, must-revalidate';
+  const missCacheControl = 'public, max-age=0, s-maxage=0, must-revalidate';
   const rawVersion = computeVersion(row, null);
   const requestedFormat = req.query?.format === 'avif' || req.query?.format === 'webp' ? req.query.format : '';
   if (!requestedFormat) res.vary('Accept');
+  const buildImageHeaders = (etag, isMiss) => {
+    const headers = {
+      'Cache-Control': isMiss ? missCacheControl : cacheControl,
+      'ETag': etag,
+      'X-Content-Type-Options': 'nosniff',
+      'X-GAERU-Media-Storage': '2'
+    };
+    if (isMiss) {
+      headers['CDN-Cache-Control'] = 'no-store';
+      headers['Cloudflare-CDN-Cache-Control'] = 'no-store';
+    }
+    return headers;
+  };
 
   if (!width) {
     if (requestedFormat === 'avif' && row.mime_type.startsWith('image/')) {
@@ -287,56 +300,50 @@ async function sendPublicImage(req, res, row, namespace) {
       if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
       if (avifBytes) {
         const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
-        res.type('image/avif').set({
-          'Cache-Control': cacheControl,
-          'ETag': etag,
-          'X-Content-Type-Options': 'nosniff',
-          'X-GAERU-Media-Storage': '2'
-        });
+        res.type('image/avif').set(buildImageHeaders(etag, false));
         if (req.fresh) return res.status(304).end();
         return res.send(avifBytes);
       }
       if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
     }
-    res.type(row.mime_type).set({
-      'Cache-Control': requestedFormat === 'avif' ? missCacheControl : cacheControl,
-      'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"',
-      'X-Content-Type-Options': 'nosniff',
-      'X-GAERU-Media-Storage': '2'
-    });
+    const rawEtag = '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"';
+    res.type(row.mime_type).set(buildImageHeaders(rawEtag, requestedFormat === 'avif'));
     if (req.fresh) return res.status(304).end();
     const bytes = process.env.MEDIA_CACHE_ENABLED !== 'false' ? await cache.get(rawVersion, () => readMedia(row.content)) : await readMedia(row.content);
     return res.send(bytes);
   }
 
-  const version = computeVersion(row, width);
+  let version = computeVersion(row, width);
   let webpBytes = cache.peek(version);
   if (!webpBytes) webpBytes = await loadDiskRenditionIntoCache(version);
+  let servedFallbackWidth = false;
+  if (!webpBytes && width < 480) {
+    const fallbackVersion = computeVersion(row, 480);
+    let fallbackWebp = cache.peek(fallbackVersion);
+    if (!fallbackWebp) fallbackWebp = await loadDiskRenditionIntoCache(fallbackVersion);
+    if (fallbackWebp) {
+      if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
+      version = fallbackVersion;
+      webpBytes = fallbackWebp;
+      servedFallbackWidth = true;
+    }
+  }
   if (!webpBytes) {
     if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
-    res.type(row.mime_type).set({
-      'Cache-Control': missCacheControl,
-      'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"',
-      'X-Content-Type-Options': 'nosniff',
-      'X-GAERU-Media-Storage': '2'
-    });
+    const rawEtag = '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"';
+    res.type(row.mime_type).set(buildImageHeaders(rawEtag, true));
     if (req.fresh) return res.status(304).end();
     const rawBytes = process.env.MEDIA_CACHE_ENABLED !== 'false' ? await cache.get(rawVersion, () => readMedia(row.content)) : await readMedia(row.content);
     return res.send(rawBytes);
   }
 
   if (qualifiesForSelectiveAvif(req, requestedFormat === 'avif' ? undefined : webpBytes.length)) {
-    const avifVersion = computeVersion(row, width, 'avif');
+    const avifVersion = computeVersion(row, servedFallbackWidth ? 480 : width, 'avif');
     let avifBytes = cache.peek(avifVersion);
     if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
     if (avifBytes && (requestedFormat === 'avif' || avifBytes.length <= webpBytes.length * SAVINGS_RATIO)) {
       const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
-      res.type('image/avif').set({
-        'Cache-Control': cacheControl,
-        'ETag': etag,
-        'X-Content-Type-Options': 'nosniff',
-        'X-GAERU-Media-Storage': '2'
-      });
+      res.type('image/avif').set(buildImageHeaders(etag, servedFallbackWidth));
       if (req.fresh) return res.status(304).end();
       return res.send(avifBytes);
     }
@@ -345,12 +352,8 @@ async function sendPublicImage(req, res, row, namespace) {
     }
   }
 
-  res.type('image/webp').set({
-    'Cache-Control': requestedFormat === 'avif' ? missCacheControl : cacheControl,
-    'ETag': '"gaeru-' + namespace + '-' + req.params.id + '-' + version + '"',
-    'X-Content-Type-Options': 'nosniff',
-    'X-GAERU-Media-Storage': '2'
-  });
+  const webpEtag = '"gaeru-' + namespace + '-' + req.params.id + '-' + version + '"';
+  res.type('image/webp').set(buildImageHeaders(webpEtag, servedFallbackWidth || requestedFormat === 'avif'));
   if (req.fresh) return res.status(304).end();
   return res.send(webpBytes);
 }
@@ -378,6 +381,7 @@ function resetImageRenditionStats() {
 module.exports = {
   sendPublicImage,
   widths,
+  supportedServeWidths,
   getCachedImageRow,
   clearImageLookupCache,
   clearAllImageLookupCaches,
