@@ -34,10 +34,10 @@ img { display: block; max-width: 100%; }
 .skip-link:focus { clip: auto; width: auto; height: auto; margin: 0; left: 12px; top: 12px; padding: 12px 16px; background: #fff; z-index: 100; }
 #site-header { position: -webkit-sticky; position: sticky; z-index: 50; top: 0; width: 100%; display: block; }
 .site-header { position: relative; z-index: 50; height: 52px; background: rgb(250 250 252 / 88%); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgb(0 0 0 / 6%); }
-.nav-wrap { width: min(100% - 40px, 1024px); height: 52px; margin: auto; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.nav-wrap { width: min(100% - 40px, 1024px); height: 52px; margin: auto; display: flex; align-items: center; justify-content: space-between; gap: clamp(16px, 2.5vw, 32px); }
 .wordmark { font-size: 23px; font-weight: 800; letter-spacing: -.075em; line-height: 1; }
-.primary-nav { display: flex; justify-content: center; align-items: center; gap: clamp(20px, 3vw, 42px); flex: 1; }
-.primary-nav a, .nav-actions a { font-size: 12px; color: #333336; transition: color .2s ease; }
+.primary-nav { display: flex; justify-content: center; align-items: center; gap: clamp(18px, 2.8vw, 42px); flex: 1; min-width: 0; }
+.primary-nav a, .nav-actions a { font-size: 12px; color: #333336; white-space: nowrap; transition: color .2s ease; }
 .primary-nav a:hover, .footer-column a:hover { color: var(--blue); }
 .nav-actions { display: flex; align-items: center; gap: 14px; }
 .icon-button { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 40px; padding: 0; border: 0; border-radius: 50%; color: var(--ink); background: transparent; cursor: pointer; transition: color .2s ease, background-color .2s ease; }
@@ -121,7 +121,7 @@ img { display: block; max-width: 100%; }
 .care-intro { max-width: 680px; margin-bottom: 32px; }
 .care-intro h2 { font-size: clamp(36px, 4.5vw, 54px); }
 .care-intro > p:last-child { max-width: 540px; margin: 14px 0 0; color: var(--muted); line-height: 1.65; }
-.care-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.care-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .care-card { position: relative; min-height: 330px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 38px; border-radius: 6px; background: var(--surface); }
 .care-dark { background: #102c33; color: #fff; }
 .care-card .eyebrow { margin-bottom: 16px; color: var(--teal); }
@@ -914,6 +914,7 @@ body.panel-active .site-header {
   background: transparent;
   color: #333336;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
   transition: color .2s ease;
 }
