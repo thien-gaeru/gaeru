@@ -1,5 +1,12 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const formatMessageBody = (body, sender) => {
+    const safe = escape(body);
+    if (sender !== 'ai') return safe;
+    return safe
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`\n]+)`/g, '<code style="background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px;font-size:.92em">$1</code>');
+  };
   const ICONS = {
     mediaFile: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
     file: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
@@ -376,7 +383,7 @@
         for(const m of d.messages){if(m.requestKey){const opt=messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(m.requestKey):m.requestKey}"]`);if(opt)opt.remove();}}
         if(orphanBlobUrls.length&&d.messages.length){for(const ob of orphanBlobUrls.splice(0))release(ob);}
         const newMessages=d.messages.filter(m=>!known.has(String(m.id)));
-        const html=newMessages.map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${escape(m.body)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
+        const html=newMessages.map(m=>`<article class="shopping-message ${m.sender==='customer'?'from-customer':'from-admin'}" data-message-id="${escape(m.id)}" data-sender="${escape(m.sender)}"><strong>${m.sender==='ai'?'GAERU AI':m.sender==='admin'?'GAERU':admin?'Khách':'Bạn'}</strong><p>${formatMessageBody(m.body,m.sender)}</p>${m.attachment?attachment(m.attachment):''}<time>${escape(new Date(m.created_at).toLocaleString('vi-VN'))}</time></article>`).join('');
         if(before)messages.insertAdjacentHTML('afterbegin',html);
         else{
           const anchor=messages.querySelector('[data-optimistic-key],[data-ai-typing]');
