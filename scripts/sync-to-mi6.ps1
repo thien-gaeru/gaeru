@@ -100,9 +100,9 @@ tar --warning=no-unknown-keyword --no-same-owner -xzf "$CODE_TAR" -C "$APP_DIR"
 rm -rf "$APP_DIR/.git"
 tar --warning=no-unknown-keyword --no-same-owner -xzf "$GIT_TAR" -C "$APP_DIR"
 
-git -C "$APP_DIR" config core.filemode false
-git -C "$APP_DIR" config core.autocrlf false
-git -C "$APP_DIR" config core.ignorecase false
+git -C "$APP_DIR" config --replace-all core.filemode false
+git -C "$APP_DIR" config --replace-all core.autocrlf false
+git -C "$APP_DIR" config --replace-all core.ignorecase false
 git -C "$APP_DIR" checkout -f HEAD >/dev/null
 git -C "$APP_DIR" reset --mixed HEAD >/dev/null
 
