@@ -175,8 +175,8 @@ function productCard(product, compact = false) {
   const isK9 = product.slug === "gaeru-k9" || product.slug === "k9";
   const isG1Ultra = product.slug === "gaeru-g1-ultra" || product.slug === "g1-ultra";
   const cardClass = compact
-    ? `product-card ${isK9 ? "product-card-dark" : ""} ${isG1Ultra ? "product-card-wide" : ""}`
-    : `catalog-card ${isK9 ? "catalog-card-dark" : ""}`;
+    ? `product-card ${isG1Ultra ? "product-card-wide" : ""}`
+    : "catalog-card";
   return compact ? `
     <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}" tabindex="0" role="link" aria-label="${escapeHtml(product.cardTitle||product.name)}">
       <div class="product-copy">
