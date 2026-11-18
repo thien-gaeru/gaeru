@@ -101,33 +101,38 @@ while true; do
   # 2. Ubuntu 26 PostgreSQL 18 Service Check
   ensure_upstart postgresql-chroot
 
-  # 3. Ubuntu 26 Node.js (gaeru) Service Check
-  if ! run_t 10 initctl status node-app APP=gaeru 2>/dev/null | grep -q "start/running"; then
-    log "[AUTO-HEAL] node-app (gaeru) is stopped! Restarting now..."
-    run_t 30 start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
-    HTTP_FAIL_COUNT=0
-  else
-    if curl -fsS --max-time 5 http://127.0.0.1:3000/health >/dev/null 2>&1; then
-      if [ "$HTTP_FAIL_COUNT" -gt 0 ]; then
-        log "node-app HTTP health check recovered! HTTP fail count reset."
-        HTTP_FAIL_COUNT=0
-      fi
+  # 3. Ubuntu 26 Node.js (gaeru) Service Check (respect AUTOSTART=yes & manual override)
+  GAERU_APP_ENV="/storage/apps/gaeru/app.env"
+  if [ -f "$GAERU_APP_ENV" ] && grep -q '^AUTOSTART=yes' "$GAERU_APP_ENV" && \
+     ! { [ -f /etc/init/node-app.override ] && grep -qE '^[[:space:]]*manual[[:space:]]*$' /etc/init/node-app.override; }; then
+    if ! run_t 10 initctl status node-app APP=gaeru 2>/dev/null | grep -q "start/running"; then
+      log "[AUTO-HEAL] node-app (gaeru) is stopped! Restarting now..."
+      run_t 30 start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
+      HTTP_FAIL_COUNT=0
     else
-      HTTP_FAIL_COUNT=$((HTTP_FAIL_COUNT + 1))
-      log "node-app HTTP health check FAILED ($HTTP_FAIL_COUNT/$HTTP_MAX_FAILS)"
-      if [ "$HTTP_FAIL_COUNT" -ge "$HTTP_MAX_FAILS" ]; then
-        log "[AUTO-HEAL] node-app HTTP health check failed 3x! Restarting node-app (gaeru)..."
-        run_t 30 restart node-app APP=gaeru >> "$LOG_FILE" 2>&1 || {
-          run_t 15 stop node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
-          run_t 30 start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
-        }
-        HTTP_FAIL_COUNT=0
+      if curl -fsS --max-time 5 http://127.0.0.1:3000/health >/dev/null 2>&1; then
+        if [ "$HTTP_FAIL_COUNT" -gt 0 ]; then
+          log "node-app HTTP health check recovered! HTTP fail count reset."
+          HTTP_FAIL_COUNT=0
+        fi
+      else
+        HTTP_FAIL_COUNT=$((HTTP_FAIL_COUNT + 1))
+        log "node-app HTTP health check FAILED ($HTTP_FAIL_COUNT/$HTTP_MAX_FAILS)"
+        if [ "$HTTP_FAIL_COUNT" -ge "$HTTP_MAX_FAILS" ]; then
+          log "[AUTO-HEAL] node-app HTTP health check failed 3x! Restarting node-app (gaeru)..."
+          run_t 30 restart node-app APP=gaeru >> "$LOG_FILE" 2>&1 || {
+            run_t 15 stop node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
+            run_t 30 start node-app APP=gaeru >> "$LOG_FILE" 2>&1 || true
+          }
+          HTTP_FAIL_COUNT=0
+        fi
       fi
     fi
   fi
 
-  # 4. Web Admin Dashboard (8080) & Nginx Reverse Proxy Check
+  # 4. Web Admin Dashboard (8080), GPU AI Engine (3100) & Nginx Reverse Proxy Check
   ensure_upstart server-dashboard
+  ensure_upstart gaeru-gpu-ai
   ensure_upstart nginx
 
   # 5. Cloudflare Tunnel Check
