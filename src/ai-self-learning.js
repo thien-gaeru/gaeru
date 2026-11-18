@@ -83,6 +83,12 @@ function normalizeText(text) {
   return normalizeVi(text);
 }
 
+function isLowValueLearnedAnswer(answerText) {
+  const norm = normalizeText(answerText);
+  if (!norm || norm.length < 10) return true;
+  return /tro ly thong minh ho tro truc tuyen|co the giup ban ngay cac noi dung sau|ai hien chua the tra loi|ai chua the tiep tuc tra loi|minh chua ro dung y|toi chua ro dung y/.test(norm);
+}
+
 const GENERIC_SINGLE_TRIGGERS = new Set([
   'p01', 'k9', 'm3', 'p185', 'g1', 'g1 ultra', 'gaeru p01', 'gaeru k9', 'gaeru m3', 'gaeru p185',
   'micro', 'iphone', 'android', 'laptop', 'pc', 'may tinh', 'dien thoai', 'pin', 'camera'
@@ -199,6 +205,7 @@ async function matchLearnedKnowledge(pool, question, { minScore = 0.55 } = {}) {
   let bestScore = 0;
 
   for (const entry of entries) {
+    if (isLowValueLearnedAnswer(entry.learned_facts || entry.sample_answer)) continue;
     const triggers = Array.isArray(entry.triggers) ? entry.triggers : [];
     if (!triggers.length) continue;
 
@@ -221,8 +228,12 @@ async function matchLearnedKnowledge(pool, question, { minScore = 0.55 } = {}) {
     if (matchedCount === 1 && !hasSpecificTrig && questionSim < 0.35) {
       continue;
     }
+    if (triggers.length > 8 && questionSim < 0.25) {
+      continue;
+    }
 
-    const coverageNorm = Math.min(1, matchedCount / Math.min(triggers.length, 4));
+    const expectedDenom = Math.min(triggers.length, Math.max(4, Math.ceil(triggers.length * 0.6)));
+    const coverageNorm = Math.min(1, matchedCount / expectedDenom);
     const matchStrength = 1 - Math.exp(-0.55 * matchedCount);
     const conf = Math.min(1, Math.max(0.1, parseFloat(entry.confidence_score) || 0.8));
     const rawScore = (coverageNorm * 0.35) + (matchStrength * 0.25) + (questionSim * 0.25) + (conf * 0.15);
@@ -260,8 +271,8 @@ async function learnFromInteraction(pool, {
   const cleanQ = sanitizePii(question);
   const cleanA = sanitizePii(answer);
 
-  // Bỏ qua tin nhắn quá ngắn hoặc không có giá trị thông tin
-  if (!cleanQ || cleanQ.length < 5 || !cleanA || cleanA.length < 10) return null;
+  // Bỏ qua tin nhắn quá ngắn, chào hỏi / menu mặc định hoặc câu báo lỗi fallback
+  if (!cleanQ || cleanQ.length < 5 || isLowValueLearnedAnswer(cleanA)) return null;
 
   // Lọc bỏ câu chào hỏi xã giao hoặc xác nhận ngắn
   const normQ = normalizeText(cleanQ);
@@ -347,8 +358,8 @@ async function learnFromInteraction(pool, {
       const nextSampleQ = canUpdateSample ? cleanQ : (matchedExisting.sample_question || cleanQ);
       const nextSampleA = canUpdateSample ? cleanA : (matchedExisting.sample_answer || cleanA);
 
-      // Hợp nhất thêm triggers mới nếu có
-      const mergedTriggers = Array.from(new Set([...(matchedExisting.triggers || []), ...triggers]));
+      // Hợp nhất thêm triggers mới nhưng giới hạn kích thước để tránh phình thành catch-all
+      const mergedTriggers = Array.from(new Set([...(matchedExisting.triggers || []), ...triggers])).slice(0, 16);
       const nextKeys = harvestedKey
         ? Array.from(new Set([...existingKeys, harvestedKey])).slice(-200)
         : existingKeys;

@@ -713,10 +713,18 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   // Thu thập các phần trả lời trực tiếp cho từng ý được hỏi (hỗ trợ câu hỏi đa ý)
   const sections = [];
 
-  // 4. So sánh hoặc chọn sản phẩm
-  const wantsCompare = mentioned.items.length >= 2 ||
+  // 4. So sánh hoặc chọn dòng sản phẩm GAERU (không nhầm so sánh hệ điều hành / iOS / cổng kết nối thành so sánh sản phẩm)
+  const isDeviceOrOsComparison = hasAnyBoundaryTerm(space, [
+    'ios', 'otg', 'go loi usb', 'nha phat trien', 'mic ngoai', 'mic gan ngoai',
+    'dau vao am thanh', 'trung tam dieu khien', 'type c', 'lightning', 'micro usb', 'usb a'
+  ]) && mentioned.items.length < 2;
+  const wantsCompare = !isDeviceOrOsComparison && (
+    mentioned.items.length >= 2 ||
     hasAnyBoundaryTerm(space, ['nen mua loai nao', 'nen mua mau nao', 'chon loai nao']) ||
-    (hasAnyBoundaryTerm(space, ['so sanh', 'khac nhau', 'khac gi', 'chon cai nao', 'giua']) && (mentioned.items.length >= 1 || hasAnyBoundaryTerm(space, ['mic', 'micro', 'gimbal', 'gay', 'san pham'])));
+    (hasAnyBoundaryTerm(space, ['so sanh', 'khac nhau', 'khac gi', 'chon cai nao', 'giua']) &&
+      ((mentioned.source === 'question' && mentioned.items.length >= 1) ||
+        hasAnyBoundaryTerm(space, ['k9', 'm3', 'p01', 'p185', 'g1', 'cac dong', 'cac mau', 'hai mau', '2 mau', 'hai loai', '2 loai', 'mic nay', 'san pham'])))
+  );
 
   if (wantsCompare) {
     const cmp = buildComparisonAnswer(mentioned.items, space, catalog);

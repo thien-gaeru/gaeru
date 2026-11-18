@@ -193,6 +193,62 @@ test('GAERU AI distinguishes iOS 18+ manual external mic selection from iOS unde
   });
   assert.ok(iosUnder18.answer.includes('iOS dưới 18'));
   assert.ok(iosUnder18.answer.includes('KHÔNG cần'));
+
+  // Must NOT misclassify "khác gì" on thread-bound M3 page as product comparison
+  const iosThreadBound = await generateGaeruAiResponse({
+    thread: { id: 't-ios', product_id: 'prod-m3', product_name: 'GAERU M3' },
+    question: 'Hướng dẫn chọn mic gắn ngoài trên iOS 18 mới và máy iOS dưới 18 khác gì?',
+    catalog: CATALOG.map((p, idx) => idx === 1 ? { ...p, id: 'prod-m3' } : p)
+  });
+  assert.ok(!iosThreadBound.answer.includes('So sánh nhanh'), `Misclassified iOS comparison as product comparison:\n${iosThreadBound.answer}`);
+  assert.ok(iosThreadBound.answer.includes('Trung tâm điều khiển'));
+  assert.ok(iosThreadBound.answer.includes('iOS dưới 18'));
+});
+
+test('Self-learning filter rejects poisoned greeting/fallback catch-all entries from hijacking device & OTG queries', async () => {
+  const { invalidateCache } = require('../src/ai-self-learning');
+  invalidateCache();
+  const poisonedPool = {
+    query: async (sql) => {
+      if (sql.includes("status = 'active'")) {
+        return {
+          rows: [{
+            id: 'poison-1',
+            status: 'active',
+            source_type: 'customer_chat',
+            topic: 'Hỏi đáp & Hướng dẫn: [IPHONE · ANDROID · PC]',
+            triggers: ['iphone', 'android', 'pc', 'laptop', 'macbook', 'samsung', 'galaxy', 'oppo', 'vivo', 'xiaomi', 'otg', 'm3', 'gaeru m3', 'k9'],
+            learned_facts: 'Xin chào bạn! Mình là **GAERU AI** - Trợ lý thông minh hỗ trợ trực tuyến 24/7 của GAERU. GAERU AI có thể giúp bạn ngay các nội dung sau: 1. Tư vấn micro & thiết bị...',
+            sample_question: 'Iphone 15',
+            sample_answer: 'Xin chào bạn! Mình là **GAERU AI** - Trợ lý thông minh hỗ trợ trực tuyến 24/7...',
+            confidence_score: 1.0,
+            occurrence_count: 68
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const q1 = await generateGaeruAiResponse({
+    pool: poisonedPool,
+    thread: { id: 't-1', product_id: 'prod-m3', product_name: 'GAERU M3' },
+    question: 'MacBook Air M3, Galaxy Tab S10 và PC để bàn Windows dùng chân cắm gì cho GAERU M3?',
+    catalog: CATALOG.map((p, idx) => idx === 1 ? { ...p, id: 'prod-m3' } : p)
+  });
+  assert.ok(!q1.answer.includes('Trợ lý thông minh'));
+  assert.ok(q1.answer.includes('MacBook'));
+  assert.ok(q1.answer.includes('Galaxy Tab'));
+  assert.ok(q1.answer.includes('Type C + chuyển USB'));
+
+  const q2 = await generateGaeruAiResponse({
+    pool: poisonedPool,
+    question: 'Hướng dẫn mở OTG và gỡ lỗi USB cho từng loại máy OPPO, vivo, Xiaomi, Samsung?',
+    catalog: CATALOG
+  });
+  assert.ok(!q2.answer.includes('Trợ lý thông minh'));
+  assert.ok(q2.answer.includes('Kết nối OTG'));
+  assert.ok(q2.answer.includes('Gỡ lỗi USB'));
 });
 
 test('GAERU AI resolves purchase-closing intent to Buy Now CTA (respecting real stock) and client renders XSS-safe action cards', async () => {
