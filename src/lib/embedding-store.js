@@ -307,14 +307,20 @@ async function warmEmbeddingIndexInBackground(pool, { transport = fetch } = {}) 
       }
     } catch (_) {}
 
-    // 2. Static Web Knowledge HTML pages
+    // 2. Static Web Knowledge HTML pages (use clean substantive summaryText & prune excluded pages)
     try {
-      const { loadWebPagesIndexAsync } = require('../chat-web-knowledge');
+      const { loadWebPagesIndexAsync, EXCLUDED_HTML } = require('../chat-web-knowledge');
       if (typeof loadWebPagesIndexAsync === 'function') {
+        if (EXCLUDED_HTML && EXCLUDED_HTML.size && typeof pool.query === 'function') {
+          await pool.query(
+            'DELETE FROM ai_embedding_vectors WHERE namespace = $1 AND item_key = ANY($2::text[])',
+            ['web_pages', Array.from(EXCLUDED_HTML)]
+          ).catch(() => {});
+        }
         const pages = await loadWebPagesIndexAsync();
         const pageItems = (pages || []).map(page => ({
           key: String(page.file),
-          text: `${page.title || ''}. ${String(page.content || '').slice(0, 280)}`.replace(/\s+/g, ' ').trim().slice(0, MAX_EMBED_TEXT_CHARS)
+          text: (page.summaryText || `${page.title || ''}. ${String(page.content || '').slice(0, 280)}`).replace(/\s+/g, ' ').trim().slice(0, MAX_EMBED_TEXT_CHARS)
         }));
         if (pageItems.length) {
           const m = await ensureEmbeddings(pool, 'web_pages', pageItems, { priority: 'background', transport });
@@ -367,6 +373,16 @@ async function warmEmbeddingIndexInBackground(pool, { transport = fetch } = {}) 
       if (Array.isArray(INTERNAL_AI_INTENT_PROTOTYPES) && INTERNAL_AI_INTENT_PROTOTYPES.length) {
         const m = await ensureEmbeddings(pool, 'internal_intents', INTERNAL_AI_INTENT_PROTOTYPES, { priority: 'background', transport });
         summary.internalIntents = m.size;
+      }
+    } catch (_) {}
+
+    // 6. Curated Customer Semantic FAQ Prototypes (P2 Rescue Layer)
+    try {
+      const { CUSTOMER_SEMANTIC_FAQS } = require('./customer-semantic-faq');
+      if (Array.isArray(CUSTOMER_SEMANTIC_FAQS) && CUSTOMER_SEMANTIC_FAQS.length) {
+        const faqItems = CUSTOMER_SEMANTIC_FAQS.map(f => ({ key: f.key, text: f.text }));
+        const m = await ensureEmbeddings(pool, 'customer_faqs', faqItems, { priority: 'background', transport });
+        summary.customerFaqs = m.size;
       }
     } catch (_) {}
   } finally {

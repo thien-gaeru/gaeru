@@ -8,8 +8,52 @@ const { embedText, embedTexts, cosineSimilarity } = require('./lib/gpu-ai-client
 const { ensureEmbeddings, rankByCosine } = require('./lib/embedding-store');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const EXCLUDED_HTML = new Set(['cart.html', 'checkout.html', 'payment-result.html', 'sitemap.html']);
+const EXCLUDED_HTML = new Set([
+  'cart.html',
+  'checkout.html',
+  'payment-result.html',
+  'sitemap.html',
+  'account.html',
+  'product.html',
+  'news.html',
+  'news-article.html',
+  'tracking.html',
+  'index.html',
+  'shop.html',
+  'guides.html',
+  'warranty-activation.html'
+]);
 const MAX_WEB_KNOWLEDGE_FILES = 100;
+const BOILERPLATE_EXACT_LINES = new Set([
+  'huong dan su dung',
+  'gaeru trong cuoc song cua ban',
+  'gaeru care+',
+  'chi tiet thiet bi',
+  'hieu ro truoc khi chon.',
+  'giai dap nhanh',
+  'truoc khi bat dau.',
+  'chon phien ban',
+  'thiet lap tung buoc',
+  'van de thuong gap',
+  'van can gaeru ho tro?',
+  'can ho tro them?',
+  'trinh duyet chua ho tro video.'
+]);
+
+function isNoiseKnowledgeLine(line) {
+  const s = String(line || '').trim();
+  if (!s || s.length < 12) return true;
+  if (/[↗›]/.test(s)) return true;
+  if (/^cập nhật gần nhất:/i.test(s)) return true;
+  if (/^đang tải\b/i.test(s)) return true;
+  if (/^gửi yêu cầu hỗ trợ\b/i.test(s)) return true;
+  if (/^xem hướng dẫn sản phẩm khác\b/i.test(s)) return true;
+  if (/^nguồn hình ảnh và video minh họa:/i.test(s)) return true;
+  if (/^đối chiếu với phiên bản và hướng dẫn trong hộp/i.test(s)) return true;
+  const norm = normalizeText(s);
+  if (BOILERPLATE_EXACT_LINES.has(norm)) return true;
+  return false;
+}
 
 let cachedPages = null;
 let cachedPagesAt = 0;
@@ -56,7 +100,7 @@ function normalizeText(value) {
 
 function extractPageKnowledge(fileName, html) {
   // Parse markup once. DOM text/attributes decode entities exactly once and
-  // parser-recognized closing tags cannot leak script/style text into knowledge.
+  // parser-recognized closing tags cannot leak script/style/UI chrome text into knowledge.
   const { document } = parseHTML(String(html || ''));
   const compact = value => String(value || '').replace(/\s+/g, ' ').trim();
   const attribute = (node, name) => [...node.attributes].find(item => item.name.toLowerCase() === name)?.value || '';
@@ -64,20 +108,37 @@ function extractPageKnowledge(fileName, html) {
   const metadata = [...document.querySelectorAll('meta')].find(node => attribute(node, 'name').toLowerCase() === 'description');
   const description = compact(metadata ? attribute(metadata, 'content') : '');
   const root = document.querySelector('main') || document.querySelector('body') || document;
-  for (const node of root.querySelectorAll('script,style,svg,nav,footer,dialog,template,noscript,head')) node.remove();
-  const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','TR','SECTION','ARTICLE','DIV','BR']);
+  for (const node of root.querySelectorAll(
+    'script,style,svg,nav,footer,dialog,template,noscript,head,button,form,input,select,textarea,label,[aria-hidden="true"],.cta,.btn,.button,.guide-help,.guide-help-actions,.discover-hero-actions,.discover-faq-actions,.discover-close,.discover-close-actions,.guide-link,.text-link,.chat-product-button'
+  )) {
+    node.remove();
+  }
+  const blocks = new Set(['H1','H2','H3','H4','H5','H6','P','LI','TR','SECTION','ARTICLE','DIV','BR','SUMMARY','DETAILS']);
   for (const node of root.querySelectorAll('*')) {
     node.before(document.createTextNode(' '));
     if (blocks.has(node.tagName)) node.after(document.createTextNode('\n'));
   }
   const text = root.nodeType === 9 ? [...root.childNodes].map(node => node.textContent || '').join(' ') : root.textContent;
-  const cleanText = String(text || '')
-    .split('\n')
-    .map(compact)
-    .filter(line => line.length > 2)
+  const seenLocal = new Set();
+  const cleanLines = [];
+  for (const rawLine of String(text || '').split('\n')) {
+    const line = compact(rawLine);
+    if (line.length <= 2 || isNoiseKnowledgeLine(line)) continue;
+    const normKey = normalizeText(line);
+    if (!normKey || seenLocal.has(normKey)) continue;
+    seenLocal.add(normKey);
+    cleanLines.push(line);
+  }
+  const cleanText = cleanLines
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
-    .slice(0, 3500);
+    .slice(0, 12000);
+
+  const substantive = cleanLines.filter(l => l.length >= 28).slice(0, 5).join(' ');
+  const summaryText = `${title}. ${description ? `${description}. ` : ''}${substantive || cleanText}`
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 320);
 
   const url = fileName === 'index.html' ? 'https://gaeru.com/' : `https://gaeru.com/${fileName}`;
   const normalized = normalizeText(`${fileName} ${title} ${description} ${cleanText}`);
@@ -87,6 +148,7 @@ function extractPageKnowledge(fileName, html) {
     title,
     description,
     content: cleanText,
+    summaryText,
     normalized
   };
 }
@@ -170,7 +232,7 @@ async function loadLiveSiteFacts(pool) {
       pool.query("SELECT setting_key, setting_value FROM store_settings WHERE setting_key IN ('shipping_rates', 'shipping_note', 'loyalty_policy')").catch(() => ({ rows: [] })),
       pool.query("SELECT v.code, v.title, v.kind, v.amount, v.max_discount_vnd, v.min_spend_vnd, v.ends_at FROM marketing_vouchers v WHERE v.active=true AND v.public_claim=true AND now() BETWEEN v.starts_at AND v.ends_at AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.released=false) < v.total_limit ORDER BY v.created_at DESC LIMIT 6").catch(() => ({ rows: [] })),
       pool.query("SELECT title, body, ends_at FROM marketing_campaigns WHERE active=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC LIMIT 4").catch(() => ({ rows: [] })),
-      pool.query("SELECT slug, title, excerpt AS summary FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 25").catch(error => { console.warn("AI news context unavailable", /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "QUERY_FAILED"); return { rows: [] }; }),
+      pool.query("SELECT slug, title, excerpt AS summary FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 100").catch(error => { console.warn("AI news context unavailable", /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "QUERY_FAILED"); return { rows: [] }; }),
       pool.query("SELECT b.id, b.title, b.discount_type, b.discount_value, COALESCE((SELECT json_agg(json_build_object('productSlug', p.slug, 'productName', p.name, 'variantName', v.name, 'priceVnd', v.price_vnd, 'isPrimary', bi.is_primary)) FROM product_bundle_items bi JOIN product_variants v ON v.id=bi.variant_id JOIN products p ON p.id=v.product_id WHERE bi.bundle_id=b.id AND v.active=true AND p.active=true), '[]'::json) AS items FROM product_bundles b WHERE b.active=true AND b.starts_at <= now() AND b.ends_at > now() ORDER BY b.created_at DESC LIMIT 5").catch(() => ({ rows: [] }))
     ]);
 
@@ -236,7 +298,7 @@ async function boostWebKnowledgeWithEmbeddings(pool, rawQuestion, scored, releva
       if (isCustomTransport) {
         const texts = [
           rawQuestion,
-          ...candidates.map(c => `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`)
+          ...candidates.map(c => c.page.summaryText || `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`)
         ];
         const vecs = await embedTexts(texts, { transport: gpuTransport });
         if (!vecs || !vecs[0]) return;
@@ -247,7 +309,7 @@ async function boostWebKnowledgeWithEmbeddings(pool, rawQuestion, scored, releva
       } else {
         const pageItems = candidates.map(c => ({
           key: String(c.page.file),
-          text: `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`.replace(/\s+/g, ' ').trim()
+          text: (c.page.summaryText || `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`).replace(/\s+/g, ' ').trim()
         }));
         const [qRes, vecMap] = await Promise.all([
           embedText(rawQuestion),
@@ -279,13 +341,18 @@ async function boostWebKnowledgeWithEmbeddings(pool, rawQuestion, scored, releva
 
   if (relevantSnippets.length < 2) {
     const extraLines = [];
+    const seenExtra = new Set(relevantSnippets.map(s => normalizeText(s.line || '')));
     for (const item of scored.slice(0, 2)) {
       if (item.score < 8) continue;
-      const lines = String(item.page.content || '').split('\n').map(l => l.trim()).filter(l => l.length >= 24 && l.length <= 240);
-      for (const line of lines.slice(0, 24)) {
-        if (!relevantSnippets.some(s => s.line === line)) {
-          extraLines.push({ page: item.page, line });
-        }
+      const lines = String(item.page.content || '')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length >= 28 && l.length <= 260 && !isNoiseKnowledgeLine(l));
+      for (const line of lines.slice(0, 28)) {
+        const norm = normalizeText(line);
+        if (!norm || seenExtra.has(norm)) continue;
+        seenExtra.add(norm);
+        extraLines.push({ page: item.page, line });
         if (extraLines.length >= 6) break;
       }
       if (extraLines.length >= 6) break;
@@ -364,16 +431,22 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
     excerpt: page.content.slice(0, 1200)
   }));
 
-  // Extract crisp matching lines across top pages for direct factual grounding (deduplicated vs semantic snippets)
-  const relevantSnippets = [...semanticSnippets];
-  const seenLines = new Set(semanticSnippets.map(s => `${s.url || ''}::${normalizeText(s.line || '')}`));
+  // Extract crisp matching lines across top pages for direct factual grounding (globally deduplicated across pages)
+  const relevantSnippets = [];
+  const seenLines = new Set();
+  for (const s of semanticSnippets) {
+    const norm = normalizeText(s.line || '');
+    if (!norm || isNoiseKnowledgeLine(s.line) || seenLines.has(norm)) continue;
+    seenLines.add(norm);
+    relevantSnippets.push(s);
+  }
   if (tokens.length > 0) {
     for (const { page, score } of topMatched) {
       if (score < 4) continue;
-      const lines = page.content.split('\n').map(l => l.trim()).filter(l => l.length >= 20 && l.length <= 260);
+      const lines = page.content.split('\n').map(l => l.trim()).filter(l => l.length >= 26 && l.length <= 280 && !isNoiseKnowledgeLine(l));
       for (const line of lines) {
-        const key = `${page.url}::${normalizeText(line)}`;
-        if (seenLines.has(key)) continue;
+        const key = normalizeText(line);
+        if (!key || seenLines.has(key)) continue;
         const lineScore = tokenOverlapScore(tokens, tokenizeMeaningful(line));
         if (lineScore >= 0.35) {
           seenLines.add(key);
@@ -401,6 +474,8 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
 }
 
 module.exports = {
+  EXCLUDED_HTML,
+  isNoiseKnowledgeLine,
   extractPageKnowledge,
   loadWebPagesIndex,
   loadWebPagesIndexAsync,

@@ -36,9 +36,9 @@ const TECH_ECOSYSTEM_KNOWLEDGE = [
       ...DESKTOP_PC_TRIGGERS
     ],
     facts: [
-      'Samsung Galaxy (S20–S26 Ultra, Z Fold 5–7, Z Flip 5–7, A15–A56, Galaxy Tab S6–S11 / A7–A9+), Google Pixel, HONOR (Magic 6–8, HONOR Pad), Xiaomi/Redmi/POCO (Xiaomi 14–18, Redmi Note 12–15, Xiaomi/Redmi Pad), Huawei (Pura 70–80, MatePad), Lenovo Tab mới, Nothing/CMF, ASUS ROG, Sony Xperia: Dùng cổng USB Type-C và tự nhận OTG trực tiếp.',
-      'OPPO (Find X8–X10, Reno12–16, OPPO Pad), Realme (12–16, GT 6–8), OnePlus, vivo/iQOO (X200–X300, V40–V60, vivo Pad), Tecno, Infinix: Dùng USB Type-C và thường cần vào Cài đặt → bật Kết nối OTG trước khi cắm đầu thu.',
-      'Nếu Android đã bật OTG mà vẫn chưa nhận tín hiệu mic USB: Mở Tùy chọn nhà phát triển (chạm 7 lần Phiên bản OS / Số bản dựng) → bật Gỡ lỗi USB (USB debugging) và đảm bảo công tắc Tắt định tuyến âm thanh USB đang TẮT.',
+      'Samsung Galaxy (S20–S26 Ultra, Z Fold 5–7, Z Flip 5–7, A15–A56, Galaxy Tab S6–S11 / A7–A9+), Google Pixel, HONOR (Magic 6–8, HONOR Pad), Xiaomi/Redmi/POCO (Xiaomi 14–18, Redmi Note 12–15, Xiaomi/Redmi Pad), Huawei (Pura 70–80, MatePad), Lenovo Tab mới, Nothing/CMF, ASUS ROG, Sony Xperia: Dùng cổng USB Type-C. Lưu ý một số máy Android (đặc biệt OPPO, Realme, Redmi/Xiaomi, vivo…) app Camera cài sẵn chỉ thu mic tích hợp của máy nên cần dùng ứng dụng tải từ kho ứng dụng (Open Camera chọn Micro ngoài, TikTok, CapCut, Facebook) để thu bằng mic rời.',
+      'OPPO (Find X8–X10, Reno12–16, OPPO Pad), Realme (12–16, GT 6–8), OnePlus, vivo/iQOO (X200–X300, V40–V60, vivo Pad), Tecno, Infinix: Dùng USB Type-C, cần vào Cài đặt → bật Kết nối OTG trước khi cắm đầu thu, và quay bằng ứng dụng tải từ kho ứng dụng (như Open Camera chọn nguồn Micro ngoài, TikTok, CapCut) vì app Camera mặc định của máy thường chỉ dùng micro tích hợp.',
+      'Nếu Android đã bật OTG mà vẫn chưa nhận tín hiệu mic USB: Mở Tùy chọn nhà phát triển (chạm 7 lần Phiên bản OS / Số bản dựng) → bật Gỡ lỗi USB (USB debugging) và đảm bảo công tắc Tắt định tuyến âm thanh USB đang TẮT; đồng thời thử quay trên ứng dụng tải từ kho ứng dụng (Open Camera chọn Micro ngoài, TikTok, CapCut).',
       'Laptop Windows phổ thông/cũ, MacBook Air/Pro trước 2017, Surface Pro 4–6 và PC để bàn (USB-A): Chọn phân loại Type-C + chuyển USB để cắm cổng USB chữ nhật rồi chọn Wireless Microphone trong Sound Input. Máy Android cũ (J7, OPPO A3s, Redmi 9A, vivo Y11) dùng phân loại + chuyển Micro USB.'
     ]
   },
@@ -146,8 +146,8 @@ async function getExternalWebKnowledge({ question = '', selectedProduct = null, 
     }
   }
 
-  // 2. Perform live web search if question involves specific devices, apps, or comparisons
-  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|redmi|poco|vivo|iqoo|realme|oneplus|honor|huawei|pixel|tecno|infinix|nothing|rog|redmagic|nubia|xperia|motorola|nokia|ipad|tablet|may tinh bang|galaxy tab|xiaomi pad|matepad|surface|laptop|pc|macbook|imac|mac mini|otg|go loi usb|usb debugging|ios 18|ios 17|mic ngoai|capcut|tiktok|livestream|live|so sanh|dung duoc|tuong thich|tai sao|huong dan|cai dat|khoang cach)\b/.test(qNorm);
+  // 2. Perform live web search only when question names specific devices/apps/OS (avoid noisy generic triggers)
+  const needsWebSearch = /\b(?:iphone|samsung|oppo|xiaomi|redmi|poco|vivo|iqoo|realme|oneplus|honor|huawei|pixel|tecno|infinix|nothing|rog|redmagic|nubia|xperia|motorola|nokia|ipad|tablet|may tinh bang|galaxy tab|xiaomi pad|matepad|surface|laptop|pc|macbook|imac|mac mini|otg|go loi usb|usb debugging|ios 18|ios 17|mic ngoai|capcut|tiktok|obs|open camera)\b/.test(qNorm);
 
   let searchSnippets = [];
   if (webSearchEnabled && needsWebSearch && transport) {

@@ -68,6 +68,7 @@ function expandQueryVi(text) {
     .replace(/(?<![a-z0-9])ntn(?![a-z0-9])/g, 'nhu the nao')
     .replace(/(?<![a-z0-9])trc(?![a-z0-9])/g, 'truoc')
     .replace(/(?<![a-z0-9])g1ultra(?![a-z0-9])/g, 'g1 ultra')
+    .replace(/(?<![a-z0-9])(mic|micro)\s+ki(?![a-z0-9])/g, '$1 k9')
     .replace(/(?<![a-z0-9])bh(?![a-z0-9])/g, 'bao hanh')
     .replace(/(?<![a-z0-9])sp(?![a-z0-9])/g, 'san pham')
     .replace(/(?<![a-z0-9])sdt(?![a-z0-9])/g, 'so dien thoai')
@@ -238,7 +239,10 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
 
   // Category/form-factor hints when customer describes the product without its model code
   if (!directMatches.length) {
-    if (hasAnyBoundaryTerm(space, ['gimbal', 'quay theo nguoi', 'tu xoay', 'tu quay'])) {
+    if (hasAnyBoundaryTerm(space, [
+      'gimbal', 'quay theo nguoi', 'tu xoay', 'tu quay',
+      'tu dong xoay', 'xoay theo khuon mat', 'theo doi khuon mat', 'bam theo nguoi', 'xoay 360 theo nguoi', 'chan quay tu dong'
+    ])) {
       const p01 = entries.find(e => e.key === 'gaeru-p01' || normalizeSearchSpace(e.product?.category).includes('video'));
       if (p01) directMatches.push(p01);
     } else if (hasAnyBoundaryTerm(space, ['gay selfie', 'gay chup hinh', 'gay quay phim', 'tripod', '4 chan', 'chan quay'])) {
@@ -258,7 +262,8 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
       'phien ban', 'chon ban', '1 mic', '2 mic', 'type c', 'lightning', 'micro usb', 'usb a', 'chong on', 'loc on',
       'dung duoc', 'tuong thich', 'trong luong', 'hop sac', 'chot', 'dat', 'mua', 'lay',
       'mua ngay', 'dat hang', 'chot don', 'thanh toan', 'go loi usb', 'bat otg', 'mo otg',
-      'ios', 'mic ngoai', 'pc', 'laptop', 'macbook', 'may tinh bang'
+      'ios', 'mic ngoai', 'pc', 'laptop', 'macbook', 'may tinh bang',
+      'huong dan', 'cach dung', 'su dung', 'cach ket noi', 'den bao', 'nhap nhay', 'remote', 'chong nuoc', 'di mua', 'sac'
     ]);
 
   if (Array.isArray(history) && history.length) {
@@ -389,6 +394,52 @@ function matchProductVariants(question, variants = [], { ports = null } = {}) {
   return matched;
 }
 
+/**
+ * Reconstructs short contextual follow-up replies using the immediately preceding
+ * conversation turns (e.g. "iphone" -> "15" / "14 pro max" => "iphone 15" / "iphone 14 pro max").
+ */
+function resolveContextualFollowUp(rawQuestion, history = []) {
+  const raw = String(rawQuestion || '').trim();
+  if (!raw || !Array.isArray(history) || !history.length) return raw;
+  const space = normalizeSearchSpace(expandQueryVi(raw));
+  if (!space || space.length > 36) return raw;
+
+  // Already specifies a brand / product explicitly -> leave untouched
+  if (hasAnyBoundaryTerm(space, [
+    'iphone', 'ipad', 'macbook', 'samsung', 'galaxy', 'oppo', 'realme', 'xiaomi', 'redmi',
+    'poco', 'vivo', 'iqoo', 'honor', 'huawei', 'pixel', 'google', 'tecno', 'infinix', 'lg',
+    'sony', 'nokia', 'motorola', 'k9', 'm3', 'p01', 'p185', 'g1'
+  ])) {
+    return raw;
+  }
+
+  const recentText = history.slice(-4).map(m => normalizeSearchSpace(expandQueryVi(m?.body || m?.content || ''))).join(' ');
+  if (!recentText) return raw;
+
+  // Short Apple iPhone model follow-up: "15", "14 pro max", "13 mini", "16e", "xs max", "se 3", "17 air"
+  if (/^(?:(?:1[0-8]|[5-9])(?:\s*(?:e|air|plus|mini|pro(?:\s*max)?))?|xs(?:\s*max)?|xr|x|se(?:\s*[1-3])?)$/.test(space)) {
+    if (hasAnyBoundaryTerm(recentText, ['iphone', 'ios', 'lightning', 'chan cam', 'thiet bi nao'])) {
+      return `iphone ${space}`;
+    }
+  }
+
+  // Short iPad model follow-up: "gen 9", "gen 10", "air 5", "mini 6", "pro m4"
+  if (/^(?:gen\s*(?:[5-9]|1[01])|air\s*(?:[2-5]|m[2-4])|mini\s*(?:[4-7]|a17)|pro\s*(?:m[1-5]|20\d\d))$/.test(space)) {
+    if (hasAnyBoundaryTerm(recentText, ['ipad'])) {
+      return `ipad ${space}`;
+    }
+  }
+
+  // Short Samsung model follow-up: "s24", "s25 ultra", "a55", "fold 6", "flip 5"
+  if (/^(?:s2[0-6](?:\s*(?:ultra|plus|fe|edge))?|a[0-5]\d|m[1-5]\d|(?:z\s*)?(?:fold|flip)\s*[4-7])$/.test(space)) {
+    if (hasAnyBoundaryTerm(recentText, ['samsung', 'galaxy', 'android', 'thiet bi nao'])) {
+      return `samsung ${space}`;
+    }
+  }
+
+  return raw;
+}
+
 module.exports = {
   STOP_WORDS,
   normalizeVi,
@@ -405,5 +456,6 @@ module.exports = {
   isExplicitDetailedRequest,
   isFollowUpReference,
   resolveMentionedProducts,
-  matchProductVariants
+  matchProductVariants,
+  resolveContextualFollowUp
 };

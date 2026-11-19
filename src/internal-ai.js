@@ -1026,7 +1026,7 @@ Quy tắc cốt lõi:
             `> **GAERU K9** — mic cài áo không dây siêu nhẹ 7g, cắm là dùng ngay (Type-C / Lightning), thu đa hướng 360° lọc ồn DSP, cự ly tới 20m cho TikTok, livestream và dạy học.`;
         } else {
           out += `Bản thảo gợi ý:\n\n` +
-            `> Thiết bị thu âm & sáng tạo **GAERU** — kết nối cắm là dùng cho iPhone, Android và Laptop, lọc ồn rõ nét, bảo hành chính hãng 12 tháng (1 đổi 1 trong 30 ngày) và ${dynamicShippingPhrase}.`;
+            `> Thiết bị thu âm & sáng tạo **GAERU** — tương thích linh hoạt cho iPhone, Android và Laptop (không cần ghép Bluetooth), lọc ồn rõ nét, bảo hành chính hãng 12 tháng (đổi mới 1:1 trong 7 ngày lỗi NSX) và ${dynamicShippingPhrase}.`;
         }
       } else {
         out += `Chưa khớp yêu cầu với công cụ nào. Hãy hỏi cụ thể theo mảng (**doanh thu 7 ngày**, **đơn hàng mã GR-...**, **tồn kho K9**, **khách online**, **tạo voucher...**) để mình trích xuất dữ liệu ngay.`;

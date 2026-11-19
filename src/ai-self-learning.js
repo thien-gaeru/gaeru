@@ -629,15 +629,15 @@ async function scanAndHarvestPastChats(pool, { limit = 100 } = {}) {
         const curr = msgs[i];
         const next = msgs[i + 1];
 
-        // Khách hỏi và Nhân viên/AI trả lời bài bản (luôn qua hàng đợi pending_review trước khi kích hoạt)
-        if (curr.sender === 'customer' && (next.sender === 'admin' || next.sender === 'staff' || next.sender === 'ai')) {
+        // Chỉ thu hoạch cặp Khách hỏi -> Nhân viên thật trả lời (tuyệt đối không tự thu hoạch câu của chính AI để tránh echo-chamber)
+        if (curr.sender === 'customer' && (next.sender === 'admin' || next.sender === 'staff')) {
           processedCount++;
           const harvestedKey = `${threadId}:${curr.id || i}:${next.id || (i + 1)}`;
           const result = await learnFromInteraction(pool, {
-            sourceType: next.sender === 'ai' ? 'customer_chat' : 'staff_guidance',
+            sourceType: 'staff_guidance',
             question: curr.body,
             answer: next.body,
-            confidence: next.sender === 'ai' ? 0.65 : 0.85,
+            confidence: 0.85,
             status: 'pending_review',
             metadata: { threadId, questionMessageId: curr.id, answerMessageId: next.id, harvestedKey, harvestedAt: new Date().toISOString() }
           });

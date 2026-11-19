@@ -365,10 +365,10 @@ test("Google Analytics: client helper formats events and deduplicates purchases"
   assert.equal(events.length, countBefore, "Duplicate purchase event must be blocked by deduplication");
 });
 
-test("Google Analytics: all 34 storefront HTML files include google-analytics.js", () => {
+test("Google Analytics: all 35 storefront HTML files include google-analytics.js", () => {
   const dir = path.resolve(__dirname, "..");
   const htmlFiles = fs.readdirSync(dir).filter(f => f.endsWith(".html"));
-  assert.equal(htmlFiles.length, 34, "Should have 34 storefront HTML files");
+  assert.equal(htmlFiles.length, 35, "Should have 35 storefront HTML files");
 
   for (const file of htmlFiles) {
     const content = fs.readFileSync(path.join(dir, file), "utf8");
