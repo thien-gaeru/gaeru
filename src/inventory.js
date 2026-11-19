@@ -170,7 +170,8 @@ async function reserveStock(client, { variantId, quantity, orderId, actor, wareh
   await appendAudit(client, { actor, action: "inventory.reserve", entityType: "order", entityId: orderId, metadata: { variantId, quantity, ...(warehouseId ? { warehouseId } : {}) } });
 }
 
-async function releaseOrderStock(client, { orderId, actor }) {
+async function releaseOrderStock(client, { orderId, actor, reason } = {}) {
+  const releaseReason = typeof reason === "string" && reason.trim() ? reason.trim() : "Hoàn tồn khả dụng do hủy đơn";
   const result = await client.query(
     "SELECT DISTINCT variant_id AS id FROM order_stock_allocations WHERE order_id=$1 AND released_at IS NULL ORDER BY variant_id", [orderId]
   );
@@ -216,7 +217,7 @@ async function releaseOrderStock(client, { orderId, actor }) {
       const before = await lockBalance(client, allocation.warehouseId, variantId);
       await move(client, { variant, warehouseId: allocation.warehouseId, before, delta: allocation.quantity,
         type: "sale_release", eventKey: `release:${orderId}:${variantId}:${allocation.warehouseId}${allocation.reservationCycle ? ':cycle:'+allocation.reservationCycle : ''}`,
-        referenceType: "order", referenceId: orderId, reason: "Hoàn tồn khả dụng do hủy đơn", actor });
+        referenceType: "order", referenceId: orderId, reason: releaseReason, actor });
       await client.query(
         "UPDATE order_stock_allocations SET released_at=now() WHERE order_id=$1 AND variant_id=$2 AND warehouse_id=$3",
         [orderId, variantId, allocation.warehouseId]

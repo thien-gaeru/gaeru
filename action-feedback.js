@@ -1,12 +1,71 @@
 (() => {
   const add = EventTarget.prototype.addEventListener;
   const remove = EventTarget.prototype.removeEventListener;
-  const listeners = new WeakMap(), events = new WeakMap(), buttons = new WeakMap();
+  const listeners = new WeakMap(), events = new WeakMap(), buttons = new WeakMap(), noticeTimers = new WeakMap();
   const active = new Set();
-  let current = null, region;
+  const DEFAULT_TOAST_DURATION = 3000;
+  let current = null, region, boundDialog = null;
   const recentNotices = new Map();
   const statusSelector = '[role="status"],.feedback,.security-feedback,.workspace-status,[data-global-feedback]';
   const text = node => (node.textContent || '').trim();
+
+  function friendlyHttpError(status) {
+    if (status === 502 || status === 503 || status === 504) return 'Máy chủ tạm thời gián đoạn. Vui lòng thử lại sau giây lát.';
+    if (status === 429) return 'Bạn thao tác quá nhanh. Vui lòng chờ vài giây rồi thử lại.';
+    if (status === 403) return 'Bạn không có quyền thực hiện thao tác này.';
+    if (status === 404) return 'Không tìm thấy dữ liệu yêu cầu hoặc dữ liệu đã thay đổi.';
+    if (status === 409) return 'Dữ liệu vừa thay đổi từ nơi khác. Vui lòng tải lại để cập nhật.';
+    if (status >= 500) return 'Hệ thống gặp sự cố tạm thời. Vui lòng thử lại.';
+    return 'Không thể thực hiện thao tác. Vui lòng thử lại.';
+  }
+
+  function dismissNotice(item) {
+    if (!item) return;
+    const prevTimer = noticeTimers.get(item);
+    if (prevTimer) {
+      clearTimeout(prevTimer);
+      noticeTimers.delete(item);
+    }
+    try { item.remove(); } catch (_) {}
+  }
+
+  function armNoticeTimer(item, durationMs) {
+    const prevTimer = noticeTimers.get(item);
+    if (prevTimer) clearTimeout(prevTimer);
+    if (item.style && typeof item.style.setProperty === 'function') {
+      item.style.setProperty('--gaeru-toast-duration', durationMs + 'ms');
+    }
+    const timer = setTimeout(() => dismissNotice(item), durationMs);
+    noticeTimers.set(item, timer);
+  }
+
+  function reparentRegionToActiveHost() {
+    if (!region) return;
+    const openDialogs = typeof document.querySelectorAll === 'function' ? [...document.querySelectorAll('dialog[open]')] : [];
+    const targetHost = openDialogs.at(-1) || document.body;
+    if (targetHost && region.parentElement !== targetHost) {
+      targetHost.append(region);
+    }
+    if (targetHost && targetHost.tagName === 'DIALOG' && targetHost !== boundDialog && typeof targetHost.addEventListener === 'function') {
+      boundDialog = targetHost;
+      add.call(targetHost, 'close', () => {
+        if (boundDialog === targetHost) boundDialog = null;
+        if (region && region.parentElement === targetHost) {
+          const fallbackHost = (typeof document.querySelectorAll === 'function' ? [...document.querySelectorAll('dialog[open]')].filter(d => d !== targetHost).at(-1) : null) || document.body;
+          if (fallbackHost) fallbackHost.append(region);
+        }
+      }, { once: true });
+    }
+  }
+
+  function clearNotices(filterType) {
+    if (!region?.children) return;
+    for (const node of Array.from(region.children)) {
+      if (!filterType || node.classList?.contains?.('is-' + filterType)) {
+        dismissNotice(node);
+      }
+    }
+  }
 
   function isElementVisiblyActive(el) {
     if (!el || el.hidden || el.hasAttribute?.('hidden') || el.classList?.contains?.('is-closing')) return false;
@@ -52,6 +111,8 @@
     const isErr = typeOrError === true || typeOrError === 'error' || (typeof typeOrError === 'object' && typeOrError?.error);
     const type = isErr ? 'error' : (typeof typeOrError === 'string' && ['success', 'warning', 'info'].includes(typeOrError) ? typeOrError : 'success');
 
+    const duration = Number(options?.duration) > 0 ? Number(options.duration) : DEFAULT_TOAST_DURATION;
+
     // 1. Check if an identical notification is currently visible in the DOM region
     const normClean = cleanMsg.replace(/^×|×$/g, '').trim().replace(/[\.\!\,\s]+$/g, '').toLowerCase();
     if (region?.children) {
@@ -62,6 +123,8 @@
         return txt === normClean;
       });
       if (existing) {
+        reparentRegionToActiveHost();
+        armNoticeTimer(existing, duration);
         return existing;
       }
     }
@@ -77,7 +140,11 @@
           const txt = (span?.textContent || node.textContent || '').trim().replace(/^×|×$/g, '').trim().replace(/[\.\!\,\s]+$/g, '').toLowerCase();
           return txt === normClean;
         });
-        if (existing) return existing;
+        if (existing) {
+          reparentRegionToActiveHost();
+          armNoticeTimer(existing, duration);
+          return existing;
+        }
       }
       return null;
     }
@@ -88,15 +155,13 @@
       }
     }
 
-    const host = [...document.querySelectorAll('dialog[open]')].at(-1) || document.body;
     if (!region?.isConnected) {
       region = document.createElement('div');
       region.className = 'gaeru-action-notices';
       region.setAttribute('aria-live', 'polite');
       region.setAttribute('aria-label', 'Thông báo thao tác');
-      host.append(region);
     }
-    if (region.parentElement !== host) host.append(region);
+    reparentRegionToActiveHost();
     const item = document.createElement('div');
     item.className = 'gaeru-action-notice' + (isErr ? ' is-error' : '') + (' is-' + type);
     const messageNode = document.createElement('span');
@@ -105,15 +170,14 @@
     close.type = 'button';
     close.textContent = '×';
     close.setAttribute('aria-label', 'Đóng thông báo');
-    add.call(close, 'click', () => item.remove());
+    add.call(close, 'click', () => dismissNotice(item));
     add.call(item, 'click', (e) => {
-      if (e.target !== close && !window.getSelection?.()?.toString()) item.remove();
+      if (e.target !== close && !window.getSelection?.()?.toString()) dismissNotice(item);
     });
     item.append(messageNode, close);
     region.append(item);
-    while (region.children.length > 3) region.firstElementChild.remove();
-    const duration = options?.duration || (isErr ? 9000 : type === 'warning' ? 7500 : 5500);
-    setTimeout(() => item.remove(), duration);
+    while (region.children.length > 3) dismissNotice(region.firstElementChild);
+    armNoticeTimer(item, duration);
     return item;
   }
 
@@ -293,6 +357,8 @@
     clearTimeout(ctx.finishTimer);
     ctx.pending++;
     active.add(ctx);
+    // Lock immediately in the current tick so rapid duplicate clicks cannot fire a second request
+    buttons.set(ctx.button, ctx);
     queueMicrotask(() => start(ctx));
   }
 
@@ -624,7 +690,7 @@
         }
         if (mutation || !response.ok) ctx.responses.push({
           ok: response.ok,
-          error: typeof data.error === 'string' ? data.error : (typeof data.error?.message === 'string' ? data.error.message : null),
+          error: typeof data.error === 'string' ? data.error : (typeof data.error?.message === 'string' ? data.error.message : (!response.ok ? friendlyHttpError(response.status) : null)),
           message: typeof data.message === 'string' ? data.message : null,
           mfaRequired: Boolean(data.mfaRequired)
         });
@@ -671,6 +737,8 @@
     error: (msg, opts = {}) => notify(msg, 'error', opts),
     warning: (msg, opts = {}) => notify(msg, 'warning', opts),
     info: (msg, opts = {}) => notify(msg, 'info', opts),
+    clear: (filterType) => clearNotices(filterType),
+    dismissAll: () => clearNotices(),
     alert: (msg, opts = {}) => showModal({ ...opts, message: msg, mode: 'alert' }),
     confirm: (msg, opts = {}) => showModal({ ...opts, message: msg, mode: 'confirm' }),
     prompt: (msg, defaultValue = '', opts = {}) => showModal({ ...opts, message: msg, defaultValue, mode: 'prompt' }),

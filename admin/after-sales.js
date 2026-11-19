@@ -98,7 +98,28 @@
  document.addEventListener('click',e=>{if(e.target.closest('#after-sales-toggle')){if(panel.hidden)open();else close();}});panel.querySelector('[data-after-sales-refresh]').addEventListener('click',load);filter.addEventListener('change',load);
  create.querySelector('[data-find-case-order]').addEventListener('click',async()=>{const version=++revision,status=create.querySelector('[data-case-create-status]');create.elements.orderId.innerHTML='<option value="">Đang tìm…</option>';searchResults=[];try{const query=create.elements.search.value.trim();if(!query)throw Error('Nhập mã đơn, tên hoặc điện thoại để tìm.');const result=await window.GAERUAdmin.request('/api/gaeru_ceo/orders?q='+encodeURIComponent(query)+'&pageSize=100');if(version!==revision)return;searchResults=result.orders.filter(o=>o.status!=='cancelled'&&o.returnStatus!=='returned'&&!o.returnedAt);create.elements.orderId.innerHTML='<option value="">Chọn đơn cần xử lý</option>'+searchResults.map(o=>'<option value="'+esc(o.id)+'">'+esc(o.orderNumber)+' · '+esc(o.customerName)+'</option>').join('');status.textContent=searchResults.length?'Tìm thấy '+searchResults.length+' đơn. Chọn đơn để tạo yêu cầu.':'Không có đơn phù hợp.';}catch(error){if(version===revision){create.elements.orderId.innerHTML='<option value="">Tìm và chọn đơn</option>';status.textContent=error.message;}}});
  create.elements.orderId.addEventListener('change',()=>{const order=searchResults.find(o=>o.id===create.elements.orderId.value);create.querySelector('[data-case-kind]').textContent=order?(['shipped','completed'].includes(order.status)?'Loại yêu cầu: Trả hàng':'Loại yêu cầu: Hủy đơn'):'';});
- create.addEventListener('submit',async event=>{event.preventDefault();if(create.dataset.saving)return;if(!window.GAERUAdmin.can('orders.write')){window.GAERUAdmin.showGlobal('Bạn không có quyền xử lý đơn hàng.',true);return;}const order=searchResults.find(o=>o.id===create.elements.orderId.value),status=create.querySelector('[data-case-create-status]');if(!order){status.textContent='Chọn một đơn hàng.';return;}const button=create.querySelector('[type=submit]');button.disabled=true;create.dataset.saving='true';try{await window.GAERUAdmin.request('/api/gaeru_ceo/orders/'+order.id+'/after-sales',{method:'POST',body:JSON.stringify({kind:['shipped','completed'].includes(order.status)?'return':'cancellation',reason:create.elements.reason.value})});filter.value='requested';create.elements.reason.value='';status.textContent='Đã chuyển yêu cầu vào thư mục Mới yêu cầu.';await load();}catch(error){status.textContent=error.message;}finally{button.disabled=false;delete create.dataset.saving;}});
+ create.addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(create.dataset.saving)return;
+  if(!window.GAERUAdmin.can('orders.write')){window.GAERUAdmin.showGlobal('Bạn không có quyền xử lý đơn hàng.',true);return;}
+  const order=searchResults.find(o=>o.id===create.elements.orderId.value),status=create.querySelector('[data-case-create-status]');
+  if(!order){status.textContent='Chọn một đơn hàng.';return;}
+  const button=create.querySelector('[type=submit]');
+  create.dataset.saving='true';
+  if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(button,true,'Đang tạo yêu cầu…'); else button.disabled=true;
+  try{
+   await window.GAERUAdmin.request('/api/gaeru_ceo/orders/'+order.id+'/after-sales',{method:'POST',body:JSON.stringify({kind:['shipped','completed'].includes(order.status)?'return':'cancellation',reason:create.elements.reason.value})});
+   filter.value='requested';create.elements.reason.value='';status.textContent='';
+   await load();
+   window.GAERUAdmin.showGlobal('Đã tạo yêu cầu cho đơn #'+order.orderNumber+' và chuyển vào Mới yêu cầu.');
+  }catch(error){
+   status.textContent=error.message;
+   window.GAERUAdmin.showGlobal(error.message,true);
+  }finally{
+   if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(button,false); else button.disabled=false;
+   delete create.dataset.saving;
+  }
+ });
  panel.addEventListener('click',async event=>{
   const button=event.target.closest('[data-load-exchange]');if(!button||button.disabled)return;
   const id=button.dataset.loadExchange,section=button.closest('[data-exchange-tools]'),status=section.querySelector('[data-exchange-status]');button.disabled=true;status.classList.remove('is-error');status.textContent='Đang kiểm tra kho và chứng từ…';
@@ -145,8 +166,11 @@
   const rmaForm=e.target.closest('[data-rma-logistics]');
   if(rmaForm){
    e.preventDefault();
+   if(rmaForm.dataset.saving)return;
    if(!window.GAERUAdmin.can('orders.write')){window.GAERUAdmin.showGlobal('Bạn không có quyền xử lý đơn hàng.',true);return;}
-   const b=rmaForm.querySelector('button');if(b.disabled)return;b.disabled=true;
+   const b=rmaForm.querySelector('button');if(b.disabled)return;
+   rmaForm.dataset.saving='true';
+   if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(b,true,'Đang cập nhật tiếp nhận…'); else b.disabled=true;
    try{
     if(rmaForm.elements.outboundStatus&&['in_transit','delivered'].includes(rmaForm.elements.outboundStatus.value)&&(!rmaForm.elements.outboundCarrier.value.trim()||rmaForm.elements.outboundTrackingNumber.value.trim().length<4))throw Error('Nhập đơn vị vận chuyển và mã vận đơn ít nhất 4 ký tự trước khi ghi nhận giao hàng.');
     await window.GAERUAdmin.request('/api/gaeru_ceo/orders/after-sales/'+rmaForm.dataset.rmaLogistics+'/logistics',{
@@ -160,17 +184,25 @@
      })
     });
     await load();
-    window.GAERUAdmin.showGlobal('Đã cập nhật thông tin vận chuyển RMA.');
+    window.GAERUAdmin.showGlobal('Đã cập nhật thông tin tiếp nhận & vận chuyển RMA.');
    }catch(error){
     window.GAERUAdmin.showGlobal(error.message,true);
-    b.disabled=false;
+    if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(b,false); else b.disabled=false;
+   }finally{
+    delete rmaForm.dataset.saving;
    }
    return;
   }
   const f=e.target.closest('[data-case]');if(!f)return;
-  e.preventDefault();if(!window.GAERUAdmin.can('orders.write')){window.GAERUAdmin.showGlobal('Bạn không có quyền xử lý đơn hàng.',true);return;}const b=f.querySelector('button');if(b.disabled)return;b.disabled=true;
+  e.preventDefault();
+  if(f.dataset.saving)return;
+  if(!window.GAERUAdmin.can('orders.write')){window.GAERUAdmin.showGlobal('Bạn không có quyền xử lý đơn hàng.',true);return;}
+  const b=f.querySelector('button');if(b.disabled)return;
+  const target=f.elements.status.value;
+  f.dataset.saving='true';
+  const busyText=target==='resolved'?'Đang đóng hồ sơ…':('Đang chuyển sang '+(labels[target]||'bước mới')+'…');
+  if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(b,true,busyText); else b.disabled=true;
   try{
-   const target=f.elements.status.value;
    const record=casesById.get(f.dataset.case);
    if(!record||!availableTransitions(record).includes(target))throw Error('Bước xử lý chưa được phép. Kiểm tra quyền và tải lại hồ sơ.');
    const body={version:Number(f.dataset.version),status:target,resolution:f.elements.resolution.value};
@@ -189,7 +221,9 @@
   }catch(error){
    f.querySelector('[role=status]').textContent=error.message;
    window.GAERUAdmin.showGlobal(error.message,true);
-   b.disabled=false;
+   if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(b,false); else b.disabled=false;
+  }finally{
+   delete f.dataset.saving;
   }
  });
 })();

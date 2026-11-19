@@ -278,6 +278,7 @@
       listEl.querySelectorAll('form[data-cod-intake-form]').forEach(form => {
         form.addEventListener('submit', async e => {
           e.preventDefault();
+          if (form.dataset.saving) return;
           const statusSpan = form.querySelector('.intake-form-status');
           const submitBtn = form.querySelector('button[type="submit"]');
 
@@ -289,8 +290,10 @@
             carrierFault: formData.get('carrierFault') === 'on'
           };
 
-          submitBtn.disabled = true;
-          statusSpan.textContent = 'Đang xử lý kiểm nhận...';
+          form.dataset.saving = 'true';
+          if (window.GAERUAdmin?.setButtonBusy) window.GAERUAdmin.setButtonBusy(submitBtn, true, 'Đang kiểm nhận…');
+          else submitBtn.disabled = true;
+          statusSpan.textContent = 'Đang xử lý kiểm nhận…';
           statusSpan.style.color = '#718096';
 
           try {
@@ -299,16 +302,23 @@
               body: JSON.stringify(payload)
             });
 
-            statusSpan.textContent = '✅ ' + (res.message || 'Kiểm nhận thành công!');
+            const msg = res.message || 'Kiểm nhận hàng hoàn thành công.';
+            statusSpan.textContent = '✅ ' + msg;
             statusSpan.style.color = '#2f855a';
+            window.GAERUAdmin?.showGlobal?.(msg);
 
             setTimeout(() => {
               loadPending();
-            }, 1200);
+            }, 800);
           } catch (err) {
-            submitBtn.disabled = false;
-            statusSpan.textContent = '❌ Lỗi: ' + (err.message || 'Không thể kiểm nhận.');
+            const errMsg = err.message || 'Không thể kiểm nhận.';
+            statusSpan.textContent = '❌ Lỗi: ' + errMsg;
             statusSpan.style.color = '#c53030';
+            window.GAERUAdmin?.showGlobal?.(errMsg, true);
+            if (window.GAERUAdmin?.setButtonBusy) window.GAERUAdmin.setButtonBusy(submitBtn, false);
+            else submitBtn.disabled = false;
+          } finally {
+            delete form.dataset.saving;
           }
         });
       });

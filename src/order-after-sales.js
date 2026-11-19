@@ -464,7 +464,8 @@ function afterSalesRouter(pool) {
           if (row.restock_eligible === true) {
             await require('./inventory').releaseOrderStock(c, {
               orderId: row.order_id,
-              actor: req.admin
+              actor: req.admin,
+              reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
             });
             // Cache invalidation does not participate in the financial transaction.
             try { require('../cache').flushAllCache(); } catch {}

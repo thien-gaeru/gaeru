@@ -171,10 +171,11 @@
       return;
     }
     const w = rows.find(w => w.id === form.dataset.wId);
-    if (!w) return;
+    if (!w || form.dataset.saving) return;
     if (!form.reportValidity()) return;
     const button = form.querySelector('button');
-    button.disabled = true;
+    form.dataset.saving = 'true';
+    if (admin.setButtonBusy) admin.setButtonBusy(button, true, 'Đang cập nhật…'); else button.disabled = true;
     try {
       const status = form.elements.status.value;
       const body = { status, reason: form.elements.reason.value, version: w.version, ...(status === 'active' ? { purchaseDate: form.elements.purchaseDate.value } : {}) };
@@ -183,7 +184,10 @@
       admin.showGlobal('Đã cập nhật hồ sơ bảo hành.');
     } catch (error) {
       form.querySelector('[role=status]').textContent = error.message;
-      button.disabled = false;
+      admin.showGlobal(error.message, true);
+      if (admin.setButtonBusy) admin.setButtonBusy(button, false); else button.disabled = false;
+    } finally {
+      delete form.dataset.saving;
     }
   });
 
@@ -202,14 +206,16 @@
 
     const quickApprove = e.target.closest('[data-w-quick-approve]');
     if (quickApprove) {
+      if (quickApprove.dataset.busy === 'true') return;
       const w = rows.find(item => item.id === quickApprove.dataset.wQuickApprove);
       if (!w) return;
+      quickApprove.dataset.busy = 'true';
       const purchaseDate = quickApprove.dataset.wDate || w.claimedPurchaseDate || w.purchaseDate || new Date().toISOString().slice(0, 10);
       const ok = window.GAERUNotify?.confirm
         ? await window.GAERUNotify.confirm('Kích hoạt bảo hành 12 tháng cho ' + (w.productName || 'sản phẩm') + ' (ngày mua: ' + purchaseDate + ')?', { title: 'Duyệt nhanh bảo hành', confirmText: 'Xác nhận kích hoạt' })
         : true;
-      if (!ok) return;
-      quickApprove.disabled = true;
+      if (!ok) { delete quickApprove.dataset.busy; return; }
+      if (admin.setButtonBusy) admin.setButtonBusy(quickApprove, true, 'Đang duyệt…'); else quickApprove.disabled = true;
       try {
         await admin.request('/api/gaeru_ceo/warranties/' + w.id, {
           method: 'PATCH',
@@ -219,17 +225,20 @@
         admin.showGlobal('Đã duyệt nhanh và kích hoạt bảo hành thành công.');
       } catch (error) {
         admin.showGlobal(error.message, true);
-        quickApprove.disabled = false;
+        if (admin.setButtonBusy) admin.setButtonBusy(quickApprove, false); else quickApprove.disabled = false;
+      } finally {
+        delete quickApprove.dataset.busy;
       }
       return;
     }
 
     const quickReject = e.target.closest('[data-w-quick-reject]');
     if (quickReject) {
+      if (quickReject.dataset.busy === 'true') return;
       const w = rows.find(item => item.id === quickReject.dataset.wQuickReject);
       if (!w) return;
       const reasonText = Array.isArray(w.spamReasons) && w.spamReasons.length ? w.spamReasons.join(' · ') : 'Yêu cầu rác / thông tin người mua không có thật.';
-      quickReject.disabled = true;
+      if (admin.setButtonBusy) admin.setButtonBusy(quickReject, true, 'Đang từ chối…'); else quickReject.disabled = true;
       try {
         await admin.request('/api/gaeru_ceo/warranties/' + w.id, {
           method: 'PATCH',
@@ -239,21 +248,22 @@
         admin.showGlobal('Đã từ chối yêu cầu bảo hành nghi vấn rác.');
       } catch (error) {
         admin.showGlobal(error.message, true);
-        quickReject.disabled = false;
+        if (admin.setButtonBusy) admin.setButtonBusy(quickReject, false); else quickReject.disabled = false;
       }
       return;
     }
 
     const bulkSpam = e.target.closest('[data-w-bulk-delete-spam]');
     if (bulkSpam) {
+      if (bulkSpam.dataset.busy === 'true') return;
       const targets = rows.filter(r => r.isSpam && !r.automatic && ['pending', 'rejected'].includes(r.status));
       if (!targets.length) return;
+      bulkSpam.dataset.busy = 'true';
       const ok = window.GAERUNotify?.confirm
         ? await window.GAERUNotify.confirm('Xóa sạch ' + targets.length + ' yêu cầu rác trên trang này? Lịch sử thao tác vẫn được lưu trong nhật ký hệ thống.', { title: 'Dọn sạch yêu cầu rác', confirmText: 'Xóa ' + targets.length + ' yêu cầu', danger: true })
         : true;
-      if (!ok) return;
-      bulkSpam.disabled = true;
-      bulkSpam.textContent = 'Đang dọn sạch…';
+      if (!ok) { delete bulkSpam.dataset.busy; return; }
+      if (admin.setButtonBusy) admin.setButtonBusy(bulkSpam, true, 'Đang dọn sạch…'); else { bulkSpam.disabled = true; bulkSpam.textContent = 'Đang dọn sạch…'; }
       let deletedCount = 0;
       for (const w of targets) {
         try {
@@ -276,16 +286,17 @@
       return;
     }
     if (confirm) {
+      if (confirm.dataset.busy === 'true') return;
       const w = rows.find(w => w.id === confirm.dataset.wAdminDeleteYes);
       if (!w) return;
-      confirm.disabled = true;
+      if (admin.setButtonBusy) admin.setButtonBusy(confirm, true, 'Đang xóa…'); else confirm.disabled = true;
       try {
         const r = await admin.request('/api/gaeru_ceo/warranties/' + w.id, { method: 'DELETE', body: JSON.stringify({ version: w.version, confirmation: 'DELETE_WARRANTY_REQUEST' }) });
         await load();
         admin.showGlobal(r.message);
       } catch (error) {
         admin.showGlobal(error.message, true);
-        confirm.disabled = false;
+        if (admin.setButtonBusy) admin.setButtonBusy(confirm, false); else confirm.disabled = false;
       }
       return;
     }

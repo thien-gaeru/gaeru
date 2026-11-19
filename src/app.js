@@ -657,7 +657,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
       }
-      if (['account.html', 'account.js', 'checkout.html', 'cart.html', 'payment-result.html', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js'].includes(path.basename(file))) {
+      if (['account.html', 'account.js', 'checkout.html', 'cart.html', 'payment-result.html', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js', 'action-feedback.js', 'action-feedback.css'].includes(path.basename(file))) {
         res.setHeader('Cache-Control', 'no-store');
       }
     },

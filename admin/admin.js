@@ -64,28 +64,77 @@ function applyPermissions() {
   document.querySelectorAll("#settings-form input,#settings-form textarea,#settings-form button").forEach((element) => { element.disabled = !can("settings.write"); });
 }
 
+const GLOBAL_NOTICE_MS = 3000;
+let globalFeedbackTimer = null;
+
+function friendlyHttpStatusMessage(status) {
+  if (status === 502 || status === 503 || status === 504) return "Máy chủ tạm thời gián đoạn. Vui lòng thử lại sau giây lát.";
+  if (status === 429) return "Bạn thao tác quá nhanh. Vui lòng chờ vài giây rồi thử lại.";
+  if (status === 403) return "Bạn không có quyền thực hiện thao tác này.";
+  if (status === 404) return "Không tìm thấy dữ liệu yêu cầu hoặc dữ liệu đã thay đổi.";
+  if (status === 409) return "Dữ liệu vừa được cập nhật từ nơi khác. Vui lòng tải lại.";
+  if (status >= 500) return "Hệ thống gặp sự cố tạm thời. Vui lòng thử lại.";
+  return `Không thể hoàn tất yêu cầu (${status}).`;
+}
+
 async function request(url, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
   const headers = new Headers(options.headers || {});
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  if (options.method && options.method !== "GET") headers.set("X-CSRF-Token", state.csrfToken);
-  const response = await fetch(url, { ...options, headers, credentials: "same-origin" });
+  if (method !== "GET") headers.set("X-CSRF-Token", state.csrfToken);
+  let response = await fetch(url, { ...options, headers, credentials: "same-origin" });
+  // Safe single automatic retry ONLY for idempotent GET on transient upstream 502/503/504
+  if (method === "GET" && [502, 503, 504].includes(response.status) && !options._retried) {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    response = await fetch(url, { ...options, headers, credentials: "same-origin" });
+  }
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && state.session) { state.session = null; location.replace("/gaeru_ceo?expired=1"); }
-  if (!response.ok) throw Object.assign(new Error(body.error || `Yêu cầu thất bại (${response.status}).`),{status:response.status,diagnostic:body.diagnostic,stage:body.stage});
+  if (!response.ok) throw Object.assign(new Error(body.error || friendlyHttpStatusMessage(response.status)), { status: response.status, diagnostic: body.diagnostic, stage: body.stage });
   return body;
 }
 
-function showGlobal(message, isError = false) {
-  const text = typeof message === 'string' ? message : (message?.message || message?.error || (message ? String(message) : ''));
+function clearStaleGlobalError() {
   const feedback = document.querySelector("#global-feedback");
+  if (feedback && feedback.classList?.contains("is-error")) {
+    if (globalFeedbackTimer) { clearTimeout(globalFeedbackTimer); globalFeedbackTimer = null; }
+    feedback.textContent = "";
+    feedback.classList.remove("is-error");
+  }
+  window.GAERUNotify?.clear?.("error");
+}
+
+function showGlobal(message, isError = false, options = {}) {
+  const text = typeof message === 'string' ? message.trim() : (message?.message || message?.error || (message ? String(message).trim() : ''));
+  const duration = Number(options?.duration) > 0 ? Number(options.duration) : GLOBAL_NOTICE_MS;
+  const feedback = document.querySelector("#global-feedback");
+  if (globalFeedbackTimer) {
+    clearTimeout(globalFeedbackTimer);
+    globalFeedbackTimer = null;
+  }
   if (feedback) {
     feedback.textContent = text;
-    feedback.classList.toggle("is-error", isError);
+    feedback.classList.toggle("is-error", Boolean(text && isError));
+    if (text) {
+      if (!feedback.dataset.clickDismissBound) {
+        feedback.dataset.clickDismissBound = "true";
+        feedback.style.cursor = "pointer";
+        feedback.title = "Bấm để đóng thông báo";
+        feedback.addEventListener("click", () => showGlobal(""));
+      }
+      globalFeedbackTimer = setTimeout(() => {
+        if (feedback.textContent === text) {
+          feedback.textContent = "";
+          feedback.classList.remove("is-error");
+        }
+        globalFeedbackTimer = null;
+      }, duration);
+    }
   }
   if (text) {
     if (window.GAERUNotify?.toast) {
-      window.GAERUNotify.toast(text, isError ? "error" : "success");
+      window.GAERUNotify.toast(text, isError ? "error" : "success", { duration });
     } else if (typeof window.notify === "function") {
       window.notify(text, isError);
     }
@@ -94,8 +143,7 @@ function showGlobal(message, isError = false) {
 
 function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành công") {
   try {
-    const gf = document.querySelector("#global-feedback");
-    if (gf) { gf.textContent = ""; gf.classList.remove("is-error"); }
+    showGlobal("");
     document.querySelectorAll(".gaeru-action-notice, .gaeru-action-notices").forEach((n) => n.remove());
   } catch (_) {}
   let popup = document.querySelector("#product-added-popup");
@@ -108,6 +156,7 @@ function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành c
     popup.innerHTML = '<div class="product-success-popup-card"><div class="product-success-icon-wrap"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg></div><h2>' + escapeHtml(message) + '</h2><p class="product-success-sub">Sản phẩm đã được lưu và cập nhật vào danh sách quản lý sản phẩm.</p><div class="product-success-actions"><button type="button" class="primary-button product-success-btn" data-close-product-popup>Đóng thông báo</button></div></div>';
     popup.addEventListener("click", (e) => {
       if (e.target.closest("[data-close-product-popup]") || e.target === popup) {
+        if (popup._autoCloseTimer) clearTimeout(popup._autoCloseTimer);
         popup.remove();
       }
     });
@@ -119,9 +168,10 @@ function showProductAddedPopup(message = "Đã thêm sản phẩm mới thành c
     const h2 = popup.querySelector("h2");
     if (h2) h2.textContent = message;
   }
-  setTimeout(() => {
+  if (popup._autoCloseTimer) clearTimeout(popup._autoCloseTimer);
+  popup._autoCloseTimer = setTimeout(() => {
     try { popup?.remove(); } catch (_) {}
-  }, 4000);
+  }, GLOBAL_NOTICE_MS);
 }
 
 function checkProductAddedNotice() {
@@ -148,7 +198,7 @@ function markLocalOrderAction(orderRef) {
 function isRecentLocalOrderAction(orderRef) {
   if (!orderRef) return false;
   const t = recentLocalOrderActions.get(String(orderRef));
-  return Boolean(t && (Date.now() - t < 5000));
+  return Boolean(t && (Date.now() - t < 8000));
 }
 
 function isDuplicateRealtimeEvent(key, ttlMs = 3500) {
@@ -962,6 +1012,7 @@ async function loadOrders(page = state.orderPage, { background = false } = {}) {
     state.selectedOrders.clear();
     renderOrderOverview(result.overview || {});
     renderOrders();
+    if (!background) clearStaleGlobalError();
     if (typeof document?.dispatchEvent === 'function') { try { const ev = typeof CustomEvent === 'function' ? new CustomEvent('gaeru:orders-loaded') : (typeof Event === 'function' ? new Event('gaeru:orders-loaded') : null); if (ev) document.dispatchEvent(ev); } catch {} }
     document.querySelector('#order-live-status').textContent = 'Tự cập nhật mỗi 15 giây' + (background ? ' · Đã cập nhật lúc ' + new Date().toLocaleTimeString('vi-VN') : '');
   } catch (error) {
@@ -988,6 +1039,49 @@ document.addEventListener('DOMContentLoaded', () => {
 function isLiveVnpayAttempt(order) {
   return ["vnpay", "momo", "zalopay"].includes(order.paymentMethod) && order.paymentAttemptStatus === "pending"
     && (!order.paymentAttemptExpiresAt || new Date(order.paymentAttemptExpiresAt).getTime() > Date.now());
+}
+
+function setButtonBusy(button, busy, busyLabel) {
+  if (!button) return;
+  if (busy) {
+    if (!button.dataset.origLabel) button.dataset.origLabel = button.textContent;
+    button.disabled = true;
+    button.dataset.busy = "true";
+    button.classList?.add("is-processing");
+    button.setAttribute?.("aria-busy", "true");
+    if (busyLabel) button.textContent = busyLabel;
+  } else {
+    button.disabled = false;
+    delete button.dataset.busy;
+    button.classList?.remove("is-processing");
+    button.removeAttribute?.("aria-busy");
+    if (button.dataset.origLabel !== undefined) {
+      button.textContent = button.dataset.origLabel;
+      delete button.dataset.origLabel;
+    }
+  }
+}
+
+function lockOrderDialog(dialog, activeButton, busyLabel) {
+  if (!dialog) {
+    setButtonBusy(activeButton, true, busyLabel);
+    return () => setButtonBusy(activeButton, false);
+  }
+  dialog.dataset.busy = "true";
+  const controls = [...dialog.querySelectorAll("button, select, input, textarea")];
+  const prevDisabled = new Map(controls.map((el) => [el, Boolean(el.disabled)]));
+  for (const el of controls) el.disabled = true;
+  if (activeButton) setButtonBusy(activeButton, true, busyLabel);
+  let unlocked = false;
+  return () => {
+    if (unlocked) return;
+    unlocked = true;
+    delete dialog.dataset.busy;
+    if (activeButton) setButtonBusy(activeButton, false);
+    for (const [el, wasDisabled] of prevDisabled.entries()) {
+      if (el.isConnected) el.disabled = wasDisabled;
+    }
+  };
 }
 
 const carrierShipmentLabels = {
@@ -1075,7 +1169,14 @@ function changeOrderControl(event){
   }
 }
 async function startOrderReturn(id){const order=state.orders.find(o=>o.id===id);if(!can('orders.write')||!order||!['shipped','completed'].includes(order.status))return;closeOrderProcessing();try{await window.GAERUAfterSales.createReturn(order);}catch(error){showGlobal(error.message,true);}}
-function closeOrderProcessing(){const dialog=document.getElementById('order-processing-dialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');dialog.remove();}
+function closeOrderProcessing(){
+ const dialog=document.getElementById('order-processing-dialog');
+ if(!dialog)return;
+ const notices=dialog.querySelector?.('.gaeru-action-notices');
+ if(notices&&document.body)document.body.append(notices);
+ if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');
+ dialog.remove();
+}
 function openOrderProcessing(id,opener){
  const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
  if(order.returnStatus==='returned'||order.returnedAt)return showGlobal('Đơn đã hoàn trả xong; không thể xử lý lại.',true);
@@ -1247,6 +1348,10 @@ function openOrderProcessing(id,opener){
  }
 
  dialog.addEventListener('click', event => {
+   if (dialog.dataset.busy === 'true' || dialog.dataset.confirming === 'true') {
+     if (event.target.closest('button')) { event.preventDefault(); event.stopImmediatePropagation(); }
+     return;
+   }
    const toggleAdv = event.target.closest('[data-toggle-advanced]');
    if (toggleAdv) { setAdvOpen(Boolean(advBody?.hidden)); return; }
    const printBtn = event.target.closest('[data-modal-print]');
@@ -1264,13 +1369,16 @@ function openOrderProcessing(id,opener){
          form.elements.shippingFeeVnd.focus();
          const fb = form.querySelector('[role="alert"]');
          if (fb) fb.textContent = 'Nhập phí giao hàng để chốt tổng đơn trước khi xác nhận.';
+         showGlobal('Nhập phí giao hàng để chốt tổng đơn trước khi xác nhận.', true);
          return;
        }
        sel.value = targetStatus;
-       if (sel.options) [...sel.options].forEach(o => o.selected = (o.value === targetStatus));
+       if (sel.options) [...sel.options].forEach(o => { const m = o.value === targetStatus; o.selected = m; if (m) o.setAttribute('selected', ''); else o.removeAttribute('selected'); });
        const changeEv = typeof Event === 'function' ? new Event('change', { bubbles: true }) : (typeof window !== 'undefined' && window.Event ? new window.Event('change', { bubbles: true }) : null);
        if (changeEv) sel.dispatchEvent(changeEv);
        form.dataset.keepOpen = ['confirmed', 'processing'].includes(targetStatus) ? 'true' : 'false';
+       form.dataset.quickTarget = targetStatus;
+       form._activeTriggerBtn = quickBtn;
        if (typeof form.requestSubmit === 'function') form.requestSubmit();
        else form.dispatchEvent(new (window.Event || Event)('submit', { bubbles: true, cancelable: true }));
      }
@@ -1286,25 +1394,33 @@ function openOrderProcessing(id,opener){
    if (!reviewForm) return;
    event.preventDefault();
    event.stopImmediatePropagation();
+   if (dialog.dataset.busy === 'true') return;
    const btn = reviewForm.querySelector('button[type="submit"]');
    const fb = dialog.querySelector('[data-inline-review-feedback]');
-   if (btn) btn.disabled = true;
+   const unlock = lockOrderDialog(dialog, btn, 'Đang xác nhận…');
    if (fb) fb.textContent = '';
    try {
      await request('/api/gaeru_ceo/orders/' + encodeURIComponent(order.id) + '/review', { method: 'POST', body: JSON.stringify({ resolution: reviewForm.querySelector('[name="resolution"]').value.trim() }) });
-     showGlobal('Đã ghi nhận kết quả gọi xác nhận.');
+     showGlobal('Đã ghi nhận kết quả gọi xác nhận cho đơn #' + order.orderNumber + '.');
      await loadOrders(state.orderPage);
      openOrderProcessing(order.id);
    } catch (err) {
+     unlock();
      if (fb) fb.textContent = err.message || 'Chưa lưu được kết quả xác minh.';
-     if (btn) btn.disabled = false;
+     showGlobal(err.message || 'Chưa lưu được kết quả xác minh.', true);
    }
  }, true);
  dialog.addEventListener('submit', updateOrder);
  dialog.addEventListener('change', changeOrderControl);
- dialog.querySelectorAll('[data-close-order]').forEach(btn => btn.addEventListener('click', closeOrderProcessing));
- dialog.addEventListener('click', event => { if (event.target === dialog && !dialog.querySelector('form[data-saving]')) closeOrderProcessing(); });
- dialog.addEventListener('close', () => { dialog.remove(); opener?.isConnected && opener.focus(); });
+ dialog.addEventListener('cancel', event => { if (dialog.dataset.busy === 'true' || dialog.querySelector('form[data-saving]')) event.preventDefault(); });
+ dialog.querySelectorAll('[data-close-order]').forEach(btn => btn.addEventListener('click', () => { if (dialog.dataset.busy !== 'true') closeOrderProcessing(); }));
+ dialog.addEventListener('click', event => { if (event.target === dialog && dialog.dataset.busy !== 'true' && !dialog.querySelector('form[data-saving]')) closeOrderProcessing(); });
+ dialog.addEventListener('close', () => {
+   const notices = dialog.querySelector?.('.gaeru-action-notices');
+   if (notices && document.body) document.body.append(notices);
+   dialog.remove();
+   opener?.isConnected && opener.focus();
+ });
  document.body.append(dialog);
  if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', '');
 }
@@ -1315,6 +1431,7 @@ function openBulkProcessing(){
  document.body.append(dialog);const form=dialog.querySelector("form"),actionEl=form.querySelector('[name="action"]'),confirmEl=form.querySelector('[name="confirmReceived"]'),hint=dialog.querySelector("[data-bulk-hint]"),codCallout=dialog.querySelector("[data-bulk-cod-callout]"),codMsg=dialog.querySelector("[data-bulk-cod-msg]");
  const getActionVal=()=>{const selOpt=actionEl.querySelector("option[selected]");return actionEl.value||selOpt?.getAttribute("value")||selOpt?.value||"prepare";};
  const refresh=()=>{
+  if(form.dataset.saving)return;
   const actionVal=getActionVal();const target={confirm:"processing",prepare:"processing",ship:"shipped",complete:"completed",cancel:"cancelled"}[actionVal];
   const blockedUndelivered=target==="completed"?orders.filter(o=>hasUndeliveredActiveWaybill(o)):[];
   const eligible=orders.filter(o=>(orderTransitions[o.status]||[]).includes(target)&&(target!=="confirmed"||o.shippingFeeVnd!=null)&&(target!=="cancelled"||o.paymentStatus!=="paid"&&!(Number(o.receivedVnd)>0)&&!isLiveVnpayAttempt(o))&&(target!=="completed"||(!hasUndeliveredActiveWaybill(o)&&(o.paymentStatus==="paid"||(can("payments.write")&&!["vnpay","momo","zalopay"].includes(o.paymentMethod))))));
@@ -1331,8 +1448,37 @@ function openBulkProcessing(){
  };
  const common=orders.every(o=>o.status===orders[0].status)?orders[0].status:null;const next={pending:"prepare",confirmed:"prepare",processing:"ship",shipped:"complete"}[common];if(next){actionEl.value=next;const opts=[...actionEl.querySelectorAll("option")];opts.forEach(o=>o.removeAttribute("selected"));const opt=opts.find(o=>(o.getAttribute("value")||o.value)===next);if(opt){opt.selected=true;opt.setAttribute("selected","");}}actionEl.addEventListener("change",refresh);
  
- dialog.querySelector("[data-close-bulk]").addEventListener("click",()=>{if(typeof dialog.close==="function")dialog.close();dialog.remove();});dialog.addEventListener("click",event=>{if(event.target===dialog&&!form.dataset.saving){if(typeof dialog.close==="function")dialog.close();dialog.remove();}});dialog.addEventListener("close",()=>dialog.remove());
- form.addEventListener("submit",async event=>{event.preventDefault();const button=form.querySelector("[type=submit]"),feedback=form.querySelector("[role=alert]");if(button.disabled)return;button.disabled=true;feedback.textContent="Đang kiểm tra và xử lý…";let saved=false;try{const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});saved=true;if(typeof dialog.close==="function")dialog.close();dialog.remove();if(typeof markLocalOrderAction==='function'){orders.forEach(o=>{markLocalOrderAction(o.id);markLocalOrderAction(o.orderNumber);});}document.querySelector("#order-filter").value=result.targetStatus;await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}catch(error){if(saved)showGlobal("Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);else feedback.textContent=error.message;button.disabled=false;}});
+ dialog.querySelector("[data-close-bulk]").addEventListener("click",()=>{if(!form.dataset.saving){if(typeof dialog.close==="function")dialog.close();dialog.remove();}});
+ dialog.addEventListener("click",event=>{if(event.target===dialog&&!form.dataset.saving){if(typeof dialog.close==="function")dialog.close();dialog.remove();}});
+ dialog.addEventListener("cancel",event=>{if(form.dataset.saving)event.preventDefault();});
+ dialog.addEventListener("close",()=>dialog.remove());
+ form.addEventListener("submit",async event=>{
+  event.preventDefault();
+  if(form.dataset.saving)return;
+  const button=form.querySelector("[type=submit]"),feedback=form.querySelector("[role=alert]");
+  if(button.disabled)return;
+  form.dataset.saving="true";
+  const unlock=lockOrderDialog(dialog,button,"Đang xử lý "+orders.length+" đơn…");
+  feedback.textContent="";
+  let saved=false;
+  try{
+   const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});
+   saved=true;
+   if(typeof dialog.close==="function")dialog.close();
+   dialog.remove();
+   if(typeof markLocalOrderAction==='function'){orders.forEach(o=>{markLocalOrderAction(o.id);markLocalOrderAction(o.orderNumber);});}
+   document.querySelector("#order-filter").value=result.targetStatus;
+   await Promise.all([loadOrders(1),loadSummary()]);
+   showGlobal(result.message||("Đã xử lý thành công "+orders.length+" đơn hàng."));
+  }catch(error){
+   delete form.dataset.saving;
+   unlock();
+   if(saved)showGlobal("Đã lưu trạng thái nhưng chưa tải lại được danh sách. Nhấn Tải lại.",true);
+   else { feedback.textContent=error.message; showGlobal(error.message,true); }
+  }finally{
+   delete form.dataset.saving;
+  }
+ });
  refresh();if(typeof dialog.showModal==="function")dialog.showModal();else dialog.setAttribute("open","");
 }
 
@@ -1351,10 +1497,29 @@ function openOrderRestoration(id){
  document.body.append(dialog);const form=dialog.querySelector('form'),requestKey=crypto.randomUUID();
  dialog.querySelector('[data-close-restoration]').addEventListener('click',()=>{if(!form.dataset.saving){dialog.close();dialog.remove();}});dialog.addEventListener('click',event=>{if(event.target===dialog&&!form.dataset.saving){dialog.close();dialog.remove();}});
  dialog.addEventListener('cancel',event=>{if(form.dataset.saving)event.preventDefault();});
- form.addEventListener('submit',async event=>{event.preventDefault();if(form.dataset.saving)return;const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');form.dataset.saving='true';button.disabled=true;let saved=false;
-  try{const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});saved=true;dialog.close();dialog.remove();if(typeof markLocalOrderAction==='function'){markLocalOrderAction(order.id);markLocalOrderAction(order.orderNumber);}document.querySelector('#order-filter').value='pending';await Promise.all([loadOrders(1),loadSummary()]);showGlobal(result.message);}
-  catch(error){if(saved)showGlobal('Đã khôi phục nhưng chưa tải lại danh sách. Nhấn Tải lại.',true);else feedback.textContent=error.message;}
-  finally{delete form.dataset.saving;button.disabled=false;}
+ form.addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(form.dataset.saving)return;
+  const button=form.querySelector('[type=submit]'),feedback=form.querySelector('[role=alert]');
+  form.dataset.saving='true';
+  const unlock=lockOrderDialog(dialog,button,'Đang kiểm tra & khôi phục…');
+  feedback.textContent='';
+  let saved=false;
+  try{
+   const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});
+   saved=true;
+   dialog.close();dialog.remove();
+   if(typeof markLocalOrderAction==='function'){markLocalOrderAction(order.id);markLocalOrderAction(order.orderNumber);}
+   document.querySelector('#order-filter').value='pending';
+   await Promise.all([loadOrders(1),loadSummary()]);
+   showGlobal(result.message||('Đã khôi phục đơn #'+order.orderNumber+' về Chờ xác nhận.'));
+  }catch(error){
+   unlock();
+   if(saved)showGlobal('Đã khôi phục nhưng chưa tải lại danh sách. Nhấn Tải lại.',true);
+   else { feedback.textContent=error.message; showGlobal(error.message,true); }
+  }finally{
+   delete form.dataset.saving;
+  }
  });
  dialog.showModal();form.elements.reason.focus();
 }
@@ -1439,34 +1604,37 @@ async function updateOrder(event) {
   event.preventDefault();
   const form = event.target.closest("[data-order-form]");
   if (!form) return;
+  const dialog = form.closest("dialog");
   const submitButton = form.querySelector('button[type="submit"]');
-  if (form.dataset.saving) return;
+  const activeButton = form._activeTriggerBtn || submitButton;
+  form._activeTriggerBtn = null;
+  if (form.dataset.saving || dialog?.dataset.busy === "true" || dialog?.dataset.confirming === "true") return;
   const order = state.orders.find((entry) => entry.id === form.dataset.orderForm);
   if (!order) return;
   let cancelActiveWaybill = false;
-  if (form.elements.status.value === "cancelled" && order.status !== "cancelled") {
-    if (hasUndeliveredActiveWaybill(order)) {
-      const ok = await (window.GAERUNotify?.confirm
-        ? window.GAERUNotify.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng (${order.trackingNumber || ''}). Bạn có muốn tự động hủy mã vận đơn trên hãng và hủy đơn hàng ngay lập tức không?`, { danger: true, title: 'Hủy đơn & Hủy vận đơn hãng', confirmText: 'Hủy vận đơn và Đơn hàng' })
-        : window.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng. Tự động hủy mã vận đơn và hủy đơn hàng?`));
-      if (!ok) return;
-      cancelActiveWaybill = true;
-    } else {
-      const ok = await (window.GAERUNotify?.confirm
-        ? window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
-        : window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`));
-      if (!ok) return;
+  if ((form.dataset.quickTarget || form.elements.status.value) === "cancelled" && order.status !== "cancelled") {
+    if (dialog) dialog.dataset.confirming = "true";
+    try {
+      if (hasUndeliveredActiveWaybill(order)) {
+        const ok = await (window.GAERUNotify?.confirm
+          ? window.GAERUNotify.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng (${order.trackingNumber || ''}). Bạn có muốn tự động hủy mã vận đơn trên hãng và hủy đơn hàng ngay lập tức không?`, { danger: true, title: 'Hủy đơn & Hủy vận đơn hãng', confirmText: 'Hủy vận đơn và Đơn hàng' })
+          : window.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng. Tự động hủy mã vận đơn và hủy đơn hàng?`));
+        if (!ok) return;
+        cancelActiveWaybill = true;
+      } else {
+        const ok = await (window.GAERUNotify?.confirm
+          ? window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
+          : window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`));
+        if (!ok) return;
+      }
+    } finally {
+      if (dialog) delete dialog.dataset.confirming;
     }
   }
+  const quickTarget = form.dataset.quickTarget || "";
+  delete form.dataset.quickTarget;
   const feedback = form.querySelector('[role="alert"]');
-  submitButton.disabled = true;
-  form.dataset.saving = "true";
-  submitButton.textContent = "Đang cập nhật…";
-  feedback.textContent = "";
-  const payload = {};
-  if (cancelActiveWaybill) payload.cancelActiveWaybill = true;
-  let targetStatus = form.elements.status.value;
-  let saved=false;
+  let targetStatus = quickTarget || form.elements.status.value;
   const paymentField = form.elements.paymentStatus;
   if (order.paymentMethod === "cod" && paymentField?.value === "paid") {
     if (order.status === "shipped" && targetStatus !== "completed") {
@@ -1475,6 +1643,21 @@ async function updateOrder(event) {
       if (form.elements.status.options) [...form.elements.status.options].forEach(o => o.selected = (o.value === "completed"));
     }
   }
+  const busyLabels = {
+    confirmed: "Đang xác nhận…",
+    processing: "Đang xác nhận…",
+    shipped: "Đang chuyển Đang giao…",
+    completed: "Đang hoàn tất…",
+    cancelled: "Đang hủy đơn…"
+  };
+  const busyLabel = targetStatus !== order.status ? (busyLabels[targetStatus] || "Đang cập nhật…") : "Đang lưu tùy chỉnh…";
+  form.dataset.saving = "true";
+  const unlock = lockOrderDialog(dialog, activeButton, busyLabel);
+  if (submitButton && submitButton !== activeButton) setButtonBusy(submitButton, true, busyLabel);
+  if (feedback) feedback.textContent = "";
+  const payload = {};
+  if (cancelActiveWaybill) payload.cancelActiveWaybill = true;
+  let saved = false;
   if (targetStatus !== order.status) payload.status = targetStatus;
   if (paymentField && !paymentField.disabled && paymentField.value !== order.paymentStatus) payload.paymentStatus = paymentField.value;
   if (targetStatus === "completed" && order.paymentMethod === "cod" && can("payments.write")) {
@@ -1498,43 +1681,39 @@ async function updateOrder(event) {
     }
     const keepDialogOpen = Boolean(form.dataset.keepOpen === "true" || (["confirmed", "processing"].includes(targetStatus) && order.status !== targetStatus));
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
-    saved=true;
+    saved = true;
     if (!keepDialogOpen) closeOrderProcessing();
-    if(typeof markLocalOrderAction==='function'){markLocalOrderAction(order.orderNumber); markLocalOrderAction(order.id);}
-    if(targetStatus!==order.status)document.querySelector("#order-filter").value=(["confirmed","processing"].includes(targetStatus)?"ready_to_ship":targetStatus);
+    if (typeof markLocalOrderAction === 'function') { markLocalOrderAction(order.orderNumber); markLocalOrderAction(order.id); }
+    if (targetStatus !== order.status) document.querySelector("#order-filter").value = (["confirmed", "processing"].includes(targetStatus) ? "ready_to_ship" : targetStatus);
     await Promise.all([loadOrders(1), loadSummary()]);
     if (keepDialogOpen && state.orders.some(o => o.id === order.id)) {
       openOrderProcessing(order.id);
     } else if (keepDialogOpen) {
       closeOrderProcessing();
     }
-    if (targetStatus === 'cancelled') {
-      if (window.GAERUNotify?.alert) {
-        await window.GAERUNotify.alert(`Đã hủy đơn hàng #${order.orderNumber}${cancelActiveWaybill ? ' và hủy mã vận đơn hãng' : ''} thành công. Số lượng sản phẩm đã được hoàn lại vào kho tồn.`, { title: 'Hủy đơn hàng thành công', icon: 'success' });
-      } else {
-        showGlobal("Đã hủy đơn hàng.");
-      }
-    } else {
-      showGlobal("Đã cập nhật đơn hàng.");
-    }
+    const successMsg = targetStatus === 'cancelled'
+      ? `Đã hủy đơn #${order.orderNumber}${cancelActiveWaybill ? ' & hủy vận đơn hãng' : ''}. Tồn kho đã được hoàn lại.`
+      : (targetStatus === 'processing' || targetStatus === 'confirmed') && targetStatus !== order.status
+        ? `Đã xác nhận & chuyển đơn #${order.orderNumber} sang Đang xử lý.`
+        : targetStatus === 'shipped' && targetStatus !== order.status
+          ? `Đã chuyển đơn #${order.orderNumber} sang Đang giao hàng.`
+          : targetStatus === 'completed' && targetStatus !== order.status
+            ? `Đã hoàn thành đơn #${order.orderNumber}${order.paymentMethod === 'cod' ? ' & xác nhận thu tiền COD' : ''}.`
+            : `Đã lưu tùy chỉnh đơn #${order.orderNumber}.`;
+    showGlobal(successMsg);
   } catch (error) {
-    feedback.textContent = error.message;
-    submitButton.disabled = false;
-    delete form.dataset.saving;
-    submitButton.textContent = "Lưu cập nhật";
+    if (feedback) feedback.textContent = error.message;
+    unlock();
+    if (submitButton && submitButton !== activeButton) setButtonBusy(submitButton, false);
     if (saved) {
       showGlobal("Đã lưu đơn hàng nhưng chưa tải lại được danh sách. Nhấn Tải lại.", true);
     } else {
-      if (window.GAERUNotify?.alert) {
-        await window.GAERUNotify.alert('Không thể cập nhật đơn hàng: ' + error.message, { danger: true, title: 'Lỗi cập nhật đơn hàng' });
-      } else {
-        showGlobal(error.message, true);
-      }
+      showGlobal(error.message || "Không thể cập nhật đơn hàng.", true);
     }
   } finally {
-    submitButton.disabled = false;
     delete form.dataset.saving;
-    submitButton.textContent = "Lưu cập nhật";
+    if (dialog?.isConnected && dialog.dataset.busy === "true") unlock();
+    if (submitButton?.isConnected && submitButton.dataset.busy === "true") setButtonBusy(submitButton, false);
   }
 }
 
@@ -2206,12 +2385,22 @@ document.querySelectorAll(".order-filters select").forEach((select) => select.ad
   state.orderPage = 1;
   loadOrders(1).catch((error) => showGlobal(error.message, true));
 }));
-document.querySelector("#reset-order-filters").addEventListener("click", () => {
+document.querySelector("#reset-order-filters").addEventListener("click", async (event) => {
+  const btn = event.currentTarget;
+  if (btn.dataset.busy === "true") return;
   document.querySelector("#order-search").value = "";
   document.querySelector("#order-filter").value = "";
   document.querySelectorAll(".order-filters select").forEach((select) => { select.value = select.id === "order-sort" ? "newest" : select.id === "order-page-size" ? "25" : ""; });
+  document.querySelectorAll("[data-order-tab]").forEach((t) => t.setAttribute("aria-pressed", String(t.dataset.orderTab === "")));
   state.orderPage = 1;
-  loadOrders(1).catch((error) => showGlobal(error.message, true));
+  setButtonBusy(btn, true, "Đang xóa lọc…");
+  try {
+    await loadOrders(1);
+  } catch (error) {
+    showGlobal(error.message, true);
+  } finally {
+    setButtonBusy(btn, false);
+  }
 });
 document.querySelector("#order-search").addEventListener("input", (event) => {
   window.clearTimeout(state.orderSearchTimer);
@@ -2222,7 +2411,19 @@ document.querySelector("#order-search").addEventListener("input", (event) => {
     loadOrders(1).catch((error) => showGlobal(error.message, true));
   }, 200);
 });
-document.querySelector("#refresh-orders").addEventListener("click", () => loadOrders().catch((error) => showGlobal(error.message, true)));
+document.querySelector("#refresh-orders").addEventListener("click", async (event) => {
+  const btn = event.currentTarget;
+  if (btn.dataset.busy === "true") return;
+  setButtonBusy(btn, true, "Đang tải…");
+  try {
+    await loadOrders();
+    showGlobal("Đã làm mới danh sách đơn hàng.");
+  } catch (error) {
+    showGlobal(error.message, true);
+  } finally {
+    setButtonBusy(btn, false);
+  }
+});
 document.querySelector("#previous-orders").addEventListener("click", () => {
   if (state.orderPage > 1) loadOrders(state.orderPage - 1).catch((error) => showGlobal(error.message, true));
 });
@@ -2242,8 +2443,10 @@ document.querySelector("#order-list").addEventListener("click",async event=>{
 async function handleCarrierWaybillAction(event) {
   const createWaybillBtn = event.target.closest('[data-create-carrier-waybill]');
   if(createWaybillBtn){
+    const dialog = createWaybillBtn.closest('dialog');
+    if (createWaybillBtn.dataset.busy === 'true' || dialog?.dataset.busy === 'true') return;
     const orderId = createWaybillBtn.dataset.createCarrierWaybill;
-    const container = createWaybillBtn.closest('dialog') || createWaybillBtn.closest('article') || document;
+    const container = dialog || createWaybillBtn.closest('article') || document;
     const autoShip = container.querySelector(`[data-auto-ship="${CSS.escape(orderId)}"]`)?.checked;
     const waybillFeedback = container.querySelector(`[data-waybill-feedback="${CSS.escape(orderId)}"]`) || container.querySelector('.order-feedback');
     if (waybillFeedback) {
@@ -2252,9 +2455,7 @@ async function handleCarrierWaybillAction(event) {
       waybillFeedback.style.color = '#0284c7';
       waybillFeedback.classList.remove('is-error');
     }
-    const originalCreateLabel = createWaybillBtn.textContent;
-    createWaybillBtn.disabled = true;
-    createWaybillBtn.textContent = 'Đang tạo…';
+    const unlock = lockOrderDialog(dialog, createWaybillBtn, 'Đang tạo vận đơn…');
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/create-waybill`, {
         method: 'POST',
@@ -2274,6 +2475,7 @@ async function handleCarrierWaybillAction(event) {
         openOrderProcessing(orderId);
       }
     } catch(err) {
+      unlock();
       if (waybillFeedback) {
         waybillFeedback.hidden = false;
         waybillFeedback.textContent = err.message || 'Không thể tạo vận đơn.';
@@ -2282,53 +2484,52 @@ async function handleCarrierWaybillAction(event) {
       }
       showGlobal(err.message || 'Không thể tạo vận đơn.', true);
     } finally {
-      createWaybillBtn.disabled = false;
-      createWaybillBtn.textContent = originalCreateLabel;
+      if (createWaybillBtn.isConnected) unlock();
     }
     return;
   }
   const cancelWaybillBtn = event.target.closest('[data-cancel-waybill]');
   if(cancelWaybillBtn){
+    const dialog = cancelWaybillBtn.closest('dialog');
+    if (cancelWaybillBtn.dataset.busy === 'true' || dialog?.dataset.busy === 'true' || dialog?.dataset.confirming === 'true') return;
     const orderId = cancelWaybillBtn.dataset.cancelWaybill;
-    const ok = await (window.GAERUNotify?.confirm
-      ? window.GAERUNotify.confirm('Hủy mã vận đơn này trên hệ thống của hãng?', { danger: true, confirmText: 'Hủy mã vận đơn' })
-      : window.confirm('Hủy mã vận đơn này trên hệ thống của hãng?'));
+    if (dialog) dialog.dataset.confirming = 'true';
+    let ok = false;
+    try {
+      ok = await (window.GAERUNotify?.confirm
+        ? window.GAERUNotify.confirm('Hủy mã vận đơn này trên hệ thống của hãng?', { danger: true, confirmText: 'Hủy mã vận đơn' })
+        : window.confirm('Hủy mã vận đơn này trên hệ thống của hãng?'));
+    } finally {
+      if (dialog) delete dialog.dataset.confirming;
+    }
     if (!ok) return;
-    cancelWaybillBtn.disabled = true;
-    cancelWaybillBtn.textContent = 'Đang hủy...';
+    const unlock = lockOrderDialog(dialog, cancelWaybillBtn, 'Đang hủy vận đơn…');
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/cancel-waybill`, {
         method: 'POST',
         body: JSON.stringify({})
       });
       if(typeof markLocalOrderAction==='function')markLocalOrderAction(orderId);
-      if (window.GAERUNotify?.alert) {
-        await window.GAERUNotify.alert(res.message || 'Đã hủy mã vận đơn trên hệ thống hãng thành công.', { title: 'Hủy vận đơn', icon: 'success' });
-      } else {
-        showGlobal(res.message || 'Đã hủy vận đơn.');
-      }
+      showGlobal(res.message || 'Đã hủy mã vận đơn trên hệ thống hãng.');
       await loadOrders(state.orderPage);
       const openDialog = document.getElementById('order-processing-dialog');
       if (openDialog && openDialog.querySelector(`[data-order-form="${CSS.escape(orderId)}"]`)) {
         openOrderProcessing(orderId);
       }
     } catch(err) {
-      if (window.GAERUNotify?.alert) {
-        await window.GAERUNotify.alert('Không thể hủy vận đơn trên hãng: ' + err.message + '\n\nNếu mã đã được bưu cục hủy thủ công, bạn có thể bấm "Đối chiếu cổng hãng: Đã hủy".', { danger: true, title: 'Lỗi hủy vận đơn' });
-      } else {
-        showGlobal(err.message, true);
-      }
+      unlock();
+      showGlobal('Không thể hủy vận đơn trên hãng: ' + err.message, true);
     } finally {
-      cancelWaybillBtn.disabled = false;
-      cancelWaybillBtn.textContent = 'Hủy vận đơn';
+      if (cancelWaybillBtn.isConnected) unlock();
     }
     return;
   }
   const syncTrackingBtn = event.target.closest('[data-sync-carrier-tracking]');
   if(syncTrackingBtn){
+    const dialog = syncTrackingBtn.closest('dialog');
+    if (syncTrackingBtn.dataset.busy === 'true' || dialog?.dataset.busy === 'true') return;
     const orderId = syncTrackingBtn.dataset.syncCarrierTracking;
-    syncTrackingBtn.disabled = true;
-    syncTrackingBtn.textContent = 'Đang đồng bộ…';
+    const unlock = lockOrderDialog(dialog, syncTrackingBtn, 'Đang đồng bộ…');
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/shipping/orders/${encodeURIComponent(orderId)}/sync-tracking`, {
         method: 'POST'
@@ -2340,10 +2541,10 @@ async function handleCarrierWaybillAction(event) {
         openOrderProcessing(orderId);
       }
     } catch(err) {
+      unlock();
       showGlobal(err.message, true);
     } finally {
-      syncTrackingBtn.disabled = false;
-      syncTrackingBtn.textContent = "Đồng bộ hành trình";
+      if (syncTrackingBtn.isConnected) unlock();
     }
     return;
   }
@@ -2351,6 +2552,8 @@ async function handleCarrierWaybillAction(event) {
   const confirmCancelledBtn = event.target.closest("[data-confirm-carrier-cancelled]");
   if (confirmDeliveredBtn || confirmCancelledBtn) {
     const btn = confirmDeliveredBtn || confirmCancelledBtn;
+    const dialog = btn.closest('dialog');
+    if (btn.dataset.busy === 'true' || dialog?.dataset.busy === 'true' || dialog?.dataset.confirming === 'true') return;
     const orderId = confirmDeliveredBtn ? btn.dataset.confirmCarrierDelivered : btn.dataset.confirmCarrierCancelled;
     const targetStatus = confirmDeliveredBtn ? "delivered" : "cancelled";
     const labelText = targetStatus === "delivered" ? "Đã giao hàng" : "Đã hủy vận đơn";
@@ -2358,16 +2561,22 @@ async function handleCarrierWaybillAction(event) {
       showGlobal("Không thể mở hộp thoại nhập ghi chú. Vui lòng tải lại trang.", true);
       return;
     }
-    const note = await window.GAERUNotify.prompt(
-      "Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):",
-      "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase(),
-      { title: "Bằng chứng đối chiếu vận đơn" }
-    );
+    if (dialog) dialog.dataset.confirming = 'true';
+    let note = null;
+    try {
+      note = await window.GAERUNotify.prompt(
+        "Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):",
+        "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase(),
+        { title: "Bằng chứng đối chiếu vận đơn" }
+      );
+    } finally {
+      if (dialog) delete dialog.dataset.confirming;
+    }
     if (!note || note.trim().length < 10) {
       if (note !== null) showGlobal("Ghi chú đối chiếu cổng hãng cần ít nhất 10 ký tự.", true);
       return;
     }
-    btn.disabled = true;
+    const unlock = lockOrderDialog(dialog, btn, 'Đang ghi nhận…');
     try {
       const res = await window.GAERUAdmin.request("/api/gaeru_ceo/shipping/orders/" + encodeURIComponent(orderId) + "/confirm-carrier-status", {
         method: "POST",
@@ -2380,9 +2589,10 @@ async function handleCarrierWaybillAction(event) {
         openOrderProcessing(orderId);
       }
     } catch (err) {
+      unlock();
       showGlobal(err.message, true);
     } finally {
-      btn.disabled = false;
+      if (btn.isConnected) unlock();
     }
     return;
   }
@@ -2569,7 +2779,7 @@ document.querySelector("#btn-refresh-health")?.addEventListener("click", async (
   }
 });
 
-window.GAERUAdmin = Object.freeze({ loadSettings, loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, showProductAddedPopup, activateView, refreshCurrentView, initAdminRealtime, stopAdminRealtime, get user() { return state.session; } });
+window.GAERUAdmin = Object.freeze({ loadSettings, loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, clearStaleGlobalError, setButtonBusy, lockOrderDialog, showProductAddedPopup, activateView, refreshCurrentView, initAdminRealtime, stopAdminRealtime, get user() { return state.session; } });
 initialize();
 
 document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
@@ -2594,12 +2804,15 @@ function renderOrderOverview(counts) {
 }
 document.addEventListener('gaeru:after-sales-updated',()=>{loadOrders(state.orderPage).catch(error=>showGlobal(error.message,true));});
 document.querySelector('#order-list').addEventListener('click',event=>{const button=event.target.closest('[data-restore-order]');if(button&&!button.disabled)openOrderRestoration(button.dataset.restoreOrder);});
-document.querySelector('#orders-view').addEventListener('click',event=>{
+document.querySelector('#orders-view').addEventListener('click',async event=>{
   const tab=event.target.closest('[data-order-tab]'); if(!tab)return;
+  if(tab.dataset.loading==='true'&&document.querySelector('#order-filter').value===tab.dataset.orderTab)return;
   window.GAERUAfterSales?.close();
   document.querySelector('#order-filter').value=tab.dataset.orderTab;
+  document.querySelectorAll('[data-order-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b===tab)));
   if(tab.dataset.orderTab==='payment_pending')document.querySelector('#order-payment-filter').value='';
-  loadOrders(1).catch(error=>showGlobal(error.message,true));
+  tab.dataset.loading='true';
+  try{await loadOrders(1);}catch(error){showGlobal(error.message,true);}finally{delete tab.dataset.loading;}
 });
 function updateOrderSelection() {
   const count = state.selectedOrders.size;
@@ -2613,13 +2826,13 @@ function updateOrderSelection() {
   document.querySelectorAll('[data-print-orders],[data-bulk-process]').forEach(button => { button.disabled = count === 0 || button.hasAttribute('data-bulk-process')&&(!can('orders.write')||returnedSelected); });
 }
 async function printOrderIds(ids, format, triggerBtn) {
-  if(!ids?.length)return;
+  if(!ids?.length||triggerBtn?.dataset.busy==='true')return;
   const printWindow=window.open('', '_blank');
   if(!printWindow)return showGlobal('Cho phép mở cửa sổ mới để xem và in đơn hàng.',true);
   printWindow.opener=null;
   printWindow.document.title='Chuẩn bị bản in GAERU';
   printWindow.document.body.textContent='Đang chuẩn bị bản in…';
-  if(triggerBtn)triggerBtn.disabled=true;
+  if(triggerBtn)setButtonBusy(triggerBtn,true,format==='label'?'Đang tạo tem…':'Đang tạo bản in…');
   try{
     const csrf=await request('/api/csrf');state.csrfToken=csrf.csrfToken;
     const response=await fetch('/api/gaeru_ceo/orders/print',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrfToken},body:JSON.stringify({ids,format})});
@@ -2637,8 +2850,9 @@ async function printOrderIds(ids, format, triggerBtn) {
       const safeText=String(html||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
       printWindow.document.body.textContent=safeText;
     }
+    showGlobal(format==='label'?'Đã mở bản in tem giao hàng.':'Đã mở bản in phiếu đơn hàng.');
   }catch(error){if(!printWindow.closed)printWindow.close();showGlobal(error.message,true);}
-  finally{if(triggerBtn)triggerBtn.disabled=false;updateOrderSelection();}
+  finally{if(triggerBtn)setButtonBusy(triggerBtn,false);updateOrderSelection();}
 }
 document.querySelector('#select-order-page').addEventListener('change', event => {
   state.selectedOrders = new Set(event.target.checked ? state.orders.map(order => order.id) : []);
@@ -2769,40 +2983,39 @@ function confirmOrderPermanentDeletion(order) {
   });
 }
 
+const inFlightOrderDeletes = new Set();
+
 async function handleOrderPermanentDeleteUI(orderId) {
-  if (!can('orders.permanent_delete')) return;
+  if (!can('orders.permanent_delete') || inFlightOrderDeletes.has(orderId)) return;
+  inFlightOrderDeletes.add(orderId);
   const order = state.orders.find(o => o.id === orderId) || { id: orderId, orderNumber: orderId };
   let password = '';
-  const confirmed = await confirmOrderPermanentDeletion(order, value => { password = value; });
-  if (!confirmed) {
-    password = '';
-    return;
-  }
-
-  if (!password) {
-    if (window.GAERUNotify?.prompt) {
-      password = await window.GAERUNotify.prompt(
-        'Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:',
-        '',
-        { isPassword: true, title: 'Xác thực xóa đơn hàng', danger: true }
-      );
-    } else {
+  try {
+    const confirmed = await confirmOrderPermanentDeletion(order, value => { password = value; });
+    if (!confirmed) {
       password = '';
-      showGlobal('Không thể mở hộp thoại nhập mật khẩu bảo mật. Vui lòng tải lại trang.', true);
       return;
     }
-  }
-  if (!password || !password.trim()) {
-    password = '';
-    if (window.GAERUNotify?.alert) {
-      await window.GAERUNotify.alert('Đã hủy thao tác: Cần nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng.', { danger: true, title: 'Hủy thao tác' });
-    } else {
-      showGlobal('Cần nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn.', true);
-    }
-    return;
-  }
 
-  try {
+    if (!password) {
+      if (window.GAERUNotify?.prompt) {
+        password = await window.GAERUNotify.prompt(
+          'Vui lòng nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn đơn hàng:',
+          '',
+          { isPassword: true, title: 'Xác thực xóa đơn hàng', danger: true }
+        );
+      } else {
+        password = '';
+        showGlobal('Không thể mở hộp thoại nhập mật khẩu bảo mật. Vui lòng tải lại trang.', true);
+        return;
+      }
+    }
+    if (!password || !password.trim()) {
+      password = '';
+      showGlobal('Cần nhập mật khẩu quản trị viên để xác thực xóa vĩnh viễn.', true);
+      return;
+    }
+
     const csrf = await request('/api/csrf');
     state.csrfToken = csrf.csrfToken;
     const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/permanent-delete', {
@@ -2813,23 +3026,15 @@ async function handleOrderPermanentDeleteUI(orderId) {
       })
     });
     if(typeof markLocalOrderAction==='function'){markLocalOrderAction(orderId); markLocalOrderAction(order.orderNumber);}
-    // Gỡ thẻ đơn ngay lập tức khỏi state để phản hồi trực quan không có độ trễ
     state.orders = state.orders.filter(o => o.id !== orderId);
     renderOrders();
     await Promise.all([loadOrders(state.orderPage), loadSummary()]);
-    if (window.GAERUNotify?.alert) {
-      await window.GAERUNotify.alert(res.message || ('Đã xóa vĩnh viễn đơn hàng ' + (order.orderNumber || orderId) + ' khỏi hệ thống và loại khỏi dữ liệu doanh số thành công.'), { title: 'Xóa vĩnh viễn đơn hàng', icon: 'success' });
-    } else {
-      showGlobal(res.message || 'Đã xóa vĩnh viễn đơn hàng và loại khỏi dữ liệu doanh số.');
-    }
+    showGlobal(res.message || ('Đã xóa vĩnh viễn đơn #' + (order.orderNumber || orderId) + ' khỏi hệ thống.'));
   } catch (error) {
-    if (window.GAERUNotify?.alert) {
-      await window.GAERUNotify.alert('Không thể xóa vĩnh viễn đơn hàng: ' + error.message, { danger: true, title: 'Lỗi xóa đơn hàng' });
-    } else {
-      showGlobal(error.message, true);
-    }
+    showGlobal('Không thể xóa vĩnh viễn đơn hàng: ' + error.message, true);
   } finally {
     password = '';
+    inFlightOrderDeletes.delete(orderId);
   }
 }
 

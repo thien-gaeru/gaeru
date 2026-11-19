@@ -7,7 +7,7 @@ const zlib = require('node:zlib');
 const { LRUCache } = require('lru-cache');
 
 const COMPRESS_THRESHOLD = 1024;
-const SKIP_CACHE_FILES = new Set(['account.js', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js']);
+const SKIP_CACHE_FILES = new Set(['account.js', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js', 'action-feedback.js', 'action-feedback.css']);
 const TEXT_ASSET_MIME = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8'
