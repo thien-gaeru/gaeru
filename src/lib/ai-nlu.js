@@ -175,8 +175,11 @@ function isExplicitDetailedRequest(normText) {
 }
 
 function isFollowUpReference(normText) {
-  return /^(?:con|the con|vay con|vay thi|neu|gia thi|pin thi|bao nhieu|may tien|con hang|may gio|may tieng|bao lau|bao xa|dung duoc|tuong thich|cam duoc|co duoc|khac nhau|loai 1|loai 2|ban 1|ban 2)\b/.test(normalizeSearchSpace(normText)) ||
-    hasAnyBoundaryTerm(normText, ['mau nay', 'mau do', 'cai nay', 'cai do', 'con nay', 'con do', 'san pham nay', 'san pham do', 'no co', 'no dung', 'cua no']);
+  return /^(?:con|the con|vay con|vay thi|neu|gia thi|pin thi|bao nhieu|may tien|con hang|may gio|may tieng|bao lau|bao xa|dung duoc|tuong thich|cam duoc|co duoc|khac nhau|loai 1|loai 2|ban 1|ban 2|cong dung|chuc nang|tinh nang|tac dung|uu diem|nut mua|link mua|mua o dau|dat o dau|co ben|co tot|co gi hay|xai ngon|dung tot|chat luong)\b/.test(normalizeSearchSpace(normText)) ||
+    hasAnyBoundaryTerm(normText, [
+      'mau nay', 'mau do', 'cai nay', 'cai do', 'con nay', 'con do', 'san pham nay', 'san pham do',
+      'em nay', 'em do', 'hang nay', 'bo nay', 'dong nay', 'loai nay', 'no co', 'no dung', 'cua no'
+    ]);
 }
 
 /**
@@ -263,11 +266,17 @@ function resolveMentionedProducts(question, catalog = [], { thread = null, histo
       'dung duoc', 'tuong thich', 'trong luong', 'hop sac', 'chot', 'dat', 'mua', 'lay',
       'mua ngay', 'dat hang', 'chot don', 'thanh toan', 'go loi usb', 'bat otg', 'mo otg',
       'ios', 'mic ngoai', 'pc', 'laptop', 'macbook', 'may tinh bang',
-      'huong dan', 'cach dung', 'su dung', 'cach ket noi', 'den bao', 'nhap nhay', 'remote', 'chong nuoc', 'di mua', 'sac'
+      'huong dan', 'cach dung', 'su dung', 'cach ket noi', 'den bao', 'nhap nhay', 'remote', 'chong nuoc', 'di mua', 'sac',
+      'cong dung', 'chuc nang', 'tinh nang', 'tac dung', 'uu diem', 'diem noi bat', 'noi bat', 'loi ich',
+      'co gi hay', 'co gi dac biet', 'lam duoc gi', 'dung de lam gi', 'de lam gi',
+      'nut mua', 'nut dat', 'link mua', 'link dat', 'mua o dau', 'dat o dau', 'mua cho nao', 'dat cho nao',
+      'cho link', 'cho xin link', 'cho minh link', 'gui link', 'bam mua dau',
+      'xai ngon', 'co ben', 'co tot', 'dung tot', 'chat luong', 'co may mau', 'mau gi', 'mau sac',
+      'thong so', 'chi tiet', 'review', 'tra loi', 'noi ro'
     ]);
 
   if (Array.isArray(history) && history.length) {
-    const recentReverse = [...history].slice(-6).reverse();
+    const recentReverse = [...history].slice(-10).reverse();
     for (const msg of recentReverse) {
       const mRaw = msg?.body || msg?.content || '';
       const mText = expandQueryVi(mRaw);

@@ -286,7 +286,7 @@ async function warmEmbeddingIndexInBackground(pool, { transport = fetch } = {}) 
   if (warmupRunning || !pool || typeof pool.query !== 'function') return { skipped: true };
   if (!isGpuAiEnabled() && transport === fetch) return { skipped: true, reason: 'disabled' };
   warmupRunning = true;
-  const summary = { products: 0, webPages: 0, news: 0, learned: 0, internalIntents: 0 };
+  const summary = { products: 0, webPages: 0, news: 0, learned: 0, internalIntents: 0, customerFaqs: 0, customerIntents: 0 };
   try {
     // 1. Products (active catalog)
     try {
@@ -383,6 +383,16 @@ async function warmEmbeddingIndexInBackground(pool, { transport = fetch } = {}) 
         const faqItems = CUSTOMER_SEMANTIC_FAQS.map(f => ({ key: f.key, text: f.text }));
         const m = await ensureEmbeddings(pool, 'customer_faqs', faqItems, { priority: 'background', transport });
         summary.customerFaqs = m.size;
+      }
+    } catch (_) {}
+
+    // 7. Curated Customer Semantic Intent Prototypes (Gói 1 Context Intelligence)
+    try {
+      const { CUSTOMER_INTENT_PROTOTYPES } = require('./customer-intent-router');
+      if (Array.isArray(CUSTOMER_INTENT_PROTOTYPES) && CUSTOMER_INTENT_PROTOTYPES.length) {
+        const intentItems = CUSTOMER_INTENT_PROTOTYPES.map(i => ({ key: i.key, text: i.text }));
+        const m = await ensureEmbeddings(pool, 'customer_intents', intentItems, { priority: 'background', transport });
+        summary.customerIntents = m.size;
       }
     } catch (_) {}
   } finally {

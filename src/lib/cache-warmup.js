@@ -169,7 +169,8 @@ async function warmUpCache(pool, { app = null } = {}) {
           embedStore.hydrateNamespace(pool, 'news'),
           embedStore.hydrateNamespace(pool, 'learned'),
           embedStore.hydrateNamespace(pool, 'internal_intents'),
-          embedStore.hydrateNamespace(pool, 'customer_faqs')
+          embedStore.hydrateNamespace(pool, 'customer_faqs'),
+          embedStore.hydrateNamespace(pool, 'customer_intents')
         ]).catch(() => {});
       }, 250);
       if (typeof hTimer.unref === 'function') hTimer.unref();
