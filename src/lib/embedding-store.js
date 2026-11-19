@@ -184,6 +184,7 @@ async function persistEntries(pool, namespace, entries) {
  */
 async function ensureEmbeddings(pool, namespace, items, {
   priority = 'normal',
+  batchSize,
   transport = fetch,
   skipDb = false
 } = {}) {
@@ -210,19 +211,28 @@ async function ensureEmbeddings(pool, namespace, items, {
   }
 
   if (missing.length > 0) {
-    const vecs = await embedTexts(missing.map(m => m.text), { priority, transport });
-    if (Array.isArray(vecs)) {
+    const chunkSize = Math.max(1, Number(batchSize) || (priority === 'background' ? 4 : 8));
+    for (let offset = 0; offset < missing.length; offset += chunkSize) {
+      const slice = missing.slice(offset, offset + chunkSize);
+      const vecs = await embedTexts(slice.map(m => m.text), { priority, batchSize: chunkSize, transport });
+      if (!Array.isArray(vecs)) {
+        // Thermal/busy shed on background chunk: persist what we already computed and yield
+        break;
+      }
       const newlyComputed = [];
-      for (let i = 0; i < missing.length; i++) {
+      for (let i = 0; i < slice.length; i++) {
         const vec = vecs[i];
         if (!vec) continue;
-        result.set(missing[i].key, vec);
-        newlyComputed.push({ key: missing[i].key, hash: missing[i].hash, vec });
+        result.set(slice[i].key, vec);
+        newlyComputed.push({ key: slice[i].key, hash: slice[i].hash, vec });
       }
       if (newlyComputed.length && !isCustomTransport) {
         upsertMemoryEntries(namespace, newlyComputed);
-        if (!skipDb) void persistEntries(pool, namespace, newlyComputed);
+        if (!skipDb) await persistEntries(pool, namespace, newlyComputed);
         broadcastSync(namespace, newlyComputed);
+      }
+      if (priority === 'background' && offset + chunkSize < missing.length) {
+        await new Promise(r => setTimeout(r, 150));
       }
     }
   }

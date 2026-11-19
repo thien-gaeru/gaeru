@@ -99,8 +99,13 @@ async function warmUpCache(pool) {
       if (isPrimarySlot) {
         const wTimer = setTimeout(() => {
           embedStore.warmEmbeddingIndexInBackground(pool).catch(() => {});
-        }, 4500);
+        }, 15000);
         if (typeof wTimer.unref === 'function') wTimer.unref();
+
+        const wInterval = setInterval(() => {
+          embedStore.warmEmbeddingIndexInBackground(pool).catch(() => {});
+        }, 15 * 60 * 1000);
+        if (typeof wInterval.unref === 'function') wInterval.unref();
       }
     }
 
