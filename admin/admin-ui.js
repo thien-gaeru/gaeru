@@ -85,10 +85,21 @@
     }
   }
 
-  // Initialize group states: 'sales' starts expanded, others collapsed by default
+  // Hub groupings: collapse secondary sibling views into 1-click sub-tabs inside each parent hub
+  const HUBS = [
+    { parent: 'customers', tabs: [['customers', 'Khách hàng'], ['loyalty', 'GAERU XU']] },
+    { parent: 'inventory', tabs: [['inventory', 'Tồn kho & điều chuyển'], ['warehouses', 'Kho hàng']] },
+    { parent: 'purchases', tabs: [['purchases', 'Đơn mua & nhập hàng'], ['suppliers', 'Nhà cung cấp']] },
+    { parent: 'invoice', tabs: [['invoice', 'Hóa đơn điện tử'], ['tax', 'Đối chiếu thuế']] },
+    { parent: 'news', tabs: [['news', 'Tin tức'], ['pages', 'Quản lý trang'], ['file-library', 'Thư viện tệp']] },
+    { parent: 'staff', tabs: [['staff', 'Nhân viên & quyền'], ['departments', 'Phòng ban'], ['audit', 'Nhật ký hoạt động']] },
+    { parent: 'settings', tabs: [['settings', 'Cài đặt cửa hàng'], ['security', 'Bảo mật tài khoản (2FA)'], ['oauth', 'Đăng nhập Google']] }
+  ];
+
+  // Initialize group states: 'sales' and 'care' start expanded for daily operations; others collapsed by default
   nav.querySelectorAll('.nav-group[data-nav-group]').forEach(group => {
     const id = group.dataset.navGroup;
-    const isCollapsed = id in navState ? Boolean(navState[id]) : (id !== 'sales');
+    const isCollapsed = id in navState ? Boolean(navState[id]) : !['sales', 'care'].includes(id);
     setGroupCollapsed(group, isCollapsed, false);
   });
 
@@ -102,9 +113,46 @@
     setGroupCollapsed(group, !isCurrentlyCollapsed, true);
   });
 
+  function syncHubTabs() {
+    const hubBar = document.querySelector('#admin-hub-tabs');
+    const activeItem = nav.querySelector('[data-view].is-active');
+    const activeView = activeItem?.dataset.view || '';
+    nav.querySelectorAll('[data-view].is-hub-parent-active').forEach(el => el.classList.remove('is-hub-parent-active'));
+    const hub = HUBS.find(h => h.tabs.some(([v]) => v === activeView));
+    if (hub && activeView !== hub.parent) {
+      nav.querySelector('[data-view="' + hub.parent + '"]')?.classList.add('is-hub-parent-active');
+    }
+    if (!hubBar) return;
+    if (!hub) {
+      hubBar.hidden = true;
+      hubBar.innerHTML = '';
+      return;
+    }
+    const visibleTabs = hub.tabs.filter(([v]) => {
+      const btn = nav.querySelector('[data-view="' + v + '"]');
+      return btn && !btn.hidden;
+    });
+    if (visibleTabs.length <= 1) {
+      hubBar.hidden = true;
+      hubBar.innerHTML = '';
+      return;
+    }
+    hubBar.hidden = false;
+    hubBar.innerHTML = visibleTabs.map(([v, label]) =>
+      '<button type="button" class="admin-hub-tab" data-hub-view="' + v + '" aria-pressed="' + String(v === activeView) + '">' + label + '</button>'
+    ).join('');
+  }
+
+  document.querySelector('#admin-hub-tabs')?.addEventListener('click', event => {
+    const tab = event.target.closest('[data-hub-view]');
+    if (!tab) return;
+    root.GAERUAdmin?.activateView?.(tab.dataset.hubView);
+  });
+
   // Sync active group to automatically expand when user navigates to an item in that group
   function syncActiveGroup() {
     const activeItem = nav.querySelector('[data-view].is-active');
+    syncHubTabs();
     if (!activeItem) return;
     const activeGroup = activeItem.closest('.nav-group[data-nav-group]');
     if (activeGroup) {
@@ -124,6 +172,7 @@
     if (event.target.closest('[data-view]')) queueMicrotask(syncActiveGroup);
   });
   document.addEventListener('gaeru:admin-ready', () => queueMicrotask(syncActiveGroup));
+  document.addEventListener('gaeru:view-changed', () => queueMicrotask(syncActiveGroup));
   setTimeout(syncActiveGroup, 100);
 
   const search=document.createElement('label');search.className='admin-nav-search';
@@ -131,18 +180,19 @@
   nav.before(search);const input=search.querySelector('input');
   function filter(){
     const q=input.value.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase().trim();
+    nav.toggleAttribute('data-searching',Boolean(q));
     for(const button of nav.querySelectorAll('[data-view]')){
       const hay=button.textContent.normalize('NFD').replace(/\p{Diacritic}/gu,'').replace(/đ/g,'d').toLowerCase();
       button.toggleAttribute('data-search-hidden',Boolean(q&&!hay.includes(q)));
     }
     for(const group of nav.querySelectorAll('.nav-group')){
-      const hasVisible = [...group.querySelectorAll('[data-view]')].some(b=>!b.hidden&&!b.hasAttribute('data-search-hidden'));
+      const hasVisible = [...group.querySelectorAll('[data-view]')].some(b=>!b.hidden&&!b.hasAttribute('data-search-hidden')&&(q||!b.hasAttribute('data-hub-child')));
       group.toggleAttribute('data-search-empty',!hasVisible);
       if (q && hasVisible && group.hasAttribute('data-nav-group')) {
         setGroupCollapsed(group, false, false);
       } else if (!q && group.hasAttribute('data-nav-group')) {
         const id = group.dataset.navGroup;
-        const savedCollapsed = id in navState ? Boolean(navState[id]) : (id !== 'sales');
+        const savedCollapsed = id in navState ? Boolean(navState[id]) : !['sales', 'care'].includes(id);
         setGroupCollapsed(group, savedCollapsed, false);
       }
     }

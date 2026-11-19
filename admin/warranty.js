@@ -46,6 +46,11 @@
       (w.emailStatus ? '<p class="warranty-note">Email kích hoạt: ' + escape(({ pending: 'Chờ gửi', sending: 'Đang gửi', sent: 'SMTP đã tiếp nhận', failed: 'Chưa gửi được', unknown: 'Chưa xác định kết quả', skipped: 'Chưa gửi · kiểm tra email hoặc hiệu lực hồ sơ' })[w.emailStatus] || w.emailStatus) + '</p>' : '') +
       (w.reason ? '<p class="warranty-note">' + escape(w.reason) + '</p>' : '') +
       '<small>Mã hồ sơ: ' + escape(w.id) + '</small>' +
+      (editable && action === 'active' ?
+        '<div class="warranty-quick-bar">' +
+          (!isSpam ? '<button type="button" class="primary-button warranty-quick-btn" data-w-quick-approve="' + escape(w.id) + '" data-w-date="' + escape(w.claimedPurchaseDate || w.purchaseDate || today) + '">✓ Duyệt nhanh 1 chạm</button>' : '') +
+          (isSpam ? '<button type="button" class="secondary-button warranty-quick-btn is-danger" data-w-quick-reject="' + escape(w.id) + '">✕ Không duyệt (Rác)</button>' : '') +
+        '</div>' : '') +
       (!w.automatic && ['pending', 'rejected'].includes(w.status) && admin.can('warranty.approve') ?
         '<div class="warranty-request-actions"><button class="' + (isSpam ? 'secondary-button is-danger' : 'secondary-button') + '" type="button" data-w-admin-delete="' + escape(w.id) + '">' + (isSpam ? '🗑️ Xóa yêu cầu rác' : 'Xóa yêu cầu chưa xác nhận') + '</button></div><div data-w-admin-confirm="' + escape(w.id) + '"></div>' : '') +
       (editable ?
@@ -90,6 +95,11 @@
     };
     const emptyText = emptyMessages[filter] || 'Chưa có hồ sơ phù hợp.';
 
+    const deletableSpam = rows.filter(r => r.isSpam && !r.automatic && ['pending', 'rejected'].includes(r.status));
+    const spamBulkBar = (filter === 'spam' && deletableSpam.length > 0 && admin.can('warranty.approve'))
+      ? '<div class="warranty-bulk-spam-bar"><span>Phát hiện <strong>' + deletableSpam.length + '</strong> yêu cầu rác trên trang này có thể xóa sạch.</span><button type="button" class="secondary-button is-danger" data-w-bulk-delete-spam>🗑️ Dọn sạch ' + deletableSpam.length + ' yêu cầu rác</button></div>'
+      : '';
+
     root.innerHTML =
       '<form data-warranty-search class="warranty-search">' +
         '<label>Tìm kiếm hồ sơ<input name="q" maxlength="100" value="' + escape(q) + '" placeholder="Mã đơn, sản phẩm, khách hàng, số điện thoại, serial…"></label>' +
@@ -102,6 +112,7 @@
         '<button type="button" role="tab" aria-selected="' + (filter === 'pending') + '" class="warranty-tab ' + (filter === 'pending' ? 'active' : '') + '" data-warranty-filter="pending">Chưa duyệt <span class="warranty-tab-count is-pending">' + counts.pending + '</span></button>' +
         '<button type="button" role="tab" aria-selected="' + (filter === 'spam') + '" class="warranty-tab is-spam ' + (filter === 'spam' ? 'active' : '') + '" data-warranty-filter="spam">⚠️ Yêu cầu rác <span class="warranty-tab-count is-spam">' + counts.spam + '</span></button>' +
       '</div>' +
+      spamBulkBar +
       '<p class="warranty-intro">Đơn website tự kích hoạt khi hoàn tất và thanh toán đủ. Chỉ đối chiếu thủ công các đơn ngoài hệ thống; thời hạn 12 tháng tính từ ngày mua đã xác nhận.</p>' +
       '<div class="warranty-orders">' +
         ([...groups].map(([key, items]) => {
@@ -186,6 +197,75 @@
         opened.clear();
         try { await load(); } catch (error) { admin.showGlobal(error.message, true); }
       }
+      return;
+    }
+
+    const quickApprove = e.target.closest('[data-w-quick-approve]');
+    if (quickApprove) {
+      const w = rows.find(item => item.id === quickApprove.dataset.wQuickApprove);
+      if (!w) return;
+      const purchaseDate = quickApprove.dataset.wDate || w.claimedPurchaseDate || w.purchaseDate || new Date().toISOString().slice(0, 10);
+      const ok = window.GAERUNotify?.confirm
+        ? await window.GAERUNotify.confirm('Kích hoạt bảo hành 12 tháng cho ' + (w.productName || 'sản phẩm') + ' (ngày mua: ' + purchaseDate + ')?', { title: 'Duyệt nhanh bảo hành', confirmText: 'Xác nhận kích hoạt' })
+        : true;
+      if (!ok) return;
+      quickApprove.disabled = true;
+      try {
+        await admin.request('/api/gaeru_ceo/warranties/' + w.id, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'active', purchaseDate, reason: 'Đã đối chiếu mã đơn, chứng từ và ngày mua hợp lệ.', version: w.version })
+        });
+        await load();
+        admin.showGlobal('Đã duyệt nhanh và kích hoạt bảo hành thành công.');
+      } catch (error) {
+        admin.showGlobal(error.message, true);
+        quickApprove.disabled = false;
+      }
+      return;
+    }
+
+    const quickReject = e.target.closest('[data-w-quick-reject]');
+    if (quickReject) {
+      const w = rows.find(item => item.id === quickReject.dataset.wQuickReject);
+      if (!w) return;
+      const reasonText = Array.isArray(w.spamReasons) && w.spamReasons.length ? w.spamReasons.join(' · ') : 'Yêu cầu rác / thông tin người mua không có thật.';
+      quickReject.disabled = true;
+      try {
+        await admin.request('/api/gaeru_ceo/warranties/' + w.id, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'rejected', reason: reasonText, version: w.version })
+        });
+        await load();
+        admin.showGlobal('Đã từ chối yêu cầu bảo hành nghi vấn rác.');
+      } catch (error) {
+        admin.showGlobal(error.message, true);
+        quickReject.disabled = false;
+      }
+      return;
+    }
+
+    const bulkSpam = e.target.closest('[data-w-bulk-delete-spam]');
+    if (bulkSpam) {
+      const targets = rows.filter(r => r.isSpam && !r.automatic && ['pending', 'rejected'].includes(r.status));
+      if (!targets.length) return;
+      const ok = window.GAERUNotify?.confirm
+        ? await window.GAERUNotify.confirm('Xóa sạch ' + targets.length + ' yêu cầu rác trên trang này? Lịch sử thao tác vẫn được lưu trong nhật ký hệ thống.', { title: 'Dọn sạch yêu cầu rác', confirmText: 'Xóa ' + targets.length + ' yêu cầu', danger: true })
+        : true;
+      if (!ok) return;
+      bulkSpam.disabled = true;
+      bulkSpam.textContent = 'Đang dọn sạch…';
+      let deletedCount = 0;
+      for (const w of targets) {
+        try {
+          await admin.request('/api/gaeru_ceo/warranties/' + w.id, {
+            method: 'DELETE',
+            body: JSON.stringify({ version: w.version, confirmation: 'DELETE_WARRANTY_REQUEST' })
+          });
+          deletedCount++;
+        } catch (_) {}
+      }
+      await load();
+      admin.showGlobal('Đã dọn sạch ' + deletedCount + ' / ' + targets.length + ' yêu cầu rác.');
       return;
     }
 

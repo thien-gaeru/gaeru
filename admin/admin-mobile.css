@@ -135,7 +135,8 @@
  .admin-shell .admin-nav-search input{font-size:16px;min-height:46px}
  .admin-shell .admin-nav-search small{font-size:12px}
  .admin-shell .sidebar-bottom a,.admin-shell .sidebar-bottom button{font-size:15px}
- .admin-shell .admin-section-description,.admin-shell .view-panel p,.admin-shell .view-panel label,.admin-shell .view-panel button,.admin-shell .view-panel .row-button{font-size:16px;line-height:1.6}
+ .admin-shell .admin-section-description,.admin-shell .view-panel p,.admin-shell .view-panel label{font-size:15px;line-height:1.6}
+ .admin-shell .view-panel button,.admin-shell .view-panel .row-button{font-size:13.5px;line-height:1.4}
  .admin-shell .view-panel small,.admin-shell .view-panel .help-text{font-size:15px;line-height:1.65}
  .admin-shell .view-panel input:not([type=checkbox]):not([type=radio]),.admin-shell .view-panel select,.admin-shell .view-panel textarea{font-size:16px;min-height:46px}
  .admin-shell .view-panel h2{font-size:25px;line-height:1.35}

@@ -1915,7 +1915,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   const { getTrafficSummary } = require("./traffic-tracker");
 
   router.get("/gaeru_ceo/summary", requirePermission("dashboard.read"), async (req, res) => {
-    const [products, orders, settings, traffic, chatUnread] = await Promise.all([
+    const [products, orders, settings, traffic, chatUnread, warrantyPending, careOpen] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE active)::int AS active,
         (SELECT COUNT(*)::int FROM product_variants v JOIN products p ON p.id = v.product_id
          WHERE v.active = true AND p.active = true AND v.stock_quantity <= 5) AS "lowStock"
@@ -1927,11 +1927,24 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         FROM orders`),
       getSettings(pool, ["shipping_rates"]),
       getTrafficSummary(pool),
-      pool.query(`SELECT COUNT(*)::int AS unread FROM shopping_chat_threads WHERE status <> 'closed' AND awaiting_admin = true`).catch(() => ({ rows: [{ unread: 0 }] }))
+      pool.query(`SELECT COUNT(*)::int AS unread FROM shopping_chat_threads WHERE status <> 'closed' AND awaiting_admin = true`).catch(() => ({ rows: [{ unread: 0 }] })),
+      pool.query(`SELECT COUNT(*)::int AS pending FROM warranty_activations WHERE status = 'pending'`).catch(() => ({ rows: [{ pending: 0 }] })),
+      pool.query(`SELECT COUNT(*)::int AS open FROM care_requests WHERE status NOT IN ('resolved', 'closed')`).catch(() => ({ rows: [{ open: 0 }] }))
     ]);
     const shippingRatesConfigured = Object.keys(settings.shipping_rates || {}).length > 0;
     const chatUnreadCount = Number(chatUnread.rows[0]?.unread || 0);
-    res.json({ products: products.rows[0], orders: orders.rows[0], ordersEnabled:req.ordersEnabled, shippingRatesConfigured, traffic, shoppingChat: { unreadCount: chatUnreadCount } });
+    const pendingWarranties = Number(warrantyPending.rows[0]?.pending || 0);
+    const openCareRequests = Number(careOpen.rows[0]?.open || 0);
+    res.json({
+      products: products.rows[0],
+      orders: orders.rows[0],
+      ordersEnabled: req.ordersEnabled,
+      shippingRatesConfigured,
+      traffic,
+      shoppingChat: { unreadCount: chatUnreadCount },
+      warranties: { pending: pendingWarranties },
+      care: { open: openCareRequests }
+    });
   });
 
   router.get("/gaeru_ceo/traffic-summary", requirePermission("dashboard.read"), async (req, res) => {

@@ -114,3 +114,190 @@
   .cod-return-tabs{gap:6px}
   .cod-return-tab-btn{flex:1 1 calc(50% - 6px);min-width:140px;text-align:center;font-size:12.5px;padding:8px 10px}
 }
+
+/* ==========================================================================
+   3-Tier Minimalist Orders Workspace & One-Stop Processing Modal (Package 2)
+   ========================================================================== */
+#orders-view .orders-utility-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+#orders-view .orders-utility-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#orders-view .orders-pill-toggle {
+  min-height: 36px !important;
+  padding: 6px 14px !important;
+  font-size: 12.5px !important;
+  border-radius: 999px !important;
+  margin: 0 !important;
+}
+#orders-view .orders-export-menu {
+  position: relative;
+}
+#orders-view .orders-export-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+#orders-view .orders-export-menu > summary::-webkit-details-marker {
+  display: none;
+}
+#orders-view .orders-export-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: 280px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #d9e0e8;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  display: grid;
+  gap: 10px;
+}
+#orders-view .orders-export-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+#orders-view .orders-export-btns button {
+  flex: 1 1 auto;
+  min-height: 36px;
+  font-size: 12.5px;
+  padding: 6px 12px;
+}
+#orders-view .orders-unified-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 0 0 10px;
+}
+#orders-view .orders-search-wrap {
+  flex: 2 1 240px;
+  min-width: 0;
+}
+#orders-view .orders-search-wrap input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+#orders-view .orders-unified-toolbar > label {
+  flex: 1 1 128px;
+  min-width: 0;
+  font-size: 11px;
+  gap: 4px;
+}
+#orders-view .orders-unified-toolbar > label.orders-pagesize-field {
+  flex: 0 1 82px;
+}
+#orders-view .orders-unified-toolbar select {
+  min-height: 38px;
+  padding: 6px 10px;
+  font-size: 13px;
+  margin-top: 2px;
+}
+#orders-view .orders-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+#orders-view .orders-toolbar-actions button {
+  min-height: 38px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+#orders-view .orders-meta-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--order-muted);
+}
+#orders-view .orders-meta-strip .list-status {
+  margin: 0;
+  min-height: 0;
+  font-size: 12px;
+}
+#orders-view .order-bulk-actions.is-empty {
+  display: none !important;
+}
+#orders-view .order-bulk-actions:not(.is-empty) {
+  position: sticky;
+  top: 12px;
+  z-index: 30;
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #1e293b;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+  padding: 10px 14px;
+  margin: 0 0 12px;
+}
+#orders-view .order-bulk-actions:not(.is-empty) > span {
+  color: #ffffff;
+}
+#orders-view .order-bulk-actions:not(.is-empty) .secondary-button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+#orders-view .order-bulk-actions:not(.is-empty) .secondary-button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+#orders-view #order-review {
+  padding: 10px 14px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.order-dialog-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.order-modal-print-btn {
+  min-height: 34px !important;
+  padding: 5px 12px !important;
+  font-size: 12.5px !important;
+}
+#order-processing-dialog .order-quick-advance-btn {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-height: 40px;
+  padding: 8px 18px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  #orders-view .orders-utility-strip {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  #orders-view .orders-export-popover {
+    position: static;
+    margin-top: 8px;
+    box-shadow: none;
+  }
+  #orders-view .orders-search-wrap {
+    flex-basis: 100%;
+  }
+  .order-dialog-header-actions {
+    flex-wrap: wrap;
+  }
+}
