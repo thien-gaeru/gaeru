@@ -1594,9 +1594,27 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
     };
   }
 
-  // 10. Khai thác thêm webKnowledge / trang sản phẩm nếu câu hỏi nằm ở kiến thức dài đuôi
+  // 10. Ưu tiên tri thức quản trị viên đã duyệt (approvedSources) -> P2 Semantic FAQ GPU AI -> webKnowledge dài đuôi
+  const isShortSocial = hasAnyBoundaryTerm(space, ['cam on', 'thank', 'ok', 'oke', 'xin chao', 'hello', 'hi', 'alo', 'vay sao', 'the a', 'vay a']);
+  if (webKnowledge?.externalKnowledge?.approvedSources?.length) {
+    const preApprovedAns = findWebKnowledgeAnswer(effectiveRaw, { externalKnowledge: { approvedSources: webKnowledge.externalKnowledge.approvedSources } }, catalog);
+    if (preApprovedAns) {
+      return applyAntiRepeatGuard({ handoff: false, answer: preApprovedAns }, raw, history, primaryProd);
+    }
+  }
+
+  // 10a. P2 Semantic FAQ Rescue qua gaeru-gpu-ai v2 (~40ms, ưu tiên trước đoạn trích HTML rời rạc)
+  if (!isShortSocial) {
+    try {
+      const semFaq = await matchCustomerSemanticFaq(pool, effectiveRaw, { matchedProdKey: primaryProd?.key || null });
+      if (semFaq && semFaq.answer) {
+        return applyAntiRepeatGuard({ handoff: false, answer: semFaq.answer, semanticFaq: semFaq.key }, raw, history, primaryProd);
+      }
+    } catch (_) {}
+  }
+
   let resolvedWeb = webKnowledge;
-  if (!resolvedWeb && !hasAnyBoundaryTerm(space, ['cam on', 'thank', 'ok', 'oke', 'xin chao', 'hello', 'hi', 'alo', 'vay sao', 'the a', 'vay a'])) {
+  if (!resolvedWeb && !isShortSocial) {
     try {
       resolvedWeb = await getRelevantWebKnowledge(pool, { question: effectiveRaw, selectedProduct: primaryProd?.product || null });
     } catch (_) {}
@@ -1605,14 +1623,6 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   if (webAns) {
     return applyAntiRepeatGuard({ handoff: false, answer: webAns }, raw, history, primaryProd);
   }
-
-  // 10.5. P2 Semantic FAQ Rescue qua gaeru-gpu-ai v2 (cứu câu hỏi dài đuôi / diễn đạt tự do trước khi fallback)
-  try {
-    const semFaq = await matchCustomerSemanticFaq(pool, effectiveRaw, { matchedProdKey: primaryProd?.key || null });
-    if (semFaq && semFaq.answer) {
-      return applyAntiRepeatGuard({ handoff: false, answer: semFaq.answer, semanticFaq: semFaq.key }, raw, history, primaryProd);
-    }
-  } catch (_) {}
 
   // 11. Cảm ơn / phản ứng hội thoại ngắn / chào hỏi ngắn gọn — KHÔNG bắt nhầm từ đơn "rồi" trong câu phàn nàn
   const hasNegativeOrProblemWord = hasAnyBoundaryTerm(space, ['sai', 'lap', 'loi', 'hong', 'hu', 'khong dung', 'khong duoc', 'khong nhan', 'chan', 'te', 'mat', 'cham']);

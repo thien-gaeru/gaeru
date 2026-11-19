@@ -638,11 +638,11 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
 
   if (sections.length === 0 && hasAnyBoundaryTerm(qNorm, ['huong dan ket noi', 'ket noi thiet bi', 'cach ket noi', 'cach cam', 'su dung mic'])) {
     const prodTag = matchedProdKey === 'gaeru-m3'
-      ? ' cho **GAERU M3**'
+      ? ' cho GAERU M3'
       : matchedProdKey === 'gaeru-k9'
-        ? ' cho **GAERU K9**'
+        ? ' cho GAERU K9'
         : matchedProdKey === 'gaeru-g1-ultra'
-          ? ' cho **GAERU G1 ULTRA**'
+          ? ' cho GAERU G1 ULTRA'
           : '';
     sections.push(
       `**Hướng dẫn kết nối nhanh thiết bị GAERU${prodTag} theo từng dòng máy:**\n` +
