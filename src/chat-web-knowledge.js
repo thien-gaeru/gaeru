@@ -63,7 +63,7 @@ const PAGE_CACHE_TTL_MS = 300000;
 
 let liveDbCache = new WeakMap();
 const LIVE_DB_TTL_MS = 30000;
-const WEB_KNOWLEDGE_SYNC_TAGS = new Set(['*', 'catalog', 'products', 'product:list', 'gaeru-catalog', 'settings', 'store-config', 'promotions', 'news', 'site-pages']);
+const WEB_KNOWLEDGE_SYNC_TAGS = new Set(['*', 'catalog', 'products', 'product:list', 'gaeru-catalog', 'settings', 'store-config', 'payment-channels', 'promotions', 'news', 'site-pages']);
 
 function clearWebKnowledgeCache() {
   webPagesEpoch++;
@@ -221,19 +221,20 @@ async function loadWebPagesIndexAsync() {
   return loadPromise;
 }
 
-async function loadLiveSiteFacts(pool) {
+async function loadLiveSiteFacts(pool, config = null) {
   if (!pool || typeof pool.query !== 'function') return {};
   const cached = liveDbCache.get(pool);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   const facts = {};
   try {
-    const [settingsRes, vouchersRes, campaignsRes, newsRes, bundlesRes] = await Promise.all([
+    const [settingsRes, vouchersRes, campaignsRes, newsRes, bundlesRes, payConnRes] = await Promise.all([
       pool.query("SELECT setting_key, setting_value FROM store_settings WHERE setting_key IN ('shipping_rates', 'shipping_note', 'loyalty_policy')").catch(() => ({ rows: [] })),
       pool.query("SELECT v.code, v.title, v.kind, v.amount, v.max_discount_vnd, v.min_spend_vnd, v.ends_at FROM marketing_vouchers v WHERE v.active=true AND v.public_claim=true AND now() BETWEEN v.starts_at AND v.ends_at AND (SELECT count(*) FROM voucher_redemptions r WHERE r.voucher_id=v.id AND r.released=false) < v.total_limit ORDER BY v.created_at DESC LIMIT 6").catch(() => ({ rows: [] })),
       pool.query("SELECT title, body, ends_at FROM marketing_campaigns WHERE active=true AND now() BETWEEN starts_at AND ends_at ORDER BY created_at DESC LIMIT 4").catch(() => ({ rows: [] })),
       pool.query("SELECT slug, title, excerpt AS summary FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 100").catch(error => { console.warn("AI news context unavailable", /^[A-Z0-9]{5}$/.test(error.code || "") ? error.code : "QUERY_FAILED"); return { rows: [] }; }),
-      pool.query("SELECT b.id, b.title, b.discount_type, b.discount_value, COALESCE((SELECT json_agg(json_build_object('productSlug', p.slug, 'productName', p.name, 'variantName', v.name, 'priceVnd', v.price_vnd, 'isPrimary', bi.is_primary)) FROM product_bundle_items bi JOIN product_variants v ON v.id=bi.variant_id JOIN products p ON p.id=v.product_id WHERE bi.bundle_id=b.id AND v.active=true AND p.active=true), '[]'::json) AS items FROM product_bundles b WHERE b.active=true AND b.starts_at <= now() AND b.ends_at > now() ORDER BY b.created_at DESC LIMIT 5").catch(() => ({ rows: [] }))
+      pool.query("SELECT b.id, b.title, b.discount_type, b.discount_value, COALESCE((SELECT json_agg(json_build_object('productSlug', p.slug, 'productName', p.name, 'variantName', v.name, 'priceVnd', v.price_vnd, 'isPrimary', bi.is_primary)) FROM product_bundle_items bi JOIN product_variants v ON v.id=bi.variant_id JOIN products p ON p.id=v.product_id WHERE bi.bundle_id=b.id AND v.active=true AND p.active=true), '[]'::json) AS items FROM product_bundles b WHERE b.active=true AND b.starts_at <= now() AND b.ends_at > now() ORDER BY b.created_at DESC LIMIT 5").catch(() => ({ rows: [] })),
+      pool.query("SELECT channel_id, enabled FROM payment_channel_connections").catch(() => ({ rows: [] }))
     ]);
 
     for (const row of settingsRes.rows || []) {
@@ -265,6 +266,29 @@ async function loadLiveSiteFacts(pool) {
     }
     if (bundlesRes.rows?.length) {
       facts.activeBundles = bundlesRes.rows;
+    }
+
+    // Đồng bộ kênh thanh toán đang bật thực tế trên trang Thanh toán
+    let resolvedPayMethods = null;
+    if (config && typeof config === 'object' && Object.keys(config).length > 0) {
+      try {
+        const ch = await require('./payment-channels').getCheckoutPaymentChannels(pool, config);
+        if (Array.isArray(ch?.methods) && ch.methods.length > 0) {
+          resolvedPayMethods = ch.methods;
+        }
+      } catch (_) {}
+    }
+    if (!resolvedPayMethods && Array.isArray(payConnRes.rows) && payConnRes.rows.length > 0) {
+      const connMap = new Map(payConnRes.rows.map(r => [String(r.channel_id || ''), Boolean(r.enabled)]));
+      const list = [];
+      if (connMap.get('cod') !== false) list.push('cod');
+      for (const id of ['bank_transfer', 'vnpay', 'momo', 'zalopay']) {
+        if (connMap.get(id) === true) list.push(id);
+      }
+      if (list.length > 0) resolvedPayMethods = list;
+    }
+    if (resolvedPayMethods) {
+      facts.enabledPaymentMethods = resolvedPayMethods;
     }
   } catch {}
 

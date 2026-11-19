@@ -1047,7 +1047,7 @@ body.panel-active .site-header {
 .search-results-label { margin: 0 0 5px; }
 .search-result { display: flex; align-items: center; gap: 15px; min-height: 75px; padding: 8px 12px; border-radius: 9px; transition: background .2s ease, transform .2s ease; animation: search-result-in .32s both; animation-delay: calc(var(--result-index, 0) * 45ms); }
 .search-result:hover { transform: translateX(4px); background: #f0f0f3; }
-.search-result img { flex: 0 0 62px; width: 62px; height: 56px; object-fit: contain; }
+.search-result img { flex: 0 0 62px; width: 62px; height: 56px; padding: 4px; border: 1px solid rgba(17, 24, 39, .08); border-radius: 8px; background: #f3f4f6; object-fit: contain; box-sizing: border-box; }
 .search-result > span { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .search-result strong { font-size: 12px; }
 .search-result small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

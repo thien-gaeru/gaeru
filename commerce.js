@@ -250,7 +250,7 @@ function renderCatalog() {
 
   const applyFilters = () => {
     const matching = searchProducts(queryInput.value.trim()).filter((product) =>
-      (selectedCategory === "all" || product.category === selectedCategory) && (!savedOnly||window.GAERUSavedProducts?.has(product.slug))
+      (selectedCategory === "all" || product.category === selectedCategory || (selectedCategory === "video" && product.slug === "gaeru-p185")) && (!savedOnly||window.GAERUSavedProducts?.has(product.slug))
     );
     grid.innerHTML = matching.map((product) => productCard(product)).join("");
     count.textContent = `${matching.length} sản phẩm`;

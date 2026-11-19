@@ -173,7 +173,7 @@ function createSeoPages(pool,base='https://gaeru.com'){
     }else{
      rawDocTitle=setSafeTitle(doc,req.path==='/'?'GAERU — Micro không dây, gimbal theo dõi và thiết bị sáng tạo':'Cửa hàng GAERU — Micro không dây, gimbal và phụ kiện');setDescription(req.path==='/'?'Khám phá micro không dây GAERU K9, M3, G1 ULTRA và gimbal P01. Xem giá, phiên bản, hướng dẫn sử dụng và dịch vụ GAERU Care+.':'Mua micro không dây GAERU và gimbal theo dõi P01. So sánh giá, cổng kết nối, số lượng mic và tình trạng hàng để chọn thiết bị phù hợp.');
      let shown=products;if(req.path==='/shop.html'){
-      const category=typeof req.query.category==='string'?req.query.category:'';if(['audio','video','accessory'].includes(category))shown=shown.filter(p=>p.category===category);
+      const category=typeof req.query.category==='string'?req.query.category:'';if(['audio','video','accessory'].includes(category))shown=shown.filter(p=>p.category===category||(category==='video'&&p.slug==='gaeru-p185'));
       const q=typeof req.query.q==='string'?req.query.q.trim().slice(0,120).toLocaleLowerCase('vi'):'';if(q)shown=shown.filter(p=>(p.name+' '+p.descriptor+' '+p.description+' '+p.variants.map(v=>v.sku+' '+v.name).join(' ')).toLocaleLowerCase('vi').includes(q));
       const nav=doc.querySelector('[data-store-products]');if(nav)nav.innerHTML=products.map(p=>'<a class="store-category" href="'+productUrl(p)+'"><span class="category-art"><img src="'+escape(safeUrl(artwork.image(p)))+'" alt="" width="144" height="120" decoding="async"></span><span>'+escape(p.name)+'</span></a>').join('');doc.querySelector('#catalog-count').textContent=shown.length+' sản phẩm';
      }

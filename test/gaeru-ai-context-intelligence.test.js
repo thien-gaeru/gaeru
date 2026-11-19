@@ -374,3 +374,44 @@ test('Semantic Intent Router (22 prototypes) rescues colloquial paraphrases via 
   const weatherOff = await classifyCustomerIntentSemantic(null, 'thời tiết hôm nay trời mưa to không bạn', { transport: mockTransport });
   assert.equal(weatherOff, null);
 });
+
+test('Audit P1-P3 fixes: P185 grouped under Ghi hình (video), dynamic live payment methods in GAERU AI, compact product intro card', async () => {
+  // 1. P2-A: Dynamic payment methods reflect COD-only when only COD is enabled on storefront
+  const codOnlyPay = await generateGaeruAiResponse({
+    question: 'shop hỗ trợ những phương thức thanh toán nào?',
+    catalog: FULL_CATALOG,
+    webKnowledge: { enabledPaymentMethods: ['cod'] }
+  });
+  assert.match(codOnlyPay.answer, /Phương thức thanh toán đang mở tại gaeru\.com/i);
+  assert.match(codOnlyPay.answer, /COD/i);
+  assert.match(codOnlyPay.answer, /khi cửa hàng kích hoạt/i);
+
+  // When VietQR + VNPAY are enabled alongside COD, GAERU AI announces all active channels
+  const multiPay = await generateGaeruAiResponse({
+    question: 'có hỗ trợ thanh toán chuyển khoản không?',
+    catalog: FULL_CATALOG,
+    webKnowledge: { enabledPaymentMethods: ['cod', 'bank_transfer', 'vnpay'] }
+  });
+  assert.match(multiPay.answer, /COD/i);
+  assert.match(multiPay.answer, /Chuyển khoản VietQR/i);
+  assert.match(multiPay.answer, /VNPAY/i);
+  assert.ok(!multiPay.answer.includes('ZaloPay'));
+
+  // 2. P3-B: Compact product intro card keeps Android OTG/USB-Debug/third-party apps + Buy CTA while staying concise
+  const k9Compact = await generateGaeruAiResponse({ question: 'giới thiệu k9', catalog: FULL_CATALOG });
+  assert.ok(k9Compact.answer.includes('GAERU K9'));
+  assert.match(k9Compact.answer, /OPPO.*OTG/i);
+  assert.match(k9Compact.answer, /Gỡ lỗi USB/i);
+  assert.match(k9Compact.answer, /Ulike|WutaCam|B612|Open Camera/i);
+  assert.ok(k9Compact.answer.includes('/san-pham/gaeru-k9'));
+  assert.ok(k9Compact.answer.length < 1150, `Compact K9 intro should stay concise (${k9Compact.answer.length} chars)`);
+  assert.ok(k9Compact.answer.split('\n').length <= 7, `Compact K9 intro should stay <= 7 lines (${k9Compact.answer.split('\n').length} lines)`);
+
+  // 3. P1-B: Homepage filter logic includes accessory (GAERU P185) under video ("Ghi hình")
+  const fs = require('node:fs');
+  const scriptSrc = fs.readFileSync(require.resolve('../script.js'), 'utf8');
+  assert.match(scriptSrc, /filter === "video" && kind === "accessory"/);
+  const stylesSrc = fs.readFileSync(require.resolve('../styles.css'), 'utf8');
+  assert.match(stylesSrc, /\.search-result img\s*\{[^}]*background:\s*#f3f4f6/);
+});
+

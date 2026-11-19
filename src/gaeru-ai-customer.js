@@ -933,15 +933,40 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
 
   // Trường hợp khách hỏi chung chung về sản phẩm (VD: "Tư vấn K9", "Giới thiệu M3", "Thông số P185")
   const descLine = (liveProd?.cardSummary || liveProd?.descriptor || '').trim();
+  const activeVariants = Array.isArray(liveProd?.variants) ? liveProd.variants.filter(v => v && v.active !== false) : [];
   const variantLines = formatVariantSummaryLines(liveProd, variantHintText, inferredPorts);
   const lines = [];
   lines.push(`**${displayName}**${priceText ? ` — Giá: **${priceText}**` : ''}`);
   if (spec?.role) lines.push(`- **Tổng quan:** ${spec.role}`);
   else if (descLine) lines.push(`- **Tổng quan:** ${descLine}`);
-  if (spec?.battery) lines.push(`- **Pin:** ${spec.battery}`);
-  if (spec?.range) lines.push(`- **Phạm vi:** ${spec.range}`);
-  if (spec?.compatibility && !asksCompat) lines.push(`- **Tương thích:** ${spec.compatibility}`);
-  if (variantLines && !asksPrice && !asksStock) lines.push(`**Phân loại hiện có:**\n${variantLines}`);
+
+  const wantsVerboseIntro = hasAnyBoundaryTerm(space, ['chi tiet', 'day du', 'thong so', 'tat ca', 'toan bo', 'bang gia', 'liet ke', 'danh sach']);
+  if (!wantsVerboseIntro) {
+    // Bản gọn gàng để khách đọc nhanh và thấy ngay thẻ Mua ngay trên khung chat 445px
+    const pinRange = [spec?.battery, spec?.range].filter(Boolean).join(' · ');
+    if (pinRange) lines.push(`- **Pin & phạm vi:** ${pinRange}`);
+    if (spec?.compatibility && !asksCompat) {
+      if (spec?.kind === 'mic' && slug !== 'gaeru-g1-ultra') {
+        lines.push('- **Tương thích & lưu ý Android:** Hỗ trợ **Type-C / Lightning / USB-A / Micro-USB** theo phân loại. Máy **OPPO, vivo, Realme/Redmi…** bật **Kết nối OTG**; máy **Samsung** / Android không có OTG bật **Gỡ lỗi USB**; trên **OPPO, Realme/Redmi, Samsung dòng A/M** hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).');
+      } else {
+        lines.push(`- **Tương thích:** ${spec.compatibility}`);
+      }
+    }
+    if (!asksPrice && !asksStock) {
+      if (activeVariants.length > 2 && spec?.variantsGuide) {
+        const inStockCount = activeVariants.filter(v => v.stockQuantity === undefined || Number(v.stockQuantity) > 0).length;
+        const stockText = inStockCount > 0 ? `**${inStockCount}/${activeVariants.length} phân loại còn hàng**` : '**Tạm hết hàng**';
+        lines.push(`- **Phân loại:** ${spec.variantsGuide} (${stockText})`);
+      } else if (variantLines) {
+        lines.push(`**Phân loại hiện có:**\n${variantLines}`);
+      }
+    }
+  } else {
+    if (spec?.battery) lines.push(`- **Pin:** ${spec.battery}`);
+    if (spec?.range) lines.push(`- **Phạm vi:** ${spec.range}`);
+    if (spec?.compatibility && !asksCompat) lines.push(`- **Tương thích:** ${spec.compatibility}`);
+    if (variantLines && !asksPrice && !asksStock) lines.push(`**Phân loại hiện có:**\n${variantLines}`);
+  }
   if (parts.length) {
     for (const p of parts) {
       if (!lines.some(l => l.includes(p.slice(0, 24)))) lines.push(p);
@@ -1246,6 +1271,33 @@ function buildShippingAnswer({ webKnowledge, space }) {
   const rateNote = note ? ` (${note})` : '';
   return '**Vận chuyển & Giao hàng:**\n' +
     `- **Freeship** toàn quốc cho đơn từ **500.000 ₫**, giao ${etaText} (${carriers}), ${inspectNote}.${rateNote}`;
+}
+
+function buildPaymentMethodsAnswer({ webKnowledge = null } = {}) {
+  const methods = Array.isArray(webKnowledge?.enabledPaymentMethods) && webKnowledge.enabledPaymentMethods.length
+    ? webKnowledge.enabledPaymentMethods
+    : null;
+  if (!methods) {
+    return '**Phương thức thanh toán:** COD (tiền mặt khi nhận sau khi đồng kiểm ngoại quan), VietQR (xác nhận tự động), VNPAY, MoMo và ZaloPay (hiển thị theo các kênh đang mở tại trang Thanh toán).';
+  }
+  const labelMap = {
+    cod: '**COD** (tiền mặt khi nhận hàng sau khi đồng kiểm ngoại quan)',
+    bank_transfer: '**Chuyển khoản VietQR** (xác nhận tự động)',
+    vnpay: '**VNPAY**',
+    momo: '**Ví MoMo**',
+    zalopay: '**ZaloPay**'
+  };
+  const activeLabels = methods.map(id => labelMap[id]).filter(Boolean);
+  if (methods.length === 1 && methods[0] === 'cod') {
+    return (
+      '**Phương thức thanh toán đang mở tại gaeru.com:** Thanh toán khi nhận hàng (**COD** — tiền mặt khi nhận sau khi đồng kiểm ngoại quan).\n' +
+      '- *(Các kênh thanh toán trực tuyến như VietQR, VNPAY, MoMo, ZaloPay sẽ hiển thị tự động tại trang Thanh toán ngay khi cửa hàng kích hoạt).* '
+    ).trim();
+  }
+  if (activeLabels.length > 0) {
+    return `**Phương thức thanh toán đang mở tại gaeru.com:** ${activeLabels.join(', ')}.`;
+  }
+  return '**Phương thức thanh toán:** Thanh toán khi nhận hàng (**COD** — tiền mặt khi nhận sau khi đồng kiểm ngoại quan).';
 }
 
 function buildCodInspectionAnswer() {
@@ -1581,7 +1633,7 @@ function buildBundlesAnswer({ webKnowledge, primaryProd }) {
 /**
  * Phân tích và sinh câu trả lời thông minh, chính xác, không lan man từ GAERU AI.
  */
-async function generateGaeruAiResponse({ pool, thread, question, catalog = [], history = [], webKnowledge = null }) {
+async function generateGaeruAiResponse({ pool, config = null, thread, question, catalog = [], history = [], webKnowledge = null }) {
   const raw = String(question || '').trim();
   const effectiveRaw = resolveContextualFollowUp(raw, history);
   const expanded = expandQueryVi(effectiveRaw);
@@ -1721,7 +1773,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   let liveWeb = webKnowledge;
   if (!liveWeb && pool && typeof pool.query === 'function' && (isDynamicPolicyOrCommerce || primaryProd || asksUseCase)) {
     try {
-      liveWeb = await loadLiveSiteFacts(pool);
+      liveWeb = await loadLiveSiteFacts(pool, config);
     } catch (_) {}
   }
 
@@ -1840,9 +1892,7 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
   }
 
   if (asksPay) {
-    sections.push(
-      '**Phương thức thanh toán:** COD (tiền mặt khi nhận sau khi đồng kiểm ngoại quan), VietQR (xác nhận tự động), VNPAY, MoMo và ZaloPay.'
-    );
+    sections.push(buildPaymentMethodsAnswer({ webKnowledge: liveWeb }));
   }
 
   if (asksBulkOrder) {
@@ -2125,6 +2175,7 @@ async function answerCustomerChat({ pool, config, thread, question, history = []
   // tri thức tự học chỉ lấy từ phản hồi thật của nhân viên qua learnFromStaffResponse & quản trị viên duyệt).
   return generateGaeruAiResponse({
     pool,
+    config,
     thread,
     question,
     catalog,

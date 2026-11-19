@@ -87,11 +87,13 @@
       const apply=(useSmooth)=>{
         if(stopped||!messages)return;
         let targetTop=messages.scrollHeight;
+        let overflowedBelow=false;
         if(preferReplyStart){
-          const items=messages.querySelectorAll('[data-message-id]');
+          const items=messages.querySelectorAll?.('[data-message-id]')||[];
           const lastEl=items.length?items[items.length-1]:null;
           if(lastEl&&messages.clientHeight>120&&lastEl.offsetHeight>messages.clientHeight-24){
             targetTop=Math.max(0,lastEl.offsetTop-10);
+            overflowedBelow=(messages.scrollHeight-targetTop-messages.clientHeight)>60;
           }
         }
         programmaticScrollUntil=Date.now()+(useSmooth?500:220);
@@ -100,6 +102,9 @@
           messages.scrollTo({top:targetTop,behavior:allowSmooth?'smooth':'instant'});
         }else{
           messages.scrollTop=targetTop;
+        }
+        if(overflowedBelow){
+          setJumpLatestVisible(true);
         }
       };
       apply(smooth);
@@ -122,7 +127,7 @@
       }
     },rootListenerOpts);
     if(jumpLatestBtn){
-      jumpLatestBtn.addEventListener('click',()=>{
+      jumpLatestBtn.addEventListener?.('click',()=>{
         pinnedToBottom=true;
         awaitingReplyScroll=false;
         setJumpLatestVisible(false);

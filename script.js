@@ -14,7 +14,8 @@ productSection?.addEventListener("click", (event) => {
     item.setAttribute("aria-pressed", String(selected));
   });
   cards.forEach((card) => {
-    const visible = filter === "all" || (card.dataset.kind || card.dataset.category) === filter;
+    const kind = card.dataset.kind || card.dataset.category;
+    const visible = filter === "all" || kind === filter || (filter === "video" && kind === "accessory");
     card.hidden = !visible;
     if (visible) visibleCount += 1;
   });
