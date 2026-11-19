@@ -49,6 +49,11 @@ test('Header search in store-shell.js matches "micro", Vietnamese diacritic-free
   ctx.globalThis = ctx;
 
   vm.runInNewContext(src, ctx);
+  // Compile store-shell.js together with commerce.js and account.js in one global lexical scope to catch any identifier collisions
+  const commerceSrc = fs.readFileSync(path.join(ROOT, 'commerce.js'), 'utf8');
+  const accountSrc = fs.readFileSync(path.join(ROOT, 'account.js'), 'utf8');
+  assert.doesNotThrow(() => new vm.Script(src + '\n;\n' + commerceSrc));
+  assert.doesNotThrow(() => new vm.Script(src + '\n;\n' + accountSrc));
 
   const searchToggle = document.querySelector('.search-toggle');
   const searchInput = document.querySelector('#search-query');

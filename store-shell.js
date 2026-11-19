@@ -430,12 +430,12 @@ function loadSearchIndex() {
 searchInput?.addEventListener("focus", loadSearchIndex, { once: true });
 searchToggle?.addEventListener("click", loadSearchIndex, { once: true });
 
-const SEARCH_CATEGORY_ALIASES = {
+const SHELL_SEARCH_CATEGORY_ALIASES = {
   audio: "micro microphone mic thu am",
   video: "gimbal quay video chong rung",
   accessory: "phu kien gay selfie chup hinh tripod"
 };
-function normalizeSearchText(value) {
+function normalizeShellSearchText(value) {
   return String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -447,14 +447,14 @@ function normalizeSearchText(value) {
 }
 
 function filterSearchProducts(query) {
-  const needle = normalizeSearchText(query);
+  const needle = normalizeShellSearchText(query);
   if (!needle) return [];
   if (edgeSearchIndex && Array.isArray(edgeSearchIndex)) {
     const tokens = needle.split(" ").filter(Boolean);
     return edgeSearchIndex.filter((p) => {
       const tags = Array.isArray(p.tags) ? p.tags.join(" ") : "";
-      const aliases = SEARCH_CATEGORY_ALIASES[p.category] || "";
-      const hay = normalizeSearchText([p.name, p.slug, p.sku, p.desc, p.category, tags, aliases].join(" "));
+      const aliases = SHELL_SEARCH_CATEGORY_ALIASES[p.category] || "";
+      const hay = normalizeShellSearchText([p.name, p.slug, p.sku, p.desc, p.category, tags, aliases].join(" "));
       return tokens.every((tok) => hay.includes(tok));
     });
   }
