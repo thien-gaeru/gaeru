@@ -1012,10 +1012,15 @@ function hasUndeliveredActiveWaybill(order) {
 }
 function renderOrderWaybillCard(order) {
   if (!order.trackingNumber) {
-    const createControls = (can("orders.write") && !["cancelled", "completed"].includes(order.status))
-      ? '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><button type="button" class="primary-button" data-create-carrier-waybill="' + escapeHtml(order.id) + '" style="padding:6px 14px;font-size:12px;">Tạo vận đơn thật</button><label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" data-auto-ship="' + escapeHtml(order.id) + '"> Bàn giao ngay (Đang giao)</label></div>'
+    const autoShipToggle = (can("orders.write") && !["cancelled", "completed"].includes(order.status))
+      ? '<label class="order-autoship-check"><input type="checkbox" data-auto-ship="' + escapeHtml(order.id) + '"> Bàn giao ngay (tự chuyển Đang giao khi tạo vận đơn)</label>'
       : "";
-    return '<div class="order-shipping-fulfillment" style="margin:12px 0;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;"><strong style="display:block;margin-bottom:6px;font-size:13px;">Hành trình &amp; Vận đơn hãng vận chuyển</strong><p style="margin:0 0 8px;font-size:12px;color:#64748b;">Chưa tạo vận đơn hãng cho đơn hàng này.</p>' + createControls + '<p class="feedback waybill-feedback" data-waybill-feedback="' + escapeHtml(order.id) + '" role="alert" style="margin:8px 0 0;font-size:12px;" hidden></p></div>';
+    return '<div class="order-shipping-fulfillment order-modal-card">' +
+      '<div class="order-card-head"><strong>Vận đơn hãng vận chuyển</strong><span class="order-card-sub">' + escapeHtml(order.shippingCarrierName || 'Hãng mặc định') + '</span></div>' +
+      '<p class="order-waybill-note">Chưa tạo vận đơn cho đơn hàng này.</p>' +
+      autoShipToggle +
+      '<p class="feedback waybill-feedback" data-waybill-feedback="' + escapeHtml(order.id) + '" role="alert" hidden></p>' +
+    '</div>';
   }
   const cs = order.carrierShipment || {};
   const carrierId = cs.carrierId || "viettel";
@@ -1024,20 +1029,16 @@ function renderOrderWaybillCard(order) {
   const portalUrl = carrierId === "viettel"
     ? "https://viettelpost.vn/tra-cuu-hanh-trinh-don/?orderNumber=" + encodeURIComponent(order.trackingNumber)
     : (carrierId === "jt" ? "https://jtexpress.vn/track?billcode=" + encodeURIComponent(order.trackingNumber) : "https://spx.vn/track?billcode=" + encodeURIComponent(order.trackingNumber));
-  const canConfirmDelivered = can("orders.write") && !["delivered", "returned", "cancelled"].includes(rawSt);
-  const canConfirmCancelled = can("orders.write") && rawSt === "cancel_reconciliation_required";
-  return '<div class="order-shipping-fulfillment" style="margin:12px 0;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">' +
-    '<strong style="display:block;margin-bottom:6px;font-size:13px;">Hành trình &amp; Vận đơn hãng vận chuyển</strong>' +
-    '<p style="margin:0 0 8px;font-size:13px;">Mã vận đơn: <strong>' + escapeHtml(order.trackingNumber) + '</strong> (' + escapeHtml(cs.carrierId || order.shippingCarrierName || "Hãng") + ') · Trạng thái: <span class="status-pill status-' + escapeHtml(rawSt) + '">' + escapeHtml(stLabel) + '</span></p>' +
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-      '<button type="button" class="secondary-button" data-sync-carrier-tracking="' + escapeHtml(order.id) + '" style="font-size:12px;padding:5px 12px;">Đồng bộ hành trình</button>' +
-      '<a href="' + portalUrl + '" target="_blank" rel="noopener noreferrer" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">Tra cứu trên cổng hãng ↗</a>' +
-      (cs.labelUrl ? '<a href="' + escapeHtml(cs.labelUrl) + '" target="_blank" rel="noopener noreferrer" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;padding:5px 12px;">In nhãn hãng</a>' : "") +
-      (canConfirmDelivered ? '<button type="button" class="secondary-button" data-confirm-carrier-delivered="' + escapeHtml(order.id) + '" style="font-size:12px;padding:5px 12px;">Đối chiếu cổng hãng: Đã giao</button>' : "") +
-      (canConfirmCancelled ? '<button type="button" class="secondary-button" data-confirm-carrier-cancelled="' + escapeHtml(order.id) + '" style="font-size:12px;padding:5px 12px;">Đối chiếu cổng hãng: Đã hủy</button>' : "") +
-      (can("orders.write") && order.status !== "completed" && order.status !== "cancelled" && rawSt !== "delivered" ? '<button type="button" class="order-delete-button" data-cancel-waybill="' + escapeHtml(order.id) + '" style="background:#fff;color:#b42318;border:1px solid #fecdd3;font-size:12px;padding:5px 12px;">Hủy vận đơn</button>' : "") +
+  return '<div class="order-shipping-fulfillment order-modal-card">' +
+    '<div class="order-card-head"><strong>Vận đơn · ' + escapeHtml(cs.carrierId || order.shippingCarrierName || "Hãng") + '</strong><span class="status-pill status-' + escapeHtml(rawSt) + '">' + escapeHtml(stLabel) + '</span></div>' +
+    '<div class="order-waybill-row"><code class="order-waybill-code">' + escapeHtml(order.trackingNumber) + '</code>' +
+      '<div class="order-waybill-links">' +
+        '<button type="button" class="plain-button order-waybill-link" data-sync-carrier-tracking="' + escapeHtml(order.id) + '">↻ Đồng bộ</button>' +
+        '<a href="' + portalUrl + '" target="_blank" rel="noopener noreferrer" class="plain-button order-waybill-link">Tra cứu ↗</a>' +
+        (cs.labelUrl ? '<a href="' + escapeHtml(cs.labelUrl) + '" target="_blank" rel="noopener noreferrer" class="plain-button order-waybill-link">In nhãn</a>' : "") +
+      '</div>' +
     '</div>' +
-    '<p class="feedback waybill-feedback" data-waybill-feedback="' + escapeHtml(order.id) + '" role="alert" style="margin:8px 0 0;font-size:12px;" hidden></p>' +
+    '<p class="feedback waybill-feedback" data-waybill-feedback="' + escapeHtml(order.id) + '" role="alert" hidden></p>' +
   '</div>';
 }
 
@@ -1078,12 +1079,12 @@ function closeOrderProcessing(){const dialog=document.getElementById('order-proc
 function openOrderProcessing(id,opener){
  const order=state.orders.find(o=>o.id===id),body=document.getElementById('order-body-'+id);if(!order||!body)return;
  if(order.returnStatus==='returned'||order.returnedAt)return showGlobal('Đơn đã hoàn trả xong; không thể xử lý lại.',true);
- closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog';dialog.setAttribute('aria-labelledby','order-processing-title');
+ closeOrderProcessing();const dialog=document.createElement('dialog');dialog.id='order-processing-dialog';dialog.className='order-processing-dialog order-modal-compact';dialog.setAttribute('aria-labelledby','order-processing-title');
  const fulfillmentSteps = [
    { key: 'confirmed', label: '1. Xác nhận' },
-   { key: 'processing', label: '2. Giao hàng' },
-   { key: 'shipped', label: '3. Đang giao hàng' },
-   { key: 'completed', label: '4. Hoàn thành (Nhận phản hồi từ vận chuyển)' }
+   { key: 'processing', label: '2. Chuẩn bị & Vận đơn' },
+   { key: 'shipped', label: '3. Đang giao' },
+   { key: 'completed', label: '4. Hoàn thành' }
  ];
  let currentStep = -1;
  if (order.status === 'pending' || order.status === 'confirmed') currentStep = 0;
@@ -1100,109 +1101,212 @@ function openOrderProcessing(id,opener){
    }
    return '<li class="' + cls + '">' + escapeHtml(step.label) + '</li>';
  }).join('');
- dialog.innerHTML='<header><div><p>Quy trình xử lý đơn hàng 1 cửa (4 bước)</p><h2 id="order-processing-title">'+escapeHtml(order.orderNumber)+'</h2></div><div class="order-dialog-header-actions"><button type="button" class="secondary-button order-modal-print-btn" data-modal-print="invoice" title="In phiếu đơn hàng">In phiếu</button><button type="button" class="secondary-button order-modal-print-btn" data-modal-print="label" title="In tem giao hàng">In tem</button><button type="button" class="secondary-button" data-close-order aria-label="Đóng xử lý đơn">×</button></div></header><ol class="order-process-steps">'+stepsHtml+'</ol><div class="order-processing-content">'+body.innerHTML+'</div>';
+
+ const cs = order.carrierShipment || {};
+ const rawSt = cs.status || 'created';
+ const moreItems = [];
+ if (order.trackingNumber && can('orders.write') && !['delivered', 'returned', 'cancelled'].includes(rawSt)) {
+   moreItems.push('<button type="button" data-confirm-carrier-delivered="' + escapeHtml(order.id) + '">Đối chiếu hãng: Đã giao</button>');
+ }
+ if (order.trackingNumber && can('orders.write') && rawSt === 'cancel_reconciliation_required') {
+   moreItems.push('<button type="button" data-confirm-carrier-cancelled="' + escapeHtml(order.id) + '">Đối chiếu hãng: Đã hủy</button>');
+ }
+ if (order.trackingNumber && can('orders.write') && !['completed', 'cancelled'].includes(order.status) && rawSt !== 'delivered') {
+   moreItems.push('<button type="button" class="is-danger" data-cancel-waybill="' + escapeHtml(order.id) + '">Hủy mã vận đơn hãng</button>');
+ }
+ if (can('orders.write') && order.status === 'completed' && order.returnStatus !== 'open') {
+   moreItems.push('<button type="button" data-return-order="' + escapeHtml(order.id) + '">Ghi nhận hoàn trả hàng</button>');
+ }
+ if (can('orders.permanent_delete')) {
+   moreItems.push('<button type="button" class="is-danger" data-permanent-delete-order="' + escapeHtml(order.id) + '">Xóa vĩnh viễn đơn hàng</button>');
+ }
+ const moreMenuHtml = moreItems.length
+   ? '<details class="order-more-menu"><summary class="secondary-button order-modal-icon-btn" title="Tác vụ khác" aria-label="Tác vụ khác">⋯</summary><div class="order-more-popover">' + moreItems.join('') + '</div></details>'
+   : '';
+ const orderTimeText = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+
+ dialog.innerHTML =
+   '<header class="order-modal-header">' +
+     '<div class="order-modal-title-group">' +
+       '<div class="order-modal-title-row">' +
+         '<h2 id="order-processing-title">' + escapeHtml(order.orderNumber) + '</h2>' +
+         '<span class="status-pill status-' + escapeHtml(order.status) + '">' + escapeHtml(labels[order.status] || order.status) + '</span>' +
+       '</div>' +
+       (orderTimeText ? '<p class="order-modal-sub">' + escapeHtml(orderTimeText) + '</p>' : '') +
+     '</div>' +
+     '<div class="order-dialog-header-actions">' +
+       '<button type="button" class="secondary-button order-modal-print-btn" data-modal-print="invoice" title="In phiếu đơn hàng">In phiếu</button>' +
+       '<button type="button" class="secondary-button order-modal-print-btn" data-modal-print="label" title="In tem giao hàng">In tem</button>' +
+       moreMenuHtml +
+       '<button type="button" class="secondary-button order-modal-icon-btn" data-close-order aria-label="Đóng xử lý đơn">×</button>' +
+     '</div>' +
+   '</header>' +
+   '<ol class="order-process-steps">' + stepsHtml + '</ol>' +
+   '<div class="order-processing-content">' + body.innerHTML + '</div>' +
+   '<footer class="order-dialog-footer" data-order-footer></footer>';
+
+ const contentEl = dialog.querySelector('.order-processing-content');
  if (order.status === 'completed') {
    const banner = document.createElement('div');
-   banner.className = 'order-step4-completed-callout';
-   banner.style.cssText = 'background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:13px;color:#166534;display:flex;align-items:center;gap:10px;';
-   const deliveredClock = order.deliveredAt ? (' · Thời điểm giao: ' + new Date(order.deliveredAt).toLocaleString('vi-VN')) : '';
-   banner.innerHTML = '<span>✅ <strong>Bước 4: Hoàn thành (nhận phản hồi từ vận chuyển)</strong> — Đơn hàng đã tự động xác nhận hoàn thành nghiệm thu sau khi nhận phản hồi giao thành công từ bên vận chuyển' + escapeHtml(deliveredClock) + '.</span>';
-   dialog.querySelector('.order-processing-content').prepend(banner);
+   banner.className = 'order-status-strip is-success';
+   const deliveredClock = order.deliveredAt ? (' · Giao lúc ' + new Date(order.deliveredAt).toLocaleString('vi-VN')) : '';
+   banner.innerHTML = '✅ <strong>Hoàn thành</strong> — Đơn hàng đã nghiệm thu hoàn tất' + escapeHtml(deliveredClock) + '.';
+   contentEl.prepend(banner);
  } else if (order.status === 'shipped') {
    const banner = document.createElement('div');
-   banner.className = 'order-step3-shipped-callout';
-   banner.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:10px;';
-   banner.innerHTML = '<span>🚚 <strong>Bước 3: Đang giao hàng</strong> — Hệ thống sẽ tự động xác nhận hoàn thành nghiệm thu (Bước 4) ngay khi nhận phản hồi giao thành công từ bên vận chuyển.</span>';
-   dialog.querySelector('.order-processing-content').prepend(banner);
+   banner.className = 'order-status-strip is-info';
+   banner.innerHTML = '🚚 <strong>Đang giao hàng</strong> — Hệ thống tự hoàn tất khi hãng vận chuyển xác nhận giao thành công.';
+   contentEl.prepend(banner);
  }
- if(order.reviewReason){
-   const callout=document.createElement('div');
-   callout.className='order-review-callout';
-   callout.style.cssText='background:#fff8ed;border:1px solid #f0dfbd;border-radius:10px;padding:12px 14px;margin:12px 0;font-size:13px;color:#856404;';
-   callout.innerHTML='<strong>⚠️ Đơn đang chờ xác minh qua điện thoại:</strong> '+escapeHtml(reviewReasonLabels[order.reviewReason]||order.reviewReason)+'.<br>Vui lòng gọi khách <strong>'+escapeHtml(order.phone)+'</strong> trước khi xác nhận đơn.'+(can('orders.write')?'<form data-inline-review-form="'+escapeHtml(order.id)+'" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center"><input name="resolution" required minlength="5" maxlength="1000" placeholder="Ghi kết quả gọi xác nhận…" style="flex:1 1 220px;min-height:36px;padding:6px 10px;font-size:13px;background:#fff"><button type="submit" class="primary-button" style="min-height:36px;padding:6px 14px;font-size:12px">Xác nhận đã gọi</button><button type="button" class="plain-button" data-focus-review="'+escapeHtml(order.id)+'" style="font-size:12px">Mở danh sách ↗</button></form><p role="alert" data-inline-review-feedback style="margin:6px 0 0;font-size:12px;color:#b42318"></p>':'');
-   dialog.querySelector('.order-processing-content').prepend(callout);
+ if (order.reviewReason) {
+   const callout = document.createElement('div');
+   callout.className = 'order-review-callout';
+   callout.innerHTML = '<div><strong>⚠️ Chờ xác minh SĐT (' + escapeHtml(order.phone) + '):</strong> ' + escapeHtml(reviewReasonLabels[order.reviewReason] || order.reviewReason) + '</div>' +
+     (can('orders.write') ? '<form data-inline-review-form="' + escapeHtml(order.id) + '" class="order-inline-review-form"><input name="resolution" required minlength="5" maxlength="1000" placeholder="Ghi kết quả gọi xác nhận…"><button type="submit" class="primary-button">Đã gọi xác nhận</button></form><p role="alert" data-inline-review-feedback class="order-inline-review-err"></p>' : '');
+   contentEl.prepend(callout);
  }
- if(can('orders.write')&&order.status==='completed'&&order.returnStatus!=='open'){const action=document.createElement('div');action.className='order-return-action';action.innerHTML='<button class="secondary-button" type="button" data-return-order="'+escapeHtml(order.id)+'">Ghi nhận hoàn trả hàng</button>';dialog.querySelector('.order-processing-content').prepend(action);}
- if(can('orders.permanent_delete')){
-    const dangerZone=document.createElement('div');
-    dangerZone.className='order-danger-zone';
-    dangerZone.style.cssText='margin-top:16px;padding-top:14px;border-top:1px solid #fee4e2;display:flex;justify-content:flex-end';
-    dangerZone.innerHTML='<button type="button" class="order-delete-button" data-permanent-delete-order="'+escapeHtml(order.id)+'">Xóa vĩnh viễn đơn hàng</button>';
-    dialog.querySelector('.order-processing-content').append(dangerZone);
-  }
-  dialog.addEventListener('click',event=>{
-    const printBtn=event.target.closest('[data-modal-print]');
-    if(printBtn&&typeof printOrderIds==='function'){printOrderIds([order.id],printBtn.dataset.modalPrint,printBtn);return;}
-    const quickBtn=event.target.closest('[data-quick-advance]');
-    if(quickBtn){
-      const form=dialog.querySelector('[data-order-form]');
-      const sel=form?.querySelector('select[name="status"]');
-      if(form&&sel&&!form.dataset.saving){
-        sel.value=quickBtn.dataset.quickAdvance;
-        if(sel.options)[...sel.options].forEach(o=>o.selected=(o.value===quickBtn.dataset.quickAdvance));
-        const changeEv=typeof Event==='function'?new Event('change',{bubbles:true}):(typeof window!=='undefined'&&window.Event?new window.Event('change',{bubbles:true}):null);
-        if(changeEv)sel.dispatchEvent(changeEv);
-        form.dataset.keepOpen='true';
-        if(typeof form.requestSubmit==='function')form.requestSubmit();
-        else form.dispatchEvent(new (window.Event||Event)('submit',{bubbles:true,cancelable:true}));
-      }
-      return;
-    }
-    const button=event.target.closest('[data-return-order]');
-    if(button)startOrderReturn(button.dataset.returnOrder);
-    const focusReview=event.target.closest('[data-focus-review]');
-    if(focusReview){
-      closeOrderProcessing();
-      const reviewDetails=document.querySelector('#order-review');
-      if(reviewDetails){
-        reviewDetails.open=true;
-        reviewDetails.scrollIntoView({behavior:'smooth',block:'start'});
-        reviewDetails.dispatchEvent(new Event('toggle'));
-      }
-    }
-    const del=event.target.closest('[data-permanent-delete-order]');
-    if(del){closeOrderProcessing();handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder);}
-  });
-  dialog.addEventListener('submit',async event=>{
-    const reviewForm=event.target.closest('[data-inline-review-form]');
-    if(!reviewForm)return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    const btn=reviewForm.querySelector('button[type="submit"]');
-    const fb=dialog.querySelector('[data-inline-review-feedback]');
-    if(btn)btn.disabled=true;
-    if(fb)fb.textContent='';
-    try{
-      await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/review',{method:'POST',body:JSON.stringify({resolution:reviewForm.querySelector('[name="resolution"]').value.trim()})});
-      showGlobal('Đã ghi nhận kết quả gọi xác nhận.');
-      await loadOrders(state.orderPage);
-      openOrderProcessing(order.id);
-    }catch(err){
-      if(fb)fb.textContent=err.message||'Chưa lưu được kết quả xác minh.';
-      if(btn)btn.disabled=false;
-    }
-  },true);
- const statusSelect=dialog.querySelector('select[name="status"]');
- if(statusSelect){
-  const nextOptions=[...statusSelect.options].filter(option=>option.value!==order.status);
-  const choices=document.createElement('fieldset');choices.className='order-status-buttons';choices.innerHTML='<legend>Bước tiếp theo</legend>'+nextOptions.map(option=>'<button type="button" class="secondary-button" data-status-choice="'+escapeHtml(option.value)+'" aria-pressed="'+(option.value===statusSelect.value)+'" '+(statusSelect.disabled?'disabled':'')+'>'+escapeHtml(option.textContent)+'</button>').join('');
-  choices.hidden=choices.querySelectorAll('button').length===0;
-  statusSelect.closest('label').hidden=true;statusSelect.closest('label').after(choices);
-  choices.addEventListener('click',event=>{const button=event.target.closest('[data-status-choice]');if(!button||statusSelect.closest('form').dataset.saving)return;statusSelect.value=button.dataset.statusChoice;if(statusSelect.options)[...statusSelect.options].forEach(o=>o.selected=(o.value===button.dataset.statusChoice));const changeEv = typeof Event === 'function' ? new Event('change',{bubbles:true}) : (typeof window !== 'undefined' && window.Event ? new window.Event('change',{bubbles:true}) : null); if (changeEv) statusSelect.dispatchEvent(changeEv);choices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));});
-  const quickTarget=(order.status==='pending'&&(nextOptions.some(o=>o.value==='processing')?'processing':nextOptions.some(o=>o.value==='confirmed')?'confirmed':''))||(order.status==='confirmed'&&nextOptions.some(o=>o.value==='processing')?'processing':'')||(order.status==='processing'&&nextOptions.some(o=>o.value==='shipped')?'shipped':'');
-  const submitBtn=dialog.querySelector('[data-order-form] button[type="submit"]');
-  if(quickTarget&&submitBtn&&!statusSelect.disabled&&order.shippingFeeVnd!=null){
-    const quickLabels={confirmed:'⚡ Xác nhận đơn ngay',processing:'⚡ Xác nhận & Chuẩn bị ngay',shipped:'🚚 Chuyển Đang giao ngay'};
-    const qBtn=document.createElement('button');
-    qBtn.type='button';
-    qBtn.className='primary-button order-quick-advance-btn';
-    qBtn.dataset.quickAdvance=quickTarget;
-    qBtn.textContent=quickLabels[quickTarget]||'Chuyển bước ngay';
-    submitBtn.className='secondary-button';
-    submitBtn.before(qBtn);
-  }
+
+ const statusSelect = dialog.querySelector('select[name="status"]');
+ let nextOptions = [];
+ if (statusSelect) {
+   nextOptions = [...statusSelect.options].filter(option => option.value !== order.status);
+   const choices = document.createElement('fieldset');
+   choices.className = 'order-status-buttons';
+   choices.innerHTML = '<legend>Đổi trạng thái thủ công</legend>' + nextOptions.map(option => '<button type="button" class="secondary-button" data-status-choice="' + escapeHtml(option.value) + '" aria-pressed="' + (option.value === statusSelect.value) + '" ' + (statusSelect.disabled ? 'disabled' : '') + '>' + escapeHtml(option.textContent) + '</button>').join('');
+   choices.hidden = choices.querySelectorAll('button').length === 0;
+   statusSelect.closest('label').hidden = true;
+   statusSelect.closest('label').after(choices);
+   choices.addEventListener('click', event => {
+     const button = event.target.closest('[data-status-choice]');
+     if (!button || statusSelect.closest('form').dataset.saving) return;
+     statusSelect.value = button.dataset.statusChoice;
+     if (statusSelect.options) [...statusSelect.options].forEach(o => o.selected = (o.value === button.dataset.statusChoice));
+     const changeEv = typeof Event === 'function' ? new Event('change', { bubbles: true }) : (typeof window !== 'undefined' && window.Event ? new window.Event('change', { bubbles: true }) : null);
+     if (changeEv) statusSelect.dispatchEvent(changeEv);
+     choices.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+   });
  }
- dialog.addEventListener('submit',updateOrder);dialog.addEventListener('change',changeOrderControl);dialog.querySelector('[data-close-order]').addEventListener('click',closeOrderProcessing);dialog.addEventListener('click',event=>{if(event.target===dialog&&!dialog.querySelector('form[data-saving]'))closeOrderProcessing();});dialog.addEventListener('close',()=>{dialog.remove();opener?.isConnected&&opener.focus();});document.body.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+
+ // Build minimal 1–2 button Action Footer tailored to exact order state
+ const footerEl = dialog.querySelector('[data-order-footer]');
+ const leftActions = [];
+ const rightActions = [];
+ const canWrite = can('orders.write');
+ const canCancel = canWrite && nextOptions.some(o => o.value === 'cancelled');
+ const hasNext = v => nextOptions.some(o => o.value === v);
+
+ if (canCancel) {
+   leftActions.push('<button type="button" class="plain-button order-footer-cancel" data-quick-advance="cancelled">Hủy đơn</button>');
+ } else if (canWrite && order.status === 'completed' && order.returnStatus !== 'open') {
+   leftActions.push('<button type="button" class="secondary-button" data-return-order="' + escapeHtml(order.id) + '">Ghi nhận hoàn trả</button>');
+ } else if (canWrite && order.status === 'cancelled' && !orderRestoreReason(order)) {
+   leftActions.push('<button type="button" class="secondary-button" data-modal-restore="' + escapeHtml(order.id) + '">Khôi phục đơn</button>');
+ }
+
+ if (canWrite && order.status === 'pending') {
+   if (!order.trackingNumber) {
+     rightActions.push('<button type="button" class="secondary-button" data-create-carrier-waybill="' + escapeHtml(order.id) + '">Tạo vận đơn</button>');
+   }
+   const nextStep = hasNext('processing') ? 'processing' : (hasNext('confirmed') ? 'confirmed' : '');
+   if (nextStep) {
+     rightActions.push('<button type="button" class="primary-button" data-quick-advance="' + nextStep + '">✓ Xác nhận &amp; Chuẩn bị</button>');
+   }
+ } else if (canWrite && ['confirmed', 'processing'].includes(order.status)) {
+   if (!order.trackingNumber) {
+     if (hasNext('shipped')) {
+       rightActions.push('<button type="button" class="secondary-button" data-quick-advance="shipped">Chuyển Đang giao</button>');
+     }
+     rightActions.push('<button type="button" class="primary-button" data-create-carrier-waybill="' + escapeHtml(order.id) + '">🚚 Tạo vận đơn &amp; Giao</button>');
+   } else if (hasNext('shipped')) {
+     rightActions.push('<button type="button" class="primary-button" data-quick-advance="shipped">🚚 Đã bàn giao (Đang giao)</button>');
+   }
+ } else if (canWrite && order.status === 'shipped') {
+   if (order.trackingNumber && hasUndeliveredActiveWaybill(order)) {
+     rightActions.push('<button type="button" class="primary-button" data-sync-carrier-tracking="' + escapeHtml(order.id) + '">↻ Đồng bộ hành trình</button>');
+   } else if (hasNext('completed')) {
+     rightActions.push('<button type="button" class="primary-button" data-quick-advance="completed">✓ Hoàn thành đơn</button>');
+   }
+ }
+ if (!rightActions.length) {
+   rightActions.push('<button type="button" class="secondary-button" data-close-order>Đóng</button>');
+ }
+ footerEl.innerHTML = '<div class="order-footer-left">' + leftActions.join('') + '</div><div class="order-footer-right">' + rightActions.join('') + '</div>';
+
+ // Auto-open advanced controls only if shipping fee is missing or manual transfer awaits payment confirmation
+ const advToggle = dialog.querySelector('[data-toggle-advanced]');
+ const advBody = dialog.querySelector('[data-advanced-body]');
+ const setAdvOpen = (open) => {
+   if (advBody) advBody.hidden = !open;
+   if (advToggle) {
+     advToggle.setAttribute('aria-expanded', String(Boolean(open)));
+     advToggle.textContent = (open ? '▾ ' : '▸ ') + 'Tùy chỉnh nâng cao (Phí ship · Thanh toán · Trạng thái khác)';
+   }
+ };
+ if (advBody && (order.shippingFeeVnd == null || (order.paymentMethod === 'bank_transfer' && order.paymentStatus !== 'paid' && !['cancelled', 'completed'].includes(order.status)))) {
+   setAdvOpen(true);
+ }
+
+ dialog.addEventListener('click', event => {
+   const toggleAdv = event.target.closest('[data-toggle-advanced]');
+   if (toggleAdv) { setAdvOpen(Boolean(advBody?.hidden)); return; }
+   const printBtn = event.target.closest('[data-modal-print]');
+   if (printBtn && typeof printOrderIds === 'function') { printOrderIds([order.id], printBtn.dataset.modalPrint, printBtn); return; }
+   const restoreBtn = event.target.closest('[data-modal-restore]');
+   if (restoreBtn) { closeOrderProcessing(); openOrderRestoration(restoreBtn.dataset.modalRestore); return; }
+   const quickBtn = event.target.closest('[data-quick-advance]');
+   if (quickBtn) {
+     const targetStatus = quickBtn.dataset.quickAdvance;
+     const form = dialog.querySelector('[data-order-form]');
+     const sel = form?.querySelector('select[name="status"]');
+     if (form && sel && !form.dataset.saving) {
+       if (targetStatus !== 'cancelled' && order.shippingFeeVnd == null && form.elements.shippingFeeVnd && form.elements.shippingFeeVnd.value === '') {
+         setAdvOpen(true);
+         form.elements.shippingFeeVnd.focus();
+         const fb = form.querySelector('[role="alert"]');
+         if (fb) fb.textContent = 'Nhập phí giao hàng để chốt tổng đơn trước khi xác nhận.';
+         return;
+       }
+       sel.value = targetStatus;
+       if (sel.options) [...sel.options].forEach(o => o.selected = (o.value === targetStatus));
+       const changeEv = typeof Event === 'function' ? new Event('change', { bubbles: true }) : (typeof window !== 'undefined' && window.Event ? new window.Event('change', { bubbles: true }) : null);
+       if (changeEv) sel.dispatchEvent(changeEv);
+       form.dataset.keepOpen = ['confirmed', 'processing'].includes(targetStatus) ? 'true' : 'false';
+       if (typeof form.requestSubmit === 'function') form.requestSubmit();
+       else form.dispatchEvent(new (window.Event || Event)('submit', { bubbles: true, cancelable: true }));
+     }
+     return;
+   }
+   const button = event.target.closest('[data-return-order]');
+   if (button) startOrderReturn(button.dataset.returnOrder);
+   const del = event.target.closest('[data-permanent-delete-order]');
+   if (del) { closeOrderProcessing(); handleOrderPermanentDeleteUI(del.dataset.permanentDeleteOrder); }
+ });
+ dialog.addEventListener('submit', async event => {
+   const reviewForm = event.target.closest('[data-inline-review-form]');
+   if (!reviewForm) return;
+   event.preventDefault();
+   event.stopImmediatePropagation();
+   const btn = reviewForm.querySelector('button[type="submit"]');
+   const fb = dialog.querySelector('[data-inline-review-feedback]');
+   if (btn) btn.disabled = true;
+   if (fb) fb.textContent = '';
+   try {
+     await request('/api/gaeru_ceo/orders/' + encodeURIComponent(order.id) + '/review', { method: 'POST', body: JSON.stringify({ resolution: reviewForm.querySelector('[name="resolution"]').value.trim() }) });
+     showGlobal('Đã ghi nhận kết quả gọi xác nhận.');
+     await loadOrders(state.orderPage);
+     openOrderProcessing(order.id);
+   } catch (err) {
+     if (fb) fb.textContent = err.message || 'Chưa lưu được kết quả xác minh.';
+     if (btn) btn.disabled = false;
+   }
+ }, true);
+ dialog.addEventListener('submit', updateOrder);
+ dialog.addEventListener('change', changeOrderControl);
+ dialog.querySelectorAll('[data-close-order]').forEach(btn => btn.addEventListener('click', closeOrderProcessing));
+ dialog.addEventListener('click', event => { if (event.target === dialog && !dialog.querySelector('form[data-saving]')) closeOrderProcessing(); });
+ dialog.addEventListener('close', () => { dialog.remove(); opener?.isConnected && opener.focus(); });
+ document.body.append(dialog);
+ if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', '');
 }
 function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
@@ -1290,23 +1394,42 @@ function renderOrders() {
     return `<article class="order-card" data-order-detail="${escapeHtml(order.id)}">
       <div class="order-card-summary order-table-row"><label class="order-select-cell"><input type="checkbox" data-select-order="${escapeHtml(order.id)}" aria-label="Chọn đơn ${escapeHtml(order.orderNumber)}" ${state.selectedOrders.has(order.id) ? "checked" : ""}></label><span class="order-cell"><strong>${escapeHtml(order.orderNumber)}</strong><small>${escapeHtml(orderDate)}</small></span><span class="order-cell"><strong>${escapeHtml(order.customerName)}</strong><small>${escapeHtml(order.phone)}</small></span><span class="order-cell"><strong>${itemCount} sản phẩm</strong><small>${escapeHtml(order.items.map(i => i.productName + ' · ' + i.variantName).join(', '))}</small></span><span class="order-cell"><span class="status-pill status-${escapeHtml(order.status)}">${returned?"Đã hoàn trả":escapeHtml(labels[order.status] || order.status)}</span>${order.reviewReason ? `<span class="status-pill status-warning" style="background:#fff3cd;color:#856404;border:1px solid #ffeeba;margin-top:4px;display:inline-block;font-size:11px" title="${escapeHtml(reviewReasonLabels[order.reviewReason] || 'Cần gọi xác nhận qua điện thoại')}">⚠️ Chờ xác minh SĐT</span>` : ''}</span><span class="order-cell"><strong title="${escapeHtml(labels[order.paymentMethod] || order.paymentMethod)}">${escapeHtml(order.paymentMethod==="cod"?"COD":labels[order.paymentMethod] || order.paymentMethod)}</strong><small>${paymentStatus}</small>${order.shippingCarrierName ? `<small>Vận chuyển: ${escapeHtml(order.shippingCarrierName)}</small>` : ""}</span><span class="order-cell order-amount"><strong>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</strong></span><span class="order-cell order-action-cell">${returned ? '<span class="status-pill">Đã hoàn trả</span>' : `<button type="button" class="${order.status === "pending" ? "primary-button" : "secondary-button"} order-process-button" data-process-order="${escapeHtml(order.id)}" aria-haspopup="dialog" aria-controls="order-processing-dialog">Xử lý</button>`}${can("orders.write") && order.status==="completed"&&!returned&&order.returnStatus!=="open" ? `<button type="button" class="secondary-button order-return-button" data-return-order="${escapeHtml(order.id)}">Hoàn trả</button>` : ""}${can("orders.write")&&order.status==="cancelled"&&!returned ? `<button type="button" class="secondary-button order-restore-button" style="white-space:nowrap" data-restore-order="${escapeHtml(order.id)}" ${orderRestoreReason(order)?"disabled":""}>Khôi phục xử lý</button>${orderRestoreReason(order)?`<small>${escapeHtml(orderRestoreReason(order))}</small>`:""}`:""}</span></div>
       <div class="order-card-body" id="order-body-${escapeHtml(order.id)}" hidden>
-      <div class="order-meta">
-        <p><strong>${escapeHtml(order.customerName)}</strong><br><a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a><br><a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a></p>
-        <p>${escapeHtml(order.address)}, ${escapeHtml(order.city)}${order.note ? `<br>Ghi chú: ${escapeHtml(order.note)}` : ""}</p>
-      </div>
-      <div class="order-lines">${order.items.map((item) => `<div class="order-line"><span>${escapeHtml(item.productName)} · ${escapeHtml(item.variantName)} × ${item.quantity}<small>SKU ${escapeHtml(item.sku || "—")}</small></span><strong>${formatPrice(item.lineTotalVnd)}</strong></div>`).join("")}</div>
-      <dl class="order-totals">${order.discountVnd?`<div><dt>Voucher ${escapeHtml(order.voucherCode)}</dt><dd>−${formatPrice(order.discountVnd)}</dd></div>`:""}<div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div>${Number(order.receivedVnd) > 0 ? `<div><dt>Đã thu</dt><dd>${formatPrice(order.receivedVnd)}</dd></div><div><dt>Còn phải thu</dt><dd>${formatPrice(order.outstandingVnd ?? Math.max(0, order.totalVnd - order.receivedVnd))}</dd></div>` : ""}<div><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
-      ${paymentNote ? `<p class="help-text">${escapeHtml(paymentNote)}</p>` : ""}
-      ${latePaymentWarning ? `<p class="feedback">${escapeHtml(latePaymentWarning)}</p>` : ""}
-      ${lockNote ? `<p class="editor-guidance">${lockNote}</p>` : ""}
-      ${typeof renderOrderWaybillCard === "function" ? renderOrderWaybillCard(order) : ""}
-      <form class="order-controls" data-order-form="${escapeHtml(order.id)}">
-        <label>Trạng thái đơn<select name="status" ${allowed.length ? "" : "disabled"}>${optionMarkup}</select></label>
-        <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${canEditShipping(order) ? "" : "disabled"}></label>
-        ${orderPaymentControl(order)}
-        ${['completed', 'cancelled'].includes(order.status) ? '' : `<button class="primary-button" type="submit" ${submitDisabled ? "disabled" : ""}>Lưu cập nhật</button>`}
-        <p class="feedback order-feedback" role="alert"></p>
-      </form>
+        <div class="order-modal-grid">
+          <div class="order-modal-col-left">
+            <div class="order-modal-card order-customer-box">
+              <div class="order-card-head"><strong>Khách hàng &amp; Giao nhận</strong></div>
+              <p class="order-customer-primary"><strong>${escapeHtml(order.customerName)}</strong> · <a href="tel:${escapeHtml(phone)}">${escapeHtml(order.phone)}</a>${order.email ? ` · <a href="mailto:${escapeHtml(order.email)}">${escapeHtml(order.email)}</a>` : ""}</p>
+              <p class="order-customer-address">${escapeHtml(order.address)}, ${escapeHtml(order.city)}</p>
+              ${order.note ? `<p class="order-customer-note">Ghi chú: ${escapeHtml(order.note)}</p>` : ""}
+            </div>
+            <div class="order-modal-card order-items-box">
+              <div class="order-card-head"><strong>Sản phẩm (${itemCount})</strong></div>
+              <div class="order-lines">${order.items.map((item) => `<div class="order-line"><span><strong>${escapeHtml(item.productName)}</strong> · ${escapeHtml(item.variantName)} × ${item.quantity}<small>SKU ${escapeHtml(item.sku || "—")}</small></span><strong>${formatPrice(item.lineTotalVnd)}</strong></div>`).join("")}</div>
+            </div>
+          </div>
+          <div class="order-modal-col-right">
+            <div class="order-modal-card order-summary-box">
+              <div class="order-card-head"><strong>Thanh toán · ${escapeHtml(order.paymentMethod === "cod" ? "COD" : (labels[order.paymentMethod] || order.paymentMethod))}</strong><span class="status-pill ${order.paymentStatus === "paid" ? "status-completed" : "status-pending"}">${escapeHtml(paymentStatus)}</span></div>
+              <dl class="order-totals">${order.discountVnd?`<div><dt>Voucher ${escapeHtml(order.voucherCode)}</dt><dd>−${formatPrice(order.discountVnd)}</dd></div>`:""}<div><dt>Tạm tính</dt><dd>${formatPrice(order.subtotalVnd)}</dd></div><div><dt>Phí giao hàng</dt><dd>${order.shippingFeeVnd == null ? "Chưa chốt" : formatPrice(order.shippingFeeVnd)}</dd></div>${Number(order.receivedVnd) > 0 ? `<div><dt>Đã thu</dt><dd>${formatPrice(order.receivedVnd)}</dd></div><div><dt>Còn phải thu</dt><dd>${formatPrice(order.outstandingVnd ?? Math.max(0, order.totalVnd - order.receivedVnd))}</dd></div>` : ""}<div class="order-totals-grand"><dt>Tổng cộng</dt><dd>${order.totalVnd == null ? "Chưa chốt tổng" : formatPrice(order.totalVnd)}</dd></div></dl>
+              ${paymentNote ? `<p class="help-text order-inline-note">${escapeHtml(paymentNote)}</p>` : ""}
+              ${latePaymentWarning ? `<p class="feedback order-inline-note">${escapeHtml(latePaymentWarning)}</p>` : ""}
+              ${lockNote ? `<p class="help-text order-inline-note">${lockNote}</p>` : ""}
+            </div>
+            ${typeof renderOrderWaybillCard === "function" ? renderOrderWaybillCard(order) : ""}
+            <div class="order-advanced-controls">
+              <button type="button" class="order-advanced-toggle" data-toggle-advanced aria-expanded="false">▸ Tùy chỉnh nâng cao (Phí ship · Thanh toán · Trạng thái khác)</button>
+              <div class="order-advanced-body" data-advanced-body hidden>
+              <form class="order-controls" data-order-form="${escapeHtml(order.id)}">
+                <label>Trạng thái đơn<select name="status" ${allowed.length ? "" : "disabled"}>${optionMarkup}</select></label>
+                <label>Phí giao hàng (₫)<input name="shippingFeeVnd" type="number" min="0" max="1000000000" step="1" inputmode="numeric" value="${order.shippingFeeVnd ?? ""}" placeholder="Nhập để chốt tổng" ${canEditShipping(order) ? "" : "disabled"}></label>
+                ${orderPaymentControl(order)}
+                ${['completed', 'cancelled'].includes(order.status) ? '' : `<button class="secondary-button" type="submit" ${submitDisabled ? "disabled" : ""}>Lưu tùy chỉnh</button>`}
+                <p class="feedback order-feedback" role="alert"></p>
+              </form>
+              </div>
+            </div>
+          </div>
+        </div>
       </div></article>`;
   }).join("");
   updateOrderSelection();
@@ -2129,6 +2252,7 @@ async function handleCarrierWaybillAction(event) {
       waybillFeedback.style.color = '#0284c7';
       waybillFeedback.classList.remove('is-error');
     }
+    const originalCreateLabel = createWaybillBtn.textContent;
     createWaybillBtn.disabled = true;
     createWaybillBtn.textContent = 'Đang tạo…';
     try {
@@ -2159,7 +2283,7 @@ async function handleCarrierWaybillAction(event) {
       showGlobal(err.message || 'Không thể tạo vận đơn.', true);
     } finally {
       createWaybillBtn.disabled = false;
-      createWaybillBtn.textContent = 'Tạo vận đơn thật';
+      createWaybillBtn.textContent = originalCreateLabel;
     }
     return;
   }
