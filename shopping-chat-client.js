@@ -47,7 +47,7 @@
     mic: '<svg class="chat-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>'
   };
   window.GAERUChatClient = { mount(root, {base,request,id=null,productSlug=null,admin=false}) {
-    let stopped=false, sessionEpoch=0, busy=false, sending=false, resumingAi=false, thread=null, key=null, files=[], orphanBlobUrls=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[], pendingUploads=new Map(), hdOriginalMode=false, activeUploadAbort=null, uploadCancelled=false, voiceState=null;
+    let stopped=false, sessionEpoch=0, busy=false, pendingRefresh=false, pinnedToBottom=true, awaitingReplyScroll=false, programmaticScrollUntil=0, sending=false, resumingAi=false, thread=null, key=null, files=[], orphanBlobUrls=[], supportReadAt=Date.now(), aiCapabilities=null, capabilitiesReadAt=0, bgChain=Promise.resolve(), fastAiTimers=[], pendingUploads=new Map(), hdOriginalMode=false, activeUploadAbort=null, uploadCancelled=false, voiceState=null;
     const rootAbort=typeof AbortController==='function'?new AbortController():null;
     const rootListenerOpts=rootAbort?{signal:rootAbort.signal}:undefined;
     const quickReplies = admin ? []      : [
@@ -58,7 +58,7 @@
         ];
     root.innerHTML = `<div class="chat-state-bar"><p class="chat-state" data-chat-state>Xin chào! GAERU sẵn sàng hỗ trợ bạn.</p><span class="chat-live-badge" data-chat-live-badge title="Thời gian thực (SSE 0ms)" aria-label="Trạng thái kết nối"><span class="chat-live-dot"></span><span data-chat-live-text hidden></span></span>${admin?'':'<div class="chat-session-actions"><a href="tel:0829191080" class="chat-hotline-session" data-chat-hotline data-no-action-feedback>☏ Gọi hotline</a><button type="button" class="chat-end-session" data-chat-end data-no-action-feedback hidden>Kết thúc phiên chat</button><button type="button" class="chat-new-session" data-chat-new data-no-action-feedback hidden>Bắt đầu chat mới</button></div>'}</div>
       <button type="button" data-chat-earlier hidden>Xem tin nhắn trước</button>
-      <div class="shopping-messages" data-chat-messages aria-live="polite"></div><div class="chat-support-state" data-chat-support role="status" hidden></div>
+      <div class="shopping-messages" data-chat-messages aria-live="polite"></div><button type="button" class="chat-jump-latest" data-chat-jump-latest hidden data-no-action-feedback>↓ Phản hồi mới nhất</button><div class="chat-support-state" data-chat-support role="status" hidden></div>
       <form data-chat-compose>
       ${admin?'':`<div class="chat-quick-bar" data-chat-quick-bar>
         <div class="chat-quick-header">
@@ -80,9 +80,55 @@
       </div>
       <input class="chat-file-input visually-hidden" type="file" multiple data-file="media" accept="image/*,video/*,audio/*,.jfif,.bmp,.tif,.tiff,.avif,.heic,.heif,.mp4,.mov,.m4v,.3gp,.webm,.mkv,.avi,.mp3,.m4a,.aac,.wav,.ogg,.opus,.weba,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z,.txt,.csv,.log,.md,.json,.xml,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain,text/csv,application/json,application/xml"><input class="chat-file-input visually-hidden" type="file" data-file="camera" capture="environment" accept="image/*,video/*">
       <p role="status" data-chat-feedback></p></form>`;
-    const messages=root.querySelector('[data-chat-messages]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
-    const nearBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<80;
-    function scrollToLatest(smooth=false){messages.scrollTo({top:messages.scrollHeight,behavior:smooth&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches?'smooth':'instant'});}
+    const messages=root.querySelector('[data-chat-messages]'), jumpLatestBtn=root.querySelector('[data-chat-jump-latest]'), feedback=root.querySelector('[data-chat-feedback]'), form=root.querySelector('form'), send=form.querySelector('[type=submit]'), plus=root.querySelector('[data-chat-plus]'), actions=root.querySelector('.chat-actions');
+    const nearBottom=()=>messages.scrollHeight-messages.scrollTop-messages.clientHeight<140;
+    function setJumpLatestVisible(show){if(jumpLatestBtn)jumpLatestBtn.hidden=!show;}
+    function scrollToLatest(smooth=false,{preferReplyStart=false}={}){
+      const apply=(useSmooth)=>{
+        if(stopped||!messages)return;
+        let targetTop=messages.scrollHeight;
+        if(preferReplyStart){
+          const items=messages.querySelectorAll('[data-message-id]');
+          const lastEl=items.length?items[items.length-1]:null;
+          if(lastEl&&messages.clientHeight>120&&lastEl.offsetHeight>messages.clientHeight-24){
+            targetTop=Math.max(0,lastEl.offsetTop-10);
+          }
+        }
+        programmaticScrollUntil=Date.now()+(useSmooth?500:220);
+        const allowSmooth=useSmooth&&!(typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        if(typeof messages.scrollTo==='function'){
+          messages.scrollTo({top:targetTop,behavior:allowSmooth?'smooth':'instant'});
+        }else{
+          messages.scrollTop=targetTop;
+        }
+      };
+      apply(smooth);
+      if(!smooth&&typeof requestAnimationFrame==='function'){
+        requestAnimationFrame(()=>apply(false));
+      }
+      if(!smooth){
+        setTimeout(()=>{if(!stopped&&(pinnedToBottom||awaitingReplyScroll))apply(false);},70);
+      }
+    }
+    messages.addEventListener?.('scroll',()=>{
+      if(Date.now()<programmaticScrollUntil)return;
+      const gap=messages.scrollHeight-messages.scrollTop-messages.clientHeight;
+      const atBottom=gap<140;
+      pinnedToBottom=atBottom;
+      if(atBottom){
+        setJumpLatestVisible(false);
+      }else if(gap>220){
+        awaitingReplyScroll=false;
+      }
+    },rootListenerOpts);
+    if(jumpLatestBtn){
+      jumpLatestBtn.addEventListener('click',()=>{
+        pinnedToBottom=true;
+        awaitingReplyScroll=false;
+        setJumpLatestVisible(false);
+        scrollToLatest(false);
+      },rootListenerOpts);
+    }
     let composing=false;
     form.elements.body.addEventListener('compositionstart',()=>composing=true);
     form.elements.body.addEventListener('compositionend',()=>composing=false);
@@ -145,7 +191,7 @@
       }
       if(!existing){
         messages.insertAdjacentHTML('beforeend','<article class="shopping-message from-admin is-ai-typing" data-ai-typing><strong>GAERU AI</strong><p>Đang phản hồi nhanh…</p></article>');
-        if(nearBottom())scrollToLatest(true);
+        if(pinnedToBottom||awaitingReplyScroll||nearBottom())scrollToLatest(false);
       }
     }
     function scheduleFastAIRefresh(){
@@ -397,7 +443,12 @@
 
     function setClosed(){const closed=thread?.status==='closed';send.disabled=closed;form.elements.body.disabled=closed;plus.disabled=closed;actions.querySelectorAll('button:not([data-chat-hotline])').forEach(b=>b.disabled=closed);root.querySelectorAll('[data-quick-reply]').forEach(b=>b.disabled=closed);syncSupport();}
     async function refresh(before){
-      if(stopped||busy||!id)return;busy=true;
+      if(stopped||!id)return;
+      if(busy){
+        if(!before)pendingRefresh=true;
+        return;
+      }
+      busy=true;
       const myEpoch=sessionEpoch;
       try{
         const confirmedNodes=[...messages.querySelectorAll('[data-message-id]')];
@@ -405,7 +456,7 @@
         let d=await request(base+'/'+id+'/messages'+(before?'?before='+before:!first&&last?'?after='+last:''));if(stopped||myEpoch!==sessionEpoch)return;
         if(!before&&!first&&thread&&d.thread.version!==thread.version&&!d.messages.length){d=await request(base+'/'+id+'/messages');if(stopped||myEpoch!==sessionEpoch)return;messages.replaceChildren();confirmedNodes.length=0;}
         thread=d.thread;supportReadAt=Date.now();if(!admin&&Date.now()-capabilitiesReadAt>60000)void loadCapabilities();
-        const near=nearBottom(),oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set(confirmedNodes.map(e=>e.dataset.messageId));
+        const near=nearBottom(),shouldFollow=first||awaitingReplyScroll||pinnedToBottom||near,oldHeight=messages.scrollHeight,oldTop=messages.scrollTop,known=new Set(confirmedNodes.map(e=>e.dataset.messageId));
         for(const m of d.messages){if(m.requestKey){const opt=messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(m.requestKey):m.requestKey}"]`);if(opt)opt.remove();}}
         if(orphanBlobUrls.length&&d.messages.length){for(const ob of orphanBlobUrls.splice(0))release(ob);}
         const newMessages=d.messages.filter(m=>!known.has(String(m.id)));
@@ -416,20 +467,42 @@
           if(anchor)anchor.insertAdjacentHTML('beforebegin',html);
           else messages.insertAdjacentHTML('beforeend',html);
         }
+        const hasReply=newMessages.some(m=>admin?m.sender==='customer':(m.sender==='ai'||m.sender==='admin'));
+        const hasOwn=newMessages.some(m=>admin?m.sender==='admin':m.sender==='customer');
         if(!admin){
-          const gotAiOrStaffReply=newMessages.some(m=>m.sender==='ai'||m.sender==='admin');
-          if(gotAiOrStaffReply||!thread?.aiPending||thread?.handlingMode==='human'||thread?.handoffOffered||thread?.status==='closed'){
+          if(hasReply||!thread?.aiPending||thread?.handlingMode==='human'||thread?.handoffOffered||thread?.status==='closed'){
             syncAiTypingIndicator(false);
-            if(gotAiOrStaffReply||!thread?.aiPending)clearFastAiTimers();
+            if(hasReply||!thread?.aiPending)clearFastAiTimers();
           }else if(thread?.aiPending&&(aiCapabilities?.aiConfigured||aiCapabilities?.gaeruAi)){
             syncAiTypingIndicator(true);
           }
         }
-        if(before)messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;else if(html&&(near||first))scrollToLatest(!first);
+        if(before){
+          messages.scrollTop=oldTop+messages.scrollHeight-oldHeight;
+        }else if(html){
+          if(shouldFollow||hasOwn){
+            pinnedToBottom=true;
+            setJumpLatestVisible(false);
+            scrollToLatest(false,{preferReplyStart:!first&&hasReply});
+            if(hasReply)awaitingReplyScroll=false;
+            for(const img of messages.querySelectorAll('img.chat-inline-media:not([data-scroll-bound])')){
+              img.setAttribute('data-scroll-bound','1');
+              img.addEventListener('load',()=>{if(!stopped&&pinnedToBottom)scrollToLatest(false);},{once:true});
+            }
+          }else if(hasReply){
+            setJumpLatestVisible(true);
+          }
+        }
         if(first||before)root.querySelector('[data-chat-earlier]').hidden=!d.hasMore;
         root.querySelector('[data-chat-state]').textContent=(thread.status==='closed'?'Đã đóng · ':thread.handlingMode==='human'?(thread.staffReplied?'Nhân viên đang hỗ trợ · ':'Chờ nhân viên · '):thread.handoffOffered?'AI tạm dừng · ':thread.aiPending?'GAERU AI đang trả lời… · ':'AI đang hỗ trợ · ')+thread.product_name;setClosed();
         if(d.hasMore&&!before&&!first)setTimeout(()=>refresh(),0);
-      }finally{busy=false;}
+      }finally{
+        busy=false;
+        if(pendingRefresh&&!stopped&&id){
+          pendingRefresh=false;
+          setTimeout(()=>void refresh(),0);
+        }
+      }
     }
 
     root.addEventListener('click',async event=>{
@@ -723,7 +796,10 @@
       const html=`<article class="shopping-message ${senderClass} is-optimistic" data-optimistic-key="${escape(reqKey)}" data-sender="${admin?'admin':'customer'}">${headerHtml}${bodyHtml}${previewHtml||''}<time>${escape(label)}</time></article>`;
       if(typingNode)typingNode.insertAdjacentHTML('beforebegin',html);
       else messages.insertAdjacentHTML('beforeend',html);
-      scrollToLatest(true);
+      pinnedToBottom=true;
+      awaitingReplyScroll=true;
+      setJumpLatestVisible(false);
+      scrollToLatest(false);
       return messages.querySelector(`[data-optimistic-key="${CSS?.escape?CSS.escape(reqKey):reqKey}"]`);
     }
 
@@ -850,7 +926,7 @@
       dispatchInstantSend(bodyText,queued);
     };
 
-    async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;poll?.setStreamUrl?.(base+'/'+id+'/realtime-sse');}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
+    async function requestHuman(){if(sending||thread?.status==='closed')return;sending=true;pinnedToBottom=true;awaitingReplyScroll=true;setJumpLatestVisible(false);setClosed();try{if(!id){const d=await request(base,{method:'POST',body:JSON.stringify({productSlug,body:'Tôi muốn gặp nhân viên.',requestKey:crypto.randomUUID()})});id=d.thread.id;poll?.setStreamUrl?.(base+'/'+id+'/realtime-sse');}await request(base+'/'+id+'/handoff',{method:'POST',body:JSON.stringify({})});await refresh();feedback.textContent='';}catch(e){feedback.textContent=e.message;}finally{sending=false;setClosed();}}
     async function endChatSession(){
       if(admin||sending||thread?.status==='closed')return;
       actions.hidden=true;plus.setAttribute('aria-expanded','false');collapseQuickReplies();
@@ -883,7 +959,7 @@
       pendingUploads.clear();
       orphanBlobUrls.splice(0).forEach(release);
       files.forEach(release);files=[];renderFiles();
-      id=null;thread=null;poll?.setStreamUrl?.(null);
+      id=null;thread=null;pendingRefresh=false;pinnedToBottom=true;awaitingReplyScroll=false;setJumpLatestVisible(false);poll?.setStreamUrl?.(null);
       messages.innerHTML='';
       root.querySelector('[data-chat-earlier]').hidden=true;
       actions.hidden=true;plus.setAttribute('aria-expanded','false');

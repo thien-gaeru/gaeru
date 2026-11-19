@@ -175,3 +175,59 @@ test('Chat ngay realtime: hotline button is placed on the same line right after 
   assert.ok(dotIndex !== -1 && hotlineIndex !== -1, 'Both dot and hotline must be inside title row');
   assert.ok(hotlineIndex > dotIndex, 'Hotline must be positioned after (to the right of) the live dot');
 });
+
+test('Chat ngay realtime: care-live queues pendingWake during in-flight refresh and client auto-scrolls to newest reply', async () => {
+  let scheduledFn = null;
+  let scheduledMs = null;
+  let releaseFirstRun = null;
+  let runs = 0;
+  const sseListeners = new Map();
+
+  const env = {
+    document: { hidden: false, addEventListener() {}, removeEventListener() {} },
+    navigator: { onLine: true },
+    addEventListener() {},
+    removeEventListener() {},
+    setTimeout(fn, ms) { scheduledFn = fn; scheduledMs = ms; return 1; },
+    clearTimeout() { scheduledFn = null; },
+    EventSource: class {
+      addEventListener(ev, fn) {
+        if (!sseListeners.has(ev)) sseListeners.set(ev, []);
+        sseListeners.get(ev).push(fn);
+      }
+      close() {}
+    }
+  };
+
+  const runner = poll({
+    streamUrl: '/api/shopping-chat/threads/t1/realtime-sse',
+    delay: 2000,
+    environment: env,
+    async run() {
+      runs++;
+      if (runs === 1) {
+        await new Promise((r) => { releaseFirstRun = r; });
+      }
+    }
+  });
+
+  // Start tick #1 (in-flight)
+  const firstTickPromise = scheduledFn();
+  assert.equal(runs, 1);
+
+  // SSE chat:message arrives while tick #1 is still in flight -> must queue pendingWake, NOT drop it
+  sseListeners.get('chat:message')[0]();
+  releaseFirstRun();
+  await firstTickPromise;
+
+  assert.equal(scheduledMs, 0, 'Queued SSE wakeup during in-flight refresh must schedule immediate 0ms re-run');
+  await scheduledFn();
+  assert.equal(runs, 2);
+  runner.stop();
+
+  const clientJs = fs.readFileSync(path.join(__dirname, '../shopping-chat-client.js'), 'utf8');
+  assert.ok(clientJs.includes('pendingRefresh=true'), 'Client refresh() must queue pendingRefresh instead of dropping concurrent wakeups');
+  assert.ok(clientJs.includes('awaitingReplyScroll=true'), 'Sending a message must pin auto-scroll for the upcoming AI/staff reply');
+  assert.ok(clientJs.includes('preferReplyStart:!first&&hasReply'), 'Long replies must reveal the top of the latest reply cleanly');
+  assert.ok(clientJs.includes('data-chat-jump-latest'), 'Client must render jump-to-latest pill when scrolled up');
+});

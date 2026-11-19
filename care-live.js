@@ -1,6 +1,6 @@
 (function(scope){
  function poll({run,active=()=>true,status=()=>{},delay=3000,background=()=>false,environment=scope,streamUrl=null}){
-  let timer=null,busy=false,stopped=false,failures=0,eventSource=null;
+  let timer=null,busy=false,pendingWake=false,stopped=false,failures=0,eventSource=null;
   const doc=environment.document,online=()=>environment.navigator?.onLine!==false;
   function schedule(ms){environment.clearTimeout(timer);if(!stopped)timer=environment.setTimeout(tick,ms);}
   async function tick(){
@@ -8,6 +8,7 @@
    if((doc.hidden&&!background())||!active()){schedule(delay);return;}
    if(!online()){status('Mất kết nối mạng. Sẽ tự kết nối lại.');schedule(delay);return;}
    busy=true;
+   pendingWake=false;
    try{
     await run();
     failures=0;
@@ -18,10 +19,17 @@
     if(error.status===401||error.status===403){stopped=true;try{eventSource?.close();}catch(_){}eventSource=null;}
    }finally{
     busy=false;
-    if(!stopped)schedule(Math.min(30000,delay*2**Math.min(failures,4)));
+    if(!stopped){
+     if(pendingWake){pendingWake=false;schedule(0);}
+     else schedule(Math.min(30000,delay*2**Math.min(failures,4)));
+    }
    }
   }
-  function wake(){if(!busy&&!stopped)schedule(0);}
+  function wake(){
+   if(stopped)return;
+   if(busy){pendingWake=true;return;}
+   schedule(0);
+  }
   function connectStream(url){
    if(eventSource){try{eventSource.close();}catch(_){}eventSource=null;}
    if(url&&typeof environment.EventSource==='function'){
