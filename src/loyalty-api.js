@@ -574,6 +574,7 @@ function createLoyaltyApi(pool) {
   });
 
   customerRouter.post('/loyalty/quote',
+    requireCsrf,
     rateLimit({ windowMs: 60000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {

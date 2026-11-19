@@ -1016,15 +1016,21 @@ function createBarcodeApi(pool, config = {}) {
     legacyHeaders: false
   });
 
-  // Helper middleware for either inventory or orders permission
-  const requireWarehouseAccess = (req, res, next) => {
+  // Shared helper for read-only lookup access vs mutating scan-log / pack-init write access
+  const requireAnyPermission = (allowedPerms, forbiddenMessage) => (req, res, next) => {
     if (!req.admin) return res.status(401).json({ error: "Vui lòng đăng nhập quản trị viên." });
     const perms = Array.isArray(req.admin.permissions) ? req.admin.permissions : [];
-    if (perms.includes("inventory.read") || perms.includes("orders.read") || perms.includes("catalog.read")) {
-      return next();
-    }
-    return res.status(403).json({ error: "Tài khoản không có quyền truy cập nghiệp vụ mã vạch kho." });
+    if (allowedPerms.some((perm) => perms.includes(perm))) return next();
+    return res.status(403).json({ error: forbiddenMessage });
   };
+  const requireWarehouseAccess = requireAnyPermission(
+    ["inventory.read", "orders.read", "catalog.read"],
+    "Tài khoản không có quyền truy cập nghiệp vụ mã vạch kho."
+  );
+  const requireWarehouseWriteAccess = requireAnyPermission(
+    ["inventory.write", "orders.write"],
+    "Tài khoản chỉ xem không có quyền ghi lượt quét hoặc khởi tạo đóng gói."
+  );
 
   // 1. Unified scan resolver (GET is strictly read-only; POST logs scans & initializes packing records)
   admin.get("/barcode/scan/:code", standardLimit, requireWarehouseAccess, async (req, res, next) => {
@@ -1036,7 +1042,7 @@ function createBarcodeApi(pool, config = {}) {
     }
   });
 
-  admin.post("/barcode/scan", standardLimit, requireWarehouseAccess, requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/scan", standardLimit, requireWarehouseWriteAccess, requireCsrf, async (req, res, next) => {
     try {
       const result = await resolveBarcode(pool, req.body?.code, { actor: req.admin, logScan: true, ensureVerification: true });
       res.json(result);

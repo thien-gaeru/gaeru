@@ -313,6 +313,7 @@ test("Barcode Station & Scanner Workflows Comprehensive Test Suite", async (t) =
 
     app.use((req, res, next) => {
       req.admin = mockAdmin;
+      req.session = { csrfToken: "valid-csrf-token" };
       next();
     });
 
@@ -355,7 +356,25 @@ test("Barcode Station & Scanner Workflows Comprehensive Test Suite", async (t) =
     // With default express CSRF or security middleware:
     assert.ok(inRes.status === 200 || inRes.status === 403);
 
-    // 9.4 Permission rejection test
+    // 9.4 Permission rejection test & read-only separation for POST /barcode/scan
+    mockAdmin = { username: "readonly_viewer", permissions: ["inventory.read", "orders.read", "catalog.read"] };
+    const readonlyGetRes = await fetch(`${base}/api/gaeru_ceo/barcode/scan/AIRPRO-BLK`);
+    assert.equal(readonlyGetRes.status, 200);
+    const readonlyPostRes = await fetch(`${base}/api/gaeru_ceo/barcode/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken },
+      body: JSON.stringify({ code: "AIRPRO-BLK" })
+    });
+    assert.equal(readonlyPostRes.status, 403);
+
+    mockAdmin = { username: "warehouse_worker", permissions: ["inventory.read", "inventory.write", "orders.read"] };
+    const writePostRes = await fetch(`${base}/api/gaeru_ceo/barcode/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-csrf-token": csrfToken },
+      body: JSON.stringify({ code: "AIRPRO-BLK" })
+    });
+    assert.equal(writePostRes.status, 200);
+
     mockAdmin = { username: "unauthorized_viewer", permissions: [] };
     const forbiddenRes = await fetch(`${base}/api/gaeru_ceo/barcode/scan/AIRPRO-BLK`);
     assert.equal(forbiddenRes.status, 403);

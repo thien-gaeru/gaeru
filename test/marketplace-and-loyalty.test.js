@@ -675,10 +675,17 @@ test('Loyalty & Omnichannel HTTP APIs: Customer balance quote, admin adjust, and
   assert.equal(bodyAdjust.points, 50000);
   assert.equal(bodyAdjust.balanceAfter, 50000);
 
-  // 3. POST /api/customer/loyalty/quote
-  const resQuote = await fetch(`${baseUrl}/api/customer/loyalty/quote`, {
+  // 3. POST /api/customer/loyalty/quote (CSRF required + valid quote)
+  const resQuoteNoCsrf = await fetch(`${baseUrl}/api/customer/loyalty/quote`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subtotalVnd: 200000 })
+  });
+  assert.equal(resQuoteNoCsrf.status, 403);
+
+  const resQuote = await fetch(`${baseUrl}/api/customer/loyalty/quote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
     body: JSON.stringify({ subtotalVnd: 200000 })
   });
   assert.equal(resQuote.status, 200);

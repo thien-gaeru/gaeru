@@ -520,6 +520,7 @@
 .background-removal-option{display:flex;align-items:center;gap:10px;font-size:13px;line-height:1.5;margin:12px 0}.background-removal-option input{width:18px;height:18px;flex:none}
 .cutout-advanced-panel{margin:8px 0 16px;border:1px solid #dce2ea;border-radius:12px;background:#f8fafc;padding:10px 14px;font-size:13px}
 .cutout-advanced-panel summary{cursor:pointer;font-weight:600;color:#0071e3;outline:none;user-select:none}
+.cutout-advanced-panel summary:focus-visible{outline:2px solid #0071e3;outline-offset:3px;border-radius:6px}
 .cutout-advanced-panel[open]{background:#f1f5f9}
 .cutout-settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0}
 .cutout-slider-item{display:grid;gap:6px}

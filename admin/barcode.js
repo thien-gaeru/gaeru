@@ -467,10 +467,13 @@
         return;
       }
 
-      const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/scan`, {
-        method: "POST",
-        body: JSON.stringify({ code })
-      });
+      const canWriteScan = window.GAERUAdmin.can("inventory.write") || window.GAERUAdmin.can("orders.write");
+      const res = canWriteScan
+        ? await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/scan`, {
+            method: "POST",
+            body: JSON.stringify({ code })
+          })
+        : await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/scan/${encodeURIComponent(code)}`);
       if (state.soundEnabled) playBeep("success");
 
       if (res.type === "sku") {
