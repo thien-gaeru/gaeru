@@ -1,4 +1,5 @@
 try { require('node:module').enableCompileCache?.(); } catch (_) {}
+if (typeof process.setMaxListeners === 'function') process.setMaxListeners(25);
 let stopOrderEmail;let stopChatFileRetention;let stopTikTokAds;
 require("dotenv").config();
 const expressSession = require("express-session");
