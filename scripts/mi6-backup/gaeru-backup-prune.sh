@@ -86,7 +86,11 @@ mv -f "${STATUS_FILE}.tmp.$$" "$STATUS_FILE"
 
 summary="[$(date -Is)] [PRUNE-${RETENTION_HOURS}h] removed(pg=${rm_pg_total}, media=${rm_media}, tmp=${rm_tmp}) | kept(pg_sets=${pg_kept}, media=${media_kept}) | disk(pg=${pg_bytes}B, media=${media_bytes}B)"
 if [ "$rm_total" -gt 0 ]; then
-  echo "$summary" | tee -a "$LOG_FILE"
+  if [ -e "$LOG_FILE" ] && [ /proc/self/fd/1 -ef "$LOG_FILE" ]; then
+    echo "$summary"
+  else
+    echo "$summary" | tee -a "$LOG_FILE"
+  fi
 elif [ "$VERBOSE" -eq 1 ]; then
   echo "$summary (no expired >${RETENTION_HOURS}h backups found)"
 fi

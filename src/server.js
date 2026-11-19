@@ -397,6 +397,9 @@ pool.on("error", (error) => console.error("Unexpected database pool error:", err
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 process.on("disconnect", shutdown);
+process.on("message", (msg) => {
+  if (msg && msg.type === "GRACEFUL_SHUTDOWN") void shutdown();
+});
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection in server runtime:", errorSummary(reason));
 });

@@ -12,8 +12,10 @@ function fixture(onFork) {
     const worker = new EventEmitter();
     worker.process = { pid: workers.length + 1000 }; worker.env = env; worker.dead = false;
     worker.isConnected = () => !worker.dead; worker.isDead = () => worker.dead;
+    worker.lifecycleCalls = [];
+    worker.send = (msg) => { worker.lifecycleCalls.push(['send', msg?.type]); };
     worker.crash = () => { worker.dead = true; worker.emit('exit', 1, null); };
-    worker.disconnect = () => { worker.dead = true; worker.emit('exit', 0, null); }; worker.kill = worker.disconnect;
+    worker.disconnect = () => { worker.lifecycleCalls.push(['disconnect']); worker.dead = true; worker.emit('exit', 0, null); }; worker.kill = worker.disconnect;
     const index = workers.push(worker) - 1;
     queueMicrotask(() => { if (!onFork?.(index, worker, workers)) worker.emit('message', { type: 'WORKER_READY' }); });
     return worker;
@@ -65,4 +67,15 @@ test('replacement that exits immediately after READY does not replace a healthy 
   await finishReload(f, f.executeRollingReload());
   assert.equal(f.activeWorkers.get(0), f.workers[0]); assert.equal(f.workers[0].isDead(), false);
   assert.equal(f.activeWorkers.size, 2); f.fire(200); assert.equal(f.workers.length, 4);
+});
+
+test('rolling reload sends GRACEFUL_SHUTDOWN IPC before disconnect on retired workers', async () => {
+  const f = fixture();
+  await finishReload(f, f.executeRollingReload());
+  for (const retired of [f.workers[0], f.workers[1]]) {
+    assert.deepEqual(retired.lifecycleCalls, [
+      ['send', 'GRACEFUL_SHUTDOWN'],
+      ['disconnect']
+    ]);
+  }
 });

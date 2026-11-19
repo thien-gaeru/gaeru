@@ -230,6 +230,11 @@ async function executeRollingReload() {
         // 3. Gracefully disconnect old worker with drain window
         if (oldWorker && oldWorker.isConnected()) {
           log(`Tiến hành rút Worker cũ (PID ${oldWorker.process?.pid}) sau khi đã có Worker mới thay thế an toàn...`);
+          // Notify worker explicitly before disconnect(): Node cluster waits for server.close()
+          // (blocked by HTTP keep-alive/SSE sockets) before emitting 'disconnect' inside the worker.
+          try {
+            oldWorker.send?.({ type: 'GRACEFUL_SHUTDOWN' });
+          } catch (_) {}
           try {
             oldWorker.disconnect();
           } catch (_) {}
@@ -302,6 +307,7 @@ async function gracefulShutdown() {
       if (worker && worker.isConnected()) {
         exits.push(new Promise((resolve) => {
           worker.once('exit', resolve);
+          try { worker.send?.({ type: 'GRACEFUL_SHUTDOWN' }); } catch (_) {}
           worker.disconnect();
         }));
       }

@@ -266,3 +266,20 @@ test('cluster worker disconnect triggers graceful shutdown cleanly once', async 
   assert.equal(f.calls.poolClosed, 1);
   assert.equal(f.calls.storeClosed, 1);
 });
+
+test('cluster worker GRACEFUL_SHUTDOWN IPC message triggers graceful shutdown cleanly once', async () => {
+  const f = fixture({ env: { CLUSTER_WORKER: '1', WORKER_INDEX: '1' } });
+  await settle();
+  assert.equal(f.calls.listening, 1);
+
+  f.events.emit('message', { type: 'OTHER_EVENT' });
+  await settle();
+  assert.equal(f.calls.listenerClosed, 0);
+
+  f.events.emit('message', { type: 'GRACEFUL_SHUTDOWN' });
+  f.events.emit('disconnect');
+  await settle();
+  assert.equal(f.calls.listenerClosed, 1);
+  assert.equal(f.calls.poolClosed, 1);
+  assert.equal(f.calls.storeClosed, 1);
+});
