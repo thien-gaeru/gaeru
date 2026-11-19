@@ -551,7 +551,7 @@ Quy tắc cốt lõi:
       const reservedWords = /^(?:cho|giam|khach|moi|nay|ngay|them|toi|khuyen|mai)$/i;
       const code = (candidateCode && !reservedWords.test(candidateCode))
         ? candidateCode.toUpperCase()
-        : 'SALE' + Math.floor(Math.random() * 900 + 100);
+        : 'SALE' + require('node:crypto').randomInt(100, 1000);
       const amountMatch = userQuestion.match(/(\d+(?:[.,]\d+)?)\s*(%|k\b|nghìn|ngàn|đồng|đ\b)/i);
       let amount = 30000;
       let kind = 'fixed';

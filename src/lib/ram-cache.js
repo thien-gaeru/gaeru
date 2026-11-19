@@ -2,7 +2,11 @@
 
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
+const { promisify } = require('node:util');
 const { LRUCache } = require('lru-cache');
+
+const brotliAsync = promisify(zlib.brotliCompress);
+const gzipAsync = promisify(zlib.gzip);
 
 // Zero-Copy L1 RAM Cache with Pre-compressed Brotli & Gzip Buffers
 class RamCache {
@@ -48,8 +52,8 @@ class RamCache {
     return `W/"${hash}"`;
   }
 
-  // Pre-compress payload into Brotli & Gzip binary buffers
-  prepareEntry({ key, payload, contentType = 'application/json; charset=utf-8', tags = [], ttlMs = this.defaultTtlMs }) {
+  // Build RAM cache entry immediately and populate Brotli & Gzip asynchronously off the event loop
+  _buildRawEntry({ key, payload, contentType = 'application/json; charset=utf-8', tags = [], ttlMs = this.defaultTtlMs }) {
     let rawBuffer;
     if (Buffer.isBuffer(payload)) {
       rawBuffer = payload;
@@ -60,35 +64,13 @@ class RamCache {
     }
 
     const etag = this.generateETag(rawBuffer);
-
-    // Fast Brotli compression (level 4: optimal trade-off between speed & compression ratio)
-    let brotliBuffer = null;
-    try {
-      brotliBuffer = zlib.brotliCompressSync(rawBuffer, {
-        params: {
-          [zlib.constants.BROTLI_PARAM_MODE]: contentType.includes('html') ? zlib.constants.BROTLI_MODE_TEXT : zlib.constants.BROTLI_MODE_GENERIC,
-          [zlib.constants.BROTLI_PARAM_QUALITY]: 4
-        }
-      });
-    } catch {
-      brotliBuffer = null;
-    }
-
-    // Fast Gzip compression (level 6)
-    let gzipBuffer = null;
-    try {
-      gzipBuffer = zlib.gzipSync(rawBuffer, { level: 6 });
-    } catch {
-      gzipBuffer = null;
-    }
-
     const normalizedTags = Array.isArray(tags) ? tags.map(t => String(t).trim().toLowerCase()) : [];
 
     const entry = {
       key,
       rawBuffer,
-      brotliBuffer,
-      gzipBuffer,
+      brotliBuffer: null,
+      gzipBuffer: null,
       etag,
       contentType,
       tags: normalizedTags,
@@ -107,6 +89,37 @@ class RamCache {
     }
 
     return entry;
+  }
+
+  async _compressEntryAsync(entry) {
+    const [brotliBuffer, gzipBuffer] = await Promise.all([
+      brotliAsync(entry.rawBuffer, {
+        params: {
+          [zlib.constants.BROTLI_PARAM_MODE]: entry.contentType.includes('html') ? zlib.constants.BROTLI_MODE_TEXT : zlib.constants.BROTLI_MODE_GENERIC,
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 4
+        }
+      }).catch(() => null),
+      gzipAsync(entry.rawBuffer, { level: 6 }).catch(() => null)
+    ]);
+    if (this.lru.get(entry.key) === entry) {
+      entry.brotliBuffer = brotliBuffer;
+      entry.gzipBuffer = gzipBuffer;
+      const elapsed = Date.now() - entry.createdAt;
+      const remTtl = Math.max(1000, entry.ttlMs - elapsed);
+      this.lru.set(entry.key, entry, { ttl: remTtl });
+    }
+    return entry;
+  }
+
+  prepareEntry(opts) {
+    const entry = this._buildRawEntry(opts);
+    void this._compressEntryAsync(entry);
+    return entry;
+  }
+
+  async prepareEntryAsync(opts) {
+    const entry = this._buildRawEntry(opts);
+    return await this._compressEntryAsync(entry);
   }
 
   get(key) {
@@ -133,7 +146,7 @@ class RamCache {
       try {
         const payload = await factoryFn();
         if (payload === null || payload === undefined) return null;
-        return this.prepareEntry({ key, payload, ...options });
+        return await this.prepareEntryAsync({ key, payload, ...options });
       } finally {
         this.inFlight.delete(key);
       }

@@ -576,6 +576,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
 
   const managementAssets=new Set(['marketing-home-banner.js','marketplace-sync.js','marketplace-sync.css','ai-knowledge.js','operational-tools.js','operational-tools.css','chat-compression-jobs.js','barcode.js','file-library.js','file-library.css','pages.js','order-print.js','after-sales.js','cod-return.js','orders-workspace.css','order-review.js','admin.css','admin.js','business.js','care.js','enterprise.css','enterprise.js','news-ai.css','news.js','owner.js','product-editor.css','product-editor.js','description-editor.js','warranty.js','notifications.js','notifications.css','admin-ui.js','admin-refinement.css','admin-workspace.css','admin-mobile.css','configuration.js','tiktok-ads.js','marketing.js','email-marketing.js','shopping-chat.js','shopping-chat.css','pwa-install.js','internal-ai.js','internal-ai.css']);
   const projectRoot=path.join(__dirname,'..'),adminRoot=path.join(projectRoot,'admin');
+  const managementAssetRoots=new Map([...managementAssets].map(f=>[f,fs.existsSync(path.join(adminRoot,f))?adminRoot:projectRoot]));
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo'}).sendFile('notification-worker.js',{root:adminRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'no-store'}).sendFile('manifest.webmanifest',{root:adminRoot}));
   app.get('/gaeru_ceo/pwa-qr.png',async(req,res,next)=>{
@@ -601,9 +602,10 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
   app.get('/gaeru_ceo/assets/zxing-browser.min.js',(_req,res)=>res.set('Cache-Control','no-store').sendFile('zxing-browser.min.js',{root:path.join(projectRoot,'node_modules','@zxing','browser','umd')}));
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
-    if(!managementAssets.has(req.params.file))return res.sendStatus(404);
+    const rootDir=managementAssetRoots.get(req.params.file);
+    if(!rootDir)return res.sendStatus(404);
     res.set('Cache-Control','no-store');
-    const rootDir=fs.existsSync(path.join(adminRoot,req.params.file))?adminRoot:projectRoot;res.sendFile(req.params.file,{root:rootDir},error=>{if(error)next(error);});
+    res.sendFile(req.params.file,{root:rootDir},error=>{if(error)next(error);});
   });
   app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res)=>{res.set("Cache-Control","no-store").sendFile("product-editor.html",{root:adminRoot});});
   app.get("/gaeru_ceo", (_req, res, next) => {
