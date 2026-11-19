@@ -31,11 +31,14 @@ button[data-busy="true"]::before { margin-right: 7px; }
 /* Toast Notifications Container — top-right so it never covers modal footers or bottom-right FAB */
 .gaeru-action-notices {
   position: fixed;
-  top: 20px;
-  right: 20px;
-  bottom: auto;
+  top: 20px !important;
+  right: 20px !important;
+  bottom: auto !important;
+  height: auto !important;
   z-index: 2147483646;
   display: grid;
+  align-content: start;
+  align-items: start;
   gap: 10px;
   width: min(420px, calc(100vw - 32px));
   pointer-events: none !important;
@@ -390,9 +393,10 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 /* Responsive & Mobile Optimization */
 @media (max-width: 600px) {
   .gaeru-action-notices {
-    right: 12px;
-    left: 12px;
-    bottom: max(16px, env(safe-area-inset-bottom));
+    top: max(12px, env(safe-area-inset-top)) !important;
+    right: 12px !important;
+    left: 12px !important;
+    bottom: auto !important;
     width: auto;
     max-width: calc(100vw - 24px);
     margin: 0 auto;

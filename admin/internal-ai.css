@@ -399,11 +399,7 @@
   }
 }
 
-/* Tránh che khuất nút nổi GAERU AI và ẩn toast/nút nổi khi mở modal hoặc đang ở view AI */
-.gaeru-action-notices {
-  bottom: 84px !important;
-}
-
+/* Ẩn toast/nút nổi GAERU AI khi mở modal hoặc đang ở view AI */
 body:has(#internal-ai-view:not([hidden])) .floating-copilot-trigger,
 body:has(#gaeru-ai-modal:not([hidden])) .floating-copilot-trigger,
 body:has(#config-popup-modal:not([hidden])) .floating-copilot-trigger,

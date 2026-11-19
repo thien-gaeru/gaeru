@@ -234,28 +234,37 @@ function stopAdminRealtime() {
 }
 
 function handleRealtimeEvent(event, data = {}) {
-  const dedupeKey = `${event}:${data.orderNumber || data.orderId || data.sku || data.careId || data.threadId || ''}`;
+  const resolvedOrderId = data.orderId || data.id || '';
+  const resolvedOrderNumber = String(
+    data.orderNumber ||
+    data.order_number ||
+    (resolvedOrderId && state.orders?.find(o => o.id === resolvedOrderId)?.orderNumber) ||
+    ''
+  ).trim();
+  const orderTag = resolvedOrderNumber ? ` #${resolvedOrderNumber}` : '';
+  const dedupeKey = `${event}:${resolvedOrderNumber || resolvedOrderId || data.sku || data.careId || data.threadId || ''}`;
   if (isDuplicateRealtimeEvent(dedupeKey)) return;
 
   // 1. Popup toast for important live events
   if (event === 'order:new') {
     const amountStr = data.totalVnd ? ' · ' + Number(data.totalVnd).toLocaleString('vi-VN') + ' ₫' : '';
     if (window.GAERUNotify?.toast) {
-      window.GAERUNotify.toast(`🔔 Có đơn hàng mới #${data.orderNumber || ''}${amountStr}!`, 'info');
+      window.GAERUNotify.toast(`🔔 Có đơn hàng mới${orderTag}${amountStr}!`, 'info');
     }
   } else if (event === 'order:update') {
-    const isLocal = isRecentLocalOrderAction(data.orderNumber) || isRecentLocalOrderAction(data.orderId);
+    const isLocal = isRecentLocalOrderAction(resolvedOrderNumber) || isRecentLocalOrderAction(resolvedOrderId);
     if (!isLocal && window.GAERUNotify?.toast) {
-      window.GAERUNotify.toast(`🔔 Đơn hàng #${data.orderNumber || ''} vừa cập nhật trạng thái.`, 'info');
+      const stLabel = data.status && labels[data.status] ? ` → ${labels[data.status]}` : '';
+      window.GAERUNotify.toast(`🔔 Đơn hàng${orderTag} vừa cập nhật trạng thái${stLabel}.`, 'info');
     }
   } else if (event === 'order:delete') {
-    if (data.orderId) {
-      state.orders = state.orders.filter(o => o.id !== data.orderId);
+    if (resolvedOrderId) {
+      state.orders = state.orders.filter(o => o.id !== resolvedOrderId);
       renderOrders();
     }
-    const isLocal = isRecentLocalOrderAction(data.orderNumber) || isRecentLocalOrderAction(data.orderId);
+    const isLocal = isRecentLocalOrderAction(resolvedOrderNumber) || isRecentLocalOrderAction(resolvedOrderId);
     if (!isLocal && window.GAERUNotify?.toast) {
-      window.GAERUNotify.toast(`🗑️ Đơn hàng #${data.orderNumber || ''} đã được xóa vĩnh viễn khỏi hệ thống.`, 'warning');
+      window.GAERUNotify.toast(`🗑️ Đơn hàng${orderTag} đã được xóa vĩnh viễn khỏi hệ thống.`, 'warning');
     }
   } else if (event === 'care:message' || event === 'care:update') {
     if (window.GAERUNotify?.toast) {
@@ -1462,6 +1471,7 @@ function openBulkProcessing(){
   feedback.textContent="";
   let saved=false;
   try{
+   if(typeof markLocalOrderAction==='function'){orders.forEach(o=>{markLocalOrderAction(o.id);markLocalOrderAction(o.orderNumber);});}
    const result=await request("/api/gaeru_ceo/orders/bulk",{method:"POST",body:JSON.stringify({action:getActionVal(),confirmReceived:confirmEl.checked,orders:orders.map(o=>({id:o.id,expectedStatus:o.status,expectedPaymentStatus:o.paymentStatus,expectedTotalVnd:o.totalVnd}))})});
    saved=true;
    if(typeof dialog.close==="function")dialog.close();
@@ -1506,6 +1516,7 @@ function openOrderRestoration(id){
   feedback.textContent='';
   let saved=false;
   try{
+   if(typeof markLocalOrderAction==='function'){markLocalOrderAction(order.id);markLocalOrderAction(order.orderNumber);}
    const result=await request('/api/gaeru_ceo/orders/'+encodeURIComponent(order.id)+'/restore',{method:'POST',body:JSON.stringify({version:order.version,requestKey,reason:form.elements.reason.value,confirmedUnpaid:form.elements.confirmedUnpaid.checked})});
    saved=true;
    dialog.close();dialog.remove();
@@ -1680,6 +1691,7 @@ async function updateOrder(event) {
       }
     }
     const keepDialogOpen = Boolean(form.dataset.keepOpen === "true" || (["confirmed", "processing"].includes(targetStatus) && order.status !== targetStatus));
+    if (typeof markLocalOrderAction === 'function') { markLocalOrderAction(order.orderNumber); markLocalOrderAction(order.id); }
     await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`, { method: "PATCH", body: JSON.stringify(payload) });
     saved = true;
     if (!keepDialogOpen) closeOrderProcessing();
@@ -3018,6 +3030,7 @@ async function handleOrderPermanentDeleteUI(orderId) {
 
     const csrf = await request('/api/csrf');
     state.csrfToken = csrf.csrfToken;
+    if(typeof markLocalOrderAction==='function'){markLocalOrderAction(orderId); markLocalOrderAction(order.orderNumber);}
     const res = await request('/api/gaeru_ceo/orders/' + encodeURIComponent(orderId) + '/permanent-delete', {
       method: 'POST',
       body: JSON.stringify({

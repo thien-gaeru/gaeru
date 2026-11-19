@@ -154,10 +154,22 @@ test('action-feedback.js clear("error") dismisses only error notices and cancels
 
 test('action-feedback.css positions notices top-right with 3s progress animation and real-time button spinner', () => {
   const css = read('action-feedback.css');
-  assert.match(css, /\.gaeru-action-notices\s*\{[^}]*top:\s*20px;[^}]*right:\s*20px;/s);
+  const aiCss = read('admin/internal-ai.css');
+  assert.match(css, /\.gaeru-action-notices\s*\{[^}]*top:\s*20px\s*!important;[^}]*right:\s*20px\s*!important;[^}]*bottom:\s*auto\s*!important;[^}]*height:\s*auto\s*!important;/s);
+  assert.doesNotMatch(aiCss, /\.gaeru-action-notices\s*\{[^}]*bottom:/s, 'internal-ai.css must not override bottom on .gaeru-action-notices and stretch it across viewport');
   assert.match(css, /gaeru-toast-progress/);
   assert.match(css, /button\.is-processing/);
   assert.match(css, /pointer-events:\s*none;/);
+});
+
+test('order-workflow returns orderNumber for SSE and admin.js marks local actions before request to suppress echo', () => {
+  const workflowJs = read('src/order-workflow.js');
+  const adminJs = read('admin/admin.js');
+  assert.match(workflowJs, /RETURNING id, order_number AS "orderNumber"/);
+  assert.doesNotMatch(adminJs, /Đơn hàng #\$\{data\.orderNumber \|\| ''\}/, 'Must never render trailing # without order number');
+  const markBeforePatch = adminJs.indexOf('markLocalOrderAction(order.orderNumber)');
+  const patchCall = adminJs.indexOf('await request(`/api/gaeru_ceo/orders/${encodeURIComponent(form.dataset.orderForm)}`');
+  assert.ok(markBeforePatch > 0 && patchCall > markBeforePatch, 'markLocalOrderAction must run before PATCH request to suppress SSE self-echo');
 });
 
 test('admin.js enforces 3s auto-clear on #global-feedback, safe single GET 502 retry, and real-time order modal button locks', () => {

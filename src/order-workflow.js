@@ -299,7 +299,7 @@ function createOrderWorkflow({
         const updated = await client.query(
           `UPDATE orders SET status=COALESCE($2, status), payment_status=COALESCE($3, payment_status),
             shipping_fee_vnd=$4, total_vnd=$5, delivered_at=CASE WHEN $2 = 'completed' THEN COALESCE(delivered_at, now()) ELSE delivered_at END, updated_at=now()
-           WHERE id=$1 RETURNING id, status, payment_status AS "paymentStatus",
+           WHERE id=$1 RETURNING id, order_number AS "orderNumber", status, payment_status AS "paymentStatus",
              shipping_fee_vnd AS "shippingFeeVnd", total_vnd AS "totalVnd"`,
           [current.id, (autoApproveToProcessing ? "processing" : (update.status ?? targetStatus)) || null, update.paymentStatus || null, shippingFee, total]
         );
