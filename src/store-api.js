@@ -460,6 +460,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     }
   });
 
+  const CATEGORY_SEARCH_KEYWORDS = {
+    audio: ["micro", "microphone", "mic", "thu âm", "micro không dây", "mic cài áo"],
+    video: ["gimbal", "quay video", "chống rung", "theo dõi ai"],
+    accessory: ["phụ kiện", "gậy selfie", "gậy chụp hình", "tripod", "chân đỡ"]
+  };
+
   router.get("/search-index.json", async (req, res, next) => {
     try {
       const index = await getFreshData('data:search-index', async () => {
@@ -474,7 +480,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           imageUrl: p.imageUrl || '',
           category: p.category || '',
           inStock: p.variants?.some(v => (v.stockQuantity ?? v.stock ?? 0) > 0) ?? true,
-          tags: [p.name, p.slug, p.category, ...(p.variants || []).map(v => v.sku)].filter(Boolean)
+          tags: [...new Set([
+            p.name,
+            p.cardTitle,
+            p.slug,
+            p.category,
+            p.descriptor,
+            ...(CATEGORY_SEARCH_KEYWORDS[p.category] || []),
+            ...(p.variants || []).map(v => v.sku)
+          ].filter(Boolean))]
         }));
       });
       res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');

@@ -312,6 +312,14 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
     menuToggle.setAttribute("aria-expanded", "false");
     menuToggle.setAttribute("aria-label", menuToggle.dataset.openLabel || "Mở menu");
   }
+  if (panel.id === "search-panel") {
+    const qInput = panel.querySelector("#search-query");
+    const qResults = panel.querySelector("#search-results");
+    const qQuicklinks = panel.querySelector("[data-search-quicklinks]");
+    if (qInput) qInput.value = "";
+    if (qResults) qResults.innerHTML = "";
+    if (qQuicklinks) qQuicklinks.hidden = false;
+  }
   if (immediate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     panel.hidden = true;
     panelScrim.hidden = true;
@@ -422,13 +430,32 @@ function loadSearchIndex() {
 searchInput?.addEventListener("focus", loadSearchIndex, { once: true });
 searchToggle?.addEventListener("click", loadSearchIndex, { once: true });
 
+const SEARCH_CATEGORY_ALIASES = {
+  audio: "micro microphone mic thu am",
+  video: "gimbal quay video chong rung",
+  accessory: "phu kien gay selfie chup hinh tripod"
+};
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase()
+    .replace(/\bmicro(?:phone)?\b/g, "mic")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function filterSearchProducts(query) {
-  const needle = query.trim().toLocaleLowerCase("vi");
+  const needle = normalizeSearchText(query);
   if (!needle) return [];
   if (edgeSearchIndex && Array.isArray(edgeSearchIndex)) {
+    const tokens = needle.split(" ").filter(Boolean);
     return edgeSearchIndex.filter((p) => {
-      const hay = (p.name + " " + p.slug + " " + (p.sku || "") + " " + (p.desc || "") + " " + (p.category || "")).toLocaleLowerCase("vi");
-      return hay.includes(needle);
+      const tags = Array.isArray(p.tags) ? p.tags.join(" ") : "";
+      const aliases = SEARCH_CATEGORY_ALIASES[p.category] || "";
+      const hay = normalizeSearchText([p.name, p.slug, p.sku, p.desc, p.category, tags, aliases].join(" "));
+      return tokens.every((tok) => hay.includes(tok));
     });
   }
   return window.GAERUStore?.searchProducts(query) ?? [];

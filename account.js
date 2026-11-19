@@ -723,7 +723,13 @@ async function initGoogleOAuth(interactive = false) {
         button.after(host);
         window.google.accounts.id.renderButton(host,{type:'standard',theme:'outline',size:'large',shape:'pill',text:'signin_with',locale:'vi',width:Math.max(200,Math.min(360,button.parentElement.clientWidth||300))});
       }
-      button.hidden=true;
+      const rendered=Boolean(host.childElementCount>0||host.querySelector('iframe,[role="button"],button'));
+      if (rendered) {
+        button.hidden=true;
+      } else {
+        host.remove();
+        button.hidden=false;
+      }
     });
     if (interactive) setAccountFeedback('Chọn nút Đăng nhập bằng Google để tiếp tục.');
   } catch(error) { if(interactive) setAccountFeedback(error.message||'Chưa tải được đăng nhập Google. Vui lòng thử lại.',true); }
