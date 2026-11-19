@@ -135,7 +135,10 @@
  panel.addEventListener('submit',async e=>{
   const exchangeForm=e.target.closest('[data-exchange-issue],[data-exchange-void]');
   if(exchangeForm){
-   e.preventDefault();const button=exchangeForm.querySelector('button');if(button.disabled)return;button.disabled=true;
+   e.preventDefault();if(exchangeForm.dataset.saving)return;
+   const button=exchangeForm.querySelector('button');if(!button||button.disabled)return;
+   exchangeForm.dataset.saving='true';
+   if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(button,true,'Đang ghi nhận…');else button.disabled=true;
    const id=exchangeForm.dataset.exchangeIssue||exchangeForm.dataset.exchangeVoid,section=exchangeForm.closest('[data-exchange-tools]'),feedback=section.querySelector('[data-exchange-status]');
    feedback.classList.remove('is-error');
    try{
@@ -160,7 +163,7 @@
     feedback.textContent='Đang ghi nhận chứng từ kho…';await window.GAERUAdmin.request('/api/gaeru_ceo/orders/after-sales/'+id+endpoint,{method:'POST',body:JSON.stringify(body)});
     await load();document.dispatchEvent(new window.CustomEvent('gaeru:after-sales-updated'));window.GAERUAdmin.showGlobal(exchangeForm.dataset.exchangeVoid?'Đã hủy chứng từ và trả hàng về đúng kho.':'Đã xuất đủ hàng đổi và ghi nhận chứng từ kho.');
    }catch(error){if(feedback.isConnected){feedback.classList.add('is-error');feedback.textContent=error.message;}}
-   finally{if(button.isConnected)button.disabled=false;}
+   finally{delete exchangeForm.dataset.saving;if(button.isConnected){if(window.GAERUAdmin.setButtonBusy)window.GAERUAdmin.setButtonBusy(button,false);else button.disabled=false;}}
    return;
   }
   const rmaForm=e.target.closest('[data-rma-logistics]');

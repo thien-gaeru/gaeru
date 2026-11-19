@@ -68,7 +68,7 @@
         </div>
 
         <div id="cod-return-list-container">
-          <div id="cod-return-list-status" role="status" style="padding:10px 0;color:#718096;font-size:0.9em;">Đang tải danh sách hàng hoàn...</div>
+          <div id="cod-return-list-status" role="status" data-passive-status style="padding:10px 0;color:#718096;font-size:0.9em;">Đang tải danh sách hàng hoàn...</div>
           <div id="cod-return-items" style="display:grid;gap:12px;"></div>
         </div>
       `;
@@ -79,6 +79,15 @@
       } else if (ordersView) {
         ordersView.appendChild(panel);
       }
+
+      const closeCodReturnPanel = () => {
+        if (!panel || panel.hidden) return;
+        panel.hidden = true;
+        toggleBtn?.setAttribute('aria-expanded', 'false');
+        const ws = document.getElementById('order-workspace');
+        if (ws) ws.hidden = false;
+      };
+      window.GAERUCodReturn = Object.assign(window.GAERUCodReturn || {}, { close: closeCodReturnPanel });
 
       // Gắn sự kiện toggle
       toggleBtn.addEventListener('click', () => {
@@ -91,21 +100,26 @@
           const afterSalesPanel = document.getElementById('after-sales-panel');
           if (afterSalesPanel) afterSalesPanel.hidden = true;
           document.getElementById('after-sales-toggle')?.setAttribute('aria-expanded', 'false');
+          setTabActive('pending');
           loadPending();
         } else {
           if (ws) ws.hidden = false;
         }
       });
 
-      panel.querySelector('#cod-return-close').addEventListener('click', () => {
-        panel.hidden = true;
-        toggleBtn.setAttribute('aria-expanded', 'false');
-        const ws = document.getElementById('order-workspace');
-        if (ws) ws.hidden = false;
-      });
+      panel.querySelector('#cod-return-close').addEventListener('click', closeCodReturnPanel);
 
-      panel.querySelector('#cod-return-refresh').addEventListener('click', () => {
-        loadPending();
+      panel.querySelector('#cod-return-refresh').addEventListener('click', async () => {
+        const refreshBtn = panel.querySelector('#cod-return-refresh');
+        if (refreshBtn?.disabled) return;
+        window.GAERUAdmin?.setButtonBusy?.(refreshBtn, true, 'Đang tải…');
+        try {
+          if (panel.dataset.activeTab === 'history') await loadHistory();
+          else if (panel.dataset.activeTab === 'claims') await loadClaims();
+          else await loadPending();
+        } finally {
+          window.GAERUAdmin?.setButtonBusy?.(refreshBtn, false);
+        }
       });
 
       // Xử lý quét Barcode
@@ -115,8 +129,12 @@
 
       lookupForm.addEventListener('submit', async e => {
         e.preventDefault();
+        if (lookupForm.dataset.saving === '1') return;
         const q = scanInput.value.trim();
         if (!q) return;
+        const searchBtn = lookupForm.querySelector('button[type="submit"]');
+        lookupForm.dataset.saving = '1';
+        if (searchBtn) window.GAERUAdmin?.setButtonBusy?.(searchBtn, true, 'Đang tra…');
 
         scanResult.hidden = false;
         scanResult.innerHTML = '<p style="color:#718096;">Đang tra cứu vận đơn: ' + esc(q) + '...</p>';
@@ -126,6 +144,9 @@
           renderLookupResult(scanResult, res.shipment, res.intakeStatus);
         } catch (err) {
           scanResult.innerHTML = `<div style="padding:10px;background:#fff5f5;border:1px solid #feb2b2;border-radius:6px;color:#c53030;">⚠️ ${esc(err.message || 'Không tìm thấy kiện hàng.')}</div>`;
+        } finally {
+          delete lookupForm.dataset.saving;
+          if (searchBtn) window.GAERUAdmin?.setButtonBusy?.(searchBtn, false);
         }
       });
 
@@ -153,6 +174,8 @@
   }
 
   function setTabActive(tab) {
+    const panelEl = document.getElementById('cod-return-panel');
+    if (panelEl) panelEl.dataset.activeTab = tab;
     const pBtn = document.getElementById('btn-tab-cod-pending');
     const hBtn = document.getElementById('btn-tab-cod-history');
     const cBtn = document.getElementById('btn-tab-cod-claims');

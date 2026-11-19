@@ -293,7 +293,6 @@ function handleRealtimeEvent(event, data = {}) {
       const activeBtn = document.querySelector('[data-view].is-active');
       const currentView = activeBtn?.dataset?.view;
       if (currentView === 'overview') {
-        loadSummary().catch(() => {});
         loadSystemHealth().catch(() => {});
       } else if (currentView === 'orders' && (event.startsWith('order:') || event === 'cache:invalidated')) {
         loadOrders(state.orderPage).catch(() => {});
@@ -1438,7 +1437,7 @@ function openOrderProcessing(id,opener){
 function openBulkProcessing(){
  const orders=state.orders.filter(o=>state.selectedOrders.has(o.id));if(!orders.length)return;
  document.getElementById("order-bulk-dialog")?.remove();const dialog=document.createElement("dialog");dialog.id="order-bulk-dialog";dialog.className="order-processing-dialog";
- dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="prepare">Bước 1 &amp; 2: Xác nhận &amp; Giao hàng</option><option value="ship">Bước 3: Bàn giao vận chuyển → Đang giao hàng</option><option value="complete">Bước 4: Hoàn thành (Nghiệm thu nhận phản hồi từ vận chuyển)</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><div data-bulk-cod-callout hidden style="display:none!important;"><span data-bulk-cod-msg></span></div><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ tiền mặt trực tiếp của các đơn COD nội bộ (không qua hãng thu hộ).</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
+ dialog.innerHTML='<header><h2>Xử lý '+orders.length+' đơn đã chọn</h2><button type="button" data-close-bulk class="secondary-button" aria-label="Đóng">×</button></header><form class="bulk-process-form"><label>Bước xử lý<select name="action"><option value="prepare">Bước 1 &amp; 2: Xác nhận &amp; Giao hàng</option><option value="ship">Bước 3: Bàn giao vận chuyển → Đang giao hàng</option><option value="complete">Bước 4: Hoàn thành (Nghiệm thu nhận phản hồi từ vận chuyển)</option><option value="cancel">Hủy đơn chưa giao → Đã hủy</option></select></label><p data-bulk-hint></p><div data-bulk-cod-callout hidden style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 12px;border-radius:10px;font-size:13px;"><span data-bulk-cod-msg></span></div><label data-bulk-money hidden><input type="checkbox" name="confirmReceived"> Tôi xác nhận đã thu đủ tiền mặt trực tiếp của các đơn COD nội bộ (không qua hãng thu hộ).</label><p>Toàn bộ đơn đã chọn phải đủ điều kiện cho cùng một bước. Nếu có đơn không hợp lệ, hệ thống giữ nguyên toàn bộ.</p><button type="submit" class="primary-button">Xác nhận xử lý</button><p role="alert"></p></form>';
  document.body.append(dialog);const form=dialog.querySelector("form"),actionEl=form.querySelector('[name="action"]'),confirmEl=form.querySelector('[name="confirmReceived"]'),hint=dialog.querySelector("[data-bulk-hint]"),codCallout=dialog.querySelector("[data-bulk-cod-callout]"),codMsg=dialog.querySelector("[data-bulk-cod-msg]");
  const getActionVal=()=>{const selOpt=actionEl.querySelector("option[selected]");return actionEl.value||selOpt?.getAttribute("value")||selOpt?.value||"prepare";};
  const refresh=()=>{
@@ -1629,15 +1628,15 @@ async function updateOrder(event) {
     if (dialog) dialog.dataset.confirming = "true";
     try {
       if (hasUndeliveredActiveWaybill(order)) {
-        const ok = await (window.GAERUNotify?.confirm
-          ? window.GAERUNotify.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng (${order.trackingNumber || ''}). Bạn có muốn tự động hủy mã vận đơn trên hãng và hủy đơn hàng ngay lập tức không?`, { danger: true, title: 'Hủy đơn & Hủy vận đơn hãng', confirmText: 'Hủy vận đơn và Đơn hàng' })
-          : window.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng. Tự động hủy mã vận đơn và hủy đơn hàng?`));
+        const ok = window.GAERUNotify?.confirm
+          ? await window.GAERUNotify.confirm(`Đơn hàng #${order.orderNumber} đang có mã vận đơn hoạt động tại hãng (${order.trackingNumber || ''}). Bạn có muốn tự động hủy mã vận đơn trên hãng và hủy đơn hàng ngay lập tức không?`, { danger: true, title: 'Hủy đơn & Hủy vận đơn hãng', confirmText: 'Hủy vận đơn và Đơn hàng' })
+          : false;
         if (!ok) return;
         cancelActiveWaybill = true;
       } else {
-        const ok = await (window.GAERUNotify?.confirm
-          ? window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
-          : window.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`));
+        const ok = window.GAERUNotify?.confirm
+          ? await window.GAERUNotify.confirm(`Hủy đơn ${order.orderNumber}? Số lượng sản phẩm trong đơn sẽ được hoàn lại vào tồn kho. Muốn khôi phục phải kiểm tra lại kho và thanh toán.`, { danger: true, confirmText: 'Hủy đơn hàng' })
+          : false;
         if (!ok) return;
       }
     } finally {
@@ -1873,7 +1872,7 @@ async function loadLoyaltyWorkspace(page=1){
   if(!can('customers.read'))return;
   const root=document.querySelector('#loyalty-view');
   if(!root.dataset.ready){
-    root.dataset.ready='true';root.innerHTML='<div id="loyalty-policy-host"></div><form data-xu-search class="section-toolbar"><label>Tìm thành viên<input name="q" type="search" maxlength="100" placeholder="Tên, email hoặc số điện thoại"></label><button class="primary-button" type="submit">Tra cứu</button><button class="secondary-button" type="button" data-xu-refresh>Tải lại</button></form><p role="status" data-xu-status></p><div class="metric-grid" data-xu-metrics></div><div data-xu-members></div><div class="pagination" data-xu-pagination></div>';
+    root.dataset.ready='true';root.innerHTML='<div id="loyalty-policy-host"></div><form data-xu-search class="section-toolbar"><label>Tìm thành viên<input name="q" type="search" maxlength="100" placeholder="Tên, email hoặc số điện thoại"></label><button class="primary-button" type="submit">Tra cứu</button><button class="secondary-button" type="button" data-xu-refresh>Tải lại</button></form><p role="status" data-passive-status data-xu-status></p><div class="metric-grid" data-xu-metrics></div><div data-xu-members></div><div class="pagination" data-xu-pagination></div>';
     root.querySelector('form').onsubmit=event=>{event.preventDefault();loadLoyaltyWorkspace().catch(error=>root.querySelector('[data-xu-status]').textContent=error.message);};
     root.querySelector('[data-xu-refresh]').onclick=()=>loadLoyaltyWorkspace().catch(error=>root.querySelector('[data-xu-status]').textContent=error.message);
     root.addEventListener('click',async event=>{
@@ -2085,6 +2084,7 @@ document.addEventListener("submit", async (event) => {
   const form = event.target.closest("#google-analytics-form");
   if (!form) return;
   event.preventDefault();
+  if (form.dataset.saving) return;
   const btn = document.querySelector("#ga-save-btn");
   const feedback = document.querySelector("#ga-form-feedback");
   const idVal = form.elements.gaMeasurementId.value.trim();
@@ -2095,7 +2095,8 @@ document.addEventListener("submit", async (event) => {
     }
     return;
   }
-  if (btn) btn.disabled = true;
+  form.dataset.saving = "1";
+  if (btn) setButtonBusy(btn, true, "Đang lưu…");
   if (feedback) {
     feedback.textContent = "Đang lưu cấu hình Google Analytics…";
     feedback.style.color = "#6b7280";
@@ -2114,16 +2115,19 @@ document.addEventListener("submit", async (event) => {
       feedback.style.color = "#dc2626";
     }
   } finally {
-    if (btn) btn.disabled = false;
+    delete form.dataset.saving;
+    if (btn) setButtonBusy(btn, false);
   }
 });
 
 document.querySelector("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  if (form.dataset.saving) return;
   const feedback = document.querySelector("#login-feedback");
   const submitButton = form.querySelector('button[type="submit"]');
-  submitButton.disabled = true;
+  form.dataset.saving = "1";
+  setButtonBusy(submitButton, true, "Đang đăng nhập…");
   feedback.textContent = "";
   try {
     let result = await request("/api/auth/login", {
@@ -2138,11 +2142,15 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
   } catch (error) {
     feedback.textContent = error.message;
   } finally {
-    submitButton.disabled = false;
+    delete form.dataset.saving;
+    setButtonBusy(submitButton, false);
   }
 });
 
-document.querySelector("#logout-button").addEventListener("click", async () => {
+document.querySelector("#logout-button").addEventListener("click", async (event) => {
+  const logoutBtn = event.currentTarget;
+  if (logoutBtn?.disabled) return;
+  setButtonBusy(logoutBtn, true, "Đang thoát…");
   try {
     await request("/api/auth/logout", { method: "POST", body: "{}" });
   } catch (error) {
@@ -2150,6 +2158,7 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   } finally {
     state.session = null;
     stopAdminRealtime();
+    document.dispatchEvent(new CustomEvent("gaeru:admin-logout"));
     const copilotModal = document.getElementById("gaeru-ai-modal");
     if (copilotModal) copilotModal.hidden = true;
     const copilotBtn = document.getElementById("floating-copilot-btn");
@@ -2160,6 +2169,7 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
       const fresh = await request("/api/csrf");
       if (fresh?.csrfToken) state.csrfToken = fresh.csrfToken;
     } catch (_) {}
+    setButtonBusy(logoutBtn, false);
     showGlobal("Đã đăng xuất an toàn khỏi Cổng Quản trị.");
   }
 });
@@ -2294,17 +2304,21 @@ document.querySelector("#product-list").addEventListener("click", async (event) 
   const recover=event.target.closest('[data-restore-product],[data-activate-product],[data-purge-product]');
   if(recover){
     const product=state.products.find(p=>p.id===(recover.dataset.restoreProduct||recover.dataset.activateProduct||recover.dataset.purgeProduct));
-    if(!product||!can('catalog.write')||recover.disabled)return;
+    if(!product||!can('catalog.write')||recover.disabled||recover.dataset.confirming==='1')return;
+    recover.dataset.confirming='1';
     const purge=Boolean(recover.dataset.purgeProduct),activate=Boolean(recover.dataset.activateProduct);
-    if(!await confirmProductAction(product,{permanent:purge,message:purge?'Xóa vĩnh viễn sản phẩm này? Không thể khôi phục. Sản phẩm còn tồn hoặc có chứng từ sẽ được giữ lại.':activate?'Khôi phục sản phẩm và các biến thể đã chọn để hiển thị trên cửa hàng?':'Khôi phục sản phẩm về bản nháp để tiếp tục chỉnh sửa?'}))return;
-    recover.disabled=true;
+    let ok=false;
+    try{ok=await confirmProductAction(product,{permanent:purge,message:purge?'Xóa vĩnh viễn sản phẩm này? Không thể khôi phục. Sản phẩm còn tồn hoặc có chứng từ sẽ được giữ lại.':activate?'Khôi phục sản phẩm và các biến thể đã chọn để hiển thị trên cửa hàng?':'Khôi phục sản phẩm về bản nháp để tiếp tục chỉnh sửa?'});}
+    finally{delete recover.dataset.confirming;}
+    if(!ok)return;
+    setButtonBusy(recover,true,purge?'Đang xóa…':'Đang khôi phục…');
     try{await request('/api/gaeru_ceo/products/'+encodeURIComponent(product.id)+(purge?'/permanent':'/restore'),{method:purge?'DELETE':'POST',body:JSON.stringify(purge?{version:product.version,confirmation:product.slug}:{version:product.version,activate})});await Promise.all([loadProducts(document.querySelector('#product-search').value.trim()),loadSummary()]);showGlobal(purge?'Đã xóa vĩnh viễn sản phẩm.':activate?'Đã khôi phục và kích hoạt sản phẩm.':'Đã khôi phục về bản nháp.');}
-    catch(error){showGlobal(error.message,true);recover.disabled=false;}return;
+    catch(error){showGlobal(error.message,true);setButtonBusy(recover,false);}return;
   }
   const toggleVisibility=event.target.closest('[data-toggle-visibility]');
   if(toggleVisibility){
     const product=state.products.find(item=>item.id===toggleVisibility.dataset.toggleVisibility);
-    if(!product||!can('catalog.write')||toggleVisibility.disabled)return;
+    if(!product||!can('catalog.write')||toggleVisibility.disabled||toggleVisibility.dataset.confirming==='1')return;
     const setActive=toggleVisibility.dataset.setActive==='true';
     if(setActive&&(!product.variants||!product.variants.some(v=>v.active))){
       showGlobal('Cần ít nhất một phiên bản đang bán trước khi mở hiển thị sản phẩm trên cửa hàng.',true);
@@ -2313,8 +2327,12 @@ document.querySelector("#product-list").addEventListener("click", async (event) 
     const message=setActive
       ?'Mở hiển thị sản phẩm này lên cửa hàng để khách hàng có thể xem và đặt mua?'
       :'Ẩn sản phẩm này khỏi cửa hàng? Khách hàng sẽ không thấy sản phẩm trên gian hàng.';
-    if(!await confirmProductAction(product,{message}))return;
-    toggleVisibility.disabled=true;
+    toggleVisibility.dataset.confirming='1';
+    let ok=false;
+    try{ok=await confirmProductAction(product,{message});}
+    finally{delete toggleVisibility.dataset.confirming;}
+    if(!ok)return;
+    setButtonBusy(toggleVisibility,true,'Đang cập nhật…');
     try{
       const res=await request('/api/gaeru_ceo/products/'+encodeURIComponent(product.id)+'/visibility',{method:'POST',body:JSON.stringify({active:setActive})});
       if(state.currentProduct?.id===product.id){
@@ -2324,21 +2342,25 @@ document.querySelector("#product-list").addEventListener("click", async (event) 
       }
       await Promise.all([loadProducts(document.querySelector('#product-search').value.trim()),loadSummary()]);
       showGlobal(res.message||(setActive?'Đã hiển thị sản phẩm trên cửa hàng.':'Đã ẩn sản phẩm khỏi cửa hàng.'));
-    }catch(error){showGlobal(error.message,true);toggleVisibility.disabled=false;}
+    }catch(error){showGlobal(error.message,true);setButtonBusy(toggleVisibility,false);}
     return;
   }
   const remove=event.target.closest('[data-delete-product]');
   if(remove){
     const product=state.products.find(item=>item.id===remove.dataset.deleteProduct);
-    if(!product||!can('catalog.write')||remove.disabled)return;
-    if(!await confirmProductAction(product,{message:'Chuyển sản phẩm vào khu vực đã xóa? Lịch sử đơn hàng và tồn kho được giữ lại.'}))return;
-    remove.disabled=true;
+    if(!product||!can('catalog.write')||remove.disabled||remove.dataset.confirming==='1')return;
+    remove.dataset.confirming='1';
+    let ok=false;
+    try{ok=await confirmProductAction(product,{message:'Chuyển sản phẩm vào khu vực đã xóa? Lịch sử đơn hàng và tồn kho được giữ lại.'});}
+    finally{delete remove.dataset.confirming;}
+    if(!ok)return;
+    setButtonBusy(remove,true,'Đang xóa…');
     try{
       await request('/api/gaeru_ceo/products/'+encodeURIComponent(product.id),{method:'DELETE',body:JSON.stringify({version:product.version,confirmation:'DELETE_PRODUCT'})});
       if(state.currentProduct?.id===product.id){state.currentProduct=null;document.querySelector('#product-editor').hidden=true;}
       await Promise.all([loadProducts(document.querySelector('#product-search').value.trim()),loadSummary()]);
       showGlobal('Đã xóa sản phẩm khỏi danh mục. Lịch sử đơn hàng và kho được giữ lại.');
-    }catch(error){showGlobal(error.message,true);remove.disabled=false;}
+    }catch(error){showGlobal(error.message,true);setButtonBusy(remove,false);}
     return;
   }
   const button = event.target.closest("[data-edit-product]");
@@ -2377,12 +2399,16 @@ document.querySelector("#variant-list").addEventListener("click", async (event) 
     return;
   }
   if (remove) {
-    const ok = await (window.GAERUNotify?.confirm
-      ? window.GAERUNotify.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa.", { danger: true, confirmText: "Xóa phiên bản" })
-      : window.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa."));
+    if (remove.disabled || remove.dataset.confirming === "1") return;
+    remove.dataset.confirming = "1";
+    let ok = false;
+    try {
+      ok = window.GAERUNotify?.confirm
+        ? await window.GAERUNotify.confirm("Xóa phiên bản này? Phiên bản đã có trong đơn hàng cần được tạm ẩn thay vì xóa.", { danger: true, confirmText: "Xóa phiên bản" })
+        : false;
+    } finally { delete remove.dataset.confirming; }
     if (!ok) return;
-    if (remove.disabled) return;
-    remove.disabled = true;
+    setButtonBusy(remove, true, "Đang xóa…");
     try {
       const productId = state.currentProduct.id;
       await request(`/api/gaeru_ceo/variants/${encodeURIComponent(remove.dataset.deleteVariant)}`, { method: "DELETE" });
@@ -2391,7 +2417,7 @@ document.querySelector("#variant-list").addEventListener("click", async (event) 
     } catch (error) {
       showGlobal(error.message, true);
     } finally {
-      remove.disabled = false;
+      setButtonBusy(remove, false);
     }
   }
 });
@@ -2648,62 +2674,105 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
       return;
     }
     if (detailButton) {
-      const panel = document.querySelector(`[data-customer-detail-panel="${CSS.escape(detailButton.dataset.customerDetail)}"]`);
-      await showCustomerDetail(detailButton.dataset.customerDetail, panel);
+      if (detailButton.disabled) return;
+      setButtonBusy(detailButton, true, "Đang tải…");
+      try {
+        const panel = document.querySelector(`[data-customer-detail-panel="${CSS.escape(detailButton.dataset.customerDetail)}"]`);
+        await showCustomerDetail(detailButton.dataset.customerDetail, panel);
+      } finally {
+        setButtonBusy(detailButton, false);
+      }
+      return;
     }
     if (toggleButton) {
+      if (toggleButton.disabled || toggleButton.dataset.confirming === "1") return;
       const active = toggleButton.dataset.active === "true";
       if (active) {
-        const ok = await (window.GAERUNotify?.confirm
-          ? window.GAERUNotify.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập.", { danger: true, confirmText: "Khóa tài khoản" })
-          : window.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập."));
+        toggleButton.dataset.confirming = "1";
+        let ok = false;
+        try {
+          ok = window.GAERUNotify?.confirm
+            ? await window.GAERUNotify.confirm("Khóa tài khoản này? Khách hàng sẽ không thể đăng nhập.", { danger: true, confirmText: "Khóa tài khoản" })
+            : false;
+        } finally { delete toggleButton.dataset.confirming; }
         if (!ok) return;
       }
-      await toggleCustomer(toggleButton.dataset.customerToggle, active);
+      setButtonBusy(toggleButton, true, active ? "Đang khóa…" : "Đang mở…");
+      try {
+        await toggleCustomer(toggleButton.dataset.customerToggle, active);
+      } finally {
+        setButtonBusy(toggleButton, false);
+      }
       return;
     }
     const softDeleteBtn = event.target.closest("[data-customer-soft-delete]");
     if (softDeleteBtn) {
-      const ok = await (window.GAERUNotify?.confirm
-        ? window.GAERUNotify.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập.", { danger: true, confirmText: "Xóa tạm thời" })
-        : window.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập."));
+      if (softDeleteBtn.disabled || softDeleteBtn.dataset.confirming === "1") return;
+      softDeleteBtn.dataset.confirming = "1";
+      let ok = false;
+      try {
+        ok = window.GAERUNotify?.confirm
+          ? await window.GAERUNotify.confirm("Xóa tạm thời tài khoản này? Tài khoản sẽ chuyển vào thùng rác và bị khóa đăng nhập.", { danger: true, confirmText: "Xóa tạm thời" })
+          : false;
+      } finally { delete softDeleteBtn.dataset.confirming; }
       if (!ok) return;
-      await request(`/api/gaeru_ceo/customers/${encodeURIComponent(softDeleteBtn.dataset.customerSoftDelete)}/soft-delete`, {
-        method: "POST",
-        body: JSON.stringify({ reason: "Quản trị viên xóa tạm thời" })
-      });
-      await loadCustomers();
-      showGlobal("Đã chuyển tài khoản vào thùng rác (xóa tạm thời).");
+      setButtonBusy(softDeleteBtn, true, "Đang xóa…");
+      try {
+        await request(`/api/gaeru_ceo/customers/${encodeURIComponent(softDeleteBtn.dataset.customerSoftDelete)}/soft-delete`, {
+          method: "POST",
+          body: JSON.stringify({ reason: "Quản trị viên xóa tạm thời" })
+        });
+        await loadCustomers();
+        showGlobal("Đã chuyển tài khoản vào thùng rác (xóa tạm thời).");
+      } finally {
+        setButtonBusy(softDeleteBtn, false);
+      }
       return;
     }
     const restoreDirectBtn = event.target.closest("[data-customer-restore-direct]");
     if (restoreDirectBtn) {
-      await request(`/api/gaeru_ceo/customers/${encodeURIComponent(restoreDirectBtn.dataset.customerRestoreDirect)}/restore`, {
-        method: "POST",
-        body: JSON.stringify({ reason: "Quản trị viên khôi phục tài khoản từ thùng rác" })
-      });
-      await loadCustomers();
-      showGlobal("Đã khôi phục tài khoản khách hàng thành công.");
+      if (restoreDirectBtn.disabled) return;
+      setButtonBusy(restoreDirectBtn, true, "Đang khôi phục…");
+      try {
+        await request(`/api/gaeru_ceo/customers/${encodeURIComponent(restoreDirectBtn.dataset.customerRestoreDirect)}/restore`, {
+          method: "POST",
+          body: JSON.stringify({ reason: "Quản trị viên khôi phục tài khoản từ thùng rác" })
+        });
+        await loadCustomers();
+        showGlobal("Đã khôi phục tài khoản khách hàng thành công.");
+      } finally {
+        setButtonBusy(restoreDirectBtn, false);
+      }
       return;
     }
     const permDeleteBtn = event.target.closest("[data-customer-permanent-delete]");
     if (permDeleteBtn) {
+      if (permDeleteBtn.disabled || permDeleteBtn.dataset.confirming === "1") return;
       if (!window.GAERUNotify?.prompt) {
         showGlobal("Không thể mở hộp thoại nhập mật khẩu bảo mật. Vui lòng tải lại trang.", true);
         return;
       }
-      const password = await window.GAERUNotify.prompt(
-        "CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:",
-        "",
-        { danger: true, isPassword: true, title: "Xác thực xóa vĩnh viễn tài khoản", confirmText: "Xác thực & Xóa" }
-      );
+      permDeleteBtn.dataset.confirming = "1";
+      let password = null;
+      try {
+        password = await window.GAERUNotify.prompt(
+          "CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:",
+          "",
+          { danger: true, isPassword: true, title: "Xác thực xóa vĩnh viễn tài khoản", confirmText: "Xác thực & Xóa" }
+        );
+      } finally { delete permDeleteBtn.dataset.confirming; }
       if (!password || !password.trim()) return;
-      await request(`/api/gaeru_ceo/customers/${encodeURIComponent(permDeleteBtn.dataset.customerPermanentDelete)}/permanent-delete`, {
-        method: "POST",
-        body: JSON.stringify({ password: password.trim(), reason: "Quản trị viên xác thực xóa vĩnh viễn" })
-      });
-      await loadCustomers();
-      showGlobal("Đã xóa vĩnh viễn tài khoản khách hàng.");
+      setButtonBusy(permDeleteBtn, true, "Đang xóa…");
+      try {
+        await request(`/api/gaeru_ceo/customers/${encodeURIComponent(permDeleteBtn.dataset.customerPermanentDelete)}/permanent-delete`, {
+          method: "POST",
+          body: JSON.stringify({ password: password.trim(), reason: "Quản trị viên xác thực xóa vĩnh viễn" })
+        });
+        await loadCustomers();
+        showGlobal("Đã xóa vĩnh viễn tài khoản khách hàng.");
+      } finally {
+        setButtonBusy(permDeleteBtn, false);
+      }
       return;
     }
   } catch (error) {
@@ -2796,9 +2865,9 @@ document.querySelector("#btn-refresh-health")?.addEventListener("click", async (
 window.GAERUAdmin = Object.freeze({ loadSettings, loadSystemHealth, request, confirmProductAction, confirmOrderPermanentDeletion, handleOrderPermanentDeleteUI, async refreshSession(){await showAdmin(await request('/api/auth/me'));}, setCsrf(value){state.csrfToken=value;}, can, showGlobal, clearStaleGlobalError, setButtonBusy, lockOrderDialog, showProductAddedPopup, activateView, refreshCurrentView, initAdminRealtime, stopAdminRealtime, get user() { return state.session; } });
 initialize();
 
-document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
+document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-restore]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button[type="submit"],button');if(!button||button.disabled||form.dataset.saving==='1')return;form.dataset.saving='1';setButtonBusy(button,true,'Đang khôi phục…');try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerRestore+'/restore',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value})});await loadCustomers();showGlobal('Đã khôi phục tài khoản.');}catch(error){form.querySelector('[role=status]').textContent=error.message;setButtonBusy(button,false);}finally{delete form.dataset.saving;}});
 
-document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-delete]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button');if(!form.reportValidity())return;button.disabled=true;try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerDelete+'/delete',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value,confirmed:form.elements.confirmed.checked})});await loadCustomers();showGlobal('Đã gửi email xác nhận xóa; tài khoản vẫn hoạt động đến khi khách xác nhận.');}catch(error){form.querySelector('[role=status]').textContent=error.message;button.disabled=false;}});
+document.querySelector('#customer-list').addEventListener('submit',async e=>{if(!e.target.matches('[data-customer-delete]'))return;e.preventDefault();const form=e.target,button=form.querySelector('button[type="submit"],button');if(!button||button.disabled||form.dataset.saving==='1')return;if(!form.reportValidity())return;form.dataset.saving='1';setButtonBusy(button,true,'Đang gửi…');try{await request('/api/gaeru_ceo/customers/'+form.dataset.customerDelete+'/delete',{method:'POST',body:JSON.stringify({reason:form.elements.reason.value,confirmed:form.elements.confirmed.checked})});await loadCustomers();showGlobal('Đã gửi email xác nhận xóa; tài khoản vẫn hoạt động đến khi khách xác nhận.');}catch(error){form.querySelector('[role=status]').textContent=error.message;setButtonBusy(button,false);}finally{delete form.dataset.saving;}});
 
 function renderOrderOverview(counts) {
   const tabs = [['','Tất cả'],['payment_pending','Đơn chờ thanh toán'],['pending','Chờ xác nhận'],['ready_to_ship','Đang xử lý'],['shipped','Đang giao'],['completed','Hoàn tất'],['cancelled_or_returned','Hủy & hoàn trả']];
@@ -2822,6 +2891,7 @@ document.querySelector('#orders-view').addEventListener('click',async event=>{
   const tab=event.target.closest('[data-order-tab]'); if(!tab)return;
   if(tab.dataset.loading==='true'&&document.querySelector('#order-filter').value===tab.dataset.orderTab)return;
   window.GAERUAfterSales?.close();
+  window.GAERUCodReturn?.close?.();
   document.querySelector('#order-filter').value=tab.dataset.orderTab;
   document.querySelectorAll('[data-order-tab]').forEach(b=>b.setAttribute('aria-pressed',String(b===tab)));
   if(tab.dataset.orderTab==='payment_pending')document.querySelector('#order-payment-filter').value='';

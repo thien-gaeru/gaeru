@@ -43,7 +43,6 @@ function createOrderWorkflow({
             const error = new Error("Tài khoản không có quyền cập nhật nghiệp vụ này."); error.status = 403; throw error;
           }
         }
-        if(checkoutAccounts && update.status && ['confirmed','processing','shipped','completed'].includes(update.status) && (await client.query('SELECT order_id FROM order_reviews WHERE order_id=$1 AND resolved_at IS NULL',[current.id])).rows.length)throw Object.assign(Error('Cần gọi xác nhận và xử lý đơn trong mục Đơn hàng rác / chờ xác minh trước.'),{status:409});
         const receivedAmount = finance ? await finance.receiptTotal(client, current.id) : 0;
         if (receivedAmount > 0 && ((update.status === "cancelled" && current.status !== "cancelled") || (update.shippingFeeVnd !== undefined && update.shippingFeeVnd !== current.shipping_fee_vnd))) {
           const error = new Error("Đơn đã ghi nhận thu tiền; cần đối soát/hoàn tiền trước khi hủy hoặc đổi tổng tiền."); error.status = 409; throw error;
@@ -158,6 +157,12 @@ function createOrderWorkflow({
           }
         }
         const total = shippingFee === null ? null : Math.max(0, current.subtotal_vnd + shippingFee - (current.discount_vnd||0));
+        if (checkoutAccounts && targetStatus && ['confirmed', 'processing', 'shipped', 'completed'].includes(targetStatus) && targetStatus !== current.status) {
+          const unresolvedReview = (await client.query('SELECT order_id FROM order_reviews WHERE order_id=$1 AND resolved_at IS NULL', [current.id])).rows.length > 0;
+          if (unresolvedReview) {
+            throw Object.assign(Error('Cần gọi xác nhận và xử lý đơn trong mục Đơn hàng rác / chờ xác minh trước.'), { status: 409 });
+          }
+        }
         if (total !== null && total > 2_000_000_000) {
           const error = new Error("Tổng đơn hàng vượt giới hạn cho phép.");
           error.status = 400;
@@ -183,7 +188,7 @@ function createOrderWorkflow({
           }
         }
         if (validateOnly) return {id:current.id, status:current.status, hasActiveWaybill};
-        if (targetStatus && ["confirmed", "processing", "shipped"].includes(targetStatus) && current.status === "pending") {
+        if (targetStatus && ["confirmed", "processing", "shipped", "completed"].includes(targetStatus) && current.status === "pending") {
           const hasAllocations = (await client.query("SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1", [current.id])).rows.length > 0;
           if (!hasAllocations && inventory) {
             let targetWarehouseId = update.warehouseId;

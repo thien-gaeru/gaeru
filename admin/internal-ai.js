@@ -157,8 +157,10 @@
         roleBadge.textContent = roleText;
         if (modalRoleBadge) modalRoleBadge.textContent = roleText;
       }
-      loadQuickPrompts();
-      loadThreads();
+      if (!viewPanel.hidden) {
+        loadQuickPrompts();
+        loadThreads();
+      }
     }
   }
 
@@ -275,6 +277,9 @@
 
   // 3. Tạo thread mới
   async function createNewThread() {
+    const btn = document.getElementById('btn-new-copilot-thread');
+    if (btn?.disabled) return;
+    if (btn) btn.disabled = true;
     try {
       const data = await api('/threads', {
         method: 'POST',
@@ -285,6 +290,8 @@
     } catch (e) {
       if (window.GAERUNotify?.error) window.GAERUNotify.error('Không thể tạo phiên mới: ' + e.message);
       else if (window.GAERUAdmin?.showGlobal) window.GAERUAdmin.showGlobal('Không thể tạo phiên mới: ' + e.message, true);
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -321,10 +328,19 @@
   // 5. Xóa thread hiện tại
   async function deleteCurrentThread() {
     if (!currentThreadId) return;
-    const ok = await (window.GAERUNotify?.confirm
-      ? window.GAERUNotify.confirm('Bạn có chắc muốn xóa phiên hội thoại này? Dữ liệu lịch sử sẽ không thể phục hồi.', { danger: true, confirmText: 'Xóa hội thoại' })
-      : Promise.resolve(true));
+    const clearBtn = document.getElementById('btn-clear-copilot-chat');
+    if (clearBtn?.disabled || clearBtn?.dataset.confirming === '1') return;
+    if (clearBtn) clearBtn.dataset.confirming = '1';
+    let ok = false;
+    try {
+      ok = await (window.GAERUNotify?.confirm
+        ? window.GAERUNotify.confirm('Bạn có chắc muốn xóa phiên hội thoại này? Dữ liệu lịch sử sẽ không thể phục hồi.', { danger: true, confirmText: 'Xóa hội thoại' })
+        : Promise.resolve(false));
+    } finally {
+      if (clearBtn) delete clearBtn.dataset.confirming;
+    }
     if (!ok) return;
+    if (clearBtn) clearBtn.disabled = true;
     try {
       await api(`/threads/${currentThreadId}`, { method: 'DELETE' });
       threads = threads.filter(t => t.id !== currentThreadId);
@@ -338,12 +354,15 @@
     } catch (e) {
       if (window.GAERUNotify?.error) window.GAERUNotify.error('Lỗi xóa hội thoại: ' + e.message);
       else if (window.GAERUAdmin?.showGlobal) window.GAERUAdmin.showGlobal('Lỗi xóa hội thoại: ' + e.message, true);
+    } finally {
+      if (clearBtn) clearBtn.disabled = false;
     }
   }
 
   // 6. Gửi tin nhắn
   async function handleSendMessage() {
     const input = document.getElementById('copilot-input');
+    const sendBtn = document.getElementById('btn-send-copilot');
     const question = input?.value?.trim();
     if (!question || isSending) return;
 
@@ -355,6 +374,7 @@
     input.value = '';
     input.style.height = 'auto';
     isSending = true;
+    if (sendBtn) sendBtn.disabled = true;
 
     // Render câu hỏi của user ngay lập tức
     appendMessageUI('user', question);
@@ -386,6 +406,7 @@
       assistantBubble.innerHTML = `<span style="color:#dc2626;">⚠️ Lỗi: ${escapeHtml(err.message)}</span>`;
     } finally {
       isSending = false;
+      if (sendBtn) sendBtn.disabled = false;
       scrollMessagesBottom();
     }
   }
@@ -433,9 +454,12 @@
     `;
 
     const confirmBtn = cardEl.querySelector('.btn-confirm-action');
+    const cancelBtn = cardEl.querySelector('.btn-cancel-action');
     if (confirmBtn) {
       confirmBtn.addEventListener('click', async () => {
+        if (confirmBtn.disabled) return;
         confirmBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
         confirmBtn.innerHTML = '⚡ Đang thực thi...';
         try {
           const res = await api(`/actions/${card.actionId}/execute`, { method: 'POST' });
@@ -459,19 +483,27 @@
             console.error('Lỗi thực thi:', e.message);
           }
           confirmBtn.disabled = false;
+          if (cancelBtn) cancelBtn.disabled = false;
           confirmBtn.textContent = '✓ Xác nhận thực hiện';
         }
       });
     }
 
-    const cancelBtn = cardEl.querySelector('.btn-cancel-action');
     if (cancelBtn) {
       cancelBtn.addEventListener('click', async () => {
+        if (cancelBtn.disabled) return;
+        cancelBtn.disabled = true;
+        if (confirmBtn) confirmBtn.disabled = true;
         try {
           await api(`/actions/${card.actionId}/cancel`, { method: 'POST' });
           cardEl.querySelector('.copilot-action-buttons').innerHTML = `<div style="font-size:12px;color:#64748b;font-weight:600;padding:4px 0;">✕ Đã hủy bỏ đề xuất này.</div>`;
           if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Đã hủy bỏ đề xuất.', 'info');
-        } catch (_) {}
+        } catch (e) {
+          if (window.GAERUNotify?.error) window.GAERUNotify.error('Không thể hủy đề xuất: ' + (e?.message || 'Lỗi kết nối'));
+          else if (window.GAERUAdmin?.showGlobal) window.GAERUAdmin.showGlobal('Không thể hủy đề xuất: ' + (e?.message || 'Lỗi kết nối'), true);
+          cancelBtn.disabled = false;
+          if (confirmBtn) confirmBtn.disabled = false;
+        }
       });
     }
 

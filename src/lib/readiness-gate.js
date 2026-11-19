@@ -72,16 +72,20 @@ function readinessMiddleware(req, res, next) {
   // Reject business traffic while initializing with 503 and Retry-After
   res.setHeader('Retry-After', '1');
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
 
   if (typeof req.accepts === 'function' && req.accepts('html')) {
+    res.setHeader('Refresh', '2');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'");
     return res.status(503).type('html').send(
       '<!doctype html><html lang="vi"><head><meta charset="utf-8">' +
       '<title>GAERU - Đang khởi động</title>' +
       '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<meta http-equiv="refresh" content="2">' +
       '<style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;text-align:center;padding:72px 24px;color:#1d1d1f;background:#f5f5f7}h1{font-size:24px;margin-bottom:12px}p{color:#6e6e73;font-size:16px}</style>' +
       '</head><body><h1>Hệ thống đang chuẩn bị dữ liệu</h1>' +
-      '<p>Vui lòng đợi vài giây, trang sẽ tự động tải lại.</p>' +
-      '<script>setTimeout(()=>location.reload(),1500);</script></body></html>'
+      '<p>Vui lòng đợi vài giây, trang sẽ tự động tải lại.</p></body></html>'
     );
   }
 

@@ -467,8 +467,6 @@ function afterSalesRouter(pool) {
               actor: req.admin,
               reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
             });
-            // Cache invalidation does not participate in the financial transaction.
-            try { require('../cache').flushAllCache(); } catch {}
           }
         }
 
@@ -504,6 +502,9 @@ function afterSalesRouter(pool) {
         return { ...changed, ...(settlementScope ? { settlementScope } : {}) };
       });
 
+      if (result?.restocked_at) {
+        try { require('../cache').flushAllCache(); } catch {}
+      }
       res.json(result);
     } catch (e) {
       if (e instanceof z.ZodError) {

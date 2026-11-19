@@ -153,7 +153,7 @@
       ta.addEventListener('focus',resizeTA);
     })();
     function media(url,mime,name){
-      if(['image/jpeg','image/png','image/webp','image/gif','image/heic','image/avif'].includes(mime)||String(mime||'').startsWith('image/'))return `<img class="chat-inline-media" data-chat-lightbox-src="${escape(url)}" src="${escape(url)}" alt="${escape(name)}" loading="lazy">`;
+      if(['image/jpeg','image/png','image/webp','image/gif','image/heic','image/avif'].includes(mime)||String(mime||'').startsWith('image/'))return `<img class="chat-inline-media" data-chat-lightbox-src="${escape(url)}" src="${escape(url)}" alt="${escape(name)}" width="240" height="180" loading="lazy" decoding="async">`;
       if(['video/mp4','video/quicktime','video/webm'].includes(mime)||String(mime||'').startsWith('video/'))return `<video class="chat-inline-media" controls playsinline preload="metadata" src="${escape(url)}">Thiết bị chưa phát được video này.</video>`;
       if(['audio/mpeg','audio/mp4','audio/wav','audio/ogg','audio/webm'].includes(mime)||String(mime||'').startsWith('audio/')||/\.(mp3|m4a|aac|wav|ogg|opus|weba)$/i.test(name||''))return `<audio class="chat-inline-audio" controls preload="metadata" src="${escape(url)}">Thiết bị chưa phát được tệp âm thanh này.</audio>`;
       return '';
@@ -512,11 +512,18 @@
 
     root.addEventListener('click',async event=>{
       if(stopped)return;
-      const button=event.target.closest('[data-chat-delete-file]');if(!button||!admin||!window.GAERUAdmin?.can('chat.files.delete'))return;
-      const okDelFile=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.',{danger:true,confirmText:'Xóa tệp'}):window.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.'));if(!okDelFile)return;
+      const button=event.target.closest('[data-chat-delete-file]');if(!button||button.disabled||!admin||!window.GAERUAdmin?.can('chat.files.delete'))return;
       button.disabled=true;
-      try{const result=await request(base+'/'+id+'/files/'+encodeURIComponent(button.dataset.chatDeleteFile),{method:'DELETE',body:JSON.stringify({confirm:true})});feedback.textContent=result.message;messages.replaceChildren();await refresh();}
-      catch(error){feedback.textContent=error.message;}finally{button.disabled=false;}
+      const origLabel=button.textContent;
+      try{
+        const okDelFile=window.GAERUNotify?.confirm?await window.GAERUNotify.confirm('Xóa tệp khỏi hội thoại? Tệp đã xóa không thể khôi phục.',{danger:true,confirmText:'Xóa tệp'}):false;
+        if(!okDelFile){button.disabled=false;return;}
+        button.textContent='Đang xóa…';
+        const result=await request(base+'/'+id+'/files/'+encodeURIComponent(button.dataset.chatDeleteFile),{method:'DELETE',body:JSON.stringify({confirm:true})});
+        feedback.textContent=result.message;
+        messages.replaceChildren();
+        await refresh();
+      }catch(error){feedback.textContent=error.message;button.textContent=origLabel;button.disabled=false;}
     },rootListenerOpts);
     const quickToggle=root.querySelector('[data-chat-quick-toggle]'),quickList=root.querySelector('[data-chat-quick-list]');
     function collapseQuickReplies(){
@@ -538,7 +545,8 @@
 
     form.elements.body.addEventListener('focus',()=>{collapseQuickReplies();actions.hidden=true;plus.setAttribute('aria-expanded','false');root.querySelector('[data-chat-reference]').hidden=true;});
     plus.onclick=()=>{collapseQuickReplies();actions.hidden=!actions.hidden;plus.setAttribute('aria-expanded',String(!actions.hidden));};
-    root.querySelector('[data-chat-earlier]').onclick=()=>refresh(messages.querySelector('[data-message-id]')?.dataset.messageId).catch(e=>feedback.textContent=e.message);
+    const earlierBtn=root.querySelector('[data-chat-earlier]');
+    if(earlierBtn)earlierBtn.onclick=async()=>{if(earlierBtn.disabled)return;earlierBtn.disabled=true;try{await refresh(messages.querySelector('[data-message-id]')?.dataset.messageId);}catch(e){feedback.textContent=e.message;}finally{earlierBtn.disabled=false;}};
     // Mobile pickers (iOS Photos, Android Google Photos) may return to the page
     // before or without firing `change`; track the open picker and re-check
     // its files when the page regains focus/visibility.
@@ -1111,7 +1119,7 @@
         const current=state.allImgs[state.index]||state.clickedImg;
         const src=current.getAttribute('data-chat-lightbox-src')||current.src||'';
         const alt=current.getAttribute('alt')||'Hình ảnh đính kèm';
-        const dlUrl=src.includes('?')?src+'&download=1':src+'?download=1';
+        const dlUrl=/^(?:blob:|data:)/i.test(src)?src:(src.includes('?')?src+'&download=1':src+'?download=1');
         dlg.innerHTML=`<div class="chat-lightbox-bar"><span class="chat-lightbox-title">${escape(alt)}${state.allImgs.length>1?` (${state.index+1}/${state.allImgs.length})`:''}</span><div class="chat-lightbox-actions"><button type="button" data-lightbox-zoom>${state.zoomed?'Thu nhỏ 1x':'Phóng to 2x'}</button><a href="${escape(dlUrl)}" target="_blank" rel="noopener">↓ Tải xuống</a><button type="button" data-lightbox-close aria-label="Đóng">×</button></div></div><div class="chat-lightbox-stage">${state.allImgs.length>1?'<button type="button" class="chat-lightbox-nav is-prev" data-lightbox-prev aria-label="Ảnh trước">‹</button>':''}<img class="chat-lightbox-img" src="${escape(src)}" alt="${escape(alt)}">${state.allImgs.length>1?'<button type="button" class="chat-lightbox-nav is-next" data-lightbox-next aria-label="Ảnh tiếp">›</button>':''}</div>`;
       };
       dlg._lightboxState=state;
@@ -1204,7 +1212,11 @@
           if(existing)existing.quantity+=1;
           else cart.push({variantId,quantity:1});
           localStorage.setItem(cartKey,JSON.stringify(cart));
-          window.GAERUStore?.syncCartToServer?.(cart);
+          if(typeof window.GAERUStore?.syncCartToServer==='function'){
+            window.GAERUStore.syncCartToServer(cart);
+          }else if(window.GAERUCustomerSession?.customer){
+            void request('/api/customer/cart',{method:'PUT',body:JSON.stringify({items:cart})}).catch(()=>{});
+          }
           document.dispatchEvent(new CustomEvent('gaeru:cart-updated'));
           addChatVarBtn.classList.add('is-added');
           addChatVarBtn.textContent='✓ Đã thêm vào giỏ';

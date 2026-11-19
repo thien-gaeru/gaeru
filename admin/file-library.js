@@ -14,7 +14,7 @@
       <details class="fl-location"><summary>Vị trí lưu trữ thực tế</summary><p data-fl-root></p><p>Đây là kho mà ứng dụng đang đọc và ghi. Ảnh trong thư viện mới tải lên chưa tự xuất bản ra website.</p></details>
       <div class="fl-workspace"><nav class="fl-scopes" aria-label="Thư mục lưu trữ"></nav><div class="fl-main">
       <form class="fl-search"><label>Tìm tệp<input name="q" type="search" placeholder="Nhập tên tệp…" maxlength="160"></label><label>Thư mục con<select name="folder" aria-label="Thư mục con"></select></label><button type="submit" class="secondary-button">Tìm kiếm</button><button type="button" class="secondary-button" data-fl-refresh>Tải lại</button><button type="button" class="secondary-button" data-fl-originals>Ảnh / tệp gốc</button></form>
-      <p class="fl-feedback" role="status" aria-live="polite"></p><div class="fl-grid"></div><nav class="fl-pagination" aria-label="Trang tệp"></nav></div></div></div>`;
+      <p class="fl-feedback" data-passive-status role="status" aria-live="polite"></p><div class="fl-grid"></div><nav class="fl-pagination" aria-label="Trang tệp"></nav></div></div></div>`;
     root.querySelector('.fl-search').addEventListener('submit', e => { e.preventDefault(); state.q = e.currentTarget.elements.q.value.trim(); state.folder = e.currentTarget.elements.folder.value; state.page = 1; refresh(); });
     root.querySelector('[name=folder]').addEventListener('change', e => { state.folder = e.target.value; state.page = 1; refresh(); });
     root.addEventListener('click', async e => {
@@ -68,7 +68,8 @@
     const dialog = document.createElement('dialog'); dialog.className = 'fl-dialog';
     dialog.innerHTML = `<form><header><h2>${esc(title)}</h2><button type="button" class="secondary-button" data-close aria-label="Đóng">×</button></header><div class="fl-dialog-content">${content}</div><p role="alert"></p><footer><button type="button" class="secondary-button" data-close>Đóng</button>${submitLabel ? `<button type="submit" class="primary-button">${esc(submitLabel)}</button>` : ''}</footer></form>`;
     document.body.append(dialog);
-    dialog.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => dialog.close()));
+    dialog.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => { if (dialog.dataset.uploading !== '1') dialog.close(); }));
+    dialog.addEventListener('cancel', e => { if (dialog.dataset.uploading === '1') e.preventDefault(); });
     dialog.addEventListener('close', () => { dialog.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); }); dialog.remove(); }, { once: true });
     dialog.showModal(); return dialog;
   }
@@ -83,9 +84,20 @@
   function folderOptions(scope, selected = '') { return '<option value="">Thư mục gốc</option>' + state.data.folders.filter(f => f.scope === scope).map(f => `<option value="${f.id}" ${f.id === selected ? 'selected' : ''}>${esc(f.name)}</option>`).join(''); }
   async function submit(dialog, operation) {
     const form = dialog.querySelector('form'), button = form.querySelector('[type=submit]'), feedback = form.querySelector('[role=alert]');
-    button.disabled = true; feedback.textContent = 'Đang xử lý…';
-    try { const result = await operation(form, feedback); dialog.close(); await refresh(); api.showGlobal(result?.message || 'Đã cập nhật thư viện.'); }
-    catch (e) { feedback.textContent = e.message; await refresh(); } finally { button.disabled = false; }
+    if (!button || button.disabled || dialog.dataset.uploading === '1') return;
+    dialog.dataset.uploading = '1';
+    if (api.setButtonBusy) api.setButtonBusy(button, true, 'Đang xử lý…'); else button.disabled = true;
+    dialog.querySelectorAll('[data-close]').forEach(b => { b.disabled = true; });
+    feedback.textContent = 'Đang xử lý…';
+    try { const result = await operation(form, feedback); delete dialog.dataset.uploading; dialog.close(); await refresh(); api.showGlobal(result?.message || 'Đã cập nhật thư viện.'); }
+    catch (e) { feedback.textContent = e.message; await refresh().catch(() => {}); }
+    finally {
+      delete dialog.dataset.uploading;
+      dialog.querySelectorAll('[data-close]').forEach(b => { b.disabled = false; });
+      if (button.isConnected) {
+        if (api.setButtonBusy) api.setButtonBusy(button, false); else button.disabled = false;
+      }
+    }
   }
   function folderDialog() {
     if (!state.data) return;

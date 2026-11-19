@@ -188,6 +188,9 @@
                   <label>Số điện thoại<input name="phone" type="tel" autocomplete="tel" minlength="10" maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
                   <button class="button button-blue" type="submit">Gửi liên kết khôi phục</button>
                 </form>
+                <div class="account-login-links">
+                  <p><a href="#login" data-account-show-login>‹ Quay lại đăng nhập</a></p>
+                </div>
               </div>
               <div data-reset-complete-panel hidden>
                 <h3>Đặt mật khẩu mới</h3>
@@ -271,7 +274,7 @@
                 </form>
               </section>
             </div>
-            <div class="account-loading" data-account-loading role="status" aria-live="polite"><span class="account-spinner" aria-hidden="true"></span><p data-account-loading-message>Đang tải tài khoản…</p></div>
+            <div class="account-loading" data-account-loading role="status" aria-live="polite"><span class="account-spinner" aria-hidden="true"></span><p data-account-loading-message>Đang tải tài khoản…</p><button type="button" class="button button-blue" data-account-retry hidden style="margin-top:12px;">Thử lại</button></div>
             <p class="account-feedback" data-account-feedback role="status" aria-live="polite" hidden></p>
           </section>
 

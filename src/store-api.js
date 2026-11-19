@@ -157,7 +157,74 @@ async function releaseExpiredCheckoutIntents(poolInstance) {
   }
 }
 
+const sharedPublicCatalogCache = new WeakMap();
+let sharedCatalogRevision = 0;
+try {
+  const { cacheEvents } = require("./cache");
+  cacheEvents.on("invalidated", (payload) => {
+    const tags = payload?.tags;
+    if (!Array.isArray(tags) || tags.length === 0 || tags.some((t) => t === "*" || ["catalog", "stock", "promotion", "promotions", "product", "products"].includes(t) || String(t).startsWith("product:"))) {
+      sharedCatalogRevision++;
+    }
+  });
+} catch (_) {}
+
+function earliestPromotionExpiryMs(products) {
+  let earliest = Infinity;
+  for (const p of (products || [])) {
+    for (const v of (p?.variants || [])) {
+      const endsAt = v?.promotion?.endsAt;
+      if (endsAt) {
+        const ts = new Date(endsAt).getTime();
+        if (Number.isFinite(ts) && ts < earliest) earliest = ts;
+      }
+    }
+  }
+  return earliest;
+}
+
 async function loadProducts(pool, { includeDrafts = false, deleted = false, search = "" } = {}) {
+  const isTest = process.env.NODE_ENV === "test" || Boolean(process.env.NODE_TEST_CONTEXT);
+  const useSharedCache = !includeDrafts && !deleted && !search.trim() && !isTest && pool && typeof pool === "object";
+  if (useSharedCache) {
+    const entry = sharedPublicCatalogCache.get(pool);
+    const now = Date.now();
+    if (entry && entry.revision === sharedCatalogRevision && entry.data && now < entry.expiresAt) {
+      return entry.data;
+    }
+    if (entry && entry.inFlight && entry.inFlightRevision === sharedCatalogRevision) {
+      return entry.inFlight;
+    }
+    const rev = sharedCatalogRevision;
+    const promise = (async () => {
+      try {
+        const rows = await queryProductsUncached(pool, { includeDrafts: false, deleted: false, search: "" });
+        if (rev === sharedCatalogRevision) {
+          const builtAt = Date.now();
+          const promoEnd = earliestPromotionExpiryMs(rows);
+          const expiresAt = Math.min(builtAt + 3000, promoEnd);
+          sharedPublicCatalogCache.set(pool, { revision: rev, data: rows, expiresAt, inFlight: null, inFlightRevision: rev });
+        }
+        return rows;
+      } catch (err) {
+        const cur = sharedPublicCatalogCache.get(pool);
+        if (cur && cur.inFlight === promise) cur.inFlight = null;
+        throw err;
+      }
+    })();
+    sharedPublicCatalogCache.set(pool, {
+      revision: entry?.revision ?? -1,
+      data: entry?.data ?? null,
+      expiresAt: entry?.expiresAt ?? 0,
+      inFlight: promise,
+      inFlightRevision: rev
+    });
+    return promise;
+  }
+  return queryProductsUncached(pool, { includeDrafts, deleted, search });
+}
+
+async function queryProductsUncached(pool, { includeDrafts = false, deleted = false, search = "" } = {}) {
   const visibility = includeDrafts ? (deleted ? "WHERE p.deleted_at IS NOT NULL" : "WHERE p.deleted_at IS NULL") : "WHERE p.active = true AND p.deleted_at IS NULL";
   const query = `
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description, p.card_title AS "cardTitle", p.card_summary AS "cardSummary",
@@ -351,7 +418,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     const { cacheEvents } = require('./cache');
     cacheEvents.on('invalidated', (payload) => {
       const tags = payload?.tags;
-      if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['catalog', 'stock', 'promotion', 'product', 'products'].includes(t) || String(t).startsWith('product:'))) {
+      if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['catalog', 'stock', 'promotion', 'promotions', 'product', 'products'].includes(t) || String(t).startsWith('product:'))) {
         invalidateCatalogCache();
       }
       if (!Array.isArray(tags) || tags.length === 0 || tags.some(t => t === '*' || ['store-config', 'settings', 'payment-channels', 'shipping'].includes(t))) {
@@ -761,6 +828,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               "INSERT INTO order_reviews (order_id, reason) VALUES ($1, 'late_payment_on_cancelled_order') ON CONFLICT (order_id) DO UPDATE SET reason = 'late_payment_on_cancelled_order', resolved_at = NULL, updated_at = now()",
               [attempt.orderId]
             );
+          } else {
+            try {
+              await client.query(
+                "UPDATE order_reviews SET resolved_at = COALESCE(resolved_at, now()), resolution = COALESCE(NULLIF(resolution, ''), 'Tự động xác nhận qua giao dịch thanh toán VNPAY'), updated_at = now() WHERE order_id = $1 AND resolved_at IS NULL",
+                [attempt.orderId]
+              );
+            } catch (_) {}
           }
         }
         await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
@@ -1188,16 +1262,6 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           );
           if (completedClaim.rowCount !== 1) throw Object.assign(Error('Yêu cầu đặt hàng đã thay đổi hoặc hết hạn. Vui lòng kiểm tra đơn trước khi thử lại.'), { status: 409 });
         }
-        try {
-          const { publishAdminEvent } = require('./realtime-sse');
-          publishAdminEvent('order:new', {
-            orderId: result.order?.id,
-            orderNumber: result.order?.orderNumber,
-            totalVnd: result.order?.totalVnd,
-            customerName: result.order?.customerName || parsed.data.customer.name
-          });
-          publishAdminEvent('notification:refresh', {});
-        } catch (_) {}
         return result;
       }
 
@@ -1684,6 +1748,16 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
       const createdOrderId = order?.order?.id || order?.id;
       invalidateTags(['orders', ...(createdOrderId ? [`order:${createdOrderId}`] : []), 'stock']);
+      try {
+        const { publishAdminEvent } = require('./realtime-sse');
+        publishAdminEvent('order:new', {
+          orderId: order?.order?.id,
+          orderNumber: order?.order?.orderNumber,
+          totalVnd: order?.order?.totalVnd,
+          customerName: order?.order?.customerName || parsed.data.customer.name
+        });
+        publishAdminEvent('notification:refresh', {});
+      } catch (_) {}
       if (req.session) {
         req.session.placedOrders = Array.isArray(req.session.placedOrders)
           ? [...new Set([...req.session.placedOrders, order.order.orderNumber])]
@@ -2251,28 +2325,50 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
        GROUP BY o.id, p.provider, p.status, p.expires_at ORDER BY ${sortSql[sort]} LIMIT $5 OFFSET $6`,
       [...filterValues, exportAll ? 5000 : pageSize, exportAll ? 0 : (page - 1) * pageSize]
     );
-    if(shippingChoices&&result.rows.length){
-      const selected=(await pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])',[result.rows.map(o=>o.id)])).rows;
-      for(const order of result.rows)order.shippingCarrierName=selected.find(r=>r.order_id===order.id)?.carrier_name||null;
-      const shipments=(await pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url,cod_amount_vnd,cod_settlement_status,cod_settlement_ref,cod_attestation_level,cod_evidence_ref,cod_payout_period FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled' ORDER BY created_at DESC",[result.rows.map(o=>o.id)])).rows;
-      for(const order of result.rows){const s=shipments.find(r=>r.order_id===order.id);if(s){order.carrierShipment={carrierId:s.carrier_id,trackingNumber:s.tracking_number,status:s.status,labelUrl:s.label_url,codAmountVnd:Number(s.cod_amount_vnd||0),codSettlementStatus:s.cod_settlement_status,codSettlementRef:s.cod_settlement_ref||null,codAttestationLevel:s.cod_attestation_level||'none',codEvidenceRef:s.cod_evidence_ref||null,codPayoutPeriod:s.cod_payout_period||null};order.trackingNumber=s.tracking_number;}}
-    }
-    if (finance && result.rows.length) {
-      const receipts = await pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [result.rows.map((order) => order.id)]);
-      const receivedByOrder = new Map(receipts.rows.map((row) => [row.order_id, Number(row.received)]));
-      for (const order of result.rows) {
-        order.receivedVnd = order.paymentStatus === "paid" ? order.totalVnd : (receivedByOrder.get(order.id) || 0);
-        order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
+    if (result.rows.length) {
+      const orderIds = result.rows.map((o) => o.id);
+      const [selectedRes, shipmentsRes, receiptsRes, einvoicesRes] = await Promise.all([
+        shippingChoices
+          ? pool.query('SELECT order_id,carrier_name FROM order_shipping_selection WHERE order_id=ANY($1::uuid[])', [orderIds])
+          : Promise.resolve(null),
+        shippingChoices
+          ? pool.query("SELECT order_id,carrier_id,tracking_number,status,label_url,cod_amount_vnd,cod_settlement_status,cod_settlement_ref,cod_attestation_level,cod_evidence_ref,cod_payout_period FROM carrier_shipments WHERE order_id=ANY($1::uuid[]) AND status!='cancelled' ORDER BY created_at DESC", [orderIds])
+          : Promise.resolve(null),
+        finance
+          ? pool.query('SELECT order_id, SUM(amount_vnd) AS received FROM sales_receipts WHERE order_id=ANY($1::uuid[]) GROUP BY order_id', [orderIds])
+          : Promise.resolve(null),
+        config
+          ? pool.query('SELECT order_id, invoice_number AS "invoiceNumber", invoice_series AS "invoiceSeries", template_code AS "templateCode", view_url AS "viewUrl", issued_at AS "issuedAt" FROM misa_einvoices WHERE order_id=ANY($1::uuid[])', [orderIds]).catch(() => null)
+          : Promise.resolve(null)
+      ]);
+      if (shippingChoices) {
+        const selectedMap = new Map((selectedRes?.rows || []).map((r) => [r.order_id, r.carrier_name]));
+        const shipmentMap = new Map();
+        for (const s of (shipmentsRes?.rows || [])) {
+          if (!shipmentMap.has(s.order_id)) shipmentMap.set(s.order_id, s);
+        }
+        for (const order of result.rows) {
+          order.shippingCarrierName = selectedMap.get(order.id) || null;
+          const s = shipmentMap.get(order.id);
+          if (s) {
+            order.carrierShipment = { carrierId: s.carrier_id, trackingNumber: s.tracking_number, status: s.status, labelUrl: s.label_url, codAmountVnd: Number(s.cod_amount_vnd || 0), codSettlementStatus: s.cod_settlement_status, codSettlementRef: s.cod_settlement_ref || null, codAttestationLevel: s.cod_attestation_level || 'none', codEvidenceRef: s.cod_evidence_ref || null, codPayoutPeriod: s.cod_payout_period || null };
+            order.trackingNumber = s.tracking_number;
+          }
+        }
       }
-    }
-    if (config && result.rows.length) {
-      try {
-        const einvoices = await pool.query('SELECT order_id, invoice_number AS "invoiceNumber", invoice_series AS "invoiceSeries", template_code AS "templateCode", view_url AS "viewUrl", issued_at AS "issuedAt" FROM misa_einvoices WHERE order_id=ANY($1::uuid[])', [result.rows.map((order) => order.id)]);
-        const invoiceMap = new Map(einvoices.rows.map((r) => [r.order_id, r]));
+      if (finance) {
+        const receivedByOrder = new Map((receiptsRes?.rows || []).map((row) => [row.order_id, Number(row.received)]));
+        for (const order of result.rows) {
+          order.receivedVnd = order.paymentStatus === "paid" ? order.totalVnd : (receivedByOrder.get(order.id) || 0);
+          order.outstandingVnd = order.totalVnd === null ? null : Math.max(0, order.totalVnd - order.receivedVnd);
+        }
+      }
+      if (config && einvoicesRes?.rows) {
+        const invoiceMap = new Map(einvoicesRes.rows.map((r) => [r.order_id, r]));
         for (const order of result.rows) {
           order.einvoice = invoiceMap.get(order.id) || null;
         }
-      } catch {}
+      }
     }
     if (exportXlsx) {
       const buffer = await require('./order-export').orderWorkbook(result.rows);
@@ -2383,7 +2479,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   router.post('/gaeru_ceo/orders/:id/permanent-delete', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ ...sharedStore(pool, config || {}, 'orders-perm-delete'), windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
   router.delete('/gaeru_ceo/orders/:id', requirePermission('orders.permanent_delete'), requireUuidParam('id'), requireCsrf, rateLimit({ ...sharedStore(pool, config || {}, 'orders-perm-delete'), windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), handleOrderPermanentDelete);
 
-  router.patch("/gaeru_ceo/orders/:id", requirePermission('orders.write'), requireUuidParam("id"), requireCsrf, async (req, res, next) => {
+  router.patch("/gaeru_ceo/orders/:id", (req, res, next) => {
+    const perms = req.admin?.permissions;
+    const allowed = req.admin?.role === "owner" || (Array.isArray(perms) && (perms.includes("*") || perms.includes("orders.write") || perms.includes("payments.write")));
+    if (!allowed) return res.status(403).json({ error: "Tài khoản không có quyền cập nhật đơn hàng hoặc thanh toán." });
+    return next();
+  }, requireUuidParam("id"), requireCsrf, async (req, res, next) => {
     try {
       const parsed = orderUpdateSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Cập nhật đơn hàng chưa hợp lệ.", details: parsed.error.issues });

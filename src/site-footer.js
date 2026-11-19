@@ -3,7 +3,7 @@
 const SITE_FOOTER_HTML = `<footer class="site-footer">
       <div class="footer-main">
         <div class="footer-brand">
-          <a class="wordmark" href="/"><span class="brand-window"><picture><source srcset="/assets/brand/gaeru-logo.webp" type="image/webp"><img class="brand-logo" src="/assets/brand/gaeru-logo.png" alt="GAERU" width="375" height="375" loading="lazy" decoding="async"></picture></span></a>
+          <a class="wordmark" href="/"><span class="brand-window"><picture><source srcset="/assets/brand/gaeru-logo.avif" type="image/avif"><source srcset="/assets/brand/gaeru-logo.webp" type="image/webp"><img class="brand-logo" src="/assets/brand/gaeru-logo.png" alt="GAERU" width="375" height="375" loading="lazy" decoding="async"></picture></span></a>
           <p>Nhỏ gọn để bắt đầu.<br>Tự do để sáng tạo.</p>
         </div>
         <details class="footer-column" open>
@@ -31,7 +31,7 @@ const SITE_FOOTER_HTML = `<footer class="site-footer">
           <p class="footer-newsletter-note">Cập nhật sản phẩm &amp; ưu đãi mới nhất.</p>
           <form class="footer-newsletter-compact-form" data-newsletter-form data-source="web_footer">
             <div class="footer-newsletter-field">
-              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" required maxlength="254" autocomplete="email">
+              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" aria-label="Địa chỉ email nhận bản tin GAERU" required maxlength="254" autocomplete="email">
               <button type="submit" class="footer-newsletter-compact-submit" aria-label="Đăng ký nhận tin">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>

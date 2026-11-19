@@ -159,7 +159,7 @@
           <span>Tải lại</span>
         </button>
       </div>
-      <div class="home-banner-status-box" role="status" data-home-banner-status></div>
+      <div class="home-banner-status-box" role="status" data-passive-status data-home-banner-status></div>
     </div>
   </form>
 </div>`;
@@ -305,6 +305,10 @@
 
   async function uploadFile(kind,file){
     if(!kind||!file||!value)return;
+    if(file.size>8*1024*1024||!['image/png','image/jpeg','image/webp','image/avif'].includes(file.type)){
+      setStatus('Chọn ảnh PNG, JPG, WebP hoặc AVIF tối đa 8 MB.','error');
+      return;
+    }
     uploads++;
     controls();
     setStatus('Đang tải ảnh '+kind+'…','busy');

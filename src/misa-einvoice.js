@@ -202,8 +202,10 @@ async function retryPendingInvoices(pool, config = {}, { fetcher, limit = 50 } =
         if (res?.success) {
           await dequeueInvoiceSuccess(pool, order.orderId);
         } else if (res?.skipped) {
-          // Bổ sung vào hàng đợi nếu giao thức chưa sẵn sàng hoặc mạng ngắt
-          await enqueueInvoiceRetry(pool, order.orderId, res.reason || res.message, config);
+          // Chỉ đưa vào hàng đợi thử lại với lỗi tạm thời; không báo lỗi đỏ khi MISA đang tắt/chưa nghiệm thu
+          if (!['misa_protocol_unverified', 'misa_disabled', 'not_configured', 'already_issued'].includes(res.reason)) {
+            await enqueueInvoiceRetry(pool, order.orderId, res.reason || res.message, config);
+          }
         }
         results.push({ orderId: order.orderId, orderNumber: order.orderNumber, success: true, ...res });
       } catch (err) {

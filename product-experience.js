@@ -26,7 +26,7 @@
       if (!detailContainer.isConnected) return;
       const heading = document.querySelector('.product-purchase-heading h1');
       if (!heading) {
-        const failed = detailContainer.querySelector('.product-empty, .product-not-found, [data-product-error]');
+        const failed = detailContainer.querySelector('.product-empty, .product-not-found, .not-found, [data-product-error]');
         if (failed || ++frames >= MAX_WAIT_FRAMES) return;
         renderPollRafId = requestAnimationFrame(checkProductRendered);
         return;
@@ -159,48 +159,44 @@
       nav._priceObserver = observer;
     }
 
-    // Scroll Visibility & Progress Tracking
+    // Scroll Visibility & Progress Tracking (rAF-throttled, batched DOM read -> write to avoid layout thrashing)
     const progressBar = nav.querySelector('.product-subnav-progress');
     const heroSection = document.querySelector('.product-detail');
     const links = nav.querySelectorAll('.product-local-subnav-links a');
+    let scrollRafPending = false;
+    let lastVisible = null;
+    let lastCurrent = '';
+    let lastRatioStr = '';
 
-    const handleScroll = () => {
-      // 1. Visibility toggle: Chỉ hiển thị khi trượt qua nội dung nút "Thêm vào giỏ"
+    const runScrollUpdate = () => {
+      scrollRafPending = false;
+      // Batch ALL layout reads first
       const addToCartBtn = document.querySelector('.detail-actions [data-add-to-cart], [data-add-to-cart], .detail-actions');
-      const siteHeader = document.querySelector('#site-header');
-      const headerThreshold = siteHeader ? (siteHeader.offsetHeight || 50) : 50;
-
-      if (addToCartBtn) {
-        const btnRect = addToCartBtn.getBoundingClientRect();
-        // Trượt qua nút thêm vào giỏ (đáy nút vượt lên trên thanh menu header)
-        if (btnRect.bottom <= headerThreshold) {
-          nav.classList.add('is-visible');
-        } else {
-          nav.classList.remove('is-visible');
-        }
-      } else {
-        const triggerTop = heroSection ? heroSection.getBoundingClientRect().bottom : 500;
-        if (triggerTop <= headerThreshold) {
-          nav.classList.add('is-visible');
-        } else {
-          nav.classList.remove('is-visible');
-        }
-      }
-
-      // 2. Progress Bar
+      const siteHeaderEl = document.querySelector('#site-header');
+      const headerThreshold = siteHeaderEl ? (siteHeaderEl.offsetHeight || 50) : 50;
+      const triggerBottom = addToCartBtn
+        ? addToCartBtn.getBoundingClientRect().bottom
+        : (heroSection ? heroSection.getBoundingClientRect().bottom : 500);
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
       const scrolled = window.scrollY || window.pageYOffset || 0;
-      const ratio = Math.min(1, Math.max(0, docHeight > 0 ? (scrolled / docHeight) : 0));
-      if (progressBar) {
-        progressBar.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
-      }
-
-      // 3. ScrollSpy Active Indicator
       const infoEl = document.querySelector('#product-information');
       const specsEl = document.querySelector('#product-specs') || ensureSpecsAnchor();
-
       const infoTop = infoEl ? infoEl.getBoundingClientRect().top : 9999;
       const specsTop = specsEl ? specsEl.getBoundingClientRect().top : 9999;
+
+      // Batch ALL DOM writes after reads
+      const shouldShow = triggerBottom <= headerThreshold;
+      if (shouldShow !== lastVisible) {
+        nav.classList.toggle('is-visible', shouldShow);
+        lastVisible = shouldShow;
+      }
+
+      const ratio = Math.min(1, Math.max(0, docHeight > 0 ? (scrolled / docHeight) : 0));
+      const ratioStr = ratio.toFixed(4);
+      if (progressBar && ratioStr !== lastRatioStr) {
+        progressBar.style.transform = 'scaleX(' + ratioStr + ')';
+        lastRatioStr = ratioStr;
+      }
 
       let current = 'overview';
       if (specsTop <= 200) {
@@ -209,24 +205,34 @@
         current = 'features';
       }
 
-      links.forEach(link => {
-        if (link.dataset.navTarget === current) {
-          link.classList.add('is-active');
-        } else {
-          link.classList.remove('is-active');
-        }
-      });
+      if (current !== lastCurrent) {
+        links.forEach(link => {
+          link.classList.toggle('is-active', link.dataset.navTarget === current);
+        });
+        lastCurrent = current;
+      }
+    };
+
+    const handleScroll = () => {
+      if (scrollRafPending) return;
+      scrollRafPending = true;
+      requestAnimationFrame(runScrollUpdate);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
+    runScrollUpdate();
 
     // Smooth Scroll Click Handlers with precise sticky offset calculation
+    // Matches links even after clean-urls.js rewrites "#id" to "/san-pham/<slug>#id"
     nav.addEventListener('click', (e) => {
-      const link = e.target.closest('a[href^="#"]');
+      const link = e.target.closest('a[data-nav-target], a[data-local-nav-buy], a[href*="#"]');
       if (!link) return;
+      const rawHref = link.getAttribute('href') || '';
+      const hashIndex = rawHref.indexOf('#');
+      if (hashIndex < 0) return;
+      const targetId = rawHref.slice(hashIndex);
+      if (!targetId || targetId === '#') return;
       e.preventDefault();
-      const targetId = link.getAttribute('href');
 
       if (targetId === '#product-detail') {
         const targetElement = document.querySelector('.detail-actions, .product-choice-group, .product-detail-copy');

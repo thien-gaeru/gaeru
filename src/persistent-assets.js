@@ -363,6 +363,76 @@ function serveAssets(pool){const configuredBytes=Number.parseInt(process.env.ASS
       res.type(row.mime_type).set({'Cache-Control':cacheControl,'ETag':'"'+row.sha256+'"','X-GAERU-Asset-Backend':'media-root','X-Content-Type-Options':'nosniff'});
       return res.status(304).end();
     }
+    // Stream large video/MP4 assets directly from disk (with exact Range support) instead of buffering 6MB+ into RAM per chunk
+    if (row.mime_type === 'video/mp4') {
+      let opened = null;
+      try {
+        opened = await disk.openRead(row.storage_key);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          const localHandle = await fs.open(path.join(__dirname, '..', 'assets', relative), constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+          opened = { handle: localHandle, stat: await localHandle.stat() };
+        } else {
+          throw err;
+        }
+      }
+      const totalSize = opened.stat.size;
+      if (totalSize !== Number(row.byte_size)) {
+        await opened.handle.close().catch(() => {});
+        throw Error('SITE_ASSET_INTEGRITY');
+      }
+      const tag = '"' + row.sha256 + '"';
+      res.type(row.mime_type).set({
+        'Cache-Control': cacheControl,
+        'ETag': tag,
+        'Accept-Ranges': 'bytes',
+        'X-GAERU-Asset-Backend': 'media-root',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      if (req.fresh) {
+        await opened.handle.close().catch(() => {});
+        return res.status(304).end();
+      }
+      if (req.method === 'HEAD') {
+        await opened.handle.close().catch(() => {});
+        return res.set('Content-Length', String(totalSize)).end();
+      }
+      const range = req.headers.range;
+      let start = 0, end = totalSize - 1, isPartial = false;
+      if (req.method === 'GET' && range && (!req.headers['if-range'] || req.headers['if-range'] === tag)) {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        let s, e;
+        if (match && (match[1] || match[2])) {
+          if (!match[1]) {
+            const suffix = Number(match[2]);
+            if (Number.isSafeInteger(suffix) && suffix > 0) { s = Math.max(0, totalSize - suffix); e = totalSize - 1; }
+          } else {
+            s = Number(match[1]);
+            e = match[2] ? Number(match[2]) : totalSize - 1;
+            if (!Number.isSafeInteger(e)) s = undefined;
+            else e = Math.min(e, totalSize - 1);
+          }
+        }
+        if (!Number.isSafeInteger(s) || s < 0 || s >= totalSize || !Number.isSafeInteger(e) || e < s) {
+          await opened.handle.close().catch(() => {});
+          return res.status(416).set('Content-Range', 'bytes */' + totalSize).end();
+        }
+        start = s; end = e; isPartial = true;
+      }
+      const stream = opened.handle.createReadStream({ start, end, autoClose: true });
+      stream.on('error', () => {
+        opened.handle.close().catch(() => {});
+        if (!res.headersSent) res.sendStatus(500);
+        else res.destroy();
+      });
+      res.on('close', () => { if (!stream.destroyed) stream.destroy(); });
+      if (isPartial) {
+        res.status(206).set({ 'Content-Range': `bytes ${start}-${end}/${totalSize}`, 'Content-Length': String(end - start + 1) });
+      } else {
+        res.set('Content-Length', String(totalSize));
+      }
+      return stream.pipe(res);
+    }
     const bytes=await cache.get(row.storage_key,async()=>{
       try{
         const value=await disk.read(row.storage_key);

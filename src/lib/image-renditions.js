@@ -295,14 +295,16 @@ async function sendPublicImage(req, res, row, namespace) {
 
   if (!width) {
     if (requestedFormat === 'avif' && row.mime_type.startsWith('image/')) {
-      const avifVersion = computeVersion(row, null, 'avif');
-      let avifBytes = cache.peek(avifVersion);
-      if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
-      if (avifBytes) {
-        const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
-        res.type('image/avif').set(buildImageHeaders(etag, false));
-        if (req.fresh) return res.status(304).end();
-        return res.send(avifBytes);
+      for (const candidateWidth of [null, 1600, 1200, 800]) {
+        const avifVersion = computeVersion(row, candidateWidth, 'avif');
+        let avifBytes = cache.peek(avifVersion);
+        if (!avifBytes) avifBytes = await loadDiskRenditionIntoCache(avifVersion);
+        if (avifBytes) {
+          const etag = '"gaeru-' + namespace + '-' + req.params.id + '-' + avifVersion + '-avif"';
+          res.type('image/avif').set(buildImageHeaders(etag, false));
+          if (req.fresh) return res.status(304).end();
+          return res.send(avifBytes);
+        }
       }
       if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
     }

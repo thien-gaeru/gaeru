@@ -1006,7 +1006,7 @@
     background: rgba(0, 0, 0, 0.45) !important;
     backdrop-filter: blur(2px) !important;
     -webkit-backdrop-filter: blur(2px) !important;
-    z-index: 999 !important;
+    z-index: 1099 !important;
     opacity: 0 !important;
     pointer-events: none !important;
     transition: opacity .25s ease !important;
@@ -1026,7 +1026,7 @@
     bottom: 0 !important;
     width: min(290px, 82vw) !important;
     min-width: 0 !important;
-    z-index: 1000 !important;
+    z-index: 1100 !important;
     transform: translateX(-105%) !important;
     transition: transform .28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow .28s ease !important;
     box-shadow: none !important;

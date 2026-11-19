@@ -130,7 +130,7 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
       reason='ai_unavailable';result={handoff:true,answer:'AI hiện chưa thể trả lời chính xác câu hỏi này.'};
     }
   }
-  let handedOffToHuman=false;
+  let handedOffToHuman=false,publishedAiBody=null;
   await withTransaction(pool,async c=>{
     const row=(await c.query('SELECT status,handling_mode FROM shopping_chat_threads WHERE id=$1 FOR UPDATE',[job.thread_id])).rows[0];
     const latest=(await c.query('SELECT id FROM shopping_chat_messages WHERE thread_id=$1 ORDER BY id DESC LIMIT 1',[job.thread_id])).rows[0];
@@ -139,11 +139,15 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
     }
     if(result.handoff){if(reason==='customer_request')handedOffToHuman=await handoff(c,job.thread_id,reason,result.answer.slice(0,2400));else await offerHandoff(c,job.thread_id,reason,result.answer.slice(0,2400));}
     else{
-      const aiBody=result.answer.slice(0,3000); await c.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[job.thread_id,aiBody,job.id]); try{require('./realtime-sse').publishChatEvent(job.thread_id,'chat:message',{threadId:job.thread_id,sender:'ai',body:aiBody});}catch(_){}
+      const aiBody=result.answer.slice(0,3000); await c.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[job.thread_id,aiBody,job.id]);
       await c.query('UPDATE shopping_chat_threads SET awaiting_admin=false,version=version+1,updated_at=now() WHERE id=$1',[job.thread_id]);
+      publishedAiBody=aiBody;
     }
     await c.query("UPDATE shopping_chat_ai_jobs SET status='done' WHERE id=$1",[job.id]);
   });
+  if(publishedAiBody){
+    try{require('./realtime-sse').publishChatEvent(job.thread_id,'chat:message',{threadId:job.thread_id,sender:'ai',body:publishedAiBody});}catch(_){}
+  }
   if(handedOffToHuman){
     try{
       require('./admin-notifications').notifyAdminPushBackground(pool,config,{

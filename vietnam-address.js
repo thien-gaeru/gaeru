@@ -3,10 +3,11 @@
  if(typeof module==='object'&&module.exports)module.exports=api;
  else{
   root.GAERUAddress=api;
+  const hasAddressTarget=node=>Boolean(node?.matches?.('[name="city"],[data-delivery-city]')||node?.querySelector?.('[name="city"],[data-delivery-city]'));
+  const ensureLoadedAndEnhance=node=>{api.enhance(node);if(hasAddressTarget(node))api.loadData().then(()=>api.enhance(root.document));};
   const start=()=>{
-   api.enhance(root.document);
-   api.loadData().then(()=>api.enhance(root.document));
-   new MutationObserver(rows=>{for(const row of rows)for(const node of row.addedNodes)if(node.nodeType===1)api.enhance(node);}).observe(root.document.body,{childList:true,subtree:true});
+   ensureLoadedAndEnhance(root.document);
+   new MutationObserver(rows=>{for(const row of rows)for(const node of row.addedNodes)if(node.nodeType===1)ensureLoadedAndEnhance(node);}).observe(root.document.body,{childList:true,subtree:true});
   };
   if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',start,{once:true});else start();
  }

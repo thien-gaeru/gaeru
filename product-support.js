@@ -1,5 +1,6 @@
 const supportContent = document.querySelector("[data-product-support-content]");
-const supportProductSlug = new URLSearchParams(window.location.search).get("id");
+const pathSlugMatch = String(window.location?.pathname || "").match(/^\/ho-tro\/san-pham\/([a-z0-9-]+)\/?$/i);
+const supportProductSlug = new URLSearchParams(window.location.search).get("id") || (pathSlugMatch ? decodeURIComponent(pathSlugMatch[1]) : null);
 
 const supportGuidesByCategory = {
   audio: {
@@ -49,7 +50,7 @@ function renderProductSupport(product) {
         <p>${safeDescription}</p>
         <a class="button button-blue" href="#product-support-guides">Xem hướng dẫn</a>
       </div>
-      <div class="product-support-hero-image"><img src="${safeImage}" alt="${safeImageAlt}"></div>
+      <div class="product-support-hero-image"><img src="${safeImage}" alt="${safeImageAlt}" width="560" height="420" decoding="async"></div>
     </section>
     <section class="product-support-guides section-wrap" id="product-support-guides" aria-labelledby="product-support-guides-title">
       <div class="product-support-section-heading">
@@ -109,4 +110,4 @@ document.addEventListener("gaeru:products-loaded", loadProductSupport);
 document.addEventListener("gaeru:products-load-error", () => {
   showProductUnavailable("Không thể tải thông tin sản phẩm lúc này. Hãy tải lại trang hoặc liên hệ GAERU.");
 });
-if (window.GAERUStore) loadProductSupport();
+if (window.GAERUStore && (window.GAERUStore.products?.length > 0 || !window.__gaeruProductsPromise)) loadProductSupport();

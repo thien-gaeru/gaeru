@@ -312,15 +312,16 @@ async function mountPayments(){
 
 document.addEventListener('submit',async event=>{
  const f=event.target.closest('[data-shipping-reconcile]');if(!f)return;event.preventDefault();
- const status=f.querySelector('[role=status]'),button=f.querySelector('button[type=submit]');button.disabled=true;
+ const status=f.querySelector('[role=status]'),button=f.querySelector('button[type=submit]');if(button?.disabled)return;
+ if(button&&admin.setButtonBusy)admin.setButtonBusy(button,true,'Đang đối chiếu…');else if(button)button.disabled=true;
  try{const result=await admin.request('/api/gaeru_ceo/shipping/attempts/'+encodeURIComponent(f.dataset.shippingReconcile)+'/reconcile',{method:'POST',body:JSON.stringify({reason:f.elements.reason.value,confirmedNoWaybill:f.elements.confirmedNoWaybill.checked,password:f.elements.password.value,factorCode:f.elements.factorCode.value,factorChallengeId:f.dataset.challenge})});status.textContent=result.message;admin.showGlobal(result.message);await mountShipping();}
  catch(error){status.textContent=error.message;}
- finally{f.elements.password.value='';f.elements.factorCode.value='';delete f.dataset.challenge;button.disabled=false;}
+ finally{f.elements.password.value='';f.elements.factorCode.value='';delete f.dataset.challenge;if(button&&admin.setButtonBusy)admin.setButtonBusy(button,false);else if(button)button.disabled=false;}
 });
 
 document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-shipping-test],[data-shipping-enable]');
- if(!button)return;
+ if(!button||button.disabled)return;
  const details=button.closest('[id^="config-panel-"]')||button.closest('details')||button.closest('.config-modal-dialog')||button.closest('article');
  if(!details)return;
  const form=details.querySelector('form');
@@ -331,13 +332,14 @@ document.addEventListener('click',async event=>{
    if(status)status.textContent='Vui lòng nhập mật khẩu chủ doanh nghiệp để xác thực.';
    return;
  }
- button.disabled=true;
+ if(admin.setButtonBusy)admin.setButtonBusy(button,true,button.dataset.shippingTest?'Đang kiểm tra…':'Đang cập nhật…');else button.disabled=true;
  try{
   const testing=!!button.dataset.shippingTest;
   const pwd=form.elements.password.value;
   const factorCode=form?.elements?.factorCode?form.elements.factorCode.value:'';
   const version=Number(form?.dataset?.version||data?.records?.['shipping_'+id]?.version||0);
   const result=await admin.request('/api/gaeru_ceo/owner/shipping/'+id+(testing?'/test':'/availability'),{method:testing?'POST':'PATCH',body:JSON.stringify({version,...(testing?{}:{enabled:button.dataset.enabled==='true'}),password:pwd,factorCode:factorCode,factorChallengeId:form?.dataset?.challenge})});
+  if(form&&result?.version!=null)form.dataset.version=String(result.version);
   admin.showGlobal(result.message);
   if(status){
    status.textContent=(testing?'✓ ':'')+result.message;
@@ -346,6 +348,7 @@ document.addEventListener('click',async event=>{
    }
   }
   await mountShipping();
+  if(form&&data?.records?.['shipping_'+id]?.version!=null)form.dataset.version=String(data.records['shipping_'+id].version);
   const reopened=document.getElementById(details.id);
   if(reopened){
    const msg=reopened.querySelector('[data-shipping-result]');
@@ -365,7 +368,7 @@ document.addEventListener('click',async event=>{
   if(form&&form.elements&&form.elements.password)form.elements.password.value='';
   if(form&&form.elements&&form.elements.factorCode)form.elements.factorCode.value='';
   if(form)delete form.dataset.challenge;
-  button.disabled=false;
+  if(admin.setButtonBusy)admin.setButtonBusy(button,false);else button.disabled=false;
  }
 });
 
@@ -439,7 +442,7 @@ document.addEventListener('click',async event=>{
 
 document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-payment-test],[data-payment-enable]');
- if(!button)return;
+ if(!button||button.disabled)return;
  const details=button.closest('[id^="config-panel-"]')||button.closest('.configuration-panel')||button.closest('details')||button.closest('.config-modal-dialog');
  if(!details)return;
  const form=details.querySelector('form');
@@ -451,13 +454,14 @@ document.addEventListener('click',async event=>{
    if(status)status.textContent='Vui lòng nhập mật khẩu chủ doanh nghiệp để xác thực.';
    return;
  }
- button.disabled=true;
+ if(admin.setButtonBusy)admin.setButtonBusy(button,true,button.dataset.paymentTest?'Đang kiểm tra…':'Đang cập nhật…');else button.disabled=true;
  try{
   const testing=!!button.dataset.paymentTest;
   const pwd=form.elements.password.value;
   const factorCode=form?.elements?.factorCode?form.elements.factorCode.value:'';
   const version=Number(form?.dataset?.version||data?.records?.[paymentMap[id]||id]?.version||0);
   const result=await admin.request('/api/gaeru_ceo/owner/payments/'+id+(testing?'/test':'/availability'),{method:testing?'POST':'PATCH',body:JSON.stringify({version,...(testing?{}:{enabled:button.dataset.enabled==='true'}),password:pwd,factorCode:factorCode,factorChallengeId:form?.dataset?.challenge})});
+  if(form&&result?.version!=null)form.dataset.version=String(result.version);
   admin.showGlobal(result.message);
   if(status){
    const verified=testing&&authenticatedPaymentProof({...result,id});
@@ -467,6 +471,7 @@ document.addEventListener('click',async event=>{
    }
   }
   await mountPayments();
+  if(form&&data?.records?.[paymentMap[id]||id]?.version!=null)form.dataset.version=String(data.records[paymentMap[id]||id].version);
   const reopened=document.getElementById(details.id);
   if(reopened){
    const msg=reopened.querySelector('[data-payment-result]');
@@ -486,7 +491,7 @@ document.addEventListener('click',async event=>{
   if(form&&form.elements&&form.elements.password)form.elements.password.value='';
   if(form&&form.elements&&form.elements.factorCode)form.elements.factorCode.value='';
   if(form)delete form.dataset.challenge;
-  button.disabled=false;
+  if(admin.setButtonBusy)admin.setButtonBusy(button,false);else button.disabled=false;
  }
 });
 
@@ -521,13 +526,14 @@ async function load(){
  const root=document.querySelector('#system-configuration');
  if(!root)return;
  const services=data.services;
- root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối và bảo mật</h2></div></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi cấu hình quan trọng cần mật khẩu và xác thực hai yếu tố bảo vệ tài khoản quản trị.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" class="secondary-button" data-media-storage-probe style="min-height:38px;padding:8px 18px;border-radius:999px;font-weight:600;">Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status">'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status">Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['oauth','misa','shopee','tiktok','lazada','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='oauth'?(data.records.oauth?.data?.googleClientId?'Đã lưu Client ID · Sẵn sàng':'Chưa cấu hình'):id==='misa'?(data.records.misa?.version?'Đã lưu · Chưa xác minh, phát hành đang khóa':'Chưa cấu hình'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='oauth'?'<p class="help-text">Nhập Google Client ID để kích hoạt đăng nhập một chạm. Hướng dẫn lấy mã: Truy cập Google Cloud Console ➔ APIs & Services ➔ Credentials ➔ OAuth Client ID (Web Application) ➔ thêm redirect URI: <code>https://gaeru.com/api/customer-auth/oauth/google-callback</code> (hoặc <code>http://localhost:3000/account.html</code>).</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Với sàn TMĐT, nhập Access Token đã được sàn cấp quyền và Shop Cipher nếu dùng TikTok. Token được mã hóa, không trả lại trình duyệt. Kiểm tra quyền đọc và thao tác đồng bộ tại Quản lý Sàn TMĐT. Khi token hết hạn, cập nhật token mới; hệ thống không tự suy đoán OAuth thành công.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
+ root.innerHTML='<header class="section-heading"><div><p class="eyebrow">Cấu hình riêng của chủ doanh nghiệp</p><h2>Kết nối và bảo mật</h2></div></header><p class="help-text">Khóa bí mật được mã hóa khi lưu, không trả lại trình duyệt. Thay đổi cấu hình quan trọng cần mật khẩu và xác thực hai yếu tố bảo vệ tài khoản quản trị.</p><section class="configuration-panel"><h3>Lưu trữ ảnh và tài liệu</h3><button type="button" class="secondary-button" data-media-storage-probe style="min-height:38px;padding:8px 18px;border-radius:999px;font-weight:600;">Kiểm tra lưu trữ ngay</button><p role="status" data-media-storage-probe-result></p><p>Nơi lưu tệp mới: '+(services.mediaStorage?.provider==='hostinger'?'Hostinger':'Thư mục cục bộ chưa cấu hình')+'</p><p role="status" data-passive-status>'+esc(services.mediaStorage?.message||'Chưa kiểm tra')+'</p><p class="help-text">Ảnh và tài liệu được đọc từ thư mục lưu trữ cục bộ. Cơ sở dữ liệu giữ thông tin và tham chiếu tệp.</p><p role="status" data-passive-status>Kiểm tra tệp cục bộ: '+esc(services.mediaAudit?.message||'Chưa kiểm tra')+'</p></section>'+['oauth','misa','shopee','tiktok','lazada','security'].map(id=>'<details class="configuration-panel" id="config-panel-'+id+'"><summary><span>'+titles[id]+'</span><small>'+(id==='oauth'?(data.records.oauth?.data?.googleClientId?'Đã lưu Client ID · Sẵn sàng':'Chưa cấu hình'):id==='misa'?(data.records.misa?.version?'Đã lưu · Chưa xác minh, phát hành đang khóa':'Chưa cấu hình'):id==='security'?'Chính sách phiên quản trị':data.records[id]?.version?'Đã lưu ứng dụng · chưa cấp quyền đồng bộ':'Chưa cấu hình')+'</small></summary><div>'+ (id==='oauth'?'<p class="help-text">Nhập Google Client ID để kích hoạt đăng nhập một chạm. Hướng dẫn lấy mã: Truy cập Google Cloud Console ➔ APIs & Services ➔ Credentials ➔ OAuth Client ID (Web Application) ➔ thêm redirect URI: <code>https://gaeru.com/api/customer-auth/oauth/google-callback</code> (hoặc <code>http://localhost:3000/account.html</code>).</p>':id==='security'?'<p class="help-text">Turnstile: '+(services.turnstileConfigured?'Đã cấu hình':'Chưa cấu hình')+' · Email: '+(services.smtpConfigured?'Đã cấu hình':'Chưa cấu hình')+'. Khóa CAPTCHA và khóa mã hóa được quản lý trên máy chủ.</p>':'<p class="help-text">Lưu hồ sơ ứng dụng trước. Với sàn TMĐT, nhập Access Token đã được sàn cấp quyền và Shop Cipher nếu dùng TikTok. Token được mã hóa, không trả lại trình duyệt. Kiểm tra quyền đọc và thao tác đồng bộ tại Quản lý Sàn TMĐT. Khi token hết hạn, cập nhật token mới; hệ thống không tự suy đoán OAuth thành công.</p>')+'<div style="margin-bottom:12px;"><button type="button" class="secondary-button" data-open-config-popup="'+id+'">⚙ Mở cửa sổ cấu hình trực quan</button></div>'+form(id)+'</div></details>').join('');
 }
 
 document.addEventListener('click',async e=>{
  const button=e.target.closest('[data-config-email]');
- if(!button)return;
+ if(!button||button.disabled)return;
  const f=button.closest('form'),status=f.querySelector('[role=status]');
+ if(admin.setButtonBusy)admin.setButtonBusy(button,true,'Đang gửi…');else button.disabled=true;
  try{
   if(!f.elements.password.value)throw Error('Nhập mật khẩu hiện tại trước.');
   const r=await window.GAERUSecurity.api('/authorize',{password:f.elements.password.value});
@@ -535,6 +541,8 @@ document.addEventListener('click',async e=>{
   status.textContent=r.message;
  }catch(error){
   status.textContent=error.message;
+ }finally{
+  if(admin.setButtonBusy)admin.setButtonBusy(button,false);else button.disabled=false;
  }
 });
 
@@ -543,7 +551,8 @@ document.addEventListener('submit',async e=>{
  if(rf){
   e.preventDefault();
   const btn=rf.querySelector('[type=submit]'),st=rf.querySelector('[data-reconcile-result]');
-  btn.disabled=true;
+  if(btn?.disabled)return;
+  if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,true,'Đang xác nhận…');else if(btn)btn.disabled=true;
   try{
    const res=await admin.request('/api/gaeru_ceo/owner/payments/reconcile',{
     method:'POST',
@@ -565,7 +574,7 @@ document.addEventListener('submit',async e=>{
    rf.elements.password.value='';
    rf.elements.factorCode.value='';
   }finally{
-   btn.disabled=false;
+   if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,false);else if(btn)btn.disabled=false;
   }
   return;
  }
@@ -578,7 +587,8 @@ document.addEventListener('submit',async e=>{
  const modal=typeof f.closest==='function'?f.closest('.config-modal-dialog'):null;
  const modalStatus=modal?.querySelector('[data-modal-status]');
  const button=f.querySelector('[type=submit]');
- if(button)button.disabled=true;
+ if(button?.disabled)return;
+ if(button&&admin.setButtonBusy)admin.setButtonBusy(button,true,'Đang lưu…');else if(button)button.disabled=true;
 
  function showMsg(msg,isError){
   if(modalStatus){
@@ -721,9 +731,12 @@ document.addEventListener('submit',async e=>{
     if(msg)msg.textContent=result.message;
    }
    admin.showGlobal(result.message);
+  }else if(id==='oauth'){
+   await Promise.all([load(),mountOAuth()]);
+   admin.showGlobal(result.message);
   }else if(id!=='profile'){
    await load();
-      admin.showGlobal(result.message);
+   admin.showGlobal(result.message);
   }else{
    await window.GAERUOwner?.load();
    admin.showGlobal(result.message);
@@ -734,7 +747,7 @@ document.addEventListener('submit',async e=>{
    if(f.elements.password)f.elements.password.value='';
   }
  }finally{
-  if(button)button.disabled=false;
+  if(button&&admin.setButtonBusy)admin.setButtonBusy(button,false);else if(button)button.disabled=false;
  }
 });
 

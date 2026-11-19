@@ -130,7 +130,8 @@
     section.querySelector('[data-w-page="-1"]').disabled=page===1;
     section.querySelector('[data-w-page="1"]').disabled=data.activations.length<20;
   }
-  form.elements.source.addEventListener('change',()=>{if(!editing)changeSource();});
+  let userChangedSource=false;
+  form.elements.source.addEventListener('change',()=>{userChangedSource=true;if(!editing)changeSource();});
   form.elements.orderId.addEventListener('change',async()=>{
     const current=++sequence,select=form.elements.orderItemId;
     select.innerHTML='<option value="">Đang tải sản phẩm…</option>';select.disabled=true;
@@ -151,11 +152,16 @@
       const account=form.elements.source.value==='account';
       if(account&&(form.elements.orderItemId.disabled||!form.elements.orderItemId.value))throw Error('Chọn sản phẩm trong đơn hàng trước khi đăng ký.');
       const body=account?{orderItemId:form.elements.orderItemId.value,contact}:{channel:form.elements.source.value,externalOrderNumber:form.elements.externalOrderNumber.value,productName:form.elements.productName.value,serial:form.elements.serial?.value||editing?.serial||'',...(form.elements.purchaseDate?.value?{purchaseDate:form.elements.purchaseDate.value}:{}),contact};
-      if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=crypto.randomUUID();}
+      const genKey=()=>typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?crypto.randomUUID():'w-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+      if(JSON.stringify(body)!==serialized){serialized=JSON.stringify(body);key=genKey();}
       const data=await api(editing?'/api/warranty-requests/'+editing.id:(account?'/api/customer/warranties':'/api/warranty-requests'),editing?'PATCH':'POST',editing?{...body,serial:form.elements.serial?.value||editing?.serial||'',version:editing.version}:{...body,requestKey:key});
       if(data.managementToken)storeToken(data.activation.id,data.managementToken);
       feedback.textContent='Đã tiếp nhận đăng ký. Mã hồ sơ: '+data.activation.id+'. GAERU sẽ đối chiếu đơn và ngày mua trước khi xác nhận kích hoạt.';
       if(!customer)feedback.textContent+=' Vui lòng lưu mã hồ sơ để liên hệ GAERU theo dõi kết quả.';
+      if(form.elements.externalOrderNumber)form.elements.externalOrderNumber.value='';
+      if(form.elements.productName)form.elements.productName.value='';
+      if(form.elements.serial)form.elements.serial.value='';
+      if(form.elements.purchaseDate)form.elements.purchaseDate.value='';
       editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;key=null;serialized=null;page=1;
       try{await list();}catch{feedback.textContent+=' Chưa tải lại được danh sách; bạn có thể bấm Tải lại.';}
     } catch(error){feedback.textContent=error.message;}finally{button.disabled=false;button.textContent=editing?'Gửi lại hồ sơ':'Đăng ký kích hoạt';}
@@ -164,8 +170,9 @@
     const edit=event.target.closest('[data-w-edit]'),remove=event.target.closest('[data-w-delete]'),confirm=event.target.closest('[data-w-delete-yes]');
     if(event.target.closest('[data-w-cancel-edit]')){editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;form.querySelector('[type=submit]').textContent='Đăng ký kích hoạt';feedback.textContent='Đã hủy chỉnh sửa.';return;}
     if(edit){const row=rows.find(w=>w.id===edit.dataset.wEdit);if(!row)return;form.elements.source.value=row.channel;changeSource();editing=row;form.elements.source.disabled=true;form.elements.externalOrderNumber.value=row.orderNumber;form.elements.productName.value=row.productName;if(form.elements.serial)form.elements.serial.value=row.serial||'';form.elements.purchaseDate.value=row.claimedPurchaseDate||'';for(const name of ['fullName','phone','address','city','email'])if(form.elements[name])form.elements[name].value='';fillContact({fullName:row.contactName,phone:row.contactPhone,address:row.contactAddress,city:row.contactCity,email:row.contactEmail||customer?.email});form.querySelector('[type=submit]').textContent='Gửi lại hồ sơ';section.querySelector('[data-w-cancel-edit]').hidden=false;feedback.textContent='Cập nhật thông tin rồi gửi lại để GAERU đối chiếu.';openActivation();form.scrollIntoView({block:'start',behavior:'smooth'});}
-    if(remove){section.querySelector('[data-w-delete-confirm="'+remove.dataset.wDelete+'"]').innerHTML='<p>Yêu cầu chưa kích hoạt sẽ được xóa khỏi danh sách. Bạn có thể tạo đăng ký mới.</p><button class="care-plain" type="button" data-w-delete-yes="'+escape(remove.dataset.wDelete)+'">Xác nhận xóa yêu cầu</button>';}
-    if(confirm){const row=rows.find(w=>w.id===confirm.dataset.wDeleteYes);if(!row)return;confirm.disabled=true;try{await api('/api/warranty-requests/'+row.id,'DELETE',{version:row.version,confirmation:'DELETE_WARRANTY_REQUEST'});delete guestTokens[row.id];try{sessionStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}if(editing?.id===row.id){editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;}await list();feedback.textContent='Đã xóa yêu cầu.';}catch(error){feedback.textContent=error.message;confirm.disabled=false;}}
+    if(event.target.closest('[data-w-delete-cancel]')){const wrap=event.target.closest('[data-w-delete-confirm]');if(wrap)wrap.innerHTML='';return;}
+    if(remove){section.querySelector('[data-w-delete-confirm="'+remove.dataset.wDelete+'"]').innerHTML='<p>Yêu cầu chưa kích hoạt sẽ được xóa khỏi danh sách. Bạn có thể tạo đăng ký mới.</p><div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="care-plain" type="button" data-w-delete-yes="'+escape(remove.dataset.wDelete)+'">Xác nhận xóa yêu cầu</button><button class="care-plain" type="button" data-w-delete-cancel>Hủy</button></div>';}
+    if(confirm){const row=rows.find(w=>w.id===confirm.dataset.wDeleteYes);if(!row)return;confirm.disabled=true;try{await api('/api/warranty-requests/'+row.id,'DELETE',{version:row.version,confirmation:'DELETE_WARRANTY_REQUEST'});delete guestTokens[row.id];try{sessionStorage.setItem('gaeru-warranty-tokens',JSON.stringify(guestTokens));}catch{}if(editing?.id===row.id){editing=null;form.elements.source.disabled=false;section.querySelector('[data-w-cancel-edit]').hidden=true;form.querySelector('[type=submit]').textContent='Đăng ký kích hoạt';}await list();feedback.textContent='Đã xóa yêu cầu.';}catch(error){feedback.textContent=error.message;confirm.disabled=false;}}
   });
   section.addEventListener('click',async event=>{
     const button=event.target.closest('[data-w-page],[data-w-orders]');if(!button)return;
@@ -182,7 +189,7 @@
       if(session.authenticated) {
         customer=session.customer;fillContact(customer,false);
         form.elements.source.querySelector('[value=account]').disabled=false;
-        form.elements.source.value='account';changeSource();
+        if(!userChangedSource){form.elements.source.value='account';changeSource();}
         section.querySelector('[data-w-session]').textContent='Đăng ký cho '+customer.fullName+'. Vui lòng kiểm tra thông tin trước khi gửi.';
         section.querySelector('[data-w-history]').hidden=false;
         const results=await Promise.allSettled([orders(),list(),api('/api/customer/addresses').then(({addresses})=>{

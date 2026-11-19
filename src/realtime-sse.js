@@ -90,33 +90,27 @@ const SSE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 async function checkAdminSessionDbValid(pool, req) {
   if (pool && typeof pool.query === 'function') {
     if (req.sessionID) {
-      try {
-        const sRow = (await pool.query('SELECT sess, expire FROM user_sessions WHERE sid = $1 LIMIT 1', [req.sessionID])).rows[0];
-        if (!sRow || (sRow.expire && new Date(sRow.expire).getTime() <= Date.now())) {
-          return false;
-        }
-        const sess = typeof sRow.sess === 'string' ? JSON.parse(sRow.sess) : sRow.sess;
-        if (!sess?.admin) return false;
-        if (Number.isFinite(sess.adminLastSeenAt) && req.session) {
-          req.session.adminLastSeenAt = Math.max(Number(req.session.adminLastSeenAt || 0), sess.adminLastSeenAt);
-        }
-      } catch (_) {}
+      const sRow = (await pool.query('SELECT sess, expire FROM user_sessions WHERE sid = $1 LIMIT 1', [req.sessionID])).rows[0];
+      if (!sRow || (sRow.expire && new Date(sRow.expire).getTime() <= Date.now())) {
+        return false;
+      }
+      const sess = typeof sRow.sess === 'string' ? JSON.parse(sRow.sess) : sRow.sess;
+      if (!sess?.admin) return false;
+      if (Number.isFinite(sess.adminLastSeenAt) && req.session) {
+        req.session.adminLastSeenAt = Math.max(Number(req.session.adminLastSeenAt || 0), sess.adminLastSeenAt);
+      }
     }
     const admin = req.admin || req.session?.admin;
     if (admin?.source === 'staff' && admin?.id && SSE_UUID_RE.test(String(admin.id))) {
-      try {
-        const staffRow = (await pool.query('SELECT active, auth_version AS "authVersion" FROM staff_accounts WHERE id = $1 LIMIT 1', [admin.id])).rows[0];
-        if (staffRow && (staffRow.active !== true || (Number.isInteger(admin.authVersion) && Number(staffRow.authVersion) !== admin.authVersion))) return false;
-      } catch (_) {}
+      const staffRow = (await pool.query('SELECT active, auth_version AS "authVersion" FROM staff_accounts WHERE id = $1 LIMIT 1', [admin.id])).rows[0];
+      if (staffRow && (staffRow.active !== true || (Number.isInteger(admin.authVersion) && Number(staffRow.authVersion) !== admin.authVersion))) return false;
     }
     const secVer = admin?.securityVersion ?? req.session?.securityVersion;
     if (Number.isInteger(secVer) && admin) {
       const accountKey = admin.source === 'bootstrap' ? 'owner' : (admin.id ? `staff:${admin.id}` : '');
       if (accountKey) {
-        try {
-          const secRow = (await pool.query('SELECT version FROM account_security WHERE account_key = $1 LIMIT 1', [accountKey])).rows[0];
-          if (secRow && Number(secRow.version) !== secVer) return false;
-        } catch (_) {}
+        const secRow = (await pool.query('SELECT version FROM account_security WHERE account_key = $1 LIMIT 1', [accountKey])).rows[0];
+        if (secRow && Number(secRow.version) !== secVer) return false;
       }
     }
   }
@@ -208,28 +202,38 @@ function openSseStream(req, res, channel, { hub = defaultHub, isAdmin = false, c
 
   const unsubscribe = hub.subscribe(channel, onEvent);
 
+  let checkInFlight = false;
+  let consecutiveDbErrors = 0;
   const heartbeatTimer = setInterval(async () => {
     if (res.writableEnded) {
       clearInterval(heartbeatTimer);
       return;
     }
-    if (checkSession) {
-      let valid = false;
-      try {
-        valid = Boolean(await checkSession(req));
-      } catch (_) {
-        valid = false;
-      }
-      if (!valid) {
-        if (!res.writableEnded) {
-          res.write(`event: session-expired\ndata: ${JSON.stringify({ error: 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
-          res.end();
+    if (checkInFlight) return;
+    checkInFlight = true;
+    try {
+      if (checkSession) {
+        let valid = false;
+        try {
+          valid = Boolean(await checkSession(req));
+          consecutiveDbErrors = 0;
+        } catch (_) {
+          consecutiveDbErrors++;
+          valid = consecutiveDbErrors < 2;
         }
-        clearInterval(heartbeatTimer);
-        return;
+        if (!valid) {
+          if (!res.writableEnded) {
+            res.write(`event: session-expired\ndata: ${JSON.stringify({ error: 'Phiên quản trị đã hết hạn hoặc đã bị thu hồi.' })}\n\n`);
+            res.end();
+          }
+          clearInterval(heartbeatTimer);
+          return;
+        }
       }
+      if (!res.writableEnded) res.write(': ping\n\n');
+    } finally {
+      checkInFlight = false;
     }
-    if (!res.writableEnded) res.write(': ping\n\n');
   }, 15000);
   if (heartbeatTimer.unref) heartbeatTimer.unref();
 
@@ -365,6 +369,15 @@ function sseHandler(req, res) {
   res.once?.('finish', cleanup);
 }
 
+const PUBLIC_SSE_TAGS = new Set(['*', 'catalog', 'stock', 'product', 'products', 'promotion', 'promotions', 'news', 'pages', 'store-config', 'payment-channels', 'shipping', 'bundles']);
+function filterPublicCacheTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  return tags.filter((t) => {
+    const s = String(t || '');
+    return PUBLIC_SSE_TAGS.has(s) || s.startsWith('product:') || s.startsWith('news:');
+  });
+}
+
 // Khi có Cache Tag bị xóa, thông báo ngay tới mọi trình duyệt đang mở trang
 cacheEvents.on('invalidated', (payload) => {
   if (!payload?.fromIpc) {
@@ -373,12 +386,19 @@ cacheEvents.on('invalidated', (payload) => {
     } catch (_) {}
   }
   if (realtimeClients.size === 0) return;
-  const message = `data: ${JSON.stringify({ type: 'CACHE_INVALIDATED', ...payload })}\n\n`;
+  const publicTags = filterPublicCacheTags(payload?.tags);
+  if (publicTags.length === 0) return;
+  const publicPayload = {
+    tags: publicTags,
+    timestamp: payload?.timestamp || Date.now()
+  };
+  const message = `data: ${JSON.stringify({ type: 'CACHE_INVALIDATED', ...publicPayload })}\n\n`;
   for (const client of realtimeClients) {
     try {
       client.write(message);
     } catch (_) {
       realtimeClients.delete(client);
+      try { client.end?.(); } catch (__) {}
     }
   }
 });
@@ -414,6 +434,8 @@ module.exports = {
   realtimeClients,
   activeStreams,
   closeAllSseStreams,
+  acquireSseSlot,
+  filterPublicCacheTags,
   getActiveSseCount,
   MAX_TOTAL_SSE,
   MAX_PER_IP_SSE

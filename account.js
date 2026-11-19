@@ -5,13 +5,14 @@ let accountCsrfToken = "";
 let currentCustomer = null;
 let accountSessionVersion = 0;
 
-function setAccountFeedback(message, isError = false) {
+function setAccountFeedback(message, isError = false, options = {}) {
   if (accountFeedback) {
     accountFeedback.textContent = message;
     accountFeedback.classList.toggle("is-error", isError);
     accountFeedback.classList.toggle("is-success", Boolean(message) && !isError);
   }
-  if (message && typeof window !== 'undefined' && typeof window.showCenterPopup === 'function') {
+  const isProgressText = !isError && /^Đang\s/i.test(String(message || '').trim());
+  if (message && !options?.silentPopup && !isProgressText && typeof window !== 'undefined' && typeof window.showCenterPopup === 'function') {
     window.showCenterPopup({
       type: isError ? 'error' : 'success',
       title: isError ? 'Thông báo' : 'Thành công',
@@ -371,15 +372,18 @@ document.querySelector("[data-account-show-register]")?.addEventListener("click"
   history.replaceState(null, "", `${window.location.pathname}#register`);
   activateAccountPanel("register");
 });
-document.querySelector("[data-account-show-login]")?.addEventListener("click", (event) => {
+document.querySelectorAll("[data-account-show-login]").forEach((el) => el.addEventListener("click", (event) => {
   event.preventDefault();
   history.replaceState(null, "", `${window.location.pathname}#login`);
   activateAccountPanel("login");
-});
+}));
 
 document.querySelector('[data-account-form="login"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn?.disabled) return;
+  if (submitBtn) submitBtn.disabled = true;
   const values = Object.fromEntries(new FormData(form));
   try {
     let result = await accountRequest("/api/customer-auth/login", values);
@@ -392,17 +396,22 @@ document.querySelector('[data-account-form="login"]')?.addEventListener("submit"
     await confirmContactChangeFromUrl();
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
 document.querySelector('[data-account-form="register"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn?.disabled) return;
   const values = Object.fromEntries(new FormData(form));
   if (values.password !== values.passwordConfirm) {
     setAccountFeedback("Mật khẩu nhập lại chưa khớp.", true);
     return;
   }
+  if (submitBtn) submitBtn.disabled = true;
   try {
     const result = await accountRequest("/api/customer-auth/register", {
       fullName: values.fullName,
@@ -418,28 +427,39 @@ document.querySelector('[data-account-form="register"]')?.addEventListener("subm
     }
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
 document.querySelector('[data-account-form="password-reset-request"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const values = Object.fromEntries(new FormData(event.currentTarget));
+  const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn?.disabled) return;
+  if (submitBtn) submitBtn.disabled = true;
+  const values = Object.fromEntries(new FormData(form));
   try {
     const result = await accountRequest("/api/customer-auth/password-reset/request", values);
     setAccountFeedback(result.message);
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
 document.querySelector('[data-account-form="password-reset-complete"]')?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn?.disabled) return;
   const values = Object.fromEntries(new FormData(form));
   if (values.password !== values.passwordConfirm) {
     setAccountFeedback("Mật khẩu nhập lại chưa khớp.", true);
     return;
   }
+  if (submitBtn) submitBtn.disabled = true;
   const token = new URLSearchParams(window.location.search).get("token");
   try {
     const result = await accountRequest(new URLSearchParams(window.location.search).get("setup")==="1"?"/api/customer-auth/account-setup":"/api/customer-auth/password-reset/complete", {
@@ -454,6 +474,8 @@ document.querySelector('[data-account-form="password-reset-complete"]')?.addEven
     setAccountFeedback(result.message);
   } catch (error) {
     setAccountFeedback(error.message, true);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
@@ -606,56 +628,6 @@ async function loadOAuthConfig() {
   return oauthConfig || { google: { configured: false, clientId: '' } };
 }
 
-function showOAuthConfigModal(provider, cfg) {
-  let modal = document.querySelector('[data-oauth-setup-dialog]');
-  if (!modal) {
-    modal = document.createElement('dialog');
-    modal.setAttribute('data-oauth-setup-dialog', '');
-    modal.className = 'security-dialog';
-    document.body.appendChild(modal);
-  }
-
-  modal.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;">
-      <h3 style="margin:0;font-size:20px;letter-spacing:-0.02em;">Cấu hình Đăng nhập Google</h3>
-      <button type="button" style="border:none;background:none;font-size:24px;cursor:pointer;color:#86868b;padding:4px 8px;" data-oauth-dialog-close aria-label="Đóng">×</button>
-    </div>
-    <p style="font-size:14px;line-height:1.6;color:#515154;margin-bottom:16px;">
-      Để khách hàng có thể đăng nhập bằng tài khoản <strong>Google</strong>, hệ thống cần được cấu hình mã định danh <code>GOOGLE_CLIENT_ID</code>.
-    </p>
-
-    <div style="background:#f5f5f7;border-radius:14px;padding:16px;margin-bottom:20px;font-size:13px;line-height:1.65;color:#1d1d1f;">
-      <strong style="display:block;margin-bottom:6px;color:#0071e3;">📌 2 Cách cấu hình nhanh:</strong>
-      <strong>Cách 1: Trực quan trong Trang Quản trị (Khuyên dùng)</strong><br>
-      Đăng nhập tài khoản Quản trị viên (Chủ shop) ➔ vào menu <strong>Đăng nhập Google</strong> ➔ nhập Google Client ID và bấm Lưu.<br><br>
-      <strong>Cách 2: Cấu hình qua tệp .env trên máy chủ</strong><br>
-      Thêm dòng sau vào tệp <code>.env</code>:<br>
-      <code style="display:block;background:#ffffff;padding:8px 12px;border-radius:8px;border:1px solid #d2d2d7;margin-top:6px;word-break:break-all;">
-        GOOGLE_CLIENT_ID=123456789-xyz.apps.googleusercontent.com
-      </code>
-    </div>
-
-    <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;">
-      <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="secondary-button" style="text-decoration:none;display:inline-flex;align-items:center;padding:9px 16px;border-radius:20px;font-size:13px;color:#0071e3;">
-        Mở trang cấp mã Google ↗
-      </a>
-      <button type="button" class="button-blue" data-oauth-dialog-close style="min-height:38px;padding:8px 18px;border-radius:20px;font-size:13px;">
-        Đã hiểu
-      </button>
-    </div>
-  `;
-
-  modal.querySelectorAll('[data-oauth-dialog-close]').forEach(btn => {
-    btn.onclick = () => modal.close();
-  });
-
-  if (typeof modal.showModal === 'function') {
-    modal.showModal();
-  } else {
-    modal.setAttribute('open', '');
-  }
-}
-
 let googleGsiInitialized = false;
 let googleSdkPromise;
 function loadGoogleSdk() {
@@ -737,9 +709,15 @@ async function initGoogleOAuth(interactive = false) {
 
 function bindOAuthButtons() {
   document.querySelectorAll('[data-oauth-action="google"]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.preventDefault();
-      initGoogleOAuth(true);
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        await initGoogleOAuth(true);
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 }

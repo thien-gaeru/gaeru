@@ -246,8 +246,12 @@
       `;
 
       backdrop.append(card);
-      const rawActiveDialog = typeof document.querySelector === 'function' ? document.querySelector('dialog[open]') : null;
-      const activeDialog = rawActiveDialog && !rawActiveDialog.classList?.contains?.('gaeru-center-popup') ? rawActiveDialog : null;
+      const openDialogs = typeof document.querySelectorAll === 'function'
+        ? [...document.querySelectorAll('dialog[open]')].filter(d => !d.classList?.contains?.('gaeru-center-popup'))
+        : [];
+      const activeDialog = openDialogs.length
+        ? openDialogs[openDialogs.length - 1]
+        : (typeof document.querySelector === 'function' ? (() => { const d = document.querySelector('dialog[open]'); return d && !d.classList?.contains?.('gaeru-center-popup') ? d : null; })() : null);
       const mountTarget = activeDialog || document.body;
       mountTarget?.append?.(backdrop);
       if (activeDialog && typeof activeDialog.addEventListener === 'function') {
@@ -258,6 +262,7 @@
         }, { once: true });
       }
 
+      const previousFocus = document.activeElement;
       const input = card.querySelector?.('.gaeru-modal-input');
       const confirmBtn = card.querySelector?.('.gaeru-modal-btn-confirm');
       const cancelBtn = card.querySelector?.('.gaeru-modal-btn-cancel');
@@ -269,6 +274,7 @@
         document.removeEventListener('keydown', onKeyDown, true);
         try { backdrop.removeAttribute('open'); } catch (_) {}
         backdrop.remove();
+        try { if (previousFocus && previousFocus.isConnected && typeof previousFocus.focus === 'function') previousFocus.focus({ preventScroll: true }); } catch (_) {}
         resolve(result);
       };
 
@@ -300,8 +306,26 @@
           e.preventDefault();
           e.stopPropagation();
           handleCancel();
+        } else if (e.key === 'Tab') {
+          const focusables = [input, cancelBtn, confirmBtn].filter(el => el && !el.disabled && el.isConnected !== false);
+          if (focusables.length > 0) {
+            const idx = focusables.indexOf(document.activeElement);
+            e.preventDefault();
+            const nextIdx = e.shiftKey
+              ? (idx <= 0 ? focusables.length - 1 : idx - 1)
+              : (idx < 0 || idx >= focusables.length - 1 ? 0 : idx + 1);
+            focusables[nextIdx].focus?.();
+          }
         } else if (e.key === 'Enter') {
-          if (!input || e.target === input) {
+          if (cancelBtn && e.target === cancelBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleCancel();
+          } else if (confirmBtn && e.target === confirmBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleConfirm();
+          } else if (!input || e.target === input) {
             e.preventDefault();
             e.stopPropagation();
             handleConfirm();
@@ -425,18 +449,16 @@
     try { result = callback(); }
     catch (error) { if (ctx) notify(error.message || 'Không thể thực hiện thao tác.', true); throw error; }
     finally {
-      if (!result || typeof result.then !== 'function') {
-        current = previous;
-      }
+      current = previous;
     }
     if (!ctx || !result || typeof result.then !== 'function') return result;
     begin(ctx);
     const promise = Promise.resolve(result).then(value => {
-      current = previous;
+      if (current === ctx) current = active.has(previous) ? previous : null;
       finish(ctx);
       return value;
     }, error => {
-      current = previous;
+      if (current === ctx) current = active.has(previous) ? previous : null;
       ctx.error = error.message || 'Không thể thực hiện thao tác.';
       finish(ctx);
       console.error('Action failed:', error.message);

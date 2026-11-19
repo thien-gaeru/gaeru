@@ -510,6 +510,7 @@
       closeEditor(form.closest("[data-e-editor]"), true);
       await loadForecastView(true);
       admin.showGlobal("Đã cập nhật cấu hình ROP thành công.");
+      return false;
     } else if (action === "rop-po") {
       if (!can("purchases.write")) throw new Error("Bạn chưa có quyền lập đơn mua.");
       const payload = {
@@ -521,9 +522,10 @@
       };
       const result = await api("/inventory/forecast/create-po", { method: "POST", body: JSON.stringify(payload) });
       closeEditor(form.closest("[data-e-editor]"), true);
-      await loadPurchases();
+      if (can("purchases.read")) await loadPurchases().catch(() => {});
       await loadForecastView(true);
       admin.showGlobal(result.message || "Đã tạo đơn mua thành công.");
+      return false;
     }
     return true;
   }
@@ -540,11 +542,17 @@
     if (!form.dataset.eForm || form.dataset.saving) return;
     form.dataset.saving = "true";
     const buttons = [...form.querySelectorAll("button")];
+    const submitBtn = event.submitter || form.querySelector('button[type="submit"], button:not([type="button"]):not([type="reset"])');
     buttons.forEach((button) => { button.disabled = true; });
+    if (submitBtn && admin.setButtonBusy) admin.setButtonBusy(submitBtn, true, "Đang lưu…");
     formMessage(form, "");
     try { if (await saveForm(form)) admin.showGlobal("Đã lưu nghiệp vụ thành công."); }
     catch (error) { formMessage(form, error.message); if(!form.isConnected||form.closest("[data-e-editor]")?.hidden)admin.showGlobal(error.message,true); }
-    finally { delete form.dataset.saving; buttons.forEach((button) => { button.disabled = false; }); }
+    finally {
+      delete form.dataset.saving;
+      if (submitBtn && admin.setButtonBusy) admin.setButtonBusy(submitBtn, false);
+      buttons.forEach((button) => { button.disabled = false; });
+    }
   });
   document.addEventListener("click", async (event) => {
     const button = event.target.closest(".enterprise-view button");
@@ -569,9 +577,13 @@
         else { viewState(target).page = page; await loadView(target); }
       } else if (button.dataset.eInventory) await inventoryEditor(button.dataset.eInventory);
       else if(button.hasAttribute('data-e-trash-product')){
-        if(!can('catalog.write'))return;const entry=viewState('inventory').rows[Number(button.dataset.eTrashProduct)];if(!entry)return;
-        if(!await admin.confirmProductAction({name:entry.productName},{message:'Chuyển toàn bộ sản phẩm này (mọi phiên bản, mọi kho) vào Sản phẩm đã xóa? Số lượng và lịch sử kho được giữ để khôi phục.'}))return;
-        button.disabled=true;try{await api('/products/'+entry.productId,{method:'DELETE',body:JSON.stringify({version:entry.productVersion,confirmation:'DELETE_PRODUCT'})});await loadView("inventory");admin.showGlobal('Đã chuyển sản phẩm vào khu vực đã xóa. Số lượng và lịch sử kho được giữ lại.');}finally{button.disabled=false;}
+        if(!can('catalog.write')||button.dataset.confirming==='1')return;const entry=viewState('inventory').rows[Number(button.dataset.eTrashProduct)];if(!entry)return;
+        button.dataset.confirming='1';
+        let okTrash=false;
+        try{okTrash=await admin.confirmProductAction({name:entry.productName},{message:'Chuyển toàn bộ sản phẩm này (mọi phiên bản, mọi kho) vào Sản phẩm đã xóa? Số lượng và lịch sử kho được giữ để khôi phục.'});}finally{delete button.dataset.confirming;}
+        if(!okTrash)return;
+        if(admin.setButtonBusy)admin.setButtonBusy(button,true,'Đang xóa…');else button.disabled=true;
+        try{await api('/products/'+entry.productId,{method:'DELETE',body:JSON.stringify({version:entry.productVersion,confirmation:'DELETE_PRODUCT'})});await loadView("inventory");admin.showGlobal('Đã chuyển sản phẩm vào khu vực đã xóa. Số lượng và lịch sử kho được giữ lại.');}finally{if(admin.setButtonBusy)admin.setButtonBusy(button,false);else button.disabled=false;}
       }
       else if (button.hasAttribute("data-e-adjust-row")) await inventoryEditor("adjustment", viewState("inventory").rows[Number(button.dataset.eAdjustRow)]);
       else if (button.hasAttribute("data-e-load-forecast")) await loadForecastView();
@@ -584,18 +596,33 @@
       else if (button.hasAttribute("data-e-add-line")) button.closest("form").querySelector(".purchase-lines").insertAdjacentHTML("beforeend", purchaseLine());
       else if (button.hasAttribute("data-e-remove-line")) button.closest(".purchase-line").remove();
       else if (button.dataset.ePoAction) {
+        if (button.dataset.confirming === "1") return;
         const action = button.dataset.ePoAction, id = e.activePurchase?.id;
-        if (!id || !await confirmAction(({ submit: "Trình duyệt đơn mua này?", approve: "Duyệt đơn mua này để cho phép nhập hàng?", cancel: "Hủy đơn mua này? Đơn đã hủy không thể tiếp tục nhập hàng." })[action], button)) return;
-        button.disabled = true;
-        await api(`/purchase-orders/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" });
-        await loadPurchases(); await purchaseDetail(id); admin.showGlobal("Đã cập nhật đơn mua.");
+        if (!id) return;
+        button.dataset.confirming = "1";
+        let okPo = false;
+        try { okPo = await confirmAction(({ submit: "Trình duyệt đơn mua này?", approve: "Duyệt đơn mua này để cho phép nhập hàng?", cancel: "Hủy đơn mua này? Đơn đã hủy không thể tiếp tục nhập hàng." })[action], button); }
+        finally { delete button.dataset.confirming; }
+        if (!okPo) return;
+        if (admin.setButtonBusy) admin.setButtonBusy(button, true, "Đang xử lý…"); else button.disabled = true;
+        try {
+          await api(`/purchase-orders/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" });
+          await loadPurchases(); await purchaseDetail(id); admin.showGlobal("Đã cập nhật đơn mua.");
+        } finally { if (admin.setButtonBusy) admin.setButtonBusy(button, false); else button.disabled = false; }
       } else if (button.dataset.eFinanceNew) await financeEditor(button.dataset.eFinanceNew);
       else if (button.dataset.eCollect) await financeEditor("collection", button.dataset.eCollect);
       else if (button.dataset.eFinanceApprove) {
-        if (!can("finance.approve") || !await confirmAction("Duyệt ghi nhận khoản tiền đã thực chi? Kiểm tra chứng từ và người lập trước khi duyệt; thao tác này không chuyển tiền.", button)) return;
-        button.disabled = true;
-        await api(`/finance/${button.dataset.eFinanceApprove === "expense" ? "expenses" : "supplier-payments"}/${encodeURIComponent(button.dataset.id)}/approve`, { method: "POST", body: "{}" });
-        await loadFinance(); admin.showGlobal("Đã duyệt và ghi nhận chứng từ.");
+        if (!can("finance.approve") || button.dataset.confirming === "1") return;
+        button.dataset.confirming = "1";
+        let okFin = false;
+        try { okFin = await confirmAction("Duyệt ghi nhận khoản tiền đã thực chi? Kiểm tra chứng từ và người lập trước khi duyệt; thao tác này không chuyển tiền.", button); }
+        finally { delete button.dataset.confirming; }
+        if (!okFin) return;
+        if (admin.setButtonBusy) admin.setButtonBusy(button, true, "Đang duyệt…"); else button.disabled = true;
+        try {
+          await api(`/finance/${button.dataset.eFinanceApprove === "expense" ? "expenses" : "supplier-payments"}/${encodeURIComponent(button.dataset.id)}/approve`, { method: "POST", body: "{}" });
+          await loadFinance(); admin.showGlobal("Đã duyệt và ghi nhận chứng từ.");
+        } finally { if (admin.setButtonBusy) admin.setButtonBusy(button, false); else button.disabled = false; }
       } else if (button.dataset.eReload) await loadView(button.dataset.eReload);
     } catch (error) { button.disabled = false; admin.showGlobal(error.message, true); }
   });

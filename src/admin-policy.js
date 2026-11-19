@@ -24,6 +24,7 @@ function adminPolicy(req, res, next) {
   else if (path === "/summary" || path === "/system-health" || path === "/traffic-summary") permission = "dashboard.read";
   else if (/^\/(products|variants|uploads)(\/|$)/.test(path)) permission = read ? "catalog.read" : "catalog.write";
   else if (/^\/orders\/[^/]+\/permanent-delete$/.test(path) || (method === "DELETE" && /^\/orders\/[^/]+$/.test(path))) permission = "orders.permanent_delete";
+  else if (method === "PATCH" && /^\/orders\/[^/]+$/.test(path)) return next();
   else if (/^\/orders(\/|$)/.test(path)) permission = read ? "orders.read" : "orders.write";
   else if (/^\/customers(\/|$)/.test(path)) permission = read ? "customers.read" : "customers.write";
   else if (path === "/google-analytics") return next();

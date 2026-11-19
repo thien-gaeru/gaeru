@@ -190,7 +190,7 @@
               Xóa ô nhập
             </button>
           </form>
-          <div role="status" aria-live="polite" id="barcode-scan-feedback" style="margin-top:10px; font-size:14px; font-weight:600; min-height:20px;"></div>
+          <div role="status" data-passive-status aria-live="polite" id="barcode-scan-feedback" style="margin-top:10px; font-size:14px; font-weight:600; min-height:20px;"></div>
         </div>
 
         <!-- Tab 1: Lookup Panel -->
@@ -559,7 +559,7 @@
           </div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-top:16px;">
           <!-- Warehouse stock breakdown -->
           <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:12px;">
             <h4 style="margin:0 0 10px 0; font-size:14px; font-weight:700;">Tồn Kho Theo Chi Nhánh</h4>
@@ -589,7 +589,8 @@
         <!-- Recent movements -->
         <div style="margin-top:20px;">
           <h4 style="margin:0 0 8px 0; font-size:14px; font-weight:700;">Lịch Sử Dịch Chuyển Kho Gần Nhất (5 lần)</h4>
-          <table style="width:100%; border-collapse:collapse;">
+          <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+          <table style="width:100%; border-collapse:collapse; min-width:540px;">
             <thead>
               <tr style="background:#f3f4f6; text-align:left; font-size:12px;">
                 <th style="padding:6px 10px;">Thời gian</th>
@@ -601,6 +602,7 @@
             </thead>
             <tbody>${movRows || '<tr><td colspan="5" style="padding:8px; text-align:center;">Chưa có dịch chuyển</td></tr>'}</tbody>
           </table>
+          </div>
         </div>
       </div>
     `;
@@ -702,6 +704,13 @@
       ? `<span style="background:#dcfce7; color:#15803d; font-weight:700; font-size:13px; padding:4px 10px; border-radius:6px;">✅ ĐÃ KIỂM ĐỦ MÓN</span>`
       : `<span style="background:#fef3c7; color:#b45309; font-weight:700; font-size:13px; padding:4px 10px; border-radius:6px;">⏳ ĐANG ĐÓNG GÓI</span>`;
 
+    const dispatchBtn = viewPanel.querySelector("#btn-dispatch-order");
+    if (dispatchBtn) {
+      dispatchBtn.style.display = state.verificationStatus === "dispatched" ? "none" : "";
+      dispatchBtn.disabled = !isAllScanned || state.verificationStatus === "dispatched";
+      dispatchBtn.textContent = "🚀 Xác Nhận Xuất Kho (Dispatch)";
+    }
+
     const rows = state.currentChecklist.map((it, idx) => {
       const done = it.scannedQuantity >= it.requiredQuantity;
       return `
@@ -801,8 +810,10 @@
   async function handleDispatchOrder() {
     if (!state.currentOrder) return;
     const btn = viewPanel.querySelector("#btn-dispatch-order");
-    btn.disabled = true;
-    btn.textContent = "Đang xử lý xuất kho...";
+    if (!btn || btn.disabled) return;
+    const setBusy = window.GAERUAdmin?.setButtonBusy;
+    if (setBusy) setBusy(btn, true, "Đang xử lý xuất kho...");
+    else { btn.disabled = true; btn.textContent = "Đang xử lý xuất kho..."; }
 
     try {
       const res = await window.GAERUAdmin.request(`/api/gaeru_ceo/barcode/dispatch`, {
@@ -820,14 +831,26 @@
       loadMetrics();
     } catch (err) {
       if (state.soundEnabled) playBeep("error");
-      if (window.GAERUNotify?.error) window.GAERUNotify.error(err.message); else alert(err.message);
+      window.GAERUAdmin?.showGlobal?.(err.message, true);
+      if (setBusy) setBusy(btn, false);
       btn.disabled = false;
       btn.textContent = "🚀 Xác Nhận Xuất Kho (Dispatch)";
     }
   }
 
   // Quick Inbound Submit
+  let inboundSubmitting = false;
   async function handleQuickInbound() {
+    if (inboundSubmitting) return;
+    const form = viewPanel.querySelector("#form-quick-inbound");
+    const btn = form?.querySelector('button[type="submit"], button:not([type])');
+    if (btn?.disabled) return;
+    inboundSubmitting = true;
+    const setBusy = window.GAERUAdmin?.setButtonBusy;
+    if (btn) {
+      if (setBusy) setBusy(btn, true, "Đang nhập kho…");
+      else btn.disabled = true;
+    }
     const sku = viewPanel.querySelector("#inbound-sku-input").value.trim();
     const warehouseId = viewPanel.querySelector("#inbound-warehouse-select").value;
     const quantity = parseInt(viewPanel.querySelector("#inbound-qty-input").value, 10);
@@ -857,11 +880,28 @@
     } catch (err) {
       if (state.soundEnabled) playBeep("error");
       resultBox.innerHTML = `<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:12px; color:#991b1b;">❌ ${escape(err.message)}</div>`;
+    } finally {
+      inboundSubmitting = false;
+      if (btn) {
+        if (setBusy) setBusy(btn, false);
+        else btn.disabled = false;
+      }
     }
   }
 
   // Cycle Count Submit
+  let cycleCountSubmitting = false;
   async function handleCycleCount() {
+    if (cycleCountSubmitting) return;
+    const form = viewPanel.querySelector("#form-cycle-count");
+    const btn = form?.querySelector('button[type="submit"], button:not([type])');
+    if (btn?.disabled) return;
+    cycleCountSubmitting = true;
+    const setBusy = window.GAERUAdmin?.setButtonBusy;
+    if (btn) {
+      if (setBusy) setBusy(btn, true, "Đang cân đối…");
+      else btn.disabled = true;
+    }
     const sku = viewPanel.querySelector("#count-sku-input").value.trim();
     const warehouseId = viewPanel.querySelector("#count-warehouse-select").value;
     const actualQuantity = parseInt(viewPanel.querySelector("#count-qty-input").value, 10);
@@ -890,6 +930,12 @@
     } catch (err) {
       if (state.soundEnabled) playBeep("error");
       resultBox.innerHTML = `<div style="background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:12px; color:#991b1b;">❌ ${escape(err.message)}</div>`;
+    } finally {
+      cycleCountSubmitting = false;
+      if (btn) {
+        if (setBusy) setBusy(btn, false);
+        else btn.disabled = false;
+      }
     }
   }
 

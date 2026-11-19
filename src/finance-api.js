@@ -132,6 +132,16 @@ function createFinanceApi(pool) {
     const result = await withTransaction(pool, async (client) => {
       const previous = await idempotent(client, "sales_receipts", data);
       if (previous) return { id: previous.id, replayed: true };
+      // Consistent lock hierarchy (matches settleCarrierCodBatch): acquire cod_batch advisory lock BEFORE locking orders/carrier_shipments
+      const txRefHint = String(data.reference || "").trim();
+      let preLockedBatchKey = null;
+      if (txRefHint.length >= 4) {
+        const carrierPeek = (await client.query("SELECT carrier_id FROM carrier_shipments WHERE order_id=$1 AND status<>'cancelled' AND cod_amount_vnd>0 ORDER BY created_at DESC LIMIT 1", [data.orderId])).rows[0];
+        if (carrierPeek?.carrier_id) {
+          preLockedBatchKey = `cod_batch:${carrierPeek.carrier_id}:${txRefHint}`;
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [preLockedBatchKey]);
+        }
+      }
       const order = (await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [data.orderId])).rows[0];
       if (!order) throw fail(404, "Không tìm thấy đơn hàng.");
       if (["vnpay", "momo", "zalopay"].includes(order.payment_method)) throw fail(409, "Thanh toán trực tuyến được đối soát qua cổng thanh toán.");
@@ -155,14 +165,16 @@ function createFinanceApi(pool) {
       if (received + data.amountVnd === order.total_vnd) {
         const canCompleteCod = !carrierCodShip || carrierCodShip.status === "delivered";
         const updatedOrd = (await client.query(
-          "UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' AND $2::boolean THEN 'completed' WHEN payment_method<>'cod' AND status IN ('pending','confirmed') THEN 'processing' ELSE status END,updated_at=now() WHERE id=$1 RETURNING status",
+          "UPDATE orders SET payment_status='paid',status=CASE WHEN payment_method='cod' AND status='shipped' AND $2::boolean THEN 'completed' WHEN payment_method<>'cod' AND status IN ('pending','confirmed') THEN 'processing' ELSE status END,delivered_at=CASE WHEN payment_method='cod' AND status='shipped' AND $2::boolean THEN COALESCE(delivered_at, now()) ELSE delivered_at END,updated_at=now() WHERE id=$1 RETURNING status",
           [order.id, canCompleteCod]
         )).rows[0];
         await client.query("UPDATE payment_attempts SET status='paid', updated_at=now() WHERE order_id=$1 AND status='pending'", [order.id]);
         if (carrierCodShip) {
           const txRef = String(data.reference).trim();
-          // P1-06: Pre-acquire advisory lock to prevent deadlock with settleCarrierCodBatch
-          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`cod_batch:${carrierCodShip.carrier_id}:${txRef}`]);
+          const batchLockKey = `cod_batch:${carrierCodShip.carrier_id}:${txRef}`;
+          if (batchLockKey !== preLockedBatchKey) {
+            await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [batchLockKey]);
+          }
           let batch = (await client.query(
             'SELECT * FROM cod_settlement_batches WHERE carrier_id = $1 AND provider_transaction_ref = $2 FOR UPDATE',
             [carrierCodShip.carrier_id, txRef]
@@ -177,6 +189,7 @@ function createFinanceApi(pool) {
               [carrierCodShip.carrier_id, txRef, data.method, txRef, String(data.note || '').trim(), req.admin.username]
             )).rows[0];
           }
+          const totalSettledAmountVnd = received + data.amountVnd;
           const allocKey = `cod-alloc:${carrierCodShip.carrier_id}:${txRef}:${order.id}`;
           const allocIns = await client.query(
             `INSERT INTO cod_settlement_allocations (
@@ -184,12 +197,12 @@ function createFinanceApi(pool) {
                was_legacy_verified, request_key, created_by
              ) VALUES ($1, $2, $3, $4, $5, false, $6, $7)
              ON CONFLICT (order_id) DO NOTHING RETURNING id`,
-            [batch.id, order.id, carrierCodShip.id, data.amountVnd, inserted.rows[0].id, allocKey, req.admin.username]
+            [batch.id, order.id, carrierCodShip.id, totalSettledAmountVnd, inserted.rows[0].id, allocKey, req.admin.username]
           );
           if (allocIns.rows.length > 0) {
             await client.query(
               `UPDATE cod_settlement_batches SET allocated_total_vnd = allocated_total_vnd + $2, updated_at = now() WHERE id = $1`,
-              [batch.id, data.amountVnd]
+              [batch.id, totalSettledAmountVnd]
             );
             await client.query(
               "UPDATE carrier_shipments SET cod_settlement_status='settled', cod_settled_at=now(), cod_settlement_ref=$2, cod_attestation_level='manually_attested', cod_attested_by=$3, updated_at=now() WHERE id=$1",
@@ -205,6 +218,9 @@ function createFinanceApi(pool) {
       await appendAudit(client, { actor: req.admin, action: "finance.receipt.post", entityType: "sales_receipt", entityId: inserted.rows[0].id, metadata: { orderId: order.id, amountVnd: data.amountVnd, method: data.method } });
       return { id: inserted.rows[0].id, replayed: false };
     });
+    if (!result.replayed) {
+      try { require("../cache").invalidateTags(["orders", `order:${data.orderId}`, "finance"]); } catch (_) {}
+    }
     res.status(result.replayed ? 200 : 201).json(result);
   }));
   for (const definition of [{ path: "supplier-payments", table: "supplier_payments", schema: supplierPaymentSchema, listKey: "payments" }, { path: "expenses", table: "expense_requests", schema: expenseSchema, listKey: "expenses" }]) {

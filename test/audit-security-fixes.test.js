@@ -481,7 +481,8 @@ test('audit fixes: full DB schema migration creates FK indexes idempotently and 
   assert.ok(MIGRATION_FILES.includes('decommission-internal-mail-20261116.sql'));
   assert.ok(MIGRATION_FILES.includes('loyalty-clawback-debt-20261117.sql'));
   assert.ok(MIGRATION_FILES.includes('audit-carrier-barcode-remediation-20261117.sql'));
-  assert.equal(MIGRATION_FILES.at(-1), 'ai-embedding-vectors-20261119.sql');
+  assert.ok(MIGRATION_FILES.includes('ai-embedding-vectors-20261119.sql'));
+  assert.equal(MIGRATION_FILES.at(-1), 'audit-hot-indexes-20261120.sql');
   const pool = await createPglitePool();
   t.after(() => pool.end());
 

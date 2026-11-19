@@ -191,8 +191,15 @@
     </section>`;
   }
 
+  let lastPrefStatus='';
   function render(){
+    const prevSt=root.querySelector('[data-notice-preference-status]')?.textContent?.trim();
+    if(prevSt)lastPrefStatus=prevSt;
     root.innerHTML=controls()+icloudMailSection()+'<div class="notice-toolbar"><p>Cảnh báo công việc hiện tại. Chỉ hiển thị nội dung bạn có quyền xem.</p><button type="button" data-notice-all>Đánh dấu tất cả đã đọc</button></div><div class="notice-list">'+(items.map((n,i)=>`<article class="notice-card ${n.read?'is-read':''}"><span class="notice-level">${n.level==='warning'?'Cần chú ý':(n.target==='webmail'?'iCloud Mail':'Thông báo')}</span><h3>${esc(n.title)}</h3><p>${esc(n.detail)}</p><div><button type="button" data-notice-open="${i}">${n.target==='webmail'?'Mở iCloud Mail ↗':'Mở mục xử lý'}</button>${!n.read?`<button type="button" data-notice-read="${i}">Đánh dấu đã đọc</button>`:''}</div></article>`).join('')||'<div class="notice-empty">Chưa có công việc cần chú ý.</div>')+'</div>';
+    if(lastPrefStatus){
+      const st=root.querySelector('[data-notice-preference-status]');
+      if(st)st.textContent=lastPrefStatus;
+    }
   }
 
   async function loadIcloudMailStatus(){
@@ -238,7 +245,11 @@
 
   root.addEventListener('click',async e=>{
     const desktop=e.target.closest('[data-notice-desktop]'),sound=e.target.closest('[data-notice-sound]'),test=e.target.closest('[data-notice-test]'),pushTest=e.target.closest('[data-notice-push-test]');
-    if(!desktop&&!sound&&!test&&!pushTest)return;
+    const clicked=desktop||sound||test||pushTest;
+    if(!clicked||clicked.disabled)return;
+    if(desktop||pushTest){
+      if(admin.setButtonBusy)admin.setButtonBusy(clicked,true,'Đang xử lý…');else clicked.disabled=true;
+    }
     try{
       const p=preference();
       if(test){beep();return;}
@@ -253,9 +264,10 @@
         const synced=await syncWebPushSubscription(true,{throwOnError:true});
         if(!synced)throw Error('Trình duyệt không hỗ trợ hoặc chưa kích hoạt được Service Worker Web Push.');
         const res=await admin.request('/api/gaeru_ceo/notifications/push-test',{method:'POST',body:'{}'});
+        lastPrefStatus=res.message||(res.ok?'Đã gửi thông báo đẩy thử nghiệm.':'Không gửi được thông báo đẩy.');
         render();
         const st=root.querySelector('[data-notice-preference-status]');
-        if(st)st.textContent=res.message||(res.ok?'Đã gửi thông báo đẩy thử nghiệm.':'Không gửi được thông báo đẩy.');
+        if(st)st.textContent=lastPrefStatus;
         return;
       }
       if(sound){
@@ -279,36 +291,60 @@
         }
       }
       storePreference(p);
+      if(nextStatus)lastPrefStatus=nextStatus;
       render();
       if(nextStatus){
         const st=root.querySelector('[data-notice-preference-status]');
         if(st)st.textContent=nextStatus;
       }
     }catch(error){
+      lastPrefStatus=error.message;
       const st=root.querySelector('[data-notice-preference-status]');
       if(st)st.textContent=error.message;
+    }finally{
+      if((desktop||pushTest)&&clicked.isConnected){
+        if(admin.setButtonBusy)admin.setButtonBusy(clicked,false);else clicked.disabled=false;
+      }
     }
   });
 
   root.addEventListener('click',async e=>{
     const open=e.target.closest('[data-notice-open]'),read=e.target.closest('[data-notice-read]'),all=e.target.closest('[data-notice-all]');
+    const clicked=all||read||open;
+    if(!clicked||clicked.disabled)return;
+    if(admin.setButtonBusy)admin.setButtonBusy(clicked,true,'Đang xử lý…');else clicked.disabled=true;
     try{
-      if(all||read||open){
-        const n=items[Number((read||open)?.dataset[read?'noticeRead':'noticeOpen'])];
-        await admin.request('/api/gaeru_ceo/notifications/read',{method:'POST',body:JSON.stringify(all?{all:true}:{key:n.key,version:n.version})});
-        await load();
-        if(open){
-          if(n.target==='webmail')window.open('https://www.icloud.com/mail','_blank','noopener');
-          else await admin.activateView(n.target);
-        }
+      const n=all?null:items[Number((read||open)?.dataset[read?'noticeRead':'noticeOpen'])];
+      if(!all&&!n)return;
+      await admin.request('/api/gaeru_ceo/notifications/read',{method:'POST',body:JSON.stringify(all?{all:true}:{key:n.key,version:n.version})});
+      await load();
+      if(open&&n){
+        if(n.target==='webmail')window.open('https://www.icloud.com/mail','_blank','noopener');
+        else await admin.activateView(n.target);
       }
     }catch(error){
       admin.showGlobal(error.message,true);
+    }finally{
+      if(clicked.isConnected){
+        if(admin.setButtonBusy)admin.setButtonBusy(clicked,false);else clicked.disabled=false;
+      }
     }
   });
 
   window.GAERUNotifications={load};
-  let poll;
+  let poll,permHookBound=false;
+  const tryInitNotificationPermission=()=>{
+    if(!admin.can('dashboard.read'))return;
+    if('Notification' in window && Notification.permission==='default' && preference().desktop){
+      Notification.requestPermission().then(perm=>{
+        if(perm==='granted'){
+          syncWebPushSubscription(true).then(()=>{render();}).catch(()=>{});
+        }else{
+          render();
+        }
+      }).catch(()=>{});
+    }
+  };
   function start(){
     poll?.stop();
     poll=window.GAERUCareLive.poll({
@@ -319,6 +355,10 @@
       status:()=>{}
     });
     if(admin.can('dashboard.read')){
+      if(typeof window!=='undefined'&&!permHookBound){
+        permHookBound=true;
+        window.addEventListener('click',tryInitNotificationPermission,{once:true});
+      }
       load().catch(error=>admin.showGlobal(error.message,true));
       loadIcloudMailStatus().catch(()=>{});
       if(preference().desktop&&'Notification'in window&&Notification.permission==='granted'){
@@ -327,23 +367,9 @@
     }
   }
 
-  if(typeof window!=='undefined'){
-    const tryInitNotificationPermission=()=>{
-      if('Notification' in window && Notification.permission==='default' && preference().desktop){
-        Notification.requestPermission().then(perm=>{
-          if(perm==='granted'){
-            syncWebPushSubscription(true).then(()=>{render();}).catch(()=>{});
-          }else{
-            render();
-          }
-        }).catch(()=>{});
-      }
-    };
-    window.addEventListener('click',tryInitNotificationPermission,{once:true});
-  }
-
   document.addEventListener('gaeru:admin-ready',start);
+  document.addEventListener('gaeru:admin-logout',()=>{poll?.stop();});
   start();
-  window.addEventListener('pagehide',e=>{if(!e.persisted)poll.stop();});
-  window.addEventListener('pageshow',()=>poll.refresh());
+  window.addEventListener('pagehide',e=>{if(!e.persisted)poll?.stop();});
+  window.addEventListener('pageshow',()=>poll?.refresh());
 })();

@@ -109,13 +109,14 @@ async function loadLearnedSection(box, a) {
       if (window.GAERUNotify?.confirm) {
         return Boolean(await window.GAERUNotify.confirm(msg, { title: 'Xác nhận thao tác', confirmText: 'Xóa', cancelText: 'Hủy', danger: true }));
       }
-      return typeof window.confirm === 'function' ? window.confirm(msg) : false;
+      return false;
     };
 
     // Gắn sự kiện Scan
     const scanBtn = container.querySelector('[data-learned-scan]');
     if (scanBtn) {
       scanBtn.onclick = async () => {
+        if (scanBtn.disabled) return;
         scanBtn.disabled = true;
         scanBtn.textContent = 'Đang quét và đúc kết…';
         try {
@@ -134,7 +135,9 @@ async function loadLearnedSection(box, a) {
     // Gắn sự kiện Approve
     container.querySelectorAll('[data-learned-approve]').forEach(btn => {
       btn.onclick = async () => {
+        if (btn.disabled) return;
         const id = btn.dataset.learnedApprove;
+        if (a.setButtonBusy) a.setButtonBusy(btn, true, 'Đang duyệt…'); else btn.disabled = true;
         try {
           await a.request(`/api/gaeru_ceo/ai-knowledge/learned/${id}/status`, {
             method: 'POST',
@@ -144,6 +147,9 @@ async function loadLearnedSection(box, a) {
           loadLearnedSection(box, a);
         } catch (err) {
           notify('Lỗi duyệt: ' + err.message, 'error');
+          if (btn.isConnected) {
+            if (a.setButtonBusy) a.setButtonBusy(btn, false); else btn.disabled = false;
+          }
         }
       };
     });
@@ -151,14 +157,26 @@ async function loadLearnedSection(box, a) {
     // Gắn sự kiện Delete
     container.querySelectorAll('[data-learned-delete]').forEach(btn => {
       btn.onclick = async () => {
+        if (btn.disabled || btn.dataset.confirming === '1') return;
         const id = btn.dataset.learnedDelete;
-        if (!(await confirmDialog('Bạn có chắc chắn muốn xóa mục tri thức tự học này?'))) return;
+        btn.dataset.confirming = '1';
+        let ok = false;
+        try {
+          ok = await confirmDialog('Bạn có chắc chắn muốn xóa mục tri thức tự học này?');
+        } finally {
+          delete btn.dataset.confirming;
+        }
+        if (!ok) return;
+        if (a.setButtonBusy) a.setButtonBusy(btn, true, 'Đang xóa…'); else btn.disabled = true;
         try {
           await a.request(`/api/gaeru_ceo/ai-knowledge/learned/${id}`, { method: 'DELETE' });
           notify('Đã xóa mục tri thức tự học.', 'success');
           loadLearnedSection(box, a);
         } catch (err) {
           notify('Lỗi xóa: ' + err.message, 'error');
+          if (btn.isConnected) {
+            if (a.setButtonBusy) a.setButtonBusy(btn, false); else btn.disabled = false;
+          }
         }
       };
     });
@@ -240,7 +258,9 @@ async function load(){
   }
 }
 
-document.addEventListener('gaeru:admin-ready',()=>{epoch++;loaded=false;loading=false;document.querySelector('#ai-knowledge-editor')?.remove();load()});
+document.addEventListener('gaeru:admin-ready',()=>{epoch++;loaded=false;loading=false;document.querySelector('#ai-knowledge-editor')?.remove();const sv=document.querySelector('#settings-view');if(sv&&!sv.hidden)load()});
 window.addEventListener('hashchange',()=>{if(location.hash==='#settings')load()});
-if(window.GAERUAdmin?.user)load();
+const settingsEl=document.querySelector('#settings-view');
+if(settingsEl){new MutationObserver(()=>{if(!settingsEl.hidden&&window.GAERUAdmin?.user)load();}).observe(settingsEl,{attributes:true,attributeFilter:['hidden']});}
+if(window.GAERUAdmin?.user&&settingsEl&&!settingsEl.hidden)load();
 })();

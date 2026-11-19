@@ -553,11 +553,11 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         const issuer = 'https://accounts.google.com';
         const subject = googleUser.sub;
 
-        // Check if this Google sub is occupied by another customer (SC25, TC030)
+        // Check if this Google sub is occupied by another customer (SC25, TC030) with row lock
         const occupied = (await client.query(
           `SELECT customer_id FROM auth_identities
            WHERE provider = 'google' AND (issuer = $1 OR issuer = 'accounts.google.com') AND provider_subject = $2
-           LIMIT 1`,
+           LIMIT 1 FOR UPDATE`,
           [issuer, subject]
         )).rows[0];
 
@@ -598,14 +598,19 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
           (cust ? normalizeEmail(cust.email) === normalizeEmail(googleUser.email) : normalizeEmail(req.session?.customer?.email) === normalizeEmail(googleUser.email))
         );
 
-        // Link identity atomically
-        await client.query(
+        // Link identity atomically without ever hijacking another customer's identity on concurrent race
+        const linkedRow = await client.query(
           `INSERT INTO auth_identities (customer_id, provider, issuer, provider_subject, email_at_link)
            VALUES ($1, 'google', $2, $3, $4)
            ON CONFLICT (provider, issuer, provider_subject)
-           DO UPDATE SET customer_id = $1, email_at_link = $4, linked_at = now()`,
+           DO UPDATE SET email_at_link = $4, linked_at = now()
+           WHERE auth_identities.customer_id = $1
+           RETURNING customer_id`,
           [customerId, issuer, subject, googleUser.email]
         );
+        if (!linkedRow.rows.length) {
+          throw Object.assign(new Error('Tài khoản Google này đã được liên kết với một tài khoản GAERU khác.'), { status: 409 });
+        }
 
         await client.query(
           `UPDATE customers
@@ -673,7 +678,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
   };
 
   const express = require('express');
-  router.post('/google-callback', express.urlencoded({ extended: false, limit: '32kb' }), handleRedirectCallback);
+  router.post('/google-callback', oauthLimit, express.urlencoded({ extended: false, limit: '32kb' }), handleRedirectCallback);
   router.post('/link-google', requireCsrf, handleLinkGoogle);
   router.post('/unlink-google', requireCsrf, handleUnlinkGoogle);
 

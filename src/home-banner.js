@@ -7,6 +7,7 @@ const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
 const {readStoredImage}=require('./lib/stored-images');
+const {sendPublicImage,enqueueImageWarm}=require('./lib/image-renditions');
 const KEY='homepage_banner';
 const defaults=()=>({version:0,enabled:false,desktopImageId:null,mobileImageId:null,alt:'',href:''});
 const safeHref=value=>!value||(/^\/(?!\/)/.test(value)&&!/[\\\s\u0000-\u001f]/.test(value))||(/^https:\/\//i.test(value)&&!/[\s\u0000-\u001f]/.test(value)&&(()=>{try{return !new URL(value).username&&!new URL(value).password;}catch{return false;}})());
@@ -27,14 +28,27 @@ function createHomeBanner(pool){
    await appendAudit(c,{actor:req.admin,action:'marketing.home_banner.update',entityType:'settings',entityId:KEY,metadata:{enabled:value.enabled,version:value.version,desktopImageId:value.desktopImageId,mobileImageId:value.mobileImageId}});
    return value;
   });
-  require('./cache').clearHtmlCacheOnly();res.json(saved);
+  require('./cache').clearHtmlCacheOnly();
+  if(saved.enabled){
+   for(const imgId of [saved.desktopImageId,saved.mobileImageId].filter(Boolean)){
+    pool.query('SELECT content,mime_type FROM marketing_banner_images WHERE id=$1',[imgId]).then(r=>{if(r.rows[0])enqueueImageWarm(r.rows[0]);}).catch(()=>{});
+   }
+  }
+  res.json(saved);
  }catch(e){if(e.name==='ZodError')return res.status(400).json({error:'Chọn ảnh, nhập mô tả ảnh và đường dẫn nội bộ hoặc HTTPS hợp lệ.'});next(e);}});
  publicApi.get('/home-banner/images/:id',async(req,res,next)=>{try{
   if(!z.string().uuid().safeParse(req.params.id).success)return res.sendStatus(404);
-  const setting=await readHomeBanner(pool);
-  if(!setting.enabled||![setting.desktopImageId,setting.mobileImageId].includes(req.params.id))return res.sendStatus(404);
-  const row=(await pool.query('SELECT content,mime_type FROM marketing_banner_images WHERE id=$1',[req.params.id])).rows[0];if(!row)return res.sendStatus(404);
-  res.type(row.mime_type).set({'Cache-Control':'public, max-age=60, must-revalidate','X-Content-Type-Options':'nosniff'}).send(await readStoredImage(row.content));
+  const row=(await pool.query(
+   `SELECT i.content, i.mime_type
+    FROM marketing_banner_images i
+    JOIN store_settings s ON s.setting_key = $2
+    WHERE i.id = $1
+      AND (s.setting_value->>'enabled') = 'true'
+      AND (s.setting_value->>'desktopImageId' = $1::text OR s.setting_value->>'mobileImageId' = $1::text)`,
+   [req.params.id, KEY]
+  )).rows[0];
+  if(!row)return res.sendStatus(404);
+  return await sendPublicImage(req,res,row,'home-banner');
  }catch(e){next(e);}});
  return {admin,publicApi};
 }
@@ -43,7 +57,10 @@ function renderHomeBanner(setting){
  const esc=value=>String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const url=id=>'/api/home-banner/images/'+encodeURIComponent(id)+'?v='+Number(setting.version);
  const size=info=>info?.width&&info?.height?' width="'+Number(info.width)+'" height="'+Number(info.height)+'"':'';
- const picture='<picture>'+(setting.mobileImageId?'<source media="(max-width: 734px)" srcset="'+url(setting.mobileImageId)+'"'+size(setting.mobile)+'>':'')+'<img src="'+url(setting.desktopImageId)+'" alt="'+esc(setting.alt)+'"'+size(setting.desktop)+' fetchpriority="high" decoding="async"></picture>';
+ const picture='<picture>'
+  +(setting.mobileImageId?'<source media="(max-width: 734px)" type="image/avif" srcset="'+url(setting.mobileImageId)+'&format=avif&w=800"'+size(setting.mobile)+'><source media="(max-width: 734px)" srcset="'+url(setting.mobileImageId)+'&w=800"'+size(setting.mobile)+'>':'')
+  +'<source type="image/avif" srcset="'+url(setting.desktopImageId)+'&format=avif&w=1600"'+size(setting.desktop)+'>'
+  +'<img src="'+url(setting.desktopImageId)+'" alt="'+esc(setting.alt)+'"'+size(setting.desktop)+' fetchpriority="high" decoding="async"></picture>';
  return '<section class="homepage-banner" aria-label="Thông tin nổi bật GAERU">'+(setting.href?'<a href="'+esc(setting.href)+'">'+picture+'</a>':picture)+'</section>';
 }
 async function applyHomeBanner(document,pool){const html=renderHomeBanner(await readHomeBanner(pool));if(!html)return;const anchor=document.querySelector('main > .announcement');if(anchor)anchor.insertAdjacentHTML('afterend',html);}

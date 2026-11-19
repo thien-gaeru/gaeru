@@ -126,8 +126,8 @@ function createInternalAiRouter(pool, config) {
           COUNT(CASE WHEN status = 'shipped' THEN 1 END)::int AS shipped_orders,
           COUNT(CASE WHEN status = 'completed' THEN 1 END)::int AS completed_orders,
           COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int AS cancelled_orders,
-          COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_vnd ELSE 0 END), 0)::bigint AS paid_revenue,
-          COALESCE(SUM(total_vnd), 0)::bigint AS gross_revenue
+          COALESCE(SUM(CASE WHEN payment_status = 'paid' AND status <> 'cancelled' AND return_completed_at IS NULL THEN total_vnd ELSE 0 END), 0)::bigint AS paid_revenue,
+          COALESCE(SUM(CASE WHEN status <> 'cancelled' AND return_completed_at IS NULL THEN total_vnd ELSE 0 END), 0)::bigint AS gross_revenue
         FROM orders
         WHERE created_at >= NOW() - INTERVAL '1 day' * $1
       `, [numDays])).rows[0] || orderStats;
@@ -1140,8 +1140,18 @@ Quy tắc cốt lõi:
     }
   });
 
+  const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+  const aiChatLimiter = rateLimit({
+    windowMs: 60000,
+    limit: process.env.NODE_ENV === 'test' ? 120 : 30,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    keyGenerator: (req) => `internal-ai:${req.admin?.id || req.admin?.username || (typeof ipKeyGenerator === 'function' ? ipKeyGenerator(req.ip || '127.0.0.1') : 'anon')}`,
+    message: { error: 'Quá nhiều yêu cầu GAERU AI trong 1 phút. Vui lòng thử lại sau giây lát.' }
+  });
+
   // 5. Gửi câu hỏi và chat với AI (Standard JSON - Bảo mật F02: Phân quyền phiên)
-  router.post('/threads/:id/chat', async (req, res, next) => {
+  router.post('/threads/:id/chat', aiChatLimiter, async (req, res, next) => {
     try {
       const threadId = req.params.id;
       if (!isUuid(threadId)) return res.status(400).json({ error: 'Mã hội thoại không hợp lệ.' });
@@ -1243,6 +1253,11 @@ Quy tắc cốt lõi:
       return res.status(404).send('Không tìm thấy phiên hội thoại hoặc không có quyền truy cập');
     }
 
+    const { acquireSseSlot } = require('./realtime-sse');
+    if (typeof acquireSseSlot === 'function' && !acquireSseSlot(req, res)) {
+      return;
+    }
+
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -1337,7 +1352,7 @@ Quy tắc cốt lõi:
   }
 
   // 6. Gửi câu hỏi và nhận câu trả lời dạng Streaming SSE (GET chỉ đọc an toàn, POST ghi lịch sử + action)
-  router.get('/threads/:id/chat/stream', async (req, res, next) => {
+  router.get('/threads/:id/chat/stream', aiChatLimiter, async (req, res, next) => {
     try {
       if (!isSameOriginSseRequest(req)) {
         return res.status(403).send('Yêu cầu cross-site SSE không được phép.');
@@ -1351,7 +1366,7 @@ Quy tắc cốt lõi:
     }
   });
 
-  router.post('/threads/:id/chat/stream', async (req, res, next) => {
+  router.post('/threads/:id/chat/stream', aiChatLimiter, async (req, res, next) => {
     try {
       return await streamAgentConversation(req, res, {
         question: req.body?.question ?? req.query?.question,

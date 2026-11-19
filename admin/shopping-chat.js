@@ -244,11 +244,19 @@
         return;
       }
       if(status){
-        await client.refresh();
-        if(!client.thread)throw Error('Hãy tải hội thoại trước.');
-        await admin.request('/api/gaeru_ceo/shopping-chat/'+selected+'/status',{method:'PUT',body:JSON.stringify({status:status.dataset.chatStatus,version:client.thread.version})});
-        await client.refresh();
-        await load();
+        if(status.disabled)return;
+        if(admin.setButtonBusy)admin.setButtonBusy(status,true,'Đang cập nhật…');else status.disabled=true;
+        try{
+          await client.refresh();
+          if(!client.thread)throw Error('Hãy tải hội thoại trước.');
+          await admin.request('/api/gaeru_ceo/shopping-chat/'+selected+'/status',{method:'PUT',body:JSON.stringify({status:status.dataset.chatStatus,version:client.thread.version})});
+          await client.refresh();
+          await load();
+          const stEl=root.querySelector('[data-admin-chat-status]');
+          if(stEl)stEl.textContent='';
+        }finally{
+          if(admin.setButtonBusy)admin.setButtonBusy(status,false);else status.disabled=false;
+        }
       }
     }catch(error){
       root.querySelector('[data-admin-chat-status]').textContent=error.message;
@@ -272,12 +280,19 @@
     if(!e.target.matches('[data-chat-email-form]'))return;
     e.preventDefault();
     const form=e.target;
+    if(form.dataset.saving)return;
+    const btn=form.querySelector('button[type="submit"]');
+    form.dataset.saving='1';
+    if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,true,'Đang lưu…');else if(btn)btn.disabled=true;
     try{
       const accounts=[...form.querySelectorAll('input:checked:not(:disabled)')].map(i=>i.value);
       const d=await admin.request('/api/gaeru_ceo/shopping-chat/email/preferences',{method:'PUT',body:JSON.stringify({accounts})});
       form.querySelector('[role=status]').textContent=d.message;
     }catch(error){
       form.querySelector('[role=status]').textContent=error.message;
+    }finally{
+      delete form.dataset.saving;
+      if(btn&&admin.setButtonBusy)admin.setButtonBusy(btn,false);else if(btn)btn.disabled=false;
     }
   });
 
@@ -292,11 +307,13 @@
       }else{
         adminChatPoll.setStreamUrl('/api/gaeru_ceo/realtime-sse');
       }
-    }else if(adminChatPoll){
-      adminChatPoll.setStreamUrl(null);
+    }else{
+      if(adminChatPoll)adminChatPoll.setStreamUrl(null);
+      if(client){client.stop();client=null;}
     }
   };
   new MutationObserver(syncChatStream).observe(root,{attributes:true,attributeFilter:['hidden']});
   syncChatStream();
   document.addEventListener('gaeru:admin-ready',syncChatStream);
+  document.addEventListener('gaeru:admin-logout',()=>{adminChatPoll?.stop?.();adminChatPoll=null;client?.stop?.();client=null;});
 })();

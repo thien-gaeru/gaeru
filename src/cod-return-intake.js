@@ -191,9 +191,13 @@ function createCodReturnIntake(pool) {
           throw fail(`Đơn hàng (${shipment.orderNumber}) sử dụng phương thức thanh toán ${(shipment.paymentMethod || '').toUpperCase()}, không phải đơn COD. Chỉ đơn COD mới được xử lý hoàn qua luồng này.`, 400);
         }
 
-        // 2. Không cho phép kiểm nhận hoàn đơn COD đã thu tiền/đối soát
-        if (shipment.paymentStatus === 'paid') {
-          throw fail(`Đơn hàng COD (${shipment.orderNumber}) đã được ghi nhận thanh toán/đối soát. Vui lòng đối soát kế toán trước khi xử lý hủy đơn hoặc hoàn tiền.`, 409);
+        // 2. Không cho phép kiểm nhận hoàn đơn COD đã thu tiền/đối soát (kể cả phiếu thu một phần)
+        const receiptSum = Number((await client.query(
+          'SELECT COALESCE(SUM(amount_vnd), 0)::bigint AS received FROM sales_receipts WHERE order_id = $1',
+          [shipment.orderId]
+        )).rows[0]?.received || 0);
+        if (shipment.paymentStatus === 'paid' || receiptSum > 0) {
+          throw fail(`Đơn hàng COD (${shipment.orderNumber}) đã được ghi nhận thanh toán/đối soát (hoặc phiếu thu kế toán). Vui lòng đối soát kế toán và hoàn tiền trước khi xử lý hủy đơn.`, 409);
         }
 
         // 3. Đơn hàng đã ở trạng thái hủy trước đó

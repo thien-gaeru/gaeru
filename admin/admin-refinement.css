@@ -446,7 +446,9 @@
 .enterprise-table-wrap, .variant-table-wrap {
   border: 1px solid #e2e8f0;
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   background: #ffffff;
   margin: 18px 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);

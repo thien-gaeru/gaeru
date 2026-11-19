@@ -284,7 +284,10 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   });
   app.use((req, res, next) => {
     const p = req.path;
-    if (p === "/health" || p === "/livez" || p === "/readyz" || p === "/healthz" || /^\/(?:assets\/|media\/|favicon\.|apple-touch-icon)|(?:^\/[^/]+\.(?:css|webp|avif|woff2?|png|jpe?g|svg|ico)$)/i.test(p)) {
+    if (
+      p === "/health" || p === "/livez" || p === "/readyz" || p === "/healthz" ||
+      /^\/(?:assets\/|media\/|gaeru_ceo\/assets\/|favicon\.|apple-touch-icon)|(?:^\/[^/]+\.(?:js|css|webp|avif|woff2?|png|jpe?g|svg|ico)$)|^\/api\/(?:catalog-images|news-images|home-banner\/images)\//i.test(p)
+    ) {
       return next();
     }
     return sessionMiddleware(req, res, next);
@@ -579,7 +582,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   const managementAssetRoots=new Map([...managementAssets].map(f=>[f,fs.existsSync(path.join(adminRoot,f))?adminRoot:projectRoot]));
   app.get('/gaeru_ceo/notification-worker.js',(_req,res)=>res.set({'Cache-Control':'no-store','Service-Worker-Allowed':'/gaeru_ceo'}).sendFile('notification-worker.js',{root:adminRoot}));
   app.get(['/gaeru_ceo/manifest.webmanifest','/gaeru_ceo/manifest.json'],(_req,res)=>res.set({'Content-Type':'application/manifest+json; charset=utf-8','Cache-Control':'no-store'}).sendFile('manifest.webmanifest',{root:adminRoot}));
-  app.get('/gaeru_ceo/pwa-qr.png',async(req,res,next)=>{
+  const qrBufferCache = new Map();
+  const qrRateLimit = rateLimit({ windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+  app.get('/gaeru_ceo/pwa-qr.png', qrRateLimit, async(req,res,next)=>{
     try{
       const QRCode=require('qrcode');
       const baseOrigin=(()=>{try{return new URL(config.PUBLIC_BASE_URL||'https://gaeru.com');}catch{return new URL('https://gaeru.com');}})();
@@ -590,13 +595,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
         try{
           const parsed=new URL(req.query.url);
           const host=parsed.hostname.toLowerCase();
-          const currentHost=(req.get('host')||'gaeru.com').split(':')[0].toLowerCase();
           if(isTrustedQrHost(host)){
             target=parsed.href;
           }
         }catch(_){}
       }
-      const buf=await QRCode.toBuffer(target,{width:280,margin:1,errorCorrectionLevel:'M',color:{dark:'#0f172a',light:'#ffffff'}});
+      let buf = qrBufferCache.get(target);
+      if (!buf) {
+        buf = await QRCode.toBuffer(target,{width:280,margin:1,errorCorrectionLevel:'M',color:{dark:'#0f172a',light:'#ffffff'}});
+        if (qrBufferCache.size >= 24) qrBufferCache.delete(qrBufferCache.keys().next().value);
+        qrBufferCache.set(target, buf);
+      }
       res.set({'Content-Type':'image/png','Cache-Control':'private, max-age=300','Vary':'Host'}).send(buf);
     }catch(err){next(err);}
   });
@@ -657,7 +666,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
       if (path.extname(file) === '.html') {
         res.setHeader('Cache-Control', 'no-cache');
       }
-      if (['account.html', 'account.js', 'checkout.html', 'cart.html', 'payment-result.html', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js', 'action-feedback.js', 'action-feedback.css'].includes(path.basename(file))) {
+      if (['account.html', 'account.js', 'checkout.html', 'cart.html', 'payment-result.html', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js'].includes(path.basename(file))) {
         res.setHeader('Cache-Control', 'no-store');
       }
     },

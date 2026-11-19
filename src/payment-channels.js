@@ -392,6 +392,9 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
    if((Boolean(actor?.role)&&(order.orderStatus==='cancelled'||order.returnCompletedAt))||order.returnCompletedAt){
     return {code:'09',matched:false,message:'Không thể đối soát thủ công cho đơn hàng đã hủy hoặc đã hoàn trả.'};
    }
+   if(order.totalVnd===null||order.totalVnd===undefined||!Number.isSafeInteger(Number(order.totalVnd))){
+    return {code:'04',matched:false,message:'Đơn hàng chưa chốt tổng tiền hợp lệ để đối soát.'};
+   }
    const insertedAttempt=await client.query(
     `INSERT INTO payment_attempts (order_id, provider, transaction_ref, amount_vnd, expires_at)
      VALUES ($1, $2, $3, $4, now() + interval '15 minutes')
@@ -441,8 +444,16 @@ async function reconcilePrepaidOrder(poolOrClient,{provider,orderNumber,amountVn
      "INSERT INTO order_reviews (order_id, reason) VALUES ($1, 'late_payment_on_cancelled_order') ON CONFLICT (order_id) DO UPDATE SET reason = 'late_payment_on_cancelled_order', resolved_at = NULL, updated_at = now()",
      [attempt.orderId]
     );
-   }else if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus)){
-    nextOrderStatus='processing';
+   }else{
+    try{
+     await client.query(
+      "UPDATE order_reviews SET resolved_at = COALESCE(resolved_at, now()), resolution = COALESCE(NULLIF(resolution, ''), 'Tự động xác nhận qua giao dịch thanh toán thành công'), updated_at = now() WHERE order_id = $1 AND resolved_at IS NULL",
+      [attempt.orderId]
+     );
+    }catch(_){}
+    if(!nextOrderStatus||['pending','confirmed'].includes(nextOrderStatus)){
+     nextOrderStatus='processing';
+    }
    }
   }
   await audit(client,{

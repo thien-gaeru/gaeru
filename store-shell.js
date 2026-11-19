@@ -16,7 +16,7 @@ const anonymousEmptyCartMarkup = `
     <nav class="cart-profile-links" aria-label="Hồ sơ của bạn">
       <h3>Hồ Sơ Của Bạn</h3>
       <a href="account.html#customer-orders"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.3l8 4.5"/></svg><span>Đơn hàng</span></a>
-      <a href="shop.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4v-17Z"/></svg><span>Mục Đã Lưu</span></a>
+      <a href="shop.html?saved=1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4v-17Z"/></svg><span>Mục Đã Lưu</span></a>
       <a href="account.html#register"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6.8 18a5.7 5.7 0 0 1 10.4 0"/></svg><span>Tạo tài khoản</span></a>
     </nav>
   </div>`;
@@ -116,12 +116,13 @@ if (headerRoot) {
     } catch (_) {}
   };
   syncFallbackCartBadge();
+  document.addEventListener("gaeru:cart-updated", syncFallbackCartBadge);
   window.addEventListener("storage", (e) => {
     if (e.key === null || e.key === "gaeru-store-cart-v2") syncFallbackCartBadge();
   });
 }
 
-document.querySelectorAll('link[rel="stylesheet"][data-deferred-css]').forEach((link) => { const activate = () => { link.media = "all"; link.removeAttribute("data-deferred-css"); }; if (link.sheet) activate(); else { link.addEventListener("load", activate, { once: true }); setTimeout(activate, 200); } });
+document.querySelectorAll('link[rel="stylesheet"][data-deferred-css]').forEach((link) => { const activate = () => { if (!link.hasAttribute("data-deferred-css")) return; link.media = "all"; link.removeAttribute("data-deferred-css"); }; if (link.sheet) activate(); else { link.addEventListener("load", activate, { once: true }); setTimeout(activate, 1500); } });
 let menuProductsRequest = null;
 async function refreshMenuProducts({fresh=false}={}) {
   const target = document.querySelector('[data-menu-products]');
@@ -180,7 +181,7 @@ if (footerRoot) {
           <p class="footer-newsletter-note">Cập nhật sản phẩm &amp; ưu đãi mới nhất.</p>
           <form class="footer-newsletter-compact-form" data-newsletter-form data-source="web_footer">
             <div class="footer-newsletter-field">
-              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" required maxlength="254" autocomplete="email">
+              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" aria-label="Địa chỉ email nhận bản tin" required maxlength="254" autocomplete="email">
               <button type="submit" class="footer-newsletter-compact-submit" aria-label="Đăng ký nhận tin">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
@@ -242,6 +243,7 @@ function populateCustomerNewsletterEmail() {
   }
 }
 window.addEventListener("gaeru:customer-session-ready", populateCustomerNewsletterEmail);
+document.addEventListener("gaeru:customer-updated", populateCustomerNewsletterEmail);
 window.addEventListener("DOMContentLoaded", populateCustomerNewsletterEmail);
 
 document.addEventListener("submit", async (e) => {
@@ -325,18 +327,20 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
     panelScrim.hidden = true;
   } else {
     closeTimer = window.setTimeout(() => {
-      panel.hidden = true;
-      panelScrim.hidden = true;
-    }, 280);
+      if (activePanel !== panel) panel.hidden = true;
+      if (!activePanel) panelScrim.hidden = true;
+    }, 380);
   }
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
 
 function openPanel(panel, trigger) {
+  if (!panel || !trigger) return;
   if (activePanel === panel) {
     closeActivePanel();
     return;
   }
+  const switchingPanels = Boolean(activePanel && activePanel !== panel);
   closeActivePanel({ restoreFocus: false, immediate: true });
   clearTimeout(closeTimer);
   if (panel.id === "menu-panel") refreshMenuProducts();
@@ -359,18 +363,22 @@ function openPanel(panel, trigger) {
   }
   panelScrim.hidden = false;
   panel.hidden = false;
+  if (switchingPanels) panelScrim.classList.add("is-visible");
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       if (activePanel !== panel) return;
       panel.classList.add("is-open");
       panelScrim.classList.add("is-visible");
-      const focusTarget = panel === document.querySelector("#search-panel")
-        ? panel.querySelector("input[type=search]")
-        : panel.querySelector(".panel-close, a[href], button:not(:disabled)");
+      const isElVisible = (el) => Boolean(el && (typeof el.getClientRects === "function" ? el.getClientRects().length > 0 : !el.hidden && el.style?.display !== "none"));
+      const searchBox = panel.id === "search-panel" ? panel.querySelector("input[type=search]") : null;
+      const focusTarget = (isElVisible(searchBox) ? searchBox : null) ||
+        [...panel.querySelectorAll('.panel-close, a[href], button:not(:disabled), input:not(:disabled)')].find(isElVisible);
       focusTarget?.focus({ preventScroll: true });
     });
   });
-  document.dispatchEvent(new CustomEvent("gaeru:cart-panel-open"));
+  if (panel.id === "cart-panel") {
+    document.dispatchEvent(new CustomEvent("gaeru:cart-panel-open"));
+  }
 }
 
 menuToggle?.addEventListener("click", () => {
@@ -471,7 +479,7 @@ function renderSearchResultRows(matches, articles = [], isSemantic = false) {
   if (matches.length > 0) {
     html += '<p class="search-results-label">' + (isSemantic ? 'Gợi ý thông minh GAERU AI' : 'Sản phẩm phù hợp') + '</p>' + matches.map((product) => (
       '<a class="search-result" href="product.html?id=' + encodeURIComponent(product.slug) + '">' +
-        '<img src="' + escapeShellHtml(product.imageUrl) + '" alt="" loading="lazy">' +
+        (product.imageUrl ? '<img src="' + escapeShellHtml(product.imageUrl) + '" alt="" width="62" height="56" loading="lazy" decoding="async">' : '') +
         '<span><strong>' + escapeShellHtml(product.name) + '</strong><small>' + escapeShellHtml(product.desc || product.description || '') + '</small></span>' +
         '<b aria-hidden="true">›</b>' +
       '</a>'
@@ -582,8 +590,10 @@ searchInput?.addEventListener("input", () => {
     document.head.appendChild(spec);
   }
 
+  if (isSupported) return;
   const prefetchedUrls = new Set();
   document.addEventListener('pointerenter', (e) => {
+    if (prefetchedUrls.size >= 12) return;
     const a = e.target.closest && e.target.closest('a[href]');
     if (!a || !a.href || prefetchedUrls.has(a.href)) return;
     try {
@@ -733,18 +743,27 @@ function initializeMotion() {
   }
 
   let framePending = false;
+  let measurePending = false;
   let cachedMaxScroll = 0;
   let cachedHeroHeight = 0;
   let heroEl = document.querySelector(".hero");
-  let heroArtEl = document.querySelector(".hero-art img");
+  let heroArtEl = document.querySelector(".hero-art img, .hero-art .k9-loop");
   let lastProgress = -1;
   let lastHeroOffset = -1;
 
   const measureScrollMetrics = () => {
     cachedMaxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     heroEl = document.querySelector(".hero");
-    heroArtEl = document.querySelector(".hero-art img");
+    heroArtEl = document.querySelector(".hero-art img, .hero-art .k9-loop");
     cachedHeroHeight = heroEl ? heroEl.offsetHeight : 0;
+  };
+  const scheduleMeasureScrollMetrics = () => {
+    if (measurePending) return;
+    measurePending = true;
+    requestAnimationFrame(() => {
+      measurePending = false;
+      measureScrollMetrics();
+    });
   };
 
   const updateScrollEffects = () => {
@@ -770,9 +789,9 @@ function initializeMotion() {
   };
   measureScrollMetrics();
   window.addEventListener("scroll", updateScrollEffects, { passive: true });
-  window.addEventListener("resize", () => { measureScrollMetrics(); updateScrollEffects(); }, { passive: true });
+  window.addEventListener("resize", () => { scheduleMeasureScrollMetrics(); updateScrollEffects(); }, { passive: true });
   if ("ResizeObserver" in window && document.body) {
-    new ResizeObserver(() => { measureScrollMetrics(); }).observe(document.body);
+    new ResizeObserver(scheduleMeasureScrollMetrics).observe(document.body);
   }
   updateScrollEffects();
 }
@@ -784,14 +803,18 @@ if (document.readyState === "loading") {
 }
 
 document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),window.GAERUStore?.products));
-document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)return;const poll=window.GAERUCareLive.poll({delay:60000,active:()=>Boolean(document.querySelector('[data-footer-products]')),run:()=>refreshMenuProducts({fresh:true})});window.addEventListener('pagehide',event=>{if(!event.persisted)poll.stop()});window.addEventListener('pageshow',event=>{if(event?.persisted)poll.refresh()})});
 
-// Kênh lắng nghe Realtime SSE (/api/realtime) để tự động làm mới dữ liệu và DOM khi Cache Invalidation xảy ra
+// Kênh lắng nghe Realtime SSE (/api/realtime) chỉ kết nối trên trang thương mại đang hiển thị (tránh mở socket thừa cho 100% khách đọc tĩnh)
 (function initRealtimeSSE() {
   if (typeof window === 'undefined' || typeof window.EventSource !== 'function') return;
+  const hasLocation = typeof window.location?.pathname === 'string' && window.location.pathname.length > 0;
+  const pathname = hasLocation ? window.location.pathname : '';
+  const needsLiveStock = !hasLocation || /^\/(?:san-pham\/|gio-hang|thanh-toan|product\.html|cart\.html|checkout\.html)/i.test(pathname);
+  if (!needsLiveStock) return;
 
   let evtSource = null;
   let reconnectTimer = null;
+  let backoffMs = 5000;
 
   function disconnect() {
     if (reconnectTimer) {
@@ -805,6 +828,7 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
   }
 
   function connect() {
+    if (document.visibilityState === 'hidden') return;
     if (evtSource && evtSource.readyState !== 2) return;
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -813,20 +837,23 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
     try {
       evtSource = new EventSource('/api/realtime');
 
+      evtSource.onopen = () => {
+        backoffMs = 5000;
+      };
+
       evtSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
           if (payload?.type === 'CACHE_INVALIDATED') {
             const tags = Array.isArray(payload.tags) ? payload.tags : [];
 
-            // Nếu nhãn liên quan đến danh mục/sản phẩm hoặc toàn cục, tự động làm mới menu và chân trang
             if (tags.some(t => ['catalog', 'product:list', 'products', 'promotions', 'search-index', '*'].includes(t))) {
+              edgeSearchIndex = null;
               if (typeof refreshMenuProducts === 'function') {
                 refreshMenuProducts({ fresh: true });
               }
             }
 
-            // Phát sự kiện toàn cục để các trang con tự động cập nhật
             window.dispatchEvent(new CustomEvent('gaeru:cache-invalidated', { detail: payload }));
           }
         } catch (_) {}
@@ -837,24 +864,34 @@ document.addEventListener('DOMContentLoaded',()=>{if(!window.GAERUCareLive)retur
           evtSource.close();
           evtSource = null;
         }
+        if (document.visibilityState === 'hidden') return;
         if (!reconnectTimer) {
+          const delay = backoffMs;
+          backoffMs = Math.min(60000, backoffMs * 2);
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null;
             connect();
-          }, 5000);
+          }, delay);
         }
       };
     } catch (_) {}
   }
 
+  const start = () => {
+    if (document.visibilityState !== 'hidden') connect();
+  };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', connect, { once: true });
+    document.addEventListener('DOMContentLoaded', start, { once: true });
   } else {
-    connect();
+    start();
   }
 
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') disconnect();
+    else connect();
+  });
   window.addEventListener('pagehide', disconnect);
   window.addEventListener('pageshow', (e) => {
-    if (e?.persisted) connect();
+    if (e?.persisted) start();
   });
 })();

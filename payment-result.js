@@ -121,6 +121,20 @@
     order.textContent = `Mã đơn: ${orderNumber}`;
     content.append(order);
   }
+  const actionsBar = document.createElement('div');
+  actionsBar.className = 'payment-result-actions';
+  actionsBar.style.cssText = 'display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;align-items:center;';
+  const addActionLink = (href, label, cls) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.className = cls;
+    a.textContent = label;
+    actionsBar.append(a);
+  };
+  addActionLink('/tai-khoan#customer-orders', 'Xem đơn hàng của tôi', 'button button-blue');
+  addActionLink(orderNumber ? `/tra-cuu-don-hang?order=${encodeURIComponent(orderNumber)}` : '/tra-cuu-don-hang', 'Tra cứu đơn hàng', 'button button-outline');
+  addActionLink('/cua-hang', 'Tiếp tục mua sắm', 'text-link');
+  content.append(actionsBar);
   if (!canCheck) return;
 
   const retry = document.createElement('button');
@@ -129,7 +143,7 @@
   retry.textContent = 'Kiểm tra lại trạng thái';
   retry.setAttribute('data-payment-status-retry','');
   retry.hidden = true;
-  content.append(retry);
+  actionsBar.before(retry);
   const MAX_ATTEMPTS = 6, POLL_DELAY = 2500, MAX_DURATION = 30000, REQUEST_TIMEOUT = 4500;
   let generation = 0, running = false, pageActive = true, pollTimer, deadlineTimer, requestTimer, controller, deadlineAt;
 

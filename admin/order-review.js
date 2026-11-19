@@ -58,17 +58,23 @@
   root.querySelector('[data-review-refresh]').addEventListener('click', load);
   root.addEventListener('submit', async e => {
     const form = e.target.closest('[data-review-id]');
-    if (!form) return;
+    if (!form || form.dataset.saving) return;
     e.preventDefault();
     const button = form.querySelector('button');
-    button.disabled = true;
+    if (button?.disabled) return;
+    form.dataset.saving = '1';
+    if (button && window.GAERUAdmin?.setButtonBusy) window.GAERUAdmin.setButtonBusy(button, true, 'Đang lưu…');
+    else if (button) button.disabled = true;
     try {
       await window.GAERUAdmin.request('/api/gaeru_ceo/orders/' + form.dataset.reviewId + '/review', { method: 'POST', body: JSON.stringify({ resolution: form.querySelector('textarea').value }) });
       await load();
       document.querySelector('#refresh-orders')?.click();
     } catch (error) {
       root.querySelector('[data-review-status]').textContent = error.message;
-      button.disabled = false;
+      if (button && window.GAERUAdmin?.setButtonBusy) window.GAERUAdmin.setButtonBusy(button, false);
+      else if (button) button.disabled = false;
+    } finally {
+      delete form.dataset.saving;
     }
   });
 

@@ -33,7 +33,7 @@ function apply(document){
    wrapPicture(document,image,targetWidths.map(width=>source+sep+(width===160?'w=160&format=avif':'format=avif&w='+width)+' '+width+'w').join(', '),sizes);
    continue;
  }
- if(/^\/assets\/products\/m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)\.webp$/.test(source)){
+ if(/^\/assets\/products\/(?:m3-description\/(?:1|2|3|4|6|7|8|9|10|11|12)|k9-description\/(?:[1-8]))\.webp$/.test(source)){
    const sizes=image.closest('.discover-hero')?'(max-width: 760px) 240px, 460px':'(max-width: 760px) calc(100vw - 40px), (max-width: 1120px) 54vw, 660px',base=source.slice(0,-5);
    image.setAttribute('srcset',[480,800].map(width=>source+'?w='+width+'&format=webp '+width+'w').join(', ')+', '+source+'?format=webp 842w');
    image.setAttribute('sizes',sizes);

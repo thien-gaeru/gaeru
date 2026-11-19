@@ -399,19 +399,14 @@
   }
 }
 
-/* Ẩn toast/nút nổi GAERU AI khi mở modal hoặc đang ở view AI */
+/* Ẩn nút nổi GAERU AI khi mở modal hoặc đang ở view AI (KHÔNG ẩn .gaeru-action-notices để luôn hiện toast lỗi/thành công) */
 body:has(#internal-ai-view:not([hidden])) .floating-copilot-trigger,
 body:has(#gaeru-ai-modal:not([hidden])) .floating-copilot-trigger,
 body:has(#config-popup-modal:not([hidden])) .floating-copilot-trigger,
+body:has([data-marketing-editor]:not(:empty)) .floating-copilot-trigger,
 body:has(dialog[open]) .floating-copilot-trigger,
 body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   display: none !important;
-  pointer-events: none !important;
-}
-
-body:has(#gaeru-ai-modal:not([hidden])) .gaeru-action-notices {
-  display: none !important;
-  opacity: 0 !important;
   pointer-events: none !important;
 }
 

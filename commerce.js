@@ -110,7 +110,15 @@ async function mergeCartWithServer() {
       document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
       renderCart();
       renderMiniCart();
-      if (changed || !document.querySelector?.("#checkout-form")) renderCheckout();
+      const checkoutForm = document.querySelector?.("#checkout-form");
+      const isDirectBuyNow = typeof location !== "undefined" && new URLSearchParams(location.search || "").has("variant");
+      const userEditedCheckout = checkoutForm && [...checkoutForm.querySelectorAll("input,textarea")].some(el => el.type !== "checkbox" && el.type !== "hidden" && el.value && el.value.trim().length > 0 && el === document.activeElement);
+      if (!isDirectBuyNow && ((changed && !checkoutForm) || (!checkoutForm && document.querySelector?.("#checkout-content")))) {
+        renderCheckout();
+      } else if (changed && checkoutForm && !isDirectBuyNow && !userEditedCheckout) {
+        const hasTyped = [...checkoutForm.querySelectorAll("input[name=name],input[name=phone],input[name=address]")].some(el => el.dataset.userDirty === "1");
+        if (!hasTyped) renderCheckout();
+      }
     }
   })();
   try {
@@ -289,8 +297,21 @@ async function loadAndRenderBundles(product, currentVariantId) {
 function updateBundleCardPricing(card, bundle) {
   const currentSelector = document.querySelector("#product-variant");
   const primaryItem = bundle.primaryItems?.find(p => p.variantId === currentSelector?.value) || bundle.primaryItems?.[0];
-  const primaryPrice = primaryItem ? primaryItem.priceVnd : 0;
-  
+  const primaryMinQty = Math.max(1, Number(primaryItem?.minQuantity) || 1);
+  const primaryPrice = primaryItem ? primaryItem.priceVnd * primaryMinQty : 0;
+
+  const primaryCard = card.querySelector(".primary-card");
+  if (primaryCard && primaryItem) {
+    const imgEl = primaryCard.querySelector("img");
+    if (imgEl && primaryItem.imageUrl) imgEl.src = safeProductImage(primaryItem.imageUrl);
+    const titleEl = primaryCard.querySelector("strong");
+    if (titleEl) titleEl.textContent = primaryItem.productName;
+    const varEl = primaryCard.querySelector("small");
+    if (varEl) varEl.textContent = primaryItem.variantName;
+    const priceEl = primaryCard.querySelector(".item-price");
+    if (priceEl) priceEl.textContent = formatPrice(primaryItem.priceVnd);
+  }
+
   const checkedBoxes = [...(card.querySelectorAll("[data-bundle-accessory]:checked") || [])];
   let secondaryTotal = 0;
   for (const box of checkedBoxes) {
@@ -557,12 +578,16 @@ function renderCart() {
     root.innerHTML = `<div class="empty-cart"><span class="empty-cart-icon" aria-hidden="true">◯</span><h2>Giỏ hàng đang trống.</h2><p>Khám phá các thiết bị GAERU và tìm người bạn đồng hành tiếp theo.</p><a class="button button-blue" href="shop.html">Đi đến cửa hàng</a></div>`;
     return;
   }
-  const total = rows.reduce((sum, item) => sum + item.variant.priceVnd * item.quantity, 0);
+  const availableRows = rows.filter(item => item.variant.stockQuantity > 0);
+  const hasOutOfStock = availableRows.length < rows.length;
+  const total = availableRows.reduce((sum, item) => sum + item.variant.priceVnd * item.quantity, 0);
   root.innerHTML = `
     <div class="cart-items">
-      ${rows.map(({ variantId, quantity, product, variant }) => `
-        <article class="cart-item">
-          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}">${(img=>window.GAERUProductArtwork?.picture?.(img,product.imageUrl,'thumb')||img)(`<img src="${escapeHtml(product.imageUrl)}" ${window.GAERUProductArtwork?.attributes?.(product.imageUrl,'thumb')||''} alt="${escapeHtml(product.imageAlt)}" loading="lazy" decoding="async">`)}</a>
+      ${rows.map(({ variantId, quantity, product, variant }) => {
+        const itemImg = variant.imageUrl || product.imageUrl;
+        return `
+        <article class="cart-item${variant.stockQuantity ? "" : " is-out-of-stock"}">
+          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}">${(img=>window.GAERUProductArtwork?.picture?.(img,itemImg,'thumb')||img)(`<img src="${escapeHtml(itemImg)}" ${window.GAERUProductArtwork?.attributes?.(itemImg,'thumb')||''} alt="${escapeHtml(product.imageAlt)}" width="120" height="120" loading="lazy" decoding="async">`)}</a>
           <div class="cart-item-info">
             <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
               <p>${escapeHtml(variant.name)} · ${escapeHtml(variant.sku)} · ${formatPrice(variant.priceVnd)}${variant.stockQuantity ? "" : " · Hết hàng"}</p>
@@ -570,18 +595,38 @@ function renderCart() {
           </div>
           <label class="visually-hidden" for="quantity-${escapeHtml(variantId)}">Số lượng ${escapeHtml(product.name)} ${escapeHtml(variant.name)}</label>
           <input class="quantity-input" id="quantity-${escapeHtml(variantId)}" type="number" min="1" max="${Math.max(1, Math.min(99, variant.stockQuantity))}" value="${quantity}" data-quantity="${escapeHtml(variantId)}" ${variant.stockQuantity ? "" : "disabled"}>
-          <strong class="cart-line-total">${formatPrice(variant.priceVnd * quantity)}</strong>
-        </article>`).join("")}
+          <strong class="cart-line-total">${variant.stockQuantity ? formatPrice(variant.priceVnd * quantity) : "Hết hàng"}</strong>
+        </article>`;
+      }).join("")}
     </div>
     <aside class="cart-summary">
       <h2>Tóm tắt đơn hàng</h2>
       <p><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
+      <p data-cart-bundle-row hidden><span>Ưu đãi combo</span><strong data-cart-bundle-discount>−0 ₫</strong></p>
       <p><span>Giao hàng</span><span>Tính tại thanh toán</span></p>
-      <p class="summary-total"><span>Tổng tạm tính</span><strong>${formatPrice(total)}</strong></p>
+      <p class="summary-total"><span>Tổng tạm tính</span><strong data-cart-subtotal-final>${formatPrice(total)}</strong></p>
+      ${hasOutOfStock ? '<p class="prototype-note" style="color:#c14343;">Một số sản phẩm trong giỏ đã hết hàng và sẽ không được tính vào đơn thanh toán.</p>' : ''}
       <p class="prototype-note">Phí giao hàng được tính theo tỉnh/thành phố bạn chọn tại checkout. Giá lấy từ phiên bản đã chọn.</p>
-      <a class="button button-blue" href="checkout.html">Nhập thông tin đặt hàng</a>
+      ${availableRows.length ? '<a class="button button-blue" href="checkout.html">Nhập thông tin đặt hàng</a>' : '<button class="button button-blue" type="button" disabled>Chưa có sản phẩm còn hàng</button>'}
       <a class="continue-shopping" href="shop.html">Tiếp tục mua sắm</a>
     </aside>`;
+  if (availableRows.length >= 2) {
+    apiRequest("/api/bundles/quote", {
+      method: "POST",
+      body: JSON.stringify({ items: availableRows.map(({ variantId, quantity }) => ({ variantId, quantity })) }),
+      gaeruBackground: true
+    }).then(q => {
+      const disc = Number(q?.totalBundleDiscountVnd || 0);
+      if (disc > 0) {
+        const rowEl = root.querySelector("[data-cart-bundle-row]");
+        const discEl = root.querySelector("[data-cart-bundle-discount]");
+        const finalEl = root.querySelector("[data-cart-subtotal-final]");
+        if (rowEl) rowEl.hidden = false;
+        if (discEl) discEl.textContent = "−" + formatPrice(disc);
+        if (finalEl) finalEl.textContent = formatPrice(Math.max(0, total - disc));
+      }
+    }).catch(() => {});
+  }
 }
 
 async function ensureCheckoutDependencies() {
@@ -621,6 +666,7 @@ async function renderCheckout() {
   const urlParams = typeof window !== "undefined" && window.location ? new URLSearchParams(window.location.search) : null;
   const recoveryToken = urlParams ? urlParams.get("recovery_token") : null;
   let recoveredCart = null;
+  let recoveredItemsApplied = false;
   if (recoveryToken) {
     try {
       const resp = await apiRequest(`/api/abandoned-cart/recover/${encodeURIComponent(recoveryToken)}`);
@@ -630,6 +676,7 @@ async function renderCheckout() {
           const currentCart = readCart();
           if (!currentCart.length) {
             writeCart(resp.cart.items.map(it => ({ variantId: it.variantId, quantity: it.quantity })));
+            recoveredItemsApplied = true;
           }
         }
       }
@@ -639,9 +686,11 @@ async function renderCheckout() {
   }
 
   const purchase=window.GAERUCheckout.selection(products,location.search);
-  const rows = cartRows(purchase.direct?purchase.items:readCart());
+  const allRows = cartRows(purchase.direct?purchase.items:readCart());
+  const rows = allRows.filter(item => item.variant.stockQuantity > 0);
+  const skippedOutOfStock = allRows.length - rows.length;
   if (!rows.length) {
-    root.innerHTML = `<div class="empty-cart"><h2>${purchase.direct?"Phiên bản này hiện không còn hàng hoặc không còn được bán.":"Chưa có sản phẩm để đặt hàng."}</h2><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></div>`;
+    root.innerHTML = `<div class="empty-cart"><h2>${purchase.direct?"Phiên bản này hiện không còn hàng hoặc không còn được bán.":(skippedOutOfStock?"Các sản phẩm trong giỏ hàng hiện đã tạm hết hàng.":"Chưa có sản phẩm để đặt hàng.")}</h2><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></div>`;
     return;
   }
   const total = rows.reduce((sum, item) => sum + item.variant.priceVnd * item.quantity, 0);
@@ -703,7 +752,8 @@ async function renderCheckout() {
   }
   root.classList.add("checkout-single");
   root.innerHTML = `
-    ${recoveredCart ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
+    ${recoveredItemsApplied ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
+    ${skippedOutOfStock > 0 ? '<div class="checkout-notice" role="status" style="color:#9a3412;border-color:#fed7aa;background:#fff7ed;">Một số phiên bản đã hết hàng trong giỏ đã được bỏ qua khỏi đơn thanh toán này.</div>' : ''}
     <form class="checkout-form" id="checkout-form">
       <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> Phí giao hàng được tính theo tỉnh/thành phố bạn chọn.</div>
       <label class="saved-address-label" data-saved-address-label hidden>Địa chỉ đã lưu<select data-saved-address><option value="">Nhập địa chỉ mới</option></select></label><p class="address-status" data-address-status role="status"></p>
@@ -732,6 +782,7 @@ async function renderCheckout() {
       ${rows.map(({ quantity, product, variant }) => `
         <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
       <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
+      <p class="checkout-product checkout-bundle-discount" data-checkout-bundle-row hidden><span>Giảm giá combo</span><strong data-checkout-bundle-discount>−0 ₫</strong></p>
       <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chưa tính phí</strong></p>
       <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã voucher</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã voucher" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
       <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
@@ -808,52 +859,80 @@ async function renderCheckout() {
   form.elements.recoveryConsent?.addEventListener("change", triggerAbandonedCartCapture);
   const paymentMethod = form.elements.paymentMethod;
   const paymentHelp = form.querySelector("[data-payment-help]");
-  let voucherDiscount=0,appliedVoucher="";
-  const updateShippingTotal = () => {
-    const fee = window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
-    root.querySelector("[data-checkout-shipping]").textContent =
-      fee === undefined ? "Chưa tính phí" : formatPrice(fee);
-    root.querySelector("[data-checkout-total]").textContent =
-      fee === undefined ? formatPrice(Math.max(0,total-voucherDiscount-(loyaltyDiscount||0)))+" + phí giao hàng" : formatPrice(Math.max(0, total + fee - voucherDiscount - (loyaltyDiscount || 0)));
-  };
-  const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
-  const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
-  let voucherRevision=0,voucherTimer;
-  const validateVoucher=async()=>{const revision=++voucherRevision,code=voucherInput.value.trim().toUpperCase();if(!code)return false;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))})});if(revision!==voucherRevision||voucherInput.value.trim().toUpperCase()!==code)return false;if(quote.subtotalVnd!==total)throw Error('Giá đã thay đổi. Tải lại trang trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;if(window.GAERUNotify?.toast)window.GAERUNotify.toast(quote.message,'success');updateShippingTotal();return true;}catch(error){if(revision===voucherRevision){resetVoucher();voucherFeedback.textContent=error.message;if(window.GAERUNotify?.toast)window.GAERUNotify.toast(error.message,'error');}return false;}};
-  voucherInput.addEventListener('input',()=>{voucherRevision++;clearTimeout(voucherTimer);resetVoucher();voucherFeedback.textContent='';if(voucherInput.value.trim())voucherTimer=setTimeout(()=>validateVoucher(),650);});
-  voucherInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(voucherTimer);void validateVoucher();}});
-  root.querySelector('[data-voucher-wallet]').addEventListener('click',event=>{window.GAERUVoucherWallet?.open({request:apiRequest,total,opener:event.currentTarget,onSelect:async code=>{voucherRevision++;clearTimeout(voucherTimer);voucherInput.value=code;resetVoucher();voucherFeedback.textContent='';if(!code)return {ok:true};const ok=await validateVoucher();return {ok,message:voucherFeedback.textContent};}});});
-  root.querySelector('[data-voucher-apply]').addEventListener('click',()=>{clearTimeout(voucherTimer);void validateVoucher();});
-  let loyaltyPoints = 0, loyaltyDiscount = 0;
+  let voucherDiscount=0,appliedVoucher="",bundleDiscount=0;
+  let loyaltyPoints = 0, loyaltyDiscount = 0, loyaltyLoadedForId = null;
   const loyaltySection = root.querySelector("[data-checkout-loyalty]");
   const loyaltyCheckbox = root.querySelector("#checkout-use-loyalty");
   const loyaltyAvailable = root.querySelector("[data-loyalty-available]");
   const loyaltyText = root.querySelector("[data-loyalty-discount-text]");
-  if (window.GAERUCustomerSession?.customer) {
-    apiRequest("/api/customer/loyalty").then(data => {
-      if (data?.loyalty?.pointsBalance > 0) {
-        loyaltyPoints = data.loyalty.pointsBalance;
-        if (loyaltySection) loyaltySection.hidden = false;
-        if (loyaltyAvailable) loyaltyAvailable.textContent = new Intl.NumberFormat('vi-VN').format(loyaltyPoints);
-      }
-    }).catch(() => {});
-  }
   const updateLoyaltyDiscount = () => {
-    if (loyaltyCheckbox?.checked && loyaltyPoints > 0) {
+    const remainingProductSubtotal = Math.max(0, total - bundleDiscount - voucherDiscount);
+    if (loyaltyCheckbox?.checked && loyaltyPoints > 0 && remainingProductSubtotal > 0) {
       const maxAllowed = Math.floor(total * 0.5);
-      loyaltyDiscount = Math.min(loyaltyPoints, maxAllowed);
+      loyaltyDiscount = Math.min(loyaltyPoints, maxAllowed, remainingProductSubtotal);
       if (loyaltyText) loyaltyText.textContent = "−" + formatPrice(loyaltyDiscount);
     } else {
       loyaltyDiscount = 0;
       if (loyaltyText) loyaltyText.textContent = "−0 ₫";
     }
   };
+  const updateShippingTotal = () => {
+    updateLoyaltyDiscount();
+    const fee = window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
+    const netProductTotal = Math.max(0, total - bundleDiscount - voucherDiscount - loyaltyDiscount);
+    root.querySelector("[data-checkout-shipping]").textContent =
+      fee === undefined ? "Chưa tính phí" : formatPrice(fee);
+    root.querySelector("[data-checkout-total]").textContent =
+      fee === undefined ? formatPrice(netProductTotal)+" + phí giao hàng" : formatPrice(netProductTotal + fee);
+  };
+  if (rows.length >= 2) {
+    apiRequest("/api/bundles/quote", {
+      method: "POST",
+      body: JSON.stringify({ items: rows.map(({ variantId, quantity }) => ({ variantId, quantity })) }),
+      gaeruBackground: true
+    }).then(q => {
+      const disc = Number(q?.totalBundleDiscountVnd || 0);
+      if (disc > 0) {
+        bundleDiscount = disc;
+        const bRow = root.querySelector("[data-checkout-bundle-row]");
+        const bEl = root.querySelector("[data-checkout-bundle-discount]");
+        if (bRow) bRow.hidden = false;
+        if (bEl) bEl.textContent = "−" + formatPrice(bundleDiscount);
+        updateShippingTotal();
+      }
+    }).catch(() => {});
+  }
+  const voucherInput=root.querySelector('#checkout-voucher-code'),voucherFeedback=root.querySelector('[data-voucher-feedback]');
+  const resetVoucher=()=>{voucherDiscount=0;appliedVoucher='';root.querySelector('[data-checkout-discount]').textContent=formatPrice(0);updateShippingTotal();};
+  let voucherRevision=0,voucherTimer;
+  const validateVoucher=async({silentError=false}={})=>{const revision=++voucherRevision,code=voucherInput.value.trim().toUpperCase();if(!code)return false;try{const quote=await apiRequest('/api/customer/marketing/quote',{method:'POST',body:JSON.stringify({code,items:rows.map(({variantId,quantity})=>({variantId,quantity}))}),...(silentError?{gaeruBackground:true}:{})});if(revision!==voucherRevision||voucherInput.value.trim().toUpperCase()!==code)return false;if(quote.subtotalVnd!==total)throw Error('Giá đã thay đổi. Tải lại trang trước khi áp dụng.');appliedVoucher=quote.code;voucherDiscount=quote.discountVnd;root.querySelector('[data-checkout-discount]').textContent='−'+formatPrice(voucherDiscount);voucherFeedback.textContent=quote.message;if(window.GAERUNotify?.toast)window.GAERUNotify.toast(quote.message,'success');updateShippingTotal();return true;}catch(error){if(revision===voucherRevision){resetVoucher();voucherFeedback.textContent=error.message;if(!silentError&&window.GAERUNotify?.toast)window.GAERUNotify.toast(error.message,'error');}return false;}};
+  voucherInput.addEventListener('input',()=>{voucherRevision++;clearTimeout(voucherTimer);resetVoucher();voucherFeedback.textContent='';if(voucherInput.value.trim())voucherTimer=setTimeout(()=>validateVoucher({silentError:true}),650);});
+  voucherInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(voucherTimer);void validateVoucher();}});
+  root.querySelector('[data-voucher-wallet]').addEventListener('click',event=>{window.GAERUVoucherWallet?.open({request:apiRequest,total,opener:event.currentTarget,onSelect:async code=>{voucherRevision++;clearTimeout(voucherTimer);voucherInput.value=code;resetVoucher();voucherFeedback.textContent='';if(!code)return {ok:true};const ok=await validateVoucher();return {ok,message:voucherFeedback.textContent};}});});
+  root.querySelector('[data-voucher-apply]').addEventListener('click',async()=>{clearTimeout(voucherTimer);return validateVoucher();});
+  const loadCheckoutLoyalty = () => {
+    const custId = window.GAERUCustomerSession?.customer?.id || null;
+    if (!custId || custId === loyaltyLoadedForId) return;
+    loyaltyLoadedForId = custId;
+    apiRequest("/api/customer/loyalty", { gaeruBackground: true }).then(data => {
+      if (!form.isConnected) return;
+      if (data?.loyalty?.pointsBalance > 0) {
+        loyaltyPoints = data.loyalty.pointsBalance;
+        if (loyaltySection) loyaltySection.hidden = false;
+        if (loyaltyAvailable) loyaltyAvailable.textContent = new Intl.NumberFormat('vi-VN').format(loyaltyPoints);
+        updateShippingTotal();
+      }
+    }).catch(() => {});
+  };
+  loadCheckoutLoyalty();
+  const onLoyaltyCustomerUpdated = () => { if (!form.isConnected) { document.removeEventListener("gaeru:customer-updated", onLoyaltyCustomerUpdated); return; } loadCheckoutLoyalty(); };
+  document.addEventListener("gaeru:customer-updated", onLoyaltyCustomerUpdated);
   if (loyaltyCheckbox) {
     loyaltyCheckbox.addEventListener("change", () => {
-      updateLoyaltyDiscount();
       updateShippingTotal();
     });
   }
+  form.addEventListener("input", (e) => { if (e.target?.name) e.target.dataset.userDirty = "1"; });
   form.elements.city.addEventListener("change", updateShippingTotal);
   form.elements.city.addEventListener("input", updateShippingTotal);
   root.shippingRates=shippingRates;
@@ -942,14 +1021,22 @@ async function renderCheckout() {
       }
       if (!purchase.direct) writeCart([]);
       const bt = result.bankTransfer;
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="checkout-notice bank-transfer-notice"><strong>Thông tin chuyển khoản ngân hàng</strong>${bt.qrUrl?`<div class="vietqr-box" style="text-align:center;margin:12px 0;"><img src="${escapeHtml(bt.qrUrl)}" alt="Mã VietQR" style="max-width:240px;width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,0.06);" loading="lazy"><p style="font-size:12px;color:#6b7280;margin:6px 0 0;">Quét mã VietQR bằng app ngân hàng bất kỳ để tự động khớp thông tin &amp; số tiền.</p></div>`:''}<p>Ngân hàng: <strong>${escapeHtml(bt.bankName)}</strong>${bt.branch?` (${escapeHtml(bt.branch)})`:""}<br>Số tài khoản: <strong>${escapeHtml(bt.accountNumber)}</strong><br>Chủ tài khoản: <strong>${escapeHtml(bt.accountHolder)}</strong><br>Số tiền: <strong>${formatPrice(bt.amountVnd ?? result.order.totalVnd)}</strong><br>Nội dung chuyển khoản: <strong>${escapeHtml(bt.transferContent)}</strong></p><p data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="checkout-notice bank-transfer-notice"><strong>Thông tin chuyển khoản ngân hàng</strong>${bt.qrUrl?`<div class="vietqr-box" style="text-align:center;margin:12px 0;"><img src="${escapeHtml(bt.qrUrl)}" alt="Mã VietQR" width="240" height="240" style="max-width:240px;width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,0.06);" loading="lazy"><p style="font-size:12px;color:#6b7280;margin:6px 0 0;">Quét mã VietQR bằng app ngân hàng bất kỳ để tự động khớp thông tin &amp; số tiền.</p></div>`:''}<p>Ngân hàng: <strong>${escapeHtml(bt.bankName)}</strong>${bt.branch?` (${escapeHtml(bt.branch)})`:""}<br>Số tài khoản: <strong>${escapeHtml(bt.accountNumber)}</strong><br>Chủ tài khoản: <strong>${escapeHtml(bt.accountHolder)}</strong><br>Số tiền: <strong>${formatPrice(bt.amountVnd ?? result.order.totalVnd)}</strong><br>Nội dung chuyển khoản: <strong>${escapeHtml(bt.transferContent)}</strong></p><p data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
       if (bt) {
+        let pollTicks = 0;
+        const MAX_POLL_TICKS = 450;
         const pollTimer = setInterval(async () => {
           const liveNode = root.querySelector("[data-prepaid-live-status]");
           if (!liveNode) { clearInterval(pollTimer); return; }
+          if (document.visibilityState === "hidden") return;
+          if (++pollTicks > MAX_POLL_TICKS) {
+            liveNode.textContent = "Đã dừng kiểm tra tự động sau 30 phút. Bạn có thể tra cứu trạng thái đơn trong mục Tài khoản hoặc Tra cứu đơn hàng.";
+            clearInterval(pollTimer);
+            return;
+          }
           try {
             const tokenParam = result.trackingToken ? `&token=${encodeURIComponent(result.trackingToken)}` : '';
-            const check = await apiRequest(`/api/payments/order-status?order=${encodeURIComponent(result.order.orderNumber)}${tokenParam}`);
+            const check = await apiRequest(`/api/payments/order-status?order=${encodeURIComponent(result.order.orderNumber)}${tokenParam}`, { gaeruBackground: true });
             if (check.order?.paymentStatus === "paid") {
               liveNode.textContent = "Đã so khớp giao dịch thành công! Đơn hàng đã tự động duyệt sang trạng thái Chờ gửi hàng.";
               clearInterval(pollTimer);
@@ -969,6 +1056,9 @@ async function renderCheckout() {
                   }))
                 });
               } catch (_) {}
+            } else if (check.order?.status === "cancelled" || ["failed", "cancelled", "expired"].includes(check.order?.paymentStatus)) {
+              liveNode.textContent = "Đơn hàng đã hủy hoặc hết hạn thanh toán.";
+              clearInterval(pollTimer);
             }
           } catch {}
         }, 4000);
@@ -1040,19 +1130,28 @@ function bindGlobalControls() {
     if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
     const bundleBtn = event.target.closest("[data-add-bundle]");
     if (bundleBtn) {
+      if (bundleBtn.disabled || bundleBtn.dataset.addingLock === "1") return;
+      bundleBtn.dataset.addingLock = "1";
+      setTimeout(() => { delete bundleBtn.dataset.addingLock; }, 350);
       const bundleId = bundleBtn.dataset.addBundle;
       const bundleCard = bundleBtn.closest("[data-bundle-id]");
       const bundle = (window.__currentBundles || []).find(b => b.id === bundleId);
       if (bundle) {
         const currentSelector = document.querySelector("#product-variant");
-        const primaryVariantId = currentSelector?.value || bundle.primaryItems?.[0]?.variantId;
-        const checkedAccessories = [...(bundleCard?.querySelectorAll("[data-bundle-accessory]:checked") || [])].map(cb => cb.dataset.bundleAccessory);
-        const allToAdd = [primaryVariantId, ...checkedAccessories].filter(Boolean);
+        const matchedPrimary = bundle.primaryItems?.find(p => p.variantId === currentSelector?.value) || bundle.primaryItems?.[0];
+        const primaryVariantId = matchedPrimary?.variantId || currentSelector?.value;
+        const primaryQty = Math.max(1, Number(matchedPrimary?.minQuantity) || 1);
+        const checkedAccessories = [...(bundleCard?.querySelectorAll("[data-bundle-accessory]:checked") || [])].map(cb => {
+          const vId = cb.dataset.bundleAccessory;
+          const secItem = bundle.bundledItems?.find(it => it.variantId === vId);
+          return { variantId: vId, qty: Math.max(1, Number(secItem?.minQuantity) || 1) };
+        });
+        const allToAdd = primaryVariantId ? [{ variantId: primaryVariantId, qty: primaryQty }, ...checkedAccessories] : checkedAccessories;
         const cart = readCart();
         const fb = bundleCard?.querySelector(`[data-bundle-feedback="${bundleId}"]`);
         let addedAny = false;
         let cappedMsg = "";
-        for (const vId of allToAdd) {
+        for (const { variantId: vId, qty } of allToAdd) {
           const selected = cartRows([{ variantId: vId, quantity: 1 }])[0];
           if (!selected || selected.variant.stockQuantity < 1) {
             cappedMsg ||= "Một số sản phẩm trong combo hiện đã hết hàng.";
@@ -1064,8 +1163,8 @@ function bindGlobalControls() {
             cappedMsg = `Phiên bản ${selected.variant.name || selected.product.name} đã đạt giới hạn tối đa ${cartMaximum} sản phẩm trong giỏ.`;
             continue;
           }
-          if (existing) existing.quantity += 1;
-          else cart.push({ variantId: vId, quantity: 1 });
+          if (existing) existing.quantity = Math.min(cartMaximum, existing.quantity + qty);
+          else cart.push({ variantId: vId, quantity: Math.min(cartMaximum, qty) });
           addedAny = true;
         }
         if (!addedAny) {
@@ -1081,14 +1180,17 @@ function bindGlobalControls() {
     }
     const addButton = event.target.closest("[data-add-to-cart]");
     if (addButton) {
+      if (addButton.disabled || addButton.dataset.addingLock === "1") return;
+      addButton.dataset.addingLock = "1";
+      setTimeout(() => { delete addButton.dataset.addingLock; }, 350);
       const variantId = addButton.dataset.addToCart;
       const selected = cartRows([{ variantId, quantity: 1 }])[0];
       if (!selected || selected.variant.stockQuantity < 1) return;
       const cart = readCart();
       const existing = cart.find((item) => item.variantId === variantId);
       const cartMaximum = Math.min(99, selected.variant.stockQuantity);
+      const feedback = addButton.closest("#quick-cart-dialog")?.querySelector("[data-cart-feedback]") || document.querySelector("[data-cart-feedback]");
       if (existing && existing.quantity >= cartMaximum) {
-        const feedback = document.querySelector("[data-cart-feedback]");
         if (feedback) feedback.textContent = `Bạn đã đạt giới hạn ${cartMaximum} sản phẩm có thể đặt cho phiên bản này.`;
         return;
       }
@@ -1106,8 +1208,8 @@ function bindGlobalControls() {
         });
       } catch (_) {}
       addButton.closest("#quick-cart-dialog")?.close();
-      const feedback = document.querySelector("[data-cart-feedback]");
-      if (feedback) feedback.textContent = `${selected.product.name} đã được thêm vào giỏ.`;
+      const pageFeedback = document.querySelector("[data-cart-feedback]");
+      if (pageFeedback) pageFeedback.textContent = `${selected.product.name} đã được thêm vào giỏ.`;
       addButton.setAttribute("aria-label", `${selected.product.name} đã được thêm vào giỏ hàng`);
       document.dispatchEvent(new CustomEvent("gaeru:open-cart"));
       return;
@@ -1223,7 +1325,7 @@ function bindGlobalControls() {
   });
 }
 
-function updateSaleCountdowns(){document.querySelectorAll('[data-sale-end]').forEach(node=>{const seconds=Math.max(0,Math.floor((new Date(node.dataset.saleEnd)-Date.now())/1000));if(!seconds){node.textContent='Đã kết thúc · tải lại để cập nhật giá';return;}const days=Math.floor(seconds/86400),hours=Math.floor(seconds%86400/3600),minutes=Math.floor(seconds%3600/60);node.textContent='Còn '+(days?days+' ngày ':'')+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');});}
+function updateSaleCountdowns(){if(typeof document==='undefined'||document.hidden)return;const nodes=document.querySelectorAll('[data-sale-end]');if(!nodes.length)return;nodes.forEach(node=>{const seconds=Math.max(0,Math.floor((new Date(node.dataset.saleEnd)-Date.now())/1000));if(!seconds){node.textContent='Đã kết thúc · tải lại để cập nhật giá';return;}const days=Math.floor(seconds/86400),hours=Math.floor(seconds%86400/3600),minutes=Math.floor(seconds%3600/60);node.textContent='Còn '+(days?days+' ngày ':'')+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');});}
 setInterval(updateSaleCountdowns,1000);
 function showStoreError(error) {
   console.error("Không thể tải dữ liệu cửa hàng GAERU:", error);

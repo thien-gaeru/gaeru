@@ -505,7 +505,7 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
       if (res.locals.publicHtml) body = res.locals.publicHtml.prepare(body);
       const currentCacheControl = String(res.getHeader('Cache-Control') || '');
       if (res.statusCode === 200 && typeof body === 'string' && !/no-store|private/i.test(currentCacheControl)) {
-        const etag = `"${BOOT_ID}-${crypto.createHash('md5').update(body).digest('hex')}"`;
+        const etag = `W/"${BOOT_ID}-${crypto.createHash('md5').update(body).digest('hex')}"`;
         const cacheControl = currentCacheControl || 'public, max-age=0, must-revalidate';
         if (!res.headersSent) {
           const { isDcbEnabled } = require('./src/lib/compression-dictionary');

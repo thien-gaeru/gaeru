@@ -148,17 +148,17 @@
 .gaeru-center-popup {
   position: fixed !important;
   inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
+  width: 100% !important;
+  height: 100dvh !important;
+  max-width: 100% !important;
+  max-height: 100dvh !important;
   margin: 0 !important;
   padding: 16px !important;
   border: none !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  z-index: 999999 !important;
+  z-index: 2147483647 !important;
   box-sizing: border-box !important;
 }
 dialog.gaeru-center-popup {

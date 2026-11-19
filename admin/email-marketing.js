@@ -326,47 +326,56 @@
 
       // Check & Schedule
       if (b.dataset.emailCheck) {
+        if (b.disabled) return;
         const c = data.campaigns.find(x => x.id === b.dataset.emailCheck);
         const f = b.closest('form');
+        const sameMin = (a, bDate) => Math.floor(new Date(a).getTime() / 60000) === Math.floor(new Date(bDate).getTime() / 60000);
         if (
           f.elements.title.value !== c.title ||
           f.elements.subject.value !== c.subject ||
           f.elements.body.value !== c.body ||
-          new Date(f.elements.scheduledAt.value).getTime() !== new Date(c.scheduled_at).getTime() ||
+          !sameMin(f.elements.scheduledAt.value, c.scheduled_at) ||
           Number(f.elements.ratePerMinute.value) !== c.rate_per_minute ||
           JSON.stringify([...f.querySelectorAll('[name=sources]:checked')].map(i => i.value)) !== JSON.stringify(c.sources)
         ) {
           throw Error('Lưu thay đổi bản nháp trước khi lên lịch.');
         }
-        const count = (await admin.request('/api/gaeru_ceo/marketing/emails/audience', {
-          method: 'POST',
-          body: JSON.stringify({ sources: c.sources })
-        })).count;
+        admin.setButtonBusy ? admin.setButtonBusy(b, true, 'Đang kiểm tra…') : (b.disabled = true);
+        try {
+          const count = (await admin.request('/api/gaeru_ceo/marketing/emails/audience', {
+            method: 'POST',
+            body: JSON.stringify({ sources: c.sources })
+          })).count;
 
-        f.querySelector('[data-email-schedule-confirm]').innerHTML = `
-          <div class="marketing-schedule-box">
-            <p>Gửi tới <strong>${count} địa chỉ đã xác nhận</strong> từ ${new Date(c.scheduled_at).toLocaleString('vi-VN')}.</p>
-            <label><input type="checkbox" data-email-agree> Tôi đã kiểm tra nội dung và xác nhận danh sách nhận email.</label>
-            <button class="primary-button" type="button" data-email-schedule="${c.id}" data-count="${count}">Xác nhận lên lịch</button>
-          </div>
-        `;
+          f.querySelector('[data-email-schedule-confirm]').innerHTML = `
+            <div class="marketing-schedule-box">
+              <p>Gửi tới <strong>${count} địa chỉ đã xác nhận</strong> từ ${new Date(c.scheduled_at).toLocaleString('vi-VN')}.</p>
+              <label><input type="checkbox" data-email-agree> Tôi đã kiểm tra nội dung và xác nhận danh sách nhận email.</label>
+              <button class="primary-button" type="button" data-email-schedule="${c.id}" data-count="${count}">Xác nhận lên lịch</button>
+            </div>
+          `;
+        } finally {
+          admin.setButtonBusy ? admin.setButtonBusy(b, false) : (b.disabled = false);
+        }
       }
 
       if (b.dataset.emailSchedule) {
+        if (b.disabled) return;
         const f = b.closest('form');
         if (!f.querySelector('[data-email-agree]').checked) throw Error('Đánh dấu xác nhận trước khi lên lịch.');
         const c = data.campaigns.find(x => x.id === b.dataset.emailSchedule);
+        const sameMin = (a, bDate) => Math.floor(new Date(a).getTime() / 60000) === Math.floor(new Date(bDate).getTime() / 60000);
         if (
           f.elements.title.value !== c.title ||
           f.elements.subject.value !== c.subject ||
           f.elements.body.value !== c.body ||
-          new Date(f.elements.scheduledAt.value).getTime() !== new Date(c.scheduled_at).getTime() ||
+          !sameMin(f.elements.scheduledAt.value, c.scheduled_at) ||
           Number(f.elements.ratePerMinute.value) !== c.rate_per_minute ||
           JSON.stringify([...f.querySelectorAll('[name=sources]:checked')].map(i => i.value)) !== JSON.stringify(c.sources)
         ) {
           throw Error('Bản nháp có thay đổi chưa lưu. Lưu rồi kiểm tra lại trước khi xác nhận.');
         }
-        b.disabled = true;
+        admin.setButtonBusy ? admin.setButtonBusy(b, true, 'Đang lên lịch…') : (b.disabled = true);
         const r = await admin.request('/api/gaeru_ceo/marketing/emails/' + c.id + '/schedule', {
           method: 'POST',
           body: JSON.stringify({ version: c.version, expectedCount: Number(b.dataset.count), confirmation: 'SCHEDULE_EMAILS' })
@@ -387,8 +396,9 @@
       }
 
       if (b.dataset.emailCancelConfirm) {
+        if (b.disabled) return;
         const c = data.campaigns.find(x => x.id === b.dataset.emailCancelConfirm);
-        b.disabled = true;
+        admin.setButtonBusy ? admin.setButtonBusy(b, true, 'Đang dừng…') : (b.disabled = true);
         const r = await admin.request('/api/gaeru_ceo/marketing/emails/' + c.id + '/cancel', {
           method: 'POST',
           body: JSON.stringify({ version: c.version })
@@ -399,14 +409,20 @@
 
       // Delete campaign
       if (b.dataset.emailDelete) {
+        if (b.disabled || b.dataset.confirming === '1') return;
         const c = data.campaigns.find(x => x.id === b.dataset.emailDelete);
-        const ok = await (window.GAERUNotify?.confirm ? window.GAERUNotify.confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn chiến dịch email "${c?.title || ''}" không? Thao tác không thể hoàn tác.`, { danger: true, confirmText: 'Xóa chiến dịch' }) : confirm('Bạn có chắc chắn muốn xóa chiến dịch này không?'));
+        b.dataset.confirming = '1';
+        let ok = false;
+        try {
+          ok = window.GAERUNotify?.confirm
+            ? await window.GAERUNotify.confirm(`Bạn có chắc chắn muốn xóa vĩnh viễn chiến dịch email "${c?.title || ''}" không? Thao tác không thể hoàn tác.`, { danger: true, confirmText: 'Xóa chiến dịch' })
+            : false;
+        } finally { delete b.dataset.confirming; }
         if (!ok) return;
-        b.disabled = true;
+        admin.setButtonBusy ? admin.setButtonBusy(b, true, 'Đang xóa…') : (b.disabled = true);
         await admin.request('/api/gaeru_ceo/marketing/emails/' + c.id, { method: 'DELETE' });
         await load();
-        if (window.GAERUNotify?.toast) window.GAERUNotify.toast('Đã xóa chiến dịch email thành công.', { type: 'success' });
-        else admin.showGlobal('Đã xóa chiến dịch email thành công.');
+        admin.showGlobal('Đã xóa chiến dịch email thành công.');
       }
     } catch (error) {
       b.disabled = false;

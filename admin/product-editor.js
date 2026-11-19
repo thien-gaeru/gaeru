@@ -5,7 +5,7 @@
  const money=v=>new Intl.NumberFormat('vi-VN').format(v)+' ₫';
  const editingTrash=/(?:[?&])trash=1(?:&|$)/.test(location.search||'');
  let model={product:{name:'',slug:'',category:'audio',descriptor:'',cardTitle:'',cardSummary:'',description:'',imageUrl:'',imageAlt:'',active:false,sortOrder:0,shopeeUrl:'',tiktokShopUrl:''},gallery:[],groups:[],variants:[],descriptionMedia:[]},user=null,busy=false,dirty=false;const disabledStates=new WeakMap();const imageUploads=[];let uploadWorker=null;
- const can=p=>user?.permissions?.includes(p),imageUrl=u=>{const path=u.startsWith('/api/catalog-images/')?u.replace('/api/catalog-images/','/api/gaeru_ceo/catalog-images/'):u.startsWith('/api/catalog-videos/')?u.replace('/api/catalog-videos/','/api/gaeru_ceo/catalog-videos/'):u;return window.GAERUAdminUI?.imageUrl(path)??path;};
+ const can=p=>!user?.mfaEnrollmentRequired&&(user?.permissions?.includes('*')||user?.permissions?.includes(p)),imageUrl=u=>{const path=u.startsWith('/api/catalog-images/')?u.replace('/api/catalog-images/','/api/gaeru_ceo/catalog-images/'):u.startsWith('/api/catalog-videos/')?u.replace('/api/catalog-videos/','/api/gaeru_ceo/catalog-videos/'):u;return window.GAERUAdminUI?.imageUrl(path)??path;};
  
  async function request(path,method='GET',body){
    const headers={};
@@ -449,6 +449,10 @@
 
  function attachBlockDrag(host){
    if(!host)return;
+   if(window.GAERUDescriptionEditor?.mount){
+     host.querySelectorAll('[data-description-block]').forEach(block=>block.removeAttribute('draggable'));
+     return;
+   }
    let dragging=null;
    host.querySelectorAll('[data-description-block]').forEach(block=>{
      block.setAttribute('draggable','true');
@@ -625,8 +629,16 @@
  const btnVariants=document.querySelector('#btn-mode-variants');
  if(btnSimple&&btnVariants){
    btnSimple.onclick=async ()=>{
+     if(busy||btnSimple.dataset.confirming==='1')return;
      if(model.groups.length>0&&model.variants.some(v=>v.id)){
-       const okSimple=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Sản phẩm đã có biến thể được lưu. Chuyển sang sản phẩm tiêu chuẩn sẽ đưa về 1 biến thể. Bạn có chắc không?',{danger:true,confirmText:'Chuyển tiêu chuẩn'}):confirm('Sản phẩm đã có biến thể được lưu. Chuyển sang sản phẩm tiêu chuẩn sẽ đưa về 1 biến thể. Bạn có chắc không?'));if(!okSimple)return;
+       btnSimple.dataset.confirming='1';
+       let okSimple=false;
+       try{
+         okSimple=await (window.GAERUNotify?.confirm?window.GAERUNotify.confirm('Sản phẩm đã có biến thể được lưu. Chuyển sang sản phẩm tiêu chuẩn sẽ đưa về 1 biến thể. Bạn có chắc không?',{danger:true,confirmText:'Chuyển tiêu chuẩn'}):Promise.resolve(false));
+       }finally{
+         delete btnSimple.dataset.confirming;
+       }
+       if(!okSimple)return;
      }
      model.groups=[];
      const firstV=model.variants[0]||{};
@@ -797,6 +809,9 @@
       }
       if(batchStatus)batchStatus.textContent=`Đang xử lý ${files.length} ảnh, vui lòng đợi...`;
       if(batchGrid)batchGrid.innerHTML='';
+      const origBatchLabel=btnBatch.textContent;
+      btnBatch.textContent='Đang tải & xử lý…';
+      lock(true);
       btnBatch.disabled=true;
       try{
         const formData=new FormData();
@@ -835,7 +850,9 @@
         if(batchStatus)batchStatus.textContent=`Lỗi: ${err.message}`;
         feedback(err.message,true);
       }finally{
+        lock(false);
         btnBatch.disabled=false;
+        btnBatch.textContent=origBatchLabel;
       }
     });
   }
@@ -1064,6 +1081,7 @@
 
  document.querySelectorAll('[data-save]').forEach(button=>button.onclick=async()=>{
    if(busy||!can('catalog.write'))return;
+   let redirecting=false,origSaveLabels=null;
    try{
      if(imageUploads.length)throw Error('Chờ ảnh tải xong; thử lại hoặc bỏ ảnh bị lỗi trước khi lưu.');
      readMedia();
@@ -1150,6 +1168,9 @@
      }
 
      lock(true);
+     const saveBtns=[...document.querySelectorAll('[data-save]')];
+     origSaveLabels=new Map(saveBtns.map(b=>[b,b.textContent]));
+     saveBtns.forEach(b=>{b.textContent='Đang lưu…';});
      feedback('Đang lưu sản phẩm và biến thể…');
      const payload={
        ...(model.inTrash?{inTrash:true}:{}),
@@ -1167,6 +1188,7 @@
      clearValidationErrors();
      render();
      const notice = isNew ? 'Đã thêm sản phẩm mới thành công' : (model.inTrash ? 'Đã lưu thay đổi sản phẩm thành công' : 'Đã sửa sản phẩm thành công');
+     redirecting=true;
      showProductSuccessPopup(notice);
      return;
    }catch(e){
@@ -1184,7 +1206,10 @@
      }
      feedback(e.message,true);
    }finally{
-     lock(false);
+     if(!redirecting){
+       if(origSaveLabels)origSaveLabels.forEach((lbl,b)=>{if(b.isConnected)b.textContent=lbl;});
+       lock(false);
+     }
    }
  });
 

@@ -26,7 +26,7 @@ function setPublicNewsCacheHeaders(res){
  res.setHeader('Cloudflare-CDN-Cache-Control','public, max-age=5, stale-while-revalidate=15');
 }
 function createNewsPublicApi(pool){const router=Router();
- router.get('/news',async(req,res,next)=>{try{const page=Number(req.query.page||1);if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).json({error:'Trang không hợp lệ.'});const fetchPage=async()=>{const posts=(await pool.query(`SELECT ${fields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 12 OFFSET $1`,[(page-1)*12])).rows;return {posts:posts.map(output),page,hasMore:posts.length===12};};const payload=pool&&pool.__gaeruCacheHooked?await getFreshData('data:news:page:'+page,fetchPage,3000):await fetchPage();setPublicNewsCacheHeaders(res);res.json(payload);}catch(e){next(e);}});
+ router.get('/news',async(req,res,next)=>{try{const page=Number(req.query.page||1);if(!Number.isInteger(page)||page<1||page>10000)return res.status(400).json({error:'Trang không hợp lệ.'});const fetchPage=async()=>{const rows=(await pool.query(`SELECT ${fields} FROM news_posts WHERE status='published' ORDER BY published_at DESC,id LIMIT 13 OFFSET $1`,[(page-1)*12])).rows;return {posts:rows.slice(0,12).map(output),page,hasMore:rows.length>12};};const payload=pool&&pool.__gaeruCacheHooked?await getFreshData('data:news:page:'+page,fetchPage,3000):await fetchPage();setPublicNewsCacheHeaders(res);res.json(payload);}catch(e){next(e);}});
  router.get('/news/:slug',async(req,res,next)=>{
   if(!slug.safeParse(req.params.slug).success)return res.status(404).json({error:'Không tìm thấy bài viết.'});
   try{
