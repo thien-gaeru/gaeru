@@ -417,6 +417,7 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     const brRes = await httpRequest(`${base}/styles.css?v=${stylesHash12}`, { "Accept-Encoding": "gzip, br" });
     assert.equal(brRes.status, 200);
     assert.equal(brRes.headers["content-encoding"], "br");
+    assert.match(String(brRes.headers.etag || ""), /^W\/"[0-9a-f]{12}-br"$/);
     assert.equal(brRes.headers["cache-control"], "public, max-age=31536000, immutable");
     assert.equal(brRes.headers["content-type"], "text/css; charset=utf-8");
     assert.match(brRes.headers.vary, /Accept-Encoding/i);
@@ -1038,5 +1039,34 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     const aiSrc = fs.readFileSync(path.join(__dirname, "..", "src", "internal-ai.js"), "utf8");
     assert.match(aiSrc, /ON CONFLICT \(code\) DO NOTHING/);
     assert.match(aiSrc, /SELECT 1 FROM voucher_redemptions WHERE voucher_id=\$1 LIMIT 1/);
+  });
+
+  test("server perf optimization: BACKGROUND_WORKER_NUDGE fanout and per-worker warmLocalSsrRoutes", async () => {
+    const { IpcFanoutHub } = require("../src/lib/cluster-fanout");
+    const hub = new IpcFanoutHub();
+    const sent = [];
+    hub.broadcast = (payload, excludeId) => {
+      sent.push({ payload, excludeId });
+      return 3;
+    };
+    const res = hub.handleWorkerMessage({ id: 2 }, { type: "BACKGROUND_WORKER_NUDGE", worker: "order_email" });
+    assert.equal(res.fannedCount, 3);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].payload.type, "BACKGROUND_WORKER_NUDGE");
+    assert.equal(sent[0].payload.worker, "order_email");
+    assert.equal(sent[0].excludeId, 2);
+
+    const { warmLocalSsrRoutes } = require("../src/lib/cache-warmup");
+    const seen = [];
+    const miniApp = express();
+    miniApp.get(/.*/, (req, res) => {
+      seen.push({ path: req.path, ua: req.headers["user-agent"] });
+      res.status(200).type("html").send("<html>ok</html>");
+    });
+    const count = await warmLocalSsrRoutes(miniApp, [{ slug: "gaeru-m3" }, { slug: "gaeru-k9" }]);
+    assert.equal(count, 8);
+    assert.ok(seen.some((r) => r.path === "/san-pham/gaeru-m3"));
+    assert.ok(seen.some((r) => r.path === "/huong-dan/gaeru-k9"));
+    assert.ok(seen.every((r) => /bot/i.test(r.ua || "")), "Warmup requests must carry bot User-Agent to avoid traffic stats pollution");
   });
 }

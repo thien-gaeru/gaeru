@@ -193,7 +193,13 @@ async function triggerManualChatCompression(pool, { targetId = null, threadId = 
   }
 }
 
-function startChatCompressionWorker(pool, intervalMs = (process.env.NODE_ENV === 'test' ? 1000 : 5000)) {
+const { registerWorkerNudge, triggerWorkerNudge } = require('./lib/worker-nudge');
+
+function nudgeChatCompressionWorker() {
+  triggerWorkerNudge('chat_compression');
+}
+
+function startChatCompressionWorker(pool, intervalMs = ((process.env.NODE_ENV === 'test' || process.env.NODE_TEST_CONTEXT) ? 1000 : 30000)) {
   let stopped = false;
   let running = false;
   async function tick() {
@@ -207,11 +213,13 @@ function startChatCompressionWorker(pool, intervalMs = (process.env.NODE_ENV ===
       running = false;
     }
   }
+  const unregister = registerWorkerNudge('chat_compression', tick);
   const timer = setInterval(tick, intervalMs);
   timer.unref?.();
   void tick();
   return () => {
     stopped = true;
+    unregister();
     clearInterval(timer);
   };
 }
@@ -225,5 +233,6 @@ module.exports = {
   MAX_ATTEMPTS, LEASE_MINUTES, reclaimExpired, processOneChatCompression,
   processChatCompression,
   triggerManualChatCompression,
+  nudgeChatCompressionWorker,
   startChatCompressionWorker
 };

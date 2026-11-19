@@ -1,5 +1,6 @@
 'use strict';
 
+const http = require('node:http');
 const { getFreshData, stockMap } = require('../cache');
 const { loadProducts } = require('../store-api');
 const { getCachedImageRow, warmPublicImage, supportedServeWidths } = require('./image-renditions');
@@ -7,6 +8,64 @@ const { warmStaticAssets } = require('../persistent-assets');
 const { warmStaticTextAssets } = require('./static-asset-cache');
 const path = require('node:path');
 try { require('sharp').concurrency(Math.max(1, Number(process.env.SHARP_CONCURRENCY) || (process.arch === 'arm64' ? 1 : 2))); } catch (_) {}
+
+function fetchLocalRoute(port, routePath) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: routePath,
+        method: 'GET',
+        timeout: 4000,
+        headers: {
+          'Accept-Encoding': 'br, gzip',
+          'User-Agent': 'GAERU-Warmup-Bot/1.0'
+        }
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode || 0));
+      }
+    );
+    req.on('timeout', () => { req.destroy(); resolve(0); });
+    req.on('error', () => resolve(0));
+    req.end();
+  });
+}
+
+async function warmLocalSsrRoutes(app, products) {
+  if (!app || typeof app !== 'function') return 0;
+  const routes = ['/', '/cua-hang', '/ho-tro', '/huong-dan'];
+  const slugs = (Array.isArray(products) ? products : [])
+    .map((p) => String(p?.slug || '').trim())
+    .filter((s) => /^[a-z0-9-]+$/i.test(s))
+    .slice(0, 8);
+  for (const slug of slugs) {
+    routes.push(`/san-pham/${slug}`);
+    routes.push(`/huong-dan/${slug}`);
+  }
+  const tempServer = http.createServer(app);
+  let warmed = 0;
+  try {
+    await new Promise((resolve, reject) => {
+      tempServer.once('error', reject);
+      tempServer.listen({ host: '127.0.0.1', port: 0, exclusive: true }, resolve);
+    });
+    tempServer.unref?.();
+    const addr = tempServer.address();
+    if (!addr || typeof addr !== 'object' || !addr.port) return 0;
+    for (const route of routes) {
+      const status = await fetchLocalRoute(addr.port, route);
+      if (status >= 200 && status < 400) warmed++;
+    }
+    return warmed;
+  } catch (_) {
+    return warmed;
+  } finally {
+    try { tempServer.close(); } catch (_) {}
+  }
+}
 
 async function warmHotImagesInBackground(pool, products) {
   if (!pool || !pool.__gaeruCacheHooked || process.env.MEDIA_CACHE_ENABLED === 'false') return;
@@ -57,7 +116,7 @@ async function warmHotImagesInBackground(pool, products) {
   } catch (_) {}
 }
 
-async function warmUpCache(pool) {
+async function warmUpCache(pool, { app = null } = {}) {
   try {
     const products = await getFreshData('data:catalog', async () => {
       const list = await loadProducts(pool);
@@ -76,12 +135,31 @@ async function warmUpCache(pool) {
       }
     }
 
-    const isPrimarySlot = !process.env.CLUSTER_WORKER || String(process.env.WORKER_INDEX || '0') === '0';
+    // Pre-warm public CSS/JS buffers & pre-compressed br/gzip variants on EVERY worker RAM
+    try {
+      warmStaticTextAssets(path.resolve(__dirname, '..', '..'), require('../public-files'));
+    } catch (_) {}
+
+    const workerIndex = Math.max(0, Number.parseInt(process.env.WORKER_INDEX || '0', 10) || 0);
+    const isPrimarySlot = !process.env.CLUSTER_WORKER || workerIndex === 0;
+    const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT);
+
     if (isPrimarySlot && pool && pool.__gaeruCacheHooked && process.env.MEDIA_CACHE_ENABLED !== 'false') {
       const t = setTimeout(() => { warmHotImagesInBackground(pool, products); }, 50);
       if (typeof t.unref === 'function') t.unref();
     }
-    if (pool && typeof pool.query === 'function' && process.env.NODE_ENV !== 'test' && !process.env.NODE_TEST_CONTEXT) {
+    if (!isTestEnv && app && typeof app === 'function' && process.env.SSR_WARMUP_ENABLED !== 'false') {
+      // Stagger per-worker SSR HTML warmup so each worker populates its own RAM cache cleanly
+      const ssrTimer = setTimeout(() => {
+        warmLocalSsrRoutes(app, products)
+          .then((count) => {
+            if (count > 0) console.log(`[SSR Warmup] Worker #${workerIndex} đã làm ấm ${count} trang HTML trong RAM.`);
+          })
+          .catch(() => {});
+      }, 400 + workerIndex * 350);
+      if (typeof ssrTimer.unref === 'function') ssrTimer.unref();
+    }
+    if (pool && typeof pool.query === 'function' && !isTestEnv) {
       const embedStore = require('./embedding-store');
       // Every worker hydrates pre-computed vectors from PostgreSQL into RAM (<2ms)
       const hTimer = setTimeout(() => {
@@ -90,7 +168,8 @@ async function warmUpCache(pool) {
           embedStore.hydrateNamespace(pool, 'web_pages'),
           embedStore.hydrateNamespace(pool, 'news'),
           embedStore.hydrateNamespace(pool, 'learned'),
-          embedStore.hydrateNamespace(pool, 'internal_intents')
+          embedStore.hydrateNamespace(pool, 'internal_intents'),
+          embedStore.hydrateNamespace(pool, 'customer_faqs')
         ]).catch(() => {});
       }, 250);
       if (typeof hTimer.unref === 'function') hTimer.unref();
@@ -117,4 +196,4 @@ async function warmUpCache(pool) {
   }
 }
 
-module.exports = { warmUpCache, warmHotImagesInBackground };
+module.exports = { warmUpCache, warmHotImagesInBackground, warmLocalSsrRoutes };

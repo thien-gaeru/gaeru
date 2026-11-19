@@ -380,7 +380,10 @@ async function getFreshData(key, dbFetchFn, swrMs = 3000) {
 }
 
 // 2. Middleware HTML Cache: Luôn đối chiếu ETag (Trả 304 nếu chưa đổi, trả bản mới ngay nếu đã đổi)
-function smartPageCache(swrMs = 60000) {
+// Trong production, mọi thay đổi DB (sản phẩm/giá/tồn kho/khuyến mãi/trang) đều tự động xóa HTML cache tức thì
+// qua attachTransactionalCacheInvalidation + Cluster IPC + nextPromotionBoundaryMs, nên giữ HTML ấm 300s (5 phút)
+// giúp loại bỏ hoàn toàn cold-worker SSR rebuild định kỳ mỗi 60s.
+function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 : 60000)) {
   return (req, res, next) => {
     if (req.method !== 'GET') return next();
 

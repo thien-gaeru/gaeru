@@ -240,8 +240,8 @@ async function start() {
       .catch(error=>console.error('Local media audit failed:',errorSummary(error)));
   }
 
-  // Cache warmup and database TLS verification
-  try { require('./lib/cache-warmup').warmUpCache(highPriorityPool).catch(() => {}); } catch (_) {}
+  // Cache warmup (including per-worker static CSS/JS, vector RAM hydration, and hot SSR HTML)
+  try { require('./lib/cache-warmup').warmUpCache(highPriorityPool, { app }).catch(() => {}); } catch (_) {}
   inspectDatabaseTls(pool, config)
     .then((info) => console.log("Database TLS active:", JSON.stringify(info)))
     .catch(() => console.log("Database TLS active: unavailable"));

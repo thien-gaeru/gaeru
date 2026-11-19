@@ -157,16 +157,24 @@ async function processAIChat(pool,config,{decisionFn,transport}={}){
   }
   return true;
 }
-function startAIChatWorker(pool,config){
-  let stopped=false,running=false,pendingKick=false;
-  async function run(){
+function startAIChatWorker(pool,config,{intervalMs}={}){
+  const isTestEnv=process.env.NODE_ENV==='test'||Boolean(process.env.NODE_TEST_CONTEXT);
+  const pollMs=Number.isFinite(Number(intervalMs))&&Number(intervalMs)>0?Number(intervalMs):(isTestEnv?3000:20000);
+  const resumeCheckIntervalMs=isTestEnv?0:30000;
+  let stopped=false,running=false,pendingKick=false,lastResumeCheckAt=0;
+  async function run(kicked=false){
     if(stopped)return;
     if(running){pendingKick=true;return;}
     running=true;
     try{
       do{
         pendingKick=false;
-        await resumeTimedOutHumanThreads(pool).catch(()=>{});
+        const now=Date.now();
+        if(!kicked&&(resumeCheckIntervalMs===0||now-lastResumeCheckAt>=resumeCheckIntervalMs)){
+          lastResumeCheckAt=now;
+          await resumeTimedOutHumanThreads(pool).catch(()=>{});
+        }
+        kicked=false;
         for(let i=0;i<12&&!stopped;i++){
           if(!await processAIChat(pool,config))break;
         }
@@ -177,10 +185,10 @@ function startAIChatWorker(pool,config){
       running=false;
     }
   }
-  activeWakeup=()=>void run();
-  const timer=setInterval(run,3000);
+  activeWakeup=()=>void run(true);
+  const timer=setInterval(()=>void run(false),pollMs);
   timer.unref?.();
-  void run();
+  void run(false);
   return()=>{
     stopped=true;
     if(activeWakeup)activeWakeup=null;

@@ -122,6 +122,15 @@ class IpcFanoutHub {
       return { fannedCount };
     }
 
+    if (action === 'BACKGROUND_WORKER_NUDGE' && typeof message.worker === 'string' && message.worker.trim()) {
+      const fannedCount = this.broadcast(
+        { type: 'BACKGROUND_WORKER_NUDGE', worker: message.worker.trim(), timestamp: message.timestamp || Date.now() },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
     if (action === 'REALTIME_SSE_EVENT' && typeof message.channel === 'string' && typeof message.event === 'string') {
       const fannedCount = this.broadcast(
         {

@@ -602,12 +602,13 @@ async function processCareEmailOutbox(pool, config, mailer) {
   return true;
 }
 
-let activeCareNudge = null;
+const { registerWorkerNudge, triggerWorkerNudge } = require('./lib/worker-nudge');
+const CARE_EMAIL_DEFAULT_INTERVAL_MS = () => (process.env.NODE_ENV === 'test' || process.env.NODE_TEST_CONTEXT) ? 4000 : 25000;
 function nudgeCareEmailWorker() {
-  if (typeof activeCareNudge === 'function') setImmediate(activeCareNudge);
+  triggerWorkerNudge('care_email');
 }
 
-function startCareEmailWorker(pool, config, { mailer = null, intervalMs = 4000 } = {}) {
+function startCareEmailWorker(pool, config, { mailer = null, intervalMs = CARE_EMAIL_DEFAULT_INTERVAL_MS() } = {}) {
   const activeMailer = mailer || (config.smtp ? require('nodemailer').createTransport(require('./smtp-security').smtpOptions(config.smtp)) : null);
   let stopped = false, running = false;
   async function run() {
@@ -626,11 +627,11 @@ function startCareEmailWorker(pool, config, { mailer = null, intervalMs = 4000 }
       running = false;
     }
   }
-  activeCareNudge = run;
+  const unregister = registerWorkerNudge('care_email', run);
   const timer = setInterval(run, intervalMs);
   timer.unref?.();
   void run();
-  return () => { stopped = true; if (activeCareNudge === run) activeCareNudge = null; clearInterval(timer); };
+  return () => { stopped = true; unregister(); clearInterval(timer); };
 }
 
 module.exports = {

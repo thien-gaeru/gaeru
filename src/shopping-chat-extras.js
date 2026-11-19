@@ -172,6 +172,9 @@ async function persistChatFile({pool,chatThread,isAdmin,adminActor,requestKey,or
   };
   if (client) await persist(client);
   else await withTransaction(pool, persist); try{require('./realtime-sse').publishChatEvent(chatThread.id,'chat:message',{threadId:chatThread.id,sender:isAdmin?'admin':'customer',body:'Tệp đính kèm: '+safeName,fileId:fileRecord?.id});}catch(_){}
+  if (fileRecord?.compression_status === 'pending') {
+    try { require('./shopping-chat-compression').nudgeChatCompressionWorker?.(); } catch (_) {}
+  }
   if (!isAdmin && chatThread.handling_mode === 'human') {
     try {
       require('./admin-notifications').notifyAdminPushBackground(pool, config, {

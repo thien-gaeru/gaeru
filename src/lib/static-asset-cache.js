@@ -151,7 +151,9 @@ function createStaticAssetMiddleware(projectRoot, publicFiles) {
 
     const encoding = negotiateEncoding(req.headers['accept-encoding'], entry);
     const body = encoding === 'br' ? entry.br : (encoding === 'gzip' ? entry.gzip : entry.raw);
-    const etag = `"${entry.hash12}-${encoding}"`;
+    // Weak ETag preserves RFC 9110 conditional 304 matching while allowing Cloudflare Edge
+    // to apply Brotli/Gzip compression when CDN cache pulls pull raw bytes from origin.
+    const etag = `W/"${entry.hash12}-${encoding}"`;
     const isImmutable =
       HASHED_FILENAME_RE.test(filename) ||
       (typeof req.query?.v === 'string' && req.query.v === entry.hash12);

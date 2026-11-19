@@ -47,11 +47,13 @@ async function processChatEmail(pool,config,mailer){
   }catch(error){const state=failureStatus(error,job.attempts);const delaySec=retryDelaySeconds(job.attempts);await pool.query("UPDATE shopping_chat_email_outbox SET status=$2,next_attempt_at=now()+($4::text||' seconds')::interval,finished_at=CASE WHEN $2='pending' THEN NULL ELSE now() END,result=$3 WHERE id=$1 AND status='sending'",[job.id,state,state==='pending'?'Chờ thử lại kết nối SMTP':state==='failed'?'SMTP từ chối hoặc đã hết số lần thử kết nối':'Không xác định kết quả SMTP; không tự gửi trùng',delaySec]);}
   return true;
 }
-function startChatEmailWorker(pool,config){
+const {registerWorkerNudge,triggerWorkerNudge}=require('./lib/worker-nudge');
+const CHAT_EMAIL_DEFAULT_INTERVAL_MS = () => (process.env.NODE_ENV === 'test' || process.env.NODE_TEST_CONTEXT) ? 4000 : 25000;
+function startChatEmailWorker(pool,config,{intervalMs=CHAT_EMAIL_DEFAULT_INTERVAL_MS()}={}){
   const mailer=config.smtp?require('nodemailer').createTransport(require('./smtp-security').smtpOptions(config.smtp)):null;
   let running=false,stopped=false;
   async function run(){if(running||stopped)return;running=true;try{for(let i=0;i<10&&!stopped;i++){if(!await processChatEmail(pool,config,mailer))break;}}catch{console.error('Chat email queue temporarily unavailable');}finally{running=false;}}
-  activeChatNudge=run;const timer=setInterval(run,4000);timer.unref?.();void run();return()=>{stopped=true;if(activeChatNudge===run)activeChatNudge=null;clearInterval(timer);};
+  const unregister=registerWorkerNudge('chat_email',run,{delayMs:80});const timer=setInterval(run,intervalMs);timer.unref?.();void run();return()=>{stopped=true;unregister();clearInterval(timer);};
 }
-let activeChatNudge=null;function nudgeChatEmailWorker(){if(typeof activeChatNudge==="function")setImmediate(()=>setTimeout(activeChatNudge,80).unref?.());}
+function nudgeChatEmailWorker(){triggerWorkerNudge('chat_email');}
 module.exports={recipients,mountEmailPreferences,processChatEmail,startChatEmailWorker,nudgeChatEmailWorker};
