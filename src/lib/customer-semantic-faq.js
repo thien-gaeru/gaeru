@@ -23,12 +23,22 @@ const CUSTOMER_SEMANTIC_FAQS = Object.freeze([
   },
   {
     key: 'faq_android_camera_app',
-    text: 'Điện thoại Android OPPO Realme Redmi Xiaomi vivo cắm mic không thu tiếng trong app camera mặc định có sẵn trên máy có cần tải app không',
+    text: 'Điện thoại Android OPPO Realme Redmi Xiaomi Samsung dòng A M vivo cắm mic không thu tiếng trong app máy ảnh cam thường mặc định có cần tải app TikTok CapCut Ulike WutaCam VutaCam B612 Open Camera không',
     answer:
-      '**Lưu ý quan trọng khi dùng micro GAERU trên điện thoại Android:**\n' +
-      '- Micro GAERU **không cần ghép Bluetooth hay cài app điều khiển riêng của micro**.\n' +
-      '- Tuy nhiên, trên một số dòng Android (**OPPO, Realme, Redmi/Xiaomi, vivo…**), ứng dụng **Camera cài sẵn** mặc định chỉ thu bằng micro tích hợp của máy.\n' +
-      '- **Cách khắc phục:** Bật **Kết nối OTG** trong Cài đặt (nếu máy yêu cầu), sau đó quay bằng **ứng dụng tải từ kho ứng dụng** như **Open Camera** (vào *Cài đặt video → Nguồn âm thanh → Micro ngoài*), **Blackmagic Camera**, hoặc quay trực tiếp trong **TikTok / CapCut / Facebook**.'
+      '**Lưu ý sử dụng micro GAERU trên điện thoại Android:**\n' +
+      '1. **Bật OTG (OPPO, vivo, Realme/Redmi…):** Vào **Cài đặt → ô tìm kiếm → gõ `"OTG"` → chọn `"Kết nối OTG"` → kích hoạt mở lên** (hoặc tìm YouTube *"hướng dẫn mở OTG"*).\n' +
+      '2. **Máy Android không có OTG hoặc Samsung:** Cần kích hoạt **"Gỡ lỗi USB"** trước khi sử dụng (tìm video *"Hướng dẫn mở gỡ lỗi usb"* trên TikTok / YouTube / Google).\n' +
+      '3. **Chọn app Camera quay video (OPPO, Realme/Redmi, Samsung dòng A/M & một số máy Trung Quốc):** App **"Máy ảnh" (cam thường)** mặc định chỉ dùng mic có sẵn của điện thoại, không nhận mic ngoài — bạn hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).\n' +
+      '- Chưa rõ bước nào hãy gọi trực tiếp **082 919 1080** để shop hướng dẫn ngay nhé!'
+  },
+  {
+    key: 'faq_android_otg_usb_debug',
+    text: 'Cách mở bật kích hoạt OTG trên OPPO vivo Realme Redmi máy Android không có OTG hoặc Samsung bật gỡ lỗi USB trước khi sử dụng tìm video hướng dẫn mở gỡ lỗi usb',
+    answer:
+      '**Hướng dẫn nhanh bật OTG & Gỡ lỗi USB trên Android:**\n' +
+      '- **OPPO, vivo, Realme/Redmi… (có OTG):** Vào **Cài đặt điện thoại → ô tìm kiếm → gõ `"OTG"` → chọn `"Kết nối OTG"` → kích hoạt mở lên** (hoặc tìm YouTube *"hướng dẫn mở OTG"*).\n' +
+      '- **Máy Android không có OTG hoặc Samsung:** Cần kích hoạt **"Gỡ lỗi USB"** trong *Tùy chọn nhà phát triển* trước khi sử dụng (xem video hướng dẫn trên TikTok / YouTube / Google với từ khóa *"Hướng dẫn mở gỡ lỗi usb"*, và đảm bảo mục *Tắt định tuyến âm thanh USB* đang TẮT).\n' +
+      '- **Chú ý:** Với **OPPO, Realme/Redmi, Samsung dòng A/M** & máy Trung Quốc, hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*) thay cho app Máy ảnh (cam thường). Cần hỗ trợ trực tiếp gọi **082 919 1080**!'
   },
   {
     key: 'faq_cod_inspect',

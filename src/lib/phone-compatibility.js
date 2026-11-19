@@ -83,7 +83,7 @@ const BRAND_PROFILES = Object.freeze([
     ],
     latestSummary: 'Galaxy S25 / S26 series, Z Fold 7 / Z Flip 7, Galaxy A56 / A36 / A26 / A16–A17',
     portNote: 'Tất cả dòng Galaxy hiện đại từ S8, A/M series (từ 2020–2026) đến Z Fold 7 / Flip 7 đều dùng cổng **USB Type-C** (chỉ các dòng cũ như J7 Prime, J7 Pro, A10s, A03 Core dùng **Micro-USB**).',
-    osTip: 'Máy Samsung tự động nhận OTG & micro Type-C (cắm là dùng). Nếu app Camera mặc định chỉ dùng mic máy, chuyển sang chế độ **Video Chuyên Nghiệp (Pro Video) → Mic: USB**, hoặc quay bằng **TikTok / CapCut / Open Camera**.'
+    osTip: '**Lưu ý quan trọng trên Samsung:** Cần kích hoạt **"Gỡ lỗi USB" (USB Debugging)** trước khi sử dụng (*Cài đặt → Thông tin điện thoại → Thông tin phần mềm → chạm 7 lần Số hiệu bản tạo → Cài đặt cho người phát triển → bật Gỡ lỗi USB*, hoặc tìm video *"Hướng dẫn mở gỡ lỗi usb"* trên TikTok/YouTube/Google). Đặc biệt trên **Samsung dòng A, dòng M**, app **"Máy ảnh" (cam thường)** mặc định chỉ dùng mic điện thoại — bạn hãy quay bằng các app camera như **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (trên dòng S/Fold có thể chọn *Video Chuyên Nghiệp → Mic: USB*).'
   },
   {
     id: 'oppo',
@@ -100,7 +100,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['oppo a3s', 'a3s', 'oppo a5s', 'a5s', 'a1k', 'oppo a12', 'oppo a15', 'a15s', 'a16k', 'oppo f7', 'oppo f9', 'oppo f11'],
     latestSummary: 'OPPO Find X9 / X10, Find N5, Reno13 / Reno14 / Reno15 / Reno16, OPPO A5 / A6 Pro / A60',
     portNote: 'Các dòng OPPO mới (Reno, Find X/N, A3/A5/A60 trở lên) dùng cổng **USB Type-C** (chỉ các máy cũ như A3s, A5s, A12, A15, F7/F9/F11 dùng **Micro-USB**).',
-    osTip: '**Lưu ý quan trọng trên OPPO (ColorOS):** Vào **Cài đặt → Cài đặt bổ sung / Cài đặt hệ thống → bật Kết nối OTG** trước khi cắm đầu thu (OTG tự tắt sau 10 phút nếu không dùng). App **Camera cài sẵn** trên nhiều máy OPPO chỉ dùng micro tích hợp của máy, nên bạn hãy quay bằng **ứng dụng tải từ kho ứng dụng** (như **Open Camera** chọn *Nguồn âm: Micro ngoài*, hoặc quay trực tiếp trên **TikTok / CapCut / Facebook**).'
+    osTip: '**Lưu ý quan trọng trên OPPO (ColorOS):** Vào **Cài đặt → ô tìm kiếm gõ `"OTG"` → chọn `"Kết nối OTG"` → bật lên** (hoặc tìm YouTube *"hướng dẫn mở OTG"*; OTG tự tắt sau 10 phút nếu không dùng). App **"Máy ảnh" (cam thường)** trên OPPO chỉ dùng mic điện thoại, bạn hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).'
   },
   {
     id: 'realme',
@@ -116,7 +116,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['realme c11', 'realme c12', 'realme c15', 'realme c20', 'realme c21', 'c21y', 'c25s', 'realme c30', 'c30s', 'realme c31', 'realme c33'],
     latestSummary: 'Realme GT 7 / GT 8, Realme 14 / 15 / 16 Pro, Realme C65 / C75 / Note 60–70',
     portNote: 'Các dòng Realme hiện đại dùng cổng **USB Type-C** (một số dòng phổ thông đời cũ như C11, C21Y, C30s, C33 dùng **Micro-USB**).',
-    osTip: '**Lưu ý trên Realme UI:** Vào **Cài đặt → Cài đặt bổ sung → bật Kết nối OTG** trước khi cắm đầu thu. App **Camera cài sẵn** thường chỉ thu bằng micro có sẵn của điện thoại, nên hãy dùng **app tải từ kho ứng dụng** (như **Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**) để nhận micro rời.'
+    osTip: '**Lưu ý trên Realme UI:** Vào **Cài đặt → ô tìm kiếm gõ `"OTG"` → bật `"Kết nối OTG"`** trước khi cắm đầu thu. App **"Máy ảnh" (cam thường)** chỉ thu bằng mic có sẵn của điện thoại, nên bạn hãy dùng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*) để nhận micro rời.'
   },
   {
     id: 'oneplus',
@@ -127,7 +127,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: [],
     latestSummary: 'OnePlus 13 / 15, OnePlus Open, Nord 4 / 5, Ace 5',
     portNote: 'Toàn bộ dòng OnePlus đời mới đều sử dụng cổng **USB Type-C**.',
-    osTip: 'Cắm trực tiếp đầu thu Type-C; nếu đầu thu chưa sáng đèn trên OxygenOS, vào **Cài đặt → Cài đặt bổ sung → bật Kết nối OTG**. Nếu app Camera cài sẵn vẫn thu mic máy, quay qua **Open Camera** (*Micro ngoài*), **TikTok** hoặc **CapCut**.'
+    osTip: 'Cắm trực tiếp đầu thu Type-C; nếu đầu thu chưa sáng đèn trên OxygenOS, vào **Cài đặt → gõ `"OTG"` → bật Kết nối OTG**. Nếu app Máy ảnh mặc định vẫn thu mic máy, quay qua **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).'
   },
   {
     id: 'vivo',
@@ -145,7 +145,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['vivo y11', 'vivo y12', 'y12s', 'vivo y15', 'y15s', 'vivo y17', 'vivo y19', 'vivo y20', 'y20s', 'vivo y91'],
     latestSummary: 'vivo X200 / X300 Ultra, V40 / V50 / V60, Y19s / Y28 / Y29 / Y31d, iQOO 13 / 15 / Neo 10',
     portNote: 'Các dòng vivo V/X/T, Y mới (Y18/Y19s/Y28/Y29/Y31d) và iQOO dùng **USB Type-C** (các mẫu vivo cũ như Y11, Y12, Y15, Y20 dùng **Micro-USB**).',
-    osTip: '**Lưu ý trên vivo (Funtouch OS / OriginOS):** Nếu cắm chưa sáng đèn, vào **Cài đặt → Bluetooth & thiết bị (hoặc Mạng & kết nối khác) → bật OTG** (OTG tự tắt sau 5 phút nếu không kết nối). Nếu app Camera gốc chỉ thu mic điện thoại, hãy quay bằng **app tải từ kho ứng dụng** (**Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**).'
+    osTip: '**Lưu ý trên vivo (Funtouch OS / OriginOS):** Vào **Cài đặt → gõ `"OTG"` → bật Kết nối OTG** (hoặc *Bluetooth & thiết bị → OTG*; tự tắt sau 5 phút nếu không cắm). Nếu app Máy ảnh gốc chỉ thu mic điện thoại, hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).'
   },
   {
     id: 'xiaomi',
@@ -162,7 +162,7 @@ const BRAND_PROFILES = Object.freeze([
     legacyMicroUsbModels: ['redmi 9a', 'redmi 9c', 'redmi 10a', 'redmi a1', 'redmi a2', 'redmi s2', 'redmi note 5', 'redmi note 6'],
     latestSummary: 'Xiaomi 15 / 17 / 18 series, 14T / 15T, Redmi Note 13–15, Redmi 13–15 / A3–A5, POCO X7 / F7 / F8',
     portNote: 'Các dòng Xiaomi, Redmi (từ Note 7, Redmi 9, A3/A5, 13–15 trở lên) và POCO đều dùng **USB Type-C** (chỉ dòng giá rẻ cũ như Redmi 9A, 9C, 10A, A1, A2 dùng **Micro-USB**).',
-    osTip: '**Lưu ý trên Xiaomi / Redmi (HyperOS / MIUI):** Máy tự nhận OTG khi cắm, nhưng app **Camera cài sẵn** trên nhiều máy Redmi/Xiaomi chỉ dùng mic tích hợp của máy. Để thu tiếng từ mic ngoài, bạn hãy quay bằng **ứng dụng tải từ kho ứng dụng** như **Open Camera** (chọn *Nguồn âm thanh: Micro ngoài*), **TikTok**, **CapCut**; nếu ROM nội địa chưa cấp quyền USB, bật thêm **Gỡ lỗi USB** trong *Tùy chọn nhà phát triển* (tắt mục *Tắt định tuyến âm thanh USB*).'
+    osTip: '**Lưu ý trên Xiaomi / Redmi (HyperOS / MIUI):** Nếu máy có mục OTG hãy bật trong *Cài đặt → gõ `"OTG"`*; nếu máy không có OTG hãy bật **Gỡ lỗi USB** trong *Tùy chọn nhà phát triển* (tắt mục *Tắt định tuyến âm thanh USB*). App **"Máy ảnh" (cam thường)** trên nhiều máy Redmi/Xiaomi chỉ dùng mic của máy — bạn hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).'
   },
   {
     id: 'honor',
@@ -488,7 +488,10 @@ function buildPhoneDirectorySummary() {
     '- **Máy tính bảng Android & Surface:** **Galaxy Tab S6–S11 / A7–A9+**, **Xiaomi/Redmi/POCO Pad**, **OPPO Pad / OnePlus Pad**, **vivo Pad**, **Huawei MatePad**, **HONOR Pad**, **Lenovo Tab mới**, **Surface Pro 7+–11 / Go 2–4** dùng **USB Type-C** (máy bảng cũ trước 2019 dùng **Micro-USB**; Surface Pro 4–6 dùng **USB-A**).',
     '- **Laptop & PC (Máy tính để bàn):** **MacBook (2016+ & M1–M5), iMac M1–M4, Mac mini M4** dùng **USB Type-C** trực tiếp; **Laptop Windows phổ thông/cũ, MacBook trước 2017 & PC để bàn** dùng cổng chữ nhật **USB-A** → chọn phân loại **Type C + chuyển USB**.',
     '- **Điện thoại Android phổ thông đời cũ (Micro-USB):** Samsung J7 Prime / A10s, OPPO A3s / A12 / A15, Redmi 9A / 9C / 10A, vivo Y11 / Y12 / Y20 → chọn bản **Type C + chuyển Micro USB**.',
-    '- **Lưu ý hệ điều hành & ứng dụng quay:** Các máy **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** nhớ bật **Kết nối OTG**. Đặc biệt trên một số máy Android (**OPPO, Realme, Redmi/Xiaomi, vivo…**), **app Camera cài sẵn của máy mặc định chỉ thu bằng mic tích hợp trên điện thoại** nên bạn cần quay bằng **app tải từ kho ứng dụng** (như **Open Camera** chọn *Nguồn âm: Micro ngoài*, **TikTok**, **CapCut**, **Facebook**). Trên **iOS 18+** kiểm tra chọn **mic gắn ngoài** trong Trung tâm điều khiển (**iOS dưới 18 không cần chọn thủ công**).'
+    '- **Lưu ý hệ điều hành & ứng dụng quay:**\n' +
+    '  1. Máy **OPPO, vivo, Realme/Redmi, OnePlus, Tecno, Infinix:** vào *Cài đặt → ô tìm kiếm gõ `"OTG"` → bật Kết nối OTG* (hoặc tìm YouTube *"hướng dẫn mở OTG"*).\n' +
+    '  2. Máy Android **không có mục OTG hoặc Samsung:** cần bật **"Gỡ lỗi USB"** trong *Tùy chọn nhà phát triển* trước khi sử dụng (tìm *"Hướng dẫn mở gỡ lỗi usb"* trên TikTok/YouTube/Google).\n' +
+    '  3. Máy **OPPO, Realme/Redmi, Samsung dòng A/M** và một số máy Trung Quốc: app **"Máy ảnh" (cam thường)** chỉ thu bằng mic có sẵn của máy → hãy quay qua **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*). Trên **iOS 18+** chọn **mic gắn ngoài** trong Trung tâm điều khiển (**iOS dưới 18** tự nhận).'
   ].join('\n');
 }
 
@@ -582,7 +585,12 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
       sections.push('- Điện thoại / tablet Android đời cũ cổng **Micro-USB** (Samsung J7, OPPO A3s/A12, Redmi 9A/9C, vivo Y11/Y12…): chọn phân loại **Type C + chuyển Micro USB** trên **GAERU K9** và **GAERU M3**.');
     } else if (!asksOtgTopic) {
       portsFound.add(PORT_TYPES.TYPE_C);
-      sections.push('- **Android:** Các dòng hiện đại dùng cổng **USB Type-C**; riêng **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** cần vào **Cài đặt → bật Kết nối OTG** trước khi cắm đầu thu. *Lưu ý:* Trên một số máy Android (**OPPO, Realme, Redmi/Xiaomi, vivo…**), ứng dụng **Camera cài sẵn** mặc định chỉ thu bằng mic có sẵn của máy nên bạn hãy quay qua **app tải từ kho ứng dụng** (như **Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**, **Facebook**) để dùng micro rời.');
+      sections.push(
+        '- **Android:** Các dòng hiện đại dùng cổng **USB Type-C**.\n' +
+        '  1. **OPPO, vivo, Realme/Redmi, OnePlus, Tecno, Infinix:** vào *Cài đặt → ô tìm kiếm gõ `"OTG"` → bật Kết nối OTG* (hoặc tìm YouTube *"hướng dẫn mở OTG"*).\n' +
+        '  2. **Máy Android không có OTG hoặc Samsung:** cần kích hoạt **"Gỡ lỗi USB"** trước khi sử dụng (tìm *"Hướng dẫn mở gỡ lỗi usb"* trên TikTok/YouTube/Google).\n' +
+        '  3. **Chú ý app quay (OPPO, Realme/Redmi, Samsung dòng A/M & một số máy Trung Quốc):** App **"Máy ảnh" (cam thường)** chỉ thu bằng mic điện thoại — hãy dùng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*). Cần hướng dẫn trực tiếp gọi **082 919 1080** nhé!'
+      );
     }
   }
 
@@ -630,10 +638,10 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
     sections.push('- Các dòng micro GAERU (**K9**, **M3**, **G1 ULTRA**) đều tích hợp xử lý giảm ồn **DSP / AI** + bông lọc gió giúp lọc tạp âm, gió và tiếng ồn môi trường.');
   }
 
-  const asksAppCompat = hasAnyBoundaryTerm(qNorm, ['tiktok', 'capcut', 'facebook', 'youtube', 'zoom', 'shopee', 'obs', 'app', 'open camera']) ||
+  const asksAppCompat = hasAnyBoundaryTerm(qNorm, ['tiktok', 'capcut', 'ulike', 'vutacam', 'wutacam', 'b612', 'facebook', 'youtube', 'zoom', 'shopee', 'obs', 'app', 'open camera', 'cam thuong', 'may anh mac dinh']) ||
     (hasAnyBoundaryTerm(qNorm, ['livestream']) && hasAnyBoundaryTerm(qNorm, ['dung duoc', 'tuong thich', 'ho tro', 'ket noi']) && !hasAnyBoundaryTerm(qNorm, ['thiet bi']));
   if (asksAppCompat && sections.length === 0) {
-    sections.push('- Thiết bị GAERU tương thích trực tiếp với **TikTok, CapCut, Facebook Live, YouTube, Shopee Live, Zoom, OBS Studio** (cắm đầu thu vào máy là dùng ngay, không cần ghép Bluetooth để thu tiếng).');
+    sections.push('- Thiết bị GAERU tương thích tốt với các ứng dụng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612, Open Camera (*Micro ngoài*), Facebook Live, YouTube, Shopee Live, Zoom, OBS Studio** (không cần ghép Bluetooth). *Lưu ý:* Trên **OPPO, Realme/Redmi, Samsung dòng A/M** và một số máy Trung Quốc, app **"Máy ảnh" (cam thường)** mặc định chỉ thu mic máy nên hãy dùng các app camera trên (cần hỗ trợ gọi **082 919 1080**).');
   }
 
   if (sections.length === 0 && hasAnyBoundaryTerm(qNorm, ['huong dan ket noi', 'ket noi thiet bi', 'cach ket noi', 'cach cam', 'su dung mic'])) {
@@ -647,9 +655,12 @@ function buildComprehensiveCompatibilityAnswer(space, rawQuestion, matchedProdKe
     sections.push(
       `**Hướng dẫn kết nối nhanh thiết bị GAERU${prodTag} theo từng dòng máy:**\n` +
       '- **iPhone / iPad:** iPhone 14 trở xuống dùng **Lightning**, iPhone 15–18 / iPad cổng vuông dùng **Type-C**. Trên **iOS 18+**, mở *Trung tâm điều khiển → Micrô → Đầu vào* chọn mic gắn ngoài; **iOS dưới 18** cắm là nhận tự động.\n' +
-      '- **Android & Máy tính bảng:** Cổng **Type-C** (hoặc **Micro-USB** máy cũ). Riêng **OPPO, Realme, Vivo, OnePlus, Tecno, Infinix** vào *Cài đặt → bật Kết nối OTG*. *Lưu ý:* Trên nhiều máy Android (**OPPO, Realme, Redmi/Xiaomi, vivo…**), **app Camera cài sẵn** chỉ thu bằng mic tích hợp của máy nên bạn cần dùng **app tải từ kho ứng dụng** (như **Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**) để thu âm từ mic rời; nếu chưa nhận tiếng hãy bật thêm *Gỡ lỗi USB* và tắt *Tắt định tuyến âm thanh USB*.\n' +
+      '- **Android (OTG & Gỡ lỗi USB):** Cổng **Type-C** (hoặc **Micro-USB** máy cũ).\n' +
+      '  • **OPPO, vivo, Realme/Redmi, OnePlus, Tecno, Infinix:** vào *Cài đặt → ô tìm kiếm gõ `"OTG"` → bật Kết nối OTG* (hoặc tìm YouTube *"hướng dẫn mở OTG"*).\n' +
+      '  • **Máy Android không có OTG hoặc Samsung:** kích hoạt **"Gỡ lỗi USB"** trước khi sử dụng (tìm *"Hướng dẫn mở gỡ lỗi usb"* trên TikTok/YouTube/Google và đảm bảo *Tắt định tuyến âm thanh USB* đang TẮT).\n' +
+      '  • **Chú ý app quay (OPPO, Realme/Redmi, Samsung dòng A/M & một số máy Trung Quốc):** App **"Máy ảnh" (cam thường)** mặc định chỉ dùng mic điện thoại → hãy quay qua **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).\n' +
       '- **Laptop / PC & Máy ảnh:** Laptop/PC dùng cổng **Type-C** hoặc **Type C + chuyển USB (USB-A)**; máy ảnh / GoPro ngõ `3.5mm TRS` dùng **GAERU G1 ULTRA**.\n' +
-      'Bạn đang dùng máy nào để mình gửi đúng hướng dẫn chi tiết theo dòng máy đó nhé?'
+      'Bạn đang dùng máy nào để mình gửi đúng hướng dẫn chi tiết (hoặc gọi trực tiếp **082 919 1080** nếu cần shop hướng dẫn từng bước)?'
     );
   }
 

@@ -136,11 +136,23 @@ test('P0-2: Screenshot bugs fixed (guide on M3, meta-complaints, thanks false-po
   assert.equal(Boolean(vatRes.isFallback), false);
   assert.match(vatRes.answer, /không hỗ trợ xuất hóa đơn VAT/i);
 
-  // 6. User directive #2: K9 no longer claims universal "(Plug & Play, không cần app/Bluetooth)" and explains Android camera app
+  // 6. User directive #2 + official GAERU Android insert: K9 explains OTG, Samsung USB Debugging, and third-party camera apps (TikTok/CapCut/Ulike/WutaCam/B612/Open Camera)
   const k9Res = await generateGaeruAiResponse({ question: 'k9', catalog: FULL_CATALOG });
   assert.ok(!k9Res.answer.includes('Plug & Play, không cần app/Bluetooth'));
   assert.match(k9Res.answer, /OPPO|Realme|Redmi/i);
-  assert.match(k9Res.answer, /Camera cài sẵn|ứng dụng tải từ kho ứng dụng|Open Camera/i);
+  assert.match(k9Res.answer, /Gỡ lỗi USB/i);
+  assert.match(k9Res.answer, /Ulike|WutaCam|B612|Open Camera/i);
+
+  // 6b. Official GAERU sheet: Samsung A/M series + non-OTG Android need Gỡ lỗi USB & third-party camera apps
+  const samsungARes = await generateGaeruAiResponse({ question: 'Samsung A55 quay bằng cam thường không nhận mic ngoài', catalog: FULL_CATALOG });
+  assert.match(samsungARes.answer, /Gỡ lỗi USB/i);
+  assert.match(samsungARes.answer, /dòng A|dòng M/i);
+  assert.match(samsungARes.answer, /Ulike|WutaCam|B612/i);
+
+  const guideK9Res = await generateGaeruAiResponse({ question: 'cách dùng k9', catalog: FULL_CATALOG });
+  assert.match(guideK9Res.answer, /Gỡ lỗi USB/i);
+  assert.match(guideK9Res.answer, /Ulike|WutaCam|B612/i);
+  assert.ok(guideK9Res.answer.includes('082 919 1080'));
 
   // 7. Hotline & store address never leak account.html password reset form
   const hotlineRes = await generateGaeruAiResponse({ question: 'số điện thoại hotline shop là gì', catalog: FULL_CATALOG });

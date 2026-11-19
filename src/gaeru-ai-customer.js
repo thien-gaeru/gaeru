@@ -57,24 +57,24 @@ const PRODUCT_SPECS = Object.freeze({
   'gaeru-k9': {
     name: 'GAERU K9',
     kind: 'mic',
-    role: 'Micro thu âm cài áo không dây nhỏ gọn (~7g), **không cần ghép Bluetooth hay cài app điều khiển riêng của micro**. *(Lưu ý: Một số máy Android như OPPO, Realme, Redmi/Xiaomi, vivo… app Camera cài sẵn mặc định chỉ dùng mic của máy nên cần bật OTG nếu máy yêu cầu và quay bằng ứng dụng tải từ kho ứng dụng như **Open Camera** chọn Micro ngoài, **TikTok** hoặc **CapCut**).*',
+    role: 'Micro thu âm cài áo không dây nhỏ gọn (~7g), **không cần ghép Bluetooth hay cài app điều khiển riêng của micro** *(xem lưu ý bật OTG / Gỡ lỗi USB & chọn app quay trên một số dòng Android bên dưới)*.',
     audio: 'Thu đa hướng 360°, tần số 2.4GHz độ trễ < 15ms, chip DSP lọc ồn + bông lọc gió.',
     battery: 'Pin micro dùng liên tục khoảng **2,5 giờ**, sạc qua cổng Type-C (củ sạc **5V/1A**; sạc đầy tham khảo khoảng **1–1,5 giờ**).',
     range: 'Phạm vi thu ổn định lên đến **20 mét** (môi trường mở, tầm nhìn thẳng).',
     variantsGuide: 'Có phân loại bộ **1 Micro** / **2 Micro**, chân cắm **Lightning**, **Type-C**, hoặc **Type-C kèm đầu chuyển (Lightning / Micro-USB / USB-A)**.',
-    compatibility: 'Tương thích trực tiếp **iPhone 15 / 16 / 17 / 18**, **iPad / Android / MacBook Type-C** (bản **Type-C**), **iPhone 14 trở xuống & iPad Lightning** (bản **Lightning**), máy Android cũ (bản **Type-C + chuyển Micro-USB**) và **Laptop/PC Windows** (bản **Type-C + chuyển USB-A**). *Lưu ý:* Một số máy Android (**OPPO, Realme, Redmi/Xiaomi, vivo…**) cần bật OTG (nếu máy yêu cầu) và quay bằng app tải từ kho ứng dụng (**Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**) vì app Camera cài sẵn chỉ thu mic của điện thoại.',
+    compatibility: 'Tương thích **iPhone 15–18 / iPad / Android / MacBook Type-C** (bản **Type-C**), **iPhone 14 trở xuống & iPad Lightning** (bản **Lightning**), máy Android cũ (bản **+ chuyển Micro-USB**) và **Laptop/PC Windows** (bản **+ chuyển USB-A**). *Lưu ý Android:* Máy **OPPO, vivo, Realme/Redmi…** vào *Cài đặt → gõ `"OTG"` → bật Kết nối OTG*; máy Android không có OTG hoặc **Samsung** bật **Gỡ lỗi USB**; trên **OPPO, Realme/Redmi, Samsung dòng A/M** & một số máy Trung Quốc, app **"Máy ảnh" (cam thường)** chỉ dùng mic máy nên hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).',
     fit: 'quay TikTok/Vlog cơ bản, livestream bán hàng, dạy học online, phỏng vấn 2 người tiết kiệm chi phí',
     defaultPrice: 'Từ 289.000 ₫'
   },
   'gaeru-m3': {
     name: 'GAERU M3',
     kind: 'mic',
-    role: 'Bộ micro thu âm cài áo không dây (2 mic + 1 đầu thu Type-C + hộp sạc hiển thị % pin), **không cần ghép Bluetooth**. *(Lưu ý: Trên một số máy Android như OPPO, Realme, Redmi/Xiaomi, vivo…, app Camera cài sẵn chỉ dùng mic điện thoại nên cần bật OTG nếu máy yêu cầu và quay qua app tải từ kho ứng dụng như **Open Camera** / **TikTok** / **CapCut**).*',
+    role: 'Bộ micro thu âm cài áo không dây (2 mic + 1 đầu thu Type-C + hộp sạc hiển thị % pin), **không cần ghép Bluetooth** *(xem lưu ý bật OTG / Gỡ lỗi USB & app quay trên một số dòng Android bên dưới)*.',
     audio: 'Thu đa hướng 360°, chất lượng **24-bit / 48kHz**, SNR 100 dB, Max SPL 120 dB, giảm ồn AI thông minh + tự động cân bằng âm lượng.',
     battery: 'Một bộ phát dùng tới **3,5 giờ** liên tục; tổng thời lượng tới **24 giờ** khi luân phiên 2 mic cùng hộp sạc **500 mAh** (sạc hộp bằng nguồn chuẩn **5V/1A – 5V/2A**, đầy tham khảo khoảng **1,5–2 giờ** tùy củ sạc; tránh sạc siêu nhanh công suất quá cao).',
     range: 'Khoảng cách truyền lên đến **20 mét** trong môi trường mở không vật cản.',
     variantsGuide: 'Bộ **2 Micro + hộp sạc**, đầu thu **Type-C** kèm tùy chọn **đầu chuyển Lightning**, **chuyển Micro-USB** hoặc **chuyển USB-A**.',
-    compatibility: 'Tương thích trực tiếp thiết bị cổng **Type-C** (**iPhone 15–18, Android mới, iPad / Tablet Type-C, MacBook / Laptop USB-C**); có sẵn phân loại kèm **đầu chuyển Lightning** (iPhone 14 trở xuống), **Micro-USB** (máy cũ) và **chuyển USB (USB-A)** cho **PC / Laptop Windows**. *Lưu ý Android:* Một số máy (**OPPO, Realme, Redmi/Xiaomi, vivo…**) app Camera gốc chỉ dùng mic máy nên hãy bật OTG và quay bằng app tải từ kho ứng dụng (**Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**).',
+    compatibility: 'Tương thích trực tiếp thiết bị cổng **Type-C** (**iPhone 15–18, Android mới, iPad / Tablet Type-C, MacBook / Laptop USB-C**); có sẵn phân loại kèm **đầu chuyển Lightning** (iPhone 14 trở xuống), **Micro-USB** (máy cũ) và **chuyển USB (USB-A)** cho **PC / Laptop Windows**. *Lưu ý Android:* Máy **OPPO, vivo, Realme/Redmi…** bật **Kết nối OTG**; máy Android không có OTG hoặc **Samsung** bật **Gỡ lỗi USB**; trên **OPPO, Realme/Redmi, Samsung dòng A/M** & một số máy Trung Quốc, app **"Máy ảnh" (cam thường)** chỉ dùng mic điện thoại nên hãy quay qua **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).',
     fit: 'vlog, livestream nhiều giờ, phỏng vấn 2 người cần pin lâu và kiểm soát % pin',
     defaultPrice: '1.200.000 ₫'
   },
@@ -514,7 +514,7 @@ const DEVICE_COMPAT_TERMS = Object.freeze(Array.from(new Set([
   'vua sac vua dung', 'vua sac vua live', 'vua sac vua quay', 'cong chia', 'cap chia', 'hub chia', 'splitter',
   'nghe lai video', 'phat lai video', 'nghe loa ngoai', 'khong nghe thay loa', 'cam vao bi mat loa',
   'gopro', 'media mod', 'dji osmo', 'osmo pocket', 'osmo action', 'action cam', 'zv e10', 'zv-e10', 'zv1', 'zv-1', 'trs', 'trrs', 'canon', 'fujifilm', 'nikon',
-  'may tinh bang', 'tablet', 'mtb', 'may anh', 'camera', 'tiktok', 'capcut', 'zoom', 'obs', 'open camera',
+  'may tinh bang', 'tablet', 'mtb', 'may anh', 'camera', 'tiktok', 'capcut', 'ulike', 'vutacam', 'wutacam', 'b612', 'cam thuong', 'may anh mac dinh', 'khong co otg', 'zoom', 'obs', 'open camera',
   'cac loai dien thoai', 'cac dong dien thoai', 'cac hang dien thoai', 'tat ca dien thoai', 'dien thoai nao dung', 'hang dien thoai nao',
   'tat ca thiet bi', 'nhung thiet bi nao', 'cac thiet bi ho tro',
   ...BRAND_PROFILES.flatMap(b => b.triggers),
@@ -567,11 +567,15 @@ function buildProductGuideAnswer({ slug, displayName, space }) {
     );
   }
 
-  // 4. General step-by-step usage guide from src/product-guides.js
+  // 4. General step-by-step usage guide from src/product-guides.js + official GAERU Android insert notes
   if (guide && Array.isArray(guide.steps) && guide.steps.length) {
     const stepLines = guide.steps.slice(0, 5).map(([title, text], idx) => `${idx + 1}. **${title}:** ${text}`);
     const androidNote = ['gaeru-k9', 'gaeru-m3', 'gaeru-g1-ultra'].includes(slug)
-      ? '\n- **Lưu ý điện thoại Android:** Một số máy (**OPPO, Realme, Redmi/Xiaomi, vivo…**) cần bật **Kết nối OTG** (nếu máy yêu cầu) và quay bằng **app tải từ kho ứng dụng** (**Open Camera** chọn *Micro ngoài*, **TikTok**, **CapCut**) vì app Camera cài sẵn chỉ dùng mic của điện thoại.'
+      ? '\n**Lưu ý sử dụng quan trọng trên điện thoại Android:**\n' +
+        '- **Bật OTG (OPPO, vivo, Realme/Redmi…):** Vào *Cài đặt → ô tìm kiếm → gõ `"OTG"` → chọn `"Kết nối OTG"` → kích hoạt mở lên* (hoặc tìm YouTube *"hướng dẫn mở OTG"*).\n' +
+        '- **Máy Android không có OTG hoặc Samsung:** Cần kích hoạt **"Gỡ lỗi USB"** trước khi sử dụng (tìm video *"Hướng dẫn mở gỡ lỗi usb"* trên TikTok / YouTube / Google).\n' +
+        '- **Chọn app Camera quay video (OPPO, Realme/Redmi, Samsung dòng A/M & một số máy Trung Quốc):** App **"Máy ảnh" (cam thường)** chỉ dùng mic của điện thoại → hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*).\n' +
+        '- **Cần hướng dẫn trực tiếp:** Chưa rõ bước nào hãy gọi ngay **082 919 1080** để shop hướng dẫn trực tiếp nhé!'
       : '';
     return `**Hướng dẫn sử dụng nhanh ${displayName}:**\n${stepLines.join('\n')}${androidNote}\n- 📖 [Xem đầy đủ hướng dẫn & xử lý lỗi ${displayName}](${guideLink})`;
   }

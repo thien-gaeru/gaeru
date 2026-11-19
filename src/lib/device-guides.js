@@ -286,22 +286,27 @@ function buildOtgGuide(space, matchedBrandIds = []) {
   ]) && targetedIds.length === 0;
 
   if (targetedIds.length > 0 && !asksAllOtg) {
-    const out = ['**Hướng dẫn bật OTG để kết nối micro:**'];
+    const out = [
+      '**Hướng dẫn bật OTG để kết nối micro:**',
+      '- **Cách mở nhanh trên hầu hết máy (OPPO, vivo, Realme/Redmi…):** Vào **Cài đặt điện thoại → Ô tìm kiếm → gõ `"OTG"` → chọn `"Kết nối OTG"` → Kích hoạt mở lên** (hoặc tìm YouTube từ khóa *"hướng dẫn mở OTG"*).'
+    ];
     for (const id of targetedIds) {
       out.push(`- **${OTG_BRAND_STEPS[id].title}:** ${OTG_BRAND_STEPS[id].step}`);
     }
-    out.push('- **Mẹo kiểm tra nhanh:** Tháo ốp lưng dày để chân đầu thu cắm sát nấc → kiểm tra đèn đầu thu RX sáng ổn định → quay thử trên **TikTok / CapCut / Open Camera** (chọn *Nguồn âm thanh: Micro ngoài*).');
+    out.push('- **Lưu ý app quay (OPPO, Realme/Redmi, Samsung dòng A/M & một số máy Trung Quốc):** App **"Máy ảnh" (cam thường)** mặc định chỉ dùng mic điện thoại, không nhận mic ngoài — hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Nguồn âm: Micro ngoài*). Chưa hiểu bước nào, gọi trực tiếp **082 919 1080** để shop hướng dẫn ngay nhé!');
     return out.join('\n');
   }
 
   return [
-    '**Hướng dẫn mở OTG cho từng dòng máy cần bật OTG để nhận micro:**',
+    '**Hướng dẫn mở OTG & thiết lập Android để nhận micro GAERU:**',
+    '- **Cách mở OTG nhanh (OPPO, vivo, Realme/Redmi…):** Vào **Cài đặt điện thoại → Ô tìm kiếm → gõ `"OTG"` → chọn `"Kết nối OTG"` → Kích hoạt mở OTG lên** (hoặc tìm YouTube từ khóa *"hướng dẫn mở OTG"*).',
     `- **${OTG_BRAND_STEPS.oppo.title}:** ${OTG_BRAND_STEPS.oppo.step}`,
     `- **${OTG_BRAND_STEPS.realme.title}:** ${OTG_BRAND_STEPS.realme.step}`,
     `- **${OTG_BRAND_STEPS.oneplus.title}:** ${OTG_BRAND_STEPS.oneplus.step}`,
     `- **${OTG_BRAND_STEPS.vivo.title}:** ${OTG_BRAND_STEPS.vivo.step}`,
     `- **${OTG_BRAND_STEPS.tecno.title} / Infinix:** ${OTG_BRAND_STEPS.tecno.step}`,
-    '- **Nhóm máy TỰ ĐỘNG mở OTG (không có nút gạt riêng):** **Samsung, Xiaomi / Redmi / POCO, HONOR, Huawei, Google Pixel, Nothing, Sony Xperia, ASUS ROG, iPhone/iPad, Laptop/PC** tự cấp nguồn OTG ngay khi cắm sát chân. Nếu vẫn không thu được tiếng mic, kiểm tra mục **Gỡ lỗi USB / Tắt định tuyến âm thanh USB** (Android), thử app **Open Camera** (*Micro ngoài*) hoặc kiểm tra lại chân cắm/ốp lưng.'
+    '- **Máy Android KHÔNG có mục OTG hoặc máy Samsung:** Cần kích hoạt **"Gỡ lỗi USB" (USB Debugging)** trong *Tùy chọn nhà phát triển* trước khi sử dụng (xem video hướng dẫn trên TikTok / YouTube / Google với từ khóa *"Hướng dẫn mở gỡ lỗi usb"*).',
+    '- **Lưu ý app quay (OPPO, Realme/Redmi, Samsung dòng A/M & một số máy Trung Quốc):** App **"Máy ảnh" (cam thường)** mặc định chỉ dùng mic có sẵn của máy — hãy quay qua **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*). Cần hướng dẫn trực tiếp hãy gọi **082 919 1080**!'
   ].join('\n');
 }
 
@@ -357,6 +362,7 @@ function buildUsbDebuggingGuide(space, matchedBrandIds = []) {
   }
 
   lines.push('- **Kiểm tra quan trọng ngay trong Tùy chọn nhà phát triển:** Tìm mục **Tắt định tuyến âm thanh USB (Disable USB audio routing)** và đảm bảo công tắc này **ĐANG TẮT (OFF)** — nếu lỡ gạt bật sẽ bị mất tiếng mic rời. Nếu có *Cấu hình USB mặc định*, chọn *Truyền tệp / MIDI*.');
+  lines.push('- **Mẹo xem video hướng dẫn nhanh:** Tìm từ khóa **`"Hướng dẫn mở gỡ lỗi usb"`** trên **TikTok, YouTube hoặc Google**. Với **OPPO, Realme/Redmi, Samsung dòng A/M** và một số máy Trung Quốc, sau khi bật xong hãy quay bằng **TikTok, CapCut, Ulike, WutaCam (VutaCam), B612** hoặc **Open Camera** (*Micro ngoài*) thay cho app "Máy ảnh" (cam thường). Chưa làm được gọi trực tiếp **082 919 1080** để shop hướng dẫn nhé!');
   lines.push('- *(Lưu ý: **iPhone / iPad / MacBook** không dùng chế độ Gỡ lỗi USB.)*');
   return lines.join('\n');
 }
