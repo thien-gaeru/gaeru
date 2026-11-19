@@ -123,7 +123,7 @@ function loadScriptOnce(src,check){
   });
 }
 async function ensureChatAssets(){
-  loadStylesheetOnce('/shopping-chat.css?v=20261119-gaeru-v19');
+  loadStylesheetOnce('/shopping-chat.css?v=20261119-admin-v2');
   if(!window.GAERUCareLive){
     await loadScriptOnce('/care-live.js?v=20261119-gaeru-v19',()=>Boolean(window.GAERUCareLive)).catch(()=>{});
   }

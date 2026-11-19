@@ -411,9 +411,9 @@ function createInternalAiRouter(pool, config) {
   // Tool 9: Tổng quan CSKH, Tin nhắn chờ & Bảo hành / Đổi trả
   async function toolGetCustomerCareOverview(user) {
     if (!hasReadPermission(user, ['care.read', 'care.write', 'customers.read', 'warranty.read', 'orders.read'])) {
-      return { error: 'Bạn không có quyền xem dữ liệu CSKH và bảo hành.', openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingReturns: 0 };
+      return { error: 'Bạn không có quyền xem dữ liệu CSKH và bảo hành.', openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingWarranties: 0, pendingReturns: 0 };
     }
-    const out = { openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingReturns: 0 };
+    const out = { openChats: 0, awaitingAdminChats: 0, activeWarranties: 0, pendingWarranties: 0, pendingReturns: 0 };
     try {
       const chatRes = await pool.query(`
         SELECT 
@@ -425,8 +425,14 @@ function createInternalAiRouter(pool, config) {
       out.awaitingAdminChats = chatRes.rows[0]?.awaiting_admin || 0;
     } catch (_) {}
     try {
-      const warRes = await pool.query(`SELECT COUNT(*)::int AS total FROM warranty_activations WHERE status = 'active'`);
-      out.activeWarranties = warRes.rows[0]?.total || 0;
+      const warRes = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'active')::int AS active_count,
+          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_count
+        FROM warranty_activations
+      `);
+      out.activeWarranties = warRes.rows[0]?.active_count || 0;
+      out.pendingWarranties = warRes.rows[0]?.pending_count || 0;
     } catch (_) {}
     try {
       const retRes = await pool.query(`SELECT COUNT(*)::int AS total FROM order_after_sales WHERE status NOT IN ('resolved', 'rejected')`);
@@ -976,7 +982,7 @@ Quy tắc cốt lõi:
         out += `**CSKH & Hậu mãi:**\n`;
         out += `- Chat đang mở: **${care.openChats}** (${care.awaitingAdminChats > 0 ? `**${care.awaitingAdminChats}** chờ nhân viên` : 'đã phản hồi đủ'})\n`;
         out += `- Đổi trả / khiếu nại chưa đóng: **${care.pendingReturns}** hồ sơ\n`;
-        out += `- Bảo hành kích hoạt: **${care.activeWarranties}** thiết bị\n\n`;
+        out += `- Bảo hành kích hoạt: **${care.activeWarranties}** thiết bị${care.pendingWarranties > 0 ? ` · Chờ duyệt: **${care.pendingWarranties}** yêu cầu` : ''}\n\n`;
       }
     }
 

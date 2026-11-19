@@ -360,8 +360,8 @@
 /* Floating Copilot Widget Trigger Button */
 .floating-copilot-trigger {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: 18px;
+  right: 20px;
   background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
   color: #ffffff;
   border: none;

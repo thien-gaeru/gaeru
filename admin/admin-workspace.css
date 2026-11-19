@@ -1944,3 +1944,21 @@ body:has(dialog.gaeru-center-popup[open]) .gaeru-action-notices {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+
+/* Marketing sub-tabs clean wrapping without horizontal scrollbar + AI FAB bottom clearance */
+.admin-content {
+  padding-bottom: 104px;
+}
+#marketing-view .marketing-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+  gap: 6px;
+}
+#marketing-view .marketing-tabs button {
+  padding: 10px 14px;
+}
+@media (max-width: 760px) {
+  .admin-content {
+    padding-bottom: 96px;
+  }
+}

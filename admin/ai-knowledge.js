@@ -101,6 +101,17 @@ async function loadLearnedSection(box, a) {
 
     container.innerHTML = statsMarkup + listMarkup;
 
+    const notify = (msg, type = 'info') => {
+      if (window.GAERUNotify?.toast) return window.GAERUNotify.toast(msg, type);
+      if (a?.showGlobal) return a.showGlobal(msg, type === 'error');
+    };
+    const confirmDialog = async (msg) => {
+      if (window.GAERUNotify?.confirm) {
+        return Boolean(await window.GAERUNotify.confirm(msg, { title: 'Xác nhận thao tác', confirmText: 'Xóa', cancelText: 'Hủy', danger: true }));
+      }
+      return typeof window.confirm === 'function' ? window.confirm(msg) : false;
+    };
+
     // Gắn sự kiện Scan
     const scanBtn = container.querySelector('[data-learned-scan]');
     if (scanBtn) {
@@ -109,10 +120,10 @@ async function loadLearnedSection(box, a) {
         scanBtn.textContent = 'Đang quét và đúc kết…';
         try {
           const scanRes = await a.request('/api/gaeru_ceo/ai-knowledge/learned/scan', { method: 'POST' });
-          alert(`Đã đúc kết thành công! Xử lý: ${scanRes.processed || 0} tin nhắn, ghi nhận: ${scanRes.learned || 0} bài học mới.`);
+          notify(`Đã đúc kết thành công! Xử lý: ${scanRes.processed || 0} tin nhắn, ghi nhận: ${scanRes.learned || 0} bài học mới.`, 'success');
           loadLearnedSection(box, a);
         } catch (err) {
-          alert('Lỗi quét: ' + err.message);
+          notify('Lỗi quét: ' + err.message, 'error');
         } finally {
           scanBtn.disabled = false;
           scanBtn.textContent = '⚡ Quét & Học hỏi từ Lịch sử Chat ngay';
@@ -129,9 +140,10 @@ async function loadLearnedSection(box, a) {
             method: 'POST',
             body: JSON.stringify({ status: 'active' })
           });
+          notify('Đã duyệt và kích hoạt mục tri thức tự học.', 'success');
           loadLearnedSection(box, a);
         } catch (err) {
-          alert('Lỗi duyệt: ' + err.message);
+          notify('Lỗi duyệt: ' + err.message, 'error');
         }
       };
     });
@@ -140,12 +152,13 @@ async function loadLearnedSection(box, a) {
     container.querySelectorAll('[data-learned-delete]').forEach(btn => {
       btn.onclick = async () => {
         const id = btn.dataset.learnedDelete;
-        if (!confirm('Bạn có chắc chắn muốn xóa mục tri thức tự học này?')) return;
+        if (!(await confirmDialog('Bạn có chắc chắn muốn xóa mục tri thức tự học này?'))) return;
         try {
           await a.request(`/api/gaeru_ceo/ai-knowledge/learned/${id}`, { method: 'DELETE' });
+          notify('Đã xóa mục tri thức tự học.', 'success');
           loadLearnedSection(box, a);
         } catch (err) {
-          alert('Lỗi xóa: ' + err.message);
+          notify('Lỗi xóa: ' + err.message, 'error');
         }
       };
     });

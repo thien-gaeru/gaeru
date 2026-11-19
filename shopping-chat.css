@@ -1918,3 +1918,63 @@ dialog.chat-media-lightbox::backdrop {
 .chat-jump-latest[hidden] {
   display: none !important;
 }
+
+/* Admin Helpdesk Folder Rail & Thread List Polish */
+.chat-folder-item.is-sub {
+  padding-left: 22px !important;
+}
+
+.chat-folder-nav.is-collapsed .chat-folder-item.is-sub,
+.chat-folder-nav.is-collapsed .chat-folder-item {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  justify-content: center !important;
+}
+
+@media (min-width: 901px) and (max-width: 1180px) {
+  .chat-folder-nav:not(.is-expanded) .chat-folder-item.is-sub,
+  .chat-folder-nav:not(.is-expanded) .chat-folder-item {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    justify-content: center !important;
+  }
+}
+
+[data-admin-chat-list] {
+  overflow-x: hidden !important;
+  scrollbar-gutter: stable !important;
+  padding-right: 4px !important;
+}
+
+[data-chat-thread] {
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+[data-chat-thread] strong {
+  display: block !important;
+  width: 100% !important;
+}
+
+[data-chat-thread] .chat-thread-meta {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+[data-chat-thread] small {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  min-width: 0 !important;
+}
+
+[data-chat-thread] time {
+  font-size: 11.5px !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  font-variant-numeric: tabular-nums !important;
+}

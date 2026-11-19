@@ -45,3 +45,22 @@
 
 .forecast-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .forecast-select{min-height:36px;padding:6px 12px;border:1px solid #d2d2d7;border-radius:8px;font-size:12px;background:#fff}
+
+/* Inventory table action clearance, crisp thumbnails, and readable movement deltas */
+#inventory-view .inventory-product{min-width:190px;gap:12px}
+#inventory-view .inventory-product img{background:#fff;border:1px solid #e5e7eb;padding:2px}
+#inventory-view .inventory-row-actions{display:flex;gap:6px;flex-wrap:nowrap;justify-content:flex-end;align-items:center}
+#inventory-view .inventory-row-actions .row-button{font-size:13px;line-height:1.3;padding:7px 12px;min-height:36px;white-space:nowrap}
+@media(min-width:601px){
+  #inventory-view [data-e-list] .enterprise-table th,
+  #inventory-view [data-e-list] .enterprise-table td{padding:13px 14px}
+  #inventory-view [data-e-list] .enterprise-table td small{max-width:255px}
+}
+@media(max-width:600px){
+  #inventory-view .inventory-row-actions{flex-wrap:wrap;justify-content:flex-start}
+  #inventory-view .inventory-row-actions .row-button{min-height:44px;font-size:13px}
+}
+.movement-delta{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;font-size:12px;line-height:1.3;background:#f1f5f9;color:#334155;font-variant-numeric:tabular-nums}
+.movement-delta.is-positive{background:#e7f7ed;color:#147a3d}
+.movement-delta.is-negative{background:#fbe9e9;color:#b42318}
+.enterprise-table td small.movement-range{display:block;margin-top:4px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}

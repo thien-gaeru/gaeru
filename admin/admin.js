@@ -2140,9 +2140,15 @@ async function handleCarrierWaybillAction(event) {
     const orderId = confirmDeliveredBtn ? btn.dataset.confirmCarrierDelivered : btn.dataset.confirmCarrierCancelled;
     const targetStatus = confirmDeliveredBtn ? "delivered" : "cancelled";
     const labelText = targetStatus === "delivered" ? "Đã giao hàng" : "Đã hủy vận đơn";
-    const note = await (window.GAERUNotify?.prompt
-      ? window.GAERUNotify.prompt("Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):", "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase(), { title: "Bằng chứng đối chiếu vận đơn" })
-      : window.prompt("Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):", "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase()));
+    if (!window.GAERUNotify?.prompt) {
+      showGlobal("Không thể mở hộp thoại nhập ghi chú. Vui lòng tải lại trang.", true);
+      return;
+    }
+    const note = await window.GAERUNotify.prompt(
+      "Nhập bằng chứng đối chiếu trên cổng hãng cho trạng thái [" + labelText + "] (tối thiểu 10 ký tự):",
+      "Đã kiểm tra cổng hãng xác nhận " + labelText.toLowerCase(),
+      { title: "Bằng chứng đối chiếu vận đơn" }
+    );
     if (!note || note.trim().length < 10) {
       if (note !== null) showGlobal("Ghi chú đối chiếu cổng hãng cần ít nhất 10 ký tự.", true);
       return;
@@ -2244,9 +2250,15 @@ document.querySelector("#customer-list").addEventListener("click", async (event)
     }
     const permDeleteBtn = event.target.closest("[data-customer-permanent-delete]");
     if (permDeleteBtn) {
-      const password = await (window.GAERUNotify?.prompt
-        ? window.GAERUNotify.prompt("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:", "", { danger: true, isPassword: true, title: "Xác thực xóa vĩnh viễn tài khoản", confirmText: "Xác thực & Xóa" })
-        : window.prompt("CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:"));
+      if (!window.GAERUNotify?.prompt) {
+        showGlobal("Không thể mở hộp thoại nhập mật khẩu bảo mật. Vui lòng tải lại trang.", true);
+        return;
+      }
+      const password = await window.GAERUNotify.prompt(
+        "CẢNH BÁO: Xóa vĩnh viễn tài khoản này?\nToàn bộ dữ liệu hồ sơ, bảo hành, voucher và thông tin tài khoản sẽ bị xóa hoàn toàn và KHÔNG thể khôi phục!\n\nNhập mật khẩu quản trị viên để xác thực:",
+        "",
+        { danger: true, isPassword: true, title: "Xác thực xóa vĩnh viễn tài khoản", confirmText: "Xác thực & Xóa" }
+      );
       if (!password || !password.trim()) return;
       await request(`/api/gaeru_ceo/customers/${encodeURIComponent(permDeleteBtn.dataset.customerPermanentDelete)}/permanent-delete`, {
         method: "POST",
@@ -2525,11 +2537,16 @@ function confirmOrderPermanentDeletion(order) {
     document.body.append(dialog);
     if (typeof dialog.showModal === 'function') {
       dialog.showModal();
+    } else if (window.GAERUNotify?.prompt) {
+      Promise.resolve(window.GAERUNotify.prompt(
+        'XÁC NHẬN CỦA QUẢN TRỊ: Xóa vĩnh viễn đơn ' + orderNumber + '?\n\nNhập chính xác "' + orderNumber + '" để xác nhận:',
+        '',
+        { title: 'Xác nhận xóa vĩnh viễn đơn hàng', danger: true }
+      )).then(confirmed => {
+        finish(Boolean(confirmed && String(confirmed).trim().toUpperCase() === orderNumber.toUpperCase()));
+      }).catch(() => finish(false));
     } else {
-      const confirmed = window.prompt(
-        'XÁC NHẬN CỦA QUẢN TRỊ: Xóa vĩnh viễn đơn ' + orderNumber + '?\n\nNhập chính xác "' + orderNumber + '" để xác nhận:'
-      );
-      finish(Boolean(confirmed && confirmed.trim().toUpperCase() === orderNumber.toUpperCase()));
+      finish(false);
     }
   });
 }

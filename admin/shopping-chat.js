@@ -24,7 +24,7 @@
           '<div class="admin-shopping-chat'+(selected?' has-selected-thread':'')+'">'+
             '<nav class="chat-folder-nav" role="navigation" aria-label="Danh mục hộp thư">'+
               '<div class="chat-folder-header">'+
-                '<span class="chat-folder-title" title="Hộp thư đến">Hộp thư đ...</span>'+
+                '<span class="chat-folder-title" title="Hộp thư đến">Hộp thư đến</span>'+
                 '<button type="button" class="chat-folder-toggle" data-chat-folder-toggle title="Thu gọn / Mở rộng" aria-label="Thu gọn hoặc mở rộng danh mục">'+
                   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+
                     '<line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="15" y2="18"></line><polyline points="18 9 15 12 18 15"></polyline>'+
@@ -33,50 +33,57 @@
                 '<button type="button" class="chat-folder-close-btn" data-chat-folder-close title="Đóng danh mục" aria-label="Đóng danh mục hộp thư">✕</button>'+
               '</div>'+
               '<div class="chat-folder-group">'+
-                '<button type="button" class="chat-folder-item" data-chat-filter="unassigned" aria-pressed="false">'+
-                  '<span class="chat-folder-icon">🕒</span>'+
+                '<button type="button" class="chat-folder-item" data-chat-filter="unassigned" aria-pressed="false" title="Chưa chỉ định" aria-label="Chưa chỉ định">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">🕒</span>'+
                   '<span class="chat-folder-label">Chưa chỉ định</span>'+
                 '</button>'+
               '</div>'+
               '<hr class="chat-folder-divider">'+
               '<div class="chat-folder-group">'+
-                '<button type="button" class="chat-folder-item is-card" data-chat-filter="assigned" aria-pressed="false">'+
-                  '<span class="chat-folder-icon chat-icon-teal">👥</span>'+
+                '<button type="button" class="chat-folder-item is-card" data-chat-filter="assigned" aria-pressed="false" title="Đã chỉ định" aria-label="Đã chỉ định">'+
+                  '<span class="chat-folder-icon chat-icon-teal" aria-hidden="true">👥</span>'+
                   '<span class="chat-folder-label">Đã chỉ định</span>'+
                   '<span class="chat-folder-badge" data-chat-count="assigned">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub is-card is-active" data-chat-filter="open" aria-pressed="true">'+
+                '<button type="button" class="chat-folder-item is-sub is-card is-active" data-chat-filter="open" aria-pressed="true" title="Tất cả" aria-label="Tất cả">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">📥</span>'+
                   '<span class="chat-folder-label">Tất cả</span>'+
                   '<span class="chat-folder-badge" data-chat-count="open">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="urgent" aria-pressed="false">'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="urgent" aria-pressed="false" title="Cấp bách" aria-label="Cấp bách">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">🚨</span>'+
                   '<span class="chat-folder-label">Cấp bách</span>'+
                   '<span class="chat-folder-badge" data-chat-count="urgent">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="overdue" aria-pressed="false">'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="overdue" aria-pressed="false" title="Quá hạn" aria-label="Quá hạn">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">⏰</span>'+
                   '<span class="chat-folder-label">Quá hạn</span>'+
                   '<span class="chat-folder-badge" data-chat-count="overdue">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="due_soon" aria-pressed="false">'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="due_soon" aria-pressed="false" title="Sắp hết hạn" aria-label="Sắp hết hạn">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">⏳</span>'+
                   '<span class="chat-folder-label">Sắp hết hạn</span>'+
                   '<span class="chat-folder-badge" data-chat-count="due_soon">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="unanswered" aria-pressed="false">'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="unanswered" aria-pressed="false" title="Chưa trả lời" aria-label="Chưa trả lời">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">💬</span>'+
                   '<span class="chat-folder-label">Chưa trả lời</span>'+
                   '<span class="chat-folder-badge" data-chat-count="unanswered">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="unread" aria-pressed="false">'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="unread" aria-pressed="false" title="Chưa đọc" aria-label="Chưa đọc">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">🔵</span>'+
                   '<span class="chat-folder-label">Chưa đọc</span>'+
                   '<span class="chat-folder-badge" data-chat-count="unread">0</span>'+
                 '</button>'+
-                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="starred" aria-pressed="false">'+
+                '<button type="button" class="chat-folder-item is-sub" data-chat-filter="starred" aria-pressed="false" title="Đã gắn sao" aria-label="Đã gắn sao">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">⭐</span>'+
                   '<span class="chat-folder-label">Đã gắn sao</span>'+
                 '</button>'+
               '</div>'+
               '<hr class="chat-folder-divider">'+
               '<div class="chat-folder-group">'+
-                '<button type="button" class="chat-folder-item" data-chat-filter="closed" aria-pressed="false">'+
-                  '<span class="chat-folder-icon">✔️</span>'+
+                '<button type="button" class="chat-folder-item" data-chat-filter="closed" aria-pressed="false" title="Đã đóng" aria-label="Đã đóng">'+
+                  '<span class="chat-folder-icon" aria-hidden="true">✔️</span>'+
                   '<span class="chat-folder-label">Đã đóng</span>'+
                   '<span class="chat-folder-badge" data-chat-count="closed" style="display:none">0</span>'+
                 '</button>'+
@@ -143,7 +150,7 @@
         navBadge.hidden=unreadTotal<=0;
       }
 
-      root.querySelector('[data-admin-chat-list]').innerHTML=d.threads.map(t=>'<button type="button" data-chat-thread="'+h(t.id)+'" aria-pressed="'+(t.id===selected)+'"><strong>'+h(t.product_name)+'</strong><small>'+(t.status==='closed'?'Đã đóng':t.awaiting_admin?'Cần nhân viên':t.handling_mode==='ai'?'AI đang hỗ trợ':'Nhân viên hỗ trợ')+'</small><time title="'+h(new Date(t.updated_at).toLocaleString('vi-VN'))+'">'+h(new Date(t.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}))+'</time></button>').join('')||'<p style="padding:16px 0;font-size:12px;color:var(--muted)">Không có hội thoại trong mục này.</p>';
+      root.querySelector('[data-admin-chat-list]').innerHTML=d.threads.map(t=>'<button type="button" class="chat-thread-item" data-chat-thread="'+h(t.id)+'" aria-pressed="'+(t.id===selected)+'"><strong>'+h(t.product_name)+'</strong><span class="chat-thread-meta"><small>'+(t.status==='closed'?'Đã đóng':t.awaiting_admin?'Cần nhân viên':t.handling_mode==='ai'?'AI đang hỗ trợ':'Nhân viên hỗ trợ')+'</small><time title="'+h(new Date(t.updated_at).toLocaleString('vi-VN'))+'">'+h(new Date(t.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}))+'</time></span></button>').join('')||'<p style="padding:16px 0;font-size:12px;color:var(--muted)">Không có hội thoại trong mục này.</p>';
       root.querySelector('[data-chat-page-label]').textContent='Trang '+page;
       root.querySelector('[data-chat-page="-1"]').disabled=page===1;
       root.querySelector('[data-chat-page="1"]').disabled=d.threads.length<30;
@@ -174,7 +181,13 @@
       }
       if(folderToggle){
         const nav=root.querySelector('.chat-folder-nav');
-        if(nav)nav.classList.toggle('is-collapsed');
+        if(nav){
+          if(window.innerWidth>=901&&window.innerWidth<=1180){
+            nav.classList.toggle('is-expanded');
+          }else{
+            nav.classList.toggle('is-collapsed');
+          }
+        }
         return;
       }
       if(mobileFolderToggle){
