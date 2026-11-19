@@ -508,6 +508,34 @@ async function loadSystemHealth() {
       threatsCount.textContent = health.security.antiHack.threatsBlocked ?? 0;
     }
 
+    const gpuStatus = document.querySelector("#health-gpu-status");
+    const gpuDesc = document.querySelector("#health-gpu-desc");
+    const gpuMeta = document.querySelector("#health-gpu-meta");
+    if (gpuStatus && health.gpuAi) {
+      const g = health.gpuAi;
+      if (g.online) {
+        const throttled = Boolean(g.thermal?.throttled);
+        gpuStatus.textContent = throttled ? "Giảm tải nhiệt" : "Sẵn sàng";
+        gpuStatus.className = throttled ? "health-pill tag-warning" : "health-pill tag-healthy";
+        if (gpuDesc) {
+          const rmbgMs = g.stats?.rmbg_avg_ms ? `${Math.round(g.stats.rmbg_avg_ms)}ms` : "—";
+          const embMs = g.stats?.embed_avg_ms ? `${Math.round(g.stats.embed_avg_ms)}ms` : "—";
+          gpuDesc.textContent = `Tách nền GPU: ${rmbgMs} · Ngữ nghĩa: ${embMs} · Vector sẵn sàng: ${g.vectorStore?.totalVectors ?? 0}`;
+        }
+        if (gpuMeta) {
+          const temp = g.gpu?.temp_c !== undefined ? `${g.gpu.temp_c}°C` : "—";
+          const clk = g.gpu?.clk_mhz !== undefined ? `${Math.round(g.gpu.clk_mhz)} MHz` : "—";
+          const ram = g.rssMb?.total !== undefined ? `${g.rssMb.total} MB` : "—";
+          gpuMeta.textContent = `GPU ${temp} (${clk}) · RAM AI ${ram} · Cache ${g.client?.embedCacheSize ?? 0}`;
+        }
+      } else {
+        gpuStatus.textContent = g.enabled ? "Ngoại tuyến" : "Đang tắt";
+        gpuStatus.className = "health-pill tag-warning";
+        if (gpuDesc) gpuDesc.textContent = g.enabled ? "Đang dùng chế độ CPU dự phòng an toàn" : "GAERU GPU AI đang tạm tắt cấu hình";
+        if (gpuMeta) gpuMeta.textContent = `Vector RAM: ${g.vectorStore?.totalVectors ?? 0}`;
+      }
+    }
+
     const memInfo = document.querySelector("#health-memory-info");
     if (memInfo && health.server?.memoryUsage) {
       memInfo.textContent = `${health.server.memoryUsage.heapUsedMb} MB / ${health.server.memoryUsage.heapTotalMb} MB`;

@@ -4,8 +4,8 @@ const crypto = require('node:crypto');
 
 const DEFAULT_GPU_AI_URL = (process.env.GAERU_GPU_AI_URL || 'http://127.0.0.1:3100').replace(/\/+$/, '');
 const CIRCUIT_OPEN_MS = 15000;
-const EMBED_CACHE_MAX = 512;
-const EMBED_CACHE_TTL_MS = 30 * 60 * 1000;
+const EMBED_CACHE_MAX = 1024;
+const EMBED_CACHE_TTL_MS = 60 * 60 * 1000;
 const MAX_EMBED_TEXT_CHARS = 320;
 const DEFAULT_EMBED_BATCH_SIZE = 8;
 const DEFAULT_EMBED_TIMEOUT_MS = 12000;
@@ -14,6 +14,9 @@ const DEFAULT_RMBG_TIMEOUT_MS = 10000;
 let circuitOpenUntil = 0;
 let consecutiveFailures = 0;
 let halfOpenProbeInFlight = false;
+let cacheHits = 0;
+let cacheMisses = 0;
+let thermalSheds = 0;
 const embedCache = new Map();
 
 function isGpuAiEnabled() {
@@ -30,7 +33,24 @@ function resetGpuAiState() {
   circuitOpenUntil = 0;
   consecutiveFailures = 0;
   halfOpenProbeInFlight = false;
+  cacheHits = 0;
+  cacheMisses = 0;
+  thermalSheds = 0;
   embedCache.clear();
+}
+
+function getGpuAiRuntimeStats() {
+  return {
+    enabled: isGpuAiEnabled(),
+    baseUrl: DEFAULT_GPU_AI_URL,
+    circuitOpen: isCircuitOpen(),
+    consecutiveFailures,
+    embedCacheSize: embedCache.size,
+    embedCacheMax: EMBED_CACHE_MAX,
+    cacheHits,
+    cacheMisses,
+    thermalSheds
+  };
 }
 
 function isCircuitOpen() {
@@ -188,12 +208,15 @@ async function embedTexts(texts, {
   baseUrl = DEFAULT_GPU_AI_URL,
   timeoutMs = DEFAULT_EMBED_TIMEOUT_MS,
   batchSize = DEFAULT_EMBED_BATCH_SIZE,
+  priority = 'normal',
   transport = fetch
 } = {}) {
   if (!Array.isArray(texts) || texts.length === 0) return [];
   if (!isGpuAiEnabled() && transport === fetch) return null;
+  const isBackground = priority === 'background';
   let probeToken = false;
   if (transport === fetch) {
+    if (isBackground && isCircuitOpen()) return null;
     const gate = tryEnterHalfOpenSlot();
     if (!gate.allowed) return null;
     probeToken = gate.isHalfOpenProbe;
@@ -210,9 +233,11 @@ async function embedTexts(texts, {
     const key = hashKey(txt);
     const cached = getCachedEmbedding(key);
     if (cached) {
+      cacheHits++;
       results[i] = cached;
       continue;
     }
+    cacheMisses++;
     if (seenMissing.has(key)) {
       seenMissing.get(key).indices.push(i);
     } else {
@@ -223,6 +248,8 @@ async function embedTexts(texts, {
   }
 
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (isBackground) headers['X-AI-Priority'] = 'background';
     for (let start = 0; start < missing.length; start += batchSize) {
       const chunk = missing.slice(start, start + batchSize);
       try {
@@ -230,13 +257,18 @@ async function embedTexts(texts, {
           `${baseUrl}/v1/embed`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ input: chunk.map(item => item.text) })
           },
           timeoutMs,
           transport
         );
         if (!res.ok) {
+          // Background thermal/busy shed (503) must NOT trip live circuit breaker
+          if (isBackground && res.status === 503) {
+            thermalSheds++;
+            return null;
+          }
           if (res.status >= 500 && transport === fetch) recordFailure({ hard: false });
           return null;
         }
@@ -258,7 +290,7 @@ async function embedTexts(texts, {
         }
         if (transport === fetch) recordSuccess();
       } catch (err) {
-        if (transport === fetch) {
+        if (transport === fetch && !isBackground) {
           const hard = err?.name !== 'AbortError' && err?.name !== 'TimeoutError';
           recordFailure({ hard });
         }
@@ -272,6 +304,11 @@ async function embedTexts(texts, {
   return results;
 }
 
+async function embedText(text, options = {}) {
+  const vecs = await embedTexts([text], options);
+  return Array.isArray(vecs) ? (vecs[0] || null) : null;
+}
+
 module.exports = {
   DEFAULT_GPU_AI_URL,
   DEFAULT_EMBED_BATCH_SIZE,
@@ -281,8 +318,11 @@ module.exports = {
   isGpuAiEnabled,
   resetGpuAiState,
   isCircuitOpen,
+  getGpuAiRuntimeStats,
+  hashEmbeddingText: hashKey,
   checkGpuHealth,
   segmentForegroundMask,
+  embedText,
   embedTexts,
   cosineSimilarity
 };

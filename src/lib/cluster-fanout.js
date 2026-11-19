@@ -57,6 +57,21 @@ class IpcFanoutHub {
       return { fannedCount };
     }
 
+    if (action === 'EMBEDDING_STORE_SYNC' && typeof message.namespace === 'string' && Array.isArray(message.entries)) {
+      const fannedCount = this.broadcast(
+        {
+          type: 'EMBEDDING_STORE_SYNC',
+          namespace: message.namespace,
+          modelId: message.modelId || null,
+          entries: message.entries,
+          timestamp: message.timestamp || Date.now()
+        },
+        senderWorker?.id
+      );
+      this.metrics.messagesFannedOut++;
+      return { fannedCount };
+    }
+
     if (action === 'FORECAST_CACHE_INVALIDATE') {
       const fannedCount = this.broadcast(
         { type: 'FORECAST_CACHE_INVALIDATE', prefix: String(message.prefix || ''), timestamp: message.timestamp || Date.now() },

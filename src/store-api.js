@@ -400,7 +400,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
 
   router.use(async (req, res, next) => {
     const p = req.path || '';
-    const isCatalogOnly = /^\/products(?:\/|$)/.test(p) || p === '/search-index.json' || /^\/stock(?:\/|$)/.test(p) || /^\/categories(?:\/|$)/.test(p) || /^\/editorial(?:\/|$)/.test(p);
+    const isCatalogOnly = /^\/products(?:\/|$)/.test(p) || p === '/search-index.json' || p === '/search/semantic' || /^\/stock(?:\/|$)/.test(p) || /^\/categories(?:\/|$)/.test(p) || /^\/editorial(?:\/|$)/.test(p);
     if (isCatalogOnly) {
       return next();
     }
@@ -495,6 +495,116 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
       res.setHeader('CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.setHeader('Cloudflare-CDN-Cache-Control', 'public, max-age=5, stale-while-revalidate=15');
       res.json(index);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Tier 3.1: Hybrid Lexical + GPU AI Semantic Storefront Search (Products + News Guides)
+  const semanticSearchCache = new Map();
+  router.get("/search/semantic", async (req, res, next) => {
+    try {
+      const rawQ = String(req.query.q || '').trim().slice(0, 160);
+      const limit = Math.max(1, Math.min(8, parseInt(String(req.query.limit || '4'), 10) || 4));
+      if (rawQ.length < 2) {
+        return res.json({ query: rawQ, semantic: false, products: [], articles: [] });
+      }
+      const { normalizeVi, expandQueryVi, tokenizeMeaningful, tokenOverlapScore } = require('./lib/ai-nlu');
+      const { embedText, cosineSimilarity, isGpuAiEnabled } = require('./lib/gpu-ai-client');
+      const { ensureEmbeddings } = require('./lib/embedding-store');
+
+      const cacheKey = `${normalizeVi(rawQ)}::${limit}`;
+      const cached = semanticSearchCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        res.setHeader('Cache-Control', 'public, max-age=30');
+        return res.json(cached.value);
+      }
+
+      const [catalog, newsRows] = await Promise.all([
+        getFreshData('data:catalog', () => loadProducts(pool)),
+        typeof pool?.query === 'function'
+          ? pool.query("SELECT slug, title, excerpt FROM news_posts WHERE status='published' ORDER BY published_at DESC NULLS LAST, created_at DESC LIMIT 60").then(r => r.rows || []).catch(() => [])
+          : Promise.resolve([])
+      ]);
+
+      const expandedQ = expandQueryVi(rawQ);
+      const qTokens = tokenizeMeaningful(expandedQ);
+      let qVec = null;
+      let prodVecs = new Map();
+      let newsVecs = new Map();
+
+      if (isGpuAiEnabled()) {
+        const prodItems = (catalog || []).map(p => ({
+          key: String(p.slug),
+          text: `${p.name || ''}. ${p.category || ''}. ${p.descriptor || ''}. ${p.cardSummary || p.description || ''}`.replace(/\s+/g, ' ').trim()
+        }));
+        const newsItems = newsRows.map(n => ({
+          key: String(n.slug),
+          text: `${n.title || ''}. ${n.excerpt || ''}`.replace(/\s+/g, ' ').trim()
+        }));
+        const [qv, pv, nv] = await Promise.all([
+          embedText(rawQ).catch(() => null),
+          ensureEmbeddings(pool, 'products', prodItems).catch(() => new Map()),
+          ensureEmbeddings(pool, 'news', newsItems).catch(() => new Map())
+        ]);
+        qVec = qv;
+        prodVecs = pv;
+        newsVecs = nv;
+      }
+
+      const scoredProducts = (catalog || []).map(p => {
+        const hay = `${p.name || ''} ${p.slug || ''} ${p.category || ''} ${p.descriptor || ''} ${p.cardSummary || ''} ${(CATEGORY_SEARCH_KEYWORDS[p.category] || []).join(' ')}`;
+        const lex = tokenOverlapScore(qTokens, tokenizeMeaningful(hay));
+        const pVec = prodVecs.get(String(p.slug));
+        const sem = (qVec && pVec) ? Math.max(0, cosineSimilarity(qVec, pVec)) : 0;
+        const score = (sem >= 0.24) ? (lex * 0.55 + sem * 0.85) : lex;
+        return { p, lex, sem, score };
+      }).filter(x => x.lex >= 0.20 || x.sem >= 0.28)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map(({ p, sem, score }) => ({
+          name: p.name,
+          slug: p.slug,
+          desc: p.cardSummary || p.descriptor || '',
+          price: p.variants?.[0]?.priceVnd || p.priceVnd || 0,
+          imageUrl: p.imageUrl || '',
+          category: p.category || '',
+          inStock: p.variants?.some(v => (v.stockQuantity ?? v.stock ?? 0) > 0) ?? true,
+          score: Number(score.toFixed(4)),
+          semanticScore: Number(sem.toFixed(4))
+        }));
+
+      const scoredArticles = newsRows.map(n => {
+        const lex = tokenOverlapScore(qTokens, tokenizeMeaningful(`${n.title || ''} ${n.excerpt || ''}`));
+        const nVec = newsVecs.get(String(n.slug));
+        const sem = (qVec && nVec) ? Math.max(0, cosineSimilarity(qVec, nVec)) : 0;
+        const score = (sem >= 0.28) ? (lex * 0.50 + sem * 0.85) : lex;
+        return { n, lex, sem, score };
+      }).filter(x => x.lex >= 0.28 || x.sem >= 0.34)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map(({ n, sem, score }) => ({
+          slug: n.slug,
+          url: `/tin-tuc/${encodeURIComponent(n.slug)}`,
+          title: n.title,
+          excerpt: String(n.excerpt || '').slice(0, 140),
+          score: Number(score.toFixed(4)),
+          semanticScore: Number(sem.toFixed(4))
+        }));
+
+      const payload = {
+        query: rawQ,
+        semantic: Boolean(qVec),
+        products: scoredProducts,
+        articles: scoredArticles
+      };
+      if (semanticSearchCache.size >= 256) {
+        const firstKey = semanticSearchCache.keys().next().value;
+        if (firstKey !== undefined) semanticSearchCache.delete(firstKey);
+      }
+      semanticSearchCache.set(cacheKey, { value: payload, expiresAt: Date.now() + 60000 });
+      res.setHeader('Cache-Control', 'public, max-age=30');
+      res.json(payload);
     } catch (err) {
       next(err);
     }

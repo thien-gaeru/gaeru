@@ -461,8 +461,38 @@ function filterSearchProducts(query) {
   return window.GAERUStore?.searchProducts(query) ?? [];
 }
 
+let semanticSearchTimer;
+let semanticSearchAbort = null;
+
+function renderSearchResultRows(matches, articles = [], isSemantic = false) {
+  let html = '';
+  if (matches.length > 0) {
+    html += '<p class="search-results-label">' + (isSemantic ? 'Gợi ý thông minh GAERU AI' : 'Sản phẩm phù hợp') + '</p>' + matches.map((product) => (
+      '<a class="search-result" href="product.html?id=' + encodeURIComponent(product.slug) + '">' +
+        '<img src="' + escapeShellHtml(product.imageUrl) + '" alt="" loading="lazy">' +
+        '<span><strong>' + escapeShellHtml(product.name) + '</strong><small>' + escapeShellHtml(product.desc || product.description || '') + '</small></span>' +
+        '<b aria-hidden="true">›</b>' +
+      '</a>'
+    )).join('');
+  }
+  if (Array.isArray(articles) && articles.length > 0) {
+    html += '<p class="search-results-label">Hướng dẫn &amp; Bài viết liên quan</p>' + articles.slice(0, 3).map((art) => (
+      '<a class="search-result search-result-article" href="' + escapeShellHtml(art.url || ('/tin-tuc/' + encodeURIComponent(art.slug || ''))) + '">' +
+        '<span><strong>' + escapeShellHtml(art.title || '') + '</strong><small>' + escapeShellHtml(art.excerpt || '') + '</small></span>' +
+        '<b aria-hidden="true">›</b>' +
+      '</a>'
+    )).join('');
+  }
+  return html;
+}
+
 searchInput?.addEventListener("input", () => {
   clearTimeout(searchRenderTimer);
+  clearTimeout(semanticSearchTimer);
+  if (semanticSearchAbort) {
+    try { semanticSearchAbort.abort(); } catch (_) {}
+    semanticSearchAbort = null;
+  }
   searchRenderTimer = window.setTimeout(() => {
     const query = searchInput.value.trim();
     if (!query) {
@@ -472,17 +502,50 @@ searchInput?.addEventListener("input", () => {
     }
     const matches = filterSearchProducts(query).slice(0, 4);
     searchQuicklinks.hidden = true;
-    if (matches.length === 0) {
+    if (matches.length > 0) {
+      searchResults.innerHTML = renderSearchResultRows(matches, [], false);
+    } else if (query.length < 4) {
       searchResults.innerHTML = '<p class="search-no-results">Không tìm thấy sản phẩm phù hợp. Thử “micro” hoặc “gimbal”.</p>';
       return;
+    } else {
+      searchResults.innerHTML = '<p class="search-no-results">Đang tìm gợi ý thông minh GAERU AI…</p>';
     }
-    searchResults.innerHTML = '<p class="search-results-label">Sản phẩm phù hợp</p>' + matches.map((product) => (
-      '<a class="search-result" href="product.html?id=' + encodeURIComponent(product.slug) + '">' +
-        '<img src="' + escapeShellHtml(product.imageUrl) + '" alt="" loading="lazy">' +
-        '<span><strong>' + escapeShellHtml(product.name) + '</strong><small>' + escapeShellHtml(product.desc || product.description || '') + '</small></span>' +
-        '<b aria-hidden="true">›</b>' +
-      '</a>'
-    )).join('');
+
+    // Tier 3.1: Semantic storefront search rescue for natural-language queries or sparse lexical hits
+    if (query.length >= 4 && matches.length < 2) {
+      semanticSearchTimer = window.setTimeout(() => {
+        if (searchInput.value.trim() !== query) return;
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        semanticSearchAbort = controller;
+        fetch('/api/search/semantic?q=' + encodeURIComponent(query) + '&limit=4', {
+          cache: 'default',
+          signal: controller ? controller.signal : undefined
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (!data || searchInput.value.trim() !== query) return;
+            const seenSlugs = new Set(matches.map((m) => m.slug));
+            const mergedProducts = [...matches];
+            for (const p of (Array.isArray(data.products) ? data.products : [])) {
+              if (p && p.slug && !seenSlugs.has(p.slug) && mergedProducts.length < 4) {
+                seenSlugs.add(p.slug);
+                mergedProducts.push(p);
+              }
+            }
+            const articles = Array.isArray(data.articles) ? data.articles : [];
+            if (mergedProducts.length > 0 || articles.length > 0) {
+              searchResults.innerHTML = renderSearchResultRows(mergedProducts, articles, matches.length === 0 && Boolean(data.semantic));
+            } else if (matches.length === 0) {
+              searchResults.innerHTML = '<p class="search-no-results">Không tìm thấy sản phẩm phù hợp. Thử “micro” hoặc “gimbal”.</p>';
+            }
+          })
+          .catch(() => {
+            if (matches.length === 0 && searchInput.value.trim() === query) {
+              searchResults.innerHTML = '<p class="search-no-results">Không tìm thấy sản phẩm phù hợp. Thử “micro” hoặc “gimbal”.</p>';
+            }
+          });
+      }, 220);
+    }
   }, 50);
 });
 

@@ -12,6 +12,8 @@ const { loadLiveSiteFacts, getRelevantWebKnowledge } = require('./chat-web-knowl
 const { shippingFee } = require('../checkout-flow');
 const { DEFAULT_POLICY: DEFAULT_LOYALTY_POLICY, tierBenefits } = require('./loyalty-api');
 const { matchLearnedKnowledge, learnFromInteraction } = require('./ai-self-learning');
+const { embedText, cosineSimilarity, isGpuAiEnabled } = require('./lib/gpu-ai-client');
+const { ensureEmbeddings } = require('./lib/embedding-store');
 const {
   normalizeVi,
   normalizeSearchSpace,
@@ -1210,11 +1212,36 @@ async function generateGaeruAiResponse({ pool, thread, question, catalog = [], h
       const qToks = tokenizeMeaningful(raw);
       let topArticle = null;
       let topScore = 0;
-      for (const n of liveWeb.latestNews) {
-        const sc = tokenOverlapScore(qToks, tokenizeMeaningful(`${n.title || ''} ${n.summary || ''}`));
-        if (sc > topScore) { topScore = sc; topArticle = n; }
+      const newsList = liveWeb.latestNews.slice(0, 25);
+      let qVec = null;
+      let newsVecs = null;
+      if (pool && isGpuAiEnabled()) {
+        try {
+          const items = newsList.map((n, idx) => ({
+            key: String(n.url || '').replace(/^\/tin-tuc\//, '') || `news_${idx}`,
+            text: `${n.title || ''}. ${n.summary || ''}`.trim()
+          }));
+          const [qv, vm] = await Promise.all([
+            embedText(raw),
+            ensureEmbeddings(pool, 'news', items)
+          ]);
+          qVec = qv;
+          newsVecs = vm;
+        } catch (_) {}
       }
-      if (topArticle && topScore >= 0.42) {
+      for (let i = 0; i < newsList.length; i++) {
+        const n = newsList[i];
+        const lex = tokenOverlapScore(qToks, tokenizeMeaningful(`${n.title || ''} ${n.summary || ''}`));
+        let sem = 0;
+        if (qVec && newsVecs) {
+          const k = String(n.url || '').replace(/^\/tin-tuc\//, '') || `news_${i}`;
+          const v = newsVecs.get(k);
+          if (v) sem = Math.max(0, cosineSimilarity(qVec, v));
+        }
+        const combined = sem >= 0.30 ? Math.max(lex, lex * 0.45 + sem * 0.85) : lex;
+        if (combined > topScore) { topScore = combined; topArticle = n; }
+      }
+      if (topArticle && topScore >= 0.36) {
         guideHint = `\n- 📖 Xem thêm hướng dẫn: [${topArticle.title}](${topArticle.url})`;
       }
     }

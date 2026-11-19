@@ -261,6 +261,277 @@ test('gpu-ai-client uses hybrid CPU+GPU batching, 320-char cap, and answers outd
   assert.match(windRes.answer, /lọc gió|Deadcat|10–15 cm|15–20 cm/i);
 });
 
+test('embedding-store persists Float32 vectors, hits RAM cache without re-calling GPU, and respects background thermal-shed 503', async () => {
+  const {
+    vecToBase64,
+    base64ToVec,
+    ensureEmbeddings,
+    rankByCosine,
+    getEmbeddingStoreStats,
+    resetEmbeddingStore
+  } = require('../src/lib/embedding-store');
+  const { getGpuAiRuntimeStats } = require('../src/lib/gpu-ai-client');
+  const { defaultFanoutHub } = require('../src/lib/cluster-fanout');
+
+  resetGpuAiState();
+  resetEmbeddingStore();
+
+  // 1. Float32Array base64 round-trip fidelity
+  const v = new Float32Array([0.5, -0.25, 0.75, 0.125]);
+  const rt = base64ToVec(vecToBase64(v), 4);
+  assert.ok(rt instanceof Float32Array && rt.length === 4);
+  for (let i = 0; i < 4; i++) assert.ok(Math.abs(rt[i] - v[i]) < 1e-6);
+
+  // 2. Background thermal shed (503) must NOT trip circuit breaker
+  const prevEnv = process.env.GAERU_GPU_AI_ENABLED;
+  const origFetch = globalThis.fetch;
+  process.env.GAERU_GPU_AI_ENABLED = '1';
+  let seenPriorityHeader = null;
+  globalThis.fetch = async (_url, init) => {
+    seenPriorityHeader = init?.headers?.['X-AI-Priority'] || null;
+    return { ok: false, status: 503, async json() { return { error: 'thermal_or_busy_shed' }; } };
+  };
+  try {
+    assert.equal(await embedTexts(['nen background 1'], { priority: 'background' }), null);
+    assert.equal(seenPriorityHeader, 'background');
+    assert.equal(await embedTexts(['nen background 2'], { priority: 'background' }), null);
+    assert.equal(isCircuitOpen(), false, 'background 503 thermal shed must not open live circuit');
+    assert.equal(getGpuAiRuntimeStats().thermalSheds, 2);
+  } finally {
+    globalThis.fetch = origFetch;
+    if (prevEnv === undefined) delete process.env.GAERU_GPU_AI_ENABLED;
+    else process.env.GAERU_GPU_AI_ENABLED = prevEnv;
+    resetGpuAiState();
+  }
+
+  // 3. Persistent mock DB + RAM hit on second ensureEmbeddings call
+  const storedRows = new Map();
+  const mockPool = {
+    async query(sql, params) {
+      if (/SELECT item_key/i.test(sql)) {
+        const rows = [];
+        for (const r of storedRows.values()) {
+          if (r.namespace === params[0] && r.model_id === params[1]) rows.push(r);
+        }
+        return { rows };
+      }
+      if (/INSERT INTO ai_embedding_vectors/i.test(sql)) {
+        const [ns, modelId, keys, hashes, dims, b64s] = params;
+        for (let i = 0; i < keys.length; i++) {
+          storedRows.set(`${ns}:${keys[i]}:${modelId}`, {
+            namespace: ns, model_id: modelId, item_key: keys[i],
+            content_hash: hashes[i], dim: dims[i], vector_b64: b64s[i]
+          });
+        }
+        return { rows: [] };
+      }
+      return { rows: [] };
+    }
+  };
+
+  let embedFetchCalls = 0;
+  const prevFlag = process.env.GAERU_GPU_AI_ENABLED;
+  const prevFetch = globalThis.fetch;
+  process.env.GAERU_GPU_AI_ENABLED = '1';
+  globalThis.fetch = async (_u, init) => {
+    embedFetchCalls++;
+    const body = JSON.parse(init.body);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          data: body.input.map((t, idx) => ({
+            index: idx,
+            embedding: t.includes('M3') ? [0.9, 0.1, 0, 0] : [0.1, 0.9, 0, 0]
+          }))
+        };
+      }
+    };
+  };
+  try {
+    const items = [
+      { key: 'gaeru-m3', text: 'GAERU M3 micro chong on AI' },
+      { key: 'gaeru-p01', text: 'GAERU P01 gimbal tu xoay 360' }
+    ];
+    const m1 = await ensureEmbeddings(mockPool, 'products', items);
+    assert.equal(embedFetchCalls, 1);
+    assert.equal(m1.size, 2);
+
+    // Second call hits RAM immediately without calling GPU daemon
+    const m2 = await ensureEmbeddings(mockPool, 'products', items);
+    assert.equal(embedFetchCalls, 1, 'second lookup must hit RAM cache');
+    assert.equal(m2.size, 2);
+
+    // Clear RAM and verify PostgreSQL hydration restores vectors with 0 GPU calls
+    resetEmbeddingStore();
+    const m3 = await ensureEmbeddings(mockPool, 'products', items);
+    assert.equal(embedFetchCalls, 1, 'hydration from DB must avoid GPU recompute');
+    assert.equal(m3.size, 2);
+    assert.equal(getEmbeddingStoreStats().namespaces.products, 2);
+
+    const ranked = rankByCosine(new Float32Array([1, 0, 0, 0]), [
+      { key: 'gaeru-m3', vec: m3.get('gaeru-m3'), item: { slug: 'gaeru-m3' } },
+      { key: 'gaeru-p01', vec: m3.get('gaeru-p01'), item: { slug: 'gaeru-p01' } }
+    ], { topK: 2, minCos: 0.25 });
+    assert.equal(ranked.best.key, 'gaeru-m3');
+    assert.ok(ranked.margin > 0.7);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevFlag === undefined) delete process.env.GAERU_GPU_AI_ENABLED;
+    else process.env.GAERU_GPU_AI_ENABLED = prevFlag;
+    resetGpuAiState();
+    resetEmbeddingStore();
+  }
+
+  // 4. Cluster IPC fanout handles EMBEDDING_STORE_SYNC cleanly
+  const fanRes = defaultFanoutHub.handleWorkerMessage({ id: 1 }, {
+    type: 'EMBEDDING_STORE_SYNC',
+    namespace: 'products',
+    modelId: 'minilm-l12-v2-q8',
+    entries: [{ key: 'k9', hash: 'abc', dim: 4, vectorB64: vecToBase64(v) }]
+  });
+  assert.equal(typeof fanRes.fannedCount, 'number');
+});
+
+test('calibrated MiniLM margin rescue accepts high-margin 0.48 paraphrase and rejects narrow-margin noise', async () => {
+  resetGpuAiState();
+  invalidateCache();
+  const mockPool = {
+    async query() {
+      return {
+        rows: [
+          {
+            id: 201,
+            topic: 'Chống ồn gió ngoài trời GAERU M3',
+            triggers: ['deadcat', 'bong loc gio'],
+            sample_question: 'Quay ngoài đường nhiều gió làm sao đỡ ồn?',
+            learned_facts: 'Bật lọc ồn AI trên GAERU M3 và gắn thêm bông lọc gió deadcat.',
+            confidence_score: 0.88,
+            occurrence_count: 4
+          },
+          {
+            id: 202,
+            topic: 'Cài đặt OBS Studio trên MacBook',
+            triggers: ['obs', 'macbook'],
+            sample_question: 'Thu âm OBS trên MacBook',
+            learned_facts: 'Chọn Audio Input Capture trong OBS Studio trên macOS.',
+            confidence_score: 0.85,
+            occurrence_count: 3
+          }
+        ]
+      };
+    }
+  };
+
+  // Real MiniLM clean UTF-8 scale: relevant ~0.50, irrelevant ~0.05 (margin ~0.45)
+  const goodTransport = async (_u, init) => {
+    const inp = JSON.parse(init.body).input;
+    return {
+      ok: true, status: 200,
+      async json() {
+        return {
+          data: inp.map((t, idx) => ({
+            index: idx,
+            embedding: idx === 0 ? [1, 0, 0] : (t.includes('M3') ? [0.50, 0.866, 0] : [0.05, 0, 0.998])
+          }))
+        };
+      }
+    };
+  };
+  const rescued = await matchLearnedKnowledge(mockPool, 'thu tiếng xe cộ ngoài phố có bị rè không', {
+    minScore: 0.65,
+    gpuTransport: goodTransport
+  });
+  assert.ok(rescued && rescued.entry.id === 201, 'clear-margin 0.50 cosine paraphrase should be rescued');
+
+  // Narrow-margin noise (0.45 vs 0.43 -> margin 0.02) must be rejected
+  resetGpuAiState();
+  const noisyTransport = async (_u, init) => {
+    const inp = JSON.parse(init.body).input;
+    return {
+      ok: true, status: 200,
+      async json() {
+        return {
+          data: inp.map((t, idx) => ({
+            index: idx,
+            embedding: idx === 0 ? [1, 0, 0] : (t.includes('M3') ? [0.45, 0.893, 0] : [0.43, 0.902, 0])
+          }))
+        };
+      }
+    };
+  };
+  const rejected = await matchLearnedKnowledge(mockPool, 'một câu hỏi mơ hồ không rõ chủ đề nào', {
+    minScore: 0.65,
+    gpuTransport: noisyTransport
+  });
+  assert.equal(rejected, null, 'narrow-margin low-cosine match must be rejected');
+});
+
+test('GET /api/search/semantic and getSystemHealth gpuAi telemetry contract', async () => {
+  const express = require('express');
+  const { createStoreApi } = require('../src/store-api');
+  const { getSystemHealth } = require('../src/security-shield');
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  // 1. Admin Health UI includes GPU AI telemetry hooks
+  const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'admin', 'index.html'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(__dirname, '..', 'admin', 'admin.js'), 'utf8');
+  assert.match(adminHtml, /id="health-gpu-card"/);
+  assert.match(adminHtml, /id="health-gpu-status"/);
+  assert.match(adminJs, /#health-gpu-status/);
+
+  // 2. getSystemHealth returns gpuAi object cleanly even when GPU AI disabled in test env
+  const mockHealthPool = { async query() { return { rows: [{ '?column?': 1 }] }; } };
+  const health = await getSystemHealth(mockHealthPool, {});
+  assert.ok(health.gpuAi && typeof health.gpuAi === 'object');
+  assert.ok(health.gpuAi.vectorStore && typeof health.gpuAi.vectorStore.totalVectors === 'number');
+
+  // 3. /api/search/semantic works cleanly with lexical fallback when GPU AI disabled
+  const mockStorePool = {
+    async query(sql) {
+      if (/FROM products/i.test(sql)) {
+        return {
+          rows: [{
+            id: 'p1', slug: 'gaeru-m3', name: 'GAERU M3', category: 'audio',
+            descriptor: 'Micro không dây 2 mic chống ồn AI', card_summary: 'Micro thu âm chống ồn AI',
+            description: 'Hộp sạc 24h', image_url: '/assets/products/m3.webp', active: true,
+            variants: [{ id: 'v1', sku: 'M3-TC', name: 'Type-C', price_vnd: 590000, stock_quantity: 10, active: true }]
+          }]
+        };
+      }
+      if (/FROM news_posts/i.test(sql)) {
+        return {
+          rows: [{
+            slug: 'huong-dan-loc-on-ngoai-troi',
+            title: 'Hướng dẫn lọc ồn gió ngoài trời với GAERU M3',
+            excerpt: 'Bật chế độ giảm ồn AI trên micro GAERU M3'
+          }]
+        };
+      }
+      return { rows: [] };
+    }
+  };
+  const app = express();
+  app.use('/api', createStoreApi(mockStorePool, { ordersEnabled: false }));
+  const server = await new Promise(resolve => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  try {
+    const { port } = server.address();
+    const res = await fetch(`http://127.0.0.1:${port}/api/search/semantic?q=${encodeURIComponent('micro chống ồn AI M3')}`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.query, 'micro chống ồn AI M3');
+    assert.ok(Array.isArray(body.products) && body.products.length >= 1);
+    assert.equal(body.products[0].slug, 'gaeru-m3');
+    assert.ok(Array.isArray(body.articles) && body.articles.length >= 1);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 if (process.env.GAERU_GPU_AI_TEST === '1') {
   test('LIVE hybrid CPU+GPU daemon removes background & computes Vietnamese semantic embeddings concurrently', async () => {
     resetGpuAiState();

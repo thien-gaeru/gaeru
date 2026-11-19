@@ -297,19 +297,26 @@ async function removeWhiteBackground(buffer, options = {}) {
   }
 
   if (autoCenterSquare) {
-    let trimmedBuffer;
+    let trimmedRaw = data;
+    let trimmedInfo = { width, height, channels: 4 };
     try {
-      trimmedBuffer = await sharp(data, { raw: { width, height, channels: 4 } })
-        .png()
+      const trimmed = await sharp(data, { raw: { width, height, channels: 4 } })
         .trim({ threshold: 5 })
-        .toBuffer();
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      if (trimmed?.data?.length && trimmed.info?.width > 0 && trimmed.info?.height > 0) {
+        trimmedRaw = trimmed.data;
+        trimmedInfo = { width: trimmed.info.width, height: trimmed.info.height, channels: trimmed.info.channels || 4 };
+      }
     } catch (_) {
-      trimmedBuffer = await sharp(data, { raw: { width, height, channels: 4 } }).png().toBuffer();
+      trimmedRaw = data;
+      trimmedInfo = { width, height, channels: 4 };
     }
 
     const paddingPx = Math.round(mainSize * paddingRatio);
     const innerSize = Math.max(1, mainSize - (paddingPx * 2));
-    const centeredProductBuffer = await sharp(trimmedBuffer)
+    const { data: fgData, info: fgInfo } = await sharp(trimmedRaw, { raw: trimmedInfo })
       .resize({
         width: innerSize,
         height: innerSize,
@@ -323,23 +330,23 @@ async function removeWhiteBackground(buffer, options = {}) {
         right: paddingPx,
         background: { r: 0, g: 0, b: 0, alpha: 0 }
       })
-      .png()
-      .toBuffer();
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
 
-    let finalMasterPipeline;
+    const outRawSpec = { width: fgInfo.width, height: fgInfo.height, channels: fgInfo.channels || 4 };
+    let compositedRaw = fgData;
     if (enableShadow) {
-      const { data: fgData } = await sharp(centeredProductBuffer)
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-
+      const cw = outRawSpec.width;
+      const ch = outRawSpec.height;
       const shadowData = new Uint8Array(fgData.length);
-      for (let y = 0; y < mainSize; y++) {
+      for (let y = 0; y < ch; y++) {
         const targetY = y + shadowOffsetY;
-        if (targetY < 0 || targetY >= mainSize) continue;
+        if (targetY < 0 || targetY >= ch) continue;
 
-        for (let x = 0; x < mainSize; x++) {
-          const srcIdx = (y * mainSize + x) * 4;
-          const dstIdx = (targetY * mainSize + x) * 4;
+        for (let x = 0; x < cw; x++) {
+          const srcIdx = (y * cw + x) * 4;
+          const dstIdx = (targetY * cw + x) * 4;
           const srcAlpha = fgData[srcIdx + 3];
 
           if (srcAlpha > 0) {
@@ -348,27 +355,24 @@ async function removeWhiteBackground(buffer, options = {}) {
         }
       }
 
-      const shadowPipeline = sharp(shadowData, {
-        raw: { width: mainSize, height: mainSize, channels: 4 }
-      });
-      const blurredShadowBuffer = await (shadowBlur >= 0.3 ? shadowPipeline.blur(shadowBlur) : shadowPipeline)
-        .png()
+      const shadowPipeline = sharp(shadowData, { raw: outRawSpec });
+      const blurredShadowRaw = await (shadowBlur >= 0.3 ? shadowPipeline.blur(shadowBlur) : shadowPipeline)
+        .ensureAlpha()
+        .raw()
         .toBuffer();
 
-      finalMasterPipeline = sharp(blurredShadowBuffer).composite([
-        { input: centeredProductBuffer, top: 0, left: 0 }
-      ]);
-    } else {
-      finalMasterPipeline = sharp(centeredProductBuffer);
+      compositedRaw = await sharp(blurredShadowRaw, { raw: outRawSpec })
+        .composite([{ input: fgData, raw: outRawSpec, top: 0, left: 0 }])
+        .ensureAlpha()
+        .raw()
+        .toBuffer();
     }
 
-    const compositedBuffer = await finalMasterPipeline.png().toBuffer();
-
     const [mainBuffer, thumbBuffer] = await Promise.all([
-      sharp(compositedBuffer)
+      sharp(compositedRaw, { raw: outRawSpec })
         .webp({ lossless: true, alphaQuality: 100, effort: 4 })
         .toBuffer(),
-      sharp(compositedBuffer)
+      sharp(compositedRaw, { raw: outRawSpec })
         .resize(thumbSize, thumbSize, { fit: 'inside' })
         .webp({ quality: 82, alphaQuality: 90, effort: 4 })
         .toBuffer()

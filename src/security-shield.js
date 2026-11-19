@@ -194,11 +194,43 @@ async function getSystemHealth(pool, config = {}, request = null) {
 
   const customDdos = Number(config?.DDOS_RATE_LIMIT || process.env.DDOS_RATE_LIMIT);
   const effectiveDdos = Number.isFinite(customDdos) && customDdos > 0 ? customDdos : 3000;
+
+  let gpuAi = null;
+  try {
+    const gpuClient = require('./lib/gpu-ai-client');
+    const embedStore = require('./lib/embedding-store');
+    const runtime = gpuClient.getGpuAiRuntimeStats();
+    const vectors = embedStore.getEmbeddingStoreStats();
+    const daemon = gpuClient.isGpuAiEnabled()
+      ? await gpuClient.checkGpuHealth({ timeoutMs: 800 })
+      : null;
+    gpuAi = {
+      enabled: runtime.enabled,
+      online: Boolean(daemon?.ok),
+      mode: daemon?.mode || (runtime.enabled ? 'offline' : 'disabled'),
+      device: daemon?.device || null,
+      ready: daemon?.ready || null,
+      backends: daemon?.backends || null,
+      gpu: daemon?.gpu || null,
+      thermal: daemon?.thermal || null,
+      rssMb: daemon?.rss_kb ? {
+        rmbg: Math.round((daemon.rss_kb.rmbg || 0) / 1024),
+        embed: Math.round((daemon.rss_kb.embed || 0) / 1024),
+        total: Math.round((daemon.rss_kb.total || 0) / 1024)
+      } : null,
+      stats: daemon?.stats || null,
+      uptimeSeconds: daemon?.uptime_s ?? null,
+      client: runtime,
+      vectorStore: vectors
+    };
+  } catch (_) {}
+
   return {
     status: dbStatus === 'connected' ? 'healthy' : 'degraded',
     statusScope: 'database_reachability',
     checks: await require('./operational-health').operationalHealth(pool,config),
     uptimeSeconds,
+    gpuAi,
     database: {
       status: dbStatus,
       latencyMs: dbLatency,

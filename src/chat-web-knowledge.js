@@ -4,7 +4,8 @@ const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 const { parseHTML } = require('linkedom');
 const { normalizeVi, expandQueryVi, hasAnyBoundaryTerm, tokenizeMeaningful, tokenOverlapScore } = require('./lib/ai-nlu');
-const { embedTexts, cosineSimilarity } = require('./lib/gpu-ai-client');
+const { embedText, embedTexts, cosineSimilarity } = require('./lib/gpu-ai-client');
+const { ensureEmbeddings, rankByCosine } = require('./lib/embedding-store');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const EXCLUDED_HTML = new Set(['cart.html', 'checkout.html', 'payment-result.html', 'sitemap.html']);
@@ -210,11 +211,12 @@ async function loadLiveSiteFacts(pool) {
 }
 
 
-async function boostWebKnowledgeWithEmbeddings(rawQuestion, scored, relevantSnippets, gpuTransport) {
+async function boostWebKnowledgeWithEmbeddings(pool, rawQuestion, scored, relevantSnippets, gpuTransport) {
   if (!rawQuestion || rawQuestion.trim().length < 5) {
     return;
   }
   const topKeywordScore = scored[0]?.score || 0;
+  const isCustomTransport = typeof gpuTransport === 'function' && gpuTransport !== fetch;
   let qVec = null;
 
   if (topKeywordScore < 18) {
@@ -230,23 +232,48 @@ async function boostWebKnowledgeWithEmbeddings(rawQuestion, scored, relevantSnip
       }
     }
     if (candidates.length) {
-      const texts = [
-        rawQuestion,
-        ...candidates.map(c => `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`)
-      ];
-      const vecs = await embedTexts(texts, { transport: gpuTransport });
-      if (!vecs || !vecs[0]) return;
-
-      qVec = vecs[0];
-      for (let i = 0; i < candidates.length; i++) {
-        const pVec = vecs[i + 1];
-        if (!pVec) continue;
-        const cos = cosineSimilarity(qVec, pVec);
-        if (cos >= 0.40) {
-          candidates[i].score += Math.round(cos * 18);
+      const itemsWithVec = [];
+      if (isCustomTransport) {
+        const texts = [
+          rawQuestion,
+          ...candidates.map(c => `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`)
+        ];
+        const vecs = await embedTexts(texts, { transport: gpuTransport });
+        if (!vecs || !vecs[0]) return;
+        qVec = vecs[0];
+        for (let i = 0; i < candidates.length; i++) {
+          if (vecs[i + 1]) itemsWithVec.push({ key: candidates[i].page.file, vec: vecs[i + 1], item: candidates[i] });
+        }
+      } else {
+        const pageItems = candidates.map(c => ({
+          key: String(c.page.file),
+          text: `${c.page.title}. ${String(c.page.content || '').slice(0, 280)}`.replace(/\s+/g, ' ').trim()
+        }));
+        const [qRes, vecMap] = await Promise.all([
+          embedText(rawQuestion),
+          ensureEmbeddings(pool, 'web_pages', pageItems)
+        ]);
+        if (!qRes) return;
+        qVec = qRes;
+        for (let i = 0; i < candidates.length; i++) {
+          const vec = vecMap.get(pageItems[i].key);
+          if (vec) itemsWithVec.push({ key: pageItems[i].key, vec, item: candidates[i] });
         }
       }
-      scored.sort((a, b) => b.score - a.score);
+
+      if (qVec && itemsWithVec.length) {
+        const cosines = itemsWithVec.map(x => cosineSimilarity(qVec, x.vec));
+        const sortedCos = [...cosines].sort((a, b) => a - b);
+        const medianCos = sortedCos[Math.floor(sortedCos.length / 2)] || 0;
+        for (let i = 0; i < itemsWithVec.length; i++) {
+          const cos = cosines[i];
+          const aboveNoise = itemsWithVec.length < 3 ? cos >= 0.32 : (cos >= 0.30 && (cos - medianCos) >= 0.08);
+          if (aboveNoise) {
+            itemsWithVec[i].item.score += Math.round(cos * 22);
+          }
+        }
+        scored.sort((a, b) => b.score - a.score);
+      }
     }
   }
 
@@ -270,18 +297,19 @@ async function boostWebKnowledgeWithEmbeddings(rawQuestion, scored, relevantSnip
         const lineOffset = qVec ? 0 : 1;
         if (!qVec) qVec = lVecs[0];
         if (qVec) {
+          const lineItems = [];
           for (let i = 0; i < extraLines.length; i++) {
             const vec = lVecs[i + lineOffset];
-            if (!vec) continue;
-            const cos = cosineSimilarity(qVec, vec);
-            if (cos >= 0.50) {
-              relevantSnippets.push({
-                title: extraLines[i].page.title,
-                url: extraLines[i].page.url,
-                line: extraLines[i].line,
-                score: Number(cos.toFixed(4))
-              });
-            }
+            if (vec) lineItems.push({ key: String(i), vec, item: extraLines[i] });
+          }
+          const ranked = rankByCosine(qVec, lineItems, { topK: 2, minCos: 0.34 });
+          for (const m of ranked.matches) {
+            relevantSnippets.push({
+              title: m.item.page.title,
+              url: m.item.page.url,
+              line: m.item.line,
+              score: Number(m.cos.toFixed(4))
+            });
           }
           relevantSnippets.sort((a, b) => b.score - a.score);
         }
@@ -326,7 +354,7 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
   try {
     const qRaw = typeof question === 'string' ? question : '';
     if (tokens.length > 0 && qRaw) {
-      await boostWebKnowledgeWithEmbeddings(qRaw, scored, semanticSnippets, gpuTransport);
+      await boostWebKnowledgeWithEmbeddings(pool, qRaw, scored, semanticSnippets, gpuTransport);
     }
   } catch (_) {}
   const topMatched = scored.filter((item, index) => item.score > 0 || index < 2).slice(0, 3);

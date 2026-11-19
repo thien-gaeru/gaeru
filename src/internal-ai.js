@@ -330,9 +330,10 @@ function createInternalAiRouter(pool, config) {
         nodeVersion: process.version,
         memoryRssMb: health.server?.memoryUsage?.rssMb || 0,
         heapUsedMb: health.server?.memoryUsage?.heapUsedMb || 0,
-        threatsBlocked: health.securityMetrics?.threatsBlocked || 0,
+        threatsBlocked: health.security?.antiHack?.threatsBlocked ?? health.securityMetrics?.threatsBlocked ?? 0,
         dbLatencyMs: health.database?.latencyMs || 0.5,
-        clusterMode: process.env.CLUSTER_ENABLED === 'true' ? 'Enterprise Multi-Core Cluster (Active)' : 'Single'
+        clusterMode: process.env.CLUSTER_ENABLED === 'true' ? 'Enterprise Multi-Core Cluster (Active)' : 'Single',
+        gpuAi: health.gpuAi || null
       };
     } catch (_) {
       return { status: 'degraded', uptimeSeconds: Math.round(process.uptime()), message: 'Không thể kiểm tra sức khỏe hệ thống lúc này.' };
@@ -758,6 +759,47 @@ Quy tắc cốt lõi:
           } catch (_) {}
         }
       }
+
+      // Tier 3.4: Semantic Intent Rescue when deterministic keyword rules miss natural phrasing
+      if (!toolResults.length && !actionCard &&
+          !/^(?:xin chao|chao|hello|hi|alo|ban la ai|giup gi|co the lam gi)\b/.test(norm) &&
+          !hasAnyBoundaryTerm(norm, ['viet', 'soan', 'mau tin nhan', 'caption', 'kich ban', 'bai dang', 'xin loi khach'])) {
+        try {
+          const { embedText, isGpuAiEnabled } = require('./lib/gpu-ai-client');
+          const { ensureEmbeddings, rankByCosine } = require('./lib/embedding-store');
+          const { INTERNAL_AI_INTENT_PROTOTYPES } = require('./lib/internal-ai-intents');
+          if (isGpuAiEnabled() && userQuestion.length >= 6) {
+            const [qVec, protoMap] = await Promise.all([
+              embedText(userQuestion),
+              ensureEmbeddings(pool, 'internal_intents', INTERNAL_AI_INTENT_PROTOTYPES)
+            ]);
+            if (qVec && protoMap.size) {
+              const items = INTERNAL_AI_INTENT_PROTOTYPES
+                .map(p => ({ key: p.key, vec: protoMap.get(p.key), item: p }))
+                .filter(x => x.vec);
+              const ranked = rankByCosine(qVec, items, { topK: 2, minCos: 0.34 });
+              if (ranked.best && (ranked.margin >= 0.06 || ranked.best.cos >= 0.50)) {
+                const intent = ranked.best.key;
+                if (intent === 'business_overview') {
+                  toolResults.push({ tool: 'get_business_overview', data: await toolGetBusinessOverview({ days: parseFlexibleDays(norm) }, user), semanticIntent: intent });
+                } else if (intent === 'orders_list') {
+                  toolResults.push({ tool: 'query_orders', data: await toolQueryOrders({ limit: 8 }, user), semanticIntent: intent });
+                } else if (intent === 'inventory_stock') {
+                  toolResults.push({ tool: 'check_inventory', data: await toolCheckInventory({ lowStockOnly: false }, user), semanticIntent: intent });
+                } else if (intent === 'shipping_status') {
+                  toolResults.push({ tool: 'query_shipping', data: await toolQueryShipping({}, user), semanticIntent: intent });
+                } else if (intent === 'promotions_vouchers') {
+                  toolResults.push({ tool: 'get_marketing_overview', data: await toolGetMarketingOverview(user), semanticIntent: intent });
+                } else if (intent === 'warranty_care') {
+                  toolResults.push({ tool: 'get_customer_care', data: await toolGetCustomerCareOverview(user), semanticIntent: intent });
+                } else if (intent === 'system_health') {
+                  toolResults.push({ tool: 'check_system_health', data: await toolCheckSystemHealth(), semanticIntent: intent });
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
     }
 
     // 3. Tổng hợp phản hồi chính xác, súc tích, đúng trọng tâm câu hỏi
@@ -940,7 +982,12 @@ Quy tắc cốt lõi:
 
     // 8. Sức khỏe Hệ thống
     if (sys) {
-      out += `**Hệ thống (${String(sys.status || 'ok').toUpperCase()}):** ${sys.clusterMode} · Uptime ${Math.max(1, Math.round((sys.uptimeSeconds || 0) / 60))} phút · RSS **${sys.memoryRssMb} MB** (Heap **${sys.heapUsedMb} MB**) · DB **${sys.dbLatencyMs} ms** · WAF đã chặn **${sys.threatsBlocked}**.\n\n`;
+      out += `**Hệ thống (${String(sys.status || 'ok').toUpperCase()}):** ${sys.clusterMode} · Uptime ${Math.max(1, Math.round((sys.uptimeSeconds || 0) / 60))} phút · RSS **${sys.memoryRssMb} MB** (Heap **${sys.heapUsedMb} MB**) · DB **${sys.dbLatencyMs} ms** · WAF đã chặn **${sys.threatsBlocked}**.`;
+      if (sys.gpuAi?.online) {
+        const g = sys.gpuAi;
+        out += `\n- **GAERU GPU AI:** Trực tuyến (${g.mode}) · GPU **${g.gpu?.temp_c ?? '—'}°C** (${g.gpu?.clk_mhz ?? '—'} MHz) · RAM AI **${g.rssMb?.total ?? '—'} MB** · Vector đã lập chỉ mục: **${g.vectorStore?.totalVectors ?? 0}**.`;
+      }
+      out += `\n\n`;
     }
 
     // 9. Tri thức Tự học

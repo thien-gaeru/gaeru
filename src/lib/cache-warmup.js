@@ -81,6 +81,28 @@ async function warmUpCache(pool) {
       const t = setTimeout(() => { warmHotImagesInBackground(pool, products); }, 50);
       if (typeof t.unref === 'function') t.unref();
     }
+    if (pool && typeof pool.query === 'function' && process.env.NODE_ENV !== 'test' && !process.env.NODE_TEST_CONTEXT) {
+      const embedStore = require('./embedding-store');
+      // Every worker hydrates pre-computed vectors from PostgreSQL into RAM (<2ms)
+      const hTimer = setTimeout(() => {
+        Promise.all([
+          embedStore.hydrateNamespace(pool, 'products'),
+          embedStore.hydrateNamespace(pool, 'web_pages'),
+          embedStore.hydrateNamespace(pool, 'news'),
+          embedStore.hydrateNamespace(pool, 'learned'),
+          embedStore.hydrateNamespace(pool, 'internal_intents')
+        ]).catch(() => {});
+      }, 250);
+      if (typeof hTimer.unref === 'function') hTimer.unref();
+
+      // Primary worker incrementally fills any missing vectors in background (thermal-safe)
+      if (isPrimarySlot) {
+        const wTimer = setTimeout(() => {
+          embedStore.warmEmbeddingIndexInBackground(pool).catch(() => {});
+        }, 4500);
+        if (typeof wTimer.unref === 'function') wTimer.unref();
+      }
+    }
 
     console.log(`[Cache Ready] Đã nạp sẵn ${products?.length || 0} thiết bị vào RAM.`);
     return products;
