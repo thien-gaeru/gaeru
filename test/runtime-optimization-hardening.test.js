@@ -1069,4 +1069,62 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     assert.ok(seen.some((r) => r.path === "/huong-dan/gaeru-k9"));
     assert.ok(seen.every((r) => /bot/i.test(r.ua || "")), "Warmup requests must carry bot User-Agent to avoid traffic stats pollution");
   });
+
+  test("P2-A & P2-B: email-marketing idle short-circuit and smartPageCache single-flight SWR prevent thundering herd", async (t) => {
+    // P2-A: processEmailQueue runs 1 read-only EXISTS check when idle
+    const { processEmailQueue } = require("../src/email-marketing");
+    const idleQueries = [];
+    const idlePool = {
+      async query(sql) {
+        idleQueries.push(String(sql));
+        return { rows: [{ has_work: false }] };
+      }
+    };
+    const handled = await processEmailQueue(
+      idlePool,
+      { PUBLIC_BASE_URL: "https://gaeru.com", smtp: { from: "a@gaeru.com" } },
+      { sendMail: async () => ({ accepted: [] }) }
+    );
+    assert.equal(handled, false);
+    assert.equal(idleQueries.length, 1, "Idle marketing email tick must issue only 1 lightweight EXISTS query");
+
+    // P2-B: smartPageCache elects exactly 1 revalidator on soft TTL expiry while serving stale to concurrent readers
+    flushAllCache();
+    let renders = 0;
+    const swrApp = express();
+    swrApp.use(smartPageCache(80));
+    swrApp.get("/swr-demo", async (_req, res) => {
+      renders++;
+      const current = renders;
+      await new Promise((r) => setTimeout(r, 70));
+      res.status(200).type("html").send(`<html><body>render-${current}</body></html>`);
+    });
+    const srv = swrApp.listen(0, "127.0.0.1");
+    await new Promise((r) => srv.once("listening", r));
+    t.after(() => new Promise((r) => srv.close(r)));
+    const base = "http://127.0.0.1:" + srv.address().port;
+
+    const r0 = await httpRequest(`${base}/swr-demo`, { "Accept-Encoding": "identity" });
+    assert.equal(r0.status, 200);
+    assert.equal(r0.headers["x-cache"], "MISS-REBUILT");
+    assert.equal(renders, 1);
+
+    // Wait past soft 80ms TTL (still inside staleGrace window)
+    await new Promise((r) => setTimeout(r, 110));
+
+    // Fire 8 concurrent requests right across TTL boundary
+    const burst = await Promise.all(
+      Array.from({ length: 8 }, () => httpRequest(`${base}/swr-demo`, { "Accept-Encoding": "identity" }))
+    );
+    assert.equal(renders, 2, "Only 1 single-flight revalidator may run during soft TTL expiry");
+    const rebuilt = burst.filter((r) => r.headers["x-cache"] === "MISS-REBUILT");
+    const staleServed = burst.filter((r) => r.headers["x-cache"] === "HIT-STALE-REVALIDATING");
+    assert.equal(rebuilt.length, 1);
+    assert.equal(staleServed.length, 7);
+
+    // Next request sees the refreshed render-2 from RAM
+    const after = await httpRequest(`${base}/swr-demo`, { "Accept-Encoding": "identity" });
+    assert.equal(after.headers["x-cache"], "HIT-FRESH-RAM");
+    assert.match(after.body.toString("utf8"), /render-2/);
+  });
 }

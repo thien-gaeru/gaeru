@@ -202,6 +202,7 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
       await appendAudit(c, { actor: req.admin, action: 'marketing.email.schedule', entityType: 'marketing', entityId: id, metadata: { count: emails.length, scheduledAt: item.scheduled_at } });
       return emails.length;
     });
+    nudgeEmailMarketingWorker();
     res.json({ message: 'Đã lên lịch gửi cho ' + count + ' địa chỉ duy nhất.', count });
   }));
 
@@ -483,8 +484,21 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
   return { admin, publicApi };
 }
 
+const { registerWorkerNudge, triggerWorkerNudge } = require('./lib/worker-nudge');
+const EMAIL_MARKETING_DEFAULT_INTERVAL_MS = () => (process.env.NODE_ENV === 'test' || process.env.NODE_TEST_CONTEXT) ? 3000 : 30000;
+
+function nudgeEmailMarketingWorker() {
+  triggerWorkerNudge('email_marketing');
+}
+
 async function processEmailQueue(pool, config, mailer) {
   if (!mailer || !config.smtp || !(config.PUBLIC_BASE_URL || config.smtp.publicBaseUrl)) return false;
+
+  // Fast single-query idle guard: avoids 4 table scans/updates every tick when no campaigns are active
+  const activeCheck = (await pool.query(
+    "SELECT (EXISTS(SELECT 1 FROM marketing_email_campaigns WHERE status IN ('scheduled','sending')) OR EXISTS(SELECT 1 FROM marketing_email_recipients WHERE status='sending')) AS has_work"
+  )).rows[0];
+  if (!activeCheck?.has_work) return false;
 
   await pool.query("UPDATE marketing_email_recipients SET status='unknown',result='Tiến trình gián đoạn; không tự gửi lại',finished_at=now() WHERE status='sending' AND attempted_at<now()-interval '2 minutes'");
 
@@ -584,28 +598,46 @@ async function processEmailQueue(pool, config, mailer) {
   return processed;
 }
 
-function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalMs = 3000 } = {}) {
+function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalMs = EMAIL_MARKETING_DEFAULT_INTERVAL_MS() } = {}) {
   let running = false;
   let stopped = false;
+  let activeFollowupTimer = null;
   async function run() {
     if (running || stopped) return;
     running = true;
+    let processedAny = false;
     try {
       for (let i = 0; i < 10 && !stopped; i++) {
         const handled = await processEmailQueue(pool, config, mailer);
         if (!handled) break;
+        processedAny = true;
       }
     } catch {
       console.error('Marketing email queue temporarily unavailable');
     } finally {
       running = false;
+      // When a campaign is actively dispatching, keep cadence responsive (3s) even if idle poll is 30s
+      if (processedAny && !stopped && intervalMs > 3000) {
+        if (activeFollowupTimer) clearTimeout(activeFollowupTimer);
+        activeFollowupTimer = setTimeout(() => {
+          activeFollowupTimer = null;
+          void run();
+        }, 3000);
+        activeFollowupTimer.unref?.();
+      }
     }
   }
+  const unregister = registerWorkerNudge('email_marketing', run);
   const timer = setInterval(run, intervalMs);
   timer.unref?.();
   void run();
   return () => {
     stopped = true;
+    unregister();
+    if (activeFollowupTimer) {
+      clearTimeout(activeFollowupTimer);
+      activeFollowupTimer = null;
+    }
     clearInterval(timer);
   };
 }
@@ -613,6 +645,7 @@ function startEmailWorker(pool, config, { mailer = makeMailer(config), intervalM
 module.exports = {
   createEmailMarketing,
   startEmailWorker,
+  nudgeEmailMarketingWorker,
   processEmailQueue,
   audience,
   campaignSchema,

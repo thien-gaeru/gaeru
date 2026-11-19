@@ -400,16 +400,36 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
     const key = `html:${canonicalizeHtmlCacheUrl(req.originalUrl)}`;
 
     let hit = ramCache.get(key);
+    let servingStale = false;
     const nowMs = Date.now();
     const crossedPromoBoundary = Boolean(
       hit && (
-        (hit.expiresAt && nowMs >= hit.expiresAt) ||
+        (hit.promoDeadline && nowMs >= hit.promoDeadline) ||
         (nextPromotionBoundaryMs && nowMs >= nextPromotionBoundaryMs && (hit.time || 0) < nextPromotionBoundaryMs)
       )
     );
-    if (hit && (nowMs - (hit.time || 0) > swrMs || crossedPromoBoundary)) {
+    if (hit && crossedPromoBoundary) {
       ramCache.delete(key);
       hit = undefined;
+    } else if (hit && nowMs - (hit.time || 0) > swrMs) {
+      // Single-flight SWR on soft TTL expiry: elect exactly 1 request to rebuild fresh HTML
+      // while all other concurrent readers receive the warm compressed entry in <10ms.
+      const revalActive = Boolean(hit.revalidating && (nowMs - (hit.revalidatingSince || 0) < 15000));
+      if (!revalActive) {
+        const staleRef = hit;
+        staleRef.revalidating = true;
+        staleRef.revalidatingSince = nowMs;
+        if (typeof res.once === 'function') {
+          res.once('close', () => {
+            if (ramCache.get(key) === staleRef) {
+              staleRef.revalidating = false;
+            }
+          });
+        }
+        hit = undefined;
+      } else {
+        servingStale = true;
+      }
     }
     if (hit) {
       const { isDcbEnabled, isDcbEligible, compressDcbAsync } = require('./src/lib/compression-dictionary');
@@ -432,7 +452,7 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
           res.setHeader('Content-Encoding', 'dcb');
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.setHeader('Content-Length', hit.dcb.length);
-          res.setHeader('X-Cache', 'HIT-FRESH-RAM-DCB');
+          res.setHeader('X-Cache', servingStale ? 'HIT-STALE-REVALIDATING' : 'HIT-FRESH-RAM-DCB');
           return res.end(hit.dcb);
         }
         if (!hit.dcbPending) {
@@ -441,7 +461,7 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
               if (ramCache.get(key) === hit) {
                 hit.dcb = dcbBuf;
                 hit.dcbEtag = hit.etag.replace(/"$/, '-dcb"');
-                const remTtl = Math.max(1000, (hit.expiresAt || Date.now() + swrMs) - Date.now());
+                const remTtl = Math.max(1000, (hit.cacheEndAt || hit.expiresAt || Date.now() + swrMs) - Date.now());
                 ramCache.set(key, hit, { ttl: remTtl });
               }
             })
@@ -454,7 +474,7 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
         return res.status(304).end();
       }
 
-      res.setHeader('X-Cache', 'HIT-FRESH-RAM');
+      res.setHeader('X-Cache', servingStale ? 'HIT-STALE-REVALIDATING' : 'HIT-FRESH-RAM');
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
       const preferences = new Map(String(req.headers['accept-encoding'] || '').split(',').map(part => {
@@ -503,11 +523,18 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
         }
 
         const builtAt = Date.now();
-        const expiresAt = nextPromotionBoundaryMs && nextPromotionBoundaryMs > builtAt
-          ? Math.min(builtAt + swrMs, nextPromotionBoundaryMs)
+        const promoDeadline = nextPromotionBoundaryMs && nextPromotionBoundaryMs > builtAt
+          ? nextPromotionBoundaryMs
+          : null;
+        const staleGraceMs = Math.min(swrMs, 60000);
+        const expiresAt = promoDeadline
+          ? Math.min(builtAt + swrMs, promoDeadline)
           : builtAt + swrMs;
-        const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: builtAt, expiresAt };
-        ramCache.set(key, entry, { ttl: Math.max(1000, expiresAt - builtAt) });
+        const cacheEndAt = promoDeadline
+          ? Math.min(builtAt + swrMs + staleGraceMs, promoDeadline)
+          : builtAt + swrMs + staleGraceMs;
+        const entry = { raw: body, br: null, gz: null, etag, cacheControl, time: builtAt, expiresAt, promoDeadline, cacheEndAt, revalidating: false, revalidatingSince: 0 };
+        ramCache.set(key, entry, { ttl: Math.max(1000, cacheEndAt - builtAt) });
 
         const rawBuffer = Buffer.from(body, 'utf-8');
         Promise.all([
@@ -522,7 +549,7 @@ function smartPageCache(swrMs = (process.env.NODE_ENV === 'production' ? 300000 
           if (ramCache.get(key) === entry) {
             entry.br = br;
             entry.gz = gz;
-            const remTtl = Math.max(1000, (entry.expiresAt || Date.now() + swrMs) - Date.now());
+            const remTtl = Math.max(1000, (entry.cacheEndAt || Date.now() + swrMs) - Date.now());
             ramCache.set(key, entry, { ttl: remTtl });
           }
         }).catch(() => {});
