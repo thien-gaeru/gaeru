@@ -394,8 +394,14 @@
     // If an explicit notification was already dispatched during this action, skip automatic toast
     if (ctx.notified) return;
 
+    // Passive background indicators (polling/live-sync labels) must never surface as action toasts
+    const isPassiveStatus = node => Boolean(
+      node.hasAttribute?.('data-passive-status') ||
+      node.hasAttribute?.('data-no-action-feedback') ||
+      /-live-status$/.test(node.id || '')
+    );
     const statuses = [...document.querySelectorAll(statusSelector)]
-      .filter(node => text(node) && text(node) !== ctx.before.get(node) && !/^Đang\b/u.test(text(node)));
+      .filter(node => !isPassiveStatus(node) && text(node) && text(node) !== ctx.before.get(node) && !/^Đang\b/u.test(text(node)));
     const local = statuses.find(node => ctx.form?.contains(node));
     const messageNode = local || statuses.at(-1);
     const last = ctx.responses.at(-1);

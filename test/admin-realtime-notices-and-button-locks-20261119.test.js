@@ -138,6 +138,15 @@ test('action-feedback.js reparents active notices to document.body when hosting 
   assert.equal(region.children.length, 1, 'Active toast must remain visible until 3s elapses');
 });
 
+test('action-feedback.js never turns passive live-sync status text into an action toast', () => {
+  const src = read('action-feedback.js');
+  const html = read('admin/index.html');
+  assert.match(src, /isPassiveStatus/);
+  assert.match(src, /data-passive-status/);
+  assert.match(src, /-live-status\$/);
+  assert.match(html, /id="order-live-status" role="status" data-passive-status/);
+});
+
 test('action-feedback.js clear("error") dismisses only error notices and cancels their timers', () => {
   const h = createActionFeedbackHarness();
   h.window.GAERUNotify.success('Thành công');
