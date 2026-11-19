@@ -389,20 +389,16 @@
       const run = () => {
         if (triggered) return;
         triggered = true;
-        ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(ev =>
-          window.removeEventListener(ev, run)
-        );
         void GAERUAnalytics.bootstrap();
       };
-      ['pointerdown', 'keydown', 'touchstart', 'scroll'].forEach(ev =>
-        window.addEventListener(ev, run, { once: true, passive: true })
-      );
       const deferAfterLoad = () => {
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(() => setTimeout(run, 1800), { timeout: 3200 });
-        } else {
-          setTimeout(run, 2500);
-        }
+        setTimeout(() => {
+          if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(run, { timeout: 2500 });
+          } else {
+            run();
+          }
+        }, 2500);
       };
       if (document.readyState === 'complete') deferAfterLoad();
       else window.addEventListener('load', deferAfterLoad, { once: true });

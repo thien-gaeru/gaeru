@@ -327,7 +327,7 @@ function closeActivePanel({ restoreFocus = true, immediate = false } = {}) {
     closeTimer = window.setTimeout(() => {
       panel.hidden = true;
       panelScrim.hidden = true;
-    }, 750);
+    }, 280);
   }
   if (restoreFocus && trigger?.isConnected) trigger.focus({ preventScroll: true });
 }
@@ -359,14 +359,16 @@ function openPanel(panel, trigger) {
   }
   panelScrim.hidden = false;
   panel.hidden = false;
-  void panel.offsetWidth;
   requestAnimationFrame(() => {
-    panel.classList.add("is-open");
-    panelScrim.classList.add("is-visible");
-    const focusTarget = panel === document.querySelector("#search-panel")
-      ? panel.querySelector("input[type=search]")
-      : panel.querySelector(".panel-close, a[href], button:not(:disabled)");
-    focusTarget?.focus({ preventScroll: true });
+    requestAnimationFrame(() => {
+      if (activePanel !== panel) return;
+      panel.classList.add("is-open");
+      panelScrim.classList.add("is-visible");
+      const focusTarget = panel === document.querySelector("#search-panel")
+        ? panel.querySelector("input[type=search]")
+        : panel.querySelector(".panel-close, a[href], button:not(:disabled)");
+      focusTarget?.focus({ preventScroll: true });
+    });
   });
   document.dispatchEvent(new CustomEvent("gaeru:cart-panel-open"));
 }
@@ -731,34 +733,48 @@ function initializeMotion() {
   }
 
   let framePending = false;
+  let cachedMaxScroll = 0;
+  let cachedHeroHeight = 0;
+  let heroEl = document.querySelector(".hero");
+  let heroArtEl = document.querySelector(".hero-art img");
+  let lastProgress = -1;
+  let lastHeroOffset = -1;
+
+  const measureScrollMetrics = () => {
+    cachedMaxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    heroEl = document.querySelector(".hero");
+    heroArtEl = document.querySelector(".hero-art img");
+    cachedHeroHeight = heroEl ? heroEl.offsetHeight : 0;
+  };
+
   const updateScrollEffects = () => {
     if (framePending) return;
     framePending = true;
     requestAnimationFrame(() => {
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      const progressValue = maxScroll > 0 ? window.scrollY / maxScroll : 0;
-      progress.style.transform = `scaleX(${progressValue})`;
-      const heroArt = document.querySelector(".hero-art img");
-      if (heroArt) {
-        const heroBottom = document.querySelector(".hero")?.getBoundingClientRect().bottom ?? 0;
-        const travel = Math.max(0, Math.min(1, (window.innerHeight - heroBottom) / window.innerHeight));
-        heroArt.style.setProperty("--hero-parallax", `${travel * 28}px`);
+      const y = window.scrollY;
+      const progressValue = cachedMaxScroll > 0 ? Math.min(1, Math.max(0, y / cachedMaxScroll)) : 0;
+      if (Math.abs(progressValue - lastProgress) > 0.001) {
+        progress.style.transform = `scaleX(${progressValue})`;
+        lastProgress = progressValue;
+      }
+      if (heroArtEl && heroArtEl.isConnected && cachedHeroHeight > 0 && y <= cachedHeroHeight + 120) {
+        const travel = Math.max(0, Math.min(1, y / cachedHeroHeight));
+        const px = Math.round(travel * 240) / 10;
+        if (px !== lastHeroOffset) {
+          heroArtEl.style.transform = `translate3d(0, ${px}px, 0) scale(.94)`;
+          lastHeroOffset = px;
+        }
       }
       framePending = false;
     });
   };
+  measureScrollMetrics();
   window.addEventListener("scroll", updateScrollEffects, { passive: true });
-  window.addEventListener("resize", updateScrollEffects, { passive: true });
+  window.addEventListener("resize", () => { measureScrollMetrics(); updateScrollEffects(); }, { passive: true });
+  if ("ResizeObserver" in window && document.body) {
+    new ResizeObserver(() => { measureScrollMetrics(); }).observe(document.body);
+  }
   updateScrollEffects();
-
-  document.addEventListener("pointermove", (event) => {
-    if (event.pointerType !== "mouse") return;
-    const card = event.target.closest(".product-card, .catalog-card, .care-card");
-    if (!card) return;
-    const bounds = card.getBoundingClientRect();
-    card.style.setProperty("--pointer-x", `${event.clientX - bounds.left}px`);
-    card.style.setProperty("--pointer-y", `${event.clientY - bounds.top}px`);
-  }, { passive: true });
 }
 
 if (document.readyState === "loading") {
