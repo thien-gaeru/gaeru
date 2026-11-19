@@ -93,3 +93,20 @@ test('Package 3: Warranty 1-click quick approve & bulk spam clean, Product Edito
   assert.ok(storeApi.includes('warranties: { pending: pendingWarranties }'));
   assert.ok(storeApi.includes('care: { open: openCareRequests }'));
 });
+
+test('COD Return panel mounts cleanly before #order-workspace even when #after-sales-toggle is nested inside .orders-utility-left', () => {
+  const vm = require('node:vm');
+  const { parseHTML } = require('linkedom');
+  const html = fs.readFileSync(path.join(ROOT, 'admin/index.html'), 'utf8');
+  const codJs = fs.readFileSync(path.join(ROOT, 'admin/cod-return.js'), 'utf8');
+  const { document, window } = parseHTML(html);
+  window.GAERUAdmin = { can: () => true, request: async () => ({ items: [] }), showGlobal() {} };
+  assert.doesNotThrow(() => {
+    vm.runInNewContext(codJs, { window, document, Intl, console });
+  });
+  const panel = document.getElementById('cod-return-panel');
+  const workspace = document.getElementById('order-workspace');
+  assert.ok(panel, '#cod-return-panel must be created');
+  assert.equal(panel.parentNode, workspace.parentNode, '#cod-return-panel must share parent with #order-workspace');
+  assert.equal(panel.nextSibling, workspace, '#cod-return-panel must mount directly before #order-workspace');
+});

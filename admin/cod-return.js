@@ -73,8 +73,11 @@
         </div>
       `;
 
-      if (afterSalesBtn && afterSalesBtn.parentNode) {
-        afterSalesBtn.parentNode.insertBefore(panel, document.getElementById('order-workspace'));
+      const workspaceEl = document.getElementById('order-workspace');
+      if (workspaceEl && workspaceEl.parentNode) {
+        workspaceEl.parentNode.insertBefore(panel, workspaceEl);
+      } else if (ordersView) {
+        ordersView.appendChild(panel);
       }
 
       // Gắn sự kiện toggle
