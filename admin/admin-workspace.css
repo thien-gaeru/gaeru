@@ -1945,6 +1945,19 @@ body:has(dialog.gaeru-center-popup[open]) .gaeru-action-notices {
   pointer-events: none !important;
 }
 
+/* Avoid duplicating inline banner or shifting page layout when floating top-right toast is active */
+#global-feedback[data-delegated-toast="true"] {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
 /* Marketing sub-tabs clean wrapping without horizontal scrollbar + AI FAB bottom clearance */
 .admin-content {
   padding-bottom: 104px;

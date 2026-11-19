@@ -113,9 +113,11 @@ function showGlobal(message, isError = false, options = {}) {
     clearTimeout(globalFeedbackTimer);
     globalFeedbackTimer = null;
   }
+  const hasFloatingToast = Boolean(window.GAERUNotify?.toast || typeof window.notify === "function");
   if (feedback) {
     feedback.textContent = text;
     feedback.classList.toggle("is-error", Boolean(text && isError));
+    feedback.dataset.delegatedToast = hasFloatingToast ? "true" : "false";
     if (text) {
       if (!feedback.dataset.clickDismissBound) {
         feedback.dataset.clickDismissBound = "true";

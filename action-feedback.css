@@ -28,21 +28,24 @@ button.is-processing::before,
 button[data-busy="true"]::before { margin-right: 7px; }
 .gaeru-input-spinner { margin-left: 8px; color: #0071e3; }
 
-/* Toast Notifications Container — top-right so it never covers modal footers or bottom-right FAB */
+/* Toast Notifications Container — compact top-right corner, never overlapping content or modal buttons */
 .gaeru-action-notices {
   position: fixed;
-  top: 20px !important;
-  right: 20px !important;
+  top: 14px !important;
+  right: 16px !important;
   bottom: auto !important;
+  left: auto !important;
   height: auto !important;
+  width: auto !important;
+  max-width: min(360px, calc(100vw - 32px)) !important;
   z-index: 2147483646;
   display: grid;
   align-content: start;
   align-items: start;
-  gap: 10px;
-  width: min(420px, calc(100vw - 32px));
+  justify-items: end;
+  gap: 8px;
   pointer-events: none !important;
-  font: 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 .gaeru-action-notices:empty,
 .gaeru-action-notices[hidden] {
@@ -50,37 +53,41 @@ button[data-busy="true"]::before { margin-right: 7px; }
   pointer-events: none !important;
 }
 
-/* Individual Toast Item */
+/* Individual Toast Item — slim compact card */
 .gaeru-action-notice {
   position: relative;
   overflow: hidden;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 11px;
-  padding: 12px 14px 14px;
+  gap: 9px;
+  width: fit-content;
+  max-width: 100%;
+  height: auto !important;
+  min-height: 0;
+  padding: 9px 12px 11px;
   background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   color: #1d1d1f;
   border: 1px solid #e5e7eb;
-  border-left: 4px solid #10b981;
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14), 0 3px 10px rgba(15, 23, 42, 0.06);
+  border-left: 3.5px solid #10b981;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.05);
   pointer-events: auto;
   overflow-wrap: anywhere;
-  animation: gaeru-toast-slide .22s cubic-bezier(0.16, 1, 0.3, 1);
-  transition: opacity .18s, transform .18s;
+  animation: gaeru-toast-slide .2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity .16s, transform .16s;
 }
 .gaeru-action-notice::before {
   content: '✓';
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   color: #fff;
   background: #10b981;
@@ -91,14 +98,14 @@ button[data-busy="true"]::before { margin-right: 7px; }
   left: 0;
   right: 0;
   bottom: 0;
-  height: 3px;
+  height: 2.5px;
   background: #10b981;
   transform-origin: left center;
   animation: gaeru-toast-progress var(--gaeru-toast-duration, 3000ms) linear forwards;
 }
 
 .gaeru-action-notice > span {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-weight: 500;
   color: #1f2937;
@@ -108,13 +115,13 @@ button[data-busy="true"]::before { margin-right: 7px; }
   border: 0;
   background: transparent;
   color: #9ca3af;
-  font: 19px/1 Arial, sans-serif;
+  font: 17px/1 Arial, sans-serif;
   padding: 0;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 20px;
+  min-height: 20px;
   width: auto;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
