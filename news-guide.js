@@ -94,7 +94,11 @@
   function render(post, cover) {
     const body = bodyMarkup(post.body);
     const date = new Date(post.publishedAt);
-    const dateText = date.toLocaleDateString('vi-VN', {day:'numeric', month:'long', year:'numeric', timeZone:'Asia/Ho_Chi_Minh'});
+    const formatDate = new Intl.DateTimeFormat('vi-VN', {day:'numeric', month:'numeric', year:'numeric', timeZone:'Asia/Ho_Chi_Minh'});
+    const dateText = formatDate.format(date);
+    const updated = new Date(post.updatedAt);
+    const revised = updated > date && formatDate.format(updated) !== dateText;
+    const updatedTime = revised ? ' <span aria-hidden="true">·</span> <time datetime="' + updated.toISOString() + '">Cập nhật ' + formatDate.format(updated) + '</time>' : '';
     const path = '/tin-tuc/' + encodeURIComponent(post.slug);
     const productPhoto = post.slug === 'phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185' || post.slug === 'so-sanh-chi-tiet-micro-gaeru-k9-va-gaeru-m3';
     const caption = productPhoto ? 'Ảnh sản phẩm của GAERU.' : 'Ảnh minh họa tạo bằng AI.';
@@ -104,7 +108,7 @@
     return '<div class="news-guide"><header class="guide-masthead"><div class="guide-headline"><p class="guide-topic">' +
       escape(topics.get(post.slug)) + '</p><h1>' + escape(post.title) + '</h1><p class="guide-deck">' + escape(post.excerpt) +
       '</p><p class="guide-byline">GAERU <span aria-hidden="true">·</span> <time datetime="' +
-      escape(date.toISOString()) + '">' + escape(dateText) + '</time></p></div><figure class="guide-art">' + cover +
+      escape(date.toISOString()) + '">Đăng ' + escape(dateText) + '</time>' + updatedTime + '</p></div><figure class="guide-art">' + cover +
       '<figcaption>' + caption + '</figcaption></figure></header><div class="guide-reading">' + contents + '<div class="guide-copy">' + body.html + '</div></div></div>';
   }
   const coverSizes = '(max-width: 760px) calc(100vw - 40px), (max-width: 1120px) 46vw, 510px';

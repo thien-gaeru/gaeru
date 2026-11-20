@@ -24,6 +24,7 @@ test('edited guides render matching, accessible sections on the server and brows
    coverId:'00000000-0000-4000-8000-000000000099',imageAlt:'Hai bộ micro',publishedAt:'2026-11-17T15:15:29Z',
    body:'## Chọn theo nhu cầu\nGhi lại **một câu**.\n\n- Thu riêng\n- Nghe lại\n\n## Đối chiếu\n\n| Tiêu chí | Bộ A | Bộ B |\n| --- | --- | --- |\n| Nguồn | USB | Pin |\n\n1. [Xem sản phẩm](/san-pham/gaeru-k9)\n2. Đọc [nguồn](https://gaeru.com/care)\n\nChữ <em>được giữ nguyên</em>.'};
  post.imageUrl='/api/news-images/'+post.coverId;
+ post.updatedAt='2026-11-20T10:00:00Z';
  const browser={innerHTML:''}, context=vm.createContext({document:{querySelector:s=>s==='[data-news-article]'?browser:s==='meta[name=description]'?{}:null},
    URLSearchParams,URL,location:{search:'?slug='+slug},fetch:async()=>({ok:true,json:async()=>({post})})});
  vm.runInContext(guideScript,context);vm.runInContext(script,context);
@@ -32,6 +33,7 @@ test('edited guides render matching, accessible sections on the server and brows
    const {document}=parseHTML('<html><body>'+html+'</body></html>');
    assert.equal(document.querySelector('h1').textContent,post.title);
    assert.equal(document.querySelector('time').getAttribute('datetime'),'2026-11-17T15:15:29.000Z');
+   assert.equal(document.querySelector('time:nth-of-type(2)').textContent,'Cập nhật 20/11/2026');
    assert.equal(document.querySelector('.news-cover').getAttribute('alt'),post.imageAlt);
    assert.equal(document.querySelector('figure.guide-art figcaption').textContent,'Ảnh sản phẩm của GAERU.');
    assert.deepEqual([...document.querySelectorAll('.guide-contents a')].map(a=>a.getAttribute('href')),['/tin-tuc/'+slug+'#muc-1','/tin-tuc/'+slug+'#muc-2']);
