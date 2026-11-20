@@ -1,0 +1,295 @@
+{
+  "release": "news-guides-20261120",
+  "posts": [
+    {
+      "id": "96df3ac6-bef9-4ae7-b9b8-6ede19ca9382",
+      "slug": "chinh-sach-bao-hanh-dien-tu-mot-doi-mot-gaeru",
+      "publishedAt": "2026-11-17T15:15:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.628Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000010",
+      "beforeHashes": [
+        "c64f5d6da02ddd99c3ea5af19716c13747c390ed936bc0cb9179186275e2e03f",
+        "de6f943eea7a9e19155ac0b545ab2c430411f2293984714c47f719e081fd81f5",
+        "485aba8603d43c779ba7f36a09c79c641b936abb8304483d5ce587095d7a350d",
+        "7fd041779cc613ca330819abc96772386af0eb52e00150f4275afc86f73bd5a1"
+      ],
+      "title": "Khi nào micro GAERU được đổi mới, khi nào cần gửi bảo hành?",
+      "excerpt": "Bạn vừa nhận đầu thu khác với cổng đã đặt, hay micro bắt đầu mất tiếng sau vài tháng sử dụng? Ngày nhận hàng, tình trạng thiết bị và kênh mua sẽ giúp bạn chọn đúng cách gửi yêu cầu.",
+      "body": "## Đối chiếu ngày nhận hàng\n\n**Trong 7 ngày kể từ khi ký nhận**, bạn có thể yêu cầu đổi mới nếu sản phẩm có lỗi kỹ thuật từ nhà sản xuất hoặc GAERU giao sai mẫu, cổng kết nối hay phụ kiện so với đơn. Hãy giữ hộp, phụ kiện và sách hướng dẫn. Điều kiện đổi có xét đến tình trạng va đập, nứt vỡ hoặc ngấm nước do người dùng. Nếu đủ điều kiện đổi do lỗi sản phẩm hoặc do GAERU giao sai, GAERU chịu phí vận chuyển hai chiều.\n\n**Trong thời hạn bảo hành 12 tháng**, micro thu âm GAERU được bảo hành đối với lỗi kỹ thuật từ nhà sản xuất. GAERU đối chiếu thông tin mua hàng và kiểm tra thiết bị trước khi xác nhận phương án xử lý. Bạn có thể đọc đầy đủ điều kiện tại [chính sách đổi trả và bảo hành](/chinh-sach/giao-hang-doi-tra).\n\n## Chuẩn bị thông tin từ đúng nơi mua\n\n- **Đơn trên website.** Đăng nhập tài khoản dùng để đặt hàng, mở GAERU Care+ và chọn đơn có sản phẩm cần kiểm tra. Nếu đặt với tư cách khách, hãy chuẩn bị mã đơn hoặc xác nhận mua hàng để đội hỗ trợ tìm đúng giao dịch.\n- **Đơn trên sàn.** Mở lịch sử mua hàng của Shopee, TikTok Shop hoặc Lazada và sao chép mã đơn. Trong biểu mẫu Care+, chọn đúng tên sàn rồi nhập mã này.\n- **Kích hoạt bảo hành.** Nếu bạn muốn đăng ký thông tin thiết bị vừa mua, dùng [biểu mẫu kích hoạt bảo hành](/dang-ky-bao-hanh). Khi thiết bị đã phát sinh lỗi, mở yêu cầu hỗ trợ để mô tả hiện tượng.\n\n## Giúp kỹ thuật viên nhận ra lỗi ngay từ lần đọc đầu\n\nChẳng hạn, với bộ hai micro, ghi rõ chiếc nào gặp sự cố, đèn báo ra sao và chiếc còn lại có thu được tiếng trên cùng điện thoại hay không. Với đơn giao sai, ảnh chụp đầu cắm bên cạnh tên phiên bản trên đơn giúp người tiếp nhận đối chiếu nhanh hơn.\n\nGửi thông tin tại [GAERU Care+](/care), giữ thiết bị và phụ kiện cho đến khi nhận hướng dẫn gửi hàng. Bạn có thể mở mục “Yêu cầu của bạn” để xem phản hồi và bước tiếp theo.",
+      "imageAlt": "Bộ GAERU G1 ULTRA với hộp sạc mở và một bộ phát ở phía trên khay.",
+      "coverId": "d2a7b767-682f-50df-af4b-6ed61570c09b",
+      "coverPath": "assets/news/guides-20261120/chinh-sach-bao-hanh-dien-tu-mot-doi-mot-gaeru.webp",
+      "coverSha256": "bcc2e7acc7d66a3eb8199db17952f1b9cd8f14d196c171eaf64fc5685819a2fc",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-g1-ultra",
+          "sourceImage": "https://gaeru.com/assets/products/g1-ultra-clean.webp",
+          "sha256Original": "874bf1d3db77a5235a12a882b593b3d25610a525afd44cc6a634b318ea46dcd6"
+        }
+      ]
+    },
+    {
+      "id": "e50fd631-74d3-414d-9bd2-ee8861831587",
+      "slug": "huong-dan-sac-va-bao-quan-micro-thu-am-khong-day",
+      "publishedAt": "2026-11-17T15:13:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.627Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000009",
+      "beforeHashes": [
+        "12c996e3057e05e9c8eaf977f51eff764220cf114fc0c3a5993a8be340faa0a3",
+        "5e2d471e2bb7fc2f1ca3ccf50645fe1a72866ad476c7efecf3d6f27498aec8b0",
+        "64e94ee7f06b90db0ddaa40e580b7e2dc5d72f307827bc3942802a0cde68eceb",
+        "a9ecd6f5bbf7b05cdba181122c5acd5b8fe6d83ab2d19cbb9c8687154a9919a3"
+      ],
+      "title": "Cách sạc GAERU K9, M3 và kiểm tra khi một micro không nhận sạc",
+      "excerpt": "K9 sạc trực tiếp trên từng micro. Với M3, nguồn điện đi qua hộp sạc rồi tới từng bộ phát. Biết đường sạc của bộ đang dùng giúp bạn tìm ra chỗ cần kiểm tra trước buổi quay.",
+      "body": "## Chọn nguồn theo đúng bộ micro\n\n**GAERU K9.** Cổng Type-C trên thân micro dùng để sạc. Hướng dẫn K9 ghi nguồn 5 V/1 A. Với bộ hai micro, kiểm tra từng chiếc sau khi sạc. Đầu thu cắm vào điện thoại có thể là Type-C hoặc Lightning tùy phiên bản, còn cáp sạc nối vào chính thân micro. [Hướng dẫn sử dụng K9](/huong-dan/gaeru-k9).\n\n**GAERU M3.** Cắm cáp vào hộp sạc, đối chiếu nhãn nguồn và tài liệu đi kèm. Hướng dẫn M3 nêu nguồn 5 V/1 A đến 5 V/2 A. Đặt mỗi micro vào đúng khay, để các điểm kim loại tiếp xúc và xem chỉ báo trên hộp. Khi chuẩn bị phỏng vấn hai người, hãy lấy từng chiếc ra thử riêng. [Hướng dẫn sử dụng M3](/huong-dan/gaeru-m3).\n\n## Khi hộp M3 có điện nhưng một bên micro vẫn hết pin\n\n1. Rút cáp khỏi hộp rồi lấy cả hai micro ra. Quan sát phần tiếp xúc của chiếc gặp vấn đề và khay tương ứng dưới ánh sáng đủ rõ. Bụi vải bám ở đáy micro có thể khiến thiết bị nằm lệch.\n2. Lau nhẹ các điểm tiếp xúc bằng khăn mềm hoặc tăm bông khô. Nếu vừa quay ngoài trời và thiết bị còn ẩm, để khô trước khi đặt lại. Đặt micro vào khay rồi kiểm tra chỉ báo.\n3. Thử riêng từng micro sau khi sạc. Nếu cùng một chiếc liên tục mất nguồn, ghi lại hiện tượng và tình trạng của chiếc còn lại. Những chi tiết này giúp bộ phận hỗ trợ phân biệt vấn đề ở bộ phát với vấn đề ở hộp.\n\n## Cất bộ micro giữa hai buổi quay\n\nTháo đầu thu khỏi điện thoại trước khi cho vào túi. Với K9, cuộn cáp lỏng tay để tránh gập ngay sát đầu cắm. Với M3, lau khô bộ phát rồi mới đóng nắp hộp. Cất thiết bị ở nơi khô, tránh nắng trực tiếp và kiểm tra lại mức pin trước ngày quay.\n\nNếu nguồn điện và cáp phù hợp mà thiết bị vẫn không báo sạc, gửi tên phiên bản, ảnh cổng sạc và những bước đã thử qua [GAERU Care+](/care).",
+      "imageAlt": "Hộp sạc GAERU M3 mở nắp, hai bộ phát và đầu thu Type-C phía trên khay, màn hình pin ở mặt trước.",
+      "coverId": "18f22f49-4267-532f-ac96-02d6a4447189",
+      "coverPath": "assets/news/guides-20261120/huong-dan-sac-va-bao-quan-micro-thu-am-khong-day.webp",
+      "coverSha256": "b7ecd556a5f75a7a439db9b5753bb496abaa780f41247c56ce1bd0e4007cfdab",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-m3",
+          "sourceImage": "https://gaeru.com/assets/products/m3-description/9.webp",
+          "sha256Original": "34096d4744862630a2ce0311d881afed52e8360d23e7ea3e3ef13943d4e98727"
+        }
+      ]
+    },
+    {
+      "id": "7f3df0d4-d199-4c3c-8a6d-5574dfec32ef",
+      "slug": "phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185",
+      "publishedAt": "2026-11-17T15:11:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.625Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000008",
+      "beforeHashes": [
+        "d87b65967173f62a4fc2ef0488f2a58bec6ed62be4987ba61e00d327273f2d8e",
+        "041fafb5e7c12a555f98b9135dcc8dbb3ec20d54b289ccba261c0b0c14f78210",
+        "fad43fdc46be851d36dc796e87a4ac8fd3f4738067dc8151bc380bf0c2793aec",
+        "e42181003ab8802f8712062815d1ed79fbbdf2defdd06dadb344ef2cb6231e0e"
+      ],
+      "title": "Chọn GAERU P01 hay P185 để tự quay bằng điện thoại?",
+      "excerpt": "Một người bước dọc bảng khi giảng bài và một gia đình chụp ảnh chung cần hai cách đặt máy khác nhau. Hãy chọn theo chuyển động trong khung hình, rồi mới tính đến chiều cao và chân đỡ.",
+      "body": "## Chọn theo cảnh bạn muốn ghi hình\n\n| Nhu cầu | GAERU P01 | GAERU P185 |\n| --- | --- | --- |\n| Di chuyển trong khi tự quay | Đế xoay theo khuôn mặt hoặc cơ thể | Người quay tự đặt hướng máy |\n| Thay đổi độ cao | Có bản để bàn và bộ kèm chân 2,1 m | Thân gậy thu và kéo trong khoảng 29,5–180 cm |\n| Chụp ảnh nhóm | Cần thử vị trí đứng và vùng theo dõi trước | Bốn chân gập và điều khiển Bluetooth tháo rời |\n\n## Khi người nói đi lại, thử vùng theo dõi của P01\n\nTrong một buổi dạy, bạn có thể bắt đầu ở giữa bảng rồi bước sang bên để viết. Đặt P01 trên mặt vững, lắp điện thoại theo chiều quay và đi thử đúng quãng đường đó. Xem lại đoạn thử ở hai điểm đầu, cuối để biết người xem còn thấy cả mặt bạn lẫn phần bảng đang viết hay không.\n\nNếu P01 mất dấu khi bạn bước vào vùng tối, thử đổi hướng đèn hoặc thu ngắn quãng di chuyển. Với cảnh nấu ăn chỉ lấy đôi tay, hãy thử một góc máy cố định. Chức năng theo người hữu ích nhất khi khuôn mặt hoặc thân người là chủ thể cần giữ trong khung. [Xem hai phiên bản GAERU P01](/san-pham/gaeru-p01).\n\n## Khi cả nhóm cùng đứng vào ảnh, đặt P185 trước\n\nMở đủ bốn chân trên mặt phẳng, kẹp điện thoại rồi mới kéo gậy lên cao. Chừa khoảng trống ở hai mép cho người đứng ngoài cùng. Ghép điều khiển Bluetooth với điện thoại và thử nút chụp trong ứng dụng camera trước khi rời máy. Nếu gió làm hình rung, hạ bớt chiều cao hoặc đổi vị trí đặt.\n\n**Nếu cần vừa theo người vừa đặt máy cao**, hãy đối chiếu bộ P01 kèm chân 2,1 m với khoảng trống tại nơi quay. Nếu bạn đã có chân riêng, cần kiểm tra khớp gắn và tải trọng của cả cụm điện thoại, kẹp và đế xoay. Riêng với P185, thông số 180 cm là chiều dài khi kéo hết thân gậy. [Xem cấu tạo và kích thước GAERU P185](/san-pham/gaeru-p185).",
+      "imageAlt": "GAERU P01 để bàn bên trái và GAERU P185 đang đỡ điện thoại trên chân gập bên phải.",
+      "coverId": "cf8bed4f-29b1-560f-b7eb-a6c1b1c166c6",
+      "coverPath": "assets/news/guides-20261120/phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185.webp",
+      "coverSha256": "dfb912fb439a315333b254fcf241c3e865e4ae774c84d3765f44ae85ad000f94",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-p01",
+          "sourceImage": "https://gaeru.com/assets/products/p01.webp",
+          "sha256Original": "356ef0bf96278e1377757e9451d580fd6aeea256d0888da40a983d8f7948f8bc"
+        },
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-p185",
+          "sourceImage": "https://gaeru.com/api/catalog-images/eba9388b-28e0-4345-933d-5ade51bbc35b?v=webp-20261025",
+          "sha256Original": "0937f9aa4ef35b86d7323cf17e522be6abbed0028026a67d7034941be06843b4"
+        }
+      ]
+    },
+    {
+      "id": "aeb59a55-7845-42b2-a545-a08761c25968",
+      "slug": "so-sanh-chi-tiet-micro-gaeru-k9-va-gaeru-m3",
+      "publishedAt": "2026-11-17T15:09:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.623Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000007",
+      "beforeHashes": [
+        "aa82b1d10d963efecb662be81e9ced78996e3c404c1ebb7eb81176f8c7b64fd0",
+        "391a6952f8b22d4b6ed672f0a6813f0cc1a35f305ca7f3480f3c44ce35c7c5cd",
+        "b5d27127bf5ca076284c0400f289ba4345883bf161fe8e823049b34f9b60f9e1",
+        "a64fbd5972f279155a3777ce2fc888bbcdbbe6b37f4f00771ba385ffdd69bd66"
+      ],
+      "title": "GAERU K9 và M3 khác nhau thế nào khi thu một hoặc hai người?",
+      "excerpt": "Cả hai dòng đều có thể dùng cho một cuộc phỏng vấn hai người. Khác biệt đáng cân nhắc là cách chọn bộ micro, cổng trên đầu thu và khả năng sạc giữa các buổi ghi hình.",
+      "body": "## So sánh theo bộ thiết bị thực tế\n\n| Tiêu chí | GAERU K9 | GAERU M3 |\n| --- | --- | --- |\n| Số micro | Chọn bộ một hoặc hai micro | Hai micro đi cùng một đầu thu |\n| Kết nối điện thoại | Đầu thu Type-C hoặc Lightning, có tùy chọn đầu chuyển | Đầu thu Type-C, chọn bộ có đầu chuyển nếu cần |\n| Cách sạc | Sạc trực tiếp vào từng micro bằng cáp Type-C | Hộp sạc có hiển thị phần trăm pin |\n| Thời gian dùng một bộ phát | Khoảng 2,5 giờ | Lên đến 3,5 giờ |\n\n**Cách đọc con số 24 giờ của M3.** Đây là tổng thời lượng GAERU công bố khi dùng luân phiên hai bộ phát và sạc lại bằng hộp. Khi phỏng vấn, hai người cùng dùng micro nên cả hai bộ phát cùng tiêu hao pin. Hãy dành một khoảng nghỉ để kiểm tra pin nếu còn nhiều lượt ghi tiếp theo.\n\n## Nếu quay một mình, bắt đầu từ cổng điện thoại\n\nĐể quay các đoạn hướng dẫn tại bàn, bạn có thể chọn K9 một micro, đối chiếu đầu thu với cổng trên điện thoại rồi thu thử trong ứng dụng sẽ dùng. Một chiếc micro thứ hai chỉ thực sự cần khi khách mời cũng phải lên tiếng ở vị trí riêng. Với nhu cầu đó, K9 có bộ hai micro cho phép mỗi người cài một chiếc. [Xem các phiên bản K9](/san-pham/gaeru-k9).\n\n## Nếu lịch quay chia thành nhiều địa điểm\n\nVới hai cuộc phỏng vấn cách nhau một quãng di chuyển, hộp M3 vừa giữ cả hai micro cùng chỗ, vừa cho phép sạc lại giữa hai lượt. M3 hỗ trợ 24-bit/48 kHz và đi cùng bông lọc gió. Khi so sánh bản thu, hãy dùng cùng điện thoại, ứng dụng và vị trí cài áo để nghe được khác biệt trong chính điều kiện làm việc của bạn. [Xem bộ M3 và đầu chuyển](/san-pham/gaeru-m3).\n\nTrước một buổi ghi hình hai người, cho khách nói một câu bằng micro thứ nhất, rồi để người dẫn trả lời bằng micro thứ hai. Nghe lại cả hai giọng và để ý tiếng áo cọ vào kẹp. Đoạn thử này cũng giúp phát hiện trường hợp chỉ một bộ phát đang kết nối.",
+      "imageAlt": "Hai micro GAERU K9 bên trái, bộ GAERU M3 với hai micro, đầu thu và hộp sạc bên phải.",
+      "coverId": "134568ea-a467-574e-94f5-4e00c6851a19",
+      "coverPath": "assets/news/guides-20261120/so-sanh-chi-tiet-micro-gaeru-k9-va-gaeru-m3.webp",
+      "coverSha256": "f4870d2dabfec7042be9b062f07c66fb1f1460197fbaad981c983f702f36b7a2",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-k9",
+          "sourceImage": "https://gaeru.com/assets/products/k9.webp",
+          "sha256Original": "9e81115e0a3d3d8ad434a21b904bbb6a2d5da7c131364e901223d0b88ca44b2d"
+        },
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-m3",
+          "sourceImage": "https://gaeru.com/assets/products/m3-home-cutout.webp",
+          "sha256Original": "0d640870870dbe3631220bdd5e38f81ecb0e472b99995c210be798ea8bc509c5"
+        }
+      ]
+    },
+    {
+      "id": "8288f921-711e-4845-947f-1878046848de",
+      "slug": "kich-ban-video-ngan-45-giay-chuyen-doi-cao-affiliate",
+      "publishedAt": "2026-11-17T15:07:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.620Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000006",
+      "beforeHashes": [
+        "27c380ae606a1c8f1fe15062d02bb83445127573e762c1dc353c372b24338c77",
+        "47625d4bbd6e4c1388251ba28c16219f277d5fc43cc5816b274533ae46febd71",
+        "33c13b332131249ecca5368808f9e63f51e1180509e5578298b2e2f1f42706a0",
+        "6b9badcde13ed37a7d53660b43375ddb7bb21fdb4d1456fda3b590945310aa73"
+      ],
+      "title": "Kịch bản 45 giây để người xem tự nghe thử micro",
+      "excerpt": "Hai bản thu, một câu nói và cùng một vị trí máy. Đây là cách giới thiệu micro trong video tiếp thị liên kết mà người xem có thể tự đánh giá bằng tai.",
+      "body": "## Chuẩn bị hai bản thu có thể so sánh\n\nChọn một việc người xem thường làm, chẳng hạn đứng cách điện thoại một sải tay để giới thiệu món đồ trên bàn. Đánh dấu chỗ đặt máy và chỗ đứng. Chọn câu có cả âm lớn lẫn âm nhỏ, ví dụ “Mình sẽ mở chiếc hộp này để bạn nghe tiếng nắp bật”. Đọc với cùng một giọng ở cả hai lượt.\n\nThu lượt đầu bằng micro điện thoại. Ở lượt sau, cài micro ngoài lên áo, cắm đầu thu và quay lại trong cùng ứng dụng. Giữ nguyên tiếng quạt, cửa phòng và khoảng cách đến máy. Nếu dùng [GAERU K9](/san-pham/gaeru-k9), ghi lại phiên bản đầu cắm đã thử để người xem đối chiếu với điện thoại của họ.\n\n## Bốn cảnh trong 45 giây\n\n1. **0–5 giây · Đặt câu hỏi.** Mở bằng cảnh bạn đứng sau bàn và hỏi “Khi mình lùi lại đây, bạn còn nghe rõ câu cuối không?”. Đặt dòng “Có liên kết tiếp thị, mình có thể nhận hoa hồng” ở vị trí dễ đọc nếu đúng với hình thức hợp tác.\n2. **5–21 giây · Phát hai bản thu.** Dành khoảng tám giây cho mỗi lượt. Gắn nhãn “Micro điện thoại” và “Micro cài áo”. Để nguyên tiếng mở hộp ở cả hai đoạn, để hai đoạn mẫu không có nhạc nền và giữ cùng mức âm lượng khi dựng.\n3. **21–34 giây · Cho nghe một giới hạn.** Quay lại đúng khoảnh khắc vạt áo chạm micro, rồi cài lại ở mép áo và nói tiếp một câu. Người xem nghe được cả tiếng sột soạt lẫn kết quả sau khi chỉnh.\n4. **34–45 giây · Chỉ rõ phiên bản.** Đưa đầu thu vào gần máy, cho thấy cổng kết nối và nhắc người xem kiểm tra loại cổng trước khi mở liên kết sản phẩm.\n\n## Duyệt bản dựng trước khi đăng\n\nNghe một lượt bằng loa điện thoại. Nếu cần nhìn phụ đề mới biết đoạn nào đang phát, kéo dài nhãn của từng lượt. Khi chia sẻ trên TikTok, bật tùy chọn khai báo nội dung thương mại theo [hướng dẫn dành cho nhà sáng tạo của TikTok](https://support.tiktok.com/en/business-and-creator/creator-and-business-accounts/promoting-a-brand-product-or-service).",
+      "imageAlt": "Cận cảnh một bàn tay cầm micro GAERU K9 có mút lọc màu đen gần cổ áo.",
+      "coverId": "5f1303fe-61b2-58fa-abe3-49c9770682ca",
+      "coverPath": "assets/news/guides-20261120/kich-ban-video-ngan-45-giay-chuyen-doi-cao-affiliate.webp",
+      "coverSha256": "21031ce3517f65313ecb997bcfcf8bb013ed8f9d3f530472983a91b9f4fa5561",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-k9",
+          "sourceImage": "https://gaeru.com/api/catalog-images/9f5bbefa-0ba2-4871-973c-15f1ef80c79c?v=webp-20261025",
+          "sha256Original": "f5ef892c6da24328df09070395ce3b1e3dd96d41172e12e4811fc897da45cb3e"
+        }
+      ]
+    },
+    {
+      "id": "790668b9-8072-48d8-8aec-f124f25d7c0d",
+      "slug": "tu-quay-video-nau-an-diy-mot-minh-gimbal-ai-p01",
+      "publishedAt": "2026-11-17T15:05:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.618Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000005",
+      "beforeHashes": [
+        "dfeeb6018eec2274f8667585f303e270cbc316d78b2e9976073608ad4ad17688",
+        "17f0fcf9357ca16320aff95d93f458f4f32d58616eecb40188c7c1b2dc4099be",
+        "9d362ea26707ac75c58e35148079c79c9f700ce1811ff91d77442335d179545d",
+        "75857bad8da3eba6810a2d58bfa112a2c47105aae8dddabf695875a7710e8d88"
+      ],
+      "title": "Tự quay nấu ăn và làm đồ thủ công với hai góc máy",
+      "excerpt": "Để P01 theo người khi bạn giới thiệu, rồi giữ khung cố định cho đôi tay. Hai cảnh quay riêng giúp người xem thấy cả người hướng dẫn lẫn thao tác nhỏ trên bàn.",
+      "body": "## Đọc công thức như một danh sách cảnh quay\n\nVới món bánh, người xem cần nhìn thấy lúc bạn đổ bột và độ đặc của hỗn hợp khi nhấc phới. Với món đồ thủ công, đó có thể là hướng luồn chỉ và mặt sau của đường khâu. Chọn hai chi tiết ấy trước khi đặt máy. Lời giới thiệu có thể thu lại sau, còn lần đổ bột đầu tiên chỉ diễn ra một lần.\n\n## Góc rộng cho người đang nói\n\nĐặt [GAERU P01](/san-pham/gaeru-p01) trên mặt phẳng vững, hướng về chỗ bạn sẽ đứng. Bản để bàn phù hợp khi có sẵn kệ chắc. Bộ kèm chân thích hợp khi cần đặt máy độc lập ở bên cạnh bàn. Chừa một khoảng trống cho đầu kẹp xoay và cho tay bạn đi qua mà không đụng máy.\n\nP01 nhận diện khuôn mặt và cơ thể. Trước khi bắt đầu, đi thử giữa hai vị trí sẽ dùng, dừng lại và cúi xuống như lúc lấy bát. Xem lại đoạn đó. Nếu máy mất dấu khi bạn cúi, hãy quay cảnh giới thiệu ở một chỗ rồi chuyển sang góc cận cho phần thao tác.\n\n## Góc cố định cho đôi tay\n\n1. Đặt một chiếc bát rỗng hoặc vật mẫu đúng chỗ sẽ làm việc. Hạ góc máy vừa đủ để thấy cả mép bàn và hai bàn tay. Đánh dấu vị trí của bát bằng một miếng băng giấy ngoài khung hình.\n2. Tạm dừng theo dõi trên P01, giữ máy ở góc cố định rồi diễn thử động tác khó nhất. Với món bánh, nhấc phới thật chậm đến vị trí cao nhất. Nếu đầu phới biến mất, lùi máy hoặc nới khung trước khi cho nguyên liệu vào.\n3. Với cảnh bếp, đặt máy lệch sang bên, ngoài vùng hơi nóng, dầu bắn và lối cầm cán chảo. Thu hình khi tay khô, hoặc nhấn quay trước rồi cắt bỏ đoạn chờ lúc dựng.\n\n## Nối hai góc bằng một động tác\n\nKết cảnh rộng lúc tay bạn đưa bát xuống bàn. Mở cảnh cận khi chiếc bát vừa chạm vị trí đã đánh dấu. Giữ nguyên hướng tay và phía có quai bát giữa hai cảnh. Người xem sẽ theo được thao tác ngay cả khi bạn chuyển từ khung có mặt sang khung chỉ có đôi tay.",
+      "imageAlt": "Đế xoay GAERU P01 màu đen với mặt cảm biến phía trước và kẹp điện thoại nằm ngang.",
+      "coverId": "5d8eb1ad-eb74-5913-9b4d-8e6609f7e376",
+      "coverPath": "assets/news/guides-20261120/tu-quay-video-nau-an-diy-mot-minh-gimbal-ai-p01.webp",
+      "coverSha256": "886d7842c3591443c665ef32ee651f7bb096453aa257972599d22ec6609c1f1b",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-p01",
+          "sourceImage": "https://gaeru.com/assets/products/p01.webp",
+          "sha256Original": "356ef0bf96278e1377757e9451d580fd6aeea256d0888da40a983d8f7948f8bc"
+        }
+      ]
+    },
+    {
+      "id": "1e7e2354-8979-4efd-b10c-d9889720ee1c",
+      "slug": "thu-am-podcast-phong-van-hai-nguoi-can-bang-am-luong",
+      "publishedAt": "2026-11-17T15:03:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.617Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000004",
+      "beforeHashes": [
+        "9625ca937f08ec180508ac689b126c273760ce9c00fe7bbb30b6226940f1510e",
+        "6f13b7a601ae1e1c572af68c1998650aab1c8703aca4891902cdc82678890449",
+        "49917dee997bc578b1cc5b797e13f32699efbb9a4e7e4948c9e7d3d552f30d13",
+        "8626b9ce594e04f2407016c177abcc54d579def4bcd8783a4bbe00513325b8bf"
+      ],
+      "title": "Thu podcast hai người sao cho hai giọng đều rõ",
+      "excerpt": "Một người kể nhỏ, người kia thường cười lớn. Đoạn đối thoại thử trước buổi thu sẽ chỉ ra nên đổi vị trí cài micro, chỉnh mức thu hay đổi chỗ ngồi.",
+      "body": "## Bắt đầu bằng tư thế trò chuyện thật\n\nĐặt ghế theo góc để hai người nhìn nhau mà vẫn nói hướng ra phía trước. Cài mỗi micro lên một lớp vải tương đối chắc ở phần ngực trên. Nhờ cả hai quay sang nhau và cười thử. Tóc, dây chuyền hoặc mép áo khoác có thể chạm vào đầu micro đúng lúc người nói cử động.\n\nNếu dùng [GAERU M3](/san-pham/gaeru-m3), đầu thu có thể nhận đồng thời hai bộ phát. Cho từng người nói riêng một câu trước để xác nhận giọng của cả hai đều vào bản ghi. Cách ứng dụng lưu âm thanh còn quyết định bạn có thể chỉnh riêng từng người ở khâu dựng hay không.\n\n## Thu thử một lượt hỏi và đáp\n\n1. Người dẫn hỏi một câu ở âm lượng thường ngày. Khách trả lời, sau đó cả hai thử nói xen một nhịp. Giữ lại vài giây yên lặng để nghe tiếng nền của phòng.\n2. Phát lại bằng tai nghe ở một mức âm lượng cố định. Nếu mỗi lần khách trả lời bạn đều phải tăng tiếng, đưa micro của khách lên gần miệng hơn một chút và thu lại đúng câu đó.\n3. Nếu tiếng cười bị rè, xem đồng hồ mức thu trong ứng dụng, nếu có. Khi mức lên sát ngưỡng tối đa, hạ mức thu nếu thiết bị cho phép hoặc cài micro xa hơn một chút. Nghe lại cả tiếng cười lẫn câu trả lời nhỏ ngay sau đó.\n\n## Nhận biết lỗi cần sửa ngay tại chỗ\n\n**Tiếng sột soạt chỉ xuất hiện khi quay đầu.** Thử cài lại lên vạt áo còn lại, tránh lớp vải chồng lên micro. **Giọng có đuôi vang dù người nói ngồi yên.** Lùi ghế khỏi bức tường trống hoặc chuyển tới phía có rèm rồi nghe lại cùng một câu. Hai hiện tượng này cần hai cách xử lý khác nhau.\n\n## Giữ bản gốc cho lúc dựng\n\nMở tệp thử trong phần mềm dựng và nghe từng kênh nếu chúng được lưu riêng. Nếu cả hai giọng đã trộn chung, tăng âm lượng toàn bộ tệp sẽ khuếch đại cả tiếng cười vốn đã lớn. Hãy cân lại từ vị trí micro trước khi thu cả tập. Ghi lại chỗ đã cài để sau giờ nghỉ hai người có thể tiếp tục với âm lượng gần như lúc đầu.",
+      "imageAlt": "Hai người cùng cài micro GAERU M3 trên áo, đứng trước một điện thoại gắn trên gậy.",
+      "coverId": "5e50dae1-3d07-590a-a283-20feb7485d42",
+      "coverPath": "assets/news/guides-20261120/thu-am-podcast-phong-van-hai-nguoi-can-bang-am-luong.webp",
+      "coverSha256": "d61945f23ff9920e03cf144d1ae0be6aae6e357c0b3e9fe34c2d64d3d3e35085",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-m3",
+          "sourceImage": "https://gaeru.com/api/catalog-images/07e60230-ae0a-45f8-bbed-df1b5ed0eff9?v=webp-20261025",
+          "sha256Original": "4d70a6a687eb2e7fe8cee76976bd2b312c77d43ce43ed17b2a54daf71be6f6be"
+        }
+      ]
+    },
+    {
+      "id": "43afda64-1286-4ac3-89bc-93bbc08562bf",
+      "slug": "setup-goc-quay-livestream-tai-nha-duoi-1-trieu",
+      "publishedAt": "2026-11-17T15:01:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.614Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000003",
+      "beforeHashes": [
+        "dc50d7dbd063056a3daddfbaccb51c631e8b63f1051da38d52dde7aea9584bc8",
+        "d573627c10a339f37625bb2b50919113243ad093e75a479763cbb72430507f92",
+        "43b3da98f32ee37b472b41f23a0cc9ebc9ad8ab1bd6dfbc3e5ba5cdc0732edc6",
+        "9fdc74131fa0c7dd47d2c828579b6ba483254a26c454473c6d9278e2eef84b11"
+      ],
+      "title": "Bố trí góc livestream tại nhà với ngân sách dưới một triệu đồng",
+      "excerpt": "Dùng điện thoại sẵn có và một đoạn quay thử để quyết định khoản đáng chi. Một phép tính với K9 và P185 cho thấy còn bao nhiêu ngân sách cho ánh sáng hoặc phụ kiện.",
+      "body": "## Dùng một nhãn sản phẩm để thử căn phòng\n\nĐặt điện thoại ở nơi bạn định phát trực tiếp, cầm sản phẩm lên và đọc một dòng trên nhãn. Sau đó nghe, nhìn lại trên chính điện thoại. Chữ bị lóa khi bạn nghiêng hộp, khung hình rung lúc tì tay lên bàn và giọng bị tiếng quạt lấn là ba vấn đề riêng. Ghi lại vấn đề làm người xem khó theo dõi nhất rồi sửa điểm đó trước.\n\n## Ba thay đổi có thể làm ngay\n\n- **Nhãn bị lóa hoặc mặt bị tối.** Đứng chếch về phía cửa sổ, lần lượt xoay mặt hộp đến khi đọc được chữ. Nếu thường phát buổi tối, quay thử vào đúng giờ với chiếc đèn bạn đang có. Điều chỉnh hướng và khoảng cách đèn cho đến khi cả mặt người lẫn nhãn đều thấy rõ.\n- **Khung hình rung mỗi khi đặt hàng xuống bàn.** Chuyển giá điện thoại sang một mặt phẳng riêng. Đánh dấu chỗ đặt sản phẩm trong khung, rồi thử nhấc lên và đặt xuống như lúc đang giới thiệu.\n- **Giọng lẫn với tiếng nền.** Đổi hướng quạt hoặc chuyển chỗ nói. Nếu vẫn phải đứng xa điện thoại để thấy đủ mặt bàn, thử micro cài áo gần người nói.\n\n## Một phép tính cho hai món thiết bị\n\nNgày 20/11/2026, [P185 bản tiêu chuẩn](/san-pham/gaeru-p185) có giá 315.000 ₫ và [K9 bản Type-C một micro](/san-pham/gaeru-k9) có giá 202.300 ₫ trên cửa hàng GAERU. Tổng hai món là **517.300 ₫**. Với trần một triệu đồng, bạn còn **482.700 ₫** trước phí giao hàng hoặc phụ kiện phát sinh. Ví dụ này giả định đã có điện thoại và đường truyền.\n\nNếu giá đỡ sẵn có đã giữ khung vững, bạn có thể dành phần tiền đó cho ánh sáng buổi tối. Khi chọn micro, kiểm tra đầu cắm và giá của đúng phiên bản ngay lúc đặt. Giá trong ví dụ là mốc đối chiếu cho phép tính.\n\n## Chạy thử như một phiên bán hàng\n\nQuay khoảng một phút gồm chào khách, đưa sản phẩm sát máy và trả lời một câu hỏi ở khoảng cách thường dùng. Nếu chữ đủ rõ, giọng dễ nghe và khung đứng vững qua cả ba động tác, bạn đã có thể dùng góc đó cho buổi phát đầu tiên.",
+      "imageAlt": "Điện thoại đặt ngang trên giá GAERU P185, bên cạnh là tay cầm điều khiển từ xa.",
+      "coverId": "3cc46c1c-1948-5a9c-aa1d-064d10f3ae8a",
+      "coverPath": "assets/news/guides-20261120/setup-goc-quay-livestream-tai-nha-duoi-1-trieu.webp",
+      "coverSha256": "ee33dfb06d037db852d91c5bcb1733d7a625bd5b329d0b8b8ed1b2eb74b0dd5a",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-p185",
+          "sourceImage": "https://gaeru.com/api/catalog-images/aaaab65c-fc61-4708-85c7-344de4c26f88?v=webp-20261025",
+          "sha256Original": "d5477d5c735d03382487b80733c62e93a47faa1dc3c8ac08861dec48a7375266"
+        }
+      ]
+    },
+    {
+      "id": "a5ee8704-dbda-4ef5-8736-298705649bbf",
+      "slug": "thu-am-ngoai-troi-khong-bi-gio-giat-deadcat-loc-ai",
+      "publishedAt": "2026-11-17T14:59:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.611Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000002",
+      "beforeHashes": [
+        "75c186ad2041b0812a25640c515a64458f94f8e3ce12dabb1c4fc4164e0aab8e",
+        "26f33230bd5cfafe6b9ffb2dc61ad0025ebfd50bacfa864fd28e6ef1631ed82a",
+        "9776dcb4fe0f5b33bcb4ca99b62af689e8bf81a4e393969b5ae6cce2ec85ae18",
+        "5ccdc94163ab9dfbd9d902884e3b84d4755fcf112775306f53b814a0f8ea89e7"
+      ],
+      "title": "Cách dùng bông chắn gió và lọc ồn khi thu âm ngoài trời",
+      "excerpt": "Tiếng ù trầm theo cơn gió và tiếng xe chạy đều cần hai cách xử lý khác nhau. Một câu thu thử giúp bạn chọn vị trí đứng, thử bông chắn gió rồi mới quyết định có bật lọc ồn.",
+      "body": "## Nghe xem tiếng nào đang che mất lời\n\nĐeo tai nghe và phát lại câu vừa thu. Tiếng “phù” trầm kéo đến đúng lúc tóc hoặc áo bị gió thổi thường là dấu hiệu luồng khí tạt vào micro. Tiếng sột soạt đúng lúc người nói quay vai gợi ý mép áo đang cọ vào đầu micro. Tiếng xe vẫn nghe đều giữa các câu là âm thanh từ môi trường. Xác định được âm nào gây khó nghe nhất sẽ giúp bạn chọn đúng việc cần chỉnh.\n\n## Thử đổi chỗ trước khi đổi chế độ\n\nLùi vào sau một vách chắn hoặc quay người sao cho thân mình che bớt gió cho micro. Giữ vị trí an toàn, đủ xa dòng xe và chọn chỗ có thể đứng yên suốt câu trả lời. Cài micro ở phía khuất gió, chừa khoảng trống quanh đầu micro và thử quay đầu sang người phỏng vấn. Mép áo khoác có thể chạm vào micro dù lúc đứng thẳng mọi thứ vẫn ổn.\n\nNếu thường quay ngoài trời, hãy chọn bông chắn gió bằng lông vừa với mẫu micro đang dùng. Phụ kiện này làm dịu luồng khí trước khi gió chạm màng micro. Gắn theo hướng dẫn của bộ phụ kiện và thử kéo nhẹ để biết nó đã nằm chắc. Với [GAERU M3](/san-pham/gaeru-m3), trang sản phẩm mô tả cả bông lọc gió và chức năng giảm ồn.\n\n## So sánh hai lần đọc cùng một câu\n\n1. Gắn bông, giữ nguyên chỗ đứng rồi nói một câu có vài âm cuối nhỏ, chẳng hạn “Mình sẽ đặt chiếc hộp lên bàn”. Để máy ghi thêm một nhịp yên lặng.\n2. Nếu thiết bị cho phép bật hoặc tắt giảm ồn, đổi sang chế độ còn lại và lặp lại câu đó. Nghe hai bản ở cùng âm lượng. Chú ý xem tiếng cuối của từ “hộp” có còn rõ và tiếng xe giữa các câu thay đổi ra sao.\n3. Giữ chế độ khiến giọng dễ hiểu hơn. Nếu cơn gió che mất cả một cụm từ, đổi vị trí, xin người nói nhắc lại trọn câu rồi thu bù ngay tại chỗ. Một bản thu rõ tại hiện trường sẽ dễ dựng hơn nhiều so với đoạn phỏng vấn phải đoán lại từng chữ.",
+      "imageAlt": "Hai bông chắn gió bằng lông phía trên hai micro GAERU M3, bên cạnh đầu thu và hộp sạc.",
+      "coverId": "022bd511-fcd7-5a7e-8734-172d2e84c1b2",
+      "coverPath": "assets/news/guides-20261120/thu-am-ngoai-troi-khong-bi-gio-giat-deadcat-loc-ai.webp",
+      "coverSha256": "d088ba9c33144ccd3ece272a0dde5b14aead020e2b32db8dd0566aaea2e3fb72",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-m3",
+          "sourceImage": "https://gaeru.com/assets/products/m3-description/12.webp",
+          "sha256Original": "d385ff7b8bf18db2779b8a128ca136a8afb4acd5b91314154074aeb6de2aeb72"
+        }
+      ]
+    },
+    {
+      "id": "901613e7-6c28-42d0-977c-1129412541ac",
+      "slug": "dien-thoai-khong-nhan-micro-thu-am-cach-khac-phuc",
+      "publishedAt": "2026-11-17T14:57:29.073Z",
+      "beforeVersion": 1,
+      "beforeUpdatedAt": "2026-11-18T03:30:57.600Z",
+      "beforeCover": "c0000000-0000-4000-8000-000000000001",
+      "beforeHashes": [
+        "e963a99df95fa4777dfd6be3566e203699a0579ec180b8d2ce38662736845291",
+        "f10034eda46ef6194758ae06445ea21debfcc5c24637a5114bc4788a4bc8a375",
+        "b020a0aa477713c50430b7ef5a1f4486052abfc0769bcb621c1393838596cb05",
+        "42b9bd9757f3042cb4c43b8f68bc875f2635f5badbfbf6fd534f9bdf334cc9f7"
+      ],
+      "title": "Điện thoại chưa nhận micro ngoài? Kiểm tra bằng hai bản thu",
+      "excerpt": "Nếu video im tiếng hoặc vẫn thu từ điện thoại, hãy thử đầu cắm, nguồn âm và quyền của ứng dụng theo triệu chứng. Hai đoạn ghi ngắn sẽ cho biết nên kiểm tra khâu nào tiếp theo.",
+      "body": "## Phân biệt lỗi thu và lỗi phát lại\n\nĐặt điện thoại trên bàn, mở đúng ứng dụng bạn định quay và ghi một câu bằng micro tích hợp. Ghi nhớ vị trí đứng, cắm đầu thu, bật micro cài áo rồi quay lại vị trí đó để ghi tiếp. Nói rõ tên từng lượt ở đầu đoạn. Phát cả hai ở cùng âm lượng. Nếu loa điện thoại im khi đầu thu vẫn cắm, hãy dừng ghi, rút đầu thu rồi phát lại tệp đã lưu.\n\n## Đầu thu chưa hoạt động\n\nKiểm tra pin của bộ phát, trạng thái tắt tiếng nếu có và đèn báo theo hướng dẫn đúng mẫu. Tháo ốp nếu viền ốp cản chân cắm. Đối chiếu đầu thu với cổng điện thoại và dùng đầu chuyển hỗ trợ âm thanh nếu bộ của bạn cần tới nó. [GAERU K9](/san-pham/gaeru-k9) có nhiều phiên bản đầu cắm, nên tên mẫu trên hộp riêng lẻ chưa xác định được phụ kiện bạn cần.\n\nTrên Android, một số máy có tùy chọn OTG cho thiết bị USB. Tra hướng dẫn theo đúng tên điện thoại nếu đầu thu chưa được nhận. Vị trí tùy chọn và cách báo kết nối phụ thuộc từng mẫu.\n\n## Có tín hiệu nhưng ứng dụng vẫn ghi sai nguồn\n\nKiểm tra quyền micro của chính ứng dụng đang quay. Trên Android, mở Cài đặt, chọn Ứng dụng, tên ứng dụng, rồi Quyền và Micrô. Trên iPhone, mở Cài đặt, chọn Quyền riêng tư & Bảo mật rồi Micrô để xem các ứng dụng đã yêu cầu sử dụng. [Hướng dẫn của Google](https://support.google.com/android/answer/9431959?hl=vi) · [Hướng dẫn của Apple](https://support.apple.com/vi-vn/guide/iphone/iph168c4bbd5/ios).\n\nNếu ứng dụng có mục chọn nguồn âm thanh, chọn micro ngoài rồi tạo một tệp mới. Thử thêm một ứng dụng ghi khác trên cùng điện thoại. Khi một ứng dụng thu được giọng từ micro ngoài còn ứng dụng kia vẫn dùng micro máy, hãy kiểm tra phần chọn nguồn hoặc khả năng hỗ trợ của ứng dụng thứ hai.\n\n## Thông tin giúp kỹ thuật kiểm tra nhanh hơn\n\nNếu cả hai ứng dụng đều gặp lỗi, ghi lại mẫu điện thoại, phiên bản hệ điều hành, tên ứng dụng, mẫu micro và đầu chuyển đã dùng. Khi liên hệ [bộ phận hỗ trợ GAERU](/ho-tro), mô tả điều bạn nghe được ở hai đoạn thử. Chi tiết “tệp có tiếng khi rút đầu thu” sẽ dẫn tới bước kiểm tra khác với “tệp lưu xong vẫn hoàn toàn im tiếng”.",
+      "imageAlt": "Đầu thu GAERU K9 cắm trực tiếp vào cổng ở cạnh dưới điện thoại.",
+      "coverId": "3a6c979e-0a22-5ce3-bd26-d2d58f44fe7c",
+      "coverPath": "assets/news/guides-20261120/dien-thoai-khong-nhan-micro-thu-am-cach-khac-phuc.webp",
+      "coverSha256": "668227982f04da7b1512001530aaebeed002c15ed663526bbd946eb5667e5df1",
+      "imageSources": [
+        {
+          "sourcePage": "https://gaeru.com/san-pham/gaeru-k9",
+          "sourceImage": "https://gaeru.com/assets/products/k9-description/2.webp",
+          "sha256Original": "55ae692e7baa442c3e40049c67992cc9b00ba7a12b917813ff9b71b5f80b04b7"
+        }
+      ]
+    }
+  ]
+}

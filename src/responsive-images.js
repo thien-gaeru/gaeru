@@ -26,7 +26,7 @@ function apply(document){
    const isThumb=Boolean(image.closest('.product-gallery-thumbnails'));
    const isNewsCard=Boolean(image.closest('.news-card'));
    const isCard=Boolean(image.closest('.news-card,.product-card,.catalog-card'));
-   const sizes=isThumb?'74px':image.classList.contains('news-cover')?'(max-width: 760px) calc(100vw - 40px), (max-width: 1200px) 92vw, 1100px':image.closest('.product-detail-art')?'(max-width: 760px) 280px, (max-width: 1120px) 640px, 840px':isNewsCard?'(max-width: 760px) 220px, 350px':isCard?'(max-width: 760px) 240px, (max-width: 1120px) 460px, 560px':'(max-width: 760px) 240px, (max-width: 1120px) 460px, 560px';
+   const sizes=image.getAttribute('sizes')||(isThumb?'74px':image.classList.contains('news-cover')?'(max-width: 760px) calc(100vw - 40px), (max-width: 1200px) 92vw, 1100px':image.closest('.product-detail-art')?'(max-width: 760px) 280px, (max-width: 1120px) 640px, 840px':isNewsCard?'(max-width: 760px) 220px, 350px':isCard?'(max-width: 760px) 240px, (max-width: 1120px) 460px, 560px':'(max-width: 760px) 240px, (max-width: 1120px) 460px, 560px');
    const targetWidths=isThumb?[160,480]:isNewsCard?[480,800]:[480,800,1200,1600];
    image.setAttribute('srcset',targetWidths.map(width=>source+sep+(width===160?'w=160&format=webp':'format=webp&w='+width)+' '+width+'w').join(', '));
    image.setAttribute('sizes',sizes);
