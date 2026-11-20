@@ -2664,7 +2664,7 @@ const productSchema = z.object({
   name: z.string().trim().min(2).max(160),
   category: z.enum(["audio", "video", "accessory"]),
   descriptor: z.string().trim().max(160).default(""),
-  description: z.string().trim().max(3000).default(""),
+  description: z.string().trim().default(""),
   imageUrl: z.string().trim().regex(/^(?:\/assets\/products\/[a-zA-Z0-9._-]+|\/api\/catalog-images\/[0-9a-f-]{36})$/),
   imageAlt: z.string().trim().max(250).default(""),
   active: z.boolean().default(false),

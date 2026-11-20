@@ -257,17 +257,25 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(['/api/auth', '/api/customer-auth'], createAuthBruteForceShield(config, pool));
   app.use('/api', createDdosShield(config, pool));
   app.use(require("./bot-protection").createBotProtection(pool,config));
-  app.use("/api/gaeru_ceo/product-workspace",express.json({limit:"256kb"}));
+  // Defer product JSON until the admin session, CSRF token and catalog permission are verified.
+  app.post(["/api/gaeru_ceo/product-workspace", "/api/gaeru_ceo/products"], deferProductJson);
+  app.put("/api/gaeru_ceo/products/:id", deferProductJson);
+  function deferProductJson(_req, res, next) {
+    res.locals.productWriteJson = true;
+    next();
+  }
   app.use("/api/gaeru_ceo/news", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/pages", express.json({limit:"128kb"}));
   app.use("/api/gaeru_ceo/marketing/emails",express.json({limit:"64kb"}));
-  app.use(express.json({
+  const defaultJson = express.json({
     limit: "32kb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     }
-  }));
-  app.use(createHoneypotShield());
+  });
+  const honeypot = createHoneypotShield();
+  app.use((req, res, next) => res.locals.productWriteJson ? next() : defaultJson(req, res, next));
+  app.use(honeypot);
   const sessionMiddleware = session({
     name: "gaeru.sid",
     store: sessionStore,
@@ -467,6 +475,13 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     if (['POST','PUT','PATCH','DELETE'].includes(req.method)) return requireCsrf(req,res,next);
     next();
   });
+  const productWriteBody = express.Router();
+  productWriteBody.use(
+    requirePermission("catalog.write"),
+    express.json({ limit: require("node:buffer").constants.MAX_STRING_LENGTH }),
+    honeypot
+  );
+  app.use((req, res, next) => res.locals.productWriteJson ? productWriteBody(req, res, next) : next());
   app.get("/api/gaeru_ceo/system-health", async (req, res, next) => {
     try {
       const health = await getSystemHealth(pool, config, req);

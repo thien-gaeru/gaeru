@@ -42,6 +42,9 @@ test('K9, P185 and G1 legacy descriptions become model-specific chapters while c
  for(const [slug,description,expected]of [['gaeru-k9','MIC CÀI ÁO GAERU K9','Không cần'],['gaeru-p185','Gậy chụp ảnh P185 có remote bluetooth','Bluetooth'],['gaeru-g1-ultra','Ghi trọn câu chuyện.','kiểm âm']]){
   const product={slug,name:slug.toUpperCase(),description,imageUrl:'/assets/products/k9.webp',gallery:[],descriptionMedia:[]};
   const html=render(product);assert.match(html,/product-feature-story/);assert.match(html,/product-feature-specs/);assert.match(html,new RegExp('/huong-dan/'+slug));assert.ok(!html.includes('90%'));
+  const addition='Phần giới thiệu bổ sung. '.repeat(180)+'Ghi chú cuối của cửa hàng.';
+  const extended=render({...product,description:description+'\n\n'+addition});
+  assert.ok(extended.includes(addition),slug+' must display edits appended to a legacy introduction');
   const custom=render({...product,description:'Bản mô tả mới của cửa hàng',descriptionMedia:[{type:'image',url:'/custom.webp',alt:'Ảnh riêng',afterParagraph:1}]});assert.match(custom,/Bản mô tả mới/);assert.match(custom,/custom.webp/);assert.ok(!custom.includes('product-feature-story'));
  }
 });

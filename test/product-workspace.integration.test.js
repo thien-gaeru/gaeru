@@ -141,4 +141,50 @@ test('product workspace saves variant combinations atomically, protects history 
  assert.equal((await api('/api/gaeru_ceo/products/'+extra.data.id+'/restore','POST',{version:savedExtra.data.version,activate:true})).status,200);
  assert.equal((await pool.query('SELECT COUNT(*)::int n FROM product_variants WHERE product_id=$1 AND active',[extra.data.id])).rows[0].n,2);
 
+ await t.test('long product descriptions survive creation, editing and reopening through both catalog APIs', async () => {
+   const paragraph = 'Bộ thu âm 🎙️ giữ nguyên tiếng Việt, dấu câu và xuống dòng.';
+   const description = paragraph.repeat(100) + '\n\nHết phần giới thiệu.';
+   const sections = Array.from({ length: 150 }, (_, i) => 'Phần ' + (i + 1) + '\n' + paragraph.repeat(30));
+   const edited = sections.join('\n\n') + '\n\nPhần cuối sau khi sửa.';
+   const workspace = '/api/gaeru_ceo/product-workspace';
+   const products = '/api/gaeru_ceo/products';
+   const product = { ...initial.product, slug: 'long-description', description };
+   const variant = { ...initial.variants[0], sku: 'LONG-DESCRIPTION', options: {} };
+   const created = await api(workspace, 'POST', { product, gallery: [url], groups: [], variants: [variant] });
+   assert.equal(created.status, 201, created.data?.error);
+   const draft = (await api(workspace + '/' + created.data.id)).data;
+   assert.equal(draft.product.description, description);
+
+   draft.product.description = edited;
+   draft.product.active = true;
+   draft.descriptionMedia = [{ type: 'image', url, alt: 'Sản phẩm thực tế', afterParagraph: 101 }];
+   const anonymous = await fetch(base + workspace, {
+     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft)
+   });
+   assert.equal(anonymous.status, 401);
+   const missingCsrf = await api(workspace, 'POST', draft, false);
+   assert.equal(missingCsrf.status, 403);
+   const published = await api(workspace, 'POST', draft);
+   assert.equal(published.status, 200, published.data?.error);
+   const detail = (await api('/api/products/' + product.slug)).data.product;
+   assert.equal(detail.description, edited);
+   assert.equal(detail.descriptionMedia[0].afterParagraph, 101);
+   const page = await fetch(base + '/san-pham/' + product.slug);
+   assert.equal(page.status, 200);
+   const { document } = require('linkedom').parseHTML(await page.text());
+   const photo = document.querySelector('.product-description-media .description-figure');
+   assert.equal(photo?.previousElementSibling.textContent, sections[100]);
+   assert.equal(photo?.nextElementSibling.textContent, sections[101]);
+
+   const legacy = { ...product, slug: 'long-description-legacy', description: edited };
+   const legacyCreated = await api(products, 'POST', legacy);
+   assert.equal(legacyCreated.status, 201, legacyCreated.data?.error);
+   const legacyPath = workspace + '/' + legacyCreated.data.id;
+   assert.equal((await api(legacyPath)).data.product.description, edited);
+   const revision = edited + '\nGhi chú mới nhất.';
+   const legacyUpdated = await api(products + '/' + legacyCreated.data.id, 'PUT', { ...legacy, description: revision });
+   assert.equal(legacyUpdated.status, 200, legacyUpdated.data?.error);
+   assert.equal((await api(legacyPath)).data.product.description, revision);
+ });
+
 });

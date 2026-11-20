@@ -56,3 +56,28 @@ test('detailed table edits update the simple variant controls, including an expl
  }
  const price=e.node('[data-field=priceVnd]');price.value='';await e.emit('change',price);assert.equal(e.node('#simple-price').value,'');
 });
+
+test('a generated description block accepts a long paragraph and submits its full text', async () => {
+ const e = editor();
+ await e.ready;
+ const upload = e.node('#gallery-files').listeners.change[0]({target:{files:[{name:'image.png',size:20}]}});
+ await e.started;
+ e.releaseUpload();
+ await upload;
+ e.node('name').value = 'Kiểm tra mô tả dài';
+ e.node('slug').value = 'kiem-tra-mo-ta-dai';
+ e.input('#simple-price','100000');
+ e.input('#simple-stock','1');
+ e.input('#simple-sku','DESCRIPTION');
+
+ const host = e.node('#description-media');
+ const {document} = require('linkedom').parseHTML('<div id="blocks">' + host.innerHTML + '</div>');
+ const field = document.querySelector('[data-description-text]');
+ assert.ok(field);
+ assert.equal(field.hasAttribute('maxlength'), false);
+ const text = 'Mô tả thu âm 🎙️. '.repeat(450) + 'Cuối đoạn.';
+ field.value = text;
+ host.children = document.querySelector('#blocks').children;
+ await e.publish.onclick();
+ assert.equal(e.submitted().product.description, text);
+});

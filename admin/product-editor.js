@@ -400,7 +400,10 @@
    for(const row of host.children){
      const text=row.querySelector('[data-description-text]');
      if(text){
-       paragraphs.push(...text.value.split(/\n\s*\n/).map(v=>v.trim()).filter(Boolean));
+       for(const part of text.value.split(/\n\s*\n/)){
+         const paragraph=part.trim();
+         if(paragraph)paragraphs.push(paragraph);
+       }
        continue;
      }
      const item=model.descriptionMedia[Number(row.dataset.descriptionIndex)];
@@ -433,10 +436,7 @@
  function countDescription(){
    const n=form.elements.description?.value.length||0;
    const counter=document.querySelector('[data-description-count]');
-   if(counter){
-     counter.textContent=n+' / 3000 ký tự · '+(model.descriptionMedia||[]).length+' / 12 ảnh hoặc video';
-     counter.classList.toggle('is-over-limit',n>3000);
-   }
+   if(counter)counter.textContent=n+' ký tự · '+(model.descriptionMedia||[]).length+' / 12 ảnh hoặc video';
  }
 
  function blockTools(text=false){
@@ -444,7 +444,7 @@
  }
 
  function textBlock(value=''){
-   return `<article class="description-text-card" data-description-block draggable="true">${handle()}<label>Đoạn mô tả<textarea data-description-text lang="vi" dir="auto" spellcheck="true" rows="4" maxlength="3000" placeholder="Nhập nội dung mô tả…">${esc(value)}</textarea></label>${blockTools(true)}</article>`;
+   return `<article class="description-text-card" data-description-block draggable="true">${handle()}<label>Đoạn mô tả<textarea data-description-text lang="vi" dir="auto" spellcheck="true" rows="4" placeholder="Nhập nội dung mô tả…">${esc(value)}</textarea></label>${blockTools(true)}</article>`;
  }
 
  function attachBlockDrag(host){
@@ -1106,11 +1106,6 @@
      if(!model.gallery.length){
        showFieldError(document.querySelector('#gallery'),'Vui lòng tải lên ít nhất một ảnh sản phẩm.');
        throw Error('Hãy thêm ít nhất một ảnh sản phẩm.');
-     }
-
-     if(form.elements.description?.value.length>3000){
-       showFieldError(document.querySelector('#description-media'),'Mô tả chi tiết tối đa 3000 ký tự.');
-       throw Error('Mô tả tối đa 3000 ký tự.');
      }
 
      if(model.groups.length){
