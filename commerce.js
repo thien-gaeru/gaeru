@@ -618,7 +618,7 @@ function renderProduct() {
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>${(product.variants || []).some(v => /type-?c|lightning|usb|3\.5mm|chân cắm|kết nối/i.test(`${v.name || ""} ${JSON.stringify(v.options || {})}`)) ? "Chọn kết nối phù hợp với bạn." : "Chọn cấu hình phù hợp với bạn."}</span></h2>
         ${variantField}<p data-selected-promotion class="store-promotion-note" hidden></p>
-        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>Vui lòng chọn phiên bản</p><p>Phí vận chuyển tính theo địa chỉ.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
+        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>Vui lòng chọn phiên bản</p><p>Xem phí giao hàng khi thanh toán.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
           <button class="button button-blue buy-now-button" type="button" data-buy-now="" disabled>Mua ngay</button>
           <button class="button button-blue" type="button" data-add-to-cart="" disabled>Thêm vào giỏ</button>
@@ -734,10 +734,15 @@ function shippingPresentation(settings) {
   const hasNationwide=Object.keys(rates).some(isNationwide);
   const freeNationwide=hasNationwide && Object.values(rates).every(fee=>fee===0);
   const note=String(settings?.shippingNote||"").trim();
-  const standardNote=/^phí (?:vận chuyển|giao hàng) (?:được )?tính theo tỉnh\/thành phố(?: đã chọn)?[.!]?$/i.test(note);
   const base=freeNationwide ? "Miễn phí giao hàng toàn quốc." : "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.";
-  // The fee table defines the amount. Keep additional delivery instructions written by the merchant.
-  const helper=note && !standardNote && note!==base ? (freeNationwide ? base+" "+note : note) : base;
+  const freePolicy=/^miễn phí (?:vận chuyển|giao hàng) (?:trên )?toàn quốc[.!;]*$/iu;
+  const regionalPolicy=/^phí (?:vận chuyển|giao hàng) (?:được )?tính theo tỉnh\/thành phố(?: đã chọn)?[.!;]*$/iu;
+  // Discard only whole stock phrases. Keep merchant instructions and qualified offers.
+  const details=note.split(/(?<=[.!?;])[^\S\r\n]+|[\r\n]+/u).filter(sentence=>{
+    const normalized=sentence.trim().normalize("NFC").replace(/\s+/gu," ");
+    return normalized && !freePolicy.test(normalized) && !regionalPolicy.test(normalized);
+  }).join(" ").trim();
+  const helper=details ? (freeNationwide ? base+" "+details : details) : base;
   return {isNationwide,hasNationwide,freeNationwide,helper,badge:freeNationwide ? "Miễn phí · 0 ₫" : "Tính tại thanh toán"};
 }
 let cartShippingRequest=null,cartShippingExpires=0;
@@ -962,7 +967,7 @@ async function renderCheckout() {
     ${recoveredItemsApplied ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
     ${skippedOutOfStock > 0 ? '<div class="checkout-notice" role="status" style="color:#9a3412;border-color:#fed7aa;background:#fff7ed;">Một số phiên bản đã hết hàng trong giỏ đã được bỏ qua khỏi đơn thanh toán này.</div>' : ''}
     <form class="checkout-form" id="checkout-form">
-      <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> ${freeNationwide ? "Miễn phí giao hàng toàn quốc." : "Chọn tỉnh/thành phố để xem phí giao hàng."}</div>
+      <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong>${freeNationwide ? "" : " Chọn tỉnh/thành phố để xem phí giao hàng."}</div>
       <label class="saved-address-label" data-saved-address-label hidden>Địa chỉ đã lưu<select data-saved-address><option value="">Nhập địa chỉ mới</option></select></label><p class="address-status" data-address-status role="status"></p>
       <details class="checkout-contact-details" data-contact-details open><summary>Thông tin giao hàng<span data-contact-summary></span></summary>
       <div class="form-section">

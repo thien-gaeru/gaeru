@@ -19,13 +19,24 @@ test('cart and checkout describe only nationwide zero rates as free and preserve
   const source=fs.readFileSync(require('node:path').join(__dirname,'../commerce.js'),'utf8');
   const helpers=source.slice(source.indexOf('function shippingPresentation('),source.indexOf('function renderCart()'));
   const standard="Phí vận chuyển được tính theo tỉnh/thành phố đã chọn.";
-  for(const [rates,note,free] of [
-    [{"Toàn quốc":0},standard,true],
-    [{"Toàn quốc":0,"Hà Nội":0},"Giao trong 2–3 ngày.",true],
-    [{"Toàn quốc":0,"Hà Nội":15000},standard,false],
-    [{"Hà Nội":0},standard,false],
-    [{"Toàn quốc":30000},"Ưu đãi theo từng chương trình.",false],
-    [{},standard,false]
+  const nationwide="Miễn phí giao hàng toàn quốc.";
+  const regional="Phí giao hàng được tính theo tỉnh/thành phố đã chọn.";
+  const liveNote="Miễn phí vận chuyển toàn quốc";
+  const qualified="Miễn phí vận chuyển toàn quốc cho đơn từ 300.000 ₫.";
+  for(const [rates,note,free,expected] of [
+    [{"Toàn quốc":0},standard,true,nationwide],
+    [{"Toàn quốc":0},liveNote,true,nationwide],
+    [{"Toàn quốc":0},nationwide+" "+liveNote+"!",true,nationwide],
+    [{"Toàn quốc":0},("MIỄN PHÍ   VẬN CHUYỂN TRÊN TOÀN QUỐC!").normalize("NFD"),true,nationwide],
+    [{"Toàn quốc":0},liveNote+". Gọi trước khi giao.",true,nationwide+" Gọi trước khi giao."],
+    [{"Toàn quốc":0},"Gọi trước khi giao.\n"+liveNote,true,nationwide+" Gọi trước khi giao."],
+    [{"Toàn quốc":0,"Hà Nội":0},"Giao trong 2–3 ngày.",true,nationwide+" Giao trong 2–3 ngày."],
+    [{"Toàn quốc":0,"Hà Nội":15000},standard,false,regional],
+    [{"Toàn quốc":0,"Hà Nội":15000},liveNote,false,regional],
+    [{"Hà Nội":0},standard,false,regional],
+    [{"Toàn quốc":30000},qualified,false,qualified],
+    [{"Toàn quốc":30000},"Ưu đãi theo từng chương trình.",false,"Ưu đãi theo từng chương trình."],
+    [{},standard,false,regional]
   ]) {
     const settings={shippingRates:rates,shippingNote:note};
     const {document}=parseHTML('<main><span data-cart-shipping></span><p data-cart-shipping-note></p><b data-cart-subtotal-final>80.000 ₫</b></main>');
@@ -35,9 +46,7 @@ test('cart and checkout describe only nationwide zero rates as free and preserve
     const summary=ctx.shippingPresentation(settings);
     assert.equal(summary.freeNationwide,free);assert.equal(root.querySelector('[data-cart-shipping]').textContent,summary.badge);
     assert.equal(root.querySelector('[data-cart-shipping-note]').textContent,summary.helper);
-    assert.equal(summary.helper.includes('Miễn phí giao hàng toàn quốc.'),free);
-    if(note!==standard)assert.ok(summary.helper.includes(note));
-    if(free)assert.ok(!summary.helper.includes('được tính theo tỉnh'));
+    assert.equal(summary.helper,expected);
     assert.equal(root.querySelector('[data-cart-subtotal-final]').textContent,'80.000 ₫');
   }
 });
