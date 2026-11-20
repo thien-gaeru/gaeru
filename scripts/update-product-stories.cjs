@@ -1,6 +1,7 @@
 // Authorized catalog update. DATABASE_URL is supplied by the operator; never printed.
 require('dotenv').config({quiet:true});
 const fs=require('node:fs'),path=require('node:path'),{Client}=require('pg');
+const {isDeepStrictEqual}=require('node:util');
 const {appendAudit}=require('../src/audit');
 const plan=require('../content/product-stories.json');
 async function update(client,{apply=false,imageOnly=false}={}){
@@ -16,7 +17,7 @@ async function update(client,{apply=false,imageOnly=false}={}){
    if(imageOnly&&p.slug!=='gaeru-g1-ultra')continue;
    
    if(!imageOnly&&old.description!==p.description&&old.description!==p.expectedDescription)throw Error('Description has changed; review before replacing');
-   if(!imageOnly&&old.description_media.length&&JSON.stringify(old.description_media)!==JSON.stringify(p.descriptionMedia))throw Error('Description media changed; review first');
+   if(!imageOnly&&old.description_media.length&&!isDeepStrictEqual(old.description_media,p.descriptionMedia)&&!(old.description===p.expectedDescription&&isDeepStrictEqual(old.description_media,p.expectedDescriptionMedia)))throw Error('Description media changed; review first');
    for(const url of [p.imageUrl,...p.descriptionMedia.map(m=>m.url)]){if(url.startsWith('/api/catalog-images/')&&!(await client.query('SELECT id FROM catalog_images WHERE id=$1',[url.split('/').at(-1)])).rowCount)throw Error('Missing image');}
    if(imageOnly){await client.query('UPDATE products SET image_url=$2,image_alt=$3,updated_at=now() WHERE id=$1',[old.id,p.imageUrl,p.imageAlt]);await client.query('UPDATE product_presentations SET gallery=$2 WHERE product_id=$1',[old.id,JSON.stringify([p.imageUrl,...old.gallery.filter(u=>u!==p.imageUrl)])]);}
    else {await client.query('UPDATE products SET description=$2,image_url=$3,image_alt=$4,updated_at=now() WHERE id=$1',[old.id,p.description,p.imageUrl,p.imageAlt]);await client.query('UPDATE product_presentations SET gallery=$2,description_media=$3 WHERE product_id=$1',[old.id,JSON.stringify([p.imageUrl,...old.gallery.filter(u=>u!==p.imageUrl)]),JSON.stringify(p.descriptionMedia)]);}
