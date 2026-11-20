@@ -988,7 +988,7 @@ async function renderCheckout() {
         </div>
       </div>
       </details>
-      ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label><p class="prototype-note">${freeNationwide ? "Phí giao hàng 0 ₫ áp dụng cho mọi tỉnh/thành phố." : "Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU."}</p></section>`:''}
+      ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label>${freeNationwide ? "" : '<p class="prototype-note">Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU.</p>'}</section>`:''}
       <aside class="checkout-summary cart-summary">
       <h2>Đơn hàng</h2>
       ${rows.map(({ quantity, product, variant }) => `
