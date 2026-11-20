@@ -325,9 +325,9 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     res.set({ 'Cache-Control': 'no-store' }).json({ status: "ok" });
   });
 
-  app.get("/api/failover-status", createAdminAccess(pool, config), requirePermission('dashboard.read'), (_req, res) => {
+  app.get("/api/failover-status", createAdminAccess(pool, config), requirePermission('dashboard.read'), async (_req, res) => {
     res.set({ 'Cache-Control': 'no-store' });
-    res.json(failoverSync.getStatus());
+    res.json(await failoverSync.refreshStatus());
   });
 
   app.use("/api/auth", createAdminAuthRouter(config, pool));
@@ -613,7 +613,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     const rootDir=managementAssetRoots.get(req.params.file);
     if(!rootDir)return res.sendStatus(404);
-    res.set('Cache-Control','no-store');
+    // Static code may be retained by this browser and revalidated after deployment.
+    res.set('Cache-Control', req.query.v ? 'private, no-cache' : 'no-store');
     res.sendFile(req.params.file,{root:rootDir},error=>{if(error)next(error);});
   });
   app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res)=>{res.set("Cache-Control","no-store").sendFile("product-editor.html",{root:adminRoot});});

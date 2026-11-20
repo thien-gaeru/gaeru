@@ -1,3 +1,10 @@
+function Get-GaeruBackupSha256([string]$FilePath) {
+    $stream = [IO.File]::OpenRead($FilePath)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose(); $stream.Dispose() }
+}
+
 function Get-GaeruBackupConnection {
     param([Parameter(Mandatory = $true)][string]$EnvFile)
 
@@ -64,6 +71,7 @@ function Invoke-GaeruDatabaseBackup {
         [Parameter(Mandatory = $true)][string]$BackupDir,
         [Parameter(Mandatory = $true)][string]$EnvFile,
         [string]$PgDumpPath,
+        [string]$Recipient = $env:GAERU_BACKUP_GPG_RECIPIENT,
         [int]$RetentionHours = 0
     )
     $ErrorActionPreference = 'Stop'
@@ -76,9 +84,14 @@ function Invoke-GaeruDatabaseBackup {
     if (!$PgDumpPath -or !(Test-Path -LiteralPath $PgDumpPath -PathType Leaf)) {
         throw 'pg_dump is unavailable.'
     }
+    if (!$Recipient) { $Recipient = '46927A8544DF70FBEE48928F69240E0EB1FF3925' }
+    if ($Recipient -notmatch '^(?:[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$') { throw 'Invalid GPG recipient fingerprint.' }
+    $gpg = (Get-Command gpg.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $node = (Get-Command node.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     [System.IO.Directory]::CreateDirectory($BackupDir) | Out-Null
     $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $outputFile = Join-Path $BackupDir "gaeru_store_$timestamp.sql"
+    $unique = [guid]::NewGuid().ToString('N')
+    $outputFile = Join-Path $BackupDir "gaeru_store-$timestamp-$unique.sql.gz.gpg"
     if (Test-Path -LiteralPath $outputFile) { throw 'A backup with this timestamp already exists.' }
     $partialFile = "$outputFile.$([guid]::NewGuid().ToString('N')).partial"
     $savedEnvironment = @{}
@@ -95,24 +108,24 @@ function Invoke-GaeruDatabaseBackup {
         }
         # Native diagnostics may contain connection information; report only a safe summary.
         $ErrorActionPreference = 'Continue'
-        & $PgDumpPath '--no-password' '--format=plain' '--lock-wait-timeout=30s' "--file=$partialFile" 2>$null | Out-Null
-        $dumpExitCode = $LASTEXITCODE
+        & $node (Join-Path $PSScriptRoot 'portable-database-backup.cjs') backup $gpg $partialFile $PgDumpPath $Recipient 2>$null | Out-Null
+        $streamExit = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
-        if ($dumpExitCode -ne 0) { throw 'pg_dump did not finish successfully.' }
-        if (!(Test-Path -LiteralPath $partialFile -PathType Leaf) -or (Get-Item -LiteralPath $partialFile).Length -eq 0) {
-            throw 'pg_dump did not produce a backup.'
+        if ($streamExit -ne 0 -or !(Test-Path -LiteralPath $partialFile -PathType Leaf) -or (Get-Item -LiteralPath $partialFile).Length -eq 0) {
+            throw 'Encrypted database backup did not complete.'
         }
-        $footer = Get-Content -LiteralPath $partialFile -Tail 24
-        if (!($footer -match '^-- PostgreSQL database dump complete\s*$')) {
-            throw 'The backup completion footer is missing.'
-        }
+        $hash = Get-GaeruBackupSha256 $partialFile
+        [IO.File]::WriteAllText("$partialFile.sha256", "$hash  $([IO.Path]::GetFileName($outputFile))`n", [Text.Encoding]::ASCII)
+        Move-Item -LiteralPath "$partialFile.sha256" -Destination "$outputFile.sha256" -ErrorAction Stop
         Move-Item -LiteralPath $partialFile -Destination $outputFile -ErrorAction Stop
         $promoted = $true
-        # Retention runs only after a complete dump has been atomically published.
         if ($RetentionHours -gt 0) {
-            Get-ChildItem -LiteralPath $BackupDir -Filter '*.sql' -File |
+            Get-ChildItem -LiteralPath $BackupDir -Filter 'gaeru_store-*.sql.gz.gpg' -File |
                 Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-$RetentionHours) } |
-                ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop }
+                ForEach-Object {
+                    Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop
+                    if (Test-Path -LiteralPath "$($_.FullName).sha256") { Remove-Item -LiteralPath "$($_.FullName).sha256" -Force -ErrorAction Stop }
+                }
         }
         return $outputFile
     } finally {
@@ -120,8 +133,10 @@ function Invoke-GaeruDatabaseBackup {
         foreach ($name in $savedEnvironment.Keys) {
             [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
         }
-        if (!$promoted -and (Test-Path -LiteralPath $partialFile)) {
-            Remove-Item -LiteralPath $partialFile -Force -ErrorAction SilentlyContinue
+        if (!$promoted) {
+            foreach ($file in @($partialFile,"$partialFile.sha256","$outputFile.sha256")) {
+                if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+            }
         }
     }
 }

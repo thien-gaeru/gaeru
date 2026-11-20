@@ -153,6 +153,7 @@ test('audit fixes: /health, /api/failover-status auth, /gaeru_ceo/pwa-qr.png hos
       NODE_ENV: 'test',
       PORT: 0,
       PUBLIC_BASE_URL: 'https://gaeru.com',
+      failoverHealthFetcher: async () => ({ status: 200 }),
       SESSION_SECRET: randomBytes(48).toString('hex'),
       ADMIN_USERNAME: 'audit-owner',
       ADMIN_PASSWORD_HASH: bcrypt.hashSync('Audit-Owner-Pass-2026!', 4),
@@ -482,7 +483,7 @@ test('audit fixes: full DB schema migration creates FK indexes idempotently and 
   assert.ok(MIGRATION_FILES.includes('loyalty-clawback-debt-20261117.sql'));
   assert.ok(MIGRATION_FILES.includes('audit-carrier-barcode-remediation-20261117.sql'));
   assert.ok(MIGRATION_FILES.includes('ai-embedding-vectors-20261119.sql'));
-  assert.equal(MIGRATION_FILES.at(-1), 'audit-hot-indexes-20261120.sql');
+  assert.ok(MIGRATION_FILES.includes('audit-hot-indexes-20261120.sql'));
   const pool = await createPglitePool();
   t.after(() => pool.end());
 

@@ -57,10 +57,6 @@
   };
   
   const momoCodeDetails = {
-    '0': {
-      title: 'Đã thanh toán thành công qua MoMo.',
-      detail: 'Giao dịch qua Ví MoMo đã được xác nhận thành công.'
-    },
     '1006': {
       title: 'Bạn đã hủy giao dịch trên Ví MoMo.',
       detail: 'Giao dịch thanh toán MoMo đã được hủy theo yêu cầu của bạn. Đơn hàng vẫn được lưu lại; bạn có thể thanh toán lại hoặc chọn phương thức khác.'
@@ -88,10 +84,6 @@
   };
   
   const zalopayCodeDetails = {
-    '1': {
-      title: 'Đã thanh toán thành công qua ZaloPay.',
-      detail: 'Giao dịch qua Ví điện tử ZaloPay đã được xác nhận thành công.'
-    },
     '-49': {
       title: 'Bạn đã hủy giao dịch trên ZaloPay.',
       detail: 'Giao dịch thanh toán ZaloPay đã được hủy theo yêu cầu. Đơn hàng của bạn vẫn được lưu lại; bạn có thể thanh toán lại hoặc chọn phương thức khác.'
@@ -107,9 +99,9 @@
   };
   const responseCode = result.get('code');
   const provider = result.get('provider');
-  const customFailed = (initialState === 'failed' && responseCode)
-    ? (provider === 'vnpay' ? vnpayCodeDetails[responseCode] : provider === 'momo' ? momoCodeDetails[responseCode] : provider === 'zalopay' ? zalopayCodeDetails[responseCode] : null)
-    : null;
+  const failureDetails = new Map([['vnpay', vnpayCodeDetails], ['momo', momoCodeDetails], ['zalopay', zalopayCodeDetails]]).get(provider);
+  const customFailed = initialState === 'failed' && failureDetails && Object.hasOwn(failureDetails, responseCode)
+    ? failureDetails[responseCode] : null;
   const message = ['pending','processing'].includes(initialState) && !canCheck ? messages.invalid : customFailed || (Object.hasOwn(messages,initialState) ? messages[initialState] : messages.invalid);
   const title = document.createElement('h2');
   const detail = document.createElement('p');

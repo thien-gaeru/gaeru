@@ -6,6 +6,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   AUTH_ENCRYPTION_KEY: z.string().min(32).optional(),
+  ALLOW_LEGACY_SESSION_ENCRYPTION: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
   ADMIN_USERNAME: z.string().min(3).max(100),
   ADMIN_PASSWORD_HASH: z.string().regex(/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/),
   PGSSL_CA: z.string().min(1).optional(),
@@ -76,8 +77,8 @@ const schema = z.object({
       message: 'Môi trường production chỉ hỗ trợ cấu hình SMTP iCloud+ Mail (smtp.mail.me.com).'
     });
   }
-  if (values.NODE_ENV === "production" && !process.env.ALLOW_LEGACY_SESSION_ENCRYPTION) {
-    if (!values.AUTH_ENCRYPTION_KEY || values.AUTH_ENCRYPTION_KEY === values.SESSION_SECRET) {
+  if (values.NODE_ENV === "production") {
+    if ((!values.AUTH_ENCRYPTION_KEY && !values.ALLOW_LEGACY_SESSION_ENCRYPTION) || values.AUTH_ENCRYPTION_KEY === values.SESSION_SECRET) {
       context.addIssue({ code: "custom", path: ["AUTH_ENCRYPTION_KEY"], message: "AUTH_ENCRYPTION_KEY (>= 32 chars) phải được cấu hình riêng trong production và khác SESSION_SECRET." });
     }
   }

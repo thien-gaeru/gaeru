@@ -79,6 +79,14 @@ test('network failures stop automatically within 30 seconds and explicit retry s
   assert.equal(f.clock.size(),0);
 });
 
+test('failed returns display only failure information for each supported payment provider',async()=>{
+  for(const [provider,code] of [['momo','0'],['zalopay','1'],['vnpay','00']]){
+    const page = await fixture({query:new URLSearchParams({result:'failed',provider,code}).toString()});
+    assert.match(page.text(),/Giao dịch chưa hoàn tất/);
+    assert.doesNotMatch(page.text(),/Đã thanh toán thành công/);
+  }
+});
+
 test('pagehide aborts pending work, clears timers and prevents late payment responses from changing the page',async()=>{
   let resolve;
   const f=await fixture({fetcher:()=>new Promise(done=>{resolve=done;})});

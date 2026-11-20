@@ -50,6 +50,7 @@ test('Customer Cart & Multi-device Sync Integration Suite', async t => {
   let csrfTokenValue = 'valid-csrf-token';
 
   app.use((req, res, next) => {
+    req.sessionID = 'cart-integration-session';
     req.session = {
       customer: activeSessionCustomer ? { id: activeSessionCustomer } : null,
       csrfToken: csrfTokenValue
@@ -152,6 +153,9 @@ test('Customer Cart & Multi-device Sync Integration Suite', async t => {
   assert.equal(item1.quantity, 5, 'Quantities for existing items must combine (2 + 3 = 5)');
   assert.equal(item2.quantity, 1, 'New items from local cart must be added to server');
 
+  const mirroredAgain=await fetch(baseUrl+'/merge',{method:'POST',headers,body:JSON.stringify({localItems:mergeData.items})});
+  assert.deepEqual((await mirroredAgain.json()).items,mergeData.items);
+
   // 8. Test: Quantity clamping at ceiling 99
   const clampRes = await fetch(`${baseUrl}/merge`, {
     method: 'POST',
@@ -202,4 +206,21 @@ test('Customer Cart & Multi-device Sync Integration Suite', async t => {
   const finalCheckRes = await fetch(baseUrl);
   const finalCheckData = await finalCheckRes.json();
   assert.deepEqual(finalCheckData.items, [], 'Cart must be completely empty after clear');
+  await t.test('scoped cart operations survive replay and preserve changes from another tab', async () => {
+    const sync=async operations=>{
+      const response=await fetch(baseUrl+'/sync',{method:'POST',headers,body:JSON.stringify({customerId:custA.id,operations})});
+      assert.equal(response.status,200);return response.json();
+    };
+    const op=(id,kind,variantId,quantity)=>({id:('cart-action-'+id).padEnd(35,'0'),kind,items:[{variantId,quantity}]});
+    const initial=op('a','change',variant1.id,2),guest=op('b','import',variant1.id,3);
+    await sync([initial]);let result=await sync([guest]);
+    assert.equal(result.items[0].quantity,5);
+    assert.equal((await sync([guest])).items[0].quantity,5);
+    const mirror=op('c','legacy',variant1.id,5);
+    assert.equal((await sync([mirror])).items[0].quantity,5);
+    const update=op('d','change',variant1.id,-2),otherTab=op('e','change',variant2.id,1);
+    await sync([update]);await sync([otherTab]);result=await sync([update,otherTab]);
+    assert.deepEqual(Object.fromEntries(result.items.map(i=>[i.variantId,i.quantity])),{[variant1.id]:3,[variant2.id]:1});
+    assert.equal((await sync([])).revision,result.revision);
+  });
 });

@@ -15,6 +15,23 @@ const { getFreshData, stockMap, isValidOrderQuantity, reserveStock, releaseStock
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+async function consumeCustomerCart(client,customerId,items,source) {
+  if (!customerId || source === "direct") return;
+  if (!source) {
+    // Preserve existing API clients' post-order behavior.
+    await client.query("DELETE FROM customer_cart_items WHERE customer_id = $1 AND variant_id = ANY($2::uuid[])",[customerId,items.map(i=>i.id)]);
+    return;
+  } else {
+    await client.query("SELECT id FROM customers WHERE id=$1 FOR UPDATE",[customerId]);
+    const ids=items.map(i=>i.id), quantities=items.map(i=>i.quantity);
+    await client.query(`WITH purchased AS (SELECT * FROM unnest($2::uuid[], $3::int[]) AS p(id,qty)),
+      removed AS (DELETE FROM customer_cart_items c USING purchased p WHERE c.customer_id=$1 AND c.variant_id=p.id AND c.quantity<=p.qty)
+      UPDATE customer_cart_items c SET quantity=c.quantity-p.qty,updated_at=now() FROM purchased p
+      WHERE c.customer_id=$1 AND c.variant_id=p.id AND c.quantity>p.qty`,[customerId,ids,quantities]);
+  }
+  await client.query("UPDATE customers SET cart_revision=cart_revision+1 WHERE id=$1",[customerId]);
+}
+
 const orderSchema = z.object({
   customer: z.object({
     name: z.string().trim().min(2).max(120),
@@ -24,6 +41,7 @@ const orderSchema = z.object({
     city: z.string().trim().min(2).max(120),
     note: z.string().trim().max(1000).default("")
   }),
+  cartSource:z.enum(["cart","direct"]).optional(),
   shippingCarrierId:z.enum(['viettel','jt','spx']).optional(),
   expectedShippingFeeVnd:z.number().int().min(0).max(1000000000).optional(),
   expectedSubtotalVnd:z.number().int().min(0).max(2000000000).optional(),
@@ -224,7 +242,7 @@ async function loadProducts(pool, { includeDrafts = false, deleted = false, sear
   return queryProductsUncached(pool, { includeDrafts, deleted, search });
 }
 
-async function queryProductsUncached(pool, { includeDrafts = false, deleted = false, search = "" } = {}) {
+async function queryProductsUncached(pool, { includeDrafts = false, deleted = false, search = "", ids = null } = {}) {
   const visibility = includeDrafts ? (deleted ? "WHERE p.deleted_at IS NOT NULL" : "WHERE p.deleted_at IS NULL") : "WHERE p.active = true AND p.deleted_at IS NULL";
   const query = `
     SELECT p.id, p.slug, p.name, p.category, p.descriptor, p.description, p.card_title AS "cardTitle", p.card_summary AS "cardSummary",
@@ -240,9 +258,9 @@ async function queryProductsUncached(pool, { includeDrafts = false, deleted = fa
         WHERE v.product_id = p.id ${includeDrafts ? "" : "AND v.active = true"}
       ), '[]'::jsonb) AS variants
     FROM products p LEFT JOIN product_presentations m ON m.product_id=p.id
-    ${visibility}
-    ORDER BY p.sort_order, p.name`;
-  const result = await pool.query(query);
+    ${visibility} ${ids ? "AND p.id=ANY($1::uuid[])" : ""}
+    ORDER BY p.sort_order, p.name, p.id`;
+  const result = await pool.query(query, ids ? [ids] : []);
   const { normalizeBrandText } = require("./primary-domain");
   for (const p of result.rows) {
     p.name = normalizeBrandText(p.name);
@@ -1118,12 +1136,37 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     };
   }
 
+  router.get("/orders/checkout-attempt", async (req,res,next)=>{
+    res.set("Cache-Control","no-store");
+    const key=req.get("X-Idempotency-Key");
+    if(!/^[a-f0-9]{64}$/.test(key||"")) return res.status(400).json({error:"Mã lần đặt hàng không hợp lệ."});
+    const owner=req.session?.customer?.id;
+    if(!owner && !req.sessionID) return res.json({status:"unknown"});
+    try{
+      const scope=owner ? "customer:"+owner : "session:"+req.sessionID+":";
+      const where=owner ? "scope_key=$2" : "starts_with(scope_key,$2)";
+      const row=(await pool.query(
+        `SELECT status,response_body AS result FROM order_idempotency_keys WHERE idempotency_key=$1 AND ${where} AND expires_at>now() LIMIT 1`,
+        [key,scope]
+      )).rows[0];
+      if(!row) return res.json({status:"unknown"});
+      if(row.status!=="completed") return res.json({status:"in_progress"});
+      const result=row.result||{};
+      res.json({status:"completed",orderNumber:result.order?.orderNumber,paymentUrl:result.paymentUrl,
+        bankTransfer:result.bankTransfer,message:result.message});
+    }catch(error){next(error);}
+  });
+
   router.post("/orders", (req, res, next) => {
     if (!req.ordersEnabled) {
       return res.status(503).json({ error: "GAERU đang tạm dừng tiếp nhận đơn hàng trực tuyến." });
     }
     next();
   }, orderLimit, requireCsrf, async (req, res, next) => {
+    const expectedCustomer=req.get("X-Checkout-Customer");
+    if(expectedCustomer!==undefined && expectedCustomer!==(req.session?.customer?.id || "guest")){
+      return res.status(409).json({error:"Phiên đặt hàng đã thay đổi. Vui lòng tải lại trang trước khi tiếp tục."});
+    }
     let idempotencyClaimed = false;
     let scopeKey = null;
     let idempotencyKey = null;
@@ -1173,6 +1216,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           : `session:${req.sessionID || "guest"}:${parsed.data.customer.email}`;
         const requestHash = createHash("sha256").update(JSON.stringify({
           customer: parsed.data.customer,
+          ...(parsed.data.cartSource ? {cartSource:parsed.data.cartSource} : {}),
           paymentMethod: parsed.data.paymentMethod,
           shippingCarrierId: parsed.data.shippingCarrierId || null,
           voucherCode: parsed.data.voucherCode || null,
@@ -1554,12 +1598,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
                 enabled: true
               });
             }
-            if (phase1.activeCustomerId) {
-              await client.query(
-                "DELETE FROM customer_cart_items WHERE customer_id = $1 AND variant_id = ANY($2::uuid[])",
-                [phase1.activeCustomerId, phase1.prepared.map((i) => i.id)]
-              );
-            }
+            await consumeCustomerCart(client,phase1.activeCustomerId,phase1.prepared,parsed.data.cartSource);
             await audit(client, {
               actor: { username: "customer", source: "customer" },
               action: "order.create",
@@ -1715,12 +1754,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             });
           }
 
-          if (calc.activeCustomerId) {
-            await client.query(
-              "DELETE FROM customer_cart_items WHERE customer_id = $1 AND variant_id = ANY($2::uuid[])",
-              [calc.activeCustomerId, calc.prepared.map((i) => i.id)]
-            );
-          }
+          await consumeCustomerCart(client,calc.activeCustomerId,calc.prepared,parsed.data.cartSource);
 
           await audit(client, {
             actor: { username: "customer", source: "customer" },
@@ -2026,7 +2060,15 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   router.get("/gaeru_ceo/products", requirePermission("catalog.read"), async (req, res) => {
-    res.json({ products: await loadProducts(pool, { includeDrafts: true, deleted:req.query.scope==="trash", search: String(req.query.q || "") }) });
+    const { adminProductList, listParams } = require('./admin-product-list');
+    const parsed = listParams.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: 'Bộ lọc hoặc trang sản phẩm không hợp lệ.' });
+    const result = await adminProductList(pool, parsed.data);
+    // Older detail consumers expect presentation fields. Hydrate only this page of IDs.
+    if (result.products.length && (parsed.data.id || (req.query.page === undefined && !parsed.data.q && req.query.pageSize === undefined))) {
+      result.products = await queryProductsUncached(pool, { includeDrafts: true, deleted: parsed.data.scope === 'trash', ids: result.products.map(p => p.id) });
+    }
+    res.json(result);
   });
 
   router.post("/gaeru_ceo/products", requirePermission("catalog.write"), requireCsrf, async (req, res, next) => {

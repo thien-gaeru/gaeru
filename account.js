@@ -486,6 +486,7 @@ async function handleCustomerLogout() {
   const buttons = document.querySelectorAll('[data-account-logout]');
   buttons.forEach(button => button.disabled = true);
   try {
+    try { window.GAERUDeviceCart?.claim(window.GAERUCustomerSession?.customer?.id); } catch {}
     const result = await accountRequest("/api/customer-auth/logout", {});
     if (result?.csrfToken) accountCsrfToken = result.csrfToken;
     activateAccountPanel("login");

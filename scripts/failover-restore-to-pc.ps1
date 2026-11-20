@@ -1,13 +1,15 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("Verify", "TestDatabaseRestore", "PullFromGoogleDrive", "FailoverToPC")]
+    [ValidateSet("Verify", "VerifyPortable", "TestDatabaseRestore", "PullFromGoogleDrive", "FailoverToPC")]
     [string]$Mode = "Verify",
+    [string]$PortableFile = '',
     [string]$BackupRoot = "E:\GAERU_Backups\mi6"
 )
 
 $ErrorActionPreference = "Stop"
 $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $repoRoot = Split-Path -Parent $scriptRoot
+. (Join-Path $scriptRoot 'database-backup.ps1')
 
 function Assert-SafeTarArchive([string]$ArchivePath) {
     $entries = @(& tar.exe -tzf $ArchivePath)
@@ -47,7 +49,7 @@ function Assert-Sha256Companion([string]$FilePath) {
         throw "Missing SHA256 file: $shaFile"
     }
     $expected = ((Get-Content -LiteralPath $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-    $actual = (Get-FileHash -LiteralPath $FilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actual = Get-GaeruBackupSha256 $FilePath
     if ($expected -ne $actual) {
         throw "SHA256 mismatch for $FilePath (expected $expected, got $actual)"
     }
@@ -69,9 +71,22 @@ if ($Mode -eq "PullFromGoogleDrive") {
     $Mode = "Verify"
 }
 
-$newestPg = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.dump.gpg"
-$newestPgSql = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.sql.gz.gpg"
-$newestMedia = Get-NewestBackupFile -Dir $mediaDir -Filter "gaeru-media-config-*.tar.gz.gpg"
+if ($Mode -eq "VerifyPortable" -or ($Mode -eq "TestDatabaseRestore" -and $PortableFile)) {
+    if (!$PortableFile -or !(Test-Path -LiteralPath $PortableFile -PathType Leaf)) { throw "Supply a portable encrypted SQL backup with -PortableFile." }
+    $newestPgSql = (Get-Item -LiteralPath $PortableFile).FullName
+    Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
+    if ($Mode -eq "VerifyPortable") {
+        $gpg = (Get-Command gpg.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        & node.exe (Join-Path $scriptRoot 'portable-database-backup.cjs') verify $gpg $newestPgSql
+        if ($LASTEXITCODE -ne 0) { throw "Could not verify the portable encrypted database backup." }
+        Write-Output "Verified the ciphertext checksum, decryption, gzip stream and PostgreSQL completion footer."
+        return
+    }
+} else {
+    $newestPg = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.dump.gpg"
+    $newestPgSql = Get-NewestBackupFile -Dir $pgDir -Filter "gaeru_store-*.sql.gz.gpg"
+    $newestMedia = Get-NewestBackupFile -Dir $mediaDir -Filter "gaeru-media-config-*.tar.gz.gpg"
+}
 
 function Protect-TempPath([string]$Path) {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
@@ -160,15 +175,17 @@ elseif ($Mode -eq "TestDatabaseRestore") {
     foreach ($k in $conn.Keys) { [Environment]::SetEnvironmentVariable($k, $conn[$k], "Process") }
 
     $psql = Find-PgTool "psql.exe"
-    $testDb = "gaeru_dr_verify_test"
+    $testDb = "gaeru_dr_verify_" + [guid]::NewGuid().ToString("N")
+    $created = $false
     Assert-Sha256Companion -FilePath $newestPgSql | Out-Null
     $tmpSql = Expand-GzipToTempSql -GzPath $newestPgSql
 
     $prevEA = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        & $psql -q -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS $testDb;" *>$null
         & $psql -q -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE $testDb;" *>$null
+        if ($LASTEXITCODE -ne 0) { throw "Could not create isolated verification database." }
+        $created = $true
         & $psql -q -v ON_ERROR_STOP=1 -d $testDb -f $tmpSql *>$null
         if ($LASTEXITCODE -ne 0) { throw "psql restore failed" }
         $counts = & $psql -q -v ON_ERROR_STOP=1 -tA -d $testDb -c "SELECT 'public_tables=' || count(*) FROM pg_tables WHERE schemaname='public' UNION ALL SELECT 'products=' || count(*) FROM products UNION ALL SELECT 'orders=' || count(*) FROM orders UNION ALL SELECT 'media_upload_originals=' || count(*) FROM media_upload_originals;"
@@ -178,7 +195,7 @@ elseif ($Mode -eq "TestDatabaseRestore") {
     } finally {
         $ErrorActionPreference = "Continue"
         Remove-Item -LiteralPath $tmpSql -Force -ErrorAction SilentlyContinue
-        & $psql -q -d postgres -c "DROP DATABASE IF EXISTS $testDb;" *>$null
+        if ($created) { & $psql -q -d postgres -c "DROP DATABASE $testDb;" *>$null }
         $ErrorActionPreference = $prevEA
     }
 }

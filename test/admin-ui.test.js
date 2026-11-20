@@ -18,7 +18,7 @@ test('navigation validates access and maintains loading state and direct links',
  const attrs={};const button={dataset:{view:'overview',permission:'dashboard.read'},hidden:false,classList:{toggle(){}},setAttribute(){}};
  const panel={id:'overview-view',setAttribute:(k,v)=>attrs[k]=v};const loading={textContent:''};const title={textContent:''};const description={textContent:''};
  const document={getElementById:id=>id==='admin-view-state'?loading:panel,querySelectorAll:s=>s==='[data-view]'?[button]:[panel],querySelector:s=>s==='#view-title'?title:s==='#view-description'?description:s==='.sidebar'?{classList:{remove(){}}}:{setAttribute(){}}};
- let loaded=0,hash='';const context={document,state:{viewRequest:0},can:()=>true,location:{hash:''},history:{pushState:(_a,_b,value)=>hash=value},showGlobal(){},loadSummary:async()=>{loaded++},window:{GAERUAdminUI:ui}};
+ let loaded=0,hash='';const context={document,state:{viewRequest:0,session:{authenticated:true}},loadAdminAssets:async view=>assert.equal(view,'overview'),can:()=>true,location:{hash:''},history:{pushState:(_a,_b,value)=>hash=value},showGlobal(){},loadSummary:async()=>{loaded++},window:{GAERUAdminUI:ui}};
  vm.createContext(context);vm.runInContext(code,context);
  await context.activateView('overview');assert.equal(loaded,1);assert.equal(hash,'#overview');assert.equal(attrs['aria-busy'],'false');assert.equal(loading.textContent,'');assert.equal(title.textContent,ui.title('overview'));
  button.hidden=true;await context.activateView('overview');await context.activateView('overview"]');assert.equal(loaded,1);

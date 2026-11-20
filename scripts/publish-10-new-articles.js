@@ -1064,7 +1064,7 @@ async function main() {
 
     const hexWebp = webpBuf.toString('hex');
     sqlInsertsImages.push(
-      `INSERT INTO news_images(id, content, mime_type, created_at)\nVALUES('${art.uuid}'::uuid, decode('${hexWebp}', 'hex'), 'image/webp', now())\nON CONFLICT(id) DO UPDATE SET content=EXCLUDED.content, mime_type=EXCLUDED.mime_type;`
+      `INSERT INTO news_images(id, content, mime_type, created_at)\nVALUES('${art.uuid}'::uuid, decode('${hexWebp}', 'hex'), 'image/webp', now())\nON CONFLICT(id) DO NOTHING;`
     );
 
     const safeTitle = art.title.replace(/'/g, "''");
@@ -1085,14 +1085,7 @@ VALUES(
   now() - interval '${minutesAgo} minutes',
   now()
 )
-ON CONFLICT (slug) DO UPDATE SET
-  title = EXCLUDED.title,
-  excerpt = EXCLUDED.excerpt,
-  body = EXCLUDED.body,
-  cover_id = EXCLUDED.cover_id,
-  image_alt = EXCLUDED.image_alt,
-  status = EXCLUDED.status,
-  updated_at = now();`);
+ON CONFLICT (slug) DO NOTHING;`);
   }
 
   // 1. Write SQL Migration file
@@ -1130,20 +1123,30 @@ ON CONFLICT (slug) DO UPDATE SET
   );
   console.log(`[publish-10-articles] Wrote content JSON backup to ${jsonFile}`);
 
-  // 3. If local database is reachable, apply migration directly
-  try {
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL || 'postgresql://gaeru:gaeru@127.0.0.1:5432/gaeru'
-    });
-    console.log('[publish-10-articles] Attempting database connection...');
-    await pool.query(fullSql);
-    console.log('[publish-10-articles] Applied SQL migration successfully to local database!');
-    await pool.end();
-  } catch (dbErr) {
-    console.log('[publish-10-articles] Local DB not available or offline:', dbErr.message);
+  if (!process.argv.includes('--assets-only')) {
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL cần được cấu hình để xuất bản. Chọn --assets-only nếu chỉ dựng ảnh.');
+    const pool = new Pool({connectionString: process.env.DATABASE_URL});
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(fullSql);
+      const slugs = articles.map(article => article.slug);
+      const {rows} = await client.query(
+        'SELECT p.slug,p.status FROM news_posts p JOIN news_images i ON i.id=p.cover_id WHERE p.slug=ANY($1::text[])',
+        [slugs]
+      );
+      if (rows.length !== slugs.length) throw new Error('Chưa xác minh đủ bài và ảnh bìa sau khi ghi.');
+      await client.query('COMMIT');
+      console.log('Đã đối chiếu ' + rows.length + ' bài; ' + rows.filter(r=>r.status==='published').length + ' bài đang xuất bản. Giữ nguyên bài đã biên tập.');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+      await pool.end();
+    }
   }
-
-  console.log('[publish-10-articles] Done! Successfully re-rendered all 10 visual editorial covers (WebP + AVIF)!');
+  console.log('Đã dựng ảnh cho ' + generatedImages.length + ' bài.');
   console.table(generatedImages);
 }
 

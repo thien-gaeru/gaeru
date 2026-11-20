@@ -21,7 +21,8 @@ const captureSchema = z.object({
     variantId: z.string().uuid(),
     quantity: z.number().int().min(1).max(99)
   })).min(1).max(50),
-  recoveryConsent: z.boolean().default(false)
+  recoveryConsent: z.boolean().default(false),
+  consentVersion: z.literal(2).optional()
 }).strict();
 
 function makeMailer(config) {
@@ -34,7 +35,7 @@ function makeMailer(config) {
  */
 async function captureAbandonedCart(pool, { email, customerName = null, phone = null, items = [], recoveryConsent = false, customerId = null, allowedCartIds = null, enforceCustomerOwnership = false }) {
   const normEmail = String(email || '').trim().toLowerCase();
-  if (!normEmail || !items.length) return null;
+  if (!normEmail || !items.length || recoveryConsent !== true) return null;
 
   // Check if customer has opted out of marketing/recovery emails
   const suppressed = (await pool.query(
@@ -42,9 +43,7 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
     [normEmail]
   )).rows.length > 0;
 
-  if (suppressed) {
-    recoveryConsent = false;
-  }
+  if (suppressed) return null;
 
   // Calculate cart subtotal from database
   const variantIds = items.map(i => i.variantId);
@@ -81,7 +80,7 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
   const recoveryToken = randomBytes(32).toString('hex');
   const recoveryTokenHash = hash(recoveryToken);
   // Cadence: stage 1 reminder after 1 hour
-  const nextReminderAt = recoveryConsent ? new Date(Date.now() + 60 * 60 * 1000) : null;
+  const nextReminderAt = new Date(Date.now() + 60 * 60 * 1000);
 
   return await withTransaction(pool, async client => {
     // Check if an existing abandoned cart exists for this email
@@ -121,6 +120,7 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
              recovery_token = $7,
              recovery_token_hash = $8,
              recovery_consent = $9,
+             consent_confirmed_at = now(),
              status = 'abandoned',
              reminder_count = 0,
              next_reminder_at = $10,
@@ -133,8 +133,8 @@ async function captureAbandonedCart(pool, { email, customerName = null, phone = 
     } else {
       cart = (await client.query(
         `INSERT INTO abandoned_carts
-           (customer_id, email, customer_name, phone, items, subtotal_vnd, recovery_token, recovery_token_hash, recovery_consent, next_reminder_at)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
+           (customer_id, email, customer_name, phone, items, subtotal_vnd, recovery_token, recovery_token_hash, recovery_consent, next_reminder_at, consent_confirmed_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, now())
          RETURNING *`,
         [customerId, normEmail, customerName, phone, JSON.stringify(itemDetails), subtotalVnd, recoveryToken, recoveryTokenHash, recoveryConsent, nextReminderAt]
       )).rows[0];
@@ -154,7 +154,8 @@ async function recoverCartByToken(pool, recoveryToken) {
   return await withTransaction(pool, async client => {
     const cart = (await client.query(
       `SELECT * FROM abandoned_carts
-       WHERE (recovery_token = $1 OR recovery_token_hash = $2) AND status <> 'opted_out'
+       WHERE (recovery_token = $1 OR recovery_token_hash = $2)
+         AND recovery_consent AND status IN ('abandoned', 'recovering')
        FOR UPDATE`,
       [recoveryToken.trim(), tokenHash]
     )).rows[0];
@@ -208,13 +209,19 @@ async function optOutAbandonedCart(pool, recoveryToken) {
     )).rows[0];
 
     if (!cart) return false;
+    if (!cart.email) return true;
 
     await client.query(
       `UPDATE abandoned_carts
-       SET status = 'opted_out', recovery_consent = false, next_reminder_at = NULL, updated_at = now()
+       SET status = CASE WHEN status='recovered' THEN status ELSE 'opted_out' END,
+           recovery_consent = false, consent_confirmed_at = NULL, next_reminder_at = NULL,
+           email = '', phone = NULL, customer_name = NULL, customer_id = NULL, items = '[]'::jsonb,
+           subtotal_vnd = CASE WHEN status='recovered' THEN subtotal_vnd ELSE 0 END,
+           version = version + 1, updated_at = now()
        WHERE id = $1`,
       [cart.id]
     );
+    await client.query("UPDATE abandoned_cart_reminders SET email = '' WHERE cart_id = $1", [cart.id]);
 
     // Suppress future marketing/recovery emails to this address and keep newsletter subscription aligned
     await client.query(
@@ -244,7 +251,7 @@ async function listAbandonedCarts(pool, { page = 1, pageSize = 25, status = null
 
   const rows = (await pool.query(
     `SELECT ac.id, ac.customer_id, ac.email, ac.customer_name, ac.phone,
-            ac.items, ac.subtotal_vnd, ac.recovery_consent, ac.status,
+            ac.items, ac.subtotal_vnd, (ac.recovery_consent AND ac.consent_confirmed_at IS NOT NULL) AS recovery_consent, ac.status,
             ac.reminder_count, ac.max_reminders, ac.last_reminded_at,
             ac.next_reminder_at, ac.recovered_at, ac.order_id, ac.version,
             ac.created_at, ac.updated_at, o.order_number
@@ -293,7 +300,7 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
   if (cart.status === 'recovered' || cart.status === 'expired') {
     return { success: false, reason: 'Giỏ hàng đã hoàn tất đơn hoặc đã hết hạn nhắc nhở.' };
   }
-  if (cart.recovery_consent === false || cart.status === 'opted_out') {
+  if (!cart.recovery_consent || cart.status === 'opted_out') {
     return { success: false, reason: 'Khách hàng chưa đồng ý hoặc đã hủy nhận email nhắc giỏ hàng.' };
   }
 
@@ -401,6 +408,14 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
   );
 
   try {
+    // A checkbox withdrawal or completed order may arrive after the worker claimed this job.
+    const eligible = await pool.query(
+      `SELECT 1 FROM abandoned_carts
+       WHERE id = $1 AND version = $2 AND recovery_consent AND consent_confirmed_at IS NOT NULL
+         AND status IN ('abandoned','recovering')`,
+      [cart.id, cart.version]
+    );
+    if (!eligible.rows.length) return { success: false, reason: 'Giỏ hàng đã thay đổi hoặc đã ngừng nhắc.' };
     const result = await mailer.sendMail(preparedMail);
 
     const accepted = Array.isArray(result?.accepted)
@@ -423,17 +438,18 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
         newStatus = 'expired';
       }
 
-      await c.query(
+      const recorded = await c.query(
         `UPDATE abandoned_carts
          SET reminder_count = $2,
              last_reminded_at = now(),
              next_reminder_at = $3,
              status = $4,
              updated_at = now()
-         WHERE id = $1 AND status IN ('abandoned', 'recovering')`,
-        [cart.id, newReminderCount, nextReminderAt, newStatus]
+         WHERE id = $1 AND version = $5 AND recovery_consent AND status IN ('abandoned', 'recovering')
+         RETURNING id`,
+        [cart.id, newReminderCount, nextReminderAt, newStatus, cart.version]
       );
-
+      if (!recorded.rows.length) return;
       await c.query(
         `INSERT INTO abandoned_cart_reminders (cart_id, stage, email, subject, status, sent_at)
          VALUES ($1, $2, $3, $4, $5, now())`,
@@ -444,13 +460,13 @@ async function sendRecoveryEmail(pool, config, cart, mailer, stageOverride = nul
     return { success: true, messageId: result?.messageId };
   } catch (err) {
     await pool.query(
-      `UPDATE abandoned_carts SET next_reminder_at = now() + interval '30 minutes', updated_at = now() WHERE id = $1`,
-      [cart.id]
-    ).catch(() => {});
-    await pool.query(
-      `INSERT INTO abandoned_cart_reminders (cart_id, stage, email, subject, status, error_message)
-       VALUES ($1, $2, $3, $4, 'failed', $5)`,
-      [cart.id, stage, normEmail, subject, err.message]
+      `WITH pending AS (
+         UPDATE abandoned_carts SET next_reminder_at = now() + interval '30 minutes', updated_at = now()
+         WHERE id = $1 AND version = $6 AND recovery_consent AND status IN ('abandoned','recovering') RETURNING id
+       )
+       INSERT INTO abandoned_cart_reminders (cart_id, stage, email, subject, status, error_message)
+       SELECT id, $2, $3, $4, 'failed', $5 FROM pending`,
+      [cart.id, stage, normEmail, subject, err.message, cart.version]
     );
     return { success: false, error: err.message };
   }
@@ -467,6 +483,7 @@ async function processAbandonedCartReminders(pool, config, mailer) {
       `SELECT * FROM abandoned_carts
        WHERE status = 'abandoned'
          AND recovery_consent = true
+         AND consent_confirmed_at IS NOT NULL
          AND next_reminder_at IS NOT NULL
          AND next_reminder_at <= now()
          AND reminder_count < max_reminders
@@ -547,7 +564,7 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
       if (!['abandoned', 'recovering'].includes(cart.status)) {
         throw fail('Giỏ hàng này đã hoàn tất hoặc ngừng nhắc lịch.', 409);
       }
-      if (!cart.recovery_consent) {
+      if (!cart.recovery_consent || !cart.consent_confirmed_at) {
         throw fail('Khách hàng chưa đồng ý nhận email nhắc giỏ hàng.', 409);
       }
       const suppressed = (await pool.query(
@@ -599,9 +616,43 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
   });
 
   // Public: Capture checkout contacts & consent
+  // Session ownership is issued after a successful capture. A caller cannot withdraw another shopper's cart by email.
+  async function withdrawSessionCarts(req, email = null, requestedIds = null) {
+    const owned = req.session?.abandonedCartIds || [];
+    const ids = requestedIds ? requestedIds.filter(id => owned.includes(id)) : owned;
+    if (!ids.length) return;
+    await withTransaction(pool, async client => {
+      const changed = await client.query(
+        `UPDATE abandoned_carts SET status = CASE WHEN status='recovered' THEN status ELSE 'opted_out' END, recovery_consent = false,
+           consent_confirmed_at = NULL, next_reminder_at = NULL, version = version + 1,
+           email = '', phone = NULL, customer_name = NULL, customer_id = NULL,
+           items = '[]'::jsonb, subtotal_vnd = CASE WHEN status='recovered' THEN subtotal_vnd ELSE 0 END, updated_at = now()
+         WHERE id = ANY($1::uuid[]) AND (customer_id IS NULL OR customer_id = $2::uuid)
+           AND ($3::text IS NULL OR lower(trim(email)) = $3) AND status IN ('abandoned','recovering','recovered')
+         RETURNING id`, [ids, req.session?.customer?.id || null, email]
+      );
+      if (changed.rows.length) {
+        await client.query("UPDATE abandoned_cart_reminders SET email = '' WHERE cart_id = ANY($1::uuid[])", [changed.rows.map(row => row.id)]);
+      }
+    });
+  }
+  publicApi.post('/withdraw', requireCsrf, async (req, res, next) => {
+    try {
+      const payload = z.object({ cartIds: z.array(z.string().uuid()).max(20).optional() }).strict().safeParse(req.body || {});
+      if (!payload.success) return res.status(400).json({ error: 'Danh sách giỏ hàng chưa hợp lệ.' });
+      await withdrawSessionCarts(req, null, payload.data.cartIds);
+      res.sendStatus(204);
+    } catch (error) { next(error); }
+  });
   publicApi.post('/capture', (req, res, next) => (req.session?.customer || req.session?.admin) ? require('./security').requireCsrf(req, res, next) : next(), rateLimit({ ...require('./security-hardening').sharedStore(pool, config || {}, 'abandoned-capture'), windowMs: 60000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false }), async (req, res, next) => {
     try {
       const parsed = captureSchema.parse(req.body);
+      if (!parsed.recoveryConsent) {
+        await withdrawSessionCarts(req, parsed.email);
+        return res.sendStatus(204);
+      }
+      // Older pages pre-selected this checkbox. They do not establish explicit consent.
+      if (parsed.consentVersion !== 2) return res.sendStatus(204);
       const customerId = req.session?.customer?.id || null;
       const allowedCartIds = !customerId
         ? (Array.isArray(req.session?.abandonedCartIds) ? req.session.abandonedCartIds : [])
@@ -618,7 +669,7 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
         enforceCustomerOwnership: true
       });
 
-      if (!result) return res.status(400).json({ error: 'Không thể ghi nhận giỏ hàng.' });
+      if (!result) return res.sendStatus(204);
       if (req.session) {
         const owned = Array.isArray(req.session.abandonedCartIds) ? req.session.abandonedCartIds : [];
         if (!owned.includes(result.cart.id)) {

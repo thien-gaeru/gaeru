@@ -974,12 +974,11 @@ test("attachTransactionalCacheInvalidation on priority proxy never recurses or l
     assert.match(commerceSrc, /product\.slug === "gaeru-k9"/);
     assert.match(commerceSrc, /product\.slug === "gaeru-g1-ultra"/);
     assert.match(commerceSrc, /fetchCsrfToken/);
-    assert.ok(
-      commerceSrc.indexOf("Liên kết cổng thanh toán không hợp lệ") < commerceSrc.indexOf("if (!purchase.direct) writeCart([]);") ||
-      commerceSrc.includes("if (!purchase.direct) writeCart([]);\n        location.assign(safePayUrl);") ||
-      commerceSrc.includes("if (!purchase.direct) writeCart([]);\r\n        location.assign(safePayUrl);"),
-      "commerce.js must validate safePayUrl before clearing local cart"
-    );
+    const paymentGuard=commerceSrc.indexOf("Liên kết cổng thanh toán không hợp lệ");
+    const finish=commerceSrc.indexOf("finishOrder();",paymentGuard);
+    const redirect=commerceSrc.indexOf("location.assign(safePayUrl);",paymentGuard);
+    assert.ok(paymentGuard>=0 && paymentGuard<finish && finish<redirect,
+      "commerce.js must validate safePayUrl before finalizing the local cart");
 
     const chatSrc = fs.readFileSync(path.join(__dirname, "..", "shopping-chat-client.js"), "utf8");
     assert.match(chatSrc, /rootAbort\?\.abort/);

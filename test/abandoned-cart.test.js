@@ -114,9 +114,8 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
       recoveryConsent: true
     });
 
-    assert.ok(res);
-    assert.equal(res.cart.recovery_consent, false);
-    assert.equal(res.cart.next_reminder_at, null);
+    assert.equal(res, null);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM abandoned_carts WHERE email='suppressed@example.com'")).rows[0].n, 0);
   });
 
   await t.test('captureAbandonedCart defaults recoveryConsent to false without explicit consent', async () => {
@@ -126,9 +125,8 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
       phone: '0987000111',
       items: [{ variantId, quantity: 1 }]
     });
-    assert.ok(res);
-    assert.equal(res.cart.recovery_consent, false);
-    assert.equal(res.cart.next_reminder_at, null);
+    assert.equal(res, null);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM abandoned_carts WHERE email='no-consent@example.com'")).rows[0].n, 0);
   });
 
   // 4. recoverCartByToken
@@ -310,8 +308,9 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
     const app = express();
     app.use(express.json());
     // Mock admin session with csrf token
+    const session = { csrfToken: 'test-csrf-token-12345' };
     app.use((req, res, next) => {
-      req.session = { csrfToken: 'test-csrf-token-12345' };
+      req.session = session;
       req.admin = {
         id: '00000000-0000-4000-8000-000000000001',
         username: 'ceo_admin',
@@ -345,7 +344,7 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
         customerName: 'API User',
         phone: '0901112222',
         items: [{ variantId, quantity: 1 }],
-        recoveryConsent: true
+        recoveryConsent: true, consentVersion: 2
       })
     });
     assert.equal(capRes.status, 201);
@@ -393,5 +392,22 @@ test('Abandoned Cart Recovery Comprehensive Test Suite', async t => {
     const cancelCheck = (await pool.query(`SELECT status, next_reminder_at FROM abandoned_carts WHERE id = $1`, [capData.cartId])).rows[0];
     assert.equal(cancelCheck.status, 'expired');
     assert.equal(cancelCheck.next_reminder_at, null);
+
+    const capture = body => fetch(base + '/api/abandoned-cart/capture', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+    });
+    const fields = {email:'withdraw@example.test', customerName:'Checkout QA', phone:'0900000000', items:[{variantId,quantity:1}]};
+    assert.equal((await capture({...fields,recoveryConsent:true})).status,204);
+    assert.equal((await capture({...fields,recoveryConsent:false})).status,204);
+    assert.equal((await pool.query('SELECT id FROM abandoned_carts WHERE email=$1',[fields.email])).rows.length,0);
+    const saved = await (await capture({...fields,consentVersion:2,recoveryConsent:true})).json();
+    const withdraw = () => fetch(base + '/api/abandoned-cart/withdraw',{
+      method:'POST', headers:{'Content-Type':'application/json','x-csrf-token':session.csrfToken},
+      body:JSON.stringify({cartIds:[saved.cartId]})
+    });
+    assert.equal((await withdraw()).status,204);
+    assert.equal((await withdraw()).status,204);
+    const withdrawn = (await pool.query('SELECT email,customer_name,phone,items,next_reminder_at,recovery_consent FROM abandoned_carts WHERE id=$1',[saved.cartId])).rows[0];
+    assert.deepEqual(withdrawn,{email:'',customer_name:null,phone:null,items:[],next_reminder_at:null,recovery_consent:false});
   });
 });

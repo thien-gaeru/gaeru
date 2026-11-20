@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci && npm test
+    buildCommand: npm ci --include=dev && npm test
     startCommand: npm run db:migrate && npm run db:seed && npm start
     healthCheckPath: /api/health
     autoDeployTrigger: off
@@ -22,6 +22,8 @@ services:
           name: gaeru-store-staging-db
           property: connectionString
       - key: SESSION_SECRET
+        generateValue: true
+      - key: AUTH_ENCRYPTION_KEY
         generateValue: true
       - key: ADMIN_USERNAME
         sync: false

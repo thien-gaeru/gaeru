@@ -22,7 +22,35 @@ const anonymousEmptyCartMarkup = `
   </div>`;
 
 Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeShellHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của bạn"><h3>Hồ Sơ Của Bạn</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU Care+</a></nav></div>`;}});
-document.addEventListener('gaeru:customer-updated',()=>{const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
+document.addEventListener('gaeru:customer-updated',()=>{claimDeviceCartForSession();const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
+
+// Isolate the guest's device entries as soon as login resolves, including on
+// the account page where the commerce bundle is not loaded.
+window.GAERUDeviceCart=Object.freeze({
+  claim(owner) {
+    if(!owner || owner==="guest") return;
+    const oldKey="gaeru-store-cart-v2",prefix="gaeru-store-cart-v3:";
+    const legacy=localStorage.getItem(oldKey);
+    if(legacy) {
+      localStorage.setItem(prefix+owner+":legacy",legacy);
+      localStorage.removeItem(oldKey);
+    }
+    const guestKeys=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key?.startsWith(prefix+"guest:op:")) guestKeys.push(key);
+    }
+    for(const key of guestKeys){
+      const value=localStorage.getItem(key);
+      if(value!==null){localStorage.setItem(prefix+owner+":"+key.slice(prefix.length),value);localStorage.removeItem(key);}
+    }
+  }
+});
+const claimDeviceCartForSession=()=>{
+  try {window.GAERUDeviceCart.claim(window.GAERUCustomerSession?.customer?.id);} catch {}
+};
+
+claimDeviceCartForSession();
 
 if (headerRoot) {
   headerRoot.innerHTML = `
@@ -102,10 +130,33 @@ if (headerRoot) {
   const syncFallbackCartBadge = () => {
     if (window.GAERUStore) return;
     try {
-      const parsed = JSON.parse(localStorage.getItem("gaeru-store-cart-v2") || "[]");
-      const qty = Array.isArray(parsed)
-        ? parsed.reduce((sum, i) => sum + (Number.isInteger(i?.quantity) && i.quantity > 0 ? i.quantity : 0), 0)
-        : 0;
+      const owner=window.GAERUCustomerSession?.customer?.id||"guest",prefix="gaeru-store-cart-v3:"+owner;
+      const parsed=owner==="guest" ? JSON.parse(localStorage.getItem("gaeru-store-cart-v2")||"[]") : JSON.parse(localStorage.getItem(prefix+":snapshot")||"{}").items;
+      const quantities=new Map((Array.isArray(parsed)?parsed:[]).map(i=>[i.variantId,i.quantity]));
+      const keys=[];
+      for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k?.startsWith(prefix+":op:")) keys.push(k);}
+      const operations=keys.map(k=>JSON.parse(localStorage.getItem(k)||"{}"))
+        .sort((a,b)=>String(a.order).localeCompare(String(b.order)) || String(a.id).localeCompare(String(b.id)));
+      for(const op of operations){
+        for(const item of op.items||[]){
+          const previous=quantities.get(item.variantId)||0;
+          quantities.set(item.variantId,Math.min(99,Math.max(0,op.kind==="legacy"?Math.max(previous,item.quantity):previous+item.quantity)));
+        }
+      }
+      // Before commerce.js opens, a newly claimed guest basket may still await server import.
+      if(owner!=="guest"){
+        const rawLegacy=JSON.parse(localStorage.getItem(prefix+":legacy")||"[]");
+        const legacy=new Map((Array.isArray(rawLegacy)?rawLegacy:[]).map(i=>[i.variantId,i.quantity]));
+        const guest=new Map(legacy),staged=[];
+        for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k?.startsWith(prefix+":guest:op:")) staged.push(JSON.parse(localStorage.getItem(k)||"{}"));}
+        staged.sort((a,b)=>String(a.order).localeCompare(String(b.order))||String(a.id).localeCompare(String(b.id)));
+        for(const op of staged)for(const item of op.items||[]) guest.set(item.variantId,Math.max(0,Math.min(99,(guest.get(item.variantId)||0)+item.quantity)));
+        for(const [id,q] of guest){
+          const mirrored=Math.min(legacy.get(id)||0,q);
+          quantities.set(id,Math.min(99,Math.max(quantities.get(id)||0,mirrored)+q-mirrored));
+        }
+      }
+      const qty=[...quantities.values()].reduce((a,b)=>a+b,0);
       const badge = headerRoot.querySelector(".cart-count");
       const link = headerRoot.querySelector(".bag-link");
       if (badge) {
@@ -117,8 +168,9 @@ if (headerRoot) {
   };
   syncFallbackCartBadge();
   document.addEventListener("gaeru:cart-updated", syncFallbackCartBadge);
+  document.addEventListener("gaeru:customer-updated",syncFallbackCartBadge);
   window.addEventListener("storage", (e) => {
-    if (e.key === null || e.key === "gaeru-store-cart-v2") syncFallbackCartBadge();
+    if (e.key === null || e.key === "gaeru-store-cart-v2" || e.key?.startsWith("gaeru-store-cart-v3:")) syncFallbackCartBadge();
   });
 }
 
@@ -231,7 +283,43 @@ if (footerRoot) {
 }
 
 
-refreshMenuProducts();
+const policyCommerceUrl = document.body?.dataset?.policyCommerce;
+let policyCatalogUsed = false;
+if (!policyCommerceUrl) refreshMenuProducts();
+const lazyCartUrl=policyCommerceUrl || (!document.querySelector('script[src^="commerce.js"],script[src^="/commerce.js"]') ? "/commerce.js" : null);
+if(lazyCartUrl){
+  let cartScript;
+  document.addEventListener('gaeru:cart-panel-open', () => {
+    if (window.GAERUStore || cartScript) return;
+    const cart = document.querySelector('[data-mini-cart]');
+    if (cart) cart.textContent = 'Đang tải giỏ hàng…';
+    cartScript = document.createElement('script');
+    cartScript.src = lazyCartUrl;
+    cartScript.onerror = () => {
+      cartScript.remove();
+      cartScript = null;
+      if (cart) {
+        const link = document.createElement('a');
+        link.href = '/gio-hang';
+        link.textContent = 'Mở trang giỏ hàng';
+        cart.replaceChildren(link);
+      }
+    };
+    document.head.append(cartScript);
+  });
+}
+if(policyCommerceUrl){
+  const footerProducts = document.querySelector('[data-footer-products]');
+  if (footerProducts && typeof IntersectionObserver === 'function') {
+    const footerObserver = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      footerObserver.disconnect();
+      policyCatalogUsed = true;
+      refreshMenuProducts();
+    });
+    footerObserver.observe(footerProducts);
+  }
+}
 function populateCustomerNewsletterEmail() {
   const customerEmail = window.GAERUCustomer?.session?.customer?.email ||
                         window.GAERUCustomerSession?.customer?.email ||
@@ -343,7 +431,7 @@ function openPanel(panel, trigger) {
   const switchingPanels = Boolean(activePanel && activePanel !== panel);
   closeActivePanel({ restoreFocus: false, immediate: true });
   clearTimeout(closeTimer);
-  if (panel.id === "menu-panel") refreshMenuProducts();
+  if (panel.id === "menu-panel") { policyCatalogUsed = true; refreshMenuProducts(); }
   panelOrigin = trigger;
   activePanel = panel;
   savedBodyOverflow = document.body.style.overflow;
@@ -849,7 +937,7 @@ document.addEventListener('gaeru:products-loaded',()=>window.GAERUFooterProducts
 
             if (tags.some(t => ['catalog', 'product:list', 'products', 'promotions', 'search-index', '*'].includes(t))) {
               edgeSearchIndex = null;
-              if (typeof refreshMenuProducts === 'function') {
+              if (typeof refreshMenuProducts === 'function' && (!document.body?.dataset?.policyCommerce || policyCatalogUsed)) {
                 refreshMenuProducts({ fresh: true });
               }
             }

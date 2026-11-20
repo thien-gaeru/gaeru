@@ -12,7 +12,9 @@ class FailoverSyncManager {
     this.role = process.env.SERVER_ROLE || config.SERVER_ROLE || 'standby';
     this.primaryDomain = process.env.PRIMARY_DOMAIN || config.PRIMARY_DOMAIN || 'gaeru.com';
     this.primaryApiBase = process.env.PRIMARY_API_BASE || config.PRIMARY_API_BASE || `https://${this.primaryDomain}`;
-    this.autoSyncHours = parseInt(process.env.AUTO_SYNC_INTERVAL_HOURS || '6', 10);
+    const intervalHours = Number(process.env.AUTO_SYNC_INTERVAL_HOURS || config.AUTO_SYNC_INTERVAL_HOURS || 6);
+    this.autoSyncHours = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours : 6;
+    this.healthCheckInFlight = null;
     
     this.state = {
       role: this.role, // 'standby' | 'primary'
@@ -24,8 +26,8 @@ class FailoverSyncManager {
       lastSyncStats: null,
       lastError: null,
       primaryHealth: {
-        online: false,
-        latencyMs: 0,
+        online: null,
+        latencyMs: null,
         statusCode: null,
         checkedAt: null
       }
@@ -48,6 +50,10 @@ class FailoverSyncManager {
         const raw = fs.readFileSync(this.stateFilePath, 'utf8');
         const parsed = JSON.parse(raw);
         if (parsed.lastSyncTime) this.state.lastSyncTime = parsed.lastSyncTime;
+        if (parsed.lastError) {
+          this.state.lastError = parsed.lastError;
+          this.state.status = 'error';
+        }
         if (parsed.lastSyncStats) this.state.lastSyncStats = parsed.lastSyncStats;
         if (!explicitRole && parsed.role) {
           this.state.role = parsed.role;
@@ -62,6 +68,7 @@ class FailoverSyncManager {
       const tmpPath = `${this.stateFilePath}.tmp-${process.pid}`;
       fs.writeFileSync(tmpPath, JSON.stringify({
         role: this.state.role,
+        lastError: this.state.lastError,
         lastSyncTime: this.state.lastSyncTime,
         lastSyncStats: this.state.lastSyncStats
       }, null, 2), { encoding: 'utf8', mode: 0o600 });
@@ -70,6 +77,15 @@ class FailoverSyncManager {
   }
 
   getStatus() {
+    const now = Date.now();
+    const syncTime = Date.parse(this.state.lastSyncTime || '');
+    const syncAgeMs = Number.isFinite(syncTime) && syncTime <= now ? now - syncTime : null;
+    const maxSyncAgeMs = this.autoSyncHours * 3600000;
+    const syncFresh = syncAgeMs !== null && syncAgeMs <= maxSyncAgeMs;
+    const healthAgeMs = now - Date.parse(this.state.primaryHealth.checkedAt || '');
+    const healthFresh = Number.isFinite(healthAgeMs) && healthAgeMs >= 0 && healthAgeMs <= 60000;
+    const primaryReady = healthFresh && this.state.primaryHealth.online === true;
+    const catalogReady = syncFresh && this.state.status === 'idle' && !this.state.lastError;
     return {
       ok: true,
       role: this.state.role,
@@ -80,23 +96,37 @@ class FailoverSyncManager {
       lastSyncTime: this.state.lastSyncTime,
       lastSyncStats: this.state.lastSyncStats,
       lastError: this.state.lastError,
-      primaryHealth: this.state.primaryHealth,
-      readyForTraffic: this.state.role === 'primary' || Boolean(this.state.lastSyncTime),
+      primaryHealth: { ...this.state.primaryHealth, fresh: healthFresh },
+      syncAgeMs, maxSyncAgeMs,
+      syncState: syncAgeMs === null ? 'not_measured' : syncFresh ? 'fresh' : 'stale',
+      catalogReady,
+      syncScope: ['public_catalog', 'public_settings'],
+      // Catalog sync does not replicate orders, customer accounts or payments.
+      readyForTraffic: this.state.role === 'primary' && primaryReady,
+      trafficReadiness: this.state.role === 'standby' ? 'not_verified' : !healthFresh ? 'not_measured' : primaryReady ? 'ready' : 'unavailable',
       timestamp: new Date().toISOString()
     };
   }
 
-  async checkPrimaryHealth() {
+  async refreshStatus() {
+    if (!this.getStatus().primaryHealth.fresh && !this.healthCheckInFlight) {
+      this.healthCheckInFlight = this.checkPrimaryHealth({ fetcher: this.config.failoverHealthFetcher || fetch }).finally(() => { this.healthCheckInFlight = null; });
+    }
+    if (this.healthCheckInFlight) await this.healthCheckInFlight;
+    return this.getStatus();
+  }
+
+  async checkPrimaryHealth({ fetcher = fetch } = {}) {
     const start = Date.now();
     try {
-      const url = `${this.primaryApiBase}/`;
-      const res = await fetch(url, {
+      const url = new URL('/readyz', this.primaryApiBase);
+      const res = await fetcher(url, {
         method: 'HEAD',
         redirect: 'manual',
         signal: AbortSignal.timeout(6000)
       });
       const latencyMs = Date.now() - start;
-      const online = res.status < 500;
+      const online = res.status === 200;
       this.state.primaryHealth = {
         online,
         statusCode: res.status,
@@ -231,6 +261,7 @@ class FailoverSyncManager {
     } catch (e) {
       this.state.status = 'error';
       this.state.lastError = e.message;
+      this.saveState();
       return { ok: false, error: e.message };
     }
   }

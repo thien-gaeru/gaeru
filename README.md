@@ -82,7 +82,7 @@ Chạy `npm ci`, `npm run db:migrate`, rồi `npm start`. Dùng ổ lưu trữ b
 
 ### Render Free (staging tạm thời)
 
-`render.yaml` khai báo một web service Node.js và PostgreSQL miễn phí tại Singapore. Từ Render Dashboard, tạo Blueprint mới từ repository và nhánh chứa file này; khi Render hỏi, nhập `ADMIN_USERNAME` và `ADMIN_PASSWORD_HASH` (tạo hash bằng `npm run admin:hash-password` trong terminal tương tác). `SESSION_SECRET` được Render tự sinh, kiểm thử chạy trong build, còn migration/seed chạy idempotent khi dịch vụ khởi động. Deploy tự động khi commit được tắt để tránh phát hành ngoài ý muốn.
+`render.yaml` khai báo một web service Node.js và PostgreSQL miễn phí tại Singapore. Từ Render Dashboard, tạo Blueprint mới từ repository và nhánh chứa file này; khi Render hỏi, nhập `ADMIN_USERNAME` và `ADMIN_PASSWORD_HASH` (tạo hash bằng `npm run admin:hash-password` trong terminal tương tác). `SESSION_SECRET` và `AUTH_ENCRYPTION_KEY` được Render sinh riêng, kiểm thử chạy trong build, còn migration/seed chạy idempotent khi dịch vụ khởi động. Deploy tự động khi commit được tắt để tránh phát hành ngoài ý muốn.
 
 Render Free phù hợp cho bản xem thử, không phải dữ liệu cửa hàng vận hành: web service có thể ngủ khi không hoạt động, PostgreSQL Free hết hạn sau thời hạn miễn phí hiện hành của Render, và ảnh tải lên nằm trên ổ đĩa tạm nên có thể mất sau khi khởi động lại hoặc triển khai lại. Sao lưu/khôi phục và lưu trữ ảnh bền vững cần được thiết lập trước khi dùng dữ liệu thật. Blueprint chỉ khai báo cấu hình, không tạo dịch vụ hoặc triển khai cho đến khi được kết nối/tạo trong tài khoản Render.
 
@@ -130,3 +130,10 @@ Migration `customer-experience.sql` bổ sung sổ địa chỉ riêng cho từn
 
 Nhà cung cấp được chọn: VNPAY, Viettel Post, J&T Express và Shopee Express (SPX). VNPAY đã có ký URL và kiểm tra IPN ở máy chủ; bộ kiểm thử nghiệm thu Sandbox 8 kịch bản đã sẵn sàng cho merchant cutover production. Hệ thống phân hệ vận chuyển đã hoàn tất 100% các adapter tạo vận đơn thật (create-waybill) kèm Idempotency bảo đảm, hủy vận đơn (cancel-waybill), đồng bộ lộ trình/trạng thái carrier tự động qua Webhook và polling worker, xuất nhãn in chính thức từ hãng (carrier-label) và tính cước phí thời gian thực (realtime quote với LRU cache và fallback có kiểm soát) cho 3 hãng vận chuyển đối tác: Viettel Post, J&T Express và Shopee Express (SPX). Tuyệt đối không nhập khóa bí mật vào Git hoặc chat; quản lý an toàn qua cổng cấu hình riêng /gaeru_ceo. Tham khảo cổng chính thức: https://open.jtexpress.vn/ và https://partner2.viettelpost.vn/document/detail-instructions.
 
+
+Migration chuẩn bổ sung các bài ngày 17/11 còn thiếu và giữ nguyên nội dung, ảnh, trạng thái đã biên tập. Công cụ `node scripts/publish-10-new-articles.js --assets-only` chỉ dựng tài nguyên. Chạy có DATABASE_URL và bỏ cờ này để xuất bản có kiểm tra kết quả.
+
+
+Hai lịch sao lưu Windows dùng Node.js, pg_dump và GnuPG trong PATH, nén và mã hóa trực tiếp thành `gaeru_store-*.sql.gz.gpg` kèm SHA-256. Nhập khóa công khai của người giữ bản sao vào tài khoản chạy lịch. Có thể đặt `GAERU_BACKUP_GPG_RECIPIENT` bằng dấu vân tay đầy đủ (40 hoặc 64 ký tự hex) để thay khóa công khai Mi6 mặc định. Giữ khóa riêng ở nơi phục hồi. Khi thiếu khóa, lần sao lưu sẽ báo lỗi và giữ các bản cũ. Sao lưu 15 phút chỉ dọn các gói mã hóa thuộc lịch đã hết hạn. Các tệp SQL cũ vẫn cần được chủ hệ thống xử lý riêng.
+
+Để đọc thử bản sao, chạy `scripts/failover-restore-to-pc.ps1 -Mode VerifyPortable -PortableFile <đường-dẫn.sql.gz.gpg>` trên máy có khóa riêng. Lệnh kiểm mã SHA-256, giải mã, giải nén và kiểm dấu kết thúc SQL. Để diễn tập vào một cơ sở dữ liệu tạm có tên riêng, dùng `-Mode TestDatabaseRestore -PortableFile <đường-dẫn.sql.gz.gpg>` với cấu hình PostgreSQL của máy diễn tập.

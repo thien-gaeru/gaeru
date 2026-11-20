@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { createHash } = require('node:crypto');
 const { z } = require('zod');
 const { requireCsrf } = require('./security');
 const { withTransaction } = require('./db');
@@ -15,6 +16,34 @@ const syncCartSchema = z.object({
 const mergeCartSchema = z.object({
   localItems: z.array(cartItemSchema).max(100).default([])
 }).strict();
+
+const cartOperationSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]{20,80}$/),
+  kind: z.enum(['change','import','legacy']),
+  items: z.array(z.object({
+    variantId: z.string().uuid(),
+    quantity: z.number().int().min(-99).max(99)
+  }).strict()).max(200)
+}).strict().refine(op =>
+  new Set(op.items.map(i=>i.variantId)).size===op.items.length &&
+  op.items.every(i=>op.kind==="change" ? i.quantity!==0 : i.quantity>0)
+);
+
+const cartUpdateSchema = z.object({
+  customerId: z.string().uuid(),
+  operations: z.array(cartOperationSchema).max(25)
+}).strict();
+
+async function markLegacyCart(client, req, items) {
+  if(!req.sessionID || !items.length) return true;
+  const sorted=items.map(i=>[i.variantId,i.quantity]).sort(([a],[b])=>a.localeCompare(b));
+  const id='v2-'+createHash('sha256').update(JSON.stringify([req.sessionID,req.customerId,sorted])).digest('hex');
+  const result=await client.query(
+    'INSERT INTO customer_cart_operations(operation_id,customer_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING operation_id',
+    [id,req.customerId]
+  );
+  return result.rows.length>0;
+}
 
 function createCustomerCartRouter(pool) {
   const router = Router();
@@ -140,6 +169,52 @@ function createCustomerCartRouter(pool) {
     }
   });
 
+  // Replaying an acknowledged browser operation must never reapply a quantity delta.
+  router.post('/sync', requireCsrf, async (req, res, next) => {
+    const parsed = cartUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Thay đổi giỏ hàng không hợp lệ.' });
+    if (parsed.data.customerId !== req.customerId) return res.status(409).json({ error: 'Tài khoản đã thay đổi. Vui lòng tải lại trang.' });
+    try {
+      const result = await withTransaction(pool, async client => {
+        const owner = (await client.query('SELECT cart_revision FROM customers WHERE id=$1 FOR UPDATE', [req.customerId])).rows[0];
+        let revision = Number(owner.cart_revision);
+        for (const op of parsed.data.operations) {
+          const claim = await client.query(
+            'INSERT INTO customer_cart_operations(operation_id,customer_id) VALUES ($1,$2) ON CONFLICT (operation_id) DO NOTHING RETURNING operation_id',
+            [op.id, req.customerId]
+          );
+          if (!claim.rows.length) continue;
+          await client.query(
+            `WITH incoming AS (SELECT * FROM unnest($2::uuid[],$3::int[]) AS i(id,qty)),
+               totals AS (
+                 SELECT i.id, LEAST(99,CASE WHEN $4::text='legacy'
+                   THEN GREATEST(COALESCE(c.quantity,0),i.qty) ELSE COALESCE(c.quantity,0)+i.qty END) AS qty
+                 FROM incoming i JOIN product_variants v ON v.id=i.id AND v.active
+                 JOIN products p ON p.id=v.product_id AND p.active AND p.deleted_at IS NULL
+                 LEFT JOIN customer_cart_items c ON c.customer_id=$1 AND c.variant_id=i.id
+               ), removed AS (
+                 DELETE FROM customer_cart_items c USING totals t
+                 WHERE c.customer_id=$1 AND c.variant_id=t.id AND t.qty<=0
+               )
+             INSERT INTO customer_cart_items(customer_id,variant_id,quantity)
+             SELECT $1,id,qty FROM totals WHERE qty>0
+             ON CONFLICT(customer_id,variant_id) DO UPDATE SET quantity=excluded.quantity,updated_at=now()`,
+            [req.customerId,op.items.map(i=>i.variantId),op.items.map(i=>i.quantity),op.kind]
+          );
+          revision++;
+        }
+        if (revision !== Number(owner.cart_revision)) await client.query('UPDATE customers SET cart_revision=$2 WHERE id=$1',[req.customerId,revision]);
+        const rows = (await client.query(
+          `SELECT c.variant_id AS "variantId",c.quantity FROM customer_cart_items c
+           JOIN product_variants v ON v.id=c.variant_id JOIN products p ON p.id=v.product_id
+           WHERE c.customer_id=$1 AND v.active AND p.active AND p.deleted_at IS NULL ORDER BY c.variant_id`, [req.customerId]
+        )).rows;
+        return {customerId:req.customerId,revision,items:rows};
+      });
+      res.json(result);
+    } catch (error) { next(error); }
+  });
+
   // PUT /api/customer/cart: Đồng bộ ghi đè giỏ hàng từ máy khách lên máy chủ
   router.put('/', requireCsrf, async (req, res, next) => {
     const parsed = syncCartSchema.safeParse(req.body);
@@ -169,12 +244,14 @@ function createCustomerCartRouter(pool) {
             );
           }
         }
-        return (await client.query(
+        const snapshot = (await client.query(
           `SELECT variant_id AS "variantId", quantity
            FROM customer_cart_items
            WHERE customer_id=$1 ORDER BY updated_at DESC`,
           [req.customerId]
         )).rows;
+        await markLegacyCart(client,req,snapshot);
+        return snapshot;
       });
       res.json({ message: 'Đã đồng bộ giỏ hàng.', items: current });
     } catch (e) {
@@ -198,7 +275,8 @@ function createCustomerCartRouter(pool) {
         )).rows;
         const serverMap = new Map(serverRows.map(r => [r.variantId, r.quantity]));
 
-        for (const item of localItems) {
+        const firstImport=await markLegacyCart(client,req,localItems);
+        for (const item of firstImport ? localItems : []) {
           const variant = (await client.query(
             'SELECT pv.id FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id=$1 AND pv.active=true AND p.active=true AND p.deleted_at IS NULL',
             [item.variantId]
@@ -223,7 +301,7 @@ function createCustomerCartRouter(pool) {
           }
         }
 
-        return (await client.query(
+        const snapshot = (await client.query(
           `SELECT c.variant_id AS "variantId", c.quantity
            FROM customer_cart_items c
            JOIN product_variants pv ON pv.id = c.variant_id
@@ -232,6 +310,8 @@ function createCustomerCartRouter(pool) {
            ORDER BY c.updated_at DESC`,
           [req.customerId]
         )).rows;
+        await markLegacyCart(client,req,snapshot);
+        return snapshot;
       });
       res.json({ message: 'Đã hợp nhất giỏ hàng thành công.', items: merged });
     } catch (e) {

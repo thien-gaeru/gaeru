@@ -2,214 +2,134 @@
 
 const crypto = require('node:crypto');
 
-function getVietnamDateString() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
-}
-
-let currentDay = getVietnamDateString();
-const MAX_VISITOR_HASHES = 100_000;
-const todayVisitorHashes = new Set();
-let cacheInitialized = false;
-const initializedPools = new WeakSet();
 const batchQueues = new WeakMap();
-
-function trackVisitorHash(hash) {
-  if (!hash || todayVisitorHashes.has(hash)) return false;
-  if (todayVisitorHashes.size >= MAX_VISITOR_HASHES) {
-    const oldest = todayVisitorHashes.values().next().value;
-    if (oldest !== undefined) todayVisitorHashes.delete(oldest);
-  }
-  todayVisitorHashes.add(hash);
-  return true;
-}
-
+const lastGoodSummary = new WeakMap();
+const MAX_QUEUED_VISITS = 2000;
 const BOT_USER_AGENT_PATTERN = /bot|crawler|spider|googlebot|bingbot|slurp|duckduckbot|baiduspider|yandexbot|sogou|exabot|facebot|ia_archiver|lighthouse|chrome-lighthouse/i;
-
 const STATIC_ASSET_PATTERN = /\.(?:css|js|map|png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf|json|xml|txt)$/i;
 
-async function ensureCache(pool) {
-  if (cacheInitialized && initializedPools.has(pool)) return;
-  cacheInitialized = true;
-  if (pool && typeof pool === 'object') initializedPools.add(pool);
-  try {
-    const res = await pool.query(
-      `SELECT visitor_hash FROM site_traffic_realtime
-       WHERE (last_seen_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
-       ORDER BY last_seen_at DESC LIMIT 100000`
-    );
-    for (const row of res.rows) {
-      trackVisitorHash(row.visitor_hash);
-    }
-  } catch {
-    // Graceful fallback if table is not yet created
+function visitRecord(visit) {
+  const raw = (visit.ip || '127.0.0.1') + '::' + (visit.userAgent || '');
+  return { hash: crypto.createHash('sha256').update(raw).digest('hex').slice(0,32),
+    path: (visit.path || '/').slice(0,255), at: new Date().toISOString() };
+}
+
+// A repeated batch after a lost database response must not increment pageviews again.
+const WRITE_BATCH = `
+  WITH receipt AS (
+    INSERT INTO site_traffic_batch_receipts(id) VALUES($1) ON CONFLICT DO NOTHING RETURNING id
+  ), visits AS (
+    SELECT v.*, (at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS day
+    FROM jsonb_to_recordset($2::jsonb) AS v(hash text, path text, at timestamptz), receipt
+  ), first_today AS (
+    INSERT INTO site_traffic_daily_visitors(visit_date,visitor_hash)
+    SELECT DISTINCT day,hash FROM visits ORDER BY day,hash
+    ON CONFLICT DO NOTHING RETURNING visit_date
+  ), realtime AS (
+    INSERT INTO site_traffic_realtime(visitor_hash,path,last_seen_at)
+    SELECT DISTINCT ON(hash) hash,path,at FROM visits ORDER BY hash,at DESC
+    ON CONFLICT(visitor_hash) DO UPDATE SET path=EXCLUDED.path,last_seen_at=EXCLUDED.last_seen_at
+      WHERE site_traffic_realtime.last_seen_at <= EXCLUDED.last_seen_at
+  )
+  INSERT INTO site_traffic(date,pageviews,unique_visitors)
+  SELECT day,count(*)::int,(SELECT count(*) FROM first_today WHERE visit_date=visits.day)::int
+  FROM visits GROUP BY day ORDER BY day
+  ON CONFLICT(date) DO UPDATE SET pageviews=site_traffic.pageviews+EXCLUDED.pageviews,
+    unique_visitors=site_traffic.unique_visitors+EXCLUDED.unique_visitors,updated_at=now()`;
+
+function queueState(pool) {
+  let state = batchQueues.get(pool);
+  if (!state) {
+    state = { items: [], pending: null, running: null, timer: null, failures: 0, dropped: 0, lastCleanup: 0 };
+    batchQueues.set(pool,state);
   }
+  return state;
 }
 
-function cleanRealtimeIfOld(pool) {
-  pool.query("DELETE FROM site_traffic_realtime WHERE last_seen_at < now() - INTERVAL '24 hours'").catch(() => {});
+function scheduleFlush(pool, state, delay) {
+  if (state.timer || state.running) return;
+  state.timer = setTimeout(() => { state.timer = null; void flushPendingVisits(pool); }, delay);
+  state.timer.unref?.();
 }
 
-function computeVisitDelta({ path, ip, userAgent }, pool) {
-  const today = getVietnamDateString();
-  if (today !== currentDay) {
-    currentDay = today;
-    todayVisitorHashes.clear();
-    if (pool) cleanRealtimeIfOld(pool);
+async function drain(pool,state) {
+  while (state.pending || state.items.length) {
+    state.pending ||= { id: crypto.randomUUID(), visits: state.items.splice(0,200) };
+    try {
+      await pool.query(WRITE_BATCH, [state.pending.id, JSON.stringify(state.pending.visits)]);
+      state.pending = null;
+      state.failures = 0;
+    } catch {
+      if (!state.failures) console.warn('Traffic counter write failed; queued measurements will be retried.');
+      state.failures++;
+      return;
+    }
   }
-  const rawId = (ip || '127.0.0.1') + '::' + (userAgent || '');
-  const visitorHash = crypto.createHash('sha256').update(rawId).digest('hex').slice(0, 32);
-  const isNewToday = trackVisitorHash(visitorHash);
-  return {
-    visitorHash,
-    path: (path || '/').slice(0, 255),
-    uniqueInc: isNewToday ? 1 : 0
-  };
-}
-
-async function applyVisitsBatch(pool, visits) {
-  if (!pool || typeof pool.query !== 'function' || !visits.length) return;
-  try {
-    await ensureCache(pool);
-    let pageviewsInc = 0;
-    const candidateHashes = [];
-    const latestPathByVisitor = new Map();
-
-    for (const v of visits) {
-      const delta = computeVisitDelta(v, pool);
-      pageviewsInc += 1;
-      if (delta.uniqueInc > 0) candidateHashes.push(delta.visitorHash);
-      latestPathByVisitor.set(delta.visitorHash, delta.path);
-    }
-
-    let alreadySeenToday = new Set();
-    if (candidateHashes.length > 0) {
-      try {
-        const seenRes = await pool.query(
-          `SELECT visitor_hash FROM site_traffic_realtime
-           WHERE visitor_hash = ANY($1::text[])
-             AND (last_seen_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date`,
-          [candidateHashes]
-        );
-        alreadySeenToday = new Set((seenRes.rows || []).map(r => r.visitor_hash));
-      } catch {}
-    }
-    const uniqueInc = candidateHashes.filter(h => !alreadySeenToday.has(h)).length;
-
-    await pool.query(
-      `INSERT INTO site_traffic (date, pageviews, unique_visitors, updated_at)
-       VALUES ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date, $1, $2, now())
-       ON CONFLICT (date)
-       DO UPDATE SET
-         pageviews = site_traffic.pageviews + $1,
-         unique_visitors = site_traffic.unique_visitors + $2,
-         updated_at = now()`,
-      [pageviewsInc, uniqueInc]
-    );
-
-    const entries = [...latestPathByVisitor.entries()];
-    if (entries.length === 1) {
-      await pool.query(
-        `INSERT INTO site_traffic_realtime (visitor_hash, path, last_seen_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (visitor_hash)
-         DO UPDATE SET path = EXCLUDED.path, last_seen_at = now()`,
-        [entries[0][0], entries[0][1]]
-      );
-    } else if (entries.length > 1) {
-      const params = [];
-      const placeholders = entries.map(([hash, p], idx) => {
-        params.push(hash, p);
-        return `($${idx * 2 + 1}, $${idx * 2 + 2}, now())`;
-      }).join(', ');
-      await pool.query(
-        `INSERT INTO site_traffic_realtime (visitor_hash, path, last_seen_at)
-         VALUES ${placeholders}
-         ON CONFLICT (visitor_hash)
-         DO UPDATE SET path = EXCLUDED.path, last_seen_at = now()`,
-        params
-      );
-    }
-  } catch {
-    // Non-blocking for storefront traffic
+  if (Date.now() - state.lastCleanup >= 86400000) {
+    state.lastCleanup = Date.now();
+    try {
+      await pool.query("DELETE FROM site_traffic_daily_visitors WHERE visit_date < (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date - 2");
+      await pool.query("DELETE FROM site_traffic_batch_receipts WHERE recorded_at < now() - interval '2 days'");
+      await pool.query("DELETE FROM site_traffic_realtime WHERE last_seen_at < now() - interval '24 hours'");
+    } catch { console.warn('Traffic counter retention cleanup could not finish.'); }
   }
 }
 
 async function flushPendingVisits(pool) {
-  if (!pool || typeof pool !== 'object') return;
-  const state = batchQueues.get(pool);
-  if (!state) return;
-  if (state.timer) {
-    clearTimeout(state.timer);
-    state.timer = null;
+  if (!pool || typeof pool.query !== 'function') return;
+  const state = queueState(pool);
+  clearTimeout(state.timer);
+  state.timer = null;
+  if (!state.running) {
+    state.running = drain(pool,state).finally(() => {
+      state.running = null;
+      if (state.pending || state.items.length) scheduleFlush(pool,state,state.failures ? Math.min(60000,1000 * 2 ** Math.min(6,state.failures)) : 120);
+    });
   }
-  if (state.items.length) {
-    const batch = state.items.splice(0, state.items.length);
-    const prev = state.inflight || Promise.resolve();
-    state.inflight = prev.then(() => applyVisitsBatch(pool, batch)).catch(() => {});
-  }
-  if (state.inflight) {
-    await state.inflight;
-  }
+  return state.running;
 }
 
-function enqueueVisit(pool, visit, delayMs = 120) {
+function enqueueVisit(pool,visit,delayMs = 120) {
   if (!pool || typeof pool.query !== 'function') return;
-  let state = batchQueues.get(pool);
-  if (!state) {
-    state = { items: [], timer: null, inflight: null };
-    batchQueues.set(pool, state);
-  }
-  state.items.push(visit);
-  if (state.items.length > 2000) state.items.shift();
-  if (state.items.length >= 200) {
-    flushPendingVisits(pool).catch(() => {});
+  const state = queueState(pool);
+  if (state.items.length >= MAX_QUEUED_VISITS) {
+    state.dropped++;
+    if (state.dropped === 1) console.warn('Traffic counter buffer full; some measurements were dropped.');
     return;
   }
-  if (!state.timer) {
-    state.timer = setTimeout(() => {
-      flushPendingVisits(pool).catch(() => {});
-    }, delayMs);
-    if (typeof state.timer.unref === 'function') state.timer.unref();
-  }
+  state.items.push(visitRecord(visit));
+  if (!state.failures && state.items.length >= 200) { void flushPendingVisits(pool); return; }
+  scheduleFlush(pool,state,delayMs);
 }
 
-async function recordVisit(pool, { path, ip, userAgent }) {
-  if (!pool || typeof pool.query !== 'function') return;
-  await applyVisitsBatch(pool, [{ path, ip, userAgent }]);
+async function recordVisit(pool,visit) {
+  enqueueVisit(pool,visit);
+  await flushPendingVisits(pool);
 }
 
 async function getTrafficSummary(pool) {
-  if (!pool || typeof pool.query !== 'function') {
-    return { todayPageviews: 0, todayVisitors: 0, totalPageviews: 0, totalVisitors: 0, activeNow: 0 };
-  }
+  const unavailable = () => ({ availability:'unavailable', measuredAt:lastGoodSummary.get(pool)?.measuredAt || null,
+    todayPageviews:null, todayVisitors:null, totalPageviews:null, totalVisitors:null, activeNow:null });
+  if (!pool || typeof pool.query !== 'function') return unavailable();
   try {
     await flushPendingVisits(pool);
-    const res = await pool.query(
-      `SELECT
-         COALESCE((SELECT pageviews FROM site_traffic WHERE date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0)::bigint AS today_pageviews,
-         COALESCE((SELECT unique_visitors FROM site_traffic WHERE date = (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date), 0)::bigint AS today_visitors,
-         COALESCE((SELECT SUM(pageviews) FROM site_traffic), 0)::bigint AS total_pageviews,
-         COALESCE((SELECT SUM(unique_visitors) FROM site_traffic), 0)::bigint AS total_visitors,
-         COALESCE((SELECT COUNT(*) FROM site_traffic_realtime WHERE last_seen_at >= now() - INTERVAL '15 minutes'), 0)::int AS active`
-    );
-    const row = res.rows[0] || {};
-    return {
-      todayPageviews: Number(row.today_pageviews || 0),
-      todayVisitors: Number(row.today_visitors || 0),
-      totalPageviews: Number(row.total_pageviews || 0),
-      totalVisitors: Number(row.total_visitors || 0),
-      activeNow: Number(row.active || 0)
-    };
-  } catch {
-    return {
-      todayPageviews: 0,
-      todayVisitors: 0,
-      totalPageviews: 0,
-      totalVisitors: 0,
-      activeNow: 0
-    };
-  }
+    const { rows } = await pool.query(`SELECT
+      COALESCE((SELECT pageviews FROM site_traffic WHERE date=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date),0) AS today_pageviews,
+      COALESCE((SELECT unique_visitors FROM site_traffic WHERE date=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date),0) AS today_visitors,
+      COALESCE((SELECT SUM(pageviews) FROM site_traffic),0) AS total_pageviews,
+      COALESCE((SELECT SUM(unique_visitors) FROM site_traffic),0) AS total_visitors,
+      (SELECT count(*) FROM site_traffic_realtime WHERE last_seen_at>=now()-interval '15 minutes') AS active`);
+    const row=rows[0];
+    if (!row) return unavailable();
+    const state=queueState(pool);
+    const summary={ availability:state.failures || state.dropped ? 'partial' : 'measured', measuredAt:new Date().toISOString(),
+      todayPageviews:Number(row.today_pageviews), todayVisitors:Number(row.today_visitors),
+      totalPageviews:Number(row.total_pageviews), totalVisitors:Number(row.total_visitors), activeNow:Number(row.active) };
+    lastGoodSummary.set(pool,summary);
+    return summary;
+  } catch { return unavailable(); }
 }
+
 
 function createTrafficTracker(pool) {
   return function trafficTracker(req, res, next) {
@@ -222,6 +142,7 @@ function createTrafficTracker(pool) {
       p.startsWith('/admin') ||
       p.startsWith('/media/') ||
       p.startsWith('/assets/') ||
+      ['/readyz', '/livez', '/healthz', '/health'].includes(p) ||
       STATIC_ASSET_PATTERN.test(p)
     ) {
       return next();
@@ -261,9 +182,5 @@ module.exports = {
   getTrafficSummary,
   recordVisit,
   flushPendingVisits,
-  _testReset() {
-    todayVisitorHashes.clear();
-    cacheInitialized = false;
-    currentDay = getVietnamDateString();
-  }
+  _testReset() {}
 };

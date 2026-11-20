@@ -2,7 +2,6 @@ const cartStorageKey = "gaeru-store-cart-v2";
 let products = [];
 let csrfToken = "";
 let csrfFetchPromise = null;
-let pendingMergePromise = null;
 let storeSettings = {
   shippingNote: "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.",
   shippingRates: {}
@@ -39,13 +38,14 @@ async function fetchCsrfToken(forceRefresh = false) {
 }
 
 async function apiRequest(url, options = {}, _retriedCsrf = false) {
+  const {checkoutCsrf,...fetchOptions}=options;
   const isMutating = Boolean(options.method && options.method !== "GET");
-  if (isMutating) await fetchCsrfToken(false);
+  if (isMutating && !checkoutCsrf) await fetchCsrfToken(false);
   const headers = new Headers(options.headers || {});
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  if (isMutating) headers.set("X-CSRF-Token", csrfToken);
-  const response = await fetch(url, { ...options, headers, credentials: "same-origin" });
-  if (response.status === 403 && isMutating && !_retriedCsrf) {
+  if (isMutating) headers.set("X-CSRF-Token", checkoutCsrf || csrfToken);
+  const response = await fetch(url, { ...fetchOptions, headers, credentials: "same-origin" });
+  if (response.status === 403 && isMutating && !checkoutCsrf && !_retriedCsrf) {
     csrfToken = "";
     await fetchCsrfToken(true);
     return apiRequest(url, options, true);
@@ -60,89 +60,245 @@ async function apiRequest(url, options = {}, _retriedCsrf = false) {
   return result;
 }
 
+const cartPrefix = "gaeru-store-cart-v3:";
+const cartStart = new WeakMap();
+function cartOwner() { return window.GAERUCustomerSession?.customer?.id || "guest"; }
+function storedCartValue(key, fallback) {
+  const raw = localStorage.getItem(key);
+  return raw ? JSON.parse(raw) : fallback;
+}
+function validCartItems(value) {
+  return Array.isArray(value) ? value.filter(i=>i && typeof i.variantId==="string" && Number.isInteger(i.quantity) && i.quantity>0 && i.quantity<=99) : [];
+}
+function cartOperations(owner) {
+  const head = cartPrefix + owner + ":op:";
+  const records = [];
+  for (let i=0; i<localStorage.length; i++) {
+    const key=localStorage.key(i);
+    if (!key?.startsWith(head)) continue;
+    const op=storedCartValue(key,null);
+    if (op && Array.isArray(op.items)) records.push({key,op});
+  }
+  return records.sort((a,b)=>String(a.op.order).localeCompare(String(b.op.order)) || a.key.localeCompare(b.key));
+}
+function applyCartOperation(map, op) {
+  for (const item of op.items) {
+    const before=map.get(item.variantId)||0;
+    const after=op.kind==="legacy" ? Math.max(before,item.quantity) : before+item.quantity;
+    if (after>0) map.set(item.variantId,Math.min(99,after)); else map.delete(item.variantId);
+  }
+}
+function cartFrom(items,records) {
+  const map=new Map(items.map(i=>[i.variantId,i.quantity]));
+  records.forEach(({op})=>applyCartOperation(map,op));
+  return [...map].map(([variantId,quantity])=>({variantId,quantity}));
+}
 function readCart() {
   try {
-    const value = JSON.parse(localStorage.getItem(cartStorageKey) || "[]");
-    if (!Array.isArray(value)) throw new Error("Giỏ hàng không hợp lệ");
-    return value.filter((item) =>
-      item && typeof item.variantId === "string" &&
-      Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= 99
-    );
+    const owner=cartOwner();
+    const base=owner==="guest" ? storedCartValue(cartStorageKey,[]) : storedCartValue(cartPrefix+owner+":snapshot",{}).items;
+    const cart=cartFrom(validCartItems(base),cartOperations(owner));
+    cartStart.set(cart,{owner,items:cart.map(i=>({...i}))});
+    return cart;
   } catch (error) {
-    console.error("Không thể đọc giỏ hàng GAERU:", error);
+    console.error("Không thể đọc giỏ hàng GAERU:",error);
     return [];
   }
 }
-
-let serverCartSyncTimer = null;
-function syncCartToServer(cart) {
-  if (typeof window === "undefined" || !window.GAERUCustomerSession?.customer) return;
-  clearTimeout(serverCartSyncTimer);
-  serverCartSyncTimer = setTimeout(async () => {
-    try {
-      if (pendingMergePromise) await pendingMergePromise.catch(() => {});
-      const latestCart = Array.isArray(readCart()) ? readCart() : cart;
-      await apiRequest("/api/customer/cart", {
-        method: "PUT",
-        body: JSON.stringify({ items: latestCart.map(i => ({ variantId: i.variantId, quantity: i.quantity })) })
-      });
-    } catch (_) {}
-  }, 300);
+function quantityChanges(before,after) {
+  const diff=new Map(before.map(i=>[i.variantId,-i.quantity]));
+  for (const i of after) diff.set(i.variantId,(diff.get(i.variantId)||0)+i.quantity);
+  return [...diff].filter(([,q])=>q!==0).map(([variantId,quantity])=>({variantId,quantity}));
 }
-
-let isMergingCart = false;
-async function mergeCartWithServer() {
-  if (isMergingCart || typeof window === "undefined" || !window.GAERUCustomerSession?.customer) return;
-  isMergingCart = true;
-  clearTimeout(serverCartSyncTimer);
-  serverCartSyncTimer = null;
-  pendingMergePromise = (async () => {
-    const local = readCart();
-    const result = await apiRequest("/api/customer/cart/merge", {
-      method: "POST",
-      body: JSON.stringify({ localItems: local.map(i => ({ variantId: i.variantId, quantity: i.quantity })) })
-    });
-    if (result && Array.isArray(result.items)) {
-      const merged = result.items.map(i => ({ variantId: i.variantId, quantity: i.quantity }));
-      const changed = JSON.stringify(merged) !== JSON.stringify(local.map(i => ({ variantId: i.variantId, quantity: i.quantity })));
-      localStorage.setItem(cartStorageKey, JSON.stringify(merged));
-      updateCartBadge(merged);
-      document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
-      renderCart();
-      renderMiniCart();
-      const checkoutForm = document.querySelector?.("#checkout-form");
-      const isDirectBuyNow = typeof location !== "undefined" && new URLSearchParams(location.search || "").has("variant");
-      const userEditedCheckout = checkoutForm && [...checkoutForm.querySelectorAll("input,textarea")].some(el => el.type !== "checkbox" && el.type !== "hidden" && el.value && el.value.trim().length > 0 && el === document.activeElement);
-      if (!isDirectBuyNow && ((changed && !checkoutForm) || (!checkoutForm && document.querySelector?.("#checkout-content")))) {
-        renderCheckout();
-      } else if (changed && checkoutForm && !isDirectBuyNow && !userEditedCheckout) {
-        const hasTyped = [...checkoutForm.querySelectorAll("input[name=name],input[name=phone],input[name=address]")].some(el => el.dataset.userDirty === "1");
-        if (!hasTyped) renderCheckout();
-      }
+async function cartHash(value) {
+  const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,"0")).join("");
+}
+function saveCartOperation(owner,op) {
+  localStorage.setItem(cartPrefix+owner+":op:"+op.order+":"+op.id,JSON.stringify(op));
+}
+async function adoptGuestCart(owner) {
+  const hasShell=Boolean(window.GAERUDeviceCart);
+  if(hasShell) window.GAERUDeviceCart.claim(owner);
+  const legacyKey=hasShell ? cartPrefix+owner+":legacy" : cartStorageKey;
+  const guestScope=hasShell ? owner+":guest" : "guest";
+  const handoffKey=cartPrefix+owner+":handoff";
+  let transfer=storedCartValue(handoffKey,null);
+  if(!transfer) {
+    const raw=localStorage.getItem(legacyKey);
+    const legacy=validCartItems(raw ? JSON.parse(raw) : []);
+    const records=cartOperations(guestScope);
+    if(!legacy.length && !records.length) return;
+    const old=new Map(legacy.map(i=>[i.variantId,i.quantity]));
+    const mirrored=[],fresh=[];
+    for(const item of cartFrom(legacy,records)){
+      const oldQty=Math.min(old.get(item.variantId)||0,item.quantity);
+      if(oldQty) mirrored.push({variantId:item.variantId,quantity:oldQty});
+      if(item.quantity>oldQty) fresh.push({variantId:item.variantId,quantity:item.quantity-oldQty});
     }
-  })();
-  try {
-    await pendingMergePromise;
-  } catch (_) {}
-  finally {
-    pendingMergePromise = null;
-    isMergingCart = false;
+    const signature=await cartHash(JSON.stringify([owner,legacy,records.map(r=>r.op.id)]));
+    if(cartOwner()!==owner) return;
+    const operations=[];
+    for(const [kind,items,order] of [["legacy",mirrored,"0000000000000"],["import",fresh,"0000000000001"]]){
+      // Keep old, unusually large carts transferable under the per-operation limit.
+      for(let offset=0;offset<items.length;offset+=100) operations.push({
+        kind,items:items.slice(offset,offset+100),order,id:kind+"-"+signature+"-"+(offset/100)
+      });
+    }
+    transfer={raw,keys:records.map(r=>r.key),operations};
+    localStorage.setItem(handoffKey,JSON.stringify(transfer));
+  }
+  // Replay the saved transfer even if the tab stopped midway through local cleanup.
+  for(const op of transfer.operations) saveCartOperation(owner,op);
+  if(transfer.raw && localStorage.getItem(legacyKey)===transfer.raw) localStorage.removeItem(legacyKey);
+  for(const key of transfer.keys) localStorage.removeItem(key);
+  localStorage.removeItem(handoffKey);
+}
+let cartSyncJob=null,cartSyncAgain=false,cartRetryTimer;
+function announceCartChange(){
+  document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
+}
+async function flushCart(owner) {
+  if (owner!==cartOwner()||owner==="guest") return;
+  const oldCart=JSON.stringify(readCart());
+  await adoptGuestCart(owner);
+  let more=true;
+  while (more && owner===cartOwner()) {
+    const pending=cartOperations(owner),batch=pending.slice(0,25);
+    const operations=batch.map(({op})=>({id:op.id,kind:op.kind,items:op.items}));
+    const result=await apiRequest("/api/customer/cart/sync",{
+      method:"POST",body:JSON.stringify({customerId:owner,operations}),gaeruBackground:true,
+      ...(typeof AbortSignal!=="undefined" && AbortSignal.timeout ? {signal:AbortSignal.timeout(15000)} : {})
+    });
+    if (result.customerId!==owner || !Array.isArray(result.items)) throw Error("Chưa đồng bộ được giỏ hàng.");
+    const key=cartPrefix+owner+":snapshot",previous=storedCartValue(key,{});
+    if ((previous.revision??-1)<=result.revision) {
+      const value=JSON.stringify({revision:result.revision,items:result.items});
+      if(localStorage.getItem(key)!==value)localStorage.setItem(key,value);
+    }
+    for(const row of batch)localStorage.removeItem(row.key);
+    more=pending.length>batch.length;
+    if(owner===cartOwner()) announceCartChange();
+  }
+  if(owner===cartOwner() && oldCart!==JSON.stringify(readCart()) && document.querySelector("#checkout-content")
+      && !document.querySelector("#checkout-content .order-success") && !new URLSearchParams(location.search).has("variant")) {
+    const form=document.querySelector("#checkout-form");
+    if(!form || !form.querySelector('[data-user-dirty="1"]')) await renderCheckout();
   }
 }
-
+function mergeCartWithServer() {
+  if (cartOwner()==="guest") return Promise.resolve();
+  if (cartSyncJob) {cartSyncAgain=true;return cartSyncJob;}
+  const owner=cartOwner();
+  const run=()=>flushCart(owner);
+  const job=Promise.resolve().then(()=>globalThis.navigator?.locks?.request
+    ? navigator.locks.request("gaeru-cart-sync-v3",run) : run());
+  cartSyncJob=job.catch(error=>{
+    console.warn("Chưa đồng bộ được giỏ hàng:",error.message);
+    clearTimeout(cartRetryTimer);
+    if(cartOwner()===owner && error.status!==401 && error.status!==403 && error.status!==409)
+      cartRetryTimer=setTimeout(()=>mergeCartWithServer(),10000);
+  }).finally(()=>{
+    cartSyncJob=null;
+    if(cartSyncAgain){cartSyncAgain=false;void mergeCartWithServer();}
+  });
+  return cartSyncJob;
+}
+function syncCartToServer(){return mergeCartWithServer();}
 function writeCart(cart) {
   try {
-    localStorage.setItem(cartStorageKey, JSON.stringify(cart));
-    updateCartBadge(cart);
-    document.dispatchEvent(new CustomEvent("gaeru:cart-updated"));
-    syncCartToServer(cart);
+    const owner=cartOwner(),start=cartStart.get(cart);
+    if (start && start.owner!==owner) throw Error("Tài khoản đã thay đổi.");
+    const items=quantityChanges(start?.items || readCart(),cart);
+    if (!items.length) return true;
+    const op={id:crypto.randomUUID(),order:String(Date.now()).padStart(13,"0"),kind:"change",items};
+    saveCartOperation(owner,op);
+    announceCartChange();
+    if(owner!=="guest") void mergeCartWithServer();
     return true;
   } catch (error) {
-    console.error("Không thể lưu giỏ hàng GAERU:", error);
-    const feedback = document.querySelector("[data-cart-feedback]");
-    if (feedback) feedback.textContent = "Không thể lưu giỏ hàng trên thiết bị này.";
+    console.error("Không thể lưu giỏ hàng GAERU:",error);
+    const feedback=document.querySelector("[data-cart-feedback]");
+    if (feedback) feedback.textContent="Không thể lưu giỏ hàng trên thiết bị này.";
     return false;
   }
+}
+
+function safeCheckoutPaymentUrl(value) {
+  const rawPayUrl = String(value).trim();
+  let safePayUrl = null;
+  if (/^\/(?!\/)[^\s\\]*$/.test(rawPayUrl)) {
+    safePayUrl = rawPayUrl;
+  } else {
+    try {
+      const baseOrigin = (typeof location !== "undefined" && location.origin && location.origin !== "null") ? location.origin : "https://gaeru.com";
+      const parsed = new URL(rawPayUrl, baseOrigin);
+      const allowedHosts = new Set([
+        "pay.vnpay.vn", "sandbox.vnpayment.vn",
+        "payment.momo.vn", "test-payment.momo.vn",
+        "gateway.zalopay.vn", "qcgateway.zalopay.vn", "sbgateway.zalopay.vn"
+      ]);
+      if ((parsed.origin === baseOrigin && (parsed.protocol === "http:" || parsed.protocol === "https:")) ||
+    (parsed.protocol === "https:" && allowedHosts.has(parsed.hostname.toLowerCase()))) {
+        safePayUrl = parsed.toString();
+      }
+    } catch (_) {}
+  }
+  return safePayUrl;
+}
+function pendingOrderKey(owner=cartOwner()) { return "gaeru-pending-checkout:"+owner; }
+function pendingOrder() {
+  try { return JSON.parse(sessionStorage.getItem(pendingOrderKey()) || "null"); } catch { return null; }
+}
+function postOrderCart(owner,key,items,direct) {
+  if(direct || owner!==cartOwner()) return;
+  if(owner!=="guest") { void mergeCartWithServer(); return; }
+  const receiptKey=cartPrefix+"guest:op:paid:order-"+key;
+  if(!localStorage.getItem(receiptKey)){
+    const op={kind:"change",id:"order-"+key,order:String(Date.now()).padStart(13,"0"),
+      items:items.map(i=>({variantId:i.variantId,quantity:-i.quantity}))};
+    localStorage.setItem(receiptKey,JSON.stringify(op));
+  }
+  announceCartChange();
+}
+async function restorePendingOrder(root) {
+  const owner=cartOwner(),record=pendingOrder();
+  if(!record || !/^[a-f0-9]{64}$/.test(record.key) || !/^gaeru-checkout-v1:[a-f0-9]{64}$/.test(record.storageKey) || !Array.isArray(record.items)) return false;
+  if(Date.now()-record.at>86400000){sessionStorage.removeItem(pendingOrderKey());return false;}
+  let state;
+  try { state=await apiRequest("/api/orders/checkout-attempt",{headers:{"X-Idempotency-Key":record.key},gaeruBackground:true}); }
+  catch { state={status:"unavailable"}; }
+  if(owner!==cartOwner() || pendingOrder()?.key!==record.key) return false;
+  if(state.status==="unknown") return false;
+  if(state.status!=="completed"){
+    root.innerHTML='<p role="status">Chưa xác nhận được lần đặt hàng trước. Hãy kiểm tra lại trước khi gửi đơn.</p><button type="button" class="secondary-button">Kiểm tra lại</button>';
+    root.querySelector("button").onclick=()=>renderCheckout();
+    return true;
+  }
+  const bank=state.bankTransfer;
+  const safe=state.paymentUrl && safeCheckoutPaymentUrl(state.paymentUrl);
+  root.innerHTML='<div class="order-success" role="status"><h2>Đã tiếp nhận đơn '+escapeHtml(state.orderNumber||"")+
+    '</h2><p>'+escapeHtml(state.message||"GAERU đã lưu đơn hàng.")+'</p>'+
+    (bank?'<p>Chuyển khoản tới '+escapeHtml(bank.bankName)+' · '+escapeHtml(bank.accountNumber)+' · '+escapeHtml(bank.accountHolder)+' · '+formatPrice(bank.amountVnd)+' · Nội dung '+escapeHtml(bank.transferContent)+'</p>':'')+
+    (safe?'<a class="button button-blue" href="'+escapeHtml(safe)+'">Tiếp tục thanh toán</a> ':'')+
+    '<a class="text-link" href="/tra-cuu-don-hang?order='+encodeURIComponent(state.orderNumber||"")+'">Tra cứu đơn hàng</a></div>';
+  postOrderCart(owner,record.key,record.items,record.direct);
+  if(localStorage.getItem(record.storageKey)===record.generation || (!localStorage.getItem(record.storageKey)&&record.generation==="initial"))
+    localStorage.setItem(record.storageKey,crypto.randomUUID());
+  sessionStorage.removeItem(pendingOrderKey());
+  return true;
+}
+
+async function checkoutIntent(payload) {
+  const owner=cartOwner();
+  const items=[...payload.items].sort((a,b)=>a.variantId.localeCompare(b.variantId));
+  const digest=await cartHash(JSON.stringify([owner,{...payload,items}]));
+  const storageKey="gaeru-checkout-v1:"+digest;
+  const readGeneration=()=>localStorage.getItem(storageKey)||"initial";
+  const generation=readGeneration();
+  return {key:await cartHash(digest+"."+generation),storageKey,generation,complete(){
+    if(readGeneration()===generation) localStorage.setItem(storageKey,crypto.randomUUID());
+  }};
 }
 
 function cartRows(cart) {
@@ -570,6 +726,38 @@ function renderProduct() {
   try { document.dispatchEvent(new CustomEvent("gaeru:products-rendered", { detail: { product } })); } catch (_) {}
 }
 
+function shippingPresentation(settings) {
+  const rates=settings?.shippingRates || {};
+  const isNationwide=name=>window.GAERUCheckout?.cityKey
+    ? window.GAERUCheckout.cityKey(name)==="toan quoc"
+    : /^toàn\s+quốc$/i.test(String(name).trim());
+  const hasNationwide=Object.keys(rates).some(isNationwide);
+  const freeNationwide=hasNationwide && Object.values(rates).every(fee=>fee===0);
+  const note=String(settings?.shippingNote||"").trim();
+  const standardNote=/^phí (?:vận chuyển|giao hàng) (?:được )?tính theo tỉnh\/thành phố(?: đã chọn)?[.!]?$/i.test(note);
+  const base=freeNationwide ? "Miễn phí giao hàng toàn quốc." : "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.";
+  // The fee table defines the amount. Keep additional delivery instructions written by the merchant.
+  const helper=note && !standardNote && note!==base ? (freeNationwide ? base+" "+note : note) : base;
+  return {isNationwide,hasNationwide,freeNationwide,helper,badge:freeNationwide ? "Miễn phí · 0 ₫" : "Tính tại thanh toán"};
+}
+let cartShippingRequest=null,cartShippingExpires=0;
+function updateCartShipping(root) {
+  const badge=root.querySelector("[data-cart-shipping]"),helper=root.querySelector("[data-cart-shipping-note]");
+  if(!badge || !helper) return;
+  if(!cartShippingRequest || Date.now()>=cartShippingExpires) {
+    cartShippingExpires=Date.now()+60000;
+    cartShippingRequest=apiRequest("/api/settings/public",{gaeruBackground:true})
+      .catch(error=>{cartShippingRequest=null;throw error;});
+  }
+  const apply=settings=>{
+    if(!root.contains(badge)) return;
+    const shipping=shippingPresentation(settings);
+    badge.textContent=shipping.badge;
+    helper.textContent=shipping.helper;
+  };
+  cartShippingRequest.then(apply).catch(()=>apply({}));
+}
+
 function renderCart() {
   const root = document.querySelector("#cart-content");
   if (!root) return;
@@ -603,13 +791,14 @@ function renderCart() {
       <h2>Tóm tắt đơn hàng</h2>
       <p><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
       <p data-cart-bundle-row hidden><span>Ưu đãi combo</span><strong data-cart-bundle-discount>−0 ₫</strong></p>
-      <p><span>Giao hàng</span><span>Tính tại thanh toán</span></p>
+      <p><span>Giao hàng</span><span data-cart-shipping aria-live="polite">Đang kiểm tra…</span></p>
       <p class="summary-total"><span>Tổng tạm tính</span><strong data-cart-subtotal-final>${formatPrice(total)}</strong></p>
       ${hasOutOfStock ? '<p class="prototype-note" style="color:#c14343;">Một số sản phẩm trong giỏ đã hết hàng và sẽ không được tính vào đơn thanh toán.</p>' : ''}
-      <p class="prototype-note">Phí giao hàng được tính theo tỉnh/thành phố bạn chọn tại checkout. Giá lấy từ phiên bản đã chọn.</p>
+      <p class="prototype-note" data-cart-shipping-note></p>
       ${availableRows.length ? '<a class="button button-blue" href="checkout.html">Nhập thông tin đặt hàng</a>' : '<button class="button button-blue" type="button" disabled>Chưa có sản phẩm còn hàng</button>'}
       <a class="continue-shopping" href="shop.html">Tiếp tục mua sắm</a>
     </aside>`;
+  updateCartShipping(root);
   if (availableRows.length >= 2) {
     apiRequest("/api/bundles/quote", {
       method: "POST",
@@ -658,10 +847,23 @@ async function ensureCheckoutDependencies() {
   }
 }
 
+let displayedCheckoutOwner=null, checkoutIdentityVersion=0;
+function resetCheckoutForNewOwner(){
+  const next=cartOwner();
+  if(displayedCheckoutOwner===null || next===displayedCheckoutOwner) return;
+  displayedCheckoutOwner=next;
+  checkoutIdentityVersion++;
+  const root=document.querySelector("#checkout-content");
+  if(root){root.replaceChildren();void renderCheckout().catch(showStoreError);}
+}
 async function renderCheckout() {
   const root = document.querySelector("#checkout-content");
   if (!root) return;
+  const formOwner=cartOwner(),identityVersion=checkoutIdentityVersion;
+  const belongsToFormOwner=()=>cartOwner()===formOwner && checkoutIdentityVersion===identityVersion;
+  displayedCheckoutOwner=formOwner;
   await ensureCheckoutDependencies();
+  if(!belongsToFormOwner() || await restorePendingOrder(root) || !belongsToFormOwner()) return;
 
   const urlParams = typeof window !== "undefined" && window.location ? new URLSearchParams(window.location.search) : null;
   const recoveryToken = urlParams ? urlParams.get("recovery_token") : null;
@@ -670,6 +872,7 @@ async function renderCheckout() {
   if (recoveryToken) {
     try {
       const resp = await apiRequest(`/api/abandoned-cart/recover/${encodeURIComponent(recoveryToken)}`);
+      if (!belongsToFormOwner()) return;
       if (resp?.cart) {
         recoveredCart = resp.cart;
         if (Array.isArray(resp.cart.items) && resp.cart.items.length > 0) {
@@ -685,6 +888,7 @@ async function renderCheckout() {
     }
   }
 
+  if(!belongsToFormOwner()) return;
   const purchase=window.GAERUCheckout.selection(products,location.search);
   const allRows = cartRows(purchase.direct?purchase.items:readCart());
   const rows = allRows.filter(item => item.variant.stockQuantity > 0);
@@ -707,15 +911,18 @@ async function renderCheckout() {
       total
     );
   } catch (_) {}
+  // Bind this form to the actual cookie session, including anonymous sessions.
+  // A CSRF token from a regenerated session must never be substituted on retry.
+  const formCsrf=apiRequest("/api/csrf",{gaeruBackground:true}).then(data=>data.csrfToken||null).catch(()=>null);
   let settingsError = "";
   try {
     storeSettings = await apiRequest("/api/settings/public");
   } catch (error) {
     settingsError = error.message;
   }
+  if(!belongsToFormOwner()) return;
   const shippingRates = storeSettings.shippingRates || {};
-  const isNationwide = name => Boolean(name && (window.GAERUCheckout?.cityKey ? window.GAERUCheckout.cityKey(name) === 'toan quoc' : /toàn\s*quốc/i.test(name)));
-  const hasNationwide = Object.keys(shippingRates).some(isNationwide);
+  const {isNationwide,hasNationwide,freeNationwide,helper:shippingHelp}=shippingPresentation(storeSettings);
   let provinces = Object.keys(shippingRates).filter(p => !isNationwide(p)).sort((left, right) => left.localeCompare(right, "vi"));
   if (hasNationwide && !provinces.length) {
     provinces = ['Hà Nội','Hải Phòng','Huế','Đà Nẵng','Hồ Chí Minh','Cần Thơ','An Giang','Bắc Ninh','Cà Mau','Cao Bằng','Đắk Lắk','Điện Biên','Đồng Nai','Đồng Tháp','Gia Lai','Hà Tĩnh','Hưng Yên','Khánh Hòa','Lai Châu','Lâm Đồng','Lạng Sơn','Lào Cai','Nghệ An','Ninh Bình','Phú Thọ','Quảng Ngãi','Quảng Ninh','Quảng Trị','Sơn La','Tây Ninh','Thái Nguyên','Thanh Hóa','Tuyên Quang','Vĩnh Long'].sort((a,b)=>a.localeCompare(b,'vi'));
@@ -744,7 +951,7 @@ async function renderCheckout() {
           ${rows.map(({ quantity, product, variant }) => `
             <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
           <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
-          <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
+          <p class="prototype-note">${escapeHtml(shippingHelp)}</p>
           <a class="continue-shopping" href="shop.html">Tiếp tục mua sắm</a>
         </aside>
       </div>`;
@@ -755,7 +962,7 @@ async function renderCheckout() {
     ${recoveredItemsApplied ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
     ${skippedOutOfStock > 0 ? '<div class="checkout-notice" role="status" style="color:#9a3412;border-color:#fed7aa;background:#fff7ed;">Một số phiên bản đã hết hàng trong giỏ đã được bỏ qua khỏi đơn thanh toán này.</div>' : ''}
     <form class="checkout-form" id="checkout-form">
-      <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> Phí giao hàng được tính theo tỉnh/thành phố bạn chọn.</div>
+      <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong> ${freeNationwide ? "Miễn phí giao hàng toàn quốc." : "Chọn tỉnh/thành phố để xem phí giao hàng."}</div>
       <label class="saved-address-label" data-saved-address-label hidden>Địa chỉ đã lưu<select data-saved-address><option value="">Nhập địa chỉ mới</option></select></label><p class="address-status" data-address-status role="status"></p>
       <details class="checkout-contact-details" data-contact-details open><summary>Thông tin giao hàng<span data-contact-summary></span></summary>
       <div class="form-section">
@@ -776,18 +983,18 @@ async function renderCheckout() {
         </div>
       </div>
       </details>
-      ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label><p class="prototype-note">Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU.</p></section>`:''}
+      ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label><p class="prototype-note">${freeNationwide ? "Phí giao hàng 0 ₫ áp dụng cho mọi tỉnh/thành phố." : "Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU."}</p></section>`:''}
       <aside class="checkout-summary cart-summary">
       <h2>Đơn hàng</h2>
       ${rows.map(({ quantity, product, variant }) => `
         <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
       <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
       <p class="checkout-product checkout-bundle-discount" data-checkout-bundle-row hidden><span>Giảm giá combo</span><strong data-checkout-bundle-discount>−0 ₫</strong></p>
-      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>Chưa tính phí</strong></p>
+      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>${freeNationwide ? "0 ₫" : "Chưa tính phí"}</strong></p>
       <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã voucher</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã voucher" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
       <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
-      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>${formatPrice(total)} + phí giao hàng</strong></p>
-      <p class="prototype-note">${escapeHtml(storeSettings.shippingNote || "Phí giao hàng được tính theo tỉnh/thành phố đã chọn.")}</p>
+      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>${formatPrice(total)}${freeNationwide ? "" : " + phí giao hàng"}</strong></p>
+      <p class="prototype-note">${escapeHtml(shippingHelp)}</p>
     </aside><div class="form-section">
         <h2>Phương thức thanh toán</h2>
         <label>
@@ -803,7 +1010,8 @@ async function renderCheckout() {
         <p class="payment-placeholder" data-payment-help>GAERU sẽ xác nhận đơn hàng trước khi gửi.</p>
       </div>
       <p class="checkout-account-notice">Khi đặt hàng, GAERU tạo tài khoản theo email nếu bạn chưa có tài khoản và gửi hướng dẫn đặt mật khẩu. Bạn không tự động đăng ký nhận tin quảng cáo.</p><p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="privacy.html">Chính sách quyền riêng tư</a>. <a href="terms.html">Điều khoản mua hàng</a>.</p>
-      <label class="checkout-recovery-consent"><input type="checkbox" name="recoveryConsent" id="checkout-recovery-consent" checked><span>Lưu liên hệ và giỏ hàng để nhận nhắc nhở nếu chưa hoàn tất thanh toán.</span></label>
+      <label class="checkout-recovery-consent"><input type="checkbox" name="recoveryConsent" id="checkout-recovery-consent"><span>Tôi đồng ý lưu tên, email, số điện thoại và sản phẩm trong giỏ để GAERU gửi email nhắc khi chưa hoàn tất đơn.</span></label>
+      <p role="status" data-recovery-status></p><button type="button" class="secondary-button" data-recovery-retry hidden>Thử lại yêu cầu nhắc giỏ</button>
       <button class="button button-blue" type="submit">Đặt hàng</button>
       <p class="checkout-feedback" id="checkout-feedback" aria-live="polite"></p>
     </form>
@@ -823,40 +1031,7 @@ async function renderCheckout() {
     }
   }
 
-  let captureDebounceTimer = null;
-  const triggerAbandonedCartCapture = () => {
-    clearTimeout(captureDebounceTimer);
-    captureDebounceTimer = setTimeout(async () => {
-      const email = form.elements.email?.value?.trim();
-      const phone = form.elements.phone?.value?.trim();
-      const name = form.elements.name?.value?.trim();
-      const consent = form.elements.recoveryConsent ? form.elements.recoveryConsent.checked : true;
-      if (!email || !/.+@.+\..+/.test(email)) return;
-      const checkoutItems = rows.map(({ variantId, quantity }) => ({ variantId, quantity }));
-      if (!checkoutItems.length) return;
-
-      try {
-        await apiRequest("/api/abandoned-cart/capture", {
-          method: "POST",
-          body: JSON.stringify({
-            email,
-            customerName: name || undefined,
-            phone: phone || undefined,
-            items: checkoutItems,
-            recoveryConsent: consent
-          })
-        });
-      } catch (_) {
-        // Non-blocking background capture
-      }
-    }, 1000);
-  };
-
-  form.elements.email?.addEventListener("blur", triggerAbandonedCartCapture);
-  form.elements.email?.addEventListener("change", triggerAbandonedCartCapture);
-  form.elements.phone?.addEventListener("blur", triggerAbandonedCartCapture);
-  form.elements.name?.addEventListener("blur", triggerAbandonedCartCapture);
-  form.elements.recoveryConsent?.addEventListener("change", triggerAbandonedCartCapture);
+  window.GAERUCheckout.bindRecoveryConsent(form, rows.map(({variantId, quantity}) => ({variantId, quantity})), apiRequest);
   const paymentMethod = form.elements.paymentMethod;
   const paymentHelp = form.querySelector("[data-payment-help]");
   let voucherDiscount=0,appliedVoucher="",bundleDiscount=0;
@@ -878,7 +1053,7 @@ async function renderCheckout() {
   };
   const updateShippingTotal = () => {
     updateLoyaltyDiscount();
-    const fee = window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
+    const fee = freeNationwide ? 0 : window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value);
     const netProductTotal = Math.max(0, total - bundleDiscount - voucherDiscount - loyaltyDiscount);
     root.querySelector("[data-checkout-shipping]").textContent =
       fee === undefined ? "Chưa tính phí" : formatPrice(fee);
@@ -910,19 +1085,25 @@ async function renderCheckout() {
   voucherInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(voucherTimer);void validateVoucher();}});
   root.querySelector('[data-voucher-wallet]').addEventListener('click',event=>{window.GAERUVoucherWallet?.open({request:apiRequest,total,opener:event.currentTarget,onSelect:async code=>{voucherRevision++;clearTimeout(voucherTimer);voucherInput.value=code;resetVoucher();voucherFeedback.textContent='';if(!code)return {ok:true};const ok=await validateVoucher();return {ok,message:voucherFeedback.textContent};}});});
   root.querySelector('[data-voucher-apply]').addEventListener('click',async()=>{clearTimeout(voucherTimer);return validateVoucher();});
+  let loyaltyRequestVersion=0;
   const loadCheckoutLoyalty = () => {
-    const custId = window.GAERUCustomerSession?.customer?.id || null;
-    if (!custId || custId === loyaltyLoadedForId) return;
-    loyaltyLoadedForId = custId;
-    apiRequest("/api/customer/loyalty", { gaeruBackground: true }).then(data => {
-      if (!form.isConnected) return;
-      if (data?.loyalty?.pointsBalance > 0) {
-        loyaltyPoints = data.loyalty.pointsBalance;
-        if (loyaltySection) loyaltySection.hidden = false;
-        if (loyaltyAvailable) loyaltyAvailable.textContent = new Intl.NumberFormat('vi-VN').format(loyaltyPoints);
-        updateShippingTotal();
-      }
-    }).catch(() => {});
+    const custId=window.GAERUCustomerSession?.customer?.id || null;
+    if(custId===loyaltyLoadedForId) return;
+    const version=++loyaltyRequestVersion;
+    loyaltyLoadedForId=custId;
+    loyaltyPoints=0;
+    if(loyaltyCheckbox) loyaltyCheckbox.checked=false;
+    if(loyaltySection) loyaltySection.hidden=true;
+    if(loyaltyAvailable) loyaltyAvailable.textContent="0";
+    updateShippingTotal();
+    if(!custId) return;
+    apiRequest("/api/customer/loyalty",{gaeruBackground:true}).then(data=>{
+      if(!form.isConnected || version!==loyaltyRequestVersion || window.GAERUCustomerSession?.customer?.id!==custId) return;
+      loyaltyPoints=Math.max(0,Number(data?.loyalty?.pointsBalance)||0);
+      if(loyaltySection) loyaltySection.hidden=loyaltyPoints===0;
+      if(loyaltyAvailable) loyaltyAvailable.textContent=new Intl.NumberFormat('vi-VN').format(loyaltyPoints);
+      updateShippingTotal();
+    }).catch(()=>{if(version===loyaltyRequestVersion) loyaltyLoadedForId=null;});
   };
   loadCheckoutLoyalty();
   const onLoyaltyCustomerUpdated = () => { if (!form.isConnected) { document.removeEventListener("gaeru:customer-updated", onLoyaltyCustomerUpdated); return; } loadCheckoutLoyalty(); };
@@ -961,7 +1142,8 @@ async function renderCheckout() {
   let sending=false;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if(sending)return;
+    if(sending || !belongsToFormOwner())return;
+    const submittingOwner=formOwner;
     sending=true;
     const button = form.querySelector('button[type="submit"]');
     const feedback = root.querySelector("#checkout-feedback");
@@ -970,11 +1152,13 @@ async function renderCheckout() {
     try {
       if (window.GAERUCheckout.shippingFee(shippingRates,form.elements.city.value)===undefined)throw Error("Chưa có phí giao hàng cho tỉnh/thành phố này. Kiểm tra lại địa chỉ.");
       if(shippingCarriers.length&&!form.elements.shippingCarrierId?.value)throw Error('Vui lòng chọn đơn vị vận chuyển.');
-      if (!csrfToken) csrfToken = (await apiRequest("/api/csrf")).csrfToken;
+      const checkoutCsrf=await formCsrf;
+      if(!belongsToFormOwner()) return;
+      if(!checkoutCsrf) throw Error("Phiên đặt hàng chưa sẵn sàng. Vui lòng tải lại trang.");
       if(voucherInput.value.trim()&&appliedVoucher!==voucherInput.value.trim().toUpperCase()){clearTimeout(voucherTimer);if(!await validateVoucher())throw Error('Voucher chưa hợp lệ. Kiểm tra hoặc bỏ mã để tiếp tục.');}
-      const result = await apiRequest("/api/orders", {
-        method: "POST",
-        body: JSON.stringify({
+      if(!belongsToFormOwner()) return;
+      const payload = {
+          cartSource:purchase.direct?"direct":"cart",
           customer: {
             name: form.elements.name.value,
             email: form.elements.email.value,
@@ -990,78 +1174,61 @@ async function renderCheckout() {
           paymentMethod: paymentMethod.value,
           expectedSubtotalVnd:total,
           items: rows.map(({ variantId, quantity }) => ({ variantId, quantity }))
-        })
-      });
-      if (result.paymentUrl) {
-        const rawPayUrl = String(result.paymentUrl).trim();
-        let safePayUrl = null;
-        if (/^\/(?!\/)[^\s\\]*$/.test(rawPayUrl)) {
-          safePayUrl = rawPayUrl;
-        } else {
-          try {
-            const baseOrigin = (typeof location !== "undefined" && location.origin && location.origin !== "null") ? location.origin : "https://gaeru.com";
-            const parsed = new URL(rawPayUrl, baseOrigin);
-            const allowedHosts = new Set([
-              "pay.vnpay.vn", "sandbox.vnpayment.vn",
-              "payment.momo.vn", "test-payment.momo.vn",
-              "gateway.zalopay.vn", "qcgateway.zalopay.vn", "sbgateway.zalopay.vn"
-            ]);
-            if ((parsed.origin === baseOrigin && (parsed.protocol === "http:" || parsed.protocol === "https:")) ||
-                (parsed.protocol === "https:" && allowedHosts.has(parsed.hostname.toLowerCase()))) {
-              safePayUrl = parsed.toString();
-            }
-          } catch (_) {}
+      };
+      const intent=await checkoutIntent(payload);
+      if(submittingOwner!=="guest" && !purchase.direct && pendingOrder()?.key!==intent.key) {
+        await mergeCartWithServer();
+        if(cartOwner()!==submittingOwner || cartOperations(submittingOwner).length) throw Error("Giỏ hàng chưa đồng bộ. Vui lòng thử lại.");
+        const currentRows=cartRows(readCart()).filter(i=>i.variant.stockQuantity>0);
+        if(quantityChanges(rows,currentRows).length) throw Error("Giỏ hàng đã thay đổi. Vui lòng tải lại trước khi đặt đơn.");
+      }
+      if(!belongsToFormOwner()) return;
+      const pending={key:intent.key,storageKey:intent.storageKey,generation:intent.generation,at:Date.now(),direct:purchase.direct,items:payload.items};
+      try { sessionStorage.setItem(pendingOrderKey(submittingOwner),JSON.stringify(pending)); } catch {}
+      let result;
+      try {
+        result=await apiRequest("/api/orders",{method:"POST",headers:{"X-Idempotency-Key":intent.key,"X-Checkout-Customer":submittingOwner},checkoutCsrf,body:JSON.stringify(payload)});
+      } catch(error){
+        if(error.status && error.status<500 && ![408,409,429].includes(error.status)){
+          try {sessionStorage.removeItem(pendingOrderKey(submittingOwner));} catch {}
         }
+        throw error;
+      }
+      await window.GAERUCustomerSession?.refresh?.();
+      if(!belongsToFormOwner()) return;
+      function finishOrder() {
+        intent.complete();
+        postOrderCart(submittingOwner,intent.key,rows,purchase.direct);
+        try{if(pendingOrder()?.key===intent.key)sessionStorage.removeItem(pendingOrderKey());}catch{}
+      }
+      if (result.paymentUrl) {
+        const safePayUrl=safeCheckoutPaymentUrl(result.paymentUrl);
         if (!safePayUrl) {
           throw new Error("Liên kết cổng thanh toán không hợp lệ.");
         }
-        if (!purchase.direct) writeCart([]);
+        finishOrder();
         location.assign(safePayUrl);
         return;
       }
-      if (!purchase.direct) writeCart([]);
+      finishOrder();
       const bt = result.bankTransfer;
       root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="checkout-notice bank-transfer-notice"><strong>Thông tin chuyển khoản ngân hàng</strong>${bt.qrUrl?`<div class="vietqr-box" style="text-align:center;margin:12px 0;"><img src="${escapeHtml(bt.qrUrl)}" alt="Mã VietQR" width="240" height="240" style="max-width:240px;width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,0.06);" loading="lazy"><p style="font-size:12px;color:#6b7280;margin:6px 0 0;">Quét mã VietQR bằng app ngân hàng bất kỳ để tự động khớp thông tin &amp; số tiền.</p></div>`:''}<p>Ngân hàng: <strong>${escapeHtml(bt.bankName)}</strong>${bt.branch?` (${escapeHtml(bt.branch)})`:""}<br>Số tài khoản: <strong>${escapeHtml(bt.accountNumber)}</strong><br>Chủ tài khoản: <strong>${escapeHtml(bt.accountHolder)}</strong><br>Số tiền: <strong>${formatPrice(bt.amountVnd ?? result.order.totalVnd)}</strong><br>Nội dung chuyển khoản: <strong>${escapeHtml(bt.transferContent)}</strong></p><p data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
       if (bt) {
-        let pollTicks = 0;
-        const MAX_POLL_TICKS = 450;
-        const pollTimer = setInterval(async () => {
-          const liveNode = root.querySelector("[data-prepaid-live-status]");
-          if (!liveNode) { clearInterval(pollTimer); return; }
-          if (document.visibilityState === "hidden") return;
-          if (++pollTicks > MAX_POLL_TICKS) {
-            liveNode.textContent = "Đã dừng kiểm tra tự động sau 30 phút. Bạn có thể tra cứu trạng thái đơn trong mục Tài khoản hoặc Tra cứu đơn hàng.";
-            clearInterval(pollTimer);
-            return;
-          }
-          try {
-            const tokenParam = result.trackingToken ? `&token=${encodeURIComponent(result.trackingToken)}` : '';
-            const check = await apiRequest(`/api/payments/order-status?order=${encodeURIComponent(result.order.orderNumber)}${tokenParam}`, { gaeruBackground: true });
-            if (check.order?.paymentStatus === "paid") {
-              liveNode.textContent = "Đã so khớp giao dịch thành công! Đơn hàng đã tự động duyệt sang trạng thái Chờ gửi hàng.";
-              clearInterval(pollTimer);
-              try {
-                window.GAERUAnalytics?.trackPurchase?.({
-                  orderNumber: check.order.orderNumber,
-                  totalVnd: check.order.totalVnd,
-                  shippingFeeVnd: check.order.shippingFeeVnd,
-                  subtotalVnd: check.order.subtotalVnd,
-                  items: check.order.items || rows.map(r => ({
-                    variantId: r.variant.id,
-                    sku: r.variant.sku,
-                    name: `${r.product.name} - ${r.variant.name}`,
-                    category: r.product.category,
-                    priceVnd: r.variant.priceVnd,
-                    quantity: r.quantity
-                  }))
-                });
-              } catch (_) {}
-            } else if (check.order?.status === "cancelled" || ["failed", "cancelled", "expired"].includes(check.order?.paymentStatus)) {
-              liveNode.textContent = "Đơn hàng đã hủy hoặc hết hạn thanh toán.";
-              clearInterval(pollTimer);
-            }
-          } catch {}
-        }, 4000);
+        const liveNode = root.querySelector("[data-prepaid-live-status]");
+        const trackingLink = document.createElement("a");
+        trackingLink.href = "/tra-cuu-don-hang?order=" + encodeURIComponent(result.order.orderNumber);
+        trackingLink.textContent = "Tra cứu đơn hàng";
+        liveNode.after(trackingLink);
+        window.GAERUCheckout.watchBankTransfer(liveNode, result.order.orderNumber, result.trackingToken, apiRequest, order => {
+          window.GAERUAnalytics?.trackPurchase?.({
+            orderNumber:order.orderNumber, totalVnd:order.totalVnd,
+            shippingFeeVnd:order.shippingFeeVnd, subtotalVnd:order.subtotalVnd,
+            items:order.items || rows.map(({variant,product,quantity}) => ({
+              variantId:variant.id, sku:variant.sku, name:product.name + " - " + variant.name,
+              category:product.category, priceVnd:variant.priceVnd, quantity
+            }))
+          });
+        });
       }
     } catch (error) {
       feedback.textContent = error.message;
@@ -1326,7 +1493,7 @@ function bindGlobalControls() {
 }
 
 function updateSaleCountdowns(){if(typeof document==='undefined'||document.hidden)return;const nodes=document.querySelectorAll('[data-sale-end]');if(!nodes.length)return;nodes.forEach(node=>{const seconds=Math.max(0,Math.floor((new Date(node.dataset.saleEnd)-Date.now())/1000));if(!seconds){node.textContent='Đã kết thúc · tải lại để cập nhật giá';return;}const days=Math.floor(seconds/86400),hours=Math.floor(seconds%86400/3600),minutes=Math.floor(seconds%3600/60);node.textContent='Còn '+(days?days+' ngày ':'')+String(hours).padStart(2,'0')+':'+String(minutes).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');});}
-setInterval(updateSaleCountdowns,1000);
+if (!document.body?.hasAttribute?.("data-policy-commerce")) setInterval(updateSaleCountdowns,1000);
 function showStoreError(error) {
   console.error("Không thể tải dữ liệu cửa hàng GAERU:", error);
   const message = document.createElement("p");
@@ -1387,15 +1554,20 @@ document.addEventListener("change", (e) => {
 document.addEventListener("gaeru:cart-updated", () => { updateCartBadge(); renderMiniCart(); renderCart(); });
 document.addEventListener("gaeru:cart-panel-open", renderMiniCart);
 document.addEventListener("gaeru:customer-updated", () => {
+  resetCheckoutForNewOwner();
+  announceCartChange();
   if (typeof window !== "undefined" && window.GAERUCustomerSession?.customer) {
     void mergeCartWithServer();
   }
 });
 window.addEventListener("storage", (event) => {
-  if (event.key !== null && event.key !== cartStorageKey) return;
+  const scope=cartOwner();
+  if(event.key!==null && event.key!==cartStorageKey && !event.key.startsWith(cartPrefix+scope+":")) return;
+  if(scope!=="guest" && event.newValue && event.key?.startsWith(cartPrefix+scope+":op:")) void mergeCartWithServer();
   updateCartBadge();
   renderMiniCart();
   renderCart();
 });
+window.addEventListener("online",()=>{if(cartOwner()!=="guest") void mergeCartWithServer();});
 bindGlobalControls();
 initializeStore();

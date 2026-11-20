@@ -14,6 +14,10 @@ const state = {
   customers: [],
   currentProduct: null,
   productRequest: 0,
+  productPage: 1,
+  productPages: 1,
+  productTotal: 0,
+  productFilters: "",
   productScope: /(?:[?&])productScope=trash(?:&|$)/.test(location.search||'')?"trash":"catalog",
   productSearchTimer: 0,
   orderSearchTimer: 0,
@@ -416,7 +420,36 @@ async function initialize() {
   }
 }
 
+const adminAssetRequests = new WeakMap();
+function loadAdminAssets(scope) {
+  const templates = [...document.querySelectorAll('template[data-admin-assets~="' + scope + '"]')];
+  return Promise.all(templates.map(template => {
+    if (adminAssetRequests.has(template)) return adminAssetRequests.get(template);
+    const source = template.content.firstElementChild;
+    const asset = document.createElement(source.localName);
+    const ready = new Promise((resolve, reject) => {
+      asset.onload = resolve;
+      asset.onerror = () => {
+        adminAssetRequests.delete(template);
+        asset.remove();
+        reject(new Error('Không thể tải công cụ quản trị. Hãy mở lại mục này để thử lại.'));
+      };
+    });
+    adminAssetRequests.set(template, ready);
+    if (source.localName === 'script') {
+      asset.async = false;
+      asset.src = source.getAttribute('src');
+    } else {
+      asset.rel = 'stylesheet';
+      asset.href = source.getAttribute('href');
+    }
+    template.after(asset);
+    return ready;
+  }));
+}
+
 async function showAdmin(session) {
+  if (!session.mfaEnrollmentRequired) await loadAdminAssets('session');
   state.session = session;
   document.querySelector("#login-panel").hidden = true;
   document.querySelector("#admin-app").hidden = false;
@@ -498,7 +531,12 @@ async function loadSummary() {
 
 function renderTrafficMetrics(traffic) {
   if (!traffic) return;
-  const fmt = (n) => Number(n || 0).toLocaleString("vi-VN");
+  const fmt = n => n == null ? "Chưa có số liệu" : Number(n).toLocaleString("vi-VN");
+  const health = document.querySelector("#traffic-measurement-status");
+  if (health) {
+    const last = traffic.measuredAt ? " · " + new Date(traffic.measuredAt).toLocaleString("vi-VN") : "";
+    health.textContent = (traffic.availability === "unavailable" ? "Chưa đọc được dữ liệu lưu lượng" : traffic.availability === "partial" ? "Dữ liệu lưu lượng chưa đầy đủ" : "Đã đo lưu lượng") + last;
+  }
   const el = (id) => document.querySelector(id);
   if (el("#traffic-today-visits")) el("#traffic-today-visits").textContent = fmt(traffic.todayPageviews);
   if (el("#traffic-total-visits")) el("#traffic-total-visits").textContent = fmt(traffic.totalPageviews);
@@ -514,9 +552,33 @@ async function loadTrafficSummary() {
     const traffic = await request("/api/gaeru_ceo/traffic-summary");
     renderTrafficMetrics(traffic);
   } catch (err) {
-    console.warn("Failed to load traffic summary:", err?.message || err);
+    renderTrafficMetrics({availability:"unavailable"});
   }
 }
+
+document.querySelector("#health-check-failover").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const result = document.querySelector("#health-failover-result");
+  button.disabled = true;
+  result.textContent = "Đang kiểm tra…";
+  try {
+    const status = await request("/api/failover-status");
+    const health = status.primaryHealth;
+    const checked = health.checkedAt ? new Date(health.checkedAt).toLocaleString("vi-VN") : "chưa đo";
+    const primary = health.online === true ? "sẵn sàng" : health.online === false ? "chưa sẵn sàng" : "chưa đo";
+    const age = status.syncAgeMs === null ? "" : ` · ${Math.floor(status.syncAgeMs / 60000)} phút trước`;
+    const syncLabel = status.status === "error" ? "lần đồng bộ gần nhất gặp lỗi"
+      : status.status === "syncing" ? "đang đồng bộ" : status.catalogReady ? "còn hiệu lực"
+      : status.syncState === "stale" ? "quá hạn" : "chưa có bản đồng bộ";
+    const role = status.role === "primary" ? "máy chính" : "máy dự phòng";
+    const standby = status.role === "standby" ? " Chưa xác minh khả năng tiếp nhận đơn hàng trên máy dự phòng." : "";
+    result.textContent = `Vai trò hiện tại: ${role}. Máy chính: ${primary} (${checked}). Danh mục và thiết lập công khai: ${syncLabel}${age}.${standby}`;
+  } catch {
+    result.textContent = "Chưa đọc được trạng thái máy chủ. Có thể kiểm tra lại.";
+  } finally {
+    button.disabled = false;
+  }
+});
 
 async function loadSystemHealth() {
   if (!can("dashboard.read")) return;
@@ -656,9 +718,20 @@ async function loadProducts(search = "") {
   root.setAttribute("aria-busy", "true");
   document.querySelector("#product-list-status").textContent = "Đang tải sản phẩm…";
   try {
-    const result = await request(`/api/gaeru_ceo/products?scope=${state.productScope}${search ? `&q=${encodeURIComponent(search)}` : ""}`);
+    const filters = new URLSearchParams({ scope: state.productScope, q: search,
+      category: document.querySelector("#product-category-filter").value,
+      publication: document.querySelector("#product-status-filter").value,
+      stock: document.querySelector("#product-stock-filter").value });
+    if (state.productFilters !== filters.toString()) state.productPage = 1;
+    state.productFilters = filters.toString();
+    filters.set("page", state.productPage);
+    filters.set("pageSize", 25);
+    const result = await request(`/api/gaeru_ceo/products?${filters}`);
     if (requestId !== state.productRequest || search !== document.querySelector("#product-search").value.trim()) return;
     state.products = result.products;
+    state.productPage = result.page;
+    state.productPages = result.pages;
+    state.productTotal = result.total;
     renderProducts();
   } catch (error) {
     if (requestId === state.productRequest) document.querySelector("#product-list-status").textContent = "Chưa tải được danh mục. Hãy thử tìm lại hoặc mở lại mục Sản phẩm & kho.";
@@ -680,19 +753,15 @@ function productStock(product) {
 function renderProducts() {
   const trash=state.productScope==="trash";
   const root = document.querySelector("#product-list");
-  const summary=document.querySelector("[data-catalog-summary]");if(summary)summary.innerHTML=`<article><span>Sản phẩm trong kết quả</span><strong>${state.products.length}</strong></article><article><span>Đang hiển thị</span><strong>${state.products.filter(p=>p.active).length}</strong></article><article><span>Biến thể bán hàng</span><strong>${state.products.reduce((n,p)=>n+p.variants.length,0)}</strong></article>`;
+  const summary=document.querySelector("[data-catalog-summary]");if(summary)summary.innerHTML=`<article><span>Sản phẩm trên trang</span><strong>${state.products.length}</strong></article><article><span>Đang hiển thị trên trang</span><strong>${state.products.filter(p=>p.active).length}</strong></article><article><span>Biến thể trên trang</span><strong>${state.products.reduce((n,p)=>n+p.variants.length,0)}</strong></article>`;
   const category = document.querySelector("#product-category-filter").value;
   const publication = document.querySelector("#product-status-filter").value;
   const stockFilter = document.querySelector("#product-stock-filter").value;
-  const matching = state.products.filter((product) => {
-    const stock = productStock(product);
-    return (!category || product.category === category)
-      && (!publication || product.active === (publication === "active"))
-      && (!stockFilter || (stockFilter === "low" && stock.low)
-        || (stockFilter === "out" && stock.active.length > 0 && stock.total === 0)
-        || (stockFilter === "missing" && stock.active.length === 0));
-  });
-  document.querySelector("#product-list-status").textContent = `${matching.length} sản phẩm${matching.length !== state.products.length ? ` / ${state.products.length} kết quả tìm kiếm` : ""}`;
+  const matching = state.products;
+  document.querySelector("#product-list-status").textContent = `${state.productTotal} sản phẩm · Trang ${state.productPage}/${state.productPages}`;
+  document.querySelector("#product-list-prev").disabled = state.productPage <= 1;
+  document.querySelector("#product-list-next").disabled = state.productPage >= state.productPages;
+  document.querySelector("#product-list-pagination").hidden = state.productPages <= 1;
   if (!matching.length) {
     const filtered = document.querySelector("#product-search").value.trim() || category || publication || stockFilter;
     root.innerHTML = `<div class="empty-message"><strong>${filtered ? "Không có sản phẩm phù hợp." : trash ? "Khu vực đã xóa đang trống." : "Danh mục đang trống."}</strong><p>${filtered ? "Thử từ khóa, SKU khác hoặc xóa bộ lọc để xem toàn bộ danh mục." : trash ? "Sản phẩm chuyển vào đây có thể chỉnh sửa, khôi phục hoặc kích hoạt lại." : "Thêm sản phẩm đầu tiên, sau đó bổ sung phiên bản, giá bán và tồn kho."}</p></div>`;
@@ -859,7 +928,7 @@ function updateImagePreview() {
 }
 
 async function reloadSelectedProduct(productId, originalEditorId = productId, { preserveDraft = false } = {}) {
-  const result = await request("/api/gaeru_ceo/products");
+  const result = await request(`/api/gaeru_ceo/products?id=${encodeURIComponent(productId)}&scope=${state.productScope}`);
   const product = result.products.find((item) => item.id === productId);
   if (product && !document.querySelector("#product-editor").hidden
     && document.querySelector("#product-form").elements.id.value === originalEditorId) {
@@ -2197,8 +2266,10 @@ async function activateView(view, { updateHistory = true } = {}) {
   document.querySelectorAll("[data-view]").forEach((item) => item.setAttribute("aria-current", item === button ? "page" : "false"));
   document.querySelector(".sidebar").classList.remove("navigation-open");
   document.querySelector(".sidebar-toggle").setAttribute("aria-expanded", "false");
-  if (typeof document.dispatchEvent === "function") { try { document.dispatchEvent(new CustomEvent("gaeru:view-changed", { detail: { view } })); } catch {} }
   try {
+    await loadAdminAssets(view);
+    if (requestId !== state.viewRequest || !state.session) return;
+    if (typeof document.dispatchEvent === "function") { try { document.dispatchEvent(new CustomEvent("gaeru:view-changed", { detail: { view } })); } catch {} }
     if (button.dataset.view === "products") { await loadProducts(document.querySelector("#product-search").value.trim()); checkProductAddedNotice(); }
     if (button.dataset.view === "orders") await Promise.all([loadOrders(), loadSummary()]);
     if (view === "logistics") {
@@ -2287,7 +2358,12 @@ document.querySelector("#product-search").addEventListener("input", async (event
   }, 180);
 });
 document.querySelector("#new-product-button").addEventListener("click", () => { if (can("catalog.write")) location.href="/gaeru_ceo/products/new"; });
-document.querySelectorAll(".product-filters select").forEach((select) => select.addEventListener("change", renderProducts));
+function refreshProductPage() {
+  loadProducts(document.querySelector("#product-search").value.trim()).catch(error => showGlobal(error.message, true));
+}
+document.querySelectorAll(".product-filters select").forEach(select => select.addEventListener("change", refreshProductPage));
+document.querySelector("#product-list-prev").addEventListener("click", () => { if (state.productPage > 1) { state.productPage--; refreshProductPage(); } });
+document.querySelector("#product-list-next").addEventListener("click", () => { if (state.productPage < state.productPages) { state.productPage++; refreshProductPage(); } });
 document.querySelector("#reset-product-filters").addEventListener("click", () => {
   document.querySelector("#product-search").value = "";
   document.querySelectorAll(".product-filters select").forEach((select) => { select.value = select.id === "order-sort" ? "newest" : select.id === "order-page-size" ? "25" : ""; });
