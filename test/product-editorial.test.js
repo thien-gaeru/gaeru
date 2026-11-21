@@ -22,10 +22,38 @@ test('both published products use the original G1 feature layout',()=>{
      assert.deepEqual(imgs.map(img=>img.getAttribute('src')),item.descriptionMedia.map(m=>m.url));
      assert.deepEqual(imgs.map(img=>img.getAttribute('alt')),item.descriptionMedia.map(m=>m.alt));
    } else {
-     assert.deepEqual(imgs.map(img=>img.getAttribute('src')),['/assets/products/g1-ultra-874bf1d3db77.webp',...item.gallery.slice(0,5)]);
+     const cables='/api/catalog-images/4f759b58-91af-4113-907d-ca10a6e57feb';
+     assert.deepEqual(imgs.map(img=>img.getAttribute('src')),['/assets/products/g1-ultra-874bf1d3db77.webp',cables,...item.gallery.slice(1,5)]);
+     assert.match(imgs[1].getAttribute('alt'),/dây.*3,5 mm/);
    }
  }
  assert.equal(informationHeader('gaeru-k9'),'');
+});
+test('G1 keeps the cable photo with the connection chapter when the gallery order changes',()=>{
+ const {parseHTML}=require('linkedom');
+ const item=require('../content/product-stories.json').find(row=>row.slug==='gaeru-g1-ultra');
+ const cable=item.gallery.at(-1);
+ const gallery=[cable+'?v=gallery',...item.gallery,'/assets/products/g1-ultra-clean.avif'];
+ const story=parseHTML(render({...item,gallery})).document;
+ const images=[...story.querySelectorAll('figure img')].map(img=>img.getAttribute('src').split('?')[0]);
+ assert.equal(images[1],cable);
+ assert.equal(new Set(images).size,6);
+ assert.deepEqual(images.slice(2),item.gallery.slice(1,5));
+});
+test('each discovery page illustrates its features and preparation with three separate gallery photos',()=>{
+ const fs=require('node:fs'),path=require('node:path'),{parseHTML}=require('linkedom');
+ for(const item of require('../content/product-stories.json')){
+   const file='discover-'+item.slug.slice(6)+'.html';
+   const doc=parseHTML(fs.readFileSync(path.join(__dirname,'..',file),'utf8')).document;
+   const photos=[...doc.querySelectorAll('#features img,.discover-split-art img')];
+   const selected=item.slug==='gaeru-p01'?[4,6,5]:[8,6,7];
+   assert.deepEqual(photos.map(img=>img.getAttribute('src')),selected.map(i=>item.gallery[i-1]));
+   for(const img of photos){
+     const source=img.getAttribute('src');
+     assert.match(source,/^\/api\/catalog-images\//);
+     assert.ok(img.getAttribute('srcset').split(',').every(entry=>entry.trim().startsWith(source)));
+   }
+ }
 });
 test('P01 feature chapters follow later edits to copy and photo captions',()=>{
  const {parseHTML}=require('linkedom');

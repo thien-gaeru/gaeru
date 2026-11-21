@@ -32,18 +32,33 @@
   return {title:first[0], intro:first.slice(1).join(' '), highlights:points, specs, photos,
    chapters:chapters.map(([title, ...copy]) => [title, copy.join(' ')])};
  }
+ const g1ConnectionPhoto = '/api/catalog-images/4f759b58-91af-4113-907d-ca10a6e57feb';
+ function g1StoryImages(hero, urls) {
+  const gallery = new Map();
+  for (const url of urls) {
+   const file = url.split(/[?#]/, 1)[0];
+   // The catalog cover and its display sizes are copies of the hero photograph.
+   if (file === hero || /^\/assets\/products\/g1-ultra(?:-clean|-874bf1d3db77(?:-display-[\w-]+)?)?\.(?:png|webp|avif)$/.test(file)) continue;
+   if (!gallery.has(file)) gallery.set(file, url);
+  }
+  const cables = gallery.get(g1ConnectionPhoto);
+  gallery.delete(g1ConnectionPhoto);
+  return [hero, cables, ...gallery.values()];
+ }
  function render(product){
  const isP01 = product.slug === 'gaeru-p01';
  const c = isP01 ? p01Story(product) : stories[product.slug];
  if (!c || (!isP01 && !c.legacyDescriptions.includes(product.description))) return null;
  const imgArt=typeof module==='object'&&module.exports?require('./product-art'):(typeof window==='object'?window.GAERUProductArtwork:null);
  const urls=[...new Set([c.art||product.imageUrl,...(product.gallery||[]),...(product.descriptionMedia||[]).filter(m=>m.type==='image').map(m=>m.url)].filter(u=>typeof u==='string'&&/^\/(?!\/)/.test(u)))];
+ const g1Images=product.slug==='gaeru-g1-ultra' ? g1StoryImages(c.art, urls) : null;
  const art=(index)=>{
   const single=product.slug==='gaeru-k9'&&[1,4,5].includes(index);
   const photo=isP01 ? c.photos.get(index===0 ? 1 : index+2) : null;
-  const url=isP01 ? photo?.url : (single?c.art:urls[index%urls.length]);
-  const alt=photo ? h(photo.alt) : h(product.name)+' — '+h(index?c.chapters[(index-1)%c.chapters.length][0]:'Bộ sản phẩm');
+  const url=isP01 ? photo?.url : g1Images ? g1Images[index] : (single?c.art:urls[index%urls.length]);
   if(!url)return '';
+  const defaultAlt=h(product.name)+' — '+h(index?c.chapters[(index-1)%c.chapters.length][0]:'Bộ sản phẩm');
+  const alt=photo ? h(photo.alt) : g1Images && index===1 ? 'Bộ dây kết nối G1 ULTRA với dây âm thanh 3,5 mm và các đầu chuyển cho điện thoại.' : defaultAlt;
   if(single){const clip='k9-story-single-'+index;return '<figure><svg class="k9-story-single" viewBox="0 0 1280 1280" role="img" aria-label="'+alt+' · một mic"><defs><clipPath id="'+clip+'"><rect width="640" height="1280"/></clipPath></defs><g transform="translate(256 0)" clip-path="url(#'+clip+')"><image href="'+h(url)+'" width="1280" height="1280"/></g></svg></figure>';}
   const attrs=imgArt?.attributes?.(url)||'';
   const img='<img '+(product.slug==='gaeru-k9'&&index===0?'data-k9-animate ':'')+'src="'+h(url)+'"'+(attrs?' '+attrs:'')+' alt="'+alt+'" loading="lazy" decoding="async" width="800" height="640">';
