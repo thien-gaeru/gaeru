@@ -62,7 +62,7 @@ const REALISTIC_CATALOG = [
     slug: 'gaeru-p185',
     name: 'GAERU P185',
     category: 'video',
-    descriptor: 'Gậy chụp hình selfie 4 chân kéo dài 1m8.',
+    descriptor: 'Gậy chụp hình selfie 4 chân kéo dài tối đa 176 cm.',
     variants: [
       { id: 'p185-std', name: 'Màu Đen · Kèm Remote', sku: 'P185-BLK', priceVnd: 450000, stockQuantity: 11, active: true }
     ]
@@ -252,7 +252,7 @@ test('Customer AI answers accurately & concisely without rambling', async () => 
     catalog: REALISTIC_CATALOG
   });
   assert.equal(noHuman.handoff, false);
-  assert.ok(noHuman.answer.includes('180 cm'));
+  assert.ok(noHuman.answer.includes('176 cm'));
 
   // 9. Admin approved knowledge source in product.webKnowledge answers niche store policies directly
   const { answerCustomerChat } = require('../src/gaeru-ai-customer');

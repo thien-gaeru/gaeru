@@ -46,7 +46,7 @@ test('each discovery page illustrates its features and preparation with three se
    const file='discover-'+item.slug.slice(6)+'.html';
    const doc=parseHTML(fs.readFileSync(path.join(__dirname,'..',file),'utf8')).document;
    const photos=[...doc.querySelectorAll('#features img,.discover-split-art img')];
-   const selected=item.slug==='gaeru-p01'?[4,6,5]:[8,6,7];
+   const selected=item.slug==='gaeru-p01'?[4,6,5]:[3,6,7];
    assert.deepEqual(photos.map(img=>img.getAttribute('src')),selected.map(i=>item.gallery[i-1]));
    for(const img of photos){
      const source=img.getAttribute('src');

@@ -113,10 +113,10 @@ const PRODUCT_SPECS = Object.freeze({
     role: 'Gậy chụp hình selfie kiêm **Tripod 4 chân hợp kim** chắc chắn, kèm remote Bluetooth tháo rời.',
     audio: 'Phụ kiện giá đỡ quay chụp (không tích hợp micro). Trọng lượng nhẹ **423g**, có ren 1/4".',
     battery: 'Remote Bluetooth tích hợp pin **55 mAh**, sạc lại qua cổng **Type-C**.',
-    range: 'Kéo dài linh hoạt từ **29,5 cm đến 180 cm (1m8)**; remote bấm chụp/quay từ xa qua Bluetooth.',
+    range: 'Kéo dài linh hoạt từ **29,5 cm đến 176 cm**; remote bấm chụp/quay từ xa qua Bluetooth.',
     variantsGuide: 'Phiên bản chuẩn gậy 4 chân xoay 360° kèm remote Bluetooth.',
     compatibility: 'Ngàm kẹp xoay 360° tương thích mọi dòng iPhone và Android không phụ thuộc cổng cắm; kết nối chụp/quay từ xa bằng Bluetooth + hỗ trợ ren 1/4" cho thiết bị nhẹ.',
-    fit: 'tự quay góc rộng/góc cao tới 1m8, chụp ảnh nhóm, livestream cần chân đứng 4 chấu vững',
+    fit: 'tự quay góc rộng/góc cao với thân gậy dài tối đa 176 cm, chụp ảnh nhóm, livestream cần chân đứng 4 chấu vững',
     defaultPrice: '450.000 ₫'
   }
 });
@@ -652,7 +652,7 @@ function buildProductVersionSelectionAnswer({ slug, displayName, liveProd, spec 
       '- **Bản để bàn** (`550.000 ₫`): Gọn nhẹ đặt trực tiếp trên bàn làm việc, bàn học, quầy livestream.\n' +
       '- **Bản kèm chân 2m1** (`650.000 ₫`): Đặt dưới sàn quay đứng toàn thân, linh hoạt chiều cao khi bán hàng hoặc tập luyện.',
     'gaeru-p185':
-      '- **GAERU P185** có 1 phiên bản tiêu chuẩn (`450.000 ₫`) tích hợp sẵn tripod 4 chân kéo dài **29,5–180 cm** và remote Bluetooth tháo rời, tương thích mọi dòng iPhone & Android.',
+      '- **GAERU P185** có 1 phiên bản tiêu chuẩn (`450.000 ₫`) tích hợp sẵn tripod 4 chân kéo dài **29,5–176 cm** và remote Bluetooth tháo rời, tương thích mọi dòng iPhone & Android.',
     'gaeru-g1-ultra':
       '- **GAERU G1 ULTRA** (`2.100.000 ₫`) là bộ 2 micro đa thiết bị kèm hộp sạc, hỗ trợ điện thoại (Type-C/Lightning), máy ảnh (3.5mm TRS) và PC/Laptop.'
   };
@@ -878,7 +878,7 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
   }
 
   if (asksWeightOrSize) {
-    if (slug === 'gaeru-p185') parts.push('- **Kích thước & trọng lượng GAERU P185:** Kéo dài **29,5–180 cm**, nặng **423 g**, khớp ren 1/4".');
+    if (slug === 'gaeru-p185') parts.push('- **Kích thước & trọng lượng GAERU P185:** Kéo dài **29,5–176 cm**, nặng **423 g**, khớp ren 1/4".');
     else if (slug === 'gaeru-k9') parts.push('- **Trọng lượng GAERU K9:** Micro cài áo siêu nhẹ chỉ khoảng **7g**.');
     else if (slug === 'gaeru-m3') parts.push('- **Kích thước GAERU M3:** Bộ phát 28 × 28 × 14,1 mm; hộp sạc 82 × 45 × 39 mm.');
   }
@@ -1002,7 +1002,7 @@ function buildComparisonAnswer(matchedItems, questionNorm, catalog = []) {
     else if (key === 'gaeru-m3') rows.push(`- **GAERU M3 (${priceStr}):** Kèm **hộp sạc hiển thị % pin** (tổng tới 24h), 24-bit/48kHz, giảm ồn AI, đầu thu Type-C — hợp quay/live nhiều giờ cần pin bền.`);
     else if (key === 'gaeru-g1-ultra') rows.push(`- **GAERU G1 ULTRA (${priceStr}):** Micro đa thiết bị chuyên nghiệp (điện thoại + máy ảnh 3.5mm + PC), có tai nghe kiểm âm & nhạc nền Bluetooth.`);
     else if (key === 'gaeru-p01') rows.push(`- **GAERU P01 (${priceStr}):** Gimbal AI **tự động xoay 360° quay theo người** (pin ~6–8h), hợp tự quay/livestream rảnh tay.`);
-    else if (key === 'gaeru-p185') rows.push(`- **GAERU P185 (${priceStr}):** Gậy selfie tripod 4 chân kéo dài tới **1m8** kèm remote Bluetooth, giữ máy cố định góc cao.`);
+    else if (key === 'gaeru-p185') rows.push(`- **GAERU P185 (${priceStr}):** Gậy selfie tripod 4 chân kéo dài tới **176 cm** kèm remote Bluetooth, giữ máy cố định góc cao.`);
     else if (prod) rows.push(`- **${prod.name} (${priceStr}):** ${prod.descriptor || prod.cardSummary || prod.description?.slice(0, 120) || ''}`);
   }
 

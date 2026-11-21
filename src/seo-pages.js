@@ -56,11 +56,11 @@ const RECOMMEND_PRODUCTS = {
   'gaeru-p185': {
     slug: 'gaeru-p185',
     name: 'GAERU P185',
-    descriptor: 'Gậy chụp hình selfie 4 chân kéo dài 1m8',
+    descriptor: 'Gậy chụp hình selfie 4 chân kéo dài tối đa 176 cm',
     priceText: '450.000 ₫',
-    badge: 'Gậy 4 chân xoay 360° · Kéo dài 1.8m',
+    badge: 'Gậy 4 chân xoay 360° · Kéo dài tối đa 176 cm',
     imageUrl: '/assets/products/p185-cutout-1cc9dfde9fa3.webp',
-    highlights: ['Kéo dài tới 1m8 siêu tầm với', '4 chân đỡ hợp kim siêu vững', 'Remote Bluetooth điều khiển từ xa']
+    highlights: ['Kéo dài tối đa 176 cm', '4 chân đỡ hợp kim siêu vững', 'Remote Bluetooth điều khiển từ xa']
   },
   'gaeru-g1-ultra': {
     slug: 'gaeru-g1-ultra',

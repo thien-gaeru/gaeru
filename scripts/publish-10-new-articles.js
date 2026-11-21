@@ -299,7 +299,7 @@ Sự kết hợp giữa công nghệ AI hiện đại và phụ kiện khí đ�
         tag: 'BƯỚC 3: THIẾT BỊ',
         title: 'Bộ Đôi K9 & P185',
         desc: [
-          'Chân đỡ nhôm P185 cao 1m8',
+          'Chân đỡ nhôm P185 dài tối đa 176 cm',
           'Micro cài áo GAERU K9 cự ly gần',
           'Cổng sạc bypass nuôi nguồn liên tục'
         ],
@@ -322,7 +322,7 @@ Phòng ngủ hoặc phòng trọ có tường gạch trơn láng thường tạo
 - **Không ngồi sát tường:** Ngồi cách tường phía sau ít nhất 1 mét để giọng nói không bị dội ngược lại vào máy quay.
 
 ## 3. Thiết bị ghi hình & âm thanh: Bộ đôi GAERU K9 + P185 (Chi phí: ~600.000 - 800.000 VNĐ)
-- **Góc máy vững chãi với chân đỡ GAERU P185:** Chân tripod hợp kim nhôm nhỏ gọn, kéo dài linh hoạt từ để bàn lên đến 1,8m. Giúp điện thoại đặt thẳng tầm mắt người xem, không bị rung lắc khi bạn bấm chọn sản phẩm trên màn hình. Kèm theo remote Bluetooth bấm chụp hoặc quay từ xa rảnh tay.
+- **Góc máy vững chãi với chân đỡ GAERU P185:** Chân tripod hợp kim nhôm nhỏ gọn, có chiều dài tối đa 176 cm. Giúp điện thoại đặt thẳng tầm mắt người xem, không bị rung lắc khi bạn bấm chọn sản phẩm trên màn hình. Kèm theo remote Bluetooth bấm chụp hoặc quay từ xa rảnh tay.
 - **Âm thanh trong trẻo với micro GAERU K9:** Micro cài áo bắt trọn giọng nói cự ly gần, loại bỏ hoàn toàn tiếng ồn quạt máy hay xe cộ ngoài ngõ. Đầu thu cắm trực tiếp vào điện thoại và hỗ trợ sạc truyền tiếp (Bypass charging), giúp điện thoại không bao giờ sập nguồn suốt phiên live 3 - 4 tiếng.
 
 Chỉ với sự sắp xếp khéo léo và lựa chọn công cụ đúng chỗ, bạn đã có ngay một phòng phát sóng chuyên nghiệp để tự tin bùng nổ doanh số mỗi ngày. Khám phá các thiết bị livestream chính hãng tại https://gaeru.com/cua-hang.`
@@ -617,7 +617,7 @@ Cả hai sản phẩm đều được áp dụng chính sách bảo hành 12 th�
     slug: 'phan-biet-gimbal-ai-gaeru-p01-va-tripod-p185',
     title: 'Phân biệt Gimbal xoay theo dõi AI GAERU P01 và Chân tripod GAERU P185: Đâu là thiết bị bạn thực sự cần?',
     badge: 'TƯ VẤN THIẾT BỊ',
-    subHeader: 'Khi nào nên chọn gimbal bám người tự động, khi nào nên chọn chân đỡ 4 chân 1m8 siêu vững?',
+    subHeader: 'Khi nào nên chọn gimbal bám người tự động, khi nào nên chọn chân đỡ 4 chân dài tối đa 176 cm?',
     type: 'comparison',
     comparison: {
       left: {
@@ -637,10 +637,10 @@ Cả hai sản phẩm đều được áp dụng chính sách bảo hành 12 th�
         theme: 'amber',
         tag: 'VỮNG VÀNG LINH HOẠT',
         model: 'TRIPOD P185',
-        sub: 'CHIỀU CAO 1M8 VƯỢT TRỘI',
+        sub: 'CHIỀU DÀI TỐI ĐA 176 CM',
         features: [
           { f: 'Hợp kim nhôm 4 chân siêu vững', sub: 'Chống gió lật, đứng vững trên mọi mặt phẳng gồ ghề' },
-          { f: 'Chiều cao tối đa 1,8 mét', sub: 'Góc quay ngang tầm mắt, chuẩn tỷ lệ vàng khung hình' },
+          { f: 'Chiều dài tối đa 176 cm', sub: 'Góc quay ngang tầm mắt, chuẩn tỷ lệ vàng khung hình' },
           { f: 'Remote Bluetooth bấm từ xa 10m', sub: 'Chụp ảnh nhóm, quay video không cần nhờ người' }
         ],
         verdictTag: 'Phù hợp nhất:',
@@ -664,7 +664,7 @@ Dù cùng hỗ trợ giữ điện thoại để ghi hình, hai sản phẩm nà
   - Vlogger nấu ăn, làm đồ handmade tại bàn bếp.
 
 ## 2. GAERU P185: Gậy chụp ảnh kiêm Chân đế Tripod nối dài (Multi-function Tripod)
-- **Bản chất:** Là một chiếc chân đỡ cơ học 3 chân bằng hợp kim nhôm, có thể kéo dài lên đến 1,85m và gấp gọn thành gậy cầm tay.
+- **Bản chất:** Là một chiếc chân đỡ cơ học 3 chân bằng hợp kim nhôm, có chiều dài tối đa 176 cm và gấp gọn thành gậy cầm tay.
 - **Thế mạnh lớn nhất:** Độ vững chãi, linh hoạt về chiều cao và góc nhìn bao quát.
 - **Phù hợp nhất cho:**
   - Chụp ảnh nhóm, chụp ảnh gia đình đông người khi đi du lịch nhờ remote Bluetooth bấm chụp từ xa.
@@ -675,7 +675,7 @@ Dù cùng hỗ trợ giữ điện thoại để ghi hình, hai sản phẩm nà
 Bạn có biết rằng hai thiết bị này được thiết kế để có thể **kết hợp hoàn hảo với nhau**?
 - Đáy của GAERU P01 được trang bị ren ốc tiêu chuẩn 1/4 inch.
 - Bạn có thể tháo đầu kẹp của chân P185 và vặn trực tiếp chiếc gimbal xoay P01 lên đỉnh chân tripod P185.
-- **Kết quả:** Bạn có ngay một hệ thống camera AI theo dõi thông minh có thể tùy chỉnh độ cao từ 50cm đến 1,85m, tự động xoay theo bạn ở bất kỳ không gian nào từ trong nhà ra đến sân vườn.
+- **Kết quả:** Bạn có ngay một hệ thống camera AI theo dõi thông minh có thể chỉnh độ cao bằng thân gậy P185 dài tối đa 176 cm, tự động xoay theo bạn ở bất kỳ không gian nào từ trong nhà ra đến sân vườn.
 
 Khám phá ngay bộ đôi phụ kiện hỗ trợ quay phim tại https://gaeru.com/cua-hang.`
   },

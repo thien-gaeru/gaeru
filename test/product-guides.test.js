@@ -22,6 +22,7 @@ test('every published guide has working section links, named navigation and one 
      assert.equal(doc.querySelector('nav.guide-breadcrumb').getAttribute('aria-label'),'Đường dẫn');
      assert.equal(doc.querySelector('[aria-current=page]').textContent,product.name);
      for(const link of doc.querySelectorAll('.guide-toc a'))assert.ok(doc.getElementById(new URL(link.getAttribute('href'),'https://gaeru.com').hash.slice(1)));
+     if(product.slug==='gaeru-p185')assert.match(doc.querySelector('main').textContent,/Chiều dài tối đa của thân gậy là 176 cm/);
      assert.equal(doc.querySelector('[data-product-chat]').dataset.productChat,product.slug);
      assert.ok(doc.querySelector('a[href="/san-pham/'+product.slug+'"]'));
    }

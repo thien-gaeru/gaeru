@@ -112,7 +112,7 @@ VALUES(
 
 1. Bố trí góc máy chuẩn khung hình dọc 9:16
 Khung hình TikTok yêu cầu tỉ lệ dọc 9:16. Để tạo cảm giác thân thiện và tự nhiên, góc máy nên đặt ngang tầm mắt người nói hoặc hơi chếch nhẹ xuống 5 độ:
-- Chân đỡ GAERU P185 với chiều cao mở rộng lên tới 1m85 cho phép bạn đặt máy từ mặt sàn mà vẫn có được góc quay toàn thân hoàn hảo khi nhảy múa, diễn xuất hoặc thuyết trình.
+- Chân đỡ GAERU P185 với chiều dài tối đa 176 cm cho phép bạn đặt máy từ mặt sàn mà vẫn có được góc quay toàn thân hoàn hảo khi nhảy múa, diễn xuất hoặc thuyết trình.
 - Ba chân đế mở rộng có thanh giằng chịu lực giúp máy đứng vững trên nền gạch, thảm cỏ mà không lo bị rung lắc làm hỏng thước phim.
 
 2. Tận dụng gimbal tự theo dõi gương mặt GAERU P01
