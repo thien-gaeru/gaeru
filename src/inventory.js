@@ -148,7 +148,7 @@ async function reserveStock(client, { variantId, quantity, orderId, actor, wareh
   verifyBalanceTotal(variant, balances);
   const eligibleBalances = warehouseId
     ? balances.filter((row) => row.active && row.warehouseId === warehouseId)
-    : balances.filter((row) => row.active);
+    : balances.filter((row) => row.active).sort((a, b) => Number(b.code === "MAIN") - Number(a.code === "MAIN"));
   if (variant.stockQuantity < quantity || eligibleBalances.reduce((sum, row) => sum + row.quantity, 0) < quantity) {
     throw operationError(warehouseId ? "Kho được chọn không đủ tồn khả dụng cho đơn hàng." : "Tồn kho khả dụng không đủ để đặt hàng.");
   }

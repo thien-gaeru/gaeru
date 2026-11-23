@@ -589,6 +589,7 @@
           </div>
 
           <!-- Fast action shortcuts -->
+          ${window.GAERUAdmin?.can?.("inventory.approve") ? `
           <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:12px; display:flex; flex-direction:column; justify-content:center; gap:10px;">
             <h4 style="margin:0; font-size:14px; font-weight:700;">Hành Động Nhanh Với SKU Này</h4>
             <button type="button" class="secondary-button" id="btn-jump-inbound" style="text-align:left; padding:8px 12px; font-weight:600;">
@@ -597,7 +598,7 @@
             <button type="button" class="secondary-button" id="btn-jump-count" style="text-align:left; padding:8px 12px; font-weight:600;">
               📊 Đi tới Kiểm kê tồn kho SKU [${escape(v.sku)}]
             </button>
-          </div>
+          </div>` : ""}
         </div>
 
         <!-- Recent movements -->
@@ -633,7 +634,9 @@
     if (jumpCount) {
       jumpCount.addEventListener("click", () => {
         viewPanel.querySelector("#count-sku-input").value = v.sku;
-        viewPanel.querySelector("#count-qty-input").value = v.stockQuantity;
+        const selectedWh = viewPanel.querySelector("#count-warehouse-select")?.value;
+        const whRow = (data.warehouseStocks || []).find(w => String(w.warehouseId) === String(selectedWh)) || (data.warehouseStocks || [])[0];
+        viewPanel.querySelector("#count-qty-input").value = whRow && whRow.quantity !== undefined ? whRow.quantity : v.stockQuantity;
         switchTab("cycle_count");
       });
     }

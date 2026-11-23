@@ -146,6 +146,7 @@ async function releaseExpiredCheckoutIntents(poolInstance) {
       } catch (_) {}
     }
     const qClient = lockClient || poolInstance;
+    let releasedCount = 0;
     for (let batch = 0; batch < 25; batch++) {
       const expired = await qClient.query(
         "SELECT id FROM checkout_payment_intents WHERE status = 'pending_provider' AND expires_at <= now() LIMIT 20"
@@ -157,14 +158,18 @@ async function releaseExpiredCheckoutIntents(poolInstance) {
             await lockClient.query("BEGIN");
             await releaseCheckoutIntentOnClient(lockClient, row.id, "expired");
             await lockClient.query("COMMIT");
+            releasedCount++;
           } catch (_) {
             await lockClient.query("ROLLBACK").catch(() => {});
           }
         } else {
-          await releaseCheckoutIntent(poolInstance, row.id, "expired").catch(() => {});
+          await releaseCheckoutIntent(poolInstance, row.id, "expired").then(() => { releasedCount++; }).catch(() => {});
         }
       }
       if (expired.rows.length < 20) break;
+    }
+    if (releasedCount > 0) {
+      try { invalidateTags(['product:list', 'catalog', 'search-index', 'stock'], { immediate: true }); } catch (_) {}
     }
   } catch (_) {
   } finally {
@@ -426,11 +431,14 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   const stockTimestampMap = new Map();
   const STOCK_MAP_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 60000 : 5000;
 
+  const semanticSearchCache = new Map();
+
   function invalidateCatalogCache() {
     catalogRevision++;
     cachedCatalogProducts = null;
     cachedCatalogProductsTime = 0;
     inFlightCatalogPromise = null;
+    semanticSearchCache.clear();
   }
   try {
     const { cacheEvents } = require('./cache');
@@ -586,7 +594,6 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   });
 
   // Tier 3.1: Hybrid Lexical + GPU AI Semantic Storefront Search (Products + News Guides)
-  const semanticSearchCache = new Map();
   router.get("/search/semantic", async (req, res, next) => {
     try {
       const rawQ = String(req.query.q || '').trim().slice(0, 160);
@@ -1366,7 +1373,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           for (const item of calc.prepared) {
             if (inventory) {
               const balancesRes = await client.query(
-                `SELECT s.warehouse_id AS "warehouseId", s.quantity, w.active
+                `SELECT s.warehouse_id AS "warehouseId", s.quantity, w.active, w.code
                  FROM warehouse_stock s
                  JOIN warehouses w ON w.id = s.warehouse_id
                  WHERE s.variant_id = $1
@@ -1379,12 +1386,13 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               if (sumBalances !== item.stockQuantity) {
                 throw Object.assign(new Error("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi."), { status: 409 });
               }
-              const activeAvailable = balances.filter((r) => r.active).reduce((s, r) => s + r.quantity, 0);
+              const activeBalances = balances.filter((r) => r.active).sort((a, b) => Number(b.code === "MAIN") - Number(a.code === "MAIN"));
+              const activeAvailable = activeBalances.reduce((s, r) => s + r.quantity, 0);
               if (activeAvailable < item.quantity) {
                 throw Object.assign(new Error("Tồn kho khả dụng không đủ để đặt hàng."), { status: 409 });
               }
               let remaining = item.quantity;
-              for (const b of balances.filter((r) => r.active)) {
+              for (const b of activeBalances) {
                 const amount = Math.min(remaining, b.quantity);
                 if (amount > 0) {
                   const after = b.quantity - amount;

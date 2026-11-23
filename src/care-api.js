@@ -488,12 +488,13 @@ function createCareAdminApi(pool, config = {}) {
           safeName = safeName.replace(/\.[^.]+$/, '') + '.webp';
         }
         const bodyText = typeof req.body?.body === 'string' && req.body.body.trim().length > 0 ? req.body.body.trim().slice(0, 3000) : ('Tệp đính kèm từ GAERU: ' + safeName);
+        const requestedStatus = ['reviewing', 'waiting_customer', 'resolved', 'closed'].includes(req.body?.status) ? req.body.status : before.status;
         const msg = (await client.query("INSERT INTO care_messages(care_id,sender,body) VALUES($1,'staff',$2) RETURNING id", [before.id, bodyText])).rows[0];
         const fileRow = (await client.query(
           "INSERT INTO care_message_files(care_id,message_id,name,mime,content,byte_size) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,name,mime,byte_size",
           [before.id, msg.id, safeName, uploaded.mimeType, uploaded.content, uploaded.byteSize]
         )).rows[0];
-        await client.query("UPDATE care_requests SET version=version+1,updated_at=now() WHERE id=$1", [before.id]);
+        await client.query("UPDATE care_requests SET status=$2,response=$3,version=version+1,updated_at=now() WHERE id=$1", [before.id, requestedStatus, bodyText]);
         await enqueueCareEmailNotification(client, before.id, msg.id, bodyText, config);
         await appendAudit(client, { actor: req.admin, action: 'care.file', entityType: 'care', entityId: before.id, metadata: { fileName: safeName, size: uploaded.byteSize } });
         return { status: 201, file: { id: fileRow.id, name: fileRow.name, mime: fileRow.mime, size: fileRow.byte_size, messageId: msg.id } };

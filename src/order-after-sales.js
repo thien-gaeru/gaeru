@@ -466,11 +466,49 @@ function afterSalesRouter(pool) {
             });
           }
           if (row.restock_eligible === true) {
-            await require('./inventory').releaseOrderStock(c, {
-              orderId: row.order_id,
-              actor: req.admin,
-              reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
-            });
+            const activeAlloc = await c.query(
+              'SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1',
+              [row.order_id]
+            );
+            const inv = require('./inventory');
+            if (activeAlloc.rows.length > 0) {
+              await inv.releaseOrderStock(c, {
+                orderId: row.order_id,
+                actor: req.admin,
+                reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
+              });
+            } else {
+              const exchItems = await c.query(
+                `SELECT ei.id AS "itemId", ei.replacement_variant_id AS "variantId", ei.quantity, i.warehouse_id AS "warehouseId"
+                 FROM rma_exchange_issues i
+                 JOIN rma_exchange_issue_items ei ON ei.issue_id = i.id
+                 JOIN order_after_sales a ON a.id = i.case_id
+                 WHERE a.order_id = $1 AND i.status = 'posted'
+                 ORDER BY i.created_at DESC, ei.replacement_variant_id`,
+                [row.order_id]
+              );
+              if (exchItems.rows.length > 0) {
+                for (const item of exchItems.rows) {
+                  await c.query('SELECT id FROM product_variants WHERE id = $1 FOR UPDATE', [item.variantId]);
+                  const before = Number((await c.query('SELECT quantity FROM warehouse_stock WHERE warehouse_id = $1 AND variant_id = $2', [item.warehouseId, item.variantId])).rows[0]?.quantity || 0);
+                  await inv.adjustWarehouseStock(c, {
+                    warehouseId: item.warehouseId,
+                    variantId: item.variantId,
+                    delta: Number(item.quantity),
+                    expectedQuantity: before,
+                    reason: 'Tái nhập kho hàng đã xuất đổi từ hồ sơ hoàn trả RMA',
+                    requestKey: `after-sales-exch-restock:${id}:${item.itemId}`,
+                    actor: req.admin
+                  });
+                }
+              } else {
+                await inv.releaseOrderStock(c, {
+                  orderId: row.order_id,
+                  actor: req.admin,
+                  reason: 'Tái nhập kho từ hồ sơ hoàn trả RMA'
+                });
+              }
+            }
           }
         }
 
@@ -508,7 +546,14 @@ function afterSalesRouter(pool) {
 
       if (result?.restocked_at) {
         try { require('./cache').flushAllCache(); } catch {}
+      } else {
+        try { require('./cache').invalidateTags(['orders', `order:${result?.order_id}`, 'finance'], { immediate: true }); } catch {}
       }
+      try {
+        const sse = require('./realtime-sse');
+        sse.publishAdminEvent('after_sales:update', { caseId: result?.id, orderId: result?.order_id, status: result?.status });
+        sse.publishAdminEvent('notification:refresh', { type: 'after_sales' });
+      } catch (_) {}
       res.json(result);
     } catch (e) {
       if (e instanceof z.ZodError) {

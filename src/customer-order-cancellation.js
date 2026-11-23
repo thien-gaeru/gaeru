@@ -61,6 +61,11 @@ async function cancelCustomerOrder(client, { orderId, customerId, actor, reason,
     error.status = 400;
     throw error;
   }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId).trim())) {
+    const error = new Error('Mã đơn hàng không đúng định dạng hợp lệ.');
+    error.status = 400;
+    throw error;
+  }
 
   const cancelReason = (reason && String(reason).trim()) || 'Khách hàng tự hủy đơn';
 

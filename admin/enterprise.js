@@ -55,7 +55,7 @@
       dialog.querySelector("[data-confirm-accept]").addEventListener("click", () => finish(true));
       dialog.addEventListener("click", (event) => { if (event.target === dialog) finish(false); });
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
-      dialog.addEventListener("close", () => finish(false));
+      dialog.addEventListener("close", () => { if (!dialog.dataset.reopening) finish(false); });
       document.body.append(dialog);
       document.body.classList.add("enterprise-confirm-open");
       dialog.showModal();
@@ -138,20 +138,28 @@
     return true;
   }
   function showEditor(view, html) {
-    closeEditor(activeEditor, true);
     let editor = root(view).querySelector('[data-e-editor]');
+    if (activeEditor && activeEditor !== editor) closeEditor(activeEditor, true);
     if (editor.tagName !== 'DIALOG') {
       const dialog = document.createElement('dialog');dialog.setAttribute('data-e-editor','');dialog.className='enterprise-editor-dialog';editor.replaceWith(dialog);editor=dialog;
       editor.addEventListener('click', event => { if (event.target === editor) closeEditor(editor); });
       editor.addEventListener('cancel', event => { event.preventDefault();closeEditor(editor); });
       editor.addEventListener('close', () => { if(!editor.hasAttribute('open')){editor.hidden=true;if(activeEditor===editor){activeEditor=null;document.body.classList.remove('enterprise-editor-open');}} });
     }
-    editor.opener = document.activeElement;
+    if (!editor.open) editor.opener = document.activeElement;
     editor.innerHTML = '<header><button type="button" class="secondary-button" data-e-close aria-label="Đóng cửa sổ">×</button></header><div class="enterprise-editor-content">'+html+'</div>';
     const heading=editor.querySelector('h2');if(heading){heading.id='enterprise-editor-title-'+view;editor.setAttribute('aria-labelledby',heading.id);editor.querySelector('header').prepend(heading);}
     editor.hidden=false;activeEditor=editor;document.body.classList.add('enterprise-editor-open');
-    if(typeof editor.showModal==='function')editor.showModal();else editor.setAttribute('open','');
-    editor.querySelector('input:not([type=hidden]),select,textarea')?.focus({preventScroll:true});
+    if(!editor.open){if(typeof editor.showModal==='function')editor.showModal();else editor.setAttribute('open','');}
+    const openConfirm = document.querySelector('dialog.enterprise-confirm-dialog[open]');
+    if (openConfirm && typeof openConfirm.showModal === 'function') {
+      openConfirm.dataset.reopening = '1';
+      openConfirm.close();
+      openConfirm.showModal();
+      delete openConfirm.dataset.reopening;
+    } else {
+      editor.querySelector('input:not([type=hidden]),select,textarea')?.focus({preventScroll:true});
+    }
   }
 
   const definitions = {
@@ -177,7 +185,7 @@
   function entityEditor(view, entry = null) {
     const definition = definitions[view];
     if (!can(definition.write)) return;
-    showEditor(view, `<h2>${entry ? "Chỉnh sửa" : "Thêm"} ${definition.singular}</h2><form class="form-grid" data-e-form="entity" data-view="${view}"><input type="hidden" name="id" value="${h(entry?.id || "")}"><input type="hidden" name="version" value="${h(entry?.version || "")}">${definition.fields.map((item) => field(item.label, item.name, entry?.[item.name] || "", `type="${item.type || "text"}" maxlength="${item.name === "code" ? 30 : item.name === "phone" ? 30 : item.name === "address" ? 500 : 120}" ${item.name === "code" ? 'minlength="2" pattern="[A-Z0-9_-]+" placeholder="Ví dụ: KHO_HCM"' : ""} ${entry && item.name === "code" && view !== "departments" ? "readonly" : ""} ${item.required ? "required" : ""}`)).join("")}${entry ? `<label class="checkbox-label"><input type="checkbox" name="active" ${entry.active !== false ? "checked" : ""}> Đang hoạt động</label>` : ""}${submit("Lưu thông tin")}</form>`);
+    showEditor(view, `<h2>${entry ? "Chỉnh sửa" : "Thêm"} ${definition.singular}</h2><form class="form-grid" data-e-form="entity" data-view="${view}"><input type="hidden" name="id" value="${h(entry?.id || "")}"><input type="hidden" name="version" value="${h(entry?.version || "")}">${definition.fields.map((item) => field(item.label, item.name, entry?.[item.name] || "", `type="${item.type || "text"}" maxlength="${item.name === "code" ? 30 : item.name === "phone" ? 30 : item.name === "address" ? 500 : 120}" ${item.name === "code" ? 'minlength="2" pattern="[A-Z0-9_\\-]+" placeholder="Ví dụ: KHO_HCM"' : ""} ${entry && item.name === "code" && view !== "departments" ? "readonly" : ""} ${item.required ? "required" : ""}`)).join("")}${entry ? `<label class="checkbox-label"><input type="checkbox" name="active" ${entry.active !== false ? "checked" : ""}> Đang hoạt động</label>` : ""}${submit("Lưu thông tin")}</form>`);
   }
 
   async function loadInventory() {
@@ -186,7 +194,8 @@
     const result = await loadList("inventory", "/inventory", "stock", (rows) => rows.length ? table(["Sản phẩm", "SKU", "Kho", "Số lượng", ""], rows.map((entry, index) => row([`<div class="inventory-product"><img src="${h(window.GAERUAdminUI.imageUrl(entry.imageUrl?.startsWith('/api/catalog-images/') ? entry.imageUrl.replace('/api/catalog-images/','/api/gaeru_ceo/catalog-images/') : entry.imageUrl || '/assets/brand/gaeru-logo.webp'))}" alt="" width="54" height="54" loading="eager" decoding="async"><div><strong>${h(entry.productName)}</strong><small>${h(entry.variantName)}</small></div></div>`, `<code>${h(entry.sku)}</code>`, h(entry.warehouseName), `<strong class="${entry.quantity <= 5 ? "stock-alert" : ""}">${number(entry.quantity)}</strong>`, `<div class="inventory-row-actions">${can("inventory.approve") ? `<button class="row-button" data-e-adjust-row="${index}">Điều chỉnh</button>` : ""}</div>`]))) : empty("Chưa có tồn kho phù hợp. Nhập hàng hoặc điều chỉnh để bổ sung tồn."));
     if (result?.warehouses) e.lookup.warehouses = result.warehouses;
     const warehouseFilter = root("inventory").querySelector('[name="warehouseId"]'), selected = warehouseFilter.value;
-    warehouseFilter.innerHTML = '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses, selected);
+    warehouseFilter.innerHTML = '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses);
+    warehouseFilter.value = selected;
     loadMovements().catch(() => {});
   }
 
@@ -574,7 +583,12 @@
         const entry = viewState(button.dataset.eEdit).rows.find((item) => item.id === button.dataset.id);
         if (button.dataset.eEdit === "staff") staffEditor(entry); else entityEditor(button.dataset.eEdit, entry);
       } else if (button.dataset.eReset) {
-        root(view).querySelector(`[data-e-filter="${view}"]`).reset(); viewState(view).page = 1; await loadView(view);
+        const filterForm = root(view).querySelector(`[data-e-filter="${view}"]`);
+        if (filterForm) {
+          filterForm.reset();
+          for (const el of filterForm.querySelectorAll("input:not([type=hidden]),select")) el.value = "";
+        }
+        viewState(view).page = 1; await loadView(view);
       } else if (button.dataset.ePage) {
         const target = button.dataset.ePage, page = Number(button.dataset.page);
         if (target === "movements") await loadMovements(page);
@@ -610,11 +624,16 @@
         try { okPo = await confirmAction(({ submit: "Trình duyệt đơn mua này?", approve: "Duyệt đơn mua này để cho phép nhập hàng?", cancel: "Hủy đơn mua này? Đơn đã hủy không thể tiếp tục nhập hàng." })[action], button); }
         finally { delete button.dataset.confirming; }
         if (!okPo) return;
-        if (admin.setButtonBusy) admin.setButtonBusy(button, true, "Đang xử lý…"); else button.disabled = true;
+        const actionButtons = [...(button.closest(".enterprise-actions")?.querySelectorAll("button") || [button])];
+        actionButtons.forEach((b) => { b.disabled = true; });
+        if (admin.setButtonBusy) admin.setButtonBusy(button, true, "Đang xử lý…");
         try {
           await api(`/purchase-orders/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" });
           await loadPurchases(); await purchaseDetail(id); admin.showGlobal("Đã cập nhật đơn mua.");
-        } finally { if (admin.setButtonBusy) admin.setButtonBusy(button, false); else button.disabled = false; }
+        } finally {
+          if (admin.setButtonBusy) admin.setButtonBusy(button, false);
+          actionButtons.forEach((b) => { if (b.isConnected) b.disabled = false; });
+        }
       } else if (button.dataset.eFinanceNew) await financeEditor(button.dataset.eFinanceNew);
       else if (button.dataset.eCollect) await financeEditor("collection", button.dataset.eCollect);
       else if (button.dataset.eFinanceApprove) {

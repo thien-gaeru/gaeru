@@ -25,7 +25,14 @@ class RamCache {
         const gzLen = entry.gzipBuffer ? entry.gzipBuffer.length : 0;
         return rawLen + brLen + gzLen;
       },
-      ttl: defaultTtlMs
+      ttl: defaultTtlMs,
+      dispose: (entry, key) => {
+        if (entry?.tags && this.tagIndex) {
+          for (const tag of entry.tags) {
+            this.tagIndex.get(tag)?.delete(key);
+          }
+        }
+      }
     });
 
     // Tag index: Map<tag, Set<cacheKey>> for O(1) instant invalidation

@@ -248,7 +248,8 @@ function handleRealtimeEvent(event, data = {}) {
     ''
   ).trim();
   const orderTag = resolvedOrderNumber ? ` #${resolvedOrderNumber}` : '';
-  const dedupeKey = `${event}:${resolvedOrderNumber || resolvedOrderId || data.sku || data.careId || data.threadId || ''}`;
+  const normEvent = event === 'shopping_chat:message' ? 'chat:message' : event;
+  const dedupeKey = `${normEvent}:${resolvedOrderNumber || resolvedOrderId || data.sku || data.careId || data.threadId || ''}`;
   if (isDuplicateRealtimeEvent(dedupeKey)) return;
 
   // 1. Popup toast for important live events
@@ -273,12 +274,18 @@ function handleRealtimeEvent(event, data = {}) {
       window.GAERUNotify.toast(`🗑️ Đơn hàng${orderTag} đã được xóa vĩnh viễn khỏi hệ thống.`, 'warning');
     }
   } else if (event === 'care:message' || event === 'care:update') {
-    if (window.GAERUNotify?.toast) {
+    const isStaffOrSystem = ['admin', 'staff', 'ai', 'system'].includes(String(data.sender || '').toLowerCase());
+    if (!isStaffOrSystem && window.GAERUNotify?.toast) {
       window.GAERUNotify.toast('💬 GAERU CARE+: Tin nhắn hỗ trợ mới từ khách hàng.', 'info');
     }
   } else if (event === 'chat:message' || event === 'shopping_chat:message') {
-    if (window.GAERUNotify?.toast) {
+    const isStaffOrAi = ['admin', 'staff', 'ai', 'system'].includes(String(data.sender || '').toLowerCase()) || data.type === 'chat:update';
+    if (!isStaffOrAi && window.GAERUNotify?.toast) {
       window.GAERUNotify.toast('💬 Chat ngay: Khách hàng vừa gửi tin nhắn mới.', 'info');
+    }
+  } else if (event === 'after_sales:new') {
+    if (window.GAERUNotify?.toast) {
+      window.GAERUNotify.toast(`🔄 Yêu cầu Đổi trả / Hoàn tiền mới${orderTag}!`, 'info');
     }
   } else if (event === 'inventory:update') {
     if (data.lowStock && window.GAERUNotify?.toast) {
@@ -306,6 +313,10 @@ function handleRealtimeEvent(event, data = {}) {
         if (window.GAERUCare?.load) window.GAERUCare.load().catch(() => {});
       } else if (currentView === 'shopping-chat' && (event.includes('chat') || event === 'cache:invalidated')) {
         if (window.GAERUShoppingChat?.load) window.GAERUShoppingChat.load().catch(() => {});
+      } else if (currentView === 'warranty' && (event === 'notification:refresh' || event === 'cache:invalidated')) {
+        if (window.GAERUWarranty?.load) window.GAERUWarranty.load().catch(() => {});
+      } else if (currentView === 'after-sales' && (event.startsWith('after_sales:') || event === 'cache:invalidated')) {
+        if (window.GAERUAfterSales?.load) window.GAERUAfterSales.load().catch(() => {});
       } else if (currentView === 'products' && (event.startsWith('product:') || event === 'cache:invalidated')) {
         const query = document.querySelector('#product-search')?.value?.trim() || '';
         loadProducts(query).catch(() => {});
@@ -337,7 +348,8 @@ function initAdminRealtime() {
 
     const sseEvents = [
       'order:new', 'order:update', 'order:delete', 'inventory:update', 'stock:update',
-      'care:update', 'care:message', 'chat:message', 'shopping_chat:message',
+      'care:update', 'care:message', 'chat:message', 'chat:update', 'shopping_chat:message',
+      'after_sales:new', 'after_sales:update', 'marketing:update',
       'notification:refresh', 'cache:invalidated', 'config:update'
     ];
 
@@ -1960,7 +1972,7 @@ async function loadLoyaltyWorkspace(page=1){
   root._xuPage=result.pagination.page;
   const number=value=>new Intl.NumberFormat('vi-VN').format(Number(value)||0);
   root.querySelector('[data-xu-metrics]').innerHTML=[['Thành viên',result.summary.total],['Xu khả dụng',result.summary.balance],['Xu đã tích',result.summary.earned],['Xu đã dùng',result.summary.spent],['Nợ thu hồi',result.summary.debt||0]].map(([label,value])=>'<article class="metric-card"><span>'+label+'</span><strong>'+number(value)+'</strong></article>').join('');
-  root.querySelector('[data-xu-members]').innerHTML=result.members.map(c=>'<article class="customer-card"><div class="customer-card-header"><div><h3>'+escapeHtml(c.fullName)+'</h3><p>'+escapeHtml(c.email)+' · '+escapeHtml(c.phone)+'</p></div><div><strong>'+number(c.pointsBalance)+' Xu</strong><p>'+escapeHtml(result.tierBenefits[c.tier]?.name||c.tier)+(Number(c.clawbackDebtPoints)>0?' · <span style="color:#b91c1c;font-weight:600;">Nợ thu hồi: '+number(c.clawbackDebtPoints)+' Xu</span>':'')+'</p></div></div><button class="secondary-button" type="button" data-xu-detail="'+c.id+'">Xem sổ Xu</button><div data-xu-ledger hidden></div></article>').join('')||'<p>Không có thành viên phù hợp.</p>';
+  root.querySelector('[data-xu-members]').innerHTML=result.members.map(c=>'<article class="customer-card"><div class="customer-card-header"><div><h3>'+escapeHtml(c.fullName)+'</h3><p>'+escapeHtml(c.email)+' · '+escapeHtml(c.phone)+'</p></div><div><strong>'+number(c.pointsBalance)+' Xu</strong><p>'+escapeHtml(result.tierBenefits[c.tier]?.name||c.tier)+(Number(c.clawbackDebtPoints)>0?' · <span style="color:#b91c1c;font-weight:600;">Nợ thu hồi: '+number(c.clawbackDebtPoints)+' Xu</span>':'')+'</p></div></div><button class="secondary-button" type="button" data-xu-detail="'+escapeHtml(c.id)+'">Xem sổ Xu</button><div data-xu-ledger hidden></div></article>').join('')||'<p>Không có thành viên phù hợp.</p>';
   const p=result.pagination;root.querySelector('[data-xu-pagination]').innerHTML='<button type="button" class="secondary-button" data-xu-page="'+(p.page-1)+'" '+(p.page<=1?'disabled':'')+'>Trước</button><span>Trang '+p.page+'/'+p.pageCount+'</span><button type="button" class="secondary-button" data-xu-page="'+(p.page+1)+'" '+(p.page>=p.pageCount?'disabled':'')+'>Tiếp</button>';
   feedback.textContent='Số liệu theo kết quả tra cứu. Mọi điều chỉnh được lưu trong sổ Xu và nhật ký.';
   if(can('settings.write'))await loadLoyaltyPolicy();

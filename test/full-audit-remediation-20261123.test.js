@@ -79,3 +79,39 @@ test('2026-11-23 Full Audit Wave 4: Inventory operations, stock changes, L1 cach
   assert.match(enterpriseJs, /loadMovements\(\)\.catch\(\(\)\s*=>\s*\{\}\)/);
   assert.match(enterpriseJs, /\[data-e-form="adjustment"\]\s*\[name="variantId"\]/);
 });
+
+test('2026-11-23 Full Audit Wave 5: Top-layer dialog stacking, RegExp /v pattern escape, CARE+ single-message upload, SSE sender filtering, RMA exchange restock, and RamCache dispose', () => {
+  const enterpriseJs = read('admin/enterprise.js');
+  const adminHtml = read('admin/index.html');
+  const careJs = read('admin/care.js');
+  const careApiJs = read('src/care-api.js');
+  const adminJs = read('admin/admin.js');
+  const afterSalesJs = read('src/order-after-sales.js');
+  const ramCacheJs = read('src/lib/ram-cache.js');
+  const serverJs = read('src/server.js');
+  const storeApiJs = read('src/store-api.js');
+  const bundlesJs = read('src/product-bundles.js');
+
+  // 1. RegExp /v pattern hyphen escaped in enterprise.js and admin/index.html
+  assert.match(enterpriseJs, /pattern="\[A-Z0-9_\\\\-\]\+"/);
+  assert.match(adminHtml, /pattern="\[a-zA-Z0-9\._\\-\]\+"/);
+
+  // 2. Top-layer confirm dialog promotion and inventory filter reset in enterprise.js
+  assert.match(enterpriseJs, /dialog\.enterprise-confirm-dialog\[open\]/);
+  assert.match(enterpriseJs, /warehouseFilter\.value = selected/);
+
+  // 3. CARE+ file upload updates status & response atomically without double PATCH
+  assert.match(careJs, /fd\.append\('status',form\.elements\.status\.value\)/);
+  assert.match(careApiJs, /UPDATE care_requests SET status=\$2,response=\$3,version=version\+1/);
+
+  // 4. Admin SSE deduplicates chat events and suppresses customer-message toast for staff/AI senders
+  assert.match(adminJs, /const normEvent = event === 'shopping_chat:message' \? 'chat:message' : event/);
+  assert.match(adminJs, /const isStaffOrAi = \['admin', 'staff', 'ai', 'system'\]/);
+
+  // 5. After-sales refund after 1-1 RMA exchange restocks replacement items and RamCache cleans tagIndex on dispose
+  assert.match(afterSalesJs, /FROM rma_exchange_issues i/);
+  assert.match(ramCacheJs, /dispose:\s*\(entry,\s*key\)\s*=>/);
+  assert.match(serverJs, /attachTransactionalCacheInvalidation\(lowPriorityPool\)/);
+  assert.match(storeApiJs, /semanticSearchCache\.clear\(\)/);
+  assert.match(bundlesJs, /AND v\.active = true AND p\.active = true AND p\.deleted_at IS NULL/);
+});

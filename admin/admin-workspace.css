@@ -590,6 +590,22 @@
     background: #0f172a;
     border-color: #0284c7;
   }
+  .config-modal-dialog label,
+  .config-modal-dialog .configuration-reauth strong {
+    color: #e2e8f0;
+  }
+  .config-modal-dialog .help-text {
+    color: #94a3b8;
+  }
+  .config-modal-dialog .configuration-reauth {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  .config-modal-dialog :is(input, select, textarea) {
+    background: #0f172a;
+    border-color: #334155;
+    color: #f8fafc;
+  }
 }
 
 /* Shipping Carrier Card Accents */

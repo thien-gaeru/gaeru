@@ -292,6 +292,13 @@
 
       if (resultBox) {
         resultBox.innerHTML = renderOrderResult(data.order);
+        resultBox.querySelectorAll('img.item-img').forEach(img => {
+          img.addEventListener('error', () => {
+            if (!img.src.endsWith('/assets/brand/gaeru-logo.webp')) {
+              img.src = '/assets/brand/gaeru-logo.webp';
+            }
+          }, { once: true });
+        });
         resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         // Bind copy button

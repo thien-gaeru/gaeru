@@ -80,6 +80,16 @@
       pending: rows.filter(r => r.status === 'pending').length,
       spam: rows.filter(r => r.isSpam).length
     };
+    const navBadge = document.querySelector('[data-warranty-nav-badge]');
+    if (navBadge) {
+      const pendingNum = Number(counts.pending || 0);
+      navBadge.textContent = pendingNum > 99 ? '99+' : String(pendingNum);
+      navBadge.hidden = pendingNum <= 0;
+    }
+    const overviewBadge = document.querySelector('#pending-warranty-count');
+    if (overviewBadge && !q && filter === 'all') {
+      overviewBadge.textContent = String(Number(counts.pending || 0));
+    }
 
     const groups = new Map();
     for (const w of rows) {

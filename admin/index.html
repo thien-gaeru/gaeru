@@ -358,7 +358,7 @@
                   <label class="span-all">Mô tả sản phẩm<textarea name="description" rows="3"></textarea></label>
                   <label class="span-all">Ảnh sản phẩm<input name="imageFile" type="file" accept="image/png,image/jpeg,image/webp"><span class="help-text">PNG, JPEG hoặc WebP; tối đa 8 MB. Ảnh được lưu trên máy chủ GAERU.</span></label>
                   <figure class="product-image-preview span-all" id="product-image-preview" hidden><img id="product-preview-image" alt="Ảnh xem trước của sản phẩm"><figcaption id="product-preview-caption"></figcaption></figure>
-                  <label class="span-all">Hoặc dùng ảnh đã có<input name="imageUrl" required pattern="/assets/products/[a-zA-Z0-9._-]+" placeholder="/assets/products/k9.webp"><span class="help-text">Chọn tệp ở trên hoặc nhập đường dẫn ảnh đã lưu trên cửa hàng.</span></label>
+                  <label class="span-all">Hoặc dùng ảnh đã có<input name="imageUrl" required pattern="/assets/products/[a-zA-Z0-9._\-]+" placeholder="/assets/products/k9.webp"><span class="help-text">Chọn tệp ở trên hoặc nhập đường dẫn ảnh đã lưu trên cửa hàng.</span></label>
                   <label class="span-all">Mô tả ảnh<input name="imageAlt" maxlength="250"></label>
                   <label class="span-all">Link Shopee<input name="shopeeUrl" maxlength="1000" placeholder="https://shopee.vn/... hoặc https://vn.shp.ee/..."><span class="help-text">Để trống nếu không bán trên Shopee</span></label>
                   <label class="span-all">Link TikTok Shop<input name="tiktokShopUrl" maxlength="1000" placeholder="https://vn.tiktok.com/..."><span class="help-text">Để trống nếu không bán trên TikTok Shop</span></label>
@@ -373,7 +373,7 @@
                 <form id="variant-form" class="variant-form" hidden>
                   <input name="id" type="hidden">
                   <div class="form-grid">
-                    <label>SKU<input name="sku" required maxlength="80" pattern="[a-zA-Z0-9._-]+"><span class="help-text">Mã riêng cho phiên bản: chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.</span></label>
+                    <label>SKU<input name="sku" required maxlength="80" pattern="[a-zA-Z0-9._\-]+"><span class="help-text">Mã riêng cho phiên bản: chữ, số, dấu chấm, gạch dưới hoặc gạch ngang.</span></label>
                     <label>Tên phiên bản<input name="name" required maxlength="160" placeholder="Ví dụ: Type-C · Bộ 1 mic"></label>
                     <label>Giá bán (₫)<input name="priceVnd" type="number" required min="0" max="20000000" step="1" inputmode="numeric"></label>
                     <label>Tồn kho tổng<input name="stockQuantity" type="number" required min="0" max="1000000" step="1" inputmode="numeric"><span class="help-text">Nhập hàng và điều chuyển theo từng kho tại mục Tồn kho. Chỉ người có quyền duyệt kho được điều chỉnh tổng ở đây.</span></label>

@@ -98,6 +98,11 @@ const priorityController = typeof dbModule.createPriorityPoolController === 'fun
 const { highPriorityPool, lowPriorityPool } = priorityController;
 
 const app = createApp({ config, pool: highPriorityPool, sessionStore });
+if (typeof createApp.attachTransactionalCacheInvalidation === 'function') {
+  createApp.attachTransactionalCacheInvalidation(lowPriorityPool);
+} else {
+  try { require('./app').attachTransactionalCacheInvalidation?.(lowPriorityPool); } catch (_) {}
+}
 let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
 let resourceMonitor;
 let mediaRetryTimer = null;

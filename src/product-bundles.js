@@ -190,13 +190,31 @@ async function getApplicableBundles(client, { slug = null, variantId = null } = 
      JOIN product_variants v ON v.id = bi.variant_id
      JOIN products p ON p.id = v.product_id
      WHERE bi.bundle_id = ANY($1::uuid[])
-       AND v.active = true AND p.active = true
+       AND v.active = true AND p.active = true AND p.deleted_at IS NULL
      ORDER BY bi.is_primary DESC, bi.created_at ASC`,
     [bundleIds]
   )).rows;
 
+  let pricedItemRows = itemRows;
+  try {
+    const { applyPromotions } = require('./product-promotions');
+    if (typeof applyPromotions === 'function' && itemRows.length > 0) {
+      const promoInput = itemRows.map(i => ({
+        id: i.variant_id,
+        productId: i.product_id,
+        priceVnd: Number(i.price_vnd)
+      }));
+      const promoApplied = await applyPromotions(client, promoInput);
+      const priceByVariant = new Map(promoApplied.map(p => [p.id, Number(p.priceVnd)]));
+      pricedItemRows = itemRows.map(i => ({
+        ...i,
+        price_vnd: priceByVariant.has(i.variant_id) ? priceByVariant.get(i.variant_id) : Number(i.price_vnd)
+      }));
+    }
+  } catch (_) {}
+
   return bundleRows.map(b => {
-    const items = itemRows.filter(i => i.bundle_id === b.id).map(i => ({
+    const items = pricedItemRows.filter(i => i.bundle_id === b.id).map(i => ({
       variantId: i.variant_id,
       isPrimary: i.is_primary,
       minQuantity: i.min_quantity,
@@ -212,6 +230,7 @@ async function getApplicableBundles(client, { slug = null, variantId = null } = 
 
     const primaryItems = items.filter(i => i.isPrimary);
     const bundledItems = items.filter(i => !i.isPrimary);
+    if (!primaryItems.length || !bundledItems.length) return null;
 
     const primaryPrice = (primaryItems[0]?.priceVnd || 0) * (primaryItems[0]?.minQuantity || 1);
     const secondaryOriginalTotal = bundledItems.reduce((s, it) => s + it.priceVnd * it.minQuantity, 0);
@@ -241,7 +260,7 @@ async function getApplicableBundles(client, { slug = null, variantId = null } = 
       bundledItems,
       items
     };
-  });
+  }).filter(Boolean);
 }
 
 /**

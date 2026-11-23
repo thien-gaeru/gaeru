@@ -33,6 +33,7 @@ async function handoff(client,id,reason,answer){
   await client.query("UPDATE shopping_chat_threads SET handling_mode='human',handoff_offered_at=NULL,handoff_started_at=now(),handoff_reason=$2,awaiting_admin=true,version=version+1,updated_at=now() WHERE id=$1",[id,reason]);
   const body=(answer?answer+'\n\n':'')+'Đã chuyển hội thoại cho nhân viên GAERU. Bạn có thể tiếp tục để lại thông tin tại đây.'; await client.query("INSERT INTO shopping_chat_messages(thread_id,sender,body,request_key) VALUES($1,'ai',$2,$3)",[id,body,randomUUID()]); try{require('./realtime-sse').publishChatEvent(id,'chat:message',{threadId:id,sender:'ai',body});}catch(_){}
   await client.query("INSERT INTO shopping_chat_email_outbox(thread_id,account_key,bucket,kind) SELECT $1,account_key,floor(extract(epoch FROM now())/300)::bigint,'handoff' FROM shopping_chat_email_preferences WHERE enabled=true ON CONFLICT DO NOTHING",[id]);
+  try{require('./shopping-chat-email').nudgeChatEmailWorker?.();}catch(_){}
   return true;
 }
 async function offerHandoff(client,id,reason,answer){
