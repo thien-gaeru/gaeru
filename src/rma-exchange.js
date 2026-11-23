@@ -20,6 +20,27 @@ async function readIssue(client, caseId, issueId = null) {
   row.items = (await client.query(`SELECT order_item_id AS "orderItemId",replacement_variant_id AS "replacementVariantId",inventory_movement_id AS "inventoryMovementId",sku,variant_name AS "variantName",quantity,unit_price_vnd AS "unitPriceVnd" FROM rma_exchange_issue_items WHERE issue_id=$1 ORDER BY order_item_id`, [row.id])).rows;
   return row;
 }
+async function readIssuesBatch(client, caseIds) {
+  const map = new Map();
+  if (!Array.isArray(caseIds) || !caseIds.length) return map;
+  const rows = (await client.query(`SELECT DISTINCT ON (case_id) id,case_id AS "caseId",warehouse_id AS "warehouseId",warehouse_name AS "warehouseName",status,reason,created_by AS "createdBy",created_at AS "createdAt",voided_by AS "voidedBy",voided_at AS "voidedAt",void_reason AS "voidReason"
+    FROM rma_exchange_issues WHERE case_id=ANY($1::uuid[]) AND status='posted' ORDER BY case_id, created_at DESC`, [caseIds])).rows;
+  if (!rows.length) return map;
+  const issueIds = rows.map(r => r.id);
+  const items = (await client.query(`SELECT issue_id AS "issueId",order_item_id AS "orderItemId",replacement_variant_id AS "replacementVariantId",inventory_movement_id AS "inventoryMovementId",sku,variant_name AS "variantName",quantity,unit_price_vnd AS "unitPriceVnd" FROM rma_exchange_issue_items WHERE issue_id=ANY($1::uuid[]) ORDER BY order_item_id`, [issueIds])).rows;
+  const itemsByIssue = new Map();
+  for (const it of items) {
+    const arr = itemsByIssue.get(it.issueId) || [];
+    const { issueId, ...rest } = it;
+    arr.push(rest);
+    itemsByIssue.set(it.issueId, arr);
+  }
+  for (const row of rows) {
+    row.items = itemsByIssue.get(row.id) || [];
+    map.set(row.caseId, row);
+  }
+  return map;
+}
 async function sourceItems(client, orderId) {
   return (await client.query(`SELECT i.id AS "orderItemId",i.variant_id AS "variantId",v.product_id AS "productId",i.product_name AS "productName",i.variant_name AS "variantName",i.sku,i.quantity,i.unit_price_vnd AS "unitPriceVnd" FROM order_items i LEFT JOIN product_variants v ON v.id=i.variant_id WHERE i.order_id=$1 ORDER BY i.id`, [orderId])).rows;
 }
@@ -37,7 +58,19 @@ async function exchangeOptions(pool, caseId) {
   const warehouses = (await pool.query('SELECT id,code,name FROM warehouses WHERE active=true ORDER BY code')).rows;
   for (const item of items) {
     item.candidates = item.productId ? (await pool.query(`SELECT v.id AS "variantId",v.sku,v.name,v.price_vnd AS "priceVnd" FROM product_variants v JOIN products p ON p.id=v.product_id WHERE v.product_id=$1 AND v.active=true AND p.active=true AND p.deleted_at IS NULL AND (v.id=$2 OR v.price_vnd=$3) ORDER BY v.sku`, [item.productId, item.variantId, item.unitPriceVnd])).rows : [];
-    for (const candidate of item.candidates) candidate.stock = (await pool.query('SELECT s.warehouse_id AS "warehouseId",s.quantity FROM warehouse_stock s JOIN warehouses w ON w.id=s.warehouse_id WHERE s.variant_id=$1 AND w.active=true ORDER BY s.warehouse_id', [candidate.variantId])).rows;
+  }
+  const allCandidateIds = [...new Set(items.flatMap(item => item.candidates.map(c => c.variantId)))];
+  const stockByVariant = new Map();
+  if (allCandidateIds.length) {
+    const stockRows = (await pool.query('SELECT s.variant_id AS "variantId",s.warehouse_id AS "warehouseId",s.quantity FROM warehouse_stock s JOIN warehouses w ON w.id=s.warehouse_id WHERE s.variant_id=ANY($1::uuid[]) AND w.active=true ORDER BY s.warehouse_id', [allCandidateIds])).rows;
+    for (const sr of stockRows) {
+      const list = stockByVariant.get(sr.variantId) || [];
+      list.push({ warehouseId: sr.warehouseId, quantity: sr.quantity });
+      stockByVariant.set(sr.variantId, list);
+    }
+  }
+  for (const item of items) {
+    for (const candidate of item.candidates) candidate.stock = stockByVariant.get(candidate.variantId) || [];
   }
   const reason = eligibility(row, issue) || (!items.length || items.some(item => !item.variantId || !item.productId || !item.candidates.length) ? 'Sản phẩm gốc hoặc phiên bản thay thế không còn đầy đủ.' : null);
   return { caseId, version: row.version, eligible: !reason, reason, scope: 'full_order_same_product_no_price_difference', warehouses, items, issue };
@@ -121,4 +154,4 @@ async function voidExchange(pool, { caseId, data, actor }) {
     return { issue: await readIssue(client, caseId, issue.id), version, existing: false };
   }));
 }
-module.exports = { issueSchema, voidSchema, exchangeOptions, issueExchange, voidExchange, readIssue, lockCase };
+module.exports = { issueSchema, voidSchema, exchangeOptions, issueExchange, voidExchange, readIssue, readIssuesBatch, lockCase };

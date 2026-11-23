@@ -857,8 +857,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         }
         await audit(client, { actor: { username: "vnpay", source: "payment_gateway" }, action: "payment.vnpay.callback", entityType: "order", entityId: attempt.orderId, metadata: { successful, amountVnd: attempt.amountVnd, responseCode: parameters.vnp_ResponseCode || null } });
         if(req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,'vnpay',req.paymentChannels.versions.vnpay,{enabled:req.paymentChannels.methods.includes('vnpay')});
-        return { code: "00", message: "Confirm Success" };
+        return { code: "00", message: "Confirm Success", orderId: attempt.orderId, orderNumber: parameters.vnp_TxnRef, successful };
       });
+      if (result.code === "00" && result.successful) {
+        try { invalidateTags(['orders', ...(result.orderId ? [`order:${result.orderId}`] : [])]); } catch (_) {}
+        try { require("./realtime-sse").publishAdminEvent("order:update", { orderId: result.orderId, orderNumber: result.orderNumber, paymentStatus: "paid", provider: "vnpay" }); } catch (_) {}
+      }
       res.json({ RspCode: result.code, Message: result.message });
     } catch (error) {
       next(error);
@@ -952,6 +956,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
           return items;
         });
         const matchedItems=results.filter(r=>r.matched);
+        for (const m of matchedItems) {
+          if (m.code === '00' && m.successful) {
+            try { invalidateTags(['orders', ...(m.orderId ? [`order:${m.orderId}`] : [])]); } catch (_) {}
+            try { require('./realtime-sse').publishAdminEvent('order:update', { orderId: m.orderId, orderNumber: m.orderNumber, paymentStatus: m.paymentStatus, status: m.orderStatus, provider: 'bank_transfer' }); } catch (_) {}
+          }
+        }
         const primary=matchedItems[0]||results[0]||{code:'01',matched:false,message:'Order not found'};
         return res.json({error:matchedItems.length?0:1,success:matchedItems.length>0,code:primary.code,message:primary.message,orderNumber:primary.orderNumber||verified.orderNumber,matchedCount:matchedItems.length,results});
       }
@@ -963,6 +973,10 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         if(outcome.matched&&req.paymentChannels?.versions)await require('./payment-channels').recordGatewayEvidence(client,provider,req.paymentChannels.versions[provider],{enabled:req.paymentChannels.methods.includes(provider)});
         return outcome;
       });
+      if (outcome.code === '00' && outcome.successful) {
+        try { invalidateTags(['orders', ...(outcome.orderId ? [`order:${outcome.orderId}`] : [])]); } catch (_) {}
+        try { require('./realtime-sse').publishAdminEvent('order:update', { orderId: outcome.orderId, orderNumber: outcome.orderNumber, paymentStatus: outcome.paymentStatus, status: outcome.orderStatus, provider }); } catch (_) {}
+      }
       if(provider==='zalopay')return res.json({return_code:outcome.code==='00'||outcome.code==='02'?1:0,return_message:outcome.message,orderStatus:outcome.orderStatus,paymentStatus:outcome.paymentStatus});
       if(provider==='momo')return outcome.matched?res.status(204).end():res.status(409).json({resultCode:Number(outcome.code)||99,message:outcome.message});
       return res.json({code:outcome.code,message:outcome.message});
@@ -1331,7 +1345,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
             sortedEntries,
             sessionCustomerId: req.session?.customer?.id,
             paymentChannelsObj: req.paymentChannels,
-            lockVoucher: false
+            lockVoucher: true
           });
 
           const intentNow = Date.now();
@@ -1850,6 +1864,7 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
         });
       });
       invalidateTags(['orders', `order:${req.params.id}`, 'stock']);
+      try { require("./realtime-sse").publishAdminEvent("order:update", { orderId: req.params.id, status: "cancelled" }); } catch (_) {}
       res.json(result);
     } catch (err) {
       if (err.status) return res.status(err.status).json({ error: err.message });

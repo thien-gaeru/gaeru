@@ -1539,6 +1539,9 @@ window.GAERUStore = Object.freeze({
   get products() { return products; },
   formatPrice,
   searchProducts,
+  readCart,
+  writeCart,
+  shippingPresentation,
   mergeCartWithServer,
   syncCartToServer
 });

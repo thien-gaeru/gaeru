@@ -418,6 +418,20 @@
     const printBtn = viewPanel.querySelector("#btn-print-barcode");
     if (printBtn) {
       printBtn.addEventListener("click", () => {
+        const printable = viewPanel.querySelector("#barcode-printable-area");
+        const svgEl = printable?.querySelector("svg");
+        if (svgEl && typeof window.open === "function") {
+          const w = window.open("", "_blank", "width=480,height=360");
+          if (w && w.document) {
+            w.document.open();
+            w.document.write("<!doctype html><html><head><meta charset=\"utf-8\"><title>In tem mã vạch GAERU</title><style>@page{margin:4mm;}body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#fff;font-family:sans-serif;}svg{max-width:100%;height:auto;}</style></head><body></body></html>");
+            w.document.close();
+            w.document.body.appendChild(w.document.importNode(svgEl, true));
+            w.focus();
+            w.print();
+            return;
+          }
+        }
         window.print();
       });
     }

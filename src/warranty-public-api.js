@@ -62,6 +62,9 @@ function createWarrantyPublicApi(pool,config=null){
    });
    if(result.status===201&&result.activation?.id){
     try{
+      require('./realtime-sse').publishAdminEvent('notification:refresh',{type:'warranty',id:result.activation.id});
+    }catch(_){}
+    try{
       require('./admin-notifications').notifyAdminPushBackground(pool,config||{},{
         requiredPermissions:['orders.read','warranty.approve'],
         title:'🛡️ Bảo hành · Đăng ký mới chờ duyệt',

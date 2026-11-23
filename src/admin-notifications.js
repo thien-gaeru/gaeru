@@ -56,6 +56,9 @@ async function deliverPushToRows(pool,subs,payload,vapid,fetcher=globalThis.fetc
   const results=await Promise.allSettled(subs.map(async s=>{
     const host=(()=>{try{return new URL(s.endpoint).origin;}catch{return 'unknown';}})();
     try{
+      if(fetcher===globalThis.fetch){
+        await assertSafePushEndpoint(s.endpoint);
+      }
       const r=await sendWebPushNotification(
         {endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},
         payload,

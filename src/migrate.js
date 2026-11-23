@@ -13,6 +13,15 @@ async function migrateDatabase(pool, options = {}) {
   try {
     await client.query("BEGIN");
     if (options.lockTimeoutMs && Number.isSafeInteger(options.lockTimeoutMs) && options.lockTimeoutMs > 0) {
+      const advisoryWaitMs = Math.max(options.lockTimeoutMs, 120000);
+      await client.query("SAVEPOINT gaeru_adv_timeout_sp").catch(() => {});
+      await client.query(`SET LOCAL lock_timeout = '${advisoryWaitMs}ms'`).catch(async () => {
+        await client.query("ROLLBACK TO SAVEPOINT gaeru_adv_timeout_sp").catch(() => {});
+      });
+      await client.query("RELEASE SAVEPOINT gaeru_adv_timeout_sp").catch(() => {});
+    }
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
+    if (options.lockTimeoutMs && Number.isSafeInteger(options.lockTimeoutMs) && options.lockTimeoutMs > 0) {
       await client.query("SAVEPOINT gaeru_lock_timeout_sp").catch(() => {});
       await client.query(`SET LOCAL lock_timeout = '${options.lockTimeoutMs}ms'`).catch(async () => {
         await client.query("ROLLBACK TO SAVEPOINT gaeru_lock_timeout_sp").catch(() => {});
@@ -24,7 +33,6 @@ async function migrateDatabase(pool, options = {}) {
       });
       await client.query("RELEASE SAVEPOINT gaeru_stmt_timeout_sp").catch(() => {});
     }
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('gaeru:database-migrations'))");
     await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
     const appliedRes = await client.query("SELECT name FROM schema_migrations", []);
     const appliedRows = Array.isArray(appliedRes) ? (appliedRes[0]?.rows || []) : (appliedRes?.rows || []);

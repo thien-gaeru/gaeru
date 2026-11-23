@@ -259,7 +259,7 @@
       return;
     }
     listEl.innerHTML = threads.map(t => `
-      <div class="copilot-thread-item ${t.id === currentThreadId ? 'is-active' : ''}" role="button" tabindex="0" aria-pressed="${t.id === currentThreadId ? 'true' : 'false'}" data-id="${t.id}">
+      <div class="copilot-thread-item ${t.id === currentThreadId ? 'is-active' : ''}" role="button" tabindex="0" aria-pressed="${t.id === currentThreadId ? 'true' : 'false'}" data-id="${escapeAttr(t.id)}">
         <span class="copilot-thread-title">💬 ${escapeHtml(t.title)}</span>
       </div>
     `).join('');
@@ -438,15 +438,15 @@
   function appendActionCardUI(parentBubble, card) {
     const cardEl = document.createElement('div');
     cardEl.className = `copilot-action-card ${card.status === 'executed' ? 'is-executed' : ''}`;
-    cardEl.id = `action-card-${card.actionId}`;
+    cardEl.id = `action-card-${escapeAttr(card.actionId)}`;
 
     cardEl.innerHTML = `
       <div class="copilot-action-header">${escapeHtml(card.title)}</div>
       <p class="copilot-action-desc">${escapeHtml(card.description)}</p>
       ${card.status === 'pending' ? `
         <div class="copilot-action-buttons">
-          <button type="button" class="btn-confirm-action" data-action-id="${card.actionId}" data-no-action-feedback>✓ Xác nhận thực hiện</button>
-          <button type="button" class="btn-cancel-action" data-action-id="${card.actionId}" data-no-action-feedback>✕ Hủy bỏ</button>
+          <button type="button" class="btn-confirm-action" data-action-id="${escapeAttr(card.actionId)}" data-no-action-feedback>✓ Xác nhận thực hiện</button>
+          <button type="button" class="btn-cancel-action" data-action-id="${escapeAttr(card.actionId)}" data-no-action-feedback>✕ Hủy bỏ</button>
         </div>
       ` : `
         <div style="font-size:12px;color:#16a34a;font-weight:600;">✓ Đã thực thi thành công trên hệ thống</div>

@@ -18,7 +18,10 @@ function visibleSources(admin, config) {
       (SELECT sender FROM care_messages WHERE care_id=c.id ORDER BY id DESC LIMIT 1)='customer')`, `
     SELECT 4,'warranty:'||id,version::text,NULL::timestamptz,created_at,created_at,0,
       'Đăng ký bảo hành chờ đối chiếu','Mở hồ sơ để kiểm tra chứng từ mua hàng.','warranty','info'
-    FROM warranty_activations WHERE status='pending' AND automatic=false AND withdrawn_at IS NULL`);
+    FROM warranty_activations WHERE status='pending' AND automatic=false AND withdrawn_at IS NULL`, `
+    SELECT 4,'after-sales:'||a.id,a.version::text,NULL::timestamptz,a.created_at,a.updated_at,0,
+      'Yêu cầu đổi trả / hoàn tiền',coalesce(a.rma_number,o.order_number)||' · '||o.customer_name,'after-sales','warning'
+    FROM order_after_sales a JOIN orders o ON o.id=a.order_id WHERE a.status IN ('requested','approved')`);
   if (can('customers.read')) sources.push(`
     SELECT 5,'shopping-chat:'||id,version::text,NULL::timestamptz,created_at,updated_at,0,
       'Chat mua sắm cần phản hồi',product_name,'shopping-chat','warning'

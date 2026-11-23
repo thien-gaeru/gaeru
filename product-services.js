@@ -192,7 +192,8 @@ document.addEventListener('toggle',async event=>{
     const cityPicker=cities.length
       ? '<label>Tỉnh/thành phố<select data-delivery-city><option value="">Chọn tỉnh/thành</option>'+cities.map(city=>'<option value="'+h(city)+'">'+h(city)+'</option>').join('')+'</select></label><p data-delivery-fee role="status"></p>'
       : '<p>Liên hệ GAERU để xác nhận khu vực giao hàng.</p>';
-    target.innerHTML='<p>'+h(window.shippingPresentation(settings).helper)+'</p><p>Thời gian giao dự kiến được GAERU xác nhận khi xử lý đơn.</p>'+cityPicker;
+    const resolveShippingPresentation=window.GAERUStore?.shippingPresentation||window.shippingPresentation;
+    target.innerHTML='<p>'+h(typeof resolveShippingPresentation==='function'?resolveShippingPresentation(settings).helper:'')+'</p><p>Thời gian giao dự kiến được GAERU xác nhận khi xử lý đơn.</p>'+cityPicker;
     target.querySelector('select')?.addEventListener('change',event=>{
       const city=event.target.value;
       const fee=city ? (window.GAERUCheckout?.shippingFee(rates,city)??rates[city]??rates['Toàn quốc']) : undefined;

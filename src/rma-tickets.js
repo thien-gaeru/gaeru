@@ -110,6 +110,18 @@ async function updateRmaInboundTracking(pool, {
     }
 
     return updated;
+  }).then((res) => {
+    try {
+      require('./realtime-sse').publishAdminEvent('after_sales:update', {
+        id: res?.id,
+        orderId: res?.order_id,
+        rmaNumber: res?.rma_number,
+        inboundCarrier: res?.inbound_carrier,
+        inboundTrackingNumber: res?.inbound_tracking_number,
+        inboundStatus: res?.inbound_status
+      });
+    } catch (_) {}
+    return res;
   });
 }
 

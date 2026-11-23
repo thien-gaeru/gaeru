@@ -15,10 +15,10 @@ function storageKey(content){
 async function liveReferences(client,key){
  if((await client.query('SELECT storage_key FROM media_library_files WHERE storage_key=$1',[key])).rows.length)return true;
  if((await client.query('SELECT storage_key FROM site_asset_snapshots WHERE storage_key=$1',[key])).rows.length)return true;
- const originals=(await client.query('SELECT original_content AS content FROM shopping_chat_files WHERE original_content IS NOT NULL AND deleted_at IS NULL AND octet_length(original_content)<=2048')).rows;
+ const originals=(await client.query("SELECT original_content AS content FROM shopping_chat_files WHERE original_content IS NOT NULL AND deleted_at IS NULL AND octet_length(original_content)<=2048 AND position(convert_to($1,'UTF8') in original_content)>0",[key])).rows;
  for(const row of originals)if(storageKey(row.content)===key)return true;
  for(const table of TABLES){
-  const rows=(await client.query('SELECT content FROM '+table+' WHERE content IS NOT NULL AND octet_length(content)<=2048')).rows;
+  const rows=(await client.query('SELECT content FROM '+table+" WHERE content IS NOT NULL AND octet_length(content)<=2048 AND position(convert_to($1,'UTF8') in content)>0",[key])).rows;
   for(const row of rows)if(storageKey(row.content)===key)return true;
  }
  return false;

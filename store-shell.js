@@ -484,6 +484,10 @@ panelScrim?.addEventListener("click", () => closeActivePanel());
 document.querySelectorAll(".panel-close").forEach((button) => button.addEventListener("click", () => closeActivePanel()));
 
 document.querySelectorAll(".nav-panel").forEach((panel) => panel.addEventListener("click", (event) => {
+  if (event.target === panel) {
+    closeActivePanel();
+    return;
+  }
   const link = event.target.closest("a");
   if (link) closeActivePanel({ restoreFocus: false });
 }));

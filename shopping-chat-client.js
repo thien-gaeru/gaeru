@@ -1,6 +1,6 @@
 (() => {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const SAFE_CHAT_ACTION_URL = /^\/(?:thanh-toan\?variant=([a-zA-Z0-9_-]+)|san-pham\/([a-z0-9-]+)(?:\?variant=([a-zA-Z0-9_-]+))?|cua-hang|gio-hang|ho-tro(?:#[a-z0-9-]+)?|huong-dan(?:\/[a-z0-9-]+)?|tin-tuc\/[a-z0-9-]+)$/;
+  const SAFE_CHAT_ACTION_URL = /^\/(?:thanh-toan\?variant=([a-zA-Z0-9_-]+)|san-pham\/([a-z0-9-]+)(?:\?variant=([a-zA-Z0-9_-]+))?|cua-hang|gio-hang|care(?:#[a-z0-9-]+)?|dang-ky-bao-hanh|kich-hoat-bao-hanh|tra-cuu(?:-don-hang)?|tai-khoan|ho-tro(?:\/san-pham\/[a-z0-9-]+|#[a-z0-9-]+)?|huong-dan(?:\/[a-z0-9-]+)?|tin-tuc(?:\/[a-z0-9-]+)?)$/;
   const SAFE_CHAT_MARKETPLACE_URL = /^https:\/\/(?:(?:[a-z0-9-]+\.)?shopee\.(?:vn|com)|(?:vn\.)?shp\.ee|shope\.ee|(?:[a-z0-9-]+\.)?tiktok(?:shop)?\.com|(?:vt|vm)\.tiktok\.com)\/[a-zA-Z0-9_/?=&%;.-]+$/;
   const renderChatActionHtml = (rawLabel, rawHref, admin, asCard = true) => {
     const ext = SAFE_CHAT_MARKETPLACE_URL.exec(rawHref);
@@ -180,8 +180,8 @@
       const deleteButton=admin&&window.GAERUAdmin?.can('chat.files.delete')?`<button type="button" class="chat-file-delete" data-chat-delete-file="${escape(file.id)}" data-no-action-feedback>Xóa tệp</button>`:'';
       const url=base+'/'+id+'/files/'+encodeURIComponent(file.id);
       const saved=file.originalSize&&file.compressedSize&&file.compressedSize<file.originalSize?` · Đã nén tự động (${formatSize(file.compressedSize)})`:'';
-      const pdfPreview=file.mime==='application/pdf'?`<a class="chat-file-link chat-pdf-preview-link" href="${escape(url)}?preview=1" target="_blank" rel="noopener">👁 Xem trực tiếp PDF</a>`:'';
-      return media(url,file.mime,file.name)+pdfPreview+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a><a class="chat-file-link" href="${escape(url)}?download=1&original=1" target="_blank" rel="noopener">Tải bản gốc được gửi</a>${deleteButton}`;
+      const pdfPreview=file.mime==='application/pdf'?`<a class="chat-file-link chat-pdf-preview-link" href="${escape(url)}?preview=1" target="_blank" rel="noopener noreferrer">👁 Xem trực tiếp PDF</a>`:'';
+      return media(url,file.mime,file.name)+pdfPreview+`<a class="chat-file-link" href="${escape(url)}?download=1" target="_blank" rel="noopener noreferrer">↓ ${escape(file.name)} · ${formatSize(file.size)}${escape(saved)}</a><a class="chat-file-link" href="${escape(url)}?download=1&original=1" target="_blank" rel="noopener noreferrer">Tải bản gốc được gửi</a>${deleteButton}`;
     }
     function release(file){if(file?.url)URL.revokeObjectURL(file.url);}
     function clearFastAiTimers(){
@@ -1120,7 +1120,7 @@
         const src=current.getAttribute('data-chat-lightbox-src')||current.src||'';
         const alt=current.getAttribute('alt')||'Hình ảnh đính kèm';
         const dlUrl=/^(?:blob:|data:)/i.test(src)?src:(src.includes('?')?src+'&download=1':src+'?download=1');
-        dlg.innerHTML=`<div class="chat-lightbox-bar"><span class="chat-lightbox-title">${escape(alt)}${state.allImgs.length>1?` (${state.index+1}/${state.allImgs.length})`:''}</span><div class="chat-lightbox-actions"><button type="button" data-lightbox-zoom>${state.zoomed?'Thu nhỏ 1x':'Phóng to 2x'}</button><a href="${escape(dlUrl)}" target="_blank" rel="noopener">↓ Tải xuống</a><button type="button" data-lightbox-close aria-label="Đóng">×</button></div></div><div class="chat-lightbox-stage">${state.allImgs.length>1?'<button type="button" class="chat-lightbox-nav is-prev" data-lightbox-prev aria-label="Ảnh trước">‹</button>':''}<img class="chat-lightbox-img" src="${escape(src)}" alt="${escape(alt)}">${state.allImgs.length>1?'<button type="button" class="chat-lightbox-nav is-next" data-lightbox-next aria-label="Ảnh tiếp">›</button>':''}</div>`;
+        dlg.innerHTML=`<div class="chat-lightbox-bar"><span class="chat-lightbox-title">${escape(alt)}${state.allImgs.length>1?` (${state.index+1}/${state.allImgs.length})`:''}</span><div class="chat-lightbox-actions"><button type="button" data-lightbox-zoom>${state.zoomed?'Thu nhỏ 1x':'Phóng to 2x'}</button><a href="${escape(dlUrl)}" target="_blank" rel="noopener noreferrer">↓ Tải xuống</a><button type="button" data-lightbox-close aria-label="Đóng">×</button></div></div><div class="chat-lightbox-stage">${state.allImgs.length>1?'<button type="button" class="chat-lightbox-nav is-prev" data-lightbox-prev aria-label="Ảnh trước">‹</button>':''}<img class="chat-lightbox-img" src="${escape(src)}" alt="${escape(alt)}">${state.allImgs.length>1?'<button type="button" class="chat-lightbox-nav is-next" data-lightbox-next aria-label="Ảnh tiếp">›</button>':''}</div>`;
       };
       dlg._lightboxState=state;
       state.renderSlide();
@@ -1184,9 +1184,6 @@
         const label=addChatVarBtn.dataset.chatAddLabel||'Sản phẩm GAERU';
         if(!variantId)return;
         try{
-          const cartKey='gaeru-store-cart-v2';
-          const raw=JSON.parse(localStorage.getItem(cartKey)||'[]');
-          const cart=Array.isArray(raw)?raw.filter(i=>i&&typeof i.variantId==='string'&&Number.isInteger(i.quantity)&&i.quantity>0&&i.quantity<=99):[];
           let maxStock=99;
           const storeProducts=window.GAERUStore?.products;
           if(Array.isArray(storeProducts)){
@@ -1204,20 +1201,56 @@
             addChatVarBtn.textContent='Tạm hết hàng';
             return;
           }
-          const existing=cart.find(i=>i.variantId===variantId);
-          if(existing&&existing.quantity>=maxStock){
-            feedback.textContent=`Đã đạt giới hạn tối đa ${maxStock} sản phẩm trong giỏ.`;
-            return;
+          if(typeof window.GAERUStore?.readCart==='function'&&typeof window.GAERUStore?.writeCart==='function'){
+            const cart=window.GAERUStore.readCart();
+            const existing=cart.find(i=>i.variantId===variantId);
+            if(existing&&existing.quantity>=maxStock){
+              feedback.textContent=`Đã đạt giới hạn tối đa ${maxStock} sản phẩm trong giỏ.`;
+              return;
+            }
+            if(existing)existing.quantity+=1;
+            else cart.push({variantId,quantity:1});
+            window.GAERUStore.writeCart(cart);
+          }else{
+            const owner=window.GAERUCustomerSession?.customer?.id||'guest';
+            const prefix='gaeru-store-cart-v3:'+owner;
+            const baseItems=owner==='guest'?JSON.parse(localStorage.getItem('gaeru-store-cart-v2')||'[]'):(JSON.parse(localStorage.getItem(prefix+':snapshot')||'{}').items||[]);
+            const quantities=new Map((Array.isArray(baseItems)?baseItems:[]).filter(i=>i&&typeof i.variantId==='string'&&Number.isInteger(i.quantity)&&i.quantity>0).map(i=>[i.variantId,i.quantity]));
+            const opKeys=[];
+            for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k?.startsWith(prefix+':op:'))opKeys.push(k);}
+            const ops=opKeys.map(k=>JSON.parse(localStorage.getItem(k)||'{}')).sort((a,b)=>String(a.order).localeCompare(String(b.order))||String(a.id).localeCompare(String(b.id)));
+            for(const op of ops){
+              for(const item of op.items||[]){
+                const prev=quantities.get(item.variantId)||0;
+                const next=op.kind==='legacy'?Math.max(prev,item.quantity):prev+item.quantity;
+                if(next>0)quantities.set(item.variantId,Math.min(99,next));else quantities.delete(item.variantId);
+              }
+            }
+            const currentQty=quantities.get(variantId)||0;
+            if(currentQty>=maxStock){
+              feedback.textContent=`Đã đạt giới hạn tối đa ${maxStock} sản phẩm trong giỏ.`;
+              return;
+            }
+            const opId=typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?crypto.randomUUID():'op-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+            const opOrder=String(Date.now()).padStart(13,'0');
+            const opKey=prefix+':op:'+opOrder+':'+opId;
+            const op={id:opId,order:opOrder,kind:'change',items:[{variantId,quantity:1}]};
+            localStorage.setItem(opKey,JSON.stringify(op));
+            if(owner!=='guest'){
+              void request('/api/customer/cart/sync',{method:'POST',body:JSON.stringify({customerId:owner,operations:[{id:op.id,kind:op.kind,items:op.items}]})}).then(res=>{
+                if(res&&res.customerId===owner&&Array.isArray(res.items)){
+                  const snapKey=prefix+':snapshot';
+                  const prevSnap=JSON.parse(localStorage.getItem(snapKey)||'{}');
+                  if((prevSnap.revision??-1)<=res.revision){
+                    localStorage.setItem(snapKey,JSON.stringify({revision:res.revision,items:res.items}));
+                  }
+                  localStorage.removeItem(opKey);
+                  document.dispatchEvent(new CustomEvent('gaeru:cart-updated'));
+                }
+              }).catch(()=>{});
+            }
+            document.dispatchEvent(new CustomEvent('gaeru:cart-updated'));
           }
-          if(existing)existing.quantity+=1;
-          else cart.push({variantId,quantity:1});
-          localStorage.setItem(cartKey,JSON.stringify(cart));
-          if(typeof window.GAERUStore?.syncCartToServer==='function'){
-            window.GAERUStore.syncCartToServer(cart);
-          }else if(window.GAERUCustomerSession?.customer){
-            void request('/api/customer/cart',{method:'PUT',body:JSON.stringify({items:cart})}).catch(()=>{});
-          }
-          document.dispatchEvent(new CustomEvent('gaeru:cart-updated'));
           addChatVarBtn.classList.add('is-added');
           addChatVarBtn.textContent='✓ Đã thêm vào giỏ';
           const actionsWrap=addChatVarBtn.closest('.chat-buy-actions');

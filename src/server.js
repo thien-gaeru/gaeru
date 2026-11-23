@@ -147,7 +147,7 @@ async function start() {
   });
 
   // Phase 2: Run critical database migrations while incoming traffic is gated safely
-  await migrateDatabase(pool, { lockTimeoutMs: 30000 });
+  await migrateDatabase(pool, { lockTimeoutMs: isPrimaryWorkerSlot ? 30000 : 120000 });
   if (shuttingDown) return;
 
   // Priority DB concurrency controller initialized at module scope above createApp().
@@ -362,6 +362,7 @@ async function shutdown() {
   stopWarrantyEmail?.();
   stopCareEmail?.();
   stopOrderEmail?.();
+  try { require('./lib/cache-warmup').stopWarmUpCache?.(); } catch (_) {}
 
   // 3. Settle in-flight startup work, conversion, verification and media sync in parallel under a bounded 4-second deadline
   if (typeof setTimeout !== 'undefined') {

@@ -51,7 +51,7 @@
           <div class="home-banner-placeholder" data-placeholder="desktop">
             <div class="home-banner-placeholder-icon">☁️</div>
             <p class="home-banner-placeholder-text">Kéo thả ảnh vào đây</p>
-            <span class="home-banner-placeholder-types">PNG, JPG, WebP tối đa 10MB</span>
+            <span class="home-banner-placeholder-types">PNG, JPG, WebP, AVIF tối đa 8MB</span>
           </div>
         </div>
 

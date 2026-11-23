@@ -275,8 +275,12 @@ function afterSalesRouter(pool) {
         [status]
       );
       const { previewEarnClawback } = require('./loyalty-api');
+      const rmaExchange = require('./rma-exchange');
+      const issuesMap = typeof rmaExchange.readIssuesBatch === 'function'
+        ? await rmaExchange.readIssuesBatch(pool, result.rows.map(r => r.id))
+        : null;
       for (const item of result.rows) {
-        item.exchange_issue = await require('./rma-exchange').readIssue(pool, item.id);
+        item.exchange_issue = issuesMap ? (issuesMap.get(item.id) || null) : await rmaExchange.readIssue(pool, item.id);
         const gross = item.refundable_amount_vnd === null || item.refundable_amount_vnd === undefined ? null : Number(item.refundable_amount_vnd);
         item.gross_refundable_amount_vnd = gross;
         if (item.kind === 'return' && item.return_type !== 'exchange' && !['resolved', 'rejected'].includes(item.status) && item.customer_id && Number.isSafeInteger(gross) && gross > 0) {

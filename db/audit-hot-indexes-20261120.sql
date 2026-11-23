@@ -13,3 +13,12 @@ CREATE INDEX IF NOT EXISTS idx_care_requests_status_updated
 CREATE INDEX IF NOT EXISTS idx_warranty_activations_pending_manual
   ON warranty_activations (status, created_at DESC)
   WHERE automatic = false AND withdrawn_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_order_after_sales_order_id_created
+  ON order_after_sales (order_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_orders_lower_email
+  ON orders (lower(email));
+
+CREATE INDEX IF NOT EXISTS idx_orders_customer_created_desc
+  ON orders (customer_id, created_at DESC);

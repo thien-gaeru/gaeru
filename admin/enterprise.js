@@ -117,9 +117,14 @@
       const remaining = await Promise.all(pages);
       e.lookup.suppliers = [first, ...remaining].flatMap((result) => result.suppliers || []);
     })());
-    if (variants && can("catalog.read")) tasks.push(api("/products").then((result) => {
-      e.lookup.variants = (result.products || []).flatMap((product) => product.variants.map((variant) => ({ ...variant, productName: product.name })));
-    }));
+    if (variants && can("catalog.read")) tasks.push((async () => {
+      const first = await api("/products");
+      const totalPages = Math.min(20, first?.pages || first?.pagination?.pageCount || 1);
+      const pages = [];
+      for (let page = 2; page <= totalPages; page++) pages.push(api(`/products?page=${page}`));
+      const remaining = await Promise.all(pages);
+      e.lookup.variants = [first, ...remaining].flatMap((result) => (result?.products || []).flatMap((product) => (product.variants || []).map((variant) => ({ ...variant, productName: product.name }))));
+    })());
     if (departments && can("staff.read")) tasks.push(api("/departments").then((result) => { e.lookup.departments = result.departments || []; }));
     await Promise.all(tasks);
   }

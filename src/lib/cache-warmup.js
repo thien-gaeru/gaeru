@@ -147,6 +147,7 @@ async function warmUpCache(pool, { app = null } = {}) {
     if (isPrimarySlot && pool && pool.__gaeruCacheHooked && process.env.MEDIA_CACHE_ENABLED !== 'false') {
       const t = setTimeout(() => { warmHotImagesInBackground(pool, products); }, 50);
       if (typeof t.unref === 'function') t.unref();
+      activeWarmupTimers.push(() => clearTimeout(t));
     }
     if (!isTestEnv && app && typeof app === 'function' && process.env.SSR_WARMUP_ENABLED !== 'false') {
       // Stagger per-worker SSR HTML warmup so each worker populates its own RAM cache cleanly
@@ -158,6 +159,7 @@ async function warmUpCache(pool, { app = null } = {}) {
           .catch(() => {});
       }, 400 + workerIndex * 350);
       if (typeof ssrTimer.unref === 'function') ssrTimer.unref();
+      activeWarmupTimers.push(() => clearTimeout(ssrTimer));
     }
     if (pool && typeof pool.query === 'function' && !isTestEnv) {
       const embedStore = require('./embedding-store');
@@ -174,6 +176,7 @@ async function warmUpCache(pool, { app = null } = {}) {
         ]).catch(() => {});
       }, 250);
       if (typeof hTimer.unref === 'function') hTimer.unref();
+      activeWarmupTimers.push(() => clearTimeout(hTimer));
 
       // Primary worker incrementally fills any missing vectors in background (thermal-safe)
       if (isPrimarySlot) {
@@ -181,11 +184,13 @@ async function warmUpCache(pool, { app = null } = {}) {
           embedStore.warmEmbeddingIndexInBackground(pool).catch(() => {});
         }, 15000);
         if (typeof wTimer.unref === 'function') wTimer.unref();
+        activeWarmupTimers.push(() => clearTimeout(wTimer));
 
         const wInterval = setInterval(() => {
           embedStore.warmEmbeddingIndexInBackground(pool).catch(() => {});
         }, 15 * 60 * 1000);
         if (typeof wInterval.unref === 'function') wInterval.unref();
+        activeWarmupTimers.push(() => clearInterval(wInterval));
       }
     }
 
@@ -196,5 +201,11 @@ async function warmUpCache(pool, { app = null } = {}) {
     return [];
   }
 }
+const activeWarmupTimers = [];
+function stopWarmUpCache() {
+  for (const fn of activeWarmupTimers.splice(0)) {
+    try { fn(); } catch (_) {}
+  }
+}
 
-module.exports = { warmUpCache, warmHotImagesInBackground, warmLocalSsrRoutes };
+module.exports = { warmUpCache, stopWarmUpCache, warmHotImagesInBackground, warmLocalSsrRoutes };

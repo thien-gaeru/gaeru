@@ -127,6 +127,8 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
           audit
         });
       });
+      try { require('../cache').invalidateTags(['orders', `order:${req.params.id}`, 'stock']); } catch (_) {}
+      try { require('./realtime-sse').publishAdminEvent('order:update', { orderId: req.params.id, status: 'cancelled' }); } catch (_) {}
       res.json(result);
     } catch (err) {
       if (err.status) return res.status(err.status).json({ error: err.message });
@@ -261,6 +263,24 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
           audit
         });
       });
+      try {
+        require('./realtime-sse').publishAdminEvent('after_sales:new', {
+          id: result?.id,
+          orderId: req.params.id,
+          rmaNumber: result?.rma_number || result?.rmaNumber,
+          returnType: parsed.data.returnType,
+          status: result?.status || 'requested'
+        });
+      } catch (_) {}
+      try {
+        require('./admin-notifications').notifyAdminPushBackground(pool, {}, {
+          requiredPermissions: ['orders.read'],
+          title: '🔄 Yêu cầu đổi trả / hoàn tiền mới',
+          body: `${result?.rma_number || req.params.id} · ${parsed.data.returnType === 'refund' ? 'Hoàn tiền' : 'Đổi hàng'}`.slice(0, 160),
+          target: 'after-sales',
+          tag: 'after-sales:' + (result?.id || req.params.id)
+        });
+      } catch (_) {}
       res.status(201).json({
         ok: true,
         case: result,

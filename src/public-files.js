@@ -43,6 +43,7 @@ module.exports = new Set(['footer-products.js','clean-urls.js','vietnam-address.
   "guide-k9.html",
   "guide-m3.html",
   "guide-p01.html",
+  "guide-p185.html",
   "guides.css",
   "guides.html",
   "index.html",
