@@ -1664,7 +1664,7 @@ async function handleCarrierWebhook(pool, config, carrierId, payload, { headers 
     };
   });
   if (txResult?.processed) {
-    try { require('../cache').invalidateTags(['orders']); } catch {}
+    try { require('./cache').invalidateTags(['orders']); } catch {}
   }
   return txResult;
 }
@@ -1834,7 +1834,7 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
           finance
         });
         if (result?.processed) {
-          try { require('../cache').invalidateTags(['orders']); } catch {}
+          try { require('./cache').invalidateTags(['orders']); } catch {}
         }
         res.json(result);
       } catch (e) {

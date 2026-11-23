@@ -420,7 +420,7 @@ async function syncMarketplaceOrders(pool, config, channel, { fetcher = fetch, a
     for(const order of orders){
       if(!order.externalOrderId||!Array.isArray(order.items)||!order.items.length)throw fail('Sàn chưa trả đầy đủ chi tiết sản phẩm của đơn. Không ghi đơn thiếu dữ liệu.',502);
       const ingested=await withTransaction(pool,client=>ingestMarketplaceOrder(client,{channel,shopId:creds.shopId,order,autoDeductStock,actor}));
-      if(ingested?.stock_deducted||ingested?.stock_reversed){try{require('../cache').flushAllCache();}catch{}}
+      if(ingested?.stock_deducted||ingested?.stock_reversed){try{require('./cache').flushAllCache();}catch{}}
       syncedCount++;
     }
     const result={success:true,channel,syncedCount,autoDeductStock,windowDays:days};await recordSync(pool,channel,'sync_orders',result,actor);return result;
@@ -570,7 +570,7 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
             actor: req.admin
           });
         });
-        try { require('../cache').flushAllCache(); } catch {}
+        try { require('./cache').flushAllCache(); } catch {}
         res.json({ success: true, message: 'Đã hoàn trả tồn kho đơn sàn thành công.', order: result });
       } catch (e) {
         next(e);

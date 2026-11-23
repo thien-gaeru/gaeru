@@ -118,7 +118,7 @@ async function adjust(client, issueId, warehouseId, items, direction, actor, rea
 }
 async function issueExchange(pool, { caseId, data, actor }) {
   authorize(actor); data = issueSchema.parse(data);
-  return withTransaction(pool, client => request(client, caseId, data, actor, 'rma_exchange_issue', async () => {
+  const result = await withTransaction(pool, client => request(client, caseId, data, actor, 'rma_exchange_issue', async () => {
     const row = await lockCase(client, caseId, data.version), existing = await readIssue(client, caseId);
     const reason = eligibility(row, existing); if (reason) throw fail(reason);
     const original = await sourceItems(client, row.order_id);
@@ -141,10 +141,12 @@ async function issueExchange(pool, { caseId, data, actor }) {
     await appendAudit(client, { actor, action: 'rma.exchange.issue', entityType: 'order_after_sales', entityId: caseId, metadata: { issue, requestKey: data.requestKey, confirmedReceivedAll: true, scope: 'full_order_same_product_no_price_difference' } });
     return { issue, version, existing: false };
   }));
+  try { require('./cache').invalidateTags(['orders', 'product:list', 'catalog', 'search-index', 'stock'], { immediate: true }); } catch {}
+  return result;
 }
 async function voidExchange(pool, { caseId, data, actor }) {
   authorize(actor); data = voidSchema.parse(data);
-  return withTransaction(pool, client => request(client, caseId, data, actor, 'rma_exchange_void', async () => {
+  const result = await withTransaction(pool, client => request(client, caseId, data, actor, 'rma_exchange_void', async () => {
     const row = await lockCase(client, caseId, data.version), issue = await readIssue(client, caseId, data.issueId);
     if (!issue || issue.status !== 'posted' || row.status !== 'received' || !['none', 'preparing'].includes(row.outbound_status)) throw fail('Chỉ hoàn lại chứng từ đang hiệu lực trước khi bàn giao hàng đổi cho vận chuyển.');
     await adjust(client, issue.id, issue.warehouseId, issue.items, 1, actor, 'Hoàn lại xuất đổi RMA ' + (row.rma_number || caseId) + ': ' + data.reason);
@@ -153,5 +155,7 @@ async function voidExchange(pool, { caseId, data, actor }) {
     await appendAudit(client, { actor, action: 'rma.exchange.void', entityType: 'order_after_sales', entityId: caseId, metadata: { issueId: issue.id, reason: data.reason, requestKey: data.requestKey } });
     return { issue: await readIssue(client, caseId, issue.id), version, existing: false };
   }));
+  try { require('./cache').invalidateTags(['orders', 'product:list', 'catalog', 'search-index', 'stock'], { immediate: true }); } catch {}
+  return result;
 }
 module.exports = { issueSchema, voidSchema, exchangeOptions, issueExchange, voidExchange, readIssue, readIssuesBatch, lockCase };

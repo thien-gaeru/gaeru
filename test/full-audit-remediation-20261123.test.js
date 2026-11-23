@@ -54,3 +54,28 @@ test('2026-11-23 Full Audit Wave 3: Backend RMA notifications, batch exchange qu
   assert.match(hotIndexesSql, /idx_orders_lower_email/);
   assert.match(hotIndexesSql, /idx_orders_customer_created_desc/);
 });
+
+test('2026-11-23 Full Audit Wave 4: Inventory operations, stock changes, L1 cache invalidations, and adjustment UX', () => {
+  const operationsApiJs = read('src/operations-api.js');
+  const inventoryJs = read('src/inventory.js');
+  const barcodeApiJs = read('src/barcode-api.js');
+  const enterpriseJs = read('admin/enterprise.js');
+
+  // 1. operations-api.js invalidates L1 cache on adjustments, transfers, and PO receipts
+  const invInvalidations = operationsApiJs.match(/invalidateTags\(\["product:list",\s*"catalog",\s*"search-index",\s*"stock"\]/g) || [];
+  assert.equal(invInvalidations.length, 3);
+
+  // 2. inventory.js prioritizes active and MAIN warehouses when reducing stock via setVariantStock
+  assert.match(inventoryJs, /SELECT s\.warehouse_id AS "warehouseId",s\.quantity,w\.active,w\.code FROM warehouse_stock s/);
+  assert.match(inventoryJs, /const orderedBalances = \[\.\.\.balances\]\.sort/);
+
+  // 3. No broken require('../cache') remains inside src/*.js
+  for (const rel of ['src/barcode-api.js', 'src/customer-experience.js', 'src/finance-api.js', 'src/omnichannel-sync.js', 'src/order-after-sales.js', 'src/shipping-management.js']) {
+    assert.doesNotMatch(read(rel), /require\(['"]\.\.\/cache['"]\)/, `${rel} must use require('./cache')`);
+  }
+  assert.match(barcodeApiJs, /require\('\.\/cache'\)\.flushAllCache\(\)/);
+
+  // 4. enterprise.js auto-loads movement history on loadInventory and auto-fills expectedQuantity on variant/warehouse change
+  assert.match(enterpriseJs, /loadMovements\(\)\.catch\(\(\)\s*=>\s*\{\}\)/);
+  assert.match(enterpriseJs, /\[data-e-form="adjustment"\]\s*\[name="variantId"\]/);
+});

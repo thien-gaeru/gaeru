@@ -52,7 +52,7 @@ async function lockBalance(client, warehouseId, variantId) {
 
 async function allBalances(client, variantId) {
   const result = await client.query(
-    `SELECT s.warehouse_id AS "warehouseId",s.quantity,w.active FROM warehouse_stock s
+    `SELECT s.warehouse_id AS "warehouseId",s.quantity,w.active,w.code FROM warehouse_stock s
      JOIN warehouses w ON w.id=s.warehouse_id WHERE s.variant_id=$1 ORDER BY s.warehouse_id FOR UPDATE OF s`, [variantId]
   );
   return result.rows;
@@ -118,7 +118,8 @@ async function setVariantStock(client, { variantId, quantity, actor, reason = "C
       referenceType: "product_edit", referenceId, reason, actor });
   } else {
     let remaining = -difference;
-    for (const balance of balances) {
+    const orderedBalances = [...balances].sort((a, b) => (Number(Boolean(b.active)) - Number(Boolean(a.active))) || (Number(b.code === "MAIN") - Number(a.code === "MAIN")));
+    for (const balance of orderedBalances) {
       const amount = Math.min(remaining, balance.quantity);
       if (amount) await move(client, { variant, warehouseId: balance.warehouseId, before: balance.quantity, delta: -amount,
         type: "adjustment", eventKey: `adjustment:${referenceId}:${balance.warehouseId}`, referenceType: "product_edit", referenceId, reason, actor });

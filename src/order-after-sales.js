@@ -507,7 +507,7 @@ function afterSalesRouter(pool) {
       });
 
       if (result?.restocked_at) {
-        try { require('../cache').flushAllCache(); } catch {}
+        try { require('./cache').flushAllCache(); } catch {}
       }
       res.json(result);
     } catch (e) {

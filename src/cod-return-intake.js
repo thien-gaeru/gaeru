@@ -415,6 +415,10 @@ function createCodReturnIntake(pool) {
         };
       });
 
+      try {
+        require('./cache').invalidateTags(['orders', `order:${intakeResult.orderId}`, 'product:list', 'catalog', 'search-index', 'stock'], { immediate: true });
+      } catch (_) {}
+
       res.json(intakeResult);
     } catch (e) {
       if (e instanceof z.ZodError) {

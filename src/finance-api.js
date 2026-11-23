@@ -219,7 +219,7 @@ function createFinanceApi(pool) {
       return { id: inserted.rows[0].id, replayed: false };
     });
     if (!result.replayed) {
-      try { require("../cache").invalidateTags(["orders", `order:${data.orderId}`, "finance"]); } catch (_) {}
+      try { require("./cache").invalidateTags(["orders", `order:${data.orderId}`, "finance"]); } catch (_) {}
     }
     res.status(result.replayed ? 200 : 201).json(result);
   }));

@@ -529,7 +529,7 @@ async function receiveByBarcode(pool, { code, warehouseId, quantity, reason = "N
     await completeInventoryRequest(client, reqState.normKey, payloadResult);
     return payloadResult;
   });
-  try { require('../cache').flushAllCache(); } catch {}
+  try { require('./cache').flushAllCache(); } catch {}
   return result;
 }
 
@@ -646,7 +646,7 @@ async function countByBarcode(pool, { code, warehouseId, actualQuantity, reason 
     return payloadResult;
   });
   if (result.delta !== 0) {
-    try { require('../cache').flushAllCache(); } catch {}
+    try { require('./cache').flushAllCache(); } catch {}
   }
   return result;
 }
@@ -894,7 +894,7 @@ async function dispatchByBarcode(pool, { orderId, trackingCode = null, actor = n
       dispatchedAt: new Date().toISOString()
     };
   });
-  try { require('../cache').flushAllCache(); } catch {}
+  try { require('./cache').flushAllCache(); } catch {}
   return dispatchResult;
 }
 

@@ -127,7 +127,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
           audit
         });
       });
-      try { require('../cache').invalidateTags(['orders', `order:${req.params.id}`, 'stock']); } catch (_) {}
+      try { require('./cache').invalidateTags(['orders', `order:${req.params.id}`, 'stock']); } catch (_) {}
       try { require('./realtime-sse').publishAdminEvent('order:update', { orderId: req.params.id, status: 'cancelled' }); } catch (_) {}
       res.json(result);
     } catch (err) {

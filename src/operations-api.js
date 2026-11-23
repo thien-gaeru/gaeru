@@ -184,6 +184,7 @@ function createOperationsApi(pool) {
     const result = await withTransaction(pool, (client) => withIdempotency(client,
       { key: data.requestKey, operation: "adjustment", body: data, actor: req.admin },
       () => inventory.adjustWarehouseStock(client, { ...data, actor: req.admin })));
+    try { require("./cache").invalidateTags(["product:list", "catalog", "search-index", "stock"], { immediate: true }); } catch {}
     res.status(201).json({ adjustment: result });
   }));
   router.post("/inventory/transfers", requirePermission("inventory.write"), requireCsrf, handler(async (req, res) => {
@@ -191,6 +192,7 @@ function createOperationsApi(pool) {
     const result = await withTransaction(pool, (client) => withIdempotency(client,
       { key: data.requestKey, operation: "transfer", body: data, actor: req.admin },
       () => inventory.transferStock(client, { ...data, actor: req.admin })));
+    try { require("./cache").invalidateTags(["product:list", "catalog", "search-index", "stock"], { immediate: true }); } catch {}
     res.status(201).json({ transfer: result });
   }));
 
@@ -355,6 +357,7 @@ function createOperationsApi(pool) {
           metadata: { purchaseOrderId: id, warehouseId: purchase.warehouse_id, requestKey: data.requestKey, totalVnd: receivedTotalVnd, items: data.items } });
         return { ...posted, purchaseOrderId: id, warehouseId: purchase.warehouse_id, purchaseOrderStatus: status, totalVnd: receivedTotalVnd };
       }));
+    try { require("./cache").invalidateTags(["product:list", "catalog", "search-index", "stock"], { immediate: true }); } catch {}
     res.status(201).json({ receipt });
   }));
   router.get("/goods-receipts", requirePermission("purchases.read"), handler(async (req, res) => {

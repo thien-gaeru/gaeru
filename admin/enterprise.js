@@ -187,6 +187,7 @@
     if (result?.warehouses) e.lookup.warehouses = result.warehouses;
     const warehouseFilter = root("inventory").querySelector('[name="warehouseId"]'), selected = warehouseFilter.value;
     warehouseFilter.innerHTML = '<option value="">Tất cả kho</option>' + options(e.lookup.warehouses, selected);
+    loadMovements().catch(() => {});
   }
 
   async function loadForecastView(refresh = false) {
@@ -634,6 +635,16 @@
   document.addEventListener("change", (event) => {
     if (event.target.matches('.enterprise-view [data-e-form="staff"] [name="role"]')) renderRolePermissions(event.target.closest("form"));
     if (event.target.matches('#inventory-forecast-section select')) loadForecastView();
+    if (event.target.matches('.enterprise-view [data-e-form="adjustment"] [name="variantId"], .enterprise-view [data-e-form="adjustment"] [name="warehouseId"]')) {
+      const form = event.target.closest("form");
+      const vId = form?.elements?.variantId?.value;
+      const wId = form?.elements?.warehouseId?.value;
+      const expectedInput = form?.elements?.expectedQuantity;
+      if (expectedInput && vId && wId) {
+        const match = (viewState("inventory").rows || []).find((item) => item.variantId === vId && item.warehouseId === wId);
+        if (match && match.quantity !== undefined) expectedInput.value = String(match.quantity);
+      }
+    }
   });
   window.addEventListener('hashchange',()=>{closeEditor(activeEditor,true);document.querySelector?.('[data-forecast-dialog][open]')?.close?.();});
   window.GAERUEnterprise = Object.freeze({ loadView });
