@@ -219,6 +219,13 @@
   border: 1px solid #cbd5e1;
   padding: 6px 10px;
   text-align: left;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.copilot-msg-bubble th,
+.copilot-msg-bubble td code {
+  white-space: nowrap;
 }
 
 .copilot-msg-bubble th {
