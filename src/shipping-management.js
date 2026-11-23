@@ -353,6 +353,33 @@ async function createWaybill(pool, config, { orderId, carrierId, autoShip = fals
     // Transition order status
     const newStatus = autoShip ? 'shipped' : order.status === 'pending' || order.status === 'confirmed' ? 'processing' : order.status;
     if (newStatus !== order.status) {
+      if (order.status === 'pending') {
+        const hasAlloc = await client.query(
+          'SELECT 1 FROM order_stock_allocations WHERE order_id = $1 AND released_at IS NULL LIMIT 1',
+          [order.id]
+        );
+        if (hasAlloc.rows.length === 0) {
+          const itemsToReserve = await client.query(
+            `SELECT variant_id AS "variantId", SUM(quantity)::int AS quantity
+             FROM order_items
+             WHERE order_id = $1 AND variant_id IS NOT NULL
+             GROUP BY variant_id
+             ORDER BY variant_id`,
+            [order.id]
+          );
+          if (itemsToReserve.rows.length > 0) {
+            const { reserveStock } = require('./inventory');
+            for (const item of itemsToReserve.rows) {
+              await reserveStock(client, {
+                variantId: item.variantId,
+                quantity: item.quantity,
+                orderId: order.id,
+                actor
+              });
+            }
+          }
+        }
+      }
       await client.query('UPDATE orders SET status = $2, updated_at = now() WHERE id = $1', [order.id, newStatus]);
     }
 
@@ -1789,6 +1816,8 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
           actor: req.admin,
           fetcher: resolveFetcher()
         });
+        try { require('./cache').invalidateTags(['orders', `order:${orderId}`, 'stock'], { immediate: true }); } catch (_) {}
+        try { require('./realtime-sse').publishAdminEvent('order:update', { orderId, trackingNumber: result?.shipment?.trackingNumber }); } catch (_) {}
         res.json(result);
       } catch (e) {
         next(e);
@@ -1813,6 +1842,8 @@ function createShippingManagement(pool, config, { fetcher, finance } = {}) {
           actor: req.admin,
           fetcher: resolveFetcher()
         });
+        try { require('./cache').invalidateTags(['orders', `order:${orderId}`], { immediate: true }); } catch (_) {}
+        try { require('./realtime-sse').publishAdminEvent('order:update', { orderId, waybillCancelled: true }); } catch (_) {}
         res.json(result);
       } catch (e) {
         next(e);

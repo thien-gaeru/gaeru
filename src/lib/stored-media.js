@@ -98,4 +98,29 @@ async function storeUpload(scope,buffer,mime,pool=null,{removeBackground=scope==
  }
  return {content,mimeType,byteSize:buffer.length,backgroundRemoved,thumbBuffer:buffer.thumbBuffer};
 }
-module.exports={storeMedia,storeUpload,storeStagedMedia,removeUploadedMedia,readMedia,readMediaRange,openMediaStream,metadata,pointer,PREFIX};
+async function migrateLegacyBlobsToDisk(pool){
+ if(!pool||typeof pool.query!=='function')return {migrated:0,purgedOrphanNewsImages:0};
+ let migrated=0,purgedOrphanNewsImages=0;
+ try{
+  const orphanDel=await pool.query("DELETE FROM news_images n WHERE NOT EXISTS (SELECT 1 FROM news_posts p WHERE p.cover_id=n.id)");
+  purgedOrphanNewsImages=Number(orphanDel.rowCount||0);
+ }catch(_){}
+ if(!local.configured())return {migrated,purgedOrphanNewsImages};
+ const targets=[
+  {table:'news_images',scope:'news'},
+  {table:'catalog_images',scope:'products'}
+ ];
+ for(const {table,scope} of targets){
+  try{
+   const rows=(await pool.query(`SELECT id,content,mime_type FROM ${table} WHERE octet_length(content)>256 AND position(convert_to('GAERU_','UTF8') in content)<>1 LIMIT 50`)).rows;
+   for(const row of rows){
+    const rawBuf=await decompressBufferAsync(Buffer.from(row.content));
+    const ptr=await storeMedia(scope,rawBuf,row.mime_type||'image/webp');
+    await pool.query(`UPDATE ${table} SET content=$2 WHERE id=$1`,[row.id,ptr]);
+    migrated++;
+   }
+  }catch(_){}
+ }
+ return {migrated,purgedOrphanNewsImages};
+}
+module.exports={storeMedia,storeUpload,storeStagedMedia,removeUploadedMedia,readMedia,readMediaRange,openMediaStream,metadata,pointer,PREFIX,migrateLegacyBlobsToDisk};

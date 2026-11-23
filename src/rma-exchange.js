@@ -56,8 +56,22 @@ async function exchangeOptions(pool, caseId) {
   if (!row) throw fail('Không tìm thấy hồ sơ RMA.', 404);
   const issue = await readIssue(pool, caseId), items = await sourceItems(pool, row.order_id);
   const warehouses = (await pool.query('SELECT id,code,name FROM warehouses WHERE active=true ORDER BY code')).rows;
+  const productIds = [...new Set(items.map(item => item.productId).filter(Boolean))];
+  const allProductVariants = productIds.length
+    ? (await pool.query(
+        `SELECT v.id AS "variantId",v.product_id AS "productId",v.sku,v.name,v.price_vnd AS "priceVnd"
+         FROM product_variants v JOIN products p ON p.id=v.product_id
+         WHERE v.product_id=ANY($1::uuid[]) AND v.active=true AND p.active=true AND p.deleted_at IS NULL
+         ORDER BY v.sku`,
+        [productIds]
+      )).rows
+    : [];
   for (const item of items) {
-    item.candidates = item.productId ? (await pool.query(`SELECT v.id AS "variantId",v.sku,v.name,v.price_vnd AS "priceVnd" FROM product_variants v JOIN products p ON p.id=v.product_id WHERE v.product_id=$1 AND v.active=true AND p.active=true AND p.deleted_at IS NULL AND (v.id=$2 OR v.price_vnd=$3) ORDER BY v.sku`, [item.productId, item.variantId, item.unitPriceVnd])).rows : [];
+    item.candidates = item.productId
+      ? allProductVariants
+          .filter(v => v.productId === item.productId && (v.variantId === item.variantId || Number(v.priceVnd) === Number(item.unitPriceVnd)))
+          .map(({ productId: _pid, ...c }) => ({ ...c }))
+      : [];
   }
   const allCandidateIds = [...new Set(items.flatMap(item => item.candidates.map(c => c.variantId)))];
   const stockByVariant = new Map();

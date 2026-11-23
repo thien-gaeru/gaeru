@@ -115,3 +115,31 @@ test('2026-11-23 Full Audit Wave 5: Top-layer dialog stacking, RegExp /v pattern
   assert.match(storeApiJs, /semanticSearchCache\.clear\(\)/);
   assert.match(bundlesJs, /AND v\.active = true AND p\.active = true AND p\.deleted_at IS NULL/);
 });
+
+test('2026-11-23 Full Audit Wave 6 (U1-U4): AI Chat fast-read guard, DB hot indexes, waybill stock allocation, batch N+1 queries, disk media migration, and searchable SKU picker', () => {
+  const aiChatJs = read('src/shopping-chat-ai-first.js');
+  const hotIndexesSql = read('db/audit-hot-indexes-20261120.sql');
+  const shippingJs = read('src/shipping-management.js');
+  const warrantyApiJs = read('src/warranty-api.js');
+  const marketingJs = read('src/marketing.js');
+  const rmaExchangeJs = read('src/rma-exchange.js');
+  const storedMediaJs = read('src/lib/stored-media.js');
+  const enterpriseJs = read('admin/enterprise.js');
+
+  // U1: Fast-read guard before opening transaction & new hot indexes
+  assert.match(aiChatJs, /SELECT EXISTS \(SELECT 1 FROM shopping_chat_ai_jobs WHERE status='pending'/);
+  assert.match(hotIndexesSql, /idx_shopping_chat_ai_jobs_active/);
+  assert.match(hotIndexesSql, /idx_audit_events_created_id_desc/);
+
+  // U2: Waybill stock allocation on pending order, SSE invalidation, and warranty email worker nudge
+  assert.match(shippingJs, /SELECT 1 FROM order_stock_allocations WHERE order_id = \$1 AND released_at IS NULL/);
+  assert.match(warrantyApiJs, /nudgeWarrantyEmailWorker\?\.\(\)/);
+
+  // U3: Batch ANY($1::uuid[]) queries in marketing quote and rma-exchange
+  assert.match(marketingJs, /WHERE v\.id=ANY\(\$1::uuid\[\]\) AND v\.active=true/);
+  assert.match(rmaExchangeJs, /WHERE v\.product_id=ANY\(\$1::uuid\[\]\) AND v\.active=true/);
+
+  // U4: Legacy bytea blob migration to disk & searchable SKU picker in enterprise.js
+  assert.match(storedMediaJs, /async function migrateLegacyBlobsToDisk\(pool\)/);
+  assert.match(enterpriseJs, /data-e-sku-filter/);
+});

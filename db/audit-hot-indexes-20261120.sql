@@ -22,3 +22,14 @@ CREATE INDEX IF NOT EXISTS idx_orders_lower_email
 
 CREATE INDEX IF NOT EXISTS idx_orders_customer_created_desc
   ON orders (customer_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_shopping_chat_ai_jobs_active
+  ON shopping_chat_ai_jobs (status, created_at, id)
+  WHERE status IN ('pending', 'running');
+
+CREATE INDEX IF NOT EXISTS idx_shopping_chat_threads_human_timeout
+  ON shopping_chat_threads (handoff_started_at)
+  WHERE status = 'open' AND handling_mode = 'human' AND handoff_started_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_created_id_desc
+  ON audit_events (created_at DESC, id DESC);

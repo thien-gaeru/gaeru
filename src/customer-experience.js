@@ -8,7 +8,7 @@ const { checkReturnEligibility, createCustomerReturnRequest } = require('./order
 const addressSchema = z.object({label:z.string().trim().min(1).max(60),fullName:z.string().trim().min(2).max(120),phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/),address:z.string().trim().min(5).max(250),city:z.string().trim().min(2).max(120),isDefault:z.boolean().default(false)}).strict();
 const fields = 'id, label, full_name AS "fullName", phone, address, city, is_default AS "isDefault"';
 
-function createCustomerExperience(pool, { inventory = null, audit = null } = {}) {
+function createCustomerExperience(pool, { inventory = null, audit = null, config = {} } = {}) {
   const router = Router();
 
   router.use(async (req, res, next) => {
@@ -264,6 +264,9 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
         });
       });
       try {
+        require('./cache').invalidateTags(['orders', `order:${req.params.id}`], { immediate: true });
+      } catch (_) {}
+      try {
         require('./realtime-sse').publishAdminEvent('after_sales:new', {
           id: result?.id,
           orderId: req.params.id,
@@ -273,7 +276,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null } = {})
         });
       } catch (_) {}
       try {
-        require('./admin-notifications').notifyAdminPushBackground(pool, {}, {
+        require('./admin-notifications').notifyAdminPushBackground(pool, config || {}, {
           requiredPermissions: ['orders.read'],
           title: '🔄 Yêu cầu đổi trả / hoàn tiền mới',
           body: `${result?.rma_number || req.params.id} · ${parsed.data.returnType === 'refund' ? 'Hoàn tiền' : 'Đổi hàng'}`.slice(0, 160),

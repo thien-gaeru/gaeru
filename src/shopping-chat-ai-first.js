@@ -52,7 +52,14 @@ async function resumeAI(client,id,reason='staff_timeout'){
   return true;
 }
 async function resumeTimedOutHumanThreads(pool){
+  if (typeof pool?.query === 'function') {
+    const hasCandidate = (await pool.query(
+      "SELECT EXISTS (SELECT 1 FROM shopping_chat_threads WHERE status='open' AND handling_mode='human' AND handoff_started_at IS NOT NULL AND handoff_started_at <= now() - interval '300 seconds') AS has_candidate"
+    ).catch(() => null))?.rows?.[0]?.has_candidate;
+    if (hasCandidate === false) return 0;
+  }
   let count=0;
+  const resumedEvents = [];
   await withTransaction(pool,async c=>{
     const rows=(await c.query(`
       SELECT t.id
@@ -71,12 +78,21 @@ async function resumeTimedOutHumanThreads(pool){
       LIMIT 10
     `)).rows;
     for(const r of rows){
-      if(await resumeAI(c,r.id,'staff_timeout'))count++;
+      if(await resumeAI(c,r.id,'staff_timeout')){
+        count++;
+        resumedEvents.push(r.id);
+      }
     }
   });
   return count;
 }
 async function processAIChat(pool,config,{decisionFn,transport}={}){
+  if (typeof pool?.query === 'function') {
+    const hasWork = (await pool.query(
+      "SELECT EXISTS (SELECT 1 FROM shopping_chat_ai_jobs WHERE status='pending' OR (status='running' AND started_at < now() - interval '45 seconds')) AS has_work"
+    ).catch(() => null))?.rows?.[0]?.has_work;
+    if (hasWork === false) return false;
+  }
   const job=await withTransaction(pool,async c=>{
     const stale=(await c.query("UPDATE shopping_chat_ai_jobs SET status='failed' WHERE status='running' AND started_at<now()-interval '45 seconds' RETURNING thread_id")).rows;
     for(const row of stale)await offerHandoff(c,row.thread_id,'ai_interrupted','AI hiện chưa thể tiếp tục trả lời. Chọn Gặp nhân viên để được hỗ trợ.');

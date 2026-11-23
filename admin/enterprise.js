@@ -268,6 +268,9 @@
     await lookups({ suppliers: true });
     showEditor("inventory", `<h2>Lập đơn mua theo gợi ý ROP</h2><p class="help-text">Tạo nhanh đơn mua hàng cho sản phẩm <strong>${h(item.productName)} · ${h(item.variantName)}</strong> tại kho <strong>${h(item.warehouseName)}</strong></p><form class="form-grid" data-e-form="rop-po"><input type="hidden" name="warehouseId" value="${h(item.warehouseId)}"><input type="hidden" name="variantId" value="${h(item.variantId)}">${select("Nhà cung cấp", "supplierId", '<option value="">Chọn nhà cung cấp</option>' + options(e.lookup.suppliers), "required")}${field("Số lượng đề xuất đặt", "quantity", item.suggestedOrderQuantity, 'type="number" min="1" required')}${field("Đơn giá nhập dự kiến (₫)", "unitCostVnd", item.costPriceVnd, 'type="number" min="0" required')}${field("Số chứng từ / tham chiếu", "reference", "", 'maxlength="120"')}${noteField()}${submit("Xác nhận tạo đơn mua")}</form>`);
   }
+  function variantSelect(markup, extra = "") {
+    return `<label class="sku-picker-label">Phiên bản / SKU<input type="search" class="sku-quick-filter" data-e-sku-filter placeholder="Gõ mã SKU hoặc tên để lọc nhanh…" autocomplete="off" aria-label="Lọc nhanh phiên bản SKU"><select name="variantId" ${extra}>${markup}</select></label>`;
+  }
   let inventoryEditorRequest=0;
   async function inventoryEditor(type, entry = null) {
     if (!can(type === "adjustment" ? "inventory.approve" : "inventory.write")) return;
@@ -276,7 +279,7 @@
     const variants = e.lookup.variants.length ? e.lookup.variants : [...new Map(stock.map((item) => [item.variantId, { id: item.variantId, sku: item.sku, name: item.variantName, productName: item.productName }])).values()];
     const variantOptions = options(variants, entry?.variantId, (item) => `${item.sku} · ${item.productName} · ${item.name}`);
     const whOptions = options(e.lookup.warehouses.filter((item) => item.active !== false), entry?.warehouseId);
-    showEditor("inventory", `<h2>${type === "adjustment" ? "Điều chỉnh tồn kho" : "Điều chuyển kho"}</h2><p class="help-text">${type === "adjustment" ? "Nhập chênh lệch tăng hoặc giảm so với tồn hiện tại. Phải kiểm tra số lượng trước khi ghi nhận." : "Kho nguồn sẽ giảm và kho đích sẽ tăng cùng số lượng trong một lần ghi nhận."}</p><form class="form-grid" data-e-form="${type}"><input type="hidden" name="requestKey" value="${key()}">${select("Phiên bản / SKU", "variantId", '<option value="">Chọn phiên bản</option>' + variantOptions, "required")}${select(type === "adjustment" ? "Kho hàng" : "Kho nguồn", type === "adjustment" ? "warehouseId" : "fromWarehouseId", '<option value="">Chọn kho</option>' + whOptions, "required")}${type === "transfer" ? select("Kho đích", "toWarehouseId", '<option value="">Chọn kho</option>' + whOptions, "required") : field("Tồn hiện tại đã kiểm tra", "expectedQuantity", entry?.quantity ?? "", 'type="number" min="0" step="1" required')}${field(type === "adjustment" ? "Chênh lệch (+ tăng / − giảm)" : "Số lượng chuyển", type === "adjustment" ? "delta" : "quantity", "", `type="number" ${type === "transfer" ? 'min="1"' : ""} step="1" required`)}<label class="span-all">Lý do<textarea name="reason" maxlength="1000" required rows="2"></textarea></label>${submit(type === "adjustment" ? "Kiểm tra & ghi nhận" : "Kiểm tra & điều chuyển")}</form>`);
+    showEditor("inventory", `<h2>${type === "adjustment" ? "Điều chỉnh tồn kho" : "Điều chuyển kho"}</h2><p class="help-text">${type === "adjustment" ? "Nhập chênh lệch tăng hoặc giảm so với tồn hiện tại. Phải kiểm tra số lượng trước khi ghi nhận." : "Kho nguồn sẽ giảm và kho đích sẽ tăng cùng số lượng trong một lần ghi nhận."}</p><form class="form-grid" data-e-form="${type}"><input type="hidden" name="requestKey" value="${key()}">${variantSelect('<option value="">Chọn phiên bản</option>' + variantOptions, "required")}${select(type === "adjustment" ? "Kho hàng" : "Kho nguồn", type === "adjustment" ? "warehouseId" : "fromWarehouseId", '<option value="">Chọn kho</option>' + whOptions, "required")}${type === "transfer" ? select("Kho đích", "toWarehouseId", '<option value="">Chọn kho</option>' + whOptions, "required") : field("Tồn hiện tại đã kiểm tra", "expectedQuantity", entry?.quantity ?? "", 'type="number" min="0" step="1" required')}${field(type === "adjustment" ? "Chênh lệch (+ tăng / − giảm)" : "Số lượng chuyển", type === "adjustment" ? "delta" : "quantity", "", `type="number" ${type === "transfer" ? 'min="1"' : ""} step="1" required`)}<label class="span-all">Lý do<textarea name="reason" maxlength="1000" required rows="2"></textarea></label>${submit(type === "adjustment" ? "Kiểm tra & ghi nhận" : "Kiểm tra & điều chuyển")}</form>`);
   }
   async function loadMovements(page = 1) {
     const params = queryFor("inventory"); params.set("page", String(page));
@@ -292,7 +295,7 @@
     await loadList("purchases", "/purchase-orders", "purchaseOrders", (rows) => rows.length ? table(["Đơn mua", "Nhà cung cấp / kho", "Giá trị", "Trạng thái", ""], rows.map((entry) => row([`<strong>${h(entry.number)}</strong><small>${date(entry.createdAt)}</small>`, `${h(entry.supplierName)}<small>${h(entry.warehouseName)}</small>`, money(entry.totalVnd), badge(entry.status), `<button class="row-button" data-e-purchase="${h(entry.id)}">Chi tiết</button>`]))) : empty("Chưa có đơn mua phù hợp."));
   }
   function purchaseLine() {
-    return `<div class="purchase-line">${select("Phiên bản / SKU", "variantId", '<option value="">Chọn phiên bản</option>' + options(e.lookup.variants, "", (item) => `${item.sku} · ${item.productName} · ${item.name}`), "required")}${field("Số lượng đặt", "quantity", "1", 'type="number" min="1" step="1" required')}${field("Đơn giá nhập (₫)", "unitCostVnd", "", 'type="number" min="0" step="1" required')}<button type="button" class="plain-button" data-e-remove-line>Xóa dòng</button></div>`;
+    return `<div class="purchase-line">${variantSelect('<option value="">Chọn phiên bản</option>' + options(e.lookup.variants, "", (item) => `${item.sku} · ${item.productName} · ${item.name}`), "required")}${field("Số lượng đặt", "quantity", "1", 'type="number" min="1" step="1" required')}${field("Đơn giá nhập (₫)", "unitCostVnd", "", 'type="number" min="0" step="1" required')}<button type="button" class="plain-button" data-e-remove-line>Xóa dòng</button></div>`;
   }
   async function purchaseEditor() {
     if (!can("purchases.write")) return;
@@ -650,6 +653,25 @@
         } finally { if (admin.setButtonBusy) admin.setButtonBusy(button, false); else button.disabled = false; }
       } else if (button.dataset.eReload) await loadView(button.dataset.eReload);
     } catch (error) { button.disabled = false; admin.showGlobal(error.message, true); }
+  });
+  document.addEventListener("input", (event) => {
+    if (event.target.matches('.enterprise-view [data-e-sku-filter]')) {
+      const input = event.target;
+      const selectEl = input.parentElement?.querySelector('select[name="variantId"]');
+      if (!selectEl) return;
+      const q = String(input.value || "").trim().toLocaleLowerCase("vi");
+      let firstMatch = null;
+      for (const opt of selectEl.options) {
+        if (!opt.value) continue;
+        const matched = !q || opt.textContent.toLocaleLowerCase("vi").includes(q);
+        opt.hidden = !matched;
+        if (matched && !firstMatch) firstMatch = opt;
+      }
+      if (q && firstMatch && (!selectEl.value || selectEl.selectedOptions[0]?.hidden)) {
+        selectEl.value = firstMatch.value;
+        selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
   });
   document.addEventListener("change", (event) => {
     if (event.target.matches('.enterprise-view [data-e-form="staff"] [name="role"]')) renderRolePermissions(event.target.closest("form"));
