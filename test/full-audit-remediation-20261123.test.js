@@ -341,6 +341,7 @@ test('2026-11-24 Wave 9: Premium quick-add-to-cart modal renders images, prices,
   // Prevent iOS WebKit <dialog> collapse to 2px white line: never use height:100% or min-height:0 on .qc-shell
   assert.doesNotMatch(quickCss, /\.quick-cart-premium \.qc-shell\s*\{[^}]*height:\s*100%/);
   assert.doesNotMatch(quickCss, /\.quick-cart-premium \.qc-shell\s*\{[^}]*min-height:\s*0/);
+  assert.match(quickCss, /\.quick-cart-dialog\.quick-cart-premium\s*\{[^}]*height:\s*fit-content/);
   assert.match(quickCss, /\.quick-cart-dialog\.quick-cart-premium\[open\]\s*\{[^}]*display:\s*block/);
 
   const fixtureProducts = [{
