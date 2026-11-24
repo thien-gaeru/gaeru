@@ -86,7 +86,8 @@ async function request(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
   if (method !== "GET") headers.set("X-CSRF-Token", state.csrfToken);
-  let response = await fetch(url, { ...options, headers, credentials: "same-origin" });
+  const signal = options.signal || (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(30000) : undefined);
+  let response = await fetch(url, { ...options, headers, credentials: "same-origin", ...(signal ? { signal } : {}) });
   // Safe single automatic retry ONLY for idempotent GET on transient upstream 502/503/504
   if (method === "GET" && [502, 503, 504].includes(response.status) && !options._retried) {
     await new Promise((resolve) => setTimeout(resolve, 450));

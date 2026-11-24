@@ -176,6 +176,15 @@ async function start() {
     scheduleWorker(() => { stopChatFileRetention = require('./shopping-chat-file-retention').startChatFileRetentionWorker(lowPriorityPool); }, 4500);
     scheduleWorker(() => { stopRetention = require("./account-retention").startRetentionWorker(lowPriorityPool); }, 5000);
     scheduleWorker(() => { require("./shipping-adapters").syncViettelProvinceCatalog().catch(() => {}); }, 5500);
+    scheduleWorker(() => {
+      const { releaseExpiredCheckoutIntents } = require("./store-api");
+      void releaseExpiredCheckoutIntents(lowPriorityPool).catch(() => {});
+      const intentSweepTimer = setInterval(() => {
+        if (!shuttingDown) void releaseExpiredCheckoutIntents(lowPriorityPool).catch(() => {});
+      }, 60000);
+      intentSweepTimer.unref?.();
+      workerTimeouts.push(intentSweepTimer);
+    }, 6000);
   }
   if (!backgroundJobsEnabled) console.log('Background jobs disabled on this host; HTTP serving remains enabled.');
 

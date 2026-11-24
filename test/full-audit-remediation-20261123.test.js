@@ -165,6 +165,15 @@ test('2026-11-24 Wave 7: Article image permission guard, non-cacheable error res
   assert.match(appJs, /res\.removeHeader\('ETag'\)/);
   assert.match(appJs, /res\.set\('Cache-Control', 'no-store, no-cache, must-revalidate'\)/);
 
-  // 4. Admin news table displays cover image thumbnail preview per article row
+  // 4. Admin news table displays cover image thumbnail preview per article row and uses hasMore pagination flag
   assert.match(adminNewsJs, /width="64" height="40" loading="lazy"/);
+  assert.match(adminNewsJs, /data\.hasMore===false\|\|rows\.length<25/);
+
+  // 5. Periodic checkout intent sweep, forecast PO random fallback, and admin request default AbortSignal timeout
+  const serverJs = read('src/server.js');
+  const forecastJs = read('src/inventory-forecast.js');
+  const adminJs = read('admin/admin.js');
+  assert.match(serverJs, /releaseExpiredCheckoutIntents\(lowPriorityPool\)/);
+  assert.match(forecastJs, /attempt >= 18/);
+  assert.match(adminJs, /AbortSignal\.timeout\(30000\)/);
 });

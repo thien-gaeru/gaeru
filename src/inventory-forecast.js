@@ -674,7 +674,9 @@ async function createPurchaseOrderFromForecast(pool, {
       const dup = await client.query('SELECT 1 FROM purchase_orders WHERE number = $1 LIMIT 1', [poNumber]);
       if (!dup.rows.length) break;
       nextNum += 1;
-      poNumber = `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
+      poNumber = attempt >= 18
+        ? `PO-${currentYear}-${require('node:crypto').randomBytes(4).toString('hex').toUpperCase()}`
+        : `PO-${currentYear}-${String(nextNum).padStart(5, '0')}`;
     }
 
     // 4. Deduplicate items by variantId & calculate total
