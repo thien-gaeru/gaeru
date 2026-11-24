@@ -17,7 +17,7 @@ async function verifyFile(target,key,size,expectedHash,{library=false}={}){
  for(const part of parts.slice(0,-1)){directory=path.join(directory,part);const st=await fs.lstat(directory);if(!st.isDirectory()||st.isSymbolicLink()||await fs.realpath(directory)!==directory)throw Error('MEDIA_DIRECTORY_INVALID');}
  const file=path.join(directory,parts.at(-1)),before=await fs.lstat(file);if(!before.isFile()||before.isSymbolicLink())throw Error('MEDIA_FILE_INVALID');
  const handle=await fs.open(file,constants.O_RDONLY|(constants.O_NOFOLLOW||0));
- try{const st=await handle.stat();if(!st.isFile()||st.size!==size)throw Error('MEDIA_INTEGRITY_MISMATCH');const digest=createHash('sha256');for await(const chunk of handle.createReadStream({autoClose:false}))digest.update(chunk);if(digest.digest('hex')!==expectedHash)throw Error('MEDIA_INTEGRITY_MISMATCH');}finally{await handle.close();}
+ try{const st=await handle.stat();if(!st.isFile()||st.size!==size)throw Error('MEDIA_INTEGRITY_MISMATCH');if(typeof process.getuid==='function'&&process.getuid()===0){try{const dirSt=await fs.lstat(directory);if(st.uid!==dirSt.uid||st.gid!==dirSt.gid)await handle.chown(dirSt.uid,dirSt.gid);}catch{}}const digest=createHash('sha256');for await(const chunk of handle.createReadStream({autoClose:false}))digest.update(chunk);if(digest.digest('hex')!==expectedHash)throw Error('MEDIA_INTEGRITY_MISMATCH');}finally{await handle.close();}
 }
 async function localizeCopiedMedia(pool,{target=disk,publishStatus=true}={}){
  const publish=result=>{if(publishStatus)last=result;return result;};

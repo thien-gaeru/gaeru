@@ -693,6 +693,11 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
 
   app.use((error, req, res, _next) => {
     if (res.headersSent) return;
+    res.removeHeader('ETag');
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('CDN-Cache-Control', 'no-store');
+    res.set('Cloudflare-CDN-Cache-Control', 'no-store');
+    res.type('application/json');
     if(error.code==='IMAGE_PROCESSING_BUSY')return res.status(503).json({error:'Đang tối ưu nhiều ảnh. Vui lòng thử lại sau.'});
     if(error.code==='MEDIA_STORAGE_UNAVAILABLE')return res.status(503).json({error:'Chưa lưu được tệp vào kho lưu trữ. Vui lòng thử lại.'});
     const status = Number.isInteger(error.status) ? error.status : error.statusCode;

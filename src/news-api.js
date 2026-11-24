@@ -1,6 +1,6 @@
 const {rateLimit}=require('express-rate-limit');
 const publicImageReadLimiter=rateLimit({windowMs:900000,limit:1800,standardHeaders:'draft-8',legacyHeaders:false});
-const adminImageReadLimiter=rateLimit({windowMs:900000,limit:120,standardHeaders:'draft-8',legacyHeaders:false});
+const adminImageReadLimiter=rateLimit({windowMs:900000,limit:600,standardHeaders:'draft-8',legacyHeaders:false});
 const {storeUpload,readMedia}=require('./lib/stored-media');
 const {sendPublicImage,getCachedImageRow}=require('./lib/image-renditions');
 const {normalizeBrandText}=require('./primary-domain');

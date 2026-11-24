@@ -59,9 +59,9 @@ async function writeDiskRendition(version, bytes) {
   try {
     const filePath = getRenditionFilePath(version);
     const dir = path.dirname(filePath);
-    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    await fs.mkdir(dir, { recursive: true, mode: 0o755 });
     const tempPath = path.join(dir, '.' + version.slice(0, 12) + '-' + process.pid + '-' + randomUUID().slice(0, 8) + '.tmp');
-    await fs.writeFile(tempPath, bytes, { mode: 0o600 });
+    await fs.writeFile(tempPath, bytes, { mode: 0o644 });
     await fs.rename(tempPath, filePath).catch(async () => {
       await fs.unlink(tempPath).catch(() => {});
     });
@@ -309,9 +309,9 @@ async function sendPublicImage(req, res, row, namespace) {
       if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
     }
     const rawEtag = '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"';
+    const bytes = process.env.MEDIA_CACHE_ENABLED !== 'false' ? await cache.get(rawVersion, () => readMedia(row.content)) : await readMedia(row.content);
     res.type(row.mime_type).set(buildImageHeaders(rawEtag, requestedFormat === 'avif'));
     if (req.fresh) return res.status(304).end();
-    const bytes = process.env.MEDIA_CACHE_ENABLED !== 'false' ? await cache.get(rawVersion, () => readMedia(row.content)) : await readMedia(row.content);
     return res.send(bytes);
   }
 
@@ -333,9 +333,9 @@ async function sendPublicImage(req, res, row, namespace) {
   if (!webpBytes) {
     if (isDiskRenditionCacheEnabled()) enqueueImageWarm(row);
     const rawEtag = '"gaeru-' + namespace + '-' + req.params.id + '-' + rawVersion + '"';
+    const rawBytes = process.env.MEDIA_CACHE_ENABLED !== 'false' ? await cache.get(rawVersion, () => readMedia(row.content)) : await readMedia(row.content);
     res.type(row.mime_type).set(buildImageHeaders(rawEtag, true));
     if (req.fresh) return res.status(304).end();
-    const rawBytes = process.env.MEDIA_CACHE_ENABLED !== 'false' ? await cache.get(rawVersion, () => readMedia(row.content)) : await readMedia(row.content);
     return res.send(rawBytes);
   }
 

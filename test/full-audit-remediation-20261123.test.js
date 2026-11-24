@@ -143,3 +143,28 @@ test('2026-11-23 Full Audit Wave 6 (U1-U4): AI Chat fast-read guard, DB hot inde
   assert.match(storedMediaJs, /async function migrateLegacyBlobsToDisk\(pool\)/);
   assert.match(enterpriseJs, /data-e-sku-filter/);
 });
+
+test('2026-11-24 Wave 7: Article image permission guard, non-cacheable error response hardening, and admin news thumbnails', () => {
+  const fsMediaJs = read('src/lib/filesystem-media.js');
+  const renditionsJs = read('src/lib/image-renditions.js');
+  const appJs = read('src/app.js');
+  const mediaAuditJs = read('src/media-storage-audit.js');
+  const adminNewsJs = read('admin/news.js');
+
+  // 1. Public media scopes use 0o644 and match parent directory owner when executed as root
+  assert.match(fsMediaJs, /async function matchDirOwner\(handle,dir\)/);
+  assert.match(fsMediaJs, /const fileMode=\['chat','care','documents'\]\.includes\(scope\)\?0o600:0o644/);
+  assert.match(mediaAuditJs, /if\(st\.uid!==dirSt\.uid\|\|st\.gid!==dirSt\.gid\)await handle\.chown\(dirSt\.uid,dirSt\.gid\)/);
+
+  // 2. sendPublicImage resolves readMedia bytes BEFORE setting Cache-Control/ETag/Content-Type headers
+  const rawIdx = renditionsJs.indexOf('const bytes = process.env.MEDIA_CACHE_ENABLED');
+  const headerIdx = renditionsJs.indexOf('res.type(row.mime_type).set(buildImageHeaders(rawEtag, requestedFormat === \'avif\'))');
+  assert.ok(rawIdx > 0 && headerIdx > rawIdx, 'readMedia must resolve before setting public cache headers');
+
+  // 3. Global error handler strips ETag and enforces Cache-Control: no-store and application/json
+  assert.match(appJs, /res\.removeHeader\('ETag'\)/);
+  assert.match(appJs, /res\.set\('Cache-Control', 'no-store, no-cache, must-revalidate'\)/);
+
+  // 4. Admin news table displays cover image thumbnail preview per article row
+  assert.match(adminNewsJs, /width="64" height="40" loading="lazy"/);
+});
