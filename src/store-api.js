@@ -1384,7 +1384,12 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
               const balances = balancesRes.rows;
               const sumBalances = balances.reduce((s, r) => s + r.quantity, 0);
               if (sumBalances !== item.stockQuantity) {
-                throw Object.assign(new Error("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi."), { status: 409 });
+                if (balances.length > 0 && Number.isSafeInteger(sumBalances) && sumBalances >= 0) {
+                  await client.query("UPDATE product_variants SET stock_quantity = $2, updated_at = now() WHERE id = $1", [item.id, sumBalances]);
+                  item.stockQuantity = sumBalances;
+                } else {
+                  throw Object.assign(new Error("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi."), { status: 409 });
+                }
               }
               const activeBalances = balances.filter((r) => r.active).sort((a, b) => Number(b.code === "MAIN") - Number(a.code === "MAIN"));
               const activeAvailable = activeBalances.reduce((s, r) => s + r.quantity, 0);

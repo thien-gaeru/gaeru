@@ -109,6 +109,22 @@ test("adjustments reject stale counts and negative balances before changing stoc
   assert.equal(state.quantity, 4);
   assert.equal(state.balances.get(mainId), 1);
   assert.equal(state.audit.length, 1);
+
+  // Self-heals drifted aggregate stock_quantity (e.g. 501 vs warehouse sum 495) before applying +5 adjustment
+  const drifted = memoryClient({ quantity: 501, balances: [[mainId, 495]] });
+  const healed = await inventory.adjustWarehouseStock(drifted.client, {
+    warehouseId: mainId,
+    variantId,
+    delta: 5,
+    expectedQuantity: 495,
+    reason: "tăng lên",
+    requestKey: "adjustment-m3-g5-heal",
+    actor
+  });
+  assert.equal(healed.quantity, 500);
+  assert.equal(healed.aggregateQuantity, 500);
+  assert.equal(drifted.state.quantity, 500);
+  assert.equal(drifted.state.balances.get(mainId), 500);
 });
 
 test("opening balances do not double-count aggregate stock or create zero movements", async () => {

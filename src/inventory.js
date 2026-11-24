@@ -58,8 +58,14 @@ async function allBalances(client, variantId) {
   return result.rows;
 }
 
-function verifyBalanceTotal(variant, balances) {
-  if (balances.reduce((sum, row) => sum + row.quantity, 0) !== variant.stockQuantity) {
+async function verifyBalanceTotal(client, variant, balances) {
+  const total = balances.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  if (total !== variant.stockQuantity) {
+    if (balances.length > 0 && Number.isSafeInteger(total) && total >= 0 && total <= MAX_STOCK) {
+      await updateAggregate(client, variant.id, total);
+      variant.stockQuantity = total;
+      return;
+    }
     throw operationError("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi.");
   }
 }
@@ -106,7 +112,7 @@ async function setVariantStock(client, { variantId, quantity, actor, reason = "C
   validateQuantity(quantity);
   const variant = await lockVariant(client, variantId);
   const balances = await allBalances(client, variantId);
-  verifyBalanceTotal(variant, balances);
+  await verifyBalanceTotal(client, variant, balances);
   const difference = quantity - variant.stockQuantity;
   if (!difference) return;
   const referenceId = randomUUID();
@@ -145,7 +151,7 @@ async function reserveStock(client, { variantId, quantity, orderId, actor, wareh
     return;
   }
   const balances = await allBalances(client, variantId);
-  verifyBalanceTotal(variant, balances);
+  await verifyBalanceTotal(client, variant, balances);
   const eligibleBalances = warehouseId
     ? balances.filter((row) => row.active && row.warehouseId === warehouseId)
     : balances.filter((row) => row.active).sort((a, b) => Number(b.code === "MAIN") - Number(a.code === "MAIN"));
@@ -191,7 +197,7 @@ async function releaseOrderStock(client, { orderId, actor, reason } = {}) {
       const previous = await client.query("SELECT id FROM inventory_movements WHERE event_key=$1", [eventKey]);
       if (previous.rows.length) continue;
       const balances = await allBalances(client, item.variantId);
-      verifyBalanceTotal(variant, balances);
+      await verifyBalanceTotal(client, variant, balances);
       const warehouseId = await getMainWarehouse(client);
       await lockWarehouse(client, warehouseId);
       const before = await lockBalance(client, warehouseId, item.variantId);
@@ -212,7 +218,7 @@ async function releaseOrderStock(client, { orderId, actor, reason } = {}) {
        WHERE order_id=$1 AND variant_id=$2 AND released_at IS NULL ORDER BY warehouse_id FOR UPDATE`, [orderId, variantId]
     );
     const balances = await allBalances(client, variantId);
-    verifyBalanceTotal(variant, balances);
+    await verifyBalanceTotal(client, variant, balances);
     let released = 0;
     for (const allocation of allocations.rows) {
       const before = await lockBalance(client, allocation.warehouseId, variantId);
@@ -240,7 +246,7 @@ async function restoreOrderStock(client,{orderId,items,requestKey,actor}){
   for(const item of [...items].sort((a,b)=>a.variantId.localeCompare(b.variantId))){
     validateQuantity(item.quantity,{allowZero:false});
     const variant=await lockVariant(client,item.variantId),balances=await allBalances(client,item.variantId);
-    verifyBalanceTotal(variant,balances);
+    await verifyBalanceTotal(client,variant,balances);
     if(variant.stockQuantity<item.quantity||balances.filter(b=>b.active).reduce((n,b)=>n+b.quantity,0)<item.quantity)throw operationError('Không đủ tồn kho khả dụng để khôi phục đơn.');
     let remaining=item.quantity;
     for(const balance of balances.filter(b=>b.active)){
@@ -262,7 +268,7 @@ async function adjustWarehouseStock(client, { warehouseId, variantId, delta, exp
   const variant = await lockVariant(client, variantId);
   await lockWarehouse(client, warehouseId);
   const balances = await allBalances(client, variantId);
-  verifyBalanceTotal(variant, balances);
+  await verifyBalanceTotal(client, variant, balances);
   const before = await lockBalance(client, warehouseId, variantId);
   if (before !== expectedQuantity) throw operationError("Tồn kho đã thay đổi. Hãy tải lại số dư trước khi duyệt điều chỉnh.");
   validateQuantity(before + delta);
@@ -281,7 +287,7 @@ async function transferStock(client, { fromWarehouseId, toWarehouseId, variantId
   const variant = await lockVariant(client, variantId);
   for (const warehouseId of [fromWarehouseId, toWarehouseId].sort()) await lockWarehouse(client, warehouseId);
   const balances = await allBalances(client, variantId);
-  verifyBalanceTotal(variant, balances);
+  await verifyBalanceTotal(client, variant, balances);
   const from = await lockBalance(client, fromWarehouseId, variantId);
   const to = await lockBalance(client, toWarehouseId, variantId);
   if (from < quantity) throw operationError("Kho nguồn không đủ tồn khả dụng để chuyển.");
@@ -300,7 +306,7 @@ async function receiveStock(client, { warehouseId, variantId, quantity, receiptI
   const variant = await lockVariant(client, variantId);
   await lockWarehouse(client, warehouseId);
   const balances = await allBalances(client, variantId);
-  verifyBalanceTotal(variant, balances);
+  await verifyBalanceTotal(client, variant, balances);
   const before = await lockBalance(client, warehouseId, variantId);
   validateQuantity(variant.stockQuantity + quantity);
   await move(client, { variant, warehouseId, before, delta: quantity, type: "purchase_receipt",
