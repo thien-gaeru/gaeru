@@ -36,7 +36,8 @@ function fixture({ migrationError, pendingMigration = false, mediaCheck = { veri
       },
       auditMediaStorage: async (pool, options) => { calls.auditChecks.push(options); return { state: options.probeStatus.verified ? 'verified' : 'unavailable' }; }
     },
-    './shipping-adapters': { syncViettelProvinceCatalog: async () => { calls.catalogSyncs++; } }
+    './shipping-adapters': { syncViettelProvinceCatalog: async () => { calls.catalogSyncs++; } },
+    './store-api': { releaseExpiredCheckoutIntents: async () => {} }
   };
   const workerNames = {
     './shopping-chat-file-retention':'startChatFileRetentionWorker', './tiktok-ads':'startTikTokAdsWorker', './shopping-chat-ai-first':'startAIChatWorker',

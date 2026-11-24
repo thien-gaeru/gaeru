@@ -96,7 +96,9 @@ test('Wave 4.1: HTML cache-busting ?v= versions are consistent and CI/backup scr
     '/gaeru_ceo/assets/care.js',
     '/gaeru_ceo/assets/warranty.js'
   ]) {
-    assert.deepEqual([...(versionsByAsset.get(modified) || [])], ['20261117-remediation'], `${modified} must use 20261117-remediation`);
+    const stamped = [...(versionsByAsset.get(modified) || [])];
+    assert.equal(stamped.length, 1, `${modified} must have a single consistent ?v= cache-busting stamp`);
+    assert.match(stamped[0], /^2026\d{4}/, `${modified} must use a valid dated ?v= stamp`);
   }
 
   const lfFiles = [

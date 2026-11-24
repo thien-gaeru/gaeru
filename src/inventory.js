@@ -58,10 +58,10 @@ async function allBalances(client, variantId) {
   return result.rows;
 }
 
-async function verifyBalanceTotal(client, variant, balances) {
+async function verifyBalanceTotal(client, variant, balances, { reconcileAggregate = false } = {}) {
   const total = balances.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
   if (total !== variant.stockQuantity) {
-    if (balances.length > 0 && Number.isSafeInteger(total) && total >= 0 && total <= MAX_STOCK) {
+    if (reconcileAggregate && balances.length > 0 && Number.isSafeInteger(total) && total >= 0 && total <= MAX_STOCK) {
       await updateAggregate(client, variant.id, total);
       variant.stockQuantity = total;
       return;
@@ -268,9 +268,9 @@ async function adjustWarehouseStock(client, { warehouseId, variantId, delta, exp
   const variant = await lockVariant(client, variantId);
   await lockWarehouse(client, warehouseId);
   const balances = await allBalances(client, variantId);
-  await verifyBalanceTotal(client, variant, balances);
   const before = await lockBalance(client, warehouseId, variantId);
   if (before !== expectedQuantity) throw operationError("Tồn kho đã thay đổi. Hãy tải lại số dư trước khi duyệt điều chỉnh.");
+  await verifyBalanceTotal(client, variant, balances, { reconcileAggregate: true });
   validateQuantity(before + delta);
   validateQuantity(variant.stockQuantity + delta);
   await move(client, { variant, warehouseId, before, delta, type: "adjustment", eventKey: `adjustment:${requestKey}`,

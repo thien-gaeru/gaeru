@@ -106,6 +106,7 @@ if (typeof createApp.attachTransactionalCacheInvalidation === 'function') {
 let server;let mediaAuditTask=Promise.resolve();let staticMediaSyncTask=Promise.resolve();let stopRetention;let stopEmail;let stopWarrantyEmail;let stopChatEmail;let stopAIChat;let stopChatCompression;let stopCareEmail;let stopAbandonedCart;
 let resourceMonitor;
 let mediaRetryTimer = null;
+let intentSweepTimer = null;
 const workerTimeouts = [];
 function scheduleWorker(fn, delayMs) {
   if (shuttingDown) return;
@@ -179,11 +180,12 @@ async function start() {
     scheduleWorker(() => {
       const { releaseExpiredCheckoutIntents } = require("./store-api");
       void releaseExpiredCheckoutIntents(lowPriorityPool).catch(() => {});
-      const intentSweepTimer = setInterval(() => {
-        if (!shuttingDown) void releaseExpiredCheckoutIntents(lowPriorityPool).catch(() => {});
-      }, 60000);
-      intentSweepTimer.unref?.();
-      workerTimeouts.push(intentSweepTimer);
+      if (typeof setInterval !== "undefined") {
+        intentSweepTimer = setInterval(() => {
+          if (!shuttingDown) void releaseExpiredCheckoutIntents(lowPriorityPool).catch(() => {});
+        }, 60000);
+        intentSweepTimer?.unref?.();
+      }
     }, 6000);
   }
   if (!backgroundJobsEnabled) console.log('Background jobs disabled on this host; HTTP serving remains enabled.');
@@ -340,7 +342,11 @@ async function shutdown() {
     clearInterval(mediaRetryTimer);
     mediaRetryTimer = null;
   }
-  if (resourceMonitor) clearInterval(resourceMonitor);
+  if (intentSweepTimer && typeof clearInterval !== 'undefined') {
+    clearInterval(intentSweepTimer);
+    intentSweepTimer = null;
+  }
+  if (resourceMonitor && typeof clearInterval !== 'undefined') clearInterval(resourceMonitor);
   if (typeof clearTimeout !== 'undefined') workerTimeouts.forEach(t => clearTimeout(t));
 
   // 1. Immediately close long-running SSE connections and HTTP sockets

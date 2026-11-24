@@ -48,10 +48,6 @@ async function verifyWarehouseBalance(client, variantId, stockQuantity) {
   );
   const sum = balancesRes.rows.reduce((acc, row) => acc + Number(row.quantity), 0);
   if (sum !== Number(stockQuantity)) {
-    if (balancesRes.rows.length > 0 && Number.isSafeInteger(sum) && sum >= 0 && sum <= MAX_STOCK) {
-      await client.query("UPDATE product_variants SET stock_quantity = $2, updated_at = now() WHERE id = $1", [variantId, sum]);
-      return balancesRes.rows;
-    }
     throw fail("Tồn kho tổng chưa khớp các kho. Cần đối soát trước khi thay đổi.", 409);
   }
   return balancesRes.rows;

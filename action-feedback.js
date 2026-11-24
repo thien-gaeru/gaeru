@@ -208,11 +208,17 @@
         }
       };
       if (proto && !Object.prototype.hasOwnProperty.call(proto, 'showModal')) {
-        Object.defineProperty(proto, 'open', {
-          configurable: true,
-          get() { return this && this.tagName === 'DIALOG' ? this.hasAttribute('open') : false; },
-          set(v) { if (!this || this.tagName !== 'DIALOG') return; if (v) this.setAttribute('open', ''); else this.removeAttribute('open'); }
-        });
+        if (!('open' in testDlg)) {
+          Object.defineProperty(proto, 'open', {
+            configurable: true,
+            get() { return Boolean(this && this.tagName === 'DIALOG' && typeof this.hasAttribute === 'function' && this.hasAttribute('open')); },
+            set(v) {
+              if (!this || this.tagName !== 'DIALOG' || typeof this.hasAttribute !== 'function') return;
+              if (v) { if (!this.hasAttribute('open')) this.setAttribute('open', ''); }
+              else if (this.hasAttribute('open')) this.removeAttribute('open');
+            }
+          });
+        }
         proto.showModal = function () { if (this && this.tagName === 'DIALOG') openPolyfillDialog.call(this, true); };
         proto.show = function () { if (this && this.tagName === 'DIALOG') openPolyfillDialog.call(this, false); };
         proto.close = function (rv) { if (this && this.tagName === 'DIALOG') closePolyfillDialog.call(this, rv); };

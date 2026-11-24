@@ -26,7 +26,8 @@ function createAccountSecurity(pool,config,mailer){
  const openEncrypted=(value)=>require('./audit-fixes/encryption-key').openWithKeyFallback(value,encryptionKeys);
  if(mailer===undefined&&config.smtp)mailer=nodemailer.createTransport(require('./smtp-security').smtpOptions(config.smtp));
  const audit=(client,a,action)=>appendAudit(client,{actor:a.principal||{username:a.customer.id,source:"customer"},action,entityType:"account",entityId:a.key});
- const useSettingsCache=((config?.NODE_ENV||process.env.NODE_ENV)!=='test')||config?.ENABLE_L1_SECURITY_CACHE===true;
+ const isTestSecurityEnv=((config?.NODE_ENV||process.env.NODE_ENV)==='test')||Boolean(process.env.NODE_TEST_CONTEXT);
+ const useSettingsCache=(!isTestSecurityEnv)||config?.ENABLE_L1_SECURITY_CACHE===true;
  const settingsCache=useSettingsCache?new LRUCache({max:512,ttl:10000}):null;
  const purgeSecurityCache=key=>{if(!settingsCache)return;if(key)settingsCache.delete(key);else settingsCache.clear();try{invalidateTags(['account-security'],{immediate:true});}catch(_){}};
  if(settingsCache){try{cacheEvents.on('invalidated',(payload)=>{const tags=payload?.tags;if(!Array.isArray(tags)||tags.length===0||tags.some(t=>t==='*'||t==='account-security'))settingsCache.clear();});}catch(_){}}

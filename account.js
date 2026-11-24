@@ -215,7 +215,7 @@ function showCustomerProfile(customer, publish = true) {
   })();
   if (customer.phoneWarning || customer.regEmailWarning) {
     warningBanner.hidden = false;
-    const hours = customer.regEmailWarningRemainingHours || customer.phoneWarningRemainingHours || 12;
+    const hours = Math.max(1, Number(customer.regEmailWarningRemainingHours || customer.phoneWarningRemainingHours) || 12);
     let message = "";
     if (customer.regEmailWarning && customer.phoneWarning) {
       message = `Không thể gửi email thông báo đăng ký và số điện thoại chưa đúng định dạng chuẩn. Vui lòng cập nhật lại thông tin trong vòng <strong>${hours} giờ tới</strong> trước khi tài khoản bị khóa tự động.`;

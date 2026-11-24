@@ -12,7 +12,7 @@ const configRecordCaches=new WeakMap();
 const trackedConfigPools=new Set();
 function clearAllConfigRecordCaches(){for(const ref of [...trackedConfigPools]){const p=ref.deref();if(!p)trackedConfigPools.delete(ref);else configRecordCaches.delete(p);}}
 try{cacheEvents.on('invalidated',(payload)=>{const tags=payload?.tags;if(!Array.isArray(tags)||tags.length===0||tags.some(t=>t==='*'||t==='settings'||t==='store-config'))clearAllConfigRecordCaches();});}catch(_){}
-function isCacheableConfigRead(pool,config,strict){if(strict||!pool||typeof pool!=='object'||'release' in pool)return false;if((config?.NODE_ENV||process.env.NODE_ENV)==='test'&&config?.ENABLE_L1_CONFIG_CACHE!==true)return false;return true;}
+function isCacheableConfigRead(pool,config,strict){if(strict||!pool||typeof pool!=='object'||'release' in pool)return false;const isTest=((config?.NODE_ENV||process.env.NODE_ENV)==='test')||Boolean(process.env.NODE_TEST_CONTEXT);if(isTest&&config?.ENABLE_L1_CONFIG_CACHE!==true)return false;return true;}
 function getPoolRecordCache(pool){let c=configRecordCaches.get(pool);if(!c){c=new LRUCache({max:64,ttl:30000});configRecordCaches.set(pool,c);if(typeof WeakRef==='function')trackedConfigPools.add(new WeakRef(pool));}return c;}
 const names=['vnpay','payment_cod','payment_bank_transfer','payment_momo','payment_zalopay','misa','shopee','tiktok','lazada','shipping_viettel','shipping_jt','shipping_spx','oauth'];
 const secretApps=new Set(['misa','shopee','tiktok','lazada','shipping_viettel','shipping_jt','shipping_spx']);
