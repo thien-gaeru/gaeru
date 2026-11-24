@@ -215,14 +215,21 @@ test('2026-11-24 Wave 8: Mobile & legacy device compatibility (iOS 12-15.8 / And
   const bodyChildren = [];
   const fakeDoc = {
     body: { appendChild: (c) => bodyChildren.push(c) },
-    createElement: (tag) => { const el = makeFakeEl(tag); createdEls.push(el); return el; },
+    documentElement: {
+      appendChild: () => {},
+      classList: { add: () => {}, remove: () => {}, contains: () => false }
+    },
+    createTextNode: (t) => ({ nodeType: 3, textContent: String(t) }),
+    createElement: (tag) => { const el = makeFakeEl(tag); el.style = {}; el.scrollHeight = 1; el.appendChild = () => {}; createdEls.push(el); return el; },
     addEventListener: (ev, fn) => { docListeners[ev] = fn; },
     querySelectorAll: () => createdEls.filter((el) => el.tagName === 'DIALOG' && el.hasAttribute('open') && el.classList.contains('gaeru-dialog-polyfilled'))
   };
 
+  class FakeElement {}
   const sandbox = {
     window: {},
     document: fakeDoc,
+    Element: FakeElement,
     Event: FakeEvent,
     AbortController,
     AbortSignal: {},
@@ -253,6 +260,8 @@ test('2026-11-24 Wave 8: Mobile & legacy device compatibility (iOS 12-15.8 / And
     const atOk = [10, 20, 30].at(-1) === 30 && 'gaeru'.at(-1) === 'u';
     const flatOk = [1, [2, [3]]].flat(2).join(',') === '1,2,3' && [1, 2].flatMap(x => [x, x * 2]).join(',') === '1,2,2,4';
     const replaceAllOk = 'a-b-c'.replaceAll('-', '_') === 'a_b_c';
+    const replaceChildrenOk = typeof Element.prototype.replaceChildren === 'function';
+    const cssEscapeOk = typeof window.CSS?.escape === 'function' && window.CSS.escape('1a:b') === '\\\\31 a\\\\:b';
     const uuid = crypto.randomUUID();
     const uuidOk = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid);
     const sig = AbortSignal.timeout(50);
@@ -262,11 +271,23 @@ test('2026-11-24 Wave 8: Mobile & legacy device compatibility (iOS 12-15.8 / And
     const dlgOpenOk = dlg.open === true && dlg.hasAttribute('open');
     dlg.close('done');
     const dlgCloseOk = dlg.open === false && dlg.returnValue === 'done';
-    return { hasOwnOk, fromEntriesOk, settledOk, atOk, flatOk, replaceAllOk, uuidOk, abortOk, dlgOpenOk, dlgCloseOk };
+    return { hasOwnOk, fromEntriesOk, settledOk, atOk, flatOk, replaceAllOk, replaceChildrenOk, cssEscapeOk, uuidOk, abortOk, dlgOpenOk, dlgCloseOk };
   })()`, ctx);
   for (const [k, v] of Object.entries(checks)) {
     assert.strictEqual(v, true, 'Legacy polyfill failed: ' + k);
   }
+
+  // 1b. Zero fatal iOS <= 16.3 RegExp lookbehind, iOS < 14 logical assignment, or numeric separators in client JS
+  for (const dir of [ROOT, path.join(ROOT, 'admin')]) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      const src = fs.readFileSync(path.join(dir, f), 'utf8');
+      assert.doesNotMatch(src, /\(\?<[=!]/, `${f} must not use RegExp lookbehind (crashes iOS <= 16.3 at parse time)`);
+      assert.doesNotMatch(src, /(?:\|\|=|&&=|\?\?=)/, `${f} must not use logical assignment ||= &&= ??= (crashes iOS < 14 / Chrome < 85)`);
+      assert.doesNotMatch(src, /\b\d+_\d+\b/, `${f} must not use numeric separators (crashes iOS < 13 / Chrome < 75)`);
+    }
+  }
+  assert.match(read('action-feedback.css'), /dialog\.gaeru-dialog-polyfilled\.quick-cart-premium\[open\]/);
 
   // 2. Screenshot #1 fix: GAERU AI mobile modal respects safe areas, avoids 100vh overflow, syncs visualViewport
   assert.doesNotMatch(internalAiCss, /@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\.gaeru-ai-modal-dialog\s*\{[^}]*height:\s*100vh;/);
@@ -301,6 +322,7 @@ test('2026-11-24 Wave 8: Mobile & legacy device compatibility (iOS 12-15.8 / And
           const prev = lines[idx - 1] || '';
           assert.ok(/overflow-x\s*:\s*hidden/.test(line) || /overflow-x\s*:\s*hidden/.test(prev), `${f}:${idx + 1} uses overflow-x:clip without hidden fallback`);
         }
+        assert.doesNotMatch(line, /rgb\(\s*\d+\s+\d+\s+\d+\s*\//, `${f}:${idx + 1} must use standard rgba() instead of space-separated rgb(r g b / a)`);
       });
     }
   }

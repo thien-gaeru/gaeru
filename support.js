@@ -91,13 +91,13 @@ async function initSupportProducts() {
   // 4. Tự chủ fetch ngầm fallback
   try {
     const promise = (typeof window === "object" && window)
-      ? (window.__gaeruProductsPromise ||= fetch('/api/products', { cache: 'no-store', credentials: 'same-origin' }).then(r => {
+      ? (window.__gaeruProductsPromise || (window.__gaeruProductsPromise = fetch('/api/products', { cache: 'no-store', credentials: 'same-origin' }).then(r => {
           if (!r.ok) throw new Error('Catalog unavailable');
           return r.json();
         }).catch(err => {
           delete window.__gaeruProductsPromise;
           throw err;
-        }))
+        })))
       : fetch('/api/products', { cache: 'no-store', credentials: 'same-origin' }).then(r => {
           if (!r.ok) throw new Error('Catalog unavailable');
           return r.json();

@@ -21,7 +21,8 @@ productSection?.addEventListener("click", (event) => {
   });
   const status = productSection.querySelector(".filter-status");
   if (status) status.textContent = filter === "all" ? "" : `${visibleCount} sản phẩm`;
-  productSection.querySelector('.product-grid')?.scrollTo({ left: 0, behavior: 'instant' });
+  const gridEl = productSection.querySelector('.product-grid');
+  if (gridEl) gridEl.scrollLeft = 0;
 });
 
 // Move a whole two-row column while keeping native touch/trackpad scrolling.

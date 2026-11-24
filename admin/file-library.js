@@ -114,7 +114,7 @@
     form.elements.files.addEventListener('change', () => { pending = null; uploaded = 0; });
     form.elements.scope.addEventListener('change', () => { form.elements.folder.innerHTML = folderOptions(form.elements.scope.value); });
     form.addEventListener('submit', e => { e.preventDefault(); if (form.elements.files.files.length > 10) { form.querySelector('[role=alert]').textContent = 'Chọn tối đa 10 tệp mỗi lần.'; return; }
-      submit(dialog, async (f, feedback) => { pending ||= [...f.elements.files.files]; while (pending.length) { const file = pending[0];
+      submit(dialog, async (f, feedback) => { if (!pending) pending = [...f.elements.files.files]; while (pending.length) { const file = pending[0];
         feedback.textContent = `Đã tải ${uploaded} tệp. Đang tải: ${file.name}`;
         const data = new FormData(); data.set('scope', f.elements.scope.value); data.set('folder', f.elements.folder.value); data.set('file', file);
         await api.request('/api/gaeru_ceo/file-library/upload', {method:'POST', body:data}); uploaded++; pending.shift();

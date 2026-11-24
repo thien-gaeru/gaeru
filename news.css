@@ -103,8 +103,8 @@
 .guide-copy h2{font-size:clamp(1.45rem,2.45vw,2rem);line-height:1.25;letter-spacing:-.025em;scroll-margin-top:90px;margin:1.7em 0 .6em;border-top:1px solid #dce4e4;padding-top:1.1em;color:#15262d}
 .guide-copy h2:first-child{margin-top:0;padding-top:0;border-top:0}
 .guide-copy h3{font-size:1.18em;line-height:1.36;margin:1.35em 0 .45em;letter-spacing:-.015em}
-.guide-copy ul,.guide-copy ol{padding-inline-start:1.5em}
-.guide-copy li{padding-inline-start:.24em;margin:.42em 0}
+.guide-copy ul,.guide-copy ol{padding-left:1.5em;padding-inline-start:1.5em}
+.guide-copy li{padding-left:.24em;padding-inline-start:.24em;margin:.42em 0}
 .guide-copy li::marker{color:#08604d;font-weight:650}
 .guide-copy a{color:#006252;text-decoration:underline;text-underline-offset:.17em}
 .guide-copy a:hover{color:#003b34}

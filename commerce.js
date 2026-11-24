@@ -738,7 +738,7 @@ function shippingPresentation(settings) {
   const freePolicy=/^miễn phí (?:vận chuyển|giao hàng) (?:trên )?toàn quốc[.!;]*$/iu;
   const regionalPolicy=/^phí (?:vận chuyển|giao hàng) (?:được )?tính theo tỉnh\/thành phố(?: đã chọn)?[.!;]*$/iu;
   // Discard only whole stock phrases. Keep merchant instructions and qualified offers.
-  const details=note.split(/(?<=[.!?;])[^\S\r\n]+|[\r\n]+/u).filter(sentence=>{
+  const details=note.replace(/([.!?;])[^\S\r\n]+/gu,"$1\n").split(/[\r\n]+/).filter(sentence=>{
     const normalized=sentence.trim().normalize("NFC").replace(/\s+/gu," ");
     return normalized && !freePolicy.test(normalized) && !regionalPolicy.test(normalized);
   }).join(" ").trim();
@@ -1973,7 +1973,7 @@ function bindGlobalControls() {
         for (const { variantId: vId, qty } of allToAdd) {
           const selected = cartRows([{ variantId: vId, quantity: 1 }])[0];
           if (!selected || selected.variant.stockQuantity < 1) {
-            cappedMsg ||= "Một số sản phẩm trong combo hiện đã hết hàng.";
+            if (!cappedMsg) cappedMsg = "Một số sản phẩm trong combo hiện đã hết hàng.";
             continue;
           }
           const cartMaximum = Math.min(99, selected.variant.stockQuantity);
@@ -2166,7 +2166,7 @@ async function initializeStore() {
   renderMiniCart();
   try {
     const embedded=document.querySelector('#store-bootstrap');
-    const response = embedded ? JSON.parse(embedded.textContent) : await (typeof window === "object" && window ? (window.__gaeruProductsPromise ||= apiRequest("/api/products").catch((err) => { delete window.__gaeruProductsPromise; throw err; })) : apiRequest("/api/products"));
+    const response = embedded ? JSON.parse(embedded.textContent) : await (typeof window === "object" && window ? (window.__gaeruProductsPromise || (window.__gaeruProductsPromise = apiRequest("/api/products").catch((err) => { delete window.__gaeruProductsPromise; throw err; }))) : apiRequest("/api/products"));
     products = response.products;
     document.dispatchEvent(new CustomEvent("gaeru:products-loaded"));
     const validVariantIds = new Set(products.flatMap((product) => product.variants.map((variant) => variant.id)));

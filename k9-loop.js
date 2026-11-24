@@ -36,6 +36,6 @@
   doc.addEventListener('visibilitychange',sync);motion.addEventListener?.('change',sync);
   return {mount,scan,destroy(){if(timer!==null)win.clearInterval(timer);observer?.disconnect();doc.removeEventListener('visibilitychange',sync);motion.removeEventListener?.('change',sync);entries.clear();timer=null;}};
  }
- function mountHome(){if(typeof window==='undefined')return;singleton||=createController();singleton.scan();}
+ function mountHome(){if(typeof window==='undefined')return;if(!singleton)singleton=createController();singleton.scan();}
  return {createController,mountHome};
 });

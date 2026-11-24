@@ -16,7 +16,7 @@ label{display:grid;gap:7px;font-size:12px;font-weight:650}input,select,textarea{
 
 .customer-card{padding:17px 18px}.customer-card-header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.customer-card h3{margin:0 0 5px;font-size:15px}.customer-card p{margin:0;color:var(--muted);font-size:12px}.customer-meta{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0;color:var(--muted);font-size:12px}.customer-actions{display:flex;gap:9px;flex-wrap:wrap}.customer-detail{margin-top:14px;border-top:1px solid #eee;padding-top:10px}.customer-order-row{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;padding:7px 0;font-size:12px;border-bottom:1px solid #eee}.status-active{background:#e7f7ed;color:#147a3d}.status-cancelled{background:#fbe9e9;color:#a52a2a}
 
-.admin-content{max-width:1600px;width:100%;margin-inline:auto}
+.admin-content{max-width:1600px;width:100%;margin-left:auto;margin-right:auto;margin-inline:auto}
 .stat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .stat-card{padding:22px;gap:12px}
 .overview-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
@@ -105,10 +105,10 @@ details.order-card{padding:0;overflow:hidden}
   .primary-button,.secondary-button,.plain-button,.row-button{min-height:44px}
   .checkbox-label input{width:20px;min-height:20px;height:20px;flex:0 0 auto}
   .admin-content{padding-top:25px}.topbar{gap:12px;margin-bottom:18px}.admin-identity{max-width:130px;overflow-wrap:anywhere;text-align:right}
-  .sidebar nav{gap:4px;margin-inline:-4px;padding:0 4px 5px}.nav-item{min-height:44px;padding:10px 12px}.sidebar-bottom{padding-top:6px;gap:8px}
-  .stat-card{padding:17px 14px}.stat-card span{line-height:1.5}.stat-card strong{font-size:29px}.overview-actions{display:grid;grid-template-columns:1fr}.overview-actions .secondary-button{justify-content:space-between;padding-inline:17px}
+  .sidebar nav{gap:4px;margin-left:-4px;margin-right:-4px;margin-inline:-4px;padding:0 4px 5px}.nav-item{min-height:44px;padding:10px 12px}.sidebar-bottom{padding-top:6px;gap:8px}
+  .stat-card{padding:17px 14px}.stat-card span{line-height:1.5}.stat-card strong{font-size:29px}.overview-actions{display:grid;grid-template-columns:1fr}.overview-actions .secondary-button{justify-content:space-between;padding-left:17px;padding-right:17px;padding-inline:17px}
   .filter-bar{grid-template-columns:1fr 1fr;padding:15px;gap:14px 10px}.filter-bar>label:first-child{grid-column:1/-1}.filter-bar label{font-size:11px}.filter-bar>.plain-button{min-height:36px}.list-status{margin-top:16px}
-  .product-row{grid-template-columns:52px minmax(0,1fr);gap:13px;padding:16px}.product-row img{width:52px;height:68px;align-self:start}.product-row-copy h3{font-size:15px;line-height:1.4}.product-row>.status-pill{grid-column:2;justify-self:start}.product-row>.row-button{grid-column:2;grid-row:auto;justify-self:start;padding-inline:20px}.product-stock{gap:6px}.status-pill{line-height:1.3}
+  .product-row{grid-template-columns:52px minmax(0,1fr);gap:13px;padding:16px}.product-row img{width:52px;height:68px;align-self:start}.product-row-copy h3{font-size:15px;line-height:1.4}.product-row>.status-pill{grid-column:2;justify-self:start}.product-row>.row-button{grid-column:2;grid-row:auto;justify-self:start;padding-left:20px;padding-right:20px;padding-inline:20px}.product-stock{gap:6px}.status-pill{line-height:1.3}
   .editor-card{padding:18px 15px}.editor-heading{gap:10px;align-items:flex-start}.editor-heading h2,.editor-heading h3{font-size:18px;line-height:1.4}.editor-guidance{font-size:12px}.editor-card .editor-heading .plain-button{margin-top:-8px}.form-grid{gap:18px}.variant-manager .editor-heading{flex-wrap:wrap}.variant-manager .editor-heading>.secondary-button{width:100%}
   .product-image-preview{gap:12px;padding:12px}.product-image-preview img{width:88px;height:100px}.product-image-preview figcaption{font-size:11px}.variant-row{grid-template-columns:minmax(0,1fr) auto;gap:9px}.variant-identity{grid-column:1/-1}.variant-row>span:nth-child(2){grid-column:1}.variant-row>span:nth-child(3){grid-column:2;justify-self:end}.variant-actions{grid-column:1/-1;justify-self:end}.variant-form{padding:15px 12px}
   .attribute-editor{padding:13px 10px}.attribute-row{grid-template-columns:1fr;gap:10px;padding:14px 0;border-bottom:1px solid var(--line)}.attribute-row>.plain-button{justify-self:start;min-height:36px}

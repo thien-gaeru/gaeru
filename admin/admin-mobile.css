@@ -86,7 +86,7 @@
  .admin-shell .filter-bar,.admin-shell .enterprise-filters{grid-template-columns:minmax(0,1fr)}
  .admin-shell .admin-identity{max-width:78px}
  .admin-shell .stat-card strong{font-size:22px}
- .admin-shell .sidebar{padding-inline:12px}
+ .admin-shell .sidebar{padding-left:12px;padding-right:12px;padding-inline:12px}
 }
 
 /* Readable admin typography at every size; navigation groups never stretch. */
@@ -130,7 +130,7 @@
  .admin-shell .sidebar>.admin-nav-search{display:block!important}
  .admin-shell .sidebar>.sidebar-bottom{display:flex!important}
  .admin-shell{font-size:16px}
- .admin-shell .sidebar .nav-item{font-size:16px;line-height:1.5;padding-block:12px}
+ .admin-shell .sidebar .nav-item{font-size:16px;line-height:1.5;padding-top:12px;padding-bottom:12px;padding-block:12px}
  .admin-shell .sidebar .nav-group-label{font-size:13px}
  .admin-shell .admin-nav-search input{font-size:16px;min-height:46px}
  .admin-shell .admin-nav-search small{font-size:12px}

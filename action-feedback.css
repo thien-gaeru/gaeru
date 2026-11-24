@@ -276,12 +276,20 @@ dialog.gaeru-dialog-polyfilled[open] {
   right: auto !important;
   bottom: auto !important;
   transform: translate(-50%, -50%) !important;
+  animation: none !important;
   margin: 0 !important;
   max-width: calc(100vw - 24px) !important;
   max-height: calc(100vh - 32px) !important;
   overflow: auto !important;
   -webkit-overflow-scrolling: touch;
   z-index: 2147483640 !important;
+}
+dialog.gaeru-dialog-polyfilled.quick-cart-premium[open] {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  max-width: calc(100vw - 16px) !important;
+  max-height: calc(100vh - 20px) !important;
 }
 .gaeru-modal-backdrop[hidden] {
   display: none !important;

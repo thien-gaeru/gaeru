@@ -322,6 +322,13 @@
     const elements = document.querySelectorAll(selectors.join(', '));
     if (!elements.length) return;
 
+    if (typeof IntersectionObserver !== 'function') {
+      elements.forEach(el => {
+        el.classList.add('product-reveal-ready', 'is-inview');
+      });
+      return;
+    }
+
     elements.forEach(el => {
       el.classList.add('product-reveal-ready');
     });

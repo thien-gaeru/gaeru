@@ -158,7 +158,7 @@ function activateAccountPanel(panelName) {
 
 async function accountRequest(url, body) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
   const freshCsrf = await fetch('/api/csrf', {credentials:'same-origin',cache:'no-store',signal:controller.signal});
   if (!freshCsrf.ok) throw new Error('Không thể khởi tạo phiên. Hãy thử lại.');
@@ -586,7 +586,7 @@ document.querySelector("[data-email-verification-request]")?.addEventListener("c
         showCustomerProfile(currentCustomer);
       }
     } else {
-      verificationCooldowns.set(customerId, Date.now() + 90_000);
+      verificationCooldowns.set(customerId, Date.now() + 90000);
       clearInterval(verificationCooldownTimer);
       verificationCooldownTimer = setInterval(() => {
         renderVerificationButton();

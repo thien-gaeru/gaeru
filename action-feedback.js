@@ -128,6 +128,58 @@
     catch (_) { try { crypto.randomUUID = fallbackUuid; } catch (_) {} }
   }
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    const polyfillReplaceChildren = function () {
+      while (this.firstChild) this.removeChild(this.firstChild);
+      for (let i = 0; i < arguments.length; i++) {
+        const node = arguments[i];
+        this.appendChild(typeof node === 'string' ? document.createTextNode(node) : node);
+      }
+    };
+    if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
+      Element.prototype.replaceChildren = polyfillReplaceChildren;
+    }
+    if (typeof Document !== 'undefined' && typeof Document.prototype.replaceChildren !== 'function') {
+      Document.prototype.replaceChildren = polyfillReplaceChildren;
+    }
+    if (typeof DocumentFragment !== 'undefined' && typeof DocumentFragment.prototype.replaceChildren !== 'function') {
+      DocumentFragment.prototype.replaceChildren = polyfillReplaceChildren;
+    }
+    if (typeof window.CSS === 'undefined') window.CSS = {};
+    if (typeof window.CSS.escape !== 'function') {
+      window.CSS.escape = function (value) {
+        const str = String(value);
+        let out = '';
+        for (let i = 0; i < str.length; i++) {
+          const ch = str.charAt(i);
+          const code = str.charCodeAt(i);
+          if (code === 0) out += '\uFFFD';
+          else if ((code >= 1 && code <= 31) || code === 127 || (i === 0 && code >= 48 && code <= 57) || (i === 1 && code >= 48 && code <= 57 && str.charCodeAt(0) === 45)) {
+            out += '\\' + code.toString(16) + ' ';
+          } else if (code >= 128 || code === 45 || code === 95 || (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+            out += ch;
+          } else {
+            out += '\\' + ch;
+          }
+        }
+        return out;
+      };
+    }
+    try {
+      const flexProbe = document.createElement('div');
+      flexProbe.style.display = 'flex';
+      flexProbe.style.flexDirection = 'column';
+      flexProbe.style.rowGap = '1px';
+      flexProbe.appendChild(document.createElement('div'));
+      flexProbe.appendChild(document.createElement('div'));
+      if (document.documentElement) {
+        document.documentElement.appendChild(flexProbe);
+        const supportsFlexGap = flexProbe.scrollHeight === 1;
+        flexProbe.remove();
+        if (!supportsFlexGap && document.documentElement.classList) {
+          document.documentElement.classList.add('gaeru-no-flex-gap');
+        }
+      }
+    } catch (_) {}
     const testDlg = document.createElement('dialog');
     if (typeof testDlg.showModal !== 'function') {
       const proto = Object.getPrototypeOf(testDlg);

@@ -126,7 +126,7 @@
 
   function beep(){
     try{
-      audio??=new(window.AudioContext||window.webkitAudioContext)();
+      if(audio==null)audio=new(window.AudioContext||window.webkitAudioContext)();
       audio.resume();
       const oscillator=audio.createOscillator(),gain=audio.createGain();
       oscillator.connect(gain);

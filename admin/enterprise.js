@@ -66,7 +66,7 @@
     return result;
   }
 
-  function viewState(view) { return e.views[view] ||= { page: 1, request: 0, mounted: false, rows: [] }; }
+  function viewState(view) { if (!e.views[view]) e.views[view] = { page: 1, request: 0, mounted: false, rows: [] }; return e.views[view]; }
   function root(view) { return document.querySelector(`#${view}-view`); }
   function searchForm(view, extra = "", placeholder = "Tìm kiếm") {
     return `<form class="enterprise-filters" data-e-filter="${view}"><label class="enterprise-search"><span class="visually-hidden">${placeholder}</span><input name="q" type="search" placeholder="${placeholder}"></label>${extra}<button class="secondary-button" type="submit">Áp dụng</button><button class="plain-button" type="button" data-e-reset="${view}">Xóa lọc</button></form>`;
@@ -390,7 +390,8 @@
     for (const permission of role?.permissions || []) {
       const [scope, ...rest] = String(permission || "").split(".");
       const action = rest.join(".");
-      (grouped[scope] ||= []).push(actionLabels[action] || action);
+      if (!grouped[scope]) grouped[scope] = [];
+      grouped[scope].push(actionLabels[action] || action);
     }
     form.querySelector("[data-role-permissions]").innerHTML = `<strong>Quyền của vai trò</strong><div>${Object.entries(grouped).map(([scope, actions]) => `<span>${h(scopes[scope] || "Nghiệp vụ")}: ${h(actions.join(", "))}</span>`).join("")}</div>`;
   }

@@ -501,7 +501,7 @@
  }
 
  function mediaEditor(){
-   model.descriptionMedia||=[];
+   if(!model.descriptionMedia)model.descriptionMedia=[];
    const parts=form.elements.description.value.split(/\n\s*\n/).map(v=>v.trim()).filter(Boolean);
    const host=document.querySelector('#description-media');
    if(!host)return;
@@ -531,7 +531,7 @@
 
  function uploadDescription(files,type){
    if(busy||imageUploads.length||!can('catalog.write'))return;
-   model.descriptionMedia||=[];
+   if(!model.descriptionMedia)model.descriptionMedia=[];
    if(model.descriptionMedia.length+files.length>12)return feedback('Tối đa 12 ảnh/video mô tả.',true);
    readRows();readMedia();
    const position=descriptionPosition();

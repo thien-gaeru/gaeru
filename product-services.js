@@ -132,7 +132,8 @@ async function ensureChatAssets(){
     await loadScriptOnce('/care-live.js?v=20261119-gaeru-v19',()=>Boolean(window.GAERUCareLive)).catch(()=>{});
   }
   if(typeof window.GAERUChatClient?.mount==='function')return true;
-  await (chatAssetsPromise||=loadScriptOnce('/shopping-chat-client.js?v=20261119-gaeru-v19',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;}));
+  if(!chatAssetsPromise)chatAssetsPromise=loadScriptOnce('/shopping-chat-client.js?v=20261119-gaeru-v19',()=>typeof window.GAERUChatClient?.mount==='function').catch(e=>{chatAssetsPromise=null;throw e;});
+  await chatAssetsPromise;
   for(let i=0;i<40;i++){
     if(typeof window.GAERUChatClient?.mount==='function')return true;
     await new Promise(r=>setTimeout(r,50));
@@ -140,7 +141,7 @@ async function ensureChatAssets(){
   if(typeof window.GAERUChatClient?.mount!=='function')throw Error('Hệ thống tư vấn đang kết nối. Vui lòng bấm thử lại hoặc gọi 082 919 1080.');
   return true;
 }
-function ensureCheckoutFlow(){if(window.GAERUCheckout)return Promise.resolve();return checkoutFlowPromise||=loadScriptOnce('/checkout-flow.js?v=20261026-ward-picker',()=>Boolean(window.GAERUCheckout)).catch(()=>{checkoutFlowPromise=null;});}
+function ensureCheckoutFlow(){if(window.GAERUCheckout)return Promise.resolve();if(!checkoutFlowPromise)checkoutFlowPromise=loadScriptOnce('/checkout-flow.js?v=20261124-quick-cart-v2',()=>Boolean(window.GAERUCheckout)).catch(()=>{checkoutFlowPromise=null;});return checkoutFlowPromise;}
 
 async function openChat(slug){
   window.openChat=openChat;
