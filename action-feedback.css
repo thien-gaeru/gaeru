@@ -285,8 +285,8 @@ dialog.gaeru-dialog-polyfilled[open] {
   z-index: 2147483640 !important;
 }
 dialog.gaeru-dialog-polyfilled.quick-cart-premium[open] {
-  display: flex !important;
-  flex-direction: column !important;
+  display: block !important;
+  height: auto !important;
   overflow: hidden !important;
   max-width: calc(100vw - 16px) !important;
   max-height: calc(100vh - 20px) !important;
