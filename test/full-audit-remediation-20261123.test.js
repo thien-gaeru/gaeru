@@ -418,7 +418,7 @@ test('2026-11-24 Wave 9: Premium quick-add-to-cart modal renders images, prices,
   assert.match(dlg.querySelector('[data-qc-savings]').textContent, /360\.000/);
   assert.equal(dlg.querySelector('[data-qc-sale-bar]').hidden, false);
   assert.ok(dlg.querySelector('.qc-promo-strip'), 'Compact icon-only promotion strip must render');
-  assert.match(dlg.querySelector('[data-qc-promo-text]').textContent, /Flash Sale -30%/);
+  assert.equal(dlg.querySelector('[data-qc-promo-discount]'), null, 'Duplicate Flash Sale chip below price panel must be omitted');
   assert.equal(dlg.querySelectorAll('.qc-variant-card').length, 2);
 
   // Switch to second variant & increment qty to 2

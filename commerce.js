@@ -1541,10 +1541,6 @@ function bindGlobalControls() {
             </section>
 
             <section class="qc-promo-card qc-promo-strip" data-qc-promo-card aria-label="Chương trình khuyến mại và ưu đãi">
-              <span class="qc-perk-chip is-hot" data-qc-promo-discount hidden>
-                <span class="qc-perk-ico" aria-hidden="true" data-qc-promo-ico>⚡</span>
-                <span data-qc-promo-text>Flash Sale</span>
-              </span>
               <a class="qc-perk-chip is-combo" data-qc-bundle-row href="${pUrl}" hidden>
                 <span class="qc-perk-ico" aria-hidden="true">🎁</span>
                 <span data-qc-bundle-text>Combo</span>
@@ -1635,9 +1631,6 @@ function bindGlobalControls() {
     const savingsEl = dialog.querySelector("[data-qc-savings]");
     const skuEl = dialog.querySelector("[data-qc-sku]");
     const promoCard = dialog.querySelector("[data-qc-promo-card]");
-    const promoRow = dialog.querySelector("[data-qc-promo-discount]");
-    const promoIco = dialog.querySelector("[data-qc-promo-ico]");
-    const promoText = dialog.querySelector("[data-qc-promo-text]");
     const qtyDecBtn = dialog.querySelector("[data-qc-qty-dec]");
     const qtyIncBtn = dialog.querySelector("[data-qc-qty-inc]");
     const qtyValEl = dialog.querySelector("[data-qc-qty-value]");
@@ -1792,21 +1785,7 @@ function bindGlobalControls() {
         skuEl.hidden = !(isSelected && v.sku);
       }
 
-      // Compact icon-only promotion chip
       if (promoCard) promoCard.classList.toggle("has-active-promo", Boolean(promo) || hasDiscount);
-      if (promoRow && promoText) {
-        if (promo || hasDiscount) {
-          promoRow.hidden = false;
-          promoRow.className = `qc-perk-chip ${isFlash ? "is-hot" : "is-deal"}`;
-          if (promoIco) promoIco.textContent = isFlash ? "⚡" : "🏷️";
-          const endStr = promo?.endsAt ? qcFormatEndDate(promo.endsAt) : "";
-          const shortLabel = isFlash ? (pct > 0 ? `Flash Sale -${pct}%` : "Flash Sale") : (pct > 0 ? `Giảm -${pct}%` : "Ưu đãi");
-          promoText.textContent = shortLabel;
-          promoRow.title = `${promo?.title || shortLabel}${hasDiscount ? ` · Tiết kiệm ${formatPrice(savedUnit)}/sp` : ""}${endStr ? ` · Đến ${endStr}` : ""}`;
-        } else {
-          promoRow.hidden = true;
-        }
-      }
 
       // Option buttons / variant cards visual state
       if (useMultiGroupPills) {
