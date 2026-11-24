@@ -403,22 +403,28 @@ test('2026-11-24 Wave 9: Premium quick-add-to-cart modal renders images, prices,
   const bindEnd = commerceSrc.indexOf('function updateSaleCountdowns()', bindStart);
   vm.runInContext(commerceSrc.slice(bindStart, bindEnd) + '\nbindGlobalControls();', ctx);
 
-  // Open modal
+  // Open modal: initial image MUST be main product cover image and NO variant is pre-selected
   document.querySelector('[data-choose-cart]').dispatchEvent(new window.Event('click', { bubbles: true }));
   const dlg = document.querySelector('#quick-cart-dialog');
   assert.ok(dlg && dlg.classList.contains('quick-cart-premium'), 'Premium quick-cart dialog must open');
-  assert.equal(dlg.querySelector('[data-qc-image]').getAttribute('src'), '/api/catalog-images/11111111-1111-4111-8111-111111111111');
+  assert.equal(dlg.querySelector('[data-qc-image]').getAttribute('src'), '/assets/products/m3-home-cutout.webp', 'Initial modal image must be the main product image');
+  assert.equal(dlg.querySelectorAll('[data-qc-variant-id][aria-pressed="true"]').length, 0, 'Multi-variant modal must not pre-select an option');
+  assert.equal(dlg.querySelector('[data-add-to-cart]').disabled, true, 'Add button stays disabled until user selects a variant');
+  assert.equal(dlg.querySelector('[data-quick-buy-now]').disabled, true, 'Buy now button stays disabled until user selects a variant');
   assert.match(dlg.querySelector('[data-qc-price]').textContent, /840\.000/);
   assert.match(dlg.querySelector('[data-qc-orig]').textContent, /1\.200\.000/);
   assert.equal(dlg.querySelector('[data-qc-discount]').textContent, '-30%');
   assert.match(dlg.querySelector('[data-qc-savings]').textContent, /360\.000/);
   assert.equal(dlg.querySelector('[data-qc-sale-bar]').hidden, false);
-  assert.match(dlg.querySelector('[data-qc-promo-text]').textContent, /Flash Sale 30%/);
+  assert.ok(dlg.querySelector('.qc-promo-strip'), 'Compact icon-only promotion strip must render');
+  assert.match(dlg.querySelector('[data-qc-promo-text]').textContent, /Flash Sale -30%/);
   assert.equal(dlg.querySelectorAll('.qc-variant-card').length, 2);
 
   // Switch to second variant & increment qty to 2
   dlg.querySelector('[data-qc-variant-id="m3-v2"]').dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.equal(dlg.querySelector('[data-qc-image]').getAttribute('src'), '/api/catalog-images/22222222-2222-4222-8222-222222222222');
+  assert.equal(dlg.querySelector('[data-add-to-cart]').disabled, false, 'Add button enables after selecting a variant');
+  assert.equal(dlg.querySelector('[data-quick-buy-now]').disabled, false, 'Buy now button enables after selecting a variant');
   assert.match(dlg.querySelector('[data-qc-price]').textContent, /890\.000/);
   dlg.querySelector('[data-qc-qty-inc]').dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.equal(dlg.querySelector('[data-qc-qty-value]').textContent, '2');

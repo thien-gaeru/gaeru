@@ -1371,7 +1371,12 @@ function bindGlobalControls() {
     const activeVariants = (product.variants || []).filter((v) => v.active);
     if (!activeVariants.length) return;
     const inStockVariants = activeVariants.filter((v) => Number(v.stockQuantity) > 0);
-    let selectedVariant = inStockVariants[0] || activeVariants[0];
+    const mainCoverImg = qcSafeImg((typeof window !== "undefined" && window.GAERUProductArtwork?.image?.(product)) || product.imageUrl);
+    let selectedVariant = activeVariants.length === 1 ? activeVariants[0] : null;
+    const selectedOptions = {};
+    if (selectedVariant && selectedVariant.options) {
+      for (const [k, val] of Object.entries(selectedVariant.options)) selectedOptions[k] = val;
+    }
     let selectedQty = 1;
 
     let dialog = document.querySelector("#quick-cart-dialog");
@@ -1402,11 +1407,11 @@ function bindGlobalControls() {
       seenImgs.add(safe);
       galleryThumbs.push({ url: safe, label: label || product.name });
     };
-    pushThumb(qcResolveVariantImage(product, selectedVariant), selectedVariant?.name || product.name);
+    // Always place the main product cover image first
+    pushThumb(mainCoverImg, product.name);
     for (const v of activeVariants) {
       if (v.imageUrl) pushThumb(v.imageUrl, v.name);
     }
-    pushThumb(product.imageUrl, product.name);
     for (const gUrl of product.gallery || []) {
       if (galleryThumbs.length >= 5) break;
       pushThumb(gUrl, product.name);
@@ -1418,13 +1423,12 @@ function bindGlobalControls() {
         <div class="qc-option-group" data-qc-group="${escapeHtml(g.name)}">
           <div class="qc-option-label">
             <span>${escapeHtml(g.name)}</span>
-            <strong data-qc-group-selected="${escapeHtml(g.name)}">${escapeHtml(selectedVariant?.options?.[g.name] || "")}</strong>
+            <strong class="is-unselected" data-qc-group-selected="${escapeHtml(g.name)}">Chưa chọn</strong>
           </div>
           <div class="qc-pill-list" role="group" aria-label="${escapeHtml(g.name)}">
             ${g.values.map((val) => {
-              const pressed = selectedVariant?.options?.[g.name] === val;
               const anyInStock = activeVariants.some((v) => v.options?.[g.name] === val && Number(v.stockQuantity) > 0);
-              return `<button type="button" class="qc-pill-btn${anyInStock ? "" : " is-oos"}" data-qc-opt-group="${escapeHtml(g.name)}" data-qc-opt-value="${escapeHtml(val)}" aria-pressed="${pressed ? "true" : "false"}">${escapeHtml(val)}</button>`;
+              return `<button type="button" class="qc-pill-btn${anyInStock ? "" : " is-oos"}" data-qc-opt-group="${escapeHtml(g.name)}" data-qc-opt-value="${escapeHtml(val)}" aria-pressed="false">${escapeHtml(val)}</button>`;
             }).join("")}
           </div>
         </div>
@@ -1435,18 +1439,17 @@ function bindGlobalControls() {
         <div class="qc-option-group">
           <div class="qc-option-label">
             <span>${escapeHtml(singleGroupTitle)}</span>
-            <strong data-qc-single-selected>${escapeHtml(selectedVariant?.name || "")}</strong>
+            <strong class="is-unselected" data-qc-single-selected>Chưa chọn</strong>
           </div>
           <div class="qc-variant-grid${showVariantCardThumbs ? " has-thumbs" : ""}" role="group" aria-label="${escapeHtml(singleGroupTitle)}">
             ${activeVariants.map((v) => {
               const oos = Number(v.stockQuantity) <= 0;
-              const isSelected = selectedVariant && v.id === selectedVariant.id;
               const vOrig = Number(v.originalPriceVnd || v.priceVnd);
               const hasDisc = vOrig > v.priceVnd;
               const vThumb = showVariantCardThumbs ? qcResolveVariantImage(product, v) : "";
               return `
-                <button type="button" class="qc-variant-card${oos ? " is-oos" : ""}" data-qc-variant-id="${escapeHtml(v.id)}" aria-pressed="${isSelected ? "true" : "false"}" ${oos ? "disabled" : ""}>
-                  ${vThumb ? `<span class="qc-variant-thumb"><img src="${escapeHtml(vThumb)}" alt="" width="40" height="40" loading="lazy" decoding="async"></span>` : ""}
+                <button type="button" class="qc-variant-card${oos ? " is-oos" : ""}" data-qc-variant-id="${escapeHtml(v.id)}" aria-pressed="false" ${oos ? "disabled" : ""}>
+                  ${vThumb ? `<span class="qc-variant-thumb"><img src="${escapeHtml(vThumb)}" alt="" width="36" height="36" loading="lazy" decoding="async"></span>` : ""}
                   <span class="qc-variant-meta">
                     <span class="qc-variant-name">${escapeHtml(v.name)}</span>
                     <span class="qc-variant-price-row">
@@ -1488,7 +1491,7 @@ function bindGlobalControls() {
         <div class="qc-body">
           <div class="qc-media-col">
             <div class="qc-stage">
-              <img class="qc-stage-img" data-qc-image src="${escapeHtml(qcResolveVariantImage(product, selectedVariant))}" alt="${escapeHtml(product.name)}" width="320" height="320" decoding="async">
+              <img class="qc-stage-img" data-qc-image src="${escapeHtml(mainCoverImg)}" alt="${escapeHtml(product.name)}" width="320" height="320" decoding="async">
               <div class="qc-stage-bar">
                 <span class="qc-stock-pill" data-qc-stock-pill></span>
                 <span class="qc-stage-badge" data-qc-stage-badge hidden></span>
@@ -1507,7 +1510,7 @@ function bindGlobalControls() {
               <div class="qc-thumbs" role="group" aria-label="Xem nhanh hình ảnh sản phẩm">
                 ${galleryThumbs.slice(0, 5).map((t, idx) => `
                   <button type="button" class="qc-thumb-btn" data-qc-thumb="${escapeHtml(t.url)}" aria-label="Xem ảnh ${idx + 1}" aria-pressed="${idx === 0 ? "true" : "false"}">
-                    <img src="${escapeHtml(t.url)}" alt="" width="48" height="48" loading="lazy" decoding="async">
+                    <img src="${escapeHtml(t.url)}" alt="" width="44" height="44" loading="lazy" decoding="async">
                   </button>
                 `).join("")}
               </div>
@@ -1532,38 +1535,32 @@ function bindGlobalControls() {
                 </div>
                 <div class="qc-price-meta">
                   <span class="qc-savings-tag" data-qc-savings hidden></span>
-                  <span class="qc-sku-tag" data-qc-sku></span>
+                  <span class="qc-sku-tag" data-qc-sku hidden></span>
                 </div>
               </div>
             </section>
 
-            <section class="qc-promo-card" data-qc-promo-card aria-label="Chương trình khuyến mại và ưu đãi">
-              <div class="qc-promo-heading">
-                <svg class="qc-promo-icon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
-                  <path d="M3 8h14v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8Z"/>
-                  <path d="M2 5h16v3H2V5Zm8 0v13"/>
-                  <path d="M10 5c0-1.6-1.2-3-2.6-3-1.1 0-1.9.7-1.9 1.6C5.5 4.5 6.8 5 10 5Zm0 0c0-1.6 1.2-3 2.6-3 1.1 0 1.9.7 1.9 1.6C14.5 4.5 13.2 5 10 5Z"/>
-                </svg>
-                <h3>Chương trình khuyến mại &amp; Ưu đãi</h3>
-              </div>
-              <ul class="qc-promo-list">
-                <li class="qc-promo-item" data-qc-promo-discount hidden>
-                  <span class="qc-promo-tag is-hot" data-qc-promo-tag>FLASH SALE</span>
-                  <span class="qc-promo-text" data-qc-promo-text></span>
-                </li>
-                <li class="qc-promo-item" data-qc-bundle-row hidden>
-                  <span class="qc-promo-tag is-combo">COMBO</span>
-                  <span class="qc-promo-text" data-qc-bundle-text></span>
-                </li>
-                <li class="qc-promo-item" data-qc-shipping-row>
-                  <span class="qc-promo-tag is-ship" data-qc-ship-tag>GIAO HÀNG</span>
-                  <span class="qc-promo-text" data-qc-ship-text>Hỗ trợ giao hàng nhanh toàn quốc · Kiểm tra ưu đãi tại thanh toán.</span>
-                </li>
-                <li class="qc-promo-item">
-                  <span class="qc-promo-tag is-perk">ƯU ĐÃI THÊM</span>
-                  <span class="qc-promo-text">Áp dụng mã giảm giá &amp; đổi điểm <strong>GAERU XU</strong> tại thanh toán · Bảo hành chính hãng <strong>12 tháng</strong>.</span>
-                </li>
-              </ul>
+            <section class="qc-promo-card qc-promo-strip" data-qc-promo-card aria-label="Chương trình khuyến mại và ưu đãi">
+              <span class="qc-perk-chip is-hot" data-qc-promo-discount hidden>
+                <span class="qc-perk-ico" aria-hidden="true" data-qc-promo-ico>⚡</span>
+                <span data-qc-promo-text>Flash Sale</span>
+              </span>
+              <a class="qc-perk-chip is-combo" data-qc-bundle-row href="${pUrl}" hidden>
+                <span class="qc-perk-ico" aria-hidden="true">🎁</span>
+                <span data-qc-bundle-text>Combo</span>
+              </a>
+              <span class="qc-perk-chip is-ship" data-qc-shipping-row title="Giao hàng nhanh toàn quốc">
+                <span class="qc-perk-ico" aria-hidden="true">🚚</span>
+                <span data-qc-ship-text>Giao toàn quốc</span>
+              </span>
+              <span class="qc-perk-chip is-perk" title="Hỗ trợ mã giảm giá &amp; đổi điểm GAERU XU tại thanh toán">
+                <span class="qc-perk-ico" aria-hidden="true">🎟️</span>
+                <span>Voucher &amp; Xu</span>
+              </span>
+              <span class="qc-perk-chip is-perk" title="Bảo hành chính hãng GAERU 12 tháng">
+                <span class="qc-perk-ico" aria-hidden="true">🛡️</span>
+                <span>BH 12T</span>
+              </span>
             </section>
 
             <div class="qc-options-section">
@@ -1571,7 +1568,7 @@ function bindGlobalControls() {
               <label class="visually-hidden">
                 Chọn phiên bản
                 <select data-quick-variant>
-                  <option value="">Chọn phiên bản phù hợp</option>
+                  <option value="" ${!selectedVariant ? "selected" : ""}>Chọn phiên bản phù hợp</option>
                   ${activeVariants.map((v) => `<option value="${escapeHtml(v.id)}" ${Number(v.stockQuantity) > 0 ? "" : "disabled"} ${selectedVariant && v.id === selectedVariant.id ? "selected" : ""}>${escapeHtml(v.name)} · ${escapeHtml(formatPrice(v.priceVnd))}${Number(v.stockQuantity) > 0 ? "" : " · Hết hàng"}</option>`).join("")}
                 </select>
               </label>
@@ -1593,7 +1590,7 @@ function bindGlobalControls() {
 
         <footer class="qc-footer">
           <div class="qc-footer-summary">
-            <span class="qc-footer-label" data-qc-footer-label>Tạm tính (1 sản phẩm)</span>
+            <span class="qc-footer-label" data-qc-footer-label>Chọn phiên bản để đặt mua</span>
             <div class="qc-footer-totals">
               <strong class="qc-footer-subtotal" data-qc-subtotal></strong>
               <span class="qc-footer-saved" data-qc-footer-saved hidden></span>
@@ -1602,7 +1599,7 @@ function bindGlobalControls() {
           <div class="qc-footer-actions">
             <button type="button" class="qc-btn-buy" data-quick-buy-now="" data-quick-buy-qty="1">Mua ngay</button>
             <button type="button" class="button button-blue qc-btn-add" data-add-to-cart="" data-add-qty="1">
-              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                 <path d="M3 4h2l1.6 8.2a1 1 0 0 0 1 .8h7.5a1 1 0 0 0 1-.8L17.5 6.5H5.5"/>
                 <circle cx="8" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>
                 <circle cx="14.5" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>
@@ -1639,7 +1636,7 @@ function bindGlobalControls() {
     const skuEl = dialog.querySelector("[data-qc-sku]");
     const promoCard = dialog.querySelector("[data-qc-promo-card]");
     const promoRow = dialog.querySelector("[data-qc-promo-discount]");
-    const promoTag = dialog.querySelector("[data-qc-promo-tag]");
+    const promoIco = dialog.querySelector("[data-qc-promo-ico]");
     const promoText = dialog.querySelector("[data-qc-promo-text]");
     const qtyDecBtn = dialog.querySelector("[data-qc-qty-dec]");
     const qtyIncBtn = dialog.querySelector("[data-qc-qty-inc]");
@@ -1650,30 +1647,53 @@ function bindGlobalControls() {
     const footerSavedEl = dialog.querySelector("[data-qc-footer-saved]");
     const feedbackEl = dialog.querySelector("[data-cart-feedback]");
 
-    const syncUi = (updateImage = true) => {
-      const v = selectedVariant;
-      if (!v) return;
-      const stock = Math.max(0, Number(v.stockQuantity) || 0);
-      const maxQty = Math.max(1, Math.min(99, stock || 1));
-      selectedQty = Math.max(1, Math.min(maxQty, selectedQty));
+    // Aggregate metrics for initial unselected state
+    const allPrices = activeVariants.map((item) => Number(item.priceVnd || 0));
+    const minPrice = Math.min(...allPrices);
+    const maxPrice = Math.max(...allPrices);
+    const allOrigPrices = activeVariants.map((item) => Number(item.originalPriceVnd ?? item.priceVnd ?? 0));
+    const minOrig = Math.min(...allOrigPrices);
+    const maxOrig = Math.max(...allOrigPrices);
+    const maxSavedAll = Math.max(0, ...activeVariants.map((item) => Math.max(0, Number(item.originalPriceVnd ?? item.priceVnd ?? 0) - Number(item.priceVnd || 0))));
+    const maxPctAll = Math.max(0, ...activeVariants.map((item) => {
+      const o = Number(item.originalPriceVnd ?? item.priceVnd ?? 0);
+      return o > item.priceVnd && o > 0 ? Math.round(((o - item.priceVnd) / o) * 100) : 0;
+    }));
+    const salePool = activeVariants.filter((item) => item.promotion);
+    const flashPool = salePool.filter((item) => item.promotion?.type === "flash");
+    const defaultPromo = flashPool[0]?.promotion || salePool[0]?.promotion || null;
 
-      const price = Number(v.priceVnd || 0);
-      const orig = Number(v.originalPriceVnd ?? price);
-      const savedUnit = Math.max(0, orig - price);
-      const pct = orig > price && orig > 0 ? Math.round((savedUnit / orig) * 100) : 0;
-      const promo = v.promotion || null;
+    const syncUi = (updateImage = true, forceCover = false) => {
+      const v = selectedVariant;
+      const isSelected = Boolean(v);
+      const stock = isSelected ? Math.max(0, Number(v.stockQuantity) || 0) : (inStockVariants.length > 0 ? Math.max(...inStockVariants.map((x) => Number(x.stockQuantity) || 0)) : 0);
+      const maxQty = Math.max(1, Math.min(99, stock || 1));
+      selectedQty = isSelected ? Math.max(1, Math.min(maxQty, selectedQty)) : 1;
+
+      const price = isSelected ? Number(v.priceVnd || 0) : minPrice;
+      const orig = isSelected ? Number(v.originalPriceVnd ?? price) : minOrig;
+      const savedUnit = isSelected ? Math.max(0, orig - price) : maxSavedAll;
+      const pct = isSelected ? (orig > price && orig > 0 ? Math.round((savedUnit / orig) * 100) : 0) : maxPctAll;
+      const promo = isSelected ? (v.promotion || null) : defaultPromo;
       const isFlash = promo?.type === "flash";
       const hasDiscount = savedUnit > 0;
 
-      if (picker) picker.value = v.id;
+      const priceDisplay = isSelected
+        ? formatPrice(price)
+        : (minPrice === maxPrice ? formatPrice(minPrice) : `${formatPrice(minPrice)} – ${formatPrice(maxPrice)}`);
+      const origDisplay = isSelected
+        ? formatPrice(orig)
+        : (minOrig === maxOrig ? formatPrice(minOrig) : `${formatPrice(minOrig)} – ${formatPrice(maxOrig)}`);
+
+      if (picker) picker.value = isSelected ? v.id : "";
 
       // Update main stage image & thumbnail highlight
       if (updateImage && stageImg) {
-        const nextUrl = qcResolveVariantImage(product, v);
+        const nextUrl = (forceCover || !isSelected) ? mainCoverImg : qcResolveVariantImage(product, v);
         if (stageImg.getAttribute("src") !== nextUrl) {
           stageImg.classList.add("is-swapping");
           stageImg.src = nextUrl;
-          stageImg.alt = `${product.name} · ${v.name}`;
+          stageImg.alt = isSelected ? `${product.name} · ${v.name}` : product.name;
           setTimeout(() => stageImg.classList.remove("is-swapping"), 180);
         }
         dialog.querySelectorAll("[data-qc-thumb]").forEach((btn) => {
@@ -1681,7 +1701,7 @@ function bindGlobalControls() {
         });
       }
 
-      // Floating discount badge on image stage
+      // Discount badge in stage bar
       if (stageBadge) {
         if (pct > 0) {
           stageBadge.textContent = isFlash ? `⚡ -${pct}%` : `-${pct}%`;
@@ -1693,31 +1713,34 @@ function bindGlobalControls() {
       }
 
       // Stock pills (desktop stage + mobile hero)
-      const stockText = stock <= 0 ? "Tạm hết hàng" : (stock <= 10 ? `Chỉ còn ${stock} sp` : "Còn hàng");
-      const stockClass = stock <= 0 ? "is-oos" : (stock <= 10 ? "is-low" : "is-ok");
+      const stockText = stock <= 0 ? "Tạm hết hàng" : (isSelected && stock <= 10 ? `Chỉ còn ${stock} sp` : "Còn hàng");
+      const stockClass = stock <= 0 ? "is-oos" : (isSelected && stock <= 10 ? "is-low" : "is-ok");
       if (stockPill) {
         stockPill.className = `qc-stock-pill ${stockClass}`;
         stockPill.innerHTML = `<span class="qc-stock-dot" aria-hidden="true"></span>${escapeHtml(stockText)}`;
       }
       if (mobileStock) {
         mobileStock.className = `qc-mobile-stock ${stockClass}`;
-        mobileStock.textContent = stockText + (v.sku ? ` · SKU ${v.sku}` : "");
+        mobileStock.textContent = stockText + (isSelected && v.sku ? ` · SKU ${v.sku}` : "");
       }
 
       // Mobile compact hero summary
       if (mobilePrice) {
-        mobilePrice.textContent = formatPrice(price);
+        mobilePrice.textContent = priceDisplay;
         mobilePrice.classList.toggle("is-sale", hasDiscount || Boolean(promo));
       }
       if (mobileOrig) {
-        mobileOrig.textContent = formatPrice(orig);
+        mobileOrig.textContent = origDisplay;
         mobileOrig.hidden = !hasDiscount;
       }
       if (mobileDisc) {
         mobileDisc.textContent = `-${pct}%`;
         mobileDisc.hidden = pct <= 0;
       }
-      if (mobileVar) mobileVar.textContent = v.name || "";
+      if (mobileVar) {
+        mobileVar.textContent = isSelected ? (v.name || "") : "Vui lòng chọn phiên bản";
+        mobileVar.classList.toggle("is-prompt", !isSelected);
+      }
 
       // Main price panel & Flash Sale countdown
       if (pricePanel) {
@@ -1728,7 +1751,7 @@ function bindGlobalControls() {
         if (promo) {
           saleBar.hidden = false;
           if (salePill) salePill.textContent = isFlash ? "⚡ FLASH SALE" : "🏷️ ƯU ĐÃI";
-          if (saleTitle) saleTitle.textContent = promo.title || (isFlash ? "Giá sốc có hạn" : "Chương trình khuyến mại");
+          if (saleTitle) saleTitle.textContent = promo.title || (isFlash ? "Giá sốc có hạn" : "Khuyến mại");
           if (countdownEl) {
             if (promo.endsAt) {
               countdownEl.dataset.saleEnd = new Date(promo.endsAt).toISOString();
@@ -1748,11 +1771,11 @@ function bindGlobalControls() {
         }
       }
       if (priceNowEl) {
-        priceNowEl.textContent = formatPrice(price);
+        priceNowEl.textContent = priceDisplay;
         priceNowEl.classList.toggle("is-sale", hasDiscount || Boolean(promo));
       }
       if (priceOrigEl) {
-        priceOrigEl.textContent = formatPrice(orig);
+        priceOrigEl.textContent = origDisplay;
         priceOrigEl.hidden = !hasDiscount;
       }
       if (discountEl) {
@@ -1760,26 +1783,26 @@ function bindGlobalControls() {
         discountEl.hidden = pct <= 0;
       }
       if (savingsEl) {
-        savingsEl.textContent = `Tiết kiệm ${formatPrice(savedUnit)}`;
+        const isRangeSavings = !isSelected && minPrice !== maxPrice;
+        savingsEl.textContent = `${isRangeSavings ? "Tiết kiệm tới" : "Tiết kiệm"} ${formatPrice(savedUnit)}`;
         savingsEl.hidden = !hasDiscount;
       }
       if (skuEl) {
-        skuEl.textContent = v.sku ? `SKU: ${v.sku}` : "";
-        skuEl.hidden = !v.sku;
+        skuEl.textContent = isSelected && v.sku ? `SKU: ${v.sku}` : "";
+        skuEl.hidden = !(isSelected && v.sku);
       }
 
-      // Promotions list (dynamic campaign line)
+      // Compact icon-only promotion chip
       if (promoCard) promoCard.classList.toggle("has-active-promo", Boolean(promo) || hasDiscount);
-      if (promoRow && promoText && promoTag) {
+      if (promoRow && promoText) {
         if (promo || hasDiscount) {
           promoRow.hidden = false;
-          promoTag.textContent = isFlash ? "FLASH SALE" : "GIẢM GIÁ";
-          promoTag.className = `qc-promo-tag ${isFlash ? "is-hot" : "is-deal"}`;
+          promoRow.className = `qc-perk-chip ${isFlash ? "is-hot" : "is-deal"}`;
+          if (promoIco) promoIco.textContent = isFlash ? "⚡" : "🏷️";
           const endStr = promo?.endsAt ? qcFormatEndDate(promo.endsAt) : "";
-          const titlePart = promo?.title ? `<strong>${escapeHtml(promo.title)}</strong>` : "<strong>Ưu đãi giá trực tiếp</strong>";
-          const savePart = hasDiscount ? ` — Giảm ${pct}% (tiết kiệm <strong>${escapeHtml(formatPrice(savedUnit))}</strong>/sp)` : "";
-          const timePart = endStr ? ` · Áp dụng đến ${escapeHtml(endStr)}` : "";
-          promoText.innerHTML = `${titlePart}${savePart}${timePart}`;
+          const shortLabel = isFlash ? (pct > 0 ? `Flash Sale -${pct}%` : "Flash Sale") : (pct > 0 ? `Giảm -${pct}%` : "Ưu đãi");
+          promoText.textContent = shortLabel;
+          promoRow.title = `${promo?.title || shortLabel}${hasDiscount ? ` · Tiết kiệm ${formatPrice(savedUnit)}/sp` : ""}${endStr ? ` · Đến ${endStr}` : ""}`;
         } else {
           promoRow.hidden = true;
         }
@@ -1790,47 +1813,64 @@ function bindGlobalControls() {
         dialog.querySelectorAll("[data-qc-opt-group]").forEach((btn) => {
           const gName = btn.dataset.qcOptGroup;
           const gVal = btn.dataset.qcOptValue;
-          btn.setAttribute("aria-pressed", String(v.options?.[gName] === gVal));
+          const activeVal = isSelected ? v.options?.[gName] : selectedOptions[gName];
+          btn.setAttribute("aria-pressed", String(activeVal === gVal));
         });
         for (const g of optionGroups) {
           const selEl = dialog.querySelector(`[data-qc-group-selected="${g.name.replace(/"/g, '\\"')}"]`);
-          if (selEl) selEl.textContent = v.options?.[g.name] || "";
+          const activeVal = isSelected ? v.options?.[g.name] : selectedOptions[g.name];
+          if (selEl) {
+            selEl.textContent = activeVal || "Chưa chọn";
+            selEl.classList.toggle("is-unselected", !activeVal);
+          }
         }
       } else {
         dialog.querySelectorAll("[data-qc-variant-id]").forEach((btn) => {
-          btn.setAttribute("aria-pressed", String(btn.dataset.qcVariantId === v.id));
+          btn.setAttribute("aria-pressed", String(isSelected && btn.dataset.qcVariantId === v.id));
         });
         const singleSelEl = dialog.querySelector("[data-qc-single-selected]");
-        if (singleSelEl) singleSelEl.textContent = v.name || "";
+        if (singleSelEl) {
+          singleSelEl.textContent = isSelected ? (v.name || "") : "Chưa chọn";
+          singleSelEl.classList.toggle("is-unselected", !isSelected);
+        }
       }
 
       // Stepper & footer totals
       if (qtyValEl) qtyValEl.textContent = String(selectedQty);
-      if (qtyDecBtn) qtyDecBtn.disabled = stock <= 0 || selectedQty <= 1;
-      if (qtyIncBtn) qtyIncBtn.disabled = stock <= 0 || selectedQty >= maxQty;
+      if (qtyDecBtn) qtyDecBtn.disabled = !isSelected || stock <= 0 || selectedQty <= 1;
+      if (qtyIncBtn) qtyIncBtn.disabled = !isSelected || stock <= 0 || selectedQty >= maxQty;
       if (qtyNoteEl) {
-        qtyNoteEl.textContent = stock <= 0 ? "Sản phẩm tạm hết hàng" : (stock <= 10 ? `Còn ${stock} sản phẩm trong kho` : "Sẵn hàng giao ngay");
+        qtyNoteEl.textContent = !isSelected
+          ? "Chọn phiên bản trước"
+          : (stock <= 0 ? "Tạm hết hàng" : (stock <= 10 ? `Còn ${stock} sản phẩm` : "Sẵn hàng giao ngay"));
       }
 
+      const canPurchase = isSelected && stock > 0;
       const subtotal = price * selectedQty;
       const totalSaved = savedUnit * selectedQty;
-      if (footerLabel) footerLabel.textContent = `Tạm tính (${selectedQty} sản phẩm)`;
-      if (subtotalEl) subtotalEl.textContent = formatPrice(subtotal);
+      if (footerLabel) {
+        footerLabel.textContent = isSelected ? `Tạm tính (${selectedQty} sản phẩm)` : "Chọn phiên bản để đặt mua";
+      }
+      if (subtotalEl) {
+        subtotalEl.textContent = isSelected
+          ? formatPrice(subtotal)
+          : (minPrice === maxPrice ? formatPrice(minPrice) : `Từ ${formatPrice(minPrice)}`);
+      }
       if (footerSavedEl) {
-        footerSavedEl.textContent = `Tiết kiệm ${formatPrice(totalSaved)}`;
-        footerSavedEl.hidden = totalSaved <= 0;
+        footerSavedEl.textContent = isSelected ? `Tiết kiệm ${formatPrice(totalSaved)}` : "";
+        footerSavedEl.hidden = !(isSelected && totalSaved > 0);
       }
 
       if (addBtn) {
-        addBtn.dataset.addToCart = stock > 0 ? v.id : "";
+        addBtn.dataset.addToCart = canPurchase ? v.id : "";
         addBtn.dataset.addQty = String(selectedQty);
-        addBtn.disabled = stock <= 0;
+        addBtn.disabled = !canPurchase;
       }
-      if (addLabel) addLabel.textContent = stock > 0 ? "Thêm vào giỏ hàng" : "Tạm hết hàng";
+      if (addLabel) addLabel.textContent = (isSelected && stock <= 0) ? "Tạm hết hàng" : "Thêm vào giỏ hàng";
       if (buyBtn) {
-        buyBtn.dataset.quickBuyNow = stock > 0 ? v.id : "";
+        buyBtn.dataset.quickBuyNow = canPurchase ? v.id : "";
         buyBtn.dataset.quickBuyQty = String(selectedQty);
-        buyBtn.disabled = stock <= 0;
+        buyBtn.disabled = !canPurchase;
       }
       if (feedbackEl) feedbackEl.textContent = "";
 
@@ -1854,17 +1894,28 @@ function bindGlobalControls() {
         const next = activeVariants.find((item) => item.id === btn.dataset.qcVariantId);
         if (next) {
           selectedVariant = next;
-          syncUi(true);
+          syncUi(true, false);
         }
       });
     });
 
     dialog.querySelectorAll("[data-qc-opt-group]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const next = qcChooseOption(activeVariants, selectedVariant, btn.dataset.qcOptGroup, btn.dataset.qcOptValue);
-        if (next) {
-          selectedVariant = next;
-          syncUi(true);
+        const gName = btn.dataset.qcOptGroup;
+        const gVal = btn.dataset.qcOptValue;
+        selectedOptions[gName] = gVal;
+        const allChosen = optionGroups.every((g) => Boolean(selectedOptions[g.name]));
+        if (allChosen) {
+          const exact = activeVariants.find((item) => optionGroups.every((g) => item.options?.[g.name] === selectedOptions[g.name]))
+            || qcChooseOption(activeVariants, selectedVariant, gName, gVal);
+          if (exact) {
+            selectedVariant = exact;
+            for (const [k, val] of Object.entries(exact.options || {})) selectedOptions[k] = val;
+          }
+          syncUi(true, false);
+        } else {
+          selectedVariant = null;
+          syncUi(false, false);
         }
       });
     });
@@ -1872,54 +1923,54 @@ function bindGlobalControls() {
     if (picker) {
       picker.onchange = () => {
         const next = activeVariants.find((item) => item.id === picker.value);
-        if (next) {
-          selectedVariant = next;
-          syncUi(true);
-        } else if (addBtn) {
-          addBtn.dataset.addToCart = "";
-          addBtn.disabled = true;
-          if (buyBtn) buyBtn.disabled = true;
+        selectedVariant = next || null;
+        if (next && next.options) {
+          for (const [k, val] of Object.entries(next.options)) selectedOptions[k] = val;
         }
+        syncUi(true, !next);
       };
     }
 
     if (qtyDecBtn) {
       qtyDecBtn.addEventListener("click", () => {
-        if (selectedQty > 1) {
+        if (selectedVariant && selectedQty > 1) {
           selectedQty -= 1;
-          syncUi(false);
+          syncUi(false, false);
         }
       });
     }
     if (qtyIncBtn) {
       qtyIncBtn.addEventListener("click", () => {
-        const maxQty = Math.max(1, Math.min(99, Number(selectedVariant?.stockQuantity) || 1));
+        if (!selectedVariant) return;
+        const maxQty = Math.max(1, Math.min(99, Number(selectedVariant.stockQuantity) || 1));
         if (selectedQty < maxQty) {
           selectedQty += 1;
-          syncUi(false);
+          syncUi(false, false);
         }
       });
     }
 
-    syncUi(true);
+    // Initial render always keeps main product cover image first
+    syncUi(true, true);
     dialog.showModal();
 
-    // Hydrate live shipping policy & active combo bundles asynchronously without blocking open
+    // Hydrate live shipping policy & active combo bundles asynchronously as compact icon chips
     qcFetchPublicSettings().then((settings) => {
       if (!settings || !dialog.isConnected) return;
-      const shipTag = dialog.querySelector("[data-qc-ship-tag]");
+      const shipRow = dialog.querySelector("[data-qc-shipping-row]");
       const shipText = dialog.querySelector("[data-qc-ship-text]");
-      if (!shipTag || !shipText) return;
+      if (!shipRow || !shipText) return;
       const rates = settings.shippingRates || {};
       const keys = Object.keys(rates);
       const hasNationwide = keys.some((k) => /^toàn\s+quốc$/i.test(String(k).trim()));
       const freeNationwide = hasNationwide && Object.values(rates).every((fee) => Number(fee) === 0);
       if (freeNationwide) {
-        shipTag.textContent = "FREESHIP";
-        shipTag.className = "qc-promo-tag is-free";
-        shipText.innerHTML = "<strong>Miễn phí giao hàng toàn quốc · 0 ₫</strong>" + (settings.shippingCarriers?.[0]?.name ? ` (${escapeHtml(settings.shippingCarriers[0].name)})` : "");
+        shipRow.className = "qc-perk-chip is-free";
+        shipText.textContent = "Freeship 0 ₫";
+        shipRow.title = "Miễn phí giao hàng toàn quốc · 0 ₫" + (settings.shippingCarriers?.[0]?.name ? ` (${settings.shippingCarriers[0].name})` : "");
       } else if (settings.shippingNote) {
-        shipText.textContent = String(settings.shippingNote);
+        shipText.textContent = "Giao toàn quốc";
+        shipRow.title = String(settings.shippingNote);
       }
     }).catch(() => {});
 
@@ -1930,7 +1981,8 @@ function bindGlobalControls() {
       const txt = dialog.querySelector("[data-qc-bundle-text]");
       if (!row || !txt || !b) return;
       const discLabel = b.discountType === "percent" ? `-${b.discountValue}%` : `-${formatPrice(b.discountValue)}`;
-      txt.innerHTML = `<strong>${escapeHtml(b.title)}</strong> (giảm thêm ${escapeHtml(discLabel)} khi mua kèm) · <a class="qc-inline-link" href="${pUrl}">Xem combo ↗</a>`;
+      txt.textContent = `Combo ${discLabel}`;
+      row.title = `Mua kèm ${b.title} giảm thêm ${discLabel}`;
       row.hidden = false;
     }).catch(() => {});
   }
