@@ -460,7 +460,7 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
 
   // Admin routes
   adminRouter.get('/marketplace/connections',requirePermission('marketplace.read'),async(req,res,next)=>{try{const connections=[];for(const channel of account.channels)connections.push(account.connection(channel,await readRecord(pool,config,channel)));res.json({connections});}catch(e){next(e);}});
-  adminRouter.post('/marketplace/:channel/verify',requirePermission('marketplace.write'),requireCsrf,rateLimit({windowMs:900000,limit:12,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
+  adminRouter.post('/marketplace/:channel/verify',requirePermission('marketplace.write'),requireCsrf,rateLimit({...require('./security-hardening').sharedStore(pool,config,'marketplace-verify'),windowMs:900000,limit:12,standardHeaders:'draft-8',legacyHeaders:false}),async(req,res,next)=>{
     try{
       const channel=z.enum(account.channels).parse(req.params.channel);
       if(req.admin?.role!=='owner'||req.admin?.source!=='bootstrap'||!config.accountSecurity)throw fail('Chỉ chủ doanh nghiệp được xác minh khóa kết nối.',403);
@@ -477,7 +477,7 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
   adminRouter.post('/marketplace/:channel/sync-orders',
     requirePermission('marketplace.write'),
     requireCsrf,
-    rateLimit({ windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
+    rateLimit({ ...require('./security-hardening').sharedStore(pool, config, 'marketplace-sync-orders'), windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
         const channel = z.enum(['shopee', 'tiktok', 'lazada']).parse(req.params.channel);
@@ -492,7 +492,7 @@ function createOmnichannelSync(pool, config, { fetcher = fetch } = {}) {
   adminRouter.post('/marketplace/:channel/sync-stock',
     requirePermission('marketplace.write'),
     requireCsrf,
-    rateLimit({ windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
+    rateLimit({ ...require('./security-hardening').sharedStore(pool, config, 'marketplace-sync-stock'), windowMs: 60000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }),
     async (req, res, next) => {
       try {
         const channel = z.enum(['shopee', 'tiktok', 'lazada']).parse(req.params.channel);

@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<title>GAERU – Web Server Console (Xiaomi Mi 6)</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="192x192" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/vendor/xterm.css">
+<style>
+:root{--bg:#0b1220;--panel:#131c2e;--panel2:#1b263b;--line:#26334d;--txt:#e2e8f0;--mut:#8ea0bd;--acc:#38bdf8;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);font-size:14px}
+a{color:var(--acc)}button,input,select,textarea{font:inherit;color:inherit}
+header{display:flex;align-items:center;gap:10px;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;color:var(--acc)}header .sp{flex:1}.pill{padding:2px 10px;border-radius:99px;background:#064e3b;color:#6ee7b7;font-size:12px;font-weight:600}
+.brand-badge{display:inline-flex;align-items:center;justify-content:center;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;padding:4px 9px;box-shadow:0 2px 8px rgba(0,0,0,.28);line-height:0;flex-shrink:0}
+.brand-badge img{display:block;width:auto;height:15px}
+.brand-badge.lg{border-radius:10px;padding:7px 13px}
+.brand-badge.lg img{height:21px}
+.brand-head{display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:inherit;min-width:0}
+.login-brand{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.server-pill{font-size:11px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:99px;background:#0c4a6e;color:#7dd3fc;border:1px solid #0284c7;text-transform:uppercase;white-space:nowrap}
+.pill.bad{background:#7f1d1d;color:#fecaca}.pill.warn{background:#78350f;color:#fde68a}
+nav{display:flex;gap:2px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{background:none;border:0;padding:11px 14px;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button.on{color:var(--acc);border-color:var(--acc)}
+main{padding:18px;max-width:1400px;margin:auto}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card.hero{grid-column:1/-1;border-color:#1d4ed8;background:linear-gradient(135deg,#131c2e 0%,#0f1a30 100%)}
+.card h3{margin:0 0 10px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.big{font-size:26px;font-weight:700}.mut{color:var(--mut)}.sm{font-size:12px}
+.bar{height:8px;background:#22304a;border-radius:9px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--acc);border-radius:9px;transition:width .4s}
+.cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}.core{font-size:11px;color:var(--mut)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px}.kv b{font-weight:600;text-align:right}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}th{color:var(--mut);font-weight:600;font-size:12px}
+tr:hover td{background:#16213a}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px}.btn:hover{border-color:var(--acc)}
+.btn.p{background:#0369a1;border-color:#0369a1}.btn.g{background:#065f46;border-color:#047857}.btn.d{background:#7f1d1d;border-color:#991b1b}.btn.s{padding:4px 9px;font-size:12px}
+input[type=text],input[type=password],input[type=number],select,textarea{background:#0e1626;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+textarea{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--bad)}.dot.on{background:var(--ok)}
+pre.out{background:#060b16;border:1px solid var(--line);border-radius:8px;padding:12px;max-height:65vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12.5px;margin:0}
+#term{height:calc(100vh - 190px);background:#000;border-radius:10px;padding:6px}
+.crumbs span{cursor:pointer;color:var(--acc)}.crumbs span:hover{text-decoration:underline}
+.fi{cursor:pointer}.hide{display:none!important}
+#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px;overflow:auto}
+#login form{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px;width:340px;max-width:95vw}
+#login form.wide{width:460px}
+#login h2{margin:0 0 4px;color:var(--acc)}#login input{width:100%;margin:12px 0}
+.totp-qr{display:block;margin:10px auto;background:#fff;padding:8px;border-radius:10px;width:200px;height:200px}
+.bcode{background:#060b16;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.55;margin:8px 0;white-space:pre-wrap;word-break:break-all}
+#toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:60}
+#toast div{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--acc);padding:10px 14px;border-radius:8px;max-width:420px;white-space:pre-wrap}
+#toast div.e{border-left-color:var(--bad)}
+dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(900px,95vw)}
+dialog::backdrop{background:#000a}
+canvas{width:100%;height:60px}
+.tag{font-size:11px;padding:2px 8px;border-radius:6px;background:#22304a;color:var(--txt);display:inline-block}
+.wbadges{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+</style>
+</head>
+<body>
+<div id="login"><form id="loginForm">
+  <div class="login-brand">
+    <span class="brand-badge lg"><img src="/logo.png" alt="GAERU" width="114" height="26"></span>
+    <span class="server-pill">Web Server</span>
+  </div>
+  <h2>GAERU Web Server</h2><div class="mut sm" id="loginSub">Xiaomi Mi 6 Production Console · Nhập mật khẩu root</div>
+  <div id="loginStep1">
+    <input id="pw" type="password" placeholder="Mật khẩu root" autofocus autocomplete="current-password">
+    <button type="submit" class="btn p" style="width:100%">Đăng nhập</button>
+  </div>
+  <div id="loginStep2" class="hide">
+    <div class="sm" style="margin-top:10px">Nhập mã <b>6 số</b> từ Google Authenticator / Bitwarden, hoặc 1 <b>mã dự phòng</b> (<code>XXXX-XXXX</code>):</div>
+    <input id="totpCode" type="text" placeholder="123456 hoặc XXXX-XXXX" autocomplete="one-time-code" inputmode="text" maxlength="16">
+    <div class="row" style="margin-bottom:0">
+      <button type="submit" class="btn p" style="flex:1">Xác nhận 2FA</button>
+      <button type="button" class="btn" id="loginBackBtn">Quay lại</button>
+    </div>
+  </div>
+  <div id="loginSetup2fa" class="hide">
+    <div class="sm" style="margin-top:10px"><b>Kích hoạt bảo mật 2 bước (lần đầu qua LAN):</b> Quét mã QR bằng Google Authenticator, Authy hoặc Bitwarden.</div>
+    <img id="setupQr" class="totp-qr hide" alt="2FA QR Code">
+    <div class="sm mut">Khóa thủ công (Base32): <code id="setupSecret" style="color:var(--txt);user-select:all"></code> <button type="button" class="btn s" id="copySecretBtn" style="margin-left:6px">Copy</button></div>
+    <div class="sm" style="margin-top:10px;color:var(--warn)"><b>8 mã dự phòng dùng 1 lần</b> (lưu ngay để phòng mất điện thoại):</div>
+    <pre id="setupBackups" class="bcode"></pre>
+    <button type="button" class="btn s" id="copyBackupBtn" style="margin-bottom:6px">📋 Copy 8 mã dự phòng</button>
+    <input id="setupCode" type="text" placeholder="Nhập mã 6 số vừa hiện trên app để kích hoạt" autocomplete="one-time-code" inputmode="numeric" maxlength="12">
+    <div class="row" style="margin-bottom:0">
+      <button type="submit" class="btn g" style="flex:1">Kích hoạt 2FA &amp; Đăng nhập</button>
+      <button type="button" class="btn" id="setupBackBtn">Hủy</button>
+    </div>
+  </div>
+  <div id="lerr" class="sm" style="color:var(--bad);margin-top:10px"></div>
+</form></div>
+
+<header>
+  <a class="brand-head" href="/" title="GAERU – Web Server Console">
+    <span class="brand-badge"><img src="/logo.png" alt="GAERU" width="66" height="15"></span>
+    <h1>Web Server Console <span class="mut sm" style="font-weight:500">(Xiaomi Mi 6)</span></h1>
+  </a>
+  <span class="pill" id="hweb">gaeru.com ● Đang kiểm tra…</span>
+  <span class="pill" id="hwrk">Workers: –</span>
+  <span class="sp"></span>
+  <span class="mut sm" id="hmeta"></span>
+  <span class="mut sm" id="hclock"></span>
+  <button class="btn s" data-act="logout">Đăng xuất</button>
+</header>
+<nav id="nav"></nav>
+<main>
+<!-- OVERVIEW -->
+<section id="t-overview">
+  <div class="grid">
+    <div class="card hero">
+      <h3><span>Web Server Production · gaeru.com (24/7)</span><span class="sm" id="webBadge" style="text-transform:none">Đang kiểm tra…</span></h3>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div>
+          <div class="big" id="webBig">–</div>
+          <div class="mut sm" id="webSub">Đang tải thông số Node.js Cluster, Cloudflare Tunnel &amp; PostgreSQL 19…</div>
+        </div>
+        <div class="row" style="margin:0">
+          <button class="btn g" data-act="web-reload">⚡ Rolling Reload (0s Downtime)</button>
+          <button class="btn p" data-act="web-restart">↻ Khởi động lại Cluster</button>
+          <button class="btn" data-act="load-stats">🔍 Kiểm tra /health</button>
+          <button class="btn" data-show="services">📦 Sao lưu &amp; Dịch vụ</button>
+          <a class="btn" href="https://gaeru.com" target="_blank" rel="noopener">↗ Mở gaeru.com</a>
+        </div>
+      </div>
+      <div class="wbadges" id="webChain"></div>
+      <div class="sm mut" id="webHealthLog" style="font-family:ui-monospace,Consolas,monospace;background:#081020;padding:8px 10px;border-radius:8px;border:1px solid var(--line)">Healthcheck: đang tải…</div>
+    </div>
+    <div class="card"><h3>CPU (8 nhân Kryo 280)</h3><div class="big" id="cpuT">–</div><div class="mut sm" id="cpuL"></div><canvas id="cpuC" width="600" height="120"></canvas><div class="cores" id="cores"></div></div>
+    <div class="card">
+      <h3><span>GPU (Adreno 540 · OpenCL 2.0)</span><span class="tag" id="gpuTag">–</span></h3>
+      <div class="big" id="gpuT">–</div>
+      <div class="mut sm" id="gpuL"></div>
+      <canvas id="gpuC" width="600" height="120"></canvas>
+      <div class="kv sm" id="gpuKv" style="margin-top:8px"></div>
+    </div>
+    <div class="card"><h3>Bộ nhớ RAM &amp; ZRAM</h3><div class="big" id="memT">–</div><div class="bar"><i id="memB"></i></div><div class="mut sm" id="memS"></div><div class="bar"><i id="swpB" style="background:var(--warn)"></i></div></div>
+    <div class="card"><h3>Lưu trữ (/userdata)</h3><div id="disks"></div></div>
+    <div class="card"><h3>Nhiệt độ SoC &amp; Bo mạch</h3><div class="big" id="tCpu">–</div><div class="kv sm" id="temps" style="margin-top:8px"></div></div>
+    <div class="card"><h3>Pin &amp; Nguồn điện Bypass</h3><div class="big" id="batT">–</div><div class="bar"><i id="batB" style="background:var(--ok)"></i></div><div class="kv sm" id="bat"></div><div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line);display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="sm mut">Giới hạn sạc:</span><button class="btn s" data-bat="75">75%</button><button class="btn s" data-bat="80">80% (Khuyên dùng)</button><button class="btn s" data-bat="85">85%</button><button class="btn s" data-bat="90">90%</button></div></div>
+    <div class="card">
+      <h3><span>Độ sáng màn hình (LCD Backlight)</span><span class="tag" id="briTag">–</span></h3>
+      <div class="big" id="briT">–</div>
+      <div class="row" style="margin:10px 0 8px">
+        <span class="sm mut">0%</span>
+        <input id="briRange" type="range" min="0" max="4095" step="1" value="0" style="flex:1;accent-color:var(--acc);cursor:pointer">
+        <span class="sm mut">100%</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="sm mut">Mức nhanh:</span>
+        <button class="btn s" data-bri="0">🌑 Tắt (0%)</button>
+        <button class="btn s" data-bri="205">5%</button>
+        <button class="btn s" data-bri="614">15%</button>
+        <button class="btn s" data-bri="1024">25%</button>
+        <button class="btn s" data-bri="2048">50%</button>
+        <button class="btn s" data-bri="4095">☀️ 100%</button>
+      </div>
+    </div>
+    <div class="card"><h3>Mạng LAN &amp; Wi-Fi</h3><div class="kv sm" id="net"></div></div>
+    <div class="card"><h3>Thông tin Máy chủ</h3><div class="kv sm" id="sys"></div></div>
+  </div>
+</section>
+
+<!-- SERVICES & WEB & BACKUPS -->
+<section id="t-services" class="hide">
+  <div class="card" style="margin-bottom:14px">
+    <h3><span>Điều hành GAERU Web Cluster (gaeru.com)</span><span class="tag">/storage/apps/gaeru · Cổng 3000 · 4 Workers</span></h3>
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <div class="sm" id="svc-web-meta">Đang đọc trạng thái Cluster…</div>
+      <div class="row" style="margin:0">
+        <button class="btn g" data-act="web-reload">⚡ Rolling Reload (SIGHUP – 0s Downtime)</button>
+        <button class="btn p" data-act="web-restart">↻ Restart Cluster</button>
+        <button class="btn" data-log-app="gaeru">📜 Nhật ký Web</button>
+        <a class="btn" href="https://gaeru.com" target="_blank" rel="noopener">↗ Mở Website</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="backups-box" style="margin-bottom:14px">
+    <h3><span>Sao lưu Chuẩn 3-2-1 (PostgreSQL 19 + Media/Config + Google Drive)</span><button class="btn s" data-act="load-backups">↻ Làm mới</button></h3>
+    <div class="row">
+      <button class="btn p" data-backup="pg">🗄️ Sao lưu PostgreSQL ngay</button>
+      <button class="btn" data-backup="media">📦 Sao lưu Media &amp; Config</button>
+      <button class="btn g" data-backup="gdrive">☁️ Đồng bộ Google Drive</button>
+      <button class="btn" data-backup="prune">🧹 Dọn bản cũ (&gt;48h)</button>
+      <button class="btn" data-backup="verify">🛡 Kiểm tra toàn vẹn GPG</button>
+    </div>
+    <div id="bk-policy" class="sm mut" style="margin-bottom:10px">Chính sách lưu trữ: Mi 6 tự xoá bản cũ sau <b>48 giờ</b> (luôn giữ bản mới nhất) · PC giữ <b>30 ngày</b> · Google Drive giữ <b>60 ngày</b>.</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+      <div class="card" style="background:#0e1626;padding:12px"><h3>PostgreSQL (.dump.gpg)</h3><div id="bk-pg" class="sm mut">Đang tải…</div></div>
+      <div class="card" style="background:#0e1626;padding:12px"><h3>Media &amp; Config (.tar.gz.gpg)</h3><div id="bk-media" class="sm mut">Đang tải…</div></div>
+      <div class="card" style="background:#0e1626;padding:12px"><h3>Google Drive Offsite</h3><div id="bk-gdrive" class="sm mut">Đang tải…</div></div>
+    </div>
+    <pre class="out hide" id="bk-out" style="margin-top:10px;max-height:220px"></pre>
+  </div>
+
+  <!-- ICLOUD_MAIL_CARD -->
+<div class="card" id="icloud-mail-box" style="margin-bottom:14px">
+  <h3><span>Hệ thống Email @gaeru.com &middot; iCloud+ Mail</span>
+    <small style="font-size:12px; opacity:.85; color:#34d399; text-transform:none">Chỉ dùng iCloud+ Custom Email Domain</small>
+  </h3>
+  <p style="opacity:.8; font-size:12px; margin:0 0 10px;">
+    Toàn hệ thống chỉ sử dụng <b>iCloud+ Custom Email Domain</b> (<code>mx01.mail.icloud.com</code>, <code>mx02.mail.icloud.com</code>, gửi SMTP qua <code>smtp.mail.me.com:587</code>). Email nội bộ đã được tắt và gỡ bỏ hoàn toàn.
+  </p>
+  <div id="im-smtp-banner" class="sm" style="margin-bottom:10px;opacity:.9;">Đang đọc cấu hình iCloud SMTP...</div>
+  <table>
+    <thead><tr><th>Hộp thư</th><th>Vai trò</th><th>Tên gửi</th><th>Nhà cung cấp</th><th>Webmail</th></tr></thead>
+    <tbody id="im-acc-rows"><tr><td colspan="5">Đang tải...</td></tr></tbody>
+  </table>
+  <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;">
+    <button class="btn p" type="button" id="im-btn-smtp">Cập nhật App-Specific Password iCloud+</button>
+    <a class="btn s" href="https://www.icloud.com/mail" target="_blank" rel="noopener">Mở iCloud Mail ↗</a>
+  </div>
+  <div id="im-acc-msg" class="sm" style="margin-top:8px;color:#34d399;"></div>
+</div>
+<!-- END ICLOUD_MAIL_CARD -->
+
+  <div class="card"><h3>Dịch vụ hệ thống (Upstart &amp; Tunnel)</h3><table><thead><tr><th>Dịch vụ</th><th>Trạng thái</th><th>PID</th><th>Tự chạy</th><th></th></tr></thead><tbody id="svc"></tbody></table></div>
+</section>
+
+<!-- PROCESSES -->
+<section id="t-procs" class="hide">
+  <div class="card"><div class="row"><h3 style="margin:0">Tiến trình</h3><input id="pf" type="text" placeholder="lọc..."><button class="btn s" data-act="load-procs">↻ Làm mới</button><label class="sm"><input type="checkbox" id="pauto" checked> tự làm mới</label></div>
+  <div style="max-height:72vh;overflow:auto"><table><thead><tr><th>PID</th><th>User</th><th>CPU%</th><th>RAM%</th><th>RSS</th><th>Thời gian</th><th>Lệnh</th><th></th></tr></thead><tbody id="procs"></tbody></table></div></div>
+</section>
+
+<!-- TERMINAL -->
+<section id="t-term" class="hide">
+  <div class="row"><button class="btn s" data-act="term-connect">↻ Kết nối lại</button><span class="mut sm">Terminal root đầy đủ (bash). Dùng được nano, htop, apt, npm, psql…</span></div>
+  <div id="term"></div>
+</section>
+
+<!-- FILES -->
+<section id="t-files" class="hide">
+  <div class="card">
+    <div class="row"><div class="crumbs" id="crumbs"></div><span class="sp" style="flex:1"></span>
+      <button class="btn s" data-fs-new="newfile">+ File</button><button class="btn s" data-fs-new="mkdir">+ Thư mục</button>
+      <label class="btn s">⬆ Tải lên<input id="fsUpInput" type="file" multiple class="hide"></label>
+      <input id="fsPath" type="text" style="width:260px" placeholder="/đường/dẫn"></div>
+    <table><thead><tr><th>Tên</th><th>Kích thước</th><th>Quyền</th><th>Sửa đổi</th><th></th></tr></thead><tbody id="files"></tbody></table>
+  </div>
+</section>
+
+<!-- POSTGRES -->
+<section id="t-pg" class="hide">
+  <div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="card"><h3>Cơ sở dữ liệu</h3><div class="mut sm" id="pgVer"></div>
+      <div class="row" style="margin-top:10px"><input id="dbName" type="text" placeholder="tên database"><select id="dbOwner"></select><button class="btn p s" data-pg="createdb">+ Tạo DB</button></div>
+      <table><thead><tr><th>Database</th><th>Chủ sở hữu</th><th>Dung lượng</th><th></th></tr></thead><tbody id="dbs"></tbody></table></div>
+    <div class="card"><h3>Người dùng (roles)</h3>
+      <div class="row"><input id="roleName" type="text" placeholder="tên user" style="width:130px"><input id="rolePw" type="password" placeholder="mật khẩu" style="width:130px">
+      <label class="sm"><input type="checkbox" id="roleCdb"> createdb</label><label class="sm"><input type="checkbox" id="roleSu"> superuser</label><button class="btn p s" data-pg="createrole">+ Tạo</button></div>
+      <table><thead><tr><th>User</th><th>Quyền</th><th></th></tr></thead><tbody id="roles"></tbody></table></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>SQL Console</h3>
+    <div class="row"><select id="sqlDb"></select><button class="btn p" data-act="run-sql">▶ Chạy (Ctrl+Enter)</button><span class="mut sm" id="tbls"></span></div>
+    <textarea id="sql" rows="7" spellcheck="false" placeholder="SELECT now();"></textarea>
+    <pre class="out" id="sqlOut" style="margin-top:10px">Kết quả hiển thị ở đây</pre></div>
+</section>
+
+<!-- LOGS -->
+<section id="t-logs" class="hide">
+  <div class="card"><div class="row"><select id="logSrc"></select><select id="logN"><option>200</option><option selected>500</option><option>2000</option></select>
+  <button class="btn s" data-act="load-log">↻</button><label class="sm"><input type="checkbox" id="lauto"> tự làm mới</label></div>
+  <pre class="out" id="logOut"></pre></div>
+</section>
+
+<!-- SYSTEM -->
+<section id="t-system" class="hide">
+  <div class="grid">
+    <div class="card"><h3>Thông tin</h3><div class="kv sm" id="sinfo"></div></div>
+    <div class="card"><h3>Nguồn &amp; Màn hình</h3><div class="row"><button class="btn" data-power="reboot">⟳ Khởi động lại</button><button class="btn d" data-power="poweroff">⏻ Tắt máy</button></div>
+      <div style="margin:10px 0;padding-top:10px;border-top:1px solid var(--line)">
+        <div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="sm">Độ sáng màn hình</span><b class="sm" id="briSysLbl">–</b></div>
+        <div class="row" style="margin-bottom:8px">
+          <span class="sm mut">0%</span>
+          <input id="briRangeSys" type="range" min="0" max="4095" step="1" value="0" style="flex:1;accent-color:var(--acc);cursor:pointer">
+          <span class="sm mut">100%</span>
+        </div>
+        <div class="row" style="margin-bottom:0">
+          <button class="btn s" data-bri="0">🌑 Tắt (0%)</button>
+          <button class="btn s" data-bri="205">5%</button>
+          <button class="btn s" data-bri="1024">25%</button>
+          <button class="btn s" data-bri="2048">50%</button>
+          <button class="btn s" data-bri="4095">☀️ 100%</button>
+        </div>
+      </div>
+      <div class="mut sm">Sau khi khởi động lại, mọi dịch vụ (PostgreSQL 19, GAERU Cluster, GPU AI, Cloudflare Tunnel, trang quản trị) tự chạy.</div></div>
+    <div class="card"><h3>Tường lửa (UFW)</h3><div class="row"><button class="btn s" data-fw="enable">Bật tường lửa (an toàn)</button><button class="btn s" data-fw="disable">Tắt</button></div>
+      <div class="row"><input id="fwPort" type="text" placeholder="3001/tcp" style="width:110px"><button class="btn s" data-fw="allow">Mở cổng</button><button class="btn s" data-fw="deny">Chặn cổng</button></div>
+      <pre class="out" id="ufw" style="max-height:200px"></pre></div>
+    <div class="card"><h3>Bảo mật 2FA &amp; Phiên</h3>
+      <div class="kv sm" id="totpSysStatus"><span>Trạng thái 2FA</span><b>Đang kiểm tra…</b></div>
+      <div class="row" style="margin-top:12px;margin-bottom:8px">
+        <button class="btn s p" data-act="2fa-regen">↻ Tạo lại 8 mã dự phòng</button>
+        <button class="btn s" data-act="2fa-rekey" id="btn2faRekey">🔑 Đổi khóa QR (LAN)</button>
+      </div>
+      <div class="mut sm">Phiên đăng nhập tự động hết hạn sau 2 giờ không thao tác (tối đa 12 giờ). Đổi khóa QR chỉ cho phép qua mạng LAN.</div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Wi-Fi</h3><div class="row"><button class="btn s" data-act="wifi-scan">⟳ Quét mạng</button><span class="mut sm" id="wifiNow"></span></div>
+    <table><thead><tr><th>SSID</th><th>Sóng</th><th>Bảo mật</th><th>Kênh</th><th></th></tr></thead><tbody id="wifi"></tbody></table></div>
+</section>
+</main>
+
+<dialog id="dlg"><div class="row"><b id="dlgT"></b><span style="flex:1"></span><span id="dlgBtns"></span><button class="btn s" data-act="dlg-close">✕</button></div><div id="dlgB"></div></dialog>
+<div id="toast"></div>
+
+<script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtB = (b) => { if (b == null) return '–'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (b >= 1024 && i < 4) { b /= 1024; i++; } return b.toFixed(i ? 1 : 0) + ' ' + u[i]; };
+const fmtUp = (s) => { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return (d ? d + 'd ' : '') + h + 'h ' + m + 'm'; };
+function toast(m, err) { const d = document.createElement('div'); if (err) d.className = 'e'; d.textContent = m; $('#toast').appendChild(d); setTimeout(() => d.remove(), err ? 7000 : 3500); }
+async function api(path, body, method) {
+  const opt = { method: method || (body ? 'POST' : 'GET'), headers: { 'x-mi6': '1' } };
+  if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  if (r.status === 401) { showLogin(); throw new Error('Chưa đăng nhập'); }
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j;
+}
+async function act(path, body, okMsg) { try { const r = await api(path, body); if (r.out) toast(r.out, r.ok === false); else if (okMsg) toast(okMsg); return r; } catch (e) { toast(e.message, true); } }
+
+// ---------- auth
+let loginStage = 'pw', loginChallengeId = '', setupToken = '';
+function copyText(txt, label) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(() => toast('Đã copy ' + label), () => fallbackCopy(txt, label));
+  } else fallbackCopy(txt, label);
+}
+function fallbackCopy(txt, label) {
+  const ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); toast('Đã copy ' + label); } catch { toast('Không tự copy được, hãy chọn bôi đen thủ công', true); }
+  ta.remove();
+}
+function resetLoginUi() {
+  loginStage = 'pw'; loginChallengeId = ''; setupToken = '';
+  $('#loginForm').classList.remove('wide');
+  $('#loginSub').textContent = 'Xiaomi Mi 6 Production Console · Nhập mật khẩu root';
+  $('#loginStep1').classList.remove('hide');
+  $('#loginStep2').classList.add('hide');
+  $('#loginSetup2fa').classList.add('hide');
+  $('#pw').value = ''; $('#totpCode').value = ''; $('#setupCode').value = '';
+  $('#lerr').textContent = '';
+}
+function showLogin() {
+  resetLoginUi();
+  $('#login').classList.remove('hide');
+  $('#pw').focus();
+}
+async function login(e) {
+  e.preventDefault(); $('#lerr').textContent = '';
+  if (loginStage === 'totp') {
+    const code = $('#totpCode').value.trim();
+    if (!code) { $('#lerr').textContent = 'Vui lòng nhập mã 2FA'; $('#totpCode').focus(); return; }
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-mi6': '1' },
+      body: JSON.stringify({ challengeId: loginChallengeId, code }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      $('#lerr').textContent = j.error || 'Lỗi xác thực 2FA';
+      if (r.status === 429 || r.status === 409) {
+        loginStage = 'pw'; loginChallengeId = '';
+        $('#loginStep2').classList.add('hide'); $('#loginStep1').classList.remove('hide');
+        $('#pw').focus();
+      }
+      return;
+    }
+    resetLoginUi(); $('#login').classList.add('hide');
+    if (j.usedBackup) toast(`Đã dùng 1 mã dự phòng! Còn lại ${j.remainingBackup} mã.`, j.remainingBackup <= 2);
+    show(cur);
+    return;
+  }
+  if (loginStage === 'setup') {
+    const code = $('#setupCode').value.trim();
+    if (!code) { $('#lerr').textContent = 'Nhập mã 6 số từ app Authenticator để hoàn tất'; $('#setupCode').focus(); return; }
+    const r = await fetch('/api/2fa/enroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-mi6': '1' },
+      body: JSON.stringify({ setupToken, code }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      $('#lerr').textContent = j.error || 'Kích hoạt 2FA thất bại';
+      if (r.status === 429) { resetLoginUi(); $('#lerr').textContent = j.error; }
+      return;
+    }
+    resetLoginUi(); $('#login').classList.add('hide');
+    toast('Đã kích hoạt bảo mật 2FA TOTP! Hãy giữ kỹ 8 mã dự phòng.');
+    show(cur);
+    return;
+  }
+  const r = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-mi6': '1' },
+    body: JSON.stringify({ password: $('#pw').value }),
+  });
+  const j = await r.json();
+  if (!r.ok) { $('#lerr').textContent = j.error || 'Đăng nhập thất bại'; return; }
+  $('#pw').value = '';
+  if (j.needTotp) {
+    loginStage = 'totp'; loginChallengeId = j.challengeId;
+    $('#loginSub').textContent = 'Bước 2/2 · Xác thực 2 bước (2FA)';
+    $('#loginStep1').classList.add('hide'); $('#loginStep2').classList.remove('hide');
+    $('#totpCode').value = ''; $('#totpCode').focus();
+    return;
+  }
+  if (j.needSetup2fa) {
+    loginStage = 'setup'; setupToken = j.setupToken;
+    $('#loginForm').classList.add('wide');
+    $('#loginSub').textContent = 'Cài đặt bảo mật 2 bước (2FA) lần đầu qua LAN';
+    if (j.qrDataUrl) { $('#setupQr').src = j.qrDataUrl; $('#setupQr').classList.remove('hide'); }
+    else $('#setupQr').classList.add('hide');
+    $('#setupSecret').textContent = j.secret || '';
+    $('#setupBackups').textContent = (j.backupCodes || []).join('\n');
+    $('#loginStep1').classList.add('hide'); $('#loginSetup2fa').classList.remove('hide');
+    $('#setupCode').value = ''; $('#setupCode').focus();
+    return;
+  }
+  resetLoginUi(); $('#login').classList.add('hide'); show(cur);
+}
+async function logout() {
+  await fetch('/api/logout', { method: 'POST', headers: { 'x-mi6': '1' } }).catch(() => {});
+  showLogin();
+}
+
+// ---------- tabs
+const TABS = [['overview', 'Tổng quan Web & Phần cứng'], ['services', 'Web Server & Sao lưu'], ['pg', 'Cơ sở dữ liệu (PG19)'], ['procs', 'Tiến trình'], ['logs', 'Nhật ký (Logs)'], ['files', 'Tệp tin'], ['term', 'Terminal'], ['system', 'Hệ thống & Mạng']];
+let cur = location.hash.slice(1) || 'overview';
+if (!TABS.some(([id]) => id === cur)) cur = 'overview';
+$('#nav').innerHTML = TABS.map(([id, l]) => `<button data-t="${id}">${l}</button>`).join('');
+function show(t) {
+  if (!TABS.some(([id]) => id === t)) t = 'overview';
+  cur = t; location.hash = t;
+  TABS.forEach(([id]) => { $('#t-' + id).classList.toggle('hide', id !== t); $(`[data-t=${id}]`).classList.toggle('on', id === t); });
+  ({ overview: loadStats, services: () => { loadSvc(); loadBackups(); loadStats(); window.__loadIcloudMail?.(); }, procs: loadProcs, term: termConnect, files: () => fsGo(fsCwd), pg: loadPg, logs: loadLogSrc, system: loadSys })[t]();
+}
+setInterval(() => { if (document.hidden || !$('#login').classList.contains('hide')) return;
+  if (cur === 'overview') loadStats(); if (cur === 'procs' && $('#pauto').checked) loadProcs(); if (cur === 'logs' && $('#lauto').checked) loadLog(); }, 2500);
+setInterval(() => ($('#hclock').textContent = new Date().toLocaleString('vi-VN')), 1000);
+
+// ---------- overview
+function drawSpark(id, hist, stroke, fill) {
+  const c = $(id);
+  if (!c) return;
+  const x = c.getContext('2d'), w = c.width, h = c.height;
+  x.clearRect(0, 0, w, h);
+  x.strokeStyle = '#26334d';
+  for (let i = 1; i < 4; i++) { x.beginPath(); x.moveTo(0, h * i / 4); x.lineTo(w, h * i / 4); x.stroke(); }
+  if (!hist || !hist.length) return;
+  x.beginPath();
+  hist.forEach((v, i) => {
+    const px = w * i / 59, py = h - h * Math.min(100, Math.max(0, v)) / 100;
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  });
+  x.strokeStyle = stroke; x.lineWidth = 2; x.stroke();
+  x.lineTo(w * (hist.length - 1) / 59, h); x.lineTo(0, h); x.fillStyle = fill; x.fill();
+}
+function draw(hist) { drawSpark('#cpuC', hist, '#38bdf8', '#38bdf822'); }
+function renderWeb(w) {
+  if (!w) return;
+  const cl = w.cluster || {};
+  const http = w.http || {};
+  const hweb = $('#hweb');
+  if (hweb) {
+    hweb.className = 'pill ' + (http.ok ? '' : 'bad');
+    hweb.textContent = http.ok ? `gaeru.com HTTP ${http.statusCode} · ${http.latencyMs}ms` : 'gaeru.com OFFLINE';
+  }
+  const hwrk = $('#hwrk');
+  if (hwrk) {
+    hwrk.className = 'pill ' + (cl.workersCount >= 4 ? '' : (cl.workersCount > 0 ? 'warn' : 'bad'));
+    hwrk.textContent = `Cluster: ${cl.workersCount || 0}/4 Workers · ${cl.clusterRssMb || 0} MB`;
+  }
+  const badge = $('#webBadge');
+  if (badge) badge.innerHTML = `<span class="dot ${http.ok && cl.masterAlive ? 'on' : ''}"></span>Master PID ${cl.masterPid || '–'} · ${cl.workersCount || 0} Workers`;
+  const big = $('#webBig');
+  if (big) big.textContent = http.ok ? `TRỰC TUYẾN (${http.latencyMs} ms)` : 'GIÁN ĐOẠN / ĐANG KHỞI ĐỘNG';
+  const sub = $('#webSub');
+  if (sub) sub.textContent = `HTTP /health: ${http.statusCode || 'ERR'} • Tổng RAM Web Cluster: ${cl.clusterRssMb || 0} MB • Workers: ${(cl.workers || []).map((x) => '#' + x.pid + ' (' + x.rssMb + 'MB)').join(', ') || 'chưa có'}`;
+  const chain = $('#webChain');
+  if (chain) {
+    const pill = (label, ok, extra) => `<span class="tag"><span class="dot ${ok ? 'on' : ''}"></span><b>${esc(label)}</b>${extra ? ' · ' + esc(extra) : ''}</span>`;
+    chain.innerHTML = [
+      pill('Node.js Cluster', !!(cl.masterAlive && cl.workersCount > 0), (cl.workersCount || 0) + ' workers'),
+      pill('Cloudflare Tunnel', !!(w.cloudflared && w.cloudflared.running), w.cloudflared?.pid ? 'PID ' + w.cloudflared.pid : ''),
+      pill('PostgreSQL 19', !!(w.postgresql && w.postgresql.running), w.postgresql?.pid ? 'PID ' + w.postgresql.pid : ''),
+      pill('Healthcheck 24/7', !!(w.healthcheck && w.healthcheck.running)),
+      pill('Watchdog', !!(w.watchdog && w.watchdog.running)),
+      pill('GPU AI Engine', !!(w.gpuAi && w.gpuAi.running && w.gpuAiOnline), w.gpuAiOnline ? 'OpenCL 2.0' : (w.gpuAi?.running ? 'Đang nạp' : 'Tắt')),
+    ].join('');
+  }
+  const hl = $('#webHealthLog');
+  if (hl) hl.textContent = w.lastHealthcheck ? ('Healthcheck gần nhất: ' + w.lastHealthcheck) : 'Healthcheck: chưa có bản ghi';
+  const swm = $('#svc-web-meta');
+  if (swm) swm.innerHTML = `<b>HTTP ${http.statusCode || 'ERR'}</b> (${http.latencyMs || 0} ms) • Master PID <code>${cl.masterPid || '–'}</code> • <b>${cl.workersCount || 0} Workers</b> (${cl.clusterRssMb || 0} MB RAM)`;
+}
+async function loadStats() {
+  let s; try { s = await api('/api/stats'); } catch { return; }
+  renderWeb(s.web);
+  const availMb = Math.round((s.mem.avail || 0) / 1048576);
+  if ($('#hmeta')) $('#hmeta').textContent = `RAM trống: ${availMb} MB • CPU: ${s.temps.cpu ? s.temps.cpu.toFixed(0) : '–'}°C • GPU: ${s.gpu ? s.gpu.busyPct.toFixed(0) + '%/' + (s.gpu.tempC != null ? s.gpu.tempC.toFixed(0) : '–') + '°C' : '–'} • Up: ${fmtUp(s.uptime)}`;
+  $('#cpuT').textContent = s.cpu.total.toFixed(1) + '%'; $('#cpuL').textContent = 'Load: ' + s.load.map((v) => v.toFixed(2)).join(' / ') + ' • ' + s.cpu.model; draw(s.cpu.hist);
+  $('#cores').innerHTML = s.cpu.cores.map((c) => c.online === false ? `<div class="core mut" style="opacity:0.5">CPU${c.id} Offline<div class="bar" style="margin:3px 0"><i style="width:0%"></i></div></div>` : `<div class="core">CPU${c.id} ${c.usage}%<div class="bar" style="margin:3px 0"><i style="width:${c.usage}%"></i></div></div>`).join('');
+  const used = s.mem.total - s.mem.avail; $('#memT').textContent = fmtB(used) + ' / ' + fmtB(s.mem.total); $('#memB').style.width = (100 * used / s.mem.total) + '%';
+  const sw = s.mem.swapTotal - s.mem.swapFree; $('#memS').textContent = 'Trống khả dụng: ' + fmtB(s.mem.avail) + ' • Cache: ' + fmtB(s.mem.cached) + ' • ZRAM: ' + fmtB(sw) + '/' + fmtB(s.mem.swapTotal); $('#swpB').style.width = (s.mem.swapTotal ? 100 * sw / s.mem.swapTotal : 0) + '%';
+  $('#disks').innerHTML = s.disks.map((d) => `<div class="sm"><b>${d.mount === '/' ? 'Hệ thống (/)' : 'Dữ liệu (' + esc(d.mount) + ')'}</b> <span class="mut">– trống ${fmtB(d.avail)} / ${fmtB(d.total)}</span></div><div class="bar"><i style="width:${100 * d.used / d.total}%;background:${d.used / d.total > .85 ? 'var(--bad)' : 'var(--ok)'}"></i></div>`).join('');
+  $('#tCpu').textContent = s.temps.cpu ? s.temps.cpu.toFixed(1) + '°C' : '–';
+  if (s.gpu && $('#gpuT')) {
+    const g = s.gpu, ai = g.ai || {};
+    $('#gpuT').textContent = g.busyPct.toFixed(1) + '%';
+    $('#gpuTag').innerHTML = `<span class="dot ${ai.online ? 'on' : ''}"></span>${ai.online ? 'AI Ready' : (ai.running ? 'Đang khởi động' : 'AI Tắt')} · ${g.clkMhz} MHz`;
+    $('#gpuL').textContent = `Xung: ${g.clkMhz} / ${g.maxClkMhz} MHz • Nhiệt: ${g.tempC != null ? g.tempC.toFixed(1) + '°C' : '–'} • Gov: ${g.governor || '–'}`;
+    drawSpark('#gpuC', g.hist || [], '#a855f7', '#a855f724');
+    const rmbgTxt = ai.readyRmbg ? `Sẵn sàng (${ai.rmbgCalls} lượt · ${ai.rmbgAvgMs} ms)` : 'Chưa sẵn sàng';
+    const embedTxt = ai.readyEmbed ? `Sẵn sàng (${ai.embedCalls} lượt · ${ai.embedAvgMs} ms)` : 'Chưa sẵn sàng';
+    const rssTxt = ai.rssMb ? `${ai.rssMb} MB (RMBG ${ai.rssRmbgMb} + Embed ${ai.rssEmbedMb})` : '0 MB';
+    const statusTxt = ai.online ? `Trực tuyến (PID ${ai.pid || '–'} · Up ${fmtUp(ai.uptimeS || 0)})` : (ai.running ? 'Đang nạp model...' : 'Ngoại tuyến');
+    $('#gpuKv').innerHTML = `<span>GPU AI Daemon</span><b style="color:${ai.online ? 'var(--ok)' : 'var(--warn)'}">${esc(statusTxt)}</b><span>Tách nền (u2netp FP16)</span><b>${esc(rmbgTxt)}</b><span>Vector (MiniLM-L12 Q8)</span><b>${esc(embedTxt)}</b><span>RAM GPU AI (RSS)</span><b>${esc(rssTxt)}</b><span>Model / Lỗi</span><b style="color:${ai.errors ? 'var(--bad)' : 'var(--txt)'}">${esc(g.model)} · ${ai.errors} lỗi</b>`;
+  }
+  $('#temps').innerHTML = `<span>CPU (max)</span><b>${s.temps.cpu?.toFixed(1) ?? '–'}°C</b><span>GPU (Adreno 540)</span><b>${s.temps.gpu?.toFixed(1) ?? '–'}°C</b><span>Pin</span><b>${s.battery.temp ?? '–'}°C</b><span>PMIC</span><b>${s.temps.pmic?.toFixed(1) ?? '–'}°C</b><span>Bo mạch</span><b>${s.temps.board ?? '–'}°C</b>`;
+  const b = s.battery;
+  const lim = b.limiter || {};
+  const isCutoff = lim.charge_cut_off || b.status === 'Not charging';
+  const isBypass = lim.bypass_active;
+  const cap = lim.battery?.capacity ?? b.capacity;
+  const tag = isBypass ? '🔌 Nguồn ngoài DC' : (b.status === 'Charging' ? '⚡ Đang sạc' : '🔋 Đang dùng pin');
+  $('#batT').textContent = cap + '% – ' + tag;
+  $('#batB').style.width = cap + '%';
+  $('#batB').style.background = isCutoff ? 'var(--ok)' : (cap < 20 ? 'var(--bad)' : 'var(--acc)');
+  $('#bat').innerHTML = `<span>Nguồn cấp</span><b style="color:${isBypass ? 'var(--ok)' : 'var(--txt)'}">${isBypass ? '🔌 Nguồn ngoài (Bypass 100%)' : '🔋 Pin nội bộ'}</b><span>Trạng thái sạc</span><b style="color:${isCutoff ? 'var(--ok)' : 'var(--acc)'}">${isCutoff ? '🛑 ĐÃ NGẮT SẠC (0 mA – Chống chai pin)' : (b.status === 'Charging' ? '⚡ Đang sạc lên ' + (lim.target_max || 80) + '%' : esc(b.status))}</b><span>Giới hạn tự ngắt</span><b style="color:var(--ok)">${lim.target_max || 80}% (Hồi sạc: ${lim.target_min || 75}%)</b><span>Dòng sạc pin</span><b>${lim.battery?.current_ma ?? b.current_ma} mA</b><span>Nguồn USB</span><b>${lim.usb ? lim.usb.voltage_v + 'V • ' + lim.usb.input_current_ma + ' mA' : '–'}</b><span>Điện áp pin</span><b>${b.voltage_v} V</b><span>Sức khoẻ & Chu kỳ</span><b>${esc(b.health)} (Chu kỳ: ${b.cycles ?? '–'})</b>`;
+  $('#net').innerHTML = `<span>Wi-Fi</span><b>${esc(s.ssid || '–')}</b>` + s.ifaces.map((i) => `<span>${i.name}</span><b>${i.ip}</b><span class="mut">↓↑ ${i.name}</span><b class="mut">${fmtB(i.rate.rx)}/s • ${fmtB(i.rate.tx)}/s</b>`).join('');
+  $('#sys').innerHTML = `<span>Hostname</span><b>${esc(s.hostname)}</b><span>Kernel</span><b>${esc(s.kernel)}</b><span>Uptime</span><b>${fmtUp(s.uptime)}</b><span>SSH</span><b>ssh root@${s.ifaces.find((i) => i.name.startsWith('wlan'))?.ip || s.ifaces[0]?.ip}</b>`;
+  if (s.brightness) renderBri(s.brightness.value, s.brightness.max || 4095);
+}
+let briMax = 4095;
+function renderBri(val, max) {
+  briMax = max || 4095;
+  const v = Math.max(0, Math.min(briMax, Math.round(Number(val) || 0)));
+  const pct = Math.round((v / briMax) * 100);
+  if ($('#briT')) $('#briT').textContent = v === 0 ? '0% (Đã tắt đèn nền)' : `${pct}%`;
+  if ($('#briTag')) $('#briTag').textContent = `${v} / ${briMax}`;
+  if ($('#briSysLbl')) $('#briSysLbl').textContent = `${pct}% (${v} / ${briMax})`;
+  for (const id of ['#briRange', '#briRangeSys']) {
+    const el = $(id);
+    if (el && document.activeElement !== el) { el.max = String(briMax); el.value = String(v); }
+  }
+}
+function previewBri(val) {
+  const v = Math.max(0, Math.min(briMax, Math.round(Number(val) || 0)));
+  const pct = Math.round((v / briMax) * 100);
+  if ($('#briT')) $('#briT').textContent = v === 0 ? '0% (Đã tắt đèn nền)' : `${pct}%`;
+  if ($('#briTag')) $('#briTag').textContent = `${v} / ${briMax}`;
+  if ($('#briSysLbl')) $('#briSysLbl').textContent = `${pct}% (${v} / ${briMax})`;
+  for (const id of ['#briRange', '#briRangeSys']) {
+    const el = $(id);
+    if (el && el.value !== String(v)) el.value = String(v);
+  }
+}
+async function setBri(val) {
+  const v = Math.max(0, Math.min(briMax, Math.round(Number(val) || 0)));
+  previewBri(v);
+  const r = await act('/api/system/brightness', { value: v });
+  if (r && typeof r.value === 'number') renderBri(r.value, r.max || briMax);
+  toast(v === 0 ? 'Đã tắt đèn nền màn hình (0%)' : `Đã đặt độ sáng màn hình: ${Math.round((v / briMax) * 100)}% (${v}/${briMax})`);
+}
+async function setBatLimit(v) {
+  await act('/api/battery/config', { target_max: v, target_min: v - 5 });
+  toast('Đã cài đặt giới hạn sạc pin: ' + v + '%');
+}
+
+// ---------- web & services & backups
+async function webReload() {
+  if (!confirm('Thực hiện Rolling Reload không gián đoạn (SIGHUP) cho 4 Workers của gaeru.com?')) return;
+  await act('/api/web/reload', {}, 'Đã gửi Rolling Reload');
+  setTimeout(loadStats, 1200);
+}
+async function webRestart() {
+  if (!confirm('Khởi động lại toàn bộ Cluster Node.js (gaeru.com)? Sẽ mất ~2-3 giây.')) return;
+  await act('/api/services', { name: 'node-app APP=gaeru', action: 'restart' }, 'Đang khởi động lại GAERU Cluster');
+  setTimeout(loadStats, 2500);
+}
+async function loadSvc() {
+  const l = await api('/api/services');
+  $('#svc').innerHTML = l.map((s) => {
+    const btns = s.oneShot
+      ? `<button class="btn s" data-svc-name="${esc(s.name)}" data-svc-act="start" title="Chạy lại tác vụ boot">▶ Chạy lại</button>`
+      : `<button class="btn s" data-svc-name="${esc(s.name)}" data-svc-act="start">▶</button> <button class="btn s" data-svc-name="${esc(s.name)}" data-svc-act="restart">⟳</button> <button class="btn s d" data-svc-name="${esc(s.name)}" data-svc-act="stop">■</button>`;
+    return `<tr><td><b>${esc(s.name)}</b><div class="mut sm">${esc(s.desc)}</div></td><td><span class="dot ${s.running ? 'on' : ''}"></span>${esc(s.state)}</td><td>${s.pid || ''}</td>
+  <td><label><input type="checkbox" ${s.autostart ? 'checked' : ''} data-svc-auto="${esc(s.name)}"> khi khởi động</label></td>
+  <td>${btns}</td></tr>`;
+  }).join('');
+}
+async function svc(name, action) {
+  if (action === 'stop' && ['ssh', 'network-manager', 'server-dashboard', 'node-app APP=gaeru', 'cloudflared', 'postgresql-chroot'].includes(name) && !confirm('Dừng ' + name + ' có thể làm gián đoạn web hoặc mất kết nối SSH/quản trị. Tiếp tục?')) return;
+  await act('/api/services', { name, action }, 'Đã ' + action + ' ' + name); setTimeout(() => { loadSvc(); loadStats(); }, 900);
+}
+async function loadBackups() {
+  let b; try { b = await api('/api/backups/status'); } catch { return; }
+  const fmtList = (arr) => (arr && arr.length) ? arr.slice(0, 3).map((x) => `<div><b>${esc(x.name)}</b><br><span class="mut">${fmtB(x.sizeBytes)} • ${new Date(x.mtime).toLocaleString('vi-VN')} • ${x.sha256 ? 'SHA256 OK' : 'chưa SHA'}</span></div>`).join('<hr style="border:0;border-top:1px solid var(--line);margin:6px 0">') : 'Chưa có bản sao lưu';
+  $('#bk-pg').innerHTML = fmtList(b.pg);
+  $('#bk-media').innerHTML = fmtList(b.media);
+  const g = b.gdrive || {};
+  const ls = g.lastSync || {};
+  const syncTs = ls.timestamp || ls.last_sync_utc;
+  $('#bk-gdrive').innerHTML = `<div>Trạng thái rclone: <b style="color:${g.configured ? 'var(--ok)' : 'var(--bad)'}">${g.configured ? 'Đã kết nối (' + esc(g.remoteRoot) + ')' : 'Chưa cấu hình'}</b></div>` + (syncTs ? `<div style="margin-top:4px">Đồng bộ gần nhất: <b>${esc(syncTs)}</b> (${esc(ls.status || 'ok')})</div>` : '');
+  const rt = b.retention || {};
+  const lp = rt.lastPrune || {};
+  const pruneTxt = lp.lastRunUtc ? ` • Dọn gần nhất: <b>${new Date(lp.lastRunUtc).toLocaleString('vi-VN')}</b> (đã xoá PG=${Number(lp.lastRemovedPg || 0)}, Media=${Number(lp.lastRemovedMedia || 0)})` : '';
+  $('#bk-policy').innerHTML = `Chính sách lưu trữ: Mi 6 tự xoá sau <b>${Number(rt.mi6Hours || 48)} giờ</b> (đang giữ ${fmtB(rt.pgBytes || 0)} PG + ${fmtB(rt.mediaBytes || 0)} Media) • PC giữ <b>${Number(rt.pcDays || 30)} ngày</b> • Google Drive giữ <b>${Number(rt.gdriveDays || 60)} ngày</b>${pruneTxt}`;
+}
+async function runBackup(mode) {
+  const out = $('#bk-out');
+  out.classList.remove('hide');
+  out.textContent = 'Đang chạy tác vụ sao lưu / kiểm tra (' + mode + ')… Vui lòng đợi.';
+  try {
+    const r = await api('/api/backups/run', { mode });
+    out.textContent = r.out || (r.ok ? 'Hoàn tất.' : 'Thất bại.');
+    out.style.color = r.ok ? 'var(--ok)' : 'var(--bad)';
+    loadBackups();
+  } catch (e) {
+    out.textContent = e.message;
+    out.style.color = 'var(--bad)';
+  }
+}
+function logApp(name) { show('logs'); setTimeout(() => { const v = 'app-' + name; if ($('#logSrc')) { $('#logSrc').value = v; loadLog(); } }, 350); }
+
+// ---------- processes
+let procs = [];
+async function loadProcs() { procs = await api('/api/processes'); renderProcs(); }
+function renderProcs() {
+  const f = $('#pf').value.toLowerCase();
+  $('#procs').innerHTML = procs.filter((p) => !f || p.cmd.toLowerCase().includes(f) || p.user.includes(f) || String(p.pid) === f).map((p) => `<tr><td>${p.pid}</td><td>${esc(p.user)}</td><td>${p.cpu}</td><td>${p.mem}</td><td>${fmtB(p.rss)}</td><td>${p.etime}</td>
+  <td class="sm" style="max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.cmd)}">${esc(p.cmd)}</td><td><button class="btn s" data-kill-pid="${p.pid}" data-kill-sig="SIGTERM">Dừng</button> <button class="btn s d" data-kill-pid="${p.pid}" data-kill-sig="SIGKILL">Kill</button></td></tr>`).join('');
+}
+async function kill(pid, signal) { if (confirm(`Gửi ${signal} tới PID ${pid}?`)) { await act('/api/processes/kill', { pid, signal }, 'Đã gửi ' + signal); setTimeout(loadProcs, 500); } }
+
+// ---------- terminal
+let term, fit, ws;
+function termConnect() {
+  if (!term) {
+    term = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: 'ui-monospace,Consolas,monospace', theme: { background: '#000000' }, scrollback: 5000 });
+    fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open($('#term'));
+    term.onData((d) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ t: 'd', d })));
+    term.onResize(({ cols, rows }) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ t: 'r', c: cols, r: rows })));
+    window.addEventListener('resize', () => cur === 'term' && fit.fit());
+  }
+  setTimeout(() => fit.fit(), 50);
+  if (ws && ws.readyState <= 1) { term.focus(); return; }
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/term'); ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { fit.fit(); ws.send(JSON.stringify({ t: 'r', c: term.cols, r: term.rows })); term.focus(); };
+  ws.onmessage = (e) => term.write(new Uint8Array(e.data));
+  ws.onclose = () => term.write('\r\n\x1b[33m[Mất kết nối – bấm "Kết nối lại"]\x1b[0m\r\n');
+}
+
+// ---------- files
+let fsCwd = '/storage';
+async function fsGo(p) {
+  let r; try { r = await api('/api/fs/list?path=' + encodeURIComponent(p)); } catch (e) { return toast(e.message, true); }
+  fsCwd = r.path; $('#fsPath').value = r.path;
+  const parts = r.path.split('/').filter(Boolean); let acc = '';
+  $('#crumbs').innerHTML = `<span data-fs-go="/">/</span> ` + parts.map((x) => { acc += '/' + x; return `<span data-fs-go="${esc(acc)}">${esc(x)}</span>`; }).join(' / ');
+  const parentPath = r.path.replace(/\/[^/]+$/, '') || '/';
+  const up = r.path === '/' ? '' : `<tr class="fi" data-fs-go="${esc(parentPath)}"><td>⬆ ..</td><td></td><td></td><td></td><td></td></tr>`;
+  $('#files').innerHTML = up + r.items.map((f) => {
+    const ep = esc(f.path);
+    return `<tr><td class="fi" ${f.dir ? `data-fs-go="${ep}"` : `data-fs-open="${ep}"`}>${f.dir ? '📁' : '📄'} ${esc(f.name)}${f.link ? ' <span class="tag">link</span>' : ''}</td><td>${f.dir ? '' : fmtB(f.size)}</td><td class="mut">${esc(f.mode || '')}</td>
+    <td class="mut sm">${f.mtime ? new Date(f.mtime).toLocaleString('vi-VN') : ''}</td><td>${f.dir ? '' : `<a class="btn s" href="/api/fs/download?path=${encodeURIComponent(f.path)}">⬇</a>`}
+    <button class="btn s" data-fs-ren="${ep}">Đổi tên</button> <button class="btn s" data-fs-chmod="${ep}" data-fs-mode="${esc(f.mode || '')}">chmod</button> <button class="btn s d" data-fs-del="${ep}">Xoá</button></td></tr>`;
+  }).join('');
+}
+async function fsOpen(p) {
+  let r; try { r = await api('/api/fs/read?path=' + encodeURIComponent(p)); } catch (e) { return toast(e.message, true); }
+  openDlg(p, `<textarea id="edit" rows="26" spellcheck="false"></textarea>`, `<button class="btn p s" id="dlgSaveBtn">💾 Lưu (Ctrl+S)</button>`);
+  $('#dlgSaveBtn').addEventListener('click', () => fsSave(p));
+  const t = $('#edit'); t.value = r.content;
+  t.onkeydown = (e) => { if (e.ctrlKey && e.key === 's') { e.preventDefault(); fsSave(p); } if (e.key === 'Tab') { e.preventDefault(); t.setRangeText('  ', t.selectionStart, t.selectionEnd, 'end'); } };
+}
+const fsSave = (p) => act('/api/fs/write', { path: p, content: $('#edit').value }, 'Đã lưu ' + p);
+async function fsNew(op) { const n = prompt(op === 'mkdir' ? 'Tên thư mục:' : 'Tên file:'); if (n) { await act('/api/fs/op', { op, path: fsCwd + '/' + n }); fsGo(fsCwd); } }
+async function fsDel(p) { if (confirm('Xoá vĩnh viễn ' + p + ' ?')) { await act('/api/fs/op', { op: 'delete', path: p }, 'Đã xoá'); fsGo(fsCwd); } }
+async function fsRename(p) { const n = prompt('Đường dẫn mới:', p); if (n && n !== p) { await act('/api/fs/op', { op: 'rename', path: p, to: n }); fsGo(fsCwd); } }
+async function fsChmod(p, m) { const n = prompt('Quyền (octal), vd 755 / 644:', m); if (n) { await act('/api/fs/op', { op: 'chmod', path: p, mode: n }); fsGo(fsCwd); } }
+async function fsUpload(files) {
+  for (const f of files) { toast('Đang tải lên ' + f.name + '…');
+    const r = await fetch('/api/fs/upload?path=' + encodeURIComponent(fsCwd + '/' + f.name), { method: 'PUT', headers: { 'x-mi6': '1' }, body: f });
+    toast(r.ok ? 'Đã tải lên ' + f.name : 'Lỗi tải lên ' + f.name, !r.ok); }
+  fsGo(fsCwd);
+}
+
+// ---------- postgres
+async function loadPg() {
+  let o; try { o = await api('/api/pg/overview'); } catch (e) { return toast(e.message, true); }
+  $('#pgVer').textContent = o.version.v.split(' on ')[0] + ' • ' + o.version.conns + '/' + o.version.maxconns + ' kết nối • data: ' + o.version.datadir;
+  $('#dbs').innerHTML = o.dbs.map((d) => `<tr><td><b>${esc(d.name)}</b></td><td>${esc(d.owner)}</td><td>${esc(d.size)}</td><td><a class="btn s" href="/api/pg/dump?db=${encodeURIComponent(d.name)}">⬇ Backup</a>
+    <button class="btn s" data-sql-db="${esc(d.name)}">SQL</button> ${d.name === 'postgres' ? '' : `<button class="btn s d" data-pg-drop="dropdb" data-pg-name="${esc(d.name)}">Xoá</button>`}</td></tr>`).join('');
+  $('#roles').innerHTML = o.roles.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td class="sm">${r.superuser === 't' ? '<span class="tag">superuser</span> ' : ''}${r.createdb === 't' ? '<span class="tag">createdb</span> ' : ''}${r.login === 't' ? '<span class="tag">login</span>' : ''}</td>
+    <td><button class="btn s" data-pg-pw="${esc(r.name)}">Đổi mật khẩu</button> ${r.name === 'postgres' ? '' : `<button class="btn s d" data-pg-drop="droprole" data-pg-name="${esc(r.name)}">Xoá</button>`}</td></tr>`).join('');
+  const prev = $('#sqlDb').value;
+  $('#sqlDb').innerHTML = o.dbs.map((d) => `<option>${esc(d.name)}</option>`).join(''); $('#sqlDb').value = prev || (o.dbs.some((d) => d.name === 'gaeru_store') ? 'gaeru_store' : (o.dbs[0]?.name || 'postgres'));
+  $('#dbOwner').innerHTML = '<option value="">(chủ: postgres)</option>' + o.roles.map((r) => `<option>${esc(r.name)}</option>`).join('');
+  loadTables();
+}
+async function loadTables() { try { const t = await api('/api/pg/tables?db=' + encodeURIComponent($('#sqlDb').value)); $('#tbls').textContent = t.length ? 'Bảng: ' + t.map((x) => `${x.table} (${x.rows} dòng, ${x.size})`).join(', ') : 'Chưa có bảng nào'; } catch { } }
+async function runSql() { $('#sqlOut').textContent = 'Đang chạy…'; try { const r = await api('/api/pg/sql', { db: $('#sqlDb').value, sql: $('#sql').value }); $('#sqlOut').textContent = r.out; $('#sqlOut').style.color = r.ok ? '' : 'var(--bad)'; loadTables(); } catch (e) { $('#sqlOut').textContent = e.message; } }
+async function pgAdmin(action) {
+  const b = action === 'createdb' ? { action, name: $('#dbName').value.trim(), owner: $('#dbOwner').value } : { action, name: $('#roleName').value.trim(), password: $('#rolePw').value, createdb: $('#roleCdb').checked, superuser: $('#roleSu').checked };
+  if (await act('/api/pg/admin', b, 'Đã tạo ' + b.name)) loadPg();
+}
+async function pgDrop(action, name) { const c = prompt(`XOÁ ${action === 'dropdb' ? 'database' : 'user'} "${name}"? Gõ lại tên để xác nhận:`); if (c) { if (await act('/api/pg/admin', { action, name, confirm: c }, 'Đã xoá ' + name)) loadPg(); } }
+function pgPw(name) {
+  promptPasswordDlg({
+    title: 'Đổi mật khẩu PostgreSQL',
+    desc: 'Nhập mật khẩu mới cho role "' + name + '":',
+    placeholder: 'Mật khẩu mới',
+    autocomplete: 'new-password',
+    okText: 'Lưu mật khẩu',
+  }, async (password) => {
+    dlg.close();
+    await act('/api/pg/admin', { action: 'password', name, password }, 'Đã đổi mật khẩu');
+  });
+}
+
+// ---------- logs
+async function loadLogSrc() { const l = await api('/api/logs/sources'); const v = $('#logSrc').value; $('#logSrc').innerHTML = l.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join(''); if (v) $('#logSrc').value = v; loadLog(); }
+async function loadLog() { const o = $('#logOut'); const atEnd = o.scrollTop + o.clientHeight >= o.scrollHeight - 30; const r = await api('/api/logs?src=' + $('#logSrc').value + '&lines=' + $('#logN').value); o.textContent = r.out || '(trống)'; if (atEnd) o.scrollTop = o.scrollHeight; }
+
+// ---------- system
+async function loadSys() {
+  loadStats();
+  const [i, t2] = await Promise.all([
+    api('/api/system/info'),
+    api('/api/2fa/status').catch(() => null),
+  ]);
+  $('#sinfo').innerHTML = `<span>Hệ điều hành</span><b>${esc(i.os)}</b><span>Múi giờ</span><b>${esc(i.timezone)}</b><span>Node (admin)</span><b>${esc(i.node)}</b><span>Gói có thể cập nhật</span><b>${i.upgradable}</b><span>SSH</span><b style="white-space:pre">${esc(i.ssh)}</b>`;
+  $('#ufw').textContent = i.ufw;
+  if (t2) {
+    $('#totpSysStatus').innerHTML = `<span>2FA TOTP</span><b style="color:${t2.enabled ? 'var(--ok)' : 'var(--bad)'}">${t2.enabled ? 'Đang bật' : 'Chưa bật'}</b><span>Mã dự phòng còn</span><b>${t2.remainingBackup}/8</b><span>Truy cập hiện tại</span><b>${t2.isLan ? 'Mạng LAN tin cậy' : 'WAN / Cloudflare'}</b>`;
+    const rk = $('#btn2faRekey');
+    if (rk) rk.disabled = !t2.isLan;
+  }
+}
+function promptPasswordDlg({ title, desc, placeholder = 'Nhập mật khẩu', autocomplete = 'current-password', okText = 'Tiếp tục' }, onSubmit) {
+  openDlg(title, `<form id="dlgPwForm"><div class="sm mut" style="margin-bottom:10px">${esc(desc)}</div><input id="dlgPwIn" type="password" required placeholder="${esc(placeholder)}" autocomplete="${esc(autocomplete)}" style="width:100%;margin-bottom:12px"><div class="row" style="margin-bottom:0;justify-content:flex-end"><button type="button" class="btn" id="dlgPwCancel">Hủy</button><button type="submit" class="btn p">${esc(okText)}</button></div></form>`);
+  $('#dlgPwIn').focus();
+  $('#dlgPwCancel').addEventListener('click', () => dlg.close());
+  $('#dlgPwForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const password = $('#dlgPwIn').value;
+    if (!password) return;
+    await onSubmit(password);
+  });
+}
+function promptRootPwDlg(title, desc, onSubmit) {
+  return promptPasswordDlg({ title, desc, placeholder: 'Nhập mật khẩu root để xác nhận', autocomplete: 'current-password', okText: 'Tiếp tục' }, onSubmit);
+}
+async function regenBackupCodes() {
+  promptRootPwDlg('Tạo lại 8 mã dự phòng 2FA', 'Tất cả mã dự phòng cũ sẽ bị vô hiệu hóa ngay khi tạo bộ mới.', async (password) => {
+    try {
+      const r = await api('/api/2fa/backup-regen', { password });
+      const codesText = (r.backupCodes || []).join('\n');
+      openDlg('8 mã dự phòng 2FA mới', `<div class="sm" style="color:var(--warn)">Hãy lưu lại ngay, danh sách này chỉ hiển thị 1 lần:</div><pre id="dlgBcodes" class="bcode">${esc(codesText)}</pre><button type="button" class="btn s p" id="dlgCopyBcodes">📋 Copy 8 mã</button>`);
+      $('#dlgCopyBcodes').addEventListener('click', () => copyText(codesText, '8 mã dự phòng'));
+      loadSys();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+async function rekey2fa() {
+  promptRootPwDlg('Đổi khóa 2FA (Authenticator mới)', 'Khóa 2FA cũ vẫn giữ hiệu lực cho tới khi bạn nhập đúng 6 số xác nhận của khóa mới.', async (password) => {
+    try {
+      const r = await api('/api/2fa/reset', { password });
+      const codesText = (r.backupCodes || []).join('\n');
+      openDlg('Quét khóa 2FA mới (LAN)', `<form id="dlgRekeyForm"><div class="sm">Quét QR hoặc nhập khóa Base32 vào Authenticator mới:</div>${r.qrDataUrl ? `<img src="${esc(r.qrDataUrl)}" class="totp-qr" alt="QR">` : ''}<div class="sm mut">Khóa: <code style="color:var(--txt);user-select:all">${esc(r.secret)}</code></div><div class="sm" style="margin-top:8px;color:var(--warn)">8 mã dự phòng mới:</div><pre class="bcode">${esc(codesText)}</pre><button type="button" class="btn s" id="dlgRekeyCopy" style="margin-bottom:8px">📋 Copy 8 mã</button><input id="dlgRekeyCode" type="text" placeholder="Nhập 6 số từ app mới để hoàn tất" autocomplete="one-time-code" style="width:100%;margin-bottom:10px"><div class="row" style="margin-bottom:0;justify-content:flex-end"><button type="button" class="btn" id="dlgRekeyCancel">Hủy</button><button type="submit" class="btn g">Xác nhận đổi khóa 2FA</button></div></form>`);
+      $('#dlgRekeyCopy').addEventListener('click', () => copyText(codesText, '8 mã dự phòng mới'));
+      $('#dlgRekeyCancel').addEventListener('click', () => dlg.close());
+      $('#dlgRekeyCode').focus();
+      $('#dlgRekeyForm').addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        try {
+          await api('/api/2fa/enroll', { setupToken: r.setupToken, code: $('#dlgRekeyCode').value.trim() });
+          dlg.close();
+          toast('Đã đổi khóa 2FA thành công! Khóa cũ không còn hiệu lực.');
+          loadSys();
+        } catch (e) { toast(e.message, true); }
+      });
+    } catch (e) { toast(e.message, true); }
+  });
+}
+async function power(action) { if (confirm(action === 'reboot' ? 'Khởi động lại máy?' : 'TẮT máy? (phải bấm nút nguồn để bật lại)')) { await act('/api/system/power', { action }, action === 'reboot' ? 'Đang khởi động lại… (khoảng 1 phút)' : 'Đang tắt máy…'); } }
+async function fw(action) { await act('/api/system/firewall', { action, port: $('#fwPort').value.trim() }); loadSys(); }
+async function wifiScan() {
+  $('#wifi').innerHTML = '<tr><td class="mut">Đang quét…</td></tr>';
+  const l = await api('/api/wifi/scan'); const now = l.find((w) => w.inUse); $('#wifiNow').textContent = now ? 'Đang kết nối: ' + now.ssid : '';
+  $('#wifi').innerHTML = l.map((w) => `<tr><td>${w.inUse ? '✔ ' : ''}<b>${esc(w.ssid)}</b></td><td>${w.signal}%</td><td>${esc(w.security)}</td><td>${esc(w.chan)}</td><td>${w.inUse ? '' : `<button class="btn s" data-wifi-ssid="${esc(w.ssid)}" data-wifi-sec="${w.security ? '1' : '0'}">Kết nối</button>`}</td></tr>`).join('');
+}
+function wifiConn(ssid, sec) {
+  const startConn = (password) => {
+    toast('Đang kết nối ' + ssid + '…');
+    act('/api/wifi/connect', { ssid, password });
+  };
+  if (!sec) {
+    if (confirm('Chuyển Wi-Fi tới "' + ssid + '" có thể đổi địa chỉ IP và làm mất kết nối trang này. Tiếp tục?')) startConn('');
+    return;
+  }
+  promptPasswordDlg({
+    title: 'Kết nối Wi-Fi "' + ssid + '"',
+    desc: 'Lưu ý: Chuyển Wi-Fi có thể đổi địa chỉ IP của máy chủ và làm gián đoạn phiên quản trị hiện tại.',
+    placeholder: 'Mật khẩu Wi-Fi',
+    autocomplete: 'new-password',
+    okText: 'Kết nối',
+  }, async (password) => {
+    dlg.close();
+    startConn(password);
+  });
+}
+
+// ---------- dialog
+const dlg = $('#dlg');
+function openDlg(title, body, btns) { $('#dlgT').textContent = title; $('#dlgB').innerHTML = body; $('#dlgBtns').innerHTML = btns || ''; dlg.showModal(); }
+
+// ---------- CSP-safe delegated UI event listeners
+$('#loginForm').addEventListener('submit', login);
+$('#loginBackBtn').addEventListener('click', showLogin);
+$('#setupBackBtn').addEventListener('click', showLogin);
+$('#copySecretBtn').addEventListener('click', () => copyText($('#setupSecret').textContent, 'khóa Base32'));
+$('#copyBackupBtn').addEventListener('click', () => copyText($('#setupBackups').textContent, '8 mã dự phòng'));
+$('#briRange').addEventListener('input', (e) => previewBri(e.target.value));
+$('#briRange').addEventListener('change', (e) => setBri(e.target.value));
+$('#briRangeSys').addEventListener('input', (e) => previewBri(e.target.value));
+$('#briRangeSys').addEventListener('change', (e) => setBri(e.target.value));
+$('#pf').addEventListener('input', renderProcs);
+$('#fsUpInput').addEventListener('change', (e) => fsUpload(e.target.files));
+$('#fsPath').addEventListener('keydown', (e) => { if (e.key === 'Enter') fsGo(e.target.value); });
+$('#sqlDb').addEventListener('change', loadTables);
+$('#sql').addEventListener('keydown', (e) => { if (e.ctrlKey && e.key === 'Enter') runSql(); });
+$('#logSrc').addEventListener('change', loadLog);
+$('#logN').addEventListener('change', loadLog);
+document.addEventListener('change', (e) => {
+  const auto = e.target.closest('[data-svc-auto]');
+  if (auto) svc(auto.dataset.svcAuto, auto.checked ? 'enable' : 'disable');
+});
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-t],[data-act],[data-show],[data-bat],[data-bri],[data-log-app],[data-backup],[data-fs-new],[data-pg],[data-power],[data-fw],[data-svc-act],[data-kill-pid],[data-fs-go],[data-fs-open],[data-fs-ren],[data-fs-chmod],[data-fs-del],[data-sql-db],[data-pg-drop],[data-pg-pw],[data-wifi-ssid]');
+  if (!el) return;
+  const d = el.dataset;
+  if (d.t) return show(d.t);
+  if (d.show) return show(d.show);
+  if (d.bat) return setBatLimit(+d.bat);
+  if (d.bri !== undefined) return setBri(d.bri);
+  if (d.logApp) return logApp(d.logApp);
+  if (d.backup) return runBackup(d.backup);
+  if (d.fsNew) return fsNew(d.fsNew);
+  if (d.pg) return pgAdmin(d.pg);
+  if (d.power) return power(d.power);
+  if (d.fw) return fw(d.fw);
+  if (d.svcAct) return svc(d.svcName, d.svcAct);
+  if (d.killPid) return kill(+d.killPid, d.killSig);
+  if (d.fsGo !== undefined) return fsGo(d.fsGo);
+  if (d.fsOpen !== undefined) return fsOpen(d.fsOpen);
+  if (d.fsRen !== undefined) return fsRename(d.fsRen);
+  if (d.fsChmod !== undefined) return fsChmod(d.fsChmod, d.fsMode);
+  if (d.fsDel !== undefined) return fsDel(d.fsDel);
+  if (d.sqlDb) { $('#sqlDb').value = d.sqlDb; return loadTables(); }
+  if (d.pgDrop) return pgDrop(d.pgDrop, d.pgName);
+  if (d.pgPw) return pgPw(d.pgPw);
+  if (d.wifiSsid !== undefined) return wifiConn(d.wifiSsid, d.wifiSec === '1');
+  switch (d.act) {
+    case 'logout': return logout();
+    case 'web-reload': return webReload();
+    case 'web-restart': return webRestart();
+    case 'load-stats': return loadStats();
+    case 'load-backups': return loadBackups();
+    case 'load-procs': return loadProcs();
+    case 'term-connect': return termConnect();
+    case 'run-sql': return runSql();
+    case 'load-log': return loadLog();
+    case 'wifi-scan': return wifiScan();
+    case '2fa-regen': return regenBackupCodes();
+    case '2fa-rekey': return rekey2fa();
+    case 'dlg-close': return dlg.close();
+  }
+});
+
+// ---------- boot
+(async () => { const r = await fetch('/api/me').then((r) => r.json()); if (r.authed) { $('#login').classList.add('hide'); show(cur); } else showLogin(); })();
+</script>
+
+<!-- ICLOUD_MAIL_UI -->
+<script>
+(function() {
+  'use strict';
+  const tbody = document.getElementById('im-acc-rows');
+  const msgEl = document.getElementById('im-acc-msg');
+  const banner = document.getElementById('im-smtp-banner');
+  if (!tbody) return;
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  async function loadIcloudMail() {
+    try {
+      const r = await fetch('api/icloud-mail/status', { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      if (banner && d.smtp) {
+        const pwBadge = d.smtp.passwordConfigured
+          ? '<span style="color:#34d399;font-weight:600;">Đã cấu hình App-Specific Password</span>'
+          : '<span style="color:#fbbf24;font-weight:600;">Chưa đặt App-Specific Password (đang ở trạng thái chờ)</span>';
+        banner.innerHTML = 'SMTP: <b>' + esc(d.smtp.host) + ':' + esc(d.smtp.port) + '</b> · Tài khoản SMTP: <b>' + esc(d.smtp.user) + '</b> · Mật khẩu: ' + pwBadge;
+      }
+      const list = Array.isArray(d.addresses) ? d.addresses : [];
+      tbody.innerHTML = list.map(function(a) {
+        return '<tr>' +
+          '<td><b>' + esc(a.email) + '</b></td>' +
+          '<td>' + esc(a.role || '') + '</td>' +
+          '<td>' + esc(a.displayName || 'GAERU') + '</td>' +
+          '<td><span style="color:#34d399;">' + esc(a.provider || 'iCloud+') + '</span></td>' +
+          '<td><a class="btn s sm" href="https://www.icloud.com/mail" target="_blank" rel="noopener">Mở iCloud Mail</a></td>' +
+        '</tr>';
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="5">Không tải được cấu hình iCloud Mail: ' + esc(e.message) + '</td></tr>';
+    }
+  }
+  async function submitIcloudSmtp(smtpUser, smtpPassword, errEl) {
+    if (errEl) errEl.textContent = '';
+    try {
+      const r = await fetch('api/icloud-mail/smtp', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'x-mi6': '1' },
+        body: JSON.stringify({ smtpPort: 587, smtpUser: smtpUser.trim(), smtpPassword: smtpPassword.trim() })
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+      msgEl.style.color = '#34d399';
+      msgEl.textContent = d.message || 'Đã cập nhật SMTP iCloud+.';
+      loadIcloudMail();
+      return true;
+    } catch (e) {
+      msgEl.style.color = '#fda4af';
+      msgEl.textContent = e.message;
+      if (errEl) errEl.textContent = e.message;
+      return false;
+    }
+  }
+  function updateIcloudSmtp() {
+    let dlg = document.getElementById('im-smtp-dlg');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'im-smtp-dlg';
+      dlg.style.maxWidth = '440px';
+      dlg.innerHTML =
+        '<form id="im-smtp-form">' +
+        '<div style="font-weight:700;margin-bottom:10px">Cập nhật SMTP iCloud+ (smtp.mail.me.com:587)</div>' +
+        '<div style="margin-bottom:8px"><label class="sm mut">Apple ID gửi mail</label><input id="im-user" type="text" value="business@gaeru.com" required style="width:100%;margin-top:4px"></div>' +
+        '<div style="margin-bottom:10px"><label class="sm mut">App-Specific Password (account.apple.com)</label><input id="im-pass" type="password" autocomplete="new-password" required placeholder="xxxx-xxxx-xxxx-xxxx" style="width:100%;margin-top:4px"></div>' +
+        '<div id="im-err" class="sm" style="color:var(--bad);margin-bottom:8px;min-height:1em"></div>' +
+        '<div class="row" style="margin:0;justify-content:flex-end"><button type="button" class="btn s" id="im-cancel">Hủy</button><button type="submit" class="btn s p">Lưu cấu hình</button></div>' +
+        '</form>';
+      document.body.appendChild(dlg);
+      dlg.querySelector('#im-cancel').addEventListener('click', () => dlg.close());
+      dlg.querySelector('#im-smtp-form').addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const u = dlg.querySelector('#im-user').value.trim();
+        const p = dlg.querySelector('#im-pass').value;
+        const errEl = dlg.querySelector('#im-err');
+        if (!u || !p) return;
+        const ok = await submitIcloudSmtp(u, p, errEl);
+        dlg.querySelector('#im-pass').value = '';
+        if (ok) dlg.close();
+      });
+    }
+    dlg.querySelector('#im-err').textContent = '';
+    dlg.querySelector('#im-pass').value = '';
+    dlg.showModal();
+    dlg.querySelector('#im-pass').focus();
+  }
+  const btnSmtp = document.getElementById('im-btn-smtp');
+  if (btnSmtp) btnSmtp.addEventListener('click', updateIcloudSmtp);
+  window.__loadIcloudMail = loadIcloudMail;
+})();
+</script>
+<!-- END ICLOUD_MAIL_UI -->
+
+</body>
+</html>

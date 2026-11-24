@@ -5,7 +5,9 @@
  // The inbox builds its view lazily and replaces root.innerHTML on first open.
  // Reattach this independent panel after that render without duplicating it.
  new MutationObserver(()=>{if(!root.contains(box))root.append(box);}).observe(root,{childList:true});
- document.addEventListener('gaeru:admin-ready',()=>{page=1;box.querySelector('[data-jobs-list]').replaceChildren();box.querySelector('[data-jobs-status]').textContent='';box.hidden=!window.GAERUAdmin?.can('customers.read');});
+ const syncJobsBox=()=>{page=1;box.querySelector('[data-jobs-list]').replaceChildren();box.querySelector('[data-jobs-status]').textContent='';box.hidden=!window.GAERUAdmin?.can('customers.read');};
+ if(window.GAERUAdmin?.user)syncJobsBox();
+ document.addEventListener('gaeru:admin-ready',syncJobsBox);
  async function load(){if(busy)return;busy=true;const status=box.querySelector('[data-jobs-status]');try{
   const admin=window.GAERUAdmin,result=await admin.request('/api/gaeru_ceo/shopping-chat/compression-jobs?state='+box.querySelector('select').value+'&page='+page);
   const names={pending:'Đang chờ',processing:'Đang tối ưu',failed:'Cần xử lý',compressed:'Đã nén',optimal:'Đã tối ưu'};

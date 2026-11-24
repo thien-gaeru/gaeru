@@ -78,11 +78,13 @@ EXPECTED_SHA="__EXPECTED_SHA__"
 RELOAD_MODE="__RELOAD_MODE__"
 OLD_LIST="/tmp/.gaeru-old-files.$$"
 NEW_LIST="/tmp/.gaeru-new-files.$$"
+DEPLOY_LOCK="/run/gaeru-deploy.lock"
 
 cleanup() {
-  rm -f -- "$CODE_TAR" "$GIT_TAR" "$OLD_LIST" "$NEW_LIST"
+  rm -f -- "$DEPLOY_LOCK" "$CODE_TAR" "$GIT_TAR" "$OLD_LIST" "$NEW_LIST"
 }
 trap cleanup EXIT INT TERM
+printf '%s\n' "$$" > "$DEPLOY_LOCK"
 
 [ -d "$APP_DIR" ] || { echo "ERROR: Missing $APP_DIR" >&2; exit 1; }
 
@@ -227,15 +229,31 @@ if [ "$RELOAD_MODE" != "skip" ]; then
     echo "ERROR: http://127.0.0.1:3000/health failed after reload" >&2
     exit 1
   fi
-  if [ -d /run/shm/nginx_static_cache ]; then
-    find /run/shm/nginx_static_cache -mindepth 1 -delete 2>/dev/null || rm -rf /run/shm/nginx_static_cache/* 2>/dev/null || true
-    mkdir -p /run/shm/nginx_static_cache/temp
-    chown www-data:www-data /run/shm/nginx_static_cache /run/shm/nginx_static_cache/temp
-    chmod 700 /run/shm/nginx_static_cache
-    initctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null || true
-    echo "NGINX_STATIC_CACHE_PURGED=1"
-  fi
 fi
+
+sync_host_file() {
+  local src="$1" dst="$2" mode="$3" svc="${4:-}"
+  [ -f "$src" ] || return 0
+  local old_sha new_sha
+  old_sha=$(sha256sum "$dst" 2>/dev/null | awk '{print $1}' || true)
+  tr -d '\r' < "$src" > "${dst}.tmp.$$"
+  chown root:root "${dst}.tmp.$$"
+  chmod "$mode" "${dst}.tmp.$$"
+  mv -f "${dst}.tmp.$$" "$dst"
+  new_sha=$(sha256sum "$dst" 2>/dev/null | awk '{print $1}' || true)
+  if [ -n "$svc" ] && [ "$old_sha" != "$new_sha" ]; then
+    initctl restart "$svc" 2>/dev/null || true
+  fi
+}
+
+sync_host_file "$APP_DIR/infra/mi6/sbin/gaeru-healthcheck.sh" /usr/local/sbin/gaeru-healthcheck.sh 0755 gaeru-health
+sync_host_file "$APP_DIR/infra/mi6/sbin/gaeru-screen.py" /usr/local/sbin/gaeru-screen.py 0755 gaeru-screen
+sync_host_file "$APP_DIR/infra/mi6/bin/hw_tune.sh" /usr/local/bin/hw_tune.sh 0755 ""
+sync_host_file "$APP_DIR/infra/mi6/bin/battery_limiter.py" /usr/local/bin/battery_limiter.py 0755 battery-limiter
+sync_host_file "$APP_DIR/scripts/pty_helper.py" /userdata/storage/admin/pty_helper.py 0700 ""
+sync_host_file "$APP_DIR/infra/mi6/admin/public/index.html" /userdata/storage/admin/public/index.html 0644 ""
+sync_host_file "$APP_DIR/infra/mi6/admin/server.js" /userdata/storage/admin/server.js 0600 server-dashboard
+sync_host_file "$APP_DIR/infra/mi6/gpu-ai/gaeru-gpu-ai.cpp" /storage/gpu-ai-build/gaeru-gpu-ai.cpp 0644 ""
 '@
 
   $remoteScript = $remoteTemplate.

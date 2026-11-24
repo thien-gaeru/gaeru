@@ -8,7 +8,7 @@ const { rateLimit } = require('express-rate-limit');
 const { requirePermission } = require('./staff-access');
 const { requireCsrf } = require('./security');
 
-function createCatalogVideos(pool) {
+function createCatalogVideos(pool, config = {}) {
   const admin = Router();
   const publicApi = Router();
   const reserve = createUploadGate(2);
@@ -107,6 +107,7 @@ function createCatalogVideos(pool) {
     limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 0 }
   }).single('video');
   const limit = rateLimit({
+    ...require('./security-hardening').sharedStore(pool, config, 'catalog-video-upload'),
     windowMs: 3600000,
     limit: 15,
     standardHeaders: 'draft-8',

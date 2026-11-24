@@ -35,15 +35,17 @@ function attachTransactionalCacheInvalidation(pool) {
   if (!pool || typeof pool.query !== 'function' || pool.__gaeruCacheHooked) return pool;
   const CATALOG_TABLES_RE = /\b(?:products|product_variants|product_presentations|product_promotions|product_promotion_variants|catalog_images|news_posts|news_images|site_pages|store_settings|marketing_banner_images|site_asset_snapshots)\b/i;
   const SETTINGS_TABLES_RE = /\b(?:store_settings|shipping_carrier_connections|payment_channel_connections)\b/i;
+  const SECURITY_TABLES_RE = /\b(?:account_security|staff_accounts)\b/i;
   const classifyMutation = sql => {
-    if (typeof sql !== 'string') return { catalog: false, settings: false };
+    if (typeof sql !== 'string') return { catalog: false, settings: false, security: false };
     const trimmed = sql.trimStart();
     if (!/^(?:INSERT|UPDATE|DELETE)\b/i.test(trimmed) && !(/^WITH\b/i.test(trimmed) && /\b(?:INSERT|UPDATE|DELETE)\b/i.test(trimmed))) {
-      return { catalog: false, settings: false };
+      return { catalog: false, settings: false, security: false };
     }
     return {
       catalog: CATALOG_TABLES_RE.test(trimmed),
-      settings: SETTINGS_TABLES_RE.test(trimmed)
+      settings: SETTINGS_TABLES_RE.test(trimmed),
+      security: SECURITY_TABLES_RE.test(trimmed)
     };
   };
   const isBeginSql = sql => typeof sql === 'string' && /^\s*(?:BEGIN|START\s+TRANSACTION)\b/i.test(sql);
@@ -68,7 +70,7 @@ function attachTransactionalCacheInvalidation(pool) {
       }
     });
   } catch (_) {}
-  const flushCaches = ({ catalog = false, settings = false } = {}) => {
+  const flushCaches = ({ catalog = false, settings = false, security = false } = {}) => {
     const cacheMod = require('./cache');
     const tags = [];
     if (catalog) {
@@ -78,6 +80,9 @@ function attachTransactionalCacheInvalidation(pool) {
     }
     if (settings) {
       tags.push('store-config', 'settings', 'payment-channels', 'shipping');
+    }
+    if (security) {
+      tags.push('account-security');
     }
     if (tags.length) {
       cacheMod.invalidateTags(tags, { immediate: true });
@@ -89,7 +94,7 @@ function attachTransactionalCacheInvalidation(pool) {
     const onDone = err => {
       if (err) return;
       const flags = classifyMutation(extractSqlText(sql));
-      if (flags.catalog || flags.settings) flushCaches(flags);
+      if (flags.catalog || flags.settings || flags.security) flushCaches(flags);
     };
     if (typeof values === 'function') {
       const origCb = values;
@@ -111,23 +116,28 @@ function attachTransactionalCacheInvalidation(pool) {
         client.__gaeruInTx = true;
         client.__gaeruDirtyCatalog = false;
         client.__gaeruDirtySettings = false;
+        client.__gaeruDirtySecurity = false;
       } else if (isRollbackSql(text)) {
         client.__gaeruInTx = false;
         client.__gaeruDirtyCatalog = false;
         client.__gaeruDirtySettings = false;
+        client.__gaeruDirtySecurity = false;
       } else if (isCommitSql(text)) {
         const wasDirtyCatalog = Boolean(client.__gaeruDirtyCatalog);
         const wasDirtySettings = Boolean(client.__gaeruDirtySettings);
+        const wasDirtySecurity = Boolean(client.__gaeruDirtySecurity);
         client.__gaeruInTx = false;
         client.__gaeruDirtyCatalog = false;
         client.__gaeruDirtySettings = false;
-        if (wasDirtyCatalog || wasDirtySettings) flushCaches({ catalog: wasDirtyCatalog, settings: wasDirtySettings });
+        client.__gaeruDirtySecurity = false;
+        if (wasDirtyCatalog || wasDirtySettings || wasDirtySecurity) flushCaches({ catalog: wasDirtyCatalog, settings: wasDirtySettings, security: wasDirtySecurity });
       } else {
         const flags = classifyMutation(text);
-        if (flags.catalog || flags.settings) {
+        if (flags.catalog || flags.settings || flags.security) {
           if (client.__gaeruInTx) {
             if (flags.catalog) client.__gaeruDirtyCatalog = true;
             if (flags.settings) client.__gaeruDirtySettings = true;
+            if (flags.security) client.__gaeruDirtySecurity = true;
           } else {
             flushCaches(flags);
           }
@@ -199,12 +209,17 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.disable("x-powered-by");
   app.set('case sensitive routing', true);
   const net = require("node:net");
+  const CF_RAY_RE = /^[0-9a-f]{16}-[A-Z0-9]{3,8}$/i;
   app.use((req, _res, next) => {
     const remoteAddr = String(req.socket?.remoteAddress || "");
     const isLoopback = remoteAddr === "127.0.0.1" || remoteAddr === "::1" || remoteAddr === "::ffff:127.0.0.1";
     const cfConnectingIp = String(req.headers["cf-connecting-ip"] || "").trim();
-    if (isLoopback && cfConnectingIp && net.isIP(cfConnectingIp)) {
+    const cfRay = String(req.headers["cf-ray"] || "").trim();
+    if (isLoopback && cfConnectingIp && CF_RAY_RE.test(cfRay) && net.isIP(cfConnectingIp)) {
       req.headers["x-forwarded-for"] = cfConnectingIp;
+    } else if ((config?.NODE_ENV || process.env.NODE_ENV) === "production") {
+      delete req.headers["cf-connecting-ip"];
+      delete req.headers["x-forwarded-for"];
     }
     next();
   });
@@ -552,8 +567,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   const loyalty=require("./loyalty-api").createLoyaltyApi(pool);
   app.use("/api/gaeru_ceo",loyalty.admin);
   app.use("/api/customer",loyalty.customer);
-  const videos=createCatalogVideos(pool);app.use("/api/gaeru_ceo",videos.admin);app.use("/api",videos.publicApi);
-  const productWorkspace=createProductWorkspace(pool);
+  const videos=createCatalogVideos(pool,config);app.use("/api/gaeru_ceo",videos.admin);app.use("/api",videos.publicApi);
+  const productWorkspace=createProductWorkspace(pool,config);
   app.use("/api/gaeru_ceo",productWorkspace.admin);
   app.use("/api",productWorkspace.publicApi);
   app.use("/media",productWorkspace.publicMedia);
@@ -625,17 +640,23 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     }catch(err){next(err);}
   });
   app.get('/gaeru_ceo/assets/zxing-browser.min.js',(_req,res)=>res.set('Cache-Control','no-store').sendFile('zxing-browser.min.js',{root:path.join(projectRoot,'node_modules','@zxing','browser','umd')}));
+  const staticAssetCache = require('./lib/static-asset-cache');
   app.get('/gaeru_ceo/assets/:file',(req,res,next)=>{
     const rootDir=managementAssetRoots.get(req.params.file);
     if(!rootDir)return res.sendStatus(404);
-    // Static code may be retained by this browser and revalidated after deployment.
-    res.set('Cache-Control', req.query.v ? 'private, no-cache' : 'no-store');
-    res.sendFile(req.params.file,{root:rootDir},error=>{if(error)next(error);});
+    return staticAssetCache.serveSingleAsset(req,res,next,rootDir,req.params.file,{isPrivate:true});
   });
-  app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res)=>{res.set("Cache-Control","no-store").sendFile("product-editor.html",{root:adminRoot});});
+  app.get(["/gaeru_ceo/products/new","/gaeru_ceo/products/:id/edit"],(_req,res,next)=>{
+    try{
+      const html=staticAssetCache.renderStampedAdminHtml(path.join(adminRoot,"product-editor.html"),{projectRoot,managementAssetRoots});
+      res.set("Cache-Control","no-store").type("html").send(html);
+    }catch(error){next(error);}
+  });
   app.get("/gaeru_ceo", (_req, res, next) => {
-    res.set("Cache-Control", "no-store");
-    res.sendFile("index.html", { root: adminRoot }, error => { if (error) next(error); });
+    try {
+      const html = staticAssetCache.renderStampedAdminHtml(path.join(adminRoot, "index.html"), { projectRoot, managementAssetRoots });
+      res.set("Cache-Control", "no-store").type("html").send(html);
+    } catch (error) { next(error); }
   });
   app.get('/favicon.ico', (_req, res) => {
     res.set('Cache-Control', 'public, max-age=86400');
@@ -740,6 +761,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     };
     const isProd = (config?.NODE_ENV || process.env.NODE_ENV) === 'production';
     console.error("Request failed:", {
+      method: req?.method || 'UNKNOWN',
+      path: String(req?.originalUrl || req?.url || '').split('?')[0],
       name: error.name || 'Error',
       code: error.code || 'INTERNAL_ERROR',
       message: isProd ? sanitizeErrorMessage(error.message) : error.message,

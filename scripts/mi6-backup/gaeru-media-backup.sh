@@ -38,13 +38,14 @@ CONFIG_CANDIDATES=(
   userdata/storage/admin
   etc/cloudflared
   etc/init.d/cloudflared
-  etc/nginx
   etc/gaeru-backup-gpg.conf
   etc/init/node-app.conf
   etc/init/node-apps.conf
   etc/init/postgresql-chroot.conf
+  etc/init/gaeru-gpu-ai.conf
   etc/init/network-watchdog.conf
   etc/init/gaeru-health.conf
+  etc/init/gaeru-screen.conf
   etc/init/server-dashboard.conf
   etc/init/server-hardware-tuning.conf
   etc/init/battery-limiter.conf
@@ -60,6 +61,7 @@ CONFIG_CANDIDATES=(
   usr/local/sbin/gaeru-gdrive-sync.sh
   usr/local/sbin/gaeru-full-restore.sh
   usr/local/sbin/gaeru-healthcheck.sh
+  usr/local/sbin/gaeru-screen.py
   usr/local/sbin/ubuntu-mount.sh
   etc/cron.d
   etc/logrotate.d/gaeru-custom

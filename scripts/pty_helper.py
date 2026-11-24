@@ -23,7 +23,7 @@ if pid == 0:
     if os.path.exists('/storage/ubuntu/bin/bash'):
         cmd = ("if [ -f /usr/local/sbin/ubuntu-mount.sh ]; then /usr/local/sbin/ubuntu-mount.sh >/dev/null 2>&1; fi; "
                "echo -e '\\033[1;32m==============================================================\\033[0m'; "
-               "echo -e '\\033[1;32m  Mi 6 Server: Ubuntu 26.10 Stonking (Node 26 & PG 18)        \\033[0m'; "
+               "echo -e '\\033[1;32m  Mi 6 Server: Ubuntu 26.10 Stonking (Node 26 & PG 19)        \\033[0m'; "
                "echo -e '\\033[0;36m  Môi trường máy chủ chính đã kích hoạt sẵn sàng             \\033[0m'; "
                "echo -e '\\033[0;33m  (Gõ exit để ra Host OS Ubuntu 16; gõ u26 để vào lại)        \\033[0m'; "
                "echo -e '\\033[1;32m==============================================================\\033[0m\\n'; "

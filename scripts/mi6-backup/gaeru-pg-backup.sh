@@ -43,7 +43,7 @@ chroot /storage/ubuntu /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 /usr
 gaeru_gpg_encrypt_and_wipe "$TMP_RAW" "$OUT_GPG"
 gaeru_copy_latest_encrypted "$OUT_GPG" "$DEST/${DB}-latest.dump.gpg"
 
-# 2. Universal portable SQL.GZ dump (PostgreSQL 14-18), encrypted at rest
+# 2. Universal portable SQL.GZ dump (PostgreSQL 14-19), encrypted at rest
 chroot /storage/ubuntu runuser -u postgres -- /usr/bin/env -u LANGUAGE LANG=C.UTF-8 LC_ALL=C.UTF-8 pg_dump --clean --if-exists --no-owner --no-privileges "$DB" | \
   sed '/^SET transaction_timeout =/d' | gzip -6 > "$SQL_TMP_RAW"
 [ -s "$SQL_TMP_RAW" ] || { echo "$(date -Is) FAIL empty sql.gz"; exit 1; }

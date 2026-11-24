@@ -420,7 +420,8 @@ const jtAdapter = {
 // -----------------------------------------------------------------------------
 // 2. Viettel Post Adapter
 // -----------------------------------------------------------------------------
-const viettelTokenCache = new Map();
+const { LRUCache } = require('lru-cache');
+const viettelTokenCache = new LRUCache({ max: 512 });
 
 async function getViettelActiveToken(settings, { fetcher = fetch, forceRefresh = false } = {}) {
   const secret = settings?.secret?.trim();

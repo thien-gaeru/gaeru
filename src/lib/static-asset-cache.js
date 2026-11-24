@@ -5,6 +5,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { LRUCache } = require('lru-cache');
+let esbuild = null;
+try { esbuild = require('esbuild'); } catch {}
 
 const COMPRESS_THRESHOLD = 1024;
 const SKIP_CACHE_FILES = new Set(['account.js', 'checkout-flow.js', 'payment-result.js', 'account-security.js', 'account-deletion.js']);
@@ -24,10 +26,32 @@ const assetCache = new LRUCache({
   maxSize: STATIC_ASSET_MAX_BYTES,
   sizeCalculation: (entry) => (entry?.raw?.length || 0) + (entry?.gzip?.length || 0) + (entry?.br?.length || 0) + 256
 });
+const stampedHtmlCache = new Map();
+
+function maybeMinifyAsset(rawBuf, fullPath, ext) {
+  const enabled = process.env.GAERU_ENABLE_MINIFY === '1' || (process.env.NODE_ENV === 'production' && process.env.GAERU_DISABLE_MINIFY !== '1');
+  if (!esbuild || !enabled) return rawBuf;
+  const lower = fullPath.toLowerCase();
+  if (lower.endsWith('.min.js') || lower.endsWith('.min.css')) return rawBuf;
+  try {
+    const out = esbuild.transformSync(rawBuf.toString('utf8'), {
+      loader: ext === '.css' ? 'css' : 'js',
+      minifyWhitespace: true,
+      minifySyntax: true,
+      legalComments: 'none',
+      charset: 'utf8'
+    });
+    const minBuf = Buffer.from(out.code, 'utf8');
+    return minBuf.length > 0 && minBuf.length < rawBuf.length ? minBuf : rawBuf;
+  } catch {
+    return rawBuf;
+  }
+}
 
 function buildEntry(fullPath, ext, stat) {
-  const raw = fs.readFileSync(fullPath);
-  const hash12 = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
+  const sourceRaw = fs.readFileSync(fullPath);
+  const hash12 = crypto.createHash('sha256').update(sourceRaw).digest('hex').slice(0, 12);
+  const raw = maybeMinifyAsset(sourceRaw, fullPath, ext);
   const canCompress = raw.length >= COMPRESS_THRESHOLD;
   const gzip = canCompress ? zlib.gzipSync(raw, { level: 6 }) : null;
   const br = canCompress
@@ -206,9 +230,87 @@ function getAssetHash12(projectRoot, filename) {
   return entry ? entry.hash12 : null;
 }
 
+function getAnyTextAssetHash12(rootDir, filename) {
+  if (typeof filename !== 'string' || !filename || filename.includes('/') || filename.includes('\\')) return null;
+  const ext = path.extname(filename).toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(TEXT_ASSET_MIME, ext)) return null;
+  const entry = getEntry(path.resolve(rootDir), filename, ext);
+  return entry ? entry.hash12 : null;
+}
+
+function serveSingleAsset(req, res, next, rootDir, filename, { isPrivate = false } = {}) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const ext = path.extname(filename).toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(TEXT_ASSET_MIME, ext)) {
+    return res.sendFile(filename, { root: rootDir }, (err) => { if (err) next(err); });
+  }
+  const entry = getEntry(path.resolve(rootDir), filename, ext);
+  if (!entry) return res.sendStatus(404);
+
+  const encoding = negotiateEncoding(req.headers['accept-encoding'], entry);
+  const body = encoding === 'br' ? entry.br : (encoding === 'gzip' ? entry.gzip : entry.raw);
+  const etag = `W/"${entry.hash12}-${encoding}"`;
+  const v = typeof req.query?.v === 'string' ? req.query.v : '';
+
+  if (isPrivate) {
+    res.setHeader(
+      'Cache-Control',
+      !v ? 'no-store' : (v === entry.hash12 ? 'private, max-age=31536000, immutable' : 'private, no-cache')
+    );
+  } else {
+    const isImmutable = HASHED_FILENAME_RE.test(filename) || v === entry.hash12;
+    res.setHeader('Cache-Control', isImmutable ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate');
+  }
+
+  if (v) {
+    res.setHeader('ETag', etag);
+    res.setHeader('Last-Modified', entry.lastModified);
+    if (etagMatches(req.headers['if-none-match'], etag)) {
+      res.vary('Accept-Encoding');
+      return res.status(304).end();
+    }
+  }
+  res.vary('Accept-Encoding');
+  res.setHeader('Content-Type', entry.contentType);
+  if (encoding !== 'raw') {
+    res.setHeader('Content-Encoding', encoding);
+  }
+  res.setHeader('Content-Length', String(body.length));
+  if (req.method === 'HEAD') return res.status(200).end();
+  return res.status(200).end(body);
+}
+
+function renderStampedAdminHtml(htmlPath, { projectRoot, managementAssetRoots } = {}) {
+  const resolved = path.resolve(htmlPath);
+  const stat = fs.statSync(resolved);
+  const isProd = process.env.NODE_ENV === 'production';
+  const cached = stampedHtmlCache.get(resolved);
+  if (cached && (isProd || (cached.mtimeMs === stat.mtimeMs && cached.size === stat.size))) {
+    return cached.html;
+  }
+  let html = fs.readFileSync(resolved, 'utf8');
+  html = html.replace(/(\/gaeru_ceo\/assets\/([a-zA-Z0-9._-]+\.(?:js|css)))(?:\?v=[^"'&\s>]*)?/g, (full, base, file) => {
+    const dir = managementAssetRoots?.get(file);
+    if (!dir) return full;
+    const h = getAnyTextAssetHash12(dir, file);
+    return h ? `${base}?v=${h}` : full;
+  });
+  if (projectRoot) {
+    html = html.replace(/((?:src|href)=["']\/([a-zA-Z0-9._-]+\.(?:js|css)))(?:\?v=[^"'&\s>]*)?/g, (full, prefix, file) => {
+      const h = getAssetHash12(projectRoot, file);
+      return h ? `${prefix}?v=${h}` : full;
+    });
+  }
+  if (stampedHtmlCache.size >= 16) stampedHtmlCache.clear();
+  stampedHtmlCache.set(resolved, { html, mtimeMs: stat.mtimeMs, size: stat.size });
+  return html;
+}
+
 module.exports = {
   createStaticAssetMiddleware,
   warmStaticTextAssets,
   getAssetHash12,
-  _clearCacheForTest: () => assetCache.clear()
+  serveSingleAsset,
+  renderStampedAdminHtml,
+  _clearCacheForTest: () => { assetCache.clear(); stampedHtmlCache.clear(); }
 };

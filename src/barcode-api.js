@@ -1019,6 +1019,13 @@ function createBarcodeApi(pool, config = {}) {
     standardHeaders: "draft-8",
     legacyHeaders: false
   });
+  const writeLimit = rateLimit({
+    ...require("./security-hardening").sharedStore(pool, config, "barcode-write"),
+    windowMs: 60000,
+    limit: 180,
+    standardHeaders: "draft-8",
+    legacyHeaders: false
+  });
 
   // Shared helper for read-only lookup access vs mutating scan-log / pack-init write access
   const requireAnyPermission = (allowedPerms, forbiddenMessage) => (req, res, next) => {
@@ -1046,7 +1053,7 @@ function createBarcodeApi(pool, config = {}) {
     }
   });
 
-  admin.post("/barcode/scan", standardLimit, requireWarehouseWriteAccess, requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/scan", writeLimit, requireWarehouseWriteAccess, requireCsrf, async (req, res, next) => {
     try {
       const result = await resolveBarcode(pool, req.body?.code, { actor: req.admin, logScan: true, ensureVerification: true });
       res.json(result);
@@ -1056,7 +1063,7 @@ function createBarcodeApi(pool, config = {}) {
   });
 
   // 2. Quick inbound receive (requires inventory.approve matching manual stock adjustment policy)
-  admin.post("/barcode/receive", standardLimit, requirePermission("inventory.approve"), requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/receive", writeLimit, requirePermission("inventory.approve"), requireCsrf, async (req, res, next) => {
     try {
       const { code, warehouseId, quantity, reason, requestKey } = req.body || {};
       const result = await receiveByBarcode(pool, {
@@ -1074,7 +1081,7 @@ function createBarcodeApi(pool, config = {}) {
   });
 
   // 3. Cycle count adjustment (requires inventory.approve matching manual stock adjustment policy)
-  admin.post("/barcode/cycle-count", standardLimit, requirePermission("inventory.approve"), requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/cycle-count", writeLimit, requirePermission("inventory.approve"), requireCsrf, async (req, res, next) => {
     try {
       const { code, warehouseId, actualQuantity, reason, requestKey } = req.body || {};
       const result = await countByBarcode(pool, {
@@ -1092,7 +1099,7 @@ function createBarcodeApi(pool, config = {}) {
   });
 
   // 4. Pack verify item
-  admin.post("/barcode/pack-verify", standardLimit, requirePermission("orders.write"), requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/pack-verify", writeLimit, requirePermission("orders.write"), requireCsrf, async (req, res, next) => {
     try {
       const { orderId, scannedCode } = req.body || {};
       const result = await verifyPackItem(pool, {
@@ -1107,7 +1114,7 @@ function createBarcodeApi(pool, config = {}) {
   });
 
   // 5. Outbound dispatch
-  admin.post("/barcode/dispatch", standardLimit, requirePermission("orders.write"), requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/dispatch", writeLimit, requirePermission("orders.write"), requireCsrf, async (req, res, next) => {
     try {
       const { orderId, trackingCode } = req.body || {};
       const result = await dispatchByBarcode(pool, {
@@ -1122,7 +1129,7 @@ function createBarcodeApi(pool, config = {}) {
   });
 
   // 6. Bind barcode to SKU
-  admin.post("/barcode/bind-sku", standardLimit, requirePermission("catalog.write"), requireCsrf, async (req, res, next) => {
+  admin.post("/barcode/bind-sku", writeLimit, requirePermission("catalog.write"), requireCsrf, async (req, res, next) => {
     try {
       const { variantId, barcode } = req.body || {};
       const result = await bindBarcode(pool, {

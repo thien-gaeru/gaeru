@@ -41,12 +41,13 @@ reconnect_wifi() {
   run_t 15 nmcli dev wifi rescan ifname wlan1 >/dev/null 2>&1 || true
   run_t 20 nmcli connection up uuid "$WIFI_UUID" >> "$LOG_FILE" 2>&1 || \
     run_t 20 nmcli connection up id "$SSID" >> "$LOG_FILE" 2>&1 || true
-  iw dev wlan1 set power_save off 2>/dev/null || true
-  iw dev wlan0 set power_save off 2>/dev/null || true
+  [ "$(cat /sys/class/net/wlan1/operstate 2>/dev/null)" = "up" ] && iw dev wlan1 set power_save off 2>/dev/null || true
+  [ "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" = "up" ] && iw dev wlan0 set power_save off 2>/dev/null || true
 }
 
 ensure_upstart() {
   local svc="$1"
+  [ -e /run/gaeru-deploy.lock ] && return 0
   [ -f "/etc/init/${svc}.conf" ] || return 0
   local ov="/etc/init/${svc}.override"
   if [ -f "$ov" ] && grep -qE '^[[:space:]]*manual[[:space:]]*$' "$ov"; then
@@ -58,12 +59,12 @@ ensure_upstart() {
   fi
 }
 
-log "System & Network Watchdog started 24/7 (Monitoring Network, PG18, Node26, Dashboard, Nginx, Cloudflared, Battery, Cron, Peak HW Tuning)"
+log "System & Network Watchdog started 24/7 (Monitoring Network, PG19, Node26, Dashboard, GPU-AI, Cloudflared, Battery, Cron, Thermal HW Tuning)"
 
-# Ensure power save is off and apply peak hardware tuning
-iw dev wlan1 set power_save off 2>/dev/null || true
-iw dev wlan0 set power_save off 2>/dev/null || true
-/usr/local/bin/hw_tune.sh >/dev/null 2>&1 || true
+# Ensure power save is off on active interfaces and apply full boot hardware tuning once
+[ "$(cat /sys/class/net/wlan1/operstate 2>/dev/null)" = "up" ] && iw dev wlan1 set power_save off 2>/dev/null || true
+[ "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" = "up" ] && iw dev wlan0 set power_save off 2>/dev/null || true
+/usr/local/bin/hw_tune.sh --boot >/dev/null 2>&1 || true
 
 while true; do
   rotate_log
@@ -98,12 +99,12 @@ while true; do
     fi
   fi
 
-  # 2. Ubuntu 26 PostgreSQL 18 Service Check
+  # 2. Ubuntu 26 PostgreSQL 19 Service Check
   ensure_upstart postgresql-chroot
 
-  # 3. Ubuntu 26 Node.js (gaeru) Service Check (respect AUTOSTART=yes & manual override)
+  # 3. Ubuntu 26 Node.js (gaeru) Service Check (respect deploy lock, AUTOSTART=yes & manual override)
   GAERU_APP_ENV="/storage/apps/gaeru/app.env"
-  if [ -f "$GAERU_APP_ENV" ] && grep -q '^AUTOSTART=yes' "$GAERU_APP_ENV" && \
+  if [ ! -e /run/gaeru-deploy.lock ] && [ -f "$GAERU_APP_ENV" ] && grep -q '^AUTOSTART=yes' "$GAERU_APP_ENV" && \
      ! { [ -f /etc/init/node-app.override ] && grep -qE '^[[:space:]]*manual[[:space:]]*$' /etc/init/node-app.override; }; then
     if ! run_t 10 initctl status node-app APP=gaeru 2>/dev/null | grep -q "start/running"; then
       log "[AUTO-HEAL] node-app (gaeru) is stopped! Restarting now..."
@@ -130,13 +131,12 @@ while true; do
     fi
   fi
 
-  # 4. Web Admin Dashboard (8080), GPU AI Engine (3100) & Nginx Reverse Proxy Check
+  # 4. Web Admin Dashboard (8080) & GPU AI Engine (3100) Check (Nginx disabled permanently)
   ensure_upstart server-dashboard
   ensure_upstart gaeru-gpu-ai
-  ensure_upstart nginx
 
   # 5. Cloudflare Tunnel Check
-  if ! pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1; then
+  if [ ! -e /run/gaeru-deploy.lock ] && ! pgrep -f "cloudflared.*tunnel run" >/dev/null 2>&1; then
     log "[AUTO-HEAL] cloudflared is not running! Starting cloudflared..."
     run_t 20 /etc/init.d/cloudflared start >> "$LOG_FILE" 2>&1 || true
   fi
@@ -145,8 +145,8 @@ while true; do
   ensure_upstart battery-limiter
   ensure_upstart cron
 
-  # 7. Enforce Peak Hardware Performance & 24/7 Anti-Sleep Lock
-  /usr/local/bin/hw_tune.sh >/dev/null 2>&1 || true
+  # 7. Fast Thermal Guard & 24/7 Anti-Sleep Lock (lightweight --thermal path)
+  /usr/local/bin/hw_tune.sh --thermal >/dev/null 2>&1 || true
 
   sleep "$CHECK_INTERVAL"
 done

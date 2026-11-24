@@ -2,8 +2,9 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const map=require('../responsive-images.json');
+const {LRUCache}=require('lru-cache');
 const ROOT_DIR=path.join(__dirname,'..');
-const avifExistsCache=new Map();
+const avifExistsCache=new LRUCache({max:512});
 function hasAvifFile(publicUrl){
  if(!publicUrl||publicUrl.includes('..')||!/^\/assets\/[a-zA-Z0-9/_.-]+\.avif$/i.test(publicUrl))return false;
  if(!avifExistsCache.has(publicUrl))avifExistsCache.set(publicUrl,fs.existsSync(path.join(ROOT_DIR,publicUrl.slice(1))));

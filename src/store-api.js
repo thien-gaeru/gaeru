@@ -428,7 +428,8 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
   let cachedCatalogProductsTime = 0;
   let inFlightCatalogPromise = null;
   const CATALOG_CACHE_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 0 : 3000;
-  const stockTimestampMap = new Map();
+  const { LRUCache } = require('lru-cache');
+  const stockTimestampMap = new LRUCache({ max: 512 });
   const STOCK_MAP_TTL_MS = (process.env.NODE_ENV === 'test' || config?.NODE_ENV === 'test') ? 60000 : 5000;
 
   const semanticSearchCache = new Map();

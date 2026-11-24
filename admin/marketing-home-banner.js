@@ -284,6 +284,7 @@
   }
 
   box.addEventListener('toggle',()=>{if(box.open&&!value)load();});
+  if(admin()?.user)box.hidden=!admin()?.can('marketing.read');
   document.addEventListener('gaeru:admin-ready',()=>{
     value=null;
     box.hidden=!admin()?.can('marketing.read');
