@@ -152,8 +152,8 @@
   -webkit-overflow-scrolling: touch;
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  gap: 24px;
-  padding: 20px 24px 22px;
+  gap: 22px;
+  padding: 16px 24px 18px;
   align-items: start;
   box-sizing: border-box;
 }
@@ -162,7 +162,7 @@
 .quick-cart-premium .qc-media-col {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
   position: sticky;
   top: 0;
@@ -170,41 +170,52 @@
 .quick-cart-premium .qc-stage {
   position: relative;
   width: 100%;
-  height: 268px;
+  height: auto;
   border-radius: 20px;
-  background: radial-gradient(circle at 50% 35%, #ffffff 0%, #f3f5f9 100%);
-  border: 1px solid #eceef2;
+  background: #ffffff;
+  border: 1px solid #e6e9ef;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   overflow: hidden;
-  padding: 16px;
+  padding: 0;
   box-sizing: border-box;
 }
 .quick-cart-premium .qc-stage-img {
   width: 100%;
-  height: 100%;
+  height: 248px;
+  padding: 12px;
+  box-sizing: border-box;
   object-fit: contain;
   display: block;
+  background: radial-gradient(circle at 50% 35%, #ffffff 0%, #f5f7fa 100%);
   transition: opacity 0.18s ease, transform 0.22s ease;
 }
 .quick-cart-premium .qc-stage-img.is-swapping {
   opacity: 0.55;
   transform: scale(0.97);
 }
+.quick-cart-premium .qc-stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid #eef0f4;
+  background: #fafbfc;
+}
 .quick-cart-premium .qc-stage-badge {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 2;
-  padding: 4px 10px;
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
   background: #1d1d1f;
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
 }
 .quick-cart-premium .qc-stage-badge.is-flash {
   background: linear-gradient(135deg, #e5391e 0%, #ff6b2b 100%);
@@ -214,21 +225,17 @@
   display: none;
 }
 .quick-cart-premium .qc-stock-pill {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  z-index: 2;
+  position: static;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 3px 9px;
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
   color: #0f7b4c;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 .quick-cart-premium .qc-stock-dot {
   width: 7px;
@@ -238,12 +245,16 @@
   flex-shrink: 0;
 }
 .quick-cart-premium .qc-stock-pill.is-low {
+  background: #fffbeb;
+  border-color: #fde68a;
   color: #b45309;
 }
 .quick-cart-premium .qc-stock-pill.is-low .qc-stock-dot {
   background: #f59e0b;
 }
 .quick-cart-premium .qc-stock-pill.is-oos {
+  background: #fef2f2;
+  border-color: #fecaca;
   color: #b91c1c;
 }
 .quick-cart-premium .qc-stock-pill.is-oos .qc-stock-dot {
@@ -302,7 +313,7 @@
 .quick-cart-premium .qc-config-col {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 11px;
   min-width: 0;
 }
 
@@ -377,10 +388,10 @@
   white-space: nowrap;
 }
 .quick-cart-premium .qc-price-content {
-  padding: 13px 14px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 .quick-cart-premium .qc-price-row {
   display: flex;
@@ -962,15 +973,14 @@
   .quick-cart-premium .qc-stage {
     width: 88px;
     height: 88px;
-    padding: 6px;
+    padding: 0;
     border-radius: 16px;
   }
-  .quick-cart-premium .qc-stage-badge {
-    top: 5px;
-    left: 5px;
-    padding: 2px 6px;
-    font-size: 10px;
+  .quick-cart-premium .qc-stage-img {
+    height: 100%;
+    padding: 4px;
   }
+  .quick-cart-premium .qc-stage-bar,
   .quick-cart-premium .qc-stock-pill,
   .quick-cart-premium .qc-media-summary {
     display: none;

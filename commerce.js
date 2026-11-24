@@ -1488,9 +1488,11 @@ function bindGlobalControls() {
         <div class="qc-body">
           <div class="qc-media-col">
             <div class="qc-stage">
-              <span class="qc-stage-badge" data-qc-stage-badge hidden></span>
               <img class="qc-stage-img" data-qc-image src="${escapeHtml(qcResolveVariantImage(product, selectedVariant))}" alt="${escapeHtml(product.name)}" width="320" height="320" decoding="async">
-              <span class="qc-stock-pill" data-qc-stock-pill></span>
+              <div class="qc-stage-bar">
+                <span class="qc-stock-pill" data-qc-stock-pill></span>
+                <span class="qc-stage-badge" data-qc-stage-badge hidden></span>
+              </div>
             </div>
             <div class="qc-mobile-hero-meta">
               <div class="qc-mobile-price-row">
