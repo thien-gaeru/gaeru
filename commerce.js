@@ -844,7 +844,7 @@ async function ensureCheckoutDependencies() {
     });
   };
   if (typeof window !== "undefined" && !window.GAERUCheckout && typeof navigator !== "undefined") {
-    await ensureJs("/checkout-flow.js?v=20261026-ward-picker", () => Boolean(window.GAERUCheckout));
+    await ensureJs("/checkout-flow.js?v=20261124-quick-cart-v2", () => Boolean(window.GAERUCheckout));
   }
   if (typeof window !== "undefined" && !window.GAERUAddress && typeof navigator !== "undefined") {
     ensureCss("/vietnam-address.css?v=20261026-unified-ui");
@@ -1290,6 +1290,649 @@ function renderMiniCart() {
 
 function bindGlobalControls() {
   let pointerStartX = 0, pointerStartY = 0;
+  const quickBundleCache = new Map();
+  let quickPublicSettingsPromise = null;
+
+  const qcSafeImg = (value) => {
+    if (typeof safeProductImage === "function") return safeProductImage(value);
+    const img = String(value || "").trim();
+    return img || "/assets/products/k9.webp";
+  };
+
+  const qcResolveVariantImage = (product, variant) => {
+    const art = typeof window !== "undefined" && window.GAERUProductArtwork?.variantImage?.(product, variant);
+    return qcSafeImg(art?.url || variant?.imageUrl || product?.imageUrl);
+  };
+
+  const qcBuildGroups = (variants, preferred = []) => {
+    if (typeof window !== "undefined" && window.GAERUVariantChoices?.groups) {
+      return window.GAERUVariantChoices.groups(variants, preferred);
+    }
+    const map = new Map();
+    for (const g of preferred || []) {
+      const vals = (g.values || []).filter((val) => variants.some((v) => v.options?.[g.name] === val));
+      if (vals.length) map.set(g.name, vals);
+    }
+    for (const v of variants) {
+      for (const [k, val] of Object.entries(v.options || {})) {
+        if (!map.has(k)) map.set(k, []);
+        if (!map.get(k).includes(val)) map.get(k).push(val);
+      }
+    }
+    return [...map].filter(([, vals]) => vals.length).map(([name, values]) => ({ name, values }));
+  };
+
+  const qcChooseOption = (variants, current, group, value) => {
+    if (typeof window !== "undefined" && window.GAERUVariantChoices?.choose) {
+      return window.GAERUVariantChoices.choose(variants, current, group, value);
+    }
+    const candidates = variants.filter((v) => v.options?.[group] === value);
+    return candidates.find((v) => Object.entries(current?.options || {}).every(([k, sel]) => k === group || v.options?.[k] === sel))
+      || candidates.find((v) => Number(v.stockQuantity) > 0)
+      || candidates[0]
+      || null;
+  };
+
+  const qcFormatEndDate = (iso) => {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      return d.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch (_) {
+      return "";
+    }
+  };
+
+  const qcFetchPublicSettings = () => {
+    if (typeof fetch !== "function") return Promise.resolve(null);
+    if (!quickPublicSettingsPromise) {
+      quickPublicSettingsPromise = fetch("/api/settings/public", { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+    }
+    return quickPublicSettingsPromise;
+  };
+
+  const qcFetchBundles = (slug) => {
+    if (typeof fetch !== "function" || !slug) return Promise.resolve([]);
+    if (!quickBundleCache.has(slug)) {
+      quickBundleCache.set(
+        slug,
+        fetch(`/api/products/${encodeURIComponent(slug)}/bundles`, { credentials: "same-origin" })
+          .then((r) => (r.ok ? r.json() : { bundles: [] }))
+          .then((d) => (Array.isArray(d?.bundles) ? d.bundles : []))
+          .catch(() => [])
+      );
+    }
+    return quickBundleCache.get(slug);
+  };
+
+  function openQuickCartDialog(product) {
+    const activeVariants = (product.variants || []).filter((v) => v.active);
+    if (!activeVariants.length) return;
+    const inStockVariants = activeVariants.filter((v) => Number(v.stockQuantity) > 0);
+    let selectedVariant = inStockVariants[0] || activeVariants[0];
+    let selectedQty = 1;
+
+    let dialog = document.querySelector("#quick-cart-dialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "quick-cart-dialog";
+      dialog.className = "quick-cart-dialog quick-cart-premium";
+      dialog.addEventListener("click", (e) => {
+        if (e.target === dialog) dialog.close();
+      });
+      document.body.append(dialog);
+    } else {
+      dialog.className = "quick-cart-dialog quick-cart-premium";
+    }
+    dialog.setAttribute("aria-labelledby", "qc-dialog-title");
+
+    const pUrl = `/san-pham/${encodeURIComponent(product.slug)}`;
+    const optionGroups = qcBuildGroups(activeVariants, product.optionGroups || []);
+    const useMultiGroupPills = optionGroups.length >= 2;
+    const distinctVariantImgs = new Set(activeVariants.map((v) => String(v.imageUrl || "").trim()).filter(Boolean));
+    const showVariantCardThumbs = distinctVariantImgs.size >= 2;
+
+    const galleryThumbs = [];
+    const seenImgs = new Set();
+    const pushThumb = (rawUrl, label) => {
+      const safe = qcSafeImg(rawUrl);
+      if (!safe || seenImgs.has(safe)) return;
+      seenImgs.add(safe);
+      galleryThumbs.push({ url: safe, label: label || product.name });
+    };
+    pushThumb(qcResolveVariantImage(product, selectedVariant), selectedVariant?.name || product.name);
+    for (const v of activeVariants) {
+      if (v.imageUrl) pushThumb(v.imageUrl, v.name);
+    }
+    pushThumb(product.imageUrl, product.name);
+    for (const gUrl of product.gallery || []) {
+      if (galleryThumbs.length >= 5) break;
+      pushThumb(gUrl, product.name);
+    }
+
+    let optionsMarkup = "";
+    if (useMultiGroupPills) {
+      optionsMarkup = optionGroups.map((g) => `
+        <div class="qc-option-group" data-qc-group="${escapeHtml(g.name)}">
+          <div class="qc-option-label">
+            <span>${escapeHtml(g.name)}</span>
+            <strong data-qc-group-selected="${escapeHtml(g.name)}">${escapeHtml(selectedVariant?.options?.[g.name] || "")}</strong>
+          </div>
+          <div class="qc-pill-list" role="group" aria-label="${escapeHtml(g.name)}">
+            ${g.values.map((val) => {
+              const pressed = selectedVariant?.options?.[g.name] === val;
+              const anyInStock = activeVariants.some((v) => v.options?.[g.name] === val && Number(v.stockQuantity) > 0);
+              return `<button type="button" class="qc-pill-btn${anyInStock ? "" : " is-oos"}" data-qc-opt-group="${escapeHtml(g.name)}" data-qc-opt-value="${escapeHtml(val)}" aria-pressed="${pressed ? "true" : "false"}">${escapeHtml(val)}</button>`;
+            }).join("")}
+          </div>
+        </div>
+      `).join("");
+    } else if (activeVariants.length > 1) {
+      const singleGroupTitle = optionGroups[0]?.name || "Phiên bản";
+      optionsMarkup = `
+        <div class="qc-option-group">
+          <div class="qc-option-label">
+            <span>${escapeHtml(singleGroupTitle)}</span>
+            <strong data-qc-single-selected>${escapeHtml(selectedVariant?.name || "")}</strong>
+          </div>
+          <div class="qc-variant-grid${showVariantCardThumbs ? " has-thumbs" : ""}" role="group" aria-label="${escapeHtml(singleGroupTitle)}">
+            ${activeVariants.map((v) => {
+              const oos = Number(v.stockQuantity) <= 0;
+              const isSelected = selectedVariant && v.id === selectedVariant.id;
+              const vOrig = Number(v.originalPriceVnd || v.priceVnd);
+              const hasDisc = vOrig > v.priceVnd;
+              const vThumb = showVariantCardThumbs ? qcResolveVariantImage(product, v) : "";
+              return `
+                <button type="button" class="qc-variant-card${oos ? " is-oos" : ""}" data-qc-variant-id="${escapeHtml(v.id)}" aria-pressed="${isSelected ? "true" : "false"}" ${oos ? "disabled" : ""}>
+                  ${vThumb ? `<span class="qc-variant-thumb"><img src="${escapeHtml(vThumb)}" alt="" width="40" height="40" loading="lazy" decoding="async"></span>` : ""}
+                  <span class="qc-variant-meta">
+                    <span class="qc-variant-name">${escapeHtml(v.name)}</span>
+                    <span class="qc-variant-price-row">
+                      <strong class="qc-variant-price">${oos ? "Hết hàng" : escapeHtml(formatPrice(v.priceVnd))}</strong>
+                      ${!oos && hasDisc ? `<del class="qc-variant-orig">${escapeHtml(formatPrice(vOrig))}</del>` : ""}
+                    </span>
+                  </span>
+                  <span class="qc-variant-check" aria-hidden="true">✓</span>
+                </button>`;
+            }).join("")}
+          </div>
+        </div>
+      `;
+    } else {
+      const only = activeVariants[0];
+      optionsMarkup = `
+        <div class="qc-single-edition">
+          <span class="qc-single-edition-label">Phiên bản tiêu chuẩn</span>
+          <strong>${escapeHtml(only.name)}</strong>
+        </div>
+      `;
+    }
+
+    const summaryText = String(product.cardSummary || "").replace(/\*\*|__/g, "").trim();
+
+    dialog.innerHTML = `
+      <div class="qc-shell">
+        <header class="qc-header">
+          <div class="qc-header-copy">
+            ${product.descriptor ? `<p class="qc-eyebrow">${escapeHtml(product.descriptor)}</p>` : ""}
+            <h2 id="qc-dialog-title">${escapeHtml(product.cardTitle || product.name)}</h2>
+          </div>
+          <div class="qc-header-actions">
+            <a class="qc-detail-link" href="${pUrl}">Chi tiết ↗</a>
+            <button type="button" class="qc-close-btn" data-close-quick-cart aria-label="Đóng">×</button>
+          </div>
+        </header>
+
+        <div class="qc-body">
+          <div class="qc-media-col">
+            <div class="qc-stage">
+              <span class="qc-stage-badge" data-qc-stage-badge hidden></span>
+              <img class="qc-stage-img" data-qc-image src="${escapeHtml(qcResolveVariantImage(product, selectedVariant))}" alt="${escapeHtml(product.name)}" width="320" height="320" decoding="async">
+              <span class="qc-stock-pill" data-qc-stock-pill></span>
+            </div>
+            <div class="qc-mobile-hero-meta">
+              <div class="qc-mobile-price-row">
+                <strong class="qc-mobile-price" data-qc-mobile-price></strong>
+                <del class="qc-mobile-orig" data-qc-mobile-orig hidden></del>
+                <span class="qc-discount-tag" data-qc-mobile-discount hidden></span>
+              </div>
+              <p class="qc-mobile-variant-name" data-qc-mobile-variant></p>
+              <span class="qc-mobile-stock" data-qc-mobile-stock></span>
+            </div>
+            ${galleryThumbs.length > 1 ? `
+              <div class="qc-thumbs" role="group" aria-label="Xem nhanh hình ảnh sản phẩm">
+                ${galleryThumbs.slice(0, 5).map((t, idx) => `
+                  <button type="button" class="qc-thumb-btn" data-qc-thumb="${escapeHtml(t.url)}" aria-label="Xem ảnh ${idx + 1}" aria-pressed="${idx === 0 ? "true" : "false"}">
+                    <img src="${escapeHtml(t.url)}" alt="" width="48" height="48" loading="lazy" decoding="async">
+                  </button>
+                `).join("")}
+              </div>
+            ` : ""}
+            ${summaryText ? `<p class="qc-media-summary">${escapeHtml(summaryText)}</p>` : ""}
+          </div>
+
+          <div class="qc-config-col">
+            <section class="qc-price-panel" data-qc-price-panel aria-label="Giá bán và khuyến mại">
+              <div class="qc-sale-bar" data-qc-sale-bar hidden>
+                <div class="qc-sale-bar-left">
+                  <span class="qc-sale-pill" data-qc-sale-pill>⚡ FLASH SALE</span>
+                  <span class="qc-sale-title" data-qc-sale-title></span>
+                </div>
+                <span class="qc-sale-timer" data-qc-countdown></span>
+              </div>
+              <div class="qc-price-content">
+                <div class="qc-price-row">
+                  <strong class="qc-price-now" data-qc-price></strong>
+                  <del class="qc-price-orig" data-qc-orig hidden></del>
+                  <span class="qc-discount-tag" data-qc-discount hidden></span>
+                </div>
+                <div class="qc-price-meta">
+                  <span class="qc-savings-tag" data-qc-savings hidden></span>
+                  <span class="qc-sku-tag" data-qc-sku></span>
+                </div>
+              </div>
+            </section>
+
+            <section class="qc-promo-card" data-qc-promo-card aria-label="Chương trình khuyến mại và ưu đãi">
+              <div class="qc-promo-heading">
+                <svg class="qc-promo-icon" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+                  <path d="M3 8h14v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8Z"/>
+                  <path d="M2 5h16v3H2V5Zm8 0v13"/>
+                  <path d="M10 5c0-1.6-1.2-3-2.6-3-1.1 0-1.9.7-1.9 1.6C5.5 4.5 6.8 5 10 5Zm0 0c0-1.6 1.2-3 2.6-3 1.1 0 1.9.7 1.9 1.6C14.5 4.5 13.2 5 10 5Z"/>
+                </svg>
+                <h3>Chương trình khuyến mại &amp; Ưu đãi</h3>
+              </div>
+              <ul class="qc-promo-list">
+                <li class="qc-promo-item" data-qc-promo-discount hidden>
+                  <span class="qc-promo-tag is-hot" data-qc-promo-tag>FLASH SALE</span>
+                  <span class="qc-promo-text" data-qc-promo-text></span>
+                </li>
+                <li class="qc-promo-item" data-qc-bundle-row hidden>
+                  <span class="qc-promo-tag is-combo">COMBO</span>
+                  <span class="qc-promo-text" data-qc-bundle-text></span>
+                </li>
+                <li class="qc-promo-item" data-qc-shipping-row>
+                  <span class="qc-promo-tag is-ship" data-qc-ship-tag>GIAO HÀNG</span>
+                  <span class="qc-promo-text" data-qc-ship-text>Hỗ trợ giao hàng nhanh toàn quốc · Kiểm tra ưu đãi tại thanh toán.</span>
+                </li>
+                <li class="qc-promo-item">
+                  <span class="qc-promo-tag is-perk">ƯU ĐÃI THÊM</span>
+                  <span class="qc-promo-text">Áp dụng mã giảm giá &amp; đổi điểm <strong>GAERU XU</strong> tại thanh toán · Bảo hành chính hãng <strong>12 tháng</strong>.</span>
+                </li>
+              </ul>
+            </section>
+
+            <div class="qc-options-section">
+              ${optionsMarkup}
+              <label class="visually-hidden">
+                Chọn phiên bản
+                <select data-quick-variant>
+                  <option value="">Chọn phiên bản phù hợp</option>
+                  ${activeVariants.map((v) => `<option value="${escapeHtml(v.id)}" ${Number(v.stockQuantity) > 0 ? "" : "disabled"} ${selectedVariant && v.id === selectedVariant.id ? "selected" : ""}>${escapeHtml(v.name)} · ${escapeHtml(formatPrice(v.priceVnd))}${Number(v.stockQuantity) > 0 ? "" : " · Hết hàng"}</option>`).join("")}
+                </select>
+              </label>
+            </div>
+
+            <div class="qc-qty-row">
+              <div class="qc-qty-label">
+                <span>Số lượng</span>
+                <small data-qc-qty-note></small>
+              </div>
+              <div class="qc-stepper" role="group" aria-label="Chọn số lượng">
+                <button type="button" class="qc-step-btn" data-qc-qty-dec aria-label="Giảm số lượng">−</button>
+                <span class="qc-step-value" data-qc-qty-value aria-live="polite">1</span>
+                <button type="button" class="qc-step-btn" data-qc-qty-inc aria-label="Tăng số lượng">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="qc-footer">
+          <div class="qc-footer-summary">
+            <span class="qc-footer-label" data-qc-footer-label>Tạm tính (1 sản phẩm)</span>
+            <div class="qc-footer-totals">
+              <strong class="qc-footer-subtotal" data-qc-subtotal></strong>
+              <span class="qc-footer-saved" data-qc-footer-saved hidden></span>
+            </div>
+          </div>
+          <div class="qc-footer-actions">
+            <button type="button" class="qc-btn-buy" data-quick-buy-now="" data-quick-buy-qty="1">Mua ngay</button>
+            <button type="button" class="button button-blue qc-btn-add" data-add-to-cart="" data-add-qty="1">
+              <svg viewBox="0 0 20 20" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M3 4h2l1.6 8.2a1 1 0 0 0 1 .8h7.5a1 1 0 0 0 1-.8L17.5 6.5H5.5"/>
+                <circle cx="8" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>
+                <circle cx="14.5" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>
+              </svg>
+              <span data-qc-add-label>Thêm vào giỏ hàng</span>
+            </button>
+          </div>
+          <p class="qc-feedback" data-cart-feedback role="status" aria-live="polite"></p>
+        </footer>
+      </div>
+    `;
+
+    const picker = dialog.querySelector("[data-quick-variant]");
+    const addBtn = dialog.querySelector("[data-add-to-cart]");
+    const buyBtn = dialog.querySelector("[data-quick-buy-now]");
+    const addLabel = dialog.querySelector("[data-qc-add-label]");
+    const stageImg = dialog.querySelector("[data-qc-image]");
+    const stageBadge = dialog.querySelector("[data-qc-stage-badge]");
+    const stockPill = dialog.querySelector("[data-qc-stock-pill]");
+    const mobilePrice = dialog.querySelector("[data-qc-mobile-price]");
+    const mobileOrig = dialog.querySelector("[data-qc-mobile-orig]");
+    const mobileDisc = dialog.querySelector("[data-qc-mobile-discount]");
+    const mobileVar = dialog.querySelector("[data-qc-mobile-variant]");
+    const mobileStock = dialog.querySelector("[data-qc-mobile-stock]");
+    const pricePanel = dialog.querySelector("[data-qc-price-panel]");
+    const saleBar = dialog.querySelector("[data-qc-sale-bar]");
+    const salePill = dialog.querySelector("[data-qc-sale-pill]");
+    const saleTitle = dialog.querySelector("[data-qc-sale-title]");
+    const countdownEl = dialog.querySelector("[data-qc-countdown]");
+    const priceNowEl = dialog.querySelector("[data-qc-price]");
+    const priceOrigEl = dialog.querySelector("[data-qc-orig]");
+    const discountEl = dialog.querySelector("[data-qc-discount]");
+    const savingsEl = dialog.querySelector("[data-qc-savings]");
+    const skuEl = dialog.querySelector("[data-qc-sku]");
+    const promoCard = dialog.querySelector("[data-qc-promo-card]");
+    const promoRow = dialog.querySelector("[data-qc-promo-discount]");
+    const promoTag = dialog.querySelector("[data-qc-promo-tag]");
+    const promoText = dialog.querySelector("[data-qc-promo-text]");
+    const qtyDecBtn = dialog.querySelector("[data-qc-qty-dec]");
+    const qtyIncBtn = dialog.querySelector("[data-qc-qty-inc]");
+    const qtyValEl = dialog.querySelector("[data-qc-qty-value]");
+    const qtyNoteEl = dialog.querySelector("[data-qc-qty-note]");
+    const footerLabel = dialog.querySelector("[data-qc-footer-label]");
+    const subtotalEl = dialog.querySelector("[data-qc-subtotal]");
+    const footerSavedEl = dialog.querySelector("[data-qc-footer-saved]");
+    const feedbackEl = dialog.querySelector("[data-cart-feedback]");
+
+    const syncUi = (updateImage = true) => {
+      const v = selectedVariant;
+      if (!v) return;
+      const stock = Math.max(0, Number(v.stockQuantity) || 0);
+      const maxQty = Math.max(1, Math.min(99, stock || 1));
+      selectedQty = Math.max(1, Math.min(maxQty, selectedQty));
+
+      const price = Number(v.priceVnd || 0);
+      const orig = Number(v.originalPriceVnd ?? price);
+      const savedUnit = Math.max(0, orig - price);
+      const pct = orig > price && orig > 0 ? Math.round((savedUnit / orig) * 100) : 0;
+      const promo = v.promotion || null;
+      const isFlash = promo?.type === "flash";
+      const hasDiscount = savedUnit > 0;
+
+      if (picker) picker.value = v.id;
+
+      // Update main stage image & thumbnail highlight
+      if (updateImage && stageImg) {
+        const nextUrl = qcResolveVariantImage(product, v);
+        if (stageImg.getAttribute("src") !== nextUrl) {
+          stageImg.classList.add("is-swapping");
+          stageImg.src = nextUrl;
+          stageImg.alt = `${product.name} · ${v.name}`;
+          setTimeout(() => stageImg.classList.remove("is-swapping"), 180);
+        }
+        dialog.querySelectorAll("[data-qc-thumb]").forEach((btn) => {
+          btn.setAttribute("aria-pressed", String(btn.dataset.qcThumb === nextUrl));
+        });
+      }
+
+      // Floating discount badge on image stage
+      if (stageBadge) {
+        if (pct > 0) {
+          stageBadge.textContent = isFlash ? `⚡ -${pct}%` : `-${pct}%`;
+          stageBadge.className = `qc-stage-badge${isFlash ? " is-flash" : ""}`;
+          stageBadge.hidden = false;
+        } else {
+          stageBadge.hidden = true;
+        }
+      }
+
+      // Stock pills (desktop stage + mobile hero)
+      const stockText = stock <= 0 ? "Tạm hết hàng" : (stock <= 10 ? `Chỉ còn ${stock} sp` : "Còn hàng");
+      const stockClass = stock <= 0 ? "is-oos" : (stock <= 10 ? "is-low" : "is-ok");
+      if (stockPill) {
+        stockPill.className = `qc-stock-pill ${stockClass}`;
+        stockPill.innerHTML = `<span class="qc-stock-dot" aria-hidden="true"></span>${escapeHtml(stockText)}`;
+      }
+      if (mobileStock) {
+        mobileStock.className = `qc-mobile-stock ${stockClass}`;
+        mobileStock.textContent = stockText + (v.sku ? ` · SKU ${v.sku}` : "");
+      }
+
+      // Mobile compact hero summary
+      if (mobilePrice) {
+        mobilePrice.textContent = formatPrice(price);
+        mobilePrice.classList.toggle("is-sale", hasDiscount || Boolean(promo));
+      }
+      if (mobileOrig) {
+        mobileOrig.textContent = formatPrice(orig);
+        mobileOrig.hidden = !hasDiscount;
+      }
+      if (mobileDisc) {
+        mobileDisc.textContent = `-${pct}%`;
+        mobileDisc.hidden = pct <= 0;
+      }
+      if (mobileVar) mobileVar.textContent = v.name || "";
+
+      // Main price panel & Flash Sale countdown
+      if (pricePanel) {
+        pricePanel.classList.toggle("is-flash", isFlash);
+        pricePanel.classList.toggle("is-promo", Boolean(promo) && !isFlash);
+      }
+      if (saleBar) {
+        if (promo) {
+          saleBar.hidden = false;
+          if (salePill) salePill.textContent = isFlash ? "⚡ FLASH SALE" : "🏷️ ƯU ĐÃI";
+          if (saleTitle) saleTitle.textContent = promo.title || (isFlash ? "Giá sốc có hạn" : "Chương trình khuyến mại");
+          if (countdownEl) {
+            if (promo.endsAt) {
+              countdownEl.dataset.saleEnd = new Date(promo.endsAt).toISOString();
+              countdownEl.hidden = false;
+            } else {
+              delete countdownEl.dataset.saleEnd;
+              countdownEl.textContent = "";
+              countdownEl.hidden = true;
+            }
+          }
+        } else {
+          saleBar.hidden = true;
+          if (countdownEl) {
+            delete countdownEl.dataset.saleEnd;
+            countdownEl.textContent = "";
+          }
+        }
+      }
+      if (priceNowEl) {
+        priceNowEl.textContent = formatPrice(price);
+        priceNowEl.classList.toggle("is-sale", hasDiscount || Boolean(promo));
+      }
+      if (priceOrigEl) {
+        priceOrigEl.textContent = formatPrice(orig);
+        priceOrigEl.hidden = !hasDiscount;
+      }
+      if (discountEl) {
+        discountEl.textContent = `-${pct}%`;
+        discountEl.hidden = pct <= 0;
+      }
+      if (savingsEl) {
+        savingsEl.textContent = `Tiết kiệm ${formatPrice(savedUnit)}`;
+        savingsEl.hidden = !hasDiscount;
+      }
+      if (skuEl) {
+        skuEl.textContent = v.sku ? `SKU: ${v.sku}` : "";
+        skuEl.hidden = !v.sku;
+      }
+
+      // Promotions list (dynamic campaign line)
+      if (promoCard) promoCard.classList.toggle("has-active-promo", Boolean(promo) || hasDiscount);
+      if (promoRow && promoText && promoTag) {
+        if (promo || hasDiscount) {
+          promoRow.hidden = false;
+          promoTag.textContent = isFlash ? "FLASH SALE" : "GIẢM GIÁ";
+          promoTag.className = `qc-promo-tag ${isFlash ? "is-hot" : "is-deal"}`;
+          const endStr = promo?.endsAt ? qcFormatEndDate(promo.endsAt) : "";
+          const titlePart = promo?.title ? `<strong>${escapeHtml(promo.title)}</strong>` : "<strong>Ưu đãi giá trực tiếp</strong>";
+          const savePart = hasDiscount ? ` — Giảm ${pct}% (tiết kiệm <strong>${escapeHtml(formatPrice(savedUnit))}</strong>/sp)` : "";
+          const timePart = endStr ? ` · Áp dụng đến ${escapeHtml(endStr)}` : "";
+          promoText.innerHTML = `${titlePart}${savePart}${timePart}`;
+        } else {
+          promoRow.hidden = true;
+        }
+      }
+
+      // Option buttons / variant cards visual state
+      if (useMultiGroupPills) {
+        dialog.querySelectorAll("[data-qc-opt-group]").forEach((btn) => {
+          const gName = btn.dataset.qcOptGroup;
+          const gVal = btn.dataset.qcOptValue;
+          btn.setAttribute("aria-pressed", String(v.options?.[gName] === gVal));
+        });
+        for (const g of optionGroups) {
+          const selEl = dialog.querySelector(`[data-qc-group-selected="${g.name.replace(/"/g, '\\"')}"]`);
+          if (selEl) selEl.textContent = v.options?.[g.name] || "";
+        }
+      } else {
+        dialog.querySelectorAll("[data-qc-variant-id]").forEach((btn) => {
+          btn.setAttribute("aria-pressed", String(btn.dataset.qcVariantId === v.id));
+        });
+        const singleSelEl = dialog.querySelector("[data-qc-single-selected]");
+        if (singleSelEl) singleSelEl.textContent = v.name || "";
+      }
+
+      // Stepper & footer totals
+      if (qtyValEl) qtyValEl.textContent = String(selectedQty);
+      if (qtyDecBtn) qtyDecBtn.disabled = stock <= 0 || selectedQty <= 1;
+      if (qtyIncBtn) qtyIncBtn.disabled = stock <= 0 || selectedQty >= maxQty;
+      if (qtyNoteEl) {
+        qtyNoteEl.textContent = stock <= 0 ? "Sản phẩm tạm hết hàng" : (stock <= 10 ? `Còn ${stock} sản phẩm trong kho` : "Sẵn hàng giao ngay");
+      }
+
+      const subtotal = price * selectedQty;
+      const totalSaved = savedUnit * selectedQty;
+      if (footerLabel) footerLabel.textContent = `Tạm tính (${selectedQty} sản phẩm)`;
+      if (subtotalEl) subtotalEl.textContent = formatPrice(subtotal);
+      if (footerSavedEl) {
+        footerSavedEl.textContent = `Tiết kiệm ${formatPrice(totalSaved)}`;
+        footerSavedEl.hidden = totalSaved <= 0;
+      }
+
+      if (addBtn) {
+        addBtn.dataset.addToCart = stock > 0 ? v.id : "";
+        addBtn.dataset.addQty = String(selectedQty);
+        addBtn.disabled = stock <= 0;
+      }
+      if (addLabel) addLabel.textContent = stock > 0 ? "Thêm vào giỏ hàng" : "Tạm hết hàng";
+      if (buyBtn) {
+        buyBtn.dataset.quickBuyNow = stock > 0 ? v.id : "";
+        buyBtn.dataset.quickBuyQty = String(selectedQty);
+        buyBtn.disabled = stock <= 0;
+      }
+      if (feedbackEl) feedbackEl.textContent = "";
+
+      if (typeof updateSaleCountdowns === "function") updateSaleCountdowns();
+    };
+
+    dialog.querySelector("[data-close-quick-cart]").onclick = () => dialog.close();
+
+    dialog.querySelectorAll("[data-qc-thumb]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (!stageImg) return;
+        const url = btn.dataset.qcThumb;
+        if (!url) return;
+        stageImg.src = url;
+        dialog.querySelectorAll("[data-qc-thumb]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      });
+    });
+
+    dialog.querySelectorAll("[data-qc-variant-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = activeVariants.find((item) => item.id === btn.dataset.qcVariantId);
+        if (next) {
+          selectedVariant = next;
+          syncUi(true);
+        }
+      });
+    });
+
+    dialog.querySelectorAll("[data-qc-opt-group]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = qcChooseOption(activeVariants, selectedVariant, btn.dataset.qcOptGroup, btn.dataset.qcOptValue);
+        if (next) {
+          selectedVariant = next;
+          syncUi(true);
+        }
+      });
+    });
+
+    if (picker) {
+      picker.onchange = () => {
+        const next = activeVariants.find((item) => item.id === picker.value);
+        if (next) {
+          selectedVariant = next;
+          syncUi(true);
+        } else if (addBtn) {
+          addBtn.dataset.addToCart = "";
+          addBtn.disabled = true;
+          if (buyBtn) buyBtn.disabled = true;
+        }
+      };
+    }
+
+    if (qtyDecBtn) {
+      qtyDecBtn.addEventListener("click", () => {
+        if (selectedQty > 1) {
+          selectedQty -= 1;
+          syncUi(false);
+        }
+      });
+    }
+    if (qtyIncBtn) {
+      qtyIncBtn.addEventListener("click", () => {
+        const maxQty = Math.max(1, Math.min(99, Number(selectedVariant?.stockQuantity) || 1));
+        if (selectedQty < maxQty) {
+          selectedQty += 1;
+          syncUi(false);
+        }
+      });
+    }
+
+    syncUi(true);
+    dialog.showModal();
+
+    // Hydrate live shipping policy & active combo bundles asynchronously without blocking open
+    qcFetchPublicSettings().then((settings) => {
+      if (!settings || !dialog.isConnected) return;
+      const shipTag = dialog.querySelector("[data-qc-ship-tag]");
+      const shipText = dialog.querySelector("[data-qc-ship-text]");
+      if (!shipTag || !shipText) return;
+      const rates = settings.shippingRates || {};
+      const keys = Object.keys(rates);
+      const hasNationwide = keys.some((k) => /^toàn\s+quốc$/i.test(String(k).trim()));
+      const freeNationwide = hasNationwide && Object.values(rates).every((fee) => Number(fee) === 0);
+      if (freeNationwide) {
+        shipTag.textContent = "FREESHIP";
+        shipTag.className = "qc-promo-tag is-free";
+        shipText.innerHTML = "<strong>Miễn phí giao hàng toàn quốc · 0 ₫</strong>" + (settings.shippingCarriers?.[0]?.name ? ` (${escapeHtml(settings.shippingCarriers[0].name)})` : "");
+      } else if (settings.shippingNote) {
+        shipText.textContent = String(settings.shippingNote);
+      }
+    }).catch(() => {});
+
+    qcFetchBundles(product.slug).then((bundles) => {
+      if (!Array.isArray(bundles) || !bundles.length || !dialog.isConnected) return;
+      const b = bundles[0];
+      const row = dialog.querySelector("[data-qc-bundle-row]");
+      const txt = dialog.querySelector("[data-qc-bundle-text]");
+      if (!row || !txt || !b) return;
+      const discLabel = b.discountType === "percent" ? `-${b.discountValue}%` : `-${formatPrice(b.discountValue)}`;
+      txt.innerHTML = `<strong>${escapeHtml(b.title)}</strong> (giảm thêm ${escapeHtml(discLabel)} khi mua kèm) · <a class="qc-inline-link" href="${pUrl}">Xem combo ↗</a>`;
+      row.hidden = false;
+    }).catch(() => {});
+  }
+
   document.addEventListener("pointerdown", (e) => {
     pointerStartX = e.clientX;
     pointerStartY = e.clientY;
@@ -1298,8 +1941,10 @@ function bindGlobalControls() {
   document.addEventListener("click", (event) => {
     const buyNow=event.target.closest('[data-buy-now]');
     if(buyNow){if(buyNow.disabled)return;const row=cartRows([{variantId:buyNow.dataset.buyNow,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0){location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id));}return;}
+    const quickBuy=event.target.closest('[data-quick-buy-now]');
+    if(quickBuy){if(quickBuy.disabled)return;const vId=quickBuy.dataset.quickBuyNow;const qty=Math.max(1,Math.min(99,Number.parseInt(quickBuy.dataset.quickBuyQty||'1',10)||1));const row=cartRows([{variantId:vId,quantity:1}])[0];if(row?.variant.active&&row.variant.stockQuantity>0){const clampedQty=Math.min(qty,Math.min(99,row.variant.stockQuantity));quickBuy.closest('#quick-cart-dialog')?.close();location.assign('/thanh-toan?variant='+encodeURIComponent(row.variant.id)+(clampedQty>1?'&qty='+clampedQty:''));}return;}
     const choose=event.target.closest('[data-choose-cart]');
-    if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;let dialog=document.querySelector('#quick-cart-dialog');if(!dialog){dialog=document.createElement('dialog');dialog.id='quick-cart-dialog';dialog.className='quick-cart-dialog';dialog.addEventListener('click',e=>{if(e.target===dialog)dialog.close();});document.body.append(dialog);}dialog.innerHTML=`<header><h2>Thêm ${escapeHtml(product.name)} vào giỏ</h2><button type="button" data-close-quick-cart aria-label="Đóng">×</button></header><label>Chọn phiên bản<select data-quick-variant><option value="">Chọn phiên bản phù hợp</option>${product.variants.filter(v=>v.active).map(v=>`<option value="${escapeHtml(v.id)}" ${v.stockQuantity>0?'':'disabled'}>${escapeHtml(v.name)} · ${formatPrice(v.priceVnd)}${v.stockQuantity>0?'':' · Hết hàng'}</option>`).join('')}</select></label><button type="button" class="button button-blue" data-add-to-cart="" disabled>Thêm vào giỏ hàng</button><p data-cart-feedback role="status"></p>`;dialog.querySelector('[data-close-quick-cart]').onclick=()=>dialog.close();const picker=dialog.querySelector('[data-quick-variant]'),button=dialog.querySelector('[data-add-to-cart]');picker.onchange=()=>{button.dataset.addToCart=picker.value;button.disabled=!picker.value;};dialog.showModal();return;}
+    if(choose){if(choose.disabled)return;const product=products.find(p=>p.slug===choose.dataset.chooseCart);if(!product)return;openQuickCartDialog(product);return;}
     const bundleBtn = event.target.closest("[data-add-bundle]");
     if (bundleBtn) {
       if (bundleBtn.disabled || bundleBtn.dataset.addingLock === "1") return;
@@ -1356,18 +2001,22 @@ function bindGlobalControls() {
       addButton.dataset.addingLock = "1";
       setTimeout(() => { delete addButton.dataset.addingLock; }, 350);
       const variantId = addButton.dataset.addToCart;
+      const requestedQty = Math.max(1, Math.min(99, Number.parseInt(addButton.dataset.addQty || "1", 10) || 1));
       const selected = cartRows([{ variantId, quantity: 1 }])[0];
       if (!selected || selected.variant.stockQuantity < 1) return;
       const cart = readCart();
       const existing = cart.find((item) => item.variantId === variantId);
       const cartMaximum = Math.min(99, selected.variant.stockQuantity);
       const feedback = addButton.closest("#quick-cart-dialog")?.querySelector("[data-cart-feedback]") || document.querySelector("[data-cart-feedback]");
-      if (existing && existing.quantity >= cartMaximum) {
+      const currentQty = existing ? existing.quantity : 0;
+      const remainingAllowance = Math.max(0, cartMaximum - currentQty);
+      if (remainingAllowance <= 0) {
         if (feedback) feedback.textContent = `Bạn đã đạt giới hạn ${cartMaximum} sản phẩm có thể đặt cho phiên bản này.`;
         return;
       }
-      if (existing) existing.quantity += 1;
-      else cart.push({ variantId, quantity: 1 });
+      const addedQty = Math.min(requestedQty, remainingAllowance);
+      if (existing) existing.quantity += addedQty;
+      else cart.push({ variantId, quantity: addedQty });
       if (!writeCart(cart)) return;
       try {
         window.GAERUAnalytics?.trackAddToCart?.({
@@ -1376,12 +2025,12 @@ function bindGlobalControls() {
           name: `${selected.product.name} - ${selected.variant.name}`,
           category: selected.product.category,
           priceVnd: selected.variant.priceVnd,
-          quantity: 1
+          quantity: addedQty
         });
       } catch (_) {}
       addButton.closest("#quick-cart-dialog")?.close();
       const pageFeedback = document.querySelector("[data-cart-feedback]");
-      if (pageFeedback) pageFeedback.textContent = `${selected.product.name} đã được thêm vào giỏ.`;
+      if (pageFeedback) pageFeedback.textContent = `${selected.product.name}${addedQty > 1 ? ` (×${addedQty})` : ""} đã được thêm vào giỏ.`;
       addButton.setAttribute("aria-label", `${selected.product.name} đã được thêm vào giỏ hàng`);
       document.dispatchEvent(new CustomEvent("gaeru:open-cart"));
       return;

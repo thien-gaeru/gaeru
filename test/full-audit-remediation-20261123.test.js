@@ -305,3 +305,107 @@ test('2026-11-24 Wave 8: Mobile & legacy device compatibility (iOS 12-15.8 / And
     }
   }
 });
+
+test('2026-11-24 Wave 9: Premium quick-add-to-cart modal renders images, prices, Flash Sale/promotions, variant switcher & quantity stepper', () => {
+  const vm = require('vm');
+  const { parseHTML } = require('linkedom');
+  const commerceSrc = read('commerce.js');
+  const quickCss = read('quick-purchase.css');
+  const checkoutFlow = require('../checkout-flow.js');
+
+  assert.match(quickCss, /\.quick-cart-dialog\.quick-cart-premium/);
+  assert.match(quickCss, /\.quick-cart-premium \.qc-promo-card/);
+  assert.match(quickCss, /\.quick-cart-premium \.qc-variant-grid/);
+
+  const fixtureProducts = [{
+    slug: 'gaeru-m3',
+    name: 'GAERU M3',
+    cardTitle: 'GAERU M3',
+    descriptor: 'MIC KHÔNG DÂY CÀI ÁO CÓ HỘP SẠC CAO CẤP',
+    cardSummary: 'Micro hộp sạc màn hình pin thông minh.',
+    imageUrl: '/assets/products/m3-home-cutout.webp',
+    gallery: ['/assets/products/m3-home-cutout.webp'],
+    optionGroups: [{ name: 'Cổng kết nối', values: ['Type C', 'Type C + đầu chuyển Lightning'] }],
+    variants: [
+      {
+        id: 'm3-v1', sku: 'M3-01', name: 'Type C', priceVnd: 840000, originalPriceVnd: 1200000,
+        stockQuantity: 10, active: true, imageUrl: '/api/catalog-images/11111111-1111-4111-8111-111111111111',
+        options: { 'Cổng kết nối': 'Type C' },
+        promotion: { id: 'promo-1', title: 'Flash Sale 30%', type: 'flash', endsAt: '2026-11-30T05:16:00.000Z' }
+      },
+      {
+        id: 'm3-v2', sku: 'M3-G4', name: 'Type C + đầu chuyển Lightning', priceVnd: 890000, originalPriceVnd: 1250000,
+        stockQuantity: 5, active: true, imageUrl: '/api/catalog-images/22222222-2222-4222-8222-222222222222',
+        options: { 'Cổng kết nối': 'Type C + đầu chuyển Lightning' },
+        promotion: { id: 'promo-1', title: 'Flash Sale 30%', type: 'flash', endsAt: '2026-11-30T05:16:00.000Z' }
+      }
+    ]
+  }];
+
+  const { document, window } = parseHTML('<!doctype html><html><body><button type="button" data-choose-cart="gaeru-m3">Thêm vào giỏ hàng</button></body></html>');
+  const origCreateElement = document.createElement.bind(document);
+  document.createElement = (tag) => {
+    const el = origCreateElement(tag);
+    if (tag.toLowerCase() === 'dialog') {
+      el.showModal = function () { this.open = true; this.setAttribute('open', ''); };
+      el.close = function () { this.open = false; this.removeAttribute('open'); };
+    }
+    return el;
+  };
+  let savedCart = [];
+  let navigated = null;
+  const ctx = {
+    window,
+    document,
+    location: { assign: (u) => { navigated = u; } },
+    products: fixtureProducts,
+    escapeHtml: (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
+    formatPrice: (n) => `${new Intl.NumberFormat('vi-VN').format(n)} ₫`,
+    cartRows: (items) => items.map((it) => {
+      const p = fixtureProducts[0];
+      const v = p.variants.find((x) => x.id === it.variantId);
+      return v ? { variantId: it.variantId, quantity: it.quantity, product: p, variant: v } : null;
+    }).filter(Boolean),
+    readCart: () => savedCart.map((i) => ({ ...i })),
+    writeCart: (next) => { savedCart = next.map((i) => ({ ...i })); return true; },
+    CustomEvent: window.CustomEvent || class CustomEvent { constructor(t) { this.type = t; } },
+    setTimeout,
+    clearTimeout
+  };
+  vm.createContext(ctx);
+  const bindStart = commerceSrc.indexOf('function bindGlobalControls(');
+  const bindEnd = commerceSrc.indexOf('function updateSaleCountdowns()', bindStart);
+  vm.runInContext(commerceSrc.slice(bindStart, bindEnd) + '\nbindGlobalControls();', ctx);
+
+  // Open modal
+  document.querySelector('[data-choose-cart]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  const dlg = document.querySelector('#quick-cart-dialog');
+  assert.ok(dlg && dlg.classList.contains('quick-cart-premium'), 'Premium quick-cart dialog must open');
+  assert.equal(dlg.querySelector('[data-qc-image]').getAttribute('src'), '/api/catalog-images/11111111-1111-4111-8111-111111111111');
+  assert.match(dlg.querySelector('[data-qc-price]').textContent, /840\.000/);
+  assert.match(dlg.querySelector('[data-qc-orig]').textContent, /1\.200\.000/);
+  assert.equal(dlg.querySelector('[data-qc-discount]').textContent, '-30%');
+  assert.match(dlg.querySelector('[data-qc-savings]').textContent, /360\.000/);
+  assert.equal(dlg.querySelector('[data-qc-sale-bar]').hidden, false);
+  assert.match(dlg.querySelector('[data-qc-promo-text]').textContent, /Flash Sale 30%/);
+  assert.equal(dlg.querySelectorAll('.qc-variant-card').length, 2);
+
+  // Switch to second variant & increment qty to 2
+  dlg.querySelector('[data-qc-variant-id="m3-v2"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.equal(dlg.querySelector('[data-qc-image]').getAttribute('src'), '/api/catalog-images/22222222-2222-4222-8222-222222222222');
+  assert.match(dlg.querySelector('[data-qc-price]').textContent, /890\.000/);
+  dlg.querySelector('[data-qc-qty-inc]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.equal(dlg.querySelector('[data-qc-qty-value]').textContent, '2');
+  assert.match(dlg.querySelector('[data-qc-subtotal]').textContent, /1\.780\.000/);
+  assert.equal(dlg.querySelector('[data-add-to-cart]').dataset.addQty, '2');
+
+  // Add to cart writes exact qty=2 for variant m3-v2
+  dlg.querySelector('[data-add-to-cart]').dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.deepEqual(savedCart, [{ variantId: 'm3-v2', quantity: 2 }]);
+
+  // Checkout direct selection honors qty param clamped to stock
+  const sel = checkoutFlow.selection(fixtureProducts, '?variant=m3-v2&qty=3');
+  assert.deepEqual(sel, { direct: true, items: [{ variantId: 'm3-v2', quantity: 3 }] });
+  const clamped = checkoutFlow.selection(fixtureProducts, '?variant=m3-v2&qty=99');
+  assert.deepEqual(clamped, { direct: true, items: [{ variantId: 'm3-v2', quantity: 5 }] });
+});
