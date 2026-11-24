@@ -177,3 +177,131 @@ test('2026-11-24 Wave 7: Article image permission guard, non-cacheable error res
   assert.match(forecastJs, /attempt >= 18/);
   assert.match(adminJs, /AbortSignal\.timeout\(30000\)/);
 });
+
+test('2026-11-24 Wave 8: Mobile & legacy device compatibility (iOS 12-15.8 / Android 7-10 / Safari WebKit)', async () => {
+  const vm = require('vm');
+  const actionJs = read('action-feedback.js');
+  const careCss = read('care.css');
+  const warrantyJs = read('warranty.js');
+  const internalAiCss = read('admin/internal-ai.css');
+  const internalAiJs = read('admin/internal-ai.js');
+  const adminMobileCss = read('admin/admin-mobile.css');
+  const accountSecCss = read('account-security.css');
+  const stylesCss = read('styles.css');
+
+  // 1. Execute action-feedback.js polyfill block inside a stripped legacy browser VM
+  const polyfillEnd = actionJs.indexOf('const add = EventTarget.prototype.addEventListener;');
+  assert.ok(polyfillEnd > 500, 'action-feedback.js must begin with legacy browser polyfills');
+  const polyfillSrc = actionJs.slice(0, polyfillEnd) + '})();';
+
+  const FakeUnknownProto = {};
+  const createdEls = [];
+  const docListeners = {};
+  class FakeEvent { constructor(type, opts) { this.type = type; this.cancelable = Boolean(opts && opts.cancelable); } }
+  const makeFakeEl = (tag) => {
+    const attrs = new Map();
+    const classes = new Set();
+    const el = Object.create(tag === 'dialog' ? FakeUnknownProto : Object.prototype);
+    el.tagName = tag.toUpperCase();
+    el.setAttribute = (k, v) => attrs.set(k, String(v));
+    el.removeAttribute = (k) => attrs.delete(k);
+    el.hasAttribute = (k) => attrs.has(k);
+    el.classList = { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) };
+    el.addEventListener = () => {};
+    el.dispatchEvent = () => true;
+    el.remove = () => {};
+    return el;
+  };
+  const bodyChildren = [];
+  const fakeDoc = {
+    body: { appendChild: (c) => bodyChildren.push(c) },
+    createElement: (tag) => { const el = makeFakeEl(tag); createdEls.push(el); return el; },
+    addEventListener: (ev, fn) => { docListeners[ev] = fn; },
+    querySelectorAll: () => createdEls.filter((el) => el.tagName === 'DIALOG' && el.hasAttribute('open') && el.classList.contains('gaeru-dialog-polyfilled'))
+  };
+
+  const sandbox = {
+    window: {},
+    document: fakeDoc,
+    Event: FakeEvent,
+    AbortController,
+    AbortSignal: {},
+    crypto: { getRandomValues: (arr) => { for (let i = 0; i < arr.length; i++) arr[i] = (i * 37 + 11) & 0xff; return arr; } },
+    setTimeout,
+    clearTimeout,
+    DOMException
+  };
+  const ctx = vm.createContext(sandbox);
+  // Strip modern globals inside the isolated realm to simulate iOS 12 / Android 7
+  vm.runInContext(`
+    delete Object.hasOwn;
+    delete Object.fromEntries;
+    delete Promise.allSettled;
+    delete Array.prototype.at;
+    delete Array.prototype.flat;
+    delete Array.prototype.flatMap;
+    delete String.prototype.at;
+    delete String.prototype.replaceAll;
+  `, ctx);
+  vm.runInContext(polyfillSrc, ctx);
+
+  const checks = await vm.runInContext(`(async () => {
+    const hasOwnOk = Object.hasOwn({ a: 1 }, 'a') === true && Object.hasOwn({ a: 1 }, 'toString') === false;
+    const fromEntriesOk = Object.fromEntries([['k', 42]]).k === 42;
+    const settled = await Promise.allSettled([Promise.resolve('ok'), Promise.reject('err')]);
+    const settledOk = settled[0].status === 'fulfilled' && settled[1].status === 'rejected';
+    const atOk = [10, 20, 30].at(-1) === 30 && 'gaeru'.at(-1) === 'u';
+    const flatOk = [1, [2, [3]]].flat(2).join(',') === '1,2,3' && [1, 2].flatMap(x => [x, x * 2]).join(',') === '1,2,2,4';
+    const replaceAllOk = 'a-b-c'.replaceAll('-', '_') === 'a_b_c';
+    const uuid = crypto.randomUUID();
+    const uuidOk = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid);
+    const sig = AbortSignal.timeout(50);
+    const abortOk = Boolean(sig && typeof sig.aborted === 'boolean');
+    const dlg = document.createElement('dialog');
+    dlg.showModal();
+    const dlgOpenOk = dlg.open === true && dlg.hasAttribute('open');
+    dlg.close('done');
+    const dlgCloseOk = dlg.open === false && dlg.returnValue === 'done';
+    return { hasOwnOk, fromEntriesOk, settledOk, atOk, flatOk, replaceAllOk, uuidOk, abortOk, dlgOpenOk, dlgCloseOk };
+  })()`, ctx);
+  for (const [k, v] of Object.entries(checks)) {
+    assert.strictEqual(v, true, 'Legacy polyfill failed: ' + k);
+  }
+
+  // 2. Screenshot #1 fix: GAERU AI mobile modal respects safe areas, avoids 100vh overflow, syncs visualViewport
+  assert.doesNotMatch(internalAiCss, /@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\.gaeru-ai-modal-dialog\s*\{[^}]*height:\s*100vh;/);
+  assert.match(internalAiCss, /env\(safe-area-inset-top/);
+  assert.match(internalAiCss, /env\(safe-area-inset-bottom/);
+  assert.match(internalAiCss, /body\.gaeru-ai-modal-open/);
+  assert.match(internalAiJs, /syncModalVisualViewport/);
+  assert.match(internalAiJs, /window\.visualViewport/);
+
+  // 3. Screenshot #2 fix: Warranty/Care/Security fieldsets avoid display:grid on <fieldset> & fix iOS date input
+  assert.doesNotMatch(careCss, /(?:#warranty-form|#care-form)\s+fieldset\s*\{[^}]*display\s*:\s*grid/);
+  assert.match(careCss, /#warranty-form\s+legend\{[^}]*float:none;width:100%/);
+  assert.match(careCss, /input\[type="date"\]::-webkit-date-and-time-value/);
+  assert.match(warrantyJs, /class="warranty-fieldset-body"/);
+  assert.doesNotMatch(accountSecCss, /\.security-form\s+fieldset\s*\{[^}]*display\s*:\s*grid/);
+  assert.match(adminMobileCss, /padding-top:calc\(10px \+ env\(safe-area-inset-top,0px\)\)/);
+  assert.match(adminMobileCss, /\.admin-shell input\[type=date\]/);
+
+  // 4. CSS legacy fallbacks across all storefront & admin stylesheets (no unfallback dvh or overflow-x:clip)
+  assert.match(stylesCss, /-webkit-clip-path:/);
+  const cssDirs = [ROOT, path.join(ROOT, 'admin')];
+  for (const dir of cssDirs) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.css')) continue;
+      const lines = fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/);
+      lines.forEach((line, idx) => {
+        if (/\d+dvh\b/.test(line)) {
+          const prev = lines[idx - 1] || '';
+          assert.ok(/\d+vh\b|100%/.test(line) || /\d+vh\b|100%/.test(prev), `${f}:${idx + 1} uses dvh without vh/100% fallback`);
+        }
+        if (/overflow-x\s*:\s*clip\b/.test(line)) {
+          const prev = lines[idx - 1] || '';
+          assert.ok(/overflow-x\s*:\s*hidden/.test(line) || /overflow-x\s*:\s*hidden/.test(prev), `${f}:${idx + 1} uses overflow-x:clip without hidden fallback`);
+        }
+      });
+    }
+  }
+});

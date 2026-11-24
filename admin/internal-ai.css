@@ -368,6 +368,7 @@
 .floating-copilot-trigger {
   position: fixed;
   bottom: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   right: 20px;
   background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
   color: #ffffff;
@@ -400,13 +401,20 @@
   .copilot-container {
     grid-template-columns: 1fr;
     height: calc(100vh - 120px);
+    height: calc(100dvh - 120px);
+    min-height: 360px;
   }
   .copilot-sidebar {
     display: none; /* Trên mobile ưu tiên khung chat chính */
   }
+  .copilot-input-form textarea {
+    font-size: 16px; /* Ngăn iOS Safari tự phóng to khi chạm ô nhập */
+  }
 }
 
 /* Ẩn nút nổi GAERU AI khi mở modal hoặc đang ở view AI (KHÔNG ẩn .gaeru-action-notices để luôn hiện toast lỗi/thành công) */
+body.gaeru-ai-modal-open .floating-copilot-trigger,
+body.gaeru-ai-view-open .floating-copilot-trigger,
 body:has(#internal-ai-view:not([hidden])) .floating-copilot-trigger,
 body:has(#gaeru-ai-modal:not([hidden])) .floating-copilot-trigger,
 body:has(#config-popup-modal:not([hidden])) .floating-copilot-trigger,
@@ -417,9 +425,17 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   pointer-events: none !important;
 }
 
+body.gaeru-ai-modal-open {
+  overflow: hidden;
+}
+
 /* GAERU AI Modal Dialog */
 .gaeru-ai-modal-backdrop {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: rgba(15, 23, 42, 0.65);
   backdrop-filter: blur(4px);
@@ -429,6 +445,7 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  box-sizing: border-box;
   animation: gaeruAiFadeIn 0.2s ease-out;
 }
 
@@ -444,10 +461,13 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   width: 100%;
   max-width: 1100px;
   height: 85vh;
+  height: 85dvh;
   max-height: 820px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-sizing: border-box;
   animation: gaeruAiSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -455,6 +475,7 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 12px 20px;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
@@ -464,13 +485,17 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
 .gaeru-ai-modal-header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
 }
 
 .gaeru-ai-modal-header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .gaeru-ai-modal-close {
@@ -481,8 +506,10 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   font-weight: 700;
   color: #475569;
   cursor: pointer;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -498,6 +525,7 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
 
 .gaeru-ai-modal-body {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   position: relative;
@@ -507,9 +535,29 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
 .gaeru-ai-modal-body .copilot-container {
   width: 100%;
   height: 100%;
+  min-height: 0;
   border: none;
   border-radius: 0;
   box-shadow: none;
+}
+
+.gaeru-ai-modal-body .copilot-main {
+  min-height: 0;
+  height: 100%;
+}
+
+.gaeru-ai-modal-body .copilot-messages {
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gaeru-ai-modal-body .copilot-quick-prompts {
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gaeru-ai-modal-body .copilot-input-form {
+  flex-shrink: 0;
 }
 
 .copilot-container.in-modal .copilot-header-info {
@@ -520,6 +568,7 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
   padding: 8px 16px;
   background: #fafbfc;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 @keyframes gaeruAiFadeIn {
@@ -535,11 +584,55 @@ body:has(#login-panel:not([hidden])) .floating-copilot-trigger {
 @media (max-width: 768px) {
   .gaeru-ai-modal-backdrop {
     padding: 0;
+    align-items: stretch;
+    justify-content: stretch;
   }
   .gaeru-ai-modal-dialog {
-    width: 100vw;
-    height: 100vh;
-    max-height: 100vh;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    min-height: 0;
     border-radius: 0;
+    box-shadow: none;
+    animation: gaeruAiFadeIn 0.18s ease-out;
+  }
+  .gaeru-ai-modal-header {
+    padding: 10px 14px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    padding-left: calc(14px + env(safe-area-inset-left, 0px));
+    padding-right: calc(14px + env(safe-area-inset-right, 0px));
+  }
+  .gaeru-ai-modal-header .copilot-badge {
+    font-size: 13px;
+  }
+  .gaeru-ai-modal-header .copilot-model-badge,
+  .gaeru-ai-modal-header .copilot-rbac-badge {
+    font-size: 10.5px;
+    padding: 2px 7px;
+  }
+  .gaeru-ai-modal-body .copilot-messages {
+    padding: 14px 14px;
+  }
+  .gaeru-ai-modal-body .copilot-welcome {
+    padding: 20px 12px;
+  }
+  .gaeru-ai-modal-body .copilot-quick-prompts {
+    padding: 8px 12px;
+  }
+  .gaeru-ai-modal-body .copilot-input-form {
+    padding: 10px 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  }
+  .gaeru-ai-modal-body .copilot-input-form textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  .gaeru-ai-modal-body .copilot-input-form button {
+    height: 44px;
+    min-height: 44px;
+    padding: 10px 16px;
   }
 }

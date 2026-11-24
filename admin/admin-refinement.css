@@ -60,6 +60,7 @@
   .sidebar.navigation-open nav {
     display: flex !important;
     flex-direction: column !important;
+    max-height: calc(75vh - 56px) !important;
     max-height: calc(75dvh - 56px) !important;
     overflow-y: auto !important;
     overscroll-behavior: contain !important;

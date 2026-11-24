@@ -49,8 +49,8 @@ img { display: block; max-width: 100%; }
 .search-toggle:hover, .search-toggle[aria-expanded="true"] { background: transparent; }
 .search-toggle:active { background: transparent; }
 .menu-toggle { display: none; }
-.search-panel { position: absolute; inset: 52px 0 auto; display: flex; align-items: center; gap: 12px; padding: 22px max(24px, calc((100vw - 820px)/2)); background: #fafafc; box-shadow: 0 18px 28px rgb(0 0 0 / 12%); }
-.search-panel { display: block; height: calc(100dvh - 50px); padding: 0; background: #fafafc; }
+.search-panel { position: absolute; top: 52px; right: 0; left: 0; inset: 52px 0 auto; display: flex; align-items: center; gap: 12px; padding: 22px max(24px, calc((100vw - 820px)/2)); background: #fafafc; box-shadow: 0 18px 28px rgba(0, 0, 0, 0.12); }
+.search-panel { display: block; height: calc(100vh - 50px); height: calc(100dvh - 50px); padding: 0; background: #fafafc; -webkit-overflow-scrolling: touch; }
 .search-panel input[type="search"] { min-width: 0; flex: 1; padding: 12px 2px; background: transparent; border: 0; border-bottom: 1px solid var(--line); font-size: 22px; }
 .search-submit { border: 0; background: transparent; padding: 10px; cursor: pointer; }
 .announcement { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 13px 18px; background: #fff; color: #424245; text-align: center; font-size: 12px; }
@@ -755,8 +755,12 @@ body.panel-active .site-header {
 .hero:before {
   position: absolute;
   z-index: -1;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
-  background: linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 45%, rgb(3 20 23 / 32%));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%, rgba(3, 20, 23, 0.32));
   content: "";
 }
 .hero-content { min-height: 720px; padding-top: 72px; }
@@ -811,8 +815,12 @@ body.panel-active .site-header {
 .card-actions .button, .catalog-actions .button, .card-actions a, .catalog-actions a { cursor: pointer; }
 .product-card:before, .catalog-card:before, .care-card:before {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
-  background: radial-gradient(circle at 50% 18%, rgb(255 255 255 / 22%), transparent 68%);
+  background: radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.22), transparent 68%);
   content: "";
   opacity: 0;
   pointer-events: none;
@@ -955,12 +963,18 @@ body.panel-active .site-header {
 .panel-scrim {
   position: fixed;
   z-index: 39;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   width: 100%;
+  height: 100%;
+  height: 100vh;
   height: 100dvh;
   padding: 0;
   border: 0;
-  background: rgb(16 19 23 / 44%);
+  background: rgba(16, 19, 23, 0.44);
   opacity: 0;
   transition: opacity .34s cubic-bezier(.4, 0, .2, 1);
   cursor: default;
@@ -974,15 +988,23 @@ body.panel-active .site-header {
   position: fixed;
   z-index: 40;
   top: 0;
+  right: 0;
+  bottom: 0;
   left: 0;
   width: 100%;
+  height: 100%;
+  height: 100vh;
   height: 100dvh;
+  max-height: 100%;
+  max-height: 100vh;
   max-height: 100dvh;
   overflow: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: #fafafc;
   color: var(--ink);
   opacity: 0;
+  -webkit-clip-path: inset(0 0 100% 0);
   clip-path: inset(0 0 100% 0);
   transform: translate3d(0, -18px, 0);
   will-change: clip-path, transform, opacity;
@@ -1112,10 +1134,16 @@ body.panel-active .site-header {
 
 .cart-panel {
   top: 0;
+  bottom: 0;
   left: auto;
   right: 0;
-  width: min(100%, 520px);
+  width: 100%;
+  max-width: 520px;
+  height: 100%;
+  height: 100vh;
   height: 100dvh;
+  max-height: 100%;
+  max-height: 100vh;
   max-height: 100dvh;
   box-shadow: -8px 18px 44px rgba(15, 23, 42, .12);
 }
@@ -1165,15 +1193,15 @@ body.panel-active .site-header {
   .icon-button { min-width: 44px; min-height: 44px; }
   .primary-nav { display: none; }
   .menu-nav-trigger { display: none; }
-  .panel-scrim { inset: 0; height: 100dvh; background: rgb(10 13 16 / 34%); }
-  .nav-panel { top: 0; width: 100%; height: 100dvh; max-height: 100dvh; }
+  .panel-scrim { top: 0; right: 0; bottom: 0; left: 0; inset: 0; height: 100%; height: 100vh; height: 100dvh; background: rgba(10, 13, 16, 0.34); }
+  .nav-panel { top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; height: 100vh; height: 100dvh; max-height: 100%; max-height: 100vh; max-height: 100dvh; }
   .panel-inner { width: calc(100% - 40px); }
-  .menu-inner { width: 83%; padding-top: 66px; }
+  .menu-inner { width: 83%; padding-top: 66px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
   .panel-close, .menu-panel-close, .search-inner > .panel-close, .cart-panel-inner > .panel-close { display: none !important; }
   .menu-link-list a { min-height: 50px; font-size: clamp(23px, 5.8vw, 34px); }
   .menu-link-list .menu-store-link { min-height: 54px; }
-  .search-panel { top: 0; height: 100dvh; max-height: 100dvh; }
-  .search-inner { width: min(83%, 980px); padding-top: 66px; }
+  .search-panel { top: 0; right: 0; bottom: 0; left: 0; height: 100%; height: 100vh; height: 100dvh; max-height: 100%; max-height: 100vh; max-height: 100dvh; }
+  .search-inner { width: min(83%, 980px); padding-top: 66px; padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
   .search-form { gap: 14px; padding-right: 0; }
   .search-form > svg { flex-basis: 23px; width: 23px; height: 23px; }
   .search-form input { font-size: clamp(25px, 6vw, 34px); }
@@ -1181,8 +1209,8 @@ body.panel-active .site-header {
   .search-suggestions h2 { font-size: 18px; }
   .search-quicklinks a { min-height: 48px; font-size: 18px; }
   .search-result { min-height: 70px; }
-  .cart-panel { top: 0; right: 0; width: 100%; height: 100dvh; max-height: 100dvh; box-shadow: none; }
-  .cart-panel-inner { width: 100%; padding: 66px 20px 20px; }
+  .cart-panel { top: 0; right: 0; bottom: 0; left: 0; width: 100%; max-width: 100%; height: 100%; height: 100vh; height: 100dvh; max-height: 100%; max-height: 100vh; max-height: 100dvh; box-shadow: none; }
+  .cart-panel-inner { width: 100%; padding: 66px 20px 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
   .cart-signin-message { font-size: 17px; }
   .cart-panel-heading { padding-bottom: 17px; padding-right: 0; }
   .cart-panel-heading h2 { font-size: 28px; }

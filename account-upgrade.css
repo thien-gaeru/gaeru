@@ -628,9 +628,9 @@
 }
 
 /* Account overview, compact history and address editor share the same visual system. */
-.account-loyalty-card{padding:20px;border:1px solid #cbdde9;border-radius:20px;margin:16px 0;background:linear-gradient(125deg,#f1f8fc,#e1eef5);color:#163444}.account-loyalty-card h3{font-size:22px;margin:0 0 10px}.account-loyalty-card .account-xu-balance{font-size:15px;color:#295166;margin:0}.account-xu-balance strong{font-size:32px;letter-spacing:-1px}.account-loyalty-card [data-loyalty-benefits]{font-size:12px;line-height:1.6;margin:10px 0 0;color:#425d70}.account-history-more{margin-top:12px;border-top:1px solid #dce3e9;padding-top:12px}.account-history-more>summary{cursor:pointer;color:#0071e3;padding:8px 0}.account-warranty-compact strong,.account-warranty-compact p{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.6;margin:2px 0}.account-address-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);overflow:auto;box-sizing:border-box;border:1px solid #dce3e9;border-radius:22px;padding:20px;background:white;color:#1d1d1f}.account-address-dialog::backdrop{background:#16344466;backdrop-filter:blur(3px)}.account-address-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.account-address-dialog h2{font-size:20px;margin:0}.account-address-dialog [data-address-close]{border:0;border-radius:50%;width:40px;height:40px;font-size:24px;background:#f2f4f6}.account-address-dialog .account-form{margin-top:12px;gap:12px}.account-address-dialog .account-form label{font-size:13px}.account-address-dialog [data-address-dialog-status]:empty{display:none}.account-profile-editor>[data-security-panel]{border-top:1px solid #e1e6eb;margin-top:20px;padding-top:16px}
+.account-loyalty-card{padding:20px;border:1px solid #cbdde9;border-radius:20px;margin:16px 0;background:linear-gradient(125deg,#f1f8fc,#e1eef5);color:#163444}.account-loyalty-card h3{font-size:22px;margin:0 0 10px}.account-loyalty-card .account-xu-balance{font-size:15px;color:#295166;margin:0}.account-xu-balance strong{font-size:32px;letter-spacing:-1px}.account-loyalty-card [data-loyalty-benefits]{font-size:12px;line-height:1.6;margin:10px 0 0;color:#425d70}.account-history-more{margin-top:12px;border-top:1px solid #dce3e9;padding-top:12px}.account-history-more>summary{cursor:pointer;color:#0071e3;padding:8px 0}.account-warranty-compact strong,.account-warranty-compact p{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.6;margin:2px 0}.account-address-dialog{width:calc(100% - 24px);max-width:560px;width:min(560px,calc(100% - 24px));max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow:auto;-webkit-overflow-scrolling:touch;box-sizing:border-box;border:1px solid #dce3e9;border-radius:22px;padding:20px;background:white;color:#1d1d1f}.account-address-dialog::backdrop{background:rgba(22,52,68,0.4);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}.account-address-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.account-address-dialog h2{font-size:20px;margin:0}.account-address-dialog [data-address-close]{border:0;border-radius:50%;width:40px;height:40px;font-size:24px;background:#f2f4f6}.account-address-dialog .account-form{margin-top:12px;gap:12px}.account-address-dialog .account-form label{font-size:13px}.account-address-dialog [data-address-dialog-status]:empty{display:none}.account-profile-editor>[data-security-panel]{border-top:1px solid #e1e6eb;margin-top:20px;padding-top:16px}
 
-.account-settings-dialog{width:min(760px,calc(100% - 24px));height:min(760px,calc(100dvh - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #d6e0e6;border-radius:24px;background:#fff;color:#1d1d1f;box-sizing:border-box;overflow:hidden}.account-settings-dialog[open]{display:flex;flex-direction:column}.account-settings-dialog::backdrop{background:#16344488;backdrop-filter:blur(4px)}.account-settings-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 24px;border-bottom:1px solid #e5eaef;flex:none}.account-settings-dialog h2{font-size:22px;margin:0}.account-settings-dialog [data-settings-close]{border:0;border-radius:50%;width:40px;height:40px;background:#f2f4f6;font-size:24px;flex:none}.account-settings-dialog>nav{display:flex;gap:8px;padding:12px 24px;overflow:auto;flex:none;background:#f5f8fa}.account-settings-dialog>nav button{white-space:nowrap;border:1px solid #dce3e9;border-radius:24px;padding:10px 16px;background:#fff;color:#163444;min-height:40px}.account-settings-content{overflow:auto;overscroll-behavior:contain;padding:20px 24px;min-height:0}.account-settings-content .account-profile-editor{border:0!important;padding:0!important;margin:0!important;background:transparent!important;display:block!important}.account-settings-content .account-profile-editor>summary{display:none!important}.account-settings-content [data-profile-form]{margin-bottom:24px}.account-settings-content [data-security-panel]{border-top:1px solid #e1e6eb;padding-top:20px}.account-settings-content .security-identity[hidden]{display:none}.account-settings-content .security-section-body .security-identity{padding:14px;margin-bottom:16px;border-radius:14px}.account-settings-content .security-section{scroll-margin-top:16px}.account-settings-content label{font-size:14px}.account-settings-content .security-facts{font-size:13px}.account-settings-content .account-form{gap:12px}.account-settings-content .security-section>summary{font-size:16px}.account-settings-content .security-section>summary span{font-size:13px}@media(max-width:600px){.account-settings-dialog{border-radius:20px}.account-settings-dialog>header{padding:14px 16px}.account-settings-dialog h2{font-size:20px}.account-settings-dialog>nav{padding:10px 16px}.account-settings-content{padding:16px}}
+.account-settings-dialog{width:calc(100% - 24px);max-width:760px;width:min(760px,calc(100% - 24px));height:calc(100vh - 24px);max-height:calc(100vh - 24px);height:min(760px,calc(100dvh - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #d6e0e6;border-radius:24px;background:#fff;color:#1d1d1f;box-sizing:border-box;overflow:hidden}.account-settings-dialog[open]{display:flex;flex-direction:column}.account-settings-dialog::backdrop{background:rgba(22,52,68,0.53);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}.account-settings-dialog>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 24px;border-bottom:1px solid #e5eaef;flex:none}.account-settings-dialog h2{font-size:22px;margin:0}.account-settings-dialog [data-settings-close]{border:0;border-radius:50%;width:40px;height:40px;background:#f2f4f6;font-size:24px;flex:none}.account-settings-dialog>nav{display:flex;gap:8px;padding:12px 24px;overflow:auto;flex:none;background:#f5f8fa}.account-settings-dialog>nav button{white-space:nowrap;border:1px solid #dce3e9;border-radius:24px;padding:10px 16px;background:#fff;color:#163444;min-height:40px}.account-settings-content{overflow:auto;overscroll-behavior:contain;padding:20px 24px;min-height:0}.account-settings-content .account-profile-editor{border:0!important;padding:0!important;margin:0!important;background:transparent!important;display:block!important}.account-settings-content .account-profile-editor>summary{display:none!important}.account-settings-content [data-profile-form]{margin-bottom:24px}.account-settings-content [data-security-panel]{border-top:1px solid #e1e6eb;padding-top:20px}.account-settings-content .security-identity[hidden]{display:none}.account-settings-content .security-section-body .security-identity{padding:14px;margin-bottom:16px;border-radius:14px}.account-settings-content .security-section{scroll-margin-top:16px}.account-settings-content label{font-size:14px}.account-settings-content .security-facts{font-size:13px}.account-settings-content .account-form{gap:12px}.account-settings-content .security-section>summary{font-size:16px}.account-settings-content .security-section>summary span{font-size:13px}@media(max-width:600px){.account-settings-dialog{border-radius:20px}.account-settings-dialog>header{padding:14px 16px}.account-settings-dialog h2{font-size:20px}.account-settings-dialog>nav{padding:10px 16px}.account-settings-content{padding:16px}}
 
 /* GAERU_ACCOUNT_SECURITY_ACCORDION_DROPDOWN_V2 */
 /* 1. Ẩn thanh tab ngang cũ để tránh cuộn ngang và tránh trùng lặp điều hướng */
@@ -1147,13 +1147,19 @@
 .security-accordion-item:not([open]) > .security-accordion-body, .security-accordion-item:not([open]) .security-modal-backdrop, .security-accordion-item[hidden] > .security-accordion-body { display: none !important; pointer-events: none !important; }
 .security-accordion-item[open] > .security-accordion-body {
   position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   margin: 0 !important;
   padding: 16px !important;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px)) !important;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
   border: none !important;
   background: transparent !important;
   display: flex !important;
@@ -1164,9 +1170,13 @@
 }
 
 .security-modal-backdrop {
-  width: 100vw !important;
-  height: 100vh !important;
+  width: 100% !important;
+  height: 100% !important;
   position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   inset: 0 !important;
   background: rgba(15, 23, 42, 0.48) !important;
   backdrop-filter: blur(8px) !important;
@@ -1334,13 +1344,19 @@
 .security-accordion-item:not([open]) > .security-accordion-body, .security-accordion-item:not([open]) .security-modal-backdrop, .security-accordion-item[hidden] > .security-accordion-body { display: none !important; pointer-events: none !important; }
 .security-accordion-item[open] > .security-accordion-body {
   position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   margin: 0 !important;
-  padding: 24px !important;
+  padding: 20px 16px !important;
+  padding-top: calc(20px + env(safe-area-inset-top, 0px)) !important;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
   border: none !important;
   background: transparent !important;
   display: flex !important;
@@ -1350,6 +1366,7 @@
   z-index: 99998 !important;
   box-sizing: border-box !important;
   overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
   overflow-x: hidden !important;
   animation: none !important;
   transform: none !important;
@@ -1358,9 +1375,13 @@
 /* Lớp nền mờ chuẩn GAERU Studio (Glassmorphism) */
 .security-modal-backdrop {
   position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
+  width: 100% !important;
+  height: 100% !important;
   background: rgba(15, 23, 42, 0.52) !important;
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;

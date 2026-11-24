@@ -1,4 +1,182 @@
 (() => {
+  /* GAERU Legacy Mobile Browser Compatibility Polyfills (iOS 12-15.8 / Android 7-10 / WebView) */
+  if (typeof Object.hasOwn !== 'function') {
+    Object.defineProperty(Object, 'hasOwn', {
+      configurable: true,
+      writable: true,
+      value: function (obj, prop) {
+        if (obj == null) throw new TypeError('Cannot convert undefined or null to object');
+        return Object.prototype.hasOwnProperty.call(Object(obj), prop);
+      }
+    });
+  }
+  if (typeof Object.fromEntries !== 'function') {
+    Object.defineProperty(Object, 'fromEntries', {
+      configurable: true,
+      writable: true,
+      value: function (iterable) {
+        const result = {};
+        if (iterable == null) throw new TypeError('Object.fromEntries requires an iterable');
+        for (const pair of iterable) {
+          if (pair == null || typeof pair !== 'object') throw new TypeError('Iterator value is not an entry object');
+          result[pair[0]] = pair[1];
+        }
+        return result;
+      }
+    });
+  }
+  if (typeof Promise !== 'undefined' && typeof Promise.allSettled !== 'function') {
+    Promise.allSettled = function (promises) {
+      return Promise.all(Array.from(promises, (p) => Promise.resolve(p).then(
+        (value) => ({ status: 'fulfilled', value }),
+        (reason) => ({ status: 'rejected', reason })
+      )));
+    };
+  }
+  if (typeof Array.prototype.flat !== 'function') {
+    Object.defineProperty(Array.prototype, 'flat', {
+      configurable: true,
+      writable: true,
+      value: function (depth) {
+        const d = depth === undefined ? 1 : Math.floor(Number(depth) || 0);
+        const flatten = (arr, level) => {
+          const out = [];
+          for (let i = 0; i < arr.length; i++) {
+            if (!(i in arr)) continue;
+            const item = arr[i];
+            if (level > 0 && Array.isArray(item)) out.push(...flatten(item, level - 1));
+            else out.push(item);
+          }
+          return out;
+        };
+        return flatten(this, d);
+      }
+    });
+  }
+  if (typeof Array.prototype.flatMap !== 'function') {
+    Object.defineProperty(Array.prototype, 'flatMap', {
+      configurable: true,
+      writable: true,
+      value: function (fn, thisArg) {
+        return Array.prototype.map.call(this, fn, thisArg).flat(1);
+      }
+    });
+  }
+  if (typeof String.prototype.replaceAll !== 'function') {
+    Object.defineProperty(String.prototype, 'replaceAll', {
+      configurable: true,
+      writable: true,
+      value: function (search, replacement) {
+        if (search instanceof RegExp) {
+          if (!search.global) throw new TypeError('replaceAll must be called with a global RegExp');
+          return String(this).replace(search, replacement);
+        }
+        return String(this).split(String(search)).join(typeof replacement === 'function' ? replacement : String(replacement));
+      }
+    });
+  }
+  if (typeof Array.prototype.at !== 'function') {
+    Object.defineProperty(Array.prototype, 'at', {
+      configurable: true,
+      writable: true,
+      value: function (n) {
+        const len = this.length >>> 0;
+        let k = Math.trunc(Number(n)) || 0;
+        if (k < 0) k += len;
+        return k < 0 || k >= len ? undefined : this[k];
+      }
+    });
+  }
+  if (typeof String.prototype.at !== 'function') {
+    Object.defineProperty(String.prototype, 'at', {
+      configurable: true,
+      writable: true,
+      value: function (n) {
+        const str = String(this);
+        let k = Math.trunc(Number(n)) || 0;
+        if (k < 0) k += str.length;
+        return k < 0 || k >= str.length ? undefined : str.charAt(k);
+      }
+    });
+  }
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout !== 'function' && typeof AbortController !== 'undefined') {
+    AbortSignal.timeout = function (ms) {
+      const controller = new AbortController();
+      setTimeout(() => {
+        try { controller.abort(typeof DOMException === 'function' ? new DOMException('The operation timed out.', 'TimeoutError') : undefined); }
+        catch (_) { controller.abort(); }
+      }, Math.max(0, Number(ms) || 0));
+      return controller.signal;
+    };
+  }
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID !== 'function') {
+    const fallbackUuid = function () {
+      if (typeof crypto.getRandomValues === 'function') {
+        const bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+      }
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      });
+    };
+    try { Object.defineProperty(crypto, 'randomUUID', { configurable: true, writable: true, value: fallbackUuid }); }
+    catch (_) { try { crypto.randomUUID = fallbackUuid; } catch (_) {} }
+  }
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    const testDlg = document.createElement('dialog');
+    if (typeof testDlg.showModal !== 'function') {
+      const proto = Object.getPrototypeOf(testDlg);
+      const backdrops = new WeakMap();
+      const closePolyfillDialog = function (returnValue) {
+        if (arguments.length && returnValue !== undefined) this.returnValue = String(returnValue);
+        this.removeAttribute('open');
+        this.classList.remove('gaeru-dialog-polyfilled');
+        const bd = backdrops.get(this);
+        if (bd) { try { bd.remove(); } catch (_) {} backdrops.delete(this); }
+        try { this.dispatchEvent(new Event('close')); } catch (_) {}
+      };
+      const openPolyfillDialog = function (modal) {
+        if (this.hasAttribute('open')) return;
+        this.setAttribute('open', '');
+        this.classList.add('gaeru-dialog-polyfilled');
+        if (modal && !backdrops.has(this) && document.body) {
+          const bd = document.createElement('div');
+          bd.className = 'gaeru-dialog-polyfill-backdrop';
+          bd.addEventListener('click', () => {
+            const ev = new Event('cancel', { cancelable: true });
+            if (this.dispatchEvent(ev)) closePolyfillDialog.call(this);
+          });
+          document.body.appendChild(bd);
+          backdrops.set(this, bd);
+        }
+      };
+      if (proto && !Object.prototype.hasOwnProperty.call(proto, 'showModal')) {
+        Object.defineProperty(proto, 'open', {
+          configurable: true,
+          get() { return this && this.tagName === 'DIALOG' ? this.hasAttribute('open') : false; },
+          set(v) { if (!this || this.tagName !== 'DIALOG') return; if (v) this.setAttribute('open', ''); else this.removeAttribute('open'); }
+        });
+        proto.showModal = function () { if (this && this.tagName === 'DIALOG') openPolyfillDialog.call(this, true); };
+        proto.show = function () { if (this && this.tagName === 'DIALOG') openPolyfillDialog.call(this, false); };
+        proto.close = function (rv) { if (this && this.tagName === 'DIALOG') closePolyfillDialog.call(this, rv); };
+        document.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'Escape') return;
+          const openList = document.querySelectorAll('dialog.gaeru-dialog-polyfilled[open]');
+          const topDlg = openList[openList.length - 1];
+          if (topDlg) {
+            const cancelEv = new Event('cancel', { cancelable: true });
+            if (topDlg.dispatchEvent(cancelEv)) closePolyfillDialog.call(topDlg);
+          }
+        });
+      }
+    }
+  }
+
   const add = EventTarget.prototype.addEventListener;
   const remove = EventTarget.prototype.removeEventListener;
   const listeners = new WeakMap(), events = new WeakMap(), buttons = new WeakMap(), noticeTimers = new WeakMap();

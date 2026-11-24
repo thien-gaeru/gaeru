@@ -238,6 +238,10 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 /* GAERU Center Modal Popup & Dialogs (Alert, Confirm, Prompt) */
 .gaeru-modal-backdrop {
   position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: rgba(15, 23, 42, 0.55) !important;
   backdrop-filter: blur(10px);
@@ -247,8 +251,37 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
   align-items: center;
   justify-content: center;
   padding: 16px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
   animation: gaeru-modal-fade .2s ease-out;
+}
+/* Legacy iOS < 15.4 <dialog> polyfill styling */
+.gaeru-dialog-polyfill-backdrop {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: rgba(15, 23, 42, 0.52);
+  z-index: 2147483630;
+}
+dialog.gaeru-dialog-polyfilled:not([open]) {
+  display: none !important;
+}
+dialog.gaeru-dialog-polyfilled[open] {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  max-width: calc(100vw - 24px) !important;
+  max-height: calc(100vh - 32px) !important;
+  overflow: auto !important;
+  -webkit-overflow-scrolling: touch;
+  z-index: 2147483640 !important;
 }
 .gaeru-modal-backdrop[hidden] {
   display: none !important;

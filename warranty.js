@@ -19,30 +19,36 @@
         </select></label>
         <fieldset data-w-account hidden disabled>
           <legend>Đơn hàng trong tài khoản</legend>
-          <label>Đơn hàng<select name="orderId" required><option value="">Chọn đơn của bạn</option></select></label>
-          <button type="button" class="care-plain" data-w-orders hidden>Tải thêm đơn hàng</button>
-          <label>Sản phẩm đã mua<select name="orderItemId" required disabled><option value="">Chọn đơn hàng trước</option></select></label>
+          <div class="warranty-fieldset-body">
+            <label>Đơn hàng<select name="orderId" required><option value="">Chọn đơn của bạn</option></select></label>
+            <button type="button" class="care-plain" data-w-orders hidden>Tải thêm đơn hàng</button>
+            <label>Sản phẩm đã mua<select name="orderItemId" required disabled><option value="">Chọn đơn hàng trước</option></select></label>
+          </div>
         </fieldset>
         <fieldset data-w-external>
           <legend>Thông tin mua hàng</legend>
-          <label><span data-w-order-label>Mã đơn hàng website</span><input name="externalOrderNumber" minlength="3" maxlength="100" autocomplete="off" required></label>
-          <label>Ngày mua trên chứng từ<input name="purchaseDate" type="date" min="2000-01-01" max="${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}" required></label>
-          <label>Sản phẩm / phiên bản đã mua<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 1 Mic · Type-C" required></label>
-          <p class="care-field-note">Nhập mã đơn theo lịch sử mua hàng của kênh đã chọn. Hồ sơ cần được GAERU đối chiếu; chưa kết nối xác minh tự động với sàn.</p>
+          <div class="warranty-fieldset-body warranty-external-grid">
+            <label><span data-w-order-label>Mã đơn hàng website</span><input name="externalOrderNumber" minlength="3" maxlength="100" autocomplete="off" required></label>
+            <label>Ngày mua trên chứng từ<input name="purchaseDate" type="date" min="2000-01-01" max="${new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())}" required></label>
+            <label class="warranty-span-all">Sản phẩm / phiên bản đã mua<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 1 Mic · Type-C" required></label>
+            <p class="care-field-note warranty-span-all">Nhập mã đơn theo lịch sử mua hàng của kênh đã chọn. Hồ sơ cần được GAERU đối chiếu; chưa kết nối xác minh tự động với sàn.</p>
+          </div>
         </fieldset>
         <fieldset class="warranty-contact">
           <legend>Thông tin người đăng ký</legend>
-          <p class="care-field-note">Thông tin được tự điền khi có địa chỉ đã lưu hoặc khi chọn đơn website. Bạn có thể sửa trước khi gửi.</p>
-          <div class="warranty-contact-row">
-            <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
-            <label>Số điện thoại<input name="phone" type="tel" minlength="10" maxlength="20" autocomplete="tel" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
+          <div class="warranty-fieldset-body">
+            <p class="care-field-note">Thông tin được tự điền khi có địa chỉ đã lưu hoặc khi chọn đơn website. Bạn có thể sửa trước khi gửi.</p>
+            <div class="warranty-contact-row">
+              <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" required></label>
+              <label>Số điện thoại<input name="phone" type="tel" minlength="10" maxlength="20" autocomplete="tel" placeholder="10 số di động (Ví dụ: 0912345678)" required></label>
+            </div>
+            <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="Ví dụ: business@gaeru.com" required></label>
+            <div class="warranty-contact-row">
+              <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã" required></label>
+              <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" aria-describedby="warranty-city-note" required><option value="">Chọn tỉnh / thành phố</option>${provinces.map(name=>`<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
+            </div>
+            <p class="care-field-note" id="warranty-city-note" data-w-city-note hidden></p>
           </div>
-          <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="Ví dụ: business@gaeru.com" required></label>
-          <div class="warranty-contact-row">
-            <label>Địa chỉ liên hệ<input name="address" minlength="5" maxlength="250" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã" required></label>
-            <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" aria-describedby="warranty-city-note" required><option value="">Chọn tỉnh / thành phố</option>${provinces.map(name=>`<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
-          </div>
-          <p class="care-field-note" id="warranty-city-note" data-w-city-note hidden></p>
         </fieldset>
         <p class="care-field-note">Mỗi lần đăng ký tương ứng một sản phẩm. Thông tin được xử lý theo <a href="privacy.html">chính sách quyền riêng tư</a>.</p>
         <button class="button button-blue" type="submit" disabled>Đăng ký kích hoạt</button><button class="care-plain" type="button" data-w-cancel-edit hidden>Hủy chỉnh sửa</button>

@@ -266,7 +266,7 @@
     if(!admin.can('dashboard.read'))return;
     if(!force && requestedPage===page && pendingLoad)return pendingLoad;
     const epoch=++loadEpoch;
-    const fetchPage=p=>admin.request('/api/gaeru_ceo/notifications?page='+p+'&pageSize=25',{cache:'no-store',signal:AbortSignal.timeout(15000)});
+    const fetchPage=p=>admin.request('/api/gaeru_ceo/notifications?page='+p+'&pageSize=25',{cache:'no-store',...(typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?{signal:AbortSignal.timeout(15000)}:{})});
     pendingLoad=(async()=>{
       const [data,latest]=await Promise.all([fetchPage(requestedPage),requestedPage>1?fetchPage(1):Promise.resolve(null)]);
       if(epoch!==loadEpoch)return;

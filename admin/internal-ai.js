@@ -165,6 +165,22 @@
   }
 
   // Quản lý Modal Popup GAERU AI
+  let vvListener = null;
+  function syncModalVisualViewport() {
+    const modal = document.getElementById('gaeru-ai-modal');
+    if (!modal || modal.hidden) return;
+    const vv = window.visualViewport;
+    if (vv && window.innerWidth <= 768) {
+      modal.style.top = vv.offsetTop + 'px';
+      modal.style.height = vv.height + 'px';
+      modal.style.bottom = 'auto';
+    } else {
+      modal.style.top = '';
+      modal.style.height = '';
+      modal.style.bottom = '';
+    }
+  }
+
   function openGaeruAiModal() {
     const modal = document.getElementById('gaeru-ai-modal');
     const modalBody = document.getElementById('gaeru-ai-modal-body');
@@ -176,6 +192,13 @@
     }
     container.classList.add('in-modal');
     modal.hidden = false;
+    document.body.classList.add('gaeru-ai-modal-open');
+    syncModalVisualViewport();
+    if (window.visualViewport && !vvListener) {
+      vvListener = () => syncModalVisualViewport();
+      window.visualViewport.addEventListener('resize', vvListener);
+      window.visualViewport.addEventListener('scroll', vvListener);
+    }
 
     // Đồng bộ role badge trên modal header
     const modalRoleBadge = document.getElementById('modal-copilot-user-role');
@@ -188,7 +211,7 @@
     if (!currentThreadId) loadThreads();
 
     const input = document.getElementById('copilot-input');
-    if (input) {
+    if (input && window.innerWidth > 768) {
       setTimeout(() => input.focus(), 100);
     }
     scrollMessagesBottom();
@@ -201,6 +224,15 @@
     if (!modal) return;
 
     modal.hidden = true;
+    modal.style.top = '';
+    modal.style.height = '';
+    modal.style.bottom = '';
+    document.body.classList.remove('gaeru-ai-modal-open');
+    if (window.visualViewport && vvListener) {
+      window.visualViewport.removeEventListener('resize', vvListener);
+      window.visualViewport.removeEventListener('scroll', vvListener);
+      vvListener = null;
+    }
     if (view && container && !view.contains(container)) {
       view.appendChild(container);
     }
