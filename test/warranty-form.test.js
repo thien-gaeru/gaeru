@@ -68,12 +68,18 @@ test('warranty submission persists the ward supplied by the shared address picke
  assert.equal(blocked.requests.some(r=>r.url==='/api/warranty-requests'),false);assert.match(blocked.node('[data-w-status]').textContent,/Chọn phường/);
 });
 
-test('Option A: streamlined 4-field submission succeeds without email, purchaseDate or address, and 1-tap product chip sets productName',async()=>{
+test('Option A: searchable product combobox supports picking from dropdown list, live search filtering, and custom typed product names',async()=>{
  const ui=page(false,'','',[],true);await settled();
  assert.equal(ui.node('[data-w-history]').hidden,true,'empty history stays hidden');
  ui.form.elements.source.value='shopee';ui.form.elements.source.listeners.change();
- await ui.node('#warranty-activation').listeners.click({target:{closest:s=>s==='[data-w-prod]'?{dataset:{wProd:'gaeru-m3'}}:null}});
- assert.equal(ui.form.elements.productName.value,'GAERU M3 · Type C');
+ ui.form.elements.productName.value='m3 lightning';
+ await ui.form.elements.productName.listeners.input();
+ assert.equal(ui.node('[data-w-prod-menu]').hidden,false);
+ assert.match(ui.node('[data-w-prod-menu]').innerHTML,/Type C \+ đầu chuyển Lightning/);
+ assert.doesNotMatch(ui.node('[data-w-prod-menu]').innerHTML,/GAERU K9/);
+ await ui.node('#warranty-activation').listeners.click({target:{closest:s=>s==='[data-w-combo-pick]'?{dataset:{wComboPick:'GAERU M3 · Type C + đầu chuyển Lightning'}}:null}});
+ assert.equal(ui.form.elements.productName.value,'GAERU M3 · Type C + đầu chuyển Lightning');
+ assert.equal(ui.node('[data-w-prod-menu]').hidden,true);
  ui.form.elements.externalOrderNumber.value='SPX-QUICK-001';
  ui.form.elements.fullName.value='Khách Nhanh';
  ui.form.elements.phone.value='0912345678';
@@ -82,9 +88,15 @@ test('Option A: streamlined 4-field submission succeeds without email, purchaseD
  assert.ok(req);
  const body=JSON.parse(req.options.body);
  assert.equal(body.channel,'shopee');
- assert.equal(body.productName,'GAERU M3 · Type C');
+ assert.equal(body.productName,'GAERU M3 · Type C + đầu chuyển Lightning');
  assert.equal(body.purchaseDate,undefined);
  assert.deepEqual(body.contact,{fullName:'Khách Nhanh',phone:'0912345678',address:'',city:''});
+ // Also verify free-text custom product name entry without clicking a list item
+ ui.form.elements.productName.value='Micro GAERU bản quà tặng đặc biệt';
+ ui.form.elements.externalOrderNumber.value='SPX-CUSTOM-002';
+ await ui.form.listeners.submit({preventDefault(){}});
+ const customReq=ui.requests.filter(r=>r.url==='/api/warranty-requests'&&r.options.method==='POST').pop();
+ assert.equal(JSON.parse(customReq.options.body).productName,'Micro GAERU bản quà tặng đặc biệt');
 });
 
 

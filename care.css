@@ -72,19 +72,18 @@
 
 .warranty-request-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}.warranty-request-actions button{min-height:44px}[data-w-delete-confirm]:not(:empty){margin-top:14px;padding:16px;background:#f5f5f7;border-radius:14px}
 
-/* Option A: Streamlined single-screen warranty activation layout */
+/* Option A: Streamlined single-screen warranty activation with searchable product combobox */
+#warranty-activation [hidden]{display:none!important}
 #warranty-activation .w-sr-only,#warranty-form .w-sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 #warranty-activation .w-top-bar{margin:0 0 8px}
 #warranty-activation .w-session-pill{display:inline-block;margin:0;padding:4px 11px;border-radius:999px;background:#f2f6fa;color:#3a3a3c;font-size:12px;line-height:1.4}
-#warranty-form.w-compact-form{gap:9px}
+#warranty-form.w-compact-form{gap:11px}
 #warranty-form.w-compact-form fieldset.w-external-fieldset,#warranty-form.w-compact-form fieldset.w-contact-fieldset{display:block;border:0;padding:0;margin:0;border-radius:0}
 #warranty-form.w-compact-form fieldset.w-account-box{display:block;padding:12px 14px;border:1px solid #dce6f2;border-radius:14px;background:#f7faff;margin:0}
 #warranty-form .w-step-block{display:grid;grid-gap:6px;gap:6px;min-width:0}
-#warranty-form.w-compact-form fieldset.w-external-fieldset>.w-step-block{margin-bottom:8px}
-#warranty-form .w-step-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#warranty-form.w-compact-form fieldset.w-external-fieldset>.w-step-block{margin-bottom:10px}
 #warranty-form .w-step-label,#warranty-form.w-compact-form legend.w-step-label{display:block;float:none;width:auto;font-size:12.5px;font-weight:650;color:#1d1d1f;margin:0;padding:0;line-height:1.3;letter-spacing:-.01em}
 #warranty-form.w-compact-form legend.w-step-label{width:100%;margin:0 0 6px}
-#warranty-form .w-selected-tag{font-size:11.5px;font-weight:600;color:#0060c7;background:#eef5fc;padding:2px 8px;border-radius:999px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #warranty-form .w-channel-pills{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-gap:6px;gap:6px;padding:3px;background:#f2f2f7;border-radius:12px}
 #warranty-form .w-channel-pill{display:flex;align-items:center;justify-content:center;min-height:36px;padding:6px 8px;border:1px solid transparent;border-radius:9px;background:transparent;color:#3a3a3c;font:inherit;font-size:13px;font-weight:600;line-height:1.2;transition:background .15s,border-color .15s,color .15s;-webkit-appearance:none;appearance:none}
 #warranty-form .w-channel-pill.is-active{background:#fff;color:#0060c7;border-color:rgba(0,96,199,0.22);box-shadow:0 1px 4px rgba(0,0,0,0.08)}
@@ -93,17 +92,30 @@
 #warranty-form .w-pill-dot.is-tiktok{background:#111111}
 #warranty-form .w-pill-dot.is-lazada{background:#0f146d}
 #warranty-form .w-pill-dot.is-website{background:#0060c7}
-#warranty-form .w-product-chips{display:flex;flex-wrap:wrap;margin:-3px}
-#warranty-form .w-prod-chip{display:inline-flex;align-items:center;justify-content:center;flex:1 1 auto;margin:3px;min-height:38px;padding:5px 10px;border:1px solid #d8d8de;border-radius:11px;background:#fff;color:#1d1d1f;font:inherit;font-size:12.5px;font-weight:600;line-height:1.2;min-width:0;transition:border-color .15s,background .15s;-webkit-appearance:none;appearance:none}
-#warranty-form .w-prod-chip img{width:24px;height:24px;object-fit:contain;margin-right:6px;flex-shrink:0}
-#warranty-form .w-prod-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#warranty-form .w-prod-chip:hover{border-color:#8e8e93}
-#warranty-form .w-prod-chip.is-selected{border-color:#0060c7;background:#eef5ff;color:#0051a8;box-shadow:inset 0 0 0 1px #0060c7}
-#warranty-form .w-prod-chip.is-other{background:#f8f8fa;color:#515154}
-#warranty-form .w-prod-chip.is-other.is-selected{background:#eef5ff;color:#0051a8}
-#warranty-form .w-variant-pills{display:flex;flex-wrap:wrap;margin:-3px;padding-top:2px}
-#warranty-form .w-var-pill{margin:3px;min-height:30px;padding:4px 10px;border:1px solid #d2d2d7;border-radius:999px;background:#fff;color:#3a3a3c;font:inherit;font-size:12px;font-weight:500;line-height:1.2;-webkit-appearance:none;appearance:none}
-#warranty-form .w-var-pill.is-selected{border-color:#0060c7;background:#0060c7;color:#fff;font-weight:600}
+#warranty-form .w-prod-combo{position:relative}
+#warranty-form .w-combo-input-wrap{position:relative;display:flex;align-items:center;width:100%}
+#warranty-form.w-compact-form .w-combo-input-wrap input{padding-right:68px}
+#warranty-form .w-combo-clear{position:absolute;right:35px;top:50%;-webkit-transform:translateY(-50%);transform:translateY(-50%);width:24px;height:24px;min-height:24px;padding:0;border:0;border-radius:50%;background:#ebebf0;color:#515154;font:inherit;font-size:15px;font-weight:600;line-height:1;display:inline-flex;align-items:center;justify-content:center;-webkit-appearance:none;appearance:none}
+#warranty-form .w-combo-clear:hover{background:#d8d8de;color:#1d1d1f}
+#warranty-form .w-combo-toggle{position:absolute;right:5px;top:50%;-webkit-transform:translateY(-50%);transform:translateY(-50%);width:28px;height:30px;min-height:30px;padding:0;border:0;border-radius:8px;background:transparent;color:#6e6e73;display:inline-flex;align-items:center;justify-content:center;transition:color .15s,background .15s;-webkit-appearance:none;appearance:none}
+#warranty-form .w-combo-toggle:hover{background:#f2f2f7;color:#0060c7}
+#warranty-form .w-prod-combo.is-open .w-combo-toggle svg{-webkit-transform:rotate(180deg);transform:rotate(180deg)}
+#warranty-form .w-prod-dropdown{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:60;max-height:280px;overflow-y:auto;-webkit-overflow-scrolling:touch;background:#fff;border:1px solid #d2d2d7;border-radius:14px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,0.12)}
+#warranty-form .w-combo-group{border-bottom:1px solid #f0f0f4;padding:3px 0}
+#warranty-form .w-combo-group:last-child{border-bottom:0}
+#warranty-form .w-combo-option{display:flex;align-items:center;width:100%;min-height:38px;padding:6px 8px;border:0;border-radius:9px;background:transparent;color:#1d1d1f;font:inherit;font-size:13.5px;font-weight:600;text-align:left;line-height:1.25;transition:background .12s;-webkit-appearance:none;appearance:none}
+#warranty-form .w-combo-option img{width:26px;height:26px;object-fit:contain;margin-right:9px;flex-shrink:0;border-radius:6px;background:#f8f8fa}
+#warranty-form .w-combo-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#warranty-form .w-combo-sub{flex-shrink:0;margin-left:8px;font-size:11px;font-weight:500;color:#86868b}
+#warranty-form .w-combo-option:hover,#warranty-form .w-combo-option.is-active{background:#eef5ff;color:#0051a8}
+#warranty-form .w-combo-option.is-selected{background:#f2f7ff;color:#0060c7}
+#warranty-form .w-combo-vars{display:flex;flex-wrap:wrap;margin:1px -3px 4px 34px}
+#warranty-form .w-combo-var{margin:3px;min-height:27px;padding:3px 9px;border:1px solid #dcdce2;border-radius:999px;background:#fafafa;color:#3a3a3c;font:inherit;font-size:11.5px;font-weight:500;line-height:1.2;transition:border-color .12s,background .12s,color .12s;-webkit-appearance:none;appearance:none}
+#warranty-form .w-combo-var:hover,#warranty-form .w-combo-var.is-active{border-color:#0060c7;background:#eef5ff;color:#0051a8}
+#warranty-form .w-combo-var.is-selected{border-color:#0060c7;background:#0060c7;color:#fff;font-weight:600}
+#warranty-form .w-combo-option.is-custom-entry{margin-top:3px;background:#f7faff;color:#0051a8;font-weight:500;font-size:13px;border:1px dashed #b6d4fe}
+#warranty-form .w-combo-custom-icon{width:24px;height:24px;margin-right:8px;border-radius:6px;background:#e8f0fe;color:#0060c7;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+#warranty-form .w-combo-empty{margin:0;padding:10px 12px;font-size:12.5px;color:#6e6e73}
 #warranty-form.w-compact-form label{gap:5px;font-size:12.5px;font-weight:600;color:#1d1d1f}
 #warranty-form.w-compact-form input,#warranty-form.w-compact-form select{min-height:42px;padding:9px 12px;border-radius:10px;border:1px solid #c7c7cc;font-size:16px}
 #warranty-form.w-compact-form input[type="date"]{min-height:42px;height:42px}
@@ -135,17 +147,17 @@
 #warranty-activation .w-history-head h3{margin:0;font-size:17px}
 #warranty-activation .w-refresh-btn{min-height:34px;padding:5px 12px;font-size:12px}
 .warranty-activation-page{background:#f5f5f7;padding-bottom:36px}
-.warranty-activation-page .activation-heading{max-width:760px;text-align:center;padding-top:10px;padding-bottom:8px}
+.warranty-activation-page .activation-heading{max-width:720px;text-align:center;padding-top:14px;padding-bottom:10px}
 .warranty-activation-page .activation-heading .eyebrow{font-size:11px;letter-spacing:.09em;margin:0 0 3px;color:#28757c;font-weight:700}
 .warranty-activation-page .activation-heading h1{font-size:clamp(22px,2.8vw,30px);font-weight:650;line-height:1.15;letter-spacing:-.03em;margin:0 0 4px}
 .warranty-activation-page .activation-heading>p:not(.eyebrow){max-width:580px;margin:0 auto;font-size:13px;line-height:1.4;color:#55555a}
-.warranty-activation-page #warranty-activation{max-width:760px;padding-top:0}
+.warranty-activation-page #warranty-activation{max-width:720px;padding-top:0}
 .warranty-activation-page #warranty-activation[data-standalone="true"]{min-height:740px}
 .warranty-activation-page [data-w-disclosure]>summary{display:none}
-.warranty-activation-page .warranty-quick-shell{max-width:none;background:#fff;border:1px solid #e5e5ea;border-radius:20px;padding:14px 20px;box-shadow:0 8px 24px rgba(0,0,0,0.04)}
+.warranty-activation-page .warranty-quick-shell{max-width:none;background:#fff;border:1px solid #e5e5ea;border-radius:20px;padding:18px 22px;box-shadow:0 8px 24px rgba(0,0,0,0.04)}
 .warranty-activation-page .care-disclosure-body{padding-top:0}
 .warranty-activation-page .warranty-history{max-width:none;margin-top:16px;padding:16px 20px;border-radius:20px;border:1px solid #e5e5ea;background:#fff}
-@media(max-width:640px){.warranty-activation-page{padding-bottom:16px}.warranty-activation-page .activation-heading{text-align:left;padding-top:8px;padding-bottom:6px}.warranty-activation-page .activation-heading h1{font-size:21px;margin:0 0 2px}.warranty-activation-page .activation-heading>p:not(.eyebrow){font-size:12px;margin:0}.warranty-activation-page #warranty-activation[data-standalone="true"]{min-height:480px}.warranty-activation-page .warranty-quick-shell,.warranty-activation-page .warranty-history{padding:11px 12px;border-radius:16px}#warranty-form .w-channel-pills{grid-gap:5px;gap:5px}#warranty-form .w-channel-pill{min-height:34px;padding:4px 4px;font-size:12px}#warranty-form .w-pill-dot{width:6px;height:6px;margin-right:4px}#warranty-form .w-prod-chip{min-height:34px;padding:4px 8px;font-size:12px}#warranty-form .w-prod-chip img{width:18px;height:18px;margin-right:4px}#warranty-form .warranty-contact-row.w-compact-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-gap:8px;gap:8px}#warranty-form [data-w-account] .warranty-fieldset-body{grid-template-columns:minmax(0,1fr)}#warranty-form .w-submit-bar{flex-direction:column;align-items:stretch;gap:5px}#warranty-form .w-submit-btn{width:100%;justify-content:center;min-height:42px}#warranty-form .w-privacy-hint{text-align:center;font-size:11.5px}}
+@media(max-width:640px){.warranty-activation-page{padding-bottom:16px}.warranty-activation-page .activation-heading{text-align:left;padding-top:8px;padding-bottom:6px}.warranty-activation-page .activation-heading h1{font-size:21px;margin:0 0 2px}.warranty-activation-page .activation-heading>p:not(.eyebrow){font-size:12px;margin:0}.warranty-activation-page #warranty-activation[data-standalone="true"]{min-height:480px}.warranty-activation-page .warranty-quick-shell,.warranty-activation-page .warranty-history{padding:12px 13px;border-radius:16px}#warranty-form .w-channel-pills{grid-gap:5px;gap:5px}#warranty-form .w-channel-pill{min-height:34px;padding:4px 4px;font-size:12px}#warranty-form .w-pill-dot{width:6px;height:6px;margin-right:4px}#warranty-form .w-prod-dropdown{max-height:240px}#warranty-form .w-combo-sub{display:none}#warranty-form .w-combo-vars{margin-left:0}#warranty-form .warranty-contact-row.w-compact-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-gap:8px;gap:8px}#warranty-form [data-w-account] .warranty-fieldset-body{grid-template-columns:minmax(0,1fr)}#warranty-form .w-submit-bar{flex-direction:column;align-items:stretch;gap:5px}#warranty-form .w-submit-btn{width:100%;justify-content:center;min-height:42px}#warranty-form .w-privacy-hint{text-align:center;font-size:11.5px}}
 @media(max-width:359px){#warranty-form .warranty-contact-row.w-compact-row{grid-template-columns:minmax(0,1fr)}}@media(max-width:340px){#warranty-form .w-channel-pills{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .care-email-pref{display:grid!important;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:10px;padding:12px 14px;margin:8px 0 16px;border-radius:12px;background:#f3f7f9;cursor:pointer;font-size:13px;line-height:1.6}.care-email-pref input[type=checkbox]{width:18px!important;height:18px!important;margin:2px 0 0!important;padding:0;accent-color:#0060c7}.care-email-pref span{font-weight:400}.care-case{overflow-wrap:anywhere}.care-case>small{font-size:12px;color:#55555a}.care-pagination{gap:12px}.care-sync-error{font-size:13px;color:#965610}.care-sync-error[hidden]{display:none}

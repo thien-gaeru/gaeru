@@ -4,6 +4,7 @@
   const isStandalone = section.dataset?.standalone === 'true';
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const queryAll = (root, sel) => (root && typeof root.querySelectorAll === 'function') ? Array.prototype.slice.call(root.querySelectorAll(sel)) : [];
+  const normSearch = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').trim();
   const channels = { website: 'Website GAERU', shopee: 'Shopee', tiktok: 'TikTok Shop', lazada: 'Lazada' };
   const channelPlaceholders = {
     shopee: 'Nhập hoặc dán mã đơn Shopee (VD: 261125ABCXYZ)',
@@ -13,7 +14,7 @@
   };
   // 34 province-level units under Resolution 202/2025/QH15.
   const provinces = ['Hà Nội', 'Hải Phòng', 'Huế', 'Đà Nẵng', 'Hồ Chí Minh', 'Cần Thơ', 'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Đắk Lắk', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Tĩnh', 'Hưng Yên', 'Khánh Hòa', 'Lai Châu', 'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh', 'Thái Nguyên', 'Thanh Hóa', 'Tuyên Quang', 'Vĩnh Long'].sort((a, b) => a.localeCompare(b, 'vi'));
-  const cityKey = value => String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/^(?:tinh|thanh pho|tp)\.?\s*/, '').trim();
+  const cityKey = value => normSearch(value).replace(/^(?:tinh|thanh pho|tp)\.?\s*/, '').trim();
   const formatDateVN = offsetDays => {
     const d = new Date(Date.now() + (offsetDays || 0) * 86400000);
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
@@ -70,16 +71,27 @@
 
           <fieldset data-w-external class="w-external-fieldset">
             <legend class="w-sr-only">Thông tin sản phẩm và mã đơn</legend>
-            <div class="w-step-block">
-              <div class="w-step-head">
-                <span class="w-step-label" id="w-prod-heading">2. Chọn thiết bị đã mua</span>
-                <span class="w-selected-tag" data-w-selected-label>Chạm chọn nhanh</span>
+            <div class="w-step-block w-prod-combo" data-w-combobox>
+              <label for="w-product-input" class="w-step-label">2. Chọn thiết bị đã mua</label>
+              <div class="w-combo-input-wrap">
+                <input
+                  id="w-product-input"
+                  name="productName"
+                  minlength="2"
+                  maxlength="200"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="w-prod-listbox"
+                  placeholder="Chọn từ danh sách, gõ tìm kiếm hoặc tự nhập tên sản phẩm…"
+                  required>
+                <button type="button" class="w-combo-clear" data-w-combo-clear title="Xóa để chọn lại" aria-label="Xóa tên thiết bị" hidden>×</button>
+                <button type="button" class="w-combo-toggle" data-w-combo-toggle title="Mở danh sách thiết bị" aria-label="Danh sách thiết bị" tabindex="-1">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
               </div>
-              <div class="w-product-chips" role="group" aria-labelledby="w-prod-heading" data-w-product-chips></div>
-              <div class="w-variant-pills" data-w-variant-pills hidden></div>
-              <div class="w-custom-prod-wrap" data-w-custom-wrap hidden>
-                <label>Tên thiết bị / phiên bản<input name="productName" minlength="2" maxlength="200" placeholder="Ví dụ: GAERU K9 · Bộ 2 Mic · Type-C"></label>
-              </div>
+              <div id="w-prod-listbox" class="w-prod-dropdown" role="listbox" aria-label="Danh sách thiết bị GAERU" data-w-prod-menu hidden></div>
             </div>
 
             <div class="w-core-grid">
@@ -145,28 +157,184 @@
     </div>`;
 
   const disclosure = section.querySelector('[data-w-disclosure]');
+  const form = section.querySelector('form');
+  const feedback = section.querySelector('[data-w-status]');
+  const optionalBox = section.querySelector('[data-w-optional]');
+  const comboBox = section.querySelector('[data-w-combobox]');
+  const prodMenu = section.querySelector('[data-w-prod-menu]');
+  const comboClearBtn = section.querySelector('[data-w-combo-clear]');
+  const productInput = form.elements.productName;
+
   if (isStandalone) disclosure.open = true;
   function openActivation() { disclosure.open = true; }
   function openFromHash() { if (location.hash === '#warranty-activation') openActivation(); }
   window.addEventListener('hashchange', openFromHash);
+
+  let activeComboIdx = -1;
+  let lastFilterQuery = '';
+
+  function syncComboClear() {
+    if (comboClearBtn) comboClearBtn.hidden = !String(productInput?.value || '').trim();
+  }
+
+  function closeComboMenu() {
+    if (!prodMenu) return;
+    prodMenu.hidden = true;
+    activeComboIdx = -1;
+    comboBox?.classList?.remove?.('is-open');
+    productInput?.setAttribute?.('aria-expanded', 'false');
+  }
+
+  function renderComboMenu(filterText) {
+    if (!prodMenu) return;
+    lastFilterQuery = filterText == null ? '' : String(filterText);
+    const currentVal = String(productInput?.value || '').trim();
+    const rawTyped = String(filterText || '').trim();
+    const tokens = normSearch(rawTyped).split(/\s+/).filter(Boolean);
+    const htmlParts = [];
+    let exactMatchExists = false;
+
+    for (let i = 0; i < catalogItems.length; i++) {
+      const item = catalogItems[i];
+      const baseHay = normSearch(item.name + ' ' + item.shortName);
+      const itemMatchesAll = tokens.length === 0 || tokens.every(t => baseHay.indexOf(t) !== -1);
+      const allVars = Array.isArray(item.variants) ? item.variants : [];
+      const matchingVars = tokens.length === 0
+        ? allVars
+        : allVars.filter(v => {
+            const fullHay = normSearch(item.name + ' ' + item.shortName + ' ' + v);
+            return tokens.every(t => fullHay.indexOf(t) !== -1);
+          });
+
+      if (!itemMatchesAll && matchingVars.length === 0) continue;
+
+      const varsToShow = itemMatchesAll ? allVars : matchingVars;
+      const isBaseSelected = currentVal.toLowerCase() === item.name.toLowerCase();
+      if (rawTyped && item.name.toLowerCase() === rawTyped.toLowerCase()) exactMatchExists = true;
+
+      let varsHtml = '';
+      if (varsToShow.length > 0) {
+        varsHtml = `<div class="w-combo-vars">` + varsToShow.map(v => {
+          const composed = item.name + ' · ' + v;
+          if (rawTyped && composed.toLowerCase() === rawTyped.toLowerCase()) exactMatchExists = true;
+          const isVarSel = currentVal.toLowerCase() === composed.toLowerCase();
+          return `<button type="button" class="w-combo-var${isVarSel ? ' is-selected' : ''}" role="option" aria-selected="${isVarSel}" data-w-combo-pick="${escape(composed)}">${escape(v)}</button>`;
+        }).join('') + `</div>`;
+      }
+
+      htmlParts.push(
+        `<div class="w-combo-group">` +
+          `<button type="button" class="w-combo-option${isBaseSelected ? ' is-selected' : ''}" role="option" aria-selected="${isBaseSelected}" data-w-combo-pick="${escape(item.name)}">` +
+            `<img src="${escape(item.image)}" alt="" width="26" height="26" loading="lazy" decoding="async">` +
+            `<span class="w-combo-title">${escape(item.name)}</span>` +
+            `<span class="w-combo-sub">${varsToShow.length > 0 ? 'Chọn chung hoặc chọn bản bên dưới' : 'Chọn thiết bị'}</span>` +
+          `</button>` +
+          varsHtml +
+        `</div>`
+      );
+    }
+
+    if (rawTyped.length >= 1 && !exactMatchExists) {
+      htmlParts.push(
+        `<button type="button" class="w-combo-option is-custom-entry" role="option" aria-selected="false" data-w-combo-pick="${escape(rawTyped)}">` +
+          `<span class="w-combo-custom-icon" aria-hidden="true">✎</span>` +
+          `<span class="w-combo-title">Dùng tên tự nhập: <strong>${escape(rawTyped)}</strong></span>` +
+        `</button>`
+      );
+    }
+
+    prodMenu.innerHTML = htmlParts.join('') || `<p class="w-combo-empty">Gõ tiếp để tự điền tên sản phẩm của bạn.</p>`;
+    activeComboIdx = -1;
+  }
+
+  function openComboMenu(filterText) {
+    if (!prodMenu) return;
+    renderComboMenu(filterText);
+    prodMenu.hidden = false;
+    comboBox?.classList?.add?.('is-open');
+    productInput?.setAttribute?.('aria-expanded', 'true');
+  }
+
+  function pickComboValue(val) {
+    if (!productInput) return;
+    productInput.value = val;
+    syncComboClear();
+    closeComboMenu();
+    if (form.elements.externalOrderNumber && !form.elements.externalOrderNumber.value) {
+      form.elements.externalOrderNumber.focus?.();
+    }
+  }
+
+  function highlightComboOption(delta) {
+    const opts = queryAll(prodMenu, '[data-w-combo-pick]');
+    if (!opts.length) return;
+    activeComboIdx = (activeComboIdx + delta + opts.length) % opts.length;
+    opts.forEach((btn, idx) => {
+      const act = idx === activeComboIdx;
+      btn.classList?.toggle?.('is-active', act);
+      if (act) btn.scrollIntoView?.({ block: 'nearest' });
+    });
+  }
+
+  if (productInput) {
+    productInput.addEventListener('focus', () => {
+      syncComboClear();
+      openComboMenu('');
+    });
+    productInput.addEventListener('click', () => {
+      if (prodMenu?.hidden) openComboMenu('');
+    });
+    productInput.addEventListener('input', () => {
+      syncComboClear();
+      openComboMenu(productInput.value);
+    });
+    productInput.addEventListener('keydown', event => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault?.();
+        if (prodMenu?.hidden) openComboMenu(productInput.value);
+        highlightComboOption(1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault?.();
+        if (prodMenu?.hidden) openComboMenu(productInput.value);
+        highlightComboOption(-1);
+      } else if (event.key === 'Enter' && prodMenu && !prodMenu.hidden) {
+        const opts = queryAll(prodMenu, '[data-w-combo-pick]');
+        if (activeComboIdx >= 0 && opts[activeComboIdx]) {
+          event.preventDefault?.();
+          pickComboValue(opts[activeComboIdx].dataset.wComboPick);
+        } else {
+          closeComboMenu();
+          if (form.elements.externalOrderNumber && !form.elements.externalOrderNumber.value) {
+            event.preventDefault?.();
+            form.elements.externalOrderNumber.focus?.();
+          }
+        }
+      } else if (event.key === 'Escape' && prodMenu && !prodMenu.hidden) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        closeComboMenu();
+      } else if (event.key === 'Tab') {
+        closeComboMenu();
+      }
+    });
+  }
+
+  prodMenu?.addEventListener?.('mousedown', event => {
+    if (event.target?.closest?.('[data-w-combo-pick]')) event.preventDefault?.();
+  });
+
   document.addEventListener('click', event => {
-    const direct = event.target.closest('a[href="#warranty-activation"]');
-    const link = direct || event.target.closest('a[href$="#warranty-activation"]');
+    const direct = event.target?.closest?.('a[href="#warranty-activation"]');
+    const link = direct || event.target?.closest?.('a[href$="#warranty-activation"]');
     if (direct || (link && (!link.getAttribute || link.getAttribute('href')?.startsWith('#') || (link.href && new URL(link.href, location.href).pathname === location.pathname)))) openActivation();
+    if (prodMenu && !prodMenu.hidden && !event.target?.closest?.('[data-w-combobox]')) closeComboMenu();
   });
   openFromHash();
 
-  const form = section.querySelector('form');
-  const feedback = section.querySelector('[data-w-status]');
-  const optionalBox = section.querySelector('[data-w-optional]');
-  const prodChipsBox = section.querySelector('[data-w-product-chips]');
-  const varPillsBox = section.querySelector('[data-w-variant-pills]');
-  const customWrap = section.querySelector('[data-w-custom-wrap]');
-  const selectedTag = section.querySelector('[data-w-selected-label]');
   window.GAERUAddress?.enhance?.(form);
 
   let page = 1, orderPage = 1, sequence = 0, key = null, serialized = null, customer = null, editing = null, rows = [];
-  let selectedProdSlug = '', selectedVarName = '', userTouchedOptionalAddress = false;
+  let userTouchedOptionalAddress = false;
   let guestTokens = {};
   try { localStorage?.removeItem?.('gaeru-warranty-tokens'); } catch {}
   try {
@@ -180,75 +348,7 @@
     try { sessionStorage.setItem('gaeru-warranty-tokens', JSON.stringify(guestTokens)); } catch {}
   }
 
-  function renderProductChips() {
-    if (!prodChipsBox) return;
-    prodChipsBox.innerHTML = catalogItems.map(item =>
-      `<button type="button" class="w-prod-chip${selectedProdSlug === item.slug ? ' is-selected' : ''}" data-w-prod="${escape(item.slug)}" aria-pressed="${selectedProdSlug === item.slug}">` +
-        `<img src="${escape(item.image)}" alt="" width="28" height="28" loading="eager" decoding="async">` +
-        `<span>${escape(item.shortName)}</span>` +
-      `</button>`
-    ).join('') +
-    `<button type="button" class="w-prod-chip is-other${selectedProdSlug === 'custom' ? ' is-selected' : ''}" data-w-prod="custom" aria-pressed="${selectedProdSlug === 'custom'}"><span>Khác…</span></button>`;
-  }
-
-  function syncProductSelection() {
-    renderProductChips();
-    if (selectedProdSlug === 'custom') {
-      if (varPillsBox) { varPillsBox.hidden = true; varPillsBox.innerHTML = ''; }
-      if (customWrap) customWrap.hidden = false;
-      if (selectedTag) selectedTag.textContent = 'Nhập tên thiết bị';
-      return;
-    }
-    const found = catalogItems.find(p => p.slug === selectedProdSlug);
-    if (!found) {
-      if (varPillsBox) { varPillsBox.hidden = true; varPillsBox.innerHTML = ''; }
-      if (customWrap) customWrap.hidden = true;
-      if (selectedTag) selectedTag.textContent = form.elements.productName?.value || 'Chạm chọn nhanh';
-      return;
-    }
-    if (customWrap) customWrap.hidden = true;
-    if (found.variants && found.variants.length > 0) {
-      if (!selectedVarName || found.variants.indexOf(selectedVarName) === -1) selectedVarName = found.variants[0];
-      if (varPillsBox) {
-        varPillsBox.hidden = false;
-        varPillsBox.innerHTML = found.variants.map(v =>
-          `<button type="button" class="w-var-pill${selectedVarName === v ? ' is-selected' : ''}" data-w-var="${escape(v)}" aria-pressed="${selectedVarName === v}">${escape(v)}</button>`
-        ).join('');
-      }
-      const composed = found.name + ' · ' + selectedVarName;
-      if (form.elements.productName) form.elements.productName.value = composed;
-      if (selectedTag) selectedTag.textContent = composed;
-    } else {
-      selectedVarName = '';
-      if (varPillsBox) { varPillsBox.hidden = true; varPillsBox.innerHTML = ''; }
-      if (form.elements.productName) form.elements.productName.value = found.name;
-      if (selectedTag) selectedTag.textContent = found.name;
-    }
-  }
-
-  function matchExistingProductToChips(rawName) {
-    const val = String(rawName || '').trim();
-    if (!val) { selectedProdSlug = ''; selectedVarName = ''; syncProductSelection(); return; }
-    const lower = val.toLowerCase();
-    const matched = catalogItems.find(p => lower.indexOf(p.name.toLowerCase()) === 0 || lower.indexOf(p.shortName.toLowerCase()) !== -1);
-    if (matched) {
-      selectedProdSlug = matched.slug;
-      const vMatch = (matched.variants || []).find(v => lower.indexOf(v.toLowerCase()) !== -1);
-      if (vMatch || !matched.variants || matched.variants.length === 0) {
-        selectedVarName = vMatch || '';
-        syncProductSelection();
-        if (form.elements.productName) form.elements.productName.value = val;
-        if (selectedTag) selectedTag.textContent = val;
-        return;
-      }
-    }
-    selectedProdSlug = 'custom';
-    selectedVarName = '';
-    syncProductSelection();
-    if (form.elements.productName) form.elements.productName.value = val;
-  }
-
-  renderProductChips();
+  renderComboMenu('');
 
   async function api(url, method = 'GET', body) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 20000);
@@ -322,6 +422,7 @@
     const contactFs = section.querySelector('[data-w-contact-fieldset]');
     if (contactFs) contactFs.hidden = account;
     if (optionalBox) optionalBox.hidden = account;
+    if (account) closeComboMenu();
     const channelLabel = channels[srcVal] || 'website';
     section.querySelector('[data-w-order-label]').textContent = '3. Mã đơn hàng ' + channelLabel;
     if (form.elements.externalOrderNumber) {
@@ -403,6 +504,7 @@
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
+    closeComboMenu();
     if (form.elements.source.value === 'account') {
       feedback.textContent = 'Đơn website được kích hoạt tự động; không cần gửi lại.';
       return;
@@ -414,7 +516,7 @@
     try {
       const account = form.elements.source.value === 'account';
       if (!account && (!form.elements.productName.value || String(form.elements.productName.value).trim().length < 2)) {
-        throw Error('Vui lòng chạm chọn thiết bị GAERU đã mua ở mục 2.');
+        throw Error('Vui lòng chọn hoặc nhập tên thiết bị GAERU đã mua ở mục 2.');
       }
       const contact = Object.fromEntries(['fullName', 'phone', 'address', 'city', 'email'].filter(name => form.elements[name]).map(name => [name, form.elements[name].value]));
       if (window.GAERUAddress?.getAddress) contact.address = window.GAERUAddress.getAddress(form);
@@ -438,7 +540,7 @@
         : {
             channel: form.elements.source.value,
             externalOrderNumber: form.elements.externalOrderNumber.value,
-            productName: form.elements.productName.value,
+            productName: form.elements.productName.value.trim(),
             serial: form.elements.serial?.value || editing?.serial || '',
             ...(form.elements.purchaseDate?.value ? { purchaseDate: form.elements.purchaseDate.value } : {}),
             contact
@@ -453,9 +555,7 @@
       if (form.elements.productName) form.elements.productName.value = '';
       if (form.elements.serial) form.elements.serial.value = '';
       if (form.elements.purchaseDate) form.elements.purchaseDate.value = '';
-      selectedProdSlug = '';
-      selectedVarName = '';
-      syncProductSelection();
+      syncComboClear();
       editing = null;
       form.elements.source.disabled = false;
       syncChannelPills();
@@ -490,27 +590,33 @@
       userChangedSource = true;
       form.elements.source.value = 'website';
       changeSource();
-      form.elements.externalOrderNumber?.focus?.();
+      productInput?.focus?.();
       return;
     }
 
-    const prodBtn = event.target.closest('[data-w-prod]');
-    if (prodBtn) {
-      selectedProdSlug = prodBtn.dataset.wProd;
-      selectedVarName = '';
-      if (selectedProdSlug === 'custom' && form.elements.productName) {
-        form.elements.productName.value = '';
+    const comboPick = event.target.closest('[data-w-combo-pick]');
+    if (comboPick) {
+      pickComboValue(comboPick.dataset.wComboPick);
+      return;
+    }
+
+    if (event.target.closest('[data-w-combo-clear]')) {
+      if (productInput) {
+        productInput.value = '';
+        syncComboClear();
+        openComboMenu('');
+        productInput.focus?.();
       }
-      syncProductSelection();
-      if (selectedProdSlug === 'custom') form.elements.productName?.focus?.();
-      else if (form.elements.externalOrderNumber && !form.elements.externalOrderNumber.value) form.elements.externalOrderNumber.focus?.();
       return;
     }
 
-    const varBtn = event.target.closest('[data-w-var]');
-    if (varBtn) {
-      selectedVarName = varBtn.dataset.wVar;
-      syncProductSelection();
+    if (event.target.closest('[data-w-combo-toggle]')) {
+      if (prodMenu && !prodMenu.hidden) {
+        closeComboMenu();
+      } else {
+        openComboMenu('');
+        productInput?.focus?.();
+      }
       return;
     }
 
@@ -562,7 +668,10 @@
       form.elements.source.disabled = true;
       syncChannelPills();
       form.elements.externalOrderNumber.value = row.orderNumber;
-      matchExistingProductToChips(row.productName);
+      if (productInput) {
+        productInput.value = row.productName || '';
+        syncComboClear();
+      }
       if (form.elements.serial) form.elements.serial.value = row.serial || '';
       form.elements.purchaseDate.value = row.claimedPurchaseDate || '';
       for (const name of ['fullName', 'phone', 'address', 'city', 'email']) if (form.elements[name]) form.elements[name].value = '';
@@ -633,7 +742,7 @@
     }
   });
 
-  // Dynamically enrich catalog chips with any additional active products from store API without blocking initial render
+  // Dynamically enrich searchable catalog list with active products from store API
   (async () => {
     try {
       const res = await fetch('/api/products', { credentials: 'same-origin' });
@@ -658,7 +767,8 @@
           });
         }
       }
-      syncProductSelection();
+      if (prodMenu && !prodMenu.hidden) renderComboMenu(lastFilterQuery);
+      else renderComboMenu('');
     } catch {}
   })();
 
