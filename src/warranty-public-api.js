@@ -6,17 +6,18 @@ const {requireCsrf}=require('./security');
 const {withTransaction}=require('./db');
 const {appendAudit}=require('./audit');
 const {enqueueAdminDomainNotification}=require('./smtp-delivery');
+const emptyToUndefined=v=>typeof v==='string'&&v.trim()===''?undefined:v;
 const contactSchema=z.object({
  fullName:z.string().trim().min(2).max(120),
  phone:z.string().trim().regex(/^\+?[0-9().\-\s]{8,25}$/).refine(value=>/^\+?\d{8,15}$/.test(value.replace(/[().\-\s]/g,''))),
- address:z.string().trim().min(5).max(250),
- email:z.string().trim().email().max(254).optional(),
- city:z.string().trim().min(2).max(120)
-}).strict();
+ address:z.string().trim().max(250).optional().default(''),
+ email:z.preprocess(emptyToUndefined,z.string().trim().email().max(254).optional()),
+ city:z.string().trim().max(120).optional().default('')
+}).strict().refine(c=>(c.address===''&&c.city==='')||(c.address.length>=5&&c.city.length>=2),'Nhập đầy đủ địa chỉ và tỉnh/thành phố hoặc để trống cả hai mục tùy chọn.');
 const requestSchema=z.object({
  channel:z.enum(['website','shopee','tiktok','lazada']),
  externalOrderNumber:z.string().trim().min(3).max(100),
- purchaseDate:z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/).refine(v=>v>='2000-01-01'&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v&&v<=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),'Ngày mua không hợp lệ hoặc nằm trong tương lai.').optional(),
+ purchaseDate:z.preprocess(emptyToUndefined,z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/).refine(v=>v>='2000-01-01'&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v&&v<=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),'Ngày mua không hợp lệ hoặc nằm trong tương lai.').optional()),
  productName:z.string().trim().min(2).max(200),
  serial:z.string().trim().max(80).regex(/^[A-Za-z0-9 ._/-]*$/).default(''),
  contact:contactSchema,requestKey:z.string().uuid()
@@ -27,7 +28,7 @@ function createWarrantyPublicApi(pool,config=null){
  require("./warranty-management").mountWarrantyManagement(router,pool,requestSchema);
  router.post('/',requireCsrf,rateLimit({...sharedStore(pool,config||{},'warranty-public'),windowMs:15*60*1000,limit:15,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều đăng ký. Vui lòng thử lại sau hoặc liên hệ GAERU.'}}),async(req,res,next)=>{
   const parsed=requestSchema.safeParse(req.body);
-  if(!parsed.success)return res.status(400).json({error:'Chọn kênh mua, nhập mã đơn, sản phẩm, họ tên, số điện thoại và địa chỉ hợp lệ.'});
+  if(!parsed.success)return res.status(400).json({error:'Chọn kênh mua, thiết bị, nhập mã đơn, họ tên và số điện thoại hợp lệ.'});
   try{
    const a=parsed.data,customerId=req.session?.customer?.id||null;
    const guestHash=customerId?null:createHash('sha256').update(req.sessionID).digest('hex');
@@ -56,7 +57,7 @@ function createWarrantyPublicApi(pool,config=null){
       entityId:activation.id,
       dedupeKey:'warranty_ext:'+activation.id,
       subject:`GAERU Bảo hành · Đăng ký mới từ ${a.channel.toUpperCase()} (${a.externalOrderNumber})`,
-      bodyText:`Khách hàng: ${a.contact.fullName}\nSĐT: ${a.contact.phone}\nEmail: ${a.contact.email||'N/A'}\nKênh: ${a.channel}\nMã đơn: ${a.externalOrderNumber}\nSản phẩm: ${a.productName}${a.serial?' · Serial: '+a.serial.toUpperCase():''}\nĐịa chỉ: ${a.contact.address}, ${a.contact.city}`
+      bodyText:`Khách hàng: ${a.contact.fullName}\nSĐT: ${a.contact.phone}\nEmail: ${a.contact.email||'N/A'}\nKênh: ${a.channel}\nMã đơn: ${a.externalOrderNumber}\nSản phẩm: ${a.productName}${a.serial?' · Serial: '+a.serial.toUpperCase():''}\nĐịa chỉ: ${(a.contact.address&&a.contact.city)?`${a.contact.address}, ${a.contact.city}`:'Chưa bổ sung (đăng ký nhanh)'}`
     });
     return {status:201,activation,managementToken};
    });

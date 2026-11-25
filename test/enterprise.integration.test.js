@@ -370,7 +370,7 @@ test("enterprise workflows integrate authentication, approvals, warehouse stock,
     assert.equal((await guest.request('/api/warranty-requests','POST',{...data,requestKey:randomUUID()})).status,409);
     const duplicate=await otherGuest.request('/api/warranty-requests','POST',{...data,externalOrderNumber:' shopee-test-001 ',serial:'',requestKey:randomUUID()});assert.equal(duplicate.status,409);
     const known=(await pool.query('SELECT order_number FROM orders LIMIT 1')).rows[0];assert.equal((await guest.request('/api/warranty-requests','POST',{...data,channel:'website',externalOrderNumber:known.order_number,serial:'',requestKey:randomUUID()})).status,409);
-    const guestWebsite=(await guest.ok('/api/warranty-requests','POST',{...data,channel:'website',externalOrderNumber:'GUEST-WEB-ORDER',serial:'',requestKey:randomUUID()},201)).activation;
+    const guestWebsite=(await guest.ok('/api/warranty-requests','POST',{channel:'website',externalOrderNumber:'GUEST-WEB-ORDER',productName:'GAERU M3 · Type C',contact:{fullName:'Quick Buyer',phone:'0912345678'},requestKey:randomUUID()},201)).activation;
     assert.equal(guestWebsite.status,'pending');
     assert.equal((await guest.request('/api/customer/warranties')).status,401);
     for(const channel of ['tiktok','lazada']){

@@ -64,8 +64,27 @@ test('warranty submission persists the ward supplied by the shared address picke
  await ui.form.listeners.submit({preventDefault(){}});
  const body=JSON.parse(ui.requests.find(r=>r.url==='/api/warranty-requests').options.body);
  assert.equal(body.contact.address,'123 Guest Street, Phường Ba Đình');assert.equal(body.contact.city,'Hà Nội');
- const blocked=page(false,'Hà Nội','',[],false,addressApi);await settled();blocked.form.elements.source.value='shopee';blocked.form.elements.source.listeners.change();await blocked.form.listeners.submit({preventDefault(){}});
+ const blocked=page(false,'Hà Nội','',[],false,addressApi);await settled();blocked.form.elements.source.value='shopee';blocked.form.elements.source.listeners.change();blocked.form.elements.productName.value='GAERU K9';await blocked.form.listeners.submit({preventDefault(){}});
  assert.equal(blocked.requests.some(r=>r.url==='/api/warranty-requests'),false);assert.match(blocked.node('[data-w-status]').textContent,/Chọn phường/);
+});
+
+test('Option A: streamlined 4-field submission succeeds without email, purchaseDate or address, and 1-tap product chip sets productName',async()=>{
+ const ui=page(false,'','',[],true);await settled();
+ assert.equal(ui.node('[data-w-history]').hidden,true,'empty history stays hidden');
+ ui.form.elements.source.value='shopee';ui.form.elements.source.listeners.change();
+ await ui.node('#warranty-activation').listeners.click({target:{closest:s=>s==='[data-w-prod]'?{dataset:{wProd:'gaeru-m3'}}:null}});
+ assert.equal(ui.form.elements.productName.value,'GAERU M3 · Type C');
+ ui.form.elements.externalOrderNumber.value='SPX-QUICK-001';
+ ui.form.elements.fullName.value='Khách Nhanh';
+ ui.form.elements.phone.value='0912345678';
+ await ui.form.listeners.submit({preventDefault(){}});
+ const req=ui.requests.find(r=>r.url==='/api/warranty-requests'&&r.options.method==='POST');
+ assert.ok(req);
+ const body=JSON.parse(req.options.body);
+ assert.equal(body.channel,'shopee');
+ assert.equal(body.productName,'GAERU M3 · Type C');
+ assert.equal(body.purchaseDate,undefined);
+ assert.deepEqual(body.contact,{fullName:'Khách Nhanh',phone:'0912345678',address:'',city:''});
 });
 
 

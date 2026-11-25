@@ -136,7 +136,7 @@
               '<span class="warranty-order-count">' + items.length + ' sản phẩm' + (pending ? ' · ' + pending + ' chờ đối chiếu' : '') + '</span>' +
             '</summary>' +
             '<div class="warranty-order-body">' +
-              '<p class="warranty-contact">Liên hệ: ' + escape(w.contactPhone || 'Chưa có') + '<br>Địa chỉ: ' + escape(w.contactAddress) + ' · ' + escape(w.contactCity) + '</p>' +
+              '<p class="warranty-contact">Liên hệ: ' + escape(w.contactPhone || 'Chưa có') + (w.contactEmail ? ' · ' + escape(w.contactEmail) : '') + '<br>Địa chỉ: ' + escape([w.contactAddress, w.contactCity].filter(Boolean).join(' · ') || 'Chưa bổ sung') + '</p>' +
               items.map(w => card(w, data.today)).join('') +
             '</div>' +
           '</details>';
