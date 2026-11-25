@@ -447,7 +447,11 @@
       if (stickyPrice && priceNode) {
         const compact = priceNode.querySelector && priceNode.querySelector('.price-text-compact');
         const rawText = (compact && compact.textContent) ? compact.textContent : (priceNode.textContent || '');
-        stickyPrice.textContent = rawText.trim().replace(/^Từ\s+/i, '').replace(/\s+đến\s+/i, ' – ');
+        let displayPrice = rawText.trim().replace(/^Từ\s+/i, '').replace(/\s+đến\s+/i, ' – ');
+        if (displayPrice.includes('–')) {
+          displayPrice = 'Từ ' + displayPrice.split('–')[0].trim();
+        }
+        stickyPrice.textContent = displayPrice;
         stickyPrice.classList.toggle('is-flash', Boolean(priceNode.classList && priceNode.classList.contains('detail-price-flash')));
       }
       const hasVariant = Boolean(selector && selector.value);

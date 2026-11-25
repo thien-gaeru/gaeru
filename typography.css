@@ -82,3 +82,7 @@ p,li,dd{text-wrap:pretty}
 .catalog-description:empty,.product-card .product-copy>p:empty{display:none}
 
 .footer-help{font-size:var(--type-body)}.footer-help p,.footer-help a,.footer-help .footer-chat-link{font-size:inherit;font-family:inherit;font-weight:inherit;line-height:inherit}
+.price-text-compact{display:none}
+.shop-page .catalog-actions .price-text-full{display:none}
+.shop-page .catalog-actions .price-text-compact{display:inline}
+@media(max-width:768px){.price-text-full{display:none}.price-text-compact{display:inline}}
