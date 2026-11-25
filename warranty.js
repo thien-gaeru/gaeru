@@ -36,7 +36,7 @@
       <summary><div><p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2></div><span aria-hidden="true">+</span></summary>
       <div class="care-disclosure-body">
         <div class="w-top-bar">
-          <div class="w-session-pill is-guest" data-w-session role="status"><span class="w-session-text">Đăng ký nhanh không cần tài khoản · Lưu bảo hành vào hồ sơ</span><a class="w-login-cta" href="account.html">Đăng nhập →</a></div>
+          <div class="w-session-pill is-guest" data-w-session role="status"><span>Đăng ký nhanh không cần tài khoản ·</span><a class="w-login-cta" href="account.html">Đăng nhập</a><span>để lưu vào hồ sơ</span></div>
         </div>
         <form id="warranty-form" class="w-compact-form">
           <div class="w-step-block">
@@ -804,7 +804,7 @@
         const sessionEl = section.querySelector('[data-w-session]');
         sessionEl.classList?.remove?.('is-authed');
         sessionEl.classList?.add?.('is-guest');
-        sessionEl.innerHTML = '<span class="w-session-text">Đăng ký nhanh không cần tài khoản · Lưu bảo hành vào hồ sơ</span><a class="w-login-cta" href="account.html">Đăng nhập →</a>';
+        sessionEl.innerHTML = '<span>Đăng ký nhanh không cần tài khoản ·</span><a class="w-login-cta" href="account.html">Đăng nhập</a><span>để lưu vào hồ sơ</span>';
       }
     } catch {
       section.querySelector('[data-w-session]').textContent = 'Điền mã đơn và số điện thoại bên dưới để đăng ký nhanh.';
