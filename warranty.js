@@ -36,7 +36,7 @@
       <summary><div><p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2></div><span aria-hidden="true">+</span></summary>
       <div class="care-disclosure-body">
         <div class="w-top-bar">
-          <p class="w-session-pill" data-w-session role="status">Đăng ký nhanh không cần tài khoản · Bảo hành 12 tháng</p>
+          <div class="w-session-pill is-guest" data-w-session role="status"><span class="w-session-text">Đăng ký nhanh không cần tài khoản · Lưu bảo hành vào hồ sơ</span><a class="w-login-cta" href="account.html">Đăng nhập →</a></div>
         </div>
         <form id="warranty-form" class="w-compact-form">
           <div class="w-step-block">
@@ -784,7 +784,10 @@
           form.elements.source.value = 'account';
           changeSource();
         }
-        section.querySelector('[data-w-session]').textContent = '✓ Đã tự điền thông tin của ' + customer.fullName;
+        const sessionEl = section.querySelector('[data-w-session]');
+        sessionEl.classList?.remove?.('is-guest');
+        sessionEl.classList?.add?.('is-authed');
+        sessionEl.textContent = '✓ Đã tự điền thông tin của ' + customer.fullName;
         const results = await Promise.allSettled([
           orders(),
           list(),
@@ -798,7 +801,10 @@
         }
       } else {
         try { await list(); } catch {}
-        section.querySelector('[data-w-session]').innerHTML = 'Đăng ký nhanh không cần tài khoản · <a href="account.html">Đăng nhập</a> để lưu vào hồ sơ';
+        const sessionEl = section.querySelector('[data-w-session]');
+        sessionEl.classList?.remove?.('is-authed');
+        sessionEl.classList?.add?.('is-guest');
+        sessionEl.innerHTML = '<span class="w-session-text">Đăng ký nhanh không cần tài khoản · Lưu bảo hành vào hồ sơ</span><a class="w-login-cta" href="account.html">Đăng nhập →</a>';
       }
     } catch {
       section.querySelector('[data-w-session]').textContent = 'Điền mã đơn và số điện thoại bên dưới để đăng ký nhanh.';

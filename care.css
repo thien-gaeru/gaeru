@@ -76,7 +76,12 @@
 #warranty-activation [hidden]{display:none!important}
 #warranty-activation .w-sr-only,#warranty-form .w-sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 #warranty-activation .w-top-bar{margin:0 0 8px}
-#warranty-activation .w-session-pill{display:inline-block;margin:0;padding:4px 11px;border-radius:999px;background:#f2f6fa;color:#3a3a3c;font-size:12px;line-height:1.4}
+#warranty-activation .w-session-pill{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:0;padding:6px 10px 6px 13px;border-radius:12px;background:#f2f6fa;border:1px solid #e2eaf4;color:#3a3a3c;font-size:12.5px;line-height:1.4}
+#warranty-activation .w-session-pill.is-guest{background:#f0f6ff;border-color:#d4e4ff}
+#warranty-activation .w-session-pill.is-authed{display:inline-flex;background:#eef8f2;border-color:#ccead8;color:#1b5e38;font-weight:600;padding:5px 12px;border-radius:999px}
+#warranty-activation .w-session-text{flex:1 1 auto;min-width:0}
+#warranty-activation .w-login-cta{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:5px 13px;min-height:28px;border-radius:999px;background:#0060c7;color:#fff!important;font-size:12px;font-weight:600;line-height:1.2;text-decoration:none!important;white-space:nowrap;box-shadow:0 2px 6px rgba(0,96,199,0.24);transition:background .15s,box-shadow .15s}
+#warranty-activation .w-login-cta:hover{background:#004fa6;box-shadow:0 3px 8px rgba(0,96,199,0.32)}
 #warranty-form.w-compact-form{gap:11px}
 #warranty-form.w-compact-form fieldset.w-external-fieldset,#warranty-form.w-compact-form fieldset.w-contact-fieldset{display:block;border:0;padding:0;margin:0;border-radius:0}
 #warranty-form.w-compact-form fieldset.w-account-box{display:block;padding:12px 14px;border:1px solid #dce6f2;border-radius:14px;background:#f7faff;margin:0}
