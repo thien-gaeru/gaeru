@@ -299,7 +299,7 @@ test('Safety guards: OOS product never emits Buy CTA, negation blocks carryover,
   // 4. Quality follow-up & punctuation nudge
   const qualTurns = await runConversation(['p185', 'có bền không', '?']);
   assert.equal(Boolean(qualTurns[1].res.isFallback), false);
-  assert.ok(qualTurns[1].res.answer.includes('GAERU P185') && qualTurns[1].res.answer.includes('12 tháng'));
+  assert.ok(qualTurns[1].res.answer.includes('GAERU P185') && qualTurns[1].res.answer.includes('7 ngày') && qualTurns[1].res.answer.includes('không áp dụng bảo hành 12 tháng'));
   assert.equal(qualTurns[2].res.intent, 'meta_nudge');
   assert.ok(qualTurns[2].res.answer.includes('GAERU P185'));
 });

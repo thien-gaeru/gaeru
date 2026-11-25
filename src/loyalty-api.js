@@ -50,16 +50,72 @@ function calculateTier(lifetimeEarned, policy = DEFAULT_POLICY) {
 // -----------------------------------------------------------------------------
 // CORE CONCURRENCY-SAFE LOYALTY LEDGER
 // -----------------------------------------------------------------------------
+async function expireLockedLoyaltyIfDue(client, row, actor = { username: 'loyalty-expiry', source: 'system' }) {
+  if (!row || !(Number(row.pointsBalance) > 0) || !row.expiresAt) return row;
+  const expMs = new Date(row.expiresAt).getTime();
+  if (!Number.isFinite(expMs) || expMs > Date.now()) return row;
+  const expiredPoints = Number(row.pointsBalance);
+  const eventKey = `expire:${row.customerId}:${Math.floor(expMs / 1000)}`;
+  const existing = await client.query('SELECT id FROM customer_loyalty_ledger WHERE event_key = $1', [eventKey]);
+  await client.query(
+    `UPDATE customer_loyalty
+        SET points_balance = 0, expires_at = NULL, updated_at = now()
+      WHERE customer_id = $1`,
+    [row.customerId]
+  );
+  if (!existing.rows.length) {
+    await client.query(
+      `INSERT INTO customer_loyalty_ledger (customer_id, order_id, type, points, balance_after, reason, event_key)
+       VALUES ($1, NULL, 'expire', $2, 0, $3, $4)`,
+      [row.customerId, -expiredPoints, 'Thu hồi tự động GAERU Xu hết hạn sau 12 tháng không phát sinh giao dịch tích Xu mới', eventKey]
+    );
+    if (actor) {
+      await appendAudit(client, {
+        actor,
+        action: 'loyalty.expire',
+        entityType: 'customer',
+        entityId: row.customerId,
+        metadata: { expiredPoints, expiredAt: new Date(expMs).toISOString() }
+      });
+    }
+  }
+  return { ...row, pointsBalance: 0, expiresAt: null };
+}
+
+async function expireDueLoyaltyPoints(pool) {
+  return withTransaction(pool, async client => {
+    const lock = (await client.query("SELECT pg_try_advisory_xact_lock(hashtext('gaeru:loyalty-expiry')) AS acquired")).rows[0];
+    if (!lock?.acquired) return 0;
+    const due = (await client.query(
+      `SELECT customer_id AS "customerId", points_balance AS "pointsBalance",
+              lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
+              COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
+              tier, expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM customer_loyalty
+        WHERE points_balance > 0 AND expires_at IS NOT NULL AND expires_at <= now()
+        ORDER BY expires_at ASC
+        LIMIT 100
+        FOR UPDATE SKIP LOCKED`
+    )).rows;
+    let expiredCount = 0;
+    for (const row of due) {
+      const after = await expireLockedLoyaltyIfDue(client, row);
+      if (after.pointsBalance === 0 && row.pointsBalance > 0) expiredCount++;
+    }
+    return expiredCount;
+  });
+}
+
 async function getOrCreateLoyalty(client, customerId) {
   const sel = await client.query(
     `SELECT customer_id AS "customerId", points_balance AS "pointsBalance",
             lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
             COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
-            tier, created_at AS "createdAt", updated_at AS "updatedAt"
+            tier, expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
      FROM customer_loyalty WHERE customer_id = $1 FOR UPDATE`,
     [customerId]
   );
-  if (sel.rows.length) return sel.rows[0];
+  if (sel.rows.length) return expireLockedLoyaltyIfDue(client, sel.rows[0]);
 
   const ins = await client.query(
     `INSERT INTO customer_loyalty (customer_id, points_balance, lifetime_earned, lifetime_spent, clawback_debt_points, tier)
@@ -68,10 +124,10 @@ async function getOrCreateLoyalty(client, customerId) {
      RETURNING customer_id AS "customerId", points_balance AS "pointsBalance",
                lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
                COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
-               tier, created_at AS "createdAt", updated_at AS "updatedAt"`,
+               tier, expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"`,
     [customerId]
   );
-  return ins.rows[0];
+  return expireLockedLoyaltyIfDue(client, ins.rows[0]);
 }
 
 async function settleClawbackDebtInTx(client, { customerId, orderId = null, balance, clawbackDebt, eventKey, reason }) {
@@ -177,7 +233,9 @@ async function earnPoints(client, { customerId, orderId, orderTotalVnd, pointsRa
 
   await client.query(
     `UPDATE customer_loyalty
-     SET points_balance = $2, lifetime_earned = $3, tier = $4, updated_at = now()
+     SET points_balance = $2, lifetime_earned = $3, tier = $4,
+         expires_at = CASE WHEN $2 > 0 THEN now() + interval '12 months' ELSE NULL END,
+         updated_at = now()
      WHERE customer_id = $1`,
     [customerId, newBalance, newLifetimeEarned, newTier]
   );
@@ -277,7 +335,9 @@ async function redeemPoints(client, { customerId, orderId, pointsToRedeem, maxRe
 
   await client.query(
     `UPDATE customer_loyalty
-     SET points_balance = $2, lifetime_spent = $3, updated_at = now()
+     SET points_balance = $2, lifetime_spent = $3,
+         expires_at = CASE WHEN $2 > 0 THEN COALESCE(expires_at, now() + interval '12 months') ELSE NULL END,
+         updated_at = now()
      WHERE customer_id = $1`,
     [customerId, newBalance, newLifetimeSpent]
   );
@@ -346,7 +406,9 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
 
       await client.query(
         `UPDATE customer_loyalty
-         SET points_balance = $2, lifetime_spent = $3, updated_at = now()
+         SET points_balance = $2, lifetime_spent = $3,
+             expires_at = CASE WHEN $2 > 0 THEN COALESCE(expires_at, now() + interval '12 months') ELSE NULL END,
+             updated_at = now()
          WHERE customer_id = $1`,
         [customerId, newBalance, newSpent]
       );
@@ -471,9 +533,15 @@ async function adjustPoints(pool, { customerId, points, reason, actor, requestKe
 
     await client.query(
       `UPDATE customer_loyalty
-       SET points_balance = $2, lifetime_earned = $3, tier = $4, updated_at = now()
+       SET points_balance = $2, lifetime_earned = $3, tier = $4,
+           expires_at = CASE
+             WHEN $2 <= 0 THEN NULL
+             WHEN $5 > 0 THEN now() + interval '12 months'
+             ELSE COALESCE(expires_at, now() + interval '12 months')
+           END,
+           updated_at = now()
        WHERE customer_id = $1`,
-      [customerId, newBalance, newEarned, newTier]
+      [customerId, newBalance, newEarned, newTier, points]
     );
 
     const entry = await client.query(
@@ -537,18 +605,22 @@ function createLoyaltyApi(pool) {
       const activeCust = (await pool.query('SELECT id FROM customers WHERE id = $1 AND active = true AND deleted_at IS NULL', [customerId])).rows[0];
       if (!activeCust) return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
 
-      const loyaltyRes = await pool.query(
-        `SELECT points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
+      let loyaltyRow = (await pool.query(
+        `SELECT customer_id AS "customerId", points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
                 lifetime_spent AS "lifetimeSpent", COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
-                tier, updated_at AS "updatedAt"
+                tier, expires_at AS "expiresAt", updated_at AS "updatedAt"
          FROM customer_loyalty WHERE customer_id = $1`,
         [customerId]
-      );
-      const loyalty = loyaltyRes.rows[0] || {
+      )).rows[0];
+      if (loyaltyRow && loyaltyRow.pointsBalance > 0 && loyaltyRow.expiresAt && new Date(loyaltyRow.expiresAt).getTime() <= Date.now()) {
+        loyaltyRow = await withTransaction(pool, client => getOrCreateLoyalty(client, customerId));
+      }
+      const loyalty = loyaltyRow || {
         pointsBalance: 0,
         lifetimeEarned: 0,
         lifetimeSpent: 0,
         clawbackDebtPoints: 0,
+        expiresAt: null,
         tier: 'bronze'
       };
       const policy = await readPolicy(pool);
@@ -591,10 +663,14 @@ function createLoyaltyApi(pool) {
         }).parse(req.body);
 
         const loyaltyRes = await pool.query(
-          `SELECT points_balance FROM customer_loyalty WHERE customer_id = $1`,
+          `SELECT points_balance, expires_at FROM customer_loyalty WHERE customer_id = $1`,
           [customerId]
         );
-        const currentBalance = loyaltyRes.rows[0]?.points_balance || 0;
+        let currentBalance = loyaltyRes.rows[0]?.points_balance || 0;
+        if (currentBalance > 0 && loyaltyRes.rows[0]?.expires_at && new Date(loyaltyRes.rows[0].expires_at).getTime() <= Date.now()) {
+          const refreshed = await withTransaction(pool, client => getOrCreateLoyalty(client, customerId));
+          currentBalance = refreshed.pointsBalance || 0;
+        }
         const remainingProductVnd = payableBeforeLoyaltyVnd !== undefined
           ? Math.min(subtotalVnd, payableBeforeLoyaltyVnd)
           : Math.max(0, subtotalVnd - existingDiscountVnd);
@@ -655,7 +731,7 @@ function createLoyaltyApi(pool) {
         const loyaltyRes = await pool.query(
           `SELECT points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned",
                   lifetime_spent AS "lifetimeSpent", COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
-                  tier, updated_at AS "updatedAt"
+                  tier, expires_at AS "expiresAt", updated_at AS "updatedAt"
            FROM customer_loyalty WHERE customer_id = $1`,
           [customerId]
         );
@@ -664,6 +740,7 @@ function createLoyaltyApi(pool) {
           lifetimeEarned: 0,
           lifetimeSpent: 0,
           clawbackDebtPoints: 0,
+          expiresAt: null,
           tier: 'bronze'
         };
         const policy = await readPolicy(pool);
@@ -715,6 +792,7 @@ function createLoyaltyApi(pool) {
 module.exports = {
   createLoyaltyApi,
   getOrCreateLoyalty,
+  expireDueLoyaltyPoints,
   earnPoints,
   redeemPoints,
   refundPoints,

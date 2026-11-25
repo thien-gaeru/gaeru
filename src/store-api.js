@@ -1003,9 +1003,9 @@ function createStoreApi(pool, { ordersEnabled = false, getOrdersEnabled = null, 
     if (!Number.isSafeInteger(finalTotal) || finalTotal < 0 || finalTotal > 2_000_000_000) {
       throw Object.assign(new Error("Tổng giá trị đơn hàng vượt giới hạn cho phép."), { status: 400 });
     }
-    if (paymentMethod !== "cod" && finalTotal < 1) {
+    if (paymentMethod !== "cod" && finalTotal < 1000) {
       throw Object.assign(
-        new Error("Tổng thanh toán sau ưu đãi bằng 0 ₫; cổng thanh toán trực tuyến yêu cầu tối thiểu 1 ₫. Vui lòng chọn COD hoặc giảm số Xu sử dụng."),
+        new Error("Tổng thanh toán trực tuyến sau ưu đãi cần đạt tối thiểu 1.000 ₫ theo quy định cổng ngân hàng. Vui lòng chọn COD hoặc giảm số Xu sử dụng."),
         { status: 400 }
       );
     }

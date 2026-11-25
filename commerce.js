@@ -1773,10 +1773,7 @@ function bindGlobalControls() {
                 <span class="qc-perk-ico" aria-hidden="true">🎟️</span>
                 <span>Voucher &amp; Xu</span>
               </span>
-              <span class="qc-perk-chip is-perk" title="Bảo hành chính hãng GAERU 12 tháng">
-                <span class="qc-perk-ico" aria-hidden="true">🛡️</span>
-                <span>BH 12T</span>
-              </span>
+              ${(product.category === "accessory" || product.slug === "gaeru-p185" || product.slug === "dau-chuyen-doi-micro-gaeru") ? `<span class="qc-perk-chip is-perk" title="Đổi mới 1:1 trong 7 ngày nếu lỗi nhà sản xuất hoặc giao sai hàng"><span class="qc-perk-ico" aria-hidden="true">🛡️</span><span>Đổi lỗi 7N</span></span>` : `<span class="qc-perk-chip is-perk" title="Bảo hành chính hãng GAERU 12 tháng"><span class="qc-perk-ico" aria-hidden="true">🛡️</span><span>BH 12T</span></span>`}
             </section>
 
             <div class="qc-options-section">

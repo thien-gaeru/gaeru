@@ -29,6 +29,9 @@ function createWarrantyPublicApi(pool,config=null){
  router.post('/',requireCsrf,rateLimit({...sharedStore(pool,config||{},'warranty-public'),windowMs:15*60*1000,limit:15,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Bạn đã gửi nhiều đăng ký. Vui lòng thử lại sau hoặc liên hệ GAERU.'}}),async(req,res,next)=>{
   const parsed=requestSchema.safeParse(req.body);
   if(!parsed.success)return res.status(400).json({error:'Chọn kênh mua, thiết bị, nhập mã đơn, họ tên và số điện thoại hợp lệ.'});
+  if(/(?:^|[^a-z0-9])p185(?:$|[^a-z0-9])|^đầu chuyển đổi|dau chuyen doi/i.test(parsed.data.productName.normalize('NFC'))){
+   return res.status(400).json({error:'Sản phẩm thuộc nhóm phụ kiện (GAERU P185, Đầu chuyển đổi) không áp dụng chế độ bảo hành 12 tháng. Nếu gặp lỗi từ nhà sản xuất hoặc giao sai hàng trong 7 ngày đầu, vui lòng gửi yêu cầu tại mục Đổi trả (RMA) hoặc GAERU Care+.'});
+  }
   try{
    const a=parsed.data,customerId=req.session?.customer?.id||null;
    const guestHash=customerId?null:createHash('sha256').update(req.sessionID).digest('hex');

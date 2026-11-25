@@ -417,7 +417,7 @@ function createTrackingApi(pool, config = {}) {
     orderNumber: z.string().trim().min(3).max(64),
     challenge: z.string().trim().min(3).max(255),
     returnType: z.enum(['exchange', 'refund']).default('exchange'),
-    reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'change_mind', 'other']).default('faulty'),
+    reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'other']).default('faulty'),
     reason: z.string().trim().min(5).max(2000),
     bankInfo: z.object({
       bankName: z.string().trim().max(100).optional(),

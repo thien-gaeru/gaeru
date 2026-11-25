@@ -260,15 +260,16 @@ if (footerRoot) {
             <a href="/chinh-sach/gia">Chính sách giá</a>
             <a href="/chinh-sach/thanh-toan">Chính sách thanh toán</a>
             <a href="/chinh-sach/giao-hang-doi-tra">Bán hàng và hoàn tiền</a>
+            <a href="/chinh-sach/gaeru-xu">Chính sách GAERU Xu</a>
             <a href="/khieu-nai">Giải quyết khiếu nại</a>
             <a href="/phap-ly">Pháp lý</a>
             <a href="/so-do-trang-web">Sơ đồ trang web</a>
           </nav>
         </div>
         <p class="footer-business-info">
-          GAERU · Mã số đăng ký &amp; Mã số thuế: 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
+          HỘ KINH DOANH GAERU · Mã số đăng ký &amp; Mã số thuế: 8836293843-002 do Phòng Kinh tế UBND Xã Rạng Đông cấp ngày 05/01/2024.<br>
           Địa chỉ: Thôn 2, Xã Rạng Đông, Tỉnh Ninh Bình · Hotline: 082 919 1080 · Email: business@gaeru.com<br>
-          Website thương mại điện tử bán hàng tuân thủ Nghị định 52/2013/NĐ-CP và Nghị định 85/2021/NĐ-CP.
+          Website thương mại điện tử bán hàng tuân thủ Luật Thương mại điện tử 2025, Nghị định 52/2013/NĐ-CP và Nghị định 85/2021/NĐ-CP.
         </p>
       </div>
     </footer>`;

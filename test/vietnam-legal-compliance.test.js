@@ -79,3 +79,66 @@ test('GAERU Xu policy complies with Decree 81/2018/ND-CP, Decree 52/2024/ND-CP &
   assert.ok(html.includes('hoàn tiền') || html.includes('hoàn trả') || html.includes('Hủy đơn hàng'), 'Must define refund and reversal policy for customer protection');
   assert.ok(html.includes('Luật Bảo vệ quyền lợi người tiêu dùng'), 'Must cite Consumer Protection Law');
 });
+
+test('2026-11-25 Policy & Operational Alignment: HỘ KINH DOANH GAERU, online.gov.vn review status, no change-mind RMA, accessory warranty exclusion, and 12-month GAERU Xu rolling expiry', async (t) => {
+  const legalHtml = fs.readFileSync(path.join(ROOT_DIR, 'legal.html'), 'utf8');
+  assert.ok(legalHtml.includes('HỘ KINH DOANH GAERU'), 'Must disclose full registered household business name');
+  assert.match(legalHtml, /online\.gov\.vn[\s\S]*đang trong quá trình.*xét duyệt/i, 'Must accurately state MOIT filing is under review');
+
+  const returnsHtml = fs.readFileSync(path.join(ROOT_DIR, 'delivery-returns.html'), 'utf8');
+  assert.match(returnsHtml, /không áp dụng đổi\/trả đối với trường hợp khách hàng đổi ý/i, 'Must explicitly exclude change-of-mind returns');
+  assert.match(returnsHtml, /GAERU P185[\s\S]*Đầu chuyển đổi[\s\S]*không áp dụng chế độ bảo hành 12 tháng/i, 'Must explicitly exclude P185 and adapters from 12m warranty');
+
+  const { REASON_CATEGORIES } = require('../src/order-after-sales');
+  assert.equal('change_mind' in REASON_CATEGORIES, false, 'RMA reason categories must not allow change_mind');
+
+  const { PGlite } = require('@electric-sql/pglite');
+  const { migrateDatabase } = require('../src/migrate');
+  const { earnPoints, getOrCreateLoyalty, expireDueLoyaltyPoints } = require('../src/loyalty-api');
+  const db = await PGlite.create();
+  const pool = {
+    async query(sql, values) {
+      const r = !values && sql.includes(';') ? (await db.exec(sql)).at(-1) : await db.query(sql, values);
+      return { ...r, rows: r?.rows || [], rowCount: r?.affectedRows ?? r?.rows?.length ?? 0 };
+    },
+    async connect() { return { query: pool.query, release() {} }; }
+  };
+  t.after(() => db.close());
+  await migrateDatabase(pool);
+
+  // 1. Accessory items (P185 & Đầu chuyển đổi) do NOT auto-generate 12-month website warranties, while K9 does
+  const ord = (await pool.query(
+    "INSERT INTO orders(order_number,customer_name,email,phone,address,city,payment_method,subtotal_vnd,total_vnd) VALUES('WAR-ACC-01','Test','t@example.invalid','0912345678','123 Street','Hà Nội','cod',600000,600000) RETURNING id"
+  )).rows[0];
+  const k9Item = (await pool.query("INSERT INTO order_items(order_id,product_name,variant_name,sku,unit_price_vnd,quantity,line_total_vnd) VALUES($1,'GAERU K9','Type-C','K9-TC',300000,1,300000) RETURNING id", [ord.id])).rows[0];
+  const p185Item = (await pool.query("INSERT INTO order_items(order_id,product_name,variant_name,sku,unit_price_vnd,quantity,line_total_vnd) VALUES($1,'GAERU P185','Tiêu chuẩn','P185',250000,1,250000) RETURNING id", [ord.id])).rows[0];
+  const adapterItem = (await pool.query("INSERT INTO order_items(order_id,product_name,variant_name,sku,unit_price_vnd,quantity,line_total_vnd) VALUES($1,'Đầu chuyển đổi','Lightning','ADP-LT',50000,1,50000) RETURNING id", [ord.id])).rows[0];
+
+  assert.equal((await pool.query('SELECT count(*)::int AS c FROM warranty_activations WHERE order_item_id=$1', [k9Item.id])).rows[0].c, 1);
+  assert.equal((await pool.query('SELECT count(*)::int AS c FROM warranty_activations WHERE order_item_id=$1', [p185Item.id])).rows[0].c, 0);
+  assert.equal((await pool.query('SELECT count(*)::int AS c FROM warranty_activations WHERE order_item_id=$1', [adapterItem.id])).rows[0].c, 0);
+
+  // 2. GAERU Xu sets 12-month rolling expiry, extends on new earn, and expires overdue balance while preserving tier
+  const cust = (await pool.query("INSERT INTO customers(full_name,email,phone,password_hash) VALUES('Xu Tester','xu@example.invalid','0988777666','hash') RETURNING id")).rows[0];
+  await earnPoints(pool, { customerId: cust.id, orderId: ord.id, orderTotalVnd: 12000000 }); // 120,000 Xu -> Silver tier
+  let loyalty = (await pool.query('SELECT points_balance, lifetime_earned, tier, expires_at FROM customer_loyalty WHERE customer_id=$1', [cust.id])).rows[0];
+  assert.equal(loyalty.points_balance, 120000);
+  assert.equal(loyalty.tier, 'silver');
+  assert.ok(loyalty.expires_at && new Date(loyalty.expires_at).getTime() > Date.now() + 330 * 86400000, 'Sets ~12 month expiry');
+
+  // Simulate expiry timestamp passing (>12 months)
+  await pool.query("UPDATE customer_loyalty SET expires_at = now() - interval '2 days' WHERE customer_id=$1", [cust.id]);
+  const expiredCount = await expireDueLoyaltyPoints(pool);
+  assert.equal(expiredCount, 1);
+
+  const afterExpire = await getOrCreateLoyalty(pool, cust.id);
+  assert.equal(afterExpire.pointsBalance, 0, 'Expired points are zeroed');
+  assert.equal(afterExpire.lifetimeEarned, 120000, 'Lifetime earned is preserved');
+  assert.equal(afterExpire.tier, 'silver', 'Member tier is never downgraded on expiry');
+  assert.equal(afterExpire.expiresAt, null);
+
+  const ledgerExp = (await pool.query("SELECT type, points, balance_after FROM customer_loyalty_ledger WHERE customer_id=$1 AND type='expire'", [cust.id])).rows[0];
+  assert.ok(ledgerExp);
+  assert.equal(ledgerExp.points, -120000);
+  assert.equal(ledgerExp.balance_after, 0);
+});

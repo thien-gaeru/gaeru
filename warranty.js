@@ -21,12 +21,16 @@
   };
   const todayStr = formatDateVN(0);
 
+  const isExcludedAccessory = p => {
+    const slug = String(p?.slug || '').toLowerCase();
+    const name = String(p?.name || '');
+    return p?.category === 'accessory' || slug === 'gaeru-p185' || slug === 'dau-chuyen-doi-micro-gaeru' || /\bp185\b|đầu chuyển đổi/i.test(name);
+  };
   let catalogItems = [
     { slug: 'gaeru-m3', shortName: 'M3', name: 'GAERU M3', image: '/assets/products/m3-home-cutout.webp', variants: ['Type C', 'Type C + đầu chuyển Lightning', 'Type C + chuyển USB', 'Type C + chuyển Micro usb'] },
     { slug: 'gaeru-k9', shortName: 'K9', name: 'GAERU K9', image: '/assets/products/k9.webp', variants: ['Bộ 2 Mic · Type-C', 'Bộ 2 Mic · Lightning', 'Bộ 1 Mic · Type-C', 'Bộ 1 Mic · Lightning'] },
     { slug: 'gaeru-g1-ultra', shortName: 'G1 Ultra', name: 'GAERU G1 ULTRA', image: '/assets/products/g1-ultra-clean.webp', variants: [] },
-    { slug: 'gaeru-p01', shortName: 'P01', name: 'GAERU P01', image: '/assets/products/p01.webp', variants: ['Bản để bàn', 'Kèm chân Tripod 2m1'] },
-    { slug: 'gaeru-p185', shortName: 'P185', name: 'GAERU P185', image: '/assets/products/p185-cutout-1cc9dfde9fa3.webp', variants: [] }
+    { slug: 'gaeru-p01', shortName: 'P01', name: 'GAERU P01', image: '/assets/products/p01.webp', variants: ['Bản để bàn', 'Kèm chân Tripod 2m1'] }
   ];
 
   const defaultChannel = isStandalone ? 'shopee' : 'website';
@@ -751,7 +755,7 @@
       if (!body || !Array.isArray(body.products) || !body.products.length) return;
       const knownSlugs = new Set(catalogItems.map(c => c.slug));
       for (const p of body.products) {
-        if (!p || !p.slug || !p.name) continue;
+        if (!p || !p.slug || !p.name || isExcludedAccessory(p)) continue;
         const activeVars = Array.isArray(p.variants) ? p.variants.filter(v => v.active !== false).map(v => v.name).filter(Boolean) : [];
         const existing = catalogItems.find(c => c.slug === p.slug);
         if (existing) {

@@ -220,7 +220,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
     };
     const returnSchema = z.object({
       returnType: z.enum(['exchange', 'refund']).default('exchange'),
-      reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'change_mind', 'other']).default('faulty'),
+      reasonCategory: z.enum(['faulty', 'wrong_item', 'damaged', 'other']).default('faulty'),
       reason: z.string().trim().min(5, 'Lý do đổi trả phải có ít nhất 5 ký tự.').max(2000, 'Lý do tối đa 2000 ký tự.'),
       bankInfo: z.object({
         bankName: z.string().trim().max(100).optional(),

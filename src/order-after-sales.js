@@ -23,8 +23,7 @@ const REASON_CATEGORIES = Object.freeze({
   faulty: 'Sản phẩm lỗi kỹ thuật từ nhà sản xuất',
   wrong_item: 'Giao sai sản phẩm / sai phân loại / thiếu phụ kiện',
   damaged: 'Hàng bị bể vỡ, móp méo do vận chuyển',
-  change_mind: 'Đổi ý không còn nhu cầu (còn nguyên seal)',
-  other: 'Lý do khác'
+  other: 'Sự cố lỗi hoặc sai hàng khác'
 });
 
 const RETURN_TYPES = Object.freeze({

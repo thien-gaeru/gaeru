@@ -452,7 +452,9 @@ function buildClosingRecommendation({ prodEntry, question, space, history = [], 
           : `**${formatVnd(v.priceVnd)}**`;
         const isFreeShip = nationwideShipFee === 0 || (nationwideShipFee === undefined && Number(v.priceVnd) >= 500000);
         const shipNote = isFreeShip ? 'Freeship toàn quốc, ' : '';
-        lines.push(`Xác nhận chốt **${displayName}** · **${v.name}** (${priceNote} — **Còn hàng**, ${shipNote}bảo hành 12 tháng, đổi mới 1:1 trong 7 ngày lỗi NSX).`);
+        const isAcc = slug === 'gaeru-p185' || slug === 'dau-chuyen-doi-micro-gaeru' || liveProd?.category === 'accessory';
+        const warNote = isAcc ? 'đổi mới 1:1 trong 7 ngày lỗi NSX / giao sai' : 'bảo hành 12 tháng, đổi mới 1:1 trong 7 ngày lỗi NSX';
+        lines.push(`Xác nhận chốt **${displayName}** · **${v.name}** (${priceNote} — **Còn hàng**, ${shipNote}${warNote}).`);
       } else {
         lines.push(`**${displayName}** hiện có các lựa chọn phù hợp đang **Còn hàng**, bạn chọn đúng phân loại bên dưới để đặt mua ngay:`);
       }
@@ -707,7 +709,10 @@ function buildProductFeaturesAnswer({ slug, displayName, liveProd, spec, mode = 
     lines.push(`**Đánh giá độ ổn định & chất lượng ${displayName}** (${priceText}):`);
     if (spec?.audio) lines.push(`- **Điểm mạnh cốt lõi:** ${spec.audio}`);
     if (spec?.battery) lines.push(`- **Thời lượng pin:** ${spec.battery}`);
-    lines.push('- **Cam kết GAERU:** Chính hãng bảo hành **12 tháng**, **đổi mới 1:1 trong 7 ngày** nếu lỗi NSX và được **mở hộp đồng kiểm ngoại quan** trước khi thanh toán.');
+    const isAccQual = slug === 'gaeru-p185' || slug === 'dau-chuyen-doi-micro-gaeru' || liveProd?.category === 'accessory';
+    lines.push(isAccQual
+      ? '- **Cam kết GAERU:** Chính hãng **đổi mới 1:1 trong 7 ngày** nếu lỗi NSX / giao sai hàng (nhóm phụ kiện không áp dụng bảo hành 12 tháng) và được **mở hộp đồng kiểm ngoại quan** trước khi thanh toán.'
+      : '- **Cam kết GAERU:** Chính hãng bảo hành **12 tháng**, **đổi mới 1:1 trong 7 ngày** nếu lỗi NSX và được **mở hộp đồng kiểm ngoại quan** trước khi thanh toán.');
     if (ctaLine) lines.push(ctaLine);
     return lines.join('\n');
   }
@@ -849,7 +854,8 @@ function buildProductSpecificAnswer({ prodEntry, question, space, detailed, hist
     if (matchedVarLines) {
       parts.push(`**${displayName}** (${priceText}):\n${matchedVarLines}`);
     } else {
-      parts.push(`**${displayName}** hiện có giá **${priceText}** (bảo hành 12 tháng, đổi mới 1:1 trong 7 ngày lỗi NSX).`);
+      const isAccPrice = slug === 'gaeru-p185' || slug === 'dau-chuyen-doi-micro-gaeru' || liveProd?.category === 'accessory';
+      parts.push(`**${displayName}** hiện có giá **${priceText}** (${isAccPrice ? 'đổi mới 1:1 trong 7 ngày nếu lỗi NSX / giao sai' : 'bảo hành 12 tháng, đổi mới 1:1 trong 7 ngày lỗi NSX'}).`);
     }
   }
 
@@ -1881,7 +1887,8 @@ async function generateGaeruAiResponse({ pool, config = null, thread, question, 
     const authCareText = buildAuthenticatedWarrantyStatusLines(authData);
     sections.push(
       '**Chính sách Bảo hành & GAERU Care+:**\n' +
-      '- Bảo hành chính hãng **12 tháng** đối với lỗi sản xuất; **1 đổi 1 trong 7 ngày** đầu nếu phát sinh lỗi kỹ thuật từ nhà sản xuất hoặc giao sai phân loại (GAERU chịu 100% phí vận chuyển 2 chiều).\n' +
+      '- Bảo hành chính hãng **12 tháng** đối với lỗi sản xuất áp dụng cho các thiết bị thu âm & ghi hình (**GAERU K9, M3, G1 ULTRA, P01**; nhóm phụ kiện gồm **gậy P185, Đầu chuyển đổi** không áp dụng bảo hành 12 tháng).\n' +
+      '- **1 đổi 1 trong 7 ngày** đầu kể từ khi ký nhận (hoặc trả hàng hoàn tiền) nếu phát sinh lỗi kỹ thuật từ nhà sản xuất, hư hỏng vận chuyển hoặc giao sai hàng (GAERU chịu 100% phí vận chuyển 2 chiều; không áp dụng đổi/trả do đổi ý).\n' +
       '- Tra cứu/kích hoạt bảo hành bằng SĐT tại [/ho-tro](/ho-tro) hoặc gửi yêu cầu hỗ trợ trực tiếp tại [GAERU Care+](/care) (chuẩn bị mã đơn, tên sản phẩm và mô tả lỗi).' +
       (authCareText ? `\n\n${authCareText}` : '')
     );
