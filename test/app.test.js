@@ -95,6 +95,18 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.equal((await fetch(`${baseUrl}/src/app.js`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/db/schema.sql`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/package.json`)).status, 404);
+  const accountAlias = await fetch(`${baseUrl}/account?linkRequired=1`, { redirect: "manual" });
+  assert.equal(accountAlias.status, 302);
+  assert.equal(accountAlias.headers.get("location"), "/tai-khoan?linkRequired=1");
+  const complaintAlias = await fetch(`${baseUrl}/chinh-sach/khieu-nai`, { redirect: "manual" });
+  assert.equal(complaintAlias.status, 301);
+  assert.equal(complaintAlias.headers.get("location"), "/khieu-nai");
+  const notFoundHtmlResp = await fetch(`${baseUrl}/c`, { headers: { Accept: "text/html" } });
+  assert.equal(notFoundHtmlResp.status, 404);
+  const notFoundDoc = require("linkedom").parseHTML(await notFoundHtmlResp.text()).document;
+  assert.equal(notFoundDoc.querySelector('link[rel="canonical"]'), null);
+  assert.equal(notFoundDoc.querySelector('meta[name="robots"]')?.getAttribute("content"), "noindex");
+  assert.equal(notFoundDoc.querySelectorAll('script[type="application/ld+json"]').length, 0);
 
   const login = await fetch(`${baseUrl}/api/auth/login`, {
     method: "POST",

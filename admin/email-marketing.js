@@ -72,7 +72,7 @@
           ${(data.campaigns.map(c => `
             <article class="marketing-email-card">
               <div class="marketing-promotion-top">
-                <span class="status-pill status-${c.status}">${label[c.status] || c.status}</span>
+                <span class="status-pill status-${h(c.status)}">${h(label[c.status] || c.status)}</span>
                 <small style="color:#86868b;">${new Date(c.scheduled_at).toLocaleString('vi-VN')}</small>
               </div>
               <h3>${h(c.title)}</h3>
@@ -86,11 +86,11 @@
                 <div class="metric-item"><strong style="color:#9e9e9e;">${c.skipped}</strong><span>Bỏ qua</span></div>
               </div>
               <div class="marketing-email-actions">
-                <button type="button" class="secondary-button" data-email-view="${c.id}">${c.status === 'draft' && admin.can('marketing.write') ? 'Mở bản nháp' : 'Xem nội dung'}</button>
-                ${admin.can('marketing.write') && ['draft', 'scheduled', 'sending'].includes(c.status) ? `<button type="button" class="secondary-button" data-email-cancel="${c.id}">${c.status === 'draft' ? 'Hủy bản nháp' : 'Dừng chiến dịch'}</button>` : ''}
-                ${admin.can('marketing.write') && ['draft', 'cancelled', 'completed'].includes(c.status) ? `<button type="button" class="row-button row-button-danger" data-email-delete="${c.id}" style="color:#d32f2f;">Xóa</button>` : ''}
+                <button type="button" class="secondary-button" data-email-view="${h(c.id)}">${c.status === 'draft' && admin.can('marketing.write') ? 'Mở bản nháp' : 'Xem nội dung'}</button>
+                ${admin.can('marketing.write') && ['draft', 'scheduled', 'sending'].includes(c.status) ? `<button type="button" class="secondary-button" data-email-cancel="${h(c.id)}">${c.status === 'draft' ? 'Hủy bản nháp' : 'Dừng chiến dịch'}</button>` : ''}
+                ${admin.can('marketing.write') && ['draft', 'cancelled', 'completed'].includes(c.status) ? `<button type="button" class="row-button row-button-danger" data-email-delete="${h(c.id)}" style="color:#d32f2f;">Xóa</button>` : ''}
               </div>
-              <div data-email-confirm="${c.id}"></div>
+              <div data-email-confirm="${h(c.id)}"></div>
             </article>
           `).join('')) || '<div class="workspace-empty"><strong>Email đầu tiên bắt đầu từ một bản nháp</strong><p>Soạn nội dung, chọn nguồn email đã xác nhận và cài giờ gửi.</p></div>'}
         </div>
@@ -117,7 +117,7 @@
                   ${data.subscribers.map(s => `
                     <tr>
                       <td data-label="Email"><strong>${h(s.email)}</strong></td>
-                      <td data-label="Trạng thái"><span class="status-pill status-${s.status}">${subLabel[s.status] || s.status}</span></td>
+                      <td data-label="Trạng thái"><span class="status-pill status-${h(s.status)}">${h(subLabel[s.status] || s.status)}</span></td>
                       <td data-label="Nguồn"><small style="color:#515156;">${h(s.consent_source || 'web')}</small></td>
                       <td data-label="Thời gian"><small style="color:#86868b;">${s.confirmed_at ? new Date(s.confirmed_at).toLocaleString('vi-VN') : (s.consent_at ? new Date(s.consent_at).toLocaleString('vi-VN') : '—')}</small></td>
                     </tr>
@@ -233,11 +233,13 @@
     const status = f.querySelector('[role=status]');
     button.disabled = true;
     try {
+      const parsedSched = new Date(f.elements.scheduledAt.value);
+      if (Number.isNaN(parsedSched.getTime())) throw Error('Vui lòng chọn thời gian gửi hợp lệ.');
       const d = {
         title: f.elements.title.value,
         subject: f.elements.subject.value,
         body: f.elements.body.value,
-        scheduledAt: new Date(f.elements.scheduledAt.value).toISOString(),
+        scheduledAt: parsedSched.toISOString(),
         ratePerMinute: Number(f.elements.ratePerMinute.value),
         sources: [...f.querySelectorAll('[name=sources]:checked')].map(i => i.value)
       };

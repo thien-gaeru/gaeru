@@ -658,7 +658,7 @@
           target.hidden=true;actions.hidden=true;plus.setAttribute('aria-expanded','false');
           dispatchInstantSend(text,[]);
         });
-      }catch(e){target.innerHTML='<p>'+escape(e.message)+'</p><a href="account.html">Đăng nhập tài khoản</a>';}
+      }catch(e){target.innerHTML='<p>'+escape(e.message)+'</p><a href="/tai-khoan">Đăng nhập tài khoản</a>';}
     });
     root.querySelectorAll('[data-offer]').forEach(button=>button.onclick=async()=>{
       const target=root.querySelector('[data-chat-reference]');let page=1;

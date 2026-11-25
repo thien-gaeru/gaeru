@@ -23,7 +23,7 @@ function versionedPublicAssetUrl(rawUrl){
 }
 const reverse=Object.fromEntries(Object.entries(paths).filter(([,p])=>p!=='/').map(([f,p])=>[p,'/'+f]));
 function legacy(url){const u=new URL(url,'https://gaeru.com');let target=reverse[u.pathname];const product=u.pathname.match(/^\/san-pham\/([a-z0-9-]+)$/),post=u.pathname.match(/^\/tin-tuc\/([a-z0-9-]+)$/);if(product){target='/product.html';u.searchParams.set('id',product[1])}if(post){target='/news-article.html';u.searchParams.set('slug',post[1])}return target?target+(u.searchParams.size?'?'+u.searchParams:''):null;}
-function enrich(html,original,origin,override){if(typeof html==='string'&&html.includes('/clean-urls.js?v=')&&(!override||html.includes('data-gaeru-enriched="1"')))return html;origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);doc.documentElement.setAttribute('data-gaeru-enriched','1');
+function enrich(html,original,origin,override,opts){const isError=Boolean(opts&&opts.isError);if(typeof html==='string'&&html.includes('/clean-urls.js?v=')&&(!override||html.includes('data-gaeru-enriched="1"')))return html;origin=normalizePublicBase(origin);const {document:doc}=parseHTML(normalizeBrandText(html));if(!doc.head||!doc.querySelector('main'))return normalizeBrandText(html);doc.documentElement.setAttribute('data-gaeru-enriched','1');
  require('./responsive-images').apply(doc);
  for(const style of doc.querySelectorAll('link[href]')){const rel=String(style.getAttribute('rel')||'').toLowerCase();if(!rel||rel==='stylesheet'||rel==='preload'){style.setAttribute('href',versionedPublicAssetUrl(style.getAttribute('href')||''));}}
  for(const script of doc.querySelectorAll('script[src]')){script.setAttribute('src',versionedPublicAssetUrl(script.getAttribute('src')||''));}
@@ -38,15 +38,15 @@ function enrich(html,original,origin,override){if(typeof html==='string'&&html.i
  const u=new URL('/'+String(original||'/').replace(/^[\/\\]+/,''),origin);const safePathname=u.pathname.replace(/\\/g,'/').replace(/^\/+/,'/');for(const a of doc.querySelectorAll('a[href^="#"]'))a.setAttribute('href',safePathname+a.getAttribute('href'));
  const canonical=doc.head.querySelector('link[rel=canonical]')?.getAttribute('href')||origin+u.pathname;
  const meta=(key,value,property=false)=>{const attr=property?'property':'name';let n=doc.head.querySelector('meta['+attr+'="'+key+'"]');if(!n){n=doc.createElement('meta');n.setAttribute(attr,key);doc.head.append(n)}n.setAttribute('content',value)};
- const canonicalUrl=new URL(clean(canonical,origin),origin).href;let link=doc.head.querySelector('link[rel=canonical]');if(!link){link=doc.createElement('link');link.rel='canonical';doc.head.append(link)}link.href=canonicalUrl;
+ const canonicalUrl=new URL(clean(canonical,origin),origin).href;if(isError){doc.head.querySelectorAll('link[rel=canonical]').forEach(n=>n.remove());meta('robots','noindex');}else{let link=doc.head.querySelector('link[rel=canonical]');if(!link){link=doc.createElement('link');link.rel='canonical';doc.head.append(link)}link.href=canonicalUrl;}
  for(const el of doc.querySelectorAll('[srcset]'))if(!el.getAttribute('srcset').includes('data:'))el.setAttribute('srcset',el.getAttribute('srcset').split(',').map(item=>{const parts=item.trim().split(/\s+/);parts[0]=clean(parts[0],origin);return parts.join(' ')}).join(', '));
  const summary=rawDescription||doc.querySelector('main p')?.textContent||'',image=doc.head.querySelector('meta[property="og:image"]')?.content||origin+'/assets/brand/gaeru-og-1200x630.jpg';
- for(const [key,value]of Object.entries({'og:url':canonicalUrl,'og:title':escapeHtml(pageTitle),'og:description':escapeHtml(summary),'og:image':image,'og:type':u.pathname.startsWith('/tin-tuc/')?'article':'website','og:locale':'vi_VN'}))meta(key,key==='og:image'?new URL(clean(value,origin),origin).href:value,true);
- for(const [key,value]of Object.entries({'twitter:card':'summary_large_image','twitter:title':escapeHtml(pageTitle),'twitter:description':escapeHtml(summary),'twitter:image':image}))meta(key,key==='twitter:image'?new URL(clean(value,origin),origin).href:value);
+ if(!isError)for(const [key,value]of Object.entries({'og:url':canonicalUrl,'og:title':escapeHtml(pageTitle),'og:description':escapeHtml(summary),'og:image':image,'og:type':u.pathname.startsWith('/tin-tuc/')?'article':'website','og:locale':'vi_VN'}))meta(key,key==='og:image'?new URL(clean(value,origin),origin).href:value,true);
+ if(!isError)for(const [key,value]of Object.entries({'twitter:card':'summary_large_image','twitter:title':escapeHtml(pageTitle),'twitter:description':escapeHtml(summary),'twitter:image':image}))meta(key,key==='twitter:image'?new URL(clean(value,origin),origin).href:value);
  const add=value=>{const n=doc.createElement('script');n.type='application/ld+json';n.textContent=JSON.stringify(value).replace(/</g,'\\u003c');doc.head.append(n)};
- add({'@context':'https://schema.org','@type':'Organization','@id':origin+'/#organization',name:'GAERU',url:origin+'/',logo:origin+'/assets/brand/gaeru-logo.webp'});
- const crumbs=[{'@type':'ListItem',position:1,name:'Trang chủ',item:origin+'/'}];if(u.pathname!=='/'){if(u.pathname.startsWith('/san-pham/'))crumbs.push({'@type':'ListItem',position:2,name:'Cửa hàng',item:origin+'/cua-hang'});else if(u.pathname.startsWith('/tin-tuc/'))crumbs.push({'@type':'ListItem',position:2,name:'Tin tức',item:origin+'/tin-tuc'});crumbs.push({'@type':'ListItem',position:crumbs.length+1,name:doc.querySelector('h1')?.textContent||pageTitle,item:canonicalUrl});add({'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:crumbs})}
- const faq=[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
+ if(!isError)add({'@context':'https://schema.org','@type':'Organization','@id':origin+'/#organization',name:'GAERU',url:origin+'/',logo:origin+'/assets/brand/gaeru-logo.webp'});
+ const crumbs=[{'@type':'ListItem',position:1,name:'Trang chủ',item:origin+'/'}];if(!isError&&u.pathname!=='/'){if(u.pathname.startsWith('/san-pham/'))crumbs.push({'@type':'ListItem',position:2,name:'Cửa hàng',item:origin+'/cua-hang'});else if(u.pathname.startsWith('/tin-tuc/'))crumbs.push({'@type':'ListItem',position:2,name:'Tin tức',item:origin+'/tin-tuc'});crumbs.push({'@type':'ListItem',position:crumbs.length+1,name:doc.querySelector('h1')?.textContent||pageTitle,item:canonicalUrl});add({'@context':'https://schema.org','@type':'BreadcrumbList',itemListElement:crumbs})}
+ const faq=isError?[]:[...doc.querySelectorAll('.discover-faq details')].map(d=>({'@type':'Question',name:d.querySelector('summary')?.textContent,acceptedAnswer:{'@type':'Answer',text:d.querySelector('p')?.textContent}})).filter(q=>q.name&&q.acceptedAnswer.text);if(faq.length)add({'@context':'https://schema.org','@type':'FAQPage',mainEntity:faq});
  if(['/tai-khoan','/gio-hang','/thanh-toan','/ket-qua-thanh-toan'].includes(u.pathname))meta('robots','noindex, follow');
  if(!doc.querySelector('script[type="speculationrules"]')){const spec=doc.createElement('script');spec.type='speculationrules';spec.textContent=require('./speculation-policy').text;if(doc.body)doc.body.append(spec);else doc.head.append(spec);}
  const { isDcbEnabled } = require('./lib/compression-dictionary'); if(isDcbEnabled() && !doc.head.querySelector('link[rel="compression-dictionary"]')){const dl=doc.createElement('link');dl.setAttribute('rel','compression-dictionary');dl.setAttribute('href','/dict/shared-template.dict');doc.head.append(dl);}
@@ -58,7 +58,7 @@ const PRIVATE_DCB_EXCLUSION_RE=/^\/(?:tai-khoan|thanh-toan|gio-hang|ket-qua-than
 function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,next)=>{
  if(!['GET','HEAD'].includes(req.method)||/^\/(?:api|gaeru_ceo)(?:\/|$)/.test(req.path))return next();
  const rawUrl='/'+String(req.originalUrl||'/').replace(/^[\/\\]+/,'');const target=clean(rawUrl,origin);if(target!==rawUrl&&/^\/(?!\/|\\)/.test(target))return res.redirect(301,target);
- const send=res.send.bind(res),prepare=body=>typeof body==='string'&&String(res.get('Content-Type')).includes('html')?enrich(body,req.originalUrl,origin,req.sitePage):body;
+ const send=res.send.bind(res),prepare=body=>{if(typeof body!=='string'||!String(res.get('Content-Type')).includes('html'))return body;const isErr=res.statusCode>=400;return enrich(body,req.originalUrl,origin,isErr?null:req.sitePage,{isError:isErr});};
  // Cache the final document, including metadata, rather than the unprocessed template.
  const {isDcbEnabled,isDcbEligible,compressDcb}=require('./lib/compression-dictionary');
  const customSend=body=>{
@@ -66,7 +66,7 @@ function cleanRoutes(origin){origin=normalizePublicBase(origin);return(req,res,n
   res.locals.__gaeruHtmlPrepared=false;
   if(req.headers['sec-purpose']?.includes('prerender'))req.isPrerender=true;
   const cacheControlHeader=String(res.getHeader('Cache-Control')||'');
-  const isPrivateResponse=PRIVATE_DCB_EXCLUSION_RE.test(req.path)||/no-store|private/i.test(cacheControlHeader);
+  const isPrivateResponse=res.statusCode>=400||PRIVATE_DCB_EXCLUSION_RE.test(req.path)||/no-store|private/i.test(cacheControlHeader);
   if(typeof prepared==='string'&&!isPrivateResponse&&isDcbEligible(req)){
    const dcbPayload=compressDcb(Buffer.from(prepared,'utf8'));
    res.setHeader('Content-Encoding','dcb');

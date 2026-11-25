@@ -674,6 +674,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
   app.use(require('./product-guides').createProductGuidePages(pool));
   app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/','/warranty-activation.html'],(_req,res)=>{res.set('Cache-Control','no-store').type('html').send(require('./clean-routes').readHtmlTemplate('warranty-activation.html'));});
   app.get(['/doi-tra','/doi-tra/'],(_req,res)=>res.redirect(302,'/tra-cuu-don-hang#rma-section'));
+  app.get(['/chinh-sach/khieu-nai','/chinh-sach/khieu-nai/'],(_req,res)=>res.redirect(301,'/khieu-nai'));
+  app.get(['/account','/account/'],(req,res)=>{const idx=req.originalUrl.indexOf('?');res.redirect(302,'/tai-khoan'+(idx>=0?req.originalUrl.slice(idx):''));});
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
   app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));

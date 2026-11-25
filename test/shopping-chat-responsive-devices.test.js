@@ -29,8 +29,8 @@ test('Shopping chat multi-device responsive layout suite', () => {
   assert.ok(css.includes('@media (min-width: 1440px)'), 'Has large screen typography breakpoint');
   assert.ok(css.includes('72%'), 'Restricts bubble line length on ultrawide monitors');
 
-  // 5. Dark Mode Compliance
-  assert.ok(css.includes('@media (prefers-color-scheme: dark)'), 'Has dark mode queries');
+  // 5. Unified Light Mode Lock
+  assert.ok(!css.includes('@media (prefers-color-scheme: dark)'), 'Enforces unified light mode without dark-scheme overrides');
 
   // 6. JavaScript Interaction Handlers
   assert.ok(js.includes('data-chat-folder-backdrop'), 'Handles backdrop clicks to dismiss drawer');
