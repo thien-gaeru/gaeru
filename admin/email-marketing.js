@@ -13,12 +13,12 @@
     k9: {
       title: 'Giới thiệu Microphone GAERU K9',
       subject: 'Khám phá Microphone Không Dây GAERU K9 - Thu âm đỉnh cao mọi góc nhìn',
-      body: 'Chào bạn,\n\nGAERU trân trọng giới thiệu dòng Microphone thu âm không dây GAERU K9 - giải pháp âm thanh chuyên nghiệp dành riêng cho nhà sáng tạo nội dung, livestream và phỏng vấn di động.\n\nĐặc điểm nổi bật của GAERU K9:\n• Kết nối không dây tức thì, độ trễ cực thấp dưới 15ms\n• Khử tiếng ồn môi trường DSP thông minh\n• Thời lượng pin liên tục lên đến 8 giờ\n• Tương thích hoàn hảo với điện thoại thông minh, máy tính bảng và máy ảnh\n\nKhám phá chi tiết sản phẩm và nhận ưu đãi tại: https://gaeru.com/discover-k9.html\n\nTrân trọng,\nĐội ngũ GAERU'
+      body: 'Chào bạn,\n\nGAERU trân trọng giới thiệu dòng Microphone thu âm không dây GAERU K9 - giải pháp âm thanh chuyên nghiệp dành riêng cho nhà sáng tạo nội dung, livestream và phỏng vấn di động.\n\nĐặc điểm nổi bật của GAERU K9:\n• Kết nối không dây tức thì, độ trễ cực thấp dưới 15ms\n• Khử tiếng ồn môi trường DSP thông minh\n• Thời lượng pin liên tục lên đến 8 giờ\n• Tương thích hoàn hảo với điện thoại thông minh, máy tính bảng và máy ảnh\n\nKhám phá chi tiết sản phẩm và nhận ưu đãi tại: https://gaeru.com/kham-pha/gaeru-k9\n\nTrân trọng,\nĐội ngũ GAERU'
     },
     g1: {
       title: 'Ra mắt GAERU G1 ULTRA Studio',
       subject: 'Đột phá âm thanh chuyên nghiệp cùng GAERU G1 ULTRA',
-      body: 'Chào bạn,\n\nĐỉnh cao công nghệ thu âm studio nay nằm gọn trong tầm tay với GAERU G1 ULTRA.\n\nSức mạnh vượt trội:\n• Chip xử lý âm thanh AI-Core thế hệ mới lọc tạp âm 3 cấp độ\n• Hộp sạc thông minh hiển thị pin OLED, tổng thời lượng lên tới 36 giờ\n• Khoảng cách truyền tín hiệu ổn định 50 mét xuyên vật cản\n• Kèm ngàm kẹp từ tính cao cấp và cáp chuyển đổi chuyên dụng\n\nTìm hiểu thêm về GAERU G1 ULTRA tại: https://gaeru.com/discover-g1-ultra.html\n\nTrân trọng,\nĐội ngũ GAERU'
+      body: 'Chào bạn,\n\nĐỉnh cao công nghệ thu âm studio nay nằm gọn trong tầm tay với GAERU G1 ULTRA.\n\nSức mạnh vượt trội:\n• Chip xử lý âm thanh AI-Core thế hệ mới lọc tạp âm 3 cấp độ\n• Hộp sạc thông minh hiển thị pin OLED, tổng thời lượng lên tới 36 giờ\n• Khoảng cách truyền tín hiệu ổn định 50 mét xuyên vật cản\n• Kèm ngàm kẹp từ tính cao cấp và cáp chuyển đổi chuyên dụng\n\nTìm hiểu thêm về GAERU G1 ULTRA tại: https://gaeru.com/kham-pha/gaeru-g1-ultra\n\nTrân trọng,\nĐội ngũ GAERU'
     }
   };
 

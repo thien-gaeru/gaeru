@@ -659,7 +659,7 @@
         <span style="display:inline-block; background:#e0e7ff; color:#3730a3; font-size:12px; font-weight:700; padding:3px 8px; border-radius:4px; margin-bottom:6px;">VẬN ĐƠN HÃNG VẬN CHUYỂN</span>
         <h3 style="margin:0; font-size:20px; font-weight:800;">Mã vận đơn: <code>${escape(s.tracking_number)}</code> (${escape(s.carrier_id?.toUpperCase())})</h3>
         <p style="margin:6px 0 16px; font-size:14px; color:#4b5563;">
-          Trạng thái hãng: <strong>${escape(s.status)}</strong> · Thu hộ COD: ${(s.cod_amount_vnd || 0).toLocaleString("vi-VN")} đ
+          Trạng thái hãng: <strong>${escape(({ created: 'Đã tạo vận đơn', picking: 'Đang lấy hàng', in_transit: 'Đang trung chuyển', delivering: 'Đang giao', delivered: 'Đã giao', failed: 'Giao thất bại', returning: 'Đang hoàn', returned: 'Đã hoàn kho', cancelled: 'Đã hủy' })[s.status] || s.status)}</strong> · Thu hộ COD: ${(s.cod_amount_vnd || 0).toLocaleString("vi-VN")} ₫
         </p>
         <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:14px;">
           <h4 style="margin:0 0 6px; font-size:14px; font-weight:700;">Đơn Hàng Gốc: #${escape(o.orderNumber)}</h4>
@@ -691,8 +691,8 @@
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-size:13px; font-weight:700; color:#1e40af;">Tổng tiền: ${(res.order.totalVnd || 0).toLocaleString("vi-VN")} đ</div>
-          <div style="font-size:12px; color:#6b7280;">Thanh toán: <strong>${escape(res.order.paymentMethod)}</strong> (${escape(res.order.paymentStatus)})</div>
+          <div style="font-size:13px; font-weight:700; color:#1e40af;">Tổng tiền: ${(res.order.totalVnd || 0).toLocaleString("vi-VN")} ₫</div>
+          <div style="font-size:12px; color:#6b7280;">Thanh toán: <strong>${escape(({ cod: 'COD (Khi nhận hàng)', bank_transfer: 'Chuyển khoản', vnpay: 'VNPAY', momo: 'Ví MoMo', zalopay: 'ZaloPay' })[res.order.paymentMethod] || res.order.paymentMethod)}</strong> (${escape(({ paid: 'Đã thanh toán', pending: 'Chờ thanh toán', failed: 'Thất bại', refunded: 'Đã hoàn tiền' })[res.order.paymentStatus] || res.order.paymentStatus)})</div>
           <div style="margin-top:6px; font-size:14px; font-weight:800; color:#2563eb;">
             Tiến độ: <span id="pack-progress-text">${ver.scanned_items} / ${ver.total_items} món</span>
           </div>
@@ -756,7 +756,7 @@
     }).join("");
 
     listContainer.innerHTML = `
-      <table style="width:100%; border-collapse:collapse; text-align:left;">
+      <div class="enterprise-table-wrap"><table style="width:100%; min-width:540px; border-collapse:collapse; text-align:left;">
         <thead>
           <tr style="background:#f3f4f6; font-size:13px; color:#4b5563;">
             <th style="padding:8px 14px; width:40px; text-align:center;">Trạng thái</th>
@@ -767,7 +767,7 @@
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>
+      </table></div>
     `;
 
     // Show/hide dispatch button
@@ -1030,7 +1030,7 @@
           <tr style="border-bottom:1px solid #f3f4f6; font-size:13px;">
             <td style="padding:8px 12px; font-family:monospace;">${escape(new Date(l.created_at).toLocaleString("vi-VN"))}</td>
             <td style="padding:8px 12px; font-family:monospace; font-weight:700;">${escape(l.code)}</td>
-            <td style="padding:8px 12px;"><span style="text-transform:uppercase; font-size:11px; font-weight:700; color:#4b5563;">${escape(l.entity_type)}</span></td>
+            <td style="padding:8px 12px;"><span style="font-size:11px; font-weight:700; color:#4b5563;">${escape(({ variant: 'Sản phẩm / SKU', order: 'Đơn hàng', shipment: 'Vận đơn' })[l.entity_type] || l.entity_type)}</span></td>
             <td style="padding:8px 12px;">${actionBadge}</td>
             <td style="padding:8px 12px;">${escape(l.scanned_by || 'scanner')}</td>
           </tr>
@@ -1038,7 +1038,7 @@
       }).join("");
 
       container.innerHTML = `
-        <table style="width:100%; border-collapse:collapse; text-align:left;">
+        <div class="enterprise-table-wrap"><table style="width:100%; min-width:540px; border-collapse:collapse; text-align:left;">
           <thead>
             <tr style="background:#f9fafb; font-size:12px; color:#4b5563;">
               <th style="padding:8px 12px;">Thời gian</th>
@@ -1049,7 +1049,7 @@
             </tr>
           </thead>
           <tbody>${rows}</tbody>
-        </table>
+        </table></div>
       `;
     } catch (err) {
       container.innerHTML = `<p style="color:#dc2626;">Lỗi tải nhật ký: ${escape(err.message)}</p>`;

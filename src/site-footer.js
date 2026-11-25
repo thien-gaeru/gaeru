@@ -24,6 +24,8 @@ const SITE_FOOTER_HTML = `<footer class="site-footer">
           <summary>Về GAERU</summary>
           <div class="footer-links">
             <a href="/cau-chuyen">Câu chuyện GAERU</a>
+            <a href="/tin-tuc">Tin tức &amp; kinh nghiệm</a>
+            <a href="/dang-ky-bao-hanh">Kích hoạt bảo hành</a>
           </div>
         </details>
         <div class="footer-column footer-newsletter-column">

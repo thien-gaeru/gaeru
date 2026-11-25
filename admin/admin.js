@@ -2202,6 +2202,19 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
+document.addEventListener("click", (event) => {
+  const toggleBtn = event.target?.closest?.("[data-toggle-admin-password]");
+  if (!toggleBtn) return;
+  const wrap = toggleBtn.closest?.(".password-input-wrap");
+  const input = wrap?.querySelector?.("input");
+  if (!input) return;
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  toggleBtn.textContent = show ? "Ẩn" : "Hiện";
+  toggleBtn.setAttribute("aria-pressed", show ? "true" : "false");
+  toggleBtn.setAttribute("aria-label", show ? "Ẩn mật khẩu" : "Hiện mật khẩu");
+});
+
 document.querySelector("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;

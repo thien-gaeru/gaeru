@@ -347,9 +347,69 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
     res.json({ status: 'pending', message: 'Vui lòng kiểm tra hộp thư để xác nhận đăng ký nhận tin.' });
   }));
 
+  function renderPublicMarketingCard({ title, heading, message, iconType = 'info', actionHtml = '' }) {
+    const iconMarkup = iconType === 'success'
+      ? '<div class="mkt-icon is-success" aria-hidden="true">✓</div>'
+      : (iconType === 'error'
+        ? '<div class="mkt-icon is-error" aria-hidden="true">!</div>'
+        : '<div class="mkt-icon is-info" aria-hidden="true">i</div>');
+    return `<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#fbfbfd">
+  <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
+  <link rel="apple-touch-icon" href="/assets/brand/gaeru-app-192.png">
+  <title>${h(title)}</title>
+  <style>
+    body { margin: 0; padding: 40px 16px; min-height: 100vh; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: #f5f5f7; color: #1d1d1f; color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    main.mkt-card { width: 100%; max-width: 520px; margin: 0 auto; background: #ffffff; border: 1px solid #e5e5ea; border-radius: 24px; padding: 44px 36px; text-align: center; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.05); box-sizing: border-box; }
+    .mkt-brand { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; color: #1d1d1f; margin-bottom: 18px; }
+    .mkt-icon { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 22px; font-weight: 700; }
+    .mkt-icon.is-success { background: #e8f5e9; color: #2e7d32; }
+    .mkt-icon.is-error { background: #fee2e2; color: #dc2626; }
+    .mkt-icon.is-info { background: rgba(0, 113, 227, 0.1); color: #0060c7; }
+    h1 { font-size: 22px; line-height: 1.28; font-weight: 600; color: #1d1d1f; margin: 0 0 12px; }
+    p { font-size: 15px; line-height: 1.62; color: #515154; margin: 0 0 28px; }
+    .mkt-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 11px 30px; background: #0071e3; color: #ffffff; border: none; border-radius: 980px; text-decoration: none; font-weight: 600; font-size: 15px; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 113, 227, 0.22); box-sizing: border-box; }
+    .mkt-btn.is-dark { background: #1d1d1f; box-shadow: none; }
+    @media (max-width: 520px) {
+      body { padding: 20px 12px; }
+      main.mkt-card { padding: 30px 20px; border-radius: 20px; }
+      h1 { font-size: 20px; }
+      .mkt-btn { width: 100%; padding: 12px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="mkt-card">
+    <div class="mkt-brand">GAERU</div>
+    ${iconMarkup}
+    <h1>${h(heading)}</h1>
+    <p>${h(message)}</p>
+    ${actionHtml}
+  </main>
+</body>
+</html>`;
+  }
+
   // Confirm Double Opt-In Link
   publicApi.get('/confirm/:token', wrap(async (req, res) => {
-    const token = z.string().regex(/^[a-f0-9]{64}$/).parse(req.params.token);
+    const rawToken = String(req.params.token || '').trim();
+    if (!/^[a-f0-9]{64}$/.test(rawToken)) {
+      return res.status(400).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Xác nhận đăng ký — GAERU',
+          heading: 'Liên kết không hợp lệ hoặc đã hết hạn',
+          message: 'Liên kết xác nhận chỉ sử dụng một lần và có hiệu lực trong 24 giờ. Vui lòng đăng ký lại trên website GAERU.',
+          iconType: 'error',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    const token = rawToken;
     const tokenHash = hash(token);
     const ipHash = hash(req.ip || req.socket?.remoteAddress || '');
     const userAgent = String(req.headers['user-agent'] || '').slice(0, 255);
@@ -361,19 +421,15 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
     )).rows[0];
 
     if (!row) {
-      return res.status(400).set('Cache-Control', 'no-store').type('html').send(`
-        <!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Xác nhận đăng ký - GAERU</title>
-        <body style="margin:0;padding:40px 16px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;">
-          <main style="max-width:520px;margin:40px auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:24px;padding:44px 36px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,0.04);">
-            <div style="font-size:28px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:20px;">GAERU</div>
-            <div style="width:52px;height:52px;border-radius:50%;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px;font-weight:700;">!</div>
-            <h1 style="font-size:22px;font-weight:600;color:#1d1d1f;margin:0 0 12px;">Liên kết không hợp lệ hoặc đã hết hạn</h1>
-            <p style="font-size:15px;line-height:1.6;color:#515156;margin:0 0 28px;">Liên kết xác nhận chỉ sử dụng một lần và có hiệu lực trong 24 giờ. Vui lòng đăng ký lại trên website GAERU.</p>
-            <div><a href="/" style="display:inline-block;padding:12px 32px;background:#0071e3;color:#fff;border-radius:980px;text-decoration:none;font-weight:600;font-size:15px;box-shadow:0 2px 8px rgba(0,113,227,0.25);">Về trang chủ GAERU</a></div>
-          </main>
-        </body></html>
-      `);
+      return res.status(400).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Xác nhận đăng ký — GAERU',
+          heading: 'Liên kết không hợp lệ hoặc đã hết hạn',
+          message: 'Liên kết xác nhận chỉ sử dụng một lần và có hiệu lực trong 24 giờ. Vui lòng đăng ký lại trên website GAERU.',
+          iconType: 'error',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
     }
 
     await withTransaction(pool, async c => {
@@ -392,50 +448,122 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
       `, [row.email, ipHash, userAgent]);
     });
 
-    res.set('Cache-Control', 'no-store').type('html').send(`
-      <!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>Đăng ký thành công - GAERU</title>
-      <body style="margin:0;padding:40px 16px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;">
-        <main style="max-width:520px;margin:40px auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:24px;padding:44px 36px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,0.04);">
-          <div style="font-size:28px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:20px;">GAERU</div>
-          <div style="width:52px;height:52px;border-radius:50%;background:#e8f5e9;color:#2e7d32;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px;font-weight:700;">✓</div>
-          <h1 style="font-size:22px;font-weight:600;color:#1d1d1f;margin:0 0 12px;">Đăng ký nhận tin thành công!</h1>
-          <p style="font-size:15px;line-height:1.6;color:#515156;margin:0 0 28px;">Cảm ơn bạn đã xác nhận. Bạn sẽ luôn là người đầu tiên nhận được thông tin về sản phẩm và ưu đãi đặc quyền từ GAERU.</p>
-          <div><a href="/" style="display:inline-block;padding:12px 32px;background:#0071e3;color:#ffffff;border-radius:980px;text-decoration:none;font-weight:600;font-size:15px;box-shadow:0 2px 8px rgba(0,113,227,0.25);">Khám phá sản phẩm GAERU</a></div>
-        </main>
-      </body></html>
-    `);
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+      renderPublicMarketingCard({
+        title: 'Đăng ký thành công — GAERU',
+        heading: 'Đăng ký nhận tin thành công!',
+        message: 'Cảm ơn bạn đã xác nhận. Bạn sẽ luôn là người đầu tiên nhận được thông tin về sản phẩm và ưu đãi đặc quyền từ GAERU.',
+        iconType: 'success',
+        actionHtml: '<div><a class="mkt-btn" href="/">Khám phá sản phẩm GAERU</a></div>'
+      })
+    );
   }));
 
   // Unsubscribe page
   publicApi.get('/unsubscribe/:token', wrap(async (req, res) => {
-    const token = z.string().regex(/^[a-f0-9]{64}$/).parse(req.params.token);
-    if (!(await pool.query('SELECT id FROM marketing_email_recipients WHERE unsubscribe_hash=$1', [hash(token)])).rows.length) {
-      return res.status(404).send('Liên kết không hợp lệ.');
+    const rawToken = String(req.params.token || '').trim();
+    if (rawToken === 'test-preview') {
+      return res.status(200).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Xem trước ngừng nhận tin — GAERU',
+          heading: 'Liên kết xem trước từ email thử nghiệm',
+          message: 'Đây là mẫu trang ngừng nhận email khuyến mại dành cho quản trị viên xem trước. Trong email chiến dịch gửi thật, khách hàng sẽ xác nhận hủy đăng ký nhận tin ngay tại đây.',
+          iconType: 'info',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
     }
-    res.set('Cache-Control', 'no-store').type('html').send(`
-      <!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>Ngừng nhận email GAERU</title>
-      <body style="margin:0;padding:40px 16px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;">
-        <main style="max-width:520px;margin:40px auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:24px;padding:44px 36px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,0.04);">
-          <div style="font-size:28px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:20px;">GAERU</div>
-          <h1 style="font-size:22px;font-weight:600;color:#1d1d1f;margin:0 0 12px;">Ngừng nhận email khuyến mại</h1>
-          <p style="font-size:15px;line-height:1.6;color:#515156;margin:0 0 28px;">Sau khi xác nhận, bạn sẽ không nhận email quảng cáo từ GAERU. Bạn vẫn nhận được các thư xác minh tài khoản, thông báo bảo mật và thông tin đơn hàng cần thiết khi mua sắm.</p>
-          <form method="post"><button type="submit" style="padding:13px 32px;background:#1d1d1f;color:#ffffff;border:none;border-radius:980px;font-weight:600;font-size:15px;cursor:pointer;transition:background .2s ease;">Xác nhận ngừng nhận email</button></form>
-        </main>
-      </body></html>
-    `);
+    if (!/^[a-f0-9]{64}$/.test(rawToken)) {
+      return res.status(400).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Liên kết không hợp lệ — GAERU',
+          heading: 'Liên kết ngừng nhận tin không hợp lệ',
+          message: 'Đường dẫn bạn truy cập không đúng định dạng hoặc đã thay đổi. Nếu cần hỗ trợ hủy nhận bản tin, vui lòng liên hệ business@gaeru.com.',
+          iconType: 'error',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    const token = rawToken;
+    if (!(await pool.query('SELECT id FROM marketing_email_recipients WHERE unsubscribe_hash=$1', [hash(token)])).rows.length) {
+      return res.status(404).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Không tìm thấy liên kết — GAERU',
+          heading: 'Liên kết ngừng nhận tin không tồn tại',
+          message: 'Liên kết này không còn hiệu lực hoặc không khớp với chiến dịch đã gửi. Bạn vẫn có thể liên hệ business@gaeru.com nếu cần hỗ trợ.',
+          iconType: 'error',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+      renderPublicMarketingCard({
+        title: 'Ngừng nhận email — GAERU',
+        heading: 'Ngừng nhận email khuyến mại',
+        message: 'Sau khi xác nhận, bạn sẽ không nhận email quảng cáo từ GAERU. Bạn vẫn nhận được các thư xác minh tài khoản, thông báo bảo mật và thông tin đơn hàng cần thiết khi mua sắm.',
+        iconType: 'info',
+        actionHtml: '<form method="post"><button type="submit" class="mkt-btn is-dark">Xác nhận ngừng nhận email</button></form>'
+      })
+    );
   }));
 
   // RFC 8058 One-Click Unsubscribe POST
   publicApi.post('/unsubscribe/:token', wrap(async (req, res) => {
-    const token = z.string().regex(/^[a-f0-9]{64}$/).parse(req.params.token);
+    const listUnsubHeader = req.get('list-unsubscribe');
+    const isRfc8058 = Boolean(
+      (listUnsubHeader && listUnsubHeader.trim().toLowerCase() === 'one-click') ||
+      req.body?.['List-Unsubscribe'] === 'One-Click' ||
+      req.body?.['list-unsubscribe'] === 'One-Click'
+    );
+    const rawToken = String(req.params.token || '').trim();
+    if (rawToken === 'test-preview') {
+      if (isRfc8058 || !req.accepts('html')) {
+        return res.status(200).type('text/plain').send('Unsubscribed');
+      }
+      return res.status(200).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Xem trước ngừng nhận tin — GAERU',
+          heading: 'Đã kiểm tra mẫu ngừng nhận tin',
+          message: 'Đây là liên kết mẫu từ email thử nghiệm nên không thay đổi danh sách nhận tin thực tế.',
+          iconType: 'info',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    if (!/^[a-f0-9]{64}$/.test(rawToken)) {
+      if (isRfc8058 || req.accepts(['html', 'json']) !== 'html') {
+        return res.status(400).json({ error: 'Liên kết ngừng nhận tin không hợp lệ.' });
+      }
+      return res.status(400).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Liên kết không hợp lệ — GAERU',
+          heading: 'Liên kết ngừng nhận tin không hợp lệ',
+          message: 'Đường dẫn không đúng định dạng hoặc đã hết hiệu lực. Vui lòng liên hệ business@gaeru.com nếu cần hỗ trợ.',
+          iconType: 'error',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    const token = rawToken;
     const tokenHash = hash(token);
     const ipHash = hash(req.ip || req.socket?.remoteAddress || '');
     const userAgent = String(req.headers['user-agent'] || '').slice(0, 255);
 
     const rec = (await pool.query('SELECT email FROM marketing_email_recipients WHERE unsubscribe_hash = $1', [tokenHash])).rows[0];
-    if (!rec) return res.status(404).send('Liên kết không hợp lệ.');
+    if (!rec) {
+      if (isRfc8058 || req.accepts(['html', 'json']) !== 'html') {
+        return res.status(404).send('Liên kết không hợp lệ.');
+      }
+      return res.status(404).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderPublicMarketingCard({
+          title: 'Không tìm thấy liên kết — GAERU',
+          heading: 'Liên kết ngừng nhận tin không tồn tại',
+          message: 'Liên kết này không còn hiệu lực hoặc không khớp với chiến dịch đã gửi.',
+          iconType: 'error',
+          actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
 
     const normEmail = rec.email.toLowerCase().trim();
 
@@ -457,28 +585,19 @@ function createEmailMarketing(pool, config, { mailer = makeMailer(config) } = {}
       `, [normEmail]);
     });
 
-    const listUnsubHeader = req.get('list-unsubscribe');
-    const isRfc8058 = Boolean(
-      (listUnsubHeader && listUnsubHeader.trim().toLowerCase() === 'one-click') ||
-      req.body?.['List-Unsubscribe'] === 'One-Click' ||
-      req.body?.['list-unsubscribe'] === 'One-Click'
-    );
     if (isRfc8058 || !req.accepts('html')) {
       return res.status(200).type('text/plain').send('Unsubscribed');
     }
 
-    res.set('Cache-Control', 'no-store').type('html').send(`
-      <!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GAERU</title>
-      <body style="margin:0;padding:40px 16px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d1d1f;">
-        <main style="max-width:520px;margin:40px auto;background:#ffffff;border:1px solid #e5e5ea;border-radius:24px;padding:44px 36px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,0.04);">
-          <div style="font-size:28px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:20px;">GAERU</div>
-          <div style="width:52px;height:52px;border-radius:50%;background:#f5f5f7;color:#86868b;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:22px;">✓</div>
-          <h1 style="font-size:22px;font-weight:600;color:#1d1d1f;margin:0 0 12px;">Đã ngừng nhận email khuyến mại</h1>
-          <p style="font-size:15px;line-height:1.6;color:#515156;margin:0 0 28px;">Yêu cầu đã áp dụng cho các chiến dịch tiếp theo và thư chưa gửi. Bạn vẫn nhận được các thông báo đơn hàng và dịch vụ cần thiết khi mua sắm.</p>
-          <div><a href="/" style="display:inline-block;padding:12px 32px;background:#0071e3;color:#ffffff;border-radius:980px;text-decoration:none;font-weight:600;font-size:15px;box-shadow:0 2px 8px rgba(0,113,227,0.25);">Về trang chủ GAERU</a></div>
-        </main>
-      </body></html>
-    `);
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+      renderPublicMarketingCard({
+        title: 'Đã ngừng nhận email — GAERU',
+        heading: 'Đã ngừng nhận email khuyến mại',
+        message: 'Yêu cầu đã áp dụng cho các chiến dịch tiếp theo và thư chưa gửi. Bạn vẫn nhận được các thông báo đơn hàng và dịch vụ cần thiết khi mua sắm.',
+        iconType: 'success',
+        actionHtml: '<div><a class="mkt-btn" href="/">Về trang chủ GAERU</a></div>'
+      })
+    );
   }));
 
   return { admin, publicApi };

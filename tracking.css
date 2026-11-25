@@ -7,7 +7,8 @@
 
 .tracking-intro {
   text-align: center;
-  margin-bottom: 28px;
+  padding-top: clamp(32px, 5vw, 52px);
+  margin-bottom: 24px;
 }
 
 .tracking-intro .eyebrow {
@@ -63,11 +64,13 @@
 }
 
 .form-row input {
+  width: 100%;
+  box-sizing: border-box;
   height: 46px;
   padding: 0 16px;
   border: 1px solid #d2d2d7;
-  border-radius: 10px;
-  font-size: 15px;
+  border-radius: 12px;
+  font-size: 16px;
   color: #1d1d1f;
   background: #fbfbfd;
   transition: border-color 0.15s, background-color 0.15s;
@@ -193,7 +196,6 @@
   border-radius: 100px;
   font-size: 12px;
   font-weight: 600;
-  text-transform: capitalize;
 }
 
 .pill-success { background: #e3f8e5; color: #1e7e34; }
@@ -577,4 +579,156 @@
   align-items: center;
   gap: 12px;
   animation: fadeIn 0.2s ease;
+}
+
+
+/* Streamlined Tracking Paste & RMA Portal Card */
+.tracking-session-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: #f0f6ff;
+  border: 1px solid #d4e4ff;
+  font-size: 13px;
+  color: #1d3a5f;
+}
+.tracking-session-banner[hidden] { display: none !important; }
+.tracking-session-banner a {
+  color: #0060c7;
+  font-weight: 600;
+  text-decoration: none;
+}
+.tracking-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.tracking-input-wrap input {
+  padding-right: 72px;
+}
+.tracking-inline-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  -webkit-transform: translateY(-50%);
+  transform: translateY(-50%);
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  background: #f5f5f7;
+  color: #0060c7;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tracking-inline-btn:hover {
+  background: #e8f0fe;
+  border-color: #b6d4fe;
+}
+.rma-portal-card {
+  width: min(100% - 32px, 860px);
+  margin: 0 auto 48px;
+  padding: 26px 28px;
+  border: 1px solid #e5e5ea;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  scroll-margin-top: 72px;
+}
+.rma-portal-card h2 {
+  font-size: 20px;
+  margin: 0 0 6px;
+  color: #1d1d1f;
+}
+.rma-portal-card > p {
+  font-size: 14px;
+  color: #515154;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+.rma-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.rma-portal-card label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+.rma-portal-card input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 16px;
+  background: #fbfbfd;
+  color: #1d1d1f;
+}
+.rma-portal-card input:focus {
+  outline: none;
+  border-color: #0060c7;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(0, 96, 199, 0.16);
+}
+.rma-carrier-pills {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -3px 0 8px;
+}
+.rma-carrier-pill {
+  margin: 3px;
+  padding: 5px 11px;
+  min-height: 30px;
+  border: 1px solid #d2d2d7;
+  border-radius: 999px;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rma-carrier-pill.is-active, .rma-carrier-pill:hover {
+  background: #eef5ff;
+  border-color: #0060c7;
+  color: #0060c7;
+}
+.rma-warehouse-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+@media (max-width: 640px) {
+  .tracking-card, .rma-portal-card {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+  .rma-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .tracking-submit-btn {
+    width: 100%;
+  }
 }

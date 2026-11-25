@@ -21,7 +21,7 @@ function setAccountFeedback(message, isError = false, options = {}) {
   }
 }
 
-let currentActiveTab = 'profile';
+let currentActiveTab = 'orders';
 
 function resolveInitialAccountTab() {
   const hash = (typeof window !== 'undefined' && window.location?.hash ? window.location.hash : '').replace('#', '').toLowerCase();
@@ -30,7 +30,7 @@ function resolveInitialAccountTab() {
   if (hash === 'security' || hash === 'account-security') return 'profile';
   if (hash === 'warranties' || hash === 'account-warranties') return 'warranties';
   if (hash === 'orders' || hash === 'customer-orders') return 'orders';
-  return 'profile';
+  return 'orders';
 }
 
 function switchAccountTab(tabName, updateHash = true) {
@@ -612,6 +612,19 @@ document.querySelector('[data-account-retry]')?.addEventListener('click', () => 
   if(message) message.textContent='Đang tải tài khoản…';
   document.querySelector('[data-account-card]')?.setAttribute('aria-busy','true');
   initializeCustomerAccount();
+});
+
+document.addEventListener?.('click', (event) => {
+  const toggleBtn = event?.target?.closest?.('[data-toggle-password]');
+  if (!toggleBtn) return;
+  const wrap = toggleBtn.closest?.('.password-input-wrap');
+  const input = wrap?.querySelector?.('input');
+  if (!input) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  toggleBtn.textContent = show ? 'Ẩn' : 'Hiện';
+  toggleBtn.setAttribute('aria-pressed', show ? 'true' : 'false');
+  toggleBtn.setAttribute('aria-label', show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
 });
 
 initializeCustomerAccount();

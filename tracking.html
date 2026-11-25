@@ -34,17 +34,19 @@
         </header>
 
         <section class="tracking-card" aria-label="Biểu mẫu tra cứu đơn hàng">
+          <div class="tracking-session-banner" data-tracking-session hidden></div>
           <form class="tracking-form" id="tracking-form">
             <div class="form-row">
               <label for="orderNumber">Mã đơn hàng</label>
-              <input type="text" id="orderNumber" name="orderNumber" placeholder="Ví dụ: GAE-261028-1234 hoặc số đơn hàng" required autocomplete="off" autocorrect="off" autocapitalize="characters">
-              <p class="form-hint">Mã đơn đã được gửi trong tin nhắn SMS xác nhận hoặc email đặt hàng của bạn.</p>
+              <div class="tracking-input-wrap">
+                <input type="text" id="orderNumber" name="orderNumber" placeholder="Nhập hoặc dán mã đơn (VD: GAE-261125...)" required autocomplete="off" autocorrect="off" autocapitalize="characters">
+                <button type="button" class="tracking-inline-btn" data-tracking-paste="orderNumber">Dán</button>
+              </div>
             </div>
 
             <div class="form-row">
-              <label for="challenge">Số điện thoại hoặc Email xác thực</label>
-              <input type="text" id="challenge" name="challenge" placeholder="Nhập số điện thoại (VD: 0912345678) hoặc email người nhận" required autocomplete="tel email">
-              <p class="form-hint">Nhằm bảo vệ dữ liệu cá nhân theo Nghị định 13/2023/NĐ-CP, hệ thống chỉ hiển thị đơn hàng khi khớp thông tin người nhận.</p>
+              <label for="challenge">Số điện thoại hoặc Email nhận hàng</label>
+              <input type="text" id="challenge" name="challenge" placeholder="09xxxxxxxx hoặc email đặt hàng" required autocomplete="tel email">
             </div>
 
             <button type="submit" class="tracking-submit-btn" id="tracking-submit">
@@ -56,7 +58,7 @@
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                 <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
               </svg>
-              <span>Thông tin định danh người nhận được che mờ (Masked PII) tự động để bảo đảm quyền riêng tư tuyệt đối.</span>
+              <span>Thông tin người nhận được ẩn bớt tự động nhằm bảo vệ quyền riêng tư của bạn.</span>
             </div>
           </form>
         </section>

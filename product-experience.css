@@ -16,6 +16,7 @@ body.product-page {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   color: #1d1d1f;
   background-color: #ffffff;
+  color-scheme: light;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -640,269 +641,69 @@ body.product-page {
 }
 
 /* ------------------------------------------------------------------------------
-   9. DARK MODE SUPPORT (PRO MIDNIGHT / SPACE BLACK)
+   9. CONSISTENT LIGHT MODE & PRICE CURRENCY HYGIENE
    ------------------------------------------------------------------------------ */
-@media(prefers-color-scheme: dark) {
-  body.product-page {
-    background-color: #09090b;
-    color: #f5f5f7;
-  }
+.product-page .detail-price,
+.product-page .price-text-full,
+.product-page .price-text-compact,
+.product-page .price-original del,
+.product-page .product-variant-card small,
+.product-local-subnav-price {
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+}
 
-  .product-local-subnav {
-    background: rgba(18, 18, 20, 0.88);
-    border-bottom-color: rgba(255, 255, 255, 0.1);
-  }
+.product-page .price-text-compact,
+.product-page .price-original del,
+.product-page .product-variant-card small {
+  white-space: nowrap;
+}
 
-  .product-local-subnav-title {
-    color: #f5f5f7;
-  }
+.product-page .product-price-box.is-flash {
+  background: linear-gradient(180deg, #fff9f6 0%, #fff2ec 100%) !important;
+  border-color: #ffd8cc !important;
+  box-shadow: 0 4px 18px rgba(217, 56, 30, 0.07) !important;
+}
 
-  .product-local-subnav-links a {
-    color: #a1a1a6;
-  }
+.product-page .product-flash-header {
+  border-bottom-color: #ffd3c6 !important;
+}
 
-  .product-local-subnav-links a:hover {
-    color: #f5f5f7;
-    background: rgba(255, 255, 255, 0.08);
-  }
+.product-page .flash-badge-icon,
+.product-page .detail-price.detail-price-flash {
+  color: #d9381e !important;
+}
 
-  .product-local-subnav-links a.is-active {
-    color: #2997ff;
-    background: rgba(41, 151, 255, 0.16);
-  }
+.product-page .flash-badge-pill {
+  color: #d9381e !important;
+  background: #fff0eb !important;
+  border-color: #ffd8cc !important;
+}
 
-  .product-local-subnav-price {
-    color: #f5f5f7;
-  }
+.product-page .flash-timer-wrap {
+  color: #55555a !important;
+}
 
-  /* Dark mode Typography Headings */
-  .product-feature-intro h3,
-  .m3-intro h3,
-  .k9-intro h3,
-  .product-information>header h2 {
-    background: linear-gradient(180deg, #ffffff 0%, #a1a1a6 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
+.product-page .flash-timer-wrap .sale-countdown {
+  color: #d9381e !important;
+  background: #ffffff !important;
+  border-color: #ffcdbf !important;
+}
 
-  .product-information>header h2 span {
-    -webkit-text-fill-color: #86868b;
-  }
+.product-page .flash-price-tag {
+  color: #d9381e !important;
+  background: #ffebe5 !important;
+}
 
-  .product-feature-chapter>div h3,
-  .product-story-copy h3,
-  .m3-chapter h3,
-  .k9-chapter h3,
-  .product-feature-specs h3,
-  .m3-specs h3,
-  .k9-specs h3 {
-    color: #f5f5f7 !important;
-  }
+.product-page .promotion-discount-badge {
+  background: #d9381e !important;
+  color: #ffffff !important;
+}
 
-  .product-feature-intro>p:not(.eyebrow),
-  .m3-intro>p:not(.eyebrow),
-  .k9-intro>p:not(.eyebrow),
-  .product-purchase-intro,
-  .product-feature-chapter p:not(.eyebrow),
-  .product-story-copy p:not(.eyebrow),
-  .m3-chapter p:not(.eyebrow),
-  .k9-chapter p:not(.eyebrow),
-  .product-information .detail-description {
-    color: #a1a1a6 !important;
-  }
-
-  .product-information .detail-description strong,
-  .product-feature-chapter p strong,
-  .product-story-copy strong,
-  .k9-chapter p strong,
-  .m3-chapter p strong {
-    color: #f5f5f7 !important;
-  }
-
-  .chapter-statement,
-  .k9-lead-text,
-  .m3-lead-text,
-  .product-story-copy .chapter-statement,
-  .k9-chapter-copy .chapter-statement,
-  .m3-chapter header .chapter-statement,
-  .detail-description.statement-lead {
-    color: #f5f5f7 !important;
-  }
-
-  .chapter-body-text,
-  .k9-body-text,
-  .m3-body-text,
-  .product-story-copy p:not(.eyebrow):not(.chapter-statement),
-  .k9-chapter p:not(.eyebrow):not(.chapter-statement),
-  .m3-chapter p:not(.eyebrow):not(.chapter-statement),
-  .product-information .detail-description:not(.statement-lead) {
-    color: #a1a1a6 !important;
-  }
-
-  .tech-highlight,
-  .tech-pill,
-  .k9-spec-tag,
-  .m3-spec-tag {
-    background: rgba(41, 151, 255, 0.16) !important;
-    color: #2997ff !important;
-  }
-
-  /* Dark mode Bento Grid */
-  .product-feature-highlights>div,
-  .m3-highlights>div,
-  .m3-highlights>span,
-  .k9-highlights>div,
-  .k9-highlights>span {
-    background: linear-gradient(180deg, #18181b 0%, #121214 100%) !important;
-    border-color: rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
-  }
-
-  .product-feature-highlights>div:hover,
-  .m3-highlights>div:hover,
-  .m3-highlights>span:hover,
-  .k9-highlights>div:hover,
-  .k9-highlights>span:hover {
-    box-shadow: 0 18px 42px -4px rgba(41, 151, 255, 0.2), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
-    border-color: rgba(41, 151, 255, 0.4) !important;
-  }
-
-  .product-feature-highlights strong,
-  .m3-highlights strong,
-  .k9-highlights strong {
-    background: linear-gradient(135deg, #ffffff 0%, #2997ff 140%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .product-feature-highlights span,
-  .m3-highlights span,
-  .k9-highlights span {
-    color: #86868b !important;
-  }
-
-  /* Dark mode figures & art */
-  .product-feature-chapter figure,
-  .product-story-art figure,
-  .description-figure,
-  .m3-story figure,
-  .k9-story figure,
-  .product-page .product-detail-art {
-    background: #141417;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  }
-
-  .product-feature-chapter,
-  .product-story-chapter,
-  .m3-chapter,
-  .k9-chapter {
-    background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1) 20%, rgba(255, 255, 255, 0.1) 80%, transparent);
-  }
-
-  /* Dark mode Tech specs */
-  .product-feature-specs,
-  .m3-specs,
-  .k9-specs {
-    background: linear-gradient(180deg, #141416 0%, #0d0d0f 100%);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .product-feature-specs dl>div,
-  .m3-specs dl>div,
-  .k9-specs dl>div {
-    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
-  }
-
-  .product-feature-specs dl>div:hover,
-  .m3-specs dl>div:hover,
-  .k9-specs dl>div:hover {
-    background: rgba(41, 151, 255, 0.08);
-  }
-
-  .product-feature-specs dt,
-  .m3-specs dt,
-  .k9-specs dt {
-    color: #f5f5f7 !important;
-  }
-
-  .product-feature-specs dd,
-  .m3-specs dd,
-  .k9-specs dd {
-    color: #a1a1a6 !important;
-  }
-
-  .product-feature-specs>p {
-    color: #9e9ea6 !important;
-  }
-
-  /* Ensure purchase / delivery / related sections stay high-contrast in OS dark mode */
-  .product-purchase-heading h1,
-  .product-detail-copy h1,
-  .product-detail-copy h2,
-  .product-detail-copy h3,
-  .product-config-heading,
-  .detail-price,
-  .detail-more,
-  .detail-more h2 {
-    color: #f5f5f7;
-  }
-
-  .detail-more {
-    background: #111114;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .detail-more .product-card {
-    background: #18181c;
-    color: #f5f5f7;
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .detail-more .product-card p,
-  .detail-more .product-card .price {
-    color: #d1d1d6;
-  }
-
-  .product-delivery details,
-  .product-delivery details[open] > div {
-    background: #18181c;
-    color: #e5e5ea;
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .product-delivery summary,
-  .product-delivery label {
-    color: #f5f5f7;
-  }
-
-  .product-delivery select {
-    background: #111114;
-    color: #f5f5f7;
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumb,
-  .breadcrumb a,
-  .product-config-heading span,
-  .product-shopping-help small,
-  .product-shopping-help p {
-    color: #b4b4bc;
-  }
-
-  .product-choice-card,
-  .variant-choice,
-  .bundle-card {
-    background: #16161a;
-    color: #f5f5f7;
-    border-color: rgba(255, 255, 255, 0.14);
-  }
-
-  .product-choice-card small,
-  .variant-choice small,
-  .bundle-card small {
-    color: #b4b4bc;
-  }
+.product-page .product-heading-flash-badge {
+  background: #fff0eb !important;
+  border-color: #ffd8cc !important;
+  color: #d9381e !important;
 }
 
 /* ------------------------------------------------------------------------------

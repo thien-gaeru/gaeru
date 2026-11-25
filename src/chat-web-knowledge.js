@@ -140,11 +140,14 @@ function extractPageKnowledge(fileName, html) {
     .trim()
     .slice(0, 320);
 
+  const { clean } = require('../clean-urls');
   const url = fileName === 'index.html' ? 'https://gaeru.com/' : `https://gaeru.com/${fileName}`;
+  const canonicalUrl = new URL(clean('/' + fileName, 'https://gaeru.com'), 'https://gaeru.com').href;
   const normalized = normalizeText(`${fileName} ${title} ${description} ${cleanText}`);
   return {
     file: fileName,
     url,
+    canonicalUrl,
     title,
     description,
     content: cleanText,
@@ -397,7 +400,7 @@ async function boostWebKnowledgeWithEmbeddings(pool, rawQuestion, scored, releva
           for (const m of ranked.matches) {
             relevantSnippets.push({
               title: m.item.page.title,
-              url: m.item.page.url,
+              url: m.item.page.canonicalUrl || m.item.page.url,
               line: m.item.line,
               score: Number(m.cos.toFixed(4))
             });
@@ -451,6 +454,7 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
   const topMatched = scored.filter((item, index) => item.score > 0 || index < 2).slice(0, 3);
   const topPages = topMatched.map(({ page }) => ({
     url: page.url,
+    canonicalUrl: page.canonicalUrl || page.url,
     title: page.title,
     excerpt: page.content.slice(0, 1200)
   }));
@@ -474,7 +478,7 @@ async function getRelevantWebKnowledge(pool, { question = '', selectedProduct = 
         const lineScore = tokenOverlapScore(tokens, tokenizeMeaningful(line));
         if (lineScore >= 0.35) {
           seenLines.add(key);
-          relevantSnippets.push({ title: page.title, url: page.url, line, score: lineScore });
+          relevantSnippets.push({ title: page.title, url: page.canonicalUrl || page.url, line, score: lineScore });
         }
       }
     }

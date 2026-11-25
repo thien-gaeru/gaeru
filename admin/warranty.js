@@ -54,6 +54,7 @@
       (!w.automatic && ['pending', 'rejected'].includes(w.status) && admin.can('warranty.approve') ?
         '<div class="warranty-request-actions"><button class="' + (isSpam ? 'secondary-button is-danger' : 'secondary-button') + '" type="button" data-w-admin-delete="' + escape(w.id) + '">' + (isSpam ? '🗑️ Xóa yêu cầu rác' : 'Xóa yêu cầu chưa xác nhận') + '</button></div><div data-w-admin-confirm="' + escape(w.id) + '"></div>' : '') +
       (editable ?
+        '<details class="warranty-manual-disclosure"><summary>Đối chiếu thủ công &amp; ghi lý do</summary>' +
         '<form data-w-id="' + escape(w.id) + '" class="warranty-review">' +
           '<div class="warranty-review-grid">' +
             '<label>Thao tác<select name="status">' +
@@ -65,7 +66,7 @@
           '<label>Lý do / kết quả đối chiếu<textarea name="reason" minlength="5" maxlength="1000" rows="2" required>' + (isSpam ? escape(spamMsg) : '') + '</textarea></label>' +
           '<label class="warranty-consent"><input type="checkbox" required> Tôi đã đối chiếu và xác nhận thông tin</label>' +
           '<div class="warranty-review-actions"><button class="primary-button">Lưu xác nhận</button><p role="status" aria-live="polite"></p></div>' +
-        '</form>' : '') +
+        '</form></details>' : '') +
     '</article>';
   }
 

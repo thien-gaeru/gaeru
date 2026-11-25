@@ -165,3 +165,62 @@
 @media(max-width:359px){#warranty-form .warranty-contact-row.w-compact-row{grid-template-columns:minmax(0,1fr)}}@media(max-width:340px){#warranty-form .w-channel-pills{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .care-email-pref{display:grid!important;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:10px;padding:12px 14px;margin:8px 0 16px;border-radius:12px;background:#f3f7f9;cursor:pointer;font-size:13px;line-height:1.6}.care-email-pref input[type=checkbox]{width:18px!important;height:18px!important;margin:2px 0 0!important;padding:0;accent-color:#0060c7}.care-email-pref span{font-weight:400}.care-case{overflow-wrap:anywhere}.care-case>small{font-size:12px;color:#55555a}.care-pagination{gap:12px}.care-sync-error{font-size:13px;color:#965610}.care-sync-error[hidden]{display:none}
+
+/* Shared streamlined Care+ Support Form & Guest Session Banner (matching #warranty-activation) */
+#care-request .w-sr-only,#care-form .w-sr-only,.care-reply-form .w-sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+#care-request .care-session-bar{margin:14px 0 18px}
+#care-request .w-session-pill{display:inline-flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0;padding:7px 14px;border-radius:999px;background:#f2f6fa;border:1px solid #e2eaf4;color:#3a3a3c;font-size:13px;line-height:1.45}
+#care-request .w-session-pill.is-guest{background:#f0f6ff;border-color:#d4e4ff}
+#care-request .w-session-pill.is-authed{background:#eef8f2;border-color:#ccead8;color:#1b5e38;font-weight:600}
+#care-request .w-login-cta{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:3px 12px;min-height:26px;border-radius:999px;background:#0060c7;color:#fff!important;font-size:12.5px;font-weight:600;line-height:1.2;text-decoration:none!important;white-space:nowrap;box-shadow:0 1px 4px rgba(0,96,199,0.24);transition:background .15s,box-shadow .15s}
+#care-request .w-login-cta:hover{background:#004fa6;box-shadow:0 2px 6px rgba(0,96,199,0.32)}
+#care-form.care-modern-form{gap:14px}
+#care-form.care-modern-form fieldset.w-external-fieldset{display:block;border:0;padding:0;margin:0;border-radius:0}
+#care-form.care-modern-form fieldset.w-account-box{display:block;padding:12px 14px;border:1px solid #dce6f2;border-radius:14px;background:#f7faff;margin:0}
+#care-form .w-step-block{display:grid;grid-gap:6px;gap:6px;min-width:0}
+#care-form .w-step-label,#care-form.care-modern-form legend.w-step-label{display:block;float:none;width:auto;font-size:12.5px;font-weight:650;color:#1d1d1f;margin:0;padding:0;line-height:1.35;letter-spacing:-.01em}
+#care-form.care-modern-form legend.w-step-label{width:100%;margin:0 0 8px}
+#care-form .care-channel-pills{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;grid-gap:6px;gap:6px;padding:3px;background:#f2f2f7;border-radius:12px}
+#care-form .w-channel-pill{display:flex;align-items:center;justify-content:center;min-height:36px;padding:6px 8px;border:1px solid transparent;border-radius:9px;background:transparent;color:#3a3a3c;font:inherit;font-size:12.5px;font-weight:600;line-height:1.2;white-space:nowrap;transition:background .15s,border-color .15s,color .15s;-webkit-appearance:none;appearance:none}
+#care-form .w-channel-pill.is-active{background:#fff;color:#0060c7;border-color:rgba(0,96,199,0.22);box-shadow:0 1px 4px rgba(0,0,0,0.08)}
+#care-form .w-pill-dot{width:7px;height:7px;border-radius:50%;margin-right:5px;flex-shrink:0}
+#care-form .w-pill-dot.is-shopee{background:#ee4d2d}
+#care-form .w-pill-dot.is-tiktok{background:#111111}
+#care-form .w-pill-dot.is-lazada{background:#0f146d}
+#care-form .w-pill-dot.is-website{background:#0060c7}
+#care-form.care-modern-form label{gap:6px;font-size:12.5px;font-weight:600;color:#1d1d1f}
+#care-form.care-modern-form input,#care-form.care-modern-form select,#care-form.care-modern-form textarea{min-height:42px;padding:10px 12px;border-radius:10px;border:1px solid #c7c7cc;font-size:16px}
+#care-form.care-modern-form textarea{min-height:104px;line-height:1.5}
+#care-form.care-modern-form input:focus,#care-form.care-modern-form select:focus,#care-form.care-modern-form textarea:focus{outline:3px solid rgba(0,96,199,0.24);outline-offset:1px;border-color:#0060c7}
+#care-form .w-input-action-wrap{position:relative;display:flex;align-items:center;width:100%}
+#care-form .w-input-action-wrap input{padding-right:68px}
+#care-form .w-paste-btn{position:absolute;right:5px;top:50%;-webkit-transform:translateY(-50%);transform:translateY(-50%);min-height:32px;padding:4px 11px;border:1px solid #d2d2d7;border-radius:8px;background:#f5f5f7;color:#0060c7;font:inherit;font-size:12px;font-weight:600;line-height:1.2}
+#care-form .w-paste-btn:hover{background:#e8f0fe;border-color:#b6d4fe}
+#care-form .care-upload-field{display:grid;grid-gap:6px;gap:6px;min-width:0}
+#care-form .care-upload-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#care-form .w-optional-badge{flex-shrink:0;font-size:11px;font-weight:600;color:#0060c7;background:#eef5fc;padding:2px 8px;border-radius:999px}
+.care-upload-box{border:1.5px dashed #c7d4e6;border-radius:12px;background:#f8fbff;padding:10px 12px;transition:border-color .15s,background .15s}
+.care-upload-box:hover,.care-upload-box.is-dragover{border-color:#0060c7;background:#eef5ff}
+.care-page .care-upload-trigger{display:flex;align-items:center;gap:10px;cursor:pointer;margin:0;font-size:13px;font-weight:600;color:#0060c7}
+.care-upload-trigger svg{flex-shrink:0;color:#0060c7}
+.care-upload-trigger span{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;line-height:1.4}
+.care-upload-trigger small{font-size:11.5px;font-weight:400;color:#6e6e73}
+.care-upload-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;padding-top:9px;border-top:1px solid #e3ecf7}
+.care-upload-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 8px 4px 10px;border-radius:999px;background:#fff;border:1px solid #cfdced;font-size:12px;color:#1d1d1f}
+.care-chip-name{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.care-chip-size{color:#6e6e73;font-size:11px;flex-shrink:0}
+.care-chip-remove{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;min-height:20px;padding:0;border:0;border-radius:50%;background:#ebebf0;color:#515154;font-size:13px;font-weight:700;line-height:1}
+.care-chip-remove:hover{background:#ffd9d9;color:#b91c1c}
+#care-form .w-submit-bar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding-top:2px}
+#care-form .w-submit-btn{min-height:44px;padding:10px 24px;border-radius:999px;font-size:14.5px;font-weight:600}
+#care-form .w-privacy-hint{font-size:12px;color:#6e6e73;line-height:1.45}
+#care-form .w-privacy-hint a{color:#0060c7;text-decoration:underline}
+#care-form .w-status-line{font-size:13px;line-height:1.45;color:#1d1d1f;background:#f2f7f4;border-radius:10px;padding:8px 12px;margin:0}
+#care-form .w-status-line:empty{display:none}
+.care-reply-form{margin-top:12px;padding-top:12px;border-top:1px solid #ebebf0}
+.care-reply-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.care-page .care-attach-btn{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:7px 14px;border:1px solid #cfdced;border-radius:999px;background:#f7faff;color:#0060c7;font-size:12.5px;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s}
+.care-page .care-attach-btn:hover{background:#eaf3ff;border-color:#9fc5f8}
+.care-msg-img{max-width:240px;border-radius:8px;display:block;margin:6px 0}
+.care-msg-video{max-width:280px;border-radius:8px;display:block;margin:6px 0}
+@media(max-width:560px){#care-request .w-session-pill{border-radius:14px}#care-form .care-channel-pills{grid-template-columns:repeat(2,minmax(0,1fr));grid-gap:5px;gap:5px}#care-form .w-submit-bar{flex-direction:column;align-items:stretch;gap:6px}#care-form .w-submit-btn{width:100%;justify-content:center}#care-form .w-privacy-hint{text-align:center;font-size:11.5px}}

@@ -37,7 +37,7 @@ test('Storefront P0/P1 fixes: inert guard, subnav hash rewrite, dark-mode contra
   assert.match(prodJs, /data-nav-target/, 'product subnav must handle clean-URL rewritten hash links');
   assert.match(prodJs, /requestAnimationFrame/, 'product scroll handler must be rAF-throttled');
   assert.doesNotMatch(prodCss, /\.product-local-subnav[\s\S]{0,300}backdrop-filter:\s*blur\(20px\)/, 'subnav must not use heavy 20px backdrop blur');
-  assert.match(prodCss, /prefers-color-scheme:\s*dark[\s\S]*\.detail-more/, 'OS dark mode contrast must be preserved');
+  assert.doesNotMatch(prodCss, /prefers-color-scheme:\s*dark/, 'Storefront product page must stay locked to consistent light mode');
 
   const servicesJs = read('product-services.js');
   assert.match(servicesJs, /if\s*\(!dialog\.open\)/, 'openChat must guard showModal against already-open dialog');

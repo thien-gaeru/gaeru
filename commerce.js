@@ -277,11 +277,12 @@ async function restorePendingOrder(root) {
   }
   const bank=state.bankTransfer;
   const safe=state.paymentUrl && safeCheckoutPaymentUrl(state.paymentUrl);
+  root.classList?.remove?.("checkout-two-col");
   root.innerHTML='<div class="order-success" role="status"><h2>Đã tiếp nhận đơn '+escapeHtml(state.orderNumber||"")+
     '</h2><p>'+escapeHtml(state.message||"GAERU đã lưu đơn hàng.")+'</p>'+
     (bank?'<p>Chuyển khoản tới '+escapeHtml(bank.bankName)+' · '+escapeHtml(bank.accountNumber)+' · '+escapeHtml(bank.accountHolder)+' · '+formatPrice(bank.amountVnd)+' · Nội dung '+escapeHtml(bank.transferContent)+'</p>':'')+
-    (safe?'<a class="button button-blue" href="'+escapeHtml(safe)+'">Tiếp tục thanh toán</a> ':'')+
-    '<a class="text-link" href="/tra-cuu-don-hang?order='+encodeURIComponent(state.orderNumber||"")+'">Tra cứu đơn hàng</a></div>';
+    '<div class="order-success-actions">'+(safe?'<a class="button button-blue" href="'+escapeHtml(safe)+'">Tiếp tục thanh toán</a>':'')+
+    '<a class="button button-outline" href="/tra-cuu-don-hang?order='+encodeURIComponent(state.orderNumber||"")+'">Theo dõi đơn hàng</a></div></div>';
   postOrderCart(owner,record.key,record.items,record.direct);
   if(localStorage.getItem(record.storageKey)===record.generation || (!localStorage.getItem(record.storageKey)&&record.generation==="initial"))
     localStorage.setItem(record.storageKey,crypto.randomUUID());
@@ -330,8 +331,9 @@ function getPriceLabel(product, original = false) {
   return low === high ? formatPrice(low) : `Từ ${formatPrice(low)} đến ${formatPrice(high)}`;
 }
 
-function promotionLabel(product){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];const salePrice=getPriceLabel(product,false);return `<p class="store-promotion-note ${flash?'is-flash':''}"><strong class="promotion-badge">${flash?'Flash Sale':'Ưu đãi'}</strong>${flash?` <span class="sale-countdown" data-sale-end="${new Date(end).toISOString()}"></span>`:''} <span class="promotion-divider">·</span> <span class="promotion-sale-price">${escapeHtml(salePrice)}</span></p>`;}
-function formatPriceRangeHTML(priceStr){if(!priceStr||typeof priceStr!=='string')return escapeHtml(priceStr);const match=/^Từ\s+(.+?)\s+đến\s+(.+)$/i.exec(priceStr.trim());if(!match)return escapeHtml(priceStr);const low=match[1],high=match[2];return `<span class="price-text-full">Từ ${escapeHtml(low)} đến ${escapeHtml(high)}</span><span class="price-text-compact">${escapeHtml(low)} – ${escapeHtml(high)}</span>`;}
+function promotionLabel(product, includePrice = true){const sale=product.variants.filter(v=>v.active&&v.promotion);if(!sale.length)return '';const flash=sale.some(v=>v.promotion.type==='flash');const end=sale.filter(v=>!flash||v.promotion.type==='flash').map(v=>new Date(v.promotion.endsAt).getTime()).sort((a,b)=>a-b)[0];const salePrice=getPriceLabel(product,false);return `<p class="store-promotion-note ${flash?'is-flash':''}"><strong class="promotion-badge">${flash?'Flash Sale':'Ưu đãi'}</strong>${flash?` <span class="sale-countdown" data-sale-end="${new Date(end).toISOString()}"></span>`:''}${includePrice?` <span class="promotion-divider">·</span> <span class="promotion-sale-price">${escapeHtml(salePrice)}</span>`:''}</p>`;}
+function formatDisplayLabel(value){return String(value??'').replace(/\bmicro\s*usb\b/gi,'Micro USB');}
+function formatPriceRangeHTML(priceStr){if(!priceStr||typeof priceStr!=='string')return escapeHtml(priceStr);const match=/^Từ\s+(.+?)\s+đến\s+(.+)$/i.exec(priceStr.trim());if(!match)return `<span class="vnd-amount">${escapeHtml(priceStr)}</span>`;const low=match[1],high=match[2];return `<span class="price-text-full">Từ <span class="vnd-amount">${escapeHtml(low)}</span> đến <span class="vnd-amount">${escapeHtml(high)}</span></span><span class="price-text-compact"><span class="vnd-amount">${escapeHtml(low)}</span> – <span class="vnd-amount">${escapeHtml(high)}</span></span>`;}
 function productCard(product, compact = false) {
   const variants = product.variants.filter((variant) => variant.active);
   const availableVariants = variants.filter((variant) => variant.stockQuantity > 0);
@@ -342,13 +344,14 @@ function productCard(product, compact = false) {
   const cardClass = compact
     ? `product-card ${isG1Ultra ? "product-card-wide" : ""}`
     : "catalog-card";
+  const wrapPrice = typeof formatPriceRangeHTML === "function" ? formatPriceRangeHTML : escapeHtml;
   return compact ? `
     <article class="${cardClass}" id="${escapeHtml(product.slug)}" data-kind="${escapeHtml(product.category)}" data-href="${pUrl}">
       <div class="product-copy">
         <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
         <h3>${escapeHtml(product.cardTitle||product.name)}</h3>
         <p>${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
-        ${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return hasSale?`<p class="price price-original"><span class="price-original-label">Giá gốc </span><del>${escapeHtml(getPriceLabel(product,true))}</del></p>${promotionLabel(product)}`:`<p class="price">${escapeHtml(getPriceLabel(product))}</p>`;})()}
+        ${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return hasSale?`<p class="price price-original"><span class="price-original-label">Giá gốc </span><del>${wrapPrice(getPriceLabel(product,true))}</del></p>${promotionLabel(product,true)}`:`<p class="price">${wrapPrice(getPriceLabel(product))}</p>`;})()}
 
       </div>
       ${(img=>window.GAERUProductArtwork?.picture?.(img,cardImage)||img)(`<img class="product-image" src="${escapeHtml(cardImage)}" ${window.GAERUProductArtwork?.attributes?.(cardImage)||''} alt="${escapeHtml(product.imageAlt||product.name)}" loading="lazy" decoding="async">`)}
@@ -364,10 +367,10 @@ function productCard(product, compact = false) {
       <p class="eyebrow">${escapeHtml(product.descriptor)}</p>
       <h2><a href="${pUrl}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
       <p class="catalog-description">${escapeHtml(String(product.cardSummary||'').replace(/\*\*|__/g,''))}</p>
-      ${promotionLabel(product)}
+      ${promotionLabel(product,false)}
       <div class="catalog-actions">
-        <p class="catalog-price">${escapeHtml(getPriceLabel(product))}</p>
-        <a class="button button-blue" href="${pUrl}">Mua Ngay</a>
+        <p class="catalog-price">${(()=>{const hasSale=product.variants.some(v=>v.active&&v.promotion);return (hasSale?`<del class="catalog-price-original">${wrapPrice(getPriceLabel(product,true))}</del><br>`:'')+wrapPrice(getPriceLabel(product));})()}</p>
+        <a class="button button-blue" href="${pUrl}">Mua ngay</a>
       </div>
     </article>`;
 }
@@ -403,7 +406,26 @@ function renderCatalog() {
   queryInput.value = initialQuery;
   const navigation=document.querySelector('[data-store-products]');
   const categoryArtwork=product=>window.GAERUProductArtwork?.image(product)||product.imageUrl;
-  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="product.html?id=${encodeURIComponent(product.slug)}"><span class="category-art">${(img=>window.GAERUProductArtwork?.picture?.(img,categoryArtwork(product))||img)(`<img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" ${window.GAERUProductArtwork?.attributes?.(categoryArtwork(product))||''} alt="" width="144" height="120" decoding="async">`)}</span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  if(navigation)navigation.innerHTML=products.length?products.map(product=>`<a class="store-category" href="/san-pham/${encodeURIComponent(product.slug)}"><span class="category-art">${(img=>window.GAERUProductArtwork?.picture?.(img,categoryArtwork(product))||img)(`<img ${product.slug==='gaeru-k9'?'data-k9-animate':''} src="${escapeHtml(categoryArtwork(product))}" ${window.GAERUProductArtwork?.attributes?.(categoryArtwork(product))||''} alt="" width="144" height="120" decoding="async">`)}</span><span>${escapeHtml(product.name)}</span></a>`).join(''):'<p class="store-navigation-status">Chưa có sản phẩm đang được đăng bán.</p>';
+  const savedLinks = document.querySelectorAll("[data-saved-count]");
+  const syncSavedVisibility = () => {
+    let savedLen = 0;
+    try {
+      const rawSaved = JSON.parse(localStorage.getItem("gaeru.saved.products.v1") || "[]");
+      if (Array.isArray(rawSaved)) savedLen = rawSaved.length;
+    } catch (_) {}
+    savedLinks.forEach((el) => {
+      const m = /\((\d+)\)/.exec(el.textContent || "");
+      const n = m ? Number.parseInt(m[1], 10) : savedLen;
+      el.hidden = !savedOnly && !(n > 0);
+    });
+  };
+  syncSavedVisibility();
+  if (savedLinks.length && typeof MutationObserver === "function") {
+    const savedMo = new MutationObserver(syncSavedVisibility);
+    savedLinks.forEach((el) => savedMo.observe(el, { childList: true, characterData: true, subtree: true }));
+  }
+  window.addEventListener?.("storage", syncSavedVisibility);
   window.GAERUK9Loop?.mountHome();
   const updateRail = () => document.querySelectorAll('[data-store-scroll]').forEach(button => {
     button.disabled = Number(button.dataset.storeScroll) < 0 ? grid.scrollLeft <= 2 : grid.scrollLeft + grid.clientWidth >= grid.scrollWidth - 2;
@@ -463,7 +485,7 @@ function updateBundleCardPricing(card, bundle) {
     const titleEl = primaryCard.querySelector("strong");
     if (titleEl) titleEl.textContent = primaryItem.productName;
     const varEl = primaryCard.querySelector("small");
-    if (varEl) varEl.textContent = primaryItem.variantName;
+    if (varEl) varEl.textContent = formatDisplayLabel(primaryItem.variantName);
     const priceEl = primaryCard.querySelector(".item-price");
     if (priceEl) priceEl.textContent = formatPrice(primaryItem.priceVnd);
   }
@@ -521,7 +543,7 @@ function renderBundlesHtml(container, bundles, currentVariantId) {
             <img src="${escapeHtml(safeProductImage(primaryItem.imageUrl))}" alt="${escapeHtml(primaryItem.productName)}" width="52" height="52" loading="lazy" fetchpriority="low">
             <div class="bundle-item-info">
               <strong>${escapeHtml(primaryItem.productName)}</strong>
-              <small>${escapeHtml(primaryItem.variantName)}</small>
+              <small>${escapeHtml(formatDisplayLabel(primaryItem.variantName))}</small>
               <span class="item-price">${formatPrice(primaryItem.priceVnd)}</span>
             </div>
           </div>
@@ -533,7 +555,7 @@ function renderBundlesHtml(container, bundles, currentVariantId) {
                 <img src="${escapeHtml(safeProductImage(item.imageUrl))}" alt="${escapeHtml(item.productName)}" width="52" height="52" loading="lazy" fetchpriority="low">
                 <div class="bundle-item-info">
                   <strong>${escapeHtml(item.productName)}</strong>
-                  <small>${escapeHtml(item.variantName)}</small>
+                  <small>${escapeHtml(formatDisplayLabel(item.variantName))}</small>
                   <span class="item-price">${formatPrice(item.priceVnd)}</span>
                 </div>
               </label>
@@ -562,7 +584,7 @@ function renderProduct() {
   const slug = (searchParams.get("id") || searchParams.get("slug") || (location.pathname.startsWith("/san-pham/") ? decodeURIComponent(location.pathname.split("/").pop()) : null));
   const product = products.find((item) => item.slug === slug || item.slug === "gaeru-"+slug);
   if (!product) {
-    root.innerHTML = `<section class="not-found section-wrap"><p class="eyebrow">Không tìm thấy sản phẩm</p><h1>Sản phẩm này chưa có hoặc đang được cập nhật.</h1><a class="button button-blue" href="shop.html">Quay lại cửa hàng</a></section>`;
+    root.innerHTML = `<section class="not-found section-wrap"><p class="eyebrow">Không tìm thấy sản phẩm</p><h1>Sản phẩm này chưa có hoặc đang được cập nhật.</h1><a class="button button-blue" href="/cua-hang">Quay lại cửa hàng</a></section>`;
     return;
   }
   const variants = product.variants.filter((variant) => variant.active);
@@ -590,13 +612,13 @@ function renderProduct() {
   const breadcrumb = document.querySelector("#breadcrumb-product");
   if (breadcrumb) breadcrumb.textContent = product.name;
   const optionGroups=window.GAERUVariantChoices?.groups(variants,product.optionGroups)||[];
-  const visualOptions=optionGroups.length?optionGroups.map(g=>`<div class="product-choice-group"><p>${escapeHtml(g.name)}</p><div class="product-choice-buttons" role="group" aria-label="${escapeHtml(g.name)}">${g.values.map(value=>`<button type="button" data-option-group="${escapeHtml(g.name)}" data-option-value="${escapeHtml(value)}" aria-pressed="false">${escapeHtml(value)}</button>`).join("")}</div></div>`).join(""):variants.map(v=>`<button class="product-variant-card" type="button" data-visual-variant="${escapeHtml(v.id)}" aria-pressed="false">${escapeHtml(v.name)}<small>${formatPrice(v.priceVnd)}${v.stockQuantity?"":" · Hết hàng"}</small></button>`).join("");
+  const visualOptions=optionGroups.length?optionGroups.map(g=>`<div class="product-choice-group"><p>${escapeHtml(g.name)}</p><div class="product-choice-buttons" role="group" aria-label="${escapeHtml(g.name)}">${g.values.map(value=>`<button type="button" data-option-group="${escapeHtml(g.name)}" data-option-value="${escapeHtml(value)}" aria-pressed="false">${escapeHtml(formatDisplayLabel(value))}</button>`).join("")}</div></div>`).join(""):`<div class="product-variant-grid">${variants.map(v=>`<button class="product-variant-card" type="button" data-visual-variant="${escapeHtml(v.id)}" aria-pressed="false">${escapeHtml(formatDisplayLabel(v.name))}<small>${formatPrice(v.priceVnd)}${v.stockQuantity?"":" · Hết hàng"}</small></button>`).join("")}</div>`;
   const variantField = variants.length ? `${visualOptions}<label class="variant-select-label variant-select-internal" for="product-variant">Phiên bản
       <select id="product-variant">
         <option value="" disabled selected>Chọn phiên bản</option>
         ${variants.map((variant) => {
-          const options = Object.entries(variant.options || {}).map(([key, value]) => `${key}: ${value}`).join(" · ");
-          const label = [variant.name, options, `SKU ${variant.sku}`, variant.stockQuantity ? "" : "Hết hàng"].filter(Boolean).join(" — ");
+          const options = Object.entries(variant.options || {}).map(([key, value]) => `${key}: ${formatDisplayLabel(value)}`).join(" · ");
+          const label = [formatDisplayLabel(variant.name), options, `SKU ${variant.sku}`, variant.stockQuantity ? "" : "Hết hàng"].filter(Boolean).join(" — ");
           return `<option value="${escapeHtml(variant.id)}"  ${variant.stockQuantity ? "" : "disabled"}>${escapeHtml(label)} · ${formatPrice(variant.priceVnd)}</option>`;
         }).join("")}
       </select>
@@ -614,16 +636,16 @@ function renderProduct() {
   root.innerHTML = `
     <header class="product-purchase-heading section-wrap"><p class="eyebrow">${escapeHtml(product.descriptor)}</p><h1>Mua ${escapeHtml(product.name)}</h1>${hasFlash ? `<div class="product-heading-flash-badge"><span class="flash-badge-icon" aria-hidden="true">⚡</span><span class="flash-badge-text">FLASH SALE ĐANG DIỄN RA ${initialDiscountPercent ? `· Tiết kiệm tới ${initialDiscountPercent}%` : ''}</span></div>` : ''}${product.cardSummary?`<p class="product-purchase-intro">${escapeHtml(product.cardSummary)}</p>`:''}<div class="purchase-intro-links"><a class="text-link" href="#product-information">Thông tin chi tiết ↓</a></div></header>
     <section class="product-detail section-wrap" aria-label="Chọn phiên bản ${escapeHtml(product.name)}">
-      <div class="product-detail-art">${(img=>window.GAERUProductArtwork?.picture?.(img,safeProductImage(product.imageUrl),true)||img)(`<img loading="eager" fetchpriority="high" decoding="async" width="800" height="800" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}">`)}<div class="product-gallery-thumbnails">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}">${(img=>window.GAERUProductArtwork?.picture?.(img,url,'thumb')||img)(`<img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" width="74" height="74" loading="lazy" fetchpriority="low" decoding="async">`)}</button>`).join("")}</div></div>
+      <div class="product-detail-art">${(img=>window.GAERUProductArtwork?.picture?.(img,safeProductImage(product.imageUrl),true)||img)(`<img loading="eager" fetchpriority="high" decoding="async" width="800" height="800" data-product-main-image src="${escapeHtml(safeProductImage(product.imageUrl))}" ${window.GAERUProductArtwork?.attributes?.(safeProductImage(product.imageUrl),true)||''} alt="${escapeHtml(product.imageAlt||product.name)}">`)}<div class="product-gallery-thumbnails product-thumbs">${[...new Set([product.imageUrl,...(product.gallery||[])])].map((url,i)=>`<button type="button" data-gallery-image="${escapeHtml(url)}" aria-label="Xem ảnh ${i+1}" aria-pressed="${url===product.imageUrl}">${(img=>window.GAERUProductArtwork?.picture?.(img,url,'thumb')||img)(`<img src="${escapeHtml(url)}" ${window.GAERUProductArtwork?.attributes?.(url,'thumb')||''} alt="" width="74" height="74" loading="lazy" fetchpriority="low" decoding="async">`)}</button>`).join("")}</div></div>
       <div class="product-detail-copy">
         <h2 class="product-config-heading">Phiên bản. <span>${(product.variants || []).some(v => /type-?c|lightning|usb|3\.5mm|chân cắm|kết nối/i.test(`${v.name || ""} ${JSON.stringify(v.options || {})}`)) ? "Chọn kết nối phù hợp với bạn." : "Chọn cấu hình phù hợp với bạn."}</span></h2>
         ${variantField}<p data-selected-promotion class="store-promotion-note" hidden></p>
-        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>Vui lòng chọn phiên bản</p><p>Xem phí giao hàng khi thanh toán.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         <div class="detail-actions">
           <button class="button button-blue buy-now-button" type="button" data-buy-now="" disabled>Mua ngay</button>
           <button class="button button-blue" type="button" data-add-to-cart="" disabled>Thêm vào giỏ</button>
         </div>
         <p class="cart-feedback" data-cart-feedback aria-live="polite"></p>
+        <section class="product-delivery" aria-label="Thông tin giao hàng"><svg viewBox="0 0 32 28" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2 3h18v18H2zM20 10h6l4 6v5H20"/><circle cx="8" cy="22" r="3" fill="white"/><circle cx="25" cy="22" r="3" fill="white"/></svg><div><h3>Giao hàng</h3><p class="stock-note" data-stock-note>Vui lòng chọn phiên bản</p><p>Xem phí giao hàng khi thanh toán.</p><details data-delivery-details><summary>Nhận thông tin giao hàng ⊕</summary><div data-delivery-content>Đang tải thông tin…</div></details></div></section>
         ${(product.shopeeUrl || product.tiktokShopUrl) ? `
         <div class="product-marketplace-actions" aria-label="Đặt mua qua sàn thương mại điện tử">
           <div class="marketplace-divider"><span>Hoặc đặt mua chính hãng tại</span></div>
@@ -633,12 +655,12 @@ function renderProduct() {
           </div>
         </div>` : ''}
         <div data-product-bundles-wrap></div>
-        <section class="product-save-later"><h3>Vẫn chưa thể quyết định?</h3><p>Lưu sản phẩm để dễ dàng quay lại xem trên trình duyệt này.</p><button type="button" class="save-product-button" data-save-product="${escapeHtml(product.slug)}" aria-pressed="false">Lưu để xem lại sau</button><a href="shop.html?saved=1">Xem sản phẩm đã lưu ↗</a><p role="status" aria-live="polite"></p></section>
+        <section class="product-save-later"><h3>Vẫn chưa thể quyết định?</h3><p>Lưu sản phẩm để dễ dàng quay lại xem trên trình duyệt này.</p><button type="button" class="save-product-button" data-save-product="${escapeHtml(product.slug)}" aria-pressed="false">Lưu để xem lại sau</button><a href="/cua-hang?saved=1">Xem sản phẩm đã lưu ↗</a><p role="status" aria-live="polite"></p></section>
         <section class="product-shopping-help"><svg viewBox="0 0 32 30" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 3h20v17H10l-6 6v-6H3zM23 10h6v15h-7l-4 4v-9"/></svg><div><h3>Trợ giúp mua sắm.</h3><p><button type="button" class="chat-product-button" data-product-chat="${escapeHtml(product.slug)}">Chat ngay ↗</button> hoặc gọi <a href="tel:0829191080">082 919 1080</a>.</p><small>AI hỗ trợ trước; chọn Gặp nhân viên khi cần.</small></div></section>
       </div>
     </section>
     <section class="product-information section-wrap" id="product-information">${window.GAERUDescription?.informationHeader?.(product.slug)||`<header><p class="eyebrow">TÌM HIỂU SẢN PHẨM</p><h2>${escapeHtml(product.name)}. <span>Chi tiết cho lựa chọn của bạn.</span></h2></header>`}${window.GAERUDescription?window.GAERUDescription.render(product):`<p class="detail-description">${escapeHtml(product.description)}</p>`}</section>
-    <section class="detail-more"><p class="eyebrow">Khám phá thêm</p><h2>Thiết bị khác. Cùng cảm hứng.</h2><a class="text-link" href="shop.html">Xem toàn bộ cửa hàng <span aria-hidden="true">›</span></a></section>`;
+    <section class="detail-more"><p class="eyebrow">Khám phá thêm</p><h2>Thiết bị khác. Cùng cảm hứng.</h2><a class="text-link" href="/cua-hang">Xem toàn bộ cửa hàng <span aria-hidden="true">›</span></a></section>`;
   if (reuseHeroNode && existingHeroNode) {
     const freshHeroNode = root.querySelector('.product-detail-art > picture, .product-detail-art > [data-product-main-image]');
     if (freshHeroNode && typeof freshHeroNode.replaceWith === 'function') {
@@ -767,10 +789,22 @@ function renderCart() {
   const root = document.querySelector("#cart-content");
   if (!root) return;
   const rows = cartRows(readCart());
+  const pageHeading = document.querySelector("[data-cart-page-heading]") || document.querySelector(".page-intro h1");
   if (!rows.length) {
-    root.innerHTML = `<div class="empty-cart"><span class="empty-cart-icon" aria-hidden="true">◯</span><h2>Giỏ hàng đang trống.</h2><p>Khám phá các thiết bị GAERU và tìm người bạn đồng hành tiếp theo.</p><a class="button button-blue" href="shop.html">Đi đến cửa hàng</a></div>`;
+    if (pageHeading) pageHeading.textContent = "Giỏ hàng của bạn đang trống";
+    const quickItems = (Array.isArray(products) && products.length
+      ? products.filter((p) => p.active !== false && p.slug).slice(0, 5).map((p) => ({ slug: p.slug, label: p.cardTitle || p.name }))
+      : [
+          { slug: "gaeru-m3", label: "GAERU M3" },
+          { slug: "gaeru-k9", label: "GAERU K9" },
+          { slug: "gaeru-g1-ultra", label: "GAERU G1 ULTRA" },
+          { slug: "gaeru-p01", label: "GAERU P01" },
+          { slug: "gaeru-p185", label: "GAERU P185" }
+        ]);
+    root.innerHTML = `<div class="empty-cart"><span class="empty-cart-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg></span><h2>Chưa có thiết bị nào trong giỏ hàng.</h2><p>Khám phá các thiết bị thu âm &amp; ghi hình GAERU chính hãng để bắt đầu câu chuyện tiếp theo của bạn.</p><a class="button button-blue" href="/cua-hang">Đi đến cửa hàng</a><nav class="empty-cart-quicklinks" aria-label="Gợi ý thiết bị nổi bật"><span>Gợi ý thiết bị nổi bật</span>${quickItems.map((it) => `<a href="/san-pham/${encodeURIComponent(it.slug)}">${escapeHtml(it.label)}</a>`).join("")}</nav></div>`;
     return;
   }
+  if (pageHeading) pageHeading.textContent = "Gần xong rồi.";
   const availableRows = rows.filter(item => item.variant.stockQuantity > 0);
   const hasOutOfStock = availableRows.length < rows.length;
   const total = availableRows.reduce((sum, item) => sum + item.variant.priceVnd * item.quantity, 0);
@@ -778,15 +812,16 @@ function renderCart() {
     <div class="cart-items">
       ${rows.map(({ variantId, quantity, product, variant }) => {
         const itemImg = variant.imageUrl || product.imageUrl;
+        const pHref = `/san-pham/${encodeURIComponent(product.slug)}`;
         return `
         <article class="cart-item${variant.stockQuantity ? "" : " is-out-of-stock"}">
-          <a class="cart-item-image" href="product.html?id=${encodeURIComponent(product.slug)}">${(img=>window.GAERUProductArtwork?.picture?.(img,itemImg,'thumb')||img)(`<img src="${escapeHtml(itemImg)}" ${window.GAERUProductArtwork?.attributes?.(itemImg,'thumb')||''} alt="${escapeHtml(product.imageAlt)}" width="120" height="120" loading="lazy" decoding="async">`)}</a>
+          <a class="cart-item-image" href="${pHref}">${(img=>window.GAERUProductArtwork?.picture?.(img,itemImg,'thumb')||img)(`<img src="${escapeHtml(itemImg)}" ${window.GAERUProductArtwork?.attributes?.(itemImg,'thumb')||''} alt="${escapeHtml(product.imageAlt||product.name)}" width="120" height="120" loading="lazy" decoding="async">`)}</a>
           <div class="cart-item-info">
-            <h2><a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
-              <p>${escapeHtml(variant.name)} · ${escapeHtml(variant.sku)} · ${formatPrice(variant.priceVnd)}${variant.stockQuantity ? "" : " · Hết hàng"}</p>
+            <h2><a href="${pHref}">${escapeHtml(product.cardTitle||product.name)}</a></h2>
+              <p>${escapeHtml(formatDisplayLabel(variant.name))} · ${escapeHtml(variant.sku)} · <span class="vnd-amount">${formatPrice(variant.priceVnd)}</span>${variant.stockQuantity ? "" : " · Hết hàng"}</p>
             <button class="remove-item" type="button" data-remove="${escapeHtml(variantId)}">Xóa</button>
           </div>
-          <label class="visually-hidden" for="quantity-${escapeHtml(variantId)}">Số lượng ${escapeHtml(product.name)} ${escapeHtml(variant.name)}</label>
+          <label class="visually-hidden" for="quantity-${escapeHtml(variantId)}">Số lượng ${escapeHtml(product.name)} ${escapeHtml(formatDisplayLabel(variant.name))}</label>
           <input class="quantity-input" id="quantity-${escapeHtml(variantId)}" type="number" min="1" max="${Math.max(1, Math.min(99, variant.stockQuantity))}" value="${quantity}" data-quantity="${escapeHtml(variantId)}" ${variant.stockQuantity ? "" : "disabled"}>
           <strong class="cart-line-total">${variant.stockQuantity ? formatPrice(variant.priceVnd * quantity) : "Hết hàng"}</strong>
         </article>`;
@@ -800,8 +835,8 @@ function renderCart() {
       <p class="summary-total"><span>Tổng tạm tính</span><strong data-cart-subtotal-final>${formatPrice(total)}</strong></p>
       ${hasOutOfStock ? '<p class="prototype-note" style="color:#c14343;">Một số sản phẩm trong giỏ đã hết hàng và sẽ không được tính vào đơn thanh toán.</p>' : ''}
       <p class="prototype-note" data-cart-shipping-note></p>
-      ${availableRows.length ? '<a class="button button-blue" href="checkout.html">Nhập thông tin đặt hàng</a>' : '<button class="button button-blue" type="button" disabled>Chưa có sản phẩm còn hàng</button>'}
-      <a class="continue-shopping" href="shop.html">Tiếp tục mua sắm</a>
+      ${availableRows.length ? '<a class="button button-blue" href="/thanh-toan">Nhập thông tin đặt hàng</a>' : '<button class="button button-blue" type="button" disabled>Chưa có sản phẩm còn hàng</button>'}
+      <a class="continue-shopping" href="/cua-hang">Tiếp tục mua sắm</a>
     </aside>`;
   updateCartShipping(root);
   if (availableRows.length >= 2) {
@@ -962,9 +997,44 @@ async function renderCheckout() {
       </div>`;
     return;
   }
-  root.classList.add("checkout-single");
+  root.classList.remove("checkout-single");
+  root.classList.add("checkout-two-col");
+  const PAYMENT_CARD_META = {
+    cod: {
+      title: "Thanh toán khi nhận hàng (COD)",
+      sub: "Kiểm tra sản phẩm và thanh toán tiền mặt khi nhận hàng",
+      badge: "",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h13v10H2z"/><path d="M15 10h4l3 3v4h-7z"/><circle cx="6.5" cy="18" r="2"/><circle cx="18.5" cy="18" r="2"/></svg>'
+    },
+    bank_transfer: {
+      title: "Chuyển khoản nhanh VietQR",
+      sub: "Quét mã QR ngân hàng, hệ thống tự động duyệt đơn tức thì",
+      badge: "Tự động",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M20 14v3h-2"/><path d="M14 20h7"/></svg>'
+    },
+    vnpay: {
+      title: "Cổng thanh toán VNPAY",
+      sub: "Thẻ ATM nội địa, Visa/Mastercard &amp; quét VNPAY-QR",
+      badge: "",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>'
+    },
+    momo: {
+      title: "Ví điện tử MoMo",
+      sub: "Chuyển hướng an toàn sang ứng dụng Ví MoMo",
+      badge: "",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M16 12h2"/><path d="M3 9h18"/></svg>'
+    },
+    zalopay: {
+      title: "Ví điện tử ZaloPay",
+      sub: "Thanh toán nhanh chóng qua ứng dụng ZaloPay",
+      badge: "",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>'
+    }
+  };
+  const enabledPayList = ["cod", "bank_transfer", "vnpay", "momo", "zalopay"].filter((m) => paymentMethods.includes(m));
+  const initialPayMethod = enabledPayList[0] || "cod";
   root.innerHTML = `
-    ${recoveredItemsApplied ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:18px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
+    ${recoveredItemsApplied ? '<div class="checkout-recovered-banner" role="status" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;padding:12px 16px;border-radius:10px;margin-bottom:4px;font-size:13.5px;display:flex;align-items:center;gap:10px;"><span style="font-size:18px;font-weight:bold;">✓</span><span><strong>Giỏ hàng của bạn đã được khôi phục thành công!</strong> GAERU đã tải lại sản phẩm và thông tin của bạn.</span></div>' : ''}
     ${skippedOutOfStock > 0 ? '<div class="checkout-notice" role="status" style="color:#9a3412;border-color:#fed7aa;background:#fff7ed;">Một số phiên bản đã hết hàng trong giỏ đã được bỏ qua khỏi đơn thanh toán này.</div>' : ''}
     <form class="checkout-form" id="checkout-form">
       <div class="checkout-notice" role="status"><strong>Đơn hàng được xử lý trực tiếp bởi GAERU.</strong>${freeNationwide ? "" : " Chọn tỉnh/thành phố để xem phí giao hàng."}</div>
@@ -972,57 +1042,76 @@ async function renderCheckout() {
       <details class="checkout-contact-details" data-contact-details open><summary>Thông tin giao hàng<span data-contact-summary></span></summary>
       <div class="form-section">
         <h2>Thông tin liên hệ</h2>
-        <label>Họ và tên<input name="name" autocomplete="name" required maxlength="120"></label>
+        <label>Họ và tên<input name="name" autocomplete="name" required maxlength="120" placeholder="Họ và tên người nhận"></label>
         <div class="form-row">
-          <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: business@gaeru.com"></label>
-          <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="20" placeholder="10 số di động (Ví dụ: 0912345678)"></label>
+          <label>Email<input type="email" name="email" autocomplete="email" required maxlength="254" placeholder="Ví dụ: ban@email.com"></label>
+          <label>Số điện thoại<input type="tel" name="phone" autocomplete="tel" required maxlength="20" placeholder="Ví dụ: 0912 345 678"></label>
         </div>
 
       </div>
       <div class="form-section">
         <h2>Địa chỉ giao hàng</h2>
-        <label>Địa chỉ<input name="address" autocomplete="street-address" required maxlength="250"></label>
+        <label>Địa chỉ<input name="address" autocomplete="street-address" required maxlength="250" placeholder="Số nhà, tên đường, thôn / tổ dân phố"></label>
         <div class="form-row">
-          <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" required maxlength="120" list="checkout-cities" placeholder="Nhập tỉnh/thành phố"><datalist id="checkout-cities">${provinces.filter(p=>!isNationwide(p)).map(p=>`<option value="${escapeHtml(p)}"></option>`).join('')}</datalist></label>
-          <label class="checkout-note"><span class="checkout-field-title">Ghi chú <small>(không bắt buộc)</small></span><input name="note" maxlength="1000"></label>
+          <label>Tỉnh / thành phố<input name="city" autocomplete="address-level1" required maxlength="120" list="checkout-cities" placeholder="Chọn tỉnh / thành, phường / xã"><datalist id="checkout-cities">${provinces.filter(p=>!isNationwide(p)).map(p=>`<option value="${escapeHtml(p)}"></option>`).join('')}</datalist></label>
+          <label class="checkout-note"><span class="checkout-field-title">Ghi chú <small>(không bắt buộc)</small></span><input name="note" maxlength="1000" placeholder="Ghi chú giao hàng (nếu có)"></label>
         </div>
       </div>
       </details>
       ${shippingCarriers.length?`<section class="form-section checkout-carrier"><h2>Đơn vị vận chuyển</h2><label>Chọn hãng giao hàng<select name="shippingCarrierId" required><option value="">Chọn đơn vị vận chuyển</option>${shippingCarriers.map(carrier=>`<option value="${escapeHtml(carrier.id)}">${escapeHtml(carrier.name)}</option>`).join('')}</select></label>${freeNationwide ? "" : '<p class="prototype-note">Phí giao hàng hiển thị theo địa chỉ và bảng phí của GAERU.</p>'}</section>`:''}
-      <aside class="checkout-summary cart-summary">
-      <h2>Đơn hàng</h2>
-      ${rows.map(({ quantity, product, variant }) => `
-        <p class="checkout-product"><span>${escapeHtml(product.name)}<br><small>${escapeHtml(variant.name)} × ${quantity}</small></span><strong>${formatPrice(variant.priceVnd * quantity)}</strong></p>`).join("")}
-      <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
-      <p class="checkout-product checkout-bundle-discount" data-checkout-bundle-row hidden><span>Giảm giá combo</span><strong data-checkout-bundle-discount>−0 ₫</strong></p>
-      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>${freeNationwide ? "0 ₫" : "Chưa tính phí"}</strong></p>
-      <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã voucher</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã voucher" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
-      <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
-      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>${formatPrice(total)}${freeNationwide ? "" : " + phí giao hàng"}</strong></p>
-      <p class="prototype-note">${escapeHtml(shippingHelp)}</p>
-    </aside><div class="form-section">
+      <div class="form-section">
         <h2>Phương thức thanh toán</h2>
-        <label>
-          <select name="paymentMethod" aria-label="Phương thức thanh toán">
+        <div class="payment-method-cards" role="radiogroup" aria-label="Chọn phương thức thanh toán">
+          ${enabledPayList.map((code) => {
+            const meta = PAYMENT_CARD_META[code];
+            const active = code === initialPayMethod;
+            return `<button type="button" class="payment-method-card${active ? " is-selected" : ""}" role="radio" aria-checked="${active ? "true" : "false"}" data-payment-card="${code}"><span class="payment-card-icon" aria-hidden="true">${meta.icon}</span><span class="payment-card-body"><span class="payment-card-title">${meta.title}${meta.badge ? `<span class="payment-card-badge">${meta.badge}</span>` : ""}</span><span class="payment-card-sub">${meta.sub}</span></span><span class="payment-card-radio" aria-hidden="true">✓</span></button>`;
+          }).join("")}
+        </div>
+        <label class="visually-hidden">
+          Phương thức thanh toán
+          <select name="paymentMethod" class="visually-hidden-select" aria-label="Phương thức thanh toán">
             ${paymentMethods.includes("cod") ? '<option value="cod">Thanh toán khi nhận hàng (COD)</option>' : ""}
-            ${paymentMethods.includes("bank_transfer") ? '<option value="bank_transfer">Chuyển khoản ngân hàng</option>' : ""}
+            ${paymentMethods.includes("bank_transfer") ? '<option value="bank_transfer">Chuyển khoản nhanh VietQR</option>' : ""}
             ${paymentMethods.includes("vnpay") ? '<option value="vnpay">Thanh toán trực tuyến qua VNPAY</option>' : ""}
             ${paymentMethods.includes("momo") ? '<option value="momo">Ví điện tử MoMo</option>' : ""}
             ${paymentMethods.includes("zalopay") ? '<option value="zalopay">Ví điện tử ZaloPay</option>' : ""}
-
           </select>
         </label>
         <p class="payment-placeholder" data-payment-help>GAERU sẽ xác nhận đơn hàng trước khi gửi.</p>
       </div>
-      <p class="checkout-account-notice">Khi đặt hàng, GAERU tạo tài khoản theo email nếu bạn chưa có tài khoản và gửi hướng dẫn đặt mật khẩu. Bạn không tự động đăng ký nhận tin quảng cáo.</p><p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="privacy.html">Chính sách quyền riêng tư</a>. <a href="terms.html">Điều khoản mua hàng</a>.</p>
+      <p class="checkout-account-notice">Khi đặt hàng, GAERU tạo tài khoản theo email nếu bạn chưa có tài khoản và gửi hướng dẫn đặt mật khẩu. Bạn không tự động đăng ký nhận tin quảng cáo.</p><p class="checkout-privacy-notice">Thông tin bạn cung cấp được sử dụng để tiếp nhận và xử lý đơn hàng theo <a href="/chinh-sach/quyen-rieng-tu">Chính sách quyền riêng tư</a>. <a href="/chinh-sach/dieu-khoan">Điều khoản mua hàng</a>.</p>
       <label class="checkout-recovery-consent"><input type="checkbox" name="recoveryConsent" id="checkout-recovery-consent"><span>Tôi đồng ý lưu tên, email, số điện thoại và sản phẩm trong giỏ để GAERU gửi email nhắc khi chưa hoàn tất đơn.</span></label>
       <p role="status" data-recovery-status></p><button type="button" class="secondary-button" data-recovery-retry hidden>Thử lại yêu cầu nhắc giỏ</button>
       <button class="button button-blue" type="submit">Đặt hàng</button>
       <p class="checkout-feedback" id="checkout-feedback" aria-live="polite"></p>
     </form>
+    <aside class="checkout-summary cart-summary" aria-label="Tóm tắt đơn hàng">
+      <h2>Đơn hàng</h2>
+      <div class="checkout-item-list">
+        ${rows.map(({ quantity, product, variant }) => {
+          const thumbUrl = safeProductImage(variant.imageUrl || product.imageUrl);
+          return `<div class="checkout-item-row"><span class="checkout-item-thumb"><img src="${escapeHtml(thumbUrl)}" alt="" width="44" height="44" loading="lazy" decoding="async"></span><span class="checkout-item-meta"><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(formatDisplayLabel(variant.name))} × ${quantity}</small></span><strong class="checkout-item-total">${formatPrice(variant.priceVnd * quantity)}</strong></div>`;
+        }).join("")}
+      </div>
+      <p class="summary-total"><span>Tạm tính</span><strong>${formatPrice(total)}</strong></p>
+      <p class="checkout-product checkout-bundle-discount" data-checkout-bundle-row hidden><span>Giảm giá combo</span><strong data-checkout-bundle-discount>−0 ₫</strong></p>
+      <p class="checkout-product"><span>Giao hàng</span><strong data-checkout-shipping>${freeNationwide ? "0 ₫" : "Chưa tính phí"}</strong></p>
+      <section class="checkout-voucher"><label class="visually-hidden" for="checkout-voucher-code">Mã giảm giá</label><input id="checkout-voucher-code" maxlength="40" placeholder="Nhập mã giảm giá" autocomplete="off"><button class="secondary-button" type="button" data-voucher-apply aria-label="Kiểm tra voucher" title="Kiểm tra voucher">✓</button><button class="secondary-button" type="button" data-voucher-wallet>Ví mã ↗</button><p role="status" data-voucher-feedback></p></section><p class="checkout-product checkout-discount"><span>Giảm giá voucher</span><strong data-checkout-discount>0 ₫</strong></p>
+      <section class="checkout-loyalty" data-checkout-loyalty hidden><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px dashed #d2d2d7;margin-top:8px;"><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="checkout-use-loyalty"><span>Dùng <strong data-loyalty-available>0</strong> GAERU Xu</span></label><span style="font-size:12px;color:#15803d;font-weight:600;" data-loyalty-discount-text>−0 ₫</span></div></section>
+      <p class="summary-total"><span>Tổng cộng</span><strong data-checkout-total>${formatPrice(total)}${freeNationwide ? "" : " + phí giao hàng"}</strong></p>
+      <p class="prototype-note">${escapeHtml(shippingHelp)}</p>
+    </aside>
 `;
 
   window.GAERUAddress?.enhance(root);
+  const shortenAddressPlaceholder = () => {
+    root.querySelectorAll?.(".vn-address-choice").forEach((inp) => {
+      if (inp.placeholder && inp.placeholder.length > 28) inp.placeholder = "Chọn tỉnh / thành, phường / xã";
+    });
+  };
+  shortenAddressPlaceholder();
+  window.GAERUAddress?.loadData?.().then(shortenAddressPlaceholder).catch(() => {});
   const form = root.querySelector("#checkout-form");
   if (recoveredCart) {
     if (recoveredCart.customerName && form.elements.name && !form.elements.name.value) {
@@ -1140,8 +1229,43 @@ async function renderCheckout() {
 
 
 
+  const paymentCards = [...(form.querySelectorAll?.("[data-payment-card]") || [])];
+  const syncPaymentCards = () => {
+    const activeVal = paymentMethod.value;
+    for (const cardBtn of paymentCards) {
+      const selected = cardBtn.dataset.paymentCard === activeVal;
+      cardBtn.classList?.toggle("is-selected", selected);
+      cardBtn.setAttribute?.("aria-checked", String(selected));
+    }
+  };
+  for (const cardBtn of paymentCards) {
+    cardBtn.addEventListener("click", () => {
+      const nextMethod = cardBtn.dataset.paymentCard;
+      if (!nextMethod || paymentMethod.value === nextMethod) return;
+      paymentMethod.value = nextMethod;
+      syncPaymentCards();
+      updatePaymentHelp();
+      try {
+        const Evt = form.ownerDocument?.defaultView?.Event || (typeof Event === "function" ? Event : null);
+        if (Evt) paymentMethod.dispatchEvent(new Evt("change", { bubbles: true }));
+      } catch (_) {}
+    });
+    cardBtn.addEventListener("keydown", (e) => {
+      if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(e.key) || !paymentCards.length) return;
+      e.preventDefault();
+      const idx = paymentCards.indexOf(cardBtn);
+      const step = (e.key === "ArrowDown" || e.key === "ArrowRight") ? 1 : -1;
+      const targetCard = paymentCards[(idx + step + paymentCards.length) % paymentCards.length];
+      targetCard?.focus?.();
+      targetCard?.click?.();
+    });
+  }
   // bind paymentMethod change
-  paymentMethod.addEventListener("change", updatePaymentHelp);
+  paymentMethod.addEventListener("change", () => {
+    syncPaymentCards();
+    updatePaymentHelp();
+  });
+  syncPaymentCards();
   updatePaymentHelp();
 
   let sending=false;
@@ -1216,15 +1340,110 @@ async function renderCheckout() {
         return;
       }
       finishOrder();
+      root.classList.remove("checkout-two-col");
       const bt = result.bankTransfer;
-      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng ${formatPrice(result.order.totalVnd)}</p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="checkout-notice bank-transfer-notice"><strong>Thông tin chuyển khoản ngân hàng</strong>${bt.qrUrl?`<div class="vietqr-box" style="text-align:center;margin:12px 0;"><img src="${escapeHtml(bt.qrUrl)}" alt="Mã VietQR" width="240" height="240" style="max-width:240px;width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,0.06);" loading="lazy"><p style="font-size:12px;color:#6b7280;margin:6px 0 0;">Quét mã VietQR bằng app ngân hàng bất kỳ để tự động khớp thông tin &amp; số tiền.</p></div>`:''}<p>Ngân hàng: <strong>${escapeHtml(bt.bankName)}</strong>${bt.branch?` (${escapeHtml(bt.branch)})`:""}<br>Số tài khoản: <strong>${escapeHtml(bt.accountNumber)}</strong><br>Chủ tài khoản: <strong>${escapeHtml(bt.accountHolder)}</strong><br>Số tiền: <strong>${formatPrice(bt.amountVnd ?? result.order.totalVnd)}</strong><br>Nội dung chuyển khoản: <strong>${escapeHtml(bt.transferContent)}</strong></p><p data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<a class="button button-blue" href="shop.html">Tiếp tục khám phá</a></div>`;
+      const btAmount = bt ? (bt.amountVnd ?? result.order.totalVnd) : result.order.totalVnd;
+      const trackHref = "/tra-cuu-don-hang?order=" + encodeURIComponent(result.order.orderNumber);
+      root.innerHTML = `<div class="order-success" role="status"><p class="eyebrow">Đã tiếp nhận đơn</p><h2>Mã đơn ${escapeHtml(result.order.orderNumber)}</h2><p>${escapeHtml(result.message)}</p><p>Thông tin đơn hàng và hướng dẫn tài khoản, nếu cần, sẽ được gửi tới email bạn đã nhập. Nếu chưa thấy thư, kiểm tra thư rác hoặc liên hệ GAERU.</p><p>Tạm tính ${formatPrice(result.order.subtotalVnd)} ${result.order.discountVnd?`· Giảm giá −${formatPrice(result.order.discountVnd)}`:""} · Giao hàng ${formatPrice(result.order.shippingFeeVnd)} · Tổng cộng <strong>${formatPrice(result.order.totalVnd)}</strong></p>${result.order.shippingCarrierName?`<p>Đơn vị vận chuyển: <strong>${escapeHtml(result.order.shippingCarrierName)}</strong></p>`:""}${bt?`<div class="vietqr-payment-card bank-transfer-notice" data-vietqr-card><div class="vietqr-card-header"><strong>Chuyển khoản nhanh VietQR</strong><span class="vietqr-timer-badge" data-vietqr-countdown>⏱ Còn 30:00</span></div><div class="vietqr-body-grid">${bt.qrUrl?`<div class="vietqr-qr-col"><img src="${escapeHtml(bt.qrUrl)}" alt="Mã VietQR thanh toán đơn ${escapeHtml(result.order.orderNumber)}" width="200" height="200" loading="eager"><button type="button" class="vietqr-download-btn" data-download-qr="${escapeHtml(bt.qrUrl)}" data-qr-filename="GAERU-VietQR-${escapeHtml(result.order.orderNumber)}.png">⬇ Tải mã QR</button><p class="vietqr-qr-caption">Quét bằng ứng dụng ngân hàng để tự động điền số tiền &amp; nội dung.</p></div>`:""}<div class="vietqr-info-rows"><div class="vietqr-info-row"><div class="vietqr-info-text"><span>Ngân hàng thụ hưởng</span><strong>${escapeHtml(bt.bankName)}${bt.branch?` (${escapeHtml(bt.branch)})`:""}</strong></div></div><div class="vietqr-info-row"><div class="vietqr-info-text"><span>Chủ tài khoản</span><strong>${escapeHtml(bt.accountHolder)}</strong></div></div><div class="vietqr-info-row"><div class="vietqr-info-text"><span>Số tài khoản</span><strong>${escapeHtml(bt.accountNumber)}</strong></div><button type="button" class="vietqr-copy-btn" data-copy-value="${escapeHtml(bt.accountNumber)}">Sao chép</button></div><div class="vietqr-info-row"><div class="vietqr-info-text"><span>Số tiền chuyển khoản</span><strong>${formatPrice(btAmount)}</strong></div><button type="button" class="vietqr-copy-btn" data-copy-value="${escapeHtml(String(btAmount))}">Sao chép</button></div><div class="vietqr-info-row"><div class="vietqr-info-text"><span>Nội dung chuyển khoản (chính xác)</span><strong>${escapeHtml(bt.transferContent)}</strong></div><button type="button" class="vietqr-copy-btn" data-copy-value="${escapeHtml(bt.transferContent)}">Sao chép</button></div></div></div><p class="vietqr-live-status" data-prepaid-live-status>Hệ thống đang tự động kiểm tra và so khớp giao dịch của bạn…</p></div>`:`<p>Đơn COD sẽ được GAERU xác nhận và thu tiền khi giao hàng.</p>`}<div class="order-success-actions"><a class="button button-outline" href="${escapeHtml(trackHref)}">Theo dõi đơn hàng</a><a class="button button-blue" href="/cua-hang">Tiếp tục khám phá</a></div></div>`;
       if (bt) {
+        const qrCard = root.querySelector("[data-vietqr-card]");
+        const countdownBadge = root.querySelector("[data-vietqr-countdown]");
+        const qrDeadline = Date.now() + 30 * 60 * 1000;
+        const copyTextFallback = (text) => {
+          if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            return navigator.clipboard.writeText(text).catch(() => false).then((v) => v !== false);
+          }
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.setAttribute("readonly", "");
+            ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;";
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand && document.execCommand("copy");
+            ta.remove();
+            return Promise.resolve(Boolean(ok));
+          } catch (_) {
+            return Promise.resolve(false);
+          }
+        };
+        qrCard?.addEventListener("click", (ev) => {
+          const copyBtn = ev.target.closest?.("[data-copy-value]");
+          if (copyBtn) {
+            const val = copyBtn.dataset.copyValue || "";
+            void copyTextFallback(val).then(() => {
+              copyBtn.textContent = "✓ Đã chép";
+              copyBtn.classList?.add("is-copied");
+              clearTimeout(copyBtn._copyTimer);
+              copyBtn._copyTimer = setTimeout(() => {
+                copyBtn.textContent = "Sao chép";
+                copyBtn.classList?.remove("is-copied");
+              }, 2000);
+              window.GAERUNotify?.toast?.("Đã sao chép vào bộ nhớ tạm", "success");
+            });
+            return;
+          }
+          const dlBtn = ev.target.closest?.("[data-download-qr]");
+          if (dlBtn) {
+            const qrSrc = dlBtn.dataset.downloadQr || "";
+            const fileName = dlBtn.dataset.qrFilename || "GAERU-VietQR.png";
+            if (!qrSrc) return;
+            dlBtn.disabled = true;
+            const origText = dlBtn.textContent;
+            dlBtn.textContent = "Đang tải…";
+            fetch(qrSrc, { mode: "cors" })
+              .then((r) => {
+                if (!r.ok) throw Error("QR fetch failed");
+                return r.blob();
+              })
+              .then((blob) => {
+                const objUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = objUrl;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+              })
+              .catch(() => {
+                const a = document.createElement("a");
+                a.href = qrSrc;
+                a.download = fileName;
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+              })
+              .finally(() => {
+                dlBtn.disabled = false;
+                dlBtn.textContent = origText;
+              });
+          }
+        });
+        let qrCountdownTimer = null;
+        if (countdownBadge && typeof setInterval === "function") {
+          const tickQr = () => {
+            if (!countdownBadge.isConnected) {
+              clearInterval(qrCountdownTimer);
+              return;
+            }
+            const remSec = Math.max(0, Math.floor((qrDeadline - Date.now()) / 1000));
+            const mm = String(Math.floor(remSec / 60)).padStart(2, "0");
+            const ss = String(remSec % 60).padStart(2, "0");
+            countdownBadge.textContent = remSec > 0 ? `⏱ Còn ${mm}:${ss}` : "Đã hết 30:00 tự động kiểm tra";
+            if (remSec <= 0) clearInterval(qrCountdownTimer);
+          };
+          qrCountdownTimer = setInterval(tickQr, 1000);
+        }
         const liveNode = root.querySelector("[data-prepaid-live-status]");
-        const trackingLink = document.createElement("a");
-        trackingLink.href = "/tra-cuu-don-hang?order=" + encodeURIComponent(result.order.orderNumber);
-        trackingLink.textContent = "Tra cứu đơn hàng";
-        liveNode.after(trackingLink);
         window.GAERUCheckout.watchBankTransfer(liveNode, result.order.orderNumber, result.trackingToken, apiRequest, order => {
+          if (qrCountdownTimer) clearInterval(qrCountdownTimer);
+          if (qrCard && order.status !== "cancelled") {
+            qrCard.className = "vietqr-paid-card bank-transfer-notice";
+            qrCard.innerHTML = `<div class="vietqr-paid-icon" aria-hidden="true">✓</div><h3>✓ Đã nhận thanh toán thành công</h3><p>GAERU đã ghi nhận khoản chuyển khoản <strong>${formatPrice(order.totalVnd ?? btAmount)}</strong> cho đơn <strong>${escapeHtml(order.orderNumber)}</strong>.</p><p>Đơn hàng đã tự động chuyển sang trạng thái chuẩn bị gửi hàng.</p>`;
+          }
           window.GAERUAnalytics?.trackPurchase?.({
             orderNumber:order.orderNumber, totalVnd:order.totalVnd,
             shippingFeeVnd:order.shippingFeeVnd, subtotalVnd:order.subtotalVnd,
@@ -1261,7 +1480,7 @@ function renderMiniCart() {
   }
 
   if (!rows.length) {
-    if (panelTitle) panelTitle.textContent = "Túi của bạn trống.";
+    if (panelTitle) panelTitle.textContent = "Giỏ hàng của bạn trống.";
     cartHeading?.classList.add("is-empty");
     root.innerHTML = window.GAERUEmptyCartMarkup;
     if (footer) footer.hidden = true;
@@ -1271,10 +1490,10 @@ function renderMiniCart() {
   cartHeading?.classList.remove("is-empty");
   root.innerHTML = rows.map(({ variantId, quantity, product, variant }) => `
     <article class="mini-cart-item">
-      <a class="mini-cart-image" href="product.html?id=${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async"></a>
+      <a class="mini-cart-image" href="/san-pham/${encodeURIComponent(product.slug)}"><img src="${escapeHtml(product.imageUrl)}" alt="" loading="lazy" decoding="async"></a>
       <div class="mini-cart-info">
-        <a class="mini-cart-name" href="product.html?id=${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a>
-        <span class="mini-cart-price">${escapeHtml(variant.name)} · ${formatPrice(variant.priceVnd)}</span>
+        <a class="mini-cart-name" href="/san-pham/${encodeURIComponent(product.slug)}">${escapeHtml(product.name)}</a>
+        <span class="mini-cart-price">${escapeHtml(formatDisplayLabel(variant.name))} · ${formatPrice(variant.priceVnd)}</span>
         <div class="mini-quantity" aria-label="Số lượng ${escapeHtml(product.name)}">
           <button type="button" data-mini-quantity="decrease" data-product="${escapeHtml(variantId)}" aria-label="Giảm số lượng ${escapeHtml(product.name)}" ${quantity <= 1 ? "disabled" : ""}>−</button>
           <span>${quantity}</span>
@@ -1417,6 +1636,7 @@ function bindGlobalControls() {
       pushThumb(gUrl, product.name);
     }
 
+    const qcDisplayLabel = (s) => String(s ?? "").replace(/\bmicro\s*usb\b/gi, "Micro USB");
     let optionsMarkup = "";
     if (useMultiGroupPills) {
       optionsMarkup = optionGroups.map((g) => `
@@ -1428,7 +1648,7 @@ function bindGlobalControls() {
           <div class="qc-pill-list" role="group" aria-label="${escapeHtml(g.name)}">
             ${g.values.map((val) => {
               const anyInStock = activeVariants.some((v) => v.options?.[g.name] === val && Number(v.stockQuantity) > 0);
-              return `<button type="button" class="qc-pill-btn${anyInStock ? "" : " is-oos"}" data-qc-opt-group="${escapeHtml(g.name)}" data-qc-opt-value="${escapeHtml(val)}" aria-pressed="false">${escapeHtml(val)}</button>`;
+              return `<button type="button" class="qc-pill-btn${anyInStock ? "" : " is-oos"}" data-qc-opt-group="${escapeHtml(g.name)}" data-qc-opt-value="${escapeHtml(val)}" aria-pressed="false">${escapeHtml(qcDisplayLabel(val))}</button>`;
             }).join("")}
           </div>
         </div>
@@ -1451,7 +1671,7 @@ function bindGlobalControls() {
                 <button type="button" class="qc-variant-card${oos ? " is-oos" : ""}" data-qc-variant-id="${escapeHtml(v.id)}" aria-pressed="false" ${oos ? "disabled" : ""}>
                   ${vThumb ? `<span class="qc-variant-thumb"><img src="${escapeHtml(vThumb)}" alt="" width="36" height="36" loading="lazy" decoding="async"></span>` : ""}
                   <span class="qc-variant-meta">
-                    <span class="qc-variant-name">${escapeHtml(v.name)}</span>
+                    <span class="qc-variant-name">${escapeHtml(qcDisplayLabel(v.name))}</span>
                     <span class="qc-variant-price-row">
                       <strong class="qc-variant-price">${oos ? "Hết hàng" : escapeHtml(formatPrice(v.priceVnd))}</strong>
                       ${!oos && hasDisc ? `<del class="qc-variant-orig">${escapeHtml(formatPrice(vOrig))}</del>` : ""}
@@ -1468,7 +1688,7 @@ function bindGlobalControls() {
       optionsMarkup = `
         <div class="qc-single-edition">
           <span class="qc-single-edition-label">Phiên bản tiêu chuẩn</span>
-          <strong>${escapeHtml(only.name)}</strong>
+          <strong>${escapeHtml(qcDisplayLabel(only.name))}</strong>
         </div>
       `;
     }

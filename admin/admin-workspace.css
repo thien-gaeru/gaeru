@@ -321,38 +321,19 @@
 .payment-integration-box{background:#f1f5f9;border-radius:8px;padding:10px 12px;font-size:11px;margin:12px 0;line-height:1.6;border:1px solid #e2e8f0;color:#334155}
 .payment-integration-box code{background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:11px;word-break:break-all;color:#0f172a}
 
-@media (prefers-color-scheme:dark){
-.payment-hub-intro{background:linear-gradient(135deg,#064e3b 0%,#1e3a8a 100%);border-color:#1e40af}
-.payment-hub-intro p{color:#f1f5f9}
-.payment-hub-intro strong{color:#67e8f9}
-.payment-stat-pill{background:#1e293b;border-color:#334155;color:#e2e8f0}
-.payment-card{background:#1e293b;border-color:#334155;box-shadow:0 2px 8px rgba(0,0,0,0.25)}
-.payment-card.card-enabled{border-color:#38bdf8;box-shadow:0 3px 12px rgba(56,189,248,0.15)}
-.payment-card-icon{background:#0f172a;border-color:#334155}
-.payment-card[data-channel-id="cod"] .payment-card-icon{background:#064e3b;border-color:#059669}
-.payment-card[data-channel-id="bank_transfer"] .payment-card-icon{background:#0c4a6e;border-color:#0284c7}
-.payment-card[data-channel-id="vnpay"] .payment-card-icon{background:#172554;border-color:#1d4ed8}
-.payment-card[data-channel-id="momo"] .payment-card-icon{background:#500724;border-color:#db2777}
-.payment-card[data-channel-id="zalopay"] .payment-card-icon{background:#172554;border-color:#2563eb}
-.payment-card-title{color:#f8fafc}
-.payment-card-sub{color:#94a3b8}
-.payment-card-body{background:#0f172a;border-color:#334155}
-.payment-snapshot-label{color:#94a3b8}
-.payment-snapshot-val{color:#f1f5f9}
-.payment-snapshot-val code{background:#1e293b;color:#93c5fd}
-.payment-card-actions{border-top-color:#334155}
-.payment-action-btn{background:#0f172a;border-color:#334155;color:#e2e8f0}
-.payment-action-btn:hover{background:#1e293b;border-color:#475569}
-.payment-action-btn.payment-btn-setup{background:#3b82f6;border-color:#3b82f6;color:#fff}
-.payment-action-btn.payment-btn-enable{background:#064e3b;border-color:#047857;color:#6ee7b7}
-.payment-action-btn.payment-btn-disable{background:#881337;border-color:#be123c;color:#fda4af}
-.payment-action-btn.payment-btn-test{background:#1e3a8a;border-color:#2563eb;color:#93c5fd}
-.payment-card-drawer{border-top-color:#334155}
-.payment-card-drawer summary{color:#94a3b8}
-.payment-card-drawer summary:hover{color:#f1f5f9}
-.payment-integration-box{background:#0f172a;border-color:#334155;color:#cbd5e1}
-.payment-integration-box code{background:#1e293b;color:#93c5fd}
-}
+/* Consolidated Light Mode Admin Extensions */
+.warranty-manual-disclosure{margin-top:14px;border:1px solid #e5e5e8;border-radius:12px;background:#fafafd;overflow:hidden}
+.warranty-manual-disclosure>summary{cursor:pointer;padding:10px 14px;font-size:12.5px;font-weight:600;color:#0066cc;list-style:none}
+.warranty-manual-disclosure>summary::-webkit-details-marker{display:none}
+.warranty-manual-disclosure[open]>summary{border-bottom:1px solid #e5e5e8;background:#fff}
+.warranty-manual-disclosure>.warranty-review{margin-top:0;border-radius:0;background:transparent}
+.finance-filter-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.finance-filter-pill{padding:8px 14px;border:1px solid #d2d2d7;border-radius:999px;background:#fff;color:#515154;font:inherit;font-size:12.5px;font-weight:500;cursor:pointer;min-height:36px}
+.finance-filter-pill.is-active{background:#0071e3;border-color:#0071e3;color:#fff;font-weight:600}
+#login-form .password-input-wrap{position:relative;display:flex;align-items:center}
+#login-form .password-input-wrap input{width:100%;padding-right:64px}
+#login-form .password-toggle-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;border-radius:8px;background:#f2f2f5;color:#1d1d1f;font:inherit;font-size:12px;font-weight:600;padding:6px 10px;min-height:30px;cursor:pointer}
+#login-form .password-toggle-btn:hover{background:#e5e5ea}
 
 
 /* ==========================================================================
@@ -544,74 +525,6 @@
   color: #92400e;
 }
 
-@media (prefers-color-scheme: dark) {
-  .config-modal-dialog {
-    background: #1e293b;
-    box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px #334155;
-  }
-  .config-modal-header {
-    background: #0f172a;
-    border-bottom-color: #334155;
-  }
-  .config-modal-icon {
-    background: #1e293b;
-    border-color: #334155;
-  }
-  .config-modal-title {
-    color: #f8fafc;
-  }
-  .config-modal-sub {
-    color: #94a3b8;
-  }
-  .config-modal-close {
-    background: #1e293b;
-    border-color: #334155;
-    color: #94a3b8;
-  }
-  .config-modal-close:hover {
-    background: #7f1d1d;
-    border-color: #991b1b;
-    color: #fca5a5;
-  }
-  .config-url-list {
-    background: #0f172a;
-    border-color: #334155;
-  }
-  .config-url-label {
-    color: #94a3b8;
-  }
-  .config-url-code {
-    background: #1e293b;
-    border-color: #334155;
-    color: #93c5fd;
-  }
-  .config-copy-btn {
-    background: #1e293b;
-    border-color: #334155;
-    color: #38bdf8;
-  }
-  .config-copy-btn:hover {
-    background: #0f172a;
-    border-color: #0284c7;
-  }
-  .config-modal-dialog label,
-  .config-modal-dialog .configuration-reauth strong {
-    color: #e2e8f0;
-  }
-  .config-modal-dialog .help-text {
-    color: #94a3b8;
-  }
-  .config-modal-dialog .configuration-reauth {
-    background: #0f172a;
-    border-color: #334155;
-  }
-  .config-modal-dialog :is(input, select, textarea) {
-    background: #0f172a;
-    border-color: #334155;
-    color: #f8fafc;
-  }
-}
-
 /* Shipping Carrier Card Accents */
 .payment-card[data-carrier-id="viettel"]::before{background:#dc2626}
 .payment-card[data-carrier-id="jt"]::before{background:#e11d48}
@@ -619,12 +532,6 @@
 .payment-card[data-carrier-id="viettel"] .payment-card-icon{background:#fef2f2;border-color:#fecaca}
 .payment-card[data-carrier-id="jt"] .payment-card-icon{background:#fff1f2;border-color:#fecdd3}
 .payment-card[data-carrier-id="spx"] .payment-card-icon{background:#fff7ed;border-color:#fed7aa}
-
-@media (prefers-color-scheme: dark) {
-  .payment-card[data-carrier-id="viettel"] .payment-card-icon{background:#450a0a;border-color:#dc2626}
-  .payment-card[data-carrier-id="jt"] .payment-card-icon{background:#4c0519;border-color:#e11d48}
-  .payment-card[data-carrier-id="spx"] .payment-card-icon{background:#431407;border-color:#ea580c}
-}
 
 
 /* Product Success Popup Modal - Multi-Device Optimized */
@@ -837,25 +744,6 @@
     font-size: 13.5px;
     width: auto;
     min-width: 200px;
-  }
-}
-
-/* Dark mode styling */
-@media (prefers-color-scheme: dark) {
-  .product-success-popup-card {
-    background: #18181b;
-    border-color: #27272a;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
-  }
-  .product-success-popup-card h2 {
-    color: #f4f4f5;
-  }
-  .product-success-sub {
-    color: #a1a1aa;
-  }
-  .product-success-icon-wrap {
-    background: rgba(16, 185, 129, 0.16);
-    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0.1);
   }
 }
 

@@ -153,7 +153,7 @@
       const modalRoleBadge = document.getElementById('modal-copilot-user-role');
       if (roleBadge) {
         const isOwner = session?.isOwner || session?.role === 'owner' || document.querySelector('[data-view="owner"]:not([hidden])');
-        const roleText = isOwner ? 'Role: CEO / Owner' : 'Role: Staff / Management';
+        const roleText = isOwner ? 'Vai trò: Chủ doanh nghiệp' : 'Vai trò: Quản lý';
         roleBadge.textContent = roleText;
         if (modalRoleBadge) modalRoleBadge.textContent = roleText;
       }
@@ -561,6 +561,21 @@
     return escapeHtml(str).replace(/"/g, '&quot;');
   }
 
+  document.addEventListener('click', (e) => {
+    const sidebar = document.querySelector('#internal-ai-view .copilot-sidebar');
+    const toggleBtn = document.getElementById('btn-mobile-copilot-threads');
+    if (!sidebar) return;
+    if (e.target.closest('#btn-mobile-copilot-threads')) {
+      const open = sidebar.classList.toggle('is-mobile-open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      return;
+    }
+    if (e.target.closest('#btn-close-copilot-threads') || (sidebar.classList.contains('is-mobile-open') && (e.target.closest('.copilot-thread-item') || e.target.closest('#btn-new-copilot-thread')))) {
+      sidebar.classList.remove('is-mobile-open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    }
+  });
+
   // Trình render Markdown cơ bản an toàn (Bảng, Đậm, Nghiêng, Danh sách, Tiêu đề)
   function renderMarkdown(md) {
     if (!md) return '';
@@ -568,13 +583,13 @@
     let html = escapeHtml(sanitized);
 
     // Bảng Markdown
-    html = html.replace(/\n\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g, (match, header, rows) => {
+    html = html.replace(/(?:^|\n)\|(.+)\|\n\|[-:| ]+\|\n((?:\|.+\|\n?)+)/g, (match, header, rows) => {
       const ths = header.split('|').map(s => s.trim()).filter(Boolean).map(h => `<th>${h}</th>`).join('');
       const trs = rows.trim().split('\n').map(row => {
         const tds = row.split('|').map(s => s.trim()).filter(Boolean).map(d => `<td>${d}</td>`).join('');
         return `<tr>${tds}</tr>`;
       }).join('');
-      return `<table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+      return `\n<div class="copilot-table-scroll"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>\n`;
     });
 
     // Tiêu đề
@@ -587,12 +602,13 @@
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-    // Bullet points
+    // Bullet points (hỗ trợ nhiều nhóm danh sách tách biệt, không dùng flag s)
     html = html.replace(/^\- (.*$)/gim, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    html = html.replace(/((?:<li>[^\n]*<\/li>\r?\n?)+)/g, (_, grp) => '<ul>' + grp.replace(/\r?\n/g, '') + '</ul>');
 
-    // Dòng mới
-    html = html.replace(/\n/g, '<br>');
+    // Dòng mới sạch xung quanh block tags
+    html = html.replace(/\r?\n/g, '<br>');
+    html = html.replace(/(?:<br>)*(<\/?(?:ul|h[234]|div)[^>]*>)(?:<br>)*/g, '$1');
 
     return html;
   }

@@ -42,7 +42,7 @@ test("app serves storefront, initializes CSRF, and protects private files and ad
   assert.doesNotMatch(accountMarkup, /data-account-tab="register"/);
   assert.ok(require('linkedom').parseHTML(accountMarkup).document.querySelector('[data-account-show-login][href="/tai-khoan#login"]'));
   const storeShell = await fetch(`${baseUrl}/store-shell.js`);
-  assert.match(await storeShell.text(), /account\.html#register/);
+  assert.match(await storeShell.text(), /\/tai-khoan#register/);
   assert.equal((await fetch(`${baseUrl}/account.js`)).status, 200);
 
   const csrf = await fetch(`${baseUrl}/api/csrf`);

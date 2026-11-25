@@ -28,7 +28,7 @@ button.is-processing::before,
 button[data-busy="true"]::before { margin-right: 7px; }
 .gaeru-input-spinner { margin-left: 8px; color: #0071e3; }
 
-/* Toast Notifications Container — compact top-right corner, never overlapping content or modal buttons */
+/* Toast Notifications Container — compact top-right corner, never overlapping sticky header or subnav CTA */
 .gaeru-action-notices {
   position: fixed;
   top: 14px !important;
@@ -439,9 +439,12 @@ dialog.gaeru-dialog-polyfilled.quick-cart-premium[open] {
 }
 
 /* Responsive & Mobile Optimization */
+body:has(.product-local-subnav.is-visible) .gaeru-action-notices {
+  top: 112px !important;
+}
 @media (max-width: 600px) {
   .gaeru-action-notices {
-    top: max(12px, env(safe-area-inset-top)) !important;
+    top: calc(60px + env(safe-area-inset-top, 0px)) !important;
     right: 12px !important;
     left: 12px !important;
     bottom: auto !important;

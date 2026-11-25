@@ -26,8 +26,10 @@ body{
   letter-spacing:-.01em;
 }
 button,input,select,textarea{font-family:inherit;letter-spacing:normal}
+h1,h2,h3{text-wrap:balance}
 h1,h2,h3,h4{font-weight:650;letter-spacing:-.022em;line-height:1.16;text-wrap:balance}
 p,li,dd{text-wrap:pretty}
+.vnd-amount,.promotion-sale-price,.cart-line-total,.mini-line-total,.mini-cart-total strong,.summary-total strong,.checkout-product strong,.item-price,.bundle-final-price,.bundle-original-price,.product-local-subnav-price,.pdp-mobile-sticky-price{white-space:nowrap}
 .price,.shop-page .catalog-price,.detail-price,.cart-line-total,.cart-summary .summary-total,.mini-cart-price,.mini-line-total{font-variant-numeric:tabular-nums}
 .hero h1,.story-page-hero h1,.discover-hero h1{font-size:var(--type-display);line-height:1.12;letter-spacing:-.022em}
 .hero-lead,.discover-hero>p:not(.eyebrow){font-size:var(--type-subhead);line-height:1.38;letter-spacing:-.008em}
@@ -62,7 +64,7 @@ p,li,dd{text-wrap:pretty}
     --type-subhead:1.125rem;
   }
   body{line-height:1.55;letter-spacing:-.006em}
-  h1,h2,h3{letter-spacing:-.016em;line-height:1.18}
+  h1,h2,h3{letter-spacing:-.016em;line-height:1.18;text-wrap:balance}
   input:not([type=checkbox]):not([type=radio]),select,textarea{font-size:16px!important}
   .product-card h3,.shop-page .catalog-card h3,.product-detail-copy h1,.care-hero h1{font-size:1.875rem;line-height:1.16}
   .section-heading>p,.story-page-hero>p:not(.eyebrow),.story-page-intro>p:last-child{font-size:1.125rem;line-height:1.5}

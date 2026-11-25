@@ -444,7 +444,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       const bodyCsrf = req.body?.g_csrf_token;
 
       if (!verifyGisCsrf(cookieCsrf, bodyCsrf)) {
-        return res.status(403).type('html').send('<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thử lại đăng nhập Google | GAERU</title><main><h1>Phiên đăng nhập Google chưa hợp lệ</h1><p>Kiểm tra CSRF không thành công. Vui lòng quay lại trang tài khoản và chọn nút Đăng nhập bằng Google để thử lại.</p><a href="/tai-khoan#login">Quay lại đăng nhập GAERU</a></main></html>');
+        return res.status(403).set('X-Robots-Tag', 'noindex').type('html').send('<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp"><link rel="apple-touch-icon" href="/assets/brand/gaeru-app-192.png"><title>Thử lại đăng nhập Google | GAERU</title><style>body{margin:0;padding:36px 16px;min-height:100vh;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:#f5f5f7;color:#1d1d1f;color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}main{max-width:480px;width:100%;background:#fff;border:1px solid #e5e5ea;border-radius:24px;padding:38px 32px;text-align:center;box-shadow:0 8px 28px rgba(0,0,0,0.05);box-sizing:border-box}h1{font-size:21px;margin:0 0 12px}p{font-size:15px;line-height:1.6;color:#515154;margin:0 0 24px}a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 26px;border-radius:980px;background:#0071e3;color:#fff;text-decoration:none;font-weight:600;font-size:15px}@media(max-width:520px){body{padding:20px 12px}main{padding:28px 20px;border-radius:20px}a{width:100%;box-sizing:border-box}}</style></head><body><main><h1>Phiên đăng nhập Google chưa hợp lệ</h1><p>Kiểm tra bảo mật phiên không thành công. Vui lòng quay lại trang tài khoản và chọn nút Đăng nhập bằng Google để thử lại.</p><a href="/tai-khoan#login">Quay lại đăng nhập GAERU</a></main></body></html>');
       }
 
       const googleClientId = await getGoogleClientId(dbOAuth);
@@ -453,8 +453,9 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
       }
 
       const credential = req.body?.credential || req.body?.id_token;
+      const accountBase = req.path === '/tai-khoan' ? '/tai-khoan' : '/account.html';
       if (!credential || typeof credential !== 'string') {
-        return res.redirect(302, '/account.html#login');
+        return res.redirect(302, accountBase + '#login');
       }
 
       const googleUser = await verifyGoogleToken(credential, {
@@ -478,7 +479,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         if (req.path === '/auth/google') {
           return res.redirect(303, '/account/link-required');
         }
-        return res.redirect(303, '/account.html?linkRequired=1');
+        return res.redirect(303, accountBase + '?linkRequired=1');
       }
 
       if (outcome.customer.active === false || outcome.customer.deletedAt) {
@@ -507,11 +508,11 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         outcome.customer.phoneWarningMessage = phoneStatus.warningMessage;
       }
 
-      const targetUrl = req.path === '/auth/google' ? '/account' : '/account.html#customer-account';
+      const targetUrl = req.path === '/auth/google' ? '/account' : (accountBase + '#customer-account');
       if (accountSecurity && typeof accountSecurity.beginExternalLogin === 'function') {
         const mfaStarted = await accountSecurity.beginExternalLogin(req, res, `customer:${outcome.customer.id}`, { sendJson: false });
         if (mfaStarted) {
-          const mfaTarget = req.path === '/auth/google' ? '/account?mfaRequired=1#login' : '/account.html?mfaRequired=1#login';
+          const mfaTarget = req.path === '/auth/google' ? '/account?mfaRequired=1#login' : (accountBase + '?mfaRequired=1#login');
           return res.redirect(302, mfaTarget);
         }
       }
@@ -525,7 +526,7 @@ function createCustomerOAuthRouter(pool, { config = {}, accountSecurity, fetcher
         const code = error.status && error.status >= 400 && error.status < 600 ? error.status : 401;
         return res.status(code).type('text/plain').send(publicMessage);
       }
-      res.redirect(302, '/account.html?oauthError=' + encodeURIComponent(publicMessage));
+      res.redirect(302, (req.path === '/tai-khoan' ? '/tai-khoan' : '/account.html') + '?oauthError=' + encodeURIComponent(publicMessage));
     }
   };
 

@@ -715,67 +715,140 @@ function createAbandonedCartApi(pool, config, { mailer = null } = {}) {
     }
   });
 
-  // Public: Opt out of recovery reminders
-  publicApi.get('/opt-out/:token', async (req, res) => {
-    const parsedToken = z.string().trim().min(20).max(128).safeParse(req.params.token);
-    if (!parsedToken.success) {
-      return res.status(400).set('Cache-Control', 'no-store').type('text').send('Liên kết hủy nhận nhắc nhở không hợp lệ.');
-    }
-    const token = parsedToken.data;
-    res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html>
+  function renderOptOutCardHtml(opts) {
+    const iconType = opts.iconType || "info";
+    const iconMarkup = iconType === "success"
+      ? '<div class="ac-icon is-success" aria-hidden="true">✓</div>'
+      : (iconType === "error"
+        ? '<div class="ac-icon is-error" aria-hidden="true">!</div>'
+        : '<div class="ac-icon is-info" aria-hidden="true">i</div>');
+    return `<!doctype html>
 <html lang="vi">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Ngừng nhận nhắc nhở giỏ hàng · GAERU</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#fbfbfd">
+  <link rel="icon" type="image/webp" href="/assets/brand/gaeru-logo.webp">
+  <link rel="apple-touch-icon" href="/assets/brand/gaeru-app-192.png">
+  <title>${escapeHtml(opts.title)}</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f5f7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-    .card { background: #fff; padding: 32px; border-radius: 18px; max-width: 480px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-align: center; }
-    h1 { font-size: 20px; color: #1d1d1f; margin: 0 0 12px; }
-    p { font-size: 14px; color: #515154; margin: 0 0 24px; line-height: 1.5; }
-    button { background: #0071e3; color: #fff; border: 0; padding: 12px 24px; border-radius: 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f5f5f7; color: #1d1d1f; color-scheme: light; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 36px 16px; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+    main.card { background: #ffffff; border: 1px solid #e5e5ea; padding: 40px 34px; border-radius: 24px; max-width: 500px; width: 100%; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.05); text-align: center; box-sizing: border-box; }
+    .ac-brand { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; color: #1d1d1f; margin-bottom: 18px; }
+    .ac-icon { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 21px; font-weight: 700; }
+    .ac-icon.is-success { background: #e8f5e9; color: #2e7d32; }
+    .ac-icon.is-error { background: #fee2e2; color: #dc2626; }
+    .ac-icon.is-info { background: rgba(0, 113, 227, 0.1); color: #0060c7; }
+    h1 { font-size: 21px; line-height: 1.3; font-weight: 600; color: #1d1d1f; margin: 0 0 12px; }
+    p { font-size: 15px; color: #515154; margin: 0 0 26px; line-height: 1.6; }
+    .ac-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; background: #0071e3; color: #ffffff; border: 0; padding: 11px 28px; border-radius: 980px; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 113, 227, 0.22); box-sizing: border-box; }
+    .ac-btn.is-dark { background: #1d1d1f; box-shadow: none; }
+    @media (max-width: 520px) {
+      body { padding: 20px 12px; }
+      main.card { padding: 28px 20px; border-radius: 20px; }
+      h1 { font-size: 19px; }
+      .ac-btn { width: 100%; padding: 12px 20px; }
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Ngừng nhận nhắc nhở giỏ hàng</h1>
-    <p>Xác nhận nếu bạn không muốn GAERU tiếp tục gửi email nhắc về các sản phẩm bạn đã chọn trong giỏ hàng.</p>
-    <form method="post" action="/api/abandoned-cart/opt-out/${escapeHtml(token)}">
-      <button type="submit">Xác nhận ngừng nhận</button>
-    </form>
-  </div>
+  <main class="card">
+    <div class="ac-brand">GAERU</div>
+    ${iconMarkup}
+    <h1>${escapeHtml(opts.heading)}</h1>
+    <p>${escapeHtml(opts.message)}</p>
+    ${opts.actionHtml || ""}
+  </main>
 </body>
-</html>`);
+</html>`;
+  }
+
+  // Public: Opt out of recovery reminders
+  publicApi.get('/opt-out/:token', async (req, res) => {
+    const rawToken = typeof req.params.token === 'string' ? req.params.token.trim() : '';
+    if (rawToken === 'test-preview') {
+      return res.status(200).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderOptOutCardHtml({
+          title: 'Xem trước ngừng nhắc giỏ hàng · GAERU',
+          heading: 'Liên kết xem trước (Email thử nghiệm)',
+          message: 'Đây là mẫu trang ngừng nhận nhắc nhở giỏ hàng dành cho quản trị viên xem trước. Trong email nhắc giỏ hàng thực tế, khách hàng có thể xác nhận hủy nhận nhắc nhở ngay tại đây.',
+          iconType: 'info',
+          actionHtml: '<div><a class="ac-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    const parsedToken = z.string().trim().min(20).max(128).safeParse(rawToken);
+    if (!parsedToken.success || /\s/.test(parsedToken.data)) {
+      return res.status(400).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderOptOutCardHtml({
+          title: 'Liên kết không hợp lệ · GAERU',
+          heading: 'Liên kết hủy nhận nhắc nhở không hợp lệ',
+          message: 'Đường dẫn hủy nhận nhắc nhở không đúng định dạng hoặc đã hết hiệu lực. Vui lòng liên hệ business@gaeru.com nếu bạn cần hỗ trợ.',
+          iconType: 'error',
+          actionHtml: '<div><a class="ac-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
+    const token = parsedToken.data;
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+      renderOptOutCardHtml({
+        title: 'Ngừng nhận nhắc nhở giỏ hàng · GAERU',
+        heading: 'Ngừng nhận nhắc nhở giỏ hàng',
+        message: 'Xác nhận nếu bạn không muốn GAERU tiếp tục gửi email nhắc về các sản phẩm bạn đã chọn trong giỏ hàng.',
+        iconType: 'info',
+        actionHtml: `<form method="post" action="/api/abandoned-cart/opt-out/${escapeHtml(token)}"><button type="submit" class="ac-btn is-dark">Xác nhận ngừng nhận</button></form>`
+      })
+    );
   });
 
   publicApi.post('/opt-out/:token', async (req, res) => {
+    const listUnsubHeader = req.get('list-unsubscribe');
+    const isRfc8058 = Boolean(
+      (listUnsubHeader && listUnsubHeader.trim().toLowerCase() === 'one-click') ||
+      req.body?.['List-Unsubscribe'] === 'One-Click' ||
+      req.body?.['list-unsubscribe'] === 'One-Click'
+    );
     const token = typeof req.params.token === 'string' ? req.params.token.trim() : '';
+    if (token === 'test-preview') {
+      if (isRfc8058 || !req.accepts('html')) return res.status(200).type('text/plain').send('Unsubscribed');
+      return res.status(200).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderOptOutCardHtml({
+          title: 'Xem trước ngừng nhắc giỏ hàng · GAERU',
+          heading: 'Đã kiểm tra mẫu ngừng nhắc giỏ hàng',
+          message: 'Đây là liên kết mẫu xem trước nên không thay đổi dữ liệu giỏ hàng thực tế.',
+          iconType: 'info',
+          actionHtml: '<div><a class="ac-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
+    }
     if (token.length < 20 || token.length > 128 || /\s/.test(token)) {
-      return res.status(400).json({ ok: false, error: 'Token không hợp lệ.' });
+      if (isRfc8058 || req.accepts(['html', 'json']) !== 'html') {
+        return res.status(400).json({ ok: false, error: 'Token không hợp lệ.' });
+      }
+      return res.status(400).set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+        renderOptOutCardHtml({
+          title: 'Liên kết không hợp lệ · GAERU',
+          heading: 'Liên kết hủy nhận nhắc nhở không hợp lệ',
+          message: 'Đường dẫn không đúng định dạng hoặc đã hết hiệu lực. Vui lòng liên hệ business@gaeru.com nếu cần hỗ trợ.',
+          iconType: 'error',
+          actionHtml: '<div><a class="ac-btn" href="/">Về trang chủ GAERU</a></div>'
+        })
+      );
     }
     await optOutAbandonedCart(pool, token);
-    res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html>
-<html lang="vi">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Đã ngừng nhận nhắc nhở · GAERU</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f5f7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-    .card { background: #fff; padding: 32px; border-radius: 18px; max-width: 480px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-align: center; }
-    h1 { font-size: 20px; color: #1d1d1f; margin: 0 0 12px; }
-    p { font-size: 14px; color: #515154; margin: 0 0 24px; line-height: 1.5; }
-    a { color: #0071e3; text-decoration: none; font-weight: 500; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Đã cập nhật tùy chọn của bạn</h1>
-    <p>GAERU sẽ không gửi email nhắc nhở về giỏ hàng này nữa. Bạn vẫn có thể mua sắm bình thường tại cửa hàng.</p>
-    <a href="/">← Quay lại trang chủ GAERU</a>
-  </div>
-</body>
-</html>`);
+    if (isRfc8058 || !req.accepts('html')) {
+      return res.status(200).type('text/plain').send('Unsubscribed');
+    }
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex').type('html').send(
+      renderOptOutCardHtml({
+        title: 'Đã ngừng nhận nhắc nhở · GAERU',
+        heading: 'Đã cập nhật tùy chọn của bạn',
+        message: 'GAERU sẽ không gửi email nhắc nhở về giỏ hàng này nữa. Bạn vẫn có thể mua sắm bình thường tại cửa hàng.',
+        iconType: 'success',
+        actionHtml: '<div><a class="ac-btn" href="/">Về trang chủ GAERU</a></div>'
+      })
+    );
   });
 
   return { admin, publicApi };

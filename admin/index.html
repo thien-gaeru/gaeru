@@ -33,7 +33,7 @@
         <h1>Đăng nhập quản trị.</h1>
         <form id="login-form">
           <label>Tên đăng nhập, email hoặc số điện thoại<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required maxlength="254" placeholder="Liên hệ đã xác thực hoặc tên đăng nhập"></label>
-          <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+          <label>Mật khẩu<span class="password-input-wrap"><input name="password" type="password" autocomplete="current-password" required maxlength="200"><button type="button" class="password-toggle-btn" data-toggle-admin-password aria-label="Hiện mật khẩu" aria-pressed="false">Hiện</button></span></label>
           <button class="primary-button" type="submit">Đăng nhập</button>
           <p class="feedback" id="login-feedback" role="alert"></p>
         </form><div data-admin-recovery></div>
@@ -476,7 +476,7 @@
   </details>
 </div>
 
-<section id="after-sales-panel" hidden aria-labelledby="after-sales-title"><h2 id="after-sales-title">Hủy / trả hàng</h2><p>Ghi nhận và theo dõi yêu cầu hủy, trả hàng. Kiểm tra chứng từ hoàn tiền và nhập kho trước khi đóng yêu cầu.</p><button type="button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></section>
+<section id="after-sales-panel" hidden aria-labelledby="after-sales-title"><h2 id="after-sales-title">Hủy / trả hàng</h2><p>Ghi nhận và theo dõi yêu cầu hủy, trả hàng. Kiểm tra chứng từ hoàn tiền và nhập kho trước khi đóng yêu cầu.</p><button type="button" class="secondary-button" data-after-sales-refresh>Tải lại yêu cầu</button><div id="after-sales-list"></div></section>
 <div id="order-workspace"><input type="hidden" id="order-filter" value="">
             <div class="orders-unified-toolbar filter-bar order-filters">
               <div class="orders-search-wrap">
@@ -578,6 +578,7 @@
                 <div class="copilot-sidebar-header">
                   <h3>Lịch sử hội thoại</h3>
                   <button type="button" class="primary-button" id="btn-new-copilot-thread" data-no-action-feedback>+ Cuộc trò chuyện mới</button>
+                  <button type="button" class="secondary-button copilot-mobile-close-btn" id="btn-close-copilot-threads" data-no-action-feedback aria-label="Đóng danh sách hội thoại">✕ Đóng</button>
                 </div>
                 <div class="copilot-thread-list" id="copilot-thread-list">
                   <p class="help-text" style="padding:12px;">Đang nạp danh sách...</p>
@@ -586,9 +587,10 @@
               <div class="copilot-main">
                 <div class="copilot-chat-header">
                   <div class="copilot-header-info">
+                    <button type="button" class="secondary-button copilot-mobile-threads-btn" id="btn-mobile-copilot-threads" data-no-action-feedback aria-expanded="false">☰ Hội thoại</button>
                     <span class="copilot-badge">🤖 GAERU AI</span>
                     <span class="copilot-model-badge">GAERU Native AI</span>
-                    <span class="copilot-rbac-badge" id="copilot-user-role">Role: Management</span>
+                    <span class="copilot-rbac-badge" id="copilot-user-role">Vai trò: Quản lý</span>
                   </div>
                   <div class="copilot-header-actions">
                     <button type="button" class="secondary-button" id="btn-clear-copilot-chat" data-no-action-feedback>Xóa hội thoại này</button>
@@ -619,7 +621,7 @@
           <div class="gaeru-ai-modal-header-left">
             <span class="copilot-badge">🤖 GAERU AI</span>
             <span class="copilot-model-badge">GAERU Native AI</span>
-            <span class="copilot-rbac-badge" id="modal-copilot-user-role">Role: Management</span>
+            <span class="copilot-rbac-badge" id="modal-copilot-user-role">Vai trò: Quản lý</span>
           </div>
           <div class="gaeru-ai-modal-header-actions">
             <button type="button" class="gaeru-ai-modal-close" id="btn-close-ai-modal" aria-label="Đóng GAERU AI" title="Đóng (Esc)">✕</button>

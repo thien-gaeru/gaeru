@@ -12,16 +12,16 @@ const escapeShellHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char
 }[character]));
 const anonymousEmptyCartMarkup = `
   <div class="mini-cart-empty">
-    <p class="cart-signin-message"><a href="account.html">Đăng nhập</a> để xem tài khoản và đơn hàng của bạn.</p>
+    <p class="cart-signin-message"><a href="/tai-khoan">Đăng nhập</a> để xem tài khoản và đơn hàng của bạn.</p>
     <nav class="cart-profile-links" aria-label="Hồ sơ của bạn">
-      <h3>Hồ Sơ Của Bạn</h3>
-      <a href="account.html#customer-orders"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.3l8 4.5"/></svg><span>Đơn hàng</span></a>
-      <a href="shop.html?saved=1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4v-17Z"/></svg><span>Mục Đã Lưu</span></a>
-      <a href="account.html#register"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6.8 18a5.7 5.7 0 0 1 10.4 0"/></svg><span>Tạo tài khoản</span></a>
+      <h3>Hồ sơ của bạn</h3>
+      <a href="/tai-khoan#customer-orders"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.3 7.6 7.7 4.3 7.7-4.3M12 12v9M8 5.3l8 4.5"/></svg><span>Đơn hàng</span></a>
+      <a href="/cua-hang?saved=1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h12v17l-6-4-6 4v-17Z"/></svg><span>Mục đã lưu</span></a>
+      <a href="/tai-khoan#register"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6.8 18a5.7 5.7 0 0 1 10.4 0"/></svg><span>Tạo tài khoản</span></a>
     </nav>
   </div>`;
 
-Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="account.html">${escapeShellHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của bạn"><h3>Hồ Sơ Của Bạn</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="account.html">Tài khoản & địa chỉ</a><a href="care.html">GAERU Care+</a></nav></div>`;}});
+Object.defineProperty(window,'GAERUEmptyCartMarkup',{get(){const customer=window.GAERUCustomerSession?.customer;if(!customer)return anonymousEmptyCartMarkup;return `<div class="mini-cart-empty"><p class="cart-signin-message">Xin chào, <a href="/tai-khoan">${escapeShellHtml(customer.fullName)}</a>.</p><nav class="cart-profile-links" aria-label="Hồ sơ của bạn"><h3>Hồ sơ của bạn</h3><a href="account.html#customer-orders">Đơn hàng của bạn</a><a href="/tai-khoan">Tài khoản & địa chỉ</a><a href="/care">GAERU Care+</a></nav></div>`;}});
 document.addEventListener('gaeru:customer-updated',()=>{claimDeviceCartForSession();const root=document.querySelector('[data-mini-cart]');if(root?.querySelector('.mini-cart-empty'))root.innerHTML=window.GAERUEmptyCartMarkup;});
 
 // Isolate the guest's device entries as soon as login resolves, including on
@@ -61,10 +61,10 @@ if (headerRoot) {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path class="menu-icon-top" d="M4 8h16"/><path class="menu-icon-bottom" d="M4 16h16"/></svg>
         </button>
         <nav class="primary-nav" aria-label="Điều hướng chính">
-          <button class="menu-nav-trigger" type="button" aria-expanded="false" aria-controls="menu-panel">Sản phẩm <span aria-hidden="true">⌄</span></button>
-          <a href="story.html">Câu chuyện</a>
-          <a href="care.html">GAERU Care+</a>
-          <a href="support.html">Hỗ trợ</a>
+          <button class="menu-nav-trigger" type="button" aria-expanded="false" aria-controls="menu-panel" style="display:inline-flex;align-items:center;gap:4px">Sản phẩm <span aria-hidden="true"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 4.5 3.5 3.5 3.5-3.5"/></svg></span></button>
+          <a href="/cau-chuyen">Câu chuyện</a>
+          <a href="/care">GAERU Care+</a>
+          <a href="/ho-tro">Hỗ trợ</a>
         </nav>
         <div class="nav-actions">
           <button class="search-toggle icon-button" type="button" aria-label="Tìm kiếm" aria-expanded="false" aria-controls="search-panel">
@@ -74,7 +74,7 @@ if (headerRoot) {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 13H4L5 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
             <span class="cart-count" hidden>0</span>
           </button>
-          <a class="account-link" href="account.html">Tài khoản</a>
+          <a class="account-link" href="/tai-khoan">Tài khoản</a>
         </div>
       </div>
     </header>`;
@@ -84,10 +84,10 @@ if (headerRoot) {
       <div class="panel-inner menu-inner">
         <button class="panel-close menu-panel-close" type="button" aria-label="Đóng menu">×</button>
         <nav class="menu-link-list" aria-label="Danh mục GAERU">
-          <a class="menu-store-link" id="menu-title" href="shop.html">Cửa Hàng <span aria-hidden="true">›</span></a>
+          <a class="menu-store-link" id="menu-title" href="/cua-hang">Cửa hàng <span aria-hidden="true">›</span></a>
           <div data-menu-products aria-live="polite"></div>
-          <a class="mobile-menu-link" href="support.html">Hỗ trợ</a>
-          <a class="mobile-menu-link" href="care.html">GAERU Care+</a>
+          <a class="mobile-menu-link" href="/ho-tro">Hỗ trợ</a>
+          <a class="mobile-menu-link" href="/care">GAERU Care+</a>
           <a class="mobile-menu-link" href="account.html">Tài khoản</a>
         </nav>
       </div>
@@ -95,19 +95,19 @@ if (headerRoot) {
     <section class="nav-panel search-panel" id="search-panel" role="dialog" aria-modal="true" aria-labelledby="search-title" hidden>
       <div class="panel-inner search-inner">
         <button class="panel-close" type="button" aria-label="Đóng tìm kiếm">×</button>
-        <form class="search-form" action="shop.html" method="get" role="search">
+        <form class="search-form" action="/cua-hang" method="get" role="search">
           <label class="visually-hidden" for="search-query">Tìm sản phẩm GAERU</label>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
           <input id="search-query" type="search" name="q" placeholder="Tìm kiếm" autocomplete="off" aria-controls="search-results">
         </form>
         <div class="search-suggestions">
-          <h2 id="search-title">Liên Kết Nhanh</h2>
+          <h2 id="search-title">Liên kết nhanh</h2>
           <div class="search-quicklinks" data-search-quicklinks>
-            <a href="shop.html">Mua Sắm GAERU Trực Tuyến</a>
-            <a href="shop.html?category=accessory">Phụ Kiện</a>
-            <a href="shop.html?q=GAERU%20K9">GAERU K9</a>
-            <a href="shop.html?q=micro%20kh%C3%B4ng%20d%C3%A2y">Micro Không Dây</a>
-            <a href="support.html">Hỗ Trợ GAERU</a>
+            <a href="/cua-hang">Mua sắm trực tuyến</a>
+            <a href="/cua-hang?category=accessory">Phụ kiện</a>
+            <a href="/cua-hang?q=GAERU%20K9">GAERU K9</a>
+            <a href="/cua-hang?q=micro%20kh%C3%B4ng%20d%C3%A2y">Micro không dây</a>
+            <a href="/ho-tro">Hỗ trợ GAERU</a>
           </div>
           <div class="search-results" id="search-results" aria-live="polite"></div>
         </div>
@@ -116,13 +116,12 @@ if (headerRoot) {
     <section class="nav-panel cart-panel" id="cart-panel" role="dialog" aria-modal="true" aria-labelledby="cart-panel-title" hidden>
       <div class="panel-inner cart-panel-inner">
         <button class="panel-close" type="button" aria-label="Đóng giỏ hàng">×</button>
-        <div class="cart-panel-heading is-empty"><h2 id="cart-panel-title">Túi của bạn trống.</h2><span class="cart-panel-count" data-cart-panel-count hidden>0 sản phẩm</span></div>
+        <div class="cart-panel-heading is-empty"><h2 id="cart-panel-title">Giỏ hàng của bạn trống.</h2><span class="cart-panel-count" data-cart-panel-count hidden>0 sản phẩm</span></div>
         <div class="mini-cart-content" data-mini-cart aria-live="polite"></div>
         <div class="mini-cart-footer" data-mini-cart-footer hidden>
           <p class="mini-cart-total"><span>Tạm tính</span><strong data-mini-cart-total></strong></p>
-          <p class="prototype-note">Tính theo giá khởi điểm tham khảo, chưa gồm vận chuyển.</p>
-          <a class="button button-blue" href="cart.html">Xem giỏ hàng</a>
-          <a class="mini-checkout" href="checkout.html">Chọn phiên bản &amp; tiếp tục <span aria-hidden="true">›</span></a>
+          <a class="button button-blue" href="/gio-hang">Xem giỏ hàng</a>
+          <a class="mini-checkout" href="/thanh-toan">Tiến hành thanh toán <span aria-hidden="true">›</span></a>
         </div>
       </div>
     </section>`);
@@ -187,7 +186,7 @@ async function refreshMenuProducts({fresh=false}={}) {
       const {products}=data;
       if (!Array.isArray(products)) throw new Error('Invalid catalog');
       const links = products.filter(product => product.active !== false && product.slug && product.name)
-        .map(product => `<a href="product.html?id=${encodeURIComponent(product.slug)}">${escapeShellHtml(product.name)}</a>`).join('');
+        .map(product => `<a href="/san-pham/${encodeURIComponent(product.slug)}">${escapeShellHtml(product.name)}</a>`).join('');
       if (target&&target.innerHTML !== links) target.innerHTML = links;
       window.GAERUFooterProducts?.render(document.querySelector('[data-footer-products]'),products);
     } catch {
@@ -226,6 +225,8 @@ if (footerRoot) {
           <summary>Về GAERU</summary>
           <div class="footer-links">
             <a href="/cau-chuyen">Câu chuyện GAERU</a>
+            <a href="/tin-tuc">Tin tức &amp; kinh nghiệm</a>
+            <a href="/dang-ky-bao-hanh">Kích hoạt bảo hành</a>
           </div>
         </details>
         <div class="footer-column footer-newsletter-column">
@@ -233,7 +234,7 @@ if (footerRoot) {
           <p class="footer-newsletter-note">Cập nhật sản phẩm &amp; ưu đãi mới nhất.</p>
           <form class="footer-newsletter-compact-form" data-newsletter-form data-source="web_footer">
             <div class="footer-newsletter-field">
-              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" aria-label="Địa chỉ email nhận bản tin" required maxlength="254" autocomplete="email">
+              <input type="email" name="email" class="footer-newsletter-compact-input" placeholder="Nhập địa chỉ email" aria-label="Địa chỉ email nhận bản tin GAERU" required maxlength="254" autocomplete="email">
               <button type="submit" class="footer-newsletter-compact-submit" aria-label="Đăng ký nhận tin">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
@@ -570,7 +571,7 @@ function renderSearchResultRows(matches, articles = [], isSemantic = false) {
   let html = '';
   if (matches.length > 0) {
     html += '<p class="search-results-label">' + (isSemantic ? 'Gợi ý thông minh GAERU AI' : 'Sản phẩm phù hợp') + '</p>' + matches.map((product) => (
-      '<a class="search-result" href="product.html?id=' + encodeURIComponent(product.slug) + '">' +
+      '<a class="search-result" href="/san-pham/' + encodeURIComponent(product.slug) + '">' +
         (product.imageUrl ? '<img src="' + escapeShellHtml(product.imageUrl) + '" alt="" width="62" height="56" loading="lazy" decoding="async">' : '') +
         '<span><strong>' + escapeShellHtml(product.name) + '</strong><small>' + escapeShellHtml(product.desc || product.description || '') + '</small></span>' +
         '<b aria-hidden="true">›</b>' +

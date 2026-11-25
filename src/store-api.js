@@ -273,7 +273,8 @@ async function queryProductsUncached(pool, { includeDrafts = false, deleted = fa
     p.description = normalizeBrandText(p.description);
     p.cardTitle = normalizeBrandText(p.cardTitle);
     p.cardSummary = normalizeBrandText(p.cardSummary);
-    p.imageAlt = normalizeBrandText(p.imageAlt);
+    const normalizedAlt = String(normalizeBrandText(p.imageAlt) || '').trim();
+    p.imageAlt = (!normalizedAlt || /^(?:new|image|img|photo|untitled)$/i.test(normalizedAlt)) ? p.name : normalizedAlt;
   }
   if(!includeDrafts){const priced=await require("./product-promotions").applyPromotions(pool,result.rows.flatMap(p=>p.variants));const byId=new Map(priced.map(v=>[v.id,v]));for(const p of result.rows)p.variants=p.variants.map(v=>byId.get(v.id));}
   const needle = search.trim().toLocaleLowerCase("vi");

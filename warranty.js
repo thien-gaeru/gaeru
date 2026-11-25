@@ -7,10 +7,10 @@
   const normSearch = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').trim();
   const channels = { website: 'Website GAERU', shopee: 'Shopee', tiktok: 'TikTok Shop', lazada: 'Lazada' };
   const channelPlaceholders = {
-    shopee: 'Nhập hoặc dán mã đơn Shopee (VD: 261125ABCXYZ)',
-    tiktok: 'Nhập hoặc dán mã đơn TikTok Shop',
+    shopee: 'Nhập hoặc dán mã đơn Shopee',
+    tiktok: 'Nhập hoặc dán mã đơn TikTok',
     lazada: 'Nhập hoặc dán mã đơn Lazada',
-    website: 'Nhập mã đơn Website GAERU (VD: GA-2026...)'
+    website: 'Nhập hoặc dán mã đơn GAERU'
   };
   // 34 province-level units under Resolution 202/2025/QH15.
   const provinces = ['Hà Nội', 'Hải Phòng', 'Huế', 'Đà Nẵng', 'Hồ Chí Minh', 'Cần Thơ', 'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Đắk Lắk', 'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Tĩnh', 'Hưng Yên', 'Khánh Hòa', 'Lai Châu', 'Lâm Đồng', 'Lạng Sơn', 'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi', 'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh', 'Thái Nguyên', 'Thanh Hóa', 'Tuyên Quang', 'Vĩnh Long'].sort((a, b) => a.localeCompare(b, 'vi'));
@@ -36,7 +36,7 @@
       <summary><div><p class="eyebrow">GAERU CARE+</p><h2>Kích hoạt bảo hành</h2></div><span aria-hidden="true">+</span></summary>
       <div class="care-disclosure-body">
         <div class="w-top-bar">
-          <div class="w-session-pill is-guest" data-w-session role="status"><span>Đăng ký nhanh không cần tài khoản ·</span><a class="w-login-cta" href="account.html">Đăng nhập</a><span>để lưu vào hồ sơ</span></div>
+          <div class="w-session-pill is-guest" data-w-session role="status"><span>Đăng ký nhanh không cần tài khoản ·</span><a class="w-login-cta" href="/tai-khoan">Đăng nhập</a><span>để lưu vào hồ sơ</span></div>
         </div>
         <form id="warranty-form" class="w-compact-form">
           <div class="w-step-block">
@@ -84,7 +84,7 @@
                   aria-autocomplete="list"
                   aria-expanded="false"
                   aria-controls="w-prod-listbox"
-                  placeholder="Chọn từ danh sách, gõ tìm kiếm hoặc tự nhập tên sản phẩm…"
+                  placeholder="Chọn hoặc nhập tên thiết bị GAERU…"
                   required>
                 <button type="button" class="w-combo-clear" data-w-combo-clear title="Xóa để chọn lại" aria-label="Xóa tên thiết bị" hidden>×</button>
                 <button type="button" class="w-combo-toggle" data-w-combo-toggle title="Mở danh sách thiết bị" aria-label="Danh sách thiết bị" tabindex="-1">
@@ -109,7 +109,7 @@
             <legend class="w-step-label">4. Thông tin bảo hành</legend>
             <div class="warranty-contact-row w-compact-row">
               <label>Họ và tên<input name="fullName" minlength="2" maxlength="120" autocomplete="name" placeholder="Nguyễn Văn A" required></label>
-              <label>Số điện thoại<input name="phone" type="tel" minlength="10" maxlength="20" autocomplete="tel" placeholder="09xxxxxxxx (10 số)" required></label>
+              <label>Số điện thoại<input name="phone" type="tel" minlength="10" maxlength="20" autocomplete="tel" placeholder="09xxxxxxxx" required></label>
             </div>
           </fieldset>
 
@@ -120,14 +120,14 @@
             </summary>
             <div class="w-optional-body">
               <div class="warranty-contact-row w-compact-row">
-                <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="Không bắt buộc (nhận chứng nhận qua email)"></label>
+                <label>Email nhận thông báo<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="email@example.com (tùy chọn)"></label>
                 <label>
                   <span class="w-date-label-row"><span>Ngày mua trên đơn</span><span class="w-date-shortcuts"><button type="button" data-w-date-quick="0">Hôm nay</button><button type="button" data-w-date-quick="-1">Hôm qua</button></span></span>
                   <input name="purchaseDate" type="date" min="2000-01-01" max="${todayStr}">
                 </label>
               </div>
               <div class="warranty-contact-row w-compact-row">
-                <label>Địa chỉ liên hệ<input name="address" maxlength="250" autocomplete="street-address" placeholder="Số nhà, đường, phường/xã (tùy chọn)"></label>
+                <label>Địa chỉ liên hệ<input name="address" maxlength="250" autocomplete="street-address" placeholder="Số nhà, tên đường (tùy chọn)"></label>
                 <label>Tỉnh / thành phố<select name="city" autocomplete="address-level1" aria-describedby="warranty-city-note"><option value="">Chọn tỉnh / thành phố</option>${provinces.map(name => `<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
               </div>
               <p class="care-field-note" id="warranty-city-note" data-w-city-note hidden></p>
@@ -137,7 +137,7 @@
           <div class="w-submit-bar">
             <button class="button button-blue w-submit-btn" type="submit" disabled>Kích hoạt bảo hành ngay</button>
             <button class="care-plain" type="button" data-w-cancel-edit hidden>Hủy sửa</button>
-            <span class="w-privacy-hint">Bảo mật theo <a href="privacy.html">chính sách riêng tư</a>.</span>
+            <span class="w-privacy-hint">Bảo mật theo <a href="/chinh-sach/quyen-rieng-tu">chính sách riêng tư</a>.</span>
           </div>
           <p role="status" aria-live="polite" data-w-status class="w-status-line"></p>
         </form>
@@ -804,7 +804,7 @@
         const sessionEl = section.querySelector('[data-w-session]');
         sessionEl.classList?.remove?.('is-authed');
         sessionEl.classList?.add?.('is-guest');
-        sessionEl.innerHTML = '<span>Đăng ký nhanh không cần tài khoản ·</span><a class="w-login-cta" href="account.html">Đăng nhập</a><span>để lưu vào hồ sơ</span>';
+        sessionEl.innerHTML = '<span>Đăng ký nhanh không cần tài khoản ·</span><a class="w-login-cta" href="/tai-khoan">Đăng nhập</a><span>để lưu vào hồ sơ</span>';
       }
     } catch {
       section.querySelector('[data-w-session]').textContent = 'Điền mã đơn và số điện thoại bên dưới để đăng ký nhanh.';

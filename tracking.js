@@ -2,8 +2,8 @@
 
 (function () {
   function formatMoney(amount) {
-    if (amount == null) return '0₫';
-    return Number(amount).toLocaleString('vi-VN') + '₫';
+    if (amount == null) return '0 ₫';
+    return Number(amount).toLocaleString('vi-VN') + ' ₫';
   }
 
   function formatDate(isoString) {
@@ -182,7 +182,7 @@
     return `
       <section class="summary-grid">
         <div class="summary-col">
-          <h4>Địa chỉ nhận hàng (Bảo mật PII)</h4>
+          <h4>Thông tin nhận hàng (đã ẩn bớt để bảo mật)</h4>
           <div class="address-box">
             <strong>${escapeHtml(cust.name || 'Khách hàng')}</strong>
             <div>Số điện thoại: <code>${escapeHtml(cust.phone || '***')}</code></div>
@@ -342,21 +342,59 @@
     }
   }
 
+  function bindPasteButtons(scope) {
+    if (!scope || !scope.querySelectorAll) return;
+    Array.prototype.slice.call(scope.querySelectorAll('[data-tracking-paste]')).forEach(function (btn) {
+      if (btn.dataset.boundPaste) return;
+      btn.dataset.boundPaste = '1';
+      btn.addEventListener('click', function () {
+        const targetName = btn.getAttribute('data-tracking-paste');
+        const input = document.getElementById(targetName) || scope.querySelector('[name="' + targetName + '"]');
+        if (!input) return;
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+          navigator.clipboard.readText().then(function (clip) {
+            const val = String(clip || '').trim();
+            if (val) {
+              input.value = val.slice(0, 128);
+              const old = btn.textContent;
+              btn.textContent = '✓ Đã dán';
+              setTimeout(function () { btn.textContent = old; }, 1600);
+            } else {
+              input.focus();
+            }
+          }).catch(function () { input.focus(); });
+        } else {
+          input.focus();
+        }
+      });
+    });
+  }
+
   function initRma(){
     const root=document.querySelector('main');if(!root||root.querySelector('[data-rma-portal]'))return;
-    const box=document.createElement('section');box.dataset.rmaPortal='';box.style.cssText='max-width:960px;margin:32px auto;padding:22px;border:1px solid #dce2e8;border-radius:20px;background:white;overflow-wrap:anywhere';
-    box.innerHTML='<h2>Theo dõi đổi / trả hàng (RMA)</h2><p>Nhập mã RMA và khóa bảo mật do GAERU cung cấp. Khách đã đăng nhập có thể xem hồ sơ trong Tài khoản → Đơn hàng.</p><form data-rma-lookup><label>Mã RMA<input name="rma" required maxlength="50" autocomplete="off" placeholder="RMA-261103-AB12"></label><label>Khóa bảo mật RMA<input name="token" type="password" required maxlength="128" autocomplete="off"></label><button class="button button-blue" type="submit">Xem hồ sơ RMA</button></form><p data-rma-status role="status"></p><div data-rma-details></div>';
-    box.querySelectorAll('label').forEach(e=>e.style.cssText='display:grid;gap:7px;margin:12px 0');box.querySelectorAll('input').forEach(e=>e.style.cssText='width:100%;box-sizing:border-box;min-height:44px;padding:10px;border:1px solid #c8ced8;border-radius:10px;font:inherit');root.append(box);
+    const box=document.createElement('section');box.id='rma-section';box.className='rma-portal-card';box.dataset.rmaPortal='';
+    box.innerHTML='<h2>Đổi trả &amp; Bảo hành gửi kho (RMA)</h2><p>Nhập mã hồ sơ RMA và khóa bảo mật do GAERU cung cấp, hoặc quản lý trực tiếp tại <a href="/tai-khoan" style="color:#0060c7;font-weight:600;">Tài khoản → Đơn hàng</a>.</p><form data-rma-lookup><div class="rma-form-grid"><label>Mã hồ sơ RMA<div class="tracking-input-wrap"><input name="rma" required maxlength="50" autocomplete="off" placeholder="VD: RMA-261125-AB12"><button type="button" class="tracking-inline-btn" data-tracking-paste="rma">Dán</button></div></label><label>Khóa bảo mật RMA<div class="tracking-input-wrap"><input name="token" type="password" required maxlength="128" autocomplete="off" placeholder="Nhập khóa bảo mật trong email/SMS"><button type="button" class="tracking-inline-btn" data-rma-toggle-token>Hiện</button></div></label></div><button class="button button-blue" type="submit">Xem hồ sơ đổi trả</button></form><p data-rma-status role="status" style="font-size:13.5px;margin:12px 0 0;color:#515154;"></p><div data-rma-details></div>';
+    root.append(box);
+    bindPasteButtons(box);
+    const toggleTokenBtn=box.querySelector('[data-rma-toggle-token]');
+    if(toggleTokenBtn){toggleTokenBtn.addEventListener('click',function(){const tk=box.querySelector('input[name="token"]');if(!tk)return;const show=tk.type==='password';tk.type=show?'text':'password';toggleTokenBtn.textContent=show?'Ẩn':'Hiện';});}
     const status=box.querySelector('[data-rma-status]'),details=box.querySelector('[data-rma-details]');
-    box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,button=f.querySelector('button'),number=f.elements.rma.value.trim().toUpperCase(),token=f.elements.token.value.trim();button.disabled=true;status.textContent='Đang kiểm tra hồ sơ…';details.replaceChildren();
+    box.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget,button=f.querySelector('button[type="submit"]')||f.querySelector('button'),number=f.elements.rma.value.trim().toUpperCase(),token=f.elements.token.value.trim();button.disabled=true;status.textContent='Đang kiểm tra hồ sơ…';details.replaceChildren();
       try{const res=await fetch('/api/rma/'+encodeURIComponent(number),{credentials:'same-origin',headers:{'X-RMA-Token':token}}),data=await res.json();if(!res.ok)throw Error(data.error||'Chưa xem được hồ sơ.');f.elements.token.value='';const r=data.rma,w=r.inbound.warehouseAddress;
         const rmaStatusLabels={requested:'Chờ duyệt đổi/trả',approved:'Đã duyệt gửi hàng',received:'Kho đã nhận hàng',resolved:'Đã hoàn tất đổi/trả',rejected:'Từ chối đổi/trả'};
         const inboundStatusLabels={pending_shipment:'Chờ gửi về kho',in_transit:'Đang gửi về kho',delivered_to_warehouse:'Kho đã nhận hàng'};
-        details.innerHTML='<h3>'+escapeHtml(r.rmaNumber)+'</h3><p>Trạng thái: '+escapeHtml(rmaStatusLabels[r.status]||r.status)+'</p><p>'+escapeHtml(r.reason)+'</p><p>Gửi về: '+escapeHtml(w.facility)+'<br>'+escapeHtml(w.address)+'<br>'+escapeHtml(w.contactPhone)+'</p><p data-rma-inbound-line>Chiều về kho: '+escapeHtml(r.inbound.carrier||'Chưa gửi')+(r.inbound.trackingNumber?' · '+escapeHtml(r.inbound.trackingNumber):'')+'</p>'+(r.outbound.trackingNumber?'<p>Gửi lại cho bạn: '+escapeHtml(r.outbound.carrier)+' · '+escapeHtml(r.outbound.trackingNumber)+'</p>':'');
+        const whCopyText=[w.facility,w.address,w.contactPhone].filter(Boolean).join(' - ');
+        details.innerHTML='<div class="rma-warehouse-box"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;"><strong>Hồ sơ '+escapeHtml(r.rmaNumber)+'</strong><span class="pill pill-info">'+escapeHtml(rmaStatusLabels[r.status]||r.status)+'</span></div><p style="margin:8px 0;">Lý do: '+escapeHtml(r.reason)+'</p><div style="border-top:1px solid #e2e8f0;padding-top:8px;margin-top:8px;"><strong>Địa chỉ gửi hàng về kho:</strong><br>'+escapeHtml(w.facility)+' · '+escapeHtml(w.contactPhone)+'<br>'+escapeHtml(w.address)+' <button type="button" class="copy-btn" data-rma-copy="'+escapeHtml(whCopyText)+'" style="margin-left:6px;">Sao chép địa chỉ</button></div><p data-rma-inbound-line style="margin:8px 0 0;"><strong>Chiều gửi về kho:</strong> '+escapeHtml(r.inbound.carrier||'Chưa cập nhật')+(r.inbound.trackingNumber?' · '+escapeHtml(r.inbound.trackingNumber):'')+'</p>'+(r.outbound.trackingNumber?'<p style="margin:6px 0 0;"><strong>Kiện gửi lại cho bạn:</strong> '+escapeHtml(r.outbound.carrier)+' · '+escapeHtml(r.outbound.trackingNumber)+'</p>':'')+'</div>';
+        const copyWhBtn=details.querySelector('[data-rma-copy]');
+        if(copyWhBtn){copyWhBtn.addEventListener('click',function(){if(typeof navigator!=='undefined'&&navigator.clipboard?.writeText){navigator.clipboard.writeText(copyWhBtn.getAttribute('data-rma-copy')||'').then(function(){copyWhBtn.textContent='✓ Đã chép';setTimeout(function(){copyWhBtn.textContent='Sao chép địa chỉ';},1600);}).catch(function(){});}});}
         if(!['resolved','rejected'].includes(r.status)){
-          const inbound=document.createElement('form');inbound.innerHTML='<label>Hãng vận chuyển<input name="carrier" required minlength="2" maxlength="60"></label><label>Mã vận đơn gửi về kho<input name="tracking" required minlength="4" maxlength="60"></label><button type="submit" class="button button-blue">Cập nhật vận đơn gửi về</button><p role="status"></p>';
-          inbound.querySelectorAll('label').forEach(x=>x.style.cssText='display:grid;gap:7px;margin:12px 0');inbound.querySelectorAll('input').forEach(x=>x.style.cssText='width:100%;box-sizing:border-box;min-height:44px;padding:10px;border:1px solid #c8ced8;border-radius:10px;font:inherit');inbound.elements.carrier.value=r.inbound.carrier||'';inbound.elements.tracking.value=r.inbound.trackingNumber||'';
-          inbound.onsubmit=async event=>{event.preventDefault();const send=inbound.querySelector('button');if(send.disabled)return;send.disabled=true;try{const response=await fetch('/api/rma/'+encodeURIComponent(number)+'/inbound',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-RMA-Token':token},body:JSON.stringify({inboundCarrier:inbound.elements.carrier.value.trim(),inboundTrackingNumber:inbound.elements.tracking.value.trim()})}),saved=await response.json();if(!response.ok)throw Error(saved.error||'Chưa lưu được vận đơn.');inbound.querySelector('[role=status]').textContent=saved.message;const line=details.querySelector('[data-rma-inbound-line]');if(line)line.textContent='Chiều về kho: '+(inboundStatusLabels[saved.rma?.inboundStatus]||inbound.elements.carrier.value.trim())+' · '+(saved.rma?.inboundTrackingNumber||inbound.elements.tracking.value.trim());}catch(error){inbound.querySelector('[role=status]').textContent=error.message;}finally{send.disabled=false;}};details.append(inbound);
+          const inbound=document.createElement('form');
+          const presetCarriers=['Viettel Post','SPX Express','GHN','J&T Express','GHTK'];
+          inbound.innerHTML='<div style="margin-top:12px;"><span style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">Chọn nhanh đơn vị vận chuyển</span><div class="rma-carrier-pills">'+presetCarriers.map(function(c){return '<button type="button" class="rma-carrier-pill" data-carrier-pick="'+escapeHtml(c)+'">'+escapeHtml(c)+'</button>';}).join('')+'</div><div class="rma-form-grid"><label>Hãng vận chuyển<input name="carrier" required minlength="2" maxlength="60" placeholder="VD: Viettel Post"></label><label>Mã vận đơn gửi về kho<div class="tracking-input-wrap"><input name="tracking" required minlength="4" maxlength="60" placeholder="Nhập hoặc dán mã vận đơn"><button type="button" class="tracking-inline-btn" data-tracking-paste="tracking">Dán</button></div></label></div><button type="submit" class="button button-blue">Cập nhật vận đơn gửi về</button><p role="status" style="font-size:13px;margin:8px 0 0;"></p></div>';
+          inbound.elements.carrier.value=r.inbound.carrier||'';inbound.elements.tracking.value=r.inbound.trackingNumber||'';
+          bindPasteButtons(inbound);
+          Array.prototype.slice.call(inbound.querySelectorAll('[data-carrier-pick]')).forEach(function(pill){pill.addEventListener('click',function(){inbound.elements.carrier.value=pill.getAttribute('data-carrier-pick')||'';Array.prototype.slice.call(inbound.querySelectorAll('[data-carrier-pick]')).forEach(function(p){p.classList.toggle('is-active',p===pill);});});});
+          inbound.onsubmit=async event=>{event.preventDefault();const send=inbound.querySelector('button[type="submit"]')||inbound.querySelector('button');if(send.disabled)return;send.disabled=true;try{const response=await fetch('/api/rma/'+encodeURIComponent(number)+'/inbound',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-RMA-Token':token},body:JSON.stringify({inboundCarrier:inbound.elements.carrier.value.trim(),inboundTrackingNumber:inbound.elements.tracking.value.trim()})}),saved=await response.json();if(!response.ok)throw Error(saved.error||'Chưa lưu được vận đơn.');inbound.querySelector('[role=status]').textContent=saved.message;const line=details.querySelector('[data-rma-inbound-line]');if(line)line.textContent='Chiều về kho: '+(inboundStatusLabels[saved.rma?.inboundStatus]||inbound.elements.carrier.value.trim())+' · '+(saved.rma?.inboundTrackingNumber||inbound.elements.tracking.value.trim());}catch(error){inbound.querySelector('[role=status]').textContent=error.message;}finally{send.disabled=false;}};details.append(inbound);
         }status.textContent='Đã xác minh hồ sơ. Không chia sẻ khóa RMA cho người khác.';
       }catch(error){status.textContent=error.message;}finally{button.disabled=false;}
     };
@@ -366,6 +404,23 @@
     const form = document.getElementById('tracking-form');
     const orderInput = document.getElementById('orderNumber');
     const challengeInput = document.getElementById('challenge');
+    if (form) {
+      bindPasteButtons(form);
+      if (window.GAERUCustomerSession && typeof window.GAERUCustomerSession.get === 'function') {
+        Promise.resolve(window.GAERUCustomerSession.get()).then(function (sess) {
+          const cust = sess && (sess.customer || (sess.authenticated ? sess : null));
+          if (!cust) return;
+          if (challengeInput && !challengeInput.value && (cust.phone || cust.email)) {
+            challengeInput.value = cust.phone || cust.email;
+          }
+          const banner = document.querySelector('[data-tracking-session]');
+          if (banner) {
+            banner.hidden = false;
+            banner.innerHTML = '<span>✓ Đã tự điền thông tin xác thực của <strong>' + escapeHtml(cust.fullName || cust.email || 'bạn') + '</strong></span><a href="/tai-khoan">Xem tất cả đơn trong Tài khoản →</a>';
+          }
+        }).catch(function () {});
+      }
+    }
 
     if (form) {
       form.addEventListener('submit', function (e) {

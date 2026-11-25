@@ -207,10 +207,17 @@
   border-bottom-left-radius: 4px;
 }
 
+.copilot-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+  margin: 10px 0;
+}
+
 .copilot-msg-bubble table {
   width: 100%;
   border-collapse: collapse;
-  margin: 10px 0;
+  margin: 0;
   font-size: 13px;
 }
 
@@ -396,6 +403,11 @@
   font-size: 18px;
 }
 
+.copilot-mobile-threads-btn,
+.copilot-mobile-close-btn {
+  display: none;
+}
+
 /* Responsive Mobile */
 @media (max-width: 768px) {
   .copilot-container {
@@ -406,6 +418,33 @@
   }
   .copilot-sidebar {
     display: none; /* Trên mobile ưu tiên khung chat chính */
+  }
+  .copilot-sidebar.is-mobile-open {
+    display: flex;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    inset: 0;
+    z-index: 60;
+    background: #ffffff;
+    border-right: 0;
+  }
+  .copilot-mobile-threads-btn {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  .copilot-sidebar.is-mobile-open .copilot-mobile-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-top: 8px;
+    min-height: 38px;
   }
   .copilot-input-form textarea {
     font-size: 16px; /* Ngăn iOS Safari tự phóng to khi chạm ô nhập */

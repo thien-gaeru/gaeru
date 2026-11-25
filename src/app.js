@@ -672,7 +672,8 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
 
   app.use(require('./cache').smartPageCache());
   app.use(require('./product-guides').createProductGuidePages(pool));
-  app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/'],(_req,res)=>{res.set('Cache-Control','no-store').sendFile('warranty-activation.html',{root:projectRoot});});
+  app.get(['/dang-ky-bao-hanh','/dang-ky-bao-hanh/','/warranty-activation.html'],(_req,res)=>{res.set('Cache-Control','no-store').type('html').send(require('./clean-routes').readHtmlTemplate('warranty-activation.html'));});
+  app.get(['/doi-tra','/doi-tra/'],(_req,res)=>res.redirect(302,'/tra-cuu-don-hang#rma-section'));
   app.use(require("./site-pages").createPagesPublic(pool));
   app.use(require("./sitemap").createSitemap(pool,config.PUBLIC_BASE_URL));
   app.use(require("./seo-pages").createSeoPages(pool,config.PUBLIC_BASE_URL));
@@ -685,7 +686,12 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
     const publicFiles=require('./public-files');
     const isFile=pathname==='/' || publicFiles.has(pathname.slice(1));
     const isAsset=pathname==='/assets/data/vietnam-addresses.json' || (pathname.startsWith('/assets/') || pathname.startsWith('/public/')) && /\.(?:png|jpe?g|webp|gif|svg|ico|avif|woff2?|ttf|mp4|webm|pdf)$/i.test(pathname);
-    if(!isFile&&!isAsset)return res.set('Cache-Control','no-store').sendStatus(404);
+    if(!isFile&&!isAsset){
+      if((req.method==='GET'||req.method==='HEAD')&&!pathname.startsWith('/api/')&&!pathname.startsWith('/gaeru_ceo')&&!/\.[a-z0-9]{1,8}$/i.test(pathname)&&!pathname.startsWith('/.')&&req.accepts(['html','json'])==='html'){
+        return res.status(404).set('Cache-Control','no-store').set('X-Robots-Tag','noindex').type('html').send(require('./error-pages').renderStorefrontErrorHtml({status:404}));
+      }
+      return res.set('Cache-Control','no-store').sendStatus(404);
+    }
     next();
   });
 
