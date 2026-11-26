@@ -50,3 +50,29 @@ test('cart and checkout describe only nationwide zero rates as free and preserve
     assert.equal(root.querySelector('[data-cart-subtotal-final]').textContent,'80.000 ₫');
   }
 });
+
+test('mountNews auto-advances homepage news strip every 1.5s on mobile & desktop and wraps cleanly',()=>{
+  const fs=require('node:fs'),{document,window}=parseHTML('<html><body><button data-news-autoplay hidden></button><button data-news-scroll="-1"></button><button data-news-scroll="1"></button><div class="news-strip" data-news-strip><a class="news-card"></a><a class="news-card"></a><a class="news-card"></a></div></body></html>');
+  const rail=document.querySelector('[data-news-strip]'),button=document.querySelector('[data-news-autoplay]');
+  Object.defineProperties(rail,{scrollWidth:{value:1080},clientWidth:{value:360},scrollLeft:{value:0,writable:true}});
+  [0,374,748].forEach((offset,i)=>Object.defineProperty(rail.children[i],'offsetLeft',{value:offset}));
+  let tick,observe,intervalMs=0;
+  rail.scrollTo=({left})=>{rail.scrollLeft=Math.min(left,374);};
+  window.matchMedia=q=>({matches:q==='(min-width: 0px)',addEventListener(){},removeEventListener(){}});
+  window.setInterval=(fn,delay)=>(intervalMs=delay,tick=fn,1);
+  window.clearInterval=()=>tick=null;
+  window.IntersectionObserver=class{constructor(fn){observe=fn}observe(){}disconnect(){}};
+  require('../auto-product-rail').mountNews(window);
+  observe([{isIntersecting:true}]);
+  assert.equal(intervalMs,1500);
+  assert.equal(button.hidden,false);
+  tick();
+  assert.equal(rail.scrollLeft,374);
+  tick();
+  assert.equal(rail.scrollLeft,374);
+  tick();
+  assert.equal(rail.scrollLeft,0);
+  const newsCss=fs.readFileSync(require('node:path').join(__dirname,'../news.css'),'utf8');
+  assert.match(newsCss,/\.news-strip\{[^}]*scrollbar-width:none/);
+  assert.match(newsCss,/\.news-strip::-webkit-scrollbar\{display:none\}/);
+});

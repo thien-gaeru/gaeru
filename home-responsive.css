@@ -16,7 +16,7 @@
 .home-page .home-p185-story .story-copy{z-index:2}.home-page .home-p185-story .story-art{isolation:isolate}
 
 /* Two rows and a partial next column make the native horizontal rail discoverable. */
-.home-page #products .product-grid{display:grid;min-width:0;max-width:100%;grid-template-rows:repeat(2,auto);grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:88%;grid-auto-columns:min(88%,620px);gap:18px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-padding-inline:0;padding:4px 0 16px}.home-page #products .product-grid>.product-card{scroll-snap-align:start;min-width:0}.home-page #products .product-card[hidden]{display:none}
+.home-page #products .product-grid{display:grid;min-width:0;max-width:100%;grid-template-rows:repeat(2,auto);grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:88%;grid-auto-columns:min(88%,620px);gap:18px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-padding-inline:0;padding:4px 0 16px;scrollbar-width:none;-ms-overflow-style:none}.home-page #products .product-grid::-webkit-scrollbar{display:none}.home-page #products .product-grid>.product-card{scroll-snap-align:start;min-width:0}.home-page #products .product-card[hidden]{display:none}
 /* Smooth staggered scroll-reveal for product cards and showcase tiles. */
 .home-page .news-heading{position:relative;isolation:isolate;padding:28px;border:1px solid #dce8ed;border-radius:24px;background:radial-gradient(ellipse at 95% 0,#dcebef 0,transparent 60%),linear-gradient(120deg,#f7fafc,#edf4f7);gap:18px}.home-page .news-heading::before{content:"";position:absolute;top:0;right:0;bottom:0;left:0;inset:0;border-radius:inherit;z-index:-1;background:linear-gradient(155deg,transparent 55%,rgba(213,228,236,0.33) 56%,transparent 80%)}.home-page .news-heading h2{font-size:clamp(28px,4vw,46px)}.home-page .news-heading .news-controls{flex-wrap:wrap}@media(max-width:600px){.home-page .news-heading{padding:20px}.home-page #products .product-card{min-height:460px}}
 
@@ -47,7 +47,8 @@
  .home-page .news-heading h2{font-size:24px;line-height:1.15;margin:6px 0}
  .home-page .news-heading .text-link{font-size:14px}
  .home-page .news-controls{justify-content:flex-start;gap:8px}
- .home-page .news-strip{gap:14px;padding:4px 3px 16px}
+ .home-page .news-strip{gap:14px;padding:4px 3px 16px;scroll-padding-inline:3px;scrollbar-width:none;-ms-overflow-style:none}
+ .home-page .news-strip::-webkit-scrollbar{display:none}
  .home-page .news-card{flex-basis:88%;min-width:0;border-radius:18px;scroll-snap-align:start;overflow:hidden}
  .home-page .news-card>img,.home-page .news-card>picture>img{width:100%!important;height:auto!important;max-height:none!important;aspect-ratio:16/10;object-fit:cover!important;padding:0!important;margin:0;border-top-left-radius:18px;border-top-right-radius:18px}
  .home-page .news-card>div{padding:14px 16px 16px}
