@@ -2144,3 +2144,10 @@
 .account-loyalty-card .account-xu-balance strong{color:#b88600!important}
 
 .account-loyalty-card .account-xu-balance{font-weight:600!important}
+
+/* Gộp GAERU Xu vào thẻ thông tin khách hàng (không còn khung riêng) và ẩn email/SĐT ở phần tổng quan; vẫn xem/sửa trong "Hồ sơ & Bảo mật". */
+.account-contact-summary[hidden]{display:none!important}
+.account-overview-card .account-loyalty-card{margin:16px 0 4px!important;padding:16px 0 0!important;border:0!important;border-top:1px solid #e5e5e8!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:inherit!important}
+.account-overview-card .account-loyalty-header{margin-bottom:0!important}
+.account-overview-card .account-loyalty-card [data-loyalty-benefits]{color:#6e6e73!important}
+.account-overview-card .account-xu-ledger{border-top-color:#e5e5e8!important}
