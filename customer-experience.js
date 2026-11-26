@@ -161,7 +161,7 @@
     const settingsDialog=document.createElement('dialog');settingsDialog.className='account-settings-dialog';settingsDialog.dataset.accountSettingsDialog='';settingsDialog.setAttribute('aria-labelledby','account-settings-title');settingsDialog.innerHTML='<header><h2 id="account-settings-title">Thông tin và bảo mật</h2><button type="button" data-settings-close aria-label="Đóng cài đặt">×</button></header><nav aria-label="Mục cài đặt" hidden><button type="button" data-settings-jump="profile">Thông tin cá nhân</button><button type="button" data-settings-jump="password">Mật khẩu</button><button type="button" data-settings-jump="factor">Xác thực 2 bước</button></nav><div class="account-settings-content"></div>';
     section.append(settingsDialog);
     const closeSettings=()=>{if(typeof settingsDialog.close==='function'){try{settingsDialog.close();}catch(_){settingsDialog.open=false;settingsDialog.removeAttribute?.('open');if(typeof Event==='function')settingsDialog.dispatchEvent?.(new Event('close'));}}else{settingsDialog.open=false;settingsDialog.removeAttribute?.('open');if(typeof Event==='function')settingsDialog.dispatchEvent?.(new Event('close'));}};
-    const openSettings=()=>{if(!settingsDialog.isConnected||profile.hidden)return;const hasDialogBody=(settingsDialog.querySelector('.account-settings-content')?.children?.length||0)>0;if(hasDialogBody&&!settingsDialog.open){if(typeof settingsDialog.showModal==='function'){try{settingsDialog.showModal();}catch(_){settingsDialog.open=true;}}else settingsDialog.open=true;}profileEditor.open=true;settingsPanel.scrollIntoView?.({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});};
+    const openSettings=(options)=>{if(!settingsDialog.isConnected||profile.hidden)return;const hasDialogBody=(settingsDialog.querySelector('.account-settings-content')?.children?.length||0)>0;if(hasDialogBody&&!settingsDialog.open){if(typeof settingsDialog.showModal==='function'){try{settingsDialog.showModal();}catch(_){settingsDialog.open=true;}}else settingsDialog.open=true;}profileEditor.open=true;if(options?.scroll!==false)settingsPanel.scrollIntoView?.({block:'start',behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});};
     let pendingSettingsJump='';
     function jumpToSettings(name){
       const pForm=profileEditor.querySelector('[data-profile-form]');
@@ -231,7 +231,7 @@
       addressDialog.innerHTML='<header><h2 id="address-dialog-title">Địa chỉ giao hàng</h2><button type="button" data-address-close aria-label="Đóng">×</button></header><p role="status" data-address-dialog-status></p>';
       addressDialog.append(addressForm);old.before(opener,addressDialog);old.remove();
     }
-    const openAddress=()=>{if(!addressDialog.open)addressDialog.showModal?.();addressForm.elements.fullName.focus();};
+    const openAddress=()=>{if(!addressDialog.open)addressDialog.showModal?.();addressForm.elements.fullName.focus({preventScroll:true});};
     const closeAddress=()=>addressDialog.close?.();
     const addAddress=()=>{cancelEdit.click();addressDialog.querySelector('[role=status]').textContent='';openAddress();};
     const opener=overviewCard.querySelector('[data-add-address]'),closer=addressDialog.querySelector('[data-address-close]');

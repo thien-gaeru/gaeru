@@ -81,3 +81,26 @@ test('an old account session read cannot replace a newer login or logout notific
    if(!logout)assert.equal(ui.document.querySelector('[data-customer-name]').textContent,'Newer session');
  }
 });
+
+test('account tab clicks keep the scroll position on mobile and open settings without scrolling',async()=>{
+  const ui=await accountPage();ui.window.innerWidth=390;
+  const moves=[];const proto=Object.getPrototypeOf(ui.document.body);
+  const original=proto.scrollIntoView;proto.scrollIntoView=function(options){moves.push({node:this,options});};
+  const calls=[];ui.window.GAERUAccountSettings={open(options){calls.push(options?.scroll);}};
+  try{
+    for(const tab of ['offers','warranties','profile','orders']){
+      const link=ui.document.querySelector('[data-account-tab="'+tab+'"]');link.click();
+      assert.equal(link.classList.contains('is-active'),true);
+    }
+    assert.equal(moves.length,0,'tab clicks must not scroll the page back to .account-workspace');
+    assert.deepEqual(calls,[false]);
+    assert.doesNotMatch(fs.readFileSync(require.resolve('../account.js'),'utf8'),/account-workspace'\)\?\.scrollIntoView/);
+  }finally{proto.scrollIntoView=original;}
+});
+
+test('settings deep link scrolls once, later workspace/security re-renders do not jump the page',async()=>{
+  const ui=await accountPage('#security');assert.equal(ui.opens,1,'the deep link opens settings once during initialization');
+  const calls=[];ui.window.GAERUAccountSettings={open(options){calls.push(options?.scroll);}};
+  ui.listeners['gaeru:workspace-ready']();ui.listeners['gaeru:security-ready']();ui.listeners['gaeru:security-ready']();
+  assert.deepEqual(calls,[false,false,false]);
+});

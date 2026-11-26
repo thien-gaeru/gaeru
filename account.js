@@ -33,6 +33,8 @@ function resolveInitialAccountTab() {
   return 'orders';
 }
 
+let accountSettingsAutoScrolled = false;
+
 function switchAccountTab(tabName, updateHash = true) {
   if(tabName==='security')tabName='profile';
   const validTabs = ['orders', 'offers', 'profile', 'warranties', 'security'];
@@ -52,7 +54,14 @@ function switchAccountTab(tabName, updateHash = true) {
     panel.classList?.toggle('is-active', isActive);
   });
 
-  if(tabName==='profile'&&(updateHash||['#profile','#security','#account-security'].includes(window.location.hash)))window.GAERUAccountSettings?.open();
+  if(tabName==='profile'&&(updateHash||['#profile','#security','#account-security'].includes(window.location.hash))){
+    const accountSettings=window.GAERUAccountSettings;
+    if(accountSettings){
+      // Chỉ cuộn tới khu cài đặt một lần khi vào trang bằng deep link (#security); bấm tab hoặc render lại thì giữ nguyên vị trí cuộn.
+      accountSettings.open({scroll:!updateHash&&!accountSettingsAutoScrolled});
+      accountSettingsAutoScrolled=true;
+    }
+  }
   if (tabName === 'profile' && ['#security','#account-security'].includes(window.location.hash)) {
     const secPanel = document.querySelector?.('[data-security-panel]')?.closest('details');
     if (secPanel) {
@@ -507,10 +516,8 @@ document.addEventListener("click", (e) => {
   const tabLink = e.target?.closest?.('[data-account-tab]');
   if (tabLink) {
     e.preventDefault();
+    // Thanh tab nằm ngay trên các panel nên không cuộn trang; trước đây cuộn tới .account-workspace (đầu trang) làm trang giật ngược lên trên.
     switchAccountTab(tabLink.dataset?.accountTab, true);
-    if (typeof window !== 'undefined' && window.innerWidth <= 800) {
-      document.querySelector('.account-workspace')?.scrollIntoView({ behavior: 'smooth' });
-    }
     return;
   }
   const logoutBtn = e.target?.closest?.('[data-account-logout]');
