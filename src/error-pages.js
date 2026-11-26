@@ -51,6 +51,10 @@ function renderStorefrontErrorHtml(options) {
   return '<!doctype html>' +
     '<html lang="vi">' +
     '<head>' +
+    '<script src="/bot-protection.js" defer></script>' +
+    '<script src="/action-feedback.js" defer></script>' +
+    '<link rel="stylesheet" href="/action-feedback.css">' +
+    '<link rel="stylesheet" href="/bot-protection.css">' +
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex">' +
@@ -84,6 +88,8 @@ function renderStorefrontErrorHtml(options) {
     '<script src="/customer-session.js" defer></script>' +
     '<script src="/footer-products.js" defer></script>' +
     '<script src="/store-shell.js" defer></script>' +
+    '<script src="/care-live.js" defer></script>' +
+    '<script src="/product-services.js" defer></script>' +
     '</head>' +
     '<body class="storefront-error-page">' +
     '<a class="skip-link" href="#main">Bỏ qua điều hướng</a>' +

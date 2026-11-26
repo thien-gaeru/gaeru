@@ -536,7 +536,7 @@ async function verifyPaymentChannel(id,settings,{config={},pool=null,fetcher=fet
  }
  if(id==='bank_transfer'){
   if(!settings.bankName||settings.bankName.trim().length<2||!settings.accountHolder||settings.accountHolder.trim().length<2||!(/^[0-9A-Za-z]{6,30}$/).test(String(settings.accountNumber||''))||String(settings.transferSyntax||'GAERU {MA_DON}').trim().length<3)throw fail('Thông tin chuyển khoản chưa hợp lệ.',400);
-  const autoReconcile=Boolean(settings.webhookSecret&&String(settings.webhookSecret).trim().length>=8);
+  const rawSecret=String(settings.webhookSecret||'').trim();if(rawSecret.length>0&&rawSecret.length<16)throw fail('Khóa bí mật Webhook chuyển khoản cần tối thiểu 16 ký tự.',400);const autoReconcile=rawSecret.length>=16;
   return {...base,configured:true,reachable:null,method:'configuration_validation',webhookConfigured:autoReconcile,message:'Thông tin chuyển khoản đúng định dạng.'+(autoReconcile?' Đã cấu hình Webhook đối soát tự động.':'')+' Chưa xác minh quyền sở hữu tài khoản; chủ doanh nghiệp đối soát giao dịch trước khi ghi nhận đã thu tiền.'};
  }
  if(id==='momo'||id==='zalopay'){

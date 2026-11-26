@@ -1209,6 +1209,17 @@
  });
 
  window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
+ if(typeof document!=='undefined'&&typeof document.addEventListener==='function'&&typeof setInterval==='function'){
+   let lastActivityAt=Date.now();
+   const markActivity=()=>{lastActivityAt=Date.now();};
+   for(const evt of ['input','change','keydown','pointerdown'])document.addEventListener(evt,markActivity,{passive:true});
+   const keepalive=setInterval(()=>{
+     if(document.hidden||!user?.authenticated||busy)return;
+     if(!dirty&&Date.now()-lastActivityAt>180000)return;
+     fetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'}).catch(()=>{});
+   },120000);
+   keepalive.unref?.();
+ }
 
  (async()=>{
    try{

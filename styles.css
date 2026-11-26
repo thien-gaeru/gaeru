@@ -259,7 +259,8 @@ img { display: block; max-width: 100%; }
   .section-heading { display: block; }
   .section-heading h2, .story-copy h2 { font-size: 42px; }
   .section-heading > p { margin-top: 16px; font-size: 13px; }
-  .filter-row { justify-content: flex-start; overflow-x: auto; }
+  .filter-row { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  .filter-row::-webkit-scrollbar { display: none; }
   .filter-chip { flex: 0 0 auto; }
   .product-grid { grid-template-columns: 1fr; gap: 12px; }
   .product-card, .product-card-wide { grid-column: auto; min-height: 530px; padding: 36px 16px 0; }

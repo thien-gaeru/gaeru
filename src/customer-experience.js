@@ -15,7 +15,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
     try {
       const id = req.session?.customer?.id;
       if (!id) return res.status(401).json({ error: 'Vui lòng đăng nhập.' });
-      const found = await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true', [id]);
+      const found = await pool.query('SELECT id FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL', [id]);
       if (!found.rows.length) return res.status(401).json({ error: 'Tài khoản không còn hoạt động.' });
       req.customerId = id;
       next();
@@ -300,7 +300,7 @@ function createCustomerExperience(pool, { inventory = null, audit = null, config
     if (!parsed.success) return res.status(400).json({ error: 'Thông tin hồ sơ chưa hợp lệ.' });
     try {
       const result = await withTransaction(pool, async (client) => {
-        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at,password_hash FROM customers WHERE id=$1 AND active=true FOR UPDATE', [req.customerId])).rows[0];
+        const current = (await client.query('SELECT email,phone,phone_invalid_at,reg_email_failed_at,password_hash FROM customers WHERE id=$1 AND active=true AND deleted_at IS NULL FOR UPDATE', [req.customerId])).rows[0];
         if (!current) return { status: 401, error: 'Tài khoản không còn hoạt động.' };
         const a = parsed.data;
         if (a.currentPassword !== undefined && a.currentPassword !== '') {

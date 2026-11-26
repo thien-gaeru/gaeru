@@ -334,6 +334,11 @@
   overflow-x: auto;
   padding: 2px 0;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.quick-cart-premium .qc-thumbs::-webkit-scrollbar {
+  display: none;
 }
 .quick-cart-premium .qc-thumb-btn {
   flex: 0 0 44px;

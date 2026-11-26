@@ -249,7 +249,7 @@ function createApp({ config, pool, sessionStore, customerMailer, oauthClient = n
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://accounts.google.com", "https://apis.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://ssl.gstatic.com", "https://*.gstatic.com"],
         imgSrc: ["'self'", "data:", "blob:", "https://img.vietqr.io", "https://*.googleusercontent.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.googletagmanager.com"],
-        connectSrc: ["'self'", "https://challenges.cloudflare.com", "https://cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://*.googleapis.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com"],
+        connectSrc: ["'self'", "https://img.vietqr.io", "https://challenges.cloudflare.com", "https://cloudflareinsights.com", "https://accounts.google.com", "https://apis.google.com", "https://*.googleapis.com", "https://ssl.gstatic.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com"],
         mediaSrc: ["'self'", "blob:", "https://gaeru.com"],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],

@@ -83,27 +83,33 @@ async function expireLockedLoyaltyIfDue(client, row, actor = { username: 'loyalt
 }
 
 async function expireDueLoyaltyPoints(pool) {
-  return withTransaction(pool, async client => {
-    const lock = (await client.query("SELECT pg_try_advisory_xact_lock(hashtext('gaeru:loyalty-expiry')) AS acquired")).rows[0];
-    if (!lock?.acquired) return 0;
-    const due = (await client.query(
-      `SELECT customer_id AS "customerId", points_balance AS "pointsBalance",
-              lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
-              COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
-              tier, expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
-         FROM customer_loyalty
-        WHERE points_balance > 0 AND expires_at IS NOT NULL AND expires_at <= now()
-        ORDER BY expires_at ASC
-        LIMIT 100
-        FOR UPDATE SKIP LOCKED`
-    )).rows;
-    let expiredCount = 0;
-    for (const row of due) {
-      const after = await expireLockedLoyaltyIfDue(client, row);
-      if (after.pointsBalance === 0 && row.pointsBalance > 0) expiredCount++;
-    }
-    return expiredCount;
-  });
+  let totalExpired = 0;
+  for (let batch = 0; batch < 20; batch++) {
+    const { expiredCount, fetchedCount } = await withTransaction(pool, async client => {
+      const lock = (await client.query("SELECT pg_try_advisory_xact_lock(hashtext('gaeru:loyalty-expiry')) AS acquired")).rows[0];
+      if (!lock?.acquired) return { expiredCount: 0, fetchedCount: 0 };
+      const due = (await client.query(
+        `SELECT customer_id AS "customerId", points_balance AS "pointsBalance",
+                lifetime_earned AS "lifetimeEarned", lifetime_spent AS "lifetimeSpent",
+                COALESCE(clawback_debt_points, 0)::int AS "clawbackDebtPoints",
+                tier, expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM customer_loyalty
+          WHERE points_balance > 0 AND expires_at IS NOT NULL AND expires_at <= now()
+          ORDER BY expires_at ASC
+          LIMIT 100
+          FOR UPDATE SKIP LOCKED`
+      )).rows;
+      let count = 0;
+      for (const row of due) {
+        const after = await expireLockedLoyaltyIfDue(client, row);
+        if (after.pointsBalance === 0 && row.pointsBalance > 0) count++;
+      }
+      return { expiredCount: count, fetchedCount: due.length };
+    });
+    totalExpired += expiredCount;
+    if (fetchedCount < 100) break;
+  }
+  return totalExpired;
 }
 
 async function getOrCreateLoyalty(client, customerId) {
@@ -143,7 +149,9 @@ async function settleClawbackDebtInTx(client, { customerId, orderId = null, bala
   const clawbackDebtAfter = clawbackDebt - debtPaid;
   await client.query(
     `UPDATE customer_loyalty
-     SET points_balance = $2, clawback_debt_points = $3, updated_at = now()
+     SET points_balance = $2, clawback_debt_points = $3,
+         expires_at = CASE WHEN $2 > 0 THEN expires_at ELSE NULL END,
+         updated_at = now()
      WHERE customer_id = $1`,
     [customerId, balanceAfter, clawbackDebtAfter]
   );
@@ -187,7 +195,7 @@ async function previewEarnClawback(client, { customerId, orderId, lock = false }
     const loyalty = await getOrCreateLoyalty(client, customerId);
     currentBalance = Math.max(0, Number(loyalty.pointsBalance || 0));
   } else {
-    const row = (await client.query('SELECT points_balance AS "pointsBalance" FROM customer_loyalty WHERE customer_id = $1', [customerId])).rows[0];
+    const row = (await client.query('SELECT CASE WHEN expires_at IS NOT NULL AND expires_at <= now() THEN 0 ELSE points_balance END AS "pointsBalance" FROM customer_loyalty WHERE customer_id = $1', [customerId])).rows[0];
     currentBalance = Math.max(0, Number(row?.pointsBalance || 0));
   }
 
@@ -441,7 +449,9 @@ async function refundPoints(client, { customerId, orderId, reason = 'Hoàn trả
 
       await client.query(
         `UPDATE customer_loyalty
-         SET points_balance = $2, clawback_debt_points = $3, lifetime_earned = $4, tier = $5, updated_at = now()
+         SET points_balance = $2, clawback_debt_points = $3, lifetime_earned = $4, tier = $5,
+             expires_at = CASE WHEN $2 > 0 THEN expires_at ELSE NULL END,
+             updated_at = now()
          WHERE customer_id = $1`,
         [customerId, newBalance, newDebt, newEarned, newTier]
       );

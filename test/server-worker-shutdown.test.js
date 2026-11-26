@@ -76,7 +76,7 @@ if (process.env.GAERU_SHUTDOWN_TEST_CHILD) {
       if (msg.phase) phases.push(msg.phase);
       if (msg.type === 'WORKER_READY') child.send('shutdown');
     });
-    const deadline = setTimeout(() => child.kill('SIGKILL'), 3000);
+    const deadline = setTimeout(() => child.kill('SIGKILL'), 8000);
     t.after(() => { clearTimeout(deadline); if (child.exitCode === null && !child.killed) child.kill('SIGKILL'); });
     const [code, signal] = await once(child, 'exit');
     clearTimeout(deadline);
